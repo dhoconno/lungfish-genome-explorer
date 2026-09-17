@@ -80,12 +80,18 @@ final class PrimerDesignDialogPresenter {
       else {
         visibleOptions["minimumBaseFrequency"] = .number(try state.primalSchemeOptions().minimumBaseFrequency)
         visibleOptions["minimumBaseFrequencySource"] = .string("resolved GUI default")
+        visibleOptions["selectionAlgorithm"] = .string(try state.primalSchemeOptions().selectionAlgorithm.rawValue)
+        visibleOptions["nativeExecutablePath"] = state.primalschemeExecutableURL.map { .string($0.path) } ?? .null
+        visibleOptions["nativeExecutableSource"] = .string(state.primalschemeExecutableURL == nil ? "managed-runtime" : "user-selected-local-executable")
+        visibleOptions["legacySalvage"] = .boolean(state.legacySalvageEnabled)
+        visibleOptions["gapCompletionParent"] = state.gapCompletionParentURL.map { .string($0.path) } ?? .null
+        visibleOptions["gapExpansion"] = .boolean(state.gapExpansionEnabled)
       }
       let invocation = PrimerAnalysisWrapperInvocation(
         argv: CommandLine.arguments, callerVersion: runtime.appVersion,
         explicitOptions: visibleOptions, runtimeIdentity: runtime)
       let checksums = state.inputSummaries.mapValues(\.checksumSHA256)
-      let executable: URL? = nil
+      let executable: URL? = state.engine == .primalScheme ? state.primalschemeExecutableURL : nil
       let operation: @Sendable (@escaping @Sendable (Double, String) -> Void) async throws -> URL
       if state.engine == .primer3 {
         let request = Primer3DesignRequest(

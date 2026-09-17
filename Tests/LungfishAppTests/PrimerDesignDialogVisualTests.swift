@@ -53,5 +53,33 @@ final class PrimerDesignDialogVisualTests: XCTestCase {
       try png.write(to: output.appendingPathComponent("primer-design-\(engine.rawValue.lowercased())\(suffix).png"))
       window.close()
     }
+
+    // Recovery controls are rendered as explicit opt-ins for review.
+    state.engine = .primalScheme
+    state.grouping = .combined
+    state.advancedExpanded = true
+    state.legacySalvageEnabled = true
+    state.gapCompletionParentPath = ""
+    state.gapExpansionEnabled = false
+    let recoveryHost = NSHostingView(rootView: PrimerDesignDialog(state: state, onRun: {}, onClose: {}))
+    let recoveryWindow = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1020, height: 1500), styleMask: [.borderless], backing: .buffered, defer: false)
+    recoveryWindow.isReleasedWhenClosed = false
+    recoveryWindow.contentView = recoveryHost
+    recoveryHost.frame = NSRect(x: 0, y: 0, width: 1020, height: 1500)
+    recoveryHost.layoutSubtreeIfNeeded()
+    try await Task.sleep(for: .milliseconds(200))
+    let recoveryBitmap = try XCTUnwrap(recoveryHost.bitmapImageRepForCachingDisplay(in: recoveryHost.bounds))
+    recoveryHost.cacheDisplay(in: recoveryHost.bounds, to: recoveryBitmap)
+    try XCTUnwrap(recoveryBitmap.representation(using: .png, properties: [:])).write(to: output.appendingPathComponent("primer-design-primalscheme-salvage.png"))
+    // Capture valid modes separately so the review image never implies that
+    // salvage and parent follow-up may be combined.
+    state.legacySalvageEnabled = false
+    state.gapCompletionParentPath = "/tmp/parent-native-output"
+    state.gapExpansionEnabled = true
+    recoveryHost.layoutSubtreeIfNeeded()
+    let followupBitmap = try XCTUnwrap(recoveryHost.bitmapImageRepForCachingDisplay(in: recoveryHost.bounds))
+    recoveryHost.cacheDisplay(in: recoveryHost.bounds, to: followupBitmap)
+    try XCTUnwrap(followupBitmap.representation(using: .png, properties: [:])).write(to: output.appendingPathComponent("primer-design-primalscheme-followup.png"))
+    recoveryWindow.close()
   }
 }

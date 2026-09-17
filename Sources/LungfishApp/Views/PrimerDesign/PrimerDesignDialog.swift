@@ -11,6 +11,8 @@ struct PrimerDesignDialog: View {
   @Bindable var state: PrimerDesignDialogState
   let onRun: () -> Void
   let onClose: () -> Void
+  @State private var choosingExecutable = false
+  @State private var choosingGapParent = false
 
   var body: some View {
     DatasetOperationsDialog(
@@ -46,6 +48,18 @@ struct PrimerDesignDialog: View {
     .frame(minWidth: 840, minHeight: 640)
     .task(id: InputLoadIdentity(urls: state.inputURLs, revision: state.inspectionRevision)) {
       await state.inspectInputs()
+    }
+    .fileImporter(isPresented: $choosingExecutable, allowedContentTypes: [.item]) { result in
+      if case .success(let url) = result {
+        state.primalschemeExecutablePath = url.standardizedFileURL.path
+      }
+    }
+    .fileImporter(isPresented: $choosingGapParent, allowedContentTypes: [.data, .folder]) { result in
+      if case .success(let url) = result {
+        state.gapCompletionParentPath = url.standardizedFileURL.path
+        state.legacySalvageEnabled = false
+        state.gapExpansionEnabled = false
+      }
     }
   }
 
@@ -212,9 +226,44 @@ struct PrimerDesignDialog: View {
           Toggle("Use high-GC design settings", isOn: $state.highGC)
           Text("Mapping reference: first alignment row. Original allele names are retained in the analysis.")
             .font(.caption).foregroundStyle(.secondary)
-          Toggle("Treat uncovered alignment ends as missing observations", isOn: $state.excludeUncoveredEnds)
-          Text("Missing terminal observations are excluded at each candidate site while available internal sequence is retained. Missing data does not count as a match. Turn off to use the upstream coverage policy.")
+          Toggle(state.gapCompletionParentPath.isEmpty ? "Treat uncovered alignment ends as missing observations" : "Follow-up uses legacy alignment-end policy", isOn: Binding(
+            get: { state.gapCompletionParentPath.isEmpty && state.excludeUncoveredEnds },
+            set: { if state.gapCompletionParentPath.isEmpty { state.excludeUncoveredEnds = $0 } }))
+            .disabled(!state.gapCompletionParentPath.isEmpty)
+          Text(state.gapCompletionParentPath.isEmpty ? "Missing terminal observations are excluded at each candidate site while available internal sequence is retained. Missing data does not count as a match." : "The selected parent follow-up requires the native legacy alignment-end policy.")
             .font(.caption).foregroundStyle(.secondary)
+          HStack {
+            Text(state.primalschemeExecutablePath.isEmpty ? "Managed runtime (legacy defaults)" : state.primalschemeExecutablePath)
+              .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+            Spacer(); Button("Choose verified executable…") { choosingExecutable = true }
+            if !state.primalschemeExecutablePath.isEmpty { Button("Clear") { state.primalschemeExecutablePath = "" } }
+          }
+          if state.grouping == .combined {
+            Toggle("Allow bounded dimer salvage", isOn: $state.legacySalvageEnabled)
+              .disabled(!state.gapCompletionParentPath.isEmpty)
+            Text("Runs the strict legacy panel first, then a bounded heuristic salvage tier. Interaction limits are search budgets, not experimentally established safety thresholds.")
+              .font(.caption).foregroundStyle(.secondary)
+            if state.legacySalvageEnabled {
+              HStack { numberField("Thresholds (comma-separated)", $state.legacySalvageThresholds); numberField("Floor", $state.legacySalvageFloor) }
+              HStack { numberField("Allowed relaxed primer interactions per pool", $state.legacySalvageMaxEdgesPerPool); numberField("Primers with relaxed interactions per pool", $state.legacySalvageMaxIncidentSpeciesPerPool) }
+              HStack { numberField("Minimum added reference bases", $state.legacySalvageMinReferenceGain); numberField("Maximum candidate evaluations", $state.legacySalvageMaxCandidateEvaluations) }
+            }
+            HStack {
+              Text(state.gapCompletionParentPath.isEmpty ? "No gap-completion parent selected" : state.gapCompletionParentPath)
+                .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+              Spacer(); Button("Choose parent output…") { choosingGapParent = true }
+              if !state.gapCompletionParentPath.isEmpty { Button("Clear") { state.gapCompletionParentPath = ""; state.gapExpansionEnabled = false } }
+            }
+            Text("A selected parent starts a separate PCR follow-up scheme; its pools are not additions to the parent reactions.")
+              .font(.caption).foregroundStyle(.secondary)
+            Toggle("Generate bounded candidates for uncovered regions", isOn: $state.gapExpansionEnabled)
+              .disabled(state.gapCompletionParentPath.isEmpty)
+            if state.gapExpansionEnabled {
+              HStack { numberField("Max anchors / MSA", $state.gapExpansionMaxAnchorsPerMSA); numberField("Max pair checks / MSA", $state.gapExpansionMaxPairsPerMSA) }
+              Text("Defaults are 2,000 anchors and 1,000 pair checks per MSA. Larger limits do not guarantee better coverage.")
+                .font(.caption).foregroundStyle(.secondary)
+            }
+          }
         }
       }.padding(.top, 12)
     }

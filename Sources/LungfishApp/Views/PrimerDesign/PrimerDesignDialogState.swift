@@ -70,6 +70,20 @@ final class PrimerDesignDialogState {
   private var maximumAmpliconSizeWasCustomized = false
   private var isUpdatingAmpliconBounds = false
   var poolCount = "2"
+  /// Required for non-legacy PrimalScheme contracts. Legacy designs continue
+  /// using the managed runtime when this is empty.
+  var primalschemeExecutablePath = ""
+  var legacySalvageEnabled = false
+  var legacySalvageThresholds = "-28,-30,-32"
+  var legacySalvageFloor = "-32"
+  var legacySalvageMaxEdgesPerPool = "8"
+  var legacySalvageMaxIncidentSpeciesPerPool = "4"
+  var legacySalvageMinReferenceGain = "1"
+  var legacySalvageMaxCandidateEvaluations = "10000"
+  var gapCompletionParentPath = ""
+  var gapExpansionEnabled = false
+  var gapExpansionMaxAnchorsPerMSA = "2000"
+  var gapExpansionMaxPairsPerMSA = "1000"
   var minOverlap = "10"
   var highGC = false
   var dimerScore = "-26"
@@ -228,6 +242,18 @@ final class PrimerDesignDialogState {
   }
 
   func primalSchemeOptions() throws -> PrimalScheme3DesignOptions {
+    if let executable = primalschemeExecutableURL {
+      guard FileManager.default.isExecutableFile(atPath: executable.path) else {
+        throw invalid("Choose an executable PrimalScheme3 native binary or entrypoint script.")
+      }
+    }
+    if (legacySalvageEnabled && grouping == .combined) || gapCompletionParentURL != nil,
+       primalschemeExecutableURL == nil {
+      throw invalid("Recovery modes require a user-selected verified native PrimalScheme executable.")
+    }
+    if gapCompletionParentURL != nil && legacySalvageEnabled {
+      throw invalid("Choose either bounded salvage or a gap-completion follow-up parent, not both.")
+    }
     let sizes = try validatedAmpliconSizes()
     let overlap: Int
     if grouping == .independent {
@@ -236,18 +262,61 @@ final class PrimerDesignDialogState {
       }
       overlap = value
     } else { overlap = 10 }
-    return PrimalScheme3DesignOptions(
+    let options = PrimalScheme3DesignOptions(
       ampliconSize: sizes.target, poolCount: try positiveInteger(poolCount, "Pool count"),
       minOverlap: overlap, minimumBaseFrequency: 0, highGC: highGC,
       coreCount: try positiveInteger(coreCount, "CPU cores"),
-      terminalGapPolicy: excludeUncoveredEnds ? .observedOnly : .legacy,
+      terminalGapPolicy: gapCompletionParentURL != nil ? .legacy : (excludeUncoveredEnds ? .observedOnly : .legacy),
       dimerScore: try finiteNumber(dimerScore, "Dimer score threshold"), useMatchDB: useMatchDB,
       backtrack: grouping == .independent && backtrack,
       ignoreN: grouping == .independent && ignoreN,
       panelMode: grouping == .combined ? panelMode : .equal,
       maxAmplicons: grouping == .combined ? try optionalPositiveInteger(maxAmplicons, "Maximum panel amplicons") : nil,
       maxAmpliconsPerMSA: grouping == .combined ? try optionalPositiveInteger(maxAmpliconsPerMSA, "Maximum amplicons per MSA") : nil,
-      ampliconSizeMinimum: sizes.minimum, ampliconSizeMaximum: sizes.maximum)
+      ampliconSizeMinimum: sizes.minimum, ampliconSizeMaximum: sizes.maximum,
+      legacySalvageOptions: try legacySalvageOptions(),
+      gapCompletionParent: gapCompletionParentURL,
+      gapExpansionOptions: try gapExpansionOptions())
+    try options.legacySalvageOptions.validate(selectionAlgorithm: options.selectionAlgorithm,
+      grouping: grouping, panelMode: options.panelMode, strictCutoff: options.dimerScore)
+    try options.gapExpansionOptions.validate(hasParent: options.gapCompletionParent != nil)
+    if options.legacySalvageOptions.mode == .bounded || options.gapCompletionParent != nil {
+      guard options.panelMode == .equal, options.maxAmplicons == nil, options.maxAmpliconsPerMSA == nil else {
+        throw invalid("Recovery requires uniform position weighting and blank amplicon limits.")
+      }
+    }
+    return options
+  }
+
+  var gapCompletionParentURL: URL? {
+    guard grouping == .combined else { return nil }
+    let path = gapCompletionParentPath.trimmingCharacters(in: .whitespacesAndNewlines)
+    return path.isEmpty ? nil : URL(fileURLWithPath: path).standardizedFileURL
+  }
+
+  private func legacySalvageOptions() throws -> PrimalScheme3LegacySalvageOptions {
+    guard grouping == .combined, legacySalvageEnabled else {
+      return .init()
+    }
+    let thresholds = try legacySalvageThresholds.split(separator: ",").map { try finiteNumber(String($0), "Salvage threshold") }
+    return .init(mode: .bounded, thresholds: thresholds,
+      floor: try finiteNumber(legacySalvageFloor, "Salvage floor"),
+      maxEdgesPerPool: try nonnegativeInteger(legacySalvageMaxEdgesPerPool, "Maximum salvage edges per pool"),
+      maxIncidentSpeciesPerPool: try nonnegativeInteger(legacySalvageMaxIncidentSpeciesPerPool, "Maximum incident species per pool"),
+      minReferenceGain: try positiveInteger(legacySalvageMinReferenceGain, "Minimum reference gain"),
+      maxCandidateEvaluations: try positiveInteger(legacySalvageMaxCandidateEvaluations, "Maximum candidate evaluations"))
+  }
+
+  private func gapExpansionOptions() throws -> PrimalScheme3GapExpansionOptions {
+    guard gapExpansionEnabled else { return .init() }
+    return .init(mode: .bounded,
+      maxAnchorsPerMSA: try positiveInteger(gapExpansionMaxAnchorsPerMSA, "Maximum gap-expansion anchors per MSA"),
+      maxPairsPerMSA: try positiveInteger(gapExpansionMaxPairsPerMSA, "Maximum gap-expansion pairs per MSA"))
+  }
+
+  var primalschemeExecutableURL: URL? {
+    let path = primalschemeExecutablePath.trimmingCharacters(in: .whitespacesAndNewlines)
+    return path.isEmpty ? nil : URL(fileURLWithPath: path).standardizedFileURL
   }
 
   private func updateDefaultAmpliconBounds() {
@@ -313,6 +382,13 @@ final class PrimerDesignDialogState {
   func positiveInteger(_ text: String, _ title: String) throws -> Int {
     guard let value = Int(text.trimmingCharacters(in: .whitespacesAndNewlines)), value > 0 else {
       throw invalid("\(title) must be a positive whole number.")
+    }
+    return value
+  }
+
+  private func nonnegativeInteger(_ text: String, _ title: String) throws -> Int {
+    guard let value = Int(text.trimmingCharacters(in: .whitespacesAndNewlines)), value >= 0 else {
+      throw invalid("\(title) must be a nonnegative whole number.")
     }
     return value
   }

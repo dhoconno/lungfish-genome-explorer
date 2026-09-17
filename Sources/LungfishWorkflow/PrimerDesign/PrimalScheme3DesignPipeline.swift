@@ -61,6 +61,9 @@ public struct PrimalScheme3DesignOptions: Codable, Equatable, Sendable {
     public let optimizerRepairRounds: Int
     public let optimizerTimeLimit: Double
     public let alleleOptions: PrimalScheme3AlleleOptions
+    public let legacySalvageOptions: PrimalScheme3LegacySalvageOptions
+    public let gapCompletionParent: URL?
+    public let gapExpansionOptions: PrimalScheme3GapExpansionOptions
     public let requestedMisprimingProductSize: Int?
     public var misprimingProductSize: Int {
         requestedMisprimingProductSize ?? (selectionAlgorithm == .legacy ? 0 : 2_000)
@@ -79,7 +82,10 @@ public struct PrimalScheme3DesignOptions: Codable, Equatable, Sendable {
                 optimizerStarts: Int? = nil, optimizerRepairRounds: Int? = nil,
                 optimizerTimeLimit: Double? = nil,
                 misprimingProductSize: Int? = nil,
-                alleleOptions: PrimalScheme3AlleleOptions = .init()) {
+                alleleOptions: PrimalScheme3AlleleOptions = .init(),
+                legacySalvageOptions: PrimalScheme3LegacySalvageOptions = .init(),
+                gapCompletionParent: URL? = nil,
+                gapExpansionOptions: PrimalScheme3GapExpansionOptions = .init()) {
         self.requestedAmpliconSizeMinimum = ampliconSizeMinimum
         self.requestedAmpliconSizeMaximum = ampliconSizeMaximum
         self.dimerScore = dimerScore
@@ -109,6 +115,9 @@ public struct PrimalScheme3DesignOptions: Codable, Equatable, Sendable {
         self.optimizerTimeLimit = optimizerTimeLimit ?? effort.optimizerTimeLimit
         self.requestedMisprimingProductSize = misprimingProductSize
         self.alleleOptions = alleleOptions
+        self.legacySalvageOptions = legacySalvageOptions
+        self.gapCompletionParent = gapCompletionParent
+        self.gapExpansionOptions = gapExpansionOptions
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -119,6 +128,7 @@ public struct PrimalScheme3DesignOptions: Codable, Equatable, Sendable {
         case optimizerRepairRounds, optimizerTimeLimit, requestedMisprimingProductSize
         case requestedOptimizerStarts, requestedOptimizerRepairRounds, requestedOptimizerTimeLimit
         case alleleOptions
+        case legacySalvageOptions, gapCompletionParent, gapExpansionOptions
     }
 
     public init(from decoder: Decoder) throws {
@@ -165,7 +175,10 @@ public struct PrimalScheme3DesignOptions: Codable, Equatable, Sendable {
             optimizerRepairRounds: requestedRepairRounds,
             optimizerTimeLimit: requestedTimeLimit,
             misprimingProductSize: try values.decodeIfPresent(Int.self, forKey: .requestedMisprimingProductSize),
-            alleleOptions: alleleOptions)
+            alleleOptions: alleleOptions,
+            legacySalvageOptions: try values.decodeIfPresent(PrimalScheme3LegacySalvageOptions.self, forKey: .legacySalvageOptions) ?? .init(),
+            gapCompletionParent: try values.decodeIfPresent(URL.self, forKey: .gapCompletionParent),
+            gapExpansionOptions: try values.decodeIfPresent(PrimalScheme3GapExpansionOptions.self, forKey: .gapExpansionOptions) ?? .init())
         guard optimizerStarts == storedStarts, optimizerRepairRounds == storedRepairRounds,
               optimizerTimeLimit == storedTimeLimit else {
             throw DecodingError.dataCorruptedError(
@@ -198,7 +211,10 @@ public struct PrimalScheme3DesignOptions: Codable, Equatable, Sendable {
          "requestedMisprimingProductSize": requestedMisprimingProductSize.map(ParameterValue.integer) ?? .null,
          "misprimingProductSize": .integer(misprimingProductSize),
          "alleleOptions": .dictionary(alleleOptions.resolvedProvenanceOptions),
-         "alleleRequestedOptions": .dictionary(alleleOptions.requestedProvenanceOptions)]
+         "alleleRequestedOptions": .dictionary(alleleOptions.requestedProvenanceOptions),
+         "legacySalvage": .dictionary(legacySalvageOptions.provenance),
+         "gapCompletionParent": gapCompletionParent.map { .string($0.path) } ?? .null,
+         "gapExpansion": .dictionary(gapExpansionOptions.provenance)]
     }
 }
 
@@ -332,6 +348,25 @@ public struct PrimalScheme3DesignPipeline: Sendable {
               grouping != .independent || (options.panelMode == .equal && options.maxAmplicons == nil && options.maxAmpliconsPerMSA == nil) else {
             throw PrimalScheme3DesignError.invalidRequest("Dimer score must be finite and amplicon limits positive. Backtracking and unknown-base omission apply only to independent schemes; panel modes and limits apply only to combined panels.")
         }
+        try options.legacySalvageOptions.validate(selectionAlgorithm: options.selectionAlgorithm, grouping: grouping, panelMode: options.panelMode, strictCutoff: options.dimerScore)
+        try options.gapExpansionOptions.validate(hasParent: options.gapCompletionParent != nil)
+        if options.legacySalvageOptions.mode == .bounded && options.panelMode == .entropy {
+            throw PrimalScheme3DesignError.invalidRequest("Legacy salvage requires an equal panel mode.")
+        }
+        if options.legacySalvageOptions.mode == .bounded && (options.maxAmplicons != nil || options.maxAmpliconsPerMSA != nil) {
+            throw PrimalScheme3DesignError.invalidRequest("Legacy salvage requires an uncapped strict panel; max amplicon limits are incompatible.")
+        }
+        if options.gapCompletionParent != nil && options.legacySalvageOptions.mode == .bounded {
+            throw PrimalScheme3DesignError.invalidRequest("Legacy salvage and gap completion parent are incompatible recovery modes.")
+        }
+        if options.gapCompletionParent != nil {
+            guard options.selectionAlgorithm == .legacy, grouping == .combined,
+                  options.panelMode == .equal, options.terminalGapPolicy == .legacy,
+                  options.minOverlap == 10, !options.backtrack, !options.ignoreN,
+                  options.maxAmplicons == nil, options.maxAmpliconsPerMSA == nil else {
+                throw PrimalScheme3DesignError.invalidRequest("Gap completion requires legacy selection, a combined equal panel, first mapping, legacy terminal policy, and no imported or bounded legacy-only panel controls.")
+            }
+        }
         if options.selectionAlgorithm == .legacy {
             guard options.coverageMetric == .fullSpan, options.coverageTarget == 0.90,
                   options.optimizerSeed == 0, options.optimizerStarts == 4,
@@ -415,6 +450,13 @@ public struct PrimalScheme3DesignPipeline: Sendable {
                 options.alleleOptions.appendRequestedArguments(to: &args)
             }
         }
+        if options.selectionAlgorithm == .legacy {
+            options.legacySalvageOptions.appendRequestedArguments(to: &args)
+            if let parent = options.gapCompletionParent {
+                args += ["--gap-completion-parent", try PrimalScheme3ParentResolver.resolve(parent).path]
+                options.gapExpansionOptions.appendRequestedArguments(to: &args)
+            }
+        }
         return args
     }
 
@@ -465,6 +507,9 @@ public struct PrimalScheme3DesignPipeline: Sendable {
         guard request.destinationURL.pathExtension.lowercased() == "lungfishprimeranalysis" else {
             throw PrimalScheme3DesignError.invalidRequest("The destination must be a .lungfishprimeranalysis bundle.")
         }
+        if (request.options.gapCompletionParent != nil || request.options.legacySalvageOptions.mode == .bounded), request.executableURL == nil {
+            throw PrimalScheme3DesignError.invalidRequest("Recovery modes require an explicit verified PrimalScheme3 executable.")
+        }
         let destination = try Self.physicalParent(request.destinationURL)
         guard !FileManager.default.fileExists(atPath: destination.path) else {
             throw PrimalScheme3DesignError.invalidRequest("The destination already exists.")
@@ -484,8 +529,34 @@ public struct PrimalScheme3DesignPipeline: Sendable {
         try FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: false)
         defer { try? FileManager.default.removeItem(at: scratch) }
         do {
+        let effectiveParent: URL?
+        let savedParentInputs: [PrimalScheme3ParentResolver.SavedInput]?
+        if let parent = request.options.gapCompletionParent {
+            let resolved = try PrimalScheme3ParentResolver.resolve(parent)
+            savedParentInputs = try PrimalScheme3ParentResolver.savedInputs(parent: parent, native: resolved)
+            let snapshot = scratch.appendingPathComponent("parent-input", isDirectory: true)
+            try Self.copySource(resolved, to: snapshot)
+            // Keep the identity evidence used to rehydrate saved GUI inputs.
+            // Native files remain untouched; this wrapper-owned folder is not a pool.
+            for saved in savedParentInputs ?? [] {
+                for (path, source) in saved.evidenceFiles {
+                    let target = snapshot.appendingPathComponent("analysis-evidence").appendingPathComponent(path)
+                    if !FileManager.default.fileExists(atPath: target.path) {
+                        try FileManager.default.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
+                        try FileManager.default.copyItem(at: source, to: target)
+                    }
+                    guard try ProvenanceFileHasher.sha256(of: target) == ProvenanceFileHasher.sha256(of: source) else {
+                        throw PrimalScheme3DesignError.invalidRequest("Parent identity evidence changed while being snapshotted.")
+                    }
+                }
+            }
+            effectiveParent = snapshot
+        } else { effectiveParent = nil; savedParentInputs = nil }
+        let executionOptions = request.options.replacingGapCompletionParent(effectiveParent)
         var artifacts: [PrimerAnalysisSourceArtifact] = []
         var inputs: [Input] = []
+        var matchedParentInputs = Set<UUID>()
+        var parentOrderByInput: [UUID: Int] = [:]
         for (inputIndex, url) in request.inputURLs.enumerated() {
             try Task.checkCancellation()
             progress?(0.05 + 0.15 * Double(inputIndex) / Double(request.inputURLs.count), "Preparing input \(inputIndex + 1)/\(request.inputURLs.count)")
@@ -525,10 +596,27 @@ public struct PrimalScheme3DesignPipeline: Sendable {
             } else if referenceBundle {
                 try Self.validateReferenceBundleRows(rows)
             }
-            let preservesAmbiguity = request.options.selectionAlgorithm == .alleleCoverage
+            let savedInput: PrimalScheme3ParentResolver.SavedInput?
+            if let savedParentInputs {
+                let matches = savedParentInputs.enumerated().filter { $0.element.matches(rows) }
+                guard matches.count == 1, let match = matches.first,
+                      matchedParentInputs.insert(match.element.id).inserted else {
+                    throw PrimalScheme3DesignError.invalidRequest("Each selected MSA must uniquely match all source rows of one parent input, including non-reference alleles.")
+                }
+                savedInput = match.element
+                parentOrderByInput[id] = match.offset
+            } else { savedInput = nil }
+            let preservesAmbiguity = savedInput?.preservesAmbiguity
+                ?? (request.options.selectionAlgorithm == .alleleCoverage
+                    || request.options.gapCompletionParent != nil
+                    || request.options.legacySalvageOptions.mode == .bounded)
             let normalized = Primer3InputLoader.normalizeForPrimalScheme(
                 rows, ambiguityPolicy: preservesAmbiguity ? .preserve : .missingCoverage)
-            let normalizedRows = normalized.rows
+            // Use the parent's exact consumed sequence bytes while retaining the
+            // source titles for the new row map and viewer.
+            let normalizedRows = savedInput.map { saved in
+                zip(rows, saved.consumedRows).map { Primer3AlignedRow(title: $0.title, sequence: $1.sequence) }
+            } ?? normalized.rows
             let uracilCount = normalized.uracilCount
             let unknownBaseCount = normalized.unknownBaseCount
             let lengths = Set(normalizedRows.map { $0.sequence.count })
@@ -540,7 +628,15 @@ public struct PrimalScheme3DesignPipeline: Sendable {
             let files = try Self.regularFiles(in: snapshot)
             let aligned = scratch.appendingPathComponent("inputs/\(id.uuidString).fasta")
             try FileManager.default.createDirectory(at: aligned.deletingLastPathComponent(), withIntermediateDirectories: true)
-            let normalizedNames = normalizedRows.indices.map { "input_\(id.uuidString.replacingOccurrences(of: "-", with: ""))_row_\($0)" }
+            let normalizedNames = savedInput?.consumedRows.map(\.title)
+                ?? (request.options.gapCompletionParent != nil
+                    ? normalizedRows.map(\.title)
+                    : normalizedRows.indices.map { "input_\(id.uuidString.replacingOccurrences(of: "-", with: ""))_row_\($0)" })
+            guard normalizedNames.count == normalizedRows.count,
+                  Set(normalizedNames).count == normalizedNames.count,
+                  normalizedNames.allSatisfy({ !$0.isEmpty && !$0.contains("\n") && !$0.contains("\r") }) else {
+                throw PrimalScheme3DesignError.invalidRequest("Gap-completion inputs must have unique nonempty FASTA titles matching the native parent targets.")
+            }
             let decompression = sourceAligned.pathExtension.lowercased() == "gz"
                 ? "gzip-decompression-to-UTF8-FASTA; " : ""
             let ambiguityTransform = preservesAmbiguity
@@ -581,6 +677,12 @@ public struct PrimalScheme3DesignPipeline: Sendable {
                                 referenceName: normalizedNames[0],
                                 rowMappingPath: mappingPath))
         }
+        if let savedParentInputs {
+            guard matchedParentInputs.count == savedParentInputs.count else {
+                throw PrimalScheme3DesignError.invalidRequest("Select every MSA used by the chosen parent result.")
+            }
+            inputs.sort { parentOrderByInput[$0.id, default: 0] < parentOrderByInput[$1.id, default: 0] }
+        }
         let analysisID = UUID(), runID = UUID()
         let groups = request.grouping == .combined ? [inputs] : inputs.map { [$0] }
         var results: [PrimerAnalysisResult] = []
@@ -591,7 +693,7 @@ public struct PrimalScheme3DesignPipeline: Sendable {
             let output = scratch.appendingPathComponent("native/\(resultID.uuidString)", isDirectory: true)
             try FileManager.default.createDirectory(at: output.deletingLastPathComponent(), withIntermediateDirectories: true)
             let args = try Self.arguments(inputs: group.map(\.alignedURL), output: output,
-                                          grouping: request.grouping, options: request.options)
+                                          grouping: request.grouping, options: executionOptions)
             let executionRequests = scratch.appendingPathComponent("execution-attempts", isDirectory: true)
             try FileManager.default.createDirectory(at: executionRequests, withIntermediateDirectories: true)
             try JSONSerialization.data(withJSONObject: [
@@ -602,8 +704,8 @@ public struct PrimalScheme3DesignPipeline: Sendable {
                 options: .withoutOverwriting)
             let executed = try await runner(.init(executableOverride: request.executableURL,
                                                   arguments: args, workingDirectory: scratch,
-                                                  selectionAlgorithm: request.options.selectionAlgorithm,
-                                                  terminalGapPolicy: request.options.terminalGapPolicy,
+                                                  selectionAlgorithm: executionOptions.selectionAlgorithm,
+                                                  terminalGapPolicy: executionOptions.terminalGapPolicy,
                                                   managedEnvironmentURL: runtimeLease?.environmentURL))
             let attemptLogs = scratch.appendingPathComponent("logs/\(resultID.uuidString)", isDirectory: true)
             try FileManager.default.createDirectory(at: attemptLogs, withIntermediateDirectories: true)
@@ -662,6 +764,7 @@ public struct PrimalScheme3DesignPipeline: Sendable {
                   configuration["amplicon_size_metric"] as? String == request.options.ampliconSizeMetric else {
                 throw PrimalScheme3DesignError.invalidRequest("The native amplicon size bounds or size interpretation do not match the request.")
             }
+            try PrimalScheme3RecoveryContract.validate(at: output, options: request.options, configuration: configuration)
             try Self.validateNativeAmpliconSpans(at: output, options: request.options)
             let effectiveWorkers = try Self.validateEffectiveWorkers(configuration: configuration,
                                                                      options: request.options)
@@ -730,6 +833,16 @@ public struct PrimalScheme3DesignPipeline: Sendable {
                 resultPaths.append(path)
                 builder = try builder.relocatedOutput(Self.descriptor(file, path: destination.appendingPathComponent(path).path,
                                                                       role: .output, origin: file.path))
+            }
+            if let effectiveParent {
+                for file in try Self.regularFiles(in: effectiveParent) {
+                    let path = Self.relative(file, to: scratch)
+                    artifacts.append(.init(sourceURL: file, relativePath: path, role: "parentSnapshot",
+                                           format: file.pathExtension.isEmpty ? "binary" : file.pathExtension))
+                    resultPaths.append(path)
+                    builder = try builder.relocatedOutput(Self.descriptor(file,
+                        path: destination.appendingPathComponent(path).path, role: .output, origin: file.path))
+                }
             }
             let logs = scratch.appendingPathComponent("logs/\(resultID.uuidString)", isDirectory: true)
             try FileManager.default.createDirectory(at: logs, withIntermediateDirectories: true)
@@ -813,7 +926,7 @@ public struct PrimalScheme3DesignPipeline: Sendable {
             let orderProvenancePath = Self.relative(orderProvenanceURL, to: scratch)
             artifacts.append(.init(sourceURL: orderProvenanceURL, relativePath: orderProvenancePath, role: "derivedProvenance", format: "json"))
             resultPaths.append(orderProvenancePath)
-            results.append(.init(id: resultID, label: request.grouping == .combined ? "Combined panel" : group[0].originalURL.deletingPathExtension().lastPathComponent,
+            results.append(.init(id: resultID, label: request.options.gapCompletionParent != nil ? "Follow-up scheme (separate PCRs)" : (request.grouping == .combined ? "Combined panel" : group[0].originalURL.deletingPathExtension().lastPathComponent),
                                  inputIDs: group.map(\.id), artifactPaths: resultPaths))
         }
         try Task.checkCancellation()
@@ -970,13 +1083,54 @@ public struct PrimalScheme3DesignPipeline: Sendable {
             let accepted = [Self.toolVersion, Self.coverageToolVersion, Self.alleleToolVersion]
                 .first { reported == "PrimalScheme3-LGE version: \($0)" }
             guard probe.exitCode == 0, let accepted else {
-                throw PrimalScheme3DesignError.invalidRequest("This adapter requires the verified PrimalScheme3-LGE custom fork lge.2 or lge.3; stock PrimalScheme3 is not interchangeable with this fork.")
+                throw PrimalScheme3DesignError.invalidRequest("This adapter requires the verified PrimalScheme3-LGE custom fork lge.2, lge.3, or lge.4; stock PrimalScheme3 is not interchangeable with this fork.")
             }
             guard prefix == nil || accepted == Self.toolVersion else {
                 throw PrimalScheme3DesignError.invalidRequest("The managed PrimalScheme3 runtime must remain at \(Self.toolVersion).")
             }
             capabilitiesJSON = nil
             executedVersion = accepted
+            let recoveryFlags = ["--legacy-salvage", "--legacy-salvage-threshold", "--legacy-salvage-floor",
+                                 "--legacy-salvage-max-edges-per-pool", "--legacy-salvage-max-incident-species-per-pool",
+                                 "--legacy-salvage-min-reference-gain", "--legacy-salvage-max-candidate-evaluations",
+                                 "--gap-completion-parent", "--gap-expansion", "--gap-expansion-max-anchors-per-msa",
+                                 "--gap-expansion-max-pairs-per-msa"]
+            if command.arguments.contains(where: { recoveryFlags.contains($0) }) {
+                let capabilities = try await native.runProcess(executableURL: executable, arguments: ["--capabilities-json"],
+                    workingDirectory: command.workingDirectory, environment: environment, timeout: 30)
+                let capabilityObject = (try? JSONSerialization.jsonObject(with: Data(capabilities.stdout.utf8))) as? [String: Any]
+                let capabilityVersion = capabilityObject?["toolVersion"] as? String
+                let source = capabilityObject?["source"] as? [String: Any]
+                let runtime = capabilityObject?["runtime"] as? [String: Any]
+                let digest = source?["sourceDigest"] as? String ?? ""
+                let runtimeKeys = ["pythonVersion", "pythonExecutable", "pythonPrefix", "platform", "machine"]
+                guard capabilities.exitCode == 0, capabilityVersion == Self.alleleToolVersion,
+                      capabilityObject?["schemaVersion"] as? String == "primalscheme3.capabilities/v1",
+                      capabilityObject?["tool"] as? String == "primalscheme3",
+                      digest.count == 64, digest.allSatisfy({ $0.isHexDigit }),
+                      source?["files"] is [[String: Any]],
+                      runtimeKeys.allSatisfy({ (runtime?[$0] as? String)?.isEmpty == false }),
+                      runtime?["declaredRuntimeDependencies"] is [[String: Any]],
+                      runtime?["nativeKernels"] is [[String: Any]] else {
+                    throw PrimalScheme3DesignError.invalidRequest("Recovery modes require a native lge.4 capabilities probe with source/runtime identity.")
+                }
+                runtimeEvidence["recovery-capabilities-probe.json"] = try JSONSerialization.data(withJSONObject: [
+                    "argv": capabilities.arguments, "stdout": capabilities.stdout, "stderr": capabilities.stderr,
+                    "exitStatus": capabilities.exitCode
+                ], options: [.prettyPrinted, .sortedKeys])
+                var helpEnvironment = environment ?? [:]
+                helpEnvironment["COLUMNS"] = "240"; helpEnvironment["TERM"] = "dumb"; helpEnvironment["NO_COLOR"] = "1"
+                let help = try await native.runProcess(executableURL: executable, arguments: ["panel-create", "--help"],
+                    workingDirectory: command.workingDirectory, environment: helpEnvironment, timeout: 30)
+                let missing = recoveryFlags.filter { command.arguments.contains($0) && !help.stdout.contains($0) }
+                runtimeEvidence["recovery-help-probe.json"] = try JSONSerialization.data(withJSONObject: [
+                    "argv": help.arguments, "stdout": help.stdout, "stderr": help.stderr, "exitStatus": help.exitCode,
+                    "requiredFlags": command.arguments.filter { recoveryFlags.contains($0) }, "missingFlags": missing
+                ], options: [.prettyPrinted, .sortedKeys])
+                guard help.exitCode == 0, missing.isEmpty else {
+                    throw PrimalScheme3DesignError.invalidRequest("The verified PrimalScheme3 executable is missing required lge.4 recovery flags: " + missing.joined(separator: ", "))
+                }
+            }
         }
         runtimeEvidence[command.selectionAlgorithm == .legacy ? "version-probe.json" : "capabilities-probe.json"] = try JSONSerialization.data(withJSONObject: [
             "argv": probe.arguments, "stdout": probe.stdout, "stderr": probe.stderr, "exitStatus": probe.exitCode
