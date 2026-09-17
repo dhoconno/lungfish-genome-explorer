@@ -1,0 +1,1117 @@
+import Foundation
+import XCTest
+import LungfishIO
+@testable import LungfishWorkflow
+
+final class PrimalScheme3AlleleContractTests: XCTestCase {
+    func testSearchEffortRequiresFrozenCapabilityAndBindsResolvedOverrides() throws {
+        let legacy = try Self.makeFixture(searchEffort: .qualityV1)
+        defer { try? FileManager.default.removeItem(at: legacy.root) }
+        XCTAssertThrowsError(try PrimalScheme3AlleleContract.validateCapabilities(
+            legacy.capabilities, requestedSearchEffort: .qualityV1))
+
+        let fixture = try Self.makeFixture(
+            searchEffort: .qualityV1, advertiseSearchEfforts: true,
+            optimizerStarts: 4, optimizerRepairRounds: 2, optimizerTimeLimit: 120,
+            constructionCandidateAttempts: 2_048, familiesPerRefresh: 16)
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let capabilities = try PrimalScheme3AlleleContract.validateCapabilities(
+            fixture.capabilities, requestedSearchEffort: .qualityV1)
+        XCTAssertNoThrow(try PrimalScheme3AlleleContract.validateNativeOutput(
+            at: fixture.output, configuration: fixture.configuration, capabilities: capabilities,
+            options: fixture.options, inputCount: 1, executedArgv: fixture.argv,
+            auditValidation: fixture.auditValidation, auditProvenance: fixture.auditProvenance,
+            auditExecutedArgv: fixture.auditArgv, auditExitStatus: 0))
+
+        var badCapability = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: fixture.capabilities) as? [String: Any])
+        var allele = try XCTUnwrap(badCapability["alleleCoverage"] as? [String: Any])
+        var efforts = try XCTUnwrap(allele["searchEfforts"] as? [String: Any])
+        var policies = try XCTUnwrap(efforts["policies"] as? [String: Any])
+        var quality = try XCTUnwrap(policies["quality-v1"] as? [String: Any])
+        var defaults = try XCTUnwrap(quality["defaults"] as? [String: Any])
+        defaults["optimizer_starts"] = 9
+        quality["defaults"] = defaults; policies["quality-v1"] = quality
+        efforts["policies"] = policies; allele["searchEfforts"] = efforts
+        badCapability["alleleCoverage"] = allele
+        XCTAssertThrowsError(try PrimalScheme3AlleleContract.validateCapabilities(
+            JSONSerialization.data(withJSONObject: badCapability), requestedSearchEffort: .qualityV1))
+    }
+
+    func testSearchEffortLegacyAndRequestedMaskCannotBeSilentlyReinterpreted() throws {
+        let legacy = try Self.makeFixture()
+        defer { try? FileManager.default.removeItem(at: legacy.root) }
+        let legacyCapabilities = try PrimalScheme3AlleleContract.validateCapabilities(legacy.capabilities)
+        XCTAssertNoThrow(try PrimalScheme3AlleleContract.validateNativeOutput(
+            at: legacy.output, configuration: legacy.configuration, capabilities: legacyCapabilities,
+            options: legacy.options, inputCount: 1, executedArgv: legacy.argv,
+            auditValidation: legacy.auditValidation, auditProvenance: legacy.auditProvenance,
+            auditExecutedArgv: legacy.auditArgv, auditExitStatus: 0))
+
+        let historicalWithCurrentProbe = try Self.makeFixture(
+            advertiseSearchEfforts: true, includeResolvedSearchEffort: false)
+        defer { try? FileManager.default.removeItem(at: historicalWithCurrentProbe.root) }
+        let currentProbe = try PrimalScheme3AlleleContract.validateCapabilities(
+            historicalWithCurrentProbe.capabilities)
+        XCTAssertNoThrow(try PrimalScheme3AlleleContract.validateNativeOutput(
+            at: historicalWithCurrentProbe.output,
+            configuration: historicalWithCurrentProbe.configuration, capabilities: currentProbe,
+            options: historicalWithCurrentProbe.options, inputCount: 1,
+            executedArgv: historicalWithCurrentProbe.argv,
+            auditValidation: historicalWithCurrentProbe.auditValidation,
+            auditProvenance: historicalWithCurrentProbe.auditProvenance,
+            auditExecutedArgv: historicalWithCurrentProbe.auditArgv, auditExitStatus: 0))
+
+        var reinterpreted = legacy.configuration
+        var integration = try XCTUnwrap(reinterpreted["panel_optimizer"] as? [String: Any])
+        var resolved = try XCTUnwrap(integration["options"] as? [String: Any])
+        resolved["search_effort"] = "quality-v1"
+        integration["options"] = resolved
+        reinterpreted["allele_options_json"] = String(decoding: try JSONSerialization.data(
+            withJSONObject: resolved, options: [.sortedKeys]), as: UTF8.self)
+        reinterpreted["panel_optimizer"] = integration
+        XCTAssertThrowsError(try PrimalScheme3AlleleContract.validateNativeOutput(
+            at: legacy.output, configuration: reinterpreted, capabilities: legacyCapabilities,
+            options: legacy.options, inputCount: 1, executedArgv: legacy.argv,
+            auditValidation: legacy.auditValidation, auditProvenance: legacy.auditProvenance,
+            auditExecutedArgv: legacy.auditArgv, auditExitStatus: 0))
+
+        let inherited = try Self.makeFixture(searchEffort: .qualityV1, advertiseSearchEfforts: true)
+        defer { try? FileManager.default.removeItem(at: inherited.root) }
+        let currentCapabilities = try PrimalScheme3AlleleContract.validateCapabilities(
+            inherited.capabilities, requestedSearchEffort: .qualityV1)
+        var detached = inherited.configuration
+        integration = try XCTUnwrap(detached["panel_optimizer"] as? [String: Any])
+        resolved = try XCTUnwrap(integration["options"] as? [String: Any])
+        var requested = try XCTUnwrap(resolved["requested_options"] as? [String: Any])
+        requested["optimizer_starts"] = 8
+        resolved["requested_options"] = requested; integration["options"] = resolved
+        detached["panel_optimizer"] = integration
+        detached["allele_options_json"] = String(decoding: try JSONSerialization.data(
+            withJSONObject: resolved, options: [.sortedKeys]), as: UTF8.self)
+        XCTAssertThrowsError(try PrimalScheme3AlleleContract.validateNativeOutput(
+            at: inherited.output, configuration: detached, capabilities: currentCapabilities,
+            options: inherited.options, inputCount: 1, executedArgv: inherited.argv,
+            auditValidation: inherited.auditValidation, auditProvenance: inherited.auditProvenance,
+            auditExecutedArgv: inherited.auditArgv, auditExitStatus: 0))
+    }
+
+    func testCapabilitiesRequireFrozenLGE4AlleleContract() throws {
+        let fixture = try Self.makeFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let capabilities = try PrimalScheme3AlleleContract.validateCapabilities(fixture.capabilities)
+        XCTAssertFalse(capabilities.source.isEmpty)
+        var root = try XCTUnwrap(JSONSerialization.jsonObject(with: fixture.capabilities) as? [String: Any])
+        var allele = try XCTUnwrap(root["alleleCoverage"] as? [String: Any])
+        allele["metric"] = "full-span/v0"
+        root["alleleCoverage"] = allele
+        XCTAssertThrowsError(try PrimalScheme3AlleleContract.validateCapabilities(
+            JSONSerialization.data(withJSONObject: root)))
+        root = try XCTUnwrap(JSONSerialization.jsonObject(with: fixture.capabilities) as? [String: Any])
+        var runtime = try XCTUnwrap(root["runtime"] as? [String: Any])
+        runtime["nativeKernels"] = [["distribution": "primer3-py", "version": "2.2.0"]]
+        root["runtime"] = runtime
+        XCTAssertThrowsError(try PrimalScheme3AlleleContract.validateCapabilities(
+            JSONSerialization.data(withJSONObject: root)))
+    }
+
+    func testExplicitPhaseSchedulingRequiresFrozenCapabilityDescriptor() throws {
+        let legacy = try Self.makeFixture()
+        defer { try? FileManager.default.removeItem(at: legacy.root) }
+        XCTAssertNoThrow(try PrimalScheme3AlleleContract.validateCapabilities(legacy.capabilities))
+        XCTAssertThrowsError(try PrimalScheme3AlleleContract.validateCapabilities(
+            legacy.capabilities, requestedPhaseScheduling: .serial))
+        XCTAssertThrowsError(try PrimalScheme3AlleleContract.validateCapabilities(
+            legacy.capabilities, requestedPhaseScheduling: .reserved))
+
+        let current = try Self.makeFixture(phaseScheduling: .reserved, advertisePhaseScheduling: true)
+        defer { try? FileManager.default.removeItem(at: current.root) }
+        XCTAssertNoThrow(try PrimalScheme3AlleleContract.validateCapabilities(
+            current.capabilities, requestedPhaseScheduling: .reserved))
+        var root = try XCTUnwrap(JSONSerialization.jsonObject(with: current.capabilities) as? [String: Any])
+        var allele = try XCTUnwrap(root["alleleCoverage"] as? [String: Any])
+        var phase = try XCTUnwrap(allele["phaseScheduling"] as? [String: Any])
+        var policies = try XCTUnwrap(phase["policies"] as? [String: Any])
+        var reserved = try XCTUnwrap(policies["reserved"] as? [String: Any])
+        reserved["initial_weights"] = ["seeds": 0.3, "construction": 0.3, "repair": 0.4]
+        policies["reserved"] = reserved; phase["policies"] = policies
+        allele["phaseScheduling"] = phase; root["alleleCoverage"] = allele
+        XCTAssertThrowsError(try PrimalScheme3AlleleContract.validateCapabilities(
+            JSONSerialization.data(withJSONObject: root), requestedPhaseScheduling: .reserved))
+
+        let currentDefault = try Self.makeFixture(advertisePhaseScheduling: true)
+        defer { try? FileManager.default.removeItem(at: currentDefault.root) }
+        let defaultCapabilities = try PrimalScheme3AlleleContract.validateCapabilities(currentDefault.capabilities)
+        XCTAssertNoThrow(try PrimalScheme3AlleleContract.validateNativeOutput(
+            at: currentDefault.output, configuration: currentDefault.configuration,
+            capabilities: defaultCapabilities, options: currentDefault.options, inputCount: 1,
+            executedArgv: currentDefault.argv, auditValidation: currentDefault.auditValidation,
+            auditProvenance: currentDefault.auditProvenance,
+            auditExecutedArgv: currentDefault.auditArgv, auditExitStatus: 0))
+    }
+
+    func testSchedulingPolicyAndProgressAreBoundToSelectedCapabilityDescriptor() throws {
+        let fixture = try Self.makeFixture(phaseScheduling: .reserved, advertisePhaseScheduling: true)
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let capabilities = try PrimalScheme3AlleleContract.validateCapabilities(
+            fixture.capabilities, requestedPhaseScheduling: .reserved)
+        XCTAssertNoThrow(try PrimalScheme3AlleleContract.validateNativeOutput(
+            at: fixture.output, configuration: fixture.configuration, capabilities: capabilities,
+            options: fixture.options, inputCount: 1, executedArgv: fixture.argv,
+            auditValidation: fixture.auditValidation, auditProvenance: fixture.auditProvenance,
+            auditExecutedArgv: fixture.auditArgv, auditExitStatus: 0))
+
+        let optimizerURL = fixture.output.appendingPathComponent("panel-optimizer.json")
+        var optimizer = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: optimizerURL)) as? [String: Any])
+        var stages = try XCTUnwrap(optimizer["stages"] as? [[String: Any]])
+        var stageOptimizer = try XCTUnwrap(stages[0]["optimizer"] as? [String: Any])
+        stageOptimizer["scheduling_policy"] = ["id": "serial/v1"]
+        stages[0]["optimizer"] = stageOptimizer; optimizer["stages"] = stages
+        try Self.writeJSON(optimizer, to: optimizerURL)
+        XCTAssertThrowsError(try PrimalScheme3AlleleContract.validateNativeOutput(
+            at: fixture.output, configuration: fixture.configuration, capabilities: capabilities,
+            options: fixture.options, inputCount: 1, executedArgv: fixture.argv,
+            auditValidation: fixture.auditValidation, auditProvenance: fixture.auditProvenance,
+            auditExecutedArgv: fixture.auditArgv, auditExitStatus: 0)) { error in
+                XCTAssertTrue(error.localizedDescription.contains("scheduling policy"))
+            }
+        stageOptimizer["scheduling_policy"] = Self.reservedSchedulingPolicy()
+        let validStageOptimizer = stageOptimizer
+        stageOptimizer.removeValue(forKey: "phase_progress")
+        stages[0]["optimizer"] = stageOptimizer; optimizer["stages"] = stages
+        try Self.writeJSON(optimizer, to: optimizerURL)
+        XCTAssertThrowsError(try PrimalScheme3AlleleContract.validateNativeOutput(
+            at: fixture.output, configuration: fixture.configuration, capabilities: capabilities,
+            options: fixture.options, inputCount: 1, executedArgv: fixture.argv,
+            auditValidation: fixture.auditValidation, auditProvenance: fixture.auditProvenance,
+            auditExecutedArgv: fixture.auditArgv, auditExitStatus: 0)) { error in
+                XCTAssertTrue(error.localizedDescription.contains("phase progress"))
+            }
+
+        var malformedProgress = validStageOptimizer
+        var progress = try XCTUnwrap(malformedProgress["phase_progress"] as? [[String: Any]])
+        progress[0].removeValue(forKey: "objective_after")
+        malformedProgress["phase_progress"] = progress
+        stages[0]["optimizer"] = malformedProgress; optimizer["stages"] = stages
+        try Self.writeJSON(optimizer, to: optimizerURL)
+        XCTAssertThrowsError(try PrimalScheme3AlleleContract.validateNativeOutput(
+            at: fixture.output, configuration: fixture.configuration, capabilities: capabilities,
+            options: fixture.options, inputCount: 1, executedArgv: fixture.argv,
+            auditValidation: fixture.auditValidation, auditProvenance: fixture.auditProvenance,
+            auditExecutedArgv: fixture.auditArgv, auditExitStatus: 0)) { error in
+                XCTAssertTrue(error.localizedDescription.contains("objective_after"))
+            }
+    }
+
+    func testReservedSchedulingOnlyBudgetsInitialCycleAndAcceptsLaterNullBudgets() throws {
+        let fixture = try Self.makeFixture(phaseScheduling: .reserved, advertisePhaseScheduling: true,
+                                           includeLaterUnreservedProgress: true)
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let capabilities = try PrimalScheme3AlleleContract.validateCapabilities(
+            fixture.capabilities, requestedPhaseScheduling: .reserved)
+        XCTAssertNoThrow(try PrimalScheme3AlleleContract.validateNativeOutput(
+            at: fixture.output, configuration: fixture.configuration, capabilities: capabilities,
+            options: fixture.options, inputCount: 1, executedArgv: fixture.argv,
+            auditValidation: fixture.auditValidation, auditProvenance: fixture.auditProvenance,
+            auditExecutedArgv: fixture.auditArgv, auditExitStatus: 0))
+
+    }
+
+    func testEmptyProgressRequiresNoAssessableStatusAndZeroWork() throws {
+        let fixture = try Self.makeFixture(phaseScheduling: .reserved, advertisePhaseScheduling: true,
+                                           noAssessableTargets: true)
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let capabilities = try PrimalScheme3AlleleContract.validateCapabilities(
+            fixture.capabilities, requestedPhaseScheduling: .reserved)
+        XCTAssertNoThrow(try PrimalScheme3AlleleContract.validateNativeOutput(
+            at: fixture.output, configuration: fixture.configuration, capabilities: capabilities,
+            options: fixture.options, inputCount: 1, executedArgv: fixture.argv,
+            auditValidation: fixture.auditValidation, auditProvenance: fixture.auditProvenance,
+            auditExecutedArgv: fixture.auditArgv, auditExitStatus: 0))
+    }
+
+    func testIntendedProductPolicyRequiresCapabilityAndBindsCompleteWitnesses() throws {
+        let legacy = try Self.makeFixture(intendedProductPolicy: .concreteDesignatedSites)
+        defer { try? FileManager.default.removeItem(at: legacy.root) }
+        XCTAssertThrowsError(try PrimalScheme3AlleleContract.validateCapabilities(
+            legacy.capabilities, requestedIntendedProductPolicy: .concreteDesignatedSites))
+
+        let currentDefault = try Self.makeFixture(advertiseIntendedProducts: true)
+        defer { try? FileManager.default.removeItem(at: currentDefault.root) }
+        let defaultCapabilities = try PrimalScheme3AlleleContract.validateCapabilities(currentDefault.capabilities)
+        XCTAssertNoThrow(try PrimalScheme3AlleleContract.validateNativeOutput(
+            at: currentDefault.output, configuration: currentDefault.configuration,
+            capabilities: defaultCapabilities, options: currentDefault.options, inputCount: 1,
+            executedArgv: currentDefault.argv, auditValidation: currentDefault.auditValidation,
+            auditProvenance: currentDefault.auditProvenance,
+            auditExecutedArgv: currentDefault.auditArgv, auditExitStatus: 0))
+
+        let fixture = try Self.makeFixture(intendedProductPolicy: .concreteDesignatedSites,
+                                           advertiseIntendedProducts: true,
+                                           includeIntendedWitness: true)
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let capabilities = try PrimalScheme3AlleleContract.validateCapabilities(
+            fixture.capabilities, requestedIntendedProductPolicy: .concreteDesignatedSites)
+        var capabilityRoot = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: fixture.capabilities) as? [String: Any])
+        var capabilityAllele = try XCTUnwrap(capabilityRoot["alleleCoverage"] as? [String: Any])
+        var intendedCapability = try XCTUnwrap(capabilityAllele["intendedProductPolicies"] as? [String: Any])
+        var policies = try XCTUnwrap(intendedCapability["policies"] as? [String: Any])
+        policies["concrete-designated-sites"] = ["id": "concrete-designated-sites/v1", "coverageCredit": 1]
+        intendedCapability["policies"] = policies
+        capabilityAllele["intendedProductPolicies"] = intendedCapability
+        capabilityRoot["alleleCoverage"] = capabilityAllele
+        XCTAssertThrowsError(try PrimalScheme3AlleleContract.validateCapabilities(
+            JSONSerialization.data(withJSONObject: capabilityRoot),
+            requestedIntendedProductPolicy: .concreteDesignatedSites))
+        XCTAssertNoThrow(try PrimalScheme3AlleleContract.validateNativeOutput(
+            at: fixture.output, configuration: fixture.configuration, capabilities: capabilities,
+            options: fixture.options, inputCount: 1, executedArgv: fixture.argv,
+            auditValidation: fixture.auditValidation, auditProvenance: fixture.auditProvenance,
+            auditExecutedArgv: fixture.auditArgv, auditExitStatus: 0))
+
+        let validationURL = fixture.output.appendingPathComponent("panel-validation.json")
+        let originalValidation = try Data(contentsOf: validationURL)
+        func validateFixture() throws {
+            try PrimalScheme3AlleleContract.validateNativeOutput(
+                at: fixture.output, configuration: fixture.configuration, capabilities: capabilities,
+                options: fixture.options, inputCount: 1, executedArgv: fixture.argv,
+                auditValidation: fixture.auditValidation, auditProvenance: fixture.auditProvenance,
+                auditExecutedArgv: fixture.auditArgv, auditExitStatus: 0)
+        }
+        var validation = try XCTUnwrap(JSONSerialization.jsonObject(with: originalValidation) as? [String: Any])
+        var intended = try XCTUnwrap(validation["allowed_intended_products"] as? [[String: Any]])
+        var witness = intended[0]
+        var certificate = try XCTUnwrap(witness["certificate"] as? [String: Any])
+        certificate.removeValue(forKey: "reverse")
+        witness["certificate"] = certificate; intended[0] = witness
+        validation["allowed_intended_products"] = intended
+        try Self.writeJSON(validation, to: validationURL)
+        XCTAssertThrowsError(try validateFixture()) { error in
+                XCTAssertTrue(error.localizedDescription.contains("certificate is incomplete"))
+            }
+
+        validation = try XCTUnwrap(JSONSerialization.jsonObject(with: originalValidation) as? [String: Any])
+        intended = try XCTUnwrap(validation["allowed_intended_products"] as? [[String: Any]])
+        witness = intended[0]
+        var plus = try XCTUnwrap(witness["plus"] as? [String: Any])
+        plus["orientation"] = "-"
+        witness["plus"] = plus; intended[0] = witness
+        validation["allowed_intended_products"] = intended
+        try Self.writeJSON(validation, to: validationURL)
+        XCTAssertThrowsError(try validateFixture()) { error in
+            XCTAssertTrue(error.localizedDescription.contains("hit geometry"))
+        }
+
+        validation = try XCTUnwrap(JSONSerialization.jsonObject(with: originalValidation) as? [String: Any])
+        intended = try XCTUnwrap(validation["allowed_intended_products"] as? [[String: Any]])
+        witness = intended[0]
+        certificate = try XCTUnwrap(witness["certificate"] as? [String: Any])
+        var forward = try XCTUnwrap(certificate["forward"] as? [String: Any])
+        forward["terminal_mismatch_positions"] = [0]
+        forward["outside_terminal_mismatch_positions"] = []
+        certificate["forward"] = forward; witness["certificate"] = certificate; intended[0] = witness
+        validation["allowed_intended_products"] = intended
+        try Self.writeJSON(validation, to: validationURL)
+        XCTAssertThrowsError(try validateFixture()) { error in
+            XCTAssertTrue(error.localizedDescription.contains("footprint is malformed"))
+        }
+
+        validation = try XCTUnwrap(JSONSerialization.jsonObject(with: originalValidation) as? [String: Any])
+        var validationProfile = try XCTUnwrap(validation["profile"] as? [String: Any])
+        validationProfile["intended_product_policy"] = "exact-supported"
+        validation["profile"] = validationProfile
+        try Self.writeJSON(validation, to: validationURL)
+        XCTAssertThrowsError(try validateFixture()) { error in
+            XCTAssertTrue(error.localizedDescription.contains("panel validation intended-product policy"))
+        }
+    }
+
+    func testLegacyOutputsCannotSmuggleConcreteIntendedPolicyOrWitnesses() throws {
+        let fixture = try Self.makeFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let capabilities = try PrimalScheme3AlleleContract.validateCapabilities(fixture.capabilities)
+        var configuration = fixture.configuration
+        var integration = try XCTUnwrap(configuration["panel_optimizer"] as? [String: Any])
+        var profile = try XCTUnwrap(integration["profile"] as? [String: Any])
+        profile["intended_product_policy"] = "concrete-designated-sites"
+        integration["profile"] = profile; configuration["panel_optimizer"] = integration
+        XCTAssertThrowsError(try PrimalScheme3AlleleContract.validateNativeOutput(
+            at: fixture.output, configuration: configuration, capabilities: capabilities,
+            options: fixture.options, inputCount: 1, executedArgv: fixture.argv,
+            auditValidation: fixture.auditValidation, auditProvenance: fixture.auditProvenance,
+            auditExecutedArgv: fixture.auditArgv, auditExitStatus: 0)) { error in
+                XCTAssertTrue(error.localizedDescription.contains("legacy integration profile"))
+            }
+
+        try Self.writeJSON(["schemaVersion": "primalscheme3.allele-panel-validation/v2", "valid": true,
+                            "allowed_intended_products": [["id": "smuggled"]],
+                            "allowed_intended_product_count": 1],
+                           to: fixture.output.appendingPathComponent("panel-validation.json"))
+        XCTAssertThrowsError(try PrimalScheme3AlleleContract.validateNativeOutput(
+            at: fixture.output, configuration: fixture.configuration, capabilities: capabilities,
+            options: fixture.options, inputCount: 1, executedArgv: fixture.argv,
+            auditValidation: fixture.auditValidation, auditProvenance: fixture.auditProvenance,
+            auditExecutedArgv: fixture.auditArgv, auditExitStatus: 0)) { error in
+                XCTAssertTrue(error.localizedDescription.contains("cannot allow nonexact"))
+            }
+    }
+
+    func testConcreteSecondaryPolicyRequiresCapabilityAndBindsNativeCertificate() throws {
+        let legacy = try Self.makeFixture(
+            secondaryProductPolicy: .orderedDisjointConcreteDesignatedSites)
+        defer { try? FileManager.default.removeItem(at: legacy.root) }
+        XCTAssertThrowsError(try PrimalScheme3AlleleContract.validateCapabilities(
+            legacy.capabilities,
+            requestedSecondaryProductPolicy: .orderedDisjointConcreteDesignatedSites))
+
+        let currentDefault = try Self.makeFixture(advertiseSecondaryProducts: true)
+        defer { try? FileManager.default.removeItem(at: currentDefault.root) }
+        let defaultCapabilities = try PrimalScheme3AlleleContract.validateCapabilities(
+            currentDefault.capabilities)
+        XCTAssertNoThrow(try PrimalScheme3AlleleContract.validateNativeOutput(
+            at: currentDefault.output, configuration: currentDefault.configuration,
+            capabilities: defaultCapabilities, options: currentDefault.options, inputCount: 1,
+            executedArgv: currentDefault.argv, auditValidation: currentDefault.auditValidation,
+            auditProvenance: currentDefault.auditProvenance,
+            auditExecutedArgv: currentDefault.auditArgv, auditExitStatus: 0))
+
+        let fixture = try Self.makeFixture(
+            secondaryProductPolicy: .orderedDisjointConcreteDesignatedSites,
+            advertiseSecondaryProducts: true, includeConcreteSecondaryWitness: true)
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let capabilities = try PrimalScheme3AlleleContract.validateCapabilities(
+            fixture.capabilities,
+            requestedSecondaryProductPolicy: .orderedDisjointConcreteDesignatedSites)
+        XCTAssertNoThrow(try PrimalScheme3AlleleContract.validateNativeOutput(
+            at: fixture.output, configuration: fixture.configuration, capabilities: capabilities,
+            options: fixture.options, inputCount: 1, executedArgv: fixture.argv,
+            auditValidation: fixture.auditValidation, auditProvenance: fixture.auditProvenance,
+            auditExecutedArgv: fixture.auditArgv, auditExitStatus: 0))
+
+        let sharedOligo = try Self.makeFixture(
+            secondaryProductPolicy: .orderedDisjointConcreteDesignatedSites,
+            advertiseSecondaryProducts: true, includeConcreteSecondaryWitness: true,
+            sharedConcreteExternalOwners: true)
+        defer { try? FileManager.default.removeItem(at: sharedOligo.root) }
+        let sharedCapabilities = try PrimalScheme3AlleleContract.validateCapabilities(
+            sharedOligo.capabilities,
+            requestedSecondaryProductPolicy: .orderedDisjointConcreteDesignatedSites)
+        XCTAssertNoThrow(try PrimalScheme3AlleleContract.validateNativeOutput(
+            at: sharedOligo.output, configuration: sharedOligo.configuration,
+            capabilities: sharedCapabilities, options: sharedOligo.options, inputCount: 1,
+            executedArgv: sharedOligo.argv, auditValidation: sharedOligo.auditValidation,
+            auditProvenance: sharedOligo.auditProvenance,
+            auditExecutedArgv: sharedOligo.auditArgv, auditExitStatus: 0))
+
+        var capabilityRoot = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: fixture.capabilities) as? [String: Any])
+        var capabilityAllele = try XCTUnwrap(capabilityRoot["alleleCoverage"] as? [String: Any])
+        var secondaryCapability = try XCTUnwrap(
+            capabilityAllele["secondaryProductPolicies"] as? [String: Any])
+        var policies = try XCTUnwrap(secondaryCapability["policies"] as? [String: Any])
+        policies["ordered-disjoint-concrete-designated-sites/v1"] = [
+            "id": "ordered-disjoint-concrete-designated-sites/v1", "coverageCredit": 1
+        ]
+        secondaryCapability["policies"] = policies
+        capabilityAllele["secondaryProductPolicies"] = secondaryCapability
+        capabilityRoot["alleleCoverage"] = capabilityAllele
+        XCTAssertThrowsError(try PrimalScheme3AlleleContract.validateCapabilities(
+            JSONSerialization.data(withJSONObject: capabilityRoot),
+            requestedSecondaryProductPolicy: .orderedDisjointConcreteDesignatedSites))
+
+        let validationURL = fixture.output.appendingPathComponent("panel-validation.json")
+        let originalValidation = try Data(contentsOf: validationURL)
+        func validateFixture() throws {
+            try PrimalScheme3AlleleContract.validateNativeOutput(
+                at: fixture.output, configuration: fixture.configuration, capabilities: capabilities,
+                options: fixture.options, inputCount: 1, executedArgv: fixture.argv,
+                auditValidation: fixture.auditValidation, auditProvenance: fixture.auditProvenance,
+                auditExecutedArgv: fixture.auditArgv, auditExitStatus: 0)
+        }
+        func mutate(_ body: (inout [String: Any], inout [String: Any]) throws -> Void,
+                    contains message: String, file: StaticString = #filePath, line: UInt = #line) throws {
+            var validation = try XCTUnwrap(
+                JSONSerialization.jsonObject(with: originalValidation) as? [String: Any])
+            var products = try XCTUnwrap(validation["allowed_secondary_products"] as? [[String: Any]])
+            var witness = products[0]
+            try body(&validation, &witness)
+            products[0] = witness
+            validation["allowed_secondary_products"] = products
+            try Self.writeJSON(validation, to: validationURL)
+            XCTAssertThrowsError(try validateFixture(), file: file, line: line) { error in
+                XCTAssertTrue(error.localizedDescription.contains(message), error.localizedDescription,
+                              file: file, line: line)
+            }
+        }
+
+        try mutate({ _, witness in
+            var certificate = try XCTUnwrap(witness["certificate"] as? [String: Any])
+            certificate.removeValue(forKey: "right_reverse")
+            witness["certificate"] = certificate
+        }, contains: "certificate is incomplete")
+        try mutate({ _, witness in
+            var certificate = try XCTUnwrap(witness["certificate"] as? [String: Any])
+            var projection = try XCTUnwrap(certificate["left_reverse"] as? [String: Any])
+            var hit = try XCTUnwrap(projection["terminal_hit"] as? [String: Any])
+            hit["orientation"] = "+"
+            projection["terminal_hit"] = hit; certificate["left_reverse"] = projection
+            witness["certificate"] = certificate
+        }, contains: "terminal hit")
+        try mutate({ _, witness in
+            var certificate = try XCTUnwrap(witness["certificate"] as? [String: Any])
+            var projection = try XCTUnwrap(certificate["left_reverse"] as? [String: Any])
+            projection["expected_footprint"] = [180, 301]
+            certificate["left_reverse"] = projection; witness["certificate"] = certificate
+        }, contains: "ordered geometry")
+        try mutate({ _, witness in
+            var plus = try XCTUnwrap(witness["plus"] as? [String: Any])
+            plus["end"] = 19
+            witness["plus"] = plus
+        }, contains: "external hits")
+        try mutate({ _, witness in
+            var plus = try XCTUnwrap(witness["plus"] as? [String: Any])
+            plus["owners"] = ["right-config"]
+            witness["plus"] = plus
+        }, contains: "external hits")
+        try mutate({ validation, _ in
+            var profile = try XCTUnwrap(validation["profile"] as? [String: Any])
+            profile["secondary_product_policy"] = "ordered-disjoint-intended-sites"
+            validation["profile"] = profile
+        }, contains: "panel validation secondary-product policy")
+        try mutate({ validation, _ in
+            validation["allowed_secondary_product_count"] = 1
+        }, contains: "panel validation secondary product count")
+        try mutate({ _, witness in
+            var certificate = try XCTUnwrap(witness["certificate"] as? [String: Any])
+            var projection = try XCTUnwrap(certificate["left_reverse"] as? [String: Any])
+            projection["outside_terminal_mismatch_positions"] = []
+            certificate["left_reverse"] = projection; witness["certificate"] = certificate
+        }, contains: "mismatch partitions")
+        try mutate({ _, witness in
+            var certificate = try XCTUnwrap(witness["certificate"] as? [String: Any])
+            var projection = try XCTUnwrap(certificate["right_forward"] as? [String: Any])
+            var hit = try XCTUnwrap(projection["terminal_hit"] as? [String: Any])
+            hit["owners"] = ["right-config", "left-config"]
+            projection["terminal_hit"] = hit; certificate["right_forward"] = projection
+            witness["certificate"] = certificate
+        }, contains: "terminal hit")
+        try mutate({ _, witness in
+            var certificate = try XCTUnwrap(witness["certificate"] as? [String: Any])
+            var projection = try XCTUnwrap(certificate["right_forward"] as? [String: Any])
+            projection["observed_template"] = "NGTAGGTAGGTAGGTAGGTA"
+            certificate["right_forward"] = projection; witness["certificate"] = certificate
+        }, contains: "malformed templates")
+    }
+
+    func testLegacySecondaryOutputsAcceptExactRecordsButRejectConcreteSmuggling() throws {
+        let fixture = try Self.makeFixture(includeLegacyExactSecondaryWitness: true)
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let capabilities = try PrimalScheme3AlleleContract.validateCapabilities(fixture.capabilities)
+        XCTAssertNoThrow(try PrimalScheme3AlleleContract.validateNativeOutput(
+            at: fixture.output, configuration: fixture.configuration, capabilities: capabilities,
+            options: fixture.options, inputCount: 1, executedArgv: fixture.argv,
+            auditValidation: fixture.auditValidation, auditProvenance: fixture.auditProvenance,
+            auditExecutedArgv: fixture.auditArgv, auditExitStatus: 0))
+
+        var validation = try XCTUnwrap(JSONSerialization.jsonObject(
+            with: Data(contentsOf: fixture.output.appendingPathComponent("panel-validation.json"))) as? [String: Any])
+        validation["allowed_secondary_products"] = [Self.concreteSecondaryWitness()]
+        validation["allowed_secondary_product_count"] = 1
+        try Self.writeJSON(validation, to: fixture.output.appendingPathComponent("panel-validation.json"))
+        XCTAssertThrowsError(try PrimalScheme3AlleleContract.validateNativeOutput(
+            at: fixture.output, configuration: fixture.configuration, capabilities: capabilities,
+            options: fixture.options, inputCount: 1, executedArgv: fixture.argv,
+            auditValidation: fixture.auditValidation, auditProvenance: fixture.auditProvenance,
+            auditExecutedArgv: fixture.auditArgv, auditExitStatus: 0)) { error in
+                XCTAssertTrue(error.localizedDescription.contains("legacy panel validation"),
+                              error.localizedDescription)
+            }
+    }
+
+    func testAuditReceiptBindsEveryNativeByteAndRejectsMutationOrMissingEvidence() throws {
+        let fixture = try Self.makeFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let capabilities = try PrimalScheme3AlleleContract.validateCapabilities(fixture.capabilities)
+        XCTAssertNoThrow(try PrimalScheme3AlleleContract.validateNativeOutput(
+            at: fixture.output, configuration: fixture.configuration, capabilities: capabilities,
+            options: fixture.options, inputCount: 1, executedArgv: fixture.argv,
+            auditValidation: fixture.auditValidation, auditProvenance: fixture.auditProvenance,
+            auditExecutedArgv: fixture.auditArgv, auditExitStatus: 0))
+        XCTAssertThrowsError(try PrimalScheme3AlleleContract.validateNativeOutput(
+            at: fixture.output, configuration: fixture.configuration, capabilities: capabilities,
+            options: fixture.options, inputCount: 1, executedArgv: fixture.argv,
+            auditValidation: nil, auditProvenance: nil, auditExecutedArgv: nil, auditExitStatus: nil))
+        try Data("mutated selected oligo\n".utf8).write(
+            to: fixture.output.appendingPathComponent("stages/strict/assignments.json"))
+        XCTAssertThrowsError(try PrimalScheme3AlleleContract.validateNativeOutput(
+            at: fixture.output, configuration: fixture.configuration, capabilities: capabilities,
+            options: fixture.options, inputCount: 1, executedArgv: fixture.argv,
+            auditValidation: fixture.auditValidation, auditProvenance: fixture.auditProvenance,
+            auditExecutedArgv: fixture.auditArgv, auditExitStatus: 0))
+    }
+
+    func testContractRejectsWrongNestedOptionsDetachedCommandsAndPartialAudit() throws {
+        let fixture = try Self.makeFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let capabilities = try PrimalScheme3AlleleContract.validateCapabilities(fixture.capabilities)
+        var wrong = fixture.configuration
+        var integration = try XCTUnwrap(wrong["panel_optimizer"] as? [String: Any])
+        var nested = try XCTUnwrap(integration["options"] as? [String: Any])
+        nested["optimizer_seed"] = 99
+        integration["options"] = nested; wrong["panel_optimizer"] = integration
+        XCTAssertThrowsError(try PrimalScheme3AlleleContract.validateNativeOutput(
+            at: fixture.output, configuration: wrong, capabilities: capabilities,
+            options: fixture.options, inputCount: 1, executedArgv: fixture.argv,
+            auditValidation: fixture.auditValidation, auditProvenance: fixture.auditProvenance,
+            auditExecutedArgv: fixture.auditArgv, auditExitStatus: 0))
+        XCTAssertThrowsError(try PrimalScheme3AlleleContract.validateNativeOutput(
+            at: fixture.output, configuration: fixture.configuration, capabilities: capabilities,
+            options: fixture.options, inputCount: 1, executedArgv: fixture.argv + ["--detached"],
+            auditValidation: fixture.auditValidation, auditProvenance: fixture.auditProvenance,
+            auditExecutedArgv: fixture.auditArgv, auditExitStatus: 0))
+        let partial = try JSONSerialization.data(withJSONObject: [
+            "valid": true, "raw_inputs_reparsed": true, "primary_tier": "strict",
+            "scope": "stored-original-inputs-and-fresh-selected-stage-kernels", "stages": [:]
+        ])
+        XCTAssertThrowsError(try PrimalScheme3AlleleContract.validateNativeOutput(
+            at: fixture.output, configuration: fixture.configuration, capabilities: capabilities,
+            options: fixture.options, inputCount: 1, executedArgv: fixture.argv,
+            auditValidation: partial, auditProvenance: fixture.auditProvenance,
+            auditExecutedArgv: fixture.auditArgv + ["--tier", "strict"], auditExitStatus: 0))
+    }
+
+    private struct Fixture {
+        let root: URL
+        let output: URL
+        let capabilities: Data
+        let configuration: [String: Any]
+        let options: PrimalScheme3DesignOptions
+        let argv: [String]
+        let auditValidation: Data
+        let auditProvenance: Data
+        let auditArgv: [String]
+    }
+
+    private static func makeFixture(searchEffort: PrimalScheme3SearchEffort? = nil,
+                                    advertiseSearchEfforts: Bool = false,
+                                    includeResolvedSearchEffort: Bool? = nil,
+                                    optimizerStarts: Int? = nil,
+                                    optimizerRepairRounds: Int? = nil,
+                                    optimizerTimeLimit: Double? = nil,
+                                    constructionCandidateAttempts: Int? = nil,
+                                    familiesPerRefresh: Int? = nil,
+                                    phaseScheduling: PrimalScheme3PhaseScheduling? = nil,
+                                    advertisePhaseScheduling: Bool = false,
+                                    includeLaterUnreservedProgress: Bool = false,
+                                    noAssessableTargets: Bool = false,
+                                    intendedProductPolicy: PrimalScheme3IntendedProductPolicy? = nil,
+                                    advertiseIntendedProducts: Bool = false,
+                                    includeIntendedWitness: Bool = false,
+                                    secondaryProductPolicy: PrimalScheme3SecondaryProductPolicy? = nil,
+                                    advertiseSecondaryProducts: Bool = false,
+                                    includeConcreteSecondaryWitness: Bool = false,
+                                    sharedConcreteExternalOwners: Bool = false,
+                                    includeLegacyExactSecondaryWitness: Bool = false) throws -> Fixture {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let output = root.appendingPathComponent("native", isDirectory: true)
+        let stage = output.appendingPathComponent("stages/strict", isDirectory: true)
+        try FileManager.default.createDirectory(at: stage, withIntermediateDirectories: true)
+        let source = root.appendingPathComponent("input.fasta")
+        try Data(">row A\nACGTNRYTACGT\n".utf8).write(to: source)
+        let stored = output.appendingPathComponent("work/0000-input.fasta")
+        try FileManager.default.createDirectory(at: stored.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.copyItem(at: source, to: stored)
+        let history = output.appendingPathComponent("history/history.sqlite")
+        try FileManager.default.createDirectory(at: history.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("sqlite-fixture".utf8).write(to: history)
+        let options = PrimalScheme3DesignOptions(ampliconSize: 200, poolCount: 2, coreCount: 1,
+            ampliconSizeMinimum: 150, ampliconSizeMaximum: 280,
+            selectionAlgorithm: .alleleCoverage,
+            optimizerStarts: optimizerStarts, optimizerRepairRounds: optimizerRepairRounds,
+            optimizerTimeLimit: optimizerTimeLimit,
+            alleleOptions: .init(searchEffort: searchEffort, phaseScheduling: phaseScheduling,
+                                 intendedProductPolicy: intendedProductPolicy,
+                                 secondaryProductPolicy: secondaryProductPolicy,
+                                 workConstructionCandidateAttempts: constructionCandidateAttempts,
+                                 workFamiliesPerRefresh: familiesPerRefresh))
+        let resolved = resolvedOptions(
+            options, includeSearchEffort: includeResolvedSearchEffort ?? advertiseSearchEfforts,
+                                       includePhaseScheduling: advertisePhaseScheduling,
+                                       includeIntendedProductPolicy: advertiseIntendedProducts)
+        var profile: [String: Any] = ["name": "allele-panel-v1", "specificity_revision": "selected-sites-v2"]
+        if advertiseIntendedProducts {
+            profile["intended_product_policy"] = options.alleleOptions.intendedProductPolicy.rawValue
+            profile["mismatch_kmersize"] = 17
+            profile["mismatch_product_size"] = 2_000
+        }
+        if advertiseSecondaryProducts {
+            profile["secondary_product_policy"] = options.alleleOptions.secondaryProductPolicy.rawValue
+            profile["mismatch_kmersize"] = 17
+            profile["mismatch_product_size"] = 2_000
+        }
+        let integration: [String: Any] = [
+            "schemaVersion": "primalscheme3.panel-native-integration/v2",
+            "selectionAlgorithm": "allele-coverage", "toolVersion": PrimalScheme3DesignPipeline.alleleToolVersion,
+            "primaryTier": "strict", "profile": profile, "options": resolved,
+            "optimizer": ["path": "panel-optimizer.json", "schemaVersion": "primalscheme3.panel-optimizer/v2"],
+            "validation": ["path": "panel-validation.json", "schemaVersion": "primalscheme3.allele-panel-validation/v2", "valid": true],
+            "provenance": ["path": "panel-provenance.json", "schemaVersion": "primalscheme3.panel-provenance/v1"],
+            "publication": [:]
+        ]
+        let resolvedData = try JSONSerialization.data(withJSONObject: resolved, options: [.sortedKeys])
+        let configuration: [String: Any] = [
+            "version": PrimalScheme3DesignPipeline.alleleToolVersion,
+            "selection_algorithm": "allele-coverage", "coverage_metric": "observed-allele-primer-trimmed",
+            "coverage_target": 0.95, "mode": "equal", "mapping": "first",
+            "terminal_gap_policy": "observed-only", "discovery_backend": "python-observed-only",
+            "n_pools": 2, "ncores": 1, "discovery_core_count": 1,
+            "amplicon_size": 200, "amplicon_size_min": 150, "amplicon_size_max": 280,
+            "amplicon_size_metric": "reference-span", "allele_options_json": String(decoding: resolvedData, as: UTF8.self),
+            "panel_optimizer": integration
+        ]
+        try writeJSON(configuration, to: output.appendingPathComponent("config.json"))
+        var stageOptimizer: [String: Any] = [:]
+        if advertisePhaseScheduling {
+            var progress: [[String: Any]] = noAssessableTargets ? [] : [phaseProgress(
+                phase: "construction:0", localBudget: phaseScheduling == .reserved ? 10.0 : nil)]
+            if includeLaterUnreservedProgress {
+                progress += [
+                    phaseProgress(phase: "construction:1", localBudget: nil),
+                    phaseProgress(phase: "repair:1:0/exchange", localBudget: nil),
+                ]
+            }
+            stageOptimizer = [
+                "scheduling_policy": phaseScheduling == .reserved ? reservedSchedulingPolicy() : serialSchedulingPolicy(),
+                "objective_terms": [
+                    "negative-mean-utility", "negative-mean-coverage", "negative-worst-coverage",
+                    "violating-edges", "incident-species", "sequence-pool-instances", "assignments",
+                    "pool-burden-range", "size-deviation", "canonical-assignments"
+                ],
+                "phase_progress": progress,
+                "stop_reason": noAssessableTargets ? "no-assessable-targets" : "completed",
+                "work": ["candidate_evaluations": 0, "constructions": 0]
+            ]
+        }
+        let optimizer: [String: Any] = [
+            "schemaVersion": "primalscheme3.panel-optimizer/v2", "algorithm": "bounded-allele-coverage/v1",
+            "metric": "observed-allele-primer-trimmed/v1", "primaryTier": "strict", "profile": profile,
+            "options": resolved, "publication": [:], "timings": [:],
+            "history": ["path": "history/history.sqlite", "configurationLedger": "configuration-ledger.json.gz", "counts": [:]],
+            "stages": [["path": "stages/strict", "stage_id": "strict", "assignments": [],
+                        "coverage": noAssessableTargets ? ["status": "no-assessable-targets"] : [:],
+                        "optimizer": stageOptimizer, "validationValid": true]]
+        ]
+        try writeJSON(optimizer, to: output.appendingPathComponent("panel-optimizer.json"))
+        var validation: [String: Any] = ["schemaVersion": "primalscheme3.allele-panel-validation/v2", "valid": true]
+        if advertiseIntendedProducts || advertiseSecondaryProducts || includeLegacyExactSecondaryWitness {
+            let intended = includeIntendedWitness ? [intendedProductWitness()] : []
+            var secondary: [[String: Any]] = []
+            if includeConcreteSecondaryWitness {
+                secondary = [concreteSecondaryWitness(sharedExternalOwners: sharedConcreteExternalOwners),
+                             exactSecondaryWitness()]
+            }
+            if includeLegacyExactSecondaryWitness { secondary = [exactSecondaryWitness()] }
+            validation["profile"] = profile
+            validation["allowed_secondary_products"] = secondary
+            if advertiseSecondaryProducts { validation["allowed_secondary_product_count"] = secondary.count }
+            validation["allowed_intended_products"] = intended
+            validation["allowed_intended_product_count"] = intended.count
+        }
+        try writeJSON(validation, to: output.appendingPathComponent("panel-validation.json"))
+        try writeGzip(["schema_version": "primalscheme3.variant-catalog/v2"],
+                      to: output.appendingPathComponent("discovery-catalog.json.gz"))
+        try writeGzip(["schema_version": "primalscheme3.configuration-ledger/v2"],
+                      to: output.appendingPathComponent("configuration-ledger.json.gz"))
+        for name in ["catalog.json.gz", "ledger.json.gz", "authoritative-targets.json.gz"] {
+            try writeGzip(["schema_version": name == "catalog.json.gz" ? "primalscheme3.variant-catalog/v2" : "fixture"],
+                          to: stage.appendingPathComponent(name))
+        }
+        try writeJSON(["fixture": true], to: stage.appendingPathComponent("assignments.json"))
+        try writeJSON(["fixture": true], to: stage.appendingPathComponent("coverage.json"))
+        let hasSpecificityValidation = advertiseIntendedProducts || advertiseSecondaryProducts
+            || includeLegacyExactSecondaryWitness
+        let stageValidation: [String: Any] = hasSpecificityValidation ? validation : ["fixture": true]
+        try writeJSON(stageValidation, to: stage.appendingPathComponent("validation.json"))
+        var constraints: [String: Any] = [:]
+        if advertiseIntendedProducts {
+            constraints["intended_product_policy"] = options.alleleOptions.intendedProductPolicy.rawValue
+        }
+        if advertiseSecondaryProducts {
+            constraints["secondary_product_policy"] = options.alleleOptions.secondaryProductPolicy.rawValue
+        }
+        let stageManifest: [String: Any] = constraints.isEmpty ? ["fixture": true] : ["constraints": constraints]
+        try writeJSON(stageManifest, to: stage.appendingPathComponent("stage.json"))
+        try Data("fixture\t0\t180\tamplicon\n".utf8).write(to: output.appendingPathComponent("amplicon.bed"))
+        try Data("fixture\t0\t20\tprimer\t1\t+\tACGT\n".utf8).write(to: output.appendingPathComponent("primer.bed"))
+        try Data(">fixture\nACGT\n".utf8).write(to: output.appendingPathComponent("reference.fasta"))
+
+        let digest = String(repeating: "a", count: 64)
+        let identitySource: [String: Any] = ["root": "/fixture/source", "kind": "git", "gitCommit": "fixture",
+            "sourceDigest": digest, "build": ["path": "pyproject.toml", "sha256": digest, "size": 1],
+            "files": [["path": "primalscheme3/cli.py", "sha256": digest, "size": 1]]]
+        let identityRuntime: [String: Any] = ["pythonExecutable": "/fixture/python",
+            "pythonExecutableResolved": "/fixture/python3.12", "pythonVersion": "3.12",
+            "pythonImplementation": "CPython", "pythonPrefix": "/fixture", "platform": "fixture-os",
+            "machine": "arm64", "kernel": ["system": "Darwin"],
+            "declaredRuntimeDependencies": [["distribution": "primer3-py", "version": "2.2.0"]],
+            "nativeKernels": [["distribution": "primer3-py", "package": "primer3", "version": "2.2.0",
+                "files": [["path": "/fixture/primer3.so", "sha256": digest, "size": 1]]]]]
+        var alleleCapability: [String: Any] = [
+            "sourceContractVersion": PrimalScheme3DesignPipeline.alleleToolVersion,
+            "algorithm": "bounded-allele-coverage/v1", "metric": "observed-allele-primer-trimmed/v1",
+            "preset": "allele-balanced-v1", "catalogSchemaVersion": "primalscheme3.variant-catalog/v2",
+            "configurationLedgerSchemaVersion": "primalscheme3.configuration-ledger/v2",
+            "validationSchemaVersion": "primalscheme3.allele-panel-validation/v2",
+            "profile": ["name": "allele-panel-v1", "specificityRevision": "selected-sites-v2"],
+            "supportedScope": ["mode": "equal", "mapping": "first", "ampliconSizeMetric": "reference-span",
+                "freshDesign": true, "linear": true, "suppliedMsaSpecificity": true,
+                "terminalGapPolicies": ["observed-only"]]
+        ]
+        if advertisePhaseScheduling {
+            alleleCapability["phaseScheduling"] = phaseSchedulingCapability()
+        }
+        if advertiseSearchEfforts {
+            alleleCapability["searchEfforts"] = searchEffortCapability()
+        }
+        if advertiseIntendedProducts {
+            alleleCapability["intendedProductPolicies"] = intendedProductPolicyCapability()
+        }
+        if advertiseSecondaryProducts {
+            alleleCapability["secondaryProductPolicies"] = secondaryProductPolicyCapability()
+        }
+        let capabilitiesObject: [String: Any] = [
+            "schemaVersion": "primalscheme3.capabilities/v1", "tool": "primalscheme3",
+            "toolVersion": PrimalScheme3DesignPipeline.alleleToolVersion,
+            "selectionAlgorithms": ["legacy", "coverage", "allele-coverage"],
+            "alleleCoverage": alleleCapability, "source": identitySource, "runtime": identityRuntime
+        ]
+        var argv = ["/fixture/primalscheme3", "panel-create", "--msa", source.path, "--output", output.path]
+        if let searchEffort { argv += ["--search-effort", searchEffort.rawValue] }
+        if let optimizerStarts { argv += ["--optimizer-starts", String(optimizerStarts)] }
+        if let optimizerRepairRounds { argv += ["--optimizer-repair-rounds", String(optimizerRepairRounds)] }
+        if let optimizerTimeLimit { argv += ["--optimizer-time-limit", String(optimizerTimeLimit)] }
+        if let constructionCandidateAttempts {
+            argv += ["--work-construction-candidate-attempts", String(constructionCandidateAttempts)]
+        }
+        if let familiesPerRefresh { argv += ["--work-families-per-refresh", String(familiesPerRefresh)] }
+        if let phaseScheduling { argv += ["--phase-scheduling", phaseScheduling.rawValue] }
+        if let intendedProductPolicy { argv += ["--intended-product-policy", intendedProductPolicy.rawValue] }
+        if let secondaryProductPolicy { argv += ["--secondary-product-policy", secondaryProductPolicy.rawValue] }
+        let nativeBeforeProvenance = try regularFiles(output)
+        let nativeOutputs = try nativeBeforeProvenance.map { try descriptor($0, relativeTo: output) }
+        let inputDescriptor: [String: Any] = [
+            "sourceIndex": 0, "sourcePath": source.path, "storedPath": "work/0000-input.fasta",
+            "sha256": try ProvenanceFileHasher.sha256(of: stored), "size": try ProvenanceFileHasher.fileSize(of: stored),
+            "sourceChangedDuringRun": false, "storedMissing": false
+        ]
+        let provenance: [String: Any] = [
+            "schemaVersion": "primalscheme3.panel-provenance/v1", "toolVersion": PrimalScheme3DesignPipeline.alleleToolVersion,
+            "status": "success", "exitStatus": 0, "sourceChangedDuringRun": false, "runtimeChangedDuringRun": false,
+            "source": identitySource, "sourceAtEnd": identitySource, "runtime": identityRuntime, "runtimeAtEnd": identityRuntime,
+            "inputs": [inputDescriptor], "outputs": nativeOutputs,
+            "command": ["argv": argv, "shell": "fixture", "workingDirectory": root.path]
+        ]
+        try writeJSON(provenance, to: output.appendingPathComponent("panel-provenance.json"))
+        let auditStage: [String: Any] = hasSpecificityValidation ? validation : ["valid": true]
+        let auditValidationObject: [String: Any] = [
+            "valid": true, "raw_inputs_reparsed": true, "primary_tier": "strict",
+            "scope": "stored-original-inputs-and-fresh-selected-stage-kernels",
+            "stages": ["strict": auditStage]
+        ]
+        let auditValidation = try JSONSerialization.data(withJSONObject: auditValidationObject, options: [.sortedKeys])
+        let auditOutput: [String: Any] = ["path": "validation.json", "sha256": sha256(auditValidation),
+                                                  "size": auditValidation.count]
+        let auditArgv = ["/fixture/primalscheme3", "panel-audit", "--bundle", output.path,
+                         "--output", root.appendingPathComponent("audit").path]
+        let audit: [String: Any] = [
+            "schemaVersion": "primalscheme3.panel-inspection-provenance/v1",
+            "toolVersion": PrimalScheme3DesignPipeline.alleleToolVersion, "status": "success", "exitStatus": 0,
+            "inputChangedDuringRun": false, "sourceChangedDuringRun": false, "runtimeChangedDuringRun": false,
+            "source": identitySource, "sourceAtEnd": identitySource, "runtime": identityRuntime, "runtimeAtEnd": identityRuntime,
+            "command": ["argv": auditArgv,
+                        "shell": "fixture", "workingDirectory": root.path],
+            "inputs": try regularFiles(output).map { try descriptor($0, relativeTo: output) },
+            "outputs": [auditOutput]
+        ]
+        return .init(root: root, output: output,
+                     capabilities: try JSONSerialization.data(withJSONObject: capabilitiesObject),
+                     configuration: configuration, options: options, argv: argv,
+                     auditValidation: auditValidation,
+                     auditProvenance: try JSONSerialization.data(withJSONObject: audit), auditArgv: auditArgv)
+    }
+
+    private static func resolvedOptions(_ options: PrimalScheme3DesignOptions,
+                                        includeSearchEffort: Bool = false,
+                                        includePhaseScheduling: Bool = false,
+                                        includeIntendedProductPolicy: Bool = false) -> [String: Any] {
+        let a = options.alleleOptions
+        var requested: [String: Any] = [:]
+        if a.requestedOptionNames.contains("searchEffort") {
+            requested["search_effort"] = a.searchEffort.rawValue
+        }
+        if a.requestedOptionNames.contains("phaseScheduling") {
+            requested["phase_scheduling"] = a.phaseScheduling.rawValue
+        }
+        if a.requestedOptionNames.contains("intendedProductPolicy") {
+            requested["intended_product_policy"] = a.intendedProductPolicy.rawValue
+        }
+        if a.requestedOptionNames.contains("secondaryProductPolicy") {
+            requested["secondary_product_policy"] = a.secondaryProductPolicy.rawValue
+        }
+        if a.requestedOptionNames.contains("workConstructionCandidateAttempts") {
+            requested["work_construction_candidate_attempts"] = a.workConstructionCandidateAttempts
+        }
+        if a.requestedOptionNames.contains("workFamiliesPerRefresh") {
+            requested["work_families_per_refresh"] = a.workFamiliesPerRefresh
+        }
+        if let value = options.requestedOptimizerStarts { requested["optimizer_starts"] = value }
+        if let value = options.requestedOptimizerRepairRounds { requested["optimizer_repair_rounds"] = value }
+        if let value = options.requestedOptimizerTimeLimit { requested["optimizer_time_limit"] = value }
+        var result: [String: Any] = [
+            "preset": a.preset, "candidate_profiles": a.candidateProfiles, "variant_selection": a.variantSelection,
+            "allele_weighting": a.alleleWeighting, "discovery_length_mode": a.discoveryLengthMode,
+            "specificity_terminal_k": a.specificityTerminalK,
+            "subset_beam_width": a.subsetBeamWidth, "subset_expansion_limit": a.subsetExpansionLimit,
+            "exchange_width": a.exchangeWidth, "salvage": a.salvage, "salvage_thresholds": a.salvageThresholds,
+            "salvage_max_stages": a.salvageMaxStages, "salvage_max_edges_per_pool": a.salvageMaxEdgesPerPool,
+            "salvage_max_oligos_per_pool": a.salvageMaxOligosPerPool, "salvage_time_limit": a.salvageTimeLimit,
+            "primary_tier": a.primaryTier, "coverage_metric": options.coverageMetric.rawValue,
+            "coverage_target": options.coverageTarget, "requested_options": requested,
+            "amplicon_size": options.ampliconSize, "amplicon_size_min": options.ampliconSizeMinimum,
+            "amplicon_size_max": options.ampliconSizeMaximum, "n_pools": options.poolCount,
+            "ncores": options.coreCount, "optimizer_seed": options.optimizerSeed,
+            "optimizer_starts": options.optimizerStarts, "optimizer_repair_rounds": options.optimizerRepairRounds,
+            "optimizer_time_limit": options.optimizerTimeLimit, "mismatch_product_size": options.misprimingProductSize,
+            "min_base_freq": options.minimumBaseFrequency, "dimer_score": options.dimerScore,
+            "max_amplicons": options.maxAmplicons ?? NSNull(),
+            "max_amplicons_msa": options.maxAmpliconsPerMSA ?? NSNull(), "reuse_discovery": NSNull(),
+            "work_frontier_candidates": a.workFrontierCandidates,
+            "work_construction_candidate_attempts": a.workConstructionCandidateAttempts,
+            "work_repair_candidate_probes_per_round": a.workRepairCandidateProbesPerRound,
+            "work_repair_neighborhoods_per_round": a.workRepairNeighborhoodsPerRound,
+            "work_repair_trials_per_round": a.workRepairTrialsPerRound,
+            "work_pool_lookahead_candidates": a.workPoolLookaheadCandidates,
+            "work_cleanup_moves_per_round": a.workCleanupMovesPerRound,
+            "work_families_per_refresh": a.workFamiliesPerRefresh
+        ]
+        if includeSearchEffort || a.requestedOptionNames.contains("searchEffort") {
+            result["search_effort"] = a.searchEffort.rawValue
+        }
+        if includePhaseScheduling || a.requestedOptionNames.contains("phaseScheduling") {
+            result["phase_scheduling"] = a.phaseScheduling.rawValue
+        }
+        if includeIntendedProductPolicy || a.requestedOptionNames.contains("intendedProductPolicy") {
+            result["intended_product_policy"] = a.intendedProductPolicy.rawValue
+        }
+        result["secondary_product_policy"] = a.secondaryProductPolicy.rawValue
+        return result
+    }
+
+    private static func serialSchedulingPolicy() -> [String: Any] { ["id": "serial/v1"] }
+    private static func reservedSchedulingPolicy() -> [String: Any] {
+        ["id": "initial-phase-reservations/v1",
+         "initial_weights": ["seeds": 0.2, "construction": 0.4, "repair": 0.4],
+         "repair_weights": ["preparation": 0.2, "cleanup": 0.2, "exchange": 0.6]]
+    }
+    private static func phaseSchedulingCapability() -> [String: Any] {
+        ["default": "serial",
+         "policies": ["serial": serialSchedulingPolicy(), "reserved": reservedSchedulingPolicy()]]
+    }
+
+    private static func searchEffortCapability() -> [String: Any] {
+        ["default": "standard-v1", "policies": [
+            "standard-v1": ["id": "standard-v1", "defaults": [
+                "optimizer_time_limit": 120.0, "optimizer_starts": 4,
+                "optimizer_repair_rounds": 2, "work_construction_candidate_attempts": 2_048,
+                "work_families_per_refresh": 16]],
+            "quality-v1": ["id": "quality-v1", "defaults": [
+                "optimizer_time_limit": 3_600.0, "optimizer_starts": 8,
+                "optimizer_repair_rounds": 3, "work_construction_candidate_attempts": 8_192,
+                "work_families_per_refresh": 32]]
+        ]]
+    }
+
+    private static func intendedProductPolicyCapability() -> [String: Any] {
+        ["default": "exact-supported", "policies": [
+            "exact-supported": ["id": "exact-supported/v1"],
+            "concrete-designated-sites": ["id": "concrete-designated-sites/v1", "coverageCredit": 0]
+        ]]
+    }
+
+    private static func secondaryProductPolicyCapability() -> [String: Any] {
+        ["default": "ordered-disjoint-intended-sites", "policies": [
+            "ordered-disjoint-intended-sites": ["id": "ordered-disjoint-intended-sites/v1"],
+            "reject-secondary-products/v1": ["id": "reject-secondary-products/v1"],
+            "ordered-disjoint-concrete-designated-sites/v1": [
+                "id": "ordered-disjoint-concrete-designated-sites/v1", "coverageCredit": 0
+            ]
+        ]]
+    }
+
+    private static func intendedProductWitness() -> [String: Any] {
+        let forwardOligo = "ACGTACGTACGTACGTACGT"
+        let forwardObserved = "CCGTACGTACGTACGTACGT"
+        let reverseOligo = "TGCATGCATGCATGCATGCA"
+        let forward: [String: Any] = [
+            "site_id": "site-f", "expected_footprint": [0, 20], "oligo": forwardOligo,
+            "observed_template": forwardObserved, "mismatch_positions": [0],
+            "terminal_mismatch_positions": [], "outside_terminal_mismatch_positions": [0]
+        ]
+        let reverse: [String: Any] = [
+            "site_id": "site-r", "expected_footprint": [180, 200], "oligo": reverseOligo,
+            "observed_template": reverseOligo, "mismatch_positions": [],
+            "terminal_mismatch_positions": [], "outside_terminal_mismatch_positions": []
+        ]
+        return [
+            "id": "intended-witness", "target_id": "target", "row_id": "row",
+            "owners": ["config"], "start": 0, "end": 200, "length": 200,
+            "plus": ["oligo": forwardOligo, "orientation": "+", "start": 0, "end": 20,
+                     "terminal_interval": [3, 20], "mismatches": 0,
+                     "classification": "exact-terminal", "owners": ["config"]],
+            "minus": ["oligo": reverseOligo, "orientation": "-", "start": 180, "end": 200,
+                      "terminal_interval": [180, 197], "mismatches": 0,
+                      "classification": "exact-terminal", "owners": ["config"]],
+            "site_ids": ["site-f", "site-r"],
+            "classification": "nonexact-designated-intended-product",
+            "reason": "concrete-designated-sites", "policy_id": "concrete-designated-sites/v1",
+            "coverage_credit": 0, "uncertain": false,
+            "certificate": [
+                "configuration_id": "config", "target_id": "target", "row_id": "row",
+                "forward_site_id": "site-f", "reverse_site_id": "site-r",
+                "forward": forward, "reverse": reverse
+            ]
+        ]
+    }
+
+    private static func exactSecondaryWitness() -> [String: Any] {
+        let forward = "ACGTACGTACGTACGTACGT"
+        let reverse = "TGCATGCATGCATGCATGCA"
+        return [
+            "id": "exact-secondary", "target_id": "target", "row_id": "row-exact",
+            "owners": ["left-config", "right-config"], "start": 0, "end": 500, "length": 500,
+            "plus": terminalHit(oligo: forward, orientation: "+", start: 0, end: 20,
+                                owner: "left-config", terminalK: 17),
+            "minus": terminalHit(oligo: reverse, orientation: "-", start: 480, end: 500,
+                                 owner: "right-config", terminalK: 17),
+            "site_ids": ["site-lf", "site-rr"], "reason": "ordered-disjoint-intended-sites",
+            "coverage_credit": 0, "uncertain": false
+        ]
+    }
+
+    private static func concreteSecondaryWitness(sharedExternalOwners: Bool = false) -> [String: Any] {
+        let forward = "ACGTACGTACGTACGTACGT"
+        let reverse = "TGCATGCATGCATGCATGCA"
+        let internalReverse = "AACCAACCAACCAACCAACC"
+        let changedInternalReverse = "CACCAACCAACCAACCAACC"
+        let internalForward = "GGTAGGTAGGTAGGTAGGTA"
+        func projection(site: String, start: Int, end: Int, oligo: String, observed: String,
+                        orientation: String, owner: String) -> [String: Any] {
+            let mismatches = Array(zip(oligo, observed).enumerated().compactMap { index, pair in
+                pair.0 == pair.1 ? nil : index
+            })
+            let terminal = mismatches.filter { $0 >= oligo.count - 17 }
+            let outside = mismatches.filter { $0 < oligo.count - 17 }
+            return [
+                "site_id": site, "expected_footprint": [start, end], "oligo": oligo,
+                "observed_template": observed, "mismatch_positions": mismatches,
+                "terminal_mismatch_positions": terminal,
+                "outside_terminal_mismatch_positions": outside,
+                "terminal_hit": terminalHit(oligo: oligo, orientation: orientation,
+                                            start: start, end: end, owner: owner, terminalK: 17,
+                                            mismatches: terminal.count)
+            ]
+        }
+        let leftForward = projection(site: "site-lf", start: 0, end: 20, oligo: forward,
+                                     observed: forward, orientation: "+", owner: "left-config")
+        let leftReverse = projection(site: "site-lr", start: 180, end: 200, oligo: internalReverse,
+                                     observed: changedInternalReverse, orientation: "-", owner: "left-config")
+        let rightForward = projection(site: "site-rf", start: 300, end: 320, oligo: internalForward,
+                                      observed: internalForward, orientation: "+", owner: "right-config")
+        let rightReverse = projection(site: "site-rr", start: 480, end: 500, oligo: reverse,
+                                      observed: reverse, orientation: "-", owner: "right-config")
+        var plus = terminalHit(oligo: forward, orientation: "+", start: 0, end: 20,
+                               owner: "left-config", terminalK: 17)
+        var minus = terminalHit(oligo: reverse, orientation: "-", start: 480, end: 500,
+                                owner: "right-config", terminalK: 17)
+        if sharedExternalOwners {
+            plus["owners"] = ["left-config", "right-config"]
+            minus["owners"] = ["left-config", "right-config"]
+        }
+        return [
+            "id": "concrete-secondary", "target_id": "target", "row_id": "row-concrete",
+            "owners": ["left-config", "right-config"], "start": 0, "end": 500, "length": 500,
+            "plus": plus, "minus": minus,
+            "site_ids": ["site-lf", "site-lr", "site-rf", "site-rr"],
+            "classification": "nonexact-ordered-concrete-secondary-product",
+            "reason": "ordered-disjoint-concrete-designated-sites/v1",
+            "policy_id": "ordered-disjoint-concrete-designated-sites/v1",
+            "coverage_credit": 0, "uncertain": false,
+            "certificate": [
+                "target_id": "target", "row_id": "row-concrete",
+                "left_configuration_id": "left-config", "right_configuration_id": "right-config",
+                "left_forward": leftForward, "left_reverse": leftReverse,
+                "right_forward": rightForward, "right_reverse": rightReverse
+            ]
+        ]
+    }
+
+    private static func terminalHit(oligo: String, orientation: String, start: Int, end: Int,
+                                    owner: String, terminalK: Int, mismatches: Int = 0) -> [String: Any] {
+        ["oligo": oligo, "orientation": orientation, "start": start, "end": end,
+         "terminal_interval": orientation == "+" ? [end - terminalK, end] : [start, start + terminalK],
+         "mismatches": mismatches, "classification": mismatches == 0 ? "exact-terminal" : "single-mismatch",
+         "owners": [owner]]
+    }
+
+    private static func phaseProgress(phase: String, localBudget: Double?) -> [String: Any] {
+        [
+            "phase": phase, "outcome": "completed", "started_seconds": 0.0,
+            "local_budget_seconds": localBudget ?? NSNull(),
+            "elapsed_seconds": 0.1, "local_overshoot_seconds": 0.0,
+            "objective_before": Array(repeating: 0.0, count: 9),
+            "objective_after": Array(repeating: 0.0, count: 9),
+            "repairs_accepted_delta": 0, "work_delta": [:], "proposal_work_delta": [:],
+            "family_cursors_before": [:], "family_cursors": [:]
+        ]
+    }
+
+    private static func writeJSON(_ object: Any, to url: URL) throws {
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]).write(to: url)
+    }
+
+    private static func writeGzip(_ object: Any, to url: URL) throws {
+        let process = Process(), input = Pipe(), output = Pipe()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/gzip")
+        process.arguments = ["-n", "-c"]
+        process.standardInput = input; process.standardOutput = output
+        try process.run()
+        input.fileHandleForWriting.write(try JSONSerialization.data(withJSONObject: object))
+        try input.fileHandleForWriting.close()
+        let compressed = output.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        guard process.terminationStatus == 0 else { throw CocoaError(.fileWriteUnknown) }
+        try compressed.write(to: url)
+    }
+
+    private static func regularFiles(_ root: URL) throws -> [URL] {
+        let values = try root.resourceValues(forKeys: [.isRegularFileKey, .isDirectoryKey])
+        if values.isRegularFile == true { return [root] }
+        return try FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: nil)
+            .sorted { $0.path < $1.path }.flatMap(regularFiles)
+    }
+
+    private static func descriptor(_ file: URL, relativeTo root: URL) throws -> [String: Any] {
+        ["path": file.standardizedFileURL.pathComponents.dropFirst(root.standardizedFileURL.pathComponents.count)
+            .joined(separator: "/"), "sha256": try ProvenanceFileHasher.sha256(of: file),
+         "size": try ProvenanceFileHasher.fileSize(of: file)]
+    }
+
+    private static func sha256(_ data: Data) -> String {
+        let temporary = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try! data.write(to: temporary)
+        defer { try? FileManager.default.removeItem(at: temporary) }
+        return try! ProvenanceFileHasher.sha256(of: temporary)
+    }
+}

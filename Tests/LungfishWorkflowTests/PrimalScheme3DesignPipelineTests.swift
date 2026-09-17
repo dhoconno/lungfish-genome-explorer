@@ -16,6 +16,17 @@ final class PrimalScheme3DesignPipelineTests: XCTestCase {
         XCTAssertEqual(result.unknownBaseCount, 1)
     }
 
+    func testAlleleCoverageInputPreservesUnknownAndAmbiguousBases() {
+        let result = Primer3InputLoader.normalizeForPrimalScheme([
+            Primer3AlignedRow(title: "reference", sequence: "ACN-RYu"),
+            Primer3AlignedRow(title: "sample", sequence: "ACG-NNt")
+        ], ambiguityPolicy: .preserve)
+
+        XCTAssertEqual(result.rows.map(\.sequence), ["ACN-RYT", "ACG-NNt"])
+        XCTAssertEqual(result.uracilCount, 1)
+        XCTAssertEqual(result.unknownBaseCount, 3)
+    }
+
     func testSupportedInputsIncludeRawNucleotideFASTAAndNativeBundles() {
         for extensionName in ["fa", "fasta", "fna", "ffn", "frn", "fas", "lungfishmsa", "lungfishref"] {
             XCTAssertTrue(
@@ -193,6 +204,310 @@ final class PrimalScheme3DesignPipelineTests: XCTestCase {
         XCTAssertEqual(options.provenanceOptions["requestedMisprimingProductSize"], .null)
     }
 
+    func testAlleleCoverageDefaultsAndAdvancedControlsReachNativeArguments() throws {
+        let inputs = [URL(fileURLWithPath: "/test/a.fasta"), URL(fileURLWithPath: "/test/b.fasta")]
+        let allele = PrimalScheme3AlleleOptions(
+            preset: "allele-balanced-v1", candidateProfiles: "normal",
+            reuseDiscovery: URL(fileURLWithPath: "/cache"), variantSelection: "subsets",
+            phaseScheduling: .reserved,
+            intendedProductPolicy: .concreteDesignatedSites,
+            alleleWeighting: "distinct-observed", discoveryLengthMode: "all", specificityTerminalK: 19,
+            secondaryProductPolicy: .rejectSecondaryProducts, subsetBeamWidth: 8,
+            subsetExpansionLimit: 100, exchangeWidth: 1, salvage: "bounded",
+            salvageThresholds: [-28, -31], salvageMaxStages: 2,
+            salvageMaxEdgesPerPool: 5, salvageMaxOligosPerPool: 3,
+            salvageTimeLimit: 20, primaryTier: "salvage-2",
+            workFrontierCandidates: 20, workConstructionCandidateAttempts: 200,
+            workRepairCandidateProbesPerRound: 30, workRepairNeighborhoodsPerRound: 40,
+            workRepairTrialsPerRound: 50, workPoolLookaheadCandidates: 3,
+            workCleanupMovesPerRound: 12, workFamiliesPerRefresh: 7)
+        let options = PrimalScheme3DesignOptions(
+            ampliconSize: 200, poolCount: 3, ampliconSizeMinimum: 150,
+            ampliconSizeMaximum: 250, selectionAlgorithm: .alleleCoverage,
+            optimizerSeed: -7, optimizerStarts: 5, optimizerRepairRounds: 0,
+            optimizerTimeLimit: 3.5, alleleOptions: allele)
+
+        let args = try PrimalScheme3DesignPipeline.arguments(inputs: inputs,
+            output: URL(fileURLWithPath: "/test/output"), grouping: .combined, options: options)
+
+        for (flag, value) in [
+            ("--selection-algorithm", "allele-coverage"),
+            ("--coverage-metric", "observed-allele-primer-trimmed"),
+            ("--coverage-target", "0.95"), ("--candidate-profiles", "normal"),
+            ("--reuse-discovery", "/cache"), ("--variant-selection", "subsets"),
+            ("--phase-scheduling", "reserved"),
+            ("--intended-product-policy", "concrete-designated-sites"),
+            ("--allele-weighting", "distinct-observed"), ("--discovery-length-mode", "all"),
+            ("--specificity-terminal-k", "19"),
+            ("--secondary-product-policy", "reject-secondary-products/v1"),
+            ("--subset-beam-width", "8"), ("--subset-expansion-limit", "100"),
+            ("--exchange-width", "1"), ("--salvage", "bounded"),
+            ("--salvage-max-stages", "2"), ("--salvage-max-edges-per-pool", "5"),
+            ("--salvage-max-oligos-per-pool", "3"), ("--salvage-time-limit", "20.0"),
+            ("--primary-tier", "salvage-2"), ("--work-frontier-candidates", "20"),
+            ("--work-construction-candidate-attempts", "200"),
+            ("--work-repair-candidate-probes-per-round", "30"),
+            ("--work-repair-neighborhoods-per-round", "40"),
+            ("--work-repair-trials-per-round", "50"),
+            ("--work-pool-lookahead-candidates", "3"),
+            ("--work-cleanup-moves-per-round", "12"),
+            ("--work-families-per-refresh", "7")
+        ] {
+            let index = try XCTUnwrap(args.firstIndex(of: flag), flag)
+            XCTAssertEqual(args[index + 1], value, flag)
+        }
+        XCTAssertEqual(args.filter { $0 == "--salvage-threshold" }.count, 2)
+        XCTAssertEqual(options.coverageMetric, .observedAllelePrimerTrimmed)
+        XCTAssertEqual(options.coverageTarget, 0.95)
+        XCTAssertEqual(options.provenanceOptions["alleleOptions"], .dictionary(allele.resolvedProvenanceOptions))
+        XCTAssertEqual(options.provenanceOptions["alleleRequestedOptions"], .dictionary(allele.requestedProvenanceOptions))
+    }
+
+    func testAllelePhaseSchedulingDefaultsToSerialButOnlyExplicitOverrideReachesNativeArguments() throws {
+        let inputs = [URL(fileURLWithPath: "/test/a.fasta")]
+        let output = URL(fileURLWithPath: "/test/output")
+        let base: (PrimalScheme3AlleleOptions) throws -> [String] = { allele in
+            try PrimalScheme3DesignPipeline.arguments(inputs: inputs, output: output, grouping: .combined,
+                options: .init(ampliconSize: 200, poolCount: 2, ampliconSizeMinimum: 150,
+                    ampliconSizeMaximum: 250, selectionAlgorithm: .alleleCoverage, alleleOptions: allele))
+        }
+        let defaults = PrimalScheme3AlleleOptions()
+        XCTAssertEqual(defaults.phaseScheduling, .serial)
+        XCTAssertFalse(try base(defaults).contains("--phase-scheduling"))
+        let explicitSerial = PrimalScheme3AlleleOptions(phaseScheduling: .serial)
+        XCTAssertEqual(Array(try base(explicitSerial).suffix(2)), ["--phase-scheduling", "serial"])
+        XCTAssertEqual(explicitSerial.requestedProvenanceOptions["phaseScheduling"], .string("serial"))
+    }
+
+    func testAlleleSearchEffortResolvesOnlyItsFiveVersionedDefaults() throws {
+        let inputs = [URL(fileURLWithPath: "/test/a.fasta")]
+        let output = URL(fileURLWithPath: "/test/output")
+        let standard = PrimalScheme3DesignOptions(
+            ampliconSize: 200, poolCount: 2, ampliconSizeMinimum: 150,
+            ampliconSizeMaximum: 250, selectionAlgorithm: .alleleCoverage)
+        XCTAssertEqual(standard.alleleOptions.searchEffort, .standardV1)
+        XCTAssertEqual(standard.optimizerTimeLimit, 120)
+        XCTAssertEqual(standard.optimizerStarts, 4)
+        XCTAssertEqual(standard.optimizerRepairRounds, 2)
+        XCTAssertEqual(standard.alleleOptions.workConstructionCandidateAttempts, 2_048)
+        XCTAssertEqual(standard.alleleOptions.workFamiliesPerRefresh, 16)
+        let standardArguments = try PrimalScheme3DesignPipeline.arguments(
+            inputs: inputs, output: output, grouping: .combined, options: standard)
+        for flag in ["--search-effort", "--optimizer-time-limit", "--optimizer-starts",
+                     "--optimizer-repair-rounds", "--work-construction-candidate-attempts",
+                     "--work-families-per-refresh"] {
+            XCTAssertFalse(standardArguments.contains(flag), flag)
+        }
+
+        let quality = PrimalScheme3DesignOptions(
+            ampliconSize: 200, poolCount: 2, ampliconSizeMinimum: 150,
+            ampliconSizeMaximum: 250, selectionAlgorithm: .alleleCoverage,
+            alleleOptions: .init(searchEffort: .qualityV1))
+        XCTAssertEqual(quality.optimizerTimeLimit, 3_600)
+        XCTAssertEqual(quality.optimizerStarts, 8)
+        XCTAssertEqual(quality.optimizerRepairRounds, 3)
+        XCTAssertEqual(quality.alleleOptions.workConstructionCandidateAttempts, 8_192)
+        XCTAssertEqual(quality.alleleOptions.workFamiliesPerRefresh, 32)
+        XCTAssertEqual(quality.alleleOptions.phaseScheduling, .serial)
+        XCTAssertEqual(quality.alleleOptions.salvage, "off")
+        let qualityArguments = try PrimalScheme3DesignPipeline.arguments(
+            inputs: inputs, output: output, grouping: .combined, options: quality)
+        let effortIndex = try XCTUnwrap(qualityArguments.firstIndex(of: "--search-effort"))
+        XCTAssertEqual(qualityArguments[effortIndex + 1], "quality-v1")
+        for flag in ["--optimizer-time-limit", "--optimizer-starts", "--optimizer-repair-rounds",
+                     "--work-construction-candidate-attempts", "--work-families-per-refresh"] {
+            XCTAssertFalse(qualityArguments.contains(flag), flag)
+        }
+    }
+
+    func testAlleleSearchEffortExplicitOldDefaultsOverrideQualityAndSurviveRoundTrip() throws {
+        let allele = PrimalScheme3AlleleOptions(
+            searchEffort: .qualityV1,
+            workConstructionCandidateAttempts: 2_048,
+            workFamiliesPerRefresh: 16)
+        let options = PrimalScheme3DesignOptions(
+            ampliconSize: 200, poolCount: 2, ampliconSizeMinimum: 150,
+            ampliconSizeMaximum: 250, selectionAlgorithm: .alleleCoverage,
+            optimizerStarts: 4, optimizerRepairRounds: 2, optimizerTimeLimit: 120,
+            alleleOptions: allele)
+        XCTAssertEqual(options.optimizerStarts, 4)
+        XCTAssertEqual(options.optimizerRepairRounds, 2)
+        XCTAssertEqual(options.optimizerTimeLimit, 120)
+        XCTAssertEqual(options.alleleOptions.workConstructionCandidateAttempts, 2_048)
+        XCTAssertEqual(options.alleleOptions.workFamiliesPerRefresh, 16)
+        XCTAssertEqual(options.alleleOptions.requestedProvenanceOptions["searchEffort"],
+                       .string("quality-v1"))
+        XCTAssertEqual(options.provenanceOptions["requestedOptimizerStarts"], .integer(4))
+        XCTAssertEqual(options.provenanceOptions["requestedOptimizerRepairRounds"], .integer(2))
+        XCTAssertEqual(options.provenanceOptions["requestedOptimizerTimeLimit"], .number(120))
+
+        let arguments = try PrimalScheme3DesignPipeline.arguments(
+            inputs: [URL(fileURLWithPath: "/test/a.fasta")],
+            output: URL(fileURLWithPath: "/test/output"), grouping: .combined, options: options)
+        for (flag, value) in [
+            ("--search-effort", "quality-v1"),
+            ("--optimizer-starts", "4"),
+            ("--optimizer-repair-rounds", "2"),
+            ("--optimizer-time-limit", "120.0"),
+            ("--work-construction-candidate-attempts", "2048"),
+            ("--work-families-per-refresh", "16")
+        ] {
+            let index = try XCTUnwrap(arguments.firstIndex(of: flag), flag)
+            XCTAssertEqual(arguments[index + 1], value, flag)
+        }
+        let decoded = try JSONDecoder().decode(
+            PrimalScheme3DesignOptions.self, from: JSONEncoder().encode(options))
+        XCTAssertEqual(decoded, options)
+        XCTAssertEqual(decoded.requestedOptimizerStarts, 4)
+        XCTAssertEqual(decoded.requestedOptimizerRepairRounds, 2)
+        XCTAssertEqual(decoded.requestedOptimizerTimeLimit, 120)
+        XCTAssertEqual(decoded.alleleOptions.requestedOptionNames, allele.requestedOptionNames)
+    }
+
+    func testAlleleSearchEffortInheritedQualityAndHistoricalNondefaultsDecodeWithoutLosingIntent() throws {
+        let inheritedQuality = PrimalScheme3DesignOptions(
+            ampliconSize: 200, poolCount: 2, ampliconSizeMinimum: 150,
+            ampliconSizeMaximum: 250, selectionAlgorithm: .alleleCoverage,
+            alleleOptions: .init(searchEffort: .qualityV1))
+        let qualityRoundTrip = try JSONDecoder().decode(
+            PrimalScheme3DesignOptions.self, from: JSONEncoder().encode(inheritedQuality))
+        XCTAssertEqual(qualityRoundTrip, inheritedQuality)
+        XCTAssertNil(qualityRoundTrip.requestedOptimizerStarts)
+        XCTAssertNil(qualityRoundTrip.requestedOptimizerRepairRounds)
+        XCTAssertNil(qualityRoundTrip.requestedOptimizerTimeLimit)
+        XCTAssertEqual(qualityRoundTrip.optimizerStarts, 8)
+        XCTAssertEqual(qualityRoundTrip.optimizerRepairRounds, 3)
+        XCTAssertEqual(qualityRoundTrip.optimizerTimeLimit, 3_600)
+
+        let oldConfiguration = PrimalScheme3DesignOptions(
+            ampliconSize: 200, poolCount: 2, ampliconSizeMinimum: 150,
+            ampliconSizeMaximum: 250, selectionAlgorithm: .alleleCoverage,
+            optimizerStarts: 7, optimizerRepairRounds: 1, optimizerTimeLimit: 45)
+        var historical = try XCTUnwrap(JSONSerialization.jsonObject(
+            with: JSONEncoder().encode(oldConfiguration)) as? [String: Any])
+        historical.removeValue(forKey: "requestedOptimizerStarts")
+        historical.removeValue(forKey: "requestedOptimizerRepairRounds")
+        historical.removeValue(forKey: "requestedOptimizerTimeLimit")
+        var historicalAllele = try XCTUnwrap(historical["alleleOptions"] as? [String: Any])
+        historicalAllele.removeValue(forKey: "requestedSearchEffort")
+        historical["alleleOptions"] = historicalAllele
+        let historicalDecoded = try JSONDecoder().decode(
+            PrimalScheme3DesignOptions.self,
+            from: JSONSerialization.data(withJSONObject: historical, options: [.sortedKeys]))
+        XCTAssertEqual(historicalDecoded.alleleOptions.searchEffort, .standardV1)
+        XCTAssertEqual(historicalDecoded.optimizerStarts, 7)
+        XCTAssertEqual(historicalDecoded.optimizerRepairRounds, 1)
+        XCTAssertEqual(historicalDecoded.optimizerTimeLimit, 45)
+        XCTAssertEqual(historicalDecoded.requestedOptimizerStarts, 7)
+        XCTAssertEqual(historicalDecoded.requestedOptimizerRepairRounds, 1)
+        XCTAssertEqual(historicalDecoded.requestedOptimizerTimeLimit, 45)
+    }
+
+    func testAlleleIntendedProductPolicyDefaultsToExactButOnlyExplicitOverrideReachesNativeArguments() throws {
+        let inputs = [URL(fileURLWithPath: "/test/a.fasta")]
+        let output = URL(fileURLWithPath: "/test/output")
+        let base: (PrimalScheme3AlleleOptions) throws -> [String] = { allele in
+            try PrimalScheme3DesignPipeline.arguments(inputs: inputs, output: output, grouping: .combined,
+                options: .init(ampliconSize: 200, poolCount: 2, ampliconSizeMinimum: 150,
+                    ampliconSizeMaximum: 250, selectionAlgorithm: .alleleCoverage, alleleOptions: allele))
+        }
+        let defaults = PrimalScheme3AlleleOptions()
+        XCTAssertEqual(defaults.intendedProductPolicy, .exactSupported)
+        XCTAssertFalse(try base(defaults).contains("--intended-product-policy"))
+        let explicitExact = PrimalScheme3AlleleOptions(intendedProductPolicy: .exactSupported)
+        XCTAssertEqual(Array(try base(explicitExact).suffix(2)), ["--intended-product-policy", "exact-supported"])
+        XCTAssertEqual(explicitExact.requestedProvenanceOptions["intendedProductPolicy"], .string("exact-supported"))
+    }
+
+    func testAlleleSecondaryProductPolicyDefaultsToExactButOnlyExplicitOverrideReachesNativeArguments() throws {
+        let inputs = [URL(fileURLWithPath: "/test/a.fasta")]
+        let output = URL(fileURLWithPath: "/test/output")
+        let base: (PrimalScheme3AlleleOptions) throws -> [String] = { allele in
+            try PrimalScheme3DesignPipeline.arguments(inputs: inputs, output: output, grouping: .combined,
+                options: .init(ampliconSize: 200, poolCount: 2, ampliconSizeMinimum: 150,
+                    ampliconSizeMaximum: 250, selectionAlgorithm: .alleleCoverage, alleleOptions: allele))
+        }
+        let defaults = PrimalScheme3AlleleOptions()
+        XCTAssertEqual(defaults.secondaryProductPolicy, .orderedDisjointIntendedSites)
+        XCTAssertFalse(try base(defaults).contains("--secondary-product-policy"))
+        let explicitConcrete = PrimalScheme3AlleleOptions(
+            secondaryProductPolicy: .orderedDisjointConcreteDesignatedSites)
+        XCTAssertEqual(Array(try base(explicitConcrete).suffix(2)), [
+            "--secondary-product-policy", "ordered-disjoint-concrete-designated-sites/v1"
+        ])
+        XCTAssertEqual(explicitConcrete.requestedProvenanceOptions["secondaryProductPolicy"],
+                       .string("ordered-disjoint-concrete-designated-sites/v1"))
+        let encoded = try JSONEncoder().encode(explicitConcrete)
+        XCTAssertEqual(try JSONDecoder().decode(PrimalScheme3AlleleOptions.self, from: encoded), explicitConcrete)
+    }
+
+    func testAlleleCoverageRejectsUnsupportedScopeAndInvalidAdvancedControls() {
+        let input = [URL(fileURLWithPath: "/test/input.fasta")]
+        let output = URL(fileURLWithPath: "/test/output")
+        func rejected(_ options: PrimalScheme3DesignOptions, grouping: PrimerAnalysisGrouping = .combined,
+                      file: StaticString = #filePath, line: UInt = #line) {
+            XCTAssertThrowsError(try PrimalScheme3DesignPipeline.arguments(inputs: input, output: output,
+                grouping: grouping, options: options), file: file, line: line)
+        }
+        rejected(.init(ampliconSize: 200, poolCount: 2, selectionAlgorithm: .alleleCoverage))
+        rejected(.init(ampliconSize: 200, poolCount: 2, highGC: true, ampliconSizeMinimum: 150,
+            selectionAlgorithm: .alleleCoverage))
+        rejected(.init(ampliconSize: 200, poolCount: 2, terminalGapPolicy: .legacy,
+            ampliconSizeMinimum: 150, selectionAlgorithm: .alleleCoverage))
+        rejected(.init(ampliconSize: 200, poolCount: 2, dimerScore: -28,
+            ampliconSizeMinimum: 150, selectionAlgorithm: .alleleCoverage))
+        rejected(.init(ampliconSize: 200, poolCount: 2, minOverlap: 50,
+            ampliconSizeMinimum: 150, ampliconSizeMaximum: 250,
+            selectionAlgorithm: .alleleCoverage))
+        rejected(.init(ampliconSize: 200, poolCount: 2, ampliconSizeMinimum: 150,
+            selectionAlgorithm: .alleleCoverage,
+            alleleOptions: .init(salvage: "off", salvageMaxStages: 2)))
+        rejected(.init(ampliconSize: 200, poolCount: 2, ampliconSizeMinimum: 150,
+            selectionAlgorithm: .alleleCoverage,
+            alleleOptions: .init(variantSelection: "full-cloud", subsetBeamWidth: 8)))
+        rejected(.init(ampliconSize: 200, poolCount: 2, ampliconSizeMinimum: 150,
+            selectionAlgorithm: .alleleCoverage, coverageTarget: 0))
+        XCTAssertNoThrow(try PrimalScheme3DesignPipeline.arguments(inputs: input, output: output,
+            grouping: .combined, options: .init(ampliconSize: 200, poolCount: 2,
+                ampliconSizeMinimum: 150, ampliconSizeMaximum: 250,
+                selectionAlgorithm: .alleleCoverage)))
+    }
+
+    func testAlleleSalvageDefaultsFollowRequestedMaximumStageAndStrictTierIsAllowedWhenOff() throws {
+        let bounded = PrimalScheme3AlleleOptions(salvage: "bounded", salvageMaxStages: 1)
+        XCTAssertEqual(bounded.salvageThresholds, [-28])
+        XCTAssertNoThrow(try bounded.validate())
+        let strict = PrimalScheme3AlleleOptions(salvage: "off", primaryTier: "strict")
+        XCTAssertNoThrow(try strict.validate())
+    }
+
+    func testAlleleReuseAcceptsOnlyConsistentZeroDiscoveryWorkers() throws {
+        let cache = URL(fileURLWithPath: "/fixture/cache")
+        let options = PrimalScheme3DesignOptions(ampliconSize: 200, poolCount: 2,
+            ampliconSizeMinimum: 150, ampliconSizeMaximum: 250,
+            selectionAlgorithm: .alleleCoverage,
+            alleleOptions: .init(reuseDiscovery: cache))
+        let valid: [String: Any] = ["discovery_core_count": 0, "discovery_reused": true,
+            "discovery_workers_by_msa": ["0": 0],
+            "discovery_workers_by_target_profile": ["target": ["normal": 0, "high-gc": 0]]]
+        XCTAssertEqual(try PrimalScheme3DesignPipeline.validateEffectiveWorkers(
+            configuration: valid, options: options), 0)
+        for invalid in [
+            ["discovery_core_count": 1, "discovery_reused": true,
+             "discovery_workers_by_msa": ["0": 0],
+             "discovery_workers_by_target_profile": ["target": ["normal": 0]]],
+            ["discovery_core_count": 0, "discovery_reused": false,
+             "discovery_workers_by_msa": ["0": 0],
+             "discovery_workers_by_target_profile": ["target": ["normal": 0]]],
+            ["discovery_core_count": 0, "discovery_reused": true,
+             "discovery_workers_by_msa": ["0": 1],
+             "discovery_workers_by_target_profile": ["target": ["normal": 0]]]
+        ] as [[String: Any]] {
+            XCTAssertThrowsError(try PrimalScheme3DesignPipeline.validateEffectiveWorkers(
+                configuration: invalid, options: options))
+        }
+    }
+
     func testCoverageRequiresCombinedEqualExplicitBoundsAndValidSelectorNumbers() {
         let input = [URL(fileURLWithPath: "/test/input.fasta")]
         let output = URL(fileURLWithPath: "/test/output")
@@ -226,6 +541,8 @@ final class PrimalScheme3DesignPipelineTests: XCTestCase {
             ampliconSizeMinimum: 150, selectionAlgorithm: .coverage))
         rejected(.init(ampliconSize: 200, poolCount: 2, maxAmpliconsPerMSA: -1,
             ampliconSizeMinimum: 150, selectionAlgorithm: .coverage))
+        rejected(.init(ampliconSize: 200, poolCount: 2, ampliconSizeMinimum: 150,
+            selectionAlgorithm: .coverage, alleleOptions: .init(searchEffort: .qualityV1)))
         XCTAssertNoThrow(try PrimalScheme3DesignPipeline.arguments(inputs: input, output: output,
             grouping: .combined, options: .init(ampliconSize: 200, poolCount: 2,
                 maxAmplicons: 0, maxAmpliconsPerMSA: 0, ampliconSizeMinimum: 150,

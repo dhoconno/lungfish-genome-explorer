@@ -18,11 +18,13 @@ public enum PrimalScheme3PanelMode: String, Codable, CaseIterable, Sendable {
 
 public enum PrimalScheme3SelectionAlgorithm: String, Codable, CaseIterable, Sendable {
     case legacy, coverage
+    case alleleCoverage = "allele-coverage"
 }
 
 public enum PrimalScheme3CoverageMetric: String, Codable, CaseIterable, Sendable {
     case fullSpan = "full-span"
     case primerTrimmed = "primer-trimmed"
+    case observedAllelePrimerTrimmed = "observed-allele-primer-trimmed"
 }
 
 public struct PrimalScheme3DesignOptions: Codable, Equatable, Sendable {
@@ -52,12 +54,19 @@ public struct PrimalScheme3DesignOptions: Codable, Equatable, Sendable {
     public let coverageMetric: PrimalScheme3CoverageMetric
     public let coverageTarget: Double
     public let optimizerSeed: Int
+    public let requestedOptimizerStarts: Int?
+    public let requestedOptimizerRepairRounds: Int?
+    public let requestedOptimizerTimeLimit: Double?
     public let optimizerStarts: Int
     public let optimizerRepairRounds: Int
     public let optimizerTimeLimit: Double
+    public let alleleOptions: PrimalScheme3AlleleOptions
+    public let legacySalvageOptions: PrimalScheme3LegacySalvageOptions
+    public let gapCompletionParent: URL?
+    public let gapExpansionOptions: PrimalScheme3GapExpansionOptions
     public let requestedMisprimingProductSize: Int?
     public var misprimingProductSize: Int {
-        requestedMisprimingProductSize ?? (selectionAlgorithm == .coverage ? 2_000 : 0)
+        requestedMisprimingProductSize ?? (selectionAlgorithm == .legacy ? 0 : 2_000)
     }
     public init(ampliconSize: Int, poolCount: Int, minOverlap: Int = 10,
                 minimumBaseFrequency: Double = 0, highGC: Bool = false, coreCount: Int = PrimalScheme3DesignOptions.defaultCoreCount,
@@ -68,11 +77,15 @@ public struct PrimalScheme3DesignOptions: Codable, Equatable, Sendable {
                 maxAmplicons: Int? = nil, maxAmpliconsPerMSA: Int? = nil,
                 ampliconSizeMinimum: Int? = nil, ampliconSizeMaximum: Int? = nil,
                 selectionAlgorithm: PrimalScheme3SelectionAlgorithm = .legacy,
-                coverageMetric: PrimalScheme3CoverageMetric = .fullSpan,
-                coverageTarget: Double = 0.90, optimizerSeed: Int = 0,
-                optimizerStarts: Int = 4, optimizerRepairRounds: Int = 2,
-                optimizerTimeLimit: Double = 120,
-                misprimingProductSize: Int? = nil) {
+                coverageMetric: PrimalScheme3CoverageMetric? = nil,
+                coverageTarget: Double? = nil, optimizerSeed: Int = 0,
+                optimizerStarts: Int? = nil, optimizerRepairRounds: Int? = nil,
+                optimizerTimeLimit: Double? = nil,
+                misprimingProductSize: Int? = nil,
+                alleleOptions: PrimalScheme3AlleleOptions = .init(),
+                legacySalvageOptions: PrimalScheme3LegacySalvageOptions = .init(),
+                gapCompletionParent: URL? = nil,
+                gapExpansionOptions: PrimalScheme3GapExpansionOptions = .init()) {
         self.requestedAmpliconSizeMinimum = ampliconSizeMinimum
         self.requestedAmpliconSizeMaximum = ampliconSizeMaximum
         self.dimerScore = dimerScore
@@ -90,13 +103,21 @@ public struct PrimalScheme3DesignOptions: Codable, Equatable, Sendable {
         self.coreCount = coreCount
         self.terminalGapPolicy = terminalGapPolicy
         self.selectionAlgorithm = selectionAlgorithm
-        self.coverageMetric = coverageMetric
-        self.coverageTarget = coverageTarget
+        self.coverageMetric = coverageMetric ?? (selectionAlgorithm == .alleleCoverage ? .observedAllelePrimerTrimmed : .fullSpan)
+        self.coverageTarget = coverageTarget ?? (selectionAlgorithm == .alleleCoverage ? 0.95 : 0.90)
         self.optimizerSeed = optimizerSeed
-        self.optimizerStarts = optimizerStarts
-        self.optimizerRepairRounds = optimizerRepairRounds
-        self.optimizerTimeLimit = optimizerTimeLimit
+        self.requestedOptimizerStarts = optimizerStarts
+        self.requestedOptimizerRepairRounds = optimizerRepairRounds
+        self.requestedOptimizerTimeLimit = optimizerTimeLimit
+        let effort = alleleOptions.searchEffort
+        self.optimizerStarts = optimizerStarts ?? effort.optimizerStarts
+        self.optimizerRepairRounds = optimizerRepairRounds ?? effort.optimizerRepairRounds
+        self.optimizerTimeLimit = optimizerTimeLimit ?? effort.optimizerTimeLimit
         self.requestedMisprimingProductSize = misprimingProductSize
+        self.alleleOptions = alleleOptions
+        self.legacySalvageOptions = legacySalvageOptions
+        self.gapCompletionParent = gapCompletionParent
+        self.gapExpansionOptions = gapExpansionOptions
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -105,10 +126,30 @@ public struct PrimalScheme3DesignOptions: Codable, Equatable, Sendable {
         case poolCount, minOverlap, minimumBaseFrequency, highGC, coreCount, terminalGapPolicy
         case selectionAlgorithm, coverageMetric, coverageTarget, optimizerSeed, optimizerStarts
         case optimizerRepairRounds, optimizerTimeLimit, requestedMisprimingProductSize
+        case requestedOptimizerStarts, requestedOptimizerRepairRounds, requestedOptimizerTimeLimit
+        case alleleOptions
+        case legacySalvageOptions, gapCompletionParent, gapExpansionOptions
     }
 
     public init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
+        let alleleOptions = try values.decodeIfPresent(
+            PrimalScheme3AlleleOptions.self, forKey: .alleleOptions) ?? .init()
+        let storedStarts = try values.decodeIfPresent(Int.self, forKey: .optimizerStarts)
+            ?? PrimalScheme3SearchEffort.standardV1.optimizerStarts
+        let storedRepairRounds = try values.decodeIfPresent(Int.self, forKey: .optimizerRepairRounds)
+            ?? PrimalScheme3SearchEffort.standardV1.optimizerRepairRounds
+        let storedTimeLimit = try values.decodeIfPresent(Double.self, forKey: .optimizerTimeLimit)
+            ?? PrimalScheme3SearchEffort.standardV1.optimizerTimeLimit
+        let requestedStarts = try values.decodeIfPresent(Int.self, forKey: .requestedOptimizerStarts)
+            ?? (storedStarts == alleleOptions.searchEffort.optimizerStarts ? nil : storedStarts)
+        let requestedRepairRounds = try values.decodeIfPresent(
+            Int.self, forKey: .requestedOptimizerRepairRounds)
+            ?? (storedRepairRounds == alleleOptions.searchEffort.optimizerRepairRounds
+                ? nil : storedRepairRounds)
+        let requestedTimeLimit = try values.decodeIfPresent(
+            Double.self, forKey: .requestedOptimizerTimeLimit)
+            ?? (storedTimeLimit == alleleOptions.searchEffort.optimizerTimeLimit ? nil : storedTimeLimit)
         self.init(
             ampliconSize: try values.decode(Int.self, forKey: .ampliconSize),
             poolCount: try values.decode(Int.self, forKey: .poolCount),
@@ -127,13 +168,23 @@ public struct PrimalScheme3DesignOptions: Codable, Equatable, Sendable {
             ampliconSizeMinimum: try values.decodeIfPresent(Int.self, forKey: .requestedAmpliconSizeMinimum),
             ampliconSizeMaximum: try values.decodeIfPresent(Int.self, forKey: .requestedAmpliconSizeMaximum),
             selectionAlgorithm: try values.decodeIfPresent(PrimalScheme3SelectionAlgorithm.self, forKey: .selectionAlgorithm) ?? .legacy,
-            coverageMetric: try values.decodeIfPresent(PrimalScheme3CoverageMetric.self, forKey: .coverageMetric) ?? .fullSpan,
-            coverageTarget: try values.decodeIfPresent(Double.self, forKey: .coverageTarget) ?? 0.90,
+            coverageMetric: try values.decodeIfPresent(PrimalScheme3CoverageMetric.self, forKey: .coverageMetric),
+            coverageTarget: try values.decodeIfPresent(Double.self, forKey: .coverageTarget),
             optimizerSeed: try values.decodeIfPresent(Int.self, forKey: .optimizerSeed) ?? 0,
-            optimizerStarts: try values.decodeIfPresent(Int.self, forKey: .optimizerStarts) ?? 4,
-            optimizerRepairRounds: try values.decodeIfPresent(Int.self, forKey: .optimizerRepairRounds) ?? 2,
-            optimizerTimeLimit: try values.decodeIfPresent(Double.self, forKey: .optimizerTimeLimit) ?? 120,
-            misprimingProductSize: try values.decodeIfPresent(Int.self, forKey: .requestedMisprimingProductSize))
+            optimizerStarts: requestedStarts,
+            optimizerRepairRounds: requestedRepairRounds,
+            optimizerTimeLimit: requestedTimeLimit,
+            misprimingProductSize: try values.decodeIfPresent(Int.self, forKey: .requestedMisprimingProductSize),
+            alleleOptions: alleleOptions,
+            legacySalvageOptions: try values.decodeIfPresent(PrimalScheme3LegacySalvageOptions.self, forKey: .legacySalvageOptions) ?? .init(),
+            gapCompletionParent: try values.decodeIfPresent(URL.self, forKey: .gapCompletionParent),
+            gapExpansionOptions: try values.decodeIfPresent(PrimalScheme3GapExpansionOptions.self, forKey: .gapExpansionOptions) ?? .init())
+        guard optimizerStarts == storedStarts, optimizerRepairRounds == storedRepairRounds,
+              optimizerTimeLimit == storedTimeLimit else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .alleleOptions, in: values,
+                debugDescription: "Stored optimizer values differ from the effort and explicit override mask.")
+        }
     }
 
     public var provenanceOptions: [String: ParameterValue] {
@@ -154,8 +205,16 @@ public struct PrimalScheme3DesignOptions: Codable, Equatable, Sendable {
          "optimizerSeed": .integer(optimizerSeed), "optimizerStarts": .integer(optimizerStarts),
          "optimizerRepairRounds": .integer(optimizerRepairRounds),
          "optimizerTimeLimit": .number(optimizerTimeLimit),
+         "requestedOptimizerStarts": requestedOptimizerStarts.map(ParameterValue.integer) ?? .null,
+         "requestedOptimizerRepairRounds": requestedOptimizerRepairRounds.map(ParameterValue.integer) ?? .null,
+         "requestedOptimizerTimeLimit": requestedOptimizerTimeLimit.map(ParameterValue.number) ?? .null,
          "requestedMisprimingProductSize": requestedMisprimingProductSize.map(ParameterValue.integer) ?? .null,
-         "misprimingProductSize": .integer(misprimingProductSize)]
+         "misprimingProductSize": .integer(misprimingProductSize),
+         "alleleOptions": .dictionary(alleleOptions.resolvedProvenanceOptions),
+         "alleleRequestedOptions": .dictionary(alleleOptions.requestedProvenanceOptions),
+         "legacySalvage": .dictionary(legacySalvageOptions.provenance),
+         "gapCompletionParent": gapCompletionParent.map { .string($0.path) } ?? .null,
+         "gapExpansion": .dictionary(gapExpansionOptions.provenance)]
     }
 }
 
@@ -213,11 +272,16 @@ struct PrimalScheme3Execution: Sendable {
     var executableSHA256: String? = nil
     var runtimeEvidence: [String: Data] = [:]
     var capabilitiesJSON: Data? = nil
+    var auditValidationJSON: Data? = nil
+    var auditProvenanceJSON: Data? = nil
+    var auditArgv: [String]? = nil
+    var auditExitStatus: Int32? = nil
 }
 
 public struct PrimalScheme3DesignPipeline: Sendable {
     public static let toolVersion = "3.3.0+lge.2"
     public static let coverageToolVersion = "3.3.0+lge.3"
+    public static let alleleToolVersion = "3.3.0+lge.4"
     public static let toolDisplayName = "PrimalScheme3-LGE (custom fork)"
     public static let sourceRepository = "https://github.com/dhoconno/primalscheme3-lge"
     /// Raw nucleotide FASTA suffixes accepted as one-row or already-aligned inputs.
@@ -272,13 +336,36 @@ public struct PrimalScheme3DesignPipeline: Sendable {
               options.ampliconSize <= options.ampliconSizeMaximum else {
             throw PrimalScheme3DesignError.invalidRequest("Amplicon bounds must be positive, with minimum ≤ target ≤ maximum.")
         }
+        if options.selectionAlgorithm != .alleleCoverage,
+           !options.alleleOptions.requestedOptionNames.isEmpty {
+            throw PrimalScheme3DesignError.invalidRequest("Allele controls require --selection-algorithm allele-coverage.")
+        }
         let validCap: (Int?) -> Bool = { value in
-            value.map { options.selectionAlgorithm == .coverage ? $0 >= 0 : $0 > 0 } ?? true
+            value.map { options.selectionAlgorithm == .legacy ? $0 > 0 : $0 >= 0 } ?? true
         }
         guard options.dimerScore.isFinite, validCap(options.maxAmplicons), validCap(options.maxAmpliconsPerMSA),
               grouping != .combined || (!options.backtrack && !options.ignoreN),
               grouping != .independent || (options.panelMode == .equal && options.maxAmplicons == nil && options.maxAmpliconsPerMSA == nil) else {
             throw PrimalScheme3DesignError.invalidRequest("Dimer score must be finite and amplicon limits positive. Backtracking and unknown-base omission apply only to independent schemes; panel modes and limits apply only to combined panels.")
+        }
+        try options.legacySalvageOptions.validate(selectionAlgorithm: options.selectionAlgorithm, grouping: grouping, panelMode: options.panelMode, strictCutoff: options.dimerScore)
+        try options.gapExpansionOptions.validate(hasParent: options.gapCompletionParent != nil)
+        if options.legacySalvageOptions.mode == .bounded && options.panelMode == .entropy {
+            throw PrimalScheme3DesignError.invalidRequest("Legacy salvage requires an equal panel mode.")
+        }
+        if options.legacySalvageOptions.mode == .bounded && (options.maxAmplicons != nil || options.maxAmpliconsPerMSA != nil) {
+            throw PrimalScheme3DesignError.invalidRequest("Legacy salvage requires an uncapped strict panel; max amplicon limits are incompatible.")
+        }
+        if options.gapCompletionParent != nil && options.legacySalvageOptions.mode == .bounded {
+            throw PrimalScheme3DesignError.invalidRequest("Legacy salvage and gap completion parent are incompatible recovery modes.")
+        }
+        if options.gapCompletionParent != nil {
+            guard options.selectionAlgorithm == .legacy, grouping == .combined,
+                  options.panelMode == .equal, options.terminalGapPolicy == .legacy,
+                  options.minOverlap == 10, !options.backtrack, !options.ignoreN,
+                  options.maxAmplicons == nil, options.maxAmpliconsPerMSA == nil else {
+                throw PrimalScheme3DesignError.invalidRequest("Gap completion requires legacy selection, a combined equal panel, first mapping, legacy terminal policy, and no imported or bounded legacy-only panel controls.")
+            }
         }
         if options.selectionAlgorithm == .legacy {
             guard options.coverageMetric == .fullSpan, options.coverageTarget == 0.90,
@@ -295,6 +382,21 @@ public struct PrimalScheme3DesignPipeline: Sendable {
                   options.optimizerTimeLimit.isFinite, options.optimizerTimeLimit > 0,
                   options.misprimingProductSize > 0 else {
                 throw PrimalScheme3DesignError.invalidRequest("Coverage selection requires a combined equal panel, supplied-MSA specificity, an explicit amplicon bound, finite selector settings, positive starts/time/product size, and nonnegative repair rounds.")
+            }
+            if options.selectionAlgorithm == .coverage {
+                guard [.fullSpan, .primerTrimmed].contains(options.coverageMetric) else {
+                    throw PrimalScheme3DesignError.invalidRequest("Historical coverage selection supports only full-span or primer-trimmed metrics.")
+                }
+            } else {
+                try options.alleleOptions.validate()
+                guard options.coverageMetric == .observedAllelePrimerTrimmed,
+                      options.coverageTarget > 0,
+                      options.terminalGapPolicy == .observedOnly, options.dimerScore == -26,
+                      !options.highGC, !options.backtrack, !options.ignoreN,
+                      options.requestedAmpliconSizeMinimum != nil,
+                      options.requestedAmpliconSizeMaximum != nil else {
+                    throw PrimalScheme3DesignError.invalidRequest("Allele coverage requires the observed-allele metric, observed-only linear combined/equal scope, strict -26 dimer cutoff, no legacy high-GC toggle, and both explicit size bounds.")
+                }
             }
         }
         var args = [grouping == .combined ? "panel-create" : "scheme-create"]
@@ -317,20 +419,42 @@ public struct PrimalScheme3DesignPipeline: Sendable {
             if let count = options.maxAmplicons { args += ["--max-amplicons", String(count)] }
             if let count = options.maxAmpliconsPerMSA { args += ["--max-amplicons-msa", String(count)] }
         }
-        if options.selectionAlgorithm == .coverage {
-            args += ["--selection-algorithm", "coverage",
+        if options.selectionAlgorithm != .legacy {
+            args += ["--selection-algorithm", options.selectionAlgorithm.rawValue,
                      "--coverage-metric", options.coverageMetric.rawValue,
                      "--coverage-target", String(options.coverageTarget),
                      "--optimizer-seed", String(options.optimizerSeed),
-                     "--optimizer-starts", String(options.optimizerStarts),
-                     "--optimizer-repair-rounds", String(options.optimizerRepairRounds),
-                     "--optimizer-time-limit", String(options.optimizerTimeLimit),
                      "--mispriming-product-size", String(options.misprimingProductSize)]
-            if options.requestedAmpliconSizeMinimum == nil {
+            if options.selectionAlgorithm == .coverage {
+                args += ["--optimizer-starts", String(options.optimizerStarts),
+                         "--optimizer-repair-rounds", String(options.optimizerRepairRounds),
+                         "--optimizer-time-limit", String(options.optimizerTimeLimit)]
+            } else {
+                if let value = options.requestedOptimizerStarts {
+                    args += ["--optimizer-starts", String(value)]
+                }
+                if let value = options.requestedOptimizerRepairRounds {
+                    args += ["--optimizer-repair-rounds", String(value)]
+                }
+                if let value = options.requestedOptimizerTimeLimit {
+                    args += ["--optimizer-time-limit", String(value)]
+                }
+            }
+            if options.selectionAlgorithm == .coverage, options.requestedAmpliconSizeMinimum == nil {
                 args += ["--amplicon-size-min", String(options.ampliconSizeMinimum)]
             }
-            if options.requestedAmpliconSizeMaximum == nil {
+            if options.selectionAlgorithm == .coverage, options.requestedAmpliconSizeMaximum == nil {
                 args += ["--amplicon-size-max", String(options.ampliconSizeMaximum)]
+            }
+            if options.selectionAlgorithm == .alleleCoverage {
+                options.alleleOptions.appendRequestedArguments(to: &args)
+            }
+        }
+        if options.selectionAlgorithm == .legacy {
+            options.legacySalvageOptions.appendRequestedArguments(to: &args)
+            if let parent = options.gapCompletionParent {
+                args += ["--gap-completion-parent", try PrimalScheme3ParentResolver.resolve(parent).path]
+                options.gapExpansionOptions.appendRequestedArguments(to: &args)
             }
         }
         return args
@@ -383,25 +507,56 @@ public struct PrimalScheme3DesignPipeline: Sendable {
         guard request.destinationURL.pathExtension.lowercased() == "lungfishprimeranalysis" else {
             throw PrimalScheme3DesignError.invalidRequest("The destination must be a .lungfishprimeranalysis bundle.")
         }
+        if (request.options.gapCompletionParent != nil || request.options.legacySalvageOptions.mode == .bounded), request.executableURL == nil {
+            throw PrimalScheme3DesignError.invalidRequest("Recovery modes require an explicit verified PrimalScheme3 executable.")
+        }
         let destination = try Self.physicalParent(request.destinationURL)
         guard !FileManager.default.fileExists(atPath: destination.path) else {
             throw PrimalScheme3DesignError.invalidRequest("The destination already exists.")
         }
         _ = try Self.arguments(inputs: [request.inputURLs[0]], output: destination,
                                grouping: request.grouping, options: request.options)
-        if request.options.selectionAlgorithm == .coverage, request.executableURL == nil {
+        if request.options.selectionAlgorithm != .legacy, request.executableURL == nil {
             throw PrimalScheme3DesignError.invalidRequest(
-                "Coverage selection requires an explicit verified lge.3 executable: --primalscheme3-path /path/to/primalscheme3")
+                "Coverage selection requires an explicit verified native executable: --primalscheme3-path /path/to/primalscheme3")
         }
         let runtimeLease = request.executableURL == nil ? try await runtimePreparer?(progress) : nil
         defer { runtimeLease?.release() }
         progress?(0.05, "Validating sequence or alignment inputs")
+        let workflowStartedAt = Date()
         let scratch = destination.deletingLastPathComponent().appendingPathComponent(
             ".primalscheme3-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: false)
         defer { try? FileManager.default.removeItem(at: scratch) }
+        do {
+        let effectiveParent: URL?
+        let savedParentInputs: [PrimalScheme3ParentResolver.SavedInput]?
+        if let parent = request.options.gapCompletionParent {
+            let resolved = try PrimalScheme3ParentResolver.resolve(parent)
+            savedParentInputs = try PrimalScheme3ParentResolver.savedInputs(parent: parent, native: resolved)
+            let snapshot = scratch.appendingPathComponent("parent-input", isDirectory: true)
+            try Self.copySource(resolved, to: snapshot)
+            // Keep the identity evidence used to rehydrate saved GUI inputs.
+            // Native files remain untouched; this wrapper-owned folder is not a pool.
+            for saved in savedParentInputs ?? [] {
+                for (path, source) in saved.evidenceFiles {
+                    let target = snapshot.appendingPathComponent("analysis-evidence").appendingPathComponent(path)
+                    if !FileManager.default.fileExists(atPath: target.path) {
+                        try FileManager.default.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
+                        try FileManager.default.copyItem(at: source, to: target)
+                    }
+                    guard try ProvenanceFileHasher.sha256(of: target) == ProvenanceFileHasher.sha256(of: source) else {
+                        throw PrimalScheme3DesignError.invalidRequest("Parent identity evidence changed while being snapshotted.")
+                    }
+                }
+            }
+            effectiveParent = snapshot
+        } else { effectiveParent = nil; savedParentInputs = nil }
+        let executionOptions = request.options.replacingGapCompletionParent(effectiveParent)
         var artifacts: [PrimerAnalysisSourceArtifact] = []
         var inputs: [Input] = []
+        var matchedParentInputs = Set<UUID>()
+        var parentOrderByInput: [UUID: Int] = [:]
         for (inputIndex, url) in request.inputURLs.enumerated() {
             try Task.checkCancellation()
             progress?(0.05 + 0.15 * Double(inputIndex) / Double(request.inputURLs.count), "Preparing input \(inputIndex + 1)/\(request.inputURLs.count)")
@@ -441,8 +596,27 @@ public struct PrimalScheme3DesignPipeline: Sendable {
             } else if referenceBundle {
                 try Self.validateReferenceBundleRows(rows)
             }
-            let normalized = Primer3InputLoader.normalizeForPrimalScheme(rows)
-            let normalizedRows = normalized.rows
+            let savedInput: PrimalScheme3ParentResolver.SavedInput?
+            if let savedParentInputs {
+                let matches = savedParentInputs.enumerated().filter { $0.element.matches(rows) }
+                guard matches.count == 1, let match = matches.first,
+                      matchedParentInputs.insert(match.element.id).inserted else {
+                    throw PrimalScheme3DesignError.invalidRequest("Each selected MSA must uniquely match all source rows of one parent input, including non-reference alleles.")
+                }
+                savedInput = match.element
+                parentOrderByInput[id] = match.offset
+            } else { savedInput = nil }
+            let preservesAmbiguity = savedInput?.preservesAmbiguity
+                ?? (request.options.selectionAlgorithm == .alleleCoverage
+                    || request.options.gapCompletionParent != nil
+                    || request.options.legacySalvageOptions.mode == .bounded)
+            let normalized = Primer3InputLoader.normalizeForPrimalScheme(
+                rows, ambiguityPolicy: preservesAmbiguity ? .preserve : .missingCoverage)
+            // Use the parent's exact consumed sequence bytes while retaining the
+            // source titles for the new row map and viewer.
+            let normalizedRows = savedInput.map { saved in
+                zip(rows, saved.consumedRows).map { Primer3AlignedRow(title: $0.title, sequence: $1.sequence) }
+            } ?? normalized.rows
             let uracilCount = normalized.uracilCount
             let unknownBaseCount = normalized.unknownBaseCount
             let lengths = Set(normalizedRows.map { $0.sequence.count })
@@ -454,11 +628,22 @@ public struct PrimalScheme3DesignPipeline: Sendable {
             let files = try Self.regularFiles(in: snapshot)
             let aligned = scratch.appendingPathComponent("inputs/\(id.uuidString).fasta")
             try FileManager.default.createDirectory(at: aligned.deletingLastPathComponent(), withIntermediateDirectories: true)
-            let normalizedNames = normalizedRows.indices.map { "input_\(id.uuidString.replacingOccurrences(of: "-", with: ""))_row_\($0)" }
+            let normalizedNames = savedInput?.consumedRows.map(\.title)
+                ?? (request.options.gapCompletionParent != nil
+                    ? normalizedRows.map(\.title)
+                    : normalizedRows.indices.map { "input_\(id.uuidString.replacingOccurrences(of: "-", with: ""))_row_\($0)" })
+            guard normalizedNames.count == normalizedRows.count,
+                  Set(normalizedNames).count == normalizedNames.count,
+                  normalizedNames.allSatisfy({ !$0.isEmpty && !$0.contains("\n") && !$0.contains("\r") }) else {
+                throw PrimalScheme3DesignError.invalidRequest("Gap-completion inputs must have unique nonempty FASTA titles matching the native parent targets.")
+            }
             let decompression = sourceAligned.pathExtension.lowercased() == "gz"
                 ? "gzip-decompression-to-UTF8-FASTA; " : ""
+            let ambiguityTransform = preservesAmbiguity
+                ? "N/IUPAC ambiguity preserved for exact support and specificity"
+                : "N-to-gap missing-coverage normalization"
             let preprocessing = decompression
-                + "FASTA-header-normalization; U-to-T DNA normalization; N-to-gap missing-coverage normalization; row-order-preserved"
+                + "FASTA-header-normalization; U-to-T DNA normalization; \(ambiguityTransform); row-order-preserved"
             let consumedFASTA = normalizedRows.enumerated().map { index, row in
                 ">\(normalizedNames[index])\n\(row.sequence)\n"
             }.joined()
@@ -467,7 +652,9 @@ public struct PrimalScheme3DesignPipeline: Sendable {
             let mappingURL = scratch.appendingPathComponent(mappingPath)
             let mapping: [String: Any] = ["schemaVersion": 1, "inputID": id.uuidString,
                 "transformation": (sourceAligned.pathExtension.lowercased() == "gz" ? "gzip decompressed to UTF-8 FASTA; " : "")
-                    + "FASTA headers replaced; U/u normalized to T; N/n treated as missing alignment gaps; row order preserved",
+                    + "FASTA headers replaced; U/u normalized to T; "
+                    + (preservesAmbiguity ? "N/IUPAC ambiguity preserved; " : "N/n treated as missing alignment gaps; ")
+                    + "row order preserved",
                 "uracilCount": uracilCount,
                 "unknownBaseCount": unknownBaseCount,
                 "rows": normalizedRows.enumerated().map { index, row in
@@ -490,6 +677,12 @@ public struct PrimalScheme3DesignPipeline: Sendable {
                                 referenceName: normalizedNames[0],
                                 rowMappingPath: mappingPath))
         }
+        if let savedParentInputs {
+            guard matchedParentInputs.count == savedParentInputs.count else {
+                throw PrimalScheme3DesignError.invalidRequest("Select every MSA used by the chosen parent result.")
+            }
+            inputs.sort { parentOrderByInput[$0.id, default: 0] < parentOrderByInput[$1.id, default: 0] }
+        }
         let analysisID = UUID(), runID = UUID()
         let groups = request.grouping == .combined ? [inputs] : inputs.map { [$0] }
         var results: [PrimerAnalysisResult] = []
@@ -500,27 +693,59 @@ public struct PrimalScheme3DesignPipeline: Sendable {
             let output = scratch.appendingPathComponent("native/\(resultID.uuidString)", isDirectory: true)
             try FileManager.default.createDirectory(at: output.deletingLastPathComponent(), withIntermediateDirectories: true)
             let args = try Self.arguments(inputs: group.map(\.alignedURL), output: output,
-                                          grouping: request.grouping, options: request.options)
+                                          grouping: request.grouping, options: executionOptions)
+            let executionRequests = scratch.appendingPathComponent("execution-attempts", isDirectory: true)
+            try FileManager.default.createDirectory(at: executionRequests, withIntermediateDirectories: true)
+            try JSONSerialization.data(withJSONObject: [
+                "status": "started", "argv": [request.executableURL?.path ?? "managed:primalscheme3"] + args,
+                "workingDirectory": scratch.path, "startedAt": ISO8601DateFormatter().string(from: Date())
+            ], options: [.prettyPrinted, .sortedKeys]).write(
+                to: executionRequests.appendingPathComponent("\(resultID.uuidString)-design-request.json"),
+                options: .withoutOverwriting)
             let executed = try await runner(.init(executableOverride: request.executableURL,
                                                   arguments: args, workingDirectory: scratch,
-                                                  selectionAlgorithm: request.options.selectionAlgorithm,
-                                                  terminalGapPolicy: request.options.terminalGapPolicy,
+                                                  selectionAlgorithm: executionOptions.selectionAlgorithm,
+                                                  terminalGapPolicy: executionOptions.terminalGapPolicy,
                                                   managedEnvironmentURL: runtimeLease?.environmentURL))
+            let attemptLogs = scratch.appendingPathComponent("logs/\(resultID.uuidString)", isDirectory: true)
+            try FileManager.default.createDirectory(at: attemptLogs, withIntermediateDirectories: true)
+            let runtimeData = try JSONEncoder().encode(executed.runtime)
+            let attempt: [String: Any] = [
+                "argv": executed.argv, "stdout": executed.stdout, "stderr": executed.stderr,
+                "exitStatus": executed.exitStatus, "toolVersion": executed.version,
+                "startedAt": ISO8601DateFormatter().string(from: executed.startedAt),
+                "endedAt": ISO8601DateFormatter().string(from: executed.endedAt),
+                "runtime": try JSONSerialization.jsonObject(with: runtimeData)
+            ]
+            try JSONSerialization.data(withJSONObject: attempt, options: [.prettyPrinted, .sortedKeys])
+                .write(to: attemptLogs.appendingPathComponent("native-execution-attempt.json"),
+                       options: .withoutOverwriting)
             try Task.checkCancellation()
             guard executed.exitStatus == 0 else {
                 throw PrimalScheme3DesignError.executionFailed(executed.exitStatus, executed.stderr)
             }
-            let supportedVersion = request.options.selectionAlgorithm == .coverage
-                ? executed.version == Self.coverageToolVersion
-                : [Self.toolVersion, Self.coverageToolVersion].contains(executed.version)
+            let supportedVersion: Bool
+            switch request.options.selectionAlgorithm {
+            case .coverage: supportedVersion = executed.version == Self.coverageToolVersion
+            case .alleleCoverage: supportedVersion = executed.version == Self.alleleToolVersion
+            case .legacy: supportedVersion = [Self.toolVersion, Self.coverageToolVersion, Self.alleleToolVersion].contains(executed.version)
+            }
             guard supportedVersion, !executed.argv.isEmpty else {
                 throw PrimalScheme3DesignError.invalidRequest("The executed tool did not report the verified PrimalScheme3-LGE custom fork identity.")
             }
-            let capabilities = request.options.selectionAlgorithm == .coverage
+            let capabilityData = executed.capabilitiesJSON
+            let coverageCapabilities = request.options.selectionAlgorithm == .coverage
                 ? try PrimalScheme3CoverageContract.validateCapabilities(
-                    executed.capabilitiesJSON ?? { throw PrimalScheme3DesignError.invalidRequest("Coverage capability evidence is missing from the executable probe.") }(),
-                    terminalPolicy: request.options.terminalGapPolicy)
-                : nil
+                    capabilityData ?? { throw PrimalScheme3DesignError.invalidRequest("Coverage capability evidence is missing from the executable probe.") }(),
+                    terminalPolicy: request.options.terminalGapPolicy) : nil
+            let alleleCapabilities = request.options.selectionAlgorithm == .alleleCoverage
+                ? try PrimalScheme3AlleleContract.validateCapabilities(
+                    capabilityData ?? { throw PrimalScheme3DesignError.invalidRequest("Allele capability evidence is missing from the executable probe.") }(),
+                    requestedSearchEffort: request.options.alleleOptions.requestedSearchEffort,
+                    requestedPhaseScheduling: request.options.alleleOptions.requestedPhaseScheduling,
+                    requestedIntendedProductPolicy: request.options.alleleOptions.requestedIntendedProductPolicy,
+                    requestedSecondaryProductPolicy: request.options.alleleOptions.requestedOptionNames.contains("secondaryProductPolicy")
+                        ? request.options.alleleOptions.secondaryProductPolicy : nil) : nil
             let configURL = output.appendingPathComponent("config.json")
             let configData = try Data(contentsOf: configURL)
             guard let configuration = try JSONSerialization.jsonObject(with: configData) as? [String: Any] else {
@@ -539,19 +764,27 @@ public struct PrimalScheme3DesignPipeline: Sendable {
                   configuration["amplicon_size_metric"] as? String == request.options.ampliconSizeMetric else {
                 throw PrimalScheme3DesignError.invalidRequest("The native amplicon size bounds or size interpretation do not match the request.")
             }
+            try PrimalScheme3RecoveryContract.validate(at: output, options: request.options, configuration: configuration)
             try Self.validateNativeAmpliconSpans(at: output, options: request.options)
-            guard let effectiveWorkers = configuration["discovery_core_count"] as? Int,
-                  (1...request.options.coreCount).contains(effectiveWorkers) else {
-                throw PrimalScheme3DesignError.invalidRequest("The custom fork did not report a valid effective discovery worker count.")
-            }
+            let effectiveWorkers = try Self.validateEffectiveWorkers(configuration: configuration,
+                                                                     options: request.options)
             guard FileManager.default.fileExists(atPath: output.appendingPathComponent("primer.bed").path),
                   FileManager.default.fileExists(atPath: output.appendingPathComponent("reference.fasta").path) else {
                 throw PrimalScheme3DesignError.invalidRequest("Native primer.bed or reference.fasta output is missing.")
             }
-            if let capabilities {
+            if let capabilities = coverageCapabilities {
                 try PrimalScheme3CoverageContract.validateNativeOutput(
                     at: output, configuration: configuration, capabilities: capabilities,
                     options: request.options, inputCount: group.count, executedArgv: executed.argv)
+            }
+            if let capabilities = alleleCapabilities {
+                try PrimalScheme3AlleleContract.validateNativeOutput(
+                    at: output, configuration: configuration, capabilities: capabilities,
+                    options: request.options, inputCount: group.count, executedArgv: executed.argv,
+                    auditValidation: executed.auditValidationJSON,
+                    auditProvenance: executed.auditProvenanceJSON,
+                    auditExecutedArgv: executed.auditArgv,
+                    auditExitStatus: executed.auditExitStatus)
             }
             let files = try Self.regularFiles(in: output)
             var resultPaths: [String] = []
@@ -601,6 +834,16 @@ public struct PrimalScheme3DesignPipeline: Sendable {
                 builder = try builder.relocatedOutput(Self.descriptor(file, path: destination.appendingPathComponent(path).path,
                                                                       role: .output, origin: file.path))
             }
+            if let effectiveParent {
+                for file in try Self.regularFiles(in: effectiveParent) {
+                    let path = Self.relative(file, to: scratch)
+                    artifacts.append(.init(sourceURL: file, relativePath: path, role: "parentSnapshot",
+                                           format: file.pathExtension.isEmpty ? "binary" : file.pathExtension))
+                    resultPaths.append(path)
+                    builder = try builder.relocatedOutput(Self.descriptor(file,
+                        path: destination.appendingPathComponent(path).path, role: .output, origin: file.path))
+                }
+            }
             let logs = scratch.appendingPathComponent("logs/\(resultID.uuidString)", isDirectory: true)
             try FileManager.default.createDirectory(at: logs, withIntermediateDirectories: true)
             for (name, bytes) in executed.runtimeEvidence.sorted(by: { $0.key < $1.key }) {
@@ -614,6 +857,24 @@ public struct PrimalScheme3DesignPipeline: Sendable {
                 resultPaths.append(path)
                 builder = try builder.relocatedOutput(Self.descriptor(file,
                     path: destination.appendingPathComponent(path).path, role: .output, origin: file.path))
+            }
+            if request.options.selectionAlgorithm == .alleleCoverage {
+                let auditValidationURL = logs.appendingPathComponent("panel-audit-validation.json")
+                let bridgeInputs = group.map { input -> PrimalScheme3AlleleLabelBridge.Input in
+                    let metadata = input.snapshotURL.appendingPathComponent("metadata/source-row-map.json")
+                    return .init(id: input.id,
+                        rowMappingURL: scratch.appendingPathComponent(input.rowMappingPath),
+                        sourceMetadataURL: FileManager.default.fileExists(atPath: metadata.path) ? metadata : nil)
+                }
+                if let publication = try PrimalScheme3AlleleLabelBridge.publishIfAdvertised(
+                    nativeOutputURL: output, inputs: bridgeInputs, resultID: resultID,
+                    scratchRootURL: scratch, publishedRootURL: destination,
+                    invocation: request.invocation, auditValidation: executed.auditValidationJSON,
+                    auditValidationURL: FileManager.default.fileExists(atPath: auditValidationURL.path)
+                        ? auditValidationURL : nil) {
+                    artifacts.append(contentsOf: publication.artifacts)
+                    resultPaths.append(contentsOf: publication.resultArtifactPaths)
+                }
             }
             for (name, contents) in [("stdout.txt", executed.stdout), ("stderr.txt", executed.stderr)] {
                 let file = logs.appendingPathComponent(name)
@@ -635,7 +896,10 @@ public struct PrimalScheme3DesignPipeline: Sendable {
             // LGE derives the ordering worksheet; it is not an engine-native output.
             let orderStarted = Date()
             let bedURL = output.appendingPathComponent("primer.bed")
-            let orderURL = output.appendingPathComponent(PrimalSchemeOrderSheet.filename)
+            let orderURL = request.options.selectionAlgorithm == .alleleCoverage
+                ? scratch.appendingPathComponent("derived/\(resultID.uuidString)/\(PrimalSchemeOrderSheet.filename)")
+                : output.appendingPathComponent(PrimalSchemeOrderSheet.filename)
+            try FileManager.default.createDirectory(at: orderURL.deletingLastPathComponent(), withIntermediateDirectories: true)
             try PrimalSchemeOrderSheet.csv(fromBED: Data(contentsOf: bedURL))
                 .write(to: orderURL, options: .withoutOverwriting)
             let orderPath = Self.relative(orderURL, to: scratch)
@@ -662,7 +926,7 @@ public struct PrimalScheme3DesignPipeline: Sendable {
             let orderProvenancePath = Self.relative(orderProvenanceURL, to: scratch)
             artifacts.append(.init(sourceURL: orderProvenanceURL, relativePath: orderProvenancePath, role: "derivedProvenance", format: "json"))
             resultPaths.append(orderProvenancePath)
-            results.append(.init(id: resultID, label: request.grouping == .combined ? "Combined panel" : group[0].originalURL.deletingPathExtension().lastPathComponent,
+            results.append(.init(id: resultID, label: request.options.gapCompletionParent != nil ? "Follow-up scheme (separate PCRs)" : (request.grouping == .combined ? "Combined panel" : group[0].originalURL.deletingPathExtension().lastPathComponent),
                                  inputIDs: group.map(\.id), artifactPaths: resultPaths))
         }
         try Task.checkCancellation()
@@ -672,6 +936,17 @@ public struct PrimalScheme3DesignPipeline: Sendable {
             results: results, artifacts: artifacts, destinationURL: destination, invocation: request.invocation))
         progress?(1, "Saved PrimalScheme analysis")
         return bundle.url
+        } catch {
+            do {
+                try Self.retainFailureArtifact(scratch: scratch, destination: destination,
+                    request: request, startedAt: workflowStartedAt, error: error)
+                try? FileManager.default.removeItem(at: scratch)
+            } catch let retentionError {
+                throw PrimalScheme3DesignError.invalidRequest(
+                    "\(error.localizedDescription) Failure evidence could not be retained: \(retentionError.localizedDescription)")
+            }
+            throw error
+        }
     }
 
     private static func execute(_ command: PrimalScheme3Command) async throws -> PrimalScheme3Execution {
@@ -706,47 +981,251 @@ public struct PrimalScheme3DesignPipeline: Sendable {
         }
         let executableHash = try ProvenanceFileHasher.sha256(of: executable)
         let native = NativeToolRunner()
-        let probeArguments = command.selectionAlgorithm == .coverage ? ["--capabilities-json"] : ["--version"]
-        let probe = try await native.runProcess(executableURL: executable, arguments: probeArguments,
-                                                workingDirectory: command.workingDirectory, environment: environment, timeout: 30)
+        let attemptDirectory = command.workingDirectory.appendingPathComponent("execution-attempts/\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: attemptDirectory, withIntermediateDirectories: true)
+        func persist(_ name: String, _ value: [String: Any]) throws {
+            try JSONSerialization.data(withJSONObject: value, options: [.prettyPrinted, .sortedKeys])
+                .write(to: attemptDirectory.appendingPathComponent(name), options: .withoutOverwriting)
+        }
+        let runtimeIdentity = ProvenanceRuntimeIdentity(executablePath: executable.path,
+            condaEnvironment: prefix == nil ? nil : "primalscheme3", condaPrefix: prefix?.path,
+            pluginPack: prefix == nil ? nil : "pcr-primer-design",
+            dependencySet: prefix == nil ? nil : ManagedToolLock.bundled.resolvedDependencySet)
+        let encodedRuntime = try JSONEncoder().encode(runtimeIdentity)
+        var retainedRuntimeEvidence: [String: Any] = [:]
+        for (name, data) in runtimeEvidence {
+            retainedRuntimeEvidence[name] = (try? JSONSerialization.jsonObject(with: data))
+                ?? ["sha256": SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined(), "size": data.count]
+        }
+        try persist("00-runtime-identity.json", [
+            "executablePath": executable.path, "executableSHA256": executableHash,
+            "environment": environment ?? [:],
+            "runtimeIdentity": try JSONSerialization.jsonObject(with: encodedRuntime),
+            "runtimeEvidence": retainedRuntimeEvidence
+        ])
+        let probeArguments = command.selectionAlgorithm == .legacy ? ["--version"] : ["--capabilities-json"]
+        try persist("01-probe-started.json", ["status": "started", "argv": [executable.path] + probeArguments,
+            "workingDirectory": command.workingDirectory.path, "startedAt": ISO8601DateFormatter().string(from: Date())])
+        let probe: NativeToolResult
+        do {
+            probe = try await native.runProcess(executableURL: executable, arguments: probeArguments,
+                workingDirectory: command.workingDirectory, environment: environment, timeout: 30)
+            try persist("02-probe-completed.json", ["status": "completed", "argv": probe.arguments,
+                "stdout": probe.stdout, "stderr": probe.stderr, "exitStatus": probe.exitCode])
+        } catch {
+            try? persist("02-probe-failed.json", ["status": "failed", "argv": [executable.path] + probeArguments,
+                "stderr": error.localizedDescription])
+            throw error
+        }
         let capabilitiesJSON: Data?
         let executedVersion: String
-        if command.selectionAlgorithm == .coverage {
+        if command.selectionAlgorithm != .legacy {
             guard probe.exitCode == 0, let data = probe.stdout.data(using: .utf8) else {
-                throw PrimalScheme3DesignError.invalidRequest("Coverage requires a verified PrimalScheme3-LGE lge.3 executable. Pass --primalscheme3-path /path/to/primalscheme3.")
+                throw PrimalScheme3DesignError.invalidRequest("Coverage selection requires a verified PrimalScheme3-LGE executable. Pass --primalscheme3-path /path/to/primalscheme3.")
             }
-            _ = try PrimalScheme3CoverageContract.validateCapabilities(data, terminalPolicy: command.terminalGapPolicy)
+            if command.selectionAlgorithm == .coverage {
+                _ = try PrimalScheme3CoverageContract.validateCapabilities(data, terminalPolicy: command.terminalGapPolicy)
+                executedVersion = Self.coverageToolVersion
+            } else {
+                let requestedScheduling: PrimalScheme3PhaseScheduling?
+                if let index = command.arguments.firstIndex(of: "--phase-scheduling"),
+                   index + 1 < command.arguments.count {
+                    guard let value = PrimalScheme3PhaseScheduling(rawValue: command.arguments[index + 1]) else {
+                        throw PrimalScheme3DesignError.invalidRequest("Phase scheduling must be serial or reserved.")
+                    }
+                    requestedScheduling = value
+                } else {
+                    requestedScheduling = nil
+                }
+                let requestedIntendedPolicy: PrimalScheme3IntendedProductPolicy?
+                if let index = command.arguments.firstIndex(of: "--intended-product-policy"),
+                   index + 1 < command.arguments.count {
+                    guard let value = PrimalScheme3IntendedProductPolicy(rawValue: command.arguments[index + 1]) else {
+                        throw PrimalScheme3DesignError.invalidRequest(
+                            "Intended product policy must be exact-supported or concrete-designated-sites.")
+                    }
+                    requestedIntendedPolicy = value
+                } else {
+                    requestedIntendedPolicy = nil
+                }
+                let requestedSecondaryPolicy: PrimalScheme3SecondaryProductPolicy?
+                if let index = command.arguments.firstIndex(of: "--secondary-product-policy"),
+                   index + 1 < command.arguments.count {
+                    guard let value = PrimalScheme3SecondaryProductPolicy(rawValue: command.arguments[index + 1]) else {
+                        throw PrimalScheme3DesignError.invalidRequest(
+                            "Secondary product policy is outside the supported lge.4 contract.")
+                    }
+                    requestedSecondaryPolicy = value
+                } else {
+                    requestedSecondaryPolicy = nil
+                }
+                let requestedSearchEffort: PrimalScheme3SearchEffort?
+                if let index = command.arguments.firstIndex(of: "--search-effort"),
+                   index + 1 < command.arguments.count {
+                    guard let value = PrimalScheme3SearchEffort(rawValue: command.arguments[index + 1]) else {
+                        throw PrimalScheme3DesignError.invalidRequest(
+                            "Search effort is outside the supported lge.4 contract.")
+                    }
+                    requestedSearchEffort = value
+                } else {
+                    requestedSearchEffort = nil
+                }
+                _ = try PrimalScheme3AlleleContract.validateCapabilities(
+                    data, requestedSearchEffort: requestedSearchEffort,
+                    requestedPhaseScheduling: requestedScheduling,
+                    requestedIntendedProductPolicy: requestedIntendedPolicy,
+                    requestedSecondaryProductPolicy: requestedSecondaryPolicy)
+                executedVersion = Self.alleleToolVersion
+            }
             capabilitiesJSON = data
-            executedVersion = Self.coverageToolVersion
         } else {
             let reported = probe.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
-            let accepted = [Self.toolVersion, Self.coverageToolVersion].first { reported == "PrimalScheme3-LGE version: \($0)" }
+            let accepted = [Self.toolVersion, Self.coverageToolVersion, Self.alleleToolVersion]
+                .first { reported == "PrimalScheme3-LGE version: \($0)" }
             guard probe.exitCode == 0, let accepted else {
-                throw PrimalScheme3DesignError.invalidRequest("This adapter requires the verified PrimalScheme3-LGE custom fork lge.2 or lge.3; stock PrimalScheme3 is not interchangeable with this fork.")
+                throw PrimalScheme3DesignError.invalidRequest("This adapter requires the verified PrimalScheme3-LGE custom fork lge.2, lge.3, or lge.4; stock PrimalScheme3 is not interchangeable with this fork.")
             }
             guard prefix == nil || accepted == Self.toolVersion else {
                 throw PrimalScheme3DesignError.invalidRequest("The managed PrimalScheme3 runtime must remain at \(Self.toolVersion).")
             }
             capabilitiesJSON = nil
             executedVersion = accepted
+            let recoveryFlags = ["--legacy-salvage", "--legacy-salvage-threshold", "--legacy-salvage-floor",
+                                 "--legacy-salvage-max-edges-per-pool", "--legacy-salvage-max-incident-species-per-pool",
+                                 "--legacy-salvage-min-reference-gain", "--legacy-salvage-max-candidate-evaluations",
+                                 "--gap-completion-parent", "--gap-expansion", "--gap-expansion-max-anchors-per-msa",
+                                 "--gap-expansion-max-pairs-per-msa"]
+            if command.arguments.contains(where: { recoveryFlags.contains($0) }) {
+                let capabilities = try await native.runProcess(executableURL: executable, arguments: ["--capabilities-json"],
+                    workingDirectory: command.workingDirectory, environment: environment, timeout: 30)
+                let capabilityObject = (try? JSONSerialization.jsonObject(with: Data(capabilities.stdout.utf8))) as? [String: Any]
+                let capabilityVersion = capabilityObject?["toolVersion"] as? String
+                let source = capabilityObject?["source"] as? [String: Any]
+                let runtime = capabilityObject?["runtime"] as? [String: Any]
+                let digest = source?["sourceDigest"] as? String ?? ""
+                let runtimeKeys = ["pythonVersion", "pythonExecutable", "pythonPrefix", "platform", "machine"]
+                guard capabilities.exitCode == 0, capabilityVersion == Self.alleleToolVersion,
+                      capabilityObject?["schemaVersion"] as? String == "primalscheme3.capabilities/v1",
+                      capabilityObject?["tool"] as? String == "primalscheme3",
+                      digest.count == 64, digest.allSatisfy({ $0.isHexDigit }),
+                      source?["files"] is [[String: Any]],
+                      runtimeKeys.allSatisfy({ (runtime?[$0] as? String)?.isEmpty == false }),
+                      runtime?["declaredRuntimeDependencies"] is [[String: Any]],
+                      runtime?["nativeKernels"] is [[String: Any]] else {
+                    throw PrimalScheme3DesignError.invalidRequest("Recovery modes require a native lge.4 capabilities probe with source/runtime identity.")
+                }
+                runtimeEvidence["recovery-capabilities-probe.json"] = try JSONSerialization.data(withJSONObject: [
+                    "argv": capabilities.arguments, "stdout": capabilities.stdout, "stderr": capabilities.stderr,
+                    "exitStatus": capabilities.exitCode
+                ], options: [.prettyPrinted, .sortedKeys])
+                var helpEnvironment = environment ?? [:]
+                helpEnvironment["COLUMNS"] = "240"; helpEnvironment["TERM"] = "dumb"; helpEnvironment["NO_COLOR"] = "1"
+                let help = try await native.runProcess(executableURL: executable, arguments: ["panel-create", "--help"],
+                    workingDirectory: command.workingDirectory, environment: helpEnvironment, timeout: 30)
+                let missing = recoveryFlags.filter { command.arguments.contains($0) && !help.stdout.contains($0) }
+                runtimeEvidence["recovery-help-probe.json"] = try JSONSerialization.data(withJSONObject: [
+                    "argv": help.arguments, "stdout": help.stdout, "stderr": help.stderr, "exitStatus": help.exitCode,
+                    "requiredFlags": command.arguments.filter { recoveryFlags.contains($0) }, "missingFlags": missing
+                ], options: [.prettyPrinted, .sortedKeys])
+                guard help.exitCode == 0, missing.isEmpty else {
+                    throw PrimalScheme3DesignError.invalidRequest("The verified PrimalScheme3 executable is missing required lge.4 recovery flags: " + missing.joined(separator: ", "))
+                }
+            }
         }
-        runtimeEvidence[command.selectionAlgorithm == .coverage ? "capabilities-probe.json" : "version-probe.json"] = try JSONSerialization.data(withJSONObject: [
+        runtimeEvidence[command.selectionAlgorithm == .legacy ? "version-probe.json" : "capabilities-probe.json"] = try JSONSerialization.data(withJSONObject: [
             "argv": probe.arguments, "stdout": probe.stdout, "stderr": probe.stderr, "exitStatus": probe.exitCode
         ], options: [.prettyPrinted, .sortedKeys])
         if let capabilitiesJSON { runtimeEvidence["capabilities.json"] = capabilitiesJSON }
         try Task.checkCancellation()
         let start = Date()
-        let result = try await native.runProcess(executableURL: executable, arguments: command.arguments,
-            workingDirectory: command.workingDirectory, environment: environment, timeout: 86400, toolName: Self.toolDisplayName)
+        try persist("03-design-started.json", ["status": "started", "argv": [executable.path] + command.arguments,
+            "workingDirectory": command.workingDirectory.path, "startedAt": ISO8601DateFormatter().string(from: start)])
+        let result: NativeToolResult
+        do {
+            result = try await native.runProcess(executableURL: executable, arguments: command.arguments,
+                workingDirectory: command.workingDirectory, environment: environment, timeout: 86400,
+                toolName: Self.toolDisplayName)
+            try persist("04-design-completed.json", ["status": "completed", "argv": result.arguments,
+                "stdout": result.stdout, "stderr": result.stderr, "exitStatus": result.exitCode])
+        } catch {
+            try? persist("04-design-failed.json", ["status": "failed", "argv": [executable.path] + command.arguments,
+                "stderr": error.localizedDescription])
+            throw error
+        }
+        var auditValidationJSON: Data?
+        var auditProvenanceJSON: Data?
+        var auditArgv: [String]?
+        var auditExitStatus: Int32?
+        if command.selectionAlgorithm == .alleleCoverage, result.exitCode == 0 {
+            guard let outputIndex = command.arguments.firstIndex(of: "--output"), outputIndex + 1 < command.arguments.count else {
+                throw PrimalScheme3DesignError.invalidRequest("The native allele command has no output path to audit.")
+            }
+            let nativeOutput = URL(fileURLWithPath: command.arguments[outputIndex + 1])
+            let auditParent = command.workingDirectory.appendingPathComponent("native-audit", isDirectory: true)
+            try FileManager.default.createDirectory(at: auditParent, withIntermediateDirectories: true)
+            let auditOutput = auditParent.appendingPathComponent(UUID().uuidString, isDirectory: true)
+            let auditArguments = ["panel-audit", "--bundle", nativeOutput.path, "--output", auditOutput.path]
+            try persist("05-audit-started.json", ["status": "started", "argv": [executable.path] + auditArguments,
+                "workingDirectory": command.workingDirectory.path, "startedAt": ISO8601DateFormatter().string(from: Date())])
+            let audit: NativeToolResult
+            do {
+                audit = try await native.runProcess(executableURL: executable, arguments: auditArguments,
+                    workingDirectory: command.workingDirectory, environment: environment, timeout: 86400,
+                    toolName: "\(Self.toolDisplayName) panel-audit")
+                try persist("06-audit-completed.json", ["status": "completed", "argv": audit.arguments,
+                    "stdout": audit.stdout, "stderr": audit.stderr, "exitStatus": audit.exitCode])
+            } catch {
+                try? persist("06-audit-failed.json", ["status": "failed", "argv": [executable.path] + auditArguments,
+                    "stderr": error.localizedDescription])
+                throw error
+            }
+            auditArgv = audit.arguments
+            auditExitStatus = audit.exitCode
+            guard audit.exitCode == 0 else {
+                throw PrimalScheme3DesignError.executionFailed(audit.exitCode, audit.stderr)
+            }
+            auditValidationJSON = try Data(contentsOf: auditOutput.appendingPathComponent("validation.json"))
+            auditProvenanceJSON = try Data(contentsOf: auditOutput.appendingPathComponent("provenance.json"))
+            runtimeEvidence["panel-audit-validation.json"] = auditValidationJSON
+            runtimeEvidence["panel-audit-provenance.json"] = auditProvenanceJSON
+            runtimeEvidence["panel-audit-execution.json"] = try JSONSerialization.data(withJSONObject: [
+                "argv": audit.arguments, "stdout": audit.stdout, "stderr": audit.stderr,
+                "exitStatus": audit.exitCode
+            ], options: [.prettyPrinted, .sortedKeys])
+        }
         guard try ProvenanceFileHasher.sha256(of: executable) == executableHash else {
             throw PrimalScheme3DesignError.invalidRequest("The executable changed during the run.")
         }
         return .init(argv: result.arguments, stdout: result.stdout, stderr: result.stderr, exitStatus: result.exitCode,
-                     version: executedVersion, runtime: .init(executablePath: executable.path,
-                     condaEnvironment: prefix == nil ? nil : "primalscheme3", condaPrefix: prefix?.path,
-                     pluginPack: prefix == nil ? nil : "pcr-primer-design", dependencySet: prefix == nil ? nil : ManagedToolLock.bundled.resolvedDependencySet),
+                     version: executedVersion, runtime: runtimeIdentity,
                      startedAt: start, endedAt: Date(), executableSHA256: executableHash,
-                     runtimeEvidence: runtimeEvidence, capabilitiesJSON: capabilitiesJSON)
+                     runtimeEvidence: runtimeEvidence, capabilitiesJSON: capabilitiesJSON,
+                     auditValidationJSON: auditValidationJSON, auditProvenanceJSON: auditProvenanceJSON,
+                     auditArgv: auditArgv, auditExitStatus: auditExitStatus)
+    }
+
+    static func validateEffectiveWorkers(configuration: [String: Any],
+                                         options: PrimalScheme3DesignOptions) throws -> Int {
+        guard let workers = configuration["discovery_core_count"] as? Int else {
+            throw PrimalScheme3DesignError.invalidRequest("The custom fork did not report an effective discovery worker count.")
+        }
+        if options.selectionAlgorithm == .alleleCoverage, options.alleleOptions.reuseDiscovery != nil {
+            guard workers == 0, configuration["discovery_reused"] as? Bool == true,
+                  let byMSA = configuration["discovery_workers_by_msa"] as? [String: Any], !byMSA.isEmpty,
+                  byMSA.values.allSatisfy({ ($0 as? NSNumber)?.intValue == 0 }),
+                  let byProfile = configuration["discovery_workers_by_target_profile"] as? [String: Any], !byProfile.isEmpty,
+                  byProfile.values.allSatisfy({ value in
+                      guard let profiles = value as? [String: Any], !profiles.isEmpty else { return false }
+                      return profiles.values.allSatisfy { ($0 as? NSNumber)?.intValue == 0 }
+                  }) else {
+                throw PrimalScheme3DesignError.invalidRequest("Reused allele discovery must report zero workers consistently.")
+            }
+            return workers
+        }
+        guard (1...options.coreCount).contains(workers), configuration["discovery_reused"] as? Bool != true else {
+            throw PrimalScheme3DesignError.invalidRequest("The custom fork did not report a valid effective discovery worker count.")
+        }
+        return workers
     }
 
     private static func physicalParent(_ url: URL) throws -> URL {
@@ -784,6 +1263,50 @@ public struct PrimalScheme3DesignPipeline: Sendable {
             let target = directory ? destination.appendingPathComponent(relative(file, to: source)) : destination
             try FileManager.default.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
             try FileManager.default.copyItem(at: file, to: target)
+        }
+    }
+
+    private static func retainFailureArtifact(scratch: URL, destination: URL,
+                                              request: PrimalScheme3DesignRequest,
+                                              startedAt: Date, error: Error) throws {
+        guard FileManager.default.fileExists(atPath: scratch.path) else { return }
+        let parent = destination.deletingLastPathComponent()
+        var failure = parent.appendingPathComponent(destination.lastPathComponent + ".failure", isDirectory: true)
+        if FileManager.default.fileExists(atPath: failure.path) {
+            failure = parent.appendingPathComponent(destination.lastPathComponent + ".failure-" + UUID().uuidString,
+                                                     isDirectory: true)
+        }
+        let staging = parent.appendingPathComponent("." + failure.lastPathComponent + ".staging-" + UUID().uuidString,
+                                                   isDirectory: true)
+        try FileManager.default.copyItem(at: scratch, to: staging)
+        do {
+            let finishedAt = Date()
+            let files = try regularFiles(in: staging).map { file -> [String: Any] in
+                ["path": relative(file, to: staging), "sha256": try ProvenanceFileHasher.sha256(of: file),
+                 "size": try ProvenanceFileHasher.fileSize(of: file)]
+            }
+            let optionsData = try JSONEncoder().encode(request.options.provenanceOptions)
+            let options = try JSONSerialization.jsonObject(with: optionsData)
+            let runtimeData = try JSONEncoder().encode(request.invocation.runtimeIdentity)
+            let runtime = try JSONSerialization.jsonObject(with: runtimeData)
+            let record: [String: Any] = [
+                "schemaVersion": 1, "workflow": "lungfish.primalscheme3.design",
+                "workflowVersion": "1", "status": error is CancellationError ? "cancelled" : "failed",
+                "exitStatus": NSNull(), "argv": request.invocation.argv,
+                "reproducibleCommand": request.invocation.argv.map(shellEscape).joined(separator: " "),
+                "startedAt": ISO8601DateFormatter().string(from: startedAt),
+                "endedAt": ISO8601DateFormatter().string(from: finishedAt),
+                "wallTimeSeconds": finishedAt.timeIntervalSince(startedAt),
+                "stderr": error.localizedDescription, "runtime": runtime, "resolvedOptions": options,
+                "requestedDestination": destination.path, "failureArtifact": failure.path,
+                "retainedFiles": files
+            ]
+            try JSONSerialization.data(withJSONObject: record, options: [.prettyPrinted, .sortedKeys])
+                .write(to: staging.appendingPathComponent("failure-provenance.json"), options: .withoutOverwriting)
+            try FileManager.default.moveItem(at: staging, to: failure)
+        } catch {
+            try? FileManager.default.removeItem(at: staging)
+            throw error
         }
     }
 

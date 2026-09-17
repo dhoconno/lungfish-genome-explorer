@@ -73,4 +73,64 @@ final class PrimerDesignCommandTests: XCTestCase {
         XCTAssertEqual(command.optimizerTimeLimit, 4.5)
         XCTAssertEqual(command.misprimingProductSize, 900)
     }
+
+    func testPrimalSchemeParsesNamedAlleleCoverageControls() throws {
+        let command = try PrimerDesignCommand.PrimalScheme3Subcommand.parse([
+            "--msa", "/tmp/mhc.lungfishmsa", "--output", "/tmp/result.lungfishprimeranalysis",
+            "--selection-algorithm", "allele-coverage", "--primalscheme3-path", "/tmp/primalscheme3",
+            "--amplicon-size", "200", "--amplicon-size-min", "150", "--amplicon-size-max", "250",
+            "--preset", "allele-balanced-v1", "--candidate-profiles", "union",
+            "--reuse-discovery", "/tmp/cache", "--variant-selection", "subsets", "--phase-scheduling", "reserved",
+            "--intended-product-policy", "concrete-designated-sites",
+            "--allele-weighting", "distinct-observed", "--discovery-length-mode", "all",
+            "--specificity-terminal-k", "19", "--secondary-product-policy", "reject-secondary-products/v1",
+            "--subset-beam-width", "8", "--subset-expansion-limit", "100", "--exchange-width", "1",
+            "--salvage", "bounded", "--salvage-threshold=-28", "--salvage-threshold=-31",
+            "--salvage-max-stages", "2", "--salvage-max-edges-per-pool", "5",
+            "--salvage-max-oligos-per-pool", "3", "--salvage-time-limit", "20",
+            "--primary-tier", "salvage-2", "--work-frontier-candidates", "20",
+            "--work-construction-candidate-attempts", "200",
+            "--work-repair-candidate-probes-per-round", "30",
+            "--work-repair-neighborhoods-per-round", "40", "--work-repair-trials-per-round", "50",
+            "--work-pool-lookahead-candidates", "3", "--work-cleanup-moves-per-round", "12",
+            "--work-families-per-refresh", "7",
+        ])
+
+        XCTAssertEqual(command.selectionAlgorithm, "allele-coverage")
+        XCTAssertEqual(command.preset, "allele-balanced-v1")
+        XCTAssertEqual(command.candidateProfiles, "union")
+        XCTAssertEqual(command.reuseDiscovery, "/tmp/cache")
+        XCTAssertEqual(command.phaseScheduling, "reserved")
+        XCTAssertEqual(command.intendedProductPolicy, "concrete-designated-sites")
+        XCTAssertEqual(command.secondaryProductPolicy, "reject-secondary-products/v1")
+        XCTAssertEqual(command.salvageThresholds, [-28, -31])
+        XCTAssertEqual(command.primaryTier, "salvage-2")
+        XCTAssertEqual(command.workFamiliesPerRefresh, 7)
+    }
+
+    func testPrimalSchemeParsesSearchEffortWithoutInventingIndividualOverrides() throws {
+        let inherited = try PrimerDesignCommand.PrimalScheme3Subcommand.parse([
+            "--msa", "/tmp/mhc.lungfishmsa", "--output", "/tmp/result.lungfishprimeranalysis",
+            "--selection-algorithm", "allele-coverage", "--search-effort", "quality-v1",
+        ])
+        XCTAssertEqual(inherited.searchEffort, "quality-v1")
+        XCTAssertNil(inherited.optimizerStarts)
+        XCTAssertNil(inherited.optimizerRepairRounds)
+        XCTAssertNil(inherited.optimizerTimeLimit)
+        XCTAssertNil(inherited.workConstructionCandidateAttempts)
+        XCTAssertNil(inherited.workFamiliesPerRefresh)
+
+        let overridden = try PrimerDesignCommand.PrimalScheme3Subcommand.parse([
+            "--msa", "/tmp/mhc.lungfishmsa", "--output", "/tmp/result.lungfishprimeranalysis",
+            "--selection-algorithm", "allele-coverage", "--search-effort", "quality-v1",
+            "--optimizer-starts", "4", "--optimizer-repair-rounds", "2",
+            "--optimizer-time-limit", "120", "--work-construction-candidate-attempts", "2048",
+            "--work-families-per-refresh", "16",
+        ])
+        XCTAssertEqual(overridden.optimizerStarts, 4)
+        XCTAssertEqual(overridden.optimizerRepairRounds, 2)
+        XCTAssertEqual(overridden.optimizerTimeLimit, 120)
+        XCTAssertEqual(overridden.workConstructionCandidateAttempts, 2_048)
+        XCTAssertEqual(overridden.workFamiliesPerRefresh, 16)
+    }
 }

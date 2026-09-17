@@ -190,7 +190,7 @@ final class PrimerDesignDialogStateTests: XCTestCase {
     state.excludeUncoveredEnds = true
     XCTAssertEqual(try state.primalSchemeOptions().terminalGapPolicy, .observedOnly)
     XCTAssertEqual(try state.primalSchemeOptions().coreCount, 2)
-    XCTAssertTrue(state.engine.rawValue.contains("custom fork"))
+    XCTAssertEqual(state.engine, .primalScheme)
   }
 
   func testPrimalAmpliconBoundsFollowTargetUntilCustomized() throws {
@@ -343,6 +343,49 @@ final class PrimerDesignDialogStateTests: XCTestCase {
     XCTAssertThrowsError(try state.primalSchemeOptions())
     state.maxAmplicons = ""
     XCTAssertNil(try state.primalSchemeOptions().maxAmplicons)
+  }
+
+  func testRecoveryControlsStayOptInAndPreserveLegacyDefaults() throws {
+    let state = configuredState()
+    state.engine = .primalScheme
+    state.grouping = .combined
+    let defaults = try state.primalSchemeOptions()
+    XCTAssertEqual(defaults.selectionAlgorithm, .legacy)
+    XCTAssertEqual(defaults.legacySalvageOptions.mode, .off)
+    XCTAssertEqual(defaults.gapExpansionOptions.mode, .off)
+
+    state.legacySalvageEnabled = true
+    state.primalschemeExecutablePath = "/bin/sh"
+    let salvage = try state.primalSchemeOptions()
+    XCTAssertEqual(salvage.legacySalvageOptions.mode, .bounded)
+    XCTAssertEqual(salvage.legacySalvageOptions.thresholds, [-28, -30, -32])
+  }
+
+  func testLegacyPrimalDefaultsRemainManagedAndUnchanged() throws {
+    let state = configuredState()
+    state.engine = .primalScheme
+    XCTAssertNil(state.primalschemeExecutableURL)
+    let options = try state.primalSchemeOptions()
+    XCTAssertEqual(options.selectionAlgorithm, .legacy)
+    XCTAssertEqual(options.terminalGapPolicy, .observedOnly)
+  }
+
+  func testGapFollowupForcesLegacyTerminalPolicyAndCarriesBoundedExpansion() throws {
+    let state = configuredState()
+    state.engine = .primalScheme
+    state.grouping = .combined
+    state.gapCompletionParentPath = "/tmp/parent-native-output"
+    state.primalschemeExecutablePath = "/bin/sh"
+    state.gapExpansionEnabled = true
+    state.gapExpansionMaxAnchorsPerMSA = "12"
+    state.gapExpansionMaxPairsPerMSA = "9"
+    let options = try state.primalSchemeOptions()
+    XCTAssertEqual(options.selectionAlgorithm, .legacy)
+    XCTAssertEqual(options.terminalGapPolicy, .legacy)
+    XCTAssertEqual(options.gapCompletionParent?.path, "/tmp/parent-native-output")
+    XCTAssertEqual(options.gapExpansionOptions.mode, .bounded)
+    XCTAssertEqual(options.gapExpansionOptions.maxAnchorsPerMSA, 12)
+    XCTAssertEqual(options.gapExpansionOptions.maxPairsPerMSA, 9)
   }
 
   private func configuredState() -> PrimerDesignDialogState {

@@ -1,0 +1,217 @@
+# Allele-aware PrimalScheme CLI evaluation
+
+**Status: evaluation in progress; GUI acceptance has not been requested.**
+
+## Current findings
+
+- The best audited **A1-only** new panel reaches **89.50%** mean coverage after trimming (19 amplicons), versus **86.74%** for the saved independent A1 panel under the same coverage metric. The panels have different screening constraints; this is not a controlled algorithm-only gain. Neither reaches 95%.
+- Longer searches helped: the best one-hour run improved over the ten-minute result, and the narrower work settings outperformed the broader hour settings. Four A1 classes gained and two lost in the matched hour comparison.
+- Partial variant selection is useful and auditable. Two omitted forward variants have explicit dimer conflicts; three other omitted variants are individually compatible but coverage-redundant. They are not all “rejected primers.”
+- Combined-MSA screening is a separate obstacle. Adding the other target sequences makes the fixed independent A1 panel fail specificity checks even without adding other primers. **The optimized eleven-target result is still pending**, so no combined-panel improvement is claimed.
+- The native and Lungfish CLI implementations, label preservation, fresh audit and provenance have passed their recorded engineering checks. GUI work remains deferred until the combined scientific results are reviewed.
+
+## Metric
+
+Each target is the mean primer-trimmed coverage of its distinct observed aligned allele classes. Duplicate rows retain provenance but add no objective weight. A base earns credit only when an exact forward and reverse primer both bind the same observed row and the base lies between their footprints. Only concrete observed A/C/G/T bases enter the denominator; observed insertions count. The panel mean weights target MSAs equally.
+
+The aspirational goal is >95% per target. Valid useful partial coverage is retained, including configurations that preserve some allele-supporting primer variants while dropping others.
+
+## Historical baselines
+
+These are binding-model coverage measurements, independently scored from stored original MSAs and actual selected BED primers. They do not claim that historical panels pass the new dimer or specificity rules. Upstream PrimalScheme3 3.3.0 used its original 180–220 bp bounds and D=0; saved LGE panels used their recorded settings. These historical comparisons are descriptive, not controlled selector ablations. The independent column measures separate target panels; combining their primers does not establish a compatible pooled scheme.
+
+| Target | Original upstream | Saved independent LGE | Saved combined LGE |
+|---|---:|---:|---:|
+| KIR2DL04 | 90.5% | 93.2% | 87.9% |
+| KIR3DL10 | 80.0% | 95.4% | 93.3% |
+| KIR3DS | 48.7% | 85.0% | 83.3% |
+| Mamu-A1 | 29.8% | 86.7% | 57.1% |
+| Mamu-A2 | 35.6% | 79.1% | 67.4% |
+| Mamu-A4 | 48.9% | 85.8% | 72.4% |
+| Mamu-B | 14.4% | 66.1% | 31.6% |
+| Mamu-DPA | 49.5% | 90.5% | 82.4% |
+| Mamu-DQB | 33.8% | 72.1% | 53.0% |
+| Mamu-DRB | 23.7% | 85.8% | 42.8% |
+| Mamu-E | 33.1% | 85.4% | 69.6% |
+| Mean across targets | 44.4% | 84.1% | 67.3% |
+
+Baseline data and reproducibility receipts:
+
+- [Upstream common-metric report](/Users/dho/Desktop/sandbox/mhc-primal-scheme/allele-coverage-development/upstream-original-common-metric-01/coverage.json) and [receipt](/Users/dho/Desktop/sandbox/mhc-primal-scheme/allele-coverage-development/upstream-original-common-metric-01/provenance.json).
+- [Combined saved-panel report](/Users/dho/Desktop/sandbox/mhc-primal-scheme/allele-coverage-development/historical-combined-common-metric-02/coverage.json) and [receipt](/Users/dho/Desktop/sandbox/mhc-primal-scheme/allele-coverage-development/historical-combined-common-metric-02/provenance.json).
+- Independent results: `/Users/dho/Desktop/sandbox/mhc-primal-scheme/allele-coverage-development/historical-independent-common-metric-01/<target>/coverage.json`, each accompanied by its own `provenance.json`.
+
+## Previous LGE selector control
+
+A separate run of unchanged lge.3 (`2abc3207629aacb101f1c04a4f57348ef5b903b2`) used all original rows, normal discovery, 150–250 bp geometry, two pools, positive supplied-row product bound 2000, terminal seed 19, and the original full-span objective/0.90 target. The run completed successfully in 189.4 seconds (wait4 peak RSS 3.76 GB; OS child accounting), with fresh native validation and unchanged source/runtime/inputs. Search reached its 120-second limit after two completed starts. It selected 15 amplicons and 42 primer records.
+
+Rescoring those primers under the common distinct-allele after-trimming metric gives **13.2% target mean**. This is a descriptive lge.3 control under its intended-sites-v1 specificity policy, not a controlled test of the new subset selector. Positive product screening makes it substantially different from historical D=0 panels.
+
+| Target | lge.3 common-metric coverage |
+|---|---:|
+| KIR2DL04 | 36.6% |
+| KIR3DL10 | 30.4% |
+| KIR3DS | 17.7% |
+| Mamu-A1 | 0.0% |
+| Mamu-A2 | 11.7% |
+| Mamu-A4 | 7.0% |
+| Mamu-B | 0.0% |
+| Mamu-DPA | 15.5% |
+| Mamu-DQB | 8.0% |
+| Mamu-DRB | 5.5% |
+| Mamu-E | 12.7% |
+
+[Execution receipt](/Users/dho/Desktop/sandbox/mhc-primal-scheme/allele-coverage-development/existing-lge3-control-01/receipt.json) and [common-metric report](/Users/dho/Desktop/sandbox/mhc-primal-scheme/allele-coverage-development/existing-lge3-common-metric-01/coverage.json).
+
+## New implementation experiment
+
+The initial combined experiment uses all 11 original alignments in the frozen snapshot’s source order; union chemistry profiles, individual variant subsets, amplicon target 200/min 150/max 250 bp, two pools, four discovery workers, distinct-observed weighting, native strict dimer −26, terminal seed 17 with one substitution and positive supplied-row product bound 2000. Strict optimization has 120 seconds; optional experimental salvage uses −28/−30/−32, 60 seconds each and cumulative per-pool caps of 8 violating physical edges and 4 incident species. Strict remains primary.
+
+Native code is frozen at `7ca64e68690f6e4db5b91f54bfe8a4847c402a62` in an isolated worktree and virtual environment. No managed installation or original scientific bundle was modified.
+
+Run directory: `/Users/dho/Desktop/sandbox/mhc-primal-scheme/allele-coverage-development/mhc-union-subsets-02`. Final metrics and audit results are pending; no improvement claim is made from discovery alone.
+
+## Single-target Mamu-A1 pilot
+
+The isolated `matrix-02` pilot uses the original six-row Mamu-A1 alignment, with the same scientific settings and search budgets as the initial combined run. The completed strict tier passes its independent native stage validation and selects 10 amplicons, with **39.1308%** mean coverage after trimming across distinct observed classes (individual classes 32.1160–43.0336%). All three salvage tiers have the same mean coverage. Native execution and a fresh whole-bundle audit both succeeded. The outer benchmark wrapper subsequently failed because it looked for the panel receipt under the wrong filename; that failure was preserved, and a separate completion verification validates the actual `panel-provenance.json` and audit receipt.
+
+This is below the saved independent panel’s 86.7446% common-metric coverage. The original input bytes match; the historical panel has not thereby been shown to pass the new constraints. This result is not an improvement claim or evidence about compatibility in the combined panel.
+
+A separate code review found that construction queue refresh can reconsider consumed candidates and spend search attempts on them. The regression-tested fix is included in `matrix-03`; the cached single-target comparison below includes that fix. One shared deadline also permits initial seed passes to exhaust time before subset construction and repair. The final counters show strict selection completed its two work-capped seed passes but expanded only 32 of 143,297 families and reached no repair rounds. Later salvage tiers also suffered seed starvation. Among the strict configurations examined, specificity failed for 2,797 of 2,859, while dimer failed for 206 (204 also failed specificity). These are examined-configuration counts, not a full-catalog feasibility estimate.
+
+[Completed strict coverage](/Users/dho/Desktop/sandbox/mhc-primal-scheme/allele-coverage-development/mamu-a1-union-subsets-pilot-01/stages/strict/coverage.json) and [strict validation](/Users/dho/Desktop/sandbox/mhc-primal-scheme/allele-coverage-development/mamu-a1-union-subsets-pilot-01/stages/strict/validation.json).
+
+### Cached serial control on matrix-03
+
+Reusing the identical A1 catalog with the reviewed queue fix and history v2 gives **46.0385%** mean trimmed coverage, with 10 amplicons and per-class fractions 40.6485–47.2898%. The native panel and independent audit both succeed. Search remains limited to 120 seconds: it examines 2,032 full-seed and 4,528 normal-seed families, expands 32 families, and reaches zero repair trials. This is a 6.91 percentage-point gain over the first pilot, but is still well below the saved independent panel. Wall-limited comparisons include storage/runtime effects and do not isolate a single code change.
+
+Native panel wall time is 323.29 seconds and fresh audit time is 126.11 seconds; the outer runner records 3.27 GB native peak RSS under Darwin wait4 accounting. This control omits salvage because the strict result is the comparison of interest. Its original copied wrapper had the same receipt-name post-check error, preserved alongside a successful separate [completion verification](/Users/dho/Desktop/sandbox/mhc-primal-scheme/allele-coverage-development/mamu-a1-cached-serial03-01-completion-verification/provenance.json).
+
+The specificity diagnosis identifies many predicted products at the designated full footprints that fail only because coverage-derived intended signatures require exact sequence support. A separate opt-in `concrete-designated-sites` correction is being implemented and independently reviewed; no coverage credit for near-matches is proposed, and shifted or incomplete footprints remain distinct.
+
+### Matched phase-scheduling controls on matrix-04
+
+The serial control on frozen `1217c5c` reproduced **46.0385%** mean coverage and 10 amplicons. Native execution, the separate raw-row audit, and the outer provenance verification all succeeded. Native wall time was 326.70 seconds, audit 127.41 seconds, and native wait4 peak RSS 3.96 GB. Its 120-second search spent 61.99 seconds in the full seed pass, 31.45 seconds in the normal seed pass and 26.56 seconds in subset construction. It expanded 16 families and reached no repairs. Identical selected coverage despite different work counts illustrates the limits of wall-clock comparisons.
+
+The matched optional `reserved` scheduling control completed with **39.4684%** mean coverage and 10 amplicons. Its native run, independent audit and wrapper verification succeeded. The resolved settings differ only in phase scheduling. It reached repair work (26 candidate probes, two neighborhoods and four trials), but accepted no repairs. Native wall time was 330.21 seconds and audit 127.35 seconds. This run does not support making reserved scheduling the default; serial is retained. [Paired comparison and provenance](/Users/dho/Desktop/sandbox/mhc-primal-scheme/allele-coverage-development/mamu-a1-phase-comparison04-01/comparison.json).
+
+[Serial control provenance](/Users/dho/Desktop/sandbox/mhc-primal-scheme/allele-coverage-development/mamu-a1-cached-serial04-01-execution/provenance.json).
+
+### Intended-site policy diagnostic on matrix-05
+
+Two completed, independently audited controls differ only in `intended_product_policy`. At 120 seconds, exact-supported gives **46.0385%** mean A1 coverage; concrete-designated-sites gives **15.0005%** and three amplicons. The latter performs 4,929 pair checks versus 576 and reaches only seed work. This is not evidence that permitting designated near-matches lowers the feasible coverage ceiling: it changes which candidates reach the more expensive pair screen and therefore the work completed within the deadline. A completed 600-second run with the same original work caps improves the concrete-designated-sites result to **28.3224%** and four amplicons. It passes its independent audit, explores 151 subset families and makes 19,073 pair checks. About 364 seconds go to repair exchange; none of its 26 repair trials improves the incumbent. Native wall time is 824.62 seconds, fresh audit 130.26 seconds and wait4 peak RSS 5.30 GB. The matched ten-minute exact-policy control also passes its independent audit: **46.7945%** mean coverage with 13 amplicons, versus 46.0385% and 10 at 120 seconds. It accepts three repair exchanges, but still reaches the wall deadline during its first repair exchange. Native wall time is 849.00 seconds, fresh audit 137.14 seconds and native wait4 peak RSS 3.24 GB. The policy comparison receipt confirms that intended-product policy is the only differing resolved scientific/search option.
+
+[Matched policy comparison](/Users/dho/Desktop/sandbox/mhc-primal-scheme/allele-coverage-development/mamu-a1-intended-policy-comparison05-01/comparison.json) and [provenance](/Users/dho/Desktop/sandbox/mhc-primal-scheme/allele-coverage-development/mamu-a1-intended-policy-comparison05-01/provenance.json).
+
+### Search quality budget
+
+The user explicitly permits an hour or longer for effective design. The 120-second controls above are diagnostic runs, not the final quality target. Longer cached comparisons will distinguish time exhaustion from deterministic work caps, record whether additional search improves target/class coverage, and inform a practical thorough configuration. A longer wall-clock limit alone does not guarantee broader exploration: construction attempts, repair work and family expansion are also bounded.
+
+The residual pair diagnosis identifies 2,740 explored pair records whose only recorded failure is specificity and whose rejected products all have complete ordered, concrete, terminal-supported four-site geometry. That is a count of recorded pair verdicts, not jointly feasible placements or attainable coverage. The separately reviewed optional `ordered-disjoint-concrete-designated-sites/v1` secondary-product policy is implemented in native `61d6ac8`. All four selected occurrences, internal partners and raw-row certificates are required, and coverage remains exact-only. Its integrated frozen build passes 794 tests. A completed 600-second A1 diagnostic with both concrete policies reaches **86.7190%** mean trimmed coverage and 18 amplicons, with allele classes at 84.5916–89.4539%. Native execution and the separate authoritative audit both succeed; all input/source/runtime identities are unchanged. The result retains 403 permitted concrete intended witnesses and 1,740 secondary witnesses, including 1,380 new four-site certificates. Native wall time is 830.67 seconds, fresh audit 131.53 seconds and native wait4 peak RSS 7.33 GB. This is a descriptive comparison with the earlier 28.3224% concrete-intended/old-secondary result: the frozen builds also differ in reviewed progress observation. It nearly matches the saved independent panel’s 86.7446% under the common metric, but remains below the 95% aim and does not establish combined-panel compatibility. The matched same-settings cache-enabled run (`20fe136`) also passes its audit with exactly the same selected coverage and 18 amplicons. It expands 69 versus 53 families, makes 25,701 versus 23,124 pair checks, and reaches six versus two repair trials within 600 seconds. Native wall time is 830.97 seconds, audit 130.20 seconds and peak RSS 7.82 GB. More search work did not itself yield another coverage gain. The independently reviewed diagnostic-cache compression change preserves complete evidence in compressed private memory entries. The completed hour-budget A1 run on frozen `01cafef` used eight requested starts, three repair rounds, 8,192 construction attempts and 32 families per refresh, with strict −26 dimer screening, both concrete-site policies and salvage disabled. Its final independently audited panel reaches **87.2812%** mean trimmed coverage with **18 amplicons**, an increase of **0.5621 percentage points** over the 600-second result. This changes several search controls together and the diagnostic-cache representation; it is a descriptive quality comparison, not an isolated speed comparison.
+
+The improvement trades coverage between classes: two gain 4.0837 and 4.5865 percentage points, while four lose 0.6826–2.4207 points. The lowest class falls from 84.5916% to **83.0817%**; the highest reaches 90.1320%. The objective rewards target-average coverage, so it does not guarantee a nondecreasing value for each allele class. The run completed one start and accepted two repair exchanges before its cooperative time limit, with its final improvement at about 45.8 minutes. It expanded subsets in 439 of 143,297 families and materialized 20,503 configurations. Its full and normal seed passes separately examined 8,352 and 17,056 families; these counts overlap and must not be added as distinct families. The remaining subset search space is not demonstrated infeasible.
+
+Native execution took 3,981.06 seconds, the separate fresh raw-input audit 146.27 seconds, and the full wrapper 4,140.14 seconds. Native peak RSS was 5.67 GB. All three exit statuses are zero, the audit is valid, and source/runtime/input identities remained unchanged. [Audited hour panel](/Users/dho/Desktop/sandbox/mhc-primal-scheme/allele-coverage-development/mamu-a1-cached-quality09-3600-01) and [descriptive comparison with per-class deltas](/Users/dho/Desktop/sandbox/mhc-primal-scheme/allele-coverage-development/mamu-a1-quality-descriptive08-09-01/comparison.json).
+
+The matched hour-budget run on the **same frozen native revision**, retaining the narrower 4-start, 2-round, 2,048-attempt, 16-family controls, is now complete and independently audited. It reaches **89.5027%** with **19 amplicons**, **2.2215 percentage points higher** than the broader hour run. The four work controls are the only resolved-option differences; input catalog, scientific policies and one-hour selector limit are identical. Wrapper instrumentation differs between v4 and v5, and both executions used a shared machine, so this is not an isolated timing benchmark.
+
+| Observed Mamu-A1 allele | Broader hour | Narrower hour | Change |
+|---|---:|---:|---:|
+| A1*016:01:01:01 | 88.6754% | 88.4351% | −0.2402 pp |
+| A1*002:01:01:01 | 83.0817% | 88.4351% | +5.3535 pp |
+| A1*004:01:01:01 | 88.7713% | 93.2765% | +4.5051 pp |
+| A1*001:01:01:01 | 88.7102% | 93.2261% | +4.5159 pp |
+| A1*028:01:01:01 | 90.1320% | 85.3718% | −4.7603 pp |
+| A1*011:01:01:01 | 84.3164% | 88.2714% | +3.9550 pp |
+
+The minimum improves from 83.0817% to 85.3718%, but two classes lose coverage. The narrower run expanded subsets in **877 families**, materialized **40,235 configurations** and performed **166 repair trials**, accepting four exchanges. Its two seed fills consumed 277.20 seconds versus 993.26 seconds in the broader run; repair exchange received 3,196.52 seconds versus 2,164.98 seconds. The narrower full and normal seed passes separately examined 2,032 and 4,064 families, fewer than the broader run; the 877-versus-439 count concerns subset expansion, not all seed families examined. Both completed one start. This demonstrates why increasing several work caps does not necessarily improve a fixed-time result.
+
+Native execution took 3,934.61 seconds, fresh audit 146.20 seconds, and the full wrapper 4,096.34 seconds; native peak RSS was 5.14 GB. All execution statuses are zero, fresh raw-input validation passes, and source/runtime/input identities remain unchanged. [Matched hour comparison](/Users/dho/Desktop/sandbox/mhc-primal-scheme/allele-coverage-development/mamu-a1-hour-effort-comparison09-01/comparison.json) and [narrow-run receipt](/Users/dho/Desktop/sandbox/mhc-primal-scheme/allele-coverage-development/mamu-a1-cached-narrow09-3600-01-execution/provenance.json).
+
+Relative to the 600-second cached panel, the narrower hour gains 2.7836 mean percentage points; that comparison also changes the diagnostic-cache source representation. It remains below the 95% goal and does not establish combined-panel compatibility. The next combined evaluation will use the narrower hour controls; versioned defaults and `quality-v1` have not been silently changed.
+
+## Candidate availability and retained variants
+
+An independently reviewed finite-catalog diagnostic examines all **143,297 A1 families**, 10,191 eligible sites and six distinct classes (859,782 family/class checks). Ignoring scientific interactions and panel limits, the stored candidates can supply **97.2349%** mean exact-binding trimmed coverage; class fractions range from **96.8633% to 97.9500%**. Both the singleton-pair union and the all-subset relaxation give that same union here. The calculation includes a longer nonbinding variant when needed to satisfy a configuration’s minimum reference envelope, avoiding an invalid singleton-only ceiling.
+
+This is an upper bound within this finite catalog and current coverage/geometry model, **not a feasible multiplex scheme**. It ignores specificity, self/pair dimers, pooling/overlap and panel limits. It neither proves attainable 95% coverage nor bounds undiscovered primers. It shows that missing candidate binding sites alone do not explain the ten-minute panel’s 86.7190% coverage. The only uncovered intervals in the relaxation are terminal intervals; the actual selected panel additionally has internal gaps.
+
+The diagnostic independently reconstructs the selected coverage and confirms its inclusion in the relaxation. Among 18 selected configurations, one at BED `[2164,2413)` retains **2 of 3 eligible forward variants and 4 of 5 reverse variants**, while still supporting all six classes. Two others deliberately retain useful partial support: `[85,315)` supports three classes and `[217,399)` supports five. These are descriptive selected supports; the report does not infer why a particular variant was omitted.
+
+Execution completed successfully in 76.50 seconds, with unchanged input/source/runtime identities. [Availability, per-class intervals and selected-variant report](/Users/dho/Desktop/sandbox/mhc-primal-scheme/allele-coverage-development/mamu-a1-catalog-availability-01/availability.json) and [receipt](/Users/dho/Desktop/sandbox/mhc-primal-scheme/allele-coverage-development/mamu-a1-catalog-availability-01/provenance.json).
+
+### Testing omitted variants in the best A1 panel
+
+The 19-amplicon hour panel contains three families with omitted eligible variants. A fresh diagnostic restored each of the five omitted variants separately, replacing its selected configuration in the same pool and keeping all other assignments fixed. It reproduced the baseline audit before testing replacements.
+
+| Original reference interval | Pool | Original variants retained | Independent additions |
+|---|---:|---|---|
+| `[2569,2815)` | 1 | 5/7 forward, 3/3 reverse | Either omitted forward variant fails dimer checks |
+| `[863,1067)` | 2 | 2/2 forward, 2/3 reverse | Third reverse passes; no additional coverage |
+| `[2164,2413)` | 2 | 2/3 forward, 4/5 reverse | Each omitted variant passes separately; no additional coverage |
+
+The `[2569,2815)` configuration remains selected with exact joint support for **five of six classes**. Each of its two blocked forward variants would support A1*011 as well, recovering the same 67 observed bases across the panel and raising that class from 88.2714% to 90.5557% geometrically. Both conflict with retained reverse primers in the `[732,977)` amplicon: scores **−35.7449 and −34.4463**, versus strict rejection at ≤−26. These edges also remain below the proposed −32 salvage floor. The selector preserves the useful five-class amplicon. The hypothetical gain is not an accepted improvement, and the two alternative gains must not be added together.
+
+The literal two-of-three reverse example has a different explanation: the third reverse variant is compatible but redundant even within its own configuration. It extends the full reference envelope to `[863,1069)` without increasing the trimmed coverage. All five replacements pass the current specificity checks. These tests identify current-panel compatibility, not the optimizer's historical omission cause, and do not establish feasibility of adding multiple variants together. Original assignments remain unchanged. [Five-trial interpretation and numerical partners](/Users/dho/Desktop/sandbox/mhc-primal-scheme/allele-coverage-development/mamu-a1-narrow09-one-variant-interpretation-02/report.md), [fresh diagnostic receipt](/Users/dho/Desktop/sandbox/mhc-primal-scheme/allele-coverage-development/mamu-a1-narrow09-one-variant-replacement-01/provenance.json), and [interpretation provenance](/Users/dho/Desktop/sandbox/mhc-primal-scheme/allele-coverage-development/mamu-a1-narrow09-one-variant-interpretation-02/provenance.json).
+
+## Mamu-A1 394–644 regional alternatives
+
+The completed ten-minute panel (`secondary07`) covers **200 of 250 observed bases, 80%**, in every one of its six distinct classes for reference BED interval `[394,644)`. Coordinates are zero-based and half-open; the report projects them through the alignment and preserves each row’s coordinates. The nearby selected amplicons span `[217,399)`, `[410,648)` and `[614,818)`; full amplicon spans do not count as trimmed coverage.
+
+All 989 historical normal/high-GC alternative records match current eligible catalog sites, yielding 903 distinct configurations. The diagnostic examines a bounded 16 configurations, ranked by trimmed reference overlap. All 16 pass fresh individual validation. None can be added directly to either existing pool: all 32 insertion checks fail overlap, 31 also fail specificity, and 15 fail strict dimer/exposure checks. A zero strict exposure allowance makes the latter two labels describe the same relaxed-edge prohibition, not separate evidence of damage. The alternatives individually cover 82.8–84.0% of this region under the exact binding model; no simultaneous feasibility is implied.
+
+These results support testing replacements or shifts of existing amplicons. They do not establish that every alternative has been rejected, that a replacement will succeed, or that relaxing dimers alone can repair these placements. The other 887 distinct configurations remain untested by this bounded insertion diagnostic. The three nearby selected families retain all their eligible variants; omission causes are not inferred.
+
+The source panel passed a fresh scientific audit before these checks. The diagnostic completed in 1,098.47 seconds with unchanged source/runtime/input identities. [Full regional report](/Users/dho/Desktop/sandbox/mhc-primal-scheme/allele-coverage-development/mamu-a1-region394-644-secondary07-01/diagnostic.json) and [reproducibility receipt](/Users/dho/Desktop/sandbox/mhc-primal-scheme/allele-coverage-development/mamu-a1-region394-644-secondary07-01/provenance.json).
+
+## Why the independent A1 panel fails against added MHC targets
+
+A separate controlled diagnostic held the audited 18-amplicon A1 panel, its 96 selected oligo species and both pool assignments fixed. It added the original other ten MSA sequence backgrounds, **without adding any primers from those targets**. The baseline reproduced the saved A1 specificity audit exactly; all A1 evidence and support remained unchanged.
+
+Under the current supplied-row specificity rule, **all 18 individual configurations** acquire a rejection, and **62 of 72 same-pool configuration pairs** acquire a rejection. The 6,687 recorded predicted products are on Mamu-A2 (3,422), Mamu-A4 (2,839), Mamu-B (274) and Mamu-E (152). These are screening witnesses, not probabilities or a count of primer removals required for a new design.
+
+Of the 1,609 individual-configuration witnesses, **1,416 are 150–250 bp**, 56 are 251–500 bp and 137 are 501–2,000 bp. Therefore merely shortening the maximum screened product length does not remove this class of conflict. Seventeen of the 18 configurations have at least one added product with both 17-base terminal seeds matching exactly. All witnesses have concrete sequence footprints; neither that fact nor an exact terminal match establishes exact full-primer binding or experimental amplification.
+
+A subsequent annotation of all 6,687 retained witnesses, checked against the bound original row sequences, finds **17 of 18 configurations have at least one 150–250 bp cross-target product with both full oligos matching exactly** (166 individual-configuration witnesses). Across all sizes there are 174 such individual-configuration witnesses and 551 pair witnesses. Thus many predicted short shared products are not merely a consequence of screening only the terminal 17 bases. This annotation adds no coverage credit or permission to amplify another target. Allowing only those full-exact products would not make this fixed panel pass: 1,250 other individual-configuration witnesses in the 150–250 bp range remain, distributed across all 18 configurations. That is a recount of retained evidence, not a newly validated relaxed panel. [Full-oligo annotation](/Users/dho/Desktop/sandbox/mhc-primal-scheme/allele-coverage-development/mamu-a1-background-full-oligo-exactness-01/summary.json) and [receipt](/Users/dho/Desktop/sandbox/mhc-primal-scheme/allele-coverage-development/mamu-a1-background-full-oligo-exactness-01/provenance.json).
+
+This isolates an important distinction: an independently designed panel can fail the combined screening rule because its primers bind other supplied MHC targets, even before dimer interactions with additional primers exist. It does **not** establish how much this gate limits the eventual optimized 11-target scheme. Current intended-product certificates are tied to declared target/site roles. Treating any product on a supplied target as desirable would waive that distinction without evidence; no such relaxation has been made. Deliberate amplification shared across targets would require an explicit, validated representation of those intended sites and products.
+
+The complete 90-context check finished in 5.73 seconds including preparation, with unchanged input/source/runtime identities and exact baseline parity. [Screen summary](/Users/dho/Desktop/sandbox/mhc-primal-scheme/allele-coverage-development/mamu-a1-fixed-panel-original11-background-01/summary.json), [screen receipt](/Users/dho/Desktop/sandbox/mhc-primal-scheme/allele-coverage-development/mamu-a1-fixed-panel-original11-background-01/provenance.json), and [per-amplicon intervals and product-length analysis](/Users/dho/Desktop/sandbox/mhc-primal-scheme/allele-coverage-development/mamu-a1-fixed-panel-original11-analysis-01/report.md).
+
+Historical-input verification confirms that all eleven independent raw FASTAs match their canonical combined inputs byte-for-byte despite different saved occurrence identifiers. Ordered rows, distinct classes, missing/gap masks and reference mappings agree; the upstream and LGE3 comparison inputs also match. All 14 scoring receipts and their 112 distinct input/output payloads were verified. This supports comparison on identical input biology; it does not make independently designed pools jointly compatible. [Equivalence report](/Users/dho/Desktop/sandbox/mhc-primal-scheme/allele-coverage-development/historical-input-equivalence-01/report.md).
+
+## Matched-hour visualization
+
+![Matched one-hour A1 searches and allele coverage tradeoffs](/Users/dho/Desktop/sandbox/mhc-primal-scheme/allele-coverage-development/mamu-a1-hour-comparison-figure-01/comparison.png)
+
+[Vector figure](/Users/dho/Desktop/sandbox/mhc-primal-scheme/allele-coverage-development/mamu-a1-hour-comparison-figure-01/comparison.svg), [PDF](/Users/dho/Desktop/sandbox/mhc-primal-scheme/allele-coverage-development/mamu-a1-hour-comparison-figure-01/comparison.pdf), and [plot data and rendering provenance](/Users/dho/Desktop/sandbox/mhc-primal-scheme/allele-coverage-development/mamu-a1-hour-comparison-figure-01/provenance.json). Traces show provisional search incumbents; diamonds and the allele comparison use the independently audited final panels.
+
+## Engineering verification
+
+The native implementation and LGE CLI integration have passed independent Astra reviews. The latest frozen native evaluation revision is `74102b8` in `allele-aware-primal-matrix12`; the initial combined discovery remains frozen at the earlier `7ca64e6` revision. Scientific discovery dependencies are identical across these revisions. Subsequent changes add inspection, cache reuse, diagnostics, measured storage improvements and the reviewed construction-queue replay fix. The single-target pilot remains frozen on `matrix-02` (`c6aa554`).
+
+- Native full suite at `74102b8`, the source frozen as matrix12: **876 passed**, one upstream Kaleido deprecation warning, 181.11 seconds. Independent review also passed 60 history tests. The latest change removes redundant ID lookups from v2 checkpoint queries while retaining all three integrity checks; v1 behavior is unchanged. No full-MHC speedup is claimed.
+- The prior matrix11 suite passed 865 tests. Its display-only allele-label map is reconstructed from raw inputs during audit and leaves scientific/cache identities unchanged.
+- Latest integrated LGE focused run: **157 passed**, seven environment-gated tests skipped, zero failures (164 total). The real A1 integration was run separately with its environment enabled: one passed in 251.64 seconds, including all 1,380 real four-site certificates, stored-bundle inspection/history and a fresh relocated raw-row audit.
+- Real fresh and cached designs passed LGE publication and independent native audits. The matrix10 effort smoke also verified explicit old-default overrides, inherited quality values, saved inspection/history/audit, and failure provenance when an older native executable rejects an unsupported quality request.
+- A production `lungfish-cli` cached design using the original Mamu-A1 bundle and frozen matrix11 preserved all six original human-readable allele labels, stable LGE row IDs and native row/class IDs. Text/JSON inspection, history and fresh audit passed; cache reuse reported zero discovery workers and input/cache hashes were unchanged. This deliberately bounded 60-second engineering run is not a quality comparison. Its initial negative-number argument syntax error and corrected successful invocation are both retained in the [verification record](/Users/dho/Desktop/sandbox/mhc-primal-scheme/allele-coverage-development/lge-a1-matrix11-label-integration-01/verification.json).
+- A cached-result bundle passed inspection, history and fresh audit after relocation while its original synthetic input, cache and prior bundles were temporarily unavailable. Originals were restored unchanged. [Relocation receipt](/Users/dho/Desktop/sandbox/mhc-primal-scheme/allele-coverage-development/lge-wrapper-relocation-01/provenance.json).
+- Three current-binary failure-path checks retained byte-verified wrapper and native provenance.
+
+These checks establish engineering behavior, not improved MHC coverage. GUI and managed-runtime changes remain deferred.
+
+## Actual allele product lengths
+
+A separate read-only decomposition of the best A1 panel reproduces its audited 89.5027% coverage exactly. Of 123 configuration × retained F/R pair × distinct-class product records, 118 are within the inclusive 150–250 bp reference bounds and five are 251–252 bp; none are shorter than 150 bp. Multiple primer pairs can describe overlapping products, so these counts are not molecular frequencies.
+
+The two classes with these slightly longer products are A1*028 and A1*011. Removing all above-bound products from the coverage calculation would lower the target mean to 85.1726%, a 4.3300 percentage-point difference after accounting for overlap with other selected products. This is a descriptive partition, not a proposed rejection: reference-envelope bounds were intentional, and a 1–2 bp allele-length difference does not itself establish PCR failure. [Per-class product-length report](/Users/dho/Desktop/sandbox/mhc-primal-scheme/allele-coverage-development/mamu-a1-narrow09-product-lengths-01/report.md) and [provenance](/Users/dho/Desktop/sandbox/mhc-primal-scheme/allele-coverage-development/mamu-a1-narrow09-product-lengths-01/provenance.json).
+
+## Interpretation limits
+
+- Dimer scores and exposure caps are computational screening policies, not calibrated probabilities of amplification failure or validated destructive thresholds.
+- Specificity screening covers supplied MSA rows and declared seed/full-footprint uncertainty; it does not screen an unprovided genome.
+- First-compatible discovery examines a bounded length prefix per row/anchor/profile. Longer alternatives require the explicit exhaustive-length option.
+- Timing measurements came from a shared development machine with concurrent cold discovery and engineering work; they are not isolated performance benchmarks. Work counters accompany the wall-limited comparisons.
+- Search is bounded. Unevaluated families/configurations cannot be called infeasible, and a sampled union is not a theoretical coverage ceiling.
+- Exact support is conservative for primer mismatches; reports identify observed classes that remain unsupported.
+- Amplicon size bounds constrain the reference envelope. Insertions or deletions can change an individual allele’s actual product length. The reported metric measures exact-binding primer-trimmed interiors, not experimentally demonstrated amplification or sequencing-read coverage across long inserts.

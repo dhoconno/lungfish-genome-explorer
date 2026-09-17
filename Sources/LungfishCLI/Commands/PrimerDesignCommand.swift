@@ -101,7 +101,7 @@ struct PrimerDesignCommand: AsyncParsableCommand {
         @Option(name: .customLong("amplicon-size-min"), help: "Inclusive minimum reference amplicon span, including primer sites. Supplying either bound enables reference-span sizing.") var ampliconSizeMinimum: Int?
         @Option(name: .customLong("amplicon-size-max"), help: "Inclusive maximum reference amplicon span, including primer sites.") var ampliconSizeMaximum: Int?
         @Option(name: .customLong("pool-count")) var poolCount = 2
-        @Option(name: .customLong("min-overlap"), help: "Minimum overlap for independent designs; combined designs require the default 10.") var minOverlap = 10
+        @Option(name: .customLong("min-overlap"), help: "Minimum overlap for independent legacy designs; combined designs require the default 10.") var minOverlap = 10
         @Option(name: .customLong("minimum-base-frequency")) var minimumBaseFrequency = 0.0
         @Flag(name: .customLong("high-gc")) var highGC = false
         @Option(name: .customLong("core-count"), help: "CPU workers for custom Python or legacy Rust discovery.") var coreCount = PrimalScheme3DesignOptions.defaultCoreCount
@@ -114,14 +114,43 @@ struct PrimerDesignCommand: AsyncParsableCommand {
         @Option(name: .customLong("panel-mode"), help: "Combined panels: equal or entropy.") var panelMode = "equal"
         @Option(name: .customLong("max-amplicons")) var maxAmplicons: Int?
         @Option(name: .customLong("max-amplicons-per-msa")) var maxAmpliconsPerMSA: Int?
-        @Option(name: .customLong("selection-algorithm"), help: "Panel selector: legacy or coverage.") var selectionAlgorithm = "legacy"
-        @Option(name: .customLong("coverage-metric"), help: "Coverage objective: full-span or primer-trimmed.") var coverageMetric = "full-span"
-        @Option(name: .customLong("coverage-target")) var coverageTarget = 0.90
+        @Option(name: .customLong("selection-algorithm"), help: "Panel selector: legacy, coverage, or allele-coverage.") var selectionAlgorithm = "legacy"
+        @Option(name: .customLong("coverage-metric"), help: "Coverage objective; defaults by selection algorithm.") var coverageMetric: String?
+        @Option(name: .customLong("coverage-target"), help: "Coverage objective; defaults to 0.95 for allele coverage and 0.90 otherwise.") var coverageTarget: Double?
         @Option(name: .customLong("optimizer-seed")) var optimizerSeed = 0
-        @Option(name: .customLong("optimizer-starts")) var optimizerStarts = 4
-        @Option(name: .customLong("optimizer-repair-rounds")) var optimizerRepairRounds = 2
-        @Option(name: .customLong("optimizer-time-limit")) var optimizerTimeLimit = 120.0
+        @Option(name: .customLong("optimizer-starts")) var optimizerStarts: Int?
+        @Option(name: .customLong("optimizer-repair-rounds")) var optimizerRepairRounds: Int?
+        @Option(name: .customLong("optimizer-time-limit")) var optimizerTimeLimit: Double?
         @Option(name: .customLong("mispriming-product-size")) var misprimingProductSize: Int?
+        @Option(name: .customLong("preset")) var preset: String?
+        @Option(name: .customLong("candidate-profiles")) var candidateProfiles: String?
+        @Option(name: .customLong("reuse-discovery")) var reuseDiscovery: String?
+        @Option(name: .customLong("variant-selection")) var variantSelection: String?
+        @Option(name: .customLong("search-effort"), help: "Allele optimizer effort: standard-v1 or quality-v1.") var searchEffort: String?
+        @Option(name: .customLong("phase-scheduling"), help: "Optimizer phase policy: serial or reserved.") var phaseScheduling: String?
+        @Option(name: .customLong("intended-product-policy"), help: "Intended product policy: exact-supported or concrete-designated-sites.") var intendedProductPolicy: String?
+        @Option(name: .customLong("allele-weighting")) var alleleWeighting: String?
+        @Option(name: .customLong("discovery-length-mode")) var discoveryLengthMode: String?
+        @Option(name: .customLong("specificity-terminal-k")) var specificityTerminalK: Int?
+        @Option(name: .customLong("secondary-product-policy"), help: "Secondary product policy: ordered-disjoint-intended-sites, reject-secondary-products/v1, or ordered-disjoint-concrete-designated-sites/v1.") var secondaryProductPolicy: String?
+        @Option(name: .customLong("subset-beam-width")) var subsetBeamWidth: Int?
+        @Option(name: .customLong("subset-expansion-limit")) var subsetExpansionLimit: Int?
+        @Option(name: .customLong("exchange-width")) var exchangeWidth: Int?
+        @Option(name: .customLong("salvage")) var salvage: String?
+        @Option(name: .customLong("salvage-threshold")) var salvageThresholds: [Double] = []
+        @Option(name: .customLong("salvage-max-stages")) var salvageMaxStages: Int?
+        @Option(name: .customLong("salvage-max-edges-per-pool")) var salvageMaxEdgesPerPool: Int?
+        @Option(name: .customLong("salvage-max-oligos-per-pool")) var salvageMaxOligosPerPool: Int?
+        @Option(name: .customLong("salvage-time-limit")) var salvageTimeLimit: Double?
+        @Option(name: .customLong("primary-tier")) var primaryTier: String?
+        @Option(name: .customLong("work-frontier-candidates")) var workFrontierCandidates: Int?
+        @Option(name: .customLong("work-construction-candidate-attempts")) var workConstructionCandidateAttempts: Int?
+        @Option(name: .customLong("work-repair-candidate-probes-per-round")) var workRepairCandidateProbesPerRound: Int?
+        @Option(name: .customLong("work-repair-neighborhoods-per-round")) var workRepairNeighborhoodsPerRound: Int?
+        @Option(name: .customLong("work-repair-trials-per-round")) var workRepairTrialsPerRound: Int?
+        @Option(name: .customLong("work-pool-lookahead-candidates")) var workPoolLookaheadCandidates: Int?
+        @Option(name: .customLong("work-cleanup-moves-per-round")) var workCleanupMovesPerRound: Int?
+        @Option(name: .customLong("work-families-per-refresh")) var workFamiliesPerRefresh: Int?
 
         func run() async throws {
             let output = try await execute(argv: CommandLine.arguments)
@@ -151,12 +180,72 @@ struct PrimerDesignCommand: AsyncParsableCommand {
                 throw ValidationError("--panel-mode must be equal or entropy.")
             }
             guard let resolvedSelectionAlgorithm = PrimalScheme3SelectionAlgorithm(rawValue: selectionAlgorithm) else {
-                throw ValidationError("--selection-algorithm must be legacy or coverage.")
+                throw ValidationError("--selection-algorithm must be legacy, coverage, or allele-coverage.")
             }
-            guard let resolvedCoverageMetric = PrimalScheme3CoverageMetric(rawValue: coverageMetric) else {
-                throw ValidationError("--coverage-metric must be full-span or primer-trimmed.")
+            let metricName = coverageMetric ?? (resolvedSelectionAlgorithm == .alleleCoverage
+                ? PrimalScheme3CoverageMetric.observedAllelePrimerTrimmed.rawValue
+                : PrimalScheme3CoverageMetric.fullSpan.rawValue)
+            guard let resolvedCoverageMetric = PrimalScheme3CoverageMetric(rawValue: metricName) else {
+                throw ValidationError("--coverage-metric must be full-span, primer-trimmed, or observed-allele-primer-trimmed.")
             }
-            let options = PrimalScheme3DesignOptions(ampliconSize: ampliconSize, poolCount: poolCount, minOverlap: minOverlap, minimumBaseFrequency: minimumBaseFrequency, highGC: highGC, coreCount: coreCount, terminalGapPolicy: resolvedTerminalGapPolicy, dimerScore: dimerScore, useMatchDB: !disableMatchDB, backtrack: backtrack, ignoreN: ignoreN, panelMode: resolvedPanelMode, maxAmplicons: maxAmplicons, maxAmpliconsPerMSA: maxAmpliconsPerMSA, ampliconSizeMinimum: ampliconSizeMinimum, ampliconSizeMaximum: ampliconSizeMaximum, selectionAlgorithm: resolvedSelectionAlgorithm, coverageMetric: resolvedCoverageMetric, coverageTarget: coverageTarget, optimizerSeed: optimizerSeed, optimizerStarts: optimizerStarts, optimizerRepairRounds: optimizerRepairRounds, optimizerTimeLimit: optimizerTimeLimit, misprimingProductSize: misprimingProductSize)
+            let resolvedPhaseScheduling: PrimalScheme3PhaseScheduling?
+            if let phaseScheduling {
+                guard let value = PrimalScheme3PhaseScheduling(rawValue: phaseScheduling) else {
+                    throw ValidationError("--phase-scheduling must be serial or reserved.")
+                }
+                resolvedPhaseScheduling = value
+            } else {
+                resolvedPhaseScheduling = nil
+            }
+            let resolvedSearchEffort: PrimalScheme3SearchEffort?
+            if let searchEffort {
+                guard let value = PrimalScheme3SearchEffort(rawValue: searchEffort) else {
+                    throw ValidationError("--search-effort must be standard-v1 or quality-v1.")
+                }
+                resolvedSearchEffort = value
+            } else {
+                resolvedSearchEffort = nil
+            }
+            let resolvedIntendedProductPolicy: PrimalScheme3IntendedProductPolicy?
+            if let intendedProductPolicy {
+                guard let value = PrimalScheme3IntendedProductPolicy(rawValue: intendedProductPolicy) else {
+                    throw ValidationError("--intended-product-policy must be exact-supported or concrete-designated-sites.")
+                }
+                resolvedIntendedProductPolicy = value
+            } else {
+                resolvedIntendedProductPolicy = nil
+            }
+            let resolvedSecondaryProductPolicy: PrimalScheme3SecondaryProductPolicy?
+            if let secondaryProductPolicy {
+                guard let value = PrimalScheme3SecondaryProductPolicy(rawValue: secondaryProductPolicy) else {
+                    throw ValidationError("--secondary-product-policy must be ordered-disjoint-intended-sites, reject-secondary-products/v1, or ordered-disjoint-concrete-designated-sites/v1.")
+                }
+                resolvedSecondaryProductPolicy = value
+            } else {
+                resolvedSecondaryProductPolicy = nil
+            }
+            let alleleOptions = PrimalScheme3AlleleOptions(
+                preset: preset, candidateProfiles: candidateProfiles,
+                reuseDiscovery: reuseDiscovery.map(URL.init(fileURLWithPath:)),
+                variantSelection: variantSelection, searchEffort: resolvedSearchEffort,
+                phaseScheduling: resolvedPhaseScheduling,
+                intendedProductPolicy: resolvedIntendedProductPolicy,
+                alleleWeighting: alleleWeighting,
+                discoveryLengthMode: discoveryLengthMode, specificityTerminalK: specificityTerminalK,
+                secondaryProductPolicy: resolvedSecondaryProductPolicy, subsetBeamWidth: subsetBeamWidth,
+                subsetExpansionLimit: subsetExpansionLimit, exchangeWidth: exchangeWidth,
+                salvage: salvage, salvageThresholds: salvageThresholds.isEmpty ? nil : salvageThresholds,
+                salvageMaxStages: salvageMaxStages, salvageMaxEdgesPerPool: salvageMaxEdgesPerPool,
+                salvageMaxOligosPerPool: salvageMaxOligosPerPool, salvageTimeLimit: salvageTimeLimit,
+                primaryTier: primaryTier, workFrontierCandidates: workFrontierCandidates,
+                workConstructionCandidateAttempts: workConstructionCandidateAttempts,
+                workRepairCandidateProbesPerRound: workRepairCandidateProbesPerRound,
+                workRepairNeighborhoodsPerRound: workRepairNeighborhoodsPerRound,
+                workRepairTrialsPerRound: workRepairTrialsPerRound,
+                workPoolLookaheadCandidates: workPoolLookaheadCandidates,
+                workCleanupMovesPerRound: workCleanupMovesPerRound,
+                workFamiliesPerRefresh: workFamiliesPerRefresh)
+            let options = PrimalScheme3DesignOptions(ampliconSize: ampliconSize, poolCount: poolCount, minOverlap: minOverlap, minimumBaseFrequency: minimumBaseFrequency, highGC: highGC, coreCount: coreCount, terminalGapPolicy: resolvedTerminalGapPolicy, dimerScore: dimerScore, useMatchDB: !disableMatchDB, backtrack: backtrack, ignoreN: ignoreN, panelMode: resolvedPanelMode, maxAmplicons: maxAmplicons, maxAmpliconsPerMSA: maxAmpliconsPerMSA, ampliconSizeMinimum: ampliconSizeMinimum, ampliconSizeMaximum: ampliconSizeMaximum, selectionAlgorithm: resolvedSelectionAlgorithm, coverageMetric: resolvedCoverageMetric, coverageTarget: coverageTarget, optimizerSeed: optimizerSeed, optimizerStarts: optimizerStarts, optimizerRepairRounds: optimizerRepairRounds, optimizerTimeLimit: optimizerTimeLimit, misprimingProductSize: misprimingProductSize, alleleOptions: alleleOptions)
             let explicit = options.provenanceOptions.merging(["grouping": .string(resolvedGrouping.rawValue), "inputCount": .integer(inputs.count)]) { _, new in new }
             let invocation = PrimerAnalysisWrapperInvocation(argv: argv, callerVersion: LungfishAppVersion.cliToolVersion, explicitOptions: explicit, runtimeIdentity: ProvenanceRuntimeIdentity(executablePath: argv.first ?? CLICommandIdentity.executableName))
             return try await PrimalScheme3DesignPipeline().run(request: .init(inputURLs: inputs, destinationURL: URL(fileURLWithPath: outputPath), options: options, grouping: resolvedGrouping, invocation: invocation, executableURL: executablePath.map(URL.init(fileURLWithPath:)), expectedInputChecksums: checksums))

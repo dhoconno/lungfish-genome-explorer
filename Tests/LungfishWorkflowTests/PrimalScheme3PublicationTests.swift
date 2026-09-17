@@ -405,6 +405,36 @@ final class PrimalScheme3PublicationTests: XCTestCase {
       XCTFail("Expected failed execution")
     } catch { XCTAssertTrue(error.localizedDescription.contains("status 1"), error.localizedDescription) }
     XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.destination.path))
+    let failures = try FileManager.default.contentsOfDirectory(at: fixture.destination.deletingLastPathComponent(),
+      includingPropertiesForKeys: nil).filter { $0.lastPathComponent.hasPrefix(fixture.destination.lastPathComponent + ".failure") }
+    XCTAssertEqual(failures.count, 2)
+    for failure in failures {
+      let receipt = failure.appendingPathComponent("failure-provenance.json")
+      let object = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: receipt)) as? [String: Any])
+      XCTAssertTrue(["failed", "cancelled"].contains(object["status"] as? String))
+      XCTAssertFalse(try XCTUnwrap(object["argv"] as? [String]).isEmpty)
+      XCTAssertNotNil(object["wallTimeSeconds"] as? Double)
+      XCTAssertNotNil(object["retainedFiles"] as? [[String: Any]])
+    }
+  }
+
+  func testExecutorThrowRetainsStartedCommandEvidence() async throws {
+    let fixture = try fixture()
+    defer { try? FileManager.default.removeItem(at: fixture.root) }
+    let pipeline = PrimalScheme3DesignPipeline(runner: { _ in throw CancellationError() })
+    do {
+      _ = try await pipeline.run(request: request(fixture, grouping: .combined))
+      XCTFail("Expected executor failure")
+    } catch {}
+    let failure = try XCTUnwrap(try FileManager.default.contentsOfDirectory(
+      at: fixture.destination.deletingLastPathComponent(), includingPropertiesForKeys: nil)
+      .first { $0.lastPathComponent.hasPrefix(fixture.destination.lastPathComponent + ".failure") })
+    let attempts = failure.appendingPathComponent("execution-attempts")
+    let evidence = try FileManager.default.contentsOfDirectory(at: attempts, includingPropertiesForKeys: nil)
+    XCTAssertTrue(evidence.contains { $0.lastPathComponent.hasSuffix("-design-request.json") })
+    let receipt = try XCTUnwrap(JSONSerialization.jsonObject(
+      with: Data(contentsOf: failure.appendingPathComponent("failure-provenance.json"))) as? [String: Any])
+    XCTAssertEqual(receipt["status"] as? String, "cancelled")
   }
 
   func testWrongNativePolicyCannotPublishAsMissingAware() async throws {
@@ -550,7 +580,11 @@ final class PrimalScheme3PublicationTests: XCTestCase {
   }
 
   private static func nativeCoverageFixtureURL(named name: String = "PrimalScheme3CoverageNative") -> URL {
-    Bundle.module.resourceURL!.appendingPathComponent(name, isDirectory: true)
+    let root = Bundle.module.resourceURL!
+    let copiedResources = root.appendingPathComponent("Resources", isDirectory: true)
+      .appendingPathComponent(name, isDirectory: true)
+    if FileManager.default.fileExists(atPath: copiedResources.path) { return copiedResources }
+    return root.appendingPathComponent(name, isDirectory: true)
   }
 
   private static func coverageNativeFixture(_ command: PrimalScheme3Command,

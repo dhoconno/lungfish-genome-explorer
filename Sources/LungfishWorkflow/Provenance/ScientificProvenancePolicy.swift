@@ -187,6 +187,8 @@ public enum ScientificProvenancePolicy {
 
     public static let cliCommandPathPolicies: [String: ProvenancePolicyEntry] = [
         "primers analysis inspect": inspectOnly("cli.primers.analysis.inspect"),
+        "primers analysis history": dataWriting("cli.primers.analysis.history", writer: "PrimerAnalysisNativeInspectionService"),
+        "primers analysis audit": dataWriting("cli.primers.analysis.audit", writer: "PrimerAnalysisNativeInspectionService"),
         "primers design primer3": dataWriting("cli.primers.design.primer3"),
         "primers design primalscheme3": dataWriting("cli.primers.design.primalscheme3"),
         "primers analysis annotated-reference": dataWriting("cli.primers.analysis.annotated-reference"),
