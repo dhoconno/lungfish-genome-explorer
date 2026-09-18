@@ -1,6 +1,6 @@
 # PrimalScheme3-LGE custom fork
 
-LGE uses **PrimalScheme3-LGE (custom fork)**. The current managed runtime is version `3.3.0+lge.5`, from the public [dhoconno/primalscheme3-lge repository](https://github.com/dhoconno/primalscheme3-lge), source commit `858a341ab7435fa9a9f1c0b1f10e525f8b3ef2a`. Its wheel `primalscheme3-3.3.0+lge.5-py3-none-any.whl` has SHA-256 `ab8453c4a4b19cbd96794b1e4997fad4538f714eacdea77528c46df59f7b4066`. Historical lge.2 validation and release details remain documented below. The fork retains upstream attribution and the GPL license. This is a separately maintained fork, not an upstream release or an upstream endorsement of LGE's changes.
+LGE uses **PrimalScheme3-LGE (custom fork)**. The current managed runtime is version `3.3.0+lge.5`, from the public [dhoconno/primalscheme3-lge repository](https://github.com/dhoconno/primalscheme3-lge), source commit `858a341ab7435fa54a9f1c0b1f10e525f8b3ef2a`. Its wheel `primalscheme3-3.3.0+lge.5-py3-none-any.whl` has SHA-256 `ab8453c4a4b19cbd96794b1e4997fad4538f714eacdea77528c46df59f7b4066`. Historical lge.2 validation and release details remain documented below. The fork retains upstream attribution and the GPL license. This is a separately maintained fork, not an upstream release or an upstream endorsement of LGE's changes.
 
 ## Behavior and limitations
 
