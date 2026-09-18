@@ -167,7 +167,13 @@ open class BatchTableView<Row>: NSView, NSTableViewDataSource, NSTableViewDelega
     open func sampleId(for row: Row) -> String? { nil }
 
     /// Result/run identity to include in stable row IDs for duplicated biological names.
-    public var resultIdentity: String?
+    public var resultIdentity: String? {
+        didSet {
+            metadataColumns.persistenceKey = resultIdentity.map {
+                "\(String(reflecting: type(of: self))):\($0)"
+            }
+        }
+    }
 
     /// Returns a stable biological identity for `row`.
     ///

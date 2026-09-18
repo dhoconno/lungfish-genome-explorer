@@ -122,7 +122,13 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
     private var manifest: NvdManifest?
 
     /// URL of the NVD bundle directory.
-    private var bundleURL: URL?
+    private var bundleURL: URL? {
+        didSet {
+            metadataColumnController.persistenceKey = bundleURL.map {
+                "nvd.contigs:\($0.standardizedFileURL.path)"
+            }
+        }
+    }
 
     /// All samples from the database.
     private var allSamples: [NvdSampleMetadata] = []

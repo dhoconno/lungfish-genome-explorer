@@ -86,7 +86,11 @@ public final class ViralDetectionTableView: NSView, NSOutlineViewDataSource, NSO
     }
 
     /// Result/run identity used to distinguish duplicated assemblies across result sources.
-    public var resultIdentity: String?
+    public var resultIdentity: String? {
+        didSet {
+            metadataColumns.persistenceKey = resultIdentity.map { "esviritu.detections:\($0)" }
+        }
+    }
 
     /// Coverage windows indexed by accession for sparkline rendering in single-sample mode.
     public var coverageWindowsByAccession: [String: [ViralCoverageWindow]] = [:]

@@ -23,6 +23,40 @@ private final class EsVirituRecordingEvidenceViewer: NSObject, ClassifierAlignme
 }
 
 final class EsVirituResultViewControllerSmokeTests: XCTestCase {
+    @MainActor func testMetadataLayoutSurvivesRecreatingEsVirituList() throws {
+        let identity = "metadata-layout-test-\(UUID().uuidString)"
+        defer {
+            for key in UserDefaults.standard.dictionaryRepresentation().keys where key.contains(identity) {
+                UserDefaults.standard.removeObject(forKey: key)
+            }
+        }
+        let store = try SampleMetadataStore(
+            csvData: Data("Sample\tGroup\nS1\tcase\n".utf8),
+            knownSampleIds: ["S1"]
+        )
+        let savedOrder: [String] = {
+            let first = ViralDetectionTableView()
+            first.resultIdentity = identity
+            first.metadataColumns.visibleColumns = ["Group"]
+            first.metadataColumns.update(store: store, sampleId: "S1")
+            let table = first.testOutlineView
+            table.moveColumn(table.column(withIdentifier: .init("metadata_Group")), toColumn: 0)
+            table.moveColumn(table.column(withIdentifier: .init("reads")), toColumn: 1)
+            return table.tableColumns.map { $0.identifier.rawValue }
+        }()
+
+        let other = ViralDetectionTableView()
+        other.resultIdentity = identity + "-other"
+        other.metadataColumns.update(store: store, sampleId: "S1")
+        XCTAssertTrue(other.metadataColumns.visibleColumns.isEmpty)
+
+        let restored = ViralDetectionTableView()
+        restored.resultIdentity = identity
+        restored.metadataColumns.update(store: store, sampleId: "S1")
+        XCTAssertEqual(restored.metadataColumns.visibleColumns, ["Group"])
+        XCTAssertEqual(restored.testOutlineView.tableColumns.map { $0.identifier.rawValue }, savedOrder)
+    }
+
     @MainActor func testDatabaseSelectionBuildsDetachedEvidenceRequestForDuplicateAccession() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("EsVirituEvidence-\(UUID().uuidString)", isDirectory: true)

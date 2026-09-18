@@ -391,6 +391,9 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
         self.manifest = manifest
         self.bundleURL = bundleURL
         cachedTaxonRows = rows
+        metadataColumnController.persistenceKey = bundleURL.map {
+            "naomgs.taxonomy:\($0.standardizedFileURL.path)"
+        }
         configureSampleSelection(
             sampleHitCounts: Self.cachedSampleHitCounts(from: rows, manifest: manifest),
             bundleURL: bundleURL
@@ -429,6 +432,8 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
         self.manifest = manifest
         self.bundleURL = bundleURL
         cachedTaxonRows = []
+        let layoutURL = bundleURL ?? database.databaseURL.deletingLastPathComponent()
+        metadataColumnController.persistenceKey = "naomgs.taxonomy:\(layoutURL.standardizedFileURL.path)"
 
         // Fetch samples from database
         do {

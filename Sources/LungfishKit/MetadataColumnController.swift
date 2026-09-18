@@ -58,8 +58,12 @@ public final class MetadataColumnController {
 
     // MARK: - Properties
 
-    public init(contentTypographyOwnership: ContentTypographyOwnership = .standalone) {
+    public init(
+        contentTypographyOwnership: ContentTypographyOwnership = .standalone,
+        userDefaults: UserDefaults = .standard
+    ) {
         self.contentTypographyOwnership = contentTypographyOwnership
+        self.userDefaults = userDefaults
         if contentTypographyOwnership == .standalone {
             let notifications = NotificationCenterContentTypographyNotifications(
                 notificationCenter: .default
@@ -74,6 +78,14 @@ public final class MetadataColumnController {
 
     private static let zeroWidthDisableThreshold: CGFloat = 0.5
     private static let metadataCellTextFieldTag = 51_001
+    private static let persistencePrefix = "org.lungfish.metadata-column-layout."
+
+    private struct PersistedLayout: Codable {
+        let version: Int
+        let visibleMetadata: [String]
+        let columnOrder: [String]
+        let metadataWidths: [String: CGFloat]
+    }
 
     /// The metadata store providing column names and values.
     public private(set) var store: SampleMetadataStore?
@@ -83,6 +95,19 @@ public final class MetadataColumnController {
 
     /// Set of metadata column names currently toggled visible by the user.
     public var visibleColumns: Set<String> = []
+
+    /// An optional stable result-and-table-role key used to remember the user's
+    /// metadata selection and table column order. A nil key retains the
+    /// controller's previous in-memory-only behavior.
+    public var persistenceKey: String? {
+        didSet {
+            guard persistenceKey != oldValue else { return }
+            if oldValue != nil {
+                persistLayout(for: oldValue)
+            }
+            restoreLayoutForCurrentKey()
+        }
+    }
 
     /// Whether multiple samples are currently being viewed.
     ///
@@ -99,12 +124,18 @@ public final class MetadataColumnController {
 
     /// The table view (NSTableView or NSOutlineView) this controller manages columns on.
     private weak var tableView: NSTableView?
+    private let userDefaults: UserDefaults
+    private var persistedLayout: PersistedLayout?
+    private var defaultStandardColumnOrder: [String] = []
 
     /// Default widths captured at installation or column creation for restoring disabled columns.
     private var defaultColumnWidths: [String: CGFloat] = [:]
 
     /// Observer token for zero-width column resize detection.
     private nonisolated(unsafe) var columnResizeObserver: NSObjectProtocol?
+    private nonisolated(unsafe) var columnMoveObserver: NSObjectProtocol?
+    private nonisolated(unsafe) var outlineColumnResizeObserver: NSObjectProtocol?
+    private nonisolated(unsafe) var outlineColumnMoveObserver: NSObjectProtocol?
 
     /// Live content-size preference observation.
     private var contentTypographyObservation: ContentTypographyNotificationObservation?
@@ -120,6 +151,15 @@ public final class MetadataColumnController {
         if let columnResizeObserver {
             NotificationCenter.default.removeObserver(columnResizeObserver)
         }
+        if let columnMoveObserver {
+            NotificationCenter.default.removeObserver(columnMoveObserver)
+        }
+        if let outlineColumnResizeObserver {
+            NotificationCenter.default.removeObserver(outlineColumnResizeObserver)
+        }
+        if let outlineColumnMoveObserver {
+            NotificationCenter.default.removeObserver(outlineColumnMoveObserver)
+        }
     }
 
     // MARK: - Installation
@@ -131,9 +171,13 @@ public final class MetadataColumnController {
     /// - Parameter table: The NSTableView or NSOutlineView to manage.
     public func install(on table: NSTableView) {
         self.tableView = table
+        defaultStandardColumnOrder = table.tableColumns.compactMap { column in
+            Self.isMetadataColumn(column.identifier) ? nil : column.identifier.rawValue
+        }
         configureFlexibleTable(table)
         captureAndRelaxExistingColumns(on: table)
-        installResizeObserver(on: table)
+        installColumnObservers(on: table)
+        applyPersistedColumnOrder()
         rebuildHeaderMenu()
         applyContentTypography()
     }
@@ -222,24 +266,33 @@ public final class MetadataColumnController {
     private func refreshColumns() {
         guard let tableView else { return }
 
-        // Remove all existing metadata columns
-        let existingMetaCols = tableView.tableColumns.filter {
-            $0.identifier.rawValue.hasPrefix(metadataColumnPrefix)
+        let wasApplyingColumnVisibility = isApplyingColumnVisibility
+        isApplyingColumnVisibility = true
+        defer { isApplyingColumnVisibility = wasApplyingColumnVisibility }
+
+        let availableColumns = Set(store?.columnNames ?? [])
+        let unwantedMetadataColumns = tableView.tableColumns.filter { column in
+            guard Self.isMetadataColumn(column.identifier) else { return false }
+            let name = String(column.identifier.rawValue.dropFirst(metadataColumnPrefix.count))
+            return !availableColumns.contains(name) || !visibleColumns.contains(name)
         }
-        for col in existingMetaCols {
+        for col in unwantedMetadataColumns {
             tableView.removeTableColumn(col)
         }
 
-        // Only need a store to add metadata columns
         guard let store else { return }
 
-        // Add visible metadata columns in the order they appear in the store
         for colName in store.columnNames where visibleColumns.contains(colName) {
             let identifier = "\(metadataColumnPrefix)\(colName)"
+            guard tableView.tableColumns.allSatisfy({ $0.identifier.rawValue != identifier }) else {
+                continue
+            }
             let col = NSTableColumn(identifier: NSUserInterfaceItemIdentifier(identifier))
             col.title = colName
             col.headerToolTip = Self.metadataHeaderToolTip(for: colName)
-            col.width = defaultColumnWidths[identifier] ?? 100
+            col.width = persistedLayout?.metadataWidths[identifier]
+                ?? defaultColumnWidths[identifier]
+                ?? 100
             configureFlexibleColumn(col)
             col.sortDescriptorPrototype = NSSortDescriptor(
                 key: identifier,
@@ -248,9 +301,138 @@ public final class MetadataColumnController {
             tableView.addTableColumn(col)
         }
 
+        applyPersistedColumnOrder()
         tableView.reloadData()
         rebuildHeaderMenu()
         applyContentTypography()
+        if !wasApplyingColumnVisibility {
+            isApplyingColumnVisibility = false
+            persistLayout()
+            isApplyingColumnVisibility = true
+        }
+    }
+
+    // MARK: - Layout Persistence
+
+    private func persistenceDefaultsKey(for key: String) -> String {
+        Self.persistencePrefix + key
+    }
+
+    private func restoreLayoutForCurrentKey() {
+        guard let persistenceKey else {
+            persistedLayout = nil
+            applyPersistedLayout()
+            return
+        }
+
+        let defaultsKey = persistenceDefaultsKey(for: persistenceKey)
+        if let data = userDefaults.data(forKey: defaultsKey),
+           let decoded = try? JSONDecoder().decode(PersistedLayout.self, from: data),
+           decoded.version == 1 {
+            persistedLayout = decoded
+        } else {
+            persistedLayout = nil
+        }
+        applyPersistedLayout()
+    }
+
+    private func applyPersistedLayout() {
+        let wasApplyingColumnVisibility = isApplyingColumnVisibility
+        isApplyingColumnVisibility = true
+        visibleColumns = Set(persistedLayout?.visibleMetadata ?? [])
+        refreshColumns()
+        if persistedLayout == nil {
+            applyDefaultStandardColumnOrder()
+        } else {
+            applyPersistedColumnOrder()
+        }
+        isApplyingColumnVisibility = wasApplyingColumnVisibility
+        rebuildHeaderMenu()
+    }
+
+    private func applyDefaultStandardColumnOrder() {
+        guard let tableView else { return }
+        for (destination, identifier) in defaultStandardColumnOrder.enumerated() {
+            guard let currentIndex = tableView.tableColumns.firstIndex(where: {
+                $0.identifier.rawValue == identifier
+            }), currentIndex != destination else { continue }
+            tableView.moveColumn(currentIndex, toColumn: destination)
+        }
+    }
+
+    private func applyPersistedColumnOrder() {
+        guard let tableView, let persistedLayout else { return }
+        let currentIDs = tableView.tableColumns.map { $0.identifier.rawValue }
+        let savedIDs = persistedLayout.columnOrder.filter { currentIDs.contains($0) }
+        let desiredIDs = savedIDs + currentIDs.filter { !savedIDs.contains($0) }
+        for (destination, identifier) in desiredIDs.enumerated() {
+            let currentIndex = tableView.tableColumns.firstIndex {
+                $0.identifier.rawValue == identifier
+            }
+            if let currentIndex, currentIndex != destination {
+                tableView.moveColumn(currentIndex, toColumn: destination)
+            }
+        }
+    }
+
+    private func persistLayout(for key: String? = nil) {
+        guard !isApplyingColumnVisibility,
+              let storageKey = key ?? persistenceKey,
+              let tableView else { return }
+
+        let currentOrder = tableView.tableColumns.map { $0.identifier.rawValue }
+        let currentWidths: [String: CGFloat] = Dictionary(
+            uniqueKeysWithValues: tableView.tableColumns.compactMap { column in
+                guard Self.isMetadataColumn(column.identifier) else { return nil }
+                return (column.identifier.rawValue, column.width)
+            }
+        )
+        let needsMerge = hasTemporarilyUnavailableSavedMetadata
+        let previousLayout = persistedLayout
+
+        let layout = PersistedLayout(
+            version: 1,
+            visibleMetadata: visibleColumns.sorted(),
+            columnOrder: needsMerge
+                ? mergedColumnOrder(currentOrder, preservingUnavailableFrom: previousLayout)
+                : currentOrder,
+            metadataWidths: needsMerge
+                ? mergedMetadataWidths(currentWidths, preservingUnavailableFrom: previousLayout)
+                : currentWidths
+        )
+        guard let data = try? JSONEncoder().encode(layout) else { return }
+        userDefaults.set(data, forKey: persistenceDefaultsKey(for: storageKey))
+        if storageKey == persistenceKey {
+            persistedLayout = layout
+        }
+    }
+
+    private func mergedColumnOrder(
+        _ currentOrder: [String],
+        preservingUnavailableFrom previousLayout: PersistedLayout?
+    ) -> [String] {
+        guard let previousLayout else { return currentOrder }
+        let oldIDs = Set(previousLayout.columnOrder)
+        let currentIDs = Set(currentOrder)
+        var currentIDsKnownToPrevious = currentOrder.filter { oldIDs.contains($0) }.makeIterator()
+        var merged = previousLayout.columnOrder.map { identifier in
+            currentIDs.contains(identifier) ? currentIDsKnownToPrevious.next()! : identifier
+        }
+        merged.append(contentsOf: currentOrder.filter { !oldIDs.contains($0) })
+        return merged
+    }
+
+    private func mergedMetadataWidths(
+        _ currentWidths: [String: CGFloat],
+        preservingUnavailableFrom previousLayout: PersistedLayout?
+    ) -> [String: CGFloat] {
+        guard let previousLayout else { return currentWidths }
+        return previousLayout.metadataWidths.merging(currentWidths) { _, current in current }
+    }
+
+    private var hasTemporarilyUnavailableSavedMetadata: Bool {
+        guard let store else { return !visibleColumns.isEmpty }
+        return !visibleColumns.isSubset(of: Set(store.columnNames))
     }
 
     // MARK: - Flexible Resizing
@@ -289,18 +471,86 @@ public final class MetadataColumnController {
         defaultColumnWidths[id] = width
     }
 
-    private func installResizeObserver(on table: NSTableView) {
+    private func installColumnObservers(on table: NSTableView) {
         if let columnResizeObserver {
             NotificationCenter.default.removeObserver(columnResizeObserver)
+        }
+        if let columnMoveObserver {
+            NotificationCenter.default.removeObserver(columnMoveObserver)
+        }
+        if let outlineColumnResizeObserver {
+            NotificationCenter.default.removeObserver(outlineColumnResizeObserver)
+        }
+        if let outlineColumnMoveObserver {
+            NotificationCenter.default.removeObserver(outlineColumnMoveObserver)
         }
         columnResizeObserver = NotificationCenter.default.addObserver(
             forName: NSTableView.columnDidResizeNotification,
             object: table,
             queue: nil
         ) { [weak self] _ in
-            DispatchQueue.main.async { [weak self] in
+            if Thread.isMainThread {
                 MainActor.assumeIsolated {
                     self?.syncDisabledColumnsFromWidths()
+                }
+            } else {
+                DispatchQueue.main.async { [weak self] in
+                    MainActor.assumeIsolated {
+                        self?.syncDisabledColumnsFromWidths()
+                    }
+                }
+            }
+        }
+        columnMoveObserver = NotificationCenter.default.addObserver(
+            forName: NSTableView.columnDidMoveNotification,
+            object: table,
+            queue: nil
+        ) { [weak self] _ in
+            if Thread.isMainThread {
+                MainActor.assumeIsolated {
+                    self?.persistLayout()
+                }
+            } else {
+                DispatchQueue.main.async { [weak self] in
+                    MainActor.assumeIsolated {
+                        self?.persistLayout()
+                    }
+                }
+            }
+        }
+        if let outlineView = table as? NSOutlineView {
+            outlineColumnResizeObserver = NotificationCenter.default.addObserver(
+                forName: NSOutlineView.columnDidResizeNotification,
+                object: outlineView,
+                queue: nil
+            ) { [weak self] _ in
+                if Thread.isMainThread {
+                    MainActor.assumeIsolated {
+                        self?.syncDisabledColumnsFromWidths()
+                    }
+                } else {
+                    DispatchQueue.main.async { [weak self] in
+                        MainActor.assumeIsolated {
+                            self?.syncDisabledColumnsFromWidths()
+                        }
+                    }
+                }
+            }
+            outlineColumnMoveObserver = NotificationCenter.default.addObserver(
+                forName: NSOutlineView.columnDidMoveNotification,
+                object: outlineView,
+                queue: nil
+            ) { [weak self] _ in
+                if Thread.isMainThread {
+                    MainActor.assumeIsolated {
+                        self?.persistLayout()
+                    }
+                } else {
+                    DispatchQueue.main.async { [weak self] in
+                        MainActor.assumeIsolated {
+                            self?.persistLayout()
+                        }
+                    }
                 }
             }
         }
@@ -326,6 +576,7 @@ public final class MetadataColumnController {
             refreshColumns()
         } else {
             rebuildHeaderMenu()
+            persistLayout()
         }
     }
 

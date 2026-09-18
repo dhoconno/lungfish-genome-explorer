@@ -66,7 +66,11 @@ public class TaxonomyTableView: NSView, NSOutlineViewDataSource, NSOutlineViewDe
     }
 
     /// Result/run identity used to distinguish duplicated taxa across result sources.
-    public var resultIdentity: String?
+    public var resultIdentity: String? {
+        didSet {
+            metadataColumns.persistenceKey = resultIdentity.map { "taxonomy.outline:\($0)" }
+        }
+    }
 
     /// The currently selected node.
     ///

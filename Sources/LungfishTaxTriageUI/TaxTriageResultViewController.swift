@@ -186,7 +186,13 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
     private(set) var taxTriageResult: TaxTriageResult?
 
     /// The TaxTriage config used for this run (for re-run and provenance).
-    private(set) var taxTriageConfig: TaxTriageConfig?
+    private(set) var taxTriageConfig: TaxTriageConfig? {
+        didSet {
+            organismTableView.metadataColumns.persistenceKey = taxTriageConfig.map {
+                "taxtriage.organisms:\($0.outputDirectory.standardizedFileURL.path)"
+            }
+        }
+    }
 
     /// Whether presentUnifiedExtractionDialog() has a result path to extract
     /// from. Extract Reads must stay disabled when neither is set, matching
@@ -2663,6 +2669,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         self.isBatchGroupMode = true
         self.didLoadFromManifestCache = true
         batchFlatTableView.resultIdentity = resultURL.standardizedFileURL.path
+        organismTableView.metadataColumns.persistenceKey = "taxtriage.organisms:\(resultURL.standardizedFileURL.path)"
 
         // Fetch all samples from the DB.
         let sampleList = (try? db.fetchSamples()) ?? []
