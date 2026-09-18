@@ -644,8 +644,8 @@ primalbedtools==1.1.0 \
     --hash=sha256:385ee040a088ac401a402a156b9b1e81643adb0e8c8432bbb55822b3b4911bbb \
     --hash=sha256:58f1958687b6b83e6ec17f22aaf58ec1b5d97344824cc86fd00b44b21e026c54
     # via primalscheme3
-primalscheme3==3.3.0+lge.2 \
-    --hash=sha256:98eeac686148aa9f14de2584f80ef845f9474969c5421890c1210aef13afe54c
+primalscheme3==3.3.0+lge.5 \
+    --hash=sha256:ab8453c4a4b19cbd96794b1e4997fad4538f714eacdea77528c46df59f7b4066
     # via -r .build/primalscheme-runtime-research/requirements.in
 primalschemers==0.1.13 \
     --hash=sha256:015147de6651b22dc30bfcfbe98b9831f856101ec4daf7b7f0f4b594f83ba79e \

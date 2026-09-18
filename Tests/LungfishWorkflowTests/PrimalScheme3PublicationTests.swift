@@ -122,6 +122,35 @@ final class PrimalScheme3PublicationTests: XCTestCase {
     XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.destination.path))
   }
 
+  func testRecoveryWithoutExecutableUsesManagedRuntimePreparation() async throws {
+    let fixture = try fixture()
+    defer { try? FileManager.default.removeItem(at: fixture.root) }
+    struct ManagedRuntimeUnavailable: LocalizedError {
+      var errorDescription: String? { "managed runtime fixture" }
+    }
+    let original = try request(fixture, grouping: .combined)
+    let options = PrimalScheme3DesignOptions(
+      ampliconSize: 400, poolCount: 2, terminalGapPolicy: .legacy,
+      legacySalvageOptions: .init(mode: .bounded))
+    let pipeline = PrimalScheme3DesignPipeline(
+      runner: { _ in
+        XCTFail("Recovery must prepare the managed runtime before execution")
+        throw ManagedRuntimeUnavailable()
+      },
+      runtimePreparer: { _ in throw ManagedRuntimeUnavailable() })
+    let managedRequest = PrimalScheme3DesignRequest(
+      inputURLs: original.inputURLs, destinationURL: original.destinationURL,
+      options: options, grouping: original.grouping, invocation: original.invocation,
+      executableURL: nil, expectedInputChecksums: original.expectedInputChecksums)
+    do {
+      _ = try await pipeline.run(request: managedRequest)
+      XCTFail("Expected the managed runtime fixture to fail")
+    } catch {
+      XCTAssertEqual(error.localizedDescription, "managed runtime fixture")
+    }
+    XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.destination.path))
+  }
+
   func testCoverageRequiresValidCapabilityEvidenceFromInjectedRunner() async throws {
     for evidence in [nil, Data("{}".utf8)] {
       let fixture = try fixture()

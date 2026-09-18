@@ -282,6 +282,7 @@ public struct PrimalScheme3DesignPipeline: Sendable {
     public static let toolVersion = "3.3.0+lge.2"
     public static let coverageToolVersion = "3.3.0+lge.3"
     public static let alleleToolVersion = "3.3.0+lge.4"
+    public static let managedToolVersion = "3.3.0+lge.5"
     public static let toolDisplayName = "PrimalScheme3-LGE (custom fork)"
     public static let sourceRepository = "https://github.com/dhoconno/primalscheme3-lge"
     /// Raw nucleotide FASTA suffixes accepted as one-row or already-aligned inputs.
@@ -507,9 +508,6 @@ public struct PrimalScheme3DesignPipeline: Sendable {
         guard request.destinationURL.pathExtension.lowercased() == "lungfishprimeranalysis" else {
             throw PrimalScheme3DesignError.invalidRequest("The destination must be a .lungfishprimeranalysis bundle.")
         }
-        if (request.options.gapCompletionParent != nil || request.options.legacySalvageOptions.mode == .bounded), request.executableURL == nil {
-            throw PrimalScheme3DesignError.invalidRequest("Recovery modes require an explicit verified PrimalScheme3 executable.")
-        }
         let destination = try Self.physicalParent(request.destinationURL)
         guard !FileManager.default.fileExists(atPath: destination.path) else {
             throw PrimalScheme3DesignError.invalidRequest("The destination already exists.")
@@ -728,7 +726,7 @@ public struct PrimalScheme3DesignPipeline: Sendable {
             switch request.options.selectionAlgorithm {
             case .coverage: supportedVersion = executed.version == Self.coverageToolVersion
             case .alleleCoverage: supportedVersion = executed.version == Self.alleleToolVersion
-            case .legacy: supportedVersion = [Self.toolVersion, Self.coverageToolVersion, Self.alleleToolVersion].contains(executed.version)
+            case .legacy: supportedVersion = [Self.toolVersion, Self.coverageToolVersion, Self.alleleToolVersion, Self.managedToolVersion].contains(executed.version)
             }
             guard supportedVersion, !executed.argv.isEmpty else {
                 throw PrimalScheme3DesignError.invalidRequest("The executed tool did not report the verified PrimalScheme3-LGE custom fork identity.")
@@ -1080,13 +1078,13 @@ public struct PrimalScheme3DesignPipeline: Sendable {
             capabilitiesJSON = data
         } else {
             let reported = probe.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
-            let accepted = [Self.toolVersion, Self.coverageToolVersion, Self.alleleToolVersion]
+            let accepted = [Self.toolVersion, Self.coverageToolVersion, Self.alleleToolVersion, Self.managedToolVersion]
                 .first { reported == "PrimalScheme3-LGE version: \($0)" }
             guard probe.exitCode == 0, let accepted else {
-                throw PrimalScheme3DesignError.invalidRequest("This adapter requires the verified PrimalScheme3-LGE custom fork lge.2, lge.3, or lge.4; stock PrimalScheme3 is not interchangeable with this fork.")
+                throw PrimalScheme3DesignError.invalidRequest("This adapter requires the verified PrimalScheme3-LGE custom fork lge.2, lge.3, lge.4, or lge.5; stock PrimalScheme3 is not interchangeable with this fork.")
             }
-            guard prefix == nil || accepted == Self.toolVersion else {
-                throw PrimalScheme3DesignError.invalidRequest("The managed PrimalScheme3 runtime must remain at \(Self.toolVersion).")
+            guard prefix == nil || [Self.toolVersion, Self.managedToolVersion].contains(accepted) else {
+                throw PrimalScheme3DesignError.invalidRequest("The managed PrimalScheme3 runtime must remain at \(Self.toolVersion) or \(Self.managedToolVersion).")
             }
             capabilitiesJSON = nil
             executedVersion = accepted
@@ -1104,7 +1102,8 @@ public struct PrimalScheme3DesignPipeline: Sendable {
                 let runtime = capabilityObject?["runtime"] as? [String: Any]
                 let digest = source?["sourceDigest"] as? String ?? ""
                 let runtimeKeys = ["pythonVersion", "pythonExecutable", "pythonPrefix", "platform", "machine"]
-                guard capabilities.exitCode == 0, capabilityVersion == Self.alleleToolVersion,
+                guard capabilities.exitCode == 0, capabilityVersion == accepted,
+                      [Self.alleleToolVersion, Self.managedToolVersion].contains(capabilityVersion),
                       capabilityObject?["schemaVersion"] as? String == "primalscheme3.capabilities/v1",
                       capabilityObject?["tool"] as? String == "primalscheme3",
                       digest.count == 64, digest.allSatisfy({ $0.isHexDigit }),
@@ -1112,7 +1111,7 @@ public struct PrimalScheme3DesignPipeline: Sendable {
                       runtimeKeys.allSatisfy({ (runtime?[$0] as? String)?.isEmpty == false }),
                       runtime?["declaredRuntimeDependencies"] is [[String: Any]],
                       runtime?["nativeKernels"] is [[String: Any]] else {
-                    throw PrimalScheme3DesignError.invalidRequest("Recovery modes require a native lge.4 capabilities probe with source/runtime identity.")
+                    throw PrimalScheme3DesignError.invalidRequest("Recovery modes require a native lge.4 or lge.5 capabilities probe with source/runtime identity.")
                 }
                 runtimeEvidence["recovery-capabilities-probe.json"] = try JSONSerialization.data(withJSONObject: [
                     "argv": capabilities.arguments, "stdout": capabilities.stdout, "stderr": capabilities.stderr,
@@ -1128,7 +1127,7 @@ public struct PrimalScheme3DesignPipeline: Sendable {
                     "requiredFlags": command.arguments.filter { recoveryFlags.contains($0) }, "missingFlags": missing
                 ], options: [.prettyPrinted, .sortedKeys])
                 guard help.exitCode == 0, missing.isEmpty else {
-                    throw PrimalScheme3DesignError.invalidRequest("The verified PrimalScheme3 executable is missing required lge.4 recovery flags: " + missing.joined(separator: ", "))
+                    throw PrimalScheme3DesignError.invalidRequest("The verified PrimalScheme3 executable is missing required lge.4/lge.5 recovery flags: " + missing.joined(separator: ", "))
                 }
             }
         }

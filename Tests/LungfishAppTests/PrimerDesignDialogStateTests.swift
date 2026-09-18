@@ -355,10 +355,10 @@ final class PrimerDesignDialogStateTests: XCTestCase {
     XCTAssertEqual(defaults.gapExpansionOptions.mode, .off)
 
     state.legacySalvageEnabled = true
-    state.primalschemeExecutablePath = "/bin/sh"
     let salvage = try state.primalSchemeOptions()
     XCTAssertEqual(salvage.legacySalvageOptions.mode, .bounded)
     XCTAssertEqual(salvage.legacySalvageOptions.thresholds, [-28, -30, -32])
+    XCTAssertNil(state.primalschemeExecutableURL)
   }
 
   func testLegacyPrimalDefaultsRemainManagedAndUnchanged() throws {
@@ -375,7 +375,6 @@ final class PrimerDesignDialogStateTests: XCTestCase {
     state.engine = .primalScheme
     state.grouping = .combined
     state.gapCompletionParentPath = "/tmp/parent-native-output"
-    state.primalschemeExecutablePath = "/bin/sh"
     state.gapExpansionEnabled = true
     state.gapExpansionMaxAnchorsPerMSA = "12"
     state.gapExpansionMaxPairsPerMSA = "9"

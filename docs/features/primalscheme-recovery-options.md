@@ -4,7 +4,7 @@ PrimalScheme's Advanced settings expose two opt-in recovery workflows for combin
 
 ## Runtime
 
-Select a local PrimalScheme3-LGE executable supporting the recovery options. The adapter checks its version, capability evidence, and required command options. The currently managed runtime predates recovery support; these controls do not install or publish a new runtime. Clear the executable selection to return to the managed runtime for ordinary design.
+The GUI uses the managed PrimalScheme3-LGE runtime for ordinary designs and recovery modes. The current managed runtime is lge.5 and is checked for version, capability evidence, and required command options before publication. A local executable may be selected for an explicitly verified compatible runtime; lge.2, lge.3, and lge.4 remain accepted for their original legacy/coverage modes, while recovery modes require the lge.4 or lge.5 capability contract.
 
 ## Bounded dimer salvage
 
@@ -36,4 +36,4 @@ Run with `LUNGFISH_REAL_GAP_EXECUTABLE` pointing to that native executable and `
 swift test --skip-update --filter 'LungfishWorkflowTests.(PrimalScheme3Recovery|PrimalScheme3DesignPipelineTests)|LungfishAppTests.PrimerDesignDialog(State|Visual)Tests'
 ```
 
-The managed runtime and installed application were not updated as part of this development change.
+The managed runtime lock now pins the immutable lge.5 wheel and its requirements hash. Recovery still validates the lge.4 source contract, and lge.2 remains an explicit compatibility path for ordinary legacy designs.

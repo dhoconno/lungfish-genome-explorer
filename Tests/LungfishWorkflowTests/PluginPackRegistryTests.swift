@@ -438,7 +438,7 @@ final class PluginPackRegistryTests: XCTestCase {
         )
         let runtime = try XCTUnwrap(spec.pythonRuntime)
         XCTAssertEqual(runtime.distributionName, "primalscheme3")
-        XCTAssertEqual(runtime.version, "3.3.0+lge.2")
+        XCTAssertEqual(runtime.version, "3.3.0+lge.5")
         XCTAssertEqual(runtime.pythonABI, "cp312")
         XCTAssertEqual(runtime.platform, "osx-arm64")
         XCTAssertEqual(runtime.basePackageSpecs, [
@@ -454,9 +454,9 @@ final class PluginPackRegistryTests: XCTestCase {
         let wheel = try XCTUnwrap(runtime.releaseWheelSource)
         XCTAssertEqual(
             wheel.url.absoluteString,
-            "https://github.com/dhoconno/primalscheme3-lge/releases/download/v3.3.0-lge.2/primalscheme3-3.3.0+lge.2-py3-none-any.whl")
-        XCTAssertEqual(wheel.sha256, "98eeac686148aa9f14de2584f80ef845f9474969c5421890c1210aef13afe54c")
-        XCTAssertEqual(wheel.sourceRevision, "00eaa252446f01cabfeae71e10306a68cdb941d6")
+            "https://github.com/dhoconno/primalscheme3-lge/releases/download/v3.3.0-lge.5/primalscheme3-3.3.0%2Blge.5-py3-none-any.whl")
+        XCTAssertEqual(wheel.sha256, "ab8453c4a4b19cbd96794b1e4997fad4538f714eacdea77528c46df59f7b4066")
+        XCTAssertEqual(wheel.sourceRevision, "858a341ab7435fa54a9f1c0b1f10e525f8b3ef2a")
         XCTAssertEqual(wheel.upstreamRevision, "dd13ec5cb1cf375f052640355c73101c0c4bf839")
 
         let pack = try XCTUnwrap(
@@ -469,12 +469,12 @@ final class PluginPackRegistryTests: XCTestCase {
         XCTAssertEqual(requirement.installPackages, runtime.basePackageSpecs)
         XCTAssertEqual(requirement.executables, ["primalscheme3"])
         XCTAssertEqual(requirement.displayName, "PrimalScheme")
-        XCTAssertEqual(requirement.version, "3.3.0+lge.2")
+        XCTAssertEqual(requirement.version, "3.3.0+lge.5")
         XCTAssertEqual(requirement.license, "GPL-3.0")
         XCTAssertEqual(requirement.smokeTest?.arguments, ["--version"])
         XCTAssertEqual(
             requirement.smokeTest?.requiredOutputSubstring,
-            "PrimalScheme3-LGE version: 3.3.0+lge.2")
+            "PrimalScheme3-LGE version: 3.3.0+lge.5")
     }
 
     func testExperimentalOptionalPacksAreExcludedFromReleaseVisiblePacks() {

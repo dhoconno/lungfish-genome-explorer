@@ -247,10 +247,6 @@ final class PrimerDesignDialogState {
         throw invalid("Choose an executable PrimalScheme3 native binary or entrypoint script.")
       }
     }
-    if (legacySalvageEnabled && grouping == .combined) || gapCompletionParentURL != nil,
-       primalschemeExecutableURL == nil {
-      throw invalid("Recovery modes require a user-selected verified native PrimalScheme executable.")
-    }
     if gapCompletionParentURL != nil && legacySalvageEnabled {
       throw invalid("Choose either bounded salvage or a gap-completion follow-up parent, not both.")
     }

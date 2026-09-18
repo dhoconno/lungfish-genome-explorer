@@ -75,8 +75,8 @@ final class AboutAcknowledgementsTests: XCTestCase {
     func testPCRDependenciesIdentifyPublicCustomFork() throws {
         let section = try XCTUnwrap(AboutAcknowledgements.currentSections().first { $0.title == "PCR Primer Design" })
         let entry = try XCTUnwrap(section.entries.first { $0.id == "primalscheme3" })
-        XCTAssertEqual(entry.displayName, "PrimalScheme3-LGE (custom fork)")
-        XCTAssertEqual(entry.detail, "3.3.0+lge.2")
+        XCTAssertEqual(entry.displayName, "PrimalScheme")
+        XCTAssertEqual(entry.detail, "3.3.0+lge.5")
         XCTAssertEqual(entry.sourceURL, "https://github.com/dhoconno/primalscheme3-lge")
     }
 

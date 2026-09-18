@@ -85,12 +85,12 @@ final class ManagedPythonRuntimeInstallerTests: XCTestCase {
         XCTAssertTrue(ManagedPythonRuntimeInstaller.requirementsContainPinnedWheel(
             requirements,
             contain: "primalscheme3",
-            version: "3.3.0+lge.2",
-            sha256: "98eeac686148aa9f14de2584f80ef845f9474969c5421890c1210aef13afe54c"))
+            version: "3.3.0+lge.5",
+            sha256: "ab8453c4a4b19cbd96794b1e4997fad4538f714eacdea77528c46df59f7b4066"))
         XCTAssertFalse(ManagedPythonRuntimeInstaller.requirementsContainPinnedWheel(
             requirements,
             contain: "primalscheme3",
-            version: "3.3.0+lge.2",
+            version: "3.3.0+lge.5",
             sha256: String(repeating: "0", count: 64)))
     }
 
