@@ -51,6 +51,21 @@ def artifact_record(path):
     return dict(kind='directory', sha256=digest.hexdigest())
 
 
+def _dmg_capacity_mib(source):
+    """Size logical payloads in 4 KiB entries, then add 50% plus 128 MiB APFS headroom."""
+    block = 4096
+    total = 0
+    entries = [Path(source)]
+    while entries:
+        entry = entries.pop()
+        info = entry.lstat()
+        size = info.st_size if stat.S_ISREG(info.st_mode) else 0
+        total += max(block, (size + block - 1) // block * block)
+        if stat.S_ISDIR(info.st_mode): entries.extend(entry.iterdir())
+    total = (total * 3 + 1) // 2 + 128 * 1024 * 1024
+    return (total + 1024 * 1024 - 1) // (1024 * 1024)
+
+
 def sign_and_notarize(source_app, receipt, signed_app, dmg, transaction_dir, profile, *,
                       entitlements, volume_name, public_key, run=run_bounded, notary=notarize,
                       command_timeout=180, poll_budget=600, env=None, smoke_script=None, scratch_path=None):
@@ -180,7 +195,8 @@ def sign_and_notarize(source_app, receipt, signed_app, dmg, transaction_dir, pro
                 # is signed and recorded.
                 with tempfile.TemporaryDirectory(prefix='lungfish-dmg-output-') as output:
                     temporary_dmg = Path(output) / 'input.dmg'
-                    command(['/usr/bin/hdiutil', 'create', '-volname', volume_name, '-srcfolder', stage, '-format', 'UDZO', str(temporary_dmg)], 'create-dmg')
+                    command(['/usr/bin/hdiutil', 'create', '-volname', volume_name, '-srcfolder', stage,
+                             '-size', f'{_dmg_capacity_mib(stage)}m', '-format', 'UDZO', str(temporary_dmg)], 'create-dmg')
                     shutil.copyfile(temporary_dmg, paths['dmgInput'])
             sign(paths['dmgInput'], runtime=False)
             record('dmgInput')

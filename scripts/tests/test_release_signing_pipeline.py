@@ -83,11 +83,61 @@ class SigningPipelineTests(unittest.TestCase):
             'Accepted',
         )
         create = next(call for call in self.calls if Path(call[0]).name == 'hdiutil')
+        self.assertIn('-size', create)
+        capacity = create[create.index('-size') + 1]
+        self.assertRegex(capacity, r'^[1-9][0-9]*m$')
+        self.assertGreaterEqual(int(capacity[:-1]), 129)
         temporary_dmg = Path(create[-1])
         self.assertNotEqual(temporary_dmg.parent, self.tx)
         self.assertFalse(temporary_dmg.is_relative_to(self.tx))
         self.assertTrue((self.tx / 'input.dmg').is_file())
         self.assertEqual((self.tx / 'input.dmg').read_bytes(), b'fixed dmg-signed')
+
+    def test_dmg_capacity_counts_sparse_logical_size(self):
+        stage = self.root / 'stage'; stage.mkdir()
+        with (stage / 'sparse').open('wb') as payload:
+            payload.truncate(200 * 1024 * 1024)
+        self.assertEqual(self.m._dmg_capacity_mib(stage), 429)
+
+    def test_dmg_capacity_does_not_follow_external_symlink(self):
+        stage = self.root / 'stage'; stage.mkdir()
+        outside = self.root / 'outside'; outside.mkdir()
+        with (outside / 'large').open('wb') as payload:
+            payload.truncate(2 * 1024 * 1024 * 1024)
+        (stage / 'Applications').symlink_to(outside)
+        self.assertLessEqual(self.m._dmg_capacity_mib(stage), 130)
+
+    def test_dmg_capacity_adds_bounded_headroom_for_small_source(self):
+        stage = self.root / 'stage'; stage.mkdir()
+        capacity = self.m._dmg_capacity_mib(stage)
+        self.assertGreaterEqual(capacity, 129)
+        self.assertLessEqual(capacity, 130)
+
+    def test_enospc_dmg_retry_reuses_signed_app_and_app_notary_payload(self):
+        original = self.run_tool
+        attempts = [0]
+        app_notary_payloads = []
+        def fail_first_dmg_create(argv, **kwargs):
+            if Path(argv[0]).name == 'hdiutil':
+                attempts[0] += 1
+                if attempts[0] == 1:
+                    return subprocess.CompletedProcess(argv, 28, '', 'No space left on device')
+            return original(argv, **kwargs)
+        def notary(artifact, *args, **kwargs):
+            if artifact.suffix == '.zip': app_notary_payloads.append(artifact.read_bytes())
+            return {'status': 'Accepted'}
+        self.run_tool = fail_first_dmg_create
+        with self.assertRaises(self.m.SigningError): self.pipeline(notary)
+        signed_app_copies = len([c for c in self.calls if Path(c[0]).name == 'ditto' and Path(c[-1]) == self.output])
+        app_zip_creates = len([c for c in self.calls if Path(c[0]).name == 'ditto' and '-c' in c])
+        signing_calls = len([c for c in self.calls if '--sign' in c])
+        self.assertEqual(self.pipeline(notary)['status'], 'Accepted')
+        self.assertEqual(attempts[0], 2)
+        self.assertEqual(len([c for c in self.calls if Path(c[0]).name == 'ditto' and Path(c[-1]) == self.output]), signed_app_copies)
+        self.assertEqual(len([c for c in self.calls if Path(c[0]).name == 'ditto' and '-c' in c]), app_zip_creates)
+        self.assertEqual(len([c for c in self.calls if '--sign' in c]), signing_calls + 1)
+        self.assertEqual(len(app_notary_payloads), 2)
+        self.assertEqual(app_notary_payloads[0], app_notary_payloads[1])
 
     def test_changed_candidate_or_retained_signed_payload_blocks_before_tools(self):
         self.pipeline(lambda *a, **kw: {'status':'In Progress'})
