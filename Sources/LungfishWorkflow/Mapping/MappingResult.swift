@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import LungfishIO
 
 public struct MappingContigSummary: Sendable, Codable, Equatable {
     /// Explicit canonical sample identity for a sample × contig row.
@@ -200,7 +201,12 @@ public enum MappingResultLoadError: Error, LocalizedError, Sendable {
 }
 
 public extension MappingResult {
-    func save(to directory: URL) throws {
+    /// Saves the sidecar into `directory`, encoding its paths relative to the
+    /// directory where the completed analysis will live. Publication writes
+    /// into a staging directory first, so its final destination can differ
+    /// from the sidecar's temporary write location.
+    func save(to directory: URL, relativeTo finalDirectory: URL? = nil) throws {
+        let pathAnchor = finalDirectory ?? directory
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         encoder.dateEncodingStrategy = .iso8601
@@ -209,10 +215,10 @@ public extension MappingResult {
                 schemaVersion: 1,
                 mapper: mapper,
                 modeID: modeID,
-                sourceReferenceBundlePath: sourceReferenceBundleURL.map { Self.storedPath(for: $0, relativeTo: directory) },
-                viewerBundlePath: viewerBundleURL.map { Self.storedPath(for: $0, relativeTo: directory) },
-                bamPath: Self.storedPath(for: bamURL, relativeTo: directory),
-                baiPath: Self.storedPath(for: baiURL, relativeTo: directory),
+                sourceReferenceBundlePath: sourceReferenceBundleURL.map { Self.storedPath(for: $0, relativeTo: pathAnchor) },
+                viewerBundlePath: viewerBundleURL.map { Self.storedPath(for: $0, relativeTo: pathAnchor) },
+                bamPath: Self.storedPath(for: bamURL, relativeTo: pathAnchor),
+                baiPath: Self.storedPath(for: baiURL, relativeTo: pathAnchor),
                 totalReads: totalReads,
                 mappedReads: mappedReads,
                 unmappedReads: unmappedReads,
@@ -234,13 +240,29 @@ public extension MappingResult {
         if FileManager.default.fileExists(atPath: mappingSidecarURL.path) {
             let data = try Data(contentsOf: mappingSidecarURL)
             let persisted = try decoder.decode(PersistedMappingResult.self, from: data)
+            let legacyContext = legacyPathContext(
+                fromBAMPath: persisted.bamPath,
+                currentDirectory: directory
+            )
             return MappingResult(
                 mapper: persisted.mapper,
                 modeID: persisted.modeID,
-                sourceReferenceBundleURL: persisted.sourceReferenceBundlePath.map { resolvedURL(for: $0, relativeTo: directory) },
-                viewerBundleURL: persisted.viewerBundlePath.map { resolvedURL(for: $0, relativeTo: directory) },
-                bamURL: resolvedURL(for: persisted.bamPath, relativeTo: directory),
-                baiURL: resolvedURL(for: persisted.baiPath, relativeTo: directory),
+                sourceReferenceBundleURL: persisted.sourceReferenceBundlePath.map {
+                    resolvedURL(for: $0, relativeTo: directory, legacyContext: legacyContext)
+                },
+                viewerBundleURL: persisted.viewerBundlePath.map {
+                    resolvedURL(for: $0, relativeTo: directory, legacyContext: legacyContext)
+                },
+                bamURL: resolvedURL(
+                    for: persisted.bamPath,
+                    relativeTo: directory,
+                    legacyContext: legacyContext
+                ),
+                baiURL: resolvedURL(
+                    for: persisted.baiPath,
+                    relativeTo: directory,
+                    legacyContext: legacyContext
+                ),
                 totalReads: persisted.totalReads,
                 mappedReads: persisted.mappedReads,
                 unmappedReads: persisted.unmappedReads,
@@ -253,11 +275,23 @@ public extension MappingResult {
         if FileManager.default.fileExists(atPath: legacySidecarURL.path) {
             let data = try Data(contentsOf: legacySidecarURL)
             let persisted = try decoder.decode(PersistedLegacyAlignmentResult.self, from: data)
+            let legacyContext = legacyPathContext(
+                fromBAMPath: persisted.bamPath,
+                currentDirectory: directory
+            )
             return MappingResult(
                 mapper: .minimap2,
                 modeID: MappingMode.defaultShortRead.id,
-                bamURL: resolvedURL(for: persisted.bamPath, relativeTo: directory),
-                baiURL: resolvedURL(for: persisted.baiPath, relativeTo: directory),
+                bamURL: resolvedURL(
+                    for: persisted.bamPath,
+                    relativeTo: directory,
+                    legacyContext: legacyContext
+                ),
+                baiURL: resolvedURL(
+                    for: persisted.baiPath,
+                    relativeTo: directory,
+                    legacyContext: legacyContext
+                ),
                 totalReads: persisted.totalReads,
                 mappedReads: persisted.mappedReads,
                 unmappedReads: persisted.unmappedReads,
@@ -279,16 +313,116 @@ public extension MappingResult {
         let standardizedDirectory = directory.standardizedFileURL.path
         let standardizedURL = url.standardizedFileURL.path
         let relativePrefix = standardizedDirectory.hasSuffix("/") ? standardizedDirectory : standardizedDirectory + "/"
-        guard standardizedURL.hasPrefix(relativePrefix) else {
+        if standardizedURL.hasPrefix(relativePrefix) {
+            return String(standardizedURL.dropFirst(relativePrefix.count))
+        }
+
+        guard FASTQBundle.findProjectRoot(from: directory) != nil else {
             return standardizedURL
         }
-        return String(standardizedURL.dropFirst(relativePrefix.count))
+        return FASTQBundle.projectRelativePath(for: url, from: directory) ?? standardizedURL
     }
 
-    private static func resolvedURL(for path: String, relativeTo directory: URL) -> URL {
-        if path.hasPrefix("/") {
-            return URL(fileURLWithPath: path)
+    private struct LegacyPathContext {
+        let oldAnalysisDirectory: URL
+        let oldProjectRoot: URL?
+        let currentProjectRoot: URL?
+    }
+
+    private static func legacyPathContext(
+        fromBAMPath bamPath: String,
+        currentDirectory: URL
+    ) -> LegacyPathContext? {
+        guard bamPath.hasPrefix("/") else { return nil }
+
+        let oldAnalysisDirectory = URL(fileURLWithPath: bamPath)
+            .standardizedFileURL
+            .deletingLastPathComponent()
+        let currentDirectory = currentDirectory.standardizedFileURL
+        let oldProjectRoot = syntacticProjectRoot(containing: oldAnalysisDirectory)
+        let currentProjectRoot = FASTQBundle.findProjectRoot(from: currentDirectory)
+
+        let projectRootsMatchAnalysisLocation: Bool
+        if let oldProjectRoot, let currentProjectRoot {
+            projectRootsMatchAnalysisLocation = relativeDescendantPath(
+                from: oldProjectRoot,
+                to: oldAnalysisDirectory
+            ) == relativeDescendantPath(
+                from: currentProjectRoot,
+                to: currentDirectory
+            )
+        } else {
+            projectRootsMatchAnalysisLocation = false
         }
-        return directory.appendingPathComponent(path)
+
+        return LegacyPathContext(
+            oldAnalysisDirectory: oldAnalysisDirectory,
+            oldProjectRoot: projectRootsMatchAnalysisLocation ? oldProjectRoot : nil,
+            currentProjectRoot: projectRootsMatchAnalysisLocation ? currentProjectRoot : nil
+        )
+    }
+
+    private static func resolvedURL(
+        for path: String,
+        relativeTo directory: URL,
+        legacyContext: LegacyPathContext? = nil
+    ) -> URL {
+        if path.hasPrefix("@/") {
+            return FASTQBundle.resolveBundle(relativePath: path, from: directory)
+        }
+        guard path.hasPrefix("/") else {
+            return directory.appendingPathComponent(path).standardizedFileURL
+        }
+
+        let absoluteURL = URL(fileURLWithPath: path).standardizedFileURL
+        if let legacyContext {
+            if let localSuffix = relativeDescendantPath(
+                from: legacyContext.oldAnalysisDirectory,
+                to: absoluteURL
+            ) {
+                let localCandidate = directory
+                    .appendingPathComponent(localSuffix)
+                    .standardizedFileURL
+                if FileManager.default.fileExists(atPath: localCandidate.path) {
+                    return localCandidate
+                }
+            }
+
+            if let oldProjectRoot = legacyContext.oldProjectRoot,
+               let currentProjectRoot = legacyContext.currentProjectRoot,
+               let projectSuffix = relativeDescendantPath(from: oldProjectRoot, to: absoluteURL) {
+                let projectCandidate = currentProjectRoot
+                    .appendingPathComponent(projectSuffix)
+                    .standardizedFileURL
+                if FileManager.default.fileExists(atPath: projectCandidate.path) {
+                    return projectCandidate
+                }
+            }
+        }
+
+        return absoluteURL
+    }
+
+    private static func syntacticProjectRoot(containing url: URL) -> URL? {
+        var candidate = url.standardizedFileURL
+        while true {
+            if candidate.pathExtension.lowercased() == "lungfish" {
+                return candidate
+            }
+            let parent = candidate.deletingLastPathComponent().standardizedFileURL
+            guard parent != candidate else { return nil }
+            candidate = parent
+        }
+    }
+
+    private static func relativeDescendantPath(from ancestor: URL, to descendant: URL) -> String? {
+        let ancestorPath = ancestor.standardizedFileURL.path
+        let descendantPath = descendant.standardizedFileURL.path
+        if descendantPath == ancestorPath {
+            return ""
+        }
+        let prefix = ancestorPath.hasSuffix("/") ? ancestorPath : ancestorPath + "/"
+        guard descendantPath.hasPrefix(prefix) else { return nil }
+        return String(descendantPath.dropFirst(prefix.count))
     }
 }

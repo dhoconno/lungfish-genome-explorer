@@ -40,6 +40,16 @@ public final class AnnotationSearchIndex {
         public let end: Int
         public let trackId: String
         public let trackName: String?
+
+        /// Row IDs are only unique within their owning SQLite track.
+        var variantIdentity: VariantIdentity? {
+            variantRowId.map { VariantIdentity(trackId: trackId, rowId: $0) }
+        }
+
+        struct VariantIdentity: Hashable {
+            let trackId: String
+            let rowId: Int64
+        }
         public let type: String
         public let strand: String
 
@@ -118,6 +128,39 @@ public final class AnnotationSearchIndex {
 
     /// Human-readable display name per variant track (from VariantTrackInfo.name).
     private var variantTrackNames: [String: String] = [:]
+    private var variantCallerSettings: [String: String] = [:]
+
+    func variantCallerSettings(for trackId: String) -> String {
+        variantCallerSettings[trackId] ?? "Not recorded"
+    }
+
+    /// Uses the parameters recorded with the call, without inventing defaults for imported tracks.
+    static func variantCallerSettingsSummary(parametersJSON: String?) -> String {
+        guard let data = parametersJSON?.data(using: .utf8),
+              let parameters = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
+            return "Not recorded"
+        }
+        let labels = [
+            "minimumAlleleFrequency": "Minimum allele frequency",
+            "minimumDepth": "Minimum depth", "caller": "Caller", "threads": "Threads",
+            "advancedArguments": "Advanced arguments", "advancedOptions": "Advanced options",
+            "extraArgs": "Extra arguments", "ignoreStrandBias": "Ignore strand bias"
+        ]
+        let parts = parameters.keys.sorted().compactMap { key -> String? in
+            guard let value = parameters[key], !(value is NSNull) else { return nil }
+            let text: String
+            if let string = value as? String { text = string }
+            else if let number = value as? NSNumber {
+                text = CFGetTypeID(number) == CFBooleanGetTypeID() ? (number.boolValue ? "true" : "false") : number.stringValue
+            } else if let array = value as? [Any], array.isEmpty { return nil }
+            else if let data = try? JSONSerialization.data(withJSONObject: value, options: [.sortedKeys]),
+                    let json = String(data: data, encoding: .utf8) { text = json }
+            else { return nil }
+            guard !text.isEmpty else { return nil }
+            return "\(labels[key] ?? key): \(text)"
+        }
+        return parts.isEmpty ? "Not recorded" : parts.joined(separator: "; ")
+    }
 
     /// Cached chromosome names per variant track for alias fallback matching.
     private var variantTrackChromosomes: [String: Set<String>] = [:]
@@ -267,6 +310,7 @@ public final class AnnotationSearchIndex {
     private func openVariantDatabases(bundle: ReferenceBundle) {
         variantDatabases.removeAll()
         variantTrackNames.removeAll()
+        variantCallerSettings.removeAll()
         variantTrackChromosomes.removeAll()
         variantDataGeneration += 1
         rebuildBundleAliasMaps(from: bundle)
@@ -285,6 +329,12 @@ public final class AnnotationSearchIndex {
                 let db = try VariantDatabase(url: dbURL, readWrite: true)
                 variantDatabases.append((trackId: vTrackId, db: db))
                 variantTrackNames[vTrackId] = trackInfo.name
+                let settings = Self.variantCallerSettingsSummary(
+                    parametersJSON: VariantDatabase.metadataValue(at: dbURL, key: "variant_caller_parameters_json")
+                )
+                let command = VariantDatabase.metadataValue(at: dbURL, key: "variant_caller_command_line")
+                variantCallerSettings[vTrackId] = settings == "Not recorded"
+                    ? (command.flatMap { $0.isEmpty ? nil : $0 } ?? settings) : settings
                 variantTrackChromosomes[vTrackId] = Set(db.allChromosomes())
                 let vcount = db.totalCount()
                 searchLogger.info("AnnotationSearchIndex: Opened variant database '\(vTrackId, privacy: .public)' with \(vcount) variants")
@@ -1080,7 +1130,7 @@ public final class AnnotationSearchIndex {
     ) -> [SearchResult] {
         guard !geneNames.isEmpty else { return [] }
 
-        var seenRowIds = Set<Int64>()
+        var seenRows = Set<SearchResult.VariantIdentity>()
         var results: [SearchResult] = []
 
         for gene in geneNames {
@@ -1100,7 +1150,7 @@ public final class AnnotationSearchIndex {
                     limit: limit - results.count
                 )
                 for v in regionVariants {
-                    if seenRowIds.insert(v.variantRowId ?? -1).inserted || v.variantRowId == nil {
+                    if v.variantIdentity.map({ seenRows.insert($0).inserted }) ?? true {
                         results.append(v)
                     }
                 }
@@ -1120,7 +1170,7 @@ public final class AnnotationSearchIndex {
                     limit: limit - results.count
                 )
                 for v in infoResults {
-                    if seenRowIds.insert(v.variantRowId ?? -1).inserted || v.variantRowId == nil {
+                    if v.variantIdentity.map({ seenRows.insert($0).inserted }) ?? true {
                         results.append(v)
                     }
                 }
@@ -1316,6 +1366,7 @@ public final class AnnotationSearchIndex {
     public func clearVariantDatabases() {
         variantDatabases.removeAll()
         variantTrackNames.removeAll()
+        variantCallerSettings.removeAll()
         variantTrackChromosomes.removeAll()
         variantDataGeneration += 1
     }
@@ -1629,6 +1680,7 @@ extension VariantDatabaseRecord {
             start: position,
             end: end,
             trackId: trackId,
+            trackName: sourceFile,
             type: variantType,
             strand: ".",
             ref: ref,

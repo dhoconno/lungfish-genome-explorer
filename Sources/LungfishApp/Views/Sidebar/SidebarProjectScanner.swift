@@ -348,6 +348,9 @@ enum SidebarProjectScanner {
         isDirectory: Bool,
         context: ScanContext
     ) -> Bool {
+        if context == .projectRoot, !isDirectory, url.lastPathComponent == "metadata.json" {
+            return false
+        }
         if isInternalSidecarFile(url) {
             return false
         }

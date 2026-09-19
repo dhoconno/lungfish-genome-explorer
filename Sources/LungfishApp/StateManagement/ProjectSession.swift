@@ -247,5 +247,6 @@ public final class ProjectSession: Identifiable {
         openWarningState = .unlocked(projectURL: nil)
         documents = []
         activeDocument = nil
+        DocumentManager.shared.refreshMirror(ifOwnedBy: self)
     }
 }

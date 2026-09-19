@@ -87,9 +87,10 @@ final class DrawerDividerView: NSView {
 
     func configureAccessibility() {
         setAccessibilityElement(true)
-        setAccessibilityRole(.group)
+        setAccessibilityRole(.splitter)
         setAccessibilityLabel("Annotation table drawer resize handle")
         setAccessibilityIdentifier("annotation-table-drawer-divider")
+        setAccessibilityHelp("Drag vertically to resize the annotation table drawer.")
     }
 
     override func resetCursorRects() {
@@ -166,6 +167,8 @@ protocol AnnotationTableDrawerDelegate: AnyObject {
     func annotationDrawer(_ drawer: AnnotationTableDrawerView, didUpdateAnnotationTrackDisplayState state: AnnotationTrackDisplayState)
     func annotationDrawer(_ drawer: AnnotationTableDrawerView, didRequestDeleteAnnotations annotations: [AnnotationSearchIndex.SearchResult])
     func annotationDrawer(_ drawer: AnnotationTableDrawerView, didRequestDeleteAnnotationTrack trackID: String, trackName: String)
+    func annotationDrawer(_ drawer: AnnotationTableDrawerView, codingFeatureFor result: AnnotationSearchIndex.SearchResult) -> String?
+    func annotationDrawerAdditionalExportSources(_ drawer: AnnotationTableDrawerView) throws -> [URL]
     func annotationDrawerDidDragDivider(_ drawer: AnnotationTableDrawerView, deltaY: CGFloat)
     func annotationDrawerDidFinishDraggingDivider(_ drawer: AnnotationTableDrawerView)
     func annotationDrawer(
@@ -175,6 +178,9 @@ protocol AnnotationTableDrawerDelegate: AnyObject {
 }
 
 extension AnnotationTableDrawerDelegate {
+    func annotationDrawerAdditionalExportSources(_ drawer: AnnotationTableDrawerView) throws -> [URL] { [] }
+    func annotationDrawer(_ drawer: AnnotationTableDrawerView, codingFeatureFor result: AnnotationSearchIndex.SearchResult) -> String? { nil }
+
     func annotationDrawer(_ drawer: AnnotationTableDrawerView, didRequestExtract annotations: [SequenceAnnotation]) {}
 
     func annotationDrawerSelectedSequenceRegion(_ drawer: AnnotationTableDrawerView) -> AnnotationTableDrawerSelectionRegion? {
@@ -677,8 +683,10 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
     static let qualityColumn = NSUserInterfaceItemIdentifier("QualityColumn")
     static let filterColumn = NSUserInterfaceItemIdentifier("FilterColumn")
     static let samplesColumn = NSUserInterfaceItemIdentifier("SamplesColumn")
+    static let callerSettingsColumn = NSUserInterfaceItemIdentifier("CallerSettingsColumn")
     static let sourceColumn = NSUserInterfaceItemIdentifier("SourceColumn")
     static let consequenceColumn = NSUserInterfaceItemIdentifier("ConsequenceColumn")
+    static let codingFeatureColumn = NSUserInterfaceItemIdentifier("CodingFeatureColumn")
     static let aaChangeColumn = NSUserInterfaceItemIdentifier("AAChangeColumn")
 
     // Sample column identifiers (internal for extension access)
@@ -721,6 +729,8 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
     // MARK: - Setup
 
     func setupView() {
+        wantsLayer = true
+        layer?.masksToBounds = true
         layer?.backgroundColor = NSColor.controlBackgroundColor.cgColor
 
         // Drag handle bar at top (resizable divider)
@@ -1116,12 +1126,18 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         queryProgressLabel.isHidden = true
         addSubview(queryProgressLabel)
 
+        // The chrome keeps its normal metrics while the drawer is useful. When
+        // collapsed, this trailing edge may yield so the clipped content cannot
+        // impose its full fixed-row height on the drawer itself.
+        let scrollBottomConstraint = scrollView.bottomAnchor.constraint(equalTo: bottomAnchor)
+        scrollBottomConstraint.priority = .defaultHigh
+
         // Layout
         NSLayoutConstraint.activate([
             dragHandle.topAnchor.constraint(equalTo: topAnchor),
             dragHandle.leadingAnchor.constraint(equalTo: leadingAnchor),
             dragHandle.trailingAnchor.constraint(equalTo: trailingAnchor),
-            dragHandle.heightAnchor.constraint(equalToConstant: 5),
+            dragHandle.heightAnchor.constraint(equalToConstant: AnnotationDrawerSizing.dividerHeight),
 
             headerBar.topAnchor.constraint(equalTo: dragHandle.bottomAnchor),
             headerBar.leadingAnchor.constraint(equalTo: leadingAnchor),
@@ -1250,7 +1266,7 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
             scrollView.topAnchor.constraint(equalTo: chipBar.bottomAnchor),
             scrollView.leadingAnchor.constraint(equalTo: leadingAnchor),
             scrollView.trailingAnchor.constraint(equalTo: trailingAnchor),
-            scrollView.bottomAnchor.constraint(equalTo: bottomAnchor),
+            scrollBottomConstraint,
 
             tooManyLabel.centerXAnchor.constraint(equalTo: scrollView.centerXAnchor),
             tooManyLabel.centerYAnchor.constraint(equalTo: scrollView.centerYAnchor),
@@ -1398,13 +1414,22 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
 
     /// Finds and selects a variant in the table matching the given search result.
     func selectVariant(matching result: AnnotationSearchIndex.SearchResult) {
-        guard let index = displayedAnnotations.firstIndex(where: {
-            if let rowId = result.variantRowId, let myRowId = $0.variantRowId {
-                return rowId == myRowId
+        let index: Int?
+        if activeTab == .variants && activeVariantSubtab == .genotypes {
+            index = displayedGenotypes.firstIndex {
+                $0.trackId == result.trackId && $0.variantRowId == result.variantRowId
             }
-            return $0.chromosome == result.chromosome && $0.start == result.start
-                && $0.ref == result.ref && $0.alt == result.alt
-        }) else { return }
+        } else {
+            index = displayedAnnotations.firstIndex {
+                guard $0.trackId == result.trackId else { return false }
+                if let rowId = result.variantRowId, let myRowId = $0.variantRowId {
+                    return rowId == myRowId
+                }
+                return $0.chromosome == result.chromosome && $0.start == result.start
+                    && $0.ref == result.ref && $0.alt == result.alt
+            }
+        }
+        guard let index else { return }
 
         isSuppressingDelegateCallbacks = true
         defer { isSuppressingDelegateCallbacks = false }
@@ -4954,7 +4979,7 @@ struct AnnotationVariantQueryContext: @unchecked Sendable {
         shouldCancel: (() -> Bool)? = nil
     ) -> (results: [AnnotationSearchIndex.SearchResult], resolvedRegions: [GeneRegion]) {
         guard !geneNames.isEmpty else { return ([], []) }
-        var seenRowIds = Set<Int64>()
+        var seenRows = Set<AnnotationSearchIndex.SearchResult.VariantIdentity>()
         var results: [AnnotationSearchIndex.SearchResult] = []
         let resolvedRegions = resolveGeneRegions(geneNames)
         let annotationRegions = resolvedRegions.map { (chromosome: $0.chromosome, start: $0.start, end: $0.end, gene: $0.name) }
@@ -4974,7 +4999,7 @@ struct AnnotationVariantQueryContext: @unchecked Sendable {
                 shouldCancel: shouldCancel
             )
             for v in regionVariants {
-                if seenRowIds.insert(v.variantRowId ?? -1).inserted || v.variantRowId == nil {
+                if v.variantIdentity.map({ seenRows.insert($0).inserted }) ?? true {
                     results.append(v)
                 }
             }
@@ -5001,7 +5026,7 @@ struct AnnotationVariantQueryContext: @unchecked Sendable {
                     shouldCancel: shouldCancel
                 )
                 for v in infoResults {
-                    if seenRowIds.insert(v.variantRowId ?? -1).inserted || v.variantRowId == nil {
+                    if v.variantIdentity.map({ seenRows.insert($0).inserted }) ?? true {
                         results.append(v)
                     }
                 }

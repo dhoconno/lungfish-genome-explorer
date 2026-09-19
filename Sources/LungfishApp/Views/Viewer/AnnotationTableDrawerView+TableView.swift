@@ -232,7 +232,9 @@ extension AnnotationTableDrawerView {
             guard row < displayedGenotypes.count else { return }
             let gt = displayedGenotypes[row]
             // Find the corresponding variant in displayedAnnotations to navigate
-            if let variant = displayedAnnotations.first(where: { $0.variantRowId == gt.variantRowId }) {
+            if let variant = displayedAnnotations.first(where: {
+                $0.trackId == gt.trackId && $0.variantRowId == gt.variantRowId
+            }) {
                 delegate?.annotationDrawer(self, didSelectAnnotation: variant)
             }
             return
@@ -285,6 +287,7 @@ extension AnnotationTableDrawerView {
                 let result: ComparisonResult
                 switch key {
                 case "sample": result = a.sampleName.localizedCaseInsensitiveCompare(b.sampleName)
+                case "track": result = a.trackName.localizedCaseInsensitiveCompare(b.trackName)
                 case "variant": result = a.variantID.localizedCaseInsensitiveCompare(b.variantID)
                 case "chromosome": result = a.chromosome.localizedCaseInsensitiveCompare(b.chromosome)
                 case "position":
@@ -335,6 +338,10 @@ extension AnnotationTableDrawerView {
                 result = a.trackId.localizedCaseInsensitiveCompare(b.trackId)
             case "track_name":
                 result = annotationTrackName(for: a).localizedCaseInsensitiveCompare(annotationTrackName(for: b))
+            case "caller_settings":
+                let aSettings = searchIndex?.variantCallerSettings(for: a.trackId) ?? "Not recorded"
+                let bSettings = searchIndex?.variantCallerSettings(for: b.trackId) ?? "Not recorded"
+                result = aSettings.localizedCaseInsensitiveCompare(bSettings)
             case "type", "variant_type":
                 result = a.type.localizedCaseInsensitiveCompare(b.type)
             case "chromosome":
@@ -366,6 +373,8 @@ extension AnnotationTableDrawerView {
                 result = sa < sb ? .orderedAscending : (sa > sb ? .orderedDescending : .orderedSame)
             case "source":
                 result = (a.sourceFile ?? "").localizedCaseInsensitiveCompare(b.sourceFile ?? "")
+            case "coding_feature":
+                result = variantCodingFeatureText(for: a).localizedCaseInsensitiveCompare(variantCodingFeatureText(for: b))
             case "consequence":
                 result = variantConsequenceText(for: a).localizedCaseInsensitiveCompare(variantConsequenceText(for: b))
             case "aa_change":
@@ -449,6 +458,7 @@ extension AnnotationTableDrawerView {
         let tf = cellView.textField!
         tf.alignment = .left  // Reset default alignment
         tf.font = .systemFont(ofSize: 11)  // Reset default font
+        tf.toolTip = nil
 
         switch identifier {
         // Annotation columns
@@ -456,7 +466,9 @@ extension AnnotationTableDrawerView {
             tf.stringValue = annotation.name
             tf.font = .monospacedSystemFont(ofSize: 11, weight: .medium)
         case Self.trackNameColumn:
-            tf.stringValue = annotationTrackName(for: annotation)
+            let trackName = annotationTrackName(for: annotation)
+            tf.stringValue = trackName
+            tf.toolTip = "\(trackName) (\(annotation.trackId))"
         case Self.trackIdColumn:
             tf.stringValue = annotation.trackId
             tf.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
@@ -518,13 +530,21 @@ extension AnnotationTableDrawerView {
             tf.stringValue = "\(annotation.sampleCount ?? 0)"
             tf.font = .monospacedDigitSystemFont(ofSize: 11, weight: .regular)
             tf.alignment = .right
+        case Self.callerSettingsColumn:
+            tf.stringValue = searchIndex?.variantCallerSettings(for: annotation.trackId) ?? "Not recorded"
+            tf.toolTip = tf.stringValue
         case Self.sourceColumn:
             tf.stringValue = annotation.sourceFile ?? ""
             tf.font = .systemFont(ofSize: 11)
+        case Self.codingFeatureColumn:
+            tf.stringValue = variantCodingFeatureText(for: annotation)
+            tf.toolTip = tf.stringValue
         case Self.consequenceColumn:
             tf.stringValue = variantConsequenceText(for: annotation)
+            tf.toolTip = tf.stringValue
         case Self.aaChangeColumn:
             tf.stringValue = variantAAChangeText(for: annotation)
+            tf.toolTip = tf.stringValue
 
         default:
             if identifier.rawValue.hasPrefix("attr_") {
@@ -554,7 +574,9 @@ extension AnnotationTableDrawerView {
         if activeTab == .variants && activeVariantSubtab == .genotypes {
             guard row < displayedGenotypes.count else { return }
             let gt = displayedGenotypes[row]
-            if let variant = displayedAnnotations.first(where: { $0.variantRowId == gt.variantRowId }) {
+            if let variant = displayedAnnotations.first(where: {
+                $0.trackId == gt.trackId && $0.variantRowId == gt.variantRowId
+            }) {
                 delegate?.annotationDrawer(self, didSelectAnnotation: variant)
             }
             return
@@ -775,6 +797,8 @@ extension AnnotationTableDrawerView {
             return annotationTrackName(for: annotation)
         case Self.trackIdColumn:
             return annotation.trackId
+        case Self.callerSettingsColumn:
+            return searchIndex?.variantCallerSettings(for: annotation.trackId) ?? "Not recorded"
         case Self.typeColumn, Self.variantTypeColumn:
             return annotation.type
         case Self.chromosomeColumn, Self.variantChromColumn:
@@ -805,6 +829,8 @@ extension AnnotationTableDrawerView {
             return "\(annotation.sampleCount ?? 0)"
         case Self.sourceColumn:
             return annotation.sourceFile ?? ""
+        case Self.codingFeatureColumn:
+            return variantCodingFeatureText(for: annotation)
         case Self.consequenceColumn:
             return variantConsequenceText(for: annotation)
         case Self.aaChangeColumn:

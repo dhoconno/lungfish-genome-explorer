@@ -946,7 +946,7 @@ extension SequenceViewerView {
                 let elapsed = viewer.annotationFetchStartTime.map { Date().timeIntervalSince($0) } ?? 0
                 viewer.cachedBundleAnnotations = allAnnotations
                 viewer.cachedAnnotationRegion = expandedRegion
-                viewer.cachedCDSCodingContexts = [:]
+                viewer.consequenceInputsDidChange()
                 viewer.isFetchingAnnotations = false
                 viewer.annotationFetchStartTime = nil
                 viewer.invalidateAnnotationTile()

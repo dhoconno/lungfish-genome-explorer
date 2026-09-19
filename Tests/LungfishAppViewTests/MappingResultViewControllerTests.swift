@@ -1309,6 +1309,38 @@ final class MappingResultViewControllerTests: XCTestCase {
         }
     }
 
+    func testMappingDividersCanMoveNearEitherEdgeAndSurviveRelayout() {
+        let previous = UserDefaults.standard.object(forKey: MappingPanelLayout.defaultsKey)
+        defer { UserDefaults.standard.set(previous, forKey: MappingPanelLayout.defaultsKey) }
+        for layout in [MappingPanelLayout.stacked, .listLeading, .detailLeading] {
+            layout.persist()
+            let vc = MappingResultViewController()
+            vc.view.frame = NSRect(x: 0, y: 0, width: 1400, height: 900)
+            vc.configureForTesting(result: makeMappingResult(viewerBundleURL: nil))
+            let window = NSWindow(contentRect: vc.view.frame,
+                                  styleMask: [.titled, .resizable], backing: .buffered, defer: false)
+            window.contentViewController = vc
+            let embedded = vc.children.compactMap { $0 as? ViewerViewController }.first
+            embedded?.toggleAnnotationDrawer()
+            XCTAssertNotNil(embedded?.annotationDrawerView)
+            window.layoutIfNeeded()
+            vc.view.layoutSubtreeIfNeeded()
+            vc.viewDidLayout()
+            RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+            let split = vc.testSplitView
+            let available = (split.isVertical ? split.bounds.width : split.bounds.height) - split.dividerThickness
+            for target in [CGFloat(100), available - 100] {
+                split.setPosition(target, ofDividerAt: 0)
+                vc.splitViewDidResizeSubviews(Notification(name: .init("TestMappingSplitResize"), object: split))
+                vc.view.layoutSubtreeIfNeeded()
+                vc.viewDidLayout()
+                RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+                let actual = split.isVertical ? split.arrangedSubviews[0].frame.width : split.arrangedSubviews[0].frame.height
+                XCTAssertEqual(actual, target, accuracy: 2, "Layout: \(layout), target: \(target)")
+            }
+        }
+    }
+
     func testLiveResizeDelegatePreservesUserMovedVerticalDivider() {
         UserDefaults.standard.set(
             MappingPanelLayout.listLeading.rawValue,
@@ -1738,13 +1770,13 @@ final class MappingResultViewControllerTests: XCTestCase {
         let trailingExtent = isVertical ? secondPane.frame.width : secondPane.frame.height
         let expectedLeadingExtent = SplitPaneSizing.clampedDividerPosition(
             proposed: round(totalExtent * expectedLeadingFraction),
-            containerExtent: totalExtent,
-            minimumLeadingExtent: 320,
-            minimumTrailingExtent: 320
+            containerExtent: totalExtent - splitView.dividerThickness,
+            minimumLeadingExtent: isVertical ? 96 : 64,
+            minimumTrailingExtent: 96
         )
         XCTAssertEqual(leadingExtent, expectedLeadingExtent, accuracy: 4, file: file, line: line)
-        XCTAssertGreaterThan(leadingExtent, CGFloat(300), file: file, line: line)
-        XCTAssertGreaterThan(trailingExtent, CGFloat(300), file: file, line: line)
+        XCTAssertGreaterThan(leadingExtent, CGFloat(60), file: file, line: line)
+        XCTAssertGreaterThan(trailingExtent, CGFloat(60), file: file, line: line)
     }
 }
 

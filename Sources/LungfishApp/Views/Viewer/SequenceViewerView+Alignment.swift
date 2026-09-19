@@ -1037,7 +1037,7 @@ extension SequenceViewerView {
                     let elapsed = viewer.sequenceFetchStartTime.map { Date().timeIntervalSince($0) } ?? 0
                     viewer.cachedBundleSequence = sequence
                     viewer.cachedSequenceRegion = expandedRegion
-                    viewer.cachedCDSCodingContexts = [:]
+                    viewer.consequenceInputsDidChange()
                     viewer.isFetchingBundleData = false
                     viewer.sequenceFetchStartTime = nil
                     viewer.bundleFetchError = nil

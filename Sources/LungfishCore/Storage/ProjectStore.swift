@@ -409,6 +409,13 @@ public final class ProjectStore: @unchecked Sendable {
         return (try? ProjectLockManager().readLock(at: lease.lockURL)) == lease.record
     }
 
+    /// Waits for stores already released by their owners to close their SQLite
+    /// handles and relinquish writer leases. Project/window close and process
+    /// termination use this boundary before a project may be copied or the app exits.
+    public static func flushDeferredCleanup() {
+        ProjectStoreCleanup.flush()
+    }
+
     private static func acquireWriterLease(at url: URL) throws -> ProjectStoreWriterLease {
         let synchronization = synchronizationRegistry.domain(for: url)
         synchronization.leaseLock.lock()
@@ -1567,5 +1574,9 @@ private final class ProjectStoreCleanup: @unchecked Sendable {
         if let database { sqlite3_close_v2(database) }
         if let snapshotDirectory { try? FileManager.default.removeItem(at: snapshotDirectory) }
         withExtendedLifetime(writerLease) {}
+    }
+
+    static func flush() {
+        queue.sync(flags: .barrier) {}
     }
 }

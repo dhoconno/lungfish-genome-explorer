@@ -573,6 +573,8 @@ public class ViewerViewController: NSViewController {
     public override func viewDidLayout() {
         super.viewDidLayout()
 
+        clampAnnotationDrawerHeightToAvailableContent()
+
         // Update reference frame width immediately (needed for correct rendering)
         if let frame = referenceFrame, viewerView.bounds.width > 0 {
             frame.pixelWidth = Int(viewerView.bounds.width)

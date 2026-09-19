@@ -5,6 +5,262 @@ import LungfishCore
 
 @MainActor
 final class ProjectFilesystemWindowOwnershipTests: XCTestCase {
+    func testClosingLastProjectWindowReleasesWriterLock() async throws {
+        _ = NSApplication.shared
+        DocumentManager.shared.closeActiveProject()
+        let app = makeAppDelegateWithTemporaryState()
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("ClosedWriter-\(UUID())")
+        defer {
+            DocumentManager.shared.closeActiveProject()
+            ProjectFilesystemRefreshCoordinator.shared.unregisterAll()
+            try? FileManager.default.removeItem(at: root)
+        }
+        let url = try fixture(in: root, name: "original")
+        let lockURL = ProjectLockManager.lockURL(for: url)
+        let window = MainWindowController()
+        app.testingSetMainWindowControllers([window])
+
+        app.openProject(url, in: window)
+        await app.testingWaitForProjectOpen(in: window)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: lockURL.path))
+        XCTAssertNotNil(DocumentManager.shared.activeProject)
+
+        _ = app.perform(
+            NSSelectorFromString("windowWillClose:"),
+            with: NSNotification(name: NSWindow.willCloseNotification, object: window.window)
+        )
+
+        let didRemoveLock = await waitForMissingFile(at: lockURL)
+        XCTAssertTrue(didRemoveLock,
+            "A clean last-window close must remove the writer lease before the project is copied")
+        XCTAssertNil(DocumentManager.shared.activeProject)
+        window.close()
+    }
+
+    func testClosingOneOfTwoProjectWindowsKeepsLeaseUntilLastWindowCloses() async throws {
+        _ = NSApplication.shared
+        DocumentManager.shared.closeActiveProject()
+        let app = makeAppDelegateWithTemporaryState()
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("SharedWriter-\(UUID())")
+        defer {
+            DocumentManager.shared.closeActiveProject()
+            ProjectFilesystemRefreshCoordinator.shared.unregisterAll()
+            try? FileManager.default.removeItem(at: root)
+        }
+        let url = try fixture(in: root, name: "original")
+        let lockURL = ProjectLockManager.lockURL(for: url)
+        let first = MainWindowController()
+        let second = MainWindowController()
+        app.testingSetMainWindowControllers([first, second])
+        for window in [first, second] {
+            app.openProject(url, in: window)
+            await app.testingWaitForProjectOpen(in: window)
+        }
+
+        _ = app.perform(
+            NSSelectorFromString("windowWillClose:"),
+            with: NSNotification(name: NSWindow.willCloseNotification, object: second.window)
+        )
+        XCTAssertTrue(FileManager.default.fileExists(atPath: lockURL.path),
+            "Another live project window must keep the shared writer lease")
+        XCTAssertTrue(DocumentManager.shared.activeProject === first.projectSession.project)
+
+        _ = app.perform(
+            NSSelectorFromString("windowWillClose:"),
+            with: NSNotification(name: NSWindow.willCloseNotification, object: first.window)
+        )
+        let didRemoveLock = await waitForMissingFile(at: lockURL)
+        XCTAssertTrue(didRemoveLock)
+        first.close()
+        second.close()
+    }
+
+    func testApplicationTerminationSynchronouslyReleasesProjectWriterLock() async throws {
+        _ = NSApplication.shared
+        DocumentManager.shared.closeActiveProject()
+        let app = makeAppDelegateWithTemporaryState()
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("TerminatedWriter-\(UUID())")
+        defer {
+            DocumentManager.shared.closeActiveProject()
+            ProjectFilesystemRefreshCoordinator.shared.unregisterAll()
+            try? FileManager.default.removeItem(at: root)
+        }
+        let url = try fixture(in: root, name: "original")
+        let lockURL = ProjectLockManager.lockURL(for: url)
+        let window = MainWindowController()
+        app.testingSetMainWindowControllers([window])
+        app.openProject(url, in: window)
+        await app.testingWaitForProjectOpen(in: window)
+        await window.mainSplitViewController?.externalDocumentLoadTask?.value
+        XCTAssertTrue(FileManager.default.fileExists(atPath: lockURL.path))
+
+        app.applicationWillTerminate(Notification(name: NSApplication.willTerminateNotification))
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: lockURL.path),
+            "Termination must finish lease cleanup before the process can exit")
+        window.close()
+    }
+
+    func testApplicationTerminationCancelsAndAwaitsHydrationBeforeReleasingWriterLock() async throws {
+        _ = NSApplication.shared
+        DocumentManager.shared.closeActiveProject()
+        let app = makeAppDelegateWithTemporaryState()
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("HydratingWriter-\(UUID())")
+        defer {
+            DocumentManager.shared.closeActiveProject()
+            ProjectFilesystemRefreshCoordinator.shared.unregisterAll()
+            try? FileManager.default.removeItem(at: root)
+        }
+        let url = try fixture(in: root, name: "original")
+        let lockURL = ProjectLockManager.lockURL(for: url)
+        let window = MainWindowController()
+        app.testingSetMainWindowControllers([window])
+        app.openProject(url, in: window)
+        await app.testingWaitForProjectOpen(in: window)
+        let split = try XCTUnwrap(window.mainSplitViewController)
+        await split.externalDocumentLoadTask?.value
+
+        let hydrationStarted = expectation(description: "hydration retains the project store")
+        window.projectSession.hydrationLoader = { store, _ in
+            hydrationStarted.fulfill()
+            try await Task.sleep(for: .seconds(60))
+            _ = store.accessMode
+            throw CancellationError()
+        }
+        split.loadProjectDocument(try XCTUnwrap(window.projectSession.documents.last))
+        let hydration = try XCTUnwrap(split.externalDocumentLoadTask)
+        await fulfillment(of: [hydrationStarted], timeout: 3)
+
+        var replies: [Bool] = []
+        let initialReply = app.testingApplicationShouldTerminate { replies.append($0) }
+        if initialReply != .terminateLater {
+            // Keep the RED case bounded when termination fails to own the task.
+            split.invalidateDisplayRequest()
+        }
+        await hydration.value
+        await app.testingWaitForManualHaplotypeTermination()
+
+        XCTAssertEqual(initialReply, .terminateLater)
+        XCTAssertEqual(replies, [true])
+        XCTAssertEqual(app.testingApplicationShouldTerminate { replies.append($0) }, .terminateNow)
+        app.applicationWillTerminate(Notification(name: NSApplication.willTerminateNotification))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: lockURL.path))
+        window.close()
+    }
+
+    func testApplicationTerminationAwaitsProjectTaskAfterUIFieldWasCleared() async throws {
+        _ = NSApplication.shared
+        DocumentManager.shared.closeActiveProject()
+        let app = makeAppDelegateWithTemporaryState()
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("RetiredHydration-\(UUID())")
+        defer {
+            DocumentManager.shared.closeActiveProject()
+            ProjectFilesystemRefreshCoordinator.shared.unregisterAll()
+            try? FileManager.default.removeItem(at: root)
+        }
+        let url = try fixture(in: root, name: "original")
+        let lockURL = ProjectLockManager.lockURL(for: url)
+        let window = MainWindowController()
+        app.testingSetMainWindowControllers([window])
+        app.openProject(url, in: window)
+        await app.testingWaitForProjectOpen(in: window)
+        let split = try XCTUnwrap(window.mainSplitViewController)
+        await split.externalDocumentLoadTask?.value
+
+        let hydrationStarted = expectation(description: "retired hydration retains the project store")
+        let gate = FilesystemSelectedHydrationGate(started: hydrationStarted)
+        window.projectSession.hydrationLoader = { store, _ in
+            let value = await gate.wait()
+            _ = store.accessMode
+            return value
+        }
+        split.loadProjectDocument(try XCTUnwrap(window.projectSession.documents.last))
+        let hydration = try XCTUnwrap(split.externalDocumentLoadTask)
+        await fulfillment(of: [hydrationStarted], timeout: 3)
+        split.invalidateDisplayRequest()
+        XCTAssertNil(split.externalDocumentLoadTask)
+
+        var replies: [Bool] = []
+        let initialReply = app.testingApplicationShouldTerminate { replies.append($0) }
+        let snapshot = ProjectHydrationSnapshot(
+            sequence: try Sequence(name: "released", alphabet: .dna, bases: "ACGT"),
+            annotations: []
+        )
+        await gate.finish(snapshot)
+        await hydration.value
+        await app.testingWaitForManualHaplotypeTermination()
+
+        XCTAssertEqual(initialReply, .terminateLater)
+        XCTAssertEqual(replies, [true])
+        XCTAssertEqual(app.testingApplicationShouldTerminate { replies.append($0) }, .terminateNow)
+        app.applicationWillTerminate(Notification(name: NSApplication.willTerminateNotification))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: lockURL.path))
+        window.close()
+    }
+
+    func testApplicationTerminationAwaitsRetiredMultiDocumentHydration() async throws {
+        _ = NSApplication.shared
+        DocumentManager.shared.closeActiveProject()
+        let app = makeAppDelegateWithTemporaryState()
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("RetiredMultiHydration-\(UUID())")
+        defer {
+            DocumentManager.shared.closeActiveProject()
+            ProjectFilesystemRefreshCoordinator.shared.unregisterAll()
+            try? FileManager.default.removeItem(at: root)
+        }
+        let url = try fixture(in: root, name: "original")
+        let lockURL = ProjectLockManager.lockURL(for: url)
+        let window = MainWindowController()
+        app.testingSetMainWindowControllers([window])
+        app.openProject(url, in: window)
+        await app.testingWaitForProjectOpen(in: window)
+        let split = try XCTUnwrap(window.mainSplitViewController)
+        await split.externalDocumentLoadTask?.value
+
+        let selected = try XCTUnwrap(window.projectSession.documents.last)
+        XCTAssertNotNil(selected.projectSequenceID)
+        let item = SidebarItem(title: selected.name, type: .sequence)
+        item.userInfo["documentID"] = selected.id.uuidString
+        let hydrationStarted = expectation(description: "multi-document hydration retains the project store")
+        let gate = FilesystemSelectedHydrationGate(started: hydrationStarted)
+        window.projectSession.hydrationLoader = { store, _ in
+            let value = await gate.wait()
+            _ = store.accessMode
+            return value
+        }
+        split.handleMultipleItemsSelected([item])
+        let hydration = try XCTUnwrap(split.multiDocumentLoadTask)
+        await fulfillment(of: [hydrationStarted], timeout: 3)
+        split.cancelMultiDocumentLoadIfNeeded(hideProgress: true, reason: "termination regression")
+        XCTAssertNil(split.multiDocumentLoadTask)
+
+        var replies: [Bool] = []
+        let initialReply = app.testingApplicationShouldTerminate { replies.append($0) }
+        let snapshot = ProjectHydrationSnapshot(
+            sequence: try Sequence(name: "released", alphabet: .dna, bases: "ACGT"),
+            annotations: []
+        )
+        await gate.finish(snapshot)
+        await hydration.value
+        await app.testingWaitForManualHaplotypeTermination()
+
+        XCTAssertEqual(initialReply, .terminateLater)
+        XCTAssertEqual(replies, [true])
+        XCTAssertEqual(app.testingApplicationShouldTerminate { replies.append($0) }, .terminateNow)
+        app.applicationWillTerminate(Notification(name: NSApplication.willTerminateNotification))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: lockURL.path))
+        window.close()
+    }
+
+    private func waitForMissingFile(at url: URL) async -> Bool {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(2))
+        while FileManager.default.fileExists(atPath: url.path), clock.now < deadline {
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        return !FileManager.default.fileExists(atPath: url.path)
+    }
+
     func testRootLossMakesBothActualWindowsUnavailableAndInvalidatesUsableProjectScope() async throws {
         _ = NSApplication.shared
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("UnavailableWindows-\(UUID())")

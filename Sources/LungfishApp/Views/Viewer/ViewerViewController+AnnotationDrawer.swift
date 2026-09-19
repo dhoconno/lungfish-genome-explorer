@@ -15,8 +15,19 @@ private let annotDrawerLogger = Logger(subsystem: LogSubsystem.app, category: "V
 /// Height of the annotation drawer when open.
 private let annotationDrawerHeight: CGFloat = 250
 
-/// Minimum visible content left above the annotation drawer during resize.
-private let annotationDrawerVisibleHostStrip: CGFloat = 80
+enum AnnotationDrawerSizing {
+    static let dividerHeight: CGFloat = 8
+    static let minimumHostHeight: CGFloat = 8
+
+    static func clampedHeight(proposed: CGFloat, availableContentHeight: CGFloat) -> CGFloat {
+        MetagenomicsPaneSizing.clampedDrawerExtent(
+            proposed: proposed,
+            containerExtent: availableContentHeight,
+            minimumDrawerExtent: dividerHeight,
+            minimumSiblingExtent: minimumHostHeight
+        )
+    }
+}
 
 // MARK: - ViewerViewController Annotation Drawer Extension
 
@@ -67,6 +78,8 @@ extension ViewerViewController: AnnotationTableDrawerDelegate {
         let isOpen = isAnnotationDrawerOpen
         let currentHeight = annotationDrawerHeightConstraint?.constant ?? annotationDrawerHeight
         let target: CGFloat = isOpen ? currentHeight : 0
+        // Layout during the animation must clamp against the destination state.
+        isAnnotationDrawerOpen = !isOpen
 
         NSAnimationContext.runAnimationGroup { context in
             context.duration = 0.25
@@ -77,7 +90,6 @@ extension ViewerViewController: AnnotationTableDrawerDelegate {
             self.view.layoutSubtreeIfNeeded()
         }
 
-        isAnnotationDrawerOpen = !isOpen
         annotDrawerLogger.info("toggleAnnotationDrawer: Drawer now \(self.isAnnotationDrawerOpen ? "open" : "closed")")
 
         // Connect to search index if opening and index is available
@@ -137,6 +149,9 @@ extension ViewerViewController: AnnotationTableDrawerDelegate {
         let drawerHeight = persistedHeight > 0 ? CGFloat(persistedHeight) : annotationDrawerHeight
         let bottomConstraint = drawer.bottomAnchor.constraint(equalTo: statusBar.topAnchor, constant: drawerHeight)
         let heightConstraint = drawer.heightAnchor.constraint(equalToConstant: drawerHeight)
+        // A stale persisted height must never impose a minimum on an enclosing
+        // split pane while its layout callback reconciles the new available space.
+        heightConstraint.priority = NSLayoutConstraint.Priority(999)
 
         NSLayoutConstraint.activate([
             drawer.leadingAnchor.constraint(equalTo: view.leadingAnchor),
@@ -642,13 +657,23 @@ extension ViewerViewController: AnnotationTableDrawerDelegate {
         )
     }
 
+    func annotationDrawerAdditionalExportSources(_ drawer: AnnotationTableDrawerView) throws -> [URL] {
+        guard let bundle = viewerView.currentReferenceBundle, let genome = bundle.manifest.genome else { return [] }
+        // Local consequence predictions also depend on the reference and its alias metadata.
+        return [try bundle.memberURL(for: genome.path, field: "genome.path"),
+                bundle.url.appendingPathComponent(BundleManifest.filename)]
+    }
+
+    func annotationDrawer(_ drawer: AnnotationTableDrawerView, codingFeatureFor result: AnnotationSearchIndex.SearchResult) -> String? {
+        viewerView.codingFeatureText(chromosome: result.chromosome, position: result.start, referenceLength: result.ref?.count ?? 1)
+    }
+
     public func annotationDrawerDidDragDivider(_ drawer: AnnotationTableDrawerView, deltaY: CGFloat) {
         guard let heightConstraint = annotationDrawerHeightConstraint else { return }
-        let newHeight = MetagenomicsPaneSizing.clampedDrawerExtent(
+        view.layoutSubtreeIfNeeded()
+        let newHeight = AnnotationDrawerSizing.clampedHeight(
             proposed: heightConstraint.constant + deltaY,
-            containerExtent: view.bounds.height,
-            minimumDrawerExtent: 100,
-            minimumSiblingExtent: annotationDrawerVisibleHostStrip
+            availableContentHeight: annotationDrawerAvailableContentHeight
         )
         heightConstraint.constant = newHeight
         annotationDrawerBottomConstraint?.constant = 0  // Keep visible while dragging
@@ -673,6 +698,35 @@ extension ViewerViewController: AnnotationTableDrawerDelegate {
         if let height = annotationDrawerHeightConstraint?.constant {
             UserDefaults.standard.set(Double(height), forKey: "annotationDrawerHeight")
         }
+    }
+
+    /// Keeps a persisted height valid as the window or its enclosing pane shrinks.
+    func clampAnnotationDrawerHeightToAvailableContent() {
+        guard view.window != nil, view.bounds.height > 0,
+              annotationDrawerView != nil,
+              let heightConstraint = annotationDrawerHeightConstraint else { return }
+
+        let clampedHeight = AnnotationDrawerSizing.clampedHeight(
+            proposed: heightConstraint.constant,
+            availableContentHeight: annotationDrawerAvailableContentHeight
+        )
+        guard clampedHeight != heightConstraint.constant else { return }
+
+        heightConstraint.constant = clampedHeight
+        if !isAnnotationDrawerOpen {
+            annotationDrawerBottomConstraint?.constant = clampedHeight
+        }
+    }
+
+    private var annotationDrawerAvailableContentHeight: CGFloat {
+        max(
+            0,
+            view.bounds.height
+                - view.safeAreaInsets.top
+                - enhancedRulerView.bounds.height
+                - geneTabBarView.bounds.height
+                - statusBar.bounds.height
+        )
     }
 
     public func annotationDrawer(_ drawer: AnnotationTableDrawerView, didResolveGeneRegions regions: [GeneRegion]) {

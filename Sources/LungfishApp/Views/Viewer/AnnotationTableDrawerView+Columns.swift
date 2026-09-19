@@ -310,6 +310,8 @@ extension AnnotationTableDrawerView {
 
     /// Column definitions for the variant tab.
     static let variantColumnDefs: [(NSUserInterfaceItemIdentifier, String, CGFloat, CGFloat, String)] = [
+        (trackNameColumn, "Variant Track", 220, 100, "track_name"),
+        (callerSettingsColumn, "Caller Settings", 300, 120, "caller_settings"),
         (variantIdColumn, "ID", 130, 70, "variant_id"),
         (variantTypeColumn, "Type", 60, 40, "variant_type"),
         (variantChromColumn, "Chrom", 80, 50, "chromosome"),
@@ -320,6 +322,7 @@ extension AnnotationTableDrawerView {
         (filterColumn, "Filter", 70, 40, "filter"),
         (samplesColumn, "Samples", 60, 40, "samples"),
         (sourceColumn, "Source", 100, 60, "source"),
+        (codingFeatureColumn, "Gene / Protein", 240, 100, "coding_feature"),
         (consequenceColumn, "Consequence", 170, 90, "consequence"),
         (aaChangeColumn, "AA Change", 120, 80, "aa_change"),
     ]
@@ -415,7 +418,19 @@ extension AnnotationTableDrawerView {
                 }
             }
             // Reorder visible columns to match saved order
-            let orderedIds = saved.visibleColumns.map(\.id)
+            var orderedIds = saved.visibleColumns.map(\.id)
+            if tab == .variants {
+                // Introduce track identity at the front for older saved layouts; honor
+                // subsequent user choices to move or hide these columns.
+                let savedIds = Set(saved.columns.map(\.id))
+                let newIds = [Self.trackNameColumn, Self.callerSettingsColumn]
+                    .map(\.rawValue).filter { !savedIds.contains($0) }
+                orderedIds.insert(contentsOf: newIds, at: 0)
+                if !savedIds.contains(Self.codingFeatureColumn.rawValue) {
+                    let position = orderedIds.firstIndex(of: Self.consequenceColumn.rawValue) ?? 0
+                    orderedIds.insert(Self.codingFeatureColumn.rawValue, at: position)
+                }
+            }
             for (targetIndex, colId) in orderedIds.enumerated() {
                 if let currentIndex = tableView.tableColumns.firstIndex(where: { $0.identifier.rawValue == colId }),
                    currentIndex != targetIndex, targetIndex < tableView.tableColumns.count {

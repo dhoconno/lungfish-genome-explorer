@@ -17,7 +17,7 @@ extension MainSplitViewController {
         let session = projectSession
         let generation = session.documentGeneration
         let loader = externalDocumentLoader
-        externalDocumentLoadTask = Task { @MainActor [weak self] in
+        externalDocumentLoadTask = ProjectTaskTerminationRegistry.start { [weak self] in
             guard let self else { return }
             await session.loadAndPublishDocument(at: url, loader: loader,
                 canPublish: { [weak self] in
@@ -55,7 +55,7 @@ extension MainSplitViewController {
             resultID: document.projectSequenceID?.uuidString)
         let token = beginDisplayRequest(identity: identity)
         viewerController.showProgress("Loading \(document.name)...")
-        externalDocumentLoadTask = Task { @MainActor [weak self] in
+        externalDocumentLoadTask = ProjectTaskTerminationRegistry.start { [weak self] in
             guard let self else { return }
             defer {
                 if self.canCommitDisplayRequest(token, identity: identity) {
@@ -193,7 +193,7 @@ extension MainSplitViewController {
             let generation = selectionGeneration
 
             // Use a regular Task (not detached) to maintain MainActor isolation
-            multiDocumentLoadTask = Task { @MainActor [weak self] in
+            multiDocumentLoadTask = ProjectTaskTerminationRegistry.start { [weak self] in
                 guard let self = self else { return }
 
                 let totalToLoad = catalogDocuments.count + placeholderDocuments.count + unregisteredURLs.count

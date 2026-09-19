@@ -22,7 +22,14 @@ public enum SplitPaneSizing {
         minimumLeadingExtent: CGFloat,
         minimumTrailingExtent: CGFloat
     ) -> CGFloat {
-        let maximumDividerPosition = max(minimumLeadingExtent, containerExtent - minimumTrailingExtent)
-        return min(max(proposed, minimumLeadingExtent), maximumDividerPosition)
+        let available = max(0, containerExtent)
+        let leading = max(0, minimumLeadingExtent)
+        let trailing = max(0, minimumTrailingExtent)
+        // When the host shrinks below both minimums, share the remaining space
+        // instead of placing the divider outside the container.
+        let scale = leading + trailing > available ? available / max(1, leading + trailing) : 1
+        let minimum = leading * scale
+        let maximum = max(minimum, available - trailing * scale)
+        return min(max(proposed, minimum), maximum)
     }
 }

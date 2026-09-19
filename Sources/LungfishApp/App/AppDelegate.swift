@@ -479,7 +479,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         DocumentManager.shared.mirrorProjectSession(session)
         split.viewerController.showProgress("Opening \(projectURL.lastPathComponent)...")
         let prepare = split.projectPreparation
-        split.projectOpenTask = Task { @MainActor [weak self, weak controller, weak split] in
+        split.projectOpenTask = ProjectTaskTerminationRegistry.start { [weak self, weak controller, weak split] in
             defer {
                 if session.documentGeneration == generation { split?.projectOpenTask = nil }
                 if snapshot != nil { self?.finishProjectRestoration() }
@@ -641,7 +641,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         let identity = split.contentSelectionIdentity(url: url, kind: "projectMigration")
         let token = split.beginDisplayRequest(identity: identity)
         split.viewerController.showProgress("Migrating \(url.lastPathComponent)...")
-        split.projectOpenTask = Task { @MainActor [weak self, weak controller, weak split] in
+        split.projectOpenTask = ProjectTaskTerminationRegistry.start { [weak self, weak controller, weak split] in
             // Migration owns its durable transaction through completion even if
             // the originating UI goes away; only publication to UI is cancelled.
             let result = await Task.detached(priority: .userInitiated) { Result { try ProjectFile.migrate(at: url) } }.value
@@ -788,6 +788,18 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         debugTempEscapeScanTimer = nil
 #endif
 
+        // Project locks are process-scoped writer leases. Release every
+        // window-owned handle, then wait for deferred SQLite close work before
+        // returning to AppKit so a cleanly quit project can be copied safely.
+        for controller in mainWindowControllers {
+            controller.mainSplitViewController?.invalidateDisplayRequest()
+            controller.mainSplitViewController?.sidebarController?.closeProject()
+            controller.projectSession.closeProject()
+            projectSessionRegistry.unregister(controller.projectSession)
+        }
+        DocumentManager.shared.closeActiveProject()
+        ProjectStore.flushDeferredCleanup()
+
         // Process teardown cannot wait for an unstructured task. Remove
         // registered session files before returning from the termination hook.
         TempFileManager.shared.cleanupSessionFilesSynchronously()
@@ -817,19 +829,24 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         let dirtyControllers = mainWindowControllers.filter(
             \.requiresManualHaplotypeTransitionCoordination
         )
-        guard !dirtyControllers.isEmpty else {
+        let hasPendingProjectTasks = ProjectTaskTerminationRegistry.hasPendingTasks
+        guard !dirtyControllers.isEmpty || hasPendingProjectTasks else {
             return .terminateNow
         }
         manualHaplotypeTerminationTask =
             Task { [weak self] in
                 guard let self else { return }
-                let allowed =
-                    await self
-                        .prepareForManualHaplotypeTermination(
-                            controllers: { [weak self] in
-                                self?.mainWindowControllers ?? []
-                            }
-                        )
+                var allowed = true
+                if !dirtyControllers.isEmpty {
+                    allowed = await self.prepareForManualHaplotypeTermination(
+                        controllers: { [weak self] in
+                            self?.mainWindowControllers ?? []
+                        }
+                    )
+                }
+                if allowed {
+                    await self.cancelAndAwaitProjectTasksForTermination()
+                }
                 self.manualHaplotypeTerminationTask = nil
                 if allowed {
                     self.isReenteringManualHaplotypeTermination = true
@@ -837,6 +854,16 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                 reply(allowed)
             }
         return .terminateLater
+    }
+
+    /// A project task can retain its store across an await. Cancellation alone
+    /// does not end that ownership, so termination waits for the cancelled tasks
+    /// before allowing AppKit to run the synchronous writer-lease cleanup hook.
+    private func cancelAndAwaitProjectTasksForTermination() async {
+        for controller in mainWindowControllers {
+            controller.mainSplitViewController?.invalidateDisplayRequest()
+        }
+        await ProjectTaskTerminationRegistry.cancelAndWait()
     }
 
     private func prepareForManualHaplotypeTermination(
@@ -1685,6 +1712,14 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         if mainWindowController?.window === closedWindow {
             mainWindowController = mainWindowControllers.first(where: { $0.window?.isMainWindow == true }) ?? mainWindowControllers.last
         }
+        if let mainWindowController {
+            DocumentManager.shared.mirrorProjectSession(mainWindowController.projectSession)
+        } else {
+            DocumentManager.shared.closeActiveProject()
+        }
+        // Do not let an immediately created archive capture a lease belonging
+        // only to the just-closed window.
+        ProjectStore.flushDeferredCleanup()
         for projectURL in affectedProjectURLs {
             if projectSessionRegistry
                 .sessions(forProjectURL: projectURL)

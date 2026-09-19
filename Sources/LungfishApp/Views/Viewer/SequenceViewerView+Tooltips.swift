@@ -110,6 +110,15 @@ extension SequenceViewerView {
         lastHoveredGenotypeTooltipText = nil
         lastHoveredGenotypeStatusText = nil
 
+        // The summary bar also represents calls without per-sample genotypes.
+        if let details = variantSummaryDetails(at: location) {
+            hoveredRead = nil
+            hoveredAnnotation = nil
+            hoverTooltip.show(text: details + "\n\nRight-click → Copy Variant Details", near: location, in: self)
+            NSCursor.crosshair.set()
+            return
+        }
+
         // --- Read hit-testing ---
         if let read = readAtPoint(location) {
             if hoveredRead?.id != read.id {
@@ -330,80 +339,23 @@ extension SequenceViewerView {
             return nil
         }
 
-        // Build tooltip
-        let callLabel: String
-        switch call {
-        case .homRef:  callLabel = "0/0 (Hom Ref)"
-        case .het:     callLabel = "0/1 (Het)"
-        case .homAlt:  callLabel = "1/1 (Hom Alt)"
-        case .noCall:  callLabel = "./. (No Call)"
-        }
-
-        // Position display (1-based for user)
         let displayPos = site.position + 1
-        let chrom = viewController?.referenceFrame?.chromosome ?? "?"
-        var tooltip = "\(sampleName)\n\(callLabel)\n\(chrom):\(displayPos.formatted()) \(site.ref) \u{2192} \(site.alt) (\(site.variantType))"
-
-        if let vid = site.variantID, !vid.isEmpty, vid != "." {
-            tooltip += "\nID: \(vid)"
+        let chrom = frame.chromosome
+        let callLabel = call.rawValue
+        guard let result = genotypeVariantSearchResult(for: site, frame: frame) else { return nil }
+        var tooltip = variantDetailsText(for: result, sampleName: sampleName)
+        tooltip += "\nSample: \(sampleName) • \(callLabel)"
+        if let impact = site.impact, impact != .unknown { tooltip += "\nImpact: \(impact.rawValue.lowercased())" }
+        if let gene = site.geneSymbol { tooltip += "\nGene: \(gene)" }
+        if let aa = site.shortAAChange ?? site.aminoAcidChange { tooltip += "\nRecorded amino acid change: \(aa)" }
+        if let af = site.sampleAlleleFractions[sampleName] {
+            tooltip += String(format: "\nSample allele frequency: %.6g", af)
         }
-
-        // Show pre-computed impact data from VariantSite (enriched during fetch)
-        if let shortAA = site.shortAAChange {
-            tooltip += "\nAA: \(shortAA)"
-        }
-        if let impact = site.impact, impact != .unknown {
-            tooltip += "\nImpact: \(impact.rawValue.lowercased())"
-        }
-        if let gene = site.geneSymbol {
-            tooltip += "\nGene: \(gene)"
-        }
-        if let sampleAF = site.sampleAlleleFractions[sampleName] {
-            tooltip += String(format: "\nSample AF: %.3f", sampleAF)
-        }
-        if let aaChange = site.aminoAcidChange, site.shortAAChange == nil {
-            // Only show long form if shortAAChange wasn't populated
-            tooltip += "\nAA Change: \(aaChange)"
-        }
-
-        var hasExplicitConsequence = false
-
-        // Enrich with additional CSQ/INFO fields from variant database
-        if let rowId = site.databaseRowId,
-           let handles = viewController?.annotationSearchIndex?.variantDatabaseHandles {
-            let db = site.sourceTrackId.flatMap { trackId in
-                handles.first(where: { $0.trackId == trackId })?.db
-            } ?? handles.first?.db
-            let infoDict = db?.infoValues(variantId: rowId) ?? [:]
-            if !infoDict.isEmpty {
-                // Show CSQ consequence string (more detailed than the impact classification)
-                if let consequence = infoDict["CSQ_Consequence"] {
-                    tooltip += "\nConsequence: \(consequence)"
-                    hasExplicitConsequence = true
-                }
-                if let codons = infoDict["CSQ_Codons"] {
-                    tooltip += "\nCodons: \(codons)"
-                }
-                if let af = infoDict["AF"] {
-                    tooltip += "\nAF: \(af)"
-                }
-            }
-        }
-
-        // Fallback codon-level consequence prediction from CDS annotations when CSQ/ANN
-        // annotations are missing or incomplete.
-        let predictedImpacts = predictedCDSConsequences(
-            for: site,
-            sampleName: sampleName,
-            genotypeData: genotypeData
-        )
+        let predictedImpacts = predictedCDSConsequences(for: site, sampleName: sampleName, genotypeData: genotypeData)
         if !predictedImpacts.isEmpty {
-            if !hasExplicitConsequence {
-                tooltip += "\nConsequence: \(predictedImpacts.joined(separator: "; "))"
-            } else {
-                tooltip += "\nCDS impact(s): \(predictedImpacts.joined(separator: "; "))"
-            }
+            tooltip += "\nSample CDS impact: \(predictedImpacts.joined(separator: "; "))"
         }
+        tooltip += "\n\nRight-click → Copy Variant Details"
 
         let aaStatus = site.shortAAChange.map { " \u{2022} \($0)" } ?? ""
         let statusText = "Genotype: \(sampleName) \u{2022} \(callLabel) \u{2022} \(chrom):\(displayPos.formatted()) \(site.ref)\u{2192}\(site.alt)\(aaStatus)"
@@ -455,7 +407,7 @@ extension SequenceViewerView {
 
         let overlappingCDS = cachedBundleAnnotations.filter { annotation in
             annotation.type == .cds
-                && (annotation.chromosome ?? chrom) == chrom
+                && consequenceChromosomeName(annotation.chromosome ?? chrom) == consequenceChromosomeName(chrom)
                 && annotation.overlaps(start: siteStart, end: siteEnd)
         }
         guard !overlappingCDS.isEmpty else { return [] }
@@ -475,7 +427,7 @@ extension SequenceViewerView {
             if site.ref.count != site.alt.count {
                 let delta = site.alt.count - site.ref.count
                 let effect = (abs(delta) % 3 == 0) ? "inframe_indel" : "frameshift_variant"
-                let label = "\(cds.name): \(effect)"
+                let label = "\(Self.codingFeatureLabel(for: cds)): \(effect)"
                 if rendered.insert(label).inserted {
                     details.append(label)
                 }
@@ -493,7 +445,7 @@ extension SequenceViewerView {
 
             for (codonOffset, genomicPos) in codonGenomePositions.enumerated() {
                 guard let codonVariant = genotypeData.sites.first(where: {
-                    $0.position == genomicPos &&
+                    $0.sourceTrackId == site.sourceTrackId && $0.position == genomicPos &&
                     ($0.genotypes[sampleName] == .het || $0.genotypes[sampleName] == .homAlt)
                 }) else { continue }
                 guard codonVariant.ref.count == 1,
@@ -526,7 +478,7 @@ extension SequenceViewerView {
                 effect = "missense_variant"
             }
 
-            let label = "\(cds.name): \(effect) \(refAA)\(aminoIndex)\(altAA)"
+            let label = "\(Self.codingFeatureLabel(for: cds)): \(effect) \(refAA)\(aminoIndex)\(altAA)"
             if rendered.insert(label).inserted {
                 details.append(label)
             }
@@ -552,7 +504,7 @@ extension SequenceViewerView {
 
         let overlappingCDS = cachedBundleAnnotations.filter { annotation in
             annotation.type == .cds
-                && (annotation.chromosome ?? refChromosome) == refChromosome
+                && consequenceChromosomeName(annotation.chromosome ?? refChromosome) == consequenceChromosomeName(refChromosome)
                 && annotation.overlaps(start: siteStart, end: siteEnd)
         }
         guard !overlappingCDS.isEmpty else { return (nil, nil) }
@@ -574,7 +526,7 @@ extension SequenceViewerView {
             if ref.count != firstAlt.count {
                 let delta = firstAlt.count - ref.count
                 let effect = (abs(delta) % 3 == 0) ? "inframe_indel" : "frameshift_variant"
-                let label = "\(cds.name): \(effect)"
+                let label = "\(Self.codingFeatureLabel(for: cds)): \(effect)"
                 if seenConsequence.insert(label).inserted {
                     consequences.append(label)
                 }
@@ -620,12 +572,13 @@ extension SequenceViewerView {
             }
 
             let aaChange = "\(refAA)\(aaIndex)\(altAA)"
-            let consequence = "\(cds.name): \(effect) \(aaChange)"
+            let consequence = "\(Self.codingFeatureLabel(for: cds)): \(effect) \(aaChange)"
             if seenConsequence.insert(consequence).inserted {
                 consequences.append(consequence)
             }
-            if seenAA.insert(aaChange).inserted {
-                aaChanges.append(aaChange)
+            let labeledAA = overlappingCDS.count > 1 ? "\(Self.codingFeatureLabel(for: cds)): \(aaChange)" : aaChange
+            if seenAA.insert(labeledAA).inserted {
+                aaChanges.append(labeledAA)
             }
         }
 
@@ -634,18 +587,39 @@ extension SequenceViewerView {
         return (consequenceText, aaText)
     }
 
+    /// Resolve only aliases declared by the reference bundle, preserving distinct contigs.
+    func consequenceChromosomeName(_ chromosome: String) -> String {
+        currentReferenceBundle?.chromosome(named: chromosome)?.name ?? chromosome
+    }
+
+    /// Annotation/sequence fetches complete independently of the table's first render.
+    func consequenceInputsDidChange() {
+        variantSummaryHoverCache = nil
+        cachedCDSCodingContexts = [:]
+        lastHoveredGenotypeCell = nil
+        lastHoveredGenotypeTooltipText = nil
+        lastHoveredGenotypeStatusText = nil
+        if let drawer = viewController?.annotationDrawerView {
+            drawer.fallbackConsequenceCache = [:]
+            drawer.tableView.reloadData()
+        }
+    }
+
     /// Returns a cached CDS coding context, building one from the local sequence cache when needed.
     func cdsCodingContext(for annotation: SequenceAnnotation) -> CDSCodingContext? {
         if let cached = cachedCDSCodingContexts[annotation.id] {
             return cached
         }
         guard annotation.type == .cds else { return nil }
+        guard let chromosome = annotation.chromosome ?? viewController?.referenceFrame?.chromosome ?? cachedSequenceRegion?.chromosome else { return nil }
+        let referenceChromosome = consequenceChromosomeName(chromosome)
         let sequenceProvider: (Int, Int) -> String? = { [weak self] start, end in
             guard let self else { return nil }
             guard start < end else { return nil }
 
             // Fast path: use cached sequence window if it fully covers the request.
             if let sequence = self.cachedBundleSequence, let region = self.cachedSequenceRegion,
+               self.consequenceChromosomeName(region.chromosome) == referenceChromosome,
                start >= region.start, end <= region.end {
                 let offsetStart = start - region.start
                 let offsetEnd = end - region.start
@@ -656,9 +630,8 @@ extension SequenceViewerView {
             }
 
             // Fallback path: pull the exact interval directly from bundle-backed FASTA.
-            guard let bundle = self.currentReferenceBundle,
-                  let frame = self.viewController?.referenceFrame else { return nil }
-            let fetchRegion = GenomicRegion(chromosome: frame.chromosome, start: start, end: end)
+            guard let bundle = self.currentReferenceBundle else { return nil }
+            let fetchRegion = GenomicRegion(chromosome: referenceChromosome, start: start, end: end)
             return try? bundle.fetchSequenceSync(region: fetchRegion)
         }
 
@@ -818,19 +791,24 @@ extension SequenceViewerView {
     /// Hit-tests a variant glyph in the variant summary/rows area.
     /// Returns the closest visible variant within a small horizontal tolerance.
     func variantAtPoint(_ point: NSPoint) -> SequenceAnnotation? {
+        variantAnnotationsAtPoint(point).first
+    }
+
+    func variantAnnotationsAtPoint(_ point: NSPoint) -> [SequenceAnnotation] {
         guard showVariants,
               let frame = viewController?.referenceFrame,
-              !filteredVisibleVariantAnnotations.isEmpty else { return nil }
+              !filteredVisibleVariantAnnotations.isEmpty else { return [] }
 
         let hitTop = variantTrackY
         let hitBottom = max(
             variantTrackY + max(effectiveSummaryBarHeight, sampleDisplayState.rowHeight),
             variantTrackY + effectiveSummaryBarHeight + effectiveSummaryToRowGap + sampleDisplayState.rowHeight
         )
-        guard point.y >= hitTop, point.y <= hitBottom else { return nil }
+        guard point.y >= hitTop, point.y <= hitBottom else { return [] }
 
         let tolerance: CGFloat = 6
-        var best: (annotation: SequenceAnnotation, distance: CGFloat)?
+        var bestDistance = CGFloat.infinity
+        var matches: [SequenceAnnotation] = []
         for annotation in filteredVisibleVariantAnnotations {
             let startX = frame.screenPosition(for: Double(annotation.start))
             let endX = frame.screenPosition(for: Double(max(annotation.start + 1, annotation.end)))
@@ -845,11 +823,14 @@ extension SequenceViewerView {
                 dx = 0
             }
             guard dx <= tolerance else { continue }
-            if best == nil || dx < best!.distance {
-                best = (annotation, dx)
+            if dx < bestDistance {
+                bestDistance = dx
+                matches = [annotation]
+            } else if dx == bestDistance {
+                matches.append(annotation)
             }
         }
-        return best?.annotation
+        return matches
     }
 
     // MARK: - Read Hit-Testing

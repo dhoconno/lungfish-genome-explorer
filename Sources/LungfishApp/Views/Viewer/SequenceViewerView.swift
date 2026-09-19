@@ -151,7 +151,10 @@ public class SequenceViewerView: NSView {
     var annotationFetchGeneration: Int = 0
 
     /// Cached variant annotations for the current visible region (rendered alongside gene annotations)
-    var cachedVariantAnnotations: [SequenceAnnotation] = []
+    var variantSummaryHoverCache: (ids: [UUID], text: String)?
+    var cachedVariantAnnotations: [SequenceAnnotation] = [] {
+        didSet { variantSummaryHoverCache = nil }
+    }
 
     /// The region for which we have cached variant data
     var cachedVariantRegion: GenomicRegion?

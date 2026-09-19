@@ -43,6 +43,44 @@ extension AnnotationTableDrawerView {
         let genotypeQuality: Int? // GQ
         let alleleBalance: Double? // Computed from AD
         let infoDict: [String: String] // INFO key-value pairs for this variant
+        let trackId: String
+        let trackName: String
+
+        init(
+            sampleName: String,
+            variantRowId: Int64,
+            variantID: String,
+            chromosome: String,
+            position: Int,
+            ref: String,
+            alt: String,
+            genotype: String,
+            zygosity: String,
+            alleleDepths: String,
+            depth: Int?,
+            genotypeQuality: Int?,
+            alleleBalance: Double?,
+            infoDict: [String: String],
+            trackId: String = "",
+            trackName: String = ""
+        ) {
+            self.sampleName = sampleName
+            self.variantRowId = variantRowId
+            self.variantID = variantID
+            self.chromosome = chromosome
+            self.position = position
+            self.ref = ref
+            self.alt = alt
+            self.genotype = genotype
+            self.zygosity = zygosity
+            self.alleleDepths = alleleDepths
+            self.depth = depth
+            self.genotypeQuality = genotypeQuality
+            self.alleleBalance = alleleBalance
+            self.infoDict = infoDict
+            self.trackId = trackId
+            self.trackName = trackName
+        }
 
         /// Classifies genotype for display.
         static func classify(allele1: Int, allele2: Int) -> String {
@@ -68,6 +106,7 @@ extension AnnotationTableDrawerView {
     // MARK: - Genotype Column Identifiers
 
     static let gtSampleColumn = NSUserInterfaceItemIdentifier("GTSampleColumn")
+    static let gtTrackColumn = NSUserInterfaceItemIdentifier("GTTrackColumn")
     static let gtVariantColumn = NSUserInterfaceItemIdentifier("GTVariantColumn")
     static let gtChromColumn = NSUserInterfaceItemIdentifier("GTChromColumn")
     static let gtPositionColumn = NSUserInterfaceItemIdentifier("GTPosColumn")
@@ -81,6 +120,7 @@ extension AnnotationTableDrawerView {
     /// Column definitions for the genotype subtab.
     static let genotypeColumnDefs: [(NSUserInterfaceItemIdentifier, String, CGFloat, CGFloat, String)] = [
         (gtSampleColumn, "Sample", 120, 60, "sample"),
+        (gtTrackColumn, "Track", 140, 80, "track"),
         (gtVariantColumn, "Variant", 120, 60, "variant"),
         (gtChromColumn, "Chrom", 100, 50, "chromosome"),
         (gtPositionColumn, "Position", 90, 60, "position"),
@@ -220,7 +260,9 @@ extension AnnotationTableDrawerView {
                             depth: gt.depth,
                             genotypeQuality: gt.genotypeQuality,
                             alleleBalance: ab,
-                            infoDict: info
+                            infoDict: info,
+                            trackId: trackId,
+                            trackName: variant.trackName ?? trackId
                         ))
                     }
                 }
@@ -247,6 +289,7 @@ extension AnnotationTableDrawerView {
         if !filter.isEmpty {
             result = result.filter { row in
                 row.sampleName.localizedCaseInsensitiveContains(filter)
+                    || row.trackName.localizedCaseInsensitiveContains(filter)
                     || row.zygosity.localizedCaseInsensitiveContains(filter)
                     || row.genotype.localizedCaseInsensitiveContains(filter)
                     || row.variantID.localizedCaseInsensitiveContains(filter)
@@ -273,6 +316,7 @@ extension AnnotationTableDrawerView {
     func genotypeFilterKey(forColumnIdentifier columnId: String) -> String? {
         switch columnId {
         case Self.gtSampleColumn.rawValue: return "sample"
+        case Self.gtTrackColumn.rawValue: return "track"
         case Self.gtVariantColumn.rawValue: return "variant"
         case Self.gtChromColumn.rawValue: return "chromosome"
         case Self.gtPositionColumn.rawValue: return "position"
@@ -306,6 +350,7 @@ extension AnnotationTableDrawerView {
     private func genotypeColumnValue(_ row: GenotypeDisplayRow, key: String) -> String {
         switch key {
         case "sample": return row.sampleName
+        case "track": return row.trackName
         case "variant": return row.variantID
         case "chromosome": return row.chromosome
         case "position": return String(row.position + 1)
@@ -353,10 +398,11 @@ extension AnnotationTableDrawerView {
         if genotypeColumnFilterClauses.isEmpty {
             displayedAnnotations = applyVariantColumnFilters(to: baseDisplayedVariantAnnotations)
         } else {
-            let survivingVariantIds = Set(displayedGenotypes.map(\.variantRowId))
+            let survivingVariantIdsByTrack = Dictionary(grouping: displayedGenotypes, by: \.trackId)
+                .mapValues { Set($0.map(\.variantRowId)) }
             displayedAnnotations = applyVariantColumnFilters(to: baseDisplayedVariantAnnotations).filter { row in
                 guard let rowId = row.variantRowId else { return false }
-                return survivingVariantIds.contains(rowId)
+                return survivingVariantIdsByTrack[row.trackId]?.contains(rowId) == true
             }
         }
 
@@ -375,6 +421,8 @@ extension AnnotationTableDrawerView {
         switch identifier {
         case Self.gtSampleColumn:
             return gt.sampleName
+        case Self.gtTrackColumn:
+            return gt.trackName
         case Self.gtVariantColumn:
             return gt.variantID
         case Self.gtChromColumn:

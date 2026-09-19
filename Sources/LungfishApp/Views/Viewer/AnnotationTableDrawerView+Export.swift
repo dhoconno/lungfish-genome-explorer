@@ -149,7 +149,7 @@ extension AnnotationTableDrawerView {
                         sourceURLs: sourceURLs
                     ),
                     explicitOptions: [
-                        "sourceDatabasePaths": .array(sourceURLs.map { .file($0) }),
+                        "sourcePaths": .array(sourceURLs.map { .file($0) }),
                         "outputPath": .file(outputURL),
                         "outputFormat": .string(format.rawValue),
                         "scope": .string(scope.rawValue),
@@ -279,6 +279,18 @@ extension AnnotationTableDrawerView {
             return annotation.filter ?? "."
         case Self.samplesColumn:
             return "\(annotation.sampleCount ?? 0)"
+        case Self.trackNameColumn:
+            return annotationTrackName(for: annotation)
+        case Self.trackIdColumn:
+            return annotation.trackId
+        case Self.callerSettingsColumn:
+            return searchIndex?.variantCallerSettings(for: annotation.trackId) ?? "Not recorded"
+        case Self.codingFeatureColumn:
+            return variantCodingFeatureText(for: annotation)
+        case Self.consequenceColumn:
+            return variantConsequenceText(for: annotation)
+        case Self.aaChangeColumn:
+            return variantAAChangeText(for: annotation)
         case Self.sourceColumn:
             return annotation.sourceFile ?? ""
 
@@ -364,6 +376,9 @@ extension AnnotationTableDrawerView {
         var candidates: [URL] = []
         candidates.append(contentsOf: index.annotationDatabaseHandles.map { $0.db.databaseURL })
         candidates.append(contentsOf: index.variantDatabaseHandles.map { $0.db.databaseURL })
+        if activeTab == .variants {
+            candidates.append(contentsOf: try delegate?.annotationDrawerAdditionalExportSources(self) ?? [])
+        }
         guard !candidates.isEmpty else {
             throw TableExportError.noSourceInputs
         }
@@ -396,7 +411,9 @@ extension AnnotationTableDrawerView {
             "--output", outputURL.path,
         ]
         for sourceURL in sourceURLs {
-            argv.append(contentsOf: ["--source-database", sourceURL.path])
+            let option = sourceURL.pathExtension.lowercased() == "json" ? "--reference-manifest"
+                : (["db", "sqlite", "sqlite3"].contains(sourceURL.pathExtension.lowercased()) ? "--source-database" : "--reference")
+            argv.append(contentsOf: [option, sourceURL.path])
         }
         return argv
     }

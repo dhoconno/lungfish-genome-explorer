@@ -825,6 +825,13 @@ extension SequenceViewerView {
         }
 
         let menu = buildContextMenu(for: target, clickedTrackIndex: clickedTrackIndex)
+        if let copyItem = menu.items.first(where: { $0.action == #selector(copyVariantDetailsAction(_:)) }) {
+            if let genotype = genotypeTooltipAtPoint(location) {
+                copyItem.representedObject = genotype.tooltip.replacingOccurrences(of: "\n\nRight-click → Copy Variant Details", with: "")
+            } else if let details = variantSummaryDetails(at: location) {
+                copyItem.representedObject = details
+            }
+        }
         NSMenu.popUpContextMenu(menu, with: event, for: self)
     }
 
@@ -954,6 +961,11 @@ extension SequenceViewerView {
         viewGenotypesItem.target = self
         viewGenotypesItem.representedObject = result
         menu.addItem(viewGenotypesItem)
+
+        let copyItem = NSMenuItem(title: "Copy Variant Details", action: #selector(copyVariantDetailsAction(_:)), keyEquivalent: "")
+        copyItem.target = self
+        copyItem.representedObject = variantDetailsText(for: result)
+        menu.addItem(copyItem)
 
         return menu
     }

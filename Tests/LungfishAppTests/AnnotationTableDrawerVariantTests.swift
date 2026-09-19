@@ -207,6 +207,61 @@ final class AnnotationTableDrawerVariantTests: XCTestCase {
         return drawer
     }
 
+    func testGeneQueriesKeepIndependentRowsFromEachTrack() throws {
+        let drawer = try createDrawerWithAnnotationsAndVariants()
+        let index = try XCTUnwrap(drawer.searchIndex)
+        let original = try XCTUnwrap(index.variantDatabaseHandles.first)
+        let copyURL = tempDir.appendingPathComponent("second.db")
+        // Import independently: SQLite row IDs restart in each track.
+        try VariantDatabase.createFromVCF(vcfURL: tempDir.appendingPathComponent("variants.vcf"), outputURL: copyURL)
+        let second = try VariantDatabase(url: copyURL)
+        let context = AnnotationVariantQueryContext(
+            databases: [(trackId: "first", db: original.db), (trackId: "second", db: second)],
+            trackNames: ["first": "Caller A", "second": "Caller B"],
+            trackChromosomes: ["first": ["chr1"], "second": ["chr1"]],
+            annotationDatabases: index.annotationDatabaseHandles,
+            infoKeys: [], variantAliasMap: [:]
+        )
+        let rows = context.queryVariantsForGenes(["BRCA1", "BRCA1"]).results
+        XCTAssertEqual(rows.count, 6)
+        XCTAssertEqual(rows.filter { $0.trackId == "first" }.count, 3)
+        XCTAssertEqual(rows.filter { $0.trackId == "second" }.count, 3)
+        XCTAssertEqual(Set(rows.compactMap(\.trackName)), ["Caller A", "Caller B"])
+
+        let manifest = BundleManifest(
+            formatVersion: "1.0", name: "Two tracks", identifier: "two.tracks",
+            source: SourceInfo(organism: "Test", assembly: "test"),
+            annotations: [AnnotationTrackInfo(id: "annotations", name: "Genes", path: "annotations.bed", databasePath: "annotations.db")],
+            variants: [
+                VariantTrackInfo(id: "first", name: "Caller A", path: "variants.vcf", indexPath: "variants.vcf.tbi", databasePath: "variants.db"),
+                VariantTrackInfo(id: "second", name: "Caller B", path: "second.vcf", indexPath: "second.vcf.tbi", databasePath: "second.db")
+            ]
+        )
+        let bundle = ReferenceBundle(url: tempDir, manifest: manifest)
+        try original.db.setMetadataValues(["variant_caller_parameters_json": #"{"minimumDepth":10}"#])
+        // Reopening/refreshing the index must retain both tracks and their own settings.
+        for _ in 0..<2 {
+            XCTAssertTrue(index.buildFromDatabase(bundle: bundle, trackId: "annotations", databasePath: "annotations.db"))
+            XCTAssertEqual(index.queryVariantsForGenes(["BRCA1"]).count, 6)
+            XCTAssertEqual(index.variantCallerSettings(for: "first"), "Minimum depth: 10")
+            XCTAssertEqual(index.variantCallerSettings(for: "second"), "Not recorded")
+        }
+        drawer.activeTab = .variants
+        drawer.displayedAnnotations = index.queryVariantsOnly()
+        XCTAssertEqual(drawer.cellValueString(for: AnnotationTableDrawerView.trackNameColumn, row: 0), "Caller A")
+        XCTAssertEqual(drawer.cellValueString(for: AnnotationTableDrawerView.callerSettingsColumn, row: 0), "Minimum depth: 10")
+    }
+
+    func testVariantColumnsIdentifyTrackAndRecordedSettings() {
+        let columns = AnnotationTableDrawerView.variantColumnDefs.map { $0.0 }
+        XCTAssertTrue(columns.contains(AnnotationTableDrawerView.trackNameColumn))
+        XCTAssertTrue(columns.contains(AnnotationTableDrawerView.callerSettingsColumn))
+        XCTAssertEqual(AnnotationSearchIndex.variantCallerSettingsSummary(parametersJSON:
+            #"{"caller":"ivar","minimumDepth":10,"minimumAlleleFrequency":0.05,"ignoreStrandBias":true,"advancedArguments":[]}"#),
+            "Caller: ivar; Ignore strand bias: true; Minimum allele frequency: 0.05; Minimum depth: 10")
+        XCTAssertEqual(AnnotationSearchIndex.variantCallerSettingsSummary(parametersJSON: nil), "Not recorded")
+    }
+
     private func repositoryRoot() -> URL {
         URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()

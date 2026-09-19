@@ -723,7 +723,9 @@ enum MappingViewerBundlePublicationService {
 
         do {
             try fileManager.createDirectory(at: stagingDirectory, withIntermediateDirectories: false)
-            try result.save(to: stagingDirectory)
+            // The sidecar is atomically moved out of staging; its paths must
+            // already be anchored at the final analysis directory.
+            try result.save(to: stagingDirectory, relativeTo: resultDirectory)
             let mappingResultPublication = try snapshot.publishReplacement(
                 from: stagingDirectory.appendingPathComponent(mappingResultFilename),
                 to: mappingResultURL,

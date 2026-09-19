@@ -444,10 +444,10 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
 
     private func minimumExtents(for layout: MappingPanelLayout) -> (leading: CGFloat, trailing: CGFloat) {
         switch layout {
-        case .detailLeading:
-            return (320, 320)
-        case .listLeading, .stacked:
-            return (320, 320)
+        case .stacked:
+            return (64, 96)
+        case .detailLeading, .listLeading:
+            return (96, 96)
         }
     }
 
@@ -471,7 +471,7 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
             ownerView: view,
             splitView: splitView,
             minimumExtents: { [weak self] in
-                self?.minimumExtents(for: MappingPanelLayout.current()) ?? (320, 320)
+                self?.minimumExtents(for: MappingPanelLayout.current()) ?? (64, 96)
             },
             defaultLeadingFraction: { [weak self] in
                 self?.defaultLeadingFraction(for: MappingPanelLayout.current()) ?? 0.4
@@ -1917,6 +1917,18 @@ extension ReferenceBundleViewportController: ResultViewportController {
 extension ReferenceBundleViewportController: NSSplitViewDelegate {
     public func splitView(
         _ splitView: NSSplitView,
+        effectiveRect proposedEffectiveRect: NSRect,
+        forDrawnRect drawnRect: NSRect,
+        ofDividerAt dividerIndex: Int
+    ) -> NSRect {
+        // Keep the thin divider visually quiet, but give it an easy-to-grab target.
+        splitView.isVertical
+            ? proposedEffectiveRect.insetBy(dx: -4, dy: 0)
+            : proposedEffectiveRect.insetBy(dx: 0, dy: -4)
+    }
+
+    public func splitView(
+        _ splitView: NSSplitView,
         constrainSplitPosition proposedPosition: CGFloat,
         ofSubviewAt dividerIndex: Int
     ) -> CGFloat {
@@ -1925,7 +1937,7 @@ extension ReferenceBundleViewportController: NSSplitViewDelegate {
         let extents = minimumExtents(for: MappingPanelLayout.current())
         return SplitPaneSizing.clampedDividerPosition(
             proposed: proposedPosition,
-            containerExtent: extent,
+            containerExtent: max(0, extent - splitView.dividerThickness),
             minimumLeadingExtent: extents.leading,
             minimumTrailingExtent: extents.trailing
         )

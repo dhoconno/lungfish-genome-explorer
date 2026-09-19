@@ -19,6 +19,38 @@ final class MappingViewerBundleProvenanceFinalizerTests: XCTestCase {
         try? FileManager.default.removeItem(at: tempDirectory)
     }
 
+    func testSharedMappingAnalysisFromEnvironment() async throws {
+        guard let path = ProcessInfo.processInfo.environment["LUNGFISH_SHARED_MAPPING_ANALYSIS_PATH"] else {
+            throw XCTSkip("Set LUNGFISH_SHARED_MAPPING_ANALYSIS_PATH to validate a shared mapping analysis read-only.")
+        }
+        let directory = URL(fileURLWithPath: path, isDirectory: true)
+        let sidecarURL = directory.appendingPathComponent("mapping-result.json")
+        let originalSidecar = try Data(contentsOf: sidecarURL)
+        let result = try MappingResult.load(from: directory)
+        let viewerURL = try XCTUnwrap(result.viewerBundleURL)
+        XCTAssertTrue(viewerURL.path.hasPrefix(directory.path + "/"))
+        XCTAssertTrue(result.bamURL.path.hasPrefix(directory.path + "/"))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: result.bamURL.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: result.baiURL.path))
+        let reference = try await ReferenceBundle(url: viewerURL)
+        let contig = try XCTUnwrap(result.contigs.first)
+        let sequence = try reference.fetchSequenceSync(region: GenomicRegion(
+            chromosome: contig.contigName, start: 0, end: min(20, contig.contigLength)
+        ))
+        XCTAssertEqual(sequence.count, min(20, contig.contigLength))
+        let track = try XCTUnwrap(reference.manifest.alignments.first)
+        let rows = try await AlignmentDataProvider(
+            alignmentPath: reference.resolveAlignmentPath(track),
+            indexPath: reference.resolveAlignmentIndexPath(track),
+            format: .bam,
+            referenceFastaPath: viewerURL.appendingPathComponent(
+                try XCTUnwrap(reference.manifest.genome).path
+            ).path
+        ).fetchIdxstats()
+        XCTAssertFalse(rows.isEmpty)
+        XCTAssertEqual(try Data(contentsOf: sidecarURL), originalSidecar)
+    }
+
     func testFullPublicationPipelineOnExternalExFAT() async throws {
         let environment = ProcessInfo.processInfo.environment
         guard let rootPath = environment["LUNGFISH_EXFAT_FULL_SERVICE_TEST_ROOT"],
@@ -289,6 +321,26 @@ final class MappingViewerBundleProvenanceFinalizerTests: XCTestCase {
         XCTAssertFalse(importProvenance.files.contains { $0.path.contains(candidateBundle.path) })
         XCTAssertTrue(importProvenance.files.contains { $0.path == finalBAM.path })
         XCTAssertTrue(importProvenance.outputs.contains { $0.path == finalBAI.path })
+
+        // Publication writes via a staging directory. Persist paths anchored at
+        // the final analysis directory so the published files can travel together.
+        let sidecar = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf:
+            resultDirectory.appendingPathComponent("mapping-result.json")
+        )) as? [String: Any])
+        XCTAssertEqual(sidecar["viewerBundlePath"] as? String, "published-mapping-viewer.lungfishref")
+        XCTAssertEqual(sidecar["bamPath"] as? String, "Sample.sorted.bam")
+        XCTAssertEqual(sidecar["baiPath"] as? String, "Sample.sorted.bam.bai")
+
+        let sharedDirectory = tempDirectory.appendingPathComponent("SharedAnalysis", isDirectory: true)
+        try FileManager.default.copyItem(at: resultDirectory, to: sharedDirectory)
+        let sharedResult = try MappingResult.load(from: sharedDirectory)
+        let sharedViewer = try XCTUnwrap(sharedResult.viewerBundleURL)
+        XCTAssertEqual(sharedViewer.standardizedFileURL,
+                       sharedDirectory.appendingPathComponent("published-mapping-viewer.lungfishref").standardizedFileURL)
+        let sharedReference = try await ReferenceBundle(url: sharedViewer)
+        XCTAssertEqual(try sharedReference.fetchSequenceSync(
+            region: GenomicRegion(chromosome: "chr1", start: 0, end: 4)
+        ), "ACGT")
     }
 
     func testFreshlyBuiltAppDisplaysPublishedMaterializedMappingViewer() async throws {

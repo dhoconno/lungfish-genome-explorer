@@ -4,7 +4,7 @@ import LungfishKit
 
 @MainActor
 final class MetagenomicsPaneSizingViewerBehaviorTests: XCTestCase {
-    func testAnnotationDrawerDragLeavesVisibleHostStrip() {
+    func testAnnotationDrawerDragUsesContentHeightAndLeavesReachableHostDivider() {
         let viewerVC = ViewerViewController()
         _ = viewerVC.view
         viewerVC.view.frame = NSRect(x: 0, y: 0, width: 800, height: 1000)
@@ -22,7 +22,7 @@ final class MetagenomicsPaneSizingViewerBehaviorTests: XCTestCase {
 
         viewerVC.annotationDrawerDidDragDivider(AnnotationTableDrawerView(), deltaY: 100)
 
-        XCTAssertEqual(heightConstraint.constant, 920)
+        XCTAssertEqual(heightConstraint.constant, 912)
     }
 
     func testFASTQDrawerDragLeavesVisibleHostStrip() {
@@ -48,6 +48,15 @@ final class MetagenomicsPaneSizingViewerBehaviorTests: XCTestCase {
 }
 
 final class MetagenomicsPaneSizingTests: XCTestCase {
+    func testUndersizedSplitKeepsBothPanesInsideContainer() {
+        XCTAssertEqual(SplitPaneSizing.clampedDividerPosition(
+            proposed: 200, containerExtent: 80,
+            minimumLeadingExtent: 120, minimumTrailingExtent: 120), 40)
+        XCTAssertEqual(SplitPaneSizing.clampedDividerPosition(
+            proposed: 200, containerExtent: 0,
+            minimumLeadingExtent: 120, minimumTrailingExtent: 120), 0)
+    }
+
     func testClampedDrawerExtentLeavesVisibleHostStrip() {
         let height = MetagenomicsPaneSizing.clampedDrawerExtent(
             proposed: 960,

@@ -226,6 +226,31 @@ final class BundleVariantTrackAttachmentServiceTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: bundleURL.appendingPathComponent("escaped-track.vcf.gz").path))
     }
 
+    func testSequentialCallersAppendTracksForSameAlignment() async throws {
+        let bundleURL = try createBundle()
+        let service = BundleVariantTrackAttachmentService()
+        for (id, caller) in [("first", ViralVariantCaller.lofreq), ("second", .ivar)] {
+            let staging = try createStagedArtifacts(vcfChromosome: "1")
+            _ = try await service.attach(request: BundleVariantTrackAttachmentRequest(
+                bundleURL: bundleURL, alignmentTrackID: "aln-1", caller: caller,
+                outputTrackID: id, outputTrackName: "Sample BAM • \(caller.displayName)",
+                stagedVCFGZURL: staging.vcfGZURL, stagedTabixURL: staging.tbiURL,
+                stagedDatabaseURL: staging.dbURL, variantCount: 2,
+                variantCallerVersion: "test", variantCallerParametersJSON: "{}",
+                variantCallerCommandLine: "test", referenceStagedFASTASHA256: "test"
+            ))
+        }
+        let manifest = try BundleManifest.load(from: bundleURL)
+        XCTAssertEqual(manifest.variants.map(\.id), ["first", "second"])
+        for track in manifest.variants {
+            let dbURL = bundleURL.appendingPathComponent(try XCTUnwrap(track.databasePath))
+            XCTAssertEqual(try VariantDatabase(url: dbURL).totalCount(), 2)
+            XCTAssertEqual(VariantDatabase.metadataValue(at: dbURL, key: "source_alignment_track_id"), "aln-1")
+            let provenance = try XCTUnwrap(VariantDatabase.metadataValue(at: dbURL, key: "workflow_provenance_path"))
+            XCTAssertTrue(FileManager.default.fileExists(atPath: bundleURL.appendingPathComponent(provenance).path))
+        }
+    }
+
     private func createBundle() throws -> URL {
         let bundleURL = tempDir.appendingPathComponent("test.lungfishref", isDirectory: true)
         let genomeDir = bundleURL.appendingPathComponent("genome", isDirectory: true)
