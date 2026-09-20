@@ -6,6 +6,53 @@ import SwiftUI
 import LungfishCore
 import LungfishIO
 
+/// A fixed variant-table value carried with selection notifications so the
+/// Inspector presents the same resolved text as the table.
+public struct VariantInspectorField: Sendable, Equatable {
+    public let key: String
+    public let label: String
+    public let value: String
+
+    public init(key: String, label: String, value: String) {
+        self.key = key
+        self.label = label
+        self.value = value
+    }
+}
+
+/// Immutable table-resolved payload for one selected Calls or Genotypes row.
+public struct VariantSelectionEntry: Sendable, Identifiable {
+    public let result: AnnotationSearchIndex.SearchResult
+    public let fields: [VariantInspectorField]
+    public let sampleName: String?
+
+    public init(
+        result: AnnotationSearchIndex.SearchResult,
+        fields: [VariantInspectorField],
+        sampleName: String? = nil
+    ) {
+        self.result = result
+        self.fields = fields
+        self.sampleName = sampleName
+    }
+
+    /// Variant identity intentionally excludes sample so genotype rows for the
+    /// same call count as one unique variant.
+    public var stableVariantIdentity: String {
+        if let rowID = result.variantRowId {
+            return "row:\(result.trackId):\(rowID)"
+        }
+        return [
+            "coordinate", result.trackId, result.chromosome,
+            String(result.start), String(result.end), result.ref ?? "", result.alt ?? "", result.name,
+        ].joined(separator: "\u{1f}")
+    }
+
+    public var id: String {
+        "\(stableVariantIdentity)\u{1f}sample:\(sampleName ?? "")"
+    }
+}
+
 // MARK: - VariantSectionViewModel
 
 /// View model for the variant detail inspector section.
@@ -29,6 +76,12 @@ public final class VariantSectionViewModel {
 
     /// Parsed INFO fields as key-value pairs.
     var infoFields: [(key: String, value: String)] = []
+
+    /// Fixed fields resolved by the variant table for the selected row.
+    var tableFields: [VariantInspectorField] = []
+
+    /// Rich row payloads for an explicit multi-row (or genotype-row) selection.
+    var selectionEntries: [VariantSelectionEntry] = []
 
     /// Whether genotype data is available for this variant.
     var hasGenotypes: Bool = false
@@ -87,6 +140,16 @@ public final class VariantSectionViewModel {
     /// Whether a variant is currently selected.
     var hasVariant: Bool { selectedVariant != nil }
 
+    var hasVariantSelection: Bool { !selectionEntries.isEmpty }
+
+    var uniqueVariantCount: Int {
+        Set(selectionEntries.map(\.stableVariantIdentity)).count
+    }
+
+    var trackBreakdown: [String: Int] { breakdown { $0.result.trackId } }
+    var chromosomeBreakdown: [String: Int] { breakdown { $0.result.chromosome } }
+    var typeBreakdown: [String: Int] { breakdown { $0.result.type } }
+
     // MARK: - Methods
 
     /// Selects a variant and populates genotype summary.
@@ -94,8 +157,13 @@ public final class VariantSectionViewModel {
     /// Eagerly resets genotype-summary display fields to their empty/loading state
     /// before dispatching the off-main load, so the panel never shows the new
     /// variant's identity next to a previous variant's stale counts.
-    func select(variant: AnnotationSearchIndex.SearchResult) {
+    func select(
+        variant: AnnotationSearchIndex.SearchResult,
+        tableFields: [VariantInspectorField] = []
+    ) {
+        selectionEntries = []
         selectedVariant = variant
+        self.tableFields = tableFields.isEmpty ? Self.fallbackTableFields(for: variant) : tableFields
         // Eager reset: blank the counts immediately so the UI shows the new
         // variant's identity with empty badges while the DB load is in flight,
         // rather than retaining the previous variant's stale counts.
@@ -103,9 +171,25 @@ public final class VariantSectionViewModel {
         hetCount = 0
         homAltCount = 0
         noCallCount = 0
-        infoFields = []
+        infoFields = Self.sortedInfoFields(variant.infoDict ?? [:])
         hasGenotypes = false
         loadGenotypeSummary(for: variant)
+    }
+
+    /// Selects resolved table rows without issuing per-row database work.
+    func select(entries: [VariantSelectionEntry]) {
+        loadGeneration &+= 1
+        loadTask?.cancel()
+        loadTask = nil
+        selectedVariant = nil
+        tableFields = []
+        homRefCount = 0
+        hetCount = 0
+        homAltCount = 0
+        noCallCount = 0
+        infoFields = []
+        hasGenotypes = false
+        selectionEntries = entries
     }
 
     /// Clears the variant selection.
@@ -116,12 +200,27 @@ public final class VariantSectionViewModel {
         loadTask?.cancel()
         loadTask = nil
         selectedVariant = nil
+        selectionEntries = []
+        tableFields = []
         homRefCount = 0
         hetCount = 0
         homAltCount = 0
         noCallCount = 0
         infoFields = []
         hasGenotypes = false
+    }
+
+    func copySelectionText() -> String {
+        selectionEntries.enumerated().map { index, entry in
+            var lines = ["Variant \(index + 1): \(entry.result.name)"]
+            if let sampleName = entry.sampleName { lines.append("Sample: \(sampleName)") }
+            lines.append(contentsOf: entry.fields.filter { !$0.value.isEmpty }.map { "\($0.label): \($0.value)" })
+            return lines.joined(separator: "\n")
+        }.joined(separator: "\n\n")
+    }
+
+    private func breakdown(_ key: (VariantSelectionEntry) -> String) -> [String: Int] {
+        Dictionary(grouping: selectionEntries, by: key).mapValues(\.count)
     }
 
     /// Computed genotype summary produced off the main actor.
@@ -158,11 +257,17 @@ public final class VariantSectionViewModel {
         }
 
         let db: VariantDatabase?
-        if !variant.trackId.isEmpty, let match = variantDatabasesByTrackId[variant.trackId] {
+        if let match = variantDatabasesByTrackId[variant.trackId] {
             db = match
-        } else {
-            // Fallback: single-database common case (e.g. set via legacy .variantDatabase setter)
+        } else if variantDatabasesByTrackId.count == 1,
+                  let legacy = variantDatabasesByTrackId["default"] {
+            // Preserve the legacy single-database accessor without choosing an
+            // arbitrary real track for an unmatched explicit track ID.
+            db = legacy
+        } else if variant.trackId.isEmpty, variantDatabasesByTrackId.count == 1 {
             db = variantDatabasesByTrackId.values.first
+        } else {
+            db = nil
         }
         guard let db else {
             hasGenotypes = false
@@ -175,6 +280,7 @@ public final class VariantSectionViewModel {
         let start = variant.start
         let end = variant.end
         let searchResultSampleCount = variant.sampleCount
+        let projectedInfo = variant.infoDict ?? [:]
 
         loadTask = Task { [weak self] in
             let summary = await Self.computeGenotypeSummary(
@@ -183,7 +289,8 @@ public final class VariantSectionViewModel {
                 chromosome: chromosome,
                 start: start,
                 end: end,
-                searchResultSampleCount: searchResultSampleCount
+                searchResultSampleCount: searchResultSampleCount,
+                projectedInfo: projectedInfo
             )
             // Re-check the generation on the main actor. There is NO await
             // between this guard and the property commit below, so the guard
@@ -216,7 +323,8 @@ public final class VariantSectionViewModel {
         chromosome: String,
         start: Int,
         end: Int,
-        searchResultSampleCount: Int?
+        searchResultSampleCount: Int?,
+        projectedInfo: [String: String]
     ) async -> GenotypeSummary {
         await Task.detached {
             let genotypes = db.genotypes(forVariantId: rowId)
@@ -243,10 +351,11 @@ public final class VariantSectionViewModel {
             }
 
             // Fetch structured INFO from variant_info EAV table
-            let infoDict = db.infoValues(variantId: rowId)
-            let infoFields: [(key: String, value: String)] = infoDict.isEmpty
-                ? []
-                : infoDict.sorted(by: { $0.key < $1.key }).map { (key: $0.key, value: $0.value) }
+            var infoDict = db.infoValues(variantId: rowId)
+            // The current table row may contain runtime-recovered FORMAT aliases
+            // (for example iVar AF). Its visible value is authoritative.
+            infoDict.merge(projectedInfo) { _, projected in projected }
+            let infoFields = sortedInfoFields(infoDict)
 
             return GenotypeSummary(
                 hasGenotypes: true,
@@ -261,6 +370,67 @@ public final class VariantSectionViewModel {
         }.value
     }
 
+    nonisolated private static func sortedInfoFields(
+        _ info: [String: String]
+    ) -> [(key: String, value: String)] {
+        info.sorted(by: { $0.key < $1.key }).map { (key: $0.key, value: $0.value) }
+    }
+
+    private static func fallbackTableFields(
+        for variant: AnnotationSearchIndex.SearchResult
+    ) -> [VariantInspectorField] {
+        var fields: [VariantInspectorField] = []
+        let track = variant.trackName ?? (variant.trackId.isEmpty ? nil : variant.trackId)
+        if let track, !track.isEmpty {
+            fields.append(.init(key: "track_name", label: "Variant Track", value: track))
+        }
+        if let count = variant.sampleCount {
+            fields.append(.init(key: "samples", label: "Samples", value: String(count)))
+        }
+        if let source = variant.sourceFile, !source.isEmpty {
+            fields.append(.init(key: "source", label: "Source", value: source))
+        }
+        let info = variant.infoDict ?? [:]
+        let derived: [(String, String, [String])] = [
+            ("coding_feature", "Gene / Protein", ["CSQ_SYMBOL", "ANN_Gene_Name", "GENE", "SYMBOL"]),
+            ("consequence", "Consequence", ["CSQ_Consequence", "ANN_Consequence", "Consequence", "consequence", "ANN_Annotation", "EFFECT", "effect"]),
+            ("aa_change", "AA Change", ["CSQ_HGVSp", "HGVSp", "ANN_HGVS_p", "AA_CHANGE", "CSQ_Amino_acids", "Amino_acids", "ANN_AA_pos_len"]),
+        ]
+        for (key, label, candidates) in derived {
+            if let value = candidates.compactMap({ info[$0] }).first(where: { !$0.isEmpty && $0 != "." }) {
+                fields.append(.init(key: key, label: label, value: value))
+            }
+        }
+        return fields
+    }
+
+    func copyText(for variant: AnnotationSearchIndex.SearchResult) -> String {
+        var lines = [
+            "ID: \(variant.name)",
+            "Type: \(variant.type)",
+            "Position: \(variant.chromosome):\(variant.start + 1)-\(variant.end)",
+        ]
+        if let ref = variant.ref, let alt = variant.alt { lines.append("Alleles: \(ref) > \(alt)") }
+        if let quality = variant.quality { lines.append("Quality: \(String(format: "%.1f", quality))") }
+        if let filter = variant.filter { lines.append("Filter: \(filter)") }
+
+        let identityKeys: Set<String> = [
+            "variant_id", "variant_type", "chromosome", "position", "ref", "alt", "quality", "filter",
+        ]
+        lines.append(contentsOf: tableFields.compactMap { field in
+            guard !identityKeys.contains(field.key), !field.value.isEmpty else { return nil }
+            return "\(field.label): \(field.value)"
+        })
+        lines.append(contentsOf: infoFields.map { "\($0.key): \($0.value)" })
+        if hasGenotypes {
+            lines.append("Genotypes: HomRef=\(homRefCount), Het=\(hetCount), HomAlt=\(homAltCount), NoCall=\(noCallCount)")
+            if let frequency = alleleFrequency {
+                lines.append("Genotype-derived alt allele frequency: \(String(format: "%.4f", frequency))")
+            }
+        }
+        return lines.joined(separator: "\n")
+    }
+
 }
 
 // MARK: - VariantSection View
@@ -273,12 +443,19 @@ public struct VariantSection: View {
     @Bindable var viewModel: VariantSectionViewModel
 
     public var body: some View {
-        if let variant = viewModel.selectedVariant {
+        if viewModel.hasVariantSelection {
+            variantSelection
+        } else if let variant = viewModel.selectedVariant {
             DisclosureGroup(isExpanded: $viewModel.isExpanded) {
                 VStack(alignment: .leading, spacing: 8) {
                     variantIdentity(variant)
                     Divider()
                     qualityAndFilter(variant)
+
+                    if !detailTableFields.isEmpty {
+                        Divider()
+                        fixedFieldSection
+                    }
 
                     if viewModel.hasGenotypes {
                         Divider()
@@ -297,6 +474,95 @@ public struct VariantSection: View {
                 Label("Variant Detail", systemImage: "diamond")
                     .font(LungfishInspectorStyle.sectionTitleFont)
             }
+        }
+    }
+
+    private var variantSelection: some View {
+        DisclosureGroup(isExpanded: $viewModel.isExpanded) {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 12) {
+                    summaryMetric("Selected Rows", value: viewModel.selectionEntries.count)
+                    summaryMetric("Unique Variants", value: viewModel.uniqueVariantCount)
+                }
+                selectionBreakdown("Tracks", values: viewModel.trackBreakdown)
+                selectionBreakdown("Chromosomes", values: viewModel.chromosomeBreakdown)
+                selectionBreakdown("Types", values: viewModel.typeBreakdown)
+                Divider()
+                LazyVStack(alignment: .leading, spacing: 8) {
+                    ForEach(viewModel.selectionEntries) { entry in
+                        variantSelectionEntry(entry)
+                    }
+                }
+                Button {
+                    viewModel.onCopyVariantInfo?(viewModel.copySelectionText())
+                } label: {
+                    Label("Copy Selection", systemImage: "doc.on.doc")
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+            }
+        } label: {
+            Label("Variant Selection", systemImage: "diamond.on.square")
+                .font(LungfishInspectorStyle.sectionTitleFont)
+        }
+    }
+
+    private func summaryMetric(_ label: String, value: Int) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text("\(value)").font(.headline.monospacedDigit())
+            Text(label).font(LungfishInspectorStyle.controlFont).foregroundStyle(.secondary)
+        }
+    }
+
+    @ViewBuilder
+    private func selectionBreakdown(_ label: String, values: [String: Int]) -> some View {
+        if !values.isEmpty {
+            HStack(alignment: .top, spacing: 8) {
+                Text(label)
+                    .font(LungfishInspectorStyle.controlFont)
+                    .foregroundStyle(.secondary)
+                    .frame(width: 82, alignment: .trailing)
+                Text(values.keys.sorted().map { "\($0): \(values[$0] ?? 0)" }.joined(separator: ", "))
+                    .font(LungfishInspectorStyle.controlFont.monospaced())
+                    .textSelection(.enabled)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    private func variantSelectionEntry(_ entry: VariantSelectionEntry) -> some View {
+        DisclosureGroup {
+            LazyVStack(alignment: .leading, spacing: 4) {
+                if let sampleName = entry.sampleName {
+                    selectionField(label: "Sample", value: sampleName)
+                }
+                ForEach(Array(entry.fields.enumerated()), id: \.offset) { _, field in
+                    if !field.value.isEmpty {
+                        selectionField(label: field.label, value: field.value)
+                    }
+                }
+            }
+            .padding(.leading, 8)
+        } label: {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(entry.result.name).font(.body.monospaced()).textSelection(.enabled)
+                Text("\(entry.result.chromosome):\(entry.result.start + 1)\(entry.sampleName.map { " · \($0)" } ?? "")")
+                    .font(LungfishInspectorStyle.controlFont)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private func selectionField(label: String, value: String) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            Text(label)
+                .font(LungfishInspectorStyle.controlFont)
+                .foregroundStyle(.secondary)
+                .frame(width: 90, alignment: .trailing)
+            Text(value)
+                .font(LungfishInspectorStyle.controlFont.monospaced())
+                .textSelection(.enabled)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 
@@ -388,7 +654,7 @@ public struct VariantSection: View {
 
             if let af = viewModel.alleleFrequency {
                 HStack {
-                    Text("Alt Allele Freq")
+                    Text("Genotype-derived AF")
                         .font(LungfishInspectorStyle.controlFont)
                         .foregroundStyle(.secondary)
                         .frame(width: 90, alignment: .trailing)
@@ -419,27 +685,49 @@ public struct VariantSection: View {
     @ViewBuilder
     private var infoSection: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text("INFO Fields")
+            Text("Variant Fields")
                 .font(LungfishInspectorStyle.controlFont)
                 .foregroundStyle(.secondary)
 
-            ForEach(Array(viewModel.infoFields.prefix(20)), id: \.key) { field in
+            LazyVStack(alignment: .leading, spacing: 4) {
+                ForEach(viewModel.infoFields, id: \.key) { field in
+                    HStack(alignment: .top) {
+                        Text(field.key)
+                            .font(LungfishInspectorStyle.controlFont.monospaced())
+                            .foregroundStyle(.secondary)
+                            .frame(width: 80, alignment: .trailing)
+                        Text(field.value)
+                            .font(LungfishInspectorStyle.controlFont.monospaced())
+                            .textSelection(.enabled)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+            }
+        }
+    }
+
+    private var detailTableFields: [VariantInspectorField] {
+        let keys: Set<String> = [
+            "track_name", "caller_settings", "samples", "source",
+            "coding_feature", "consequence", "aa_change",
+        ]
+        return viewModel.tableFields.filter { keys.contains($0.key) && !$0.value.isEmpty }
+    }
+
+    @ViewBuilder
+    private var fixedFieldSection: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            ForEach(detailTableFields, id: \.key) { field in
                 HStack(alignment: .top) {
-                    Text(field.key)
-                        .font(LungfishInspectorStyle.controlFont.monospaced())
+                    Text(field.label)
+                        .font(LungfishInspectorStyle.controlFont)
                         .foregroundStyle(.secondary)
-                        .frame(width: 80, alignment: .trailing)
+                        .frame(width: 90, alignment: .trailing)
                     Text(field.value)
                         .font(LungfishInspectorStyle.controlFont.monospaced())
                         .textSelection(.enabled)
-                        .lineLimit(3)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
-            }
-
-            if viewModel.infoFields.count > 20 {
-                Text("... and \(viewModel.infoFields.count - 20) more")
-                    .font(LungfishInspectorStyle.controlFont)
-                    .foregroundStyle(.secondary)
             }
         }
     }
@@ -456,7 +744,7 @@ public struct VariantSection: View {
             .controlSize(.small)
 
             Button {
-                let info = formatVariantInfo(variant)
+                let info = viewModel.copyText(for: variant)
                 viewModel.onCopyVariantInfo?(info)
             } label: {
                 Label("Copy Info", systemImage: "doc.on.doc")
@@ -501,26 +789,4 @@ public struct VariantSection: View {
         }
     }
 
-    private func formatVariantInfo(_ variant: AnnotationSearchIndex.SearchResult) -> String {
-        var lines: [String] = []
-        lines.append("ID: \(variant.name)")
-        lines.append("Type: \(variant.type)")
-        lines.append("Position: \(variant.chromosome):\(variant.start + 1)-\(variant.end)")
-        if let ref = variant.ref, let alt = variant.alt {
-            lines.append("Alleles: \(ref) > \(alt)")
-        }
-        if let q = variant.quality {
-            lines.append("Quality: \(String(format: "%.1f", q))")
-        }
-        if let f = variant.filter {
-            lines.append("Filter: \(f)")
-        }
-        if viewModel.hasGenotypes {
-            lines.append("Genotypes: HomRef=\(viewModel.homRefCount), Het=\(viewModel.hetCount), HomAlt=\(viewModel.homAltCount), NoCall=\(viewModel.noCallCount)")
-            if let af = viewModel.alleleFrequency {
-                lines.append("Alt Allele Freq: \(String(format: "%.4f", af))")
-            }
-        }
-        return lines.joined(separator: "\n")
-    }
 }

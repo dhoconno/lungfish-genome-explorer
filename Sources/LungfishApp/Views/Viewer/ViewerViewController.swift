@@ -981,6 +981,13 @@ public class ViewerViewController: NSViewController {
             viewerView.variantFilterText = text
             logger.debug("handleVariantFilterChanged: variantFilterText = '\(text)'")
         }
+        if let requestedHiddenIDs = userInfo[NotificationUserInfoKey.hiddenVariantTrackIDs] as? Set<String> {
+            let availableIDs = Set(currentReferenceBundle?.manifest.variants.map(\.id) ?? [])
+            let reconciled = requestedHiddenIDs.intersection(availableIDs)
+            viewerView.setHiddenVariantTrackIDs(reconciled)
+            annotationDrawerView?.setHiddenVariantTrackIDs(reconciled)
+            currentBundleViewState?.hiddenVariantTrackIDs = reconciled
+        }
 
         viewerView.invalidateFilteredVariantCache()
         viewerView.invalidateAnnotationTile()
@@ -1075,6 +1082,8 @@ public class ViewerViewController: NSViewController {
         viewerView.translationColorScheme = .zappo
         viewerView.showVariants = true
         viewerView.visibleVariantTypes = nil
+        viewerView.setHiddenVariantTrackIDs([])
+        annotationDrawerView?.setHiddenVariantTrackIDs([])
         viewerView.annotationHeight = annotationDisplayHeight
         viewerView.annotationRowSpacing = annotationDisplaySpacing
         viewerView.invalidateFilteredVariantCache()
@@ -1090,6 +1099,12 @@ public class ViewerViewController: NSViewController {
         // Clear variant display state
         viewerView.showVariants = false
         viewerView.visibleVariantTypes = nil
+        viewerView.setHiddenVariantTrackIDs([])
+        annotationDrawerView?.setHiddenVariantTrackIDs([])
+        if let annotationModel = (parent as? MainSplitViewController)?.inspectorController.annotationSectionViewModel {
+            annotationModel.setAvailableVariantTracks([])
+            annotationModel.hiddenVariantTrackIDs = []
+        }
         viewerView.invalidateFilteredVariantCache()
 
         // Clear variant databases from search index

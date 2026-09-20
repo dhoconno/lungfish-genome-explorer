@@ -26,6 +26,40 @@ extension SequenceViewerView {
         }
         return labels.isEmpty ? nil : labels.joined(separator: "; ")
     }
+
+    func variantTableExportResolverSnapshot() -> VariantTableExportResolverSnapshot {
+        let features = cachedBundleAnnotations.compactMap { annotation -> VariantTableExportResolverSnapshot.CodingFeature? in
+            guard annotation.type == .cds else { return nil }
+            let chromosome = consequenceChromosomeName(
+                annotation.chromosome ?? viewController?.referenceFrame?.chromosome ?? ""
+            )
+            let context = cachedCDSCodingContexts[annotation.id]
+            return VariantTableExportResolverSnapshot.CodingFeature(
+                chromosome: chromosome,
+                intervals: annotation.intervals,
+                label: Self.codingFeatureLabel(for: annotation),
+                isReverse: annotation.strand == .reverse,
+                codingBases: context?.codingBases,
+                codingGenomePositions: context?.codingGenomePositions,
+                phaseOffset: context?.phaseOffset ?? 0,
+                codonTable: context?.codonTable ?? .standard
+            )
+        }
+        var referenceAliases: [String: String] = [:]
+        for chromosome in currentReferenceBundle?.manifest.genome?.chromosomes ?? [] {
+            for alias in chromosome.aliases where referenceAliases[alias] == nil {
+                referenceAliases[alias] = chromosome.name
+            }
+        }
+        return VariantTableExportResolverSnapshot(
+            features: features,
+            variantChromosomeAliasMap: variantChromosomeAliasMap,
+            referenceChromosomeAliases: referenceAliases,
+            referenceBundle: currentReferenceBundle,
+            cachedSequence: cachedBundleSequence,
+            cachedSequenceRegion: cachedSequenceRegion
+        )
+    }
 }
 
 extension AnnotationTableDrawerView {

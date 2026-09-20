@@ -135,7 +135,9 @@ public struct InspectorView: View {
             }
 
         case .selectedItem:
-            SelectionSection(viewModel: viewModel.selectionSectionViewModel)
+            if !viewModel.variantSectionViewModel.hasVariantSelection {
+                SelectionSection(viewModel: viewModel.selectionSectionViewModel)
+            }
 
             // Variant detail (shown when a variant is selected)
             VariantSection(viewModel: viewModel.variantSectionViewModel)

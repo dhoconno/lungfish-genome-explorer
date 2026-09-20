@@ -96,6 +96,19 @@ public final class MetadataColumnController {
     /// Set of metadata column names currently toggled visible by the user.
     public var visibleColumns: Set<String> = []
 
+    /// Called after the installed metadata columns or backing store change.
+    /// Owners use this to refresh search scopes and their existing row pipeline.
+    public var onColumnsOrStoreChanged: (() -> Void)?
+
+    /// Metadata columns actually displayed by the installed table, in display order.
+    public var displayedMetadataColumns: [(id: String, title: String)] {
+        guard let tableView else { return [] }
+        return tableView.tableColumns.compactMap { column in
+            guard Self.isMetadataColumn(column.identifier), !column.isHidden else { return nil }
+            return (column.identifier.rawValue, column.title)
+        }
+    }
+
     /// An optional stable result-and-table-role key used to remember the user's
     /// metadata selection and table column order. A nil key retains the
     /// controller's previous in-memory-only behavior.
@@ -143,6 +156,7 @@ public final class MetadataColumnController {
 
     /// Avoids recursive resize/visibility handling while applying manager changes.
     private var isApplyingColumnVisibility = false
+    private var isEmittingColumnsOrStoreChanged = false
 
     /// Standard column names for the header menu (shown as non-toggleable).
     public var standardColumnNames: [String] = []
@@ -268,7 +282,13 @@ public final class MetadataColumnController {
 
         let wasApplyingColumnVisibility = isApplyingColumnVisibility
         isApplyingColumnVisibility = true
-        defer { isApplyingColumnVisibility = wasApplyingColumnVisibility }
+        defer {
+            isApplyingColumnVisibility = wasApplyingColumnVisibility
+            if !wasApplyingColumnVisibility {
+                persistLayout()
+                emitColumnsOrStoreChanged()
+            }
+        }
 
         let availableColumns = Set(store?.columnNames ?? [])
         let unwantedMetadataColumns = tableView.tableColumns.filter { column in
@@ -305,11 +325,6 @@ public final class MetadataColumnController {
         tableView.reloadData()
         rebuildHeaderMenu()
         applyContentTypography()
-        if !wasApplyingColumnVisibility {
-            isApplyingColumnVisibility = false
-            persistLayout()
-            isApplyingColumnVisibility = true
-        }
     }
 
     // MARK: - Layout Persistence
@@ -348,6 +363,16 @@ public final class MetadataColumnController {
         }
         isApplyingColumnVisibility = wasApplyingColumnVisibility
         rebuildHeaderMenu()
+        if !wasApplyingColumnVisibility {
+            emitColumnsOrStoreChanged()
+        }
+    }
+
+    private func emitColumnsOrStoreChanged() {
+        guard !isApplyingColumnVisibility, !isEmittingColumnsOrStoreChanged else { return }
+        isEmittingColumnsOrStoreChanged = true
+        onColumnsOrStoreChanged?()
+        isEmittingColumnsOrStoreChanged = false
     }
 
     private func applyDefaultStandardColumnOrder() {
@@ -509,11 +534,13 @@ public final class MetadataColumnController {
             if Thread.isMainThread {
                 MainActor.assumeIsolated {
                     self?.persistLayout()
+                    self?.emitColumnsOrStoreChanged()
                 }
             } else {
                 DispatchQueue.main.async { [weak self] in
                     MainActor.assumeIsolated {
                         self?.persistLayout()
+                        self?.emitColumnsOrStoreChanged()
                     }
                 }
             }
@@ -544,11 +571,13 @@ public final class MetadataColumnController {
                 if Thread.isMainThread {
                     MainActor.assumeIsolated {
                         self?.persistLayout()
+                        self?.emitColumnsOrStoreChanged()
                     }
                 } else {
                     DispatchQueue.main.async { [weak self] in
                         MainActor.assumeIsolated {
                             self?.persistLayout()
+                            self?.emitColumnsOrStoreChanged()
                         }
                     }
                 }
@@ -702,6 +731,31 @@ public final class MetadataColumnController {
         identifier.rawValue.hasPrefix(metadataColumnPrefix)
     }
 
+    /// Returns the exact metadata value for a column/sample pair.
+    /// A nil sample falls back to the controller's current sample.
+    public func value(columnID: String, sampleID: String?) -> String? {
+        guard columnID.hasPrefix(metadataColumnPrefix), let store else { return nil }
+        let columnName = String(columnID.dropFirst(metadataColumnPrefix.count))
+        guard store.columnNames.contains(columnName),
+              let resolvedSampleID = sampleID ?? currentSampleId else { return nil }
+        return store.records[resolvedSampleID]?[columnName]
+    }
+
+    /// Compares two sample values for a metadata column using one natural text ordering.
+    /// Returns nil when `columnID` is not an installed metadata-store key.
+    public func comparison(
+        columnID: String,
+        lhsSampleID: String?,
+        rhsSampleID: String?
+    ) -> ComparisonResult? {
+        guard columnID.hasPrefix(metadataColumnPrefix), let store else { return nil }
+        let columnName = String(columnID.dropFirst(metadataColumnPrefix.count))
+        guard store.columnNames.contains(columnName) else { return nil }
+        let lhs = value(columnID: columnID, sampleID: lhsSampleID) ?? ""
+        let rhs = value(columnID: columnID, sampleID: rhsSampleID) ?? ""
+        return lhs.compare(rhs, options: [.caseInsensitive, .numeric])
+    }
+
     /// Returns a cell view for a metadata column, or nil if the column is not a metadata column.
     ///
     /// Call this from `tableView(_:viewFor:row:)` or `outlineView(_:viewFor:item:)`.
@@ -744,14 +798,7 @@ public final class MetadataColumnController {
     private func metadataValue(for column: NSTableColumn, sampleId: String?) -> String? {
         let rawID = column.identifier.rawValue
         guard rawID.hasPrefix(metadataColumnPrefix) else { return nil }
-
-        let metaColName = String(rawID.dropFirst(metadataColumnPrefix.count))
-        if let sampleId,
-           let record = store?.records[sampleId],
-           let val = record[metaColName] {
-            return val
-        }
-        return "\u{2014}"
+        return value(columnID: rawID, sampleID: sampleId) ?? "\u{2014}"
     }
 
     private func metadataCellIdentifier(for column: NSTableColumn) -> NSUserInterfaceItemIdentifier {

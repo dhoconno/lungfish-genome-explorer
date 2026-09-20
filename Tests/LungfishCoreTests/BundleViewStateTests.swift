@@ -14,6 +14,7 @@ final class BundleViewStateTests: XCTestCase {
         let state = BundleViewState(
             annotationFilterText: "polymerase",
             variantFilterText: "QUAL > 100",
+            hiddenVariantTrackIDs: ["ivar", "freebayes"],
             sampleDisplayState: sampleState
         )
 
@@ -22,6 +23,7 @@ final class BundleViewStateTests: XCTestCase {
 
         XCTAssertEqual(decoded.annotationFilterText, "polymerase")
         XCTAssertEqual(decoded.variantFilterText, "QUAL > 100")
+        XCTAssertEqual(decoded.hiddenVariantTrackIDs, ["ivar", "freebayes"])
         XCTAssertEqual(decoded.sampleDisplayState, sampleState)
     }
 
@@ -42,6 +44,7 @@ final class BundleViewStateTests: XCTestCase {
 
         XCTAssertEqual(decoded.annotationFilterText, "")
         XCTAssertEqual(decoded.variantFilterText, "")
+        XCTAssertEqual(decoded.hiddenVariantTrackIDs, [])
         XCTAssertNil(decoded.sampleDisplayState)
     }
 
@@ -54,5 +57,18 @@ final class BundleViewStateTests: XCTestCase {
 
         XCTAssertTrue(decoded.visibleAnnotationTypes?.contains(.orf) ?? false)
         XCTAssertTrue(decoded.visibleAnnotationTypes?.contains(.translation) ?? false)
+    }
+
+    func testDefaultHasNoHiddenVariantTracks() {
+        XCTAssertEqual(BundleViewState.default.hiddenVariantTrackIDs, [])
+    }
+
+    func testAllVariantTrackIDsCanBePersistedAsHidden() throws {
+        let state = BundleViewState(hiddenVariantTrackIDs: ["track-a", "track-b"])
+
+        let data = try JSONEncoder().encode(state)
+        let decoded = try JSONDecoder().decode(BundleViewState.self, from: data)
+
+        XCTAssertEqual(decoded.hiddenVariantTrackIDs, ["track-a", "track-b"])
     }
 }

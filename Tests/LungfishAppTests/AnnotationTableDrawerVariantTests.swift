@@ -1096,6 +1096,71 @@ final class AnnotationTableDrawerVariantTests: XCTestCase {
         XCTAssertEqual(AnnotationTableDrawerView.variantToolbarDensity(forWidth: 520), .minimal)
     }
 
+    func testEveryFixedVariantColumnMapsToItsDeclaredFilterKey() {
+        let drawer = AnnotationTableDrawerView(frame: NSRect(x: 0, y: 0, width: 900, height: 240))
+
+        for (identifier, _, _, _, key) in AnnotationTableDrawerView.variantColumnDefs {
+            XCTAssertEqual(drawer.variantFilterKey(forColumnIdentifier: identifier.rawValue), key)
+        }
+        XCTAssertEqual(drawer.variantFilterKey(forColumnIdentifier: "info_DP"), "info_DP")
+    }
+
+    func testVariantColumnValuesIncludeTrackSettingsAndCodingFeature() {
+        let drawer = AnnotationTableDrawerView(frame: .zero)
+        let row = AnnotationSearchIndex.SearchResult(
+            name: "rs1", chromosome: "chr1", start: 9, end: 10,
+            trackId: "caller-a", trackName: "Caller A", type: "SNP",
+            ref: "A", alt: "G", variantRowId: 1
+        )
+
+        XCTAssertEqual(drawer.variantColumnValue(row, key: "track_name"), "Caller A")
+        XCTAssertEqual(drawer.variantColumnValue(row, key: "caller_settings"), "Not recorded")
+        XCTAssertNotNil(drawer.variantColumnValue(row, key: "coding_feature"))
+    }
+
+    func testNumericInfoEqualityAndInvalidValuesUseNumericSemantics() {
+        let drawer = AnnotationTableDrawerView(frame: .zero)
+        drawer.infoColumnKeys = [(key: "DP", type: "Integer", description: "Depth")]
+
+        XCTAssertTrue(drawer.variantColumnMatches(actual: "2.0", op: "=", expected: "2", key: "info_DP"))
+        XCTAssertFalse(drawer.variantColumnMatches(actual: "10", op: "=", expected: "2", key: "info_DP"))
+        XCTAssertFalse(drawer.variantColumnMatches(actual: "", op: ">", expected: "2", key: "info_DP"))
+        XCTAssertFalse(drawer.variantColumnMatches(actual: "invalid", op: "<", expected: "2", key: "info_DP"))
+        XCTAssertTrue(drawer.variantColumnMatches(actual: "", op: "=", expected: "", key: "info_DP"))
+    }
+
+    func testStringInfoEqualityRemainsLexical() {
+        let drawer = AnnotationTableDrawerView(frame: .zero)
+        drawer.infoColumnKeys = [(key: "FLAG", type: "String", description: "Flag")]
+
+        XCTAssertTrue(drawer.variantColumnMatches(actual: "PASS", op: "=", expected: "pass", key: "info_FLAG"))
+        XCTAssertFalse(drawer.variantColumnMatches(actual: "2.0", op: "=", expected: "2", key: "info_FLAG"))
+    }
+
+    func testVariantSortIsRetainedWhenBaseResultsAndFiltersChange() {
+        let drawer = AnnotationTableDrawerView(frame: NSRect(x: 0, y: 0, width: 900, height: 240))
+        drawer.activeTab = .variants
+        drawer.activeVariantSubtab = .calls
+        drawer.configureColumnsForTab(.variants)
+        drawer.tableView.sortDescriptors = [NSSortDescriptor(key: "track_name", ascending: false)]
+        let alpha = AnnotationSearchIndex.SearchResult(
+            name: "a", chromosome: "chr1", start: 1, end: 2,
+            trackId: "a", trackName: "Alpha", type: "SNP", variantRowId: 1
+        )
+        let beta = AnnotationSearchIndex.SearchResult(
+            name: "b", chromosome: "chr1", start: 2, end: 3,
+            trackId: "b", trackName: "Beta", type: "SNP", variantRowId: 1
+        )
+
+        drawer.setVariantBaseResults([alpha, beta])
+        XCTAssertEqual(drawer.displayedAnnotations.map(\.trackId), ["b", "a"])
+        drawer.variantColumnFilterClauses = [.init(key: "track_name", op: "~", value: "a")]
+        drawer.applyVariantColumnFiltersFromBase()
+        XCTAssertEqual(drawer.displayedAnnotations.map(\.trackId), ["b", "a"])
+        drawer.clearVariantColumnFilters(nil)
+        XCTAssertEqual(drawer.displayedAnnotations.map(\.trackId), ["b", "a"])
+    }
+
     // MARK: - Edge Cases
 
     func testEmptyVariantDatabase() throws {

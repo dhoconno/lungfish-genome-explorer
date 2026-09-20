@@ -61,6 +61,9 @@ public struct BundleViewState: Codable, Sendable, Equatable {
     /// Search or query text applied to variants.
     public var variantFilterText: String
 
+    /// Stable IDs of variant tracks hidden across the Calls table, genotypes, and viewport.
+    public var hiddenVariantTrackIDs: Set<String>
+
     /// Sample row ordering, filtering, and display settings for genotype tracks.
     public var sampleDisplayState: SampleDisplayState?
 
@@ -96,6 +99,7 @@ public struct BundleViewState: Codable, Sendable, Equatable {
         showVariants: true,
         visibleVariantTypes: nil,
         variantFilterText: "",
+        hiddenVariantTrackIDs: [],
         sampleDisplayState: nil,
         translationColorScheme: .zappo,
         isRNAMode: false,
@@ -117,6 +121,7 @@ public struct BundleViewState: Codable, Sendable, Equatable {
         showVariants: Bool = true,
         visibleVariantTypes: Set<String>? = nil,
         variantFilterText: String = "",
+        hiddenVariantTrackIDs: Set<String> = [],
         sampleDisplayState: SampleDisplayState? = nil,
         translationColorScheme: AminoAcidColorScheme = .zappo,
         isRNAMode: Bool = false,
@@ -134,6 +139,7 @@ public struct BundleViewState: Codable, Sendable, Equatable {
         self.showVariants = showVariants
         self.visibleVariantTypes = visibleVariantTypes
         self.variantFilterText = variantFilterText
+        self.hiddenVariantTrackIDs = hiddenVariantTrackIDs
         self.sampleDisplayState = sampleDisplayState
         self.translationColorScheme = translationColorScheme
         self.isRNAMode = isRNAMode
@@ -157,6 +163,7 @@ public struct BundleViewState: Codable, Sendable, Equatable {
         showVariants = try container.decode(Bool.self, forKey: .showVariants)
         visibleVariantTypes = try container.decodeIfPresent(Set<String>.self, forKey: .visibleVariantTypes)
         variantFilterText = try container.decodeIfPresent(String.self, forKey: .variantFilterText) ?? ""
+        hiddenVariantTrackIDs = try container.decodeIfPresent(Set<String>.self, forKey: .hiddenVariantTrackIDs) ?? []
         sampleDisplayState = try container.decodeIfPresent(SampleDisplayState.self, forKey: .sampleDisplayState)
         translationColorScheme = try container.decode(AminoAcidColorScheme.self, forKey: .translationColorScheme)
         isRNAMode = try container.decode(Bool.self, forKey: .isRNAMode)

@@ -23,13 +23,20 @@ struct RetainedSelectionExportSnapshot {
         }
     }
 
-    func publish(_ request: ScientificFileExportProvenance.Request) throws {
+    func publish(
+        _ request: ScientificFileExportProvenance.Request,
+        preserveOriginalSources: Bool = false
+    ) throws {
         var resolved = request.resolved
         resolved["replayScope"] = .string(Self.replayScope)
         resolved["replaysUpstreamAnalysis"] = .boolean(false)
+        let replayInputs = [payloadURL, selectionURL]
+        let sourceURLs = preserveOriginalSources
+            ? deduplicated(request.sourceURLs + replayInputs)
+            : replayInputs
         try ScientificFileExportProvenance.writeAtomically(.init(
             workflowName: request.workflowName, toolName: request.toolName,
-            sourceURLs: [payloadURL, selectionURL], outputURL: request.outputURL,
+            sourceURLs: sourceURLs, outputURL: request.outputURL,
             outputFormat: request.outputFormat, argv: request.argv,
             durableReplayArgv: ["/bin/cp", payloadURL.path, request.outputURL.path],
             explicitOptions: request.explicitOptions, defaults: request.defaults,
@@ -37,6 +44,11 @@ struct RetainedSelectionExportSnapshot {
         )) { stagedURL in
             try FileManager.default.copyItem(at: payloadURL, to: stagedURL)
         }
+    }
+
+    private func deduplicated(_ urls: [URL]) -> [URL] {
+        var seen = Set<String>()
+        return urls.filter { seen.insert($0.standardizedFileURL.path).inserted }
     }
 
     func discardAfterFailure(_ error: Error) {

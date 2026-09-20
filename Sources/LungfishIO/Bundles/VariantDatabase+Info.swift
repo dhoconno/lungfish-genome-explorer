@@ -392,6 +392,50 @@ extension VariantDatabase {
         return result
     }
 
+    /// Throwing batch hydration for exports. Every requested SQLite chunk must
+    /// complete; prepare/step interruption never becomes a partially populated INFO map.
+    public func batchInfoValuesForExport(variantIds: [Int64]) throws -> [Int64: [String: String]] {
+        guard let db else { throw VariantDatabaseError.openFailed("Database handle is nil") }
+        let uniqueIds = Array(Set(variantIds))
+        guard !uniqueIds.isEmpty else { return [:] }
+        var result: [Int64: [String: String]] = [:]
+        for chunkStart in stride(from: 0, to: uniqueIds.count, by: 500) {
+            let chunk = Array(uniqueIds[chunkStart..<min(chunkStart + 500, uniqueIds.count)])
+            let placeholders = chunk.map { _ in "?" }.joined(separator: ",")
+            let sql = variantInfoSkipped
+                ? "SELECT id, info FROM variants WHERE id IN (\(placeholders))"
+                : "SELECT variant_id, key, value FROM variant_info WHERE variant_id IN (\(placeholders))"
+            var statement: OpaquePointer?
+            defer { sqlite3_finalize(statement) }
+            guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK, let statement else {
+                throw VariantDatabaseError.queryFailed(String(cString: sqlite3_errmsg(db)))
+            }
+            for (index, id) in chunk.enumerated() { sqlite3_bind_int64(statement, Int32(index + 1), id) }
+            while true {
+                let status = sqlite3_step(statement)
+                if status == SQLITE_DONE { break }
+                if status == SQLITE_INTERRUPT { throw VariantDatabaseError.cancelled }
+                guard status == SQLITE_ROW else {
+                    throw VariantDatabaseError.queryFailed(String(cString: sqlite3_errmsg(db)))
+                }
+                let variantID = sqlite3_column_int64(statement, 0)
+                if variantInfoSkipped {
+                    if let raw = sqlite3_column_text(statement, 1) {
+                        result[variantID] = Self.parseRawINFOString(String(cString: raw))
+                    }
+                } else {
+                    let key = sqlite3_column_text(statement, 1).map { String(cString: $0) } ?? ""
+                    let value = sqlite3_column_text(statement, 2).map { String(cString: $0) } ?? ""
+                    result[variantID, default: [:]][key] = value
+                    var expanded = result[variantID, default: [:]]
+                    Self.expandStructuredINFOFieldIfNeeded(key: key, value: value, into: &expanded)
+                    result[variantID] = expanded
+                }
+            }
+        }
+        return result
+    }
+
     /// Returns distinct non-empty values for an INFO key, limited and sorted by frequency.
     public func distinctInfoValues(forKey key: String, limit: Int = 21) -> [String] {
         guard let db, limit > 0 else { return [] }

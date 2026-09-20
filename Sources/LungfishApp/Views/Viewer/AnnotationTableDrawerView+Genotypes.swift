@@ -205,20 +205,32 @@ extension AnnotationTableDrawerView {
     /// Batch-fetches genotypes for the currently displayed variant rows.
     /// Runs database queries on a background queue.
     func buildGenotypeRows() {
+        genotypeFetchGeneration &+= 1
+        let thisGeneration = genotypeFetchGeneration
         let variants = displayedAnnotations
         guard !variants.isEmpty else {
+            let selectedIdentities = selectedVariantGenotypeSelectionIdentities()
+            let wasSuppressing = isSuppressingDelegateCallbacks
+            isSuppressingDelegateCallbacks = true
+            baseDisplayedGenotypes = []
             displayedGenotypes = []
             tableView.reloadData()
+            restoreVariantGenotypeSelection(selectedIdentities)
+            isSuppressingDelegateCallbacks = wasSuppressing
+            if !wasSuppressing { publishCurrentVariantSelection() }
             updateCountLabel()
             return
         }
 
-        genotypeFetchGeneration += 1
-        let thisGeneration = genotypeFetchGeneration
+        let sourceIndex = searchIndex
+        let sourceGeneration = sourceIndex?.variantDatabaseGeneration
         let handlesByTrack = Dictionary(
-            uniqueKeysWithValues: (searchIndex?.variantDatabaseHandles ?? []).map { ($0.trackId, $0.db) }
+            uniqueKeysWithValues: (sourceIndex?.variantDatabaseHandles ?? []).map { ($0.trackId, $0.db) }
         )
         let hiddenSamples = currentSampleDisplayState.hiddenSamples
+        #if DEBUG
+        let debugBeforeApply = debugGenotypeFetchBeforeApply
+        #endif
 
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             var rows: [GenotypeDisplayRow] = []
@@ -268,12 +280,27 @@ extension AnnotationTableDrawerView {
                 }
             }
 
+            #if DEBUG
+            debugBeforeApply?()
+            #endif
+
             DispatchQueue.main.async { [weak self] in
                 MainActor.assumeIsolated {
-                    guard let self, self.genotypeFetchGeneration == thisGeneration else { return }
+                    guard let self,
+                          self.genotypeFetchGeneration == thisGeneration,
+                          self.activeTab == .variants,
+                          self.activeVariantSubtab == .genotypes,
+                          self.searchIndex === sourceIndex,
+                          self.searchIndex?.variantDatabaseGeneration == sourceGeneration else { return }
+                    let selectedIdentities = self.selectedVariantGenotypeSelectionIdentities()
+                    let wasSuppressing = self.isSuppressingDelegateCallbacks
+                    self.isSuppressingDelegateCallbacks = true
                     self.baseDisplayedGenotypes = rows
                     self.displayedGenotypes = self.filterGenotypeRows(rows)
                     self.tableView.reloadData()
+                    self.restoreVariantGenotypeSelection(selectedIdentities)
+                    self.isSuppressingDelegateCallbacks = wasSuppressing
+                    if !wasSuppressing { self.publishCurrentVariantSelection() }
                     self.updateCountLabel()
                 }
             }
@@ -392,6 +419,16 @@ extension AnnotationTableDrawerView {
 
     /// Reapplies genotype column filters, syncs variant display, and refreshes the table.
     func applyGenotypeColumnFiltersFromBase() {
+        let selectedIdentities = selectedVariantGenotypeSelectionIdentities()
+        let wasSuppressing = isSuppressingDelegateCallbacks
+        isSuppressingDelegateCallbacks = true
+        defer {
+            restoreVariantGenotypeSelection(selectedIdentities)
+            isSuppressingDelegateCallbacks = wasSuppressing
+            if !wasSuppressing {
+                publishCurrentVariantSelection()
+            }
+        }
         displayedGenotypes = filterGenotypeRows(baseDisplayedGenotypes)
 
         // Sync displayedAnnotations to only include variants with surviving genotype rows

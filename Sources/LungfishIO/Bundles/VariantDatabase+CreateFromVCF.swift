@@ -930,8 +930,20 @@ extension VariantDatabase {
                         sqlite3_bind_null(insertGenotypeStmt, 8)
                     }
                     variantDBBindTextOrNull(insertGenotypeStmt, 9, ad)
-                    // v3: Don't store raw_fields (redundant with individual GT/DP/GQ/AD columns).
-                    sqlite3_bind_null(insertGenotypeStmt, 10)
+                    // Preserve caller-specific FORMAT measurements without duplicating
+                    // the typed GT/DP/GQ/AD columns.
+                    let coreFields: Set<String> = ["GT", "DP", "GQ", "AD"]
+                    let extras = zip(formatFields, sampleFields).compactMap { key, value -> String? in
+                        let key = String(key)
+                        let value = String(value)
+                        guard !coreFields.contains(key), !value.isEmpty, value != "." else { return nil }
+                        return "\(key)=\(value)"
+                    }
+                    variantDBBindTextOrNull(
+                        insertGenotypeStmt,
+                        10,
+                        extras.isEmpty ? nil : extras.joined(separator: ";")
+                    )
 
                     sqlite3_step(insertGenotypeStmt)
                     writesSinceCommit += 1

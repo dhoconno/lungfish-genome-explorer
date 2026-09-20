@@ -118,8 +118,18 @@ final class ClassifierAlignmentEvidenceViewportController: NSObject, ClassifierA
 #endif
 
     private func publishStatus() {
-        statusLabel.stringValue = status.message
-        statusLabel.isHidden = status == .idle
+        let visibleMessage: String?
+        switch status {
+        case .idle:
+            visibleMessage = nil
+        case .available(_, let reason):
+            let trimmed = reason?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            visibleMessage = trimmed.isEmpty ? nil : trimmed
+        default:
+            visibleMessage = status.message
+        }
+        statusLabel.stringValue = visibleMessage ?? ""
+        statusLabel.isHidden = visibleMessage == nil
         onStatusChanged?(status)
     }
 

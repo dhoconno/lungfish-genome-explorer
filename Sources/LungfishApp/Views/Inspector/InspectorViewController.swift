@@ -274,6 +274,13 @@ public class InspectorViewController: NSViewController {
             object: nil
         )
 
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleVariantSelectionChanged(_:)),
+            name: .variantSelectionChanged,
+            object: nil
+        )
+
         // Listen for read selections from viewer
         NotificationCenter.default.addObserver(
             self,
@@ -466,6 +473,10 @@ public class InspectorViewController: NSViewController {
             self?.handleAnnotationFilterChanged(visibleTypes: visibleTypes, filterText: filterText)
         }
 
+        viewModel.annotationSectionViewModel.onVariantFilterChanged = { [weak self] in
+            self?.handleVariantFilterChanged()
+        }
+
         viewModel.provenanceSectionViewModel.onExportRequested = { [weak self] format in
             self?.presentProvenanceExport(format: format)
         }
@@ -493,6 +504,7 @@ public class InspectorViewController: NSViewController {
             visibleTypes: viewModel.annotationSectionViewModel.visibleTypes,
             filterText: viewModel.annotationSectionViewModel.filterText
         )
+        handleVariantFilterChanged()
     }
 
     /// Handles annotation display settings changes.
@@ -522,6 +534,20 @@ public class InspectorViewController: NSViewController {
             userInfo: windowScopedUserInfo([
                 "visibleTypes": visibleTypes,
                 "filterText": filterText
+            ])
+        )
+    }
+
+    private func handleVariantFilterChanged() {
+        let model = viewModel.annotationSectionViewModel
+        NotificationCenter.default.post(
+            name: .variantFilterChanged,
+            object: self,
+            userInfo: windowScopedUserInfo([
+                NotificationUserInfoKey.showVariants: model.showVariants,
+                NotificationUserInfoKey.visibleVariantTypes: model.visibleVariantTypes,
+                NotificationUserInfoKey.variantFilterText: model.variantFilterText,
+                NotificationUserInfoKey.hiddenVariantTrackIDs: model.hiddenVariantTrackIDs,
             ])
         )
     }

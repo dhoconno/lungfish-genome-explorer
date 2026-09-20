@@ -62,6 +62,35 @@ public final class AnnotationDatabase: @unchecked Sendable {
     ]
 
     var db: OpaquePointer?
+    private var exportProgressContext: ExportProgressContext?
+    private final class ExportProgressContext {
+        let start = CFAbsoluteTimeGetCurrent()
+        let timeout: TimeInterval
+        let cancelCheck: (() -> Bool)?
+        init(timeout: TimeInterval, cancelCheck: (() -> Bool)?) {
+            self.timeout = timeout
+            self.cancelCheck = cancelCheck
+        }
+    }
+
+    /// Installs cancellation/timeout handling on a dedicated export connection.
+    public func installExportQueryTimeout(seconds: TimeInterval, cancelCheck: (() -> Bool)? = nil) {
+        guard let db else { return }
+        let context = ExportProgressContext(timeout: seconds, cancelCheck: cancelCheck)
+        exportProgressContext = context
+        sqlite3_progress_handler(db, 1000, { pointer in
+            guard let pointer else { return 0 }
+            let context = Unmanaged<ExportProgressContext>.fromOpaque(pointer).takeUnretainedValue()
+            if CFAbsoluteTimeGetCurrent() - context.start > context.timeout { return 1 }
+            return context.cancelCheck?() == true ? 1 : 0
+        }, Unmanaged.passUnretained(context).toOpaque())
+    }
+
+    public func removeExportQueryTimeout() {
+        guard let db else { return }
+        sqlite3_progress_handler(db, 0, nil, nil)
+        exportProgressContext = nil
+    }
     /// Serializes every operation using the shared SQLite connection. The lock
     /// also keeps transactions and connection-local temporary state atomic.
     let connectionLock = NSLock()

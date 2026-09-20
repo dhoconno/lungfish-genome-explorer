@@ -91,6 +91,13 @@ extension ViewerViewController: ChromosomeNavigatorDelegate {
         }
 
         let index = AnnotationSearchIndex()
+        index.onVariantFormatOverlayComplete = { [weak self, weak index] in
+            guard let self, let index,
+                  self.viewerView.currentReferenceBundle?.url.standardizedFileURL
+                    == context.bundle.url.standardizedFileURL else { return }
+            self.annotationDrawerView?.refreshVariantFormatOverlay(from: index)
+            self.viewerView.invalidateVariantFormatHoverCache()
+        }
         index.buildIndex(bundle: context.bundle, chromosomes: context.chromosomes)
         annotationSearchIndex = index
         annotationDrawerView?.setSearchIndex(index)
@@ -236,6 +243,11 @@ extension ViewerViewController: ChromosomeNavigatorDelegate {
             viewerView.visibleVariantTypes = variantTypes
         }
         viewerView.variantFilterText = context.viewState.variantFilterText
+        let availableVariantTrackIDs = Set(context.manifest.variants.map(\.id))
+        let restoredHiddenVariantTrackIDs = context.viewState.hiddenVariantTrackIDs.intersection(availableVariantTrackIDs)
+        viewerView.setHiddenVariantTrackIDs(restoredHiddenVariantTrackIDs)
+        annotationDrawerView?.setHiddenVariantTrackIDs(restoredHiddenVariantTrackIDs)
+        currentBundleViewState?.hiddenVariantTrackIDs = restoredHiddenVariantTrackIDs
         if let sampleDisplayState = context.viewState.sampleDisplayState {
             viewerView.sampleDisplayState = sampleDisplayState
         }
@@ -342,17 +354,25 @@ extension ViewerViewController: ChromosomeNavigatorDelegate {
         )
 
         openAnnotationDrawerIfBundleHasData(manifest: context.manifest)
-        syncInspectorForBundleViewState(context.viewState)
+        syncInspectorForBundleViewState(context.viewState, manifest: context.manifest, bundleURL: context.url)
 
         bundleLogger.info(
             "displayBundle: Bundle displayed successfully with \(context.chromosomes.count) chromosomes"
         )
     }
 
-    private func syncInspectorForBundleViewState(_ savedState: BundleViewState) {
+    private func syncInspectorForBundleViewState(
+        _ savedState: BundleViewState,
+        manifest: BundleManifest,
+        bundleURL: URL
+    ) {
+        let trackInventory = manifest.variants.map {
+            VariantTrackVisibilityItem(id: $0.id, name: $0.name)
+        }
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             MainActor.assumeIsolated {
+                guard self.currentBundleURL?.standardizedFileURL == bundleURL.standardizedFileURL else { return }
                 if let splitVC = self.parent as? MainSplitViewController {
                     let annotVM = splitVC.inspectorController.annotationSectionViewModel
                     annotVM.showAnnotations = savedState.showAnnotations
@@ -369,6 +389,8 @@ extension ViewerViewController: ChromosomeNavigatorDelegate {
                         annotVM.visibleVariantTypes = variantTypes
                     }
                     annotVM.variantFilterText = savedState.variantFilterText
+                    annotVM.setAvailableVariantTracks(trackInventory)
+                    annotVM.hiddenVariantTrackIDs = savedState.hiddenVariantTrackIDs.intersection(trackInventory.map(\.id))
                     if let sampleDisplayState = savedState.sampleDisplayState {
                         splitVC.inspectorController.sampleSectionViewModel.displayState = sampleDisplayState
                     }
@@ -600,24 +622,12 @@ extension ViewerViewController: ChromosomeNavigatorDelegate {
             viewerView.clearUserColumnSelection()
         }
 
-        let effectiveWidth = max(800, Int(viewerView.bounds.width))
-        var clampedStart = max(0, start)
-        var clampedEnd = min(chromosomeLength, end)
+        let effectiveWidth = viewerView.bounds.width > 0
+            ? max(1, Int(viewerView.bounds.width))
+            : max(1, referenceFrame?.pixelWidth ?? 1)
+        let clampedStart = max(0, start)
+        let clampedEnd = min(chromosomeLength, end)
         let span = max(1, clampedEnd - clampedStart)
-        let leadingInsetPx = Double(viewerView.navigationLeadingInsetPixels)
-        if leadingInsetPx > 0 {
-            let shiftBP = Int((Double(span) * leadingInsetPx / Double(effectiveWidth)).rounded())
-            if shiftBP > 0 {
-                clampedStart = max(0, clampedStart - shiftBP)
-                clampedEnd = min(chromosomeLength, clampedStart + span)
-                if clampedEnd - clampedStart < span {
-                    clampedStart = max(0, clampedEnd - span)
-                }
-            }
-        }
-        let scale = Double(span) / Double(effectiveWidth)
-
-        bundleLogger.info("navigateToChromosomeAndPosition: Creating frame span=\(span) bp, pixelWidth=\(effectiveWidth), scale=\(scale, format: .fixed(precision: 2)) bp/px")
 
         referenceFrame = ReferenceFrame(
             chromosome: chromosome,
@@ -626,6 +636,10 @@ extension ViewerViewController: ChromosomeNavigatorDelegate {
             pixelWidth: effectiveWidth,
             sequenceLength: chromosomeLength
         )
+        referenceFrame?.leadingInset = viewerView.variantDataStartX
+        referenceFrame?.trailingInset = ReferenceFrame.defaultTrailingInset
+
+        bundleLogger.info("navigateToChromosomeAndPosition: Creating frame span=\(span) bp, pixelWidth=\(effectiveWidth), scale=\(self.referenceFrame?.scale ?? 0, format: .fixed(precision: 2)) bp/px")
 
         // Update chromosome navigator selection
         chromosomeNavigatorView?.selectChromosome(named: chromosome)
@@ -670,6 +684,12 @@ extension ViewerViewController: ChromosomeNavigatorDelegate {
         currentBundleDisplayName = nil
         currentReferenceBundle = nil
         viewerView.horizontalScrollDirectionOverride = nil
+        viewerView.setHiddenVariantTrackIDs([])
+        annotationDrawerView?.setHiddenVariantTrackIDs([])
+        if let annotationModel = (parent as? MainSplitViewController)?.inspectorController.annotationSectionViewModel {
+            annotationModel.setAvailableVariantTracks([])
+            annotationModel.hiddenVariantTrackIDs = []
+        }
         viewerView.clearReferenceBundle()
         removeChromosomeNavigator()
     }
@@ -743,6 +763,7 @@ extension ViewerViewController {
         state.showVariants = viewerView.showVariants
         state.visibleVariantTypes = viewerView.visibleVariantTypes
         state.variantFilterText = viewerView.variantFilterText
+        state.hiddenVariantTrackIDs = viewerView.hiddenVariantTrackIDs
         state.sampleDisplayState = viewerView.sampleDisplayState
 
         // Navigation state

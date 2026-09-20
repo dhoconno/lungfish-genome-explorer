@@ -182,8 +182,25 @@ extension InspectorViewController {
             viewModel.variantSectionViewModel.clear()
             return
         }
-        viewModel.variantSectionViewModel.select(variant: result)
+        let tableFields = notification.userInfo?[NotificationUserInfoKey.variantInspectorFields]
+            as? [VariantInspectorField] ?? []
+        viewModel.variantSectionViewModel.select(variant: result, tableFields: tableFields)
         viewModel.selectedTab = .selectedItem
+    }
+
+    /// Handles explicit empty/multi-row variant table selection payloads.
+    @objc func handleVariantSelectionChanged(_ notification: Notification) {
+        guard shouldAcceptScopedNotification(notification) else { return }
+        let entries = notification.userInfo?[NotificationUserInfoKey.variantSelectionEntries]
+            as? [VariantSelectionEntry] ?? []
+        viewModel.selectedAnnotation = nil
+        viewModel.selectionSectionViewModel.select(annotation: nil)
+        if entries.isEmpty {
+            viewModel.variantSectionViewModel.clear()
+        } else {
+            viewModel.variantSectionViewModel.select(entries: entries)
+            viewModel.selectedTab = .selectedItem
+        }
     }
 
     /// Handles read selection from the viewer.

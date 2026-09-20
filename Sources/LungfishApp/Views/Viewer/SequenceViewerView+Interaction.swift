@@ -146,14 +146,19 @@ extension SequenceViewerView {
 
     /// Posts a notification that an annotation was selected.
     /// Internal so the AnnotationDrawer extension can post from table selection.
-    func postAnnotationSelectedNotification(_ annotation: SequenceAnnotation?) {
+    func postAnnotationSelectedNotification(
+        _ annotation: SequenceAnnotation?,
+        postVariantSelection: Bool = true
+    ) {
         if let annotation = annotation {
             NotificationCenter.default.post(
                 name: .annotationSelected,
                 object: self,
                 userInfo: windowScopedUserInfo([NotificationUserInfoKey.annotation: annotation])
             )
-            postVariantSelectedNotificationIfNeeded(annotation)
+            if postVariantSelection {
+                postVariantSelectedNotificationIfNeeded(annotation)
+            }
             sequenceViewerLogger.info("Posted annotationSelected notification for '\(annotation.name, privacy: .public)'")
         } else {
             // Post notification with nil to indicate deselection
@@ -1356,10 +1361,14 @@ extension SequenceViewerView {
         let annotationLength = max(1, annotation.end - annotation.start)
         let padding = max(10, Double(annotationLength) * 0.05)
         let windowLength = Double(annotationLength) + 2 * padding
-        let maxPixelWidth = max(1, frame.pixelWidth)
-        let insetPixels = min(Double(navigationLeadingInsetPixels), Double(maxPixelWidth - 1))
-        let leadingInsetBP = windowLength * insetPixels / Double(maxPixelWidth)
-        var newStart = Double(annotation.start) - padding - leadingInsetBP
+        if bounds.width > 0 {
+            frame.pixelWidth = max(1, Int(bounds.width))
+        } else {
+            frame.pixelWidth = max(1, frame.pixelWidth)
+        }
+        frame.leadingInset = variantDataStartX
+        frame.trailingInset = ReferenceFrame.defaultTrailingInset
+        var newStart = Double(annotation.start) - padding
         var newEnd = newStart + windowLength
         if newStart < 0 {
             newStart = 0

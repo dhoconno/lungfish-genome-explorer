@@ -316,7 +316,7 @@ final class DetachedAlignmentViewerTests: XCTestCase {
         XCTAssertEqual(controller.viewer.viewerView.testDetachedAlignmentSource?.identityURL, requests[2].bamURL)
         XCTAssertEqual(controller.availability, .available(reference: .notProvided, reason: nil))
         XCTAssertEqual(controller.status, .available(referenceStrength: "not provided", reason: nil))
-        XCTAssertEqual(controller.visibleStatusText, "Alignment evidence ready (reference: not provided).")
+        XCTAssertEqual(controller.visibleStatusText, "")
     }
 
     func testEvidenceChangedBetweenValidationAndInstallationIsRejected() async throws {

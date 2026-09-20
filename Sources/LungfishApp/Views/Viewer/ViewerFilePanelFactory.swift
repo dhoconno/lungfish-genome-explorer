@@ -17,6 +17,7 @@ enum ViewerFilePanelFactory {
         panel.nameFieldStringValue = suggestedName
         panel.allowedContentTypes = [contentType]
         panel.canCreateDirectories = true
+        panel.prompt = "Export"
         return panel
     }
 

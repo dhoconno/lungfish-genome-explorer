@@ -120,6 +120,28 @@ final class InspectorNotificationScopingTests: XCTestCase {
         XCTAssertEqual(capture.userInfo?[NotificationUserInfoKey.windowStateScope] as? WindowStateScope, scope)
     }
 
+    func testInspectorOriginatedVariantTrackVisibilityIncludesWindowScopeAndHiddenIDs() {
+        let inspector = InspectorViewController()
+        _ = inspector.view
+        let scope = WindowStateScope()
+        inspector.testingWindowStateScope = scope
+        let model = inspector.viewModel.annotationSectionViewModel
+        model.setAvailableVariantTracks([.init(id: "track-a", name: "Caller")])
+
+        let capture = InspectorNotificationUserInfoCapture()
+        let observer = NotificationCenter.default.addObserver(
+            forName: .variantFilterChanged,
+            object: inspector,
+            queue: nil
+        ) { capture.record($0) }
+        defer { NotificationCenter.default.removeObserver(observer) }
+
+        model.setVariantTrackVisible(trackID: "track-a", visible: false)
+
+        XCTAssertEqual(capture.userInfo?[NotificationUserInfoKey.windowStateScope] as? WindowStateScope, scope)
+        XCTAssertEqual(capture.userInfo?[NotificationUserInfoKey.hiddenVariantTrackIDs] as? Set<String>, ["track-a"])
+    }
+
     func testInspectorRejectsScopedMetadataImportRequestFromDifferentWindow() {
         let inspector = InspectorViewController()
         _ = inspector.view

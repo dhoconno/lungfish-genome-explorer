@@ -158,6 +158,8 @@ enum AnnotationTrackMoveDirection {
 @MainActor
 protocol AnnotationTableDrawerDelegate: AnyObject {
     func annotationDrawer(_ drawer: AnnotationTableDrawerView, didSelectAnnotation result: AnnotationSearchIndex.SearchResult)
+    func annotationDrawer(_ drawer: AnnotationTableDrawerView, didHighlightVariant result: AnnotationSearchIndex.SearchResult)
+    func annotationDrawer(_ drawer: AnnotationTableDrawerView, didHighlightVariants entries: [VariantSelectionEntry])
     func annotationDrawer(_ drawer: AnnotationTableDrawerView, didRequestExtract annotations: [SequenceAnnotation])
     func annotationDrawerSelectedSequenceRegion(_ drawer: AnnotationTableDrawerView) -> AnnotationTableDrawerSelectionRegion?
     func annotationDrawer(_ drawer: AnnotationTableDrawerView, didDeleteVariants count: Int)
@@ -169,6 +171,7 @@ protocol AnnotationTableDrawerDelegate: AnyObject {
     func annotationDrawer(_ drawer: AnnotationTableDrawerView, didRequestDeleteAnnotationTrack trackID: String, trackName: String)
     func annotationDrawer(_ drawer: AnnotationTableDrawerView, codingFeatureFor result: AnnotationSearchIndex.SearchResult) -> String?
     func annotationDrawerAdditionalExportSources(_ drawer: AnnotationTableDrawerView) throws -> [URL]
+    func annotationDrawerVariantExportResolverSnapshot(_ drawer: AnnotationTableDrawerView) -> VariantTableExportResolverSnapshot
     func annotationDrawerDidDragDivider(_ drawer: AnnotationTableDrawerView, deltaY: CGFloat)
     func annotationDrawerDidFinishDraggingDivider(_ drawer: AnnotationTableDrawerView)
     func annotationDrawer(
@@ -178,7 +181,11 @@ protocol AnnotationTableDrawerDelegate: AnyObject {
 }
 
 extension AnnotationTableDrawerDelegate {
+    func annotationDrawer(_ drawer: AnnotationTableDrawerView, didHighlightVariant result: AnnotationSearchIndex.SearchResult) {}
+    func annotationDrawer(_ drawer: AnnotationTableDrawerView, didHighlightVariants entries: [VariantSelectionEntry]) {}
+
     func annotationDrawerAdditionalExportSources(_ drawer: AnnotationTableDrawerView) throws -> [URL] { [] }
+    func annotationDrawerVariantExportResolverSnapshot(_ drawer: AnnotationTableDrawerView) -> VariantTableExportResolverSnapshot { .empty }
     func annotationDrawer(_ drawer: AnnotationTableDrawerView, codingFeatureFor result: AnnotationSearchIndex.SearchResult) -> String? { nil }
 
     func annotationDrawer(_ drawer: AnnotationTableDrawerView, didRequestExtract annotations: [SequenceAnnotation]) {}
@@ -284,6 +291,9 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
 
     /// Generation counter for stale genotype fetch prevention.
     var genotypeFetchGeneration: Int = 0
+    #if DEBUG
+    var debugGenotypeFetchBeforeApply: (@Sendable () -> Void)?
+    #endif
     /// Generation counter for stale annotation filter refreshes.
     var annotationQueryGeneration: Int = 0
     var activeAnnotationQueryCancelToken: VariantQueryCancellationToken?
@@ -317,6 +327,9 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
 
     /// Visible types for the variant tab (empty means show all).
     var visibleVariantTypes: Set<String> = []
+
+    /// Bundle-owned track visibility, keyed only by stable track ID.
+    var hiddenVariantTrackIDs: Set<String> = []
 
     /// Convenience accessor for the active tab's visible types.
     var visibleTypes: Set<String> {
@@ -619,6 +632,8 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         let geneList: [String]
         let smartFilter: [String]
         let selectedSamples: [String]
+        let hiddenTrackIDs: [String]
+        let overlayGeneration: Int
     }
 
     /// Chip buttons keyed by type name.
@@ -2232,11 +2247,31 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
     @objc func showInInspectorAction(_ sender: NSMenuItem) {
         guard let result = sender.representedObject as? AnnotationSearchIndex.SearchResult else { return }
         if result.isVariant {
-            NotificationCenter.default.post(
-                name: .variantSelected,
-                object: self,
-                userInfo: windowScopedUserInfo([NotificationUserInfoKey.searchResult: result])
-            )
+            let selectedEntries = variantSelectionEntriesForSelectedRows()
+            let contextRowIsSelected = selectedEntries.contains {
+                $0.result.trackId == result.trackId
+                    && $0.result.variantRowId == result.variantRowId
+                    && $0.result.chromosome == result.chromosome
+                    && $0.result.start == result.start
+            }
+            if contextRowIsSelected, selectedEntries.count > 1 {
+                NotificationCenter.default.post(
+                    name: .variantSelectionChanged,
+                    object: self,
+                    userInfo: windowScopedUserInfo([
+                        NotificationUserInfoKey.variantSelectionEntries: selectedEntries,
+                    ])
+                )
+            } else {
+                NotificationCenter.default.post(
+                    name: .variantSelected,
+                    object: self,
+                    userInfo: windowScopedUserInfo([
+                        NotificationUserInfoKey.searchResult: result,
+                        NotificationUserInfoKey.variantInspectorFields: variantInspectorFields(for: result),
+                    ])
+                )
+            }
         } else {
             let annotation = makeAnnotation(from: result)
             NotificationCenter.default.post(
@@ -2716,23 +2751,10 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
     }
 
     func variantFilterKey(forColumnIdentifier columnId: String) -> String? {
-        switch columnId {
-        case Self.variantIdColumn.rawValue: return "variant_id"
-        case Self.variantTypeColumn.rawValue: return "variant_type"
-        case Self.variantChromColumn.rawValue: return "chromosome"
-        case Self.positionColumn.rawValue: return "position"
-        case Self.refColumn.rawValue: return "ref"
-        case Self.altColumn.rawValue: return "alt"
-        case Self.qualityColumn.rawValue: return "quality"
-        case Self.filterColumn.rawValue: return "filter"
-        case Self.samplesColumn.rawValue: return "samples"
-        case Self.sourceColumn.rawValue: return "source"
-        case Self.consequenceColumn.rawValue: return "consequence"
-        case Self.aaChangeColumn.rawValue: return "aa_change"
-        default:
-            if columnId.hasPrefix("info_") { return columnId }
-            return nil
+        if let definition = Self.variantColumnDefs.first(where: { $0.0.rawValue == columnId }) {
+            return definition.4
         }
+        return columnId.hasPrefix("info_") ? columnId : nil
     }
 
     func isVariantFilterNumericKey(_ key: String) -> Bool {
@@ -2767,7 +2789,12 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
               let op = payload["op"],
               let value = payload["value"] else { return }
         variantColumnFilterClauses.append(VariantColumnFilterClause(key: key, op: op, value: value))
-        applyVariantColumnFiltersFromBase()
+        let normalizedKey = key.hasPrefix("info_") ? String(key.dropFirst(5)) : key
+        if searchIndex?.variantFormatOverlaySnapshot.allProjectedKeys.contains(normalizedKey) == true {
+            updateDisplayedAnnotations()
+        } else {
+            applyVariantColumnFiltersFromBase()
+        }
     }
 
     @objc func promptVariantColumnFilterAction(_ sender: NSMenuItem) {
@@ -2788,22 +2815,50 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
             let value = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
             guard let self, !value.isEmpty else { return }
             self.variantColumnFilterClauses.append(VariantColumnFilterClause(key: key, op: op, value: value))
-            self.applyVariantColumnFiltersFromBase()
+            let normalizedKey = key.hasPrefix("info_") ? String(key.dropFirst(5)) : key
+            if self.searchIndex?.variantFormatOverlaySnapshot.allProjectedKeys.contains(normalizedKey) == true {
+                self.updateDisplayedAnnotations()
+            } else {
+                self.applyVariantColumnFiltersFromBase()
+            }
         }
     }
 
     @objc func clearVariantColumnFilters(_ sender: Any?) {
+        let hadProjectedFilter = variantColumnFilterClauses.contains { clause in
+            let key = clause.key.hasPrefix("info_") ? String(clause.key.dropFirst(5)) : clause.key
+            return searchIndex?.variantFormatOverlaySnapshot.allProjectedKeys.contains(key) == true
+        }
         variantColumnFilterClauses.removeAll()
-        applyVariantColumnFiltersFromBase()
+        if hadProjectedFilter { updateDisplayedAnnotations() }
+        else { applyVariantColumnFiltersFromBase() }
     }
 
     func buildVariantColumnHeaderContextMenu(_ menu: NSMenu, column: Int) {
         guard column >= 0, column < tableView.tableColumns.count else { return }
         let tableColumn = tableView.tableColumns[column]
+        addColumnSizingMenuItems(menu, tableColumn: tableColumn)
+
         guard let key = variantFilterKey(forColumnIdentifier: tableColumn.identifier.rawValue) else { return }
         let displayName = tableColumn.title.isEmpty ? "Column" : tableColumn.title
 
-        addColumnSizingMenuItems(menu, tableColumn: tableColumn)
+        menu.addItem(NSMenuItem.separator())
+        let ascendingItem = NSMenuItem(
+            title: "Sort \(displayName) Ascending",
+            action: #selector(sortVariantColumnAscending(_:)),
+            keyEquivalent: ""
+        )
+        ascendingItem.target = self
+        ascendingItem.representedObject = tableColumn.identifier.rawValue
+        menu.addItem(ascendingItem)
+        let descendingItem = NSMenuItem(
+            title: "Sort \(displayName) Descending",
+            action: #selector(sortVariantColumnDescending(_:)),
+            keyEquivalent: ""
+        )
+        descendingItem.target = self
+        descendingItem.representedObject = tableColumn.identifier.rawValue
+        menu.addItem(descendingItem)
         menu.addItem(NSMenuItem.separator())
 
         if isVariantFilterNumericKey(key) {
@@ -2894,9 +2949,25 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
         addVariantColumnFilterItem(to: menu, title: "Filter \(displayName) Is Not Empty", key: key, op: "!=", value: "")
         menu.addItem(NSMenuItem.separator())
 
-        let clearItem = NSMenuItem(title: "Clear Local Variant Column Filters", action: #selector(clearVariantColumnFilters(_:)), keyEquivalent: "")
+        let clearItem = NSMenuItem(title: "Clear Variant Column Filters", action: #selector(clearVariantColumnFilters(_:)), keyEquivalent: "")
         clearItem.target = self
         menu.addItem(clearItem)
+    }
+
+    @objc func sortVariantColumnAscending(_ sender: NSMenuItem) {
+        setVariantColumnSort(sender, ascending: true)
+    }
+
+    @objc func sortVariantColumnDescending(_ sender: NSMenuItem) {
+        setVariantColumnSort(sender, ascending: false)
+    }
+
+    private func setVariantColumnSort(_ sender: NSMenuItem, ascending: Bool) {
+        guard let identifier = sender.representedObject as? String,
+              let column = tableView.tableColumns.first(where: { $0.identifier.rawValue == identifier }),
+              let prototype = column.sortDescriptorPrototype,
+              let key = prototype.key else { return }
+        tableView.sortDescriptors = [NSSortDescriptor(key: key, ascending: ascending)]
     }
 
     /// The operation center owns bundle exclusion until the synchronous durable
@@ -3413,6 +3484,12 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
             return row.sampleCount.map { String($0) } ?? ""
         case "source":
             return row.sourceFile ?? ""
+        case "track_name":
+            return row.trackName ?? searchIndex?.variantTrackName(for: row.trackId) ?? row.trackId
+        case "caller_settings":
+            return searchIndex?.variantCallerSettings(for: row.trackId) ?? "Not recorded"
+        case "coding_feature":
+            return variantCodingFeatureText(for: row)
         case "consequence":
             return variantConsequenceText(for: row)
         case "aa_change":
@@ -3426,14 +3503,34 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
         }
     }
 
+    /// Resolves Inspector values through the same column presentation path as
+    /// the table, including caller settings and derived coding annotations.
+    func variantInspectorFields(
+        for row: AnnotationSearchIndex.SearchResult
+    ) -> [VariantInspectorField] {
+        Self.variantColumnDefs.map { definition in
+            VariantInspectorField(
+                key: definition.4,
+                label: definition.1,
+                value: variantColumnValue(row, key: definition.4)
+            )
+        }
+    }
+
     func variantColumnMatches(actual: String, op: String, expected: String, key: String) -> Bool {
         let normalizedActual = actual.trimmingCharacters(in: .whitespacesAndNewlines)
         let normalizedExpected = expected.trimmingCharacters(in: .whitespacesAndNewlines)
-        // Numeric comparison for known numeric keys and info_* columns with numeric operators
-        let isNumericOp = op == ">" || op == ">=" || op == "<" || op == "<="
-        let isKnownNumeric = key == "position" || key == "quality" || key == "samples"
-        if (isKnownNumeric || (isNumericOp && key.hasPrefix("info_"))),
-           let lhs = Double(normalizedActual), let rhs = Double(normalizedExpected) {
+        if normalizedExpected.isEmpty {
+            switch op {
+            case "=": return normalizedActual.isEmpty
+            case "!=": return !normalizedActual.isEmpty
+            default: break
+            }
+        }
+        if isVariantFilterNumericKey(key) {
+            guard let lhs = Double(normalizedActual), let rhs = Double(normalizedExpected) else {
+                return false
+            }
             switch op {
             case ">": return lhs > rhs
             case ">=": return lhs >= rhs
@@ -3448,9 +3545,9 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
     }
 
     func applyVariantColumnFilters(to rows: [AnnotationSearchIndex.SearchResult]) -> [AnnotationSearchIndex.SearchResult] {
-        guard !variantColumnFilterClauses.isEmpty else { return rows }
         return rows.filter { row in
-            variantColumnFilterClauses.allSatisfy { clause in
+            guard !hiddenVariantTrackIDs.contains(row.trackId) else { return false }
+            return variantColumnFilterClauses.allSatisfy { clause in
                 let actual = variantColumnValue(row, key: clause.key)
                 return variantColumnMatches(actual: actual, op: clause.op, expected: clause.value, key: clause.key)
             }
@@ -3461,16 +3558,44 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
         baseDisplayedVariantAnnotations = rows
         fallbackConsequenceCache = [:]
         displayedAnnotations = applyVariantColumnFilters(to: rows)
+        sortDisplayedVariantCallsIfNeeded()
     }
 
     func applyVariantColumnFiltersFromBase() {
+        let selectedVariantIdentities = selectedVariantCallSelectionIdentities()
+        let wasSuppressingDelegateCallbacks = isSuppressingDelegateCallbacks
+        isSuppressingDelegateCallbacks = true
+        defer {
+            restoreVariantCallSelection(selectedVariantIdentities)
+            isSuppressingDelegateCallbacks = wasSuppressingDelegateCallbacks
+            if !wasSuppressingDelegateCallbacks {
+                publishCurrentVariantSelection()
+            }
+        }
         displayedAnnotations = applyVariantColumnFilters(to: baseDisplayedVariantAnnotations)
+        sortDisplayedVariantCallsIfNeeded()
         tableView.reloadData()
         scrollView.isHidden = false
         tooManyLabel.isHidden = true
         updateCountLabel()
         if activeVariantSubtab == .genotypes {
             buildGenotypeRows()
+        }
+    }
+
+    func setHiddenVariantTrackIDs(_ ids: Set<String>) {
+        guard hiddenVariantTrackIDs != ids else { return }
+        hiddenVariantTrackIDs = ids
+        variantQueryWorkItem?.cancel()
+        variantQueryWorkItem = nil
+        activeVariantQueryCancelToken?.cancel()
+        activeVariantQueryCancelToken = nil
+        variantQueryGeneration += 1
+        cachedGlobalFilteredVariantRows = []
+        cachedGlobalFilteredVariantKey = nil
+        applyVariantColumnFiltersFromBase()
+        if activeTab == .variants, searchIndex != nil {
+            updateDisplayedAnnotations()
         }
     }
 
@@ -3727,7 +3852,6 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
 
     func showVariantQueryProgress(_ message: String) {
         isVariantQuerying = true
-        displayedAnnotations = []
         queryProgressLabel.stringValue = message
         queryProgressLabel.isHidden = false
         queryProgressBar.isHidden = false
@@ -4810,6 +4934,25 @@ struct AnnotationVariantQueryContext: @unchecked Sendable {
     let infoKeys: Set<String>
     /// Maps reference chromosome names → VCF chromosome names (from contig length matching).
     let variantAliasMap: [String: String]
+    let formatOverlay: VariantFormatOverlaySnapshot
+
+    init(
+        databases: [(trackId: String, db: VariantDatabase)],
+        trackNames: [String: String],
+        trackChromosomes: [String: Set<String>],
+        annotationDatabases: [(trackId: String, db: AnnotationDatabase)],
+        infoKeys: Set<String>,
+        variantAliasMap: [String: String],
+        formatOverlay: VariantFormatOverlaySnapshot = VariantFormatOverlaySnapshot()
+    ) {
+        self.databases = databases
+        self.trackNames = trackNames
+        self.trackChromosomes = trackChromosomes
+        self.annotationDatabases = annotationDatabases
+        self.infoKeys = infoKeys
+        self.variantAliasMap = variantAliasMap
+        self.formatOverlay = formatOverlay
+    }
 
     func resolvedChromosomeCandidates(for chromosome: String, trackId: String) -> [String] {
         let available = trackChromosomes[trackId] ?? []
@@ -4830,9 +4973,43 @@ struct AnnotationVariantQueryContext: @unchecked Sendable {
         let infoDicts = db.batchInfoValues(variantIds: variantIds)
         let sourceName = trackNames[trackId]
         return records.map { record in
-            let infoDict = record.id.flatMap { infoDicts[$0] }
+            let storedInfo = record.id.flatMap { infoDicts[$0] } ?? [:]
+            let infoDict = formatOverlay.projectedInfo(trackID: trackId, record: record, existing: storedInfo)
             return record.toSearchResult(trackId: trackId, infoDict: infoDict, sourceFile: sourceName)
         }
+    }
+
+    private func projectedFilters(
+        for trackID: String,
+        from filters: [VariantDatabase.InfoFilter]
+    ) -> [VariantDatabase.InfoFilter] {
+        let projected = formatOverlay.projectedKeysByTrack[trackID] ?? []
+        let anyProjected = formatOverlay.allProjectedKeys
+        return filters.filter {
+            projected.contains($0.key) || ($0.value.isEmpty && anyProjected.contains($0.key))
+        }
+    }
+
+    private func smartFilterUsesProjectedAF(_ smartFilter: VariantSmartFilter?, trackID: String) -> Bool {
+        guard formatOverlay.projectedKeysByTrack[trackID]?.contains("AF") == true,
+              let smartFilter else { return false }
+        return smartFilter.predicates.contains { predicate in
+            switch predicate {
+            case .sample(let value): return value.field == .alleleFrequency
+            case .count(let value): return value.predicate.field == .alleleFrequency
+            case .sampleFieldComparison(let value): return value.lhs.field == .alleleFrequency
+            }
+        }
+    }
+
+    private func finalizeProjectionQuery(
+        _ rows: [AnnotationSearchIndex.SearchResult],
+        limit: Int,
+        shouldCancel: (() -> Bool)?
+    ) -> [AnnotationSearchIndex.SearchResult] {
+        guard shouldCancel?() != true else { return [] }
+        guard limit < rows.count else { return rows }
+        return Array(rows.prefix(max(0, limit)))
     }
 
     func queryVariantsInRegion(
@@ -4848,27 +5025,42 @@ struct AnnotationVariantQueryContext: @unchecked Sendable {
         var results: [AnnotationSearchIndex.SearchResult] = []
         for handle in databases {
             if shouldCancel?() == true { break }
-            let remaining = limit - results.count
-            guard remaining > 0 else { break }
+            let deferredFilters = projectedFilters(for: handle.trackId, from: infoFilters)
+            let deferredSmartFilter = smartFilterUsesProjectedAF(smartFilter, trackID: handle.trackId)
+            let requiresComplete = !deferredFilters.isEmpty || deferredSmartFilter
+            let sqlFilters = requiresComplete
+                ? infoFilters.filter { filter in !deferredFilters.contains { $0.key == filter.key } }
+                : infoFilters
+            let remaining = requiresComplete ? handle.db.totalCount() : limit - results.count
+            guard remaining > 0 else { continue }
             handle.db.installQueryTimeout(seconds: 5.0, cancelCheck: shouldCancel)
             defer { handle.db.removeQueryTimeout() }
             for queryChrom in resolvedChromosomeCandidates(for: chromosome, trackId: handle.trackId) {
                 if shouldCancel?() == true { break }
-                let chunkLimit = limit - results.count
+                let chunkLimit = requiresComplete ? handle.db.totalCount() : limit - results.count
                 guard chunkLimit > 0 else { break }
                 let records = handle.db.queryForTableInRegion(
                     chromosome: queryChrom, start: start, end: end,
                     nameFilter: nameFilter, types: types,
-                    infoFilters: infoFilters, sampleNames: sampleNames,
-                    smartFilter: smartFilter,
-                    activeTokens: activeTokens, limit: chunkLimit
+                    infoFilters: sqlFilters, sampleNames: sampleNames,
+                    smartFilter: deferredSmartFilter ? nil : smartFilter,
+                    activeTokens: requiresComplete ? [] : activeTokens, limit: chunkLimit
                 )
                 if !records.isEmpty {
-                    results.append(contentsOf: variantRecordsToSearchResults(records, db: handle.db, trackId: handle.trackId))
+                    let converted = variantRecordsToSearchResults(records, db: handle.db, trackId: handle.trackId)
+                    for (index, row) in converted.enumerated() {
+                        if index.isMultiple(of: 256), shouldCancel?() == true { return [] }
+                        if deferredFilters.allSatisfy({ VariantFormatOverlaySnapshot.matches(row.infoDict ?? [:], filter: $0) })
+                            && (!deferredSmartFilter || smartFilter.map {
+                                formatOverlay.matches($0, trackID: handle.trackId, row: row)
+                            } == true) {
+                            results.append(row)
+                        }
+                    }
                 }
             }
         }
-        return results
+        return finalizeProjectionQuery(results, limit: limit, shouldCancel: shouldCancel)
     }
 
     func queryVariantCountInRegion(
@@ -4879,6 +5071,19 @@ struct AnnotationVariantQueryContext: @unchecked Sendable {
         smartFilter: VariantSmartFilter? = nil,
         shouldCancel: (() -> Bool)? = nil
     ) -> Int {
+        let hasProjectedFilter = databases.contains { handle in
+            !projectedFilters(for: handle.trackId, from: infoFilters).isEmpty
+                || smartFilterUsesProjectedAF(smartFilter, trackID: handle.trackId)
+        }
+        if hasProjectedFilter {
+            let completeLimit = databases.reduce(0) { $0 + max(0, $1.db.totalCount()) }
+            return queryVariantsInRegion(
+                chromosome: chromosome, start: start, end: end,
+                nameFilter: nameFilter, types: types, infoFilters: infoFilters,
+                sampleNames: sampleNames, smartFilter: smartFilter,
+                limit: completeLimit, shouldCancel: shouldCancel
+            ).count
+        }
         var count = 0
         for handle in databases {
             if shouldCancel?() == true { break }
@@ -4910,8 +5115,14 @@ struct AnnotationVariantQueryContext: @unchecked Sendable {
         var results: [AnnotationSearchIndex.SearchResult] = []
         for handle in databases {
             if shouldCancel?() == true { break }
-            let remaining = limit - results.count
-            guard remaining > 0 else { break }
+            let deferredFilters = projectedFilters(for: handle.trackId, from: infoFilters)
+            let deferredSmartFilter = smartFilterUsesProjectedAF(smartFilter, trackID: handle.trackId)
+            let requiresComplete = !deferredFilters.isEmpty || deferredSmartFilter
+            let sqlFilters = requiresComplete
+                ? infoFilters.filter { filter in !deferredFilters.contains { $0.key == filter.key } }
+                : infoFilters
+            let remaining = requiresComplete ? handle.db.totalCount() : limit - results.count
+            guard remaining > 0 else { continue }
             let variantTypes = Set(handle.db.allTypes())
             let requestedVariantTypes = types.isEmpty ? variantTypes : types.intersection(variantTypes)
             guard !requestedVariantTypes.isEmpty || types.isEmpty else { continue }
@@ -4926,13 +5137,22 @@ struct AnnotationVariantQueryContext: @unchecked Sendable {
                 chromosome: dbChromosome,
                 nameFilter: nameFilter,
                 types: types.isEmpty ? [] : requestedVariantTypes,
-                infoFilters: infoFilters, sampleNames: sampleNames,
-                smartFilter: smartFilter,
-                activeTokens: activeTokens, limit: remaining
+                infoFilters: sqlFilters, sampleNames: sampleNames,
+                smartFilter: deferredSmartFilter ? nil : smartFilter,
+                activeTokens: requiresComplete ? [] : activeTokens, limit: remaining
             )
-            results.append(contentsOf: variantRecordsToSearchResults(records, db: handle.db, trackId: handle.trackId))
+            let converted = variantRecordsToSearchResults(records, db: handle.db, trackId: handle.trackId)
+            for (index, row) in converted.enumerated() {
+                if index.isMultiple(of: 256), shouldCancel?() == true { return [] }
+                if deferredFilters.allSatisfy({ VariantFormatOverlaySnapshot.matches(row.infoDict ?? [:], filter: $0) })
+                    && (!deferredSmartFilter || smartFilter.map {
+                        formatOverlay.matches($0, trackID: handle.trackId, row: row)
+                    } == true) {
+                    results.append(row)
+                }
+            }
         }
-        return results
+        return finalizeProjectionQuery(results, limit: limit, shouldCancel: shouldCancel)
     }
 
     func queryVariantCount(
@@ -4943,6 +5163,18 @@ struct AnnotationVariantQueryContext: @unchecked Sendable {
         smartFilter: VariantSmartFilter? = nil,
         shouldCancel: (() -> Bool)? = nil
     ) -> Int {
+        let hasProjectedFilter = databases.contains { handle in
+            !projectedFilters(for: handle.trackId, from: infoFilters).isEmpty
+                || smartFilterUsesProjectedAF(smartFilter, trackID: handle.trackId)
+        }
+        if hasProjectedFilter {
+            let completeLimit = databases.reduce(0) { $0 + max(0, $1.db.totalCount()) }
+            return queryVariantsOnly(
+                chromosome: chromosome, nameFilter: nameFilter, types: types,
+                infoFilters: infoFilters, sampleNames: sampleNames, smartFilter: smartFilter,
+                limit: completeLimit, shouldCancel: shouldCancel
+            ).count
+        }
         var count = 0
         for handle in databases {
             if shouldCancel?() == true { break }

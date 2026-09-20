@@ -177,6 +177,66 @@ extension AnnotationDatabase {
         return results
     }
 
+    /// Throwing export counterpart that never turns an interrupted or failed SQLite
+    /// enumeration into a successful partial table.
+    public func queryForTableExport(
+        nameFilter: String = "",
+        types: Set<String> = [],
+        chromosome: String? = nil,
+        regionStart: Int? = nil,
+        regionEnd: Int? = nil,
+        strand: String? = nil,
+        columnFilters: [ColumnFilterClause] = [],
+        allowedChromosomes: Set<String>? = nil,
+        limit: Int
+    ) throws -> [AnnotationDatabaseRecord] {
+        if allowedChromosomes?.isEmpty == true { return [] }
+        guard let db else { throw AnnotationDatabaseError.openFailed("Database handle is nil") }
+        connectionLock.lock()
+        defer { connectionLock.unlock() }
+        guard prepareChromosomeScope(allowedChromosomes, db: db) else {
+            throw AnnotationDatabaseError.queryFailed(String(cString: sqlite3_errmsg(db)))
+        }
+        var sql = """
+        SELECT rowid, name, type, chromosome, start, end, strand, attributes,
+               block_count, block_sizes, block_starts, gene_name
+        FROM annotations
+        """
+        let queryParts = annotationTableQueryParts(
+            nameFilter: nameFilter, types: types, chromosome: chromosome,
+            regionStart: regionStart, regionEnd: regionEnd, strand: strand,
+            columnFilters: columnFilters
+        )
+        var conditions = queryParts.conditions
+        if allowedChromosomes != nil {
+            conditions.append("EXISTS (SELECT 1 FROM query_chromosome_scope AS scope WHERE scope.chromosome = annotations.chromosome)")
+        }
+        if !conditions.isEmpty { sql += " WHERE " + conditions.joined(separator: " AND ") }
+        sql += " ORDER BY name COLLATE NOCASE LIMIT \(max(0, limit))"
+        var statement: OpaquePointer?
+        defer { sqlite3_finalize(statement) }
+        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK, let statement else {
+            throw AnnotationDatabaseError.queryFailed(String(cString: sqlite3_errmsg(db)))
+        }
+        for (index, binding) in queryParts.bindings.enumerated() {
+            sqlite3_bind_text(statement, Int32(index + 1), (binding as NSString).utf8String, -1, annotationDatabaseSQLiteTransient)
+        }
+        var results: [AnnotationDatabaseRecord] = []
+        while true {
+            let status = sqlite3_step(statement)
+            switch status {
+            case SQLITE_ROW:
+                results.append(AnnotationDatabase.decodeRecord(statement))
+            case SQLITE_DONE:
+                return results
+            case SQLITE_INTERRUPT:
+                throw AnnotationDatabaseError.cancelled
+            default:
+                throw AnnotationDatabaseError.queryFailed(String(cString: sqlite3_errmsg(db)))
+            }
+        }
+    }
+
     /// Replaces the connection-local chromosome scope using bound inserts.
     /// A savepoint provides transaction semantics without breaking an existing
     /// outer transaction on a read-write database.

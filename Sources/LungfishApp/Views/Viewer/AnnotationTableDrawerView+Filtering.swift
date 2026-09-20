@@ -449,7 +449,25 @@ extension AnnotationTableDrawerView {
             }
         }
 
+        let projectedColumnInfoFilters: [VariantDatabase.InfoFilter] = variantColumnFilterClauses.compactMap { clause in
+            guard clause.key.hasPrefix("info_") else { return nil }
+            let key = String(clause.key.dropFirst(5))
+            guard index.variantFormatOverlaySnapshot.allProjectedKeys.contains(key) else { return nil }
+            let comparison: VariantDatabase.InfoFilter.ComparisonOp
+            switch clause.op {
+            case ">": comparison = .gt
+            case ">=": comparison = .gte
+            case "<": comparison = .lt
+            case "<=": comparison = .lte
+            case "=": comparison = .eq
+            case "!=": comparison = .neq
+            case "~", ":": comparison = .like
+            default: return nil
+            }
+            return VariantDatabase.InfoFilter(key: key, op: comparison, value: clause.value)
+        }
         let mergedInfoFilters = query.infoFilters + chipInfoFilters + smartComposed.infoFilters
+            + projectedColumnInfoFilters
         let selectedSamples = selectedSamplesForVariantQuery()
         // Capture active SmartToken raw values for pre-materialized cache JOINs.
         let frozenActiveTokens = Set(activeSmartTokens.map(\.rawValue))
@@ -514,7 +532,9 @@ extension AnnotationTableDrawerView {
             nameFilter: effectiveQuery.nameFilter,
             geneList: activeGeneList ?? [],
             smartFilter: effectiveQuery.smartFilter?.predicates.map(\.description).sorted() ?? [],
-            selectedSamples: selectedSamples.sorted()
+            selectedSamples: selectedSamples.sorted(),
+            hiddenTrackIDs: hiddenVariantTrackIDs.sorted(),
+            overlayGeneration: index.variantDatabaseGeneration
         )
 
         // Determine the effective region for the query (fast — no database queries).
@@ -546,11 +566,20 @@ extension AnnotationTableDrawerView {
                 regionScope = .viewport
             } else {
                 // Connected to a viewer but no region yet — show placeholder
+                let selectedVariantIdentities = selectedVariantCallSelectionIdentities()
+                let wasSuppressing = isSuppressingDelegateCallbacks
+                isSuppressingDelegateCallbacks = true
                 lastVariantQueryMatchCount = nil
                 lastVariantQueryScope = .placeholder
                 baseDisplayedVariantAnnotations = []
                 displayedAnnotations = []
                 tableView.reloadData()
+                isSuppressingDelegateCallbacks = wasSuppressing
+                if activeVariantSubtab == .calls {
+                    restoreAndPublishVariantCallSelection(selectedVariantIdentities)
+                } else {
+                    buildGenotypeRows()
+                }
                 scrollView.isHidden = true
                 tooManyLabel.stringValue = "Navigate to a region to view variants"
                 tooManyLabel.isHidden = false
@@ -584,18 +613,25 @@ extension AnnotationTableDrawerView {
                 trackNameSnapshot[handle.trackId] = name
             }
         }
+        let visibleVariantDatabaseHandles = index.variantDatabaseHandles.filter {
+            !hiddenVariantTrackIDs.contains($0.trackId)
+        }
         let ctx = AnnotationVariantQueryContext(
-            databases: index.variantDatabaseHandles,
+            databases: visibleVariantDatabaseHandles,
             trackNames: trackNameSnapshot,
             trackChromosomes: index.variantTrackChromosomeMap,
             annotationDatabases: index.annotationDatabaseHandles,
             infoKeys: infoKeySet,
-            variantAliasMap: variantChromosomeAliasMap
+            variantAliasMap: variantChromosomeAliasMap,
+            formatOverlay: index.variantFormatOverlaySnapshot
         )
         let maxDisplay = Self.maxDisplayCount
 
         if hasGlobalOverrideFilters, let viewportPostFilterRegion,
            cachedGlobalFilteredVariantKey == cacheKey, !cachedGlobalFilteredVariantRows.isEmpty {
+            let selectedVariantIdentities = selectedVariantCallSelectionIdentities()
+            let wasSuppressing = isSuppressingDelegateCallbacks
+            isSuppressingDelegateCallbacks = true
             let filtered = filterVariantsToRegionOffMain(
                 cachedGlobalFilteredVariantRows,
                 chromosome: viewportPostFilterRegion.chromosome,
@@ -606,6 +642,12 @@ extension AnnotationTableDrawerView {
             lastVariantQueryMatchCount = displayedAnnotations.count
             lastVariantQueryScope = .viewport
             tableView.reloadData()
+            isSuppressingDelegateCallbacks = wasSuppressing
+            if activeVariantSubtab == .calls {
+                restoreAndPublishVariantCallSelection(selectedVariantIdentities)
+            } else {
+                buildGenotypeRows()
+            }
             scrollView.isHidden = false
             tooManyLabel.isHidden = true
             hideVariantQueryProgress()
@@ -833,6 +875,9 @@ extension AnnotationTableDrawerView {
                         guard let self,
                               self.variantQueryGeneration == thisGeneration,
                               self.activeTab == .variants else { return }
+                        let selectedVariantIdentities = self.selectedVariantCallSelectionIdentities()
+                        let wasSuppressing = self.isSuppressingDelegateCallbacks
+                        self.isSuppressingDelegateCallbacks = true
                         self.hideVariantQueryProgress()
                         self.setVariantBaseResults(results)
                         self.lastVariantQueryMatchCount = matchCount
@@ -855,6 +900,10 @@ extension AnnotationTableDrawerView {
                             self.tableView.reloadData()
                             self.scrollView.isHidden = false
                             self.tooManyLabel.isHidden = true
+                        }
+                        self.isSuppressingDelegateCallbacks = wasSuppressing
+                        if self.activeVariantSubtab == .calls {
+                            self.restoreAndPublishVariantCallSelection(selectedVariantIdentities)
                         }
 
                         if activeGeneList != nil {

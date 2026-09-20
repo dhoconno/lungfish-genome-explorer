@@ -322,6 +322,9 @@ public final class ViralDetectionTableView: NSView, NSOutlineViewDataSource, NSO
         columnFilterSet.activeFiltersByColumn()
     }
 
+    /// Nil searches the existing built-in fields plus all displayed metadata.
+    private var selectedMetadataSearchColumnID: String?
+
     /// Original column titles for filter indicator management.
     private var originalColumnTitles: [String: String] = [:]
 
@@ -390,6 +393,12 @@ public final class ViralDetectionTableView: NSView, NSOutlineViewDataSource, NSO
         setAccessibilityLabel("EsViritu Detection Table View")
         setupSearchField()
         setupOutlineView()
+        metadataColumns.onColumnsOrStoreChanged = { [weak self] in
+            guard let self else { return }
+            self.rebuildSearchScopeMenu()
+            self.applyFilterImmediately()
+        }
+        rebuildSearchScopeMenu()
         setupLayout()
         contentTypographyObservation = ContentTypographyViewObservation(
             applicator: contentTypographyApplicator,
@@ -424,6 +433,45 @@ public final class ViralDetectionTableView: NSView, NSOutlineViewDataSource, NSO
         countLabel.alignment = .right
         countLabel.setContentHuggingPriority(.defaultHigh, for: .horizontal)
         addSubview(countLabel)
+    }
+
+    private func rebuildSearchScopeMenu() {
+        let displayedColumns = metadataColumns.displayedMetadataColumns
+        if let selectedMetadataSearchColumnID,
+           !displayedColumns.contains(where: { $0.id == selectedMetadataSearchColumnID }) {
+            self.selectedMetadataSearchColumnID = nil
+        }
+
+        let menu = NSMenu(title: "Search Fields")
+        let allFields = NSMenuItem(
+            title: "All Fields",
+            action: #selector(selectSearchScope(_:)),
+            keyEquivalent: ""
+        )
+        allFields.target = self
+        allFields.state = selectedMetadataSearchColumnID == nil ? .on : .off
+        menu.addItem(allFields)
+        if !displayedColumns.isEmpty {
+            menu.addItem(.separator())
+        }
+        for column in displayedColumns {
+            let item = NSMenuItem(
+                title: column.title,
+                action: #selector(selectSearchScope(_:)),
+                keyEquivalent: ""
+            )
+            item.target = self
+            item.representedObject = column.id
+            item.state = selectedMetadataSearchColumnID == column.id ? .on : .off
+            menu.addItem(item)
+        }
+        searchField.searchMenuTemplate = menu
+    }
+
+    @objc private func selectSearchScope(_ sender: NSMenuItem) {
+        selectedMetadataSearchColumnID = sender.representedObject as? String
+        rebuildSearchScopeMenu()
+        applyFilterImmediately()
     }
 
     private func setupOutlineView() {
@@ -688,6 +736,12 @@ public final class ViralDetectionTableView: NSView, NSOutlineViewDataSource, NSO
         } else {
             filteredItems = assemblyItems.filter { item in
                 let assembly = item.assembly
+                if let selectedMetadataSearchColumnID {
+                    return metadataColumns.value(
+                        columnID: selectedMetadataSearchColumnID,
+                        sampleID: sampleID(for: assembly)
+                    )?.localizedCaseInsensitiveContains(query) == true
+                }
                 let sample = sampleID(for: assembly).lowercased()
                 if sample.contains(query) { return true }
                 if assembly.name.lowercased().contains(query) { return true }
@@ -696,9 +750,15 @@ public final class ViralDetectionTableView: NSView, NSOutlineViewDataSource, NSO
                 if assembly.species?.lowercased().contains(query) == true { return true }
                 if assembly.assembly.lowercased().contains(query) { return true }
                 // Check contigs too
-                return assembly.contigs.contains { contig in
+                if assembly.contigs.contains(where: { contig in
                     contig.name.lowercased().contains(query) ||
                     contig.accession.lowercased().contains(query)
+                }) { return true }
+                return metadataColumns.displayedMetadataColumns.contains { column in
+                    metadataColumns.value(
+                        columnID: column.id,
+                        sampleID: sampleID(for: assembly)
+                    )?.localizedCaseInsensitiveContains(query) == true
                 }
             }
         }
@@ -749,6 +809,20 @@ public final class ViralDetectionTableView: NSView, NSOutlineViewDataSource, NSO
         var items = items
         if columnFilterSet.isActive {
             items = items.filter { assemblyMatchesColumnFilters($0.assembly) }
+        }
+
+        if MetadataColumnController.isMetadataColumn(.init(currentSortKey)) {
+            items.sort { lhs, rhs in
+                guard let result = metadataColumns.comparison(
+                    columnID: currentSortKey,
+                    lhsSampleID: sampleID(for: lhs.assembly),
+                    rhsSampleID: sampleID(for: rhs.assembly)
+                ) else { return false }
+                return currentSortAscending
+                    ? result == .orderedAscending
+                    : result == .orderedDescending
+            }
+            return items
         }
 
         switch currentSortKey {
@@ -1970,6 +2044,10 @@ public final class ViralDetectionTableView: NSView, NSOutlineViewDataSource, NSO
 
     var testingSearchField: NSSearchField { searchField }
 
+    var testingDisplayedSampleIDs: [String] {
+        sortedDisplayItems.map { sampleID(for: $0.assembly) }
+    }
+
     var testingScrollOriginY: CGFloat {
         scrollView.contentView.bounds.origin.y
     }
@@ -2009,6 +2087,16 @@ public final class ViralDetectionTableView: NSView, NSOutlineViewDataSource, NSO
     func testingSubmitSearchText(_ text: String) {
         searchField.stringValue = text
         searchFieldChanged(searchField)
+    }
+
+    func testingSubmitSearchTextImmediately(_ text: String) {
+        searchField.stringValue = text
+        setFilterText(text, debounce: false)
+    }
+
+    func testingSetColumnFilter(_ filter: ColumnFilter) {
+        columnFilterSet.replaceFilters(for: filter.columnId, with: filter)
+        applyFilterImmediately()
     }
 
     /// Test-only: the outline view's configured context menu. Equivalent to

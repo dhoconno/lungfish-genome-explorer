@@ -227,6 +227,9 @@ open class BatchTableView<Row>: NSView, NSTableViewDataSource, NSTableViewDelega
     /// Current filter text applied to rows.
     private var filterText: String = ""
 
+    /// Nil searches the existing built-in fields plus all displayed metadata.
+    private var selectedMetadataSearchColumnID: String?
+
     /// Pending user-typed free-text filter application.
     private var pendingFilterTask: Task<Void, Never>?
 
@@ -366,6 +369,12 @@ open class BatchTableView<Row>: NSView, NSTableViewDataSource, NSTableViewDelega
         metadataColumns.isMultiSampleMode = true
         metadataColumns.standardColumnNames = standardColumnNames
         metadataColumns.install(on: tv)
+        metadataColumns.onColumnsOrStoreChanged = { [weak self] in
+            guard let self else { return }
+            self.rebuildSearchScopeMenu()
+            self.applyFilter()
+        }
+        rebuildSearchScopeMenu()
         applyContentTypography()
         let notifications = NotificationCenterContentTypographyNotifications(
             notificationCenter: .default
@@ -592,7 +601,7 @@ open class BatchTableView<Row>: NSView, NSTableViewDataSource, NSTableViewDelega
         if filterText.isEmpty {
             filtered = unfilteredRows
         } else {
-            filtered = unfilteredRows.filter { rowMatchesFilter($0, filterText: filterText) }
+            filtered = unfilteredRows.filter { rowMatchesSearch($0, filterText: filterText) }
         }
 
         let columnFilterSnapshot = ColumnFilterSnapshot(columnFilterSet, typeHints: columnTypeHints)
@@ -608,7 +617,7 @@ open class BatchTableView<Row>: NSView, NSTableViewDataSource, NSTableViewDelega
         if let descriptor = tableView.sortDescriptors.first, let key = descriptor.key {
             let ascending = descriptor.ascending
             self.unsortedRows  = filtered
-            self.displayedRows = filtered.sorted { compareRows($0, $1, by: key, ascending: ascending) }
+            self.displayedRows = filtered.sorted { compareDisplayedRows($0, $1, by: key, ascending: ascending) }
         } else {
             self.unsortedRows  = filtered
             self.displayedRows = filtered
@@ -621,6 +630,77 @@ open class BatchTableView<Row>: NSView, NSTableViewDataSource, NSTableViewDelega
         )
         restoreSelectionByIdentityAfterDisplayedRowsChanged()
         didApplyDisplayedRows()
+    }
+
+    private func rowMatchesSearch(_ row: Row, filterText: String) -> Bool {
+        if let selectedMetadataSearchColumnID {
+            return metadataColumns.value(
+                columnID: selectedMetadataSearchColumnID,
+                sampleID: sampleId(for: row)
+            )?.localizedCaseInsensitiveContains(filterText) == true
+        }
+        if rowMatchesFilter(row, filterText: filterText) {
+            return true
+        }
+        return metadataColumns.displayedMetadataColumns.contains { column in
+            metadataColumns.value(columnID: column.id, sampleID: sampleId(for: row))?
+                .localizedCaseInsensitiveContains(filterText) == true
+        }
+    }
+
+    private func compareDisplayedRows(
+        _ lhs: Row,
+        _ rhs: Row,
+        by key: String,
+        ascending: Bool
+    ) -> Bool {
+        if let result = metadataColumns.comparison(
+            columnID: key,
+            lhsSampleID: sampleId(for: lhs),
+            rhsSampleID: sampleId(for: rhs)
+        ) {
+            return ascending ? result == .orderedAscending : result == .orderedDescending
+        }
+        return compareRows(lhs, rhs, by: key, ascending: ascending)
+    }
+
+    private func rebuildSearchScopeMenu() {
+        let displayedColumns = metadataColumns.displayedMetadataColumns
+        if let selectedMetadataSearchColumnID,
+           !displayedColumns.contains(where: { $0.id == selectedMetadataSearchColumnID }) {
+            self.selectedMetadataSearchColumnID = nil
+        }
+
+        let menu = NSMenu(title: "Search Fields")
+        let allFields = NSMenuItem(
+            title: "All Fields",
+            action: #selector(selectSearchScope(_:)),
+            keyEquivalent: ""
+        )
+        allFields.target = self
+        allFields.state = selectedMetadataSearchColumnID == nil ? .on : .off
+        menu.addItem(allFields)
+        if !displayedColumns.isEmpty {
+            menu.addItem(.separator())
+        }
+        for column in displayedColumns {
+            let item = NSMenuItem(
+                title: column.title,
+                action: #selector(selectSearchScope(_:)),
+                keyEquivalent: ""
+            )
+            item.target = self
+            item.representedObject = column.id
+            item.state = selectedMetadataSearchColumnID == column.id ? .on : .off
+            menu.addItem(item)
+        }
+        searchField.searchMenuTemplate = menu
+    }
+
+    @objc private func selectSearchScope(_ sender: NSMenuItem) {
+        selectedMetadataSearchColumnID = sender.representedObject as? String
+        rebuildSearchScopeMenu()
+        applyFilter()
     }
 
     private func columnFilterValue(for filter: PreparedColumnFilter, row: Row) -> ColumnFilterValue? {
@@ -796,7 +876,7 @@ open class BatchTableView<Row>: NSView, NSTableViewDataSource, NSTableViewDelega
             return
         }
         let ascending = descriptor.ascending
-        displayedRows = unsortedRows.sorted { compareRows($0, $1, by: key, ascending: ascending) }
+        displayedRows = unsortedRows.sorted { compareDisplayedRows($0, $1, by: key, ascending: ascending) }
         tableView.reloadData()
         restoreSelectionByIdentityAfterDisplayedRowsChanged()
     }

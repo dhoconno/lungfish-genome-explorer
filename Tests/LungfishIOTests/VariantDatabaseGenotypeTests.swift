@@ -1225,6 +1225,40 @@ final class VariantDatabaseGenotypeTests: XCTestCase {
 
     // MARK: - FORMAT Field Handling
 
+    func testNonCoreFormatFieldsPreserveIvarMeasurementsPerSample() throws {
+        let vcf = """
+        ##fileformat=VCFv4.2
+        ##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">
+        ##FORMAT=<ID=DP,Number=1,Type=Integer,Description="Depth">
+        ##FORMAT=<ID=ALT_FREQ,Number=1,Type=Float,Description="Frequency">
+        ##FORMAT=<ID=REF_DP,Number=1,Type=Integer,Description="Reference depth">
+        ##FORMAT=<ID=ALT_DP,Number=1,Type=Integer,Description="Alternate depth">
+        ##FORMAT=<ID=ALT_QUAL,Number=1,Type=Integer,Description="Alternate quality">
+        ##FORMAT=<ID=PL,Number=G,Type=Integer,Description="Likelihoods">
+        #CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tA\tB
+        NC_045512\t241\t.\tC\tT\t.\tPASS\tTYPE=SNP\tGT:DP:REF_DP:ALT_DP:ALT_QUAL:ALT_FREQ:PL\t1:2140:0:2140:66:1:9,8,7\t1:30:28:2:20:0:3,2,1
+        NC_045512\t509\t.\tGGUCAUGUUAUGGUU\tG\t.\tPASS\tTYPE=DEL\tGT:DP:ALT_FREQ:PL\t1:30:0.0666667\t1:31:.:.
+        """
+        let (db, _) = try createDatabase(from: vcf)
+        let variants = db.query(chromosome: "NC_045512", start: 0, end: 1_000)
+
+        let first = try XCTUnwrap(variants.first)
+        let firstSamples = db.genotypes(forVariantId: try XCTUnwrap(first.id))
+        let a = try XCTUnwrap(firstSamples.first { $0.sampleName == "A" })
+        let b = try XCTUnwrap(firstSamples.first { $0.sampleName == "B" })
+        XCTAssertEqual(AnnotationDatabase.parseAttributes(a.rawFields ?? "")["ALT_FREQ"], "1")
+        XCTAssertEqual(AnnotationDatabase.parseAttributes(a.rawFields ?? "")["PL"], "9,8,7")
+        XCTAssertEqual(AnnotationDatabase.parseAttributes(b.rawFields ?? "")["ALT_FREQ"], "0")
+        XCTAssertEqual(a.depth, 2140)
+
+        let second = try XCTUnwrap(variants.last)
+        let secondSamples = db.genotypes(forVariantId: try XCTUnwrap(second.id))
+        XCTAssertEqual(AnnotationDatabase.parseAttributes(
+            try XCTUnwrap(secondSamples.first { $0.sampleName == "A" }).rawFields ?? ""
+        )["ALT_FREQ"], "0.0666667")
+        XCTAssertNil(try XCTUnwrap(secondSamples.first { $0.sampleName == "B" }).rawFields)
+    }
+
     func testFormatWithOnlyGT() throws {
         // VCF with only GT in FORMAT (no DP, GQ, AD)
         let vcf = """

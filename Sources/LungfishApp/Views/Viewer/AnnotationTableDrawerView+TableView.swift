@@ -10,6 +10,17 @@ import os.log
 
 extension AnnotationTableDrawerView {
 
+    struct VariantCallSelectionIdentity: Hashable {
+        let trackID: String
+        let rowID: Int64
+    }
+
+    struct VariantGenotypeSelectionIdentity: Hashable {
+        let trackID: String
+        let rowID: Int64
+        let sampleName: String
+    }
+
     // MARK: - Filter Profiles
 
     /// Rebuilds the filter profile popup menu.
@@ -223,9 +234,12 @@ extension AnnotationTableDrawerView {
     // MARK: - Actions
 
     @objc func tableViewDoubleClicked(_ sender: Any) {
-        let row = tableView.clickedRow
+        activateRow(at: tableView.clickedRow)
+    }
+
+    func activateRow(at row: Int) {
         guard row >= 0 else { return }
-        // Samples and genotype subtab don't navigate on double-click
+        // Samples don't navigate on double-click.
         guard activeTab != .samples else { return }
         if activeTab == .variants && activeVariantSubtab == .genotypes {
             // Navigate to the variant's position for the genotype row
@@ -258,6 +272,25 @@ extension AnnotationTableDrawerView {
               let key = sortDescriptor.key else { return }
 
         let ascending = sortDescriptor.ascending
+        let preservesVariantCallSelection = activeTab == .variants && activeVariantSubtab == .calls
+        let preservesVariantGenotypeSelection = activeTab == .variants && activeVariantSubtab == .genotypes
+        let selectedVariantIdentities = selectedVariantCallSelectionIdentities()
+        let selectedGenotypeIdentities = selectedVariantGenotypeSelectionIdentities()
+        let wasSuppressingDelegateCallbacks = isSuppressingDelegateCallbacks
+        if preservesVariantCallSelection || preservesVariantGenotypeSelection {
+            isSuppressingDelegateCallbacks = true
+        }
+        defer {
+            if preservesVariantCallSelection {
+                restoreVariantCallSelection(selectedVariantIdentities)
+                isSuppressingDelegateCallbacks = wasSuppressingDelegateCallbacks
+                if !wasSuppressingDelegateCallbacks { publishCurrentVariantSelection() }
+            } else if preservesVariantGenotypeSelection {
+                restoreVariantGenotypeSelection(selectedGenotypeIdentities)
+                isSuppressingDelegateCallbacks = wasSuppressingDelegateCallbacks
+                if !wasSuppressingDelegateCallbacks { publishCurrentVariantSelection() }
+            }
+        }
 
         if activeTab == .samples {
             let sortedAllSamples = sortedSampleNames(key: key, ascending: ascending, names: resolvedSampleOrder())
@@ -337,7 +370,12 @@ extension AnnotationTableDrawerView {
             case "track_id":
                 result = a.trackId.localizedCaseInsensitiveCompare(b.trackId)
             case "track_name":
-                result = annotationTrackName(for: a).localizedCaseInsensitiveCompare(annotationTrackName(for: b))
+                if activeTab == .variants {
+                    result = variantColumnValue(a, key: "track_name")
+                        .localizedCaseInsensitiveCompare(variantColumnValue(b, key: "track_name"))
+                } else {
+                    result = annotationTrackName(for: a).localizedCaseInsensitiveCompare(annotationTrackName(for: b))
+                }
             case "caller_settings":
                 let aSettings = searchIndex?.variantCallerSettings(for: a.trackId) ?? "Not recorded"
                 let bSettings = searchIndex?.variantCallerSettings(for: b.trackId) ?? "Not recorded"
@@ -406,10 +444,97 @@ extension AnnotationTableDrawerView {
                     result = .orderedSame
                 }
             }
-            return ascending ? result == .orderedAscending : result == .orderedDescending
+            if result != .orderedSame {
+                return ascending ? result == .orderedAscending : result == .orderedDescending
+            }
+            return variantRowTieBreak(a, b)
         }
 
         tableView.reloadData()
+    }
+
+    func selectedVariantCallSelectionIdentities() -> Set<VariantCallSelectionIdentity> {
+        guard activeTab == .variants, activeVariantSubtab == .calls else { return [] }
+        return selectedVariantCallSelectionIdentities(in: displayedAnnotations)
+    }
+
+    func selectedVariantCallSelectionIdentities(
+        in rows: [AnnotationSearchIndex.SearchResult]
+    ) -> Set<VariantCallSelectionIdentity> {
+        guard activeTab == .variants, activeVariantSubtab == .calls else { return [] }
+        return Set(tableView.selectedRowIndexes.compactMap { index in
+            guard rows.indices.contains(index),
+                  let rowID = rows[index].variantRowId else { return nil }
+            return VariantCallSelectionIdentity(
+                trackID: rows[index].trackId,
+                rowID: rowID
+            )
+        })
+    }
+
+    func restoreVariantCallSelection(_ identities: Set<VariantCallSelectionIdentity>) {
+        guard activeTab == .variants, activeVariantSubtab == .calls else { return }
+        let indexes = IndexSet(displayedAnnotations.indices.filter { index in
+            guard let rowID = displayedAnnotations[index].variantRowId else { return false }
+            return identities.contains(
+                VariantCallSelectionIdentity(trackID: displayedAnnotations[index].trackId, rowID: rowID)
+            )
+        })
+        tableView.selectRowIndexes(indexes, byExtendingSelection: false)
+    }
+
+    func restoreAndPublishVariantCallSelection(_ identities: Set<VariantCallSelectionIdentity>) {
+        let wasSuppressing = isSuppressingDelegateCallbacks
+        isSuppressingDelegateCallbacks = true
+        restoreVariantCallSelection(identities)
+        isSuppressingDelegateCallbacks = wasSuppressing
+        if !wasSuppressing {
+            publishCurrentVariantSelection()
+        }
+    }
+
+    func selectedVariantGenotypeSelectionIdentities() -> Set<VariantGenotypeSelectionIdentity> {
+        guard activeTab == .variants, activeVariantSubtab == .genotypes else { return [] }
+        return Set(tableView.selectedRowIndexes.compactMap { index in
+            guard displayedGenotypes.indices.contains(index) else { return nil }
+            let row = displayedGenotypes[index]
+            return VariantGenotypeSelectionIdentity(
+                trackID: row.trackId, rowID: row.variantRowId, sampleName: row.sampleName
+            )
+        })
+    }
+
+    func restoreVariantGenotypeSelection(_ identities: Set<VariantGenotypeSelectionIdentity>) {
+        guard activeTab == .variants, activeVariantSubtab == .genotypes else { return }
+        let indexes = IndexSet(displayedGenotypes.indices.filter { index in
+            let row = displayedGenotypes[index]
+            return identities.contains(
+                VariantGenotypeSelectionIdentity(
+                    trackID: row.trackId, rowID: row.variantRowId, sampleName: row.sampleName
+                )
+            )
+        })
+        tableView.selectRowIndexes(indexes, byExtendingSelection: false)
+    }
+
+    /// Reapplies the active Calls sort after a query or local filter replaces rows.
+    func sortDisplayedVariantCallsIfNeeded() {
+        guard activeTab == .variants, activeVariantSubtab == .calls,
+              tableView.sortDescriptors.first?.key != nil else { return }
+        tableView(tableView, sortDescriptorsDidChange: tableView.sortDescriptors)
+    }
+
+    private func variantRowTieBreak(
+        _ lhs: AnnotationSearchIndex.SearchResult,
+        _ rhs: AnnotationSearchIndex.SearchResult
+    ) -> Bool {
+        if lhs.trackId != rhs.trackId { return lhs.trackId < rhs.trackId }
+        if lhs.variantRowId != rhs.variantRowId {
+            return (lhs.variantRowId ?? Int64.min) < (rhs.variantRowId ?? Int64.min)
+        }
+        if lhs.chromosome != rhs.chromosome { return lhs.chromosome < rhs.chromosome }
+        if lhs.start != rhs.start { return lhs.start < rhs.start }
+        return lhs.name < rhs.name
     }
 
     // MARK: - NSTableViewDelegate
@@ -565,26 +690,81 @@ extension AnnotationTableDrawerView {
 
     public func tableViewSelectionDidChange(_ notification: Notification) {
         guard !isSuppressingDelegateCallbacks else { return }
-        // Samples tab doesn't navigate on selection
+        // Samples don't publish a genomic selection.
         guard activeTab != .samples else { return }
         let selectedRows = tableView.selectedRowIndexes
-        // Only navigate to a single selection — multi-select doesn't trigger navigation
-        guard selectedRows.count == 1, let row = selectedRows.first else { return }
-        // Genotype subtab: navigate to the parent variant
-        if activeTab == .variants && activeVariantSubtab == .genotypes {
-            guard row < displayedGenotypes.count else { return }
-            let gt = displayedGenotypes[row]
-            if let variant = displayedAnnotations.first(where: {
-                $0.trackId == gt.trackId && $0.variantRowId == gt.variantRowId
-            }) {
-                delegate?.annotationDrawer(self, didSelectAnnotation: variant)
+        // A variant selection updates the Inspector without moving the viewport.
+        if activeTab == .variants {
+            if selectedRows.count != 1 {
+                delegate?.annotationDrawer(self, didHighlightVariants: variantSelectionEntriesForSelectedRows())
+                return
+            }
+            guard let row = selectedRows.first else { return }
+            if activeVariantSubtab == .genotypes {
+                guard row < displayedGenotypes.count else { return }
+                let genotype = displayedGenotypes[row]
+                if let variant = displayedAnnotations.first(where: {
+                    $0.trackId == genotype.trackId && $0.variantRowId == genotype.variantRowId
+                }) {
+                    delegate?.annotationDrawer(self, didHighlightVariant: variant)
+                }
+            } else {
+                guard row < displayedAnnotations.count else { return }
+                delegate?.annotationDrawer(self, didHighlightVariant: displayedAnnotations[row])
             }
             return
         }
+        guard selectedRows.count == 1, let row = selectedRows.first else { return }
         guard row < displayedAnnotations.count else { return }
         let annotation = displayedAnnotations[row]
         annotationDrawerLogger.debug("AnnotationTableDrawerView: Selected '\(annotation.name, privacy: .public)' at row \(row)")
         delegate?.annotationDrawer(self, didSelectAnnotation: annotation)
+    }
+
+    /// Maps the current variant selection in displayed order without database fetches.
+    func variantSelectionEntriesForSelectedRows() -> [VariantSelectionEntry] {
+        guard activeTab == .variants else { return [] }
+        return tableView.selectedRowIndexes.sorted().compactMap { row in
+            if activeVariantSubtab == .genotypes {
+                guard displayedGenotypes.indices.contains(row) else { return nil }
+                let genotype = displayedGenotypes[row]
+                guard let result = displayedAnnotations.first(where: {
+                    $0.trackId == genotype.trackId && $0.variantRowId == genotype.variantRowId
+                }) else { return nil }
+                var fields = variantInspectorFields(for: result)
+                fields.append(contentsOf: [
+                    VariantInspectorField(key: "sample", label: "Sample", value: genotype.sampleName),
+                    VariantInspectorField(key: "genotype", label: "Genotype", value: genotype.genotype),
+                    VariantInspectorField(key: "zygosity", label: "Zygosity", value: genotype.zygosity),
+                    VariantInspectorField(key: "format_ad", label: "Allele Depths (AD)", value: genotype.alleleDepths),
+                    VariantInspectorField(key: "format_dp", label: "Depth (DP)", value: genotype.depth.map(String.init) ?? "."),
+                    VariantInspectorField(key: "format_gq", label: "Genotype Quality (GQ)", value: genotype.genotypeQuality.map(String.init) ?? "."),
+                    VariantInspectorField(key: "format_ab", label: "Allele Balance", value: genotype.alleleBalance.map { String(format: "%.2f", $0) } ?? "."),
+                ])
+                fields.append(contentsOf: genotype.infoDict.keys.sorted().map {
+                    VariantInspectorField(key: "info_\($0)", label: $0, value: genotype.infoDict[$0] ?? "")
+                })
+                return VariantSelectionEntry(result: result, fields: fields, sampleName: genotype.sampleName)
+            }
+            guard displayedAnnotations.indices.contains(row) else { return nil }
+            let result = displayedAnnotations[row]
+            var fields = variantInspectorFields(for: result)
+            fields.append(contentsOf: (result.infoDict ?? [:]).keys.sorted().map {
+                VariantInspectorField(key: "info_\($0)", label: $0, value: result.infoDict?[$0] ?? "")
+            })
+            return VariantSelectionEntry(result: result, fields: fields)
+        }
+    }
+
+    /// Publishes the current post-filter selection exactly once after restoration.
+    func publishCurrentVariantSelection() {
+        guard activeTab == .variants else { return }
+        let entries = variantSelectionEntriesForSelectedRows()
+        if entries.count == 1, let result = entries.first?.result {
+            delegate?.annotationDrawer(self, didHighlightVariant: result)
+        } else {
+            delegate?.annotationDrawer(self, didHighlightVariants: entries)
+        }
     }
 
     // MARK: - Formatting

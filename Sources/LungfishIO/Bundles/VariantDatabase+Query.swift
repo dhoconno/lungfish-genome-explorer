@@ -336,6 +336,88 @@ extension VariantDatabase {
         return readVariantRows(stmt: stmt!)
     }
 
+    /// Throwing export counterpart that distinguishes completion from SQLite
+    /// interruption/failure and therefore cannot publish a truncated all-match export.
+    public func queryForTableExport(
+        chromosome: String? = nil,
+        nameFilter: String = "",
+        types: Set<String> = [],
+        infoFilters: [InfoFilter] = [],
+        sampleNames: Set<String> = [],
+        smartFilter: VariantSmartFilter? = nil,
+        activeTokens: Set<String> = [],
+        limit: Int
+    ) throws -> [VariantDatabaseRecord] {
+        guard let db else { throw VariantDatabaseError.openFailed("Database handle is nil") }
+        var tokenJoins: [String] = []
+        var supersededFilters = SupersededFilters()
+        for token in activeTokens {
+            if let join = tokenJoinSQL(for: token) {
+                tokenJoins.append(join)
+                supersededFilters.add(token)
+            }
+        }
+        let useHighImpactJoin = tokenJoins.isEmpty && isHighImpactOnlyFilter(infoFilters)
+        let effectiveInfoFilters = useHighImpactJoin ? [] : supersededFilters.filterInfoFilters(infoFilters)
+        let useQualifiedColumns = !tokenJoins.isEmpty || useHighImpactJoin
+        let selectColumns = useQualifiedColumns
+            ? "variants.id, variants.chromosome, variants.position, variants.end_pos, variants.variant_id, variants.ref, variants.alt, variants.variant_type, variants.quality, variants.filter, variants.info, variants.sample_count"
+            : "id, chromosome, position, end_pos, variant_id, ref, alt, variant_type, quality, filter, info, sample_count"
+        var sql = "SELECT \(selectColumns) FROM variants"
+        for join in tokenJoins { sql += " \(join)" }
+        if useHighImpactJoin { sql += " \(highImpactJoinSQL())" }
+        var conditions: [String] = []
+        var bindings: [(Int32, VariantSmartBinding)] = []
+        var parameterIndex: Int32 = 1
+        if let chromosome {
+            conditions.append("variants.chromosome = ?")
+            bindings.append((parameterIndex, .text(chromosome)))
+            parameterIndex += 1
+        }
+        if !nameFilter.isEmpty {
+            conditions.append("variants.variant_id LIKE ? ESCAPE '\\'")
+            bindings.append((parameterIndex, .text(SQLiteLikePattern.contains(nameFilter))))
+            parameterIndex += 1
+        }
+        if !types.isEmpty && !supersededFilters.typesSuperseded {
+            conditions.append("variants.variant_type IN (\(types.map { _ in "?" }.joined(separator: ",")))")
+            for type in types.sorted() {
+                bindings.append((parameterIndex, .text(type)))
+                parameterIndex += 1
+            }
+        }
+        if !sampleNames.isEmpty {
+            let names = sampleNames.sorted()
+            conditions.append("EXISTS (SELECT 1 FROM genotypes g WHERE g.variant_id = variants.id AND g.sample_name IN (\(names.map { _ in "?" }.joined(separator: ","))))")
+            for name in names {
+                bindings.append((parameterIndex, .text(name)))
+                parameterIndex += 1
+            }
+        }
+        for filter in effectiveInfoFilters {
+            let (condition, values) = filter.sqlCondition(paramIndex: &parameterIndex)
+            conditions.append(condition)
+            bindings.append(contentsOf: values.map { ($0.0, .text($0.1)) })
+        }
+        if let smartFilter {
+            let compiled = try smartFilter.compileSQLConditions()
+            conditions.append(contentsOf: compiled.conditions)
+            for binding in compiled.bindings {
+                bindings.append((parameterIndex, binding))
+                parameterIndex += 1
+            }
+        }
+        if !conditions.isEmpty { sql += " WHERE " + conditions.joined(separator: " AND ") }
+        sql += " ORDER BY variants.chromosome, variants.position LIMIT \(max(0, limit))"
+        var statement: OpaquePointer?
+        defer { sqlite3_finalize(statement) }
+        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK, let statement else {
+            throw VariantDatabaseError.queryFailed(String(cString: sqlite3_errmsg(db)))
+        }
+        for (index, binding) in bindings { variantDBBindSmartBinding(statement, index, binding) }
+        return try readVariantRowsThrowing(stmt: statement)
+    }
+
     /// Tracks which WHERE clauses are superseded by pre-materialized token JOINs.
     struct SupersededFilters {
         var typesSuperseded = false

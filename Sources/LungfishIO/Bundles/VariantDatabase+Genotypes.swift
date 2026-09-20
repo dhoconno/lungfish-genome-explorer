@@ -156,6 +156,59 @@ extension VariantDatabase {
         return grouped
     }
 
+    /// Complete, throwing counterpart used by scientific exports. A failed chunk
+    /// aborts the export instead of silently omitting its genotypes.
+    public func genotypesForExport(variantRowIds: [Int64]) throws -> [Int64: [GenotypeRecord]] {
+        guard let db else { throw VariantDatabaseError.openFailed("Database handle is nil") }
+        let uniqueIds = Array(Set(variantRowIds))
+        guard !uniqueIds.isEmpty else { return [:] }
+        var grouped: [Int64: [GenotypeRecord]] = [:]
+        for chunkStart in stride(from: 0, to: uniqueIds.count, by: 500) {
+            let chunk = Array(uniqueIds[chunkStart..<min(chunkStart + 500, uniqueIds.count)])
+            let placeholders = chunk.map { _ in "?" }.joined(separator: ",")
+            let sql = """
+                SELECT variant_id, sample_name, genotype, allele1, allele2, is_phased, depth, genotype_quality, allele_depths, raw_fields
+                FROM genotypes WHERE variant_id IN (\(placeholders))
+                ORDER BY variant_id, sample_name
+                """
+            var statement: OpaquePointer?
+            defer { sqlite3_finalize(statement) }
+            guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK, let statement else {
+                throw VariantDatabaseError.queryFailed(String(cString: sqlite3_errmsg(db)))
+            }
+            for (index, id) in chunk.enumerated() { sqlite3_bind_int64(statement, Int32(index + 1), id) }
+            while true {
+                let status = sqlite3_step(statement)
+                switch status {
+                case SQLITE_ROW:
+                    let variantID = sqlite3_column_int64(statement, 0)
+                    let sampleName = String(cString: sqlite3_column_text(statement, 1))
+                    let genotype = sqlite3_column_text(statement, 2).map { String(cString: $0) }
+                    let allele1 = Int(sqlite3_column_int(statement, 3))
+                    let allele2 = Int(sqlite3_column_int(statement, 4))
+                    let isPhased = sqlite3_column_int(statement, 5) != 0
+                    let depth = sqlite3_column_type(statement, 6) == SQLITE_NULL ? nil : Int(sqlite3_column_int(statement, 6))
+                    let quality = sqlite3_column_type(statement, 7) == SQLITE_NULL ? nil : Int(sqlite3_column_int(statement, 7))
+                    let depths = sqlite3_column_text(statement, 8).map { String(cString: $0) }
+                    let raw = sqlite3_column_text(statement, 9).map { String(cString: $0) }
+                    grouped[variantID, default: []].append(GenotypeRecord(
+                        variantRowId: variantID, sampleName: sampleName, genotype: genotype,
+                        allele1: allele1, allele2: allele2, isPhased: isPhased,
+                        depth: depth, genotypeQuality: quality, alleleDepths: depths, rawFields: raw
+                    ))
+                case SQLITE_DONE:
+                    break
+                case SQLITE_INTERRUPT:
+                    throw VariantDatabaseError.cancelled
+                default:
+                    throw VariantDatabaseError.queryFailed(String(cString: sqlite3_errmsg(db)))
+                }
+                if status == SQLITE_DONE { break }
+            }
+        }
+        return grouped
+    }
+
     /// Returns genotype records for a specific sample in a genomic region.
     ///
     /// Joins genotypes with variants to filter by region.

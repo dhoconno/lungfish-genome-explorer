@@ -9,6 +9,16 @@ import os.log
 
 private let logger = Logger(subsystem: LogSubsystem.app, category: "AnnotationSection")
 
+public struct VariantTrackVisibilityItem: Identifiable, Equatable, Sendable {
+    public let id: String
+    public let name: String
+
+    public init(id: String, name: String) {
+        self.id = id
+        self.name = name
+    }
+}
+
 /// View model for the annotation section.
 ///
 /// Manages annotation display settings like height, visibility, and filtering.
@@ -57,11 +67,20 @@ public final class AnnotationSectionViewModel {
     /// All known variant types (populated when bundle loads)
     public var availableVariantTypes: [String] = []
 
+    /// Full bundle track inventory, including currently hidden tracks.
+    public var availableVariantTracks: [VariantTrackVisibilityItem] = []
+
+    /// Stable IDs hidden across variant tables and rendering.
+    public var hiddenVariantTrackIDs: Set<String> = []
+
     /// Callback when settings change
     public var onSettingsChanged: (() -> Void)?
 
     /// Callback when filter changes
     public var onFilterChanged: ((Set<AnnotationType>, String) -> Void)?
+
+    /// Callback used by the owning Inspector controller to publish a scoped payload.
+    public var onVariantFilterChanged: (() -> Void)?
 
     public init() {}
 
@@ -145,6 +164,7 @@ public final class AnnotationSectionViewModel {
         showVariants = true
         visibleVariantTypes = Set(availableVariantTypes)
         variantFilterText = ""
+        hiddenVariantTrackIDs = []
         notifySettingsChanged()
         notifyFilterChanged()
         notifyVariantFilterChanged()
@@ -154,13 +174,18 @@ public final class AnnotationSectionViewModel {
 
     /// Notifies listeners that variant filter settings changed.
     public func notifyVariantFilterChanged() {
+        if let onVariantFilterChanged {
+            onVariantFilterChanged()
+            return
+        }
         NotificationCenter.default.post(
             name: .variantFilterChanged,
             object: self,
             userInfo: [
                 NotificationUserInfoKey.showVariants: showVariants,
                 NotificationUserInfoKey.visibleVariantTypes: visibleVariantTypes,
-                NotificationUserInfoKey.variantFilterText: variantFilterText
+                NotificationUserInfoKey.variantFilterText: variantFilterText,
+                NotificationUserInfoKey.hiddenVariantTrackIDs: hiddenVariantTrackIDs
             ]
         )
     }
@@ -203,6 +228,31 @@ public final class AnnotationSectionViewModel {
         }
         notifyVariantFilterChanged()
     }
+
+    /// Reconciles saved hidden IDs with the full current bundle inventory.
+    public func setAvailableVariantTracks(_ tracks: [VariantTrackVisibilityItem]) {
+        let normalized = tracks.sorted {
+            let nameOrder = $0.name.localizedCaseInsensitiveCompare($1.name)
+            return nameOrder == .orderedSame ? $0.id < $1.id : nameOrder == .orderedAscending
+        }
+        availableVariantTracks = normalized
+        hiddenVariantTrackIDs.formIntersection(normalized.map(\.id))
+    }
+
+    public func setVariantTrackVisible(trackID: String, visible: Bool) {
+        guard availableVariantTracks.contains(where: { $0.id == trackID }) else { return }
+        if visible {
+            hiddenVariantTrackIDs.remove(trackID)
+        } else {
+            hiddenVariantTrackIDs.insert(trackID)
+        }
+        notifyVariantFilterChanged()
+    }
+
+    public func setAllVariantTracksVisible(_ visible: Bool) {
+        hiddenVariantTrackIDs = visible ? [] : Set(availableVariantTracks.map(\.id))
+        notifyVariantFilterChanged()
+    }
 }
 
 // MARK: - AnnotationSection
@@ -231,7 +281,7 @@ public struct AnnotationSection: View {
                     typeFilterSection
                 }
 
-                if !viewModel.availableVariantTypes.isEmpty {
+                if !viewModel.availableVariantTypes.isEmpty || !viewModel.availableVariantTracks.isEmpty {
                     Divider()
                         .padding(.vertical, 4)
 
@@ -357,6 +407,49 @@ public struct AnnotationSection: View {
                         variantTypeChip(vtype)
                     }
                 }
+            }
+
+            if !viewModel.availableVariantTracks.isEmpty {
+                Divider()
+                variantTrackVisibilitySection
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var variantTrackVisibilitySection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text("Variant Tracks")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Button("All") { viewModel.setAllVariantTracksVisible(true) }
+                    .buttonStyle(.borderless)
+                    .font(LungfishInspectorStyle.controlFont)
+                Button("None") { viewModel.setAllVariantTracksVisible(false) }
+                    .buttonStyle(.borderless)
+                    .font(LungfishInspectorStyle.controlFont)
+            }
+
+            ForEach(viewModel.availableVariantTracks) { track in
+                Toggle(isOn: Binding(
+                    get: { !viewModel.hiddenVariantTrackIDs.contains(track.id) },
+                    set: { viewModel.setVariantTrackVisible(trackID: track.id, visible: $0) }
+                )) {
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(track.name)
+                            .lineLimit(1)
+                        if viewModel.availableVariantTracks.filter({ $0.name == track.name }).count > 1 {
+                            Text(track.id)
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                        }
+                    }
+                }
+                .toggleStyle(.checkbox)
+                .help("Variant track ID: \(track.id)")
             }
         }
     }

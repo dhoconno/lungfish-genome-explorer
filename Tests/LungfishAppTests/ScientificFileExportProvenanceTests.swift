@@ -264,6 +264,32 @@ final class ScientificFileExportProvenanceTests: XCTestCase {
         XCTAssertEqual(try String(contentsOf: sidecarURL, encoding: .utf8), "old provenance\n")
     }
 
+    func testRetainedSnapshotCanPreserveOriginalScientificSourcesAlongsideReplayInputs() throws {
+        let sourceURL = tempDir.appendingPathComponent("source.vcf")
+        let outputURL = tempDir.appendingPathComponent("variants.csv")
+        try "##fileformat=VCFv4.3\n".write(to: sourceURL, atomically: true, encoding: .utf8)
+        let snapshot = try RetainedSelectionExportSnapshot(
+            outputURL: outputURL,
+            selectionMetadata: Data("{\"rows\":[]}".utf8)
+        )
+        try Data("ID\nrs1\n".utf8).write(to: snapshot.payloadURL)
+
+        try snapshot.publish(.init(
+            workflowName: "table export",
+            sourceURLs: [sourceURL],
+            outputURL: outputURL,
+            outputFormat: .text,
+            argv: ["Lungfish.app", "export-annotation-table"],
+            startedAt: Date()
+        ), preserveOriginalSources: true)
+
+        let sidecar = ProvenanceRecorder.fileSidecarURL(for: outputURL)
+        let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: sidecar))
+        XCTAssertTrue(envelope.files.contains { $0.path == sourceURL.path && $0.role == .input })
+        XCTAssertTrue(envelope.files.contains { $0.path == snapshot.payloadURL.path && $0.role == .input })
+        XCTAssertEqual(envelope.durableReplayArgv, ["/bin/cp", snapshot.payloadURL.path, outputURL.path])
+    }
+
     func testWriteAtomicallyRefusesToReplaceExistingDirectory() throws {
         let sourceURL = tempDir.appendingPathComponent("source.tsv")
         let outputURL = tempDir.appendingPathComponent("Existing.lungfishref", isDirectory: true)
@@ -426,7 +452,6 @@ final class ScientificFileExportProvenanceTests: XCTestCase {
             ("Sources/LungfishApp/Views/Viewer/SequenceViewerView+Drawing.swift", "lungfish app sequence fasta export"),
             ("Sources/LungfishApp/Views/Results/Reference/ReferenceBundleViewportController.swift", "lungfish app mapping result export"),
             ("Sources/LungfishApp/Views/Results/Taxonomy/TaxonomyResultViewController.swift", "lungfish app taxonomy result export"),
-            ("Sources/LungfishApp/Views/Viewer/AnnotationTableDrawerView+Export.swift", "lungfish app annotation table export"),
             ("Sources/LungfishApp/Views/Viewer/FASTQMetadataDrawerView.swift", "lungfish app fastq metadata export"),
             ("Sources/LungfishPhylogeneticsUI/PhylogeneticTreeViewController.swift", "lungfish app phylogenetic subtree export"),
             ("Sources/LungfishNaoMgsUI/NaoMgsResultViewController.swift", "lungfish app naomgs summary export"),
@@ -461,12 +486,20 @@ final class ScientificFileExportProvenanceTests: XCTestCase {
         XCTAssertTrue(taxonomySource.contains("taxonomyExportSourceURLs"))
         XCTAssertTrue(taxonomySource.contains("taxonomyExportArgv"))
 
-        let annotationExportSource = try String(
-            contentsOf: root.appendingPathComponent("Sources/LungfishApp/Views/Viewer/AnnotationTableDrawerView+Export.swift"),
+        let annotationExportService = try String(
+            contentsOf: root.appendingPathComponent("Sources/LungfishApp/Services/AnnotationTableExportService.swift"),
             encoding: .utf8
         )
-        XCTAssertTrue(annotationExportSource.contains("tableExportSourceURLs"))
-        XCTAssertTrue(annotationExportSource.contains("sourceDatabasePaths"))
+        XCTAssertTrue(annotationExportService.contains(#"workflowName: "lungfish app annotation table export""#))
+        XCTAssertTrue(annotationExportService.contains("retained.publish(.init("))
+        XCTAssertTrue(annotationExportService.contains("preserveOriginalSources: true"))
+
+        let annotationExportCapture = try String(
+            contentsOf: root.appendingPathComponent("Sources/LungfishApp/Views/Viewer/AnnotationTableDrawerView+ExportCapture.swift"),
+            encoding: .utf8
+        )
+        XCTAssertTrue(annotationExportCapture.contains("scientificTableExportSourceURLs"))
+        XCTAssertTrue(annotationExportCapture.contains("variantFormatOverlaySnapshot.sourceIdentities"))
 
         let fastqMetadataSource = try String(
             contentsOf: root.appendingPathComponent("Sources/LungfishApp/Views/Viewer/FASTQMetadataDrawerView.swift"),

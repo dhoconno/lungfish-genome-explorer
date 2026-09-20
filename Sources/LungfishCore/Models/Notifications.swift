@@ -218,7 +218,12 @@ extension Notification.Name {
     ///
     /// The `userInfo` dictionary contains:
     /// - `"searchResult"`: `AnnotationSearchIndex.SearchResult` for the selected variant.
+    /// - `"variantInspectorFields"`: Optional fixed table presentation fields.
     public static let variantSelected = Notification.Name("variantSelected")
+
+    /// Posted when the variant table selection contains zero or multiple rows.
+    /// The payload is an immutable array of app-layer VariantSelectionEntry values.
+    public static let variantSelectionChanged = Notification.Name("variantSelectionChanged")
 
     /// Posted to request copying an annotation's raw sequence to the clipboard.
     ///
@@ -348,11 +353,20 @@ public enum NotificationUserInfoKey {
     /// Key for variant text filter (String).
     public static let variantFilterText = "variantFilterText"
 
+    /// Key for hidden variant track IDs (Set<String>).
+    public static let hiddenVariantTrackIDs = "hiddenVariantTrackIDs"
+
     /// Key for sample display state (SampleDisplayState).
     public static let sampleDisplayState = "sampleDisplayState"
 
     /// Key for selected variant search result.
     public static let searchResult = "searchResult"
+
+    /// Key for fixed variant-table values resolved for Inspector presentation.
+    public static let variantInspectorFields = "variantInspectorFields"
+
+    /// Key for rich selected variant/genotype row payloads.
+    public static let variantSelectionEntries = "variantSelectionEntries"
 
     /// Key indicating preferred table focus behavior for a variant selection event.
     /// Expected values include "calls" and "genotypes".

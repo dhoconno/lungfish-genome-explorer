@@ -767,6 +767,8 @@ public class SequenceViewerView: NSView {
     /// Optional row-level variant render filter from the drawer (`trackId:variantRowId`).
     /// `nil` means render all variants that pass inspector filters.
     var localVariantRenderFilterKeys: Set<String>?
+    /// Bundle-owned track visibility. Unknown legacy records without a track ID remain visible.
+    var hiddenVariantTrackIDs: Set<String> = []
     /// Optional row-level annotation render filter from the drawer (`trackId:annotationRowId`).
     /// `nil` means render all annotations that pass inspector filters.
     var localAnnotationRenderFilterKeys: Set<String>?
@@ -801,6 +803,14 @@ public class SequenceViewerView: NSView {
             return []
         }
         var variants = cachedVariantAnnotations
+        if !hiddenVariantTrackIDs.isEmpty {
+            variants = variants.filter { annotation in
+                guard let trackID = annotation.qualifiers["variant_track_id"]?.values.first else {
+                    return true
+                }
+                return !hiddenVariantTrackIDs.contains(trackID)
+            }
+        }
         if let typeFilter = visibleVariantTypes, !typeFilter.isEmpty {
             variants = variants.filter { ann in
                 let vtypeStr = ann.qualifiers["variant_type"]?.values.first ?? ""
@@ -835,11 +845,14 @@ public class SequenceViewerView: NSView {
     /// Genotype data after applying the optional drawer-local render filter (`trackId:rowId`).
     func filteredVisibleGenotypeData() -> GenotypeDisplayData? {
         guard let genotypeData = cachedGenotypeData else { return nil }
-        guard let localKeys = localVariantRenderFilterKeys else { return genotypeData }
         if let cached = _cachedFilteredGenotypeData { return cached }
         let filteredSites = genotypeData.sites.filter { site in
-            guard let trackId = site.sourceTrackId, let rowId = site.databaseRowId else { return false }
-            return localKeys.contains("\(trackId):\(rowId)")
+            if let trackID = site.sourceTrackId, hiddenVariantTrackIDs.contains(trackID) {
+                return false
+            }
+            guard let localKeys = localVariantRenderFilterKeys else { return true }
+            guard let trackID = site.sourceTrackId, let rowID = site.databaseRowId else { return false }
+            return localKeys.contains("\(trackID):\(rowID)")
         }
         let filtered = GenotypeDisplayData(sampleNames: genotypeData.sampleNames, sites: filteredSites, region: genotypeData.region)
         _cachedFilteredGenotypeData = filtered
@@ -850,6 +863,16 @@ public class SequenceViewerView: NSView {
     func invalidateFilteredVariantCache() {
         _cachedFilteredVariants = nil
         filteredVariantCacheViewportSignature = nil
+    }
+
+    /// Applies track visibility independently of the drawer-local row filter.
+    func setHiddenVariantTrackIDs(_ ids: Set<String>) {
+        guard hiddenVariantTrackIDs != ids else { return }
+        hiddenVariantTrackIDs = ids
+        _cachedFilteredGenotypeData = nil
+        invalidateFilteredVariantCache()
+        invalidateAnnotationTile()
+        needsDisplay = true
     }
 
     /// Updates the optional drawer-local variant render filter and invalidates cached filtering.
@@ -2153,6 +2176,9 @@ public class SequenceViewerView: NSView {
 
         let previousBundleURL = currentReferenceBundle?.url.standardizedFileURL
         let nextBundleURL = bundle.url.standardizedFileURL
+        if previousBundleURL != nextBundleURL {
+            hoverTooltip.hide()
+        }
         let shouldPreserveLocalRenderFilters = previousBundleURL == nextBundleURL
         let previousLocalAnnotationRenderFilterKeys = localAnnotationRenderFilterKeys
         let previousLocalVariantRenderFilterKeys = localVariantRenderFilterKeys
@@ -2352,6 +2378,7 @@ public class SequenceViewerView: NSView {
     /// Clears the current reference bundle.
     func clearReferenceBundle() {
         sequenceViewerLogger.info("SequenceViewerView.clearReferenceBundle: Clearing bundle")
+        hoverTooltip.hide()
         cancelDetachedAlignmentFetches()
         stopDetachedEvidenceMonitors()
         // Semantic selection keys are valid only for the source whose filter
@@ -2665,11 +2692,7 @@ public class SequenceViewerView: NSView {
     var viewerTrackingArea: NSTrackingArea?
 
     /// Custom hover tooltip for fast-appearing tooltips.
-    lazy var hoverTooltip: HoverTooltipView = {
-        let tip = HoverTooltipView()
-        addSubview(tip)
-        return tip
-    }()
+    lazy var hoverTooltip = HoverTooltipView()
 
     /// Currently hovered annotation (to avoid redundant tooltip updates)
     var hoveredAnnotation: SequenceAnnotation?

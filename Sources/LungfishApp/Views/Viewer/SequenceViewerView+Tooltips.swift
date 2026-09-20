@@ -32,6 +32,7 @@ extension SequenceViewerView {
 
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        hoverTooltip.parentWindowDidChange(to: window)
         window?.acceptsMouseMovedEvents = true
         updateTrackingAreas()
     }
@@ -57,6 +58,9 @@ extension SequenceViewerView {
 
     public override func mouseMoved(with event: NSEvent) {
         let location = convert(event.locationInWindow, from: nil)
+        if hoverTooltip.retainsHover(at: location, in: self) {
+            return
+        }
 
         // --- Single early bounds/row check (F2) ---
         // None of the chained hit-tests below (gutter, genotype, read, coverage, annotation)
@@ -72,7 +76,7 @@ extension SequenceViewerView {
             lastHoveredGenotypeCell = nil
             lastHoveredGenotypeTooltipText = nil
             lastHoveredGenotypeStatusText = nil
-            hoverTooltip.hide()
+            hoverTooltip.requestHide()
             NSCursor.arrow.set()
             return
         }
@@ -80,7 +84,7 @@ extension SequenceViewerView {
         // --- Gutter edge cursor ---
         if isNearGutterEdge(at: location) {
             NSCursor.resizeLeftRight.set()
-            hoverTooltip.hide()
+            hoverTooltip.requestHide()
             return
         }
 
@@ -114,7 +118,7 @@ extension SequenceViewerView {
         if let details = variantSummaryDetails(at: location) {
             hoveredRead = nil
             hoveredAnnotation = nil
-            hoverTooltip.show(text: details + "\n\nRight-click → Copy Variant Details", near: location, in: self)
+            hoverTooltip.show(text: details, near: location, in: self)
             NSCursor.crosshair.set()
             return
         }
@@ -243,10 +247,10 @@ extension SequenceViewerView {
         } else {
             if hoveredAnnotation != nil {
                 hoveredAnnotation = nil
-                hoverTooltip.hide()
+                hoverTooltip.requestHide()
                 updateSelectionStatus()
             } else {
-                hoverTooltip.hide()
+                hoverTooltip.requestHide()
             }
             NSCursor.arrow.set()
         }
@@ -355,8 +359,6 @@ extension SequenceViewerView {
         if !predictedImpacts.isEmpty {
             tooltip += "\nSample CDS impact: \(predictedImpacts.joined(separator: "; "))"
         }
-        tooltip += "\n\nRight-click → Copy Variant Details"
-
         let aaStatus = site.shortAAChange.map { " \u{2022} \($0)" } ?? ""
         let statusText = "Genotype: \(sampleName) \u{2022} \(callLabel) \u{2022} \(chrom):\(displayPos.formatted()) \(site.ref)\u{2192}\(site.alt)\(aaStatus)"
         lastHoveredGenotypeTooltipText = tooltip
@@ -692,7 +694,7 @@ extension SequenceViewerView {
         lastHoveredGenotypeCell = nil
         lastHoveredGenotypeTooltipText = nil
         lastHoveredGenotypeStatusText = nil
-        hoverTooltip.hide()
+        hoverTooltip.requestHide()
         NSCursor.arrow.set()
         updateSelectionStatus()
     }
@@ -911,7 +913,7 @@ extension SequenceViewerView {
         var lines = [
             read.name,
             "\(strandStr) \(posStr) (\(lenStr))",
-            "\(mapqStr) • CIGAR: \(cigarStr.prefix(40))\(cigarStr.count > 40 ? "..." : "")",
+            "\(mapqStr) • CIGAR: \(cigarStr)",
         ]
 
         if read.isPaired {

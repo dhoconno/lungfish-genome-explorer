@@ -130,6 +130,10 @@ public final class AnnotationSearchIndex {
     private var variantTrackNames: [String: String] = [:]
     private var variantCallerSettings: [String: String] = [:]
 
+    /// Immutable FORMAT data used by background result conversion and legacy iVar recovery.
+    private(set) var variantFormatOverlaySnapshot = VariantFormatOverlaySnapshot()
+    private var variantFormatOverlayLoaderTask: Task<Void, Never>?
+
     func variantCallerSettings(for trackId: String) -> String {
         variantCallerSettings[trackId] ?? "Not recorded"
     }
@@ -253,6 +257,8 @@ public final class AnnotationSearchIndex {
 
     /// Callback invoked on the main thread when index building completes.
     public var onBuildComplete: (() -> Void)?
+    /// Callback invoked when asynchronous FORMAT hydration publishes a new snapshot.
+    public var onVariantFormatOverlayComplete: (() -> Void)?
 
     /// Optional user override for haploid detection.
     /// `nil` means automatic detection from bundle metadata.
@@ -308,6 +314,9 @@ public final class AnnotationSearchIndex {
 
     /// Opens variant databases from the bundle for unified search.
     private func openVariantDatabases(bundle: ReferenceBundle) {
+        variantFormatOverlayLoaderTask?.cancel()
+        variantFormatOverlayLoaderTask = nil
+        variantFormatOverlaySnapshot = VariantFormatOverlaySnapshot()
         variantDatabases.removeAll()
         variantTrackNames.removeAll()
         variantCallerSettings.removeAll()
@@ -342,6 +351,48 @@ public final class AnnotationSearchIndex {
                 searchLogger.warning("AnnotationSearchIndex: Failed to open variant database '\(vTrackId, privacy: .public)': \(error.localizedDescription)")
             }
         }
+        startVariantFormatOverlayLoad(bundle: bundle, expectedGeneration: variantDataGeneration)
+    }
+
+    private func startVariantFormatOverlayLoad(bundle: ReferenceBundle, expectedGeneration: Int) {
+        let sources: [VariantFormatOverlaySource] = variantDatabases.compactMap { handle in
+            guard let trackInfo = bundle.variantTrack(id: handle.trackId) else { return nil }
+            let isIVar = trackInfo.source?.localizedCaseInsensitiveContains("ivar") == true
+            guard isIVar else { return nil }
+            let sourceURL = try? bundle.memberURL(
+                for: trackInfo.path,
+                field: "variants[\(handle.trackId)].path"
+            )
+            return VariantFormatOverlaySource(
+                trackID: handle.trackId,
+                database: handle.db,
+                vcfURL: sourceURL,
+                isIVar: isIVar,
+                aliasesByExactToken: bundleAliasGroupsByExact,
+                aliasesByCanonicalToken: bundleAliasGroupsByCanonical
+            )
+        }
+        guard !sources.isEmpty else { return }
+
+        variantFormatOverlayLoaderTask = Task.detached(priority: .utility) { [weak self] in
+            let snapshot = await VariantFormatOverlayLoader.load(sources: sources)
+            guard !Task.isCancelled else { return }
+            _ = await self?.publishVariantFormatOverlay(snapshot, expectedGeneration: expectedGeneration)
+        }
+    }
+
+    /// Publishes a completed immutable snapshot only for the database generation that requested it.
+    /// Returning false lets concurrency tests prove that stale loaders cannot replace newer data.
+    @discardableResult
+    func publishVariantFormatOverlay(
+        _ snapshot: VariantFormatOverlaySnapshot,
+        expectedGeneration: Int
+    ) -> Bool {
+        guard variantDataGeneration == expectedGeneration else { return false }
+        variantFormatOverlaySnapshot = snapshot
+        variantDataGeneration += 1
+        onVariantFormatOverlayComplete?()
+        return true
     }
 
     // MARK: - Index Build
@@ -475,7 +526,8 @@ public final class AnnotationSearchIndex {
             variantDatabases: variantDatabases,
             legacyEntries: annotationDatabases.isEmpty ? entries : [],
             annotationTrackNames: annotationTrackNames,
-            variantTrackNames: variantTrackNames
+            variantTrackNames: variantTrackNames,
+            formatOverlay: variantFormatOverlaySnapshot
         )
 
         let task = Task<[SearchResult], Never>.detached(priority: .userInitiated) {
@@ -494,6 +546,7 @@ public final class AnnotationSearchIndex {
         let legacyEntries: [SearchResult]
         let annotationTrackNames: [String: String]
         let variantTrackNames: [String: String]
+        let formatOverlay: VariantFormatOverlaySnapshot
     }
 
     /// Pure, non-isolated implementation shared by `search` and `searchOffMain`'s detached body.
@@ -541,7 +594,8 @@ public final class AnnotationSearchIndex {
                     variantRecords,
                     db: handle.db,
                     trackId: handle.trackId,
-                    trackNames: snapshot.variantTrackNames
+                    trackNames: snapshot.variantTrackNames,
+                    formatOverlay: snapshot.formatOverlay
                 ))
             }
         }
@@ -954,6 +1008,7 @@ public final class AnnotationSearchIndex {
         let bundleAliasGroupsByExact: [String: Set<String>]
         let bundleAliasGroupsByCanonical: [String: Set<String>]
         let variantTrackNames: [String: String]
+        let formatOverlay: VariantFormatOverlaySnapshot
     }
 
     private func makeVariantRegionSnapshot() -> VariantRegionSnapshot {
@@ -962,7 +1017,8 @@ public final class AnnotationSearchIndex {
             variantTrackChromosomes: variantTrackChromosomes,
             bundleAliasGroupsByExact: bundleAliasGroupsByExact,
             bundleAliasGroupsByCanonical: bundleAliasGroupsByCanonical,
-            variantTrackNames: variantTrackNames
+            variantTrackNames: variantTrackNames,
+            formatOverlay: variantFormatOverlaySnapshot
         )
     }
 
@@ -1072,7 +1128,8 @@ public final class AnnotationSearchIndex {
                         variantRecords,
                         db: handle.db,
                         trackId: handle.trackId,
-                        trackNames: snapshot.variantTrackNames
+                        trackNames: snapshot.variantTrackNames,
+                        formatOverlay: snapshot.formatOverlay
                     ))
                 }
             }
@@ -1265,6 +1322,16 @@ public final class AnnotationSearchIndex {
                 }
             }
         }
+        for key in variantFormatOverlaySnapshot.allProjectedKeys {
+            guard let definition = VariantFormatOverlaySnapshot.definition(for: key) else { continue }
+            if var existing = merged[key] {
+                existing.types.insert(definition.type)
+                merged[key] = existing
+            } else {
+                merged[key] = (types: [definition.type], number: definition.number,
+                               description: definition.description)
+            }
+        }
         return merged.keys.sorted().map { key in
             let entry = merged[key]!
             let resolvedType = entry.types.count > 1 ? "String" : (entry.types.first ?? "String")
@@ -1283,7 +1350,21 @@ public final class AnnotationSearchIndex {
         for def in variantInfoKeys {
             var valueSet = Set<String>()
             var exceeded = false
+            let overlayField = def.key == "AF" ? "ALT_FREQ" : def.key
+            for (formatKey, fields) in variantFormatOverlaySnapshot.fields {
+                guard variantFormatOverlaySnapshot.singleSampleByTrack[formatKey.trackID] == formatKey.sample,
+                      let value = fields[overlayField], !value.isEmpty, value != "." else { continue }
+                if def.key == "AF" {
+                    guard let numeric = Double(value), numeric.isFinite, (0...1).contains(numeric) else { continue }
+                }
+                valueSet.insert(value)
+                if valueSet.count > maxDistinctValues {
+                    exceeded = true
+                    break
+                }
+            }
             for handle in variantDatabases {
+                if exceeded { break }
                 let values = handle.db.distinctInfoValues(forKey: def.key, limit: maxDistinctValues + 1)
                 for value in values {
                     valueSet.insert(value)
@@ -1345,6 +1426,9 @@ public final class AnnotationSearchIndex {
 
     /// Clears the index.
     public func clear() {
+        variantFormatOverlayLoaderTask?.cancel()
+        variantFormatOverlayLoaderTask = nil
+        variantFormatOverlaySnapshot = VariantFormatOverlaySnapshot()
         entries = []
         database = nil
         annotationDatabases = []
@@ -1364,6 +1448,9 @@ public final class AnnotationSearchIndex {
 
     /// Clears only variant databases, leaving annotation data intact.
     public func clearVariantDatabases() {
+        variantFormatOverlayLoaderTask?.cancel()
+        variantFormatOverlayLoaderTask = nil
+        variantFormatOverlaySnapshot = VariantFormatOverlaySnapshot()
         variantDatabases.removeAll()
         variantTrackNames.removeAll()
         variantCallerSettings.removeAll()
@@ -1379,7 +1466,10 @@ public final class AnnotationSearchIndex {
         db: VariantDatabase,
         trackId: String
     ) -> [SearchResult] {
-        Self.variantRecordsToSearchResults(records, db: db, trackId: trackId, trackNames: variantTrackNames)
+        Self.variantRecordsToSearchResults(
+            records, db: db, trackId: trackId, trackNames: variantTrackNames,
+            formatOverlay: variantFormatOverlaySnapshot
+        )
     }
 
     /// Non-isolated core of `variantRecordsToSearchResults(_:db:trackId:)`, taking the track-name
@@ -1389,14 +1479,16 @@ public final class AnnotationSearchIndex {
         _ records: [VariantDatabaseRecord],
         db: VariantDatabase,
         trackId: String,
-        trackNames: [String: String]
+        trackNames: [String: String],
+        formatOverlay: VariantFormatOverlaySnapshot
     ) -> [SearchResult] {
         guard !records.isEmpty else { return [] }
         let variantIds = records.compactMap(\.id)
         let infoDicts = db.batchInfoValues(variantIds: variantIds)
         let sourceName = trackNames[trackId]
         return records.map { record in
-            let infoDict = record.id.flatMap { infoDicts[$0] }
+            let storedInfo = record.id.flatMap { infoDicts[$0] } ?? [:]
+            let infoDict = formatOverlay.projectedInfo(trackID: trackId, record: record, existing: storedInfo)
             return record.toSearchResult(trackId: trackId, infoDict: infoDict, sourceFile: sourceName)
         }
     }

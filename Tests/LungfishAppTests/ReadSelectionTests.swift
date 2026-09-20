@@ -59,7 +59,7 @@ final class ReadSelectionTests: XCTestCase {
         XCTAssertTrue(tooltip.contains("Insert size: 450"))
     }
 
-    func testReadTooltipLongCIGARIsTruncated() {
+    func testReadTooltipLongCIGARIsComplete() {
         // Build a very long CIGAR string
         let longCigar = (1...30).map { "\($0)M" }.joined()
         let ops = CIGAROperation.parse(longCigar) ?? []
@@ -69,8 +69,8 @@ final class ReadSelectionTests: XCTestCase {
             sequence: String(repeating: "A", count: 100), qualities: []
         )
         let tooltip = buildTooltip(for: read)
-        // CIGAR display should be truncated at 40 chars with "..."
-        XCTAssertTrue(tooltip.contains("..."))
+        XCTAssertTrue(tooltip.contains(longCigar))
+        XCTAssertTrue(tooltip.hasSuffix(longCigar))
     }
 
     // MARK: - Read Notification Keys
@@ -153,42 +153,8 @@ final class ReadSelectionTests: XCTestCase {
         )
     }
 
-    /// Mirror the tooltip building logic from SequenceViewerView
+    /// Exercises the production tooltip formatter directly.
     private func buildTooltip(for read: AlignedRead) -> String {
-        let strandStr = read.isReverse ? "(-)" : "(+)"
-        let cigarStr = read.cigarString
-        let mapqStr = "MAPQ: \(read.mapq)"
-        let posStr = "\(read.chromosome):\(read.position + 1)-\(read.alignmentEnd)"
-        let lenStr = "\(read.referenceLength) bp"
-
-        var lines = [
-            read.name,
-            "\(strandStr) \(posStr) (\(lenStr))",
-            "\(mapqStr) • CIGAR: \(cigarStr.prefix(40))\(cigarStr.count > 40 ? "..." : "")",
-        ]
-
-        if read.isPaired {
-            let pairStatus = read.isProperPair ? "Proper pair" : "Improper pair"
-            let mateStr: String
-            if let mateChr = read.mateChromosome, let matePos = read.matePosition {
-                mateStr = "\(mateChr):\(matePos + 1)"
-            } else {
-                mateStr = "unmapped"
-            }
-            lines.append("\(pairStatus) • Mate: \(mateStr)")
-            if read.insertSize != 0 {
-                lines.append("Insert size: \(read.insertSize)")
-            }
-        }
-
-        if let rg = read.readGroup {
-            lines.append("Read group: \(rg)")
-        }
-
-        if read.isSecondary { lines.append("Secondary alignment") }
-        if read.isSupplementary { lines.append("Supplementary alignment") }
-        if read.isDuplicate { lines.append("PCR/optical duplicate") }
-
-        return lines.joined(separator: "\n")
+        SequenceViewerView(frame: .zero).readTooltipText(for: read)
     }
 }

@@ -1076,6 +1076,13 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
         }
 
         let index = AnnotationSearchIndex()
+        index.onVariantFormatOverlayComplete = { [weak self, weak index, weak bundle] in
+            guard let self, let index, let bundle,
+                  self.embeddedViewerController.viewerView.currentReferenceBundle?.url.standardizedFileURL
+                    == bundle.url.standardizedFileURL else { return }
+            self.embeddedViewerController.annotationDrawerView?.refreshVariantFormatOverlay(from: index)
+            self.embeddedViewerController.viewerView.invalidateVariantFormatHoverCache()
+        }
         let chromosomes = embeddedViewerController.currentBundleDataProvider?.chromosomes ?? []
         index.buildIndex(bundle: bundle, chromosomes: chromosomes)
         embeddedViewerController.annotationSearchIndex = index

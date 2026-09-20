@@ -139,6 +139,7 @@ extension ViewerViewController: AnnotationTableDrawerDelegate {
         drawer.windowStateScope = windowStateScope
         drawer.setViewportSyncSource(viewerView)
         drawer.setSampleDisplayState(viewerView.sampleDisplayState)
+        drawer.setHiddenVariantTrackIDs(viewerView.hiddenVariantTrackIDs)
         drawer.setAllowedChromosomes(annotationRecordScope)
         view.addSubview(drawer)
 
@@ -207,7 +208,34 @@ extension ViewerViewController: AnnotationTableDrawerDelegate {
     // MARK: - AnnotationTableDrawerDelegate
 
     public func annotationDrawer(_ drawer: AnnotationTableDrawerView, didSelectAnnotation result: AnnotationSearchIndex.SearchResult) {
-        annotDrawerLogger.info("annotationDrawer: Navigating to '\(result.name, privacy: .public)' type=\(result.type, privacy: .public) at \(result.chromosome, privacy: .public):\(result.start)-\(result.end) strand=\(result.strand, privacy: .public)")
+        handleAnnotationDrawerSelection(result, from: drawer, navigate: true)
+    }
+
+    func annotationDrawer(_ drawer: AnnotationTableDrawerView, didHighlightVariant result: AnnotationSearchIndex.SearchResult) {
+        handleAnnotationDrawerSelection(result, from: drawer, navigate: false)
+    }
+
+    func annotationDrawer(_ drawer: AnnotationTableDrawerView, didHighlightVariants entries: [VariantSelectionEntry]) {
+        viewerView.selectedAnnotation = nil
+        NotificationCenter.default.post(
+            name: .annotationSelected,
+            object: viewerView,
+            userInfo: windowScopedUserInfo()
+        )
+        NotificationCenter.default.post(
+            name: .variantSelectionChanged,
+            object: drawer,
+            userInfo: windowScopedUserInfo([NotificationUserInfoKey.variantSelectionEntries: entries])
+        )
+        viewerView.setNeedsDisplay(viewerView.bounds)
+    }
+
+    private func handleAnnotationDrawerSelection(
+        _ result: AnnotationSearchIndex.SearchResult,
+        from drawer: AnnotationTableDrawerView,
+        navigate: Bool
+    ) {
+        annotDrawerLogger.info("annotationDrawer: Selecting '\(result.name, privacy: .public)' type=\(result.type, privacy: .public) at \(result.chromosome, privacy: .public):\(result.start)-\(result.end) strand=\(result.strand, privacy: .public), navigate=\(navigate)")
 
         let navigationChromosome = result.isVariant
             ? viewerView.referenceChromosomeName(forVariantDBChromosome: result.chromosome)
@@ -215,10 +243,12 @@ extension ViewerViewController: AnnotationTableDrawerDelegate {
         let annotationSpan = max(1, result.end - result.start)
         let desiredSpan = max(annotationSpan + 2_000, 3_000)
 
-        // Clear any previous sequence fetch error so the new region can be fetched
-        viewerView.clearSequenceFetchError()
+        if navigate {
+            // Clear any previous sequence fetch error so the new region can be fetched.
+            viewerView.clearSequenceFetchError()
+        }
 
-        if activeMappingViewportController?.currentResult == nil {
+        if navigate, activeMappingViewportController?.currentResult == nil {
             // Log current viewer state before navigation
             let currentChrom = referenceFrame?.chromosome ?? "nil"
             let currentScale = referenceFrame?.scale ?? 0
@@ -255,9 +285,15 @@ extension ViewerViewController: AnnotationTableDrawerDelegate {
 
             // Guard against transient state races where immediate redraw restores stale extents.
             let expectedCenter = Double((result.start + result.end) / 2)
+            let scheduledFrame = referenceFrame
+            let scheduledStart = scheduledFrame?.start
+            let scheduledEnd = scheduledFrame?.end
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) { [weak self] in
                 MainActor.assumeIsolated {
                     guard let self, let frame = self.referenceFrame else { return }
+                    guard frame === scheduledFrame,
+                          frame.start == scheduledStart,
+                          frame.end == scheduledEnd else { return }
                     let isSameChrom = frame.chromosome == navigationChromosome
                     let currentCenter = (frame.start + frame.end) / 2.0
                     let isCentered = abs(currentCenter - expectedCenter) <= 2.0
@@ -314,15 +350,18 @@ extension ViewerViewController: AnnotationTableDrawerDelegate {
             )
         }
         viewerView.selectedAnnotation = annotation
-        viewerView.postAnnotationSelectedNotification(annotation)
-        if activeMappingViewportController?.currentResult != nil {
+        viewerView.postAnnotationSelectedNotification(annotation, postVariantSelection: false)
+        if navigate, activeMappingViewportController?.currentResult != nil {
             zoomToMappingAnnotation(annotation)
         }
         if result.isVariant {
             NotificationCenter.default.post(
                 name: .variantSelected,
-                object: self,
-                userInfo: windowScopedUserInfo([NotificationUserInfoKey.searchResult: result])
+                object: drawer,
+                userInfo: windowScopedUserInfo([
+                    NotificationUserInfoKey.searchResult: result,
+                    NotificationUserInfoKey.variantInspectorFields: drawer.variantInspectorFields(for: result),
+                ])
             )
         }
         viewerView.setNeedsDisplay(viewerView.bounds)
@@ -658,10 +697,20 @@ extension ViewerViewController: AnnotationTableDrawerDelegate {
     }
 
     func annotationDrawerAdditionalExportSources(_ drawer: AnnotationTableDrawerView) throws -> [URL] {
-        guard let bundle = viewerView.currentReferenceBundle, let genome = bundle.manifest.genome else { return [] }
-        // Local consequence predictions also depend on the reference and its alias metadata.
-        return [try bundle.memberURL(for: genome.path, field: "genome.path"),
-                bundle.url.appendingPathComponent(BundleManifest.filename)]
+        guard let bundle = viewerView.currentReferenceBundle else { return [] }
+        // Track metadata and chromosome aliases always come from the manifest. Local
+        // consequence predictions additionally depend on the reference when present.
+        var sources = [bundle.url.appendingPathComponent(BundleManifest.filename)]
+        if let genome = bundle.manifest.genome {
+            sources.append(try bundle.memberURL(for: genome.path, field: "genome.path"))
+        }
+        return sources
+    }
+
+    func annotationDrawerVariantExportResolverSnapshot(
+        _ drawer: AnnotationTableDrawerView
+    ) -> VariantTableExportResolverSnapshot {
+        viewerView.variantTableExportResolverSnapshot()
     }
 
     func annotationDrawer(_ drawer: AnnotationTableDrawerView, codingFeatureFor result: AnnotationSearchIndex.SearchResult) -> String? {

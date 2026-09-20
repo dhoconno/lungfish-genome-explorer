@@ -586,6 +586,7 @@ extension AnnotationTableDrawerView {
 
     @objc func variantSubtabChanged(_ sender: NSSegmentedControl) {
         guard let subtab = VariantSubtab(rawValue: sender.selectedSegment) else { return }
+        genotypeFetchGeneration &+= 1
         activeVariantSubtab = subtab
         if subtab == .genotypes {
             configureColumnsForGenotypes()
@@ -685,6 +686,8 @@ extension AnnotationTableDrawerView {
     /// Switches to the specified tab, reconfiguring columns, chip bar, and data.
     func switchToTab(_ tab: DrawerTab) {
         guard tab != activeTab || (tab == .samples ? displayedSamples.isEmpty : displayedAnnotations.isEmpty) else { return }
+        let previousTab = activeTab
+        genotypeFetchGeneration &+= 1
         viewportSyncWorkItem?.cancel()
         viewportSyncWorkItem = nil
         if tab != .variants {
@@ -716,6 +719,11 @@ extension AnnotationTableDrawerView {
         if tab == .variants {
             activeVariantSubtab = .calls
             variantSubtabControl.selectedSegment = 0
+            if previousTab != .variants {
+                // Do not leave annotation rows visible while the first variant query is running.
+                displayedAnnotations = []
+                baseDisplayedVariantAnnotations = []
+            }
         }
 
         // Reconfigure columns for the new tab
@@ -744,6 +752,7 @@ extension AnnotationTableDrawerView {
     /// Does NOT load all annotations into memory — queries the database on demand.
     func setSearchIndex(_ index: AnnotationSearchIndex) {
         invalidatePendingAnnotationScopeMetadataQuery()
+        genotypeFetchGeneration &+= 1
         searchIndex = index
         isLoading = false
         cachedGlobalFilteredVariantRows = []
@@ -841,6 +850,23 @@ extension AnnotationTableDrawerView {
         annotationDrawerLogger.info("AnnotationTableDrawerView: Connected to index with \(self.totalAnnotationCount) annotations, \(self.totalVariantCount) variants, \(self.allSampleNames.count) samples")
     }
 
+    /// Refreshes FORMAT-backed columns and rows without resetting user visibility,
+    /// sample, preset, or track-control state.
+    func refreshVariantFormatOverlay(from index: AnnotationSearchIndex) {
+        guard searchIndex === index else { return }
+        cachedGlobalFilteredVariantRows = []
+        cachedGlobalFilteredVariantKey = nil
+        variantInfoPresetValues = []
+        variantPresetLoadState = .idle
+        infoColumnKeys = index.variantInfoKeys.map {
+            (key: $0.key, type: $0.type, description: $0.description)
+        }
+        if activeTab == .variants, activeVariantSubtab == .calls {
+            configureColumnsForTab(.variants)
+            updateDisplayedAnnotations()
+        }
+    }
+
     /// Reads pre-built token cache counts from variant databases (instant — no table scans).
     ///
     /// Token tables are built during import and persisted in the database file.
@@ -874,6 +900,7 @@ extension AnnotationTableDrawerView {
 
     /// Legacy entry point for when no search index is available (fallback).
     func setAnnotations(_ results: [AnnotationSearchIndex.SearchResult]) {
+        genotypeFetchGeneration &+= 1
         searchIndex = nil
         isLoading = false
         totalAnnotationCount = results.count

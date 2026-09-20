@@ -252,12 +252,16 @@ public enum AnnotationDatabaseError: Error, LocalizedError, Sendable {
     case openFailed(String)
     case createFailed(String)
     case invalidSchema(String)
+    case queryFailed(String)
+    case cancelled
 
     public var errorDescription: String? {
         switch self {
         case .openFailed(let msg): return "Failed to open annotation database: \(msg)"
         case .createFailed(let msg): return "Failed to create annotation database: \(msg)"
         case .invalidSchema(let msg): return "Invalid annotation database schema: \(msg)"
+        case .queryFailed(let msg): return "Failed to query annotation database: \(msg)"
+        case .cancelled: return "The annotation database query was cancelled."
         }
     }
 }

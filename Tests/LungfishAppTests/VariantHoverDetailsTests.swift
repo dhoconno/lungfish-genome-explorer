@@ -82,6 +82,29 @@ final class VariantHoverDetailsTests: XCTestCase {
         XCTAssertFalse(details.lowercased().contains(": inf"))
     }
 
+    func testFormatterLabelsIvarFrequencyAndCallerMeasurementsAsFormat() {
+        let row = makeSearchResult(name: ".", start: 240, trackId: "ivar")
+        let genotype = makeGenotype(sample: "sample-a", depth: 2140, alleleDepths: nil)
+
+        let details = SequenceViewerView.formatVariantDetails(
+            row: row,
+            trackName: "iVar calls",
+            info: [:],
+            genotypes: [genotype],
+            sampleFields: ["sample-a": [
+                "DP": "2140", "REF_DP": "0", "REF_RV": "0", "REF_QUAL": "0",
+                "ALT_DP": "2140", "ALT_RV": "1033", "ALT_QUAL": "66", "ALT_FREQ": "1",
+                "MERGED_AF": "0.9,1", "MERGED_DP": "900,1240",
+            ]]
+        )
+
+        XCTAssertTrue(details.contains("Allele frequency (FORMAT/ALT_FREQ): 1"))
+        XCTAssertTrue(details.contains("Alternate depth (FORMAT/ALT_DP): 2140"))
+        XCTAssertTrue(details.contains("Alternate quality (FORMAT/ALT_QUAL): 66"))
+        XCTAssertTrue(details.contains("Merged frequencies (FORMAT/MERGED_AF): 0.9,1"))
+        XCTAssertFalse(details.contains("Quality: 66"))
+    }
+
     func testCopyVariantDetailsWritesOnlyToProvidedPasteboard() {
         let pasteboard = NSPasteboard.withUniqueName()
         defer { pasteboard.releaseGlobally() }

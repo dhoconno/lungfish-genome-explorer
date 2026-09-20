@@ -334,20 +334,49 @@ public class MainWindowController: NSWindowController {
         // Set callback to populate annotation drawer and inspector when index is ready
         let inspectorController = mainSplitViewController?.inspectorController
         index.onBuildComplete = { [weak viewerController, weak inspectorController, index, bundle] in
-            guard let viewerController else { return }
+            guard let viewerController,
+                  viewerController.currentBundleURL?.standardizedFileURL == bundle.url.standardizedFileURL,
+                  viewerController.viewerView.currentReferenceBundle?.url.standardizedFileURL == bundle.url.standardizedFileURL
+            else { return }
             viewerController.annotationSearchIndex = index
             // Wire annotation database to inspector selection view model for qualifier enrichment
             inspectorController?.selectionSectionViewModel.annotationDatabase = index.annotationDatabase
             // Wire reference bundle for on-the-fly CDS translation computation
             inspectorController?.selectionSectionViewModel.referenceBundle = bundle
-            // Populate variant types in the inspector's annotation section
-            let variantTypes = index.variantTypes
-            if !variantTypes.isEmpty {
-                inspectorController?.annotationSectionViewModel.setAvailableVariantTypes(variantTypes)
+            if let annotationModel = inspectorController?.annotationSectionViewModel {
+                Self.synchronizeVariantFilterState(
+                    annotationModel,
+                    variantTypes: index.variantTypes,
+                    tracks: bundle.manifest.variants.map {
+                        VariantTrackVisibilityItem(id: $0.id, name: $0.name)
+                    },
+                    hiddenTrackIDs: viewerController.viewerView.hiddenVariantTrackIDs
+                )
             }
+        }
+        index.onVariantFormatOverlayComplete = { [weak viewerController, index, bundle] in
+            guard let viewerController,
+                  viewerController.currentBundleURL?.standardizedFileURL == bundle.url.standardizedFileURL,
+                  viewerController.viewerView.currentReferenceBundle?.url.standardizedFileURL == bundle.url.standardizedFileURL
+            else { return }
+            viewerController.annotationDrawerView?.refreshVariantFormatOverlay(from: index)
+            viewerController.viewerView.invalidateVariantFormatHoverCache()
         }
 
         index.buildIndex(bundle: bundle, chromosomes: chromosomes)
+    }
+
+    static func synchronizeVariantFilterState(
+        _ annotationModel: AnnotationSectionViewModel,
+        variantTypes: [String],
+        tracks: [VariantTrackVisibilityItem],
+        hiddenTrackIDs: Set<String>
+    ) {
+        annotationModel.setAvailableVariantTracks(tracks)
+        annotationModel.hiddenVariantTrackIDs = hiddenTrackIDs.intersection(tracks.map(\.id))
+        if !variantTypes.isEmpty {
+            annotationModel.setAvailableVariantTypes(variantTypes)
+        }
     }
 
     // MARK: - Toolbar Configuration

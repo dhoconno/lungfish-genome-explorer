@@ -3,6 +3,10 @@ import LungfishCore
 import LungfishIO
 
 extension SequenceViewerView {
+    func invalidateVariantFormatHoverCache() {
+        variantSummaryHoverCache = nil
+    }
+
     /// One representation for variant-bar hover text and the copy action.
     func variantDetailsText(for row: AnnotationSearchIndex.SearchResult, sampleName: String? = nil) -> String {
         let row = cachedVariantAnnotations.first(where: {
@@ -14,19 +18,35 @@ extension SequenceViewerView {
         let database = index?.variantDatabaseHandles.first { $0.trackId == row.trackId }?.db
         let info = row.variantRowId.flatMap { database?.infoValues(variantId: $0) } ?? row.infoDict ?? [:]
         let genotypes = row.variantRowId.flatMap { database?.genotypes(forVariantId: $0) } ?? []
+        let overlaySampleFields: [String: [String: String]] = {
+            guard let ref = row.ref, let alt = row.alt else { return [:] }
+            let record = VariantDatabaseRecord(
+                id: row.variantRowId, chromosome: row.chromosome, position: row.start, end: row.end,
+                variantID: row.name, ref: ref, alt: alt, variantType: row.type,
+                quality: row.quality, filter: row.filter, info: nil, sampleCount: row.sampleCount ?? 0
+            )
+            let overlay = index?.variantFormatOverlaySnapshot ?? VariantFormatOverlaySnapshot()
+            return Dictionary(uniqueKeysWithValues: genotypes.map { genotype in
+                (genotype.sampleName, overlay.sampleFields(
+                    trackID: row.trackId, record: record, sample: genotype.sampleName
+                ))
+            })
+        }()
         let trackName = index?.variantTrackName(for: row.trackId) ?? row.trackName
             ?? currentReferenceBundle?.variantTrack(id: row.trackId)?.name ?? row.trackId
         let fallback = fallbackConsequenceForTableVariant(
             chromosome: row.chromosome, position: row.start, ref: row.ref ?? "", alt: row.alt ?? ""
         )
         return Self.formatVariantDetails(row: row, trackName: trackName, info: info,
-            genotypes: genotypes, sampleName: sampleName, consequence: fallback.consequence, aaChange: fallback.aaChange,
+            genotypes: genotypes, sampleName: sampleName, sampleFields: overlaySampleFields,
+            consequence: fallback.consequence, aaChange: fallback.aaChange,
             codingFeature: codingFeatureText(chromosome: row.chromosome, position: row.start, referenceLength: row.ref?.count ?? 1))
     }
 
     static func formatVariantDetails(
         row: AnnotationSearchIndex.SearchResult, trackName: String, info: [String: String],
         genotypes: [GenotypeRecord] = [], sampleName: String? = nil,
+        sampleFields: [String: [String: String]] = [:],
         consequence: String? = nil, aaChange: String? = nil, codingFeature: String? = nil
     ) -> String {
         func value(_ keys: [String]) -> String? {
@@ -51,13 +71,18 @@ extension SequenceViewerView {
         if let gene = value(["CSQ_SYMBOL", "ANN_Gene_Name", "GENE", "SYMBOL"]) { lines.append("Gene: \(gene)") }
         if let codons = value(["CSQ_Codons", "Codons"]) { lines.append("Codons: \(codons)") }
         for gt in genotypes where sampleName == nil || gt.sampleName == sampleName {
-            let fields = AnnotationDatabase.parseAttributes(gt.rawFields ?? "")
+            var fields = AnnotationDatabase.parseAttributes(gt.rawFields ?? "")
+            for (key, value) in sampleFields[gt.sampleName] ?? [:] {
+                fields[key] = value
+            }
             lines.append("Sample: \(gt.sampleName)")
             lines.append("  Genotype: \(gt.genotype ?? ".")")
             lines.append("  Depth (FORMAT/DP): \(gt.depth.map(String.init) ?? "Not recorded")")
-            let frequency = [fields["AF"], fields["FREQ"]].compactMap { $0 }.first { !$0.isEmpty && $0 != "." }
+            let frequency = [fields["AF"], fields["FREQ"], fields["ALT_FREQ"]]
+                .compactMap { $0 }.first { !$0.isEmpty && $0 != "." }
             if let frequency, frequency != "." {
-                lines.append("  Allele frequency (FORMAT): \(frequency)")
+                let origin = fields["ALT_FREQ"] == frequency ? "FORMAT/ALT_FREQ" : "FORMAT"
+                lines.append("  Allele frequency (\(origin)): \(frequency)")
             } else if let depths = gt.alleleDepths {
                 let counts = depths.split(separator: ",").compactMap { Double($0) }
                 if counts.count >= 2, counts.count == depths.split(separator: ",").count,
@@ -68,6 +93,17 @@ extension SequenceViewerView {
                 }
             }
             if let ad = gt.alleleDepths { lines.append("  Allele depths (AD): \(ad)") }
+            let callerLabels: [(String, String)] = [
+                ("REF_DP", "Reference depth"), ("REF_RV", "Reference reverse reads"),
+                ("REF_QUAL", "Reference quality"), ("ALT_DP", "Alternate depth"),
+                ("ALT_RV", "Alternate reverse reads"), ("ALT_QUAL", "Alternate quality"),
+                ("MERGED_AF", "Merged frequencies"), ("MERGED_DP", "Merged depths"),
+            ]
+            for (key, label) in callerLabels {
+                if let callerValue = fields[key], !callerValue.isEmpty, callerValue != "." {
+                    lines.append("  \(label) (FORMAT/\(key)): \(callerValue)")
+                }
+            }
         }
         return lines.joined(separator: "\n")
     }

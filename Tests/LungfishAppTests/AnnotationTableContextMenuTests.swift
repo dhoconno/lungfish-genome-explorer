@@ -273,6 +273,43 @@ final class AnnotationTableContextMenuTests: XCTestCase {
         XCTAssertEqual(spy.annotationTrackDisplayStates.last?.displayNames["track-a"], "New Name")
     }
 
+    func testEveryVariantColumnHeaderMenuHasSortAndFilterControls() {
+        let drawer = AnnotationTableDrawerView(frame: NSRect(x: 0, y: 0, width: 900, height: 240))
+        drawer.activeTab = .variants
+        drawer.activeVariantSubtab = .calls
+        drawer.configureColumnsForTab(.variants)
+
+        for (identifier, title, _, _, key) in AnnotationTableDrawerView.variantColumnDefs {
+            let column = try! XCTUnwrap(drawer.tableView.tableColumns.firstIndex { $0.identifier == identifier })
+            let menu = NSMenu()
+            drawer.buildVariantColumnHeaderContextMenu(menu, column: column)
+            XCTAssertNotNil(findMenuItem(titled: "Sort \(title) Ascending", in: menu), key)
+            XCTAssertNotNil(findMenuItem(titled: "Sort \(title) Descending", in: menu), key)
+            XCTAssertNotNil(findMenuItem(titled: "Filter \(title) Is Empty", in: menu), key)
+            XCTAssertNotNil(findMenuItem(titled: "Filter \(title) Is Not Empty", in: menu), key)
+        }
+    }
+
+    func testNumericInfoHeaderMenuActionSortsAscending() throws {
+        let drawer = AnnotationTableDrawerView(frame: NSRect(x: 0, y: 0, width: 900, height: 240))
+        drawer.activeTab = .variants
+        drawer.activeVariantSubtab = .calls
+        drawer.infoColumnKeys = [(key: "DP", type: "Integer", description: "Depth")]
+        drawer.configureColumnsForTab(.variants)
+        let identifier = NSUserInterfaceItemIdentifier("info_DP")
+        let column = try XCTUnwrap(drawer.tableView.tableColumns.firstIndex { $0.identifier == identifier })
+        let menu = NSMenu()
+        drawer.buildVariantColumnHeaderContextMenu(menu, column: column)
+        let item = try XCTUnwrap(findMenuItem(titled: "Sort DP Ascending", in: menu))
+
+        drawer.sortVariantColumnAscending(item)
+
+        XCTAssertEqual(drawer.tableView.sortDescriptors.first?.key, "info_DP")
+        XCTAssertEqual(drawer.tableView.sortDescriptors.first?.ascending, true)
+        XCTAssertNotNil(findMenuItem(titled: "Filter DP Equals…", in: menu))
+        XCTAssertNotNil(findMenuItem(titled: "Filter DP ≥…", in: menu))
+    }
+
     func testViewportAnnotationPackingKeepsTracksInDisplayOrder() {
         let viewer = SequenceViewerView(frame: NSRect(x: 0, y: 0, width: 800, height: 300))
         viewer.setAnnotationTrackDisplayState(

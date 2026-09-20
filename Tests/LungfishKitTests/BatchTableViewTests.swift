@@ -445,6 +445,89 @@ final class BatchTableViewTests: XCTestCase {
         XCTAssertEqual(table.displayedRows.map(\.name), ["alpha", "alphabet"])
     }
 
+    func testMetadataSortUsesExactSampleValuesNaturalOrderingAndStableTies() throws {
+        let table = TestBatchTableView(frame: NSRect(x: 0, y: 0, width: 320, height: 240))
+        table.configure(rows: [
+            TestBatchRow(name: "A"),
+            TestBatchRow(name: "B"),
+            TestBatchRow(name: "C"),
+            TestBatchRow(name: "D"),
+        ])
+        let store = try SampleMetadataStore(
+            csvData: Data(
+                "Sample\tGroup\tCount\nA\tZebra\t10\nB\talpha\t2\nC\talpha\t100\nD\t\t\n".utf8
+            ),
+            knownSampleIds: ["A", "B", "C", "D"]
+        )
+        table.metadataColumns.visibleColumns = ["Group", "Count"]
+        table.metadataColumns.update(store: store, sampleId: nil)
+
+        table.tableView.sortDescriptors = [
+            NSSortDescriptor(key: "metadata_Group", ascending: true),
+        ]
+        XCTAssertEqual(table.displayedRows.map(\.name), ["D", "B", "C", "A"])
+
+        table.tableView.sortDescriptors = [
+            NSSortDescriptor(key: "metadata_Count", ascending: true),
+        ]
+        XCTAssertEqual(table.displayedRows.map(\.name), ["D", "B", "A", "C"])
+
+        table.tableView.selectRowIndexes(IndexSet(integer: 1), byExtendingSelection: false)
+        table.tableView.sortDescriptors = [
+            NSSortDescriptor(key: "metadata_Group", ascending: false),
+        ]
+        XCTAssertEqual(table.displayedRows.map(\.name), ["A", "B", "C", "D"])
+        XCTAssertEqual(table.selectedRowsByIdentity().map(\.name), ["B"])
+
+        table.setFilterText("alpha")
+        XCTAssertEqual(table.displayedRows.map(\.name), ["B", "C"])
+    }
+
+    func testMetadataSearchScopeMenuTracksDisplayedColumnsWithoutDuplicates() throws {
+        let table = TestBatchTableView(frame: NSRect(x: 0, y: 0, width: 320, height: 240))
+        table.configure(rows: [TestBatchRow(name: "A"), TestBatchRow(name: "B")])
+        let store = try SampleMetadataStore(
+            csvData: Data(
+                "ID\tCollection Date\tsample\tlab_name\nA\t2026-01-02\talias-A\tNorthCampus\nB\t2026-01-01\talias-B\tSouthCampus\n".utf8
+            ),
+            knownSampleIds: ["A", "B"]
+        )
+        table.metadataColumns.visibleColumns = ["Collection Date", "sample", "lab_name"]
+        table.metadataColumns.update(store: store, sampleId: nil)
+        table.metadataColumns.update(store: store, sampleId: nil)
+
+        let menu = try XCTUnwrap(table.testSearchField.searchMenuTemplate)
+        XCTAssertEqual(
+            menu.items.compactMap { $0.representedObject as? String },
+            ["metadata_Collection Date", "metadata_sample", "metadata_lab_name"]
+        )
+
+        table.setFilterText("NorthCampus")
+        XCTAssertEqual(table.displayedRows.map(\.name), ["A"])
+
+        let labScope = try XCTUnwrap(menu.items.first {
+            ($0.representedObject as? String) == "metadata_lab_name"
+        })
+        NSApp.sendAction(try XCTUnwrap(labScope.action), to: labScope.target, from: labScope)
+        table.setFilterText("alias-A")
+        XCTAssertTrue(table.displayedRows.isEmpty)
+
+        table.setFilterText("NorthCampus")
+        table.setColumnFilter(
+            ColumnFilter(columnId: "metadata_sample", op: .contains, value: "alias-B"),
+            for: "metadata_sample"
+        )
+        XCTAssertTrue(table.displayedRows.isEmpty)
+
+        table.setFilterText("alias-B")
+        table.metadataColumns.visibleColumns = ["Collection Date", "sample"]
+        table.metadataColumns.update(store: store, sampleId: nil)
+        XCTAssertNil(table.testSearchField.searchMenuTemplate?.items.first {
+            ($0.representedObject as? String) == "metadata_lab_name"
+        })
+        XCTAssertEqual(table.displayedRows.map(\.name), ["B"])
+    }
+
     func testClearingUserSearchInputAppliesImmediately() throws {
         let table = TestBatchTableView(frame: NSRect(x: 0, y: 0, width: 320, height: 240))
         table.configure(rows: [
@@ -762,6 +845,10 @@ private final class TestBatchTableView: BatchTableView<TestBatchRow> {
     }
 
     override func rowIdentity(for row: TestBatchRow) -> String? {
+        row.name
+    }
+
+    override func sampleId(for row: TestBatchRow) -> String? {
         row.name
     }
 
