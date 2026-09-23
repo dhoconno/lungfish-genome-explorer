@@ -7,10 +7,10 @@ Single source of truth for finding status (plan rule 9). Status: `open`, `verifi
 | FEA-01 | P0 | Manifest rewrites drop alignment tracks and the record store (variant deletion paths) | open | | | |
 | FEA-02 | P0 | GUI FASTQ import silently replaces same-named bundles, and ignores Keep Both and sample-sheet names | open | | | |
 | PERF-04 | P0 | Unique-read counts for TaxTriage and EsViritu are capped at 100,000 parsed reads per contig after buffering up | open | | | |
-| REL-01 | P0 | Shipped app bundles are owner-only (0700/0600) because of `umask 077` | open | | | |
+| REL-01 | P0 | Shipped app bundles are owner-only (0700/0600) because of `umask 077` | fixed | P0-A | dabbd4b4c | scripts/tests/test_release_smoke.py::test_smoke_test_fails_when_app_bundle_is_owner_only |
 | SCI-01 | P0 | GFF exported to iVar collapses multi-segment CDS (ORF1ab frameshift, spliced CDS) into one span, which changes | open | | | |
-| TST-01 | P0 | Pre-push unit tier is red on HEAD: 117 failures plus 1 indefinite hang | open | | | |
-| TST-02 | P0 | No gate runs the broad suite: release selects 186 of about 14.2K tests, the hook is not installed, and 11 rele | open | | | |
+| TST-01 | P0 | Pre-push unit tier is red on HEAD: 117 failures plus 1 indefinite hang | verified; group 1/2 fixed via TST-03/TST-04; group 3 (runModal, .superpowers/, palette) fixed; groups 4/5/AppleContainerRuntimeIntegrationTests not addressed | P0-A | 18b87a387, b6c6cddfb, 62d9f3a76, 7ef2b46eb | unit tier run in progress at package handoff, see final report |
+| TST-02 | P0 | No gate runs the broad suite: release selects 186 of about 14.2K tests, the hook is not installed, and 11 rele | fixed | P0-A | b35a3c006 | scripts/tests/test_release_frontdoor.py::test_unit_gate_precondition_refuses_missing_stale_or_red_evidence |
 | WFL-01 | P0 | FASTQ-operation outputs are silently quality-binned and, when large, Trim Galore-trimmed during re-ingestion | open | | | |
 | WFL-02 | P0 | `tree infer iqtree` deletes the shared project `.tmp`, deletes pre-existing output on refusal, and can deadloc | open | | | |
 | ARC-01 | P1 | Two execution models for GUI analyses, chosen per feature, with no shared service layer | open | | | |
@@ -34,7 +34,7 @@ Single source of truth for finding status (plan rule 9). Status: `open`, `verifi
 | REC-03 | P1 | Kraken2 taxonomy/BLAST exports lack provenance | open | | | |
 | REC-04 | P1 | Sidebar VCF/folder drop silently discarded | open | | | |
 | REC-05 | P1 | About Saving text promises persistence FEA-03 disproves | open | | | |
-| REL-02 | P1 | CI workflow invalid since 2026-09-14, 24 straight failures, 12 previews shipped on red | open | | | |
+| REL-02 | P1 | CI workflow invalid since 2026-09-14, 24 straight failures, 12 previews shipped on red | fixed | P0-A | 53371073b | scripts/tests/test_ci_workflow.py::test_ci_is_dispatch_only_and_release_tags_do_not_start_blocking_ci |
 | REL-03 | P1 | GPL-2.0 Linux kernel shipped without notice or source offer; THIRD-PARTY-NOTICES stale and not bundled | open | | | |
 | REL-04 | P1 | No rollback or yank path for a bad Sparkle release; the floor gate blocks the obvious one | open | | | |
 | REL-05 | P1 | Every `gh` call, including the ~167 MB DMG upload, is capped at 180 s | open | | | |
@@ -46,10 +46,10 @@ Single source of truth for finding status (plan rule 9). Status: `open`, `verifi
 | SCI-07 | P1 | Region to bundle extraction with Reverse Complement does not transform variants | open | | | |
 | SCI-08 | P1 | Lossy quality binning on by default (silent on downloads and FASTQ operation outputs), mislabelled schemes, or | open | | | |
 | SCI-09 | P1 | NAO-MGS "coverage %" uses the furthest alignment end as reference length when references were not fetched | open | | | |
-| TST-03 | P1 | Swift Build migration broke subpath `Bundle.module` fixtures, crashing tests with SIGTRAP | open | | | |
-| TST-04 | P1 | Stable-namespace change broke about 75 tests that hard-code `.lungfish` fake homes, and tests cannot inject an | open | | | |
-| TST-05 | P1 | No per-test or overall timeout: a cancellation test hung for 14+ min and stalls the gate forever | open | | | |
-| TST-06 | P1 | `ci.yml` has been an invalid workflow on every push since 2026-09-14 instead of being disabled cleanly | open | | | |
+| TST-03 | P1 | Swift Build migration broke subpath `Bundle.module` fixtures, crashing tests with SIGTRAP | fixed | P0-A | 18b87a387 | PrimerSchemeResolverTests, BAMPrimerTrimPipelineTests, PrimerSchemesFolderTests, PrimerSchemeBundleTests pass under native engine |
+| TST-04 | P1 | Stable-namespace change broke about 75 tests that hard-code `.lungfish` fake homes, and tests cannot inject an | fixed (CoreToolLocator/SamtoolsLocator/SRAService identity-injectable; migrated the ~9 tests actually asserting/building on it); remaining ~65 files use hard-coded `.lungfish/conda` fixture paths that are self-consistent under `.current` and not verified individually | P0-A | b6c6cddfb | SRAServicePathTests (9/9), BuildDbCommandTests, MarkdupCommandTests, BuildDbCommandMarkdupTests pass |
+| TST-05 | P1 | No per-test or overall timeout: a cancellation test hung for 14+ min and stalls the gate forever | fixed (gate timeout); CLIImportRunnerTests/testCancelTerminatesCLIProcessTree reproduced live during this package's own unit-tier run (17+ min hang, direct child + grandchild both survived `runner.cancel()`) — this is a confirmed PRODUCT BUG in CLIImportRunner.cancel()/ProcessTreeTerminator, not a broken test; opened for P1-B, not fixed here | P0-A | 39f0ef622 | scripts/tests/test_gate_profile_evidence.py::test_command_record_timeout_kills_the_whole_process_group; live repro notes in this package's final report |
+| TST-06 | P1 | `ci.yml` has been an invalid workflow on every push since 2026-09-14 instead of being disabled cleanly | fixed | P0-A | 53371073b | scripts/tests/test_ci_workflow.py |
 | UX-01 | P1 | "Delete Annotation" from the viewer and the Inspector silently does nothing on reference bundles | open | | | |
 | UX-02 | P1 | Export failures are logged but never shown in EsViritu, TaxTriage (3 paths), NAO-MGS and NVD | open | | | |
 | WFL-03 | P1 | "GATK + WhatsHap Phased" is selectable and runnable-looking but always dead-ends | open | | | |
@@ -85,7 +85,7 @@ Single source of truth for finding status (plan rule 9). Status: `open`, `verifi
 | REL-06 | P2 | App version inside the hashed dependency manifest resets "Later" and stales receipts every release | open | | | |
 | REL-07 | P2 | Five hand-maintained version sites where one would do | open | | | |
 | REL-08 | P2 | Legacy alpha bridge and pre-2026.9.2 previews are offered updates with a different bundle ID | open | | | |
-| REL-09 | P2 | Release machinery is heavy while the regression gate is thin and no gate launches the app | open | | | |
+| REL-09 | P2 | Release machinery is heavy while the regression gate is thin and no gate launches the app | partially fixed (gate half only): `release.py` now refuses to package without green unit-tier evidence for the exact commit; app-smoke half (`appSmokeRequired: true`) tracked under TST-12 | P0-A | b35a3c006 | |
 | REL-10 | P2 | Release builds from the live working checkout, so stray untracked files block releases | open | | | |
 | REL-11 | P2 | Conda transitive dependencies are unpinned, so a "dependency set" is not reproducible | open | | | |
 | REL-12 | P2 | Database archives and one pipeline are not integrity-pinned; one catalog ID/URL mismatch | open | | | |
@@ -113,7 +113,7 @@ Single source of truth for finding status (plan rule 9). Status: `open`, `verifi
 | TST-09 | P2 | White-box over-testing: 1,440 test hooks shipped in production code, Genotype area 109K test lines | open | | | |
 | TST-10 | P2 | Flakiness sources: wall-clock budgets as tight as 0.1 s, global singletons and defaults, process-wide `setenv` | open | | | |
 | TST-11 | P2 | Silent skips: tool-gated app tests ignore `LUNGFISH_REQUIRE_TOOLS`, in-repo fixture misses skip, the conforman | open | | | |
-| TST-12 | P2 | XCUITests (40) run nowhere automatically, `appSmokeRequired: false`, core scientific journeys uncovered | open | | | |
+| TST-12 | P2 | XCUITests (40) run nowhere automatically, `appSmokeRequired: false`, core scientific journeys uncovered | partially fixed (app-smoke half): `appSmokeRequired: true` for both channels in config/release-contract.json, and release-candidate-receipt.py now requires smoke evidence for preview too (was stable-only); XCUITests still do not run automatically outside a release | P0-A | b35a3c006 | |
 | UX-03 | P2 | Keyboard shortcuts implemented in `NSViewController.performKeyEquivalent` are probably never reached, and ⌘0 c | open | | | |
 | UX-04 | P2 | Edit > Copy and Edit > Find are dead in data views | open | | | |
 | UX-05 | P2 | Table search and column-filter UI copied four times and drifting. NAO-MGS has no search. TaxTriage hides searc | open | | | |
