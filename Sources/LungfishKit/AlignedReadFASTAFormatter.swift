@@ -6,7 +6,7 @@
 // read-track multi-select) as FASTA, in aligned orientation, directly from the
 // in-memory SEQ field (no samtools round-trip).
 //
-// Bio-gate semantics (docs/superpowers/specs/2026-08-09-mapping-viewer-fixes-spec.md,
+// Bio-gate semantics (docs/superpowers/specs/2026-08-09-mapping-viewer-fixes-spec.md at commit ba9d983f9,
 // Item 3):
 //   - Header: >{QNAME} {RNAME}:{1-based start}-{end} strand={+|-} cigar={CIGAR} mapq={MAPQ}
 //     with `hardclipped={N}` appended (N = total hard-clipped bases) when the

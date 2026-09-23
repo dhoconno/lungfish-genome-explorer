@@ -19,7 +19,7 @@ struct ReferenceBundleViewportInput: Equatable {
     /// label) — never populates `manifest` above, which drives
     /// `documentTitle` and is deliberately left `nil` for mapping results
     /// (that summary-bar decision is out of scope for Item 2; see
-    /// `docs/superpowers/specs/2026-08-09-mapping-viewer-fixes-spec.md`).
+    /// `docs/superpowers/specs/2026-08-09-mapping-viewer-fixes-spec.md` at commit ba9d983f9).
     let viewerBundleManifest: BundleManifest?
 
     var documentTitle: String {

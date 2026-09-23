@@ -5,7 +5,7 @@
 // Verifies the sidebar's generic `buildBatchAnalysisNode` branch, previously
 // dead code, now lights up correctly for the new N>1 fan-out producers
 // (mapping/assembly write per-sample subdirectories; Savont writes flat
-// `.fasta` files). See docs/superpowers/specs/2026-08-09-batch-results-grouping-design.md §5.
+// `.fasta` files). See docs/superpowers/specs/2026-08-09-batch-results-grouping-design.md at commit ba9d983f9 §5.
 
 import XCTest
 @testable import LungfishApp
