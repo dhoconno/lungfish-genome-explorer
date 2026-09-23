@@ -696,6 +696,107 @@ final class FASTQOperationDialogRoutingTests: XCTestCase {
         )
     }
 
+    // WFL-07 (2026-09-23 best-practices audit): "Remove Human Reads" used to
+    // require the user to pick a file through `.database` (a chooser that
+    // only accepted directories/extensionless files/db/k2d/sqlite/json, so
+    // the managed Deacon `.idx` index could not even be selected), then
+    // discarded whatever was picked and derived a "database id" from the
+    // file's stem instead. `removeHumanReadsDatabaseID` is now the single
+    // source of truth for which managed database is used, and `.database`
+    // is no longer a required auxiliary input for this tool.
+    func testRemoveHumanReadsDoesNotRequireAuxiliaryDatabaseFileSelection() throws {
+        let inputURL = URL(fileURLWithPath: "/tmp/sample.lungfishfastq")
+        let state = FASTQOperationDialogState(
+            initialCategory: .decontamination,
+            selectedInputURLs: [inputURL]
+        )
+
+        state.selectTool(.removeHumanReads)
+
+        XCTAssertEqual(state.requiredInputKinds, [.fastqDataset])
+        XCTAssertTrue(state.isRunEnabled)
+    }
+
+    func testRemoveHumanReadsDefaultsToPanhumanDatabaseAndReachesTheCLIArgv() throws {
+        let inputURL = URL(fileURLWithPath: "/tmp/sample.lungfishfastq")
+        let state = FASTQOperationDialogState(
+            initialCategory: .decontamination,
+            selectedInputURLs: [inputURL]
+        )
+
+        state.selectTool(.removeHumanReads)
+        state.prepareForRun()
+
+        XCTAssertEqual(
+            state.pendingLaunchRequest,
+            .derivative(
+                request: .humanReadScrub(
+                    databaseID: DeaconPanhumanDatabaseInstaller.databaseID,
+                    removeReads: true
+                ),
+                inputURLs: [inputURL],
+                outputMode: .perInput
+            )
+        )
+
+        let launchRequest = try XCTUnwrap(state.pendingLaunchRequest)
+        let invocation = try FASTQOperationExecutionService().buildInvocation(for: launchRequest)
+        XCTAssertEqual(invocation.subcommand, "fastq")
+        XCTAssertEqual(
+            invocation.arguments,
+            [
+                "scrub-human",
+                "/tmp/sample.lungfishfastq",
+                "--database-id",
+                DeaconPanhumanDatabaseInstaller.databaseID,
+                "-o",
+                "<derived>",
+            ]
+        )
+    }
+
+    func testRemoveHumanReadsHonoursExplicitlyChosenDatabaseIDInLaunchRequestAndArgv() throws {
+        // The chosen database (whatever it is, e.g. a ribokmers or
+        // human-scrubber id selected via a future picker UI) must actually
+        // reach the operation request and the CLI argv, not be silently
+        // discarded in favor of a filename-derived guess.
+        let inputURL = URL(fileURLWithPath: "/tmp/sample.lungfishfastq")
+        let state = FASTQOperationDialogState(
+            initialCategory: .decontamination,
+            selectedInputURLs: [inputURL]
+        )
+
+        state.selectTool(.removeHumanReads)
+        state.removeHumanReadsDatabaseID = DeaconRibokmersDatabaseInstaller.databaseID
+        state.prepareForRun()
+
+        XCTAssertEqual(
+            state.pendingLaunchRequest,
+            .derivative(
+                request: .humanReadScrub(
+                    databaseID: DeaconRibokmersDatabaseInstaller.databaseID,
+                    removeReads: true
+                ),
+                inputURLs: [inputURL],
+                outputMode: .perInput
+            )
+        )
+
+        let launchRequest = try XCTUnwrap(state.pendingLaunchRequest)
+        let invocation = try FASTQOperationExecutionService().buildInvocation(for: launchRequest)
+        XCTAssertEqual(
+            invocation.arguments,
+            [
+                "scrub-human",
+                "/tmp/sample.lungfishfastq",
+                "--database-id",
+                DeaconRibokmersDatabaseInstaller.databaseID,
+                "-o",
+                "<derived>",
+            ]
+        )
+    }
+
     func testLowComplexityFilterRoutesToEntropyFilterWithBenchmarkedDefaults() throws {
         let inputURL = URL(fileURLWithPath: "/tmp/sample.lungfishfastq")
         let state = FASTQOperationDialogState(
