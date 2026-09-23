@@ -6,9 +6,9 @@ Single source of truth for finding status (plan rule 9). Status: `open`, `verifi
 |---|---|---|---|---|---|---|
 | FEA-01 | P0 | Manifest rewrites drop alignment tracks and the record store (variant deletion paths) | open | | | |
 | FEA-02 | P0 | GUI FASTQ import silently replaces same-named bundles, and ignores Keep Both and sample-sheet names | open | | | |
-| PERF-04 | P0 | Unique-read counts for TaxTriage and EsViritu are capped at 100,000 parsed reads per contig after buffering up | open | | | |
+| PERF-04 | P0 | Unique-read counts for TaxTriage and EsViritu are capped at 100,000 parsed reads per contig after buffering up | fixed | P0-C | e3efa6f77,b87e84661 | UniqueReadStartCounter 10/10 incl >100k; AlignmentDataProviderTests 55/55; caches renamed .v2 |
 | REL-01 | P0 | Shipped app bundles are owner-only (0700/0600) because of `umask 077` | open | | | |
-| SCI-01 | P0 | GFF exported to iVar collapses multi-segment CDS (ORF1ab frameshift, spliced CDS) into one span, which changes | open | | | |
+| SCI-01 | P0 | GFF exported to iVar collapses multi-segment CDS (ORF1ab frameshift, spliced CDS) into one span, which changes | fixed | P0-C | 3af455220 | CDSSegmentPhasesTests 6/6, AnnotationDatabaseGFFExporterTests 5/5; ivar split-vs-merged GFF compared manually |
 | TST-01 | P0 | Pre-push unit tier is red on HEAD: 117 failures plus 1 indefinite hang | open | | | |
 | TST-02 | P0 | No gate runs the broad suite: release selects 186 of about 14.2K tests, the hook is not installed, and 11 rele | open | | | |
 | WFL-01 | P0 | FASTQ-operation outputs are silently quality-binned and, when large, Trim Galore-trimmed during re-ingestion | open | | | |
@@ -38,9 +38,9 @@ Single source of truth for finding status (plan rule 9). Status: `open`, `verifi
 | REL-03 | P1 | GPL-2.0 Linux kernel shipped without notice or source offer; THIRD-PARTY-NOTICES stale and not bundled | open | | | |
 | REL-04 | P1 | No rollback or yank path for a bad Sparkle release; the floor gate blocks the obvious one | open | | | |
 | REL-05 | P1 | Every `gh` call, including the ~167 MB DMG upload, is capped at 180 s | open | | | |
-| SCI-02 | P1 | iVar TSV to VCF converter emits duplicate records for overlapping CDS (ORF1a/ORF1ab) | open | | | |
-| SCI-03 | P1 | Minimum AF and depth thresholds silently ignored for LoFreq, bcftools, Medaka and Clair3, yet recorded in prov | open | | | |
-| SCI-04 | P1 | bcftools caller runs with diploid ploidy and max-depth 250 on viral data | open | | | |
+| SCI-02 | P1 | iVar TSV to VCF converter emits duplicate records for overlapping CDS (ORF1a/ORF1ab) | fixed | P0-C | e3eac6bc0 | IVarTSVToVCFConverterTests 10/10 (overlapping-cds fixture) |
+| SCI-03 | P1 | Minimum AF and depth thresholds silently ignored for LoFreq, bcftools, Medaka and Clair3, yet recorded in prov | fixed | P0-C | ffd76587a | bcftools view -i post-filter; provenance records applied thresholds only; ViralVariantCallingPipelineTests (4 env failures: samtools path, TST-04) |
+| SCI-04 | P1 | bcftools caller runs with diploid ploidy and max-depth 250 on viral data | fixed | P0-C | ffd76587a | --ploidy 1, mpileup -d 0; managed bcftools 1.24 synthetic 2000x: DP=2000 haploid |
 | SCI-05 | P1 | Mapping "reads mapped / total" and per-contig % count alignment records (secondary and supplementary), not rea | open | | | |
 | SCI-06 | P1 | Annotation extraction ignores strand and splicing, and the core API applies 5'/3' flanks by coordinate | open | | | |
 | SCI-07 | P1 | Region to bundle extraction with Reverse Complement does not transform variants | open | | | |

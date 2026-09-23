@@ -2,7 +2,7 @@
 
 A legacy SARS-CoV-2 clinical-isolate fixture set retained for older
 VCF-import review notes and future compact comparison examples. The current
-pilot chapter uses `docs/user-manual/fixtures/sarscov2-srr36291587/` and
+pilot chapter uses `Tests/Fixtures/sarscov2-srr36291587/` and
 `chapters/04-variants/01-reads-to-variants.md`.
 
 A clinical isolate is used deliberately rather than a wastewater sample.

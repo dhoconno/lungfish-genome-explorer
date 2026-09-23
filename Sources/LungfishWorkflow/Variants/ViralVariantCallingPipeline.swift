@@ -306,6 +306,18 @@ public struct ViralVariantCallingPipeline: Sendable {
             throw ViralVariantCallingPipelineError.missingCallerOutput(plan.rawVCFURL.path)
         }
 
+        var effectiveMinimumAlleleFrequency: Double?
+        var effectiveMinimumDepth: Int?
+        if let thresholdFilter = try await applyThresholdFilterIfNeeded(plan: plan, progress: progress) {
+            provenanceSteps.append(thresholdFilter.step)
+            effectiveMinimumAlleleFrequency = thresholdFilter.appliedMinimumAlleleFrequency
+            effectiveMinimumDepth = thresholdFilter.appliedMinimumDepth
+        } else if request.caller == .ivar {
+            // iVar applies -t/-m natively during calling (see ivarVariantArguments).
+            effectiveMinimumAlleleFrequency = request.minimumAlleleFrequency
+            effectiveMinimumDepth = request.minimumDepth
+        }
+
         let callerVCFWithReferenceContigsURL = plan.rawVCFURL
             .deletingLastPathComponent()
             .appendingPathComponent("caller-with-reference-contigs.vcf")
@@ -459,9 +471,172 @@ public struct ViralVariantCallingPipeline: Sendable {
             referenceFASTAURL: plan.referenceURL,
             referenceFASTASHA256: referenceFASTASHA256,
             callerVersion: callerVersion,
-            callerParametersJSON: callerParametersJSON(),
+            callerParametersJSON: callerParametersJSON(
+                appliedMinimumAlleleFrequency: effectiveMinimumAlleleFrequency,
+                appliedMinimumDepth: effectiveMinimumDepth
+            ),
             commandLine: executedCommandLine,
             provenanceSteps: provenanceSteps
+        )
+    }
+
+    /// A post-call `bcftools view -i` filter applied to the raw caller VCF,
+    /// in place, so the minimum AF and depth the user set in the dialog are
+    /// actually honoured for the four callers that do not accept them as
+    /// native flags (LoFreq, bcftools, Medaka, Clair3). iVar applies its own
+    /// `-t`/`-m` thresholds during calling and is not touched here.
+    ///
+    /// Returns `nil` when no filter applies (iVar, or neither threshold set),
+    /// so the caller can tell "not applicable" from "applied with these
+    /// values" for provenance.
+    struct ThresholdFilterOutcome {
+        let step: VariantCallingProvenanceStep
+        let appliedMinimumAlleleFrequency: Double?
+        let appliedMinimumDepth: Int?
+    }
+
+    /// The bcftools filter expression fragment selecting the alt allele
+    /// frequency for each caller's VCF tag layout, or `nil` if the caller
+    /// does not emit a usable AF-bearing tag (in which case only the depth
+    /// threshold, if any, is applied).
+    private func alleleFrequencyExpression(for caller: ViralVariantCaller) -> String? {
+        switch caller {
+        case .lofreq, .medaka:
+            // Both emit a per-record INFO/AF (LoFreq: confirmed via managed
+            // lofreq call output; Medaka: medaka/vcf.py declares INFO/AF as
+            // an A-length float field).
+            return "INFO/AF"
+        case .bcftools:
+            // bcftools call has no native AF tag; with `-a FORMAT/AD` (added
+            // in bcftoolsMpileupArguments for SCI-04) the alt-allele
+            // frequency is AD[1]/(AD[0]+AD[1]).
+            return "(FORMAT/AD[0:1])/(FORMAT/AD[0:0]+FORMAT/AD[0:1])"
+        case .clair3:
+            // Clair3 (per shared/utils.py / UnifyRepresentation.py) writes a
+            // per-sample FORMAT/AF.
+            return "FORMAT/AF"
+        case .ivar:
+            return nil
+        }
+    }
+
+    private func depthExpression(for caller: ViralVariantCaller) -> String {
+        switch caller {
+        case .lofreq, .medaka:
+            return "INFO/DP"
+        case .bcftools, .clair3:
+            return "FORMAT/DP"
+        case .ivar:
+            return "INFO/DP"
+        }
+    }
+
+    /// Returns whether `tag` (e.g. `"AF"`, `"DP"`) is declared as an INFO or
+    /// FORMAT field in the raw VCF's header. A filter expression that
+    /// references an undeclared tag makes `bcftools view -i` fail closed
+    /// with "tag is not defined in the VCF header" even when every record is
+    /// missing that field for the same reason, so this is checked up front
+    /// and the corresponding threshold is skipped (and not claimed as
+    /// applied in provenance) rather than failing the whole variant call.
+    private func vcfHeaderDeclaresTag(_ tag: String, at url: URL) -> Bool {
+        guard let data = FileManager.default.contents(atPath: url.path),
+              let text = String(data: data, encoding: .utf8) else {
+            return false
+        }
+        for line in text.split(separator: "\n") {
+            guard line.hasPrefix("##INFO=<ID=\(tag),") || line.hasPrefix("##FORMAT=<ID=\(tag),") else {
+                if line.hasPrefix("#CHROM") { break }
+                continue
+            }
+            return true
+        }
+        return false
+    }
+
+    private func applyThresholdFilterIfNeeded(
+        plan: ViralVariantCallingExecutionPlan,
+        progress: ProgressHandler?
+    ) async throws -> ThresholdFilterOutcome? {
+        guard request.caller != .ivar else { return nil }
+
+        let minimumAlleleFrequency = request.minimumAlleleFrequency
+        let minimumDepth = request.minimumDepth
+        guard minimumAlleleFrequency != nil || minimumDepth != nil else { return nil }
+
+        var conditions: [String] = []
+        var appliedAF: Double?
+        var appliedDP: Int?
+
+        if let minimumAlleleFrequency, let afExpression = alleleFrequencyExpression(for: request.caller) {
+            let afTag = request.caller == .bcftools ? "AD" : "AF"
+            if vcfHeaderDeclaresTag(afTag, at: plan.rawVCFURL) {
+                conditions.append("\(afExpression)>=\(minimumAlleleFrequency)")
+                appliedAF = minimumAlleleFrequency
+            } else {
+                logger.warning("Skipping minimum-AF filter for \(request.caller.rawValue, privacy: .public): raw VCF header does not declare \(afTag, privacy: .public)")
+            }
+        }
+        if let minimumDepth {
+            let dpTag = "DP"
+            if vcfHeaderDeclaresTag(dpTag, at: plan.rawVCFURL) {
+                conditions.append("\(depthExpression(for: request.caller))>=\(minimumDepth)")
+                appliedDP = minimumDepth
+            } else {
+                logger.warning("Skipping minimum-depth filter for \(request.caller.rawValue, privacy: .public): raw VCF header does not declare \(dpTag, privacy: .public)")
+            }
+        }
+
+        guard !conditions.isEmpty else { return nil }
+
+        let expression = conditions.joined(separator: " && ")
+        let filteredURL = plan.rawVCFURL
+            .deletingLastPathComponent()
+            .appendingPathComponent("threshold-filtered.vcf")
+        let arguments = [
+            "view",
+            "-i", expression,
+            "-o", filteredURL.path,
+            plan.rawVCFURL.path,
+        ]
+
+        progress?(0.60, "Applying minimum AF and depth thresholds")
+        let startedAt = Date()
+        let result = try await toolRunner.run(
+            .bcftools,
+            arguments: arguments,
+            workingDirectory: plan.workingDirectory,
+            timeout: 600
+        )
+        let completedAt = Date()
+        guard result.isSuccess else {
+            throw ViralVariantCallingPipelineError.callerExecutionFailed(result.combinedOutput)
+        }
+
+        let inputRecord = ProvenanceRecorder.fileRecord(url: plan.rawVCFURL, format: .vcf, role: .input)
+        let outputRecord = ProvenanceRecorder.fileRecord(url: filteredURL, format: .vcf, role: .output)
+
+        // Replace the raw VCF in place so every downstream step (reheader,
+        // sort, bgzip, tabix) sees the filtered variants without needing to
+        // know a filter ran.
+        try FileManager.default.removeItem(at: plan.rawVCFURL)
+        try FileManager.default.moveItem(at: filteredURL, to: plan.rawVCFURL)
+
+        let step = VariantCallingProvenanceStep(
+            toolName: "bcftools",
+            toolVersion: await nativeToolVersion(for: .bcftools),
+            command: await nativeCommand(for: .bcftools, arguments: arguments),
+            inputs: [inputRecord],
+            outputs: [outputRecord],
+            exitCode: result.exitCode,
+            wallTime: completedAt.timeIntervalSince(startedAt),
+            stderr: result.stderr,
+            startedAt: startedAt,
+            completedAt: completedAt
+        )
+        return ThresholdFilterOutcome(
+            step: step,
+            appliedMinimumAlleleFrequency: appliedAF,
+            appliedMinimumDepth: appliedDP
         )
     }
 
@@ -1326,10 +1501,24 @@ public struct ViralVariantCallingPipeline: Sendable {
         ] + request.advancedArguments
     }
 
+    /// Amplicon depth at a single position can run into the hundreds of
+    /// thousands of reads (PCR amplicon pileups, high-coverage clinical
+    /// samples). bcftools' own default max-depth is 250, which silently
+    /// subsamples the pileup before calling. `0` disables the cap entirely
+    /// (see `bcftools mpileup` docs: "-d, --max-depth INT ... 0 for
+    /// unlimited"), which is appropriate here because LGE stages one BAM at a
+    /// time into a scratch workspace rather than streaming a shared pileup
+    /// across a genome-wide multi-sample run where an unbounded depth could
+    /// be memory-hazardous.
+    static let bcftoolsAmpliconMaxDepth = "0"
+
     private func bcftoolsMpileupArguments(plan: ViralVariantCallingExecutionPlan) -> [String] {
         [
             "mpileup",
             "-Ou",
+            "-A",
+            "-d", Self.bcftoolsAmpliconMaxDepth,
+            "-a", "FORMAT/AD,FORMAT/DP,INFO/AD",
             "-f", plan.referenceURL.path,
             plan.alignmentURL.path,
         ]
@@ -1339,19 +1528,23 @@ public struct ViralVariantCallingPipeline: Sendable {
         ["call"]
             + request.advancedArguments
             + [
+                "--ploidy", "1",
                 "-mv",
                 "-Ov",
                 "-o", plan.rawVCFURL.path,
             ]
     }
 
-    private func callerParametersJSON() -> String {
+    private func callerParametersJSON(
+        appliedMinimumAlleleFrequency: Double?,
+        appliedMinimumDepth: Int?
+    ) -> String {
         let isIvar = request.caller == .ivar
         let payload = CallerParametersPayload(
             caller: request.caller.rawValue,
             threads: request.threads,
-            minimumAlleleFrequency: request.minimumAlleleFrequency,
-            minimumDepth: request.minimumDepth,
+            minimumAlleleFrequency: appliedMinimumAlleleFrequency,
+            minimumDepth: appliedMinimumDepth,
             ivarPrimerTrimConfirmed: isIvar ? request.ivarPrimerTrimConfirmed : nil,
             ivarConsensusAF: isIvar ? request.ivarConsensusAF : nil,
             ivarMergeAFThreshold: isIvar ? request.ivarMergeAFThreshold : nil,

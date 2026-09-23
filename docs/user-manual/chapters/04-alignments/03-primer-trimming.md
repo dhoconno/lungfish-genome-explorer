@@ -56,7 +56,7 @@ You need a project open. If you do not have one, choose **File > New Project** (
 
 This chapter uses the SRR36291587 SARS-CoV-2 reads. Download the reference file `MN908947.3.fasta` from the manual's practice data files on GitHub at
 
-https://github.com/dhoconno/lungfish-genome-explorer/tree/main/docs/user-manual/fixtures/sarscov2-srr36291587
+https://github.com/dhoconno/lungfish-genome-explorer/tree/main/Tests/Fixtures/sarscov2-srr36291587
 
 and remember where you saved it. The reads themselves are too large to store on GitHub, so fetch them from the Sequence Read Archive as accession `SRR36291587`, following [Downloading Reads from the SRA](../03-reads/02-downloading-from-sra.md).
 

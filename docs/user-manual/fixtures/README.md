@@ -10,6 +10,12 @@ Per-file cap is 10 MB. Per-fixture-set cap is 50 MB. Files larger than these
 caps ship a `fetch.sh` that pulls from a pinned NCBI or ENA URL and caches
 locally.
 
+`hg002-chr20/` and `hg002-long-reads/` exceed the per-fixture-set cap (18 MB
+and 14 MB) and no test reads them, so they live in the pinned manual-media
+repo instead of here. Run `docs/user-manual/build/scripts/fetch-media.sh` to
+fetch them (see `docs/user-manual/media.lock`); the script places them back
+at these same relative paths.
+
 ## Required metadata
 
 Every fixture set has a `README.md` that records source (accession, DOI, or
