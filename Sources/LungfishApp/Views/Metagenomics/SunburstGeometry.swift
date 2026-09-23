@@ -92,24 +92,18 @@ public struct SunburstSegment {
     public func bezierPath(center: NSPoint) -> NSBezierPath {
         let path = NSBezierPath()
 
-        // Convert from our clockwise-from-top convention to AppKit's
-        // counterclockwise-from-right convention.
-        // Our 0 = top (12 o'clock), AppKit's 0 = right (3 o'clock).
-        // Our angles increase clockwise, AppKit increases counterclockwise.
-        //
-        // Conversion: appKitAngle = 90 - ourAngleDegrees
-        // And we flip the arc direction.
+        // In this flipped view, numeric AppKit angles increase clockwise.
+        // Convert clockwise-from-top to clockwise-from-right.
+        let startDeg = startAngle * 180.0 / .pi - 90.0
+        let endDeg = endAngle * 180.0 / .pi - 90.0
 
-        let startDeg = 90.0 - startAngle * 180.0 / .pi
-        let endDeg = 90.0 - endAngle * 180.0 / .pi
-
-        // Outer arc (counterclockwise in AppKit = clockwise in our system)
+        // Outer arc follows increasing angles in the flipped view.
         path.appendArc(
             withCenter: center,
             radius: outerRadius,
             startAngle: startDeg,
             endAngle: endDeg,
-            clockwise: true
+            clockwise: false
         )
 
         // Line to inner radius
@@ -118,7 +112,7 @@ public struct SunburstSegment {
             radius: innerRadius,
             startAngle: endDeg,
             endAngle: startDeg,
-            clockwise: false
+            clockwise: true
         )
 
         path.close()
@@ -134,6 +128,10 @@ public struct SunburstSegment {
     /// - Returns: `true` if the point is inside this segment.
     public func containsPoint(radius: CGFloat, angle: CGFloat) -> Bool {
         guard radius >= innerRadius, radius <= outerRadius else { return false }
+
+        let rawSpan = endAngle - startAngle
+        if rawSpan == 0 { return false }
+        if abs(rawSpan) >= 2 * .pi - 1e-10 { return true }
 
         // Normalize the angle to [0, 2*pi)
         let normalizedAngle = normalizeAngle(angle)

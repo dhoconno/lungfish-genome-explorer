@@ -1006,7 +1006,11 @@ final class TaxonomyTooltipViewTests: XCTestCase {
         let tree = makeTestTree()
         let ecoli = tree.node(taxId: 562)!
 
-        tooltip.update(with: ecoli, totalReads: tree.totalReads)
+        tooltip.update(
+            with: ecoli,
+            totalReads: tree.totalReads,
+            classifiedReads: tree.classifiedReads
+        )
 
         let size = tooltip.preferredSize
         XCTAssertGreaterThan(size.width, 0, "Tooltip should have positive width")
@@ -1018,7 +1022,11 @@ final class TaxonomyTooltipViewTests: XCTestCase {
         let tree = makeTestTree()
         let root = tree.root
 
-        tooltip.update(with: root, totalReads: tree.totalReads)
+        tooltip.update(
+            with: root,
+            totalReads: tree.totalReads,
+            classifiedReads: tree.classifiedReads
+        )
 
         let size = tooltip.preferredSize
         XCTAssertGreaterThanOrEqual(size.width, 160,
@@ -1030,7 +1038,11 @@ final class TaxonomyTooltipViewTests: XCTestCase {
         let tree = makeTestTree()
         let ecoli = tree.node(taxId: 562)!
 
-        tooltip.update(with: ecoli, totalReads: tree.totalReads)
+        tooltip.update(
+            with: ecoli,
+            totalReads: tree.totalReads,
+            classifiedReads: tree.classifiedReads
+        )
 
         let image = NSImage(size: tooltip.bounds.size, flipped: true) { rect in
             tooltip.draw(rect)

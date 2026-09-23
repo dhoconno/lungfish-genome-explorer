@@ -222,6 +222,7 @@ public class TaxonomySunburstView: NSView {
         cachedSegments = []
         cachedBoundsSize = .zero
         cachedZoomRoot = nil
+        hoveredNode = nil
     }
 
     private func ensureSegmentCache() {
@@ -396,7 +397,7 @@ public class TaxonomySunburstView: NSView {
             rotation += .pi
         }
 
-        ctx.rotate(by: -rotation)
+        ctx.rotate(by: rotation)
         displayStr.draw(at: CGPoint(
             x: -displaySize.width / 2,
             y: -displaySize.height / 2
@@ -763,7 +764,11 @@ public class TaxonomySunburstView: NSView {
             tooltipView = tooltip
         }
 
-        tooltip.update(with: node, totalReads: tree?.totalReads ?? 0)
+        tooltip.update(
+            with: node,
+            totalReads: tree?.totalReads ?? 0,
+            classifiedReads: tree?.classifiedReads ?? 0
+        )
 
         // Position tooltip near the mouse
         guard let window else { return }
