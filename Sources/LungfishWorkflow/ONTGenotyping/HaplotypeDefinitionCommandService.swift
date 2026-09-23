@@ -309,7 +309,8 @@ public struct HaplotypeDefinitionCommandService: Sendable {
         )
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        try encoder.encode(versioned).write(to: definitionURL, options: .atomic)
+        let definitionData = try encoder.encode(versioned)
+        try definitionData.write(to: definitionURL, options: .atomic)
 
         let updatedPaths = manifest.haplotypeDefinitionPaths.contains(relativePath)
             ? manifest.haplotypeDefinitionPaths
@@ -350,6 +351,7 @@ public struct HaplotypeDefinitionCommandService: Sendable {
                 "speciesCode": .string(versioned.speciesCode),
                 "definitionPath": .file(definitionURL),
                 "referenceFASTA": .file(referenceURL),
+                "definitionJSON": .string(String(data: definitionData, encoding: .utf8) ?? ""),
             ],
             inputs: [priorDefinitionDescriptor, priorManifestDescriptor, referenceDescriptor].compactMap { $0 },
             outputs: outputs

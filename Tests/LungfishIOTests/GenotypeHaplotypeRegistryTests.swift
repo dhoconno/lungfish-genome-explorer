@@ -114,6 +114,27 @@ final class GenotypeHaplotypeRegistryTests: XCTestCase {
         XCTAssertEqual(haplotype.effectiveMinimumMatches, 2)
     }
 
+    func testEffectiveAssociatedAllelesUnionsAssociatedThenDiagnosticWithoutDuplicates() {
+        let haplotype = GenotypeHaplotypeDefinition(
+            name: "H1",
+            diagnosticAlleles: ["diagnostic", "shared"],
+            associatedAlleles: ["associated", "shared", "associated"]
+        )
+
+        XCTAssertEqual(haplotype.effectiveAssociatedAlleles, ["associated", "shared", "diagnostic"])
+    }
+
+    func testLegacyHaplotypeDecodesWithAssociatedAllelesFallbackAndOmitsNilField() throws {
+        let data = Data(#"{"name":"H1","diagnosticAlleles":["diagnostic"],"colorTokenIndex":0}"#.utf8)
+        let decoded = try JSONDecoder().decode(GenotypeHaplotypeDefinition.self, from: data)
+
+        XCTAssertNil(decoded.associatedAlleles)
+        XCTAssertEqual(decoded.effectiveAssociatedAlleles, ["diagnostic"])
+        let encoded = try JSONEncoder().encode(decoded)
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        XCTAssertNil(object["associatedAlleles"])
+    }
+
     func testEmptyRegistryHasNoDefinitionSets() {
         let registry = GenotypeHaplotypeDefinitionRegistry(assays: [], defaultDefinitionSetID: nil)
 

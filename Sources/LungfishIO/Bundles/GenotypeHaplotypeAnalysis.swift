@@ -146,22 +146,24 @@ public struct GenotypeHaplotypeLocusDefinition: Codable, Equatable, Sendable {
 public struct GenotypeHaplotypeDefinition: Codable, Equatable, Sendable {
     public let name: String
     public let diagnosticAlleles: [String]
+    /// Alleles associated with this haplotype for evidence/display purposes.
+    /// A nil value preserves legacy definitions, whose associated alleles are
+    /// exactly their diagnostic alleles.
+    public let associatedAlleles: [String]?
     public let primaryAlleles: [String]?
     public let evidenceWeights: [String: Double]?
     public let colorTokenIndex: Int
     public let colorOverride: AnnotationColor?
-    /// Minimum number of `diagnosticAlleles` that must be observed for
-    /// this haplotype to match. `nil` means "all" (the strict notebook
-    /// rule). Use a smaller integer when supplying multi-family
-    /// supporting alleles so the call still succeeds when one or two
-    /// families dropped out — this lets the inspector use rich
-    /// diagnostic lists from the pbaa.xlsx workbook without requiring
-    /// every single allele to be present.
+    /// Minimum number of diagnostic alleles required by the calling rule.
+    /// `nil` requires all eligible diagnostics; legacy evidence weights can
+    /// exclude support-only markers from that rule. Associated-only alleles
+    /// never satisfy this threshold.
     public let minimumMatches: Int?
 
     public init(
         name: String,
         diagnosticAlleles: [String],
+        associatedAlleles: [String]? = nil,
         primaryAlleles: [String]? = nil,
         evidenceWeights: [String: Double]? = nil,
         colorTokenIndex: Int? = nil,
@@ -170,6 +172,7 @@ public struct GenotypeHaplotypeDefinition: Codable, Equatable, Sendable {
     ) {
         self.name = name
         self.diagnosticAlleles = diagnosticAlleles
+        self.associatedAlleles = associatedAlleles
         self.primaryAlleles = primaryAlleles
         self.evidenceWeights = evidenceWeights
         self.colorTokenIndex = colorTokenIndex ?? HaplotypeColorToken.assigned(forName: name).canonicalIndex
@@ -186,6 +189,7 @@ public struct GenotypeHaplotypeDefinition: Codable, Equatable, Sendable {
         self.init(
             name: name,
             diagnosticAlleles: diagnosticAlleles,
+            associatedAlleles: nil,
             primaryAlleles: nil,
             evidenceWeights: nil,
             colorTokenIndex: colorTokenIndex,
@@ -204,6 +208,7 @@ public struct GenotypeHaplotypeDefinition: Codable, Equatable, Sendable {
         self.init(
             name: name,
             diagnosticAlleles: diagnosticAlleles,
+            associatedAlleles: nil,
             primaryAlleles: nil,
             evidenceWeights: nil,
             colorTokenIndex: colorTokenIndex,
@@ -226,6 +231,20 @@ public struct GenotypeHaplotypeDefinition: Codable, Equatable, Sendable {
         return primaryAlleles
     }
 
+    /// Ordered union of explicitly associated alleles followed by diagnostics.
+    /// Legacy definitions with no explicit association list fall back to the
+    /// diagnostic list while retaining the same de-duplication guarantee.
+    public var effectiveAssociatedAlleles: [String] {
+        var result: [String] = []
+        var seen = Set<String>()
+        for allele in (associatedAlleles ?? []) + diagnosticAlleles {
+            if seen.insert(allele).inserted {
+                result.append(allele)
+            }
+        }
+        return result
+    }
+
     public var effectiveFillColor: AnnotationColor {
         if let colorOverride {
             return colorOverride
@@ -237,7 +256,7 @@ public struct GenotypeHaplotypeDefinition: Codable, Equatable, Sendable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case name, diagnosticAlleles, primaryAlleles, evidenceWeights, colorTokenIndex, colorOverride, minimumMatches
+        case name, diagnosticAlleles, associatedAlleles, primaryAlleles, evidenceWeights, colorTokenIndex, colorOverride, minimumMatches
     }
 
     public init(from decoder: Decoder) throws {
@@ -248,6 +267,7 @@ public struct GenotypeHaplotypeDefinition: Codable, Equatable, Sendable {
             ?? HaplotypeColorToken.assigned(forName: name).canonicalIndex
         self.name = name
         self.diagnosticAlleles = diagnosticAlleles
+        self.associatedAlleles = try container.decodeIfPresent([String].self, forKey: .associatedAlleles)
         self.primaryAlleles = try container.decodeIfPresent([String].self, forKey: .primaryAlleles)
         self.evidenceWeights = try container.decodeIfPresent([String: Double].self, forKey: .evidenceWeights)
         self.colorTokenIndex = colorTokenIndex

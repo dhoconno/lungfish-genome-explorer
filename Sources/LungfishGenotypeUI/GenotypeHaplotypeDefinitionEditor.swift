@@ -18,6 +18,7 @@ import LungfishKit
 public struct GenotypeHaplotypeDefinitionEditor: View {
     @State private var draft: GenotypeHaplotypeDefinitionSet
     @State private var selectedLocusIndex: Int = 0
+    @State private var metadataExpanded = false
     @State private var newAlleleText: String = ""
     let isReadOnly: Bool
     let allowsIdentityEditing: Bool
@@ -68,7 +69,8 @@ public struct GenotypeHaplotypeDefinitionEditor: View {
             Divider()
             footer
         }
-        .frame(minWidth: 720, minHeight: 480)
+        .frame(minWidth: 760, maxWidth: .infinity, minHeight: 560, maxHeight: .infinity)
+        .background(Color(nsColor: .windowBackgroundColor))
     }
 
     // MARK: - Header
@@ -102,16 +104,8 @@ public struct GenotypeHaplotypeDefinitionEditor: View {
                     }
                 ))
                 .textFieldStyle(.roundedBorder)
-                .frame(width: 280)
+                .frame(minWidth: 240, maxWidth: .infinity)
                 .disabled(isReadOnly)
-                Text("ID:")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Text(draft.id)
-                    .font(.caption.monospaced())
-                    .foregroundStyle(.secondary)
-                    .textSelection(.enabled)
-                Spacer()
                 let locusCount = draft.locusDefinitions.count
                 let haplotypeCount = draft.locusDefinitions.reduce(0) { $0 + $1.haplotypes.count }
                 Text("\(locusCount) loci · \(haplotypeCount) haplotypes")
@@ -119,63 +113,65 @@ public struct GenotypeHaplotypeDefinitionEditor: View {
                     .foregroundStyle(.secondary)
             }
             if allowsMetadataEditing || allowsIdentityEditing {
-                Grid(alignment: .leading, horizontalSpacing: 8, verticalSpacing: 6) {
-                    GridRow {
-                        Text("Definition ID")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        TextField("definition-id", text: Binding(
-                            get: { draft.id },
-                            set: { draft = GenotypeHaplotypeDefinitionDrafting.withDefinitionFields(draft, id: $0) }
-                        ))
-                        .textFieldStyle(.roundedBorder)
-                        .disabled(isReadOnly || !allowsIdentityEditing)
-                    }
-                    GridRow {
-                        Text("Assay")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        TextField("assay-id", text: Binding(
-                            get: { draft.assayID },
-                            set: { draft = GenotypeHaplotypeDefinitionDrafting.withDefinitionFields(draft, assayID: $0) }
-                        ))
-                        .textFieldStyle(.roundedBorder)
-                        .disabled(isReadOnly || !allowsMetadataEditing)
-                    }
-                    GridRow {
-                        Text("Species")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        HStack(spacing: 8) {
-                            TextField("Species name", text: Binding(
-                                get: { draft.speciesName },
-                                set: { draft = GenotypeHaplotypeDefinitionDrafting.withDefinitionFields(draft, speciesName: $0) }
+                DisclosureGroup("Definition details", isExpanded: $metadataExpanded) {
+                    Grid(alignment: .leading, horizontalSpacing: 8, verticalSpacing: 6) {
+                        GridRow {
+                            Text("Definition ID")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            TextField("definition-id", text: Binding(
+                                get: { draft.id },
+                                set: { draft = GenotypeHaplotypeDefinitionDrafting.withDefinitionFields(draft, id: $0) }
                             ))
                             .textFieldStyle(.roundedBorder)
-                            TextField("Code", text: Binding(
-                                get: { draft.speciesCode },
-                                set: { draft = GenotypeHaplotypeDefinitionDrafting.withDefinitionFields(draft, speciesCode: $0) }
-                            ))
-                            .textFieldStyle(.roundedBorder)
-                            .frame(width: 90)
-                            TextField("Allele prefix", text: Binding(
-                                get: { draft.prefix },
-                                set: { draft = GenotypeHaplotypeDefinitionDrafting.withDefinitionFields(draft, prefix: $0) }
-                            ))
-                            .textFieldStyle(.roundedBorder)
-                            .frame(width: 120)
+                            .disabled(isReadOnly || !allowsIdentityEditing)
                         }
-                        .disabled(isReadOnly || !allowsMetadataEditing)
+                        GridRow {
+                            Text("Assay")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            TextField("assay-id", text: Binding(
+                                get: { draft.assayID },
+                                set: { draft = GenotypeHaplotypeDefinitionDrafting.withDefinitionFields(draft, assayID: $0) }
+                            ))
+                            .textFieldStyle(.roundedBorder)
+                            .disabled(isReadOnly || !allowsMetadataEditing)
+                        }
+                        GridRow {
+                            Text("Species")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            HStack(spacing: 8) {
+                                TextField("Species name", text: Binding(
+                                    get: { draft.speciesName },
+                                    set: { draft = GenotypeHaplotypeDefinitionDrafting.withDefinitionFields(draft, speciesName: $0) }
+                                ))
+                                .textFieldStyle(.roundedBorder)
+                                TextField("Code", text: Binding(
+                                    get: { draft.speciesCode },
+                                    set: { draft = GenotypeHaplotypeDefinitionDrafting.withDefinitionFields(draft, speciesCode: $0) }
+                                ))
+                                .textFieldStyle(.roundedBorder)
+                                .frame(width: 90)
+                                TextField("Allele prefix", text: Binding(
+                                    get: { draft.prefix },
+                                    set: { draft = GenotypeHaplotypeDefinitionDrafting.withDefinitionFields(draft, prefix: $0) }
+                                ))
+                                .textFieldStyle(.roundedBorder)
+                                .frame(width: 120)
+                            }
+                            .disabled(isReadOnly || !allowsMetadataEditing)
+                        }
                     }
-                }
             }
-            if let modified = draft.lastModified, !modified.isEmpty {
+            }
+            if metadataExpanded, let modified = draft.lastModified, !modified.isEmpty {
                 Text("Last modified: \(modified)")
                     .font(.caption2.monospaced())
                     .foregroundStyle(.tertiary)
             }
         }
-        .padding(16)
+        .padding(12)
         .background(
             Color(nsColor: .lungfishOrange).opacity(0.05)
         )
@@ -224,12 +220,12 @@ public struct GenotypeHaplotypeDefinitionEditor: View {
     private var haplotypeEditor: some View {
         if draft.locusDefinitions.indices.contains(selectedLocusIndex) {
             let locus = draft.locusDefinitions[selectedLocusIndex]
-            VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 10) {
                 locusHeader(locus)
                 Divider()
                 haplotypeList(locus)
             }
-            .padding(16)
+            .padding(12)
         } else {
             VStack {
                 Spacer()
@@ -297,6 +293,7 @@ public struct GenotypeHaplotypeDefinitionEditor: View {
                 }
             }
         }
+        .frame(minHeight: 120, maxHeight: .infinity)
     }
 
     private func haplotypeRow(hIndex: Int, haplotype: GenotypeHaplotypeDefinition) -> some View {
@@ -309,6 +306,7 @@ public struct GenotypeHaplotypeDefinitionEditor: View {
                             GenotypeHaplotypeDefinition(
                                 name: newValue,
                                 diagnosticAlleles: current.diagnosticAlleles,
+                                associatedAlleles: current.associatedAlleles,
                                 primaryAlleles: current.primaryAlleles,
                                 evidenceWeights: current.evidenceWeights,
                                 colorTokenIndex: current.colorTokenIndex,
@@ -321,11 +319,20 @@ public struct GenotypeHaplotypeDefinitionEditor: View {
                 .textFieldStyle(.roundedBorder)
                 .frame(width: 140)
                 .disabled(isReadOnly)
-                Text("\(haplotype.diagnosticAlleles.count) diagnostic allele\(haplotype.diagnosticAlleles.count == 1 ? "" : "s")")
+                Text("\(haplotype.effectiveAssociatedAlleles.count) associated · \(haplotype.diagnosticAlleles.count) diagnostic")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
+                Spacer()
+                Button(action: { removeHaplotype(locusIndex: selectedLocusIndex, hIndex: hIndex) }) {
+                    Image(systemName: "trash")
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(Color(nsColor: .lungfishDanger))
+                .disabled(isReadOnly)
+            }
+            HStack {
                 Stepper(
-                    "Requires \(haplotype.effectiveMinimumMatches) of \(haplotype.diagnosticAlleles.count)",
+                    GenotypeHaplotypeDefinitionDrafting.minimumMatchesLabel(for: haplotype),
                     value: Binding(
                         get: { max(1, haplotype.effectiveMinimumMatches) },
                         set: { newValue in
@@ -342,38 +349,19 @@ public struct GenotypeHaplotypeDefinitionEditor: View {
                 .controlSize(.small)
                 .disabled(isReadOnly || haplotype.diagnosticAlleles.isEmpty)
                 Spacer()
-                Button(action: { removeHaplotype(locusIndex: selectedLocusIndex, hIndex: hIndex) }) {
-                    Image(systemName: "trash")
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(Color(nsColor: .lungfishDanger))
-                .disabled(isReadOnly)
             }
+            Text("Associated alleles receive colors when this haplotype is called. Select the diagnostic subset used by the calling rule.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
             haplotypeColorControls(hIndex: hIndex, haplotype: haplotype)
-            // Diagnostic alleles as removable chips.
-            FlowLayout(spacing: 4) {
-                ForEach(haplotype.diagnosticAlleles, id: \.self) { allele in
-                    HStack(spacing: 3) {
-                        Text(allele)
-                            .font(.caption.monospaced())
-                        Button(action: { removeAllele(locusIndex: selectedLocusIndex, hIndex: hIndex, allele: allele) }) {
-                            Image(systemName: "xmark.circle.fill")
-                                .font(.caption2)
-                        }
-                        .buttonStyle(.plain)
-                        .foregroundStyle(.secondary)
-                        .disabled(isReadOnly)
-                    }
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 3)
-                    .background(
-                        RoundedRectangle(cornerRadius: 6)
-                            .fill(Color.secondary.opacity(0.1))
-                    )
-                }
+            associatedAlleleRows(haplotype, hIndex: hIndex)
+            if haplotype.evidenceWeights?.values.contains(where: { $0 < 1 }) == true {
+                Text("Legacy weighted rule: selected alleles with weight below 1 are support-only and do not count toward the required matches.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
             }
             HStack(spacing: 4) {
-                TextField("Add diagnostic allele", text: $newAlleleText)
+                TextField("Add associated allele", text: $newAlleleText)
                     .textFieldStyle(.roundedBorder)
                     .controlSize(.small)
                     .onSubmit {
@@ -390,6 +378,52 @@ public struct GenotypeHaplotypeDefinitionEditor: View {
             RoundedRectangle(cornerRadius: 6)
                 .fill(Color.secondary.opacity(0.05))
         )
+    }
+
+    private func associatedAlleleRows(_ haplotype: GenotypeHaplotypeDefinition, hIndex: Int) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 8) {
+                Text("Associated allele")
+                    .font(.caption2.weight(.semibold))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                Text("Diagnostic")
+                    .font(.caption2.weight(.semibold))
+                    .frame(width: 65)
+                Text("Remove")
+                    .font(.caption2.weight(.semibold))
+                    .frame(width: 48)
+            }
+            ForEach(haplotype.effectiveAssociatedAlleles, id: \.self) { allele in
+                HStack(spacing: 8) {
+                    Text(allele)
+                        .font(.caption.monospaced())
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    Toggle("Diagnostic", isOn: Binding(
+                        get: { haplotype.diagnosticAlleles.contains(allele) },
+                        set: { value in
+                            setDiagnostic(locusIndex: selectedLocusIndex, hIndex: hIndex, allele: allele, isDiagnostic: value)
+                        }
+                    ))
+                    .toggleStyle(.checkbox)
+                    .labelsHidden()
+                    .frame(width: 65)
+                    .accessibilityLabel("Diagnostic allele: \(allele)")
+                    .help("Use this associated allele for haplotype calling")
+                    .disabled(isReadOnly)
+                    Button(action: { removeAllele(locusIndex: selectedLocusIndex, hIndex: hIndex, allele: allele) }) {
+                        Image(systemName: "xmark.circle.fill")
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(Color(nsColor: .lungfishDanger))
+                    .frame(width: 48)
+                    .accessibilityLabel("Remove associated allele: \(allele)")
+                    .help("Remove associated allele")
+                    .disabled(isReadOnly)
+                }
+                .padding(.vertical, 2)
+            }
+        }
     }
 
     private func haplotypeColorControls(hIndex: Int, haplotype: GenotypeHaplotypeDefinition) -> some View {
@@ -427,22 +461,22 @@ public struct GenotypeHaplotypeDefinitionEditor: View {
                     .disabled(isReadOnly)
                 }
                 Spacer()
-                Text("Token \(haplotype.colorTokenIndex)")
-                    .font(.caption2.monospaced())
-                    .foregroundStyle(.secondary)
             }
-            paletteSection(
-                title: "mcm",
-                colors: HaplotypeColorToken.canonicalBudde2010Tokens.map(\.fillColor),
-                hIndex: hIndex,
-                selectedColor: haplotype.effectiveFillColor
-            )
-            paletteSection(
-                title: "generic",
-                colors: HaplotypeColorToken.genericOptimizedAnnotationPalette,
-                hIndex: hIndex,
-                selectedColor: haplotype.effectiveFillColor
-            )
+            DisclosureGroup("Color palettes") {
+                paletteSection(
+                    title: "MCM",
+                    colors: HaplotypeColorToken.canonicalBudde2010Tokens.map(\.fillColor),
+                    hIndex: hIndex,
+                    selectedColor: haplotype.effectiveFillColor
+                )
+                paletteSection(
+                    title: "General",
+                    colors: HaplotypeColorToken.genericOptimizedAnnotationPalette,
+                    hIndex: hIndex,
+                    selectedColor: haplotype.effectiveFillColor
+                )
+            }
+            .font(.caption)
         }
         .padding(.vertical, 2)
     }
@@ -457,9 +491,9 @@ public struct GenotypeHaplotypeDefinitionEditor: View {
             Text(title)
                 .font(.caption2.monospaced())
                 .foregroundStyle(.secondary)
-                .frame(width: 42, alignment: .leading)
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 3) {
+                .frame(width: 54, alignment: .leading)
+                .fixedSize(horizontal: true, vertical: false)
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 20, maximum: 20), spacing: 5)], alignment: .leading, spacing: 5) {
                     ForEach(Array(colors.enumerated()), id: \.offset) { index, color in
                         Button {
                             setHaplotypeColor(locusIndex: selectedLocusIndex, hIndex: hIndex, color: color)
@@ -481,9 +515,8 @@ public struct GenotypeHaplotypeDefinitionEditor: View {
                         .help("\(title) \(index + 1): \(color.hexString)")
                         .disabled(isReadOnly)
                     }
-                }
-                .padding(.vertical, 1)
             }
+            .padding(.vertical, 2)
         }
     }
 
@@ -585,20 +618,20 @@ public struct GenotypeHaplotypeDefinitionEditor: View {
         let trimmed = newAlleleText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         updateHaplotype(locusIndex: locusIndex, hIndex: hIndex) { current in
-            var alleles = current.diagnosticAlleles
-            guard !alleles.contains(trimmed) else { return current }
-            alleles.append(trimmed)
-            return GenotypeHaplotypeDefinitionDrafting.withDiagnosticAlleles(current, alleles: alleles)
+            GenotypeHaplotypeDefinitionDrafting.addingAssociatedAllele(current, allele: trimmed)
         }
         newAlleleText = ""
     }
 
     private func removeAllele(locusIndex: Int, hIndex: Int, allele: String) {
         updateHaplotype(locusIndex: locusIndex, hIndex: hIndex) { current in
-            GenotypeHaplotypeDefinitionDrafting.withDiagnosticAlleles(
-                current,
-                alleles: current.diagnosticAlleles.filter { $0 != allele }
-            )
+            GenotypeHaplotypeDefinitionDrafting.removingAssociatedAllele(current, allele: allele)
+        }
+    }
+
+    private func setDiagnostic(locusIndex: Int, hIndex: Int, allele: String, isDiagnostic: Bool) {
+        updateHaplotype(locusIndex: locusIndex, hIndex: hIndex) { current in
+            GenotypeHaplotypeDefinitionDrafting.withDiagnostic(current, allele: allele, isDiagnostic: isDiagnostic)
         }
     }
 
@@ -698,6 +731,7 @@ enum GenotypeHaplotypeDefinitionDrafting {
             GenotypeHaplotypeDefinition(
                 name: name,
                 diagnosticAlleles: $0.diagnosticAlleles,
+                associatedAlleles: $0.associatedAlleles,
                 primaryAlleles: $0.primaryAlleles,
                 evidenceWeights: $0.evidenceWeights,
                 colorTokenIndex: $0.colorTokenIndex,
@@ -711,15 +745,74 @@ enum GenotypeHaplotypeDefinitionDrafting {
         _ haplotype: GenotypeHaplotypeDefinition,
         alleles: [String]
     ) -> GenotypeHaplotypeDefinition {
-        GenotypeHaplotypeDefinition(
+        let associated = orderedUnion(haplotype.effectiveAssociatedAlleles, alleles)
+        return GenotypeHaplotypeDefinition(
             name: haplotype.name,
             diagnosticAlleles: alleles,
+            associatedAlleles: associated,
             primaryAlleles: haplotype.primaryAlleles,
             evidenceWeights: haplotype.evidenceWeights,
             colorTokenIndex: haplotype.colorTokenIndex,
             colorOverride: haplotype.colorOverride,
             minimumMatches: clampedMinimumMatches(haplotype.minimumMatches, alleleCount: alleles.count)
         )
+    }
+
+    static func addingAssociatedAllele(
+        _ haplotype: GenotypeHaplotypeDefinition,
+        allele: String
+    ) -> GenotypeHaplotypeDefinition {
+        let associated = orderedUnion(haplotype.effectiveAssociatedAlleles, [allele])
+        return GenotypeHaplotypeDefinition(
+            name: haplotype.name,
+            diagnosticAlleles: haplotype.diagnosticAlleles,
+            associatedAlleles: associated,
+            primaryAlleles: haplotype.primaryAlleles,
+            evidenceWeights: haplotype.evidenceWeights,
+            colorTokenIndex: haplotype.colorTokenIndex,
+            colorOverride: haplotype.colorOverride,
+            minimumMatches: haplotype.minimumMatches
+        )
+    }
+
+    static func withDiagnostic(
+        _ haplotype: GenotypeHaplotypeDefinition,
+        allele: String,
+        isDiagnostic: Bool
+    ) -> GenotypeHaplotypeDefinition {
+        let associated = orderedUnion(haplotype.effectiveAssociatedAlleles, [allele])
+        let existing = Set(haplotype.diagnosticAlleles)
+        let diagnostic = associated.filter { (existing.contains($0) && $0 != allele) || (isDiagnostic && $0 == allele) }
+        return withDiagnosticAlleles(haplotype, alleles: diagnostic)
+    }
+
+    static func removingAssociatedAllele(
+        _ haplotype: GenotypeHaplotypeDefinition,
+        allele: String
+    ) -> GenotypeHaplotypeDefinition {
+        let associated = haplotype.effectiveAssociatedAlleles.filter { $0 != allele }
+        let diagnostic = haplotype.diagnosticAlleles.filter { $0 != allele }
+        let primary = haplotype.primaryAlleles?.filter { $0 != allele }
+        let weights = haplotype.evidenceWeights?.filter { $0.key != allele }
+        return GenotypeHaplotypeDefinition(
+            name: haplotype.name,
+            diagnosticAlleles: diagnostic,
+            associatedAlleles: associated,
+            primaryAlleles: primary,
+            evidenceWeights: weights,
+            colorTokenIndex: haplotype.colorTokenIndex,
+            colorOverride: haplotype.colorOverride,
+            minimumMatches: clampedMinimumMatches(haplotype.minimumMatches, alleleCount: diagnostic.count)
+        )
+    }
+
+    static func minimumMatchesLabel(
+        for haplotype: GenotypeHaplotypeDefinition,
+        requested: Int? = nil
+    ) -> String {
+        let count = haplotype.diagnosticAlleles.count
+        let value = count == 0 ? 0 : max(1, min(requested ?? haplotype.effectiveMinimumMatches, count))
+        return "Require \(value) of \(count) diagnostic alleles"
     }
 
     static func withColorOverride(
@@ -729,6 +822,7 @@ enum GenotypeHaplotypeDefinitionDrafting {
         GenotypeHaplotypeDefinition(
             name: haplotype.name,
             diagnosticAlleles: haplotype.diagnosticAlleles,
+            associatedAlleles: haplotype.associatedAlleles,
             primaryAlleles: haplotype.primaryAlleles,
             evidenceWeights: haplotype.evidenceWeights,
             colorTokenIndex: haplotype.colorTokenIndex,
@@ -746,6 +840,7 @@ enum GenotypeHaplotypeDefinitionDrafting {
         return GenotypeHaplotypeDefinition(
             name: haplotype.name,
             diagnosticAlleles: haplotype.diagnosticAlleles,
+            associatedAlleles: haplotype.associatedAlleles,
             primaryAlleles: haplotype.primaryAlleles,
             evidenceWeights: haplotype.evidenceWeights,
             colorTokenIndex: haplotype.colorTokenIndex,
@@ -833,6 +928,11 @@ enum GenotypeHaplotypeDefinitionDrafting {
 
     private static func clampedMinimumMatchesValue(_ minimumMatches: Int, alleleCount: Int) -> Int {
         max(1, min(minimumMatches, max(1, alleleCount)))
+    }
+
+    private static func orderedUnion(_ first: [String], _ second: [String]) -> [String] {
+        var seen = Set<String>()
+        return (first + second).filter { seen.insert($0).inserted }
     }
 
     private static func hasDuplicates(_ values: [String]) -> Bool {

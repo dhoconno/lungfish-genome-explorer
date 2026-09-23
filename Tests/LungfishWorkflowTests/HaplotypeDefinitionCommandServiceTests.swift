@@ -30,6 +30,8 @@ final class HaplotypeDefinitionCommandServiceTests: XCTestCase {
         XCTAssertEqual(provenance.toolName, "lungfish-cli")
         XCTAssertEqual(provenance.argv.first, "lungfish")
         XCTAssertEqual(provenance.options.explicit["scope"]?.stringValue, "project")
+        let storedJSON = try String(contentsOf: result.definitionURL, encoding: .utf8)
+        XCTAssertEqual(provenance.options.explicit["definitionJSON"]?.stringValue, storedJSON)
         XCTAssertTrue(provenance.files.contains { $0.path == sourceURL.path && $0.role == .input })
         XCTAssertTrue(provenance.outputs.contains { $0.path == result.definitionURL.path })
     }
@@ -255,7 +257,24 @@ final class HaplotypeDefinitionCommandServiceTests: XCTestCase {
             speciesName: original.speciesName,
             speciesCode: original.speciesCode,
             prefix: original.prefix,
-            locusDefinitions: original.locusDefinitions
+            locusDefinitions: original.locusDefinitions.map { locus in
+                GenotypeHaplotypeLocusDefinition(
+                    locus: locus.locus,
+                    sourceLocus: locus.sourceLocus,
+                    haplotypes: locus.haplotypes.map { haplotype in
+                        GenotypeHaplotypeDefinition(
+                            name: haplotype.name,
+                            diagnosticAlleles: haplotype.diagnosticAlleles,
+                            associatedAlleles: ["associated-only-marker"],
+                            primaryAlleles: haplotype.primaryAlleles,
+                            evidenceWeights: haplotype.evidenceWeights,
+                            colorTokenIndex: haplotype.colorTokenIndex,
+                            colorOverride: haplotype.colorOverride,
+                            minimumMatches: haplotype.minimumMatches
+                        )
+                    }
+                )
+            }
         )
 
         let service = HaplotypeDefinitionCommandService(projectRoot: projectRoot)
@@ -274,12 +293,18 @@ final class HaplotypeDefinitionCommandServiceTests: XCTestCase {
         XCTAssertEqual(stored.displayName, "Edited Bundle Definition")
         XCTAssertEqual(stored.schemaVersion, 1)
         XCTAssertEqual(stored.changeNote, "Edited in Haplotype Definition Manager")
+        XCTAssertEqual(
+            stored.locusDefinitions.first?.haplotypes.first?.associatedAlleles,
+            ["associated-only-marker"]
+        )
 
         let provenanceURL = bundleURL.appendingPathComponent(ProvenanceWriter.provenanceFilename)
         let provenance = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: provenanceURL))
         XCTAssertEqual(provenance.workflowName, "Haplotype definition edit in MHC reference bundle")
         XCTAssertTrue(provenance.files.contains { $0.path == bundleURL.appendingPathComponent("reference.fa").path })
         XCTAssertTrue(provenance.outputs.contains { $0.path == result.definitionURL.path })
+        let storedJSON = try String(contentsOf: result.definitionURL, encoding: .utf8)
+        XCTAssertEqual(provenance.options.explicit["definitionJSON"]?.stringValue, storedJSON)
         XCTAssertTrue(FileManager.default.fileExists(
             atPath: bundleURL
                 .appendingPathComponent(ProvenanceWriter.bundleProvenanceDirectoryName, isDirectory: true)

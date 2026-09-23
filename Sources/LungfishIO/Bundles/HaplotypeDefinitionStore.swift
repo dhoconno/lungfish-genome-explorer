@@ -187,6 +187,14 @@ public struct HaplotypeDefinitionStore: Sendable {
             explicit.merge(context.explicitOptions) { _, new in new }
             resolvedDefaults.merge(context.resolvedDefaults) { _, new in new }
         }
+        // Record the exact final definition payload, including associated and
+        // diagnostic alleles, thresholds, weights, and resolved metadata.
+        let canonicalEncoder = JSONEncoder()
+        canonicalEncoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        explicit["definitionJSON"] = String(
+            data: try canonicalEncoder.encode(set),
+            encoding: .utf8
+        ) ?? ""
         let argv = context?.argv.isEmpty == false ? context?.argv ?? defaultArgv : defaultArgv
         let workflowName = context?.workflowName ?? "Haplotype definition save"
         let toolName = context?.toolName ?? "Lungfish Genome Explorer"

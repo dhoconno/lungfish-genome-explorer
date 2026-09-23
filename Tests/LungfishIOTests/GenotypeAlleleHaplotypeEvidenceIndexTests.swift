@@ -100,4 +100,37 @@ final class GenotypeAlleleHaplotypeEvidenceIndexTests: XCTestCase {
         XCTAssertTrue(index.isDiagnostic(locus: row.locusGroup, genotype: row.genotype))
         XCTAssertEqual(index.support(locus: row.locusGroup, genotype: row.genotype, sample: row.sample).map(\.name), ["A-H1"])
     }
+    func testExplicitAssociatedAllelesColorWithoutBecomingDiagnosticAndPreserveSharedSupport() throws {
+        // Decode so this fixture also exercises the persisted bundle format.
+        let first = try JSONDecoder().decode(GenotypeHaplotypeDefinition.self, from: Data(#"{"name":"M1","diagnosticAlleles":["Mafa-A1_01"],"associatedAlleles":["Mafa-A1_01","Mafa-A1_04"]}"#.utf8))
+        let second = try JSONDecoder().decode(GenotypeHaplotypeDefinition.self, from: Data(#"{"name":"M3","diagnosticAlleles":["Mafa-A1_02"],"associatedAlleles":["Mafa-A1_02","Mafa-A1_01","Mafa-A1_04"]}"#.utf8))
+        let set = definitions([.init(locus: "MHC-A", sourceLocus: "MHC-A", haplotypes: [first, second])])
+        let sharedDiagnostic = call("Mafa-A1_01")
+        let supportive = call("Mafa-A1_04")
+        let removed = call("Mafa-A1_05|haplotypes=M1")
+        let absent = call("Mafa-A1_04", sample: "absent", reads: 0)
+        let index = GenotypeAlleleHaplotypeEvidenceIndex(calls: [sharedDiagnostic, supportive, removed, absent], definitionSet: set,
+            effectiveCalls: [.init(sample: "animal", locus: "MHC-A", haplotypeNames: ["M1", "M3"]),
+                             .init(sample: "absent", locus: "MHC-A", haplotypeNames: ["M1"])])
+        XCTAssertTrue(index.isDiagnostic(locus: sharedDiagnostic.locusGroup, genotype: sharedDiagnostic.genotype))
+        XCTAssertFalse(index.isDiagnostic(locus: supportive.locusGroup, genotype: supportive.genotype))
+        for row in [sharedDiagnostic, supportive] {
+            XCTAssertEqual(index.support(locus: row.locusGroup, genotype: row.genotype, sample: row.sample).map(\.name), ["M1", "M3"])
+        }
+        XCTAssertTrue(index.support(locus: removed.locusGroup, genotype: removed.genotype, sample: removed.sample).isEmpty,
+                      "Explicit membership must override stale reference headers")
+        XCTAssertTrue(index.support(locus: absent.locusGroup, genotype: absent.genotype, sample: absent.sample).isEmpty)
+        XCTAssertTrue(index.support(locus: supportive.locusGroup, genotype: supportive.genotype, sample: "uncalled").isEmpty)
+    }
+
+    func testExplicitCrossFamilyAssociatedAlleleUsesSameLocusPolicyAsDiagnostic() throws {
+        let haplotype = try JSONDecoder().decode(GenotypeHaplotypeDefinition.self, from: Data(#"{"name":"A-H1","diagnosticAlleles":["Mafa-A1_01"],"associatedAlleles":["Mafa-A1_01","Mafa-G_01"]}"#.utf8))
+        let set = definitions([.init(locus: "MHC-A", sourceLocus: "Mafa-A", haplotypes: [haplotype])])
+        let row = call("Mafa-G_01")
+        let index = GenotypeAlleleHaplotypeEvidenceIndex(calls: [row], definitionSet: set,
+            effectiveCalls: [.init(sample: row.sample, locus: "MHC-A", haplotypeNames: ["A-H1"])])
+        XCTAssertFalse(index.isDiagnostic(locus: row.locusGroup, genotype: row.genotype))
+        XCTAssertEqual(index.support(locus: row.locusGroup, genotype: row.genotype, sample: row.sample).map(\.name), ["A-H1"])
+    }
+
 }

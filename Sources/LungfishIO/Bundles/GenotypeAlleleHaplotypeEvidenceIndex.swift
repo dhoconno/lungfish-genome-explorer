@@ -72,7 +72,8 @@ public struct GenotypeAlleleHaplotypeEvidenceIndex: Equatable, Sendable {
             var supports = supportByCell[cell] ?? []
             let associatedNames = Self.associatedNames(in: call.genotype)
             for locus in definitionSet.locusDefinitions {
-                guard GenotypeHaplotypeLocusResolver.diagnosticCall(call, belongsTo: locus) else { continue }
+                let belongsToLocus = GenotypeHaplotypeLocusResolver.rawCall(call, belongsTo: locus)
+                guard belongsToLocus || GenotypeHaplotypeLocusResolver.allowsCrossFamilyDiagnostics(for: locus) else { continue }
                 let diagnosticMatches = locus.haplotypes.filter { definition in
                     definition.diagnosticAlleles.contains {
                         GenotypeHaplotypeDiagnosticMatcher.matches(genotype: call.genotype, diagnosticAllele: $0)
@@ -84,14 +85,17 @@ public struct GenotypeAlleleHaplotypeEvidenceIndex: Equatable, Sendable {
                     .filter { $0.locus == locus.locus }
                     .flatMap(\.haplotypeNames))
                 for definition in locus.haplotypes where calledNames.contains(definition.name) {
-                    // Diagnostic definitions override potentially stale header
-                    // associations. Supplemental associations must belong to the
-                    // same locus and name an active, effectively called haplotype.
-                    let diagnostic = diagnosticMatches.contains { $0.name == definition.name }
-                    let associated = diagnosticMatches.isEmpty
-                        && GenotypeHaplotypeLocusResolver.rawCall(call, belongsTo: locus)
+                    // Explicit membership governs colors independently of which
+                    // haplotype uses this row diagnostically. Keep header fallback
+                    // only for legacy definitions, with its stale-header guard.
+                    let member = definition.effectiveAssociatedAlleles.contains {
+                        GenotypeHaplotypeDiagnosticMatcher.matches(genotype: call.genotype, diagnosticAllele: $0)
+                    }
+                    let legacyHeaderAssociation = definition.associatedAlleles == nil
+                        && diagnosticMatches.isEmpty
+                        && belongsToLocus
                         && Self.associationMatches(associatedNames, definitionName: definition.name, locus: locus.locus)
-                    guard diagnostic || associated else { continue }
+                    guard member || legacyHeaderAssociation else { continue }
                     let support = Support(locus: locus.locus, name: definition.name, fillColor: definition.effectiveFillColor)
                     if !supports.contains(support) { supports.append(support) }
                 }

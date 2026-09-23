@@ -76,6 +76,38 @@ final class GenotypeHaplotypeAnalyzerTests: XCTestCase {
         XCTAssertEqual(a.matchedHaplotypes.map(\.name), ["M1A"])
     }
 
+    func testAssociatedOnlyObservationDoesNotCauseHaplotypeCall() throws {
+        let definition = GenotypeHaplotypeDefinitionSet(
+            id: "test",
+            assayID: "test",
+            displayName: "Test",
+            speciesName: "Test",
+            speciesCode: "TEST",
+            prefix: "Test",
+            locusDefinitions: [
+                GenotypeHaplotypeLocusDefinition(
+                    locus: "MHC-A",
+                    sourceLocus: "MHC-A",
+                    haplotypes: [GenotypeHaplotypeDefinition(
+                        name: "H1",
+                        diagnosticAlleles: ["diagnostic"],
+                        associatedAlleles: ["associated"],
+                        minimumMatches: 1
+                    )]
+                )
+            ]
+        )
+
+        let analysis = GenotypeHaplotypeAnalyzer.analyze(
+            calls: [Self.call(sample: "S1", genotype: "associated|haplotype_groups=MHC-A", reads: 10)],
+            definitionSet: definition
+        )
+
+        let call = try XCTUnwrap(analysis.samples.first?.calls.first)
+        XCTAssertEqual(call.status, .noHaplotype)
+        XCTAssertTrue(call.matchedHaplotypes.isEmpty)
+    }
+
     func testMCMAnalyzerOmitsMHCEFromDeterministicHaplotypeCalls() throws {
         let definition = GenotypeHaplotypeDefinitionSet(
             id: "MHC-exon2-miSeq.mauritian-cynomolgus-macaques.test",

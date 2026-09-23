@@ -521,24 +521,11 @@ struct HaplotypeDefinitionManagerView: View {
             }
         }
         .frame(minWidth: 840, minHeight: 520)
-        .sheet(item: $editingDraft) { draft in
-            GenotypeHaplotypeDefinitionEditor(
-                draft: draft.definition,
-                isReadOnly: draft.isReadOnly,
-                allowsIdentityEditing: draft.allowsIdentityEditing,
-                allowsMetadataEditing: true,
-                requiresReferenceFASTA: true,
-                projectURL: viewModel.projectURL,
+        .background {
+            HaplotypeDefinitionEditorSheetHost(
+                draft: $editingDraft,
                 selectedReferenceURL: $selectedReferenceURL,
-                onSave: { saved in
-                    var updatedDraft = draft
-                    updatedDraft.definition = saved
-                    viewModel.saveDraft(updatedDraft, referenceFASTA: selectedReferenceURL)
-                    editingDraft = nil
-                },
-                onCancel: {
-                    editingDraft = nil
-                }
+                viewModel: viewModel
             )
         }
         .alert("Haplotype Definition Error", isPresented: Binding(
@@ -690,6 +677,94 @@ struct HaplotypeDefinitionManagerView: View {
                 .foregroundStyle(.secondary)
             Text(value)
                 .textSelection(.enabled)
+        }
+    }
+}
+
+
+/// AppKit owns the sheet dimensions; SwiftUI lays out inside the user's size.
+/// A content-sized SwiftUI sheet can exceed the screen as metadata expands.
+private struct HaplotypeDefinitionEditorSheetHost: NSViewRepresentable {
+    @Binding var draft: HaplotypeDefinitionManagerEditingDraft?
+    @Binding var selectedReferenceURL: URL?
+    let viewModel: HaplotypeDefinitionManagerViewModel
+
+    func makeNSView(context: Context) -> NSView { NSView() }
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    func updateNSView(_ view: NSView, context: Context) {
+        let coordinator = context.coordinator
+        // The representable may be updated before it is attached to its window.
+        DispatchQueue.main.async { [weak view] in
+            guard let parent = view?.window else { return }
+            if let draft {
+                coordinator.present(draft, parent: parent, owner: self)
+            } else {
+                coordinator.dismiss()
+            }
+        }
+    }
+
+    static func dismantleNSView(_ view: NSView, coordinator: Coordinator) {
+        coordinator.dismiss()
+    }
+
+    @MainActor final class Coordinator {
+        private var panel: NSPanel?
+        private var draftID: UUID?
+        private var lastSize = NSSize(width: 1000, height: 740)
+
+        func present(_ draft: HaplotypeDefinitionManagerEditingDraft, parent: NSWindow,
+                     owner: HaplotypeDefinitionEditorSheetHost) {
+            guard draftID != draft.id else { return }
+            dismiss()
+            let panel = NSPanel(contentRect: .zero,
+                                styleMask: [.titled, .resizable], backing: .buffered, defer: false)
+            panel.title = "Haplotype Definition"
+            panel.isReleasedWhenClosed = false
+            panel.contentMinSize = NSSize(width: 760, height: 560)
+            let editor = GenotypeHaplotypeDefinitionEditor(
+                draft: draft.definition,
+                isReadOnly: draft.isReadOnly,
+                allowsIdentityEditing: draft.allowsIdentityEditing,
+                allowsMetadataEditing: true,
+                requiresReferenceFASTA: true,
+                projectURL: owner.viewModel.projectURL,
+                selectedReferenceURL: owner.$selectedReferenceURL,
+                onSave: { [weak self] saved in
+                    var updated = draft
+                    updated.definition = saved
+                    owner.viewModel.saveDraft(updated, referenceFASTA: owner.selectedReferenceURL)
+                    owner.draft = nil
+                    self?.dismiss()
+                },
+                onCancel: { [weak self] in
+                    owner.draft = nil
+                    self?.dismiss()
+                }
+            )
+            let hosting = NSHostingController(rootView: editor)
+            hosting.sizingOptions = []
+            panel.contentViewController = hosting
+            // Leave room for the parent title bar and sheet attachment on a
+            // laptop; larger displays retain the more generous default size.
+            let visible = parent.screen?.visibleFrame.size ?? NSSize(width: 1100, height: 850)
+            panel.setContentSize(NSSize(
+                width: max(760, min(lastSize.width, visible.width - 60)),
+                height: max(560, min(lastSize.height, visible.height - 100))
+            ))
+            self.panel = panel
+            draftID = draft.id
+            parent.beginSheet(panel)
+        }
+
+        func dismiss() {
+            guard let panel else { return }
+            lastSize = panel.contentView?.bounds.size ?? lastSize
+            panel.sheetParent?.endSheet(panel)
+            panel.orderOut(nil)
+            self.panel = nil
+            draftID = nil
         }
     }
 }
