@@ -198,7 +198,14 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
     private var batchUniqueReadComputationTask: Task<Void, Never>?
 
     /// Sidecar filename for persisted unique read counts.
-    private static let uniqueReadsSidecar = "esviritu-unique-reads.json"
+    ///
+    /// PERF-04: versioned `v2` because unique-read counts before this fix
+    /// were computed from `AlignmentDataProvider.fetchReads(maxReads:
+    /// 100_000)`, capping any contig with more than 100,000 mapped reads at
+    /// that ceiling. The `v2` counter streams the whole contig through
+    /// `countUniqueReads` with no cap, so a `v1` sidecar's values cannot be
+    /// trusted and must be recomputed rather than read back.
+    private static let uniqueReadsSidecar = "esviritu-unique-reads.v2.json"
 
     // MARK: - Child Views
 
@@ -1018,16 +1025,21 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
                         if Task.isCancelled { return }
                         guard contig.length > 0 else { continue }
 
-                        let reads = (try? await provider.fetchReads(
+                        // PERF-04: stream the whole contig through the
+                        // uncapped counter instead of fetchReads(maxReads:)
+                        // + AlignedRead.deduplicatedReadCount(from:), which
+                        // silently undercounted any contig with more than
+                        // 100,000 mapped reads and buffered up to 500 MB of
+                        // SAM text per contig to do it.
+                        guard let uniqueCount = try? await provider.countUniqueReads(
                             chromosome: contig.accession,
                             start: 0,
                             end: contig.length,
                             excludeFlags: 0x904
-                        )) ?? []
+                        ), uniqueCount > 0 else { continue }
 
-                        if reads.isEmpty { continue }
                         fetchedAny = true
-                        assemblyUniqueTotal += min(contig.readCount, Self.deduplicatedReadCount(from: reads))
+                        assemblyUniqueTotal += uniqueCount
                     }
 
                     if fetchedAny || assembly.contigs.count == 1 {
@@ -1105,11 +1117,6 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
     }
 
     // MARK: - Unique Read Helpers
-
-    /// Counts unique reads by deduplicating on position-strand fingerprint.
-    private static func deduplicatedReadCount(from reads: [AlignedRead]) -> Int {
-        AlignedRead.deduplicatedReadCount(from: reads)
-    }
 
     /// Sidecar data structure for persisted unique read counts.
     private struct UniqueReadCache: Codable {
