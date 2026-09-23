@@ -436,7 +436,7 @@ public final class AlignmentDataProvider: @unchecked Sendable {
     ///   - chromosome: Chromosome name
     ///   - start: 0-based start position
     ///   - end: 0-based exclusive end position
-    ///   - excludeFlags: SAM flag filter to exclude (default: unmapped | secondary | supplementary | dup = 0x904)
+    ///   - excludeFlags: SAM flag filter to exclude (default: unmapped | secondary | supplementary = 0x904)
     ///   - minMapQ: Minimum mapping quality (default: 0)
     ///   - maxReads: Cap on returned reads (default: 10,000)
     /// - Returns: Array of parsed alignment records
@@ -534,7 +534,7 @@ public final class AlignmentDataProvider: @unchecked Sendable {
     ///   - start: 0-based region start.
     ///   - end: 0-based exclusive region end.
     ///   - excludeFlags: SAM flag filter to exclude (default matches
-    ///     `fetchReads`: unmapped | secondary | supplementary | dup = 0x904).
+    ///     `fetchReads`: unmapped | secondary | supplementary = 0x904).
     ///   - minMapQ: Minimum mapping quality.
     /// - Returns: The number of distinct (position, alignmentEnd, strand)
     ///   keys among reads passing the flag/quality filters, with no upper
@@ -604,7 +604,11 @@ public final class AlignmentDataProvider: @unchecked Sendable {
             while true {
                 let chunk = stdoutPipe.fileHandleForReading.readData(ofLength: 64 * 1024)
                 guard !chunk.isEmpty else { break }
-                guard let text = String(data: chunk, encoding: .utf8) else { continue }
+                // Lossy decoding: a strict UTF-8 decode returns nil when a
+                // multi-byte character straddles the 64 KB boundary, which
+                // would silently drop a whole chunk of reads. The fields the
+                // counter reads (FLAG, POS, CIGAR) are ASCII either way.
+                let text = String(decoding: chunk, as: UTF8.self)
                 counterBox.ingest(chunk: text, leftover: &leftover)
             }
             if !leftover.isEmpty {
