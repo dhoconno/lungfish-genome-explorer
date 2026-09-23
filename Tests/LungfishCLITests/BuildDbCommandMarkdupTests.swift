@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import XCTest
+import LungfishTestSupport
 @testable import LungfishCLI
 @testable import LungfishIO
 
@@ -26,19 +27,13 @@ final class BuildDbCommandMarkdupTests: XCTestCase {
         return dir
     }
 
+    // Resolves the samtools stub through CoreToolLocator (the same resolver
+    // production code uses) so the fixture tracks whichever namespace the
+    // test process's app identity actually resolves to, instead of
+    // hard-coding `.lungfish/conda/...`. See TST-04.
     private func makeManagedSamtoolsHome() throws -> (home: URL, samtoolsPath: URL) {
-        let fm = FileManager.default
-        let home = fm.temporaryDirectory
-            .appendingPathComponent("BuildDbMarkdupManagedHome-\(UUID().uuidString)", isDirectory: true)
-        let samtoolsPath = home
-            .appendingPathComponent(".lungfish/conda/envs/samtools/bin/samtools", isDirectory: false)
-        try fm.createDirectory(at: samtoolsPath.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try """
-        #!/bin/sh
-        exit 0
-        """.write(to: samtoolsPath, atomically: true, encoding: .utf8)
-        try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: samtoolsPath.path)
-        return (home, samtoolsPath)
+        let fixture = try ManagedSamtoolsHome.makeStub(namePrefix: "BuildDbMarkdupManagedHome")
+        return (fixture.homeURL, fixture.samtoolsPath)
     }
 
     private func makeFunctionalManagedSamtoolsHome() throws -> (home: URL, samtoolsPath: URL) {

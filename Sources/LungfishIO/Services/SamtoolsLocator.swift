@@ -16,11 +16,12 @@ public enum SamtoolsLocator {
     ///    intentionally opts into an extra fallback (for example in tests).
     public static func locate(
         homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser,
+        appIdentity: LungfishAppIdentity = .current,
         searchPath: String? = nil
     ) -> String? {
         let fm = FileManager.default
 
-        let store = ManagedStorageConfigStore(homeDirectory: homeDirectory)
+        let store = ManagedStorageConfigStore(homeDirectory: homeDirectory, appIdentity: appIdentity)
         let defaultHome = FileManager.default.homeDirectoryForCurrentUser.standardizedFileURL
         let condaRoot = homeDirectory.standardizedFileURL == defaultHome
             ? store.currentCondaRootURL()

@@ -12,9 +12,10 @@ public enum CoreToolLocator {
         environment: String,
         executableName: String,
         homeDirectory: URL,
+        appIdentity: LungfishAppIdentity = .current,
         fallbackExecutablePaths: [String] = []
     ) -> URL {
-        let envRoot = environmentURL(named: environment, homeDirectory: homeDirectory)
+        let envRoot = environmentURL(named: environment, homeDirectory: homeDirectory, appIdentity: appIdentity)
         let primary = envRoot
             .appendingPathComponent("bin", isDirectory: true)
             .appendingPathComponent(executableName)
@@ -34,15 +35,15 @@ public enum CoreToolLocator {
         return primary
     }
 
-    public static func bbToolsJavaURL(homeDirectory: URL) -> URL {
-        environmentURL(named: "bbtools", homeDirectory: homeDirectory)
+    public static func bbToolsJavaURL(homeDirectory: URL, appIdentity: LungfishAppIdentity = .current) -> URL {
+        environmentURL(named: "bbtools", homeDirectory: homeDirectory, appIdentity: appIdentity)
             .appendingPathComponent("lib/jvm", isDirectory: true)
             .appendingPathComponent("bin", isDirectory: true)
             .appendingPathComponent("java")
     }
 
-    public static func condaRoot(homeDirectory: URL) -> URL {
-        let store = ManagedStorageConfigStore(homeDirectory: homeDirectory)
+    public static func condaRoot(homeDirectory: URL, appIdentity: LungfishAppIdentity = .current) -> URL {
+        let store = ManagedStorageConfigStore(homeDirectory: homeDirectory, appIdentity: appIdentity)
 
         // An explicitly injected home wins over the ambient storage-root
         // environment overrides.
@@ -70,9 +71,10 @@ public enum CoreToolLocator {
 
     public static func environmentURL(
         named environment: String,
-        homeDirectory: URL
+        homeDirectory: URL,
+        appIdentity: LungfishAppIdentity = .current
     ) -> URL {
-        condaRoot(homeDirectory: homeDirectory)
+        condaRoot(homeDirectory: homeDirectory, appIdentity: appIdentity)
             .appendingPathComponent("envs", isDirectory: true)
             .appendingPathComponent(environment, isDirectory: true)
     }
@@ -80,9 +82,10 @@ public enum CoreToolLocator {
     public static func executableURL(
         environment: String,
         executableName: String,
-        homeDirectory: URL
+        homeDirectory: URL,
+        appIdentity: LungfishAppIdentity = .current
     ) -> URL {
-        environmentURL(named: environment, homeDirectory: homeDirectory)
+        environmentURL(named: environment, homeDirectory: homeDirectory, appIdentity: appIdentity)
             .appendingPathComponent("bin", isDirectory: true)
             .appendingPathComponent(executableName)
     }

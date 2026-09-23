@@ -93,6 +93,7 @@ public actor SRAService {
     private let ncbiService: NCBIService
     private let httpClient: HTTPClient
     private let homeDirectoryProvider: @Sendable () -> URL
+    private let appIdentity: LungfishAppIdentity
 
     /// Closure type used to inject custom download strategies (primarily for tests).
     public typealias DownloadStrategy = @Sendable (_ accession: String, _ outputDir: URL?) async throws -> [URL]
@@ -112,11 +113,13 @@ public actor SRAService {
         httpClient: HTTPClient = URLSessionHTTPClient(),
         homeDirectoryProvider: @escaping @Sendable () -> URL = {
             FileManager.default.homeDirectoryForCurrentUser
-        }
+        },
+        appIdentity: LungfishAppIdentity = .current
     ) {
         self.ncbiService = ncbiService
         self.httpClient = httpClient
         self.homeDirectoryProvider = homeDirectoryProvider
+        self.appIdentity = appIdentity
         self.enaDownloader = nil
         self.toolkitDownloader = nil
     }
@@ -136,6 +139,7 @@ public actor SRAService {
         self.ncbiService = NCBIService()
         self.httpClient = URLSessionHTTPClient()
         self.homeDirectoryProvider = { FileManager.default.homeDirectoryForCurrentUser }
+        self.appIdentity = .current
         self.enaDownloader = enaDownloader
         self.toolkitDownloader = toolkitDownloader
     }
@@ -158,6 +162,7 @@ public actor SRAService {
         self.ncbiService = ncbiService
         self.httpClient = httpClient
         self.homeDirectoryProvider = { FileManager.default.homeDirectoryForCurrentUser }
+        self.appIdentity = .current
         self.enaDownloader = nil
         self.toolkitDownloader = toolkitDownloader
     }
@@ -642,9 +647,10 @@ public actor SRAService {
 
     internal static func managedExecutableURL(
         executableName: String,
-        homeDirectory: URL
+        homeDirectory: URL,
+        appIdentity: LungfishAppIdentity = .current
     ) -> URL {
-        let store = ManagedStorageConfigStore(homeDirectory: homeDirectory)
+        let store = ManagedStorageConfigStore(homeDirectory: homeDirectory, appIdentity: appIdentity)
         // Match CoreToolLocator: an explicit nondefault home pins tool discovery
         // to that home, while normal app/CLI discovery honors ambient overrides.
         let defaultHome = FileManager.default.homeDirectoryForCurrentUser
@@ -699,11 +705,13 @@ public actor SRAService {
         let homeDirectory = homeDirectoryProvider()
         let prefetchURL = Self.managedExecutableURL(
             executableName: "prefetch",
-            homeDirectory: homeDirectory
+            homeDirectory: homeDirectory,
+            appIdentity: appIdentity
         )
         let fasterqDumpURL = Self.managedExecutableURL(
             executableName: "fasterq-dump",
-            homeDirectory: homeDirectory
+            homeDirectory: homeDirectory,
+            appIdentity: appIdentity
         )
 
         let fileManager = FileManager.default
