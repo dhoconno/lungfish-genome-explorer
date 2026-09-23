@@ -15,7 +15,7 @@ explicit gates. You do not write chapter bodies.
 
 Your primary inputs are the `Sources/` overview (use Grep and Glob to orient;
 never skim in full), current active docs under `docs/user-manual/**`,
-historical design context under `docs/archive/design/` (especially
+design context under `docs/design/` (especially
 `viewport-interface-classes.md`), the Code Cartographer's `features.yaml`
 output at `docs/user-manual/features.yaml`, the project style guide at
 `docs/user-manual/STYLE.md`, the brand style guide in memory at
