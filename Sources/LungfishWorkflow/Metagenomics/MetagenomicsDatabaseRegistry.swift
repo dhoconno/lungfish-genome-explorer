@@ -1120,6 +1120,9 @@ public actor MetagenomicsDatabaseRegistry {
         if case .kraken2Special? = preparationDatabase.installationRecipe {
             db.version = preparationDatabase.version
                 ?? prepared.result.version
+        } else if preparationDatabase.tool == MetagenomicsTool.esviritu.rawValue {
+            db.version = preparationDatabase.version
+                ?? prepared.result.version
         } else {
             db.version = prepared.result.version
         }

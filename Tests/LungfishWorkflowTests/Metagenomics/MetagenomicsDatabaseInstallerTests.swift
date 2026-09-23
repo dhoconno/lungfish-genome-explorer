@@ -268,6 +268,151 @@ struct MetagenomicsDatabaseInstallerTests {
         #expect(prepared.result.payloadDigest.isEmpty == false)
     }
 
+    @Test("shared registry installs a nested EsViritu archive with durable provenance")
+    func sharedRegistryInstallsEsVirituArchive() async throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanup() }
+        let archive = fixture.root.appendingPathComponent("esviritu-v3.2.4.tar.gz")
+        try Data("synthetic EsViritu archive".utf8).write(to: archive)
+        let database = try #require(
+            MetagenomicsDatabaseInfo.catalogEntry(catalogID: "esviritu-viral-v3")
+        )
+        let transfer = FixtureArchiveTransfer(archive: archive) { destination in
+            try Fixture.writeEsVirituPayload(to: destination)
+        }
+        let installer = MetagenomicsDatabaseInstaller(
+            toolRunner: FixtureToolRunner(),
+            archiveTransfer: transfer,
+            provenanceWriter: CanonicalMetagenomicsDatabaseInstallProvenanceWriter()
+        )
+        let registry = MetagenomicsDatabaseRegistry(
+            baseDirectory: fixture.root,
+            catalog: [database],
+            databaseInstaller: installer
+        )
+
+        let installed = try await registry.downloadDatabase(
+            name: database.name,
+            progress: { _, _ in }
+        )
+
+        let final = fixture.root.appendingPathComponent(
+            "esviritu/esviritu-viral-db",
+            isDirectory: true
+        )
+        #expect(installed.standardizedFileURL == final.standardizedFileURL)
+        let stored = try #require(try await registry.database(named: database.name))
+        #expect(stored.status == .ready)
+        #expect(stored.path?.standardizedFileURL == final.standardizedFileURL)
+        #expect(stored.version == "v3.2.4")
+        #expect(try await registry.verify(name: database.name) == .ready)
+
+        let manager = EsVirituDatabaseManager(storageRoot: fixture.root)
+        #expect(await manager.isInstalled())
+        #expect(
+            await manager.databaseURL.standardizedFileURL
+                == final.appendingPathComponent("v3.2.4", isDirectory: true).standardizedFileURL
+        )
+
+        let snapshot = try MetagenomicsDatabasePayloadDigester.snapshot(at: final)
+        #expect(stored.payloadDigest == snapshot.aggregateSHA256)
+        let sidecar = final.appendingPathComponent(ProvenanceWriter.provenanceFilename)
+        let receipt = try #require(try ProvenanceEnvelopeReader.loadCanonical(fromSidecar: sidecar))
+        let expectedOutputs = Set([
+            final.appendingPathComponent("v3.2.4/reference.fna").path,
+            final.appendingPathComponent("v3.2.4/reference.mmi").path,
+            final.appendingPathComponent("v3.2.4/metadata.tsv").path,
+        ])
+        #expect(receipt.workflowVersion == "v3.2.4")
+        #expect(receipt.options.resolvedDefaults["payloadAggregateSHA256"] == .string(snapshot.aggregateSHA256))
+        #expect(receipt.options.resolvedDefaults["intendedFinalPath"] == .string(final.path))
+        #expect(Set(receipt.outputs.map(\.path)) == expectedOutputs)
+        #expect(receipt.outputs.allSatisfy { $0.checksumSHA256 != nil && $0.fileSize != nil })
+        #expect(try String(contentsOf: sidecar, encoding: .utf8).contains(".install-") == false)
+    }
+
+    @Test(
+        "EsViritu archives reject missing, empty, or nonregular reference payloads",
+        arguments: EsVirituPayloadMutation.allCases
+    )
+    func esVirituArchiveRejectsInvalidReferencePayload(
+        mutation: EsVirituPayloadMutation
+    ) async throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanup() }
+        let archive = fixture.root.appendingPathComponent("invalid-esviritu.tar.gz")
+        try Data("synthetic invalid archive".utf8).write(to: archive)
+        let transfer = FixtureArchiveTransfer(archive: archive) { destination in
+            try Fixture.writeEsVirituPayload(to: destination, mutation: mutation)
+        }
+        let database = try #require(
+            MetagenomicsDatabaseInfo.catalogEntry(catalogID: "esviritu-viral-v3")
+        )
+
+        await #expect(throws: MetagenomicsDatabaseInstallerError.self) {
+            _ = try await fixture.installer(
+                tools: FixtureToolRunner(),
+                transfer: transfer
+            ).prepareInstallation(
+                database: database,
+                databasesBaseURL: fixture.root,
+                threads: 4,
+                progress: { _, _ in }
+            )
+        }
+    }
+
+    @Test("EsViritu replacement remains reversible until finalization")
+    func esVirituReplacementRollbackRestoresPriorPayload() async throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanup() }
+        let final = fixture.root.appendingPathComponent(
+            "esviritu/esviritu-viral-db",
+            isDirectory: true
+        )
+        let oldVersion = final.appendingPathComponent("v3.2.4", isDirectory: true)
+        try FileManager.default.createDirectory(at: oldVersion, withIntermediateDirectories: true)
+        try Data(">old\nAAAA\n".utf8).write(to: oldVersion.appendingPathComponent("reference.fna"))
+        try Data("old metadata".utf8).write(to: oldVersion.appendingPathComponent("metadata.tsv"))
+        let priorBytes = try Fixture.directoryBytes(at: final)
+
+        let archive = fixture.root.appendingPathComponent("replacement-esviritu.tar.gz")
+        try Data("replacement archive".utf8).write(to: archive)
+        let transfer = FixtureArchiveTransfer(archive: archive) { destination in
+            try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
+            try Data(">new\nCCCC\n".utf8).write(
+                to: destination.appendingPathComponent("reference.fna")
+            )
+            try Data("new metadata".utf8).write(
+                to: destination.appendingPathComponent("metadata.tsv")
+            )
+        }
+        let installer = MetagenomicsDatabaseInstaller(
+            toolRunner: FixtureToolRunner(),
+            archiveTransfer: transfer,
+            provenanceWriter: CanonicalMetagenomicsDatabaseInstallProvenanceWriter()
+        )
+        let database = try #require(
+            MetagenomicsDatabaseInfo.catalogEntry(catalogID: "esviritu-viral-v3")
+        )
+
+        let prepared = try await installer.prepareInstallation(
+            database: database,
+            databasesBaseURL: fixture.root,
+            threads: 4,
+            progress: { _, _ in }
+        )
+        #expect(
+            try Data(contentsOf: final.appendingPathComponent("reference.fna"))
+                == Data(">new\nCCCC\n".utf8)
+        )
+
+        try installer.rollback(prepared)
+
+        #expect(try Fixture.directoryBytes(at: final) == priorBytes)
+        #expect(try Fixture.transactionDirectories(beside: final).isEmpty)
+    }
+
     @Test("archive extraction failures retain planned tar evidence and write an output-free receipt")
     func archiveExtractionFailureWritesReceipt() async throws {
         let fixture = try Fixture()
@@ -599,6 +744,13 @@ private let managedBrackenRuntimePackages: [ManagedToolSourceInstallationRecord.
     .init(name: "python", version: "3.11.13", build: "h3", subdir: "osx-arm64"),
 ]
 
+enum EsVirituPayloadMutation: CaseIterable, Sendable {
+    case missingReference
+    case emptyReference
+    case directoryReference
+    case symbolicLinkReference
+}
+
 private final class Fixture: @unchecked Sendable {
     enum PayloadMutation: CaseIterable { case missingCore, emptyDistribution, missingTaxonomy, missingLibrary, symlink }
     let root: URL
@@ -654,6 +806,30 @@ private final class Fixture: @unchecked Sendable {
             try FileManager.default.removeItem(at: root.appendingPathComponent("hash.k2d"))
             try FileManager.default.createSymbolicLink(at: root.appendingPathComponent("hash.k2d"), withDestinationURL: root.deletingLastPathComponent())
         case nil: break
+        }
+    }
+
+    static func writeEsVirituPayload(
+        to root: URL,
+        mutation: EsVirituPayloadMutation? = nil
+    ) throws {
+        let version = root.appendingPathComponent("v3.2.4", isDirectory: true)
+        try FileManager.default.createDirectory(at: version, withIntermediateDirectories: true)
+        let metadata = version.appendingPathComponent("metadata.tsv")
+        try Data("accession\tfamily\nvirus\tFixtureviridae\n".utf8).write(to: metadata)
+        let reference = version.appendingPathComponent("reference.fna")
+        switch mutation {
+        case .missingReference:
+            break
+        case .emptyReference:
+            try Data().write(to: reference)
+        case .directoryReference:
+            try FileManager.default.createDirectory(at: reference, withIntermediateDirectories: false)
+        case .symbolicLinkReference:
+            try FileManager.default.createSymbolicLink(at: reference, withDestinationURL: metadata)
+        case nil:
+            try Data(">virus\nACGT\n".utf8).write(to: reference)
+            try Data("minimap2-index".utf8).write(to: version.appendingPathComponent("reference.mmi"))
         }
     }
 
