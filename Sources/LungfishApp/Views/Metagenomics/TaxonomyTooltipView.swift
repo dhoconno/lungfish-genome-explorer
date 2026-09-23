@@ -27,8 +27,8 @@ public class TaxonomyTooltipView: NSView {
     private var rankName: String = ""
     private var readsDirect: Int = 0
     private var readsClade: Int = 0
-    private var percentOfTotal: Double = 0
-    private var percentOfClassified: Double = 0
+    private(set) var percentOfTotal: Double = 0
+    private(set) var percentOfClassified: Double = 0
     private var childCount: Int = 0
 
     // MARK: - Configuration
@@ -48,7 +48,8 @@ public class TaxonomyTooltipView: NSView {
     /// - Parameters:
     ///   - node: The taxon node to display.
     ///   - totalReads: Total reads in the dataset (for percentage calculation).
-    public func update(with node: TaxonNode, totalReads: Int) {
+    ///   - classifiedReads: Classified reads in the dataset.
+    public func update(with node: TaxonNode, totalReads: Int, classifiedReads: Int) {
         taxonName = node.name
         rankName = node.rank.displayName
         readsDirect = node.readsDirect
@@ -61,9 +62,9 @@ public class TaxonomyTooltipView: NSView {
             percentOfTotal = 0
         }
 
-        // Classified reads = root clade, but we approximate using total - unclassified
-        // For tooltip purposes, fraction is already available
-        percentOfClassified = node.fractionClade * 100
+        percentOfClassified = classifiedReads > 0
+            ? Double(node.readsClade) / Double(classifiedReads) * 100
+            : 0
 
         needsDisplay = true
         invalidateIntrinsicContentSize()
