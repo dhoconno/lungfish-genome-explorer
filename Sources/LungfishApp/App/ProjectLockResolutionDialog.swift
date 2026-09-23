@@ -131,22 +131,28 @@ enum ProjectLockResolutionDialog {
 
         func run() async -> NSApplication.ModalResponse {
             guard !Task.isCancelled else { return .abort }
-            if let window {
-                return await withCheckedContinuation { continuation in
-                    alert.beginSheetModal(for: window) { response in
-                        continuation.resume(returning: response)
-                    }
+            // The blocking app-modal alert API is disallowed in production
+            // code: it runs its own nested run loop on the caller's thread
+            // instead of yielding control back to the async task (see macOS
+            // API rules / AppKitConcurrencyModalSafetyTests). Always present
+            // as a non-blocking sheet; fall back to any available app window
+            // when the caller did not have one ready (this dialog needs
+            // *some* window to sheet against; the app is never windowless
+            // while a project-open flow can be in progress).
+            guard let sheetWindow = window ?? NSApp.keyWindow ?? NSApp.mainWindow ?? NSApp.windows.first else {
+                return .abort
+            }
+            return await withCheckedContinuation { continuation in
+                alert.beginSheetModal(for: sheetWindow) { response in
+                    continuation.resume(returning: response)
                 }
             }
-            return alert.runModal()
         }
 
         func cancel() {
-            if let window, alert.window.sheetParent === window {
-                window.endSheet(alert.window, returnCode: .abort)
-            } else if NSApp.modalWindow === alert.window {
-                NSApp.abortModal()
-            }
+            guard let sheetWindow = window ?? NSApp.keyWindow ?? NSApp.mainWindow ?? NSApp.windows.first,
+                  alert.window.sheetParent === sheetWindow else { return }
+            sheetWindow.endSheet(alert.window, returnCode: .abort)
         }
     }
 }

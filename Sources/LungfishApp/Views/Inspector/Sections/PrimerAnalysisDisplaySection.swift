@@ -1,4 +1,5 @@
 import SwiftUI
+import LungfishKit
 
 /// Presentation controls for a verified saved scheme; the session retains every source oligo.
 struct PrimerAnalysisDisplaySection: View {
@@ -38,7 +39,7 @@ struct PrimerAnalysisDisplaySection: View {
             .help(session.orderExportUnavailableReason
                 ?? "Exports the oligos currently displayed across all schemes and references.")
             if let error = orderExportError {
-                Text(error).font(.caption).foregroundStyle(.red).textSelection(.enabled)
+                Text(error).font(.caption).foregroundStyle(Color.lungfishDangerFallback).textSelection(.enabled)
             }
 
             Divider()
@@ -94,7 +95,7 @@ struct PrimerAnalysisDisplaySection: View {
                     .help("Compare oligos with assessable rows in the saved alignment.")
             }
             if let error = session.compatibilityError {
-                Text(error).font(.caption).foregroundStyle(.red).textSelection(.enabled)
+                Text(error).font(.caption).foregroundStyle(Color.lungfishDangerFallback).textSelection(.enabled)
             }
             if session.compatibilityReady {
                 Toggle("Filter by MSA matches", isOn: $session.settings.filterByCompatibility)

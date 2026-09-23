@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import LungfishKit
 import LungfishWorkflow
 
 /// Coordinates in the file are zero-based, half-open; labels are one-based inclusive.
@@ -62,7 +63,7 @@ struct Primer3ResultsView: View {
       Text("\(result.templateSequence.utf8.count) bp • \(result.pairs.count) candidate pairs • coordinates are 1-based inclusive")
         .font(.caption).foregroundStyle(.secondary)
       if let error = result.error, !error.isEmpty {
-        Text(error).foregroundStyle(.red).textSelection(.enabled)
+        Text(error).foregroundStyle(Color.lungfishDangerFallback).textSelection(.enabled)
       }
       if result.pairs.isEmpty {
         Text("No primer pairs met the requested constraints.").foregroundStyle(.secondary)
@@ -151,19 +152,25 @@ struct Primer3ResultsView: View {
     panel.canCreateDirectories = true
     panel.allowsMultipleSelection = false
     panel.directoryURL = bundleURL.deletingLastPathComponent()
-    guard panel.runModal() == .OK, let directory = panel.url else { return }
-    isCreatingReference = true
-    referenceMessage = "Creating annotated reference…"
-    createdReferenceURL = nil
-    Task {
-      do {
-        let url = try await PrimerAnalysisAnnotatedReferenceService().createReference(
-          analysisURL: bundleURL, resultID: result.resultID,
-          outputDirectory: directory, invocationArgv: CommandLine.arguments)
-        createdReferenceURL = url
-        referenceMessage = "Saved \(url.lastPathComponent)."
-      } catch { referenceMessage = error.localizedDescription }
-      isCreatingReference = false
+    // runModal() blocks the whole app on its own nested run loop instead of
+    // yielding control back to AppKit; begin(completionHandler:) presents
+    // the same non-sheet panel without blocking. See macOS API rules /
+    // AppKitConcurrencyModalSafetyTests.
+    panel.begin { response in
+      guard response == .OK, let directory = panel.url else { return }
+      isCreatingReference = true
+      referenceMessage = "Creating annotated reference…"
+      createdReferenceURL = nil
+      Task {
+        do {
+          let url = try await PrimerAnalysisAnnotatedReferenceService().createReference(
+            analysisURL: bundleURL, resultID: result.resultID,
+            outputDirectory: directory, invocationArgv: CommandLine.arguments)
+          createdReferenceURL = url
+          referenceMessage = "Saved \(url.lastPathComponent)."
+        } catch { referenceMessage = error.localizedDescription }
+        isCreatingReference = false
+      }
     }
   }
 

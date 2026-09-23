@@ -1447,7 +1447,7 @@ public struct GenotypeResultDisplaySection: View {
                 .accessibilityLabel("About locus display order")
                 .accessibilityHint(locusOrderHelp)
             if let error = viewModel.locusDisplayOrderValidationError ?? viewModel.locusDisplayOrderPersistenceWarning {
-                Text(error).font(typography.font(for: .body)).foregroundStyle(.red)
+                Text(error).font(typography.font(for: .body)).foregroundStyle(Color.lungfishDangerFallback)
                     .fixedSize(horizontal: false, vertical: true)
                     .accessibilityIdentifier("genotype-locus-display-order-error")
             }

@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import LungfishIO
+import LungfishKit
 import LungfishWorkflow
 
 struct PrimerDesignDialog: View {
@@ -83,7 +84,7 @@ struct PrimerDesignDialog: View {
             .buttonStyle(.borderless).accessibilityLabel("Remove \(url.lastPathComponent)")
           }
           if let error = state.inputErrors[url] {
-            Text(error).font(.caption).foregroundStyle(.red)
+            Text(error).font(.caption).foregroundStyle(Color.lungfishDangerFallback)
           } else if let summary = state.inputSummaries[url] {
             if state.engine == .primer3 {
               if summary.isAlignment {
