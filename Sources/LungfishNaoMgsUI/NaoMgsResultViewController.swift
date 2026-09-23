@@ -62,6 +62,10 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
     /// URL of the NAO-MGS bundle directory.
     private var bundleURL: URL?
 
+    /// Export-failure presentation seam (UX-02). Tests inject a spy to assert
+    /// a failure was surfaced without driving real `NSAlert` UI.
+    var exportFailurePresenter: ExportFailurePresenting = DefaultExportFailurePresenter()
+
     /// All samples with their hit counts from the database.
     private var allSamples: [(sample: String, hitCount: Int)] = []
 
@@ -2674,6 +2678,12 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
                 logger.info("Exported NAO-MGS summary to \(url.lastPathComponent, privacy: .public)")
             } catch {
                 logger.error("Failed to export NAO-MGS summary: \(error.localizedDescription, privacy: .public)")
+                ResultExportCoordinator.reportFailure(
+                    fileName: url.lastPathComponent,
+                    error: error,
+                    window: window,
+                    presenter: self.exportFailurePresenter
+                )
             }
         }
     }

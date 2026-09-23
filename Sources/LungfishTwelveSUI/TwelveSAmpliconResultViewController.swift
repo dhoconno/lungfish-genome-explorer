@@ -181,6 +181,10 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
         case unresolved
     }
 
+    /// Export-failure presentation seam (UX-02). Tests inject a spy to assert
+    /// a failure was surfaced without driving real `NSAlert` UI.
+    var exportFailurePresenter: ExportFailurePresenting = DefaultExportFailurePresenter()
+
     #if DEBUG
     struct TestingPrimaryContentMetrics: Equatable {
         let titleFontPointSize: CGFloat
@@ -901,7 +905,7 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
                     }.value
                 } catch {
                     await MainActor.run {
-                        self?.presentExportError(error)
+                        self?.presentExportError(error, fileName: outputURL.lastPathComponent)
                     }
                 }
             }
@@ -1604,15 +1608,14 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
         popover.show(relativeTo: sender.bounds, of: sender, preferredEdge: .maxY)
     }
 
-    private func presentExportError(_ error: Error) {
-        let alert = NSAlert(error: error)
-        alert.messageText = "12S Export Failed"
-        alert.informativeText = error.localizedDescription
-        if let window = view.window ?? NSApp.keyWindow {
-            alert.beginSheetModal(for: window)
-        } else {
-            NSApp.presentError(error)
-        }
+    private func presentExportError(_ error: Error, fileName: String) {
+        ResultExportCoordinator.reportFailure(
+            fileName: fileName,
+            error: error,
+            window: view.window ?? NSApp.keyWindow,
+            title: "12S Export Failed",
+            presenter: exportFailurePresenter
+        )
     }
 }
 

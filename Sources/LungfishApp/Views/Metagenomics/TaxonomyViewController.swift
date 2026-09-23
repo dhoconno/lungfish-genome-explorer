@@ -1564,9 +1564,13 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
             } catch {
                 logger.error("Export failed: \(error.localizedDescription, privacy: .public)")
                 NSSound.beep()
-                self.presentWarning(
-                    title: "Export Failed",
-                    message: "Could not write \(fileTypeName) to \(url.lastPathComponent): \(error.localizedDescription)"
+                ResultExportCoordinator.reportFailure(
+                    fileName: url.lastPathComponent,
+                    error: error,
+                    window: window,
+                    presenter: WarningPresenterExportAdapter { [weak self] title, message in
+                        self?.presentWarning(title: title, message: message)
+                    }
                 )
             }
         }

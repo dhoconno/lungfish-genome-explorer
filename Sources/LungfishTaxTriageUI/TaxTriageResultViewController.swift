@@ -177,6 +177,10 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
     /// Persistence used by this controller for layout reads; set before loading its view.
     var layoutDefaults: UserDefaults = .standard
 
+    /// Export-failure presentation seam (UX-02). Tests inject a spy to assert
+    /// a failure was surfaced without driving real `NSAlert` UI.
+    var exportFailurePresenter: ExportFailurePresenting = DefaultExportFailurePresenter()
+
     // MARK: - Data
 
     /// The SQLite database backing this view (when opened from a pre-built DB).
@@ -3732,6 +3736,12 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
                 try self.writeBatchMatrixCSV(to: url)
             } catch {
                 logger.error("Failed to export TaxTriage organism matrix: \(error.localizedDescription, privacy: .public)")
+                ResultExportCoordinator.reportFailure(
+                    fileName: url.lastPathComponent,
+                    error: error,
+                    window: window,
+                    presenter: self.exportFailurePresenter
+                )
             }
         }
     }
@@ -3790,6 +3800,12 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
                 try self.writeBatchReport(to: url, result: result, config: config)
             } catch {
                 logger.error("Failed to export TaxTriage batch report: \(error.localizedDescription, privacy: .public)")
+                ResultExportCoordinator.reportFailure(
+                    fileName: url.lastPathComponent,
+                    error: error,
+                    window: window,
+                    presenter: self.exportFailurePresenter
+                )
             }
         }
     }
@@ -3858,6 +3874,12 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
                 logger.info("Exported \(fileTypeName, privacy: .public) to \(url.lastPathComponent, privacy: .public)")
             } catch {
                 logger.error("Export failed: \(error.localizedDescription, privacy: .public)")
+                ResultExportCoordinator.reportFailure(
+                    fileName: url.lastPathComponent,
+                    error: error,
+                    window: window,
+                    presenter: self.exportFailurePresenter
+                )
             }
         }
     }

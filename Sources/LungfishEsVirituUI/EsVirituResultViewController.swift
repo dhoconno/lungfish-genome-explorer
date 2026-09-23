@@ -197,6 +197,10 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
     /// Background task computing unique reads across all samples in batch mode.
     private var batchUniqueReadComputationTask: Task<Void, Never>?
 
+    /// Export-failure presentation seam (UX-02). Tests inject a spy to assert
+    /// a failure was surfaced without driving real `NSAlert` UI.
+    var exportFailurePresenter: ExportFailurePresenting = DefaultExportFailurePresenter()
+
     /// Sidecar filename for persisted unique read counts.
     private static let uniqueReadsSidecar = "esviritu-unique-reads.json"
 
@@ -1833,6 +1837,12 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
                 logger.info("Exported \(fileTypeName, privacy: .public) to \(url.lastPathComponent, privacy: .public)")
             } catch {
                 logger.error("Export failed: \(error.localizedDescription, privacy: .public)")
+                ResultExportCoordinator.reportFailure(
+                    fileName: url.lastPathComponent,
+                    error: error,
+                    window: window,
+                    presenter: self.exportFailurePresenter
+                )
             }
         }
     }
