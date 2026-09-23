@@ -8,7 +8,7 @@ import Foundation
 ///
 /// Discovers references from three sources:
 /// 1. Explicit `.lungfishref` bundles in the "Reference Sequences" folder
-/// 2. Genome bundle FASTAs found in the project tree
+/// 2. Genome and MHC reference bundle FASTAs found in the project tree
 /// 3. Standalone FASTA files found in the project tree
 ///
 /// Results are yielded incrementally via `AsyncStream` so the caller can
@@ -18,11 +18,22 @@ public enum ReferenceSequenceScanner {
     /// Known FASTA file extensions (case-insensitive), excluding .gz suffix.
     private static let fastaExtensions: Set<String> = ["fasta", "fa", "fna", "fas"]
 
-    /// Resolves the FASTA URL within a `.lungfishref` bundle.
+    /// Resolves the active FASTA within a reference bundle.
     ///
     /// Handles both simple reference bundles (with `ReferenceSequenceManifest`)
     /// and full genome bundles (with `BundleManifest` genome paths anywhere inside the bundle).
     private static func resolveFASTAInBundle(_ bundleURL: URL) -> (fastaURL: URL, displayName: String)? {
+        // An MHC bundle is one selectable reference. Its retained source FASTAs
+        // are provenance snapshots, not additional references or fallbacks.
+        if MHCAmpliconReferenceBundle.hasBundleExtension(bundleURL) {
+            guard let manifest = try? MHCAmpliconReferenceBundle.loadManifest(from: bundleURL),
+                  let fastaURL = MHCAmpliconReferenceBundle.referenceFASTAURL(in: bundleURL),
+                  (try? fastaURL.resourceValues(forKeys: [.isRegularFileKey]))?.isRegularFile == true else {
+                return nil
+            }
+            return (fastaURL, manifest.name)
+        }
+
         // Strategy 1: Simple reference manifest
         if let fastaURL = ReferenceSequenceFolder.fastaURL(in: bundleURL) {
             let manifestURL = bundleURL.appendingPathComponent("manifest.json")
@@ -186,6 +197,7 @@ public enum ReferenceSequenceScanner {
 
     private static func isReferenceBundleURL(_ url: URL) -> Bool {
         url.pathExtension.lowercased() == "lungfishref"
+            || MHCAmpliconReferenceBundle.hasBundleExtension(url)
     }
 
     private static func isFASTQBundleURL(_ url: URL) -> Bool {

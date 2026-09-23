@@ -4,6 +4,24 @@ import LungfishIO
 @testable import LungfishCLI
 
 final class FastqGenotypingBundleReferenceTests: XCTestCase {
+    func testGenotypeOnlyDoesNotResolveBundledDefaultDefinition() throws {
+        let bundle = try makeBundle(definitions: [Self.definition(id: "D1")], defaultID: "D1")
+        let resolved = try FastqGenotypingSubcommand.resolvedReferenceConfiguration(
+            reference: bundle.path, preset: nil, haplotypeAssay: nil, haplotypeSpecies: nil,
+            haplotypeDefinitionScope: nil, haplotypeDefinition: nil, genotypeOnly: true)
+        XCTAssertEqual(resolved.referenceURL, bundle)
+        XCTAssertNil(resolved.haplotypeDefinitionSetID)
+        XCTAssertNil(resolved.haplotypeAssayID)
+        XCTAssertNil(resolved.haplotypeSpeciesCode)
+    }
+
+    func testGenotypeOnlyRejectsConflictingHaplotypeSelectionForBothCommands() {
+        let args = ["/tmp/reads.fastq", "--reference", "/tmp/ref.lungfishmhcref",
+                    "--output-dir", "/tmp/result", "--genotype-only", "--haplotype-definition", "D1"]
+        XCTAssertThrowsError(try FastqGenotypingSubcommand.parse(args))
+        XCTAssertThrowsError(try FastqGenotypingCohortSubcommand.parse(args))
+    }
+
     func testReferenceHelpMentionsLungfishMHCRef() {
         XCTAssertTrue(FastqGenotypingSubcommand.referenceHelp.contains(".lungfishmhcref"))
     }

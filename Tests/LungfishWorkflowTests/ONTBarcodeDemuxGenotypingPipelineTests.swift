@@ -4,6 +4,18 @@ import LungfishIO
 @testable import LungfishWorkflow
 
 final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
+    func testGenotypeOnlyRequestPreservesIntentInCLIArgv() {
+        let request = ONTBarcodeDemuxGenotypingRunRequest(
+            inputFASTQURLs: [URL(fileURLWithPath: "/tmp/reads.fastq")],
+            referenceSourceURL: URL(fileURLWithPath: "/tmp/ref.lungfishmhcref"),
+            barcodeDefinitionsURL: nil,
+            outputDirectory: URL(fileURLWithPath: "/tmp/result"),
+            outputName: "result"
+        )
+        XCTAssertTrue(request.argv.contains("--genotype-only"))
+        XCTAssertFalse(request.argv.contains("--haplotype-definition"))
+    }
+
     func testProvenanceToolDescriptorsUseManifestSpecsForManagedAndPackTools() throws {
         let manifest = try ManagedToolLock.loadFromBundle()
         let descriptors = ONTBarcodeDemuxGenotypingPipeline.managedToolDescriptors(
@@ -985,6 +997,11 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
         let manifest = try ONTGenotypeResultBundle.loadManifest(from: outputDirectory)
         XCTAssertEqual(manifest.workflowKind, .miSeqAmpliconMHCGenotype)
         XCTAssertEqual(manifest.workflowMode, .genotypeOnly)
+        XCTAssertNil(manifest.haplotypeAnalysisPath)
+        XCTAssertNil(manifest.haplotypeDefinitionSetID)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: request.haplotypeAnalysisURL.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath:
+            GenotypeHaplotypeAnalysisResolver.retainedDefinitionSnapshotURL(for: outputDirectory).path))
         XCTAssertNotNil(manifest.alignmentArtifacts?.genotypingEvidence)
         XCTAssertNil(manifest.alignmentArtifacts?.reciprocalEvidence)
         XCTAssertNil(manifest.provisionalExon2Artifacts)
@@ -2809,6 +2826,11 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
         XCTAssertEqual(manifest.kind, GenotypeResultWorkflowKind.miSeqAmpliconMHCGenotype.rawValue)
         XCTAssertEqual(manifest.workflowKind, .miSeqAmpliconMHCGenotype)
         XCTAssertEqual(manifest.workflowMode, .genotypeOnly)
+        XCTAssertNil(manifest.haplotypeAnalysisPath)
+        XCTAssertNil(manifest.haplotypeDefinitionSetID)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: request.haplotypeAnalysisURL.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath:
+            GenotypeHaplotypeAnalysisResolver.retainedDefinitionSnapshotURL(for: outputDirectory).path))
         XCTAssertEqual(canonicalEnvelope.steps.filter { $0.toolName == "minimap2" }.count, 1)
     }
 

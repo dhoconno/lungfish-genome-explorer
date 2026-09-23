@@ -14,6 +14,61 @@ final class ReferenceSequenceScannerTests: XCTestCase {
 
     // MARK: - scanAll
 
+    func testMHCReferenceBundleIsOneNamedChoiceWithoutSourceSnapshots() async throws {
+        for folder in ["Reference allele databases", ReferenceSequenceFolder.folderName] {
+            let project = try makeTempProject()
+            defer { try? FileManager.default.removeItem(at: project.deletingLastPathComponent()) }
+            let bundle = project.appendingPathComponent(folder)
+                .appendingPathComponent("MCM.lungfishmhcref", isDirectory: true)
+            let fasta = try makeMHCReferenceBundle(at: bundle)
+            let standalone = project.appendingPathComponent("Other reference.fasta")
+            try ">other\nTGCA\n".write(to: standalone, atomically: true, encoding: .utf8)
+
+            let synchronous = ReferenceSequenceScanner.scanAll(in: project)
+            var asynchronous: [ReferenceCandidate] = []
+            for await candidate in ReferenceSequenceScanner.scan(in: project) {
+                asynchronous.append(candidate)
+            }
+            for candidates in [synchronous, asynchronous] {
+                XCTAssertEqual(candidates.count, 2, "Only the MHC bundle and the genuine standalone reference belong in the picker")
+                let candidate = try XCTUnwrap(candidates.first { $0.fastaURL.resolvingSymlinksInPath() == fasta.resolvingSymlinksInPath() })
+                XCTAssertEqual(candidate.sourceBundleURL?.resolvingSymlinksInPath(), bundle.resolvingSymlinksInPath())
+                XCTAssertEqual(candidate.displayName, "MCM MHC MiSeq — 22 September 2026")
+                XCTAssertTrue(candidates.contains { $0.fastaURL.resolvingSymlinksInPath() == standalone.resolvingSymlinksInPath() })
+                XCTAssertFalse(candidates.contains { $0.displayName == "reference" })
+            }
+        }
+    }
+
+    func testBrokenMHCBundleDoesNotExposeArchivedReferencesAsFallbacks() async throws {
+        let project = try makeTempProject()
+        defer { try? FileManager.default.removeItem(at: project.deletingLastPathComponent()) }
+        let bundle = project.appendingPathComponent("Broken.lungfishmhcref", isDirectory: true)
+        let fasta = try makeMHCReferenceBundle(at: bundle)
+        try FileManager.default.removeItem(at: fasta)
+        XCTAssertTrue(ReferenceSequenceScanner.scanAll(in: project).isEmpty)
+        var candidates: [ReferenceCandidate] = []
+        for await candidate in ReferenceSequenceScanner.scan(in: project) { candidates.append(candidate) }
+        XCTAssertTrue(candidates.isEmpty)
+    }
+
+    private func makeMHCReferenceBundle(at bundle: URL) throws -> URL {
+        let fasta = bundle.appendingPathComponent("reference/Embedded.lungfishref/reference.fasta")
+        let retainedSource = bundle.appendingPathComponent("sources/prepared/reference.fasta")
+        for path in [fasta, retainedSource] {
+            try FileManager.default.createDirectory(at: path.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try ">allele\nACGT\n".write(to: path, atomically: true, encoding: .utf8)
+        }
+        try MHCAmpliconReferenceBundle.writeManifest(.init(
+            name: "MCM MHC MiSeq — 22 September 2026",
+            referenceFastaPath: "reference/Embedded.lungfishref/reference.fasta",
+            haplotypeDefinitionPaths: [], defaultHaplotypeDefinitionID: nil,
+            metrics: .init(referenceCount: 1, haplotypeDefinitionCount: 0),
+            createdAt: "2026-09-22T00:00:00Z"
+        ), to: bundle)
+        return fasta
+    }
+
     func testScanAllReturnsEmptyForEmptyProject() throws {
         let projectURL = try makeTempProject()
         defer { try? FileManager.default.removeItem(at: projectURL.deletingLastPathComponent()) }

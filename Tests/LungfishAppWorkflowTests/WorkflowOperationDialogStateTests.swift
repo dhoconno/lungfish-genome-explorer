@@ -1032,7 +1032,12 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
         XCTAssertThrowsError(try state.makeLaunchRequest())
     }
 
-    func testONTGenotypingAISpecialistPresetUsesPromptPresetWithoutDeterministicDefinition() throws {
+    func testAmpliconAnalysisChoicesExcludeAI() {
+        XCTAssertEqual(WorkflowOperationAmpliconAnalysisMode.allCases.map(\.rawValue),
+                       ["deterministicHaplotyping", "genotypeOnly"])
+    }
+
+    func testONTGenotypingOnlyLaunchWithBundledReferenceSuppressesHaplotypes() throws {
         let defaults = try makeDefaults()
         let enablementStore = WorkflowLibraryEnablementStore(userDefaults: defaults)
         enablementStore.setWorkflow(.ontGenotyping, enabled: true)
@@ -1045,11 +1050,11 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
 
         let state = WorkflowOperationDialogState(
             projectURL: temp,
-            aiSpecialistPresetsAvailable: true,
             enablementStore: enablementStore,
             packageStore: packageStore
         )
-        state.setAmpliconAnalysisMode(.aiSpecialistPreset)
+        state.setReference(try MCMHaplotypingPreset.mcmMHCmiseq.bundledReferenceBundleURL())
+        state.setAmpliconAnalysisMode(.genotypeOnly)
         state.setReads([readsURL])
         state.setOutputDirectory(outputURL)
 
@@ -1062,8 +1067,9 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
         }
 
         XCTAssertEqual(request.referenceSourceURL, try MCMHaplotypingPreset.mcmMHCmiseq.bundledReferenceBundleURL())
-        XCTAssertEqual(request.presetID, MCMHaplotypingPreset.mcmMHCmiseq.id)
-        XCTAssertEqual(request.aiSpecialistPresetID, MCMHaplotypingPreset.mcmMHCmiseq.id)
+        XCTAssertNil(request.presetID)
+        XCTAssertNil(request.aiSpecialistPresetID)
+        XCTAssertTrue(request.argv.contains("--genotype-only"))
         XCTAssertEqual(request.resultWorkflowKind, .miSeqAmpliconMHCGenotype)
         XCTAssertNil(request.haplotypeAssayID)
         XCTAssertNil(request.haplotypeDefinitionSetID)
@@ -1786,8 +1792,8 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
         XCTAssertTrue(analysisModePicker.contains("WorkflowOperationAmpliconAnalysisMode.allCases"))
         XCTAssertTrue(analysisModePicker.contains(".pickerStyle(.segmented)"))
         XCTAssertTrue(analysisModePicker.contains("state.setAmpliconAnalysisMode(mode)"))
-        XCTAssertTrue(analysisModePicker.contains(".disabled(mode == .aiSpecialistPreset && !state.aiSpecialistPresetsAvailable)"))
-        XCTAssertTrue(analysisModePicker.contains("AI specialist presets require configured API access."))
+        XCTAssertFalse(analysisModePicker.contains("aiSpecialistPreset"))
+        XCTAssertFalse(analysisModePicker.contains("AI specialist presets require configured API access."))
     }
 
     func testWorkflowOperationsDialogShowsTwelveSMatchingModeAsPrimaryGUIControl() throws {

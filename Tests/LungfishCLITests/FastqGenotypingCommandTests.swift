@@ -6,6 +6,12 @@ import LungfishTestSupport
 import LungfishWorkflow
 
 final class FastqGenotypingCommandTests: XCTestCase {
+    func testGenotypeOnlyFlagParsesForSingleAndCohortRuns() throws {
+        let args = ["/tmp/reads.fastq", "--reference", "/tmp/ref.lungfishmhcref", "--output-dir", "/tmp/result", "--genotype-only"]
+        XCTAssertTrue(try FastqGenotypingSubcommand.parse(args).genotypeOnly)
+        XCTAssertTrue(try FastqGenotypingCohortSubcommand.parse(args).genotypeOnly)
+    }
+
     func testFastqCommandRegistersPlatformNeutralGenotype() {
         let names = FastqCommand.configuration.subcommands.map { $0.configuration.commandName }
         XCTAssertTrue(names.contains("genotype"))

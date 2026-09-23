@@ -73,8 +73,11 @@ struct FastqGenotypingSubcommand: AsyncParsableCommand {
     @Option(name: .customLong("haplotype-definition-scope"), help: "Haplotype definition scope: project")
     var haplotypeDefinitionScope: String?
 
-    @Option(name: .customLong("haplotype-definition"), help: "Optional assay-scoped haplotype definition set ID; omit to skip haplotyping")
+    @Option(name: .customLong("haplotype-definition"), help: "Assay-scoped haplotype definition set ID; MHC bundles use their default unless --genotype-only is specified")
     var haplotypeDefinition: String?
+
+    @Flag(name: .customLong("genotype-only"), help: "Report genotypes without haplotyping, including when the reference bundle supplies default haplotypes")
+    var genotypeOnly = false
 
     @Option(
         name: .customLong("extra-args"),
@@ -94,7 +97,8 @@ struct FastqGenotypingSubcommand: AsyncParsableCommand {
             haplotypeAssay: haplotypeAssay,
             haplotypeSpecies: haplotypeSpecies,
             haplotypeDefinitionScope: haplotypeDefinitionScope,
-            haplotypeDefinition: haplotypeDefinition
+            haplotypeDefinition: haplotypeDefinition,
+            genotypeOnly: genotypeOnly
         )
     }
 
@@ -138,7 +142,8 @@ struct FastqGenotypingSubcommand: AsyncParsableCommand {
             haplotypeAssay: haplotypeAssay,
             haplotypeSpecies: haplotypeSpecies,
             haplotypeDefinitionScope: haplotypeDefinitionScope,
-            haplotypeDefinition: haplotypeDefinition
+            haplotypeDefinition: haplotypeDefinition,
+            genotypeOnly: genotypeOnly
         )
 
         let request = ONTBarcodeDemuxGenotypingRunRequest(
@@ -233,8 +238,13 @@ struct FastqGenotypingSubcommand: AsyncParsableCommand {
         haplotypeAssay: String?,
         haplotypeSpecies: String?,
         haplotypeDefinitionScope: String?,
-        haplotypeDefinition: String?
+        haplotypeDefinition: String?,
+        genotypeOnly: Bool = false
     ) throws {
+        if genotypeOnly && [haplotypeAssay, haplotypeSpecies, haplotypeDefinitionScope, haplotypeDefinition]
+            .contains(where: { !($0?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "").isEmpty }) {
+            throw ValidationError("--genotype-only cannot be combined with haplotype selection options.")
+        }
         let trimmedPreset = preset?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let trimmedReference = reference?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         guard !trimmedPreset.isEmpty || !trimmedReference.isEmpty else {
@@ -266,7 +276,8 @@ struct FastqGenotypingSubcommand: AsyncParsableCommand {
         haplotypeAssay: String?,
         haplotypeSpecies: String?,
         haplotypeDefinitionScope: String?,
-        haplotypeDefinition: String?
+        haplotypeDefinition: String?,
+        genotypeOnly: Bool = false
     ) throws -> ResolvedReferenceConfiguration {
         try validateReferenceSelection(
             reference: reference,
@@ -274,21 +285,26 @@ struct FastqGenotypingSubcommand: AsyncParsableCommand {
             haplotypeAssay: haplotypeAssay,
             haplotypeSpecies: haplotypeSpecies,
             haplotypeDefinitionScope: haplotypeDefinitionScope,
-            haplotypeDefinition: haplotypeDefinition
+            haplotypeDefinition: haplotypeDefinition,
+            genotypeOnly: genotypeOnly
         )
         if let resolvedPreset = MCMHaplotypingPreset.preset(id: preset) {
             return ResolvedReferenceConfiguration(
                 referenceURL: try resolvedPreset.bundledReferenceBundleURL(),
                 preset: resolvedPreset,
-                haplotypeAssayID: resolvedPreset.haplotypeAssayID,
-                haplotypeSpeciesCode: resolvedPreset.haplotypeSpeciesCode,
-                haplotypeDefinitionSetID: resolvedPreset.haplotypeDefinitionSetID
+                haplotypeAssayID: genotypeOnly ? nil : resolvedPreset.haplotypeAssayID,
+                haplotypeSpeciesCode: genotypeOnly ? nil : resolvedPreset.haplotypeSpeciesCode,
+                haplotypeDefinitionSetID: genotypeOnly ? nil : resolvedPreset.haplotypeDefinitionSetID
             )
         }
         guard let reference else {
             throw ValidationError("Provide --reference, or use --preset mcm-mhc-miseq.")
         }
         let referenceURL = URL(fileURLWithPath: reference)
+        if genotypeOnly {
+            return ResolvedReferenceConfiguration(referenceURL: referenceURL, preset: nil,
+                haplotypeAssayID: nil, haplotypeSpeciesCode: nil, haplotypeDefinitionSetID: nil)
+        }
         let bundledHaplotype = try resolveBundleHaplotypeDefinition(
             referenceURL: referenceURL,
             explicitID: haplotypeDefinition
@@ -426,8 +442,11 @@ struct FastqGenotypingCohortSubcommand: AsyncParsableCommand {
     @Option(name: .customLong("haplotype-definition-scope"), help: "Haplotype definition scope: project")
     var haplotypeDefinitionScope: String?
 
-    @Option(name: .customLong("haplotype-definition"), help: "Optional assay-scoped haplotype definition set ID; omit to skip haplotyping")
+    @Option(name: .customLong("haplotype-definition"), help: "Assay-scoped haplotype definition set ID; MHC bundles use their default unless --genotype-only is specified")
     var haplotypeDefinition: String?
+
+    @Flag(name: .customLong("genotype-only"), help: "Report genotypes without haplotyping, including when the reference bundle supplies default haplotypes")
+    var genotypeOnly = false
 
     @Option(
         name: .customLong("extra-args"),
@@ -447,7 +466,8 @@ struct FastqGenotypingCohortSubcommand: AsyncParsableCommand {
             haplotypeAssay: haplotypeAssay,
             haplotypeSpecies: haplotypeSpecies,
             haplotypeDefinitionScope: haplotypeDefinitionScope,
-            haplotypeDefinition: haplotypeDefinition
+            haplotypeDefinition: haplotypeDefinition,
+            genotypeOnly: genotypeOnly
         )
     }
 
@@ -495,7 +515,8 @@ struct FastqGenotypingCohortSubcommand: AsyncParsableCommand {
             haplotypeAssay: haplotypeAssay,
             haplotypeSpecies: haplotypeSpecies,
             haplotypeDefinitionScope: haplotypeDefinitionScope,
-            haplotypeDefinition: haplotypeDefinition
+            haplotypeDefinition: haplotypeDefinition,
+            genotypeOnly: genotypeOnly
         )
 
         let request = ONTBarcodeDemuxGenotypingRunRequest(

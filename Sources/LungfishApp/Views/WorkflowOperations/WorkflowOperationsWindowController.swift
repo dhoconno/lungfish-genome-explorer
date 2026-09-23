@@ -95,7 +95,6 @@ final class WorkflowOperationsWindowController: NSWindowController, NSWindowDele
                 onCancel: { [weak self] in self?.close() }
             )
         )
-        refreshAISpecialistPresetAvailability()
     }
 
     @available(*, unavailable)
@@ -131,7 +130,6 @@ final class WorkflowOperationsWindowController: NSWindowController, NSWindowDele
         if let initialToolID {
             state.selectTool(initialToolID)
         }
-        refreshAISpecialistPresetAvailability()
     }
 
     func reopenPreviousRun(
@@ -191,13 +189,6 @@ final class WorkflowOperationsWindowController: NSWindowController, NSWindowDele
                 windowStateScope: owner.projectSession.windowStateScope) {
                 throw LocalWorkflowReplayError.repairRequired("The originating project is read-only. Reopen it with write access before starting a new attempt.")
             }
-        }
-    }
-
-    private func refreshAISpecialistPresetAvailability() {
-        Task { @MainActor [weak self] in
-            let available = await GenotypeAIHaplotypingExecutionService.hasConfiguredProvider()
-            self?.state.setAISpecialistPresetsAvailable(available)
         }
     }
 

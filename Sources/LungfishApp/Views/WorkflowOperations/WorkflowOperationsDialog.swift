@@ -115,11 +115,7 @@ private struct WorkflowOperationsDetailPane: View {
                 }
 
                 section(DatasetOperationSection.inputs.title) {
-                    if state.shouldShowManualAmpliconReferencePicker {
-                        referencePicker
-                    } else {
-                        ampliconPresetSummary
-                    }
+                    referencePicker
                     if case .twelveSAmpliconMatching = state.selectedTool?.kind {
                         twelveSSampleMetadataPicker
                     }
@@ -208,22 +204,6 @@ private struct WorkflowOperationsDetailPane: View {
                     }
                 }
             }
-        }
-    }
-
-    private var ampliconPresetSummary: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            groupLabel("Preset")
-            Text(state.selectedAmpliconPresetDisplayName)
-                .font(.callout)
-            Text(state.selectedAmpliconPresetReferenceSummary)
-                .font(.caption)
-                .foregroundStyle(Color.lungfishSecondaryText)
-                .lineLimit(2)
-            Text(state.selectedAmpliconPresetPromptSummary)
-                .font(.caption)
-                .foregroundStyle(Color.lungfishSecondaryText)
-                .lineLimit(2)
         }
     }
 
@@ -389,27 +369,12 @@ private struct WorkflowOperationsDetailPane: View {
                 ForEach(WorkflowOperationAmpliconAnalysisMode.allCases, id: \.rawValue) { mode in
                     Text(mode.displayName)
                         .tag(mode.rawValue)
-                        .disabled(mode == .aiSpecialistPreset && !state.aiSpecialistPresetsAvailable)
                 }
             }
             .pickerStyle(.segmented)
             .help(state.selectedAmpliconAnalysisMode.helpText)
             .accessibilityHint(state.selectedAmpliconAnalysisMode.helpText)
-            if !state.aiSpecialistPresetsAvailable {
-                helperText("AI specialist presets require configured API access.")
-            }
-            if state.selectedAmpliconAnalysisMode == .aiSpecialistPreset {
-                Picker("Preset", selection: ampliconPresetBinding) {
-                    ForEach(state.availableAmpliconPresets, id: \.id) { preset in
-                        Text(preset.displayName).tag(preset.id)
-                    }
-                }
-                .pickerStyle(.menu)
-                .disabled(!state.aiSpecialistPresetsAvailable)
-                helperText(state.aiSpecialistPresetsAvailable
-                    ? WorkflowOperationAmpliconAnalysisMode.aiSpecialistPreset.helpText
-                    : "AI API access must be configured before running a specialist preset.")
-            } else if state.selectedAmpliconAnalysisMode == .deterministicHaplotyping {
+            if state.selectedAmpliconAnalysisMode == .deterministicHaplotyping {
                 haplotypeDefinitionPicker
             } else {
                 Text(WorkflowOperationAmpliconAnalysisMode.genotypeOnly.helpText)
@@ -427,13 +392,6 @@ private struct WorkflowOperationsDetailPane: View {
                     state.setAmpliconAnalysisMode(mode)
                 }
             }
-        )
-    }
-
-    private var ampliconPresetBinding: Binding<String> {
-        Binding(
-            get: { state.selectedAmpliconPresetID ?? "" },
-            set: { state.setAmpliconPreset($0) }
         )
     }
 

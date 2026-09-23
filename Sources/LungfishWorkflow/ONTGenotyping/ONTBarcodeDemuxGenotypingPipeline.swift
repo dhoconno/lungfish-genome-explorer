@@ -420,6 +420,10 @@ public struct ONTBarcodeDemuxGenotypingRunRequest: Sendable, Codable, Equatable 
                 values += ["--haplotype-definition-scope", haplotypeDefinitionScope.rawValue]
             }
             values += ["--haplotype-definition", haplotypeDefinitionSetID]
+        } else {
+            // Omission lets the CLI select a reference bundle's default definition.
+            // Preserve the explicit no-haplotyping intent through launch and replay.
+            values += ["--genotype-only"]
         }
         if let demuxManifestURL {
             values += ["--demux-manifest", demuxManifestURL.path]
