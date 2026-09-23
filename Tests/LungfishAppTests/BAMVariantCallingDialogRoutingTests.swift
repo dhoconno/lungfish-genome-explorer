@@ -237,7 +237,12 @@ final class BAMVariantCallingDialogRoutingTests: XCTestCase {
         XCTAssertEqual(item?.availability, .available)
     }
 
-    func testCatalogIncludesClair3AndPhasedGATKWhatsHapLane() {
+    func testCatalogIncludesClair3ButHidesPhasedGATKWhatsHapLane() {
+        // D4 (2026-09-23 best-practices audit, WFL-03): the phased lane
+        // always reported "Ready" and then dead-ended with a contradictory
+        // "Not Ready" alert, because nothing reads `pendingPhasedVariantPlan`.
+        // It is hidden behind a catalog flag until it is wired to a real
+        // launcher; the case and its pack gates stay in the code.
         let items = BAMVariantCallingCatalog.availableSidebarItems()
         let clair3 = items.first { $0.id == "clair3" }
         let phased = items.first { $0.id == "gatk-whatshap-phased" }
@@ -245,9 +250,7 @@ final class BAMVariantCallingDialogRoutingTests: XCTestCase {
         XCTAssertEqual(clair3?.title, "Clair3")
         XCTAssertEqual(clair3?.subtitle, "ONT-focused neural-network variant calling with Clair3.")
         XCTAssertEqual(clair3?.availability, .available)
-        XCTAssertEqual(phased?.title, "GATK + WhatsHap Phased")
-        XCTAssertEqual(phased?.subtitle, "Phase-aware HaplotypeCaller plus WhatsHap command plan.")
-        XCTAssertEqual(phased?.availability, .available)
+        XCTAssertNil(phased, "GATK + WhatsHap Phased must not appear in the caller catalog (D4)")
     }
 
     @MainActor
@@ -549,6 +552,8 @@ final class BAMVariantCallingDialogRoutingTests: XCTestCase {
     }
 
     func testCatalogGatesPhasedLaneOnBothGATKAndPhasingPacks() async throws {
+        // D4: the phased lane is hidden from the catalog entirely, so it no
+        // longer appears in `sidebarItems()` regardless of pack status.
         let catalog = BAMVariantCallingCatalog(
             statusProvider: StubVariantCallingPackStatusProvider(states: [
                 "variant-calling": .ready,
@@ -559,9 +564,7 @@ final class BAMVariantCallingDialogRoutingTests: XCTestCase {
         )
 
         let items = await catalog.sidebarItems()
-        let phased = try XCTUnwrap(items.first(where: { $0.id == "gatk-whatshap-phased" }))
-
-        XCTAssertEqual(phased.availability, .disabled(reason: "Requires Variant Phasing Pack"))
+        XCTAssertNil(items.first(where: { $0.id == "gatk-whatshap-phased" }))
     }
 
     @MainActor
