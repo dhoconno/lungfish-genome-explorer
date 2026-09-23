@@ -548,7 +548,16 @@ public enum FASTQBatchImporter {
             let backupURL = publishedBundleURL
                 .deletingLastPathComponent()
                 .appendingPathComponent(backupName, isDirectory: true)
-            try? fileManager.removeItem(at: backupURL)
+            // FEA-02: move the replaced bundle to the Trash rather than
+            // permanently deleting it, so a Replace during FASTQ re-import
+            // stays recoverable. Fall back to a hard delete only if Trash is
+            // unavailable (e.g. a non-user-domain volume).
+            do {
+                var resultingURL: NSURL?
+                try fileManager.trashItem(at: backupURL, resultingItemURL: &resultingURL)
+            } catch {
+                try? fileManager.removeItem(at: backupURL)
+            }
             return
         }
 
