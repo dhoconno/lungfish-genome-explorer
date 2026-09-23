@@ -4,15 +4,15 @@ Single source of truth for finding status (plan rule 9). Status: `open`, `verifi
 
 | ID | P | Title | Status | Package | Commit | Evidence |
 |---|---|---|---|---|---|---|
-| FEA-01 | P0 | Manifest rewrites drop alignment tracks and the record store (variant deletion paths) | open | | | |
-| FEA-02 | P0 | GUI FASTQ import silently replaces same-named bundles, and ignores Keep Both and sample-sheet names | open | | | |
+| FEA-01 | P0 | Manifest rewrites drop alignment tracks and the record store (variant deletion paths) | fixed | P0-B | ca6f0f14d | BundleManifest copy-based mutators; sidebar + drawer + VCF merge migrated; round-trip tests |
+| FEA-02 | P0 | GUI FASTQ import silently replaces same-named bundles, and ignores Keep Both and sample-sheet names | fixed | P0-B | 30883db6a | dup check at Imports/, --force only on Replace, --name added, Replace trashes old bundle |
 | PERF-04 | P0 | Unique-read counts for TaxTriage and EsViritu are capped at 100,000 parsed reads per contig after buffering up | fixed | P0-C | e3efa6f77,b87e84661 | UniqueReadStartCounter 10/10 incl >100k; AlignmentDataProviderTests 55/55; caches renamed .v2 |
 | REL-01 | P0 | Shipped app bundles are owner-only (0700/0600) because of `umask 077` | open | | | |
 | SCI-01 | P0 | GFF exported to iVar collapses multi-segment CDS (ORF1ab frameshift, spliced CDS) into one span, which changes | fixed | P0-C | 3af455220 | CDSSegmentPhasesTests 6/6, AnnotationDatabaseGFFExporterTests 5/5; ivar split-vs-merged GFF compared manually |
 | TST-01 | P0 | Pre-push unit tier is red on HEAD: 117 failures plus 1 indefinite hang | open | | | |
 | TST-02 | P0 | No gate runs the broad suite: release selects 186 of about 14.2K tests, the hook is not installed, and 11 rele | open | | | |
-| WFL-01 | P0 | FASTQ-operation outputs are silently quality-binned and, when large, Trim Galore-trimmed during re-ingestion | open | | | |
-| WFL-02 | P0 | `tree infer iqtree` deletes the shared project `.tmp`, deletes pre-existing output on refusal, and can deadloc | open | | | |
+| WFL-01 | P0 | FASTQ-operation outputs are silently quality-binned and, when large, Trim Galore-trimmed during re-ingestion | fixed | P0-B | 7c3fb0fd5,+clumping fix | no re-binning; auto clumping skips instead of Trim Galore; read-count check before source delete |
+| WFL-02 | P0 | `tree infer iqtree` deletes the shared project `.tmp`, deletes pre-existing output on refusal, and can deadloc | fixed | P0-B | 6898a985f | no .tmp deletion, refusal deletes nothing, concurrent pipe drain |
 | ARC-01 | P1 | Two execution models for GUI analyses, chosen per feature, with no shared service layer | open | | | |
 | ARC-02 | P1 | Nine copy-pasted CLI runner actors and about 12 ad-hoc, stringly-typed CLI event schemas | open | | | |
 | ARC-03 | P1 | Operations-panel "CLI command" strings are hand-built and drift from the real CLI (Kraken2 replay cannot run) | open | | | |
@@ -29,8 +29,8 @@ Single source of truth for finding status (plan rule 9). Status: `open`, `verifi
 | PERF-03 | P1 | TaxTriage batch unique-read pass runs directory walks, file parsing and `samtools` on the main actor, then an  | open | | | |
 | PERF-05 | P1 | Eight post-import and post-operation call sites run the full recursive project scan synchronously on the main  | open | | | |
 | PERF-06 | P1 | "Export annotations" and multi-source sequence export decompress and parse the entire genome into memory | open | | | |
-| REC-01 | P1 | Sibling mutation service deletes backup | open | | | |
-| REC-02 | P1 | MSA/tree --force deletes output before work | open | | | |
+| REC-01 | P1 | Sibling mutation service deletes backup | fixed | P0-B | 12e6722a6 | VariantMutationPublication recovery path |
+| REC-02 | P1 | MSA/tree --force deletes output before work | partial | P0-B | 6898a985f | MSA extract/mask/trim atomic swap; tree infer --force still removes before work (follow-up) |
 | REC-03 | P1 | Kraken2 taxonomy/BLAST exports lack provenance | open | | | |
 | REC-04 | P1 | Sidebar VCF/folder drop silently discarded | open | | | |
 | REC-05 | P1 | About Saving text promises persistence FEA-03 disproves | open | | | |
@@ -44,7 +44,7 @@ Single source of truth for finding status (plan rule 9). Status: `open`, `verifi
 | SCI-05 | P1 | Mapping "reads mapped / total" and per-contig % count alignment records (secondary and supplementary), not rea | open | | | |
 | SCI-06 | P1 | Annotation extraction ignores strand and splicing, and the core API applies 5'/3' flanks by coordinate | open | | | |
 | SCI-07 | P1 | Region to bundle extraction with Reverse Complement does not transform variants | open | | | |
-| SCI-08 | P1 | Lossy quality binning on by default (silent on downloads and FASTQ operation outputs), mislabelled schemes, or | open | | | |
+| SCI-08 | P1 | Lossy quality binning on by default (silent on downloads and FASTQ operation outputs), mislabelled schemes, or | fixed | P0-B | 7c3fb0fd5 | binning default none everywhere (D1); scheme-name mislabel not yet addressed |
 | SCI-09 | P1 | NAO-MGS "coverage %" uses the furthest alignment end as reference length when references were not fetched | open | | | |
 | TST-03 | P1 | Swift Build migration broke subpath `Bundle.module` fixtures, crashing tests with SIGTRAP | open | | | |
 | TST-04 | P1 | Stable-namespace change broke about 75 tests that hard-code `.lungfish` fake homes, and tests cannot inject an | open | | | |
