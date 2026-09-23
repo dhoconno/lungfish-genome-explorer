@@ -207,13 +207,85 @@ public enum MSAReferenceBundleBuilder {
         request: MSAReferenceBundleBuildRequest
     ) throws -> MSAReferenceBundleBuildResult {
         let fm = FileManager.default
-        if fm.fileExists(atPath: request.outputBundleURL.path) {
+        let requestedOutputURL = request.outputBundleURL
+        let outputExisted = fm.fileExists(atPath: requestedOutputURL.path)
+        if outputExisted {
             guard request.force else {
-                throw MSAReferenceBundleBuilderError.outputExists(request.outputBundleURL)
+                throw MSAReferenceBundleBuilderError.outputExists(requestedOutputURL)
             }
-            try fm.removeItem(at: request.outputBundleURL)
         }
 
+        // Never delete the pre-existing output up front (WFL-02/REC-02): with
+        // --force, build the new bundle at a fresh sibling path and only
+        // replace the requested output after the build succeeds, so a failure
+        // partway through leaves the original bundle untouched.
+        let buildTargetURL: URL = outputExisted
+            ? requestedOutputURL.deletingLastPathComponent()
+                .appendingPathComponent(".tmp", isDirectory: true)
+                .appendingPathComponent("lungfish-msa-reference-built-\(UUID().uuidString)")
+                .appendingPathExtension(requestedOutputURL.pathExtension)
+            : requestedOutputURL
+        if outputExisted {
+            try fm.createDirectory(at: buildTargetURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        }
+        let buildRequest = MSAReferenceBundleBuildRequest(
+            sourceBundleURL: request.sourceBundleURL,
+            sourceBundleName: request.sourceBundleName,
+            sourceBundleChecksumSHA256: request.sourceBundleChecksumSHA256,
+            sourceBundleFileSize: request.sourceBundleFileSize,
+            inputAlignmentFileURL: request.inputAlignmentFileURL,
+            outputBundleURL: buildTargetURL,
+            name: request.name,
+            rowsOption: request.rowsOption,
+            columnsOption: request.columnsOption,
+            selectedColumnIntervals: request.selectedColumnIntervals,
+            sequences: request.sequences,
+            sourceAnnotations: request.sourceAnnotations,
+            argv: request.argv,
+            reproducibleCommand: request.reproducibleCommand,
+            workflowName: request.workflowName,
+            actionID: request.actionID,
+            toolName: request.toolName,
+            startedAt: request.startedAt,
+            force: request.force
+        )
+        defer {
+            if outputExisted {
+                try? fm.removeItem(at: buildTargetURL.deletingLastPathComponent())
+            }
+        }
+
+        let result = try buildAtRequestedLocation(request: buildRequest)
+
+        guard outputExisted else { return result }
+
+        // Atomic swap: move the old bundle aside, move the new one into
+        // place, then discard the old one only after the replace succeeds.
+        // Restore the original if the swap itself fails.
+        let displacedURL = buildTargetURL.deletingLastPathComponent()
+            .appendingPathComponent("lungfish-msa-reference-displaced-\(UUID().uuidString)")
+            .appendingPathExtension(requestedOutputURL.pathExtension)
+        try fm.moveItem(at: requestedOutputURL, to: displacedURL)
+        do {
+            try fm.moveItem(at: buildTargetURL, to: requestedOutputURL)
+        } catch {
+            try? fm.moveItem(at: displacedURL, to: requestedOutputURL)
+            throw error
+        }
+        try? fm.removeItem(at: displacedURL)
+
+        return MSAReferenceBundleBuildResult(
+            bundleURL: requestedOutputURL,
+            sequenceCount: result.sequenceCount,
+            totalLength: result.totalLength,
+            warnings: result.warnings
+        )
+    }
+
+    private static func buildAtRequestedLocation(
+        request: MSAReferenceBundleBuildRequest
+    ) throws -> MSAReferenceBundleBuildResult {
+        let fm = FileManager.default
         let transformed = try transformSequences(request.sequences)
         guard transformed.isEmpty == false else {
             throw MSAReferenceBundleBuilderError.emptySelection
