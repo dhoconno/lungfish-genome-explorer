@@ -417,7 +417,7 @@ public struct MetagenomicsDatabaseInstaller: MetagenomicsDatabaseInstalling, Sen
 
     public func prepareInstallation(database: MetagenomicsDatabaseInfo, databasesBaseURL: URL, threads: Int, progress: @Sendable @escaping (Double, String) -> Void) async throws -> PreparedMetagenomicsDatabaseInstallation {
         let started = now()
-        let finalURL = databasesBaseURL.standardizedFileURL.appendingPathComponent("kraken2", isDirectory: true).appendingPathComponent(Self.safePathComponent(database.catalogID ?? database.name), isDirectory: true)
+        let finalURL = Self.installationURL(for: database, databasesBaseURL: databasesBaseURL)
         let staging = finalURL.deletingLastPathComponent().appendingPathComponent(".install-\(uuid().uuidString)", isDirectory: true)
         var steps: [MetagenomicsDatabaseInstallStepEvidence] = []
         var didPromoteStaging = false
@@ -481,7 +481,11 @@ public struct MetagenomicsDatabaseInstaller: MetagenomicsDatabaseInstalling, Sen
             }
             try Task.checkCancellation()
             progress(0.8, "Verifying…")
-            try validatePayload(at: staging, requiresSpecialEvidence: isSpecial(database.installationRecipe))
+            try validatePayload(
+                at: staging,
+                tool: database.tool,
+                requiresSpecialEvidence: isSpecial(database.installationRecipe)
+            )
             let snapshot = try MetagenomicsDatabasePayloadDigester.snapshot(at: staging)
             guard snapshot.totalSizeBytes > 0, !snapshot.aggregateSHA256.isEmpty else { throw MetagenomicsDatabaseInstallerError.invalidPayload(reason: "empty snapshot") }
             try Task.checkCancellation()
@@ -596,7 +600,10 @@ public struct MetagenomicsDatabaseInstaller: MetagenomicsDatabaseInstalling, Sen
         )
     }
     private func throwOnFailure(_ result: MetagenomicsDatabaseToolResult, tool: String) throws { if result.exitStatus != 0 { throw MetagenomicsDatabaseInstallerError.toolFailed(tool: tool, exitStatus: result.exitStatus, stderr: Self.bounded(result.stderr)) } }
-    private func validatePayload(at root: URL, requiresSpecialEvidence: Bool) throws {
+    private func validatePayload(at root: URL, tool: String, requiresSpecialEvidence: Bool) throws {
+        if tool == MetagenomicsTool.esviritu.rawValue {
+            return try validateEsVirituPayload(at: root)
+        }
         for relative in ["hash.k2d", "opts.k2d", "taxo.k2d", "database150mers.kmer_distrib"] { try validateRegularNonempty(root.appendingPathComponent(relative)) }
         guard requiresSpecialEvidence else { return }
         try validateRegularNonempty(root.appendingPathComponent("taxonomy/nodes.dmp")); try validateRegularNonempty(root.appendingPathComponent("taxonomy/names.dmp"))
@@ -604,6 +611,50 @@ public struct MetagenomicsDatabaseInstaller: MetagenomicsDatabaseInstalling, Sen
         let snapshot = try MetagenomicsDatabasePayloadDigester.snapshot(at: root)
         guard snapshot.files.contains(where: { $0.path.hasPrefix("library/") }) else { throw MetagenomicsDatabaseInstallerError.invalidPayload(reason: "missing regular library file") }
         guard FileManager.default.fileExists(atPath: library.path) else { throw MetagenomicsDatabaseInstallerError.invalidPayload(reason: "missing library") }
+    }
+    private func validateEsVirituPayload(at root: URL) throws {
+        let contents = (try? FileManager.default.contentsOfDirectory(
+            at: root,
+            includingPropertiesForKeys: [.isDirectoryKey]
+        )) ?? []
+        let payloadDirectories: [URL]
+        if containsEsVirituReference(in: contents) {
+            payloadDirectories = [root]
+        } else {
+            payloadDirectories = contents.filter { url in
+                guard let values = try? url.resourceValues(
+                    forKeys: [.isDirectoryKey, .isSymbolicLinkKey]
+                ) else { return false }
+                return values.isDirectory == true && values.isSymbolicLink != true
+            }
+        }
+        guard payloadDirectories.count == 1 else {
+            throw MetagenomicsDatabaseInstallerError.invalidPayload(
+                reason: "missing nonempty regular EsViritu reference or index file"
+            )
+        }
+        if payloadDirectories[0] != root {
+            let nestedContents = (try? FileManager.default.contentsOfDirectory(
+                at: payloadDirectories[0],
+                includingPropertiesForKeys: nil
+            )) ?? []
+            guard containsEsVirituReference(in: nestedContents) else {
+                throw MetagenomicsDatabaseInstallerError.invalidPayload(
+                    reason: "missing nonempty regular EsViritu reference or index file"
+                )
+            }
+        }
+    }
+    private func containsEsVirituReference(in contents: [URL]) -> Bool {
+        contents.contains { url in
+            guard ["fasta", "fa", "fna", "mmi"].contains(url.pathExtension.lowercased()),
+                  let values = try? url.resourceValues(
+                    forKeys: [.isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey]
+                  ) else { return false }
+            return values.isRegularFile == true
+                && values.isSymbolicLink != true
+                && (values.fileSize ?? 0) > 0
+        }
     }
     private func validateRegularNonempty(_ url: URL) throws {
         var isDirectory: ObjCBool = false
@@ -615,6 +666,18 @@ public struct MetagenomicsDatabaseInstaller: MetagenomicsDatabaseInstalling, Sen
     private func failureRecord(for error: Error) -> MetagenomicsDatabaseInstallFailure { if error is CancellationError { return .cancelled(message: "Installation cancelled", stderr: "") }; if case .toolFailed(_, let status, let stderr) = error as? MetagenomicsDatabaseInstallerError { return .failed(exitStatus: status, message: error.localizedDescription, stderr: stderr) }; return .failed(exitStatus: 1, message: error.localizedDescription, stderr: "") }
     private static func bounded(_ text: String) -> String { String(text.prefix(16_384)) }
     private static func recipeSource(_ recipe: MetagenomicsDatabaseInstallationRecipe) -> String { switch recipe { case .archive(let url): return url.absoluteString; case .kraken2Special(let type): return type.rawValue } }
+    private static func installationURL(for database: MetagenomicsDatabaseInfo, databasesBaseURL: URL) -> URL {
+        let base = databasesBaseURL.standardizedFileURL
+        if database.tool == MetagenomicsTool.esviritu.rawValue {
+            return base.appendingPathComponent("esviritu/esviritu-viral-db", isDirectory: true)
+        }
+        return base
+            .appendingPathComponent("kraken2", isDirectory: true)
+            .appendingPathComponent(
+                safePathComponent(database.catalogID ?? database.name),
+                isDirectory: true
+            )
+    }
     private static func safePathComponent(_ source: String) -> String { let value = source.lowercased().map { $0.isLetter || $0.isNumber || $0 == "-" ? $0 : "-" }; return String(value).trimmingCharacters(in: CharacterSet(charactersIn: "-")) }
     private static func dayString(_ date: Date) -> String { let formatter = DateFormatter(); formatter.locale = Locale(identifier: "en_US_POSIX"); formatter.timeZone = TimeZone(secondsFromGMT: 0); formatter.dateFormat = "yyyyMMdd"; return formatter.string(from: date) }
 }
