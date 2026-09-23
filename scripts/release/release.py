@@ -31,7 +31,8 @@ from release_identity import prepare_identity_plist, identity_plist, fork_contra
 from bounded_process import run_bounded
 from release_profiles import ReleaseProfile, ProfileError, load_release_profile as _load_profile, write_release_profile
 from release_contract import load_contract  # noqa: E402
-from gate_evidence import EvidenceError, create_manifest, source_identity, verify_manifest  # noqa: E402
+from gate_evidence import (EvidenceError, create_manifest, read_json,  # noqa: E402
+                           source_identity, validate_result, verify_manifest)
 from release_cache_fingerprint import (  # noqa: E402
     CacheFingerprintError,
     CachePaths,
@@ -233,6 +234,50 @@ def _sha256_file(path: Path) -> str:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+# Well-known pointer written by scripts/full-suite-gate.sh --tier unit (via
+# the pre-push hook) or the optional nightly job, recording where that run's
+# gate.result.json lives. See TST-02/D6: release.py must refuse to package
+# unless a green unit-tier result exists for the EXACT release commit,
+# reusing gate_evidence.py's fail-closed evidence model rather than the
+# narrow "release" profile (186 of ~14.2K tests) that previously authorized
+# 11 releases over a red unit tier.
+UNIT_GATE_POINTER_RELATIVE_PATH = ".build/gate-logs/latest-unit.json"
+
+
+def verify_unit_gate_precondition(root: Path, source: dict) -> None:
+    """Refuse to run the release gates unless a green unit-tier result is on
+    record for the exact candidate commit on a clean tree.
+
+    Reuses gate_evidence.validate_result, the same fail-closed validator
+    scripts/full-suite-gate.sh's own evidence goes through, so this cannot
+    drift from what "green" means there. The pointer file is written by
+    `scripts/full-suite-gate.sh --tier unit` (installed as the pre-push
+    hook) or the optional nightly job; see scripts/install-git-hooks.sh and
+    scripts/testing/nightly-full-suite.sh.
+    """
+    pointer_path = root / UNIT_GATE_POINTER_RELATIVE_PATH
+    if not pointer_path.is_file():
+        raise ReleaseError(
+            "no unit-tier gate evidence is on record "
+            f"({UNIT_GATE_POINTER_RELATIVE_PATH} is missing); run "
+            "`scripts/full-suite-gate.sh --tier unit` (or push, which runs it "
+            "via the pre-push hook) before packaging a release"
+        )
+    try:
+        pointer = read_json(pointer_path)
+        result_path = (pointer_path.parent / pointer["resultPath"]).resolve()
+        result = read_json(result_path)
+        if result.get("options", {}).get("tier") != "unit":
+            raise EvidenceError("recorded gate evidence is not the unit tier")
+        validate_result(result, source)
+    except (EvidenceError, OSError, ValueError, KeyError, TypeError) as error:
+        raise ReleaseError(
+            "unit-tier gate evidence is missing, stale, or failed for this "
+            f"exact commit; run `scripts/full-suite-gate.sh --tier unit` at "
+            f"HEAD on a clean tree and retry ({error})"
+        ) from error
 
 
 def verify_dependency_receipt_file(root: Path, receipt_path: Path) -> None:
@@ -1578,6 +1623,7 @@ class LocalReleaseOperations:
         )
 
     def run_local_gates(self, request: ReleaseRequest) -> GateEvidence:
+        verify_unit_gate_precondition(self.root, source_identity(self.root))
         if self.contract.gates.dependencyPolicy == "installed":
             verify_dependency_receipt_file(self.root, request.dependency_receipt)
             gate_python = self._managed_gate_python(request)

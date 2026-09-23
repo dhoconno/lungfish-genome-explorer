@@ -71,7 +71,7 @@ EXPECTED_GATES = {
     "appSmokeAccount": "lungfish-release-qa",
     "appSmokeTests": ['LungfishXCUITests/MainWindowNavigationXCUITests/testReleaseCandidateLaunchAndChannelIdentity', 'LungfishXCUITests/MainWindowNavigationXCUITests/testReleaseCandidateImportFailureStatus', 'LungfishXCUITests/ProjectLifecycleXCUITests/testReleaseCandidateNativeOpenSaveCloseReopen', 'LungfishXCUITests/ProjectLifecycleXCUITests/testReleaseCandidateTwoWindowOwnership', 'LungfishXCUITests/BundleBrowserXCUITests/testReleaseCandidateNativeBundleBrowser'],
     "dependencyPolicy": "manifest",
-    "appSmokeRequired": False,
+    "appSmokeRequired": True,
     "focusedReleaseTests": [
         "scripts.tests.test_test_catalog",
         "scripts.tests.test_release_contract",

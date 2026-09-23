@@ -90,6 +90,52 @@ def make_gate_fixture(directory, source, channel="stable", modules=None, *, cont
     return directory / "manifest.json"
 
 
+def make_unit_gate_pointer(root, source, *, tier="unit", authorized=True):
+    """Writes a minimal unit-tier gate.result.json plus the
+    .build/gate-logs/latest-unit.json pointer release.py's
+    verify_unit_gate_precondition (TST-02/D6) reads, bound to `source`.
+
+    Shaped like make_gate_fixture's per-step "swift" result (the same
+    fields gate_evidence.validate_result checks), just for a standalone
+    unit-tier run rather than one bundled into a release manifest.
+
+    `root` is the release front door's repo root (request.root /
+    self.root), matching where full-suite-gate.sh would write the real
+    pointer relative to PROJECT_ROOT.
+    """
+    evidence_dir = root / ".build/gate-logs/fixture-unit"
+    evidence_dir.mkdir(parents=True, exist_ok=True)
+    (evidence_dir / "sdk-path.log").write_text(FIXTURE_SDK_PATH + "\n")
+    (evidence_dir / "runner.log").write_text(
+        "Test Case '-[Fixture.ExampleTests testA]' passed (0.1 seconds).\n"
+        "Test Suite 'All tests' passed\nExecuted 1 test, with 0 failures\n"
+    )
+    runtime = {"pythonExecutable": "/fixture/python3", "pythonVersion": "3.13 fixture",
+               "swiftVersion": "Swift version 6.4 fixture", "sdkPath": FIXTURE_SDK_PATH}
+    harness = {"selected": 1, "executed": 1, "skipped": 0, "failures": 0, "completed": True,
+               "selectedTests": ["Fixture.ExampleTests/testA"], "completedTests": ["Fixture.ExampleTests/testA"],
+               "failedTests": [], "skippedTests": [], "missingTests": [], "unexpectedTests": []}
+    result = {"schemaVersion": 1, "kind": "swift", "source": source, "runtime": runtime,
+              "argv": ["fixture-gate"], "startedAt": "2026-09-05T00:00:00+00:00",
+              "endedAt": "2026-09-05T00:00:01+00:00",
+              "options": {"tier": tier, "filter": "", "skip": "", "parallel": True, "requireTools": False},
+              "identityCommand": {"argv": ["swift", "--version"], "exitStatus": 0, "intervention": None, "files": []},
+              "sdkCommand": {"argv": ["xcrun", "--sdk", "macosx", "--show-sdk-path"], "exitStatus": 0,
+                             "intervention": None, "files": [record(evidence_dir / "sdk-path.log", evidence_dir)]},
+              "discovery": [],
+              "attempts": [{"role": "authoritative", "exitStatus": 0, "passed": True, "errors": [],
+                            "argv": ["swift", "test", "--skip-update", *build_options(FIXTURE_SDK_PATH)],
+                            "harnesses": {"xctest": harness},
+                            "files": [record(evidence_dir / "runner.log", evidence_dir)]}],
+              "errors": [], "authorized": authorized}
+    write_json(evidence_dir / "gate.result.json", result)
+    pointer_dir = root / ".build/gate-logs"
+    pointer_dir.mkdir(parents=True, exist_ok=True)
+    write_json(pointer_dir / "latest-unit.json",
+               {"resultPath": "fixture-unit/gate.result.json", "evidenceDir": str(evidence_dir)})
+    return pointer_dir / "latest-unit.json"
+
+
 def make_app_smoke_fixture(directory, source, app, contract_path):
     """Invented parser/receipt fixture; never represents a graphical test run."""
     sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "release"))

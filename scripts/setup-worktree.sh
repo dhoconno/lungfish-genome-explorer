@@ -221,4 +221,19 @@ fi
 echo "Copied $copy_count runtime file(s)"
 echo "Linked $link_count runtime file(s)"
 echo "Removed $removed_count retired runtime file(s)"
+
+# TST-02: the pre-push hook (unit-tier gate) must always be installed, so a
+# fresh worktree never silently skips local gating. Previously
+# setup-worktree.sh did not install it, and the primary checkout's hooks
+# directory held only *.sample files, so 11 releases shipped over a red
+# unit tier with nobody noticing.
+INSTALL_HOOKS_SCRIPT="$TARGET_ROOT/scripts/install-git-hooks.sh"
+if [ -x "$INSTALL_HOOKS_SCRIPT" ]; then
+    "$INSTALL_HOOKS_SCRIPT"
+elif [ -f "$INSTALL_HOOKS_SCRIPT" ]; then
+    /bin/bash "$INSTALL_HOOKS_SCRIPT"
+else
+    echo "Warning: $INSTALL_HOOKS_SCRIPT not found; pre-push gate not installed" >&2
+fi
+
 echo "Worktree setup complete."

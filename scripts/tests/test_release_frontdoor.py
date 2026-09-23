@@ -8,7 +8,7 @@ import json
 import os
 from pathlib import Path
 import shutil
-from scripts.tests.gate_fixtures import make_gate_fixture
+from scripts.tests.gate_fixtures import make_gate_fixture, make_unit_gate_pointer
 import pwd
 import subprocess
 import sys
@@ -258,6 +258,45 @@ class FrontDoorTransactionTests(unittest.TestCase):
             self.release.ReleaseCoordinator(operations).package(self.request("package"))
         self.assertNotIn("builder-package-only", operations.events)
 
+    def test_unit_gate_precondition_refuses_missing_stale_or_red_evidence(self):
+        # TST-02/D6: release.py must not package unless a green unit-tier
+        # gate.result.json is on record for the exact candidate commit.
+        # This is the "a deliberately failing test makes the release package
+        # preflight exit non-zero" acceptance test, exercised at the
+        # precondition function directly (see also
+        # test_failed_gate_stops_before_next_suite_and_keeps_staging and
+        # test_local_release_gates_follow_contract_and_return_bound_results
+        # for the same check reached through run_local_gates).
+        source = {"commit": "a" * 40, "clean": True}
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            with self.assertRaisesRegex(self.release.ReleaseError, "no unit-tier gate evidence"):
+                self.release.verify_unit_gate_precondition(root, source)
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            make_unit_gate_pointer(root, source)
+            stale_source = {"commit": "b" * 40, "clean": True}
+            with self.assertRaisesRegex(self.release.ReleaseError, "missing, stale, or failed"):
+                self.release.verify_unit_gate_precondition(root, stale_source)
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            make_unit_gate_pointer(root, source, authorized=False)
+            with self.assertRaisesRegex(self.release.ReleaseError, "missing, stale, or failed"):
+                self.release.verify_unit_gate_precondition(root, source)
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            make_unit_gate_pointer(root, source, tier="smoke")
+            with self.assertRaisesRegex(self.release.ReleaseError, "missing, stale, or failed"):
+                self.release.verify_unit_gate_precondition(root, source)
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            make_unit_gate_pointer(root, source)
+            self.release.verify_unit_gate_precondition(root, source)  # does not raise
+
     def test_local_release_gates_follow_contract_and_return_bound_results(self):
         contract = self.release.load_contract(ROOT / "config/release-contract.json")
         source = {"commit": "a" * 40, "clean": True}
@@ -267,6 +306,7 @@ class FrontDoorTransactionTests(unittest.TestCase):
             tiers = [step.tier for step in steps]
             with self.subTest(channel=channel), tempfile.TemporaryDirectory() as temporary:
                 root = Path(temporary)
+                make_unit_gate_pointer(root, source)
                 fixtures = make_gate_fixture(root / "fixtures", source, channel,
                                              list(contract.gates.focusedReleaseTests))
                 class RecordingRunner:
@@ -312,6 +352,9 @@ class FrontDoorTransactionTests(unittest.TestCase):
     def test_failed_gate_stops_before_next_suite_and_keeps_staging(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
+            source = {"commit": "a" * 40, "clean": True}
+            make_unit_gate_pointer(root, source)
+            preexisting_gate_logs = len(list((root / ".build/gate-logs").iterdir()))
             (root / "dependency-receipt.json").write_text("{}")
             operations = object.__new__(self.release.LocalReleaseOperations)
             operations.root = root
@@ -319,11 +362,14 @@ class FrontDoorTransactionTests(unittest.TestCase):
             operations.runner = SimpleNamespace(environment={"PATH": "/bin"}, run=mock.Mock(return_value=subprocess.CompletedProcess([], 139)))
             with mock.patch.object(self.release, "verify_dependency_receipt_file"), mock.patch.object(
                 operations, "_managed_gate_python", return_value=Path("/fixture/python3")
-            ), mock.patch.object(self.release, "source_identity", return_value={"commit": "a" * 40, "clean": True}):
+            ), mock.patch.object(self.release, "source_identity", return_value=source):
                 with self.assertRaisesRegex(self.release.ReleaseError, "retained evidence"):
                     operations.run_local_gates(replace(self.request("package"), root=root, dependency_receipt=root / "dependency-receipt.json"))
             self.assertEqual(operations.runner.run.call_count, 1)
-            self.assertEqual(len(list((root / ".build/gate-logs").iterdir())), 1)
+            self.assertEqual(
+                len(list((root / ".build/gate-logs").iterdir())),
+                preexisting_gate_logs + 1,
+            )
 
     def test_release_test_python_is_the_exact_isolated_runtime_not_an_ambient_env(self):
         class RecordingRunner:

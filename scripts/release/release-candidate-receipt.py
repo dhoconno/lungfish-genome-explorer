@@ -543,9 +543,11 @@ def _build_receipt(
         "packagedAppPayloadSha256": _payload_digest(app),
     }
     smoke_binding = None
-    if channel == "stable" and load_contract(CONTRACT_PATH).gates.appSmokeRequired:
+    if load_contract(CONTRACT_PATH).gates.appSmokeRequired:
         if app_smoke is None or app_smoke_digest is None:
-            raise ReceiptError("Stable requires retained exact-candidate real-app smoke evidence")
+            raise ReceiptError(
+                f"{channel} requires retained exact-candidate real-app smoke evidence"
+            )
         smoke_arguments = (source, channel, artifacts["packagedAppPayloadSha256"], load_contract(CONTRACT_PATH))
         if retain_to is None:
             verify_app_smoke(app_smoke, app_smoke_digest, *smoke_arguments)

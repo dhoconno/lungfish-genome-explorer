@@ -205,11 +205,29 @@ run_gate() {
     [ "$REQUIRE_TOOLS" -eq 1 ] && command+=(--require-tools)
     [ -n "$TIMEOUT_SECONDS" ] && command+=(--timeout-seconds "$TIMEOUT_SECONDS")
     command+=(-- "${ORIGINAL_ARGV[@]}")
+    local status
     if [ "$REQUIRE_TOOLS" -eq 1 ]; then
         LUNGFISH_REQUIRE_TOOLS=1 "${command[@]}"
+        status=$?
     else
         "${command[@]}"
+        status=$?
     fi
+    # Record where this run's evidence lives (TST-02/D6): release.py refuses
+    # to package unless it finds a green unit-tier result here for the exact
+    # commit it is releasing. Recorded on both pass and fail, so a red run
+    # is visible to release.py rather than just leaving the prior pointer.
+    if [ "$EFFECTIVE_TIER" = "unit" ] && [ -f "$EVIDENCE_DIR/gate.result.json" ]; then
+        local pointer="$PROJECT_ROOT/.build/gate-logs/latest-unit.json"
+        "${LUNGFISH_RELEASE_PYTHON:-python3}" -c '
+import json, os, sys
+pointer_path, evidence_dir, result_file = sys.argv[1], sys.argv[2], sys.argv[3]
+relative = os.path.relpath(result_file, os.path.dirname(pointer_path))
+with open(pointer_path, "w") as f:
+    json.dump({"resultPath": relative, "evidenceDir": evidence_dir}, f)
+' "$pointer" "$EVIDENCE_DIR" "$EVIDENCE_DIR/gate.result.json"
+    fi
+    return $status
 }
 
 if [ "$BG" -eq 1 ]; then
