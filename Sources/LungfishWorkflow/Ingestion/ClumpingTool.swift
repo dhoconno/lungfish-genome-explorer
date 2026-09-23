@@ -60,8 +60,11 @@ public enum ClumpingTool: String, Codable, Sendable, CaseIterable {
                 resolved = .bbtools
                 reason = "estimated input is within the BBTools clumpify memory budget"
             } else {
-                resolved = .trimGalore
-                reason = "estimated input may cause BBTools clumpify memory pressure"
+                // Clumping only improves compression. Never substitute a tool
+                // that trims or filters reads (Trim Galore) without an explicit
+                // request: skip clumping instead (audit WFL-01 / decision D1).
+                resolved = .none
+                reason = "skipped clumping: estimated input exceeds the BBTools clumpify memory budget"
             }
         case .bbtools, .trimGalore, .none:
             resolved = self

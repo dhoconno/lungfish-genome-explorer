@@ -626,7 +626,10 @@ public final class FASTQImportConfigSheet: NSViewController {
     private func defaultOptimizeStorage(for platform: LungfishIO.SequencingPlatform) -> Bool {
         switch platform {
         case .illumina, .element, .mgi, .ultima:
-            return true
+            // Inputs too large for the clumpify memory budget default to no
+            // reordering. Trim Galore is never substituted silently because it
+            // trims and filters reads; users may still choose it explicitly.
+            return ClumpingTool.auto.resolve(estimatedInputBytes: totalInputSizeBytes()).resolved != .none
         case .oxfordNanopore, .pacbio, .unknown:
             return false
         }
@@ -637,7 +640,8 @@ public final class FASTQImportConfigSheet: NSViewController {
     }
 
     private func defaultClumpingTool() -> ClumpingTool {
-        ClumpingTool.auto.resolve(estimatedInputBytes: totalInputSizeBytes()).resolved
+        let resolved = ClumpingTool.auto.resolve(estimatedInputBytes: totalInputSizeBytes()).resolved
+        return resolved == .none ? .bbtools : resolved
     }
 
     private func totalInputSizeBytes() -> Int64 {
