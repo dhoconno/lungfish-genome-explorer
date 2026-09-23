@@ -197,6 +197,111 @@ final class ViralVariantCallingPipelineTests: XCTestCase {
         XCTAssertTrue(plan.commandLine.contains("--ploidy 1"))
     }
 
+    // MARK: - SCI-04: bcftools haploid calling and amplicon depth cap
+
+    func testBcftoolsCommandLineIsHaploidWithUncappedAmpliconDepth() throws {
+        // SCI-04: bcftools previously ran with implicit diploid genotyping
+        // and the tool's default 250-read max-depth, which is far below
+        // typical amplicon coverage. The mpileup stage must request AD/DP
+        // tags and an effectively unlimited depth, and the call stage must
+        // request haploid genotypes.
+        let pipeline = try makePipeline(caller: .bcftools)
+
+        let plan = try pipeline.buildExecutionPlan()
+
+        XCTAssertTrue(plan.commandLine.contains("bcftools mpileup"))
+        XCTAssertTrue(plan.commandLine.contains("-d 0"))
+        XCTAssertTrue(plan.commandLine.contains("-a FORMAT/AD,FORMAT/DP,INFO/AD"))
+        XCTAssertTrue(plan.commandLine.contains("--ploidy 1"))
+    }
+
+    // MARK: - SCI-03: minimum AF and depth thresholds applied for non-iVar callers
+
+    func testLoFreqBelowThresholdVariantIsFilteredAndProvenanceRecordsAppliedThreshold() async throws {
+        // SCI-03: min-AF and min-depth were silently ignored for LoFreq,
+        // bcftools, Medaka and Clair3, while provenance claimed they were
+        // applied. A 4% variant with the dialog's default 0.05 threshold
+        // must be filtered out, and the applied threshold recorded.
+        let pipeline = try makePipeline(
+            caller: .lofreq,
+            callerExecutor: { plan, _ in
+                try """
+                ##fileformat=VCFv4.2
+                ##contig=<ID=chr1,length=20>
+                ##INFO=<ID=AF,Number=1,Type=Float,Description="Allele frequency">
+                ##INFO=<ID=DP,Number=1,Type=Integer,Description="Depth">
+                #CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO
+                chr1\t5\tlofreq-below\tA\tG\t80\tPASS\tAF=0.040000;DP=2000
+                chr1\t6\tlofreq-above\tA\tG\t80\tPASS\tAF=0.300000;DP=2000
+                """.write(to: plan.rawVCFURL, atomically: true, encoding: .utf8)
+            }
+        )
+
+        let result = try await pipeline.run()
+
+        let normalizedVCF = try String(contentsOf: result.normalizedVCFURL, encoding: .utf8)
+        XCTAssertFalse(normalizedVCF.contains("lofreq-below"), "4% variant should be filtered at the 0.05 default threshold")
+        XCTAssertTrue(normalizedVCF.contains("lofreq-above"), "30% variant should pass the 0.05 default threshold")
+
+        let data = try XCTUnwrap(result.callerParametersJSON.data(using: .utf8))
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        XCTAssertEqual(json["minimumAlleleFrequency"] as? Double, 0.05)
+        XCTAssertEqual(json["minimumDepth"] as? Int, 10)
+
+        XCTAssertTrue(result.provenanceSteps.contains { step in
+            step.toolName == "bcftools" && step.command.contains("view") && step.command.contains("-i")
+        })
+    }
+
+    func testLoFreqPassingLowerThresholdKeepsFourPercentVariant() async throws {
+        let pipeline = try makePipeline(
+            caller: .lofreq,
+            callerExecutor: { plan, _ in
+                try """
+                ##fileformat=VCFv4.2
+                ##contig=<ID=chr1,length=20>
+                ##INFO=<ID=AF,Number=1,Type=Float,Description="Allele frequency">
+                ##INFO=<ID=DP,Number=1,Type=Integer,Description="Depth">
+                #CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO
+                chr1\t5\tlofreq-below\tA\tG\t80\tPASS\tAF=0.040000;DP=2000
+                """.write(to: plan.rawVCFURL, atomically: true, encoding: .utf8)
+            },
+            minimumAlleleFrequency: 0.03
+        )
+
+        let result = try await pipeline.run()
+        let normalizedVCF = try String(contentsOf: result.normalizedVCFURL, encoding: .utf8)
+        XCTAssertTrue(normalizedVCF.contains("lofreq-below"), "4% variant should pass a 0.03 threshold")
+    }
+
+    func testThresholdsSkippedWhenRawVCFHeaderDoesNotDeclareTags() async throws {
+        // A caller output that never declares AF/DP in its header (an
+        // unusual but possible tool-output shape) must not be silently
+        // claimed as filtered: bcftools would fail closed on an undeclared
+        // tag, so the pipeline must skip that threshold and say so in
+        // provenance rather than throwing.
+        let pipeline = try makePipeline(
+            caller: .lofreq,
+            callerExecutor: { plan, _ in
+                try """
+                ##fileformat=VCFv4.2
+                ##contig=<ID=chr1,length=20>
+                #CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO
+                chr1\t5\tno-tags\tA\tG\t80\tPASS\t.
+                """.write(to: plan.rawVCFURL, atomically: true, encoding: .utf8)
+            }
+        )
+
+        let result = try await pipeline.run()
+        let normalizedVCF = try String(contentsOf: result.normalizedVCFURL, encoding: .utf8)
+        XCTAssertTrue(normalizedVCF.contains("no-tags"))
+
+        let data = try XCTUnwrap(result.callerParametersJSON.data(using: .utf8))
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        XCTAssertNil(json["minimumAlleleFrequency"] as? Double)
+        XCTAssertNil(json["minimumDepth"] as? Int)
+    }
+
     func testBcftoolsPipelineProvenanceCapturesMpileupPipeInputsAndChecksums() async throws {
         let toolRunner = try makeFakeVariantToolRunner()
         let pipeline = try makePipeline(caller: .bcftools, toolRunner: toolRunner)
@@ -462,7 +567,9 @@ final class ViralVariantCallingPipelineTests: XCTestCase {
         annotations: [AnnotationTrackInfo] = [],
         toolRunner: NativeToolRunner = .shared,
         bamToFASTQConverter: @escaping ViralVariantCallingPipeline.BAMToFASTQConverter = convertBAMToSingleFASTQ,
-        callerExecutor: ViralVariantCallingPipeline.CallerExecutor? = nil
+        callerExecutor: ViralVariantCallingPipeline.CallerExecutor? = nil,
+        minimumAlleleFrequency: Double? = 0.05,
+        minimumDepth: Int? = 10
     ) throws -> ViralVariantCallingPipeline {
         let bundleURL = tempDir.appendingPathComponent("test.lungfishref", isDirectory: true)
         let referenceURL = tempDir.appendingPathComponent("reference.fa")
@@ -528,8 +635,8 @@ final class ViralVariantCallingPipelineTests: XCTestCase {
             caller: caller,
             outputTrackName: "Sample BAM • \(caller.displayName)",
             threads: 2,
-            minimumAlleleFrequency: 0.05,
-            minimumDepth: 10,
+            minimumAlleleFrequency: minimumAlleleFrequency,
+            minimumDepth: minimumDepth,
             ivarPrimerTrimConfirmed: true,
             medakaModel: (caller == .medaka || caller == .clair3) ? medakaModel : nil,
             advancedArguments: advancedArguments
