@@ -2715,7 +2715,14 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
         XCTAssertEqual(config.inputFiles, [stagedFASTQ])
         XCTAssertNotEqual(config.outputDirectory, destinationBundle)
         XCTAssertFalse(config.skipClumpify)
-        XCTAssertTrue(config.deleteOriginals)
+        // WFL-01 / D1: FASTQ operation outputs are never re-binned or
+        // re-trimmed on re-import, and the importer only deletes the
+        // pre-ingestion source itself (never the pipeline) after verifying
+        // the re-ingested output's read count — so the pipeline must not
+        // delete the source, and must not bin or clump-via-Trim-Galore.
+        XCTAssertFalse(config.deleteOriginals, "FASTQOperationOutputImporter deletes the source itself, only after a read-count check")
+        XCTAssertEqual(config.qualityBinning, .none)
+        XCTAssertEqual(config.clumpingTool, .bbtools)
         XCTAssertEqual(config.pairingMode.rawValue, FASTQIngestionConfig.PairingMode.interleaved.rawValue)
 
         let bundledFASTQ = try XCTUnwrap(FASTQBundle.resolvePrimaryFASTQURL(for: bundleURL))
@@ -4734,10 +4741,14 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
             sourceInputURL: fixture.sourceBundleURL
         )
 
+        // WFL-01 item e: the importer now also computes statistics for the
+        // re-ingested OUTPUT file, to verify its read count meets or exceeds
+        // the source's before deleting the source. Both calls must go
+        // through the injected calculator, not a hard-coded implementation.
         XCTAssertEqual(
             calculatorCalls.events().map(\.1),
-            [fixture.stagedFASTQ.lastPathComponent],
-            "The injected statistics calculator must be the one that runs."
+            [fixture.stagedFASTQ.lastPathComponent, "delta.fastq.gz"],
+            "The injected statistics calculator must be the one that runs, for both the source and the re-ingested output."
         )
     }
 

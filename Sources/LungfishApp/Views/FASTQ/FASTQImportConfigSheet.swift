@@ -616,11 +616,11 @@ public final class FASTQImportConfigSheet: NSViewController {
 
     // MARK: - Platform Defaults
 
+    /// D1 (2026-09-23): quality binning defaults to "None" for every platform.
+    /// Binning is lossy and irreversible once originals are deleted, so it is
+    /// opt-in only — the user must explicitly choose a binning level here.
     private func defaultBinningIndex(for platform: LungfishIO.SequencingPlatform) -> Int {
-        switch platform {
-        case .illumina, .element, .mgi: return 0  // illumina4
-        case .oxfordNanopore, .pacbio, .ultima, .unknown: return 2  // none
-        }
+        2  // none
     }
 
     private func defaultOptimizeStorage(for platform: LungfishIO.SequencingPlatform) -> Bool {
