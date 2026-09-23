@@ -68,7 +68,7 @@ final class FetchNCBIGFF3Tests: XCTestCase {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
         let scriptURL = repositoryRoot
-            .appendingPathComponent("docs/user-manual/fixtures/sarscov2-srr36291587/regenerate.sh")
+            .appendingPathComponent("Tests/Fixtures/sarscov2-srr36291587/regenerate.sh")
         let script = try String(contentsOf: scriptURL, encoding: .utf8)
 
         XCTAssertTrue(script.contains("--fetch-format gff3 --save-to \"$OUT/MN908947.3.gff3\""))

@@ -64,7 +64,7 @@ You need a project open. If you do not have one, choose **File > New Project** (
 
 This chapter uses the SRR36291587 SARS-CoV-2 reads. The reads themselves are too large to store on GitHub, so fetch them from the Sequence Read Archive as accession `SRR36291587`, following [Downloading Reads from the SRA](../03-reads/02-downloading-from-sra.md). The download is 21.7 MB compressed, and how long it takes depends on your connection. The rest of the fixture's files, along with background notes on where the data came from and how it is licensed, are on GitHub at the address below. Reading them is optional and nothing in this chapter depends on it.
 
-https://github.com/dhoconno/lungfish-genome-explorer/tree/main/docs/user-manual/fixtures/sarscov2-srr36291587
+https://github.com/dhoconno/lungfish-genome-explorer/tree/main/Tests/Fixtures/sarscov2-srr36291587
 
 You also need a finished classification open in its viewport, since verification starts from a result rather than from a FASTQ. A viewport is the panel that fills the LGE window and displays one result, and a classification opens in its own viewport when the run finishes. Run the Kraken 2 walkthrough in [Running Kraken 2](02-running-kraken2.md) first if you have not.
 

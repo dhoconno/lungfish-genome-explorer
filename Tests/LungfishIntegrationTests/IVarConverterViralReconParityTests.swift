@@ -118,8 +118,7 @@ struct IVarConverterViralReconParityTests {
         let chapterFixture = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
             .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .appendingPathComponent("docs/user-manual/fixtures/sarscov2-srr36291587/ivar.expected.vcf")
+            .appendingPathComponent("Fixtures/sarscov2-srr36291587/ivar.expected.vcf")
         let scratch = FileManager.default.temporaryDirectory
             .appendingPathComponent("regen-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true)
