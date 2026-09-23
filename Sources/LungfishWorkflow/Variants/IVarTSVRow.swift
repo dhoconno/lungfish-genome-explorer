@@ -94,4 +94,33 @@ public struct IVarTSVRow: Equatable, Sendable {
             kind: kind
         )
     }
+
+    /// Returns a copy of this row with `gffFeature` replaced, used to record
+    /// every overlapping GFF feature name after deduplicating rows that iVar
+    /// emitted once per overlapping CDS (see `IVarTSVToVCFConverter.deduplicated`).
+    func withGFFFeature(_ gffFeature: String?) -> IVarTSVRow {
+        IVarTSVRow(
+            region: region,
+            pos: pos,
+            ref: ref,
+            alt: alt,
+            refDP: refDP,
+            refRV: refRV,
+            refQual: refQual,
+            altDP: altDP,
+            altRV: altRV,
+            altQual: altQual,
+            altFreq: altFreq,
+            totalDP: totalDP,
+            pval: pval,
+            pass: pass,
+            gffFeature: gffFeature,
+            refCodon: refCodon,
+            refAA: refAA,
+            altCodon: altCodon,
+            altAA: altAA,
+            posAA: posAA,
+            kind: kind
+        )
+    }
 }
