@@ -54,7 +54,7 @@ To follow along on screen you need a project holding a reference bundle with an 
 
 Mapping itself needs the read-mapping plugin pack. A [plugin pack](../../GLOSSARY.md#plugin-pack) is an optional bundle of analysis tools that LGE downloads and installs on request, and you can see which packs are installed in **Tools > Plugin Manager...** (Cmd-Shift-B). Reading a BAM that already exists needs no pack, because `samtools` comes with the Required Setup pack, the one pack LGE installs by itself on first launch and lists at the top of the Plugin Manager.
 
-The fixture files are on GitHub at https://github.com/dhoconno/lungfish-genome-explorer/tree/main/docs/user-manual/fixtures/hg002-chr20, and the `README.md` in that folder carries the source, license, and citation for each one.
+The fixture files are on GitHub at https://github.com/dhoconno/lungfish-manual-media/tree/manual-v2026.9.39/user-manual/fixtures/hg002-chr20, and the `README.md` in that folder carries the source, license, and citation for each one.
 
 ## What one row of a BAM records
 

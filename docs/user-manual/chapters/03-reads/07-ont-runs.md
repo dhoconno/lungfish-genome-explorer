@@ -59,7 +59,7 @@ You need a project open. If you do not have one, choose **File > New Project** (
 
 This chapter uses the HG002 long reads. Download the folder `ont-run` from the manual's fixtures on GitHub at
 
-https://github.com/dhoconno/lungfish-genome-explorer/tree/main/docs/user-manual/fixtures/hg002-long-reads
+https://github.com/dhoconno/lungfish-manual-media/tree/manual-v2026.9.39/user-manual/fixtures/hg002-long-reads
 
 and remember where you saved it. GitHub offers no download for a single folder, so open the repository's front page at https://github.com/dhoconno/lungfish-genome-explorer, click the green **Code** button, choose **Download ZIP**, double-click the downloaded file to unpack it, and find the folder inside it under `docs/user-manual/fixtures/`. The `ont-run` folder sits inside `hg002-long-reads`, already carrying the nested folders the importer needs, so the path reads
 

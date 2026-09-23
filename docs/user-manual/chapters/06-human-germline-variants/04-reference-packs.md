@@ -76,7 +76,7 @@ You need a project open. If you do not have one, choose **File > New Project** (
 
 This chapter uses the HG002 chromosome 20 slice. HG002 is a well-characterised reference individual whose genome has been sequenced many times, and the slice is a small cut-out region kept short so every run finishes quickly. You need four files from the manual's fixtures on GitHub at
 
-https://github.com/dhoconno/lungfish-genome-explorer/tree/main/docs/user-manual/fixtures/hg002-chr20
+https://github.com/dhoconno/lungfish-manual-media/tree/manual-v2026.9.39/user-manual/fixtures/hg002-chr20
 
 Those four are `GRCh38.chr20.10.0-10.5Mb.fasta`, `HG002.chr20.10.0-10.5Mb.benchmark.vcf.gz`, and the alignment `expected/mapping/HG002.sorted.bam` with its index `HG002.sorted.bam.bai`. GitHub offers no download for a single folder, so open the repository's front page at https://github.com/dhoconno/lungfish-genome-explorer, click the green **Code** button, choose **Download ZIP**, double-click the downloaded file to unpack it, and find the folder inside it under `docs/user-manual/fixtures/`. The BAM and its index sit one level deeper than the other two, under `expected/mapping/`, and all four arrive in the same unpacked folder rather than needing anything run to produce them. Put all four in one folder, keeping the names exactly as given, since every command below uses them, and open a Terminal window in that folder as the last subsection described. That BAM was made by mapping the fixture's reads against the FASTA before it was published, so you do not have to map anything here, and [Map the reads first](01-haplotype-caller.md#map-the-reads-first) covers that step if you would rather produce your own.
 

@@ -54,7 +54,7 @@ You need a project open. If you do not have one, choose **File > New Project** (
 
 This chapter uses the HG002 chromosome 20 slice. A fixture is the sample data set this manual works its examples against. Download two separate files from the manual's fixtures on GitHub at
 
-https://github.com/dhoconno/lungfish-genome-explorer/tree/main/docs/user-manual/fixtures/hg002-chr20
+https://github.com/dhoconno/lungfish-manual-media/tree/manual-v2026.9.39/user-manual/fixtures/hg002-chr20
 
 and remember where you saved them. The two file names differ only in their last suffix, so fetch each one in turn.
 

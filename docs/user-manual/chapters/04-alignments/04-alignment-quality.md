@@ -57,7 +57,7 @@ You need a project open. If you do not have one, choose **File > New Project** (
 
 This chapter uses the HG002 chromosome 20 slice. Download three files from the manual's practice data files on GitHub at
 
-https://github.com/dhoconno/lungfish-genome-explorer/tree/main/docs/user-manual/fixtures/hg002-chr20
+https://github.com/dhoconno/lungfish-manual-media/tree/manual-v2026.9.39/user-manual/fixtures/hg002-chr20
 
 and remember where you saved them. The reference is `GRCh38.chr20.10.0-10.5Mb.fasta`, the first read file is `HG002.chr20.10.0-10.5Mb_R1.fastq.gz`, and the second read file is `HG002.chr20.10.0-10.5Mb_R2.fastq.gz`. GitHub does not offer a whole folder as one download, so open each file name in turn on that page and use the download button at the top right of the file view.
 

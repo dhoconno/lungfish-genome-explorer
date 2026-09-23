@@ -58,7 +58,7 @@ Reading a variant track needs no plugin pack at all, so nothing has to be downlo
 
 Nothing in this chapter has to be run. It explains what a VCF holds and how LGE stores and draws one, and you can read it with the application closed. To follow along on screen you need a reference bundle with a variant track attached to it. A reference bundle is the folder LGE keeps a reference sequence in, along with everything computed against that reference, and it carries a `.lungfishref` extension. The demo project's `chr20 10.0-10.5Mb` bundle and its "HG002 bcftools" track are the ones this chapter reads. Producing a variant track from an alignment of your own is the subject of the variant-calling chapters, and this chapter documents none of the settings on the variant-calling dialog.
 
-The fixture files are on GitHub at https://github.com/dhoconno/lungfish-genome-explorer/tree/main/docs/user-manual/fixtures/hg002-chr20, and the `README.md` in that folder carries the source, license, and citation for each one. The two caller VCFs and their indexes are committed alongside the rest of the fixture, and the fixture's `regenerate.sh` script reproduces them.
+The fixture files are on GitHub at https://github.com/dhoconno/lungfish-manual-media/tree/manual-v2026.9.39/user-manual/fixtures/hg002-chr20, and the `README.md` in that folder carries the source, license, and citation for each one. The two caller VCFs and their indexes are committed alongside the rest of the fixture, and the fixture's `regenerate.sh` script reproduces them.
 
 ## What a VCF file looks like
 

@@ -1,8 +1,11 @@
 # illustrations.yaml - schematic cartoon registry for the Lungfish user manual.
 #
 # These are illustration briefs and generated asset pointers. Rendered PNGs
-# live under:
+# are referenced at:
 #   docs/user-manual/assets/illustrations-imagegen/<chapter-id>/<illustration-id>.png
+# but are not stored in this repo. They live in the pinned manual-media repo
+# (see docs/user-manual/media.lock) and land at that path when you run
+# docs/user-manual/build/scripts/fetch-media.sh.
 #
 # Brand palette:
 #   - Lungfish Creamsicle: #EE8B4F

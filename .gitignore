@@ -142,6 +142,13 @@ docs/user-manual/build/indesign/stories/
 docs/user-manual/build/scripts/lint/node_modules/
 docs/user-manual/build/scripts/shot/node_modules/
 docs/user-manual/fixtures/**/cache/
+# Fetched by docs/user-manual/build/scripts/fetch-media.sh per media.lock;
+# canonical copies live in the pinned dhoconno/lungfish-manual-media repo.
+docs/user-manual/.media-cache/
+docs/user-manual/assets/illustrations-imagegen/
+docs/user-manual/assets/screenshots/
+docs/user-manual/fixtures/hg002-chr20/
+docs/user-manual/fixtures/hg002-long-reads/
 
 # Superpowers brainstorm session artifacts (local scratch)
 .superpowers/

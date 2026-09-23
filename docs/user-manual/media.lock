@@ -1,0 +1,1237 @@
+{
+  "repo": "https://github.com/dhoconno/lungfish-manual-media",
+  "tag": "manual-v2026.9.39",
+  "commit": "7c1d5cc2c6a1020660fbec8a2bcc45071fb87775",
+  "files": [
+    {
+      "path": "user-manual/assets/illustrations-imagegen/01-foundations/01-what-is-a-genome/linear-vs-circular-genomes.png",
+      "sha256": "421e220147080492f10ade5aa0d2927dc50d5ab5da994c15fa442c65fddae471",
+      "size": 1012293
+    },
+    {
+      "path": "user-manual/assets/illustrations-imagegen/01-foundations/01-what-is-a-genome/position-coordinates.png",
+      "sha256": "8afb2ed52d30208640ef16d35962dd67ce6d715742f985319310d11d59107c70",
+      "size": 880012
+    },
+    {
+      "path": "user-manual/assets/illustrations-imagegen/01-foundations/01-what-is-a-genome/variant-notation.png",
+      "sha256": "4d9543df6a41a8a4c6079e0076d47dbd7ac2a945a1415a02f2e0a5e9b38bcf21",
+      "size": 771809
+    },
+    {
+      "path": "user-manual/assets/illustrations-imagegen/01-foundations/02-sequencing-reads/fastq-record-anatomy.png",
+      "sha256": "53cdf293c3c625489162c4d8bb996f76e2d883ee64f8ea8845a0b1d4807952a2",
+      "size": 885993
+    },
+    {
+      "path": "user-manual/assets/illustrations-imagegen/01-foundations/02-sequencing-reads/paired-end-reads.png",
+      "sha256": "57990fc34c9956447d650cedff9bbb9f3ffbfe913e9c5e248c17e1db2520f3d2",
+      "size": 708435
+    },
+    {
+      "path": "user-manual/assets/illustrations-imagegen/01-foundations/02-sequencing-reads/phred-quality-bar.png",
+      "sha256": "5005db669adc4efda68b0a270878838a4d5db2191b2631c6c1c1d9c56122b615",
+      "size": 846662
+    },
+    {
+      "path": "user-manual/assets/illustrations-imagegen/01-foundations/02-sequencing-reads/platform-read-length-comparison.png",
+      "sha256": "78f7659e1ff1bdc490066416beccdd3feefdd3becf3910f650124e7820d943ad",
+      "size": 721446
+    },
+    {
+      "path": "user-manual/assets/illustrations-imagegen/01-foundations/03-amplicon-vs-shotgun/amplicon-vs-shotgun.png",
+      "sha256": "d867f17bf69c3c9a06c2fbf3acab9811d90864c3aabe591783cfcdd75f57944e",
+      "size": 1095622
+    },
+    {
+      "path": "user-manual/assets/illustrations-imagegen/01-foundations/03-amplicon-vs-shotgun/primer-scheme-diagram.png",
+      "sha256": "bb2163d3217632c960a395fec6dc91cdf6e00e921cb14b97240b58643b4f1ef6",
+      "size": 1050140
+    },
+    {
+      "path": "user-manual/assets/illustrations-imagegen/01-foundations/03-amplicon-vs-shotgun/primer-trim-soft-clip.png",
+      "sha256": "36ef03d5e32ef05013bb04ab2738e761efa509d764a1439c059af86bfb316a97",
+      "size": 679143
+    },
+    {
+      "path": "user-manual/assets/illustrations-imagegen/01-foundations/04-alignment-files/cigar-anatomy.png",
+      "sha256": "2973a57e9aa253ef898e87fbc997c72ffff13e4ff0f34e14b0f01c05772ad160",
+      "size": 919791
+    },
+    {
+      "path": "user-manual/assets/illustrations-imagegen/01-foundations/04-alignment-files/coverage-histogram.png",
+      "sha256": "290f959458bf476d9848cc96daf0d9ae25ec855626352e79f6e448eadae2b3da",
+      "size": 816039
+    },
+    {
+      "path": "user-manual/assets/illustrations-imagegen/01-foundations/04-alignment-files/pileup-view.png",
+      "sha256": "2cb698a75267e02f29cb77aa3e03a8ebc70c236f68a992cc866735113336781b",
+      "size": 2245811
+    },
+    {
+      "path": "user-manual/assets/illustrations-imagegen/01-foundations/04-alignment-files/read-mapping-cartoon.png",
+      "sha256": "8e1e4d7cf6189a340cf42fc7b730b12404cea613b3af7b71c99ac947914124d9",
+      "size": 839281
+    },
+    {
+      "path": "user-manual/assets/illustrations-imagegen/01-foundations/05-variants-and-vcf/allele-frequency-haploid-vs-diploid.png",
+      "sha256": "15c1da29eb66bd91ab6a8534a09a4826f1d62d19dc9a4e6e129ee6edf9496dab",
+      "size": 845982
+    },
+    {
+      "path": "user-manual/assets/illustrations-imagegen/01-foundations/05-variants-and-vcf/filter-flag-cartoon.png",
+      "sha256": "d74fbfd36a64a4e0e19e1e73d9f8815d6882ed0811fa96c89301205d1772e59b",
+      "size": 882370
+    },
+    {
+      "path": "user-manual/assets/illustrations-imagegen/01-foundations/05-variants-and-vcf/vcf-row-anatomy.png",
+      "sha256": "544a24a0a43659418c711bb1bd4567dfd9ec5b252a05985427aaf74db3c9a863",
+      "size": 693289
+    },
+    {
+      "path": "user-manual/assets/illustrations-imagegen/01-foundations/08-provenance-and-reproducibility/cli-to-gui-path-reconciliation.png",
+      "sha256": "e2ba1ba7d664453f8f1ae247e2b4b5ea0c5f19caae6ae3dcb7defc65ccd606b5",
+      "size": 905907
+    },
+    {
+      "path": "user-manual/assets/illustrations-imagegen/01-foundations/08-provenance-and-reproducibility/provenance-graph-cartoon.png",
+      "sha256": "b471f191aba6cdff4980e4d14fdf1ce10a931397b0057930a517673513cb70d9",
+      "size": 2237588
+    },
+    {
+      "path": "user-manual/assets/illustrations-imagegen/02-sequences/01-importing-and-viewing/reference-bundle-anatomy.png",
+      "sha256": "1e90f13c3242ec497c9d16936d1c4570511379ab28ef801b20fb910659cc439e",
+      "size": 963793
+    },
+    {
+      "path": "user-manual/assets/illustrations-imagegen/02-sequences/01-importing-and-viewing/viewport-panes.png",
+      "sha256": "95d8cc297d4fd646be716b8a58dbfa609c793acd26b82df542c4872ff6a335da",
+      "size": 1202466
+    },
+    {
+      "path": "user-manual/assets/illustrations-imagegen/02-sequences/02-downloading-from-ncbi/ncbi-accession-anatomy.png",
+      "sha256": "7a878a4be9c24f35a08cb6d8accfb31a3c51649a05d8671571f99a2dd842f54e",
+      "size": 782430
+    },
+    {
+      "path": "user-manual/assets/illustrations-imagegen/02-sequences/04-aligning-sequences/msa-column-homology.png",
+      "sha256": "4b7636d7eb4c7c5fbd23478f52e53ee1e9e352fc1dc1904dc72a25909ee255d1",
+      "size": 830724
+    },
+    {
+      "path": "user-manual/assets/illustrations-imagegen/02-sequences/05-building-trees/tree-anatomy.png",
+      "sha256": "f4f4bac31b3f7f06aa2cced29628a261cc4a98e765eb0f73138d5593173a424a",
+      "size": 1019412
+    },
+    {
+      "path": "user-manual/assets/illustrations-imagegen/06-classification/01-what-is-classification/classification-question.png",
+      "sha256": "0cd1920265c61b514539bc27ac089609332e8ca419c4b1295c93f1aab982c87f",
+      "size": 825656
+    },
+    {
+      "path": "user-manual/assets/illustrations-imagegen/07-assembly/01-when-to-assemble/assembly-vs-mapping.png",
+      "sha256": "76e8f97db8b5edda51803de3215959e497b5be8e93001a32237f77f6e07ac6c6",
+      "size": 859648
+    },
+    {
+      "path": "user-manual/assets/screenshots/.gitkeep",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0
+    },
+    {
+      "path": "user-manual/assets/screenshots/01-foundations/06-the-lungfish-project/empty-project-window.png",
+      "sha256": "7e998684513812161dba23e1fe75e71579206a3709439263df811bc96f04bea2",
+      "size": 517479
+    },
+    {
+      "path": "user-manual/assets/screenshots/01-foundations/06-the-lungfish-project/inspector-fastq-detail.png",
+      "sha256": "7bc159eafcaa1a5e2877ce8330b9620917f236aa1b015c16ab8b2d84eae89dcd",
+      "size": 252264
+    },
+    {
+      "path": "user-manual/assets/screenshots/01-foundations/06-the-lungfish-project/inspector-fastq-selected.png",
+      "sha256": "9310d1b5938254965d001d37226fb2f941c4cc3ab65186afd11e3d98f0c35e12",
+      "size": 1696427
+    },
+    {
+      "path": "user-manual/assets/screenshots/01-foundations/06-the-lungfish-project/operations-panel-right-click-menu.png",
+      "sha256": "1c8428364fe473c18e84cfc840b602ff4be3e2800f705cd8700712156e118499",
+      "size": 198096
+    },
+    {
+      "path": "user-manual/assets/screenshots/01-foundations/06-the-lungfish-project/operations-panel-row.png",
+      "sha256": "06ca2dc37ae519fcd4cd8fc7befd1a7529e8f390c73a85b43257b2248393f3ea",
+      "size": 150658
+    },
+    {
+      "path": "user-manual/assets/screenshots/01-foundations/06-the-lungfish-project/sidebar-folder-conventions.png",
+      "sha256": "c79d9c3f4dac5d237d6ba23aa05ae3a1236a933fe768fd9212214cbca8643209",
+      "size": 237757
+    },
+    {
+      "path": "user-manual/assets/screenshots/01-foundations/06-the-lungfish-project/welcome-window.png",
+      "sha256": "f8f02b1e4ef790a796148591a1b916d4045c75fc90d4ad0847bcd418d65ef0d1",
+      "size": 270654
+    },
+    {
+      "path": "user-manual/assets/screenshots/01-foundations/07-plugin-packs/plugin-manager-databases-tab.png",
+      "sha256": "fe3c697da29cf7b143e9785f61450ed618020c97d99b41f501f9598d77445c05",
+      "size": 481864
+    },
+    {
+      "path": "user-manual/assets/screenshots/01-foundations/07-plugin-packs/plugin-manager-window.png",
+      "sha256": "85b64d6b1c45d42d7afb78f43309b74f17d56a26cfbb7cb6f886d3fa96c3d3e3",
+      "size": 379678
+    },
+    {
+      "path": "user-manual/assets/screenshots/01-foundations/08-provenance-and-reproducibility/classifier-provenance-disclosure.png",
+      "sha256": "6a896e7e7fcb57c8e664e663f257f593b2d43864ae10cfbb3abaa0fb63bba12b",
+      "size": 1236794
+    },
+    {
+      "path": "user-manual/assets/screenshots/01-foundations/08-provenance-and-reproducibility/file-export-provenance-menu.png",
+      "sha256": "35e8d5f44c7a7e5226b387531ca44cb289bee3cd58a43a9e58f67303bbae7e72",
+      "size": 1018701
+    },
+    {
+      "path": "user-manual/assets/screenshots/01-foundations/08-provenance-and-reproducibility/provenance-signing-settings.png",
+      "sha256": "58782d85c32d1e02ee8720dc6af0c4a558e71ccdb79a1bbe1634dbff3291ead0",
+      "size": 174913
+    },
+    {
+      "path": "user-manual/assets/screenshots/01-foundations/bam-viewport-coverage-and-pileup.png",
+      "sha256": "301b5ba936ff8bd0e570e33b0326dae284db91d9ae75d068839ef8b67454bd20",
+      "size": 674781
+    },
+    {
+      "path": "user-manual/assets/screenshots/01-foundations/empty-project-window.png",
+      "sha256": "f074615b3035495f4284a1239b39f1787c10d862fbbb8783ee24e27d591b8d9c",
+      "size": 533396
+    },
+    {
+      "path": "user-manual/assets/screenshots/01-foundations/fastq-viewport-reads-tab.png",
+      "sha256": "6083ff310189d5ddd5826efd1846115e493f668287a2bf51b7342c67f1c6422c",
+      "size": 702265
+    },
+    {
+      "path": "user-manual/assets/screenshots/01-foundations/fastq-viewport-summary-cards.png",
+      "sha256": "dc6133448f9ae1e18f9646fd67f5965c071f290f7977cffc53e1ec80a105c274",
+      "size": 940293
+    },
+    {
+      "path": "user-manual/assets/screenshots/01-foundations/file-export-menu.png",
+      "sha256": "7e93c5f19a27d869ac0698b0c57f70f703d1591b04d7a435383047e49649a3b1",
+      "size": 696139
+    },
+    {
+      "path": "user-manual/assets/screenshots/01-foundations/go-to-location-hbb-codon.png",
+      "sha256": "3ed40a8861e25a453bafd63a1fda1ea9b730b8abad8e1c2fb0408375a7d2a652",
+      "size": 142518
+    },
+    {
+      "path": "user-manual/assets/screenshots/01-foundations/hbb-record-in-sequence-viewport.png",
+      "sha256": "b5935a6cdf99ce3bbe86f5766b33dc2ace543cb6f583c8f364b629ba5bdd29ec",
+      "size": 572391
+    },
+    {
+      "path": "user-manual/assets/screenshots/01-foundations/import-center-reference-card.png",
+      "sha256": "688dcc9d723093b6dfed429db7a1a2670c208f04bd3072f9bd5494af2288c66f",
+      "size": 384592
+    },
+    {
+      "path": "user-manual/assets/screenshots/01-foundations/inspector-fastq-detail.png",
+      "sha256": "2a5d56f5abf3261aaefbbdb54ed387df71dca8aba7e53e2f62ca7aae017db2fa",
+      "size": 166863
+    },
+    {
+      "path": "user-manual/assets/screenshots/01-foundations/inspector-fastq-selected.png",
+      "sha256": "fb91eb101bae573f223ba6c999b1da888a2e8590e3bc209ac4df62675612e932",
+      "size": 640736
+    },
+    {
+      "path": "user-manual/assets/screenshots/01-foundations/inspector-provenance-section.png",
+      "sha256": "ee342a5f5b86589e8adb5711be57873458c73a18c2455532314df52914c5b826",
+      "size": 521310
+    },
+    {
+      "path": "user-manual/assets/screenshots/01-foundations/inspector-variant-selected.png",
+      "sha256": "d8dc34155229464a9415d4b1b2ab9dce9633f33dbfbbaf99bb077e857cfe83d1",
+      "size": 70852
+    },
+    {
+      "path": "user-manual/assets/screenshots/01-foundations/operations-panel-right-click-menu.png",
+      "sha256": "e6f65ca14750515dc7954422d11c3b8c8b6464cca5bc24ab578b6f283f341802",
+      "size": 65503
+    },
+    {
+      "path": "user-manual/assets/screenshots/01-foundations/operations-panel-row.png",
+      "sha256": "a46d85b2612ccf80efa5e4f84e565d3068c1758accf7144e08ede0d48b00a04f",
+      "size": 91694
+    },
+    {
+      "path": "user-manual/assets/screenshots/01-foundations/plugin-manager-databases-tab.png",
+      "sha256": "0ceef34e8cf00399cb175c743d29b366b1728736fcda681b0a8ebbe1561c0886",
+      "size": 276378
+    },
+    {
+      "path": "user-manual/assets/screenshots/01-foundations/plugin-manager-installed-tab.png",
+      "sha256": "b279f12e9f5d78c8ae44f90d77d06af526354ff30eb6b1f470f9206742c32aa6",
+      "size": 267195
+    },
+    {
+      "path": "user-manual/assets/screenshots/01-foundations/plugin-manager-offline-commands.png",
+      "sha256": "f0c2b8c78ac209e326361b699e06aa178b811abecf60ec697fd6229c3624ff7d",
+      "size": 30141
+    },
+    {
+      "path": "user-manual/assets/screenshots/01-foundations/plugin-manager-window.png",
+      "sha256": "aaa6b871e8a3b6aceb75ae7b6455dc46b308aa54b5c12ee79314341620454a9c",
+      "size": 269962
+    },
+    {
+      "path": "user-manual/assets/screenshots/01-foundations/primer-scheme-picker-built-in.png",
+      "sha256": "ce62ea5f7896b5f4c2d8a617709d35a5b6586c015101447b41ea47ba509f0714",
+      "size": 257566
+    },
+    {
+      "path": "user-manual/assets/screenshots/01-foundations/provenance-export-folder.png",
+      "sha256": "33ba4935258ce3180a65a017d4cbcc4e5bbb0f2654784fbe7093bdc5db2fc9d3",
+      "size": 172457
+    },
+    {
+      "path": "user-manual/assets/screenshots/01-foundations/provenance-lineage-step-expanded.png",
+      "sha256": "a3aaa6dde35e15e33d21232d35e458c44b0269482eef68cfb95db8580295f10c",
+      "size": 572849
+    },
+    {
+      "path": "user-manual/assets/screenshots/01-foundations/provenance-signing-settings.png",
+      "sha256": "e673e0dce205c031edde5f260d8660ae4751fb0acb3912d6438efed78f8d5340",
+      "size": 66529
+    },
+    {
+      "path": "user-manual/assets/screenshots/01-foundations/sidebar-folder-conventions.png",
+      "sha256": "02d563a49feadb0d4a35a1a1fb815147df88e16397fc4848249d6977da8bc791",
+      "size": 558497
+    },
+    {
+      "path": "user-manual/assets/screenshots/01-foundations/variants-pass-chip-and-tokens.png",
+      "sha256": "92c3149c283fddbb4e9c96fc5ebedbaf38c415953012327e52c074ee5fa7bf05",
+      "size": 62907
+    },
+    {
+      "path": "user-manual/assets/screenshots/01-foundations/variants-tab-hg002-bcftools.png",
+      "sha256": "6869540639b4e1e211745197517fcb6716b343cf207716a20d7bad30212ba56d",
+      "size": 502363
+    },
+    {
+      "path": "user-manual/assets/screenshots/01-foundations/welcome-window.png",
+      "sha256": "0abc9916dc37440bc098d76e93ac1b4d67112904a7c5e1954fc3c9f7c076d074",
+      "size": 251333
+    },
+    {
+      "path": "user-manual/assets/screenshots/02-sequences/alignment-viewport-primate-mito.png",
+      "sha256": "1e6a241e1c35d19fce4ae6c451286a28235d1cf034e4bfbdae142954fdc5dea3",
+      "size": 766974
+    },
+    {
+      "path": "user-manual/assets/screenshots/02-sequences/export-alignment-sheet.png",
+      "sha256": "1080e2103a762f93890e2264389ecf290b83b6f842dcec04b492a40311023850",
+      "size": 95707
+    },
+    {
+      "path": "user-manual/assets/screenshots/02-sequences/extract-region-dialog.png",
+      "sha256": "ea350fe0968dec4705ca680fe0cad77bb2c94b0124f82fdfbd178df75e771f03",
+      "size": 80119
+    },
+    {
+      "path": "user-manual/assets/screenshots/02-sequences/find-orfs-dialog.png",
+      "sha256": "143c9f70f31db118d110cab7fc824a8785884e9450249d53cfd164e090f6e3cb",
+      "size": 226846
+    },
+    {
+      "path": "user-manual/assets/screenshots/02-sequences/go-to-location-hbb-codon.png",
+      "sha256": "3ed40a8861e25a453bafd63a1fda1ea9b730b8abad8e1c2fb0408375a7d2a652",
+      "size": 142518
+    },
+    {
+      "path": "user-manual/assets/screenshots/02-sequences/hbb-annotation-context-menu.png",
+      "sha256": "c6940287a03f90036e659a2dead23d5d3fd8746f31157a388b47e14cedd990af",
+      "size": 605777
+    },
+    {
+      "path": "user-manual/assets/screenshots/02-sequences/hbb-record-in-sequence-viewport.png",
+      "sha256": "b5935a6cdf99ce3bbe86f5766b33dc2ace543cb6f583c8f364b629ba5bdd29ec",
+      "size": 572391
+    },
+    {
+      "path": "user-manual/assets/screenshots/02-sequences/import-center-reference-card.png",
+      "sha256": "688dcc9d723093b6dfed429db7a1a2670c208f04bd3072f9bd5494af2288c66f",
+      "size": 384592
+    },
+    {
+      "path": "user-manual/assets/screenshots/02-sequences/iqtree-dialog.png",
+      "sha256": "112f49a363c3c38db2907fbcae8f0817ad0783022bd1ba665eedf965a2b0f6d5",
+      "size": 354017
+    },
+    {
+      "path": "user-manual/assets/screenshots/02-sequences/mafft-dialog.png",
+      "sha256": "00e44b954e5e938fea8f75645e622652af8f11bb0643b2e8154a1ddc48bafa53",
+      "size": 279173
+    },
+    {
+      "path": "user-manual/assets/screenshots/02-sequences/ncbi-advanced-filters.png",
+      "sha256": "e1cd2d336dd6fcb3aaa78e76665f16170a51fe5a9dd34e2a5454eb33b95ddaaf",
+      "size": 335289
+    },
+    {
+      "path": "user-manual/assets/screenshots/02-sequences/ncbi-bundle-in-sidebar.png",
+      "sha256": "d2c631fd2c1ff8efabe80014d4cfb5c4c813b80c644e7dcc022c1212513dfd33",
+      "size": 526094
+    },
+    {
+      "path": "user-manual/assets/screenshots/02-sequences/ncbi-results-download-selected.png",
+      "sha256": "bbeb76d06febcf4471bb132688603d0e392402bbeaab54085a2f96a18554975f",
+      "size": 281682
+    },
+    {
+      "path": "user-manual/assets/screenshots/02-sequences/ncbi-search-dialog.png",
+      "sha256": "86585fb6c1a6997bfe53f0c41345768f8d24b9841cb28bf826c13d4a72830593",
+      "size": 248263
+    },
+    {
+      "path": "user-manual/assets/screenshots/02-sequences/pathoplexus-pane.png",
+      "sha256": "0b03acc457a555e5f34542c5d0f65bf8100413d959de219355c1d590eef102a8",
+      "size": 336837
+    },
+    {
+      "path": "user-manual/assets/screenshots/02-sequences/translation-tool-hbb-cds.png",
+      "sha256": "d620b94da998b240e90462c406f889b9aed90d74121499b52c2c10bf4de16bc4",
+      "size": 96658
+    },
+    {
+      "path": "user-manual/assets/screenshots/02-sequences/tree-viewport-primate-mito.png",
+      "sha256": "b2f2fdeaf2ce796f7908a6c159f7116258c78161b3c623eca99a0bfbffcbf1bb",
+      "size": 621766
+    },
+    {
+      "path": "user-manual/assets/screenshots/03-reads/demultiplex-barcodes-pane.png",
+      "sha256": "5d27dd7d29fafc4b9777cad1abf776bfc5f617941395aa17f8524da408d84a4b",
+      "size": 377482
+    },
+    {
+      "path": "user-manual/assets/screenshots/03-reads/fastq-sparkline-popover.png",
+      "sha256": "5e3745fce7c170f3adfce5c6c7bca1753434915c9d1cfad64fac58d9323703e1",
+      "size": 270977
+    },
+    {
+      "path": "user-manual/assets/screenshots/03-reads/fastq-viewport-reads-tab.png",
+      "sha256": "6083ff310189d5ddd5826efd1846115e493f668287a2bf51b7342c67f1c6422c",
+      "size": 702265
+    },
+    {
+      "path": "user-manual/assets/screenshots/03-reads/fastq-viewport-summary-cards.png",
+      "sha256": "dc6133448f9ae1e18f9646fd67f5965c071f290f7977cffc53e1ec80a105c274",
+      "size": 940293
+    },
+    {
+      "path": "user-manual/assets/screenshots/03-reads/human-scrub-dialog.png",
+      "sha256": "c7f2685fd292468c5476159810cf1f341c518934a7ff47223126beeac789b85c",
+      "size": 339110
+    },
+    {
+      "path": "user-manual/assets/screenshots/03-reads/import-center-sequencing-reads-tab.png",
+      "sha256": "e90c211b98ce5ea011b871d2630ac1961b364ebfd5377a8f29ab7f3b9d5c06c3",
+      "size": 387675
+    },
+    {
+      "path": "user-manual/assets/screenshots/03-reads/import-fastq-configuration-sheet.png",
+      "sha256": "088363cd1487728845cf22985dd2d73e507d5cc337461feead7f9310f4d5ac2e",
+      "size": 110460
+    },
+    {
+      "path": "user-manual/assets/screenshots/03-reads/length-filter-readiness.png",
+      "sha256": "d8b8774c4692c442a66afa7c39c9240537ba2c68e9411003435c0ab61a96df94",
+      "size": 300843
+    },
+    {
+      "path": "user-manual/assets/screenshots/03-reads/low-complexity-pane.png",
+      "sha256": "f94b7d27099567d5e939a17613937f6ad6d85278da16953ef1ddc8a16630a615",
+      "size": 379870
+    },
+    {
+      "path": "user-manual/assets/screenshots/03-reads/merge-overlapping-pairs-pane.png",
+      "sha256": "8df2fe286c662c8c45516fee58a18b14b294997d5d9c61d6862c54e02a3aef6f",
+      "size": 320732
+    },
+    {
+      "path": "user-manual/assets/screenshots/03-reads/ont-barcode-sheet-controls.png",
+      "sha256": "331364cf1404fb59fe5600828391ee194b72e87402e84a528771039256ea1df1",
+      "size": 160134
+    },
+    {
+      "path": "user-manual/assets/screenshots/03-reads/ont-import-configuration-sheet.png",
+      "sha256": "eb30e16d5211f79db954060b924e9a646b30fbd0be9e1576ad781021298722a6",
+      "size": 103193
+    },
+    {
+      "path": "user-manual/assets/screenshots/03-reads/orient-reads-pane.png",
+      "sha256": "a38a02cf4b4be39175e301a7413031d34473c1737380c14e2799bb5aceb2deb8",
+      "size": 356222
+    },
+    {
+      "path": "user-manual/assets/screenshots/03-reads/primer-trimming-literal-pane.png",
+      "sha256": "b209acbd6eca80c49440074aa5b50eca1ecc8daa95da05cb7cd121d89d115466",
+      "size": 342056
+    },
+    {
+      "path": "user-manual/assets/screenshots/03-reads/read-processing-menu.png",
+      "sha256": "39b0bb8ab989ecb0a88ec95435611eee02040457749309544f1385c0f50c8f88",
+      "size": 697601
+    },
+    {
+      "path": "user-manual/assets/screenshots/03-reads/refresh-qc-summary-dialog.png",
+      "sha256": "5e4351e876b68ad4566161d09740d57817aa6f8c673b9f5d07f8fef070575910",
+      "size": 244139
+    },
+    {
+      "path": "user-manual/assets/screenshots/03-reads/remove-duplicates-preset-picker.png",
+      "sha256": "ec2b1ecf67c098c7b75836d05e529eaf6ccaf0e0d450fc835e97f89f147bdc6c",
+      "size": 358581
+    },
+    {
+      "path": "user-manual/assets/screenshots/03-reads/search-subsetting-menu.png",
+      "sha256": "420349141fe14f32d59b79dba8738da5afa793116028d5f1b0f17857f4ed844c",
+      "size": 610436
+    },
+    {
+      "path": "user-manual/assets/screenshots/03-reads/select-reads-by-sequence-pane.png",
+      "sha256": "ca4d9ef7e0d50e12d7fc68f3e91e0dd936be62402f354923d1bc1c6a40f752f9",
+      "size": 337659
+    },
+    {
+      "path": "user-manual/assets/screenshots/03-reads/sidebar-after-import.png",
+      "sha256": "8584deb3d5381312819a161d072b8a1761b04fe5e162543efcdb5d9c0bd822ed",
+      "size": 28187
+    },
+    {
+      "path": "user-manual/assets/screenshots/03-reads/sidebar-after-ont-import.png",
+      "sha256": "354400a0c19fe0d97a311334170ca30cb50608b33deee649f607a32ff730b692",
+      "size": 113127
+    },
+    {
+      "path": "user-manual/assets/screenshots/03-reads/sra-bundle-in-sidebar.png",
+      "sha256": "a80cb7382ab32848e4ea4c9cf46343abb441b720b7193a525885eb46399bc9c3",
+      "size": 754279
+    },
+    {
+      "path": "user-manual/assets/screenshots/03-reads/sra-import-configuration-sheet.png",
+      "sha256": "f957721d64c6cbd18d4ecb130fd119ffe313ff6e22cdcfe82b0e66abebda7d50",
+      "size": 107863
+    },
+    {
+      "path": "user-manual/assets/screenshots/03-reads/sra-results-download-selected.png",
+      "sha256": "b28fb23270380500bc15201348becf0a1dada9b1c51972cb876a530f20837527",
+      "size": 332912
+    },
+    {
+      "path": "user-manual/assets/screenshots/03-reads/sra-runs-pane.png",
+      "sha256": "71adccf9360681a5c06971e01ff7c7e9cbc31ccf81e6d7d8d68440850b0de238",
+      "size": 302566
+    },
+    {
+      "path": "user-manual/assets/screenshots/03-reads/subsample-by-count-pane.png",
+      "sha256": "1f34f93a7d67ab495573e0e414f11da56efa2b681d498855bedee36cd715207c",
+      "size": 272851
+    },
+    {
+      "path": "user-manual/assets/screenshots/03-reads/trim-operation-row.png",
+      "sha256": "1cf5f5637229ca046b7f08aea09e60ae3432049308a73bce35bf17b695393cfc",
+      "size": 98788
+    },
+    {
+      "path": "user-manual/assets/screenshots/03-reads/trimming-dialog.png",
+      "sha256": "e127cee11be86bf0e8cfdf023b3a09f775017a6c23446b452199be6f2fb259ec",
+      "size": 352955
+    },
+    {
+      "path": "user-manual/assets/screenshots/04-alignments/alignment-inspector-stats.png",
+      "sha256": "fc63eacda2feb85a63eb0547de6cd7835a444d578fee3baa84fdcdec3f9068ea",
+      "size": 65473
+    },
+    {
+      "path": "user-manual/assets/screenshots/04-alignments/analysis-export-tab.png",
+      "sha256": "3002be4a0c4e0df95737471eec3873ee521c2e30c89e1070421ef75b6b2d2656",
+      "size": 114797
+    },
+    {
+      "path": "user-manual/assets/screenshots/04-alignments/analysis-filtering-tab.png",
+      "sha256": "b5a30cd2a22fbfb011bfb3415f2407067dadc052456c0cfa4b5953dbf3c06853",
+      "size": 235859
+    },
+    {
+      "path": "user-manual/assets/screenshots/04-alignments/bam-viewport-overview.png",
+      "sha256": "11722b13ce443e982516b4ad8754e34355767a2c605e1994fc7c753b42deca25",
+      "size": 514952
+    },
+    {
+      "path": "user-manual/assets/screenshots/04-alignments/filter-panel-controls.png",
+      "sha256": "da24dccd7766092e6be8d077f72b4b916a39af01394464302b66008e73e4e055",
+      "size": 116724
+    },
+    {
+      "path": "user-manual/assets/screenshots/04-alignments/inspector-alignment-stats.png",
+      "sha256": "4dafccd10eb72c466aa98711cd29e68b994596ec23fc1ae8218af67e88ad6576",
+      "size": 67957
+    },
+    {
+      "path": "user-manual/assets/screenshots/04-alignments/mapping-wizard-advanced.png",
+      "sha256": "bd425addbe6bcf6bb3c8e12b6de7395715c80cb7a6b4dcc469ecce9b044f8026",
+      "size": 312171
+    },
+    {
+      "path": "user-manual/assets/screenshots/04-alignments/mapping-wizard-overview.png",
+      "sha256": "cf3faae1a70a942440f4f3a77d30337136e3f63d708aa2806bb1c74ba3311621",
+      "size": 272919
+    },
+    {
+      "path": "user-manual/assets/screenshots/04-alignments/pileup-zoom.png",
+      "sha256": "213ba271fe868a50aea8df627dca5be37099d7b79744cc4368f351f59be5fd55",
+      "size": 802034
+    },
+    {
+      "path": "user-manual/assets/screenshots/04-alignments/primer-trim-dialog-target.png",
+      "sha256": "f5283af17ad06a47c4879d0aa5ce071a4aa9b58b1c0ea38f0ad6101856e14233",
+      "size": 99858
+    },
+    {
+      "path": "user-manual/assets/screenshots/04-alignments/primer-trim-scheme-menu.png",
+      "sha256": "ce62ea5f7896b5f4c2d8a617709d35a5b6586c015101447b41ea47ba509f0714",
+      "size": 257566
+    },
+    {
+      "path": "user-manual/assets/screenshots/04-alignments/tools-mapping-submenu.png",
+      "sha256": "8b3bf8121a9948ecff1ef52328b6890268d023451ce4bb7f150897419450e719",
+      "size": 602137
+    },
+    {
+      "path": "user-manual/assets/screenshots/04-alignments/view-settings-alignment-tab.png",
+      "sha256": "28cf5d81f4d2b6f0924d934e052ab2aeef7a2e91841eb013d446e300b0709d54",
+      "size": 155991
+    },
+    {
+      "path": "user-manual/assets/screenshots/04-alignments/view-settings-reads-tab.png",
+      "sha256": "a4ed42d8c03540bbaffd0a301657d6b70659e44623127fe4888765736e4dbd71",
+      "size": 157017
+    },
+    {
+      "path": "user-manual/assets/screenshots/04-alignments/viral-recon-advanced-open.png",
+      "sha256": "a0c553c3ae70d019a4980397035f67fe252c5aa5494e0c95b47d45a74aa9ecd0",
+      "size": 355136
+    },
+    {
+      "path": "user-manual/assets/screenshots/04-alignments/viral-recon-menu-item.png",
+      "sha256": "8b3bf8121a9948ecff1ef52328b6890268d023451ce4bb7f150897419450e719",
+      "size": 602137
+    },
+    {
+      "path": "user-manual/assets/screenshots/04-alignments/viral-recon-wizard-overview.png",
+      "sha256": "8118bc95b0d457658ce9606ed6cedac9c3210f0ddd07557a30f661f03029e58f",
+      "size": 304354
+    },
+    {
+      "path": "user-manual/assets/screenshots/05-variants/analysis-consensus-tab.png",
+      "sha256": "8a7ac8a47d90aeded150fc036e4dea6ae61ece0993c8b28300ed9bbf5737689c",
+      "size": 210655
+    },
+    {
+      "path": "user-manual/assets/screenshots/05-variants/call-variants-dialog-bcftools.png",
+      "sha256": "26e9abfd4bbdb4db9f5fa1d6d138830075728fa5508324e23e6fa2e40bbff81b",
+      "size": 326650
+    },
+    {
+      "path": "user-manual/assets/screenshots/05-variants/call-variants-dialog-ivar.png",
+      "sha256": "6d0993839b97655bc31861f35e4879b25ede9765e0da7908677c41036d19f1a6",
+      "size": 371286
+    },
+    {
+      "path": "user-manual/assets/screenshots/05-variants/call-variants-dialog-medaka.png",
+      "sha256": "e6f02975517bac87f0cb205a203de8512332251220b0bce5a8b8f08e15402f42",
+      "size": 315930
+    },
+    {
+      "path": "user-manual/assets/screenshots/05-variants/consensus-destination-dialog.png",
+      "sha256": "e06df5257a24d3b9020eb033e93c13bec95db76ceb66dd7d9bec2283e4b2aacc",
+      "size": 60517
+    },
+    {
+      "path": "user-manual/assets/screenshots/05-variants/consensus-masking-sliders.png",
+      "sha256": "30c6f494b1e4a48208786dcfdbe0fd97668c0be499898377b9c42696c2b11711",
+      "size": 203186
+    },
+    {
+      "path": "user-manual/assets/screenshots/05-variants/import-center-vcf-card.png",
+      "sha256": "f493ceef4f9f5c0eea273e19ffcc5411356e0624aa311cb058664683b3abb886",
+      "size": 222618
+    },
+    {
+      "path": "user-manual/assets/screenshots/05-variants/medaka-model-field.png",
+      "sha256": "5072b262fee2de71a19cab04c9caafa4e9d1fd869f7901824d65cf6fc618e5be",
+      "size": 322617
+    },
+    {
+      "path": "user-manual/assets/screenshots/05-variants/tools-mapping-submenu.png",
+      "sha256": "8b3bf8121a9948ecff1ef52328b6890268d023451ce4bb7f150897419450e719",
+      "size": 602137
+    },
+    {
+      "path": "user-manual/assets/screenshots/05-variants/variants-inspector-row.png",
+      "sha256": "b7ebfc7321a15fc6a24012e59d584efc92b8caff46c3d1052a975c437881c010",
+      "size": 64873
+    },
+    {
+      "path": "user-manual/assets/screenshots/05-variants/variants-preset-chips.png",
+      "sha256": "f1942a03ff4b6181792baf9f04c069e0ec99ef279acd236752780c1daed5964e",
+      "size": 47179
+    },
+    {
+      "path": "user-manual/assets/screenshots/05-variants/variants-search-builder.png",
+      "sha256": "b22d12dfed43286f62ca83175ed8f55ea31881a3acef0ec0d282d0b8ba98f32b",
+      "size": 85372
+    },
+    {
+      "path": "user-manual/assets/screenshots/05-variants/variants-source-column.png",
+      "sha256": "aa974ab00a349e04a73824bd8d49c4f8c4ecbbcbf9d1fa3a29e559b8f3e89d7b",
+      "size": 164108
+    },
+    {
+      "path": "user-manual/assets/screenshots/05-variants/variants-tab-twelve-columns.png",
+      "sha256": "adc18e9b650cd5c8d1b8f3d33b3e6cc7f748aa6a90551800466ff371255eb078",
+      "size": 623385
+    },
+    {
+      "path": "user-manual/assets/screenshots/05-variants/variants-tab-two-callers.png",
+      "sha256": "3c7861f45b6c7d7a6dee52f2575078b3033021ae34bbd76ec549d9c7f5614005",
+      "size": 208884
+    },
+    {
+      "path": "user-manual/assets/screenshots/06-classification/blast-verify-popover.png",
+      "sha256": "fd5c8219e28c8eeb8b1ce3daa4eb159418a3e7a1f8a07e2be0de47fbb316d66f",
+      "size": 653420
+    },
+    {
+      "path": "user-manual/assets/screenshots/06-classification/classification-dialog-tool-sidebar.png",
+      "sha256": "1c72819dd102d3b5a9a3fcbde9e50f90fa316826ba4a02bfbcea64b6a59a0b46",
+      "size": 189436
+    },
+    {
+      "path": "user-manual/assets/screenshots/06-classification/classification-submenu.png",
+      "sha256": "e00969d61021626961c20e8c905af1d545be81003a7b37ac0682f2174e129fd1",
+      "size": 579387
+    },
+    {
+      "path": "user-manual/assets/screenshots/06-classification/czid-import-card.png",
+      "sha256": "573e0d6628683be859cb6fb2258ebbdb288739bc9d70d8c6159a80859a4cfbd3",
+      "size": 51485
+    },
+    {
+      "path": "user-manual/assets/screenshots/06-classification/czid-import-sheet.png",
+      "sha256": "703839688a88789c2063379689397c57d98f5175a8b749cbab6bf5635d305397",
+      "size": 128421
+    },
+    {
+      "path": "user-manual/assets/screenshots/06-classification/czid-provenance-popover.png",
+      "sha256": "350b24eb311ed6d72723f5dba88265a9114d399e992873dd744c7b91b3bf9bb1",
+      "size": 290888
+    },
+    {
+      "path": "user-manual/assets/screenshots/06-classification/czid-result-viewport.png",
+      "sha256": "a62e6d61f457121d3ae47c6528d12bf12fcbb590cae8a79d499d011dd9738925",
+      "size": 379820
+    },
+    {
+      "path": "user-manual/assets/screenshots/06-classification/esviritu-advanced-settings.png",
+      "sha256": "61045513a837321e31b5c227a42a7a64a09e4fc1216ea54b018fbc339430f6c2",
+      "size": 265127
+    },
+    {
+      "path": "user-manual/assets/screenshots/06-classification/esviritu-dialog.png",
+      "sha256": "be46033a62f2d56f49149f7ffbd70b0794c8753a50b59ba582c21b2d7d98a4a3",
+      "size": 235793
+    },
+    {
+      "path": "user-manual/assets/screenshots/06-classification/import-center-classification-tab.png",
+      "sha256": "d94dc40b491e89d806f98ed51255668f4a72830d2590025452f4460c80fef571",
+      "size": 595635
+    },
+    {
+      "path": "user-manual/assets/screenshots/06-classification/kraken2-advanced-settings.png",
+      "sha256": "e03ba908bbac00faa067434cd46b243309e21bb2ca4a44164117d354bdedfe2a",
+      "size": 256369
+    },
+    {
+      "path": "user-manual/assets/screenshots/06-classification/kraken2-databases-tab.png",
+      "sha256": "d3cf3a7bed3af629a9558bb087e21ec9f2499c6862451449406de53e09bf742c",
+      "size": 423721
+    },
+    {
+      "path": "user-manual/assets/screenshots/06-classification/kraken2-dialog.png",
+      "sha256": "1c72819dd102d3b5a9a3fcbde9e50f90fa316826ba4a02bfbcea64b6a59a0b46",
+      "size": 189436
+    },
+    {
+      "path": "user-manual/assets/screenshots/06-classification/kraken2-drilldown-coronaviridae.png",
+      "sha256": "bc386dc5c0426e717f1d8b46c6b59d52e3360229e92f3ed5cd1046152b5bbba4",
+      "size": 707596
+    },
+    {
+      "path": "user-manual/assets/screenshots/06-classification/kraken2-extract-reads.png",
+      "sha256": "5a42ce166d136ace81da5b422147883ed1bfef5690dfef931f8260e3d324e0b3",
+      "size": 129095
+    },
+    {
+      "path": "user-manual/assets/screenshots/06-classification/kraken2-taxonomy-viewport.png",
+      "sha256": "9a8adbd0b28a2bff7bd8c38497f284889b527dc6776be6267d8be9ffc7f3bf19",
+      "size": 794683
+    },
+    {
+      "path": "user-manual/assets/screenshots/06-classification/nao-mgs-import-card.png",
+      "sha256": "6fca1c7cd3304ef5596c0e02cda886ab3adc694e29977caf6741bc814853442f",
+      "size": 47940
+    },
+    {
+      "path": "user-manual/assets/screenshots/06-classification/nao-mgs-import-sheet.png",
+      "sha256": "02d6556ffa8fa26c874bbd4a44b0218ffdcbb6d8f6cd6784542aba9ce37c3b0f",
+      "size": 89239
+    },
+    {
+      "path": "user-manual/assets/screenshots/06-classification/nao-mgs-result-viewport.png",
+      "sha256": "41c4b1f9e9f8e06265a4d4b4822f0015759b6af8c6aed685adf11338b5f5c39a",
+      "size": 345711
+    },
+    {
+      "path": "user-manual/assets/screenshots/06-classification/nao-mgs-taxon-detail.png",
+      "sha256": "8335fdacfb664cfacb4d23e87f4b1665fd4448c35d9c7b77374a2157545fb2b5",
+      "size": 377742
+    },
+    {
+      "path": "user-manual/assets/screenshots/06-classification/nvd-column-menu.png",
+      "sha256": "501ec0e2a68483ed4f6756d312b3ece55fc4c5c872c8873f4439bd3e20743bae",
+      "size": 163639
+    },
+    {
+      "path": "user-manual/assets/screenshots/06-classification/nvd-import-card.png",
+      "sha256": "35487261ce855d8b6defa49f03974173b58a69b23e27dceb1eefcf2e7e216ee7",
+      "size": 52529
+    },
+    {
+      "path": "user-manual/assets/screenshots/06-classification/nvd-import-preview.png",
+      "sha256": "63904394a0da86b435105ab19c7dec787c8cde52a45235491dc9ae6e64523288",
+      "size": 85499
+    },
+    {
+      "path": "user-manual/assets/screenshots/06-classification/nvd-result-viewport.png",
+      "sha256": "02acc250de87a1e946a720e38eb660f7b8cf1f8327df1934ab5e06e0c7146bc6",
+      "size": 555529
+    },
+    {
+      "path": "user-manual/assets/screenshots/06-classification/plugin-manager-wastewater-pack.png",
+      "sha256": "5999edf47319570173ca917f9e0ec119ba7779cafd86279dd856035eddb54a19",
+      "size": 294851
+    },
+    {
+      "path": "user-manual/assets/screenshots/06-classification/taxonomy-viewport-overview.png",
+      "sha256": "aa5438bd307005104dea7982c0559c5dd48a4f0ed5607055d513149565036955",
+      "size": 793822
+    },
+    {
+      "path": "user-manual/assets/screenshots/06-classification/taxtriage-advanced-settings.png",
+      "sha256": "9a10f6d83f11dfa80a8bf9c539ffbd708a6076f6984981365453c34d45d05bea",
+      "size": 336034
+    },
+    {
+      "path": "user-manual/assets/screenshots/06-classification/taxtriage-dialog.png",
+      "sha256": "fd3c713e20382f95aebc34a8892e2c4fb0a20010d6a0bf0b09827fb29b54df39",
+      "size": 265498
+    },
+    {
+      "path": "user-manual/assets/screenshots/06-classification/twelve-s-blast-review.png",
+      "sha256": "cf95f6118232200a143d2820cda686aa4c20fc1ed012c40b0749c6ef82a9dacd",
+      "size": 451313
+    },
+    {
+      "path": "user-manual/assets/screenshots/06-classification/twelve-s-dialog-inputs.png",
+      "sha256": "27985cd92ad858a642c357f9170da6f157847ad89dc6cfcbea55c750bfb5bd29",
+      "size": 459298
+    },
+    {
+      "path": "user-manual/assets/screenshots/06-classification/twelve-s-dialog-options.png",
+      "sha256": "3e9cfff9a127d21ec6694c126fa0c68f8d47a0d0419ee3ad3639fec4d00af2a3",
+      "size": 490000
+    },
+    {
+      "path": "user-manual/assets/screenshots/06-classification/twelve-s-export.png",
+      "sha256": "539141167c6aa550d87fa6eb21667f10d0c1661435f35cfb96e32dbb6ad130e6",
+      "size": 59147
+    },
+    {
+      "path": "user-manual/assets/screenshots/06-classification/twelve-s-result-species-table.png",
+      "sha256": "6e798175c327db41f6960c1a9b4cf0072e69c33a6d5b4a503be15ea457af7916",
+      "size": 117172
+    },
+    {
+      "path": "user-manual/assets/screenshots/06-classification/twelve-s-unresolved-clusters.png",
+      "sha256": "620f7ef55a433276cd4524193d7a5ae2bebce34088c4abdf6b670687f2bcba2d",
+      "size": 476622
+    },
+    {
+      "path": "user-manual/assets/screenshots/06-classification/twelve-s-workflow-library.png",
+      "sha256": "7a21f0bc8dd8fbdd6b1a9ad34da7768d6a3e95bd2aa24dba930cd1d3a27d2ecc",
+      "size": 48501
+    },
+    {
+      "path": "user-manual/assets/screenshots/06-human-germline-variants/call-variants-dialog-gatk.png",
+      "sha256": "caaacd2eae5b4810c8ff95afea42ba7e6c74bb3a64068dc881f8534338753eb2",
+      "size": 319915
+    },
+    {
+      "path": "user-manual/assets/screenshots/06-human-germline-variants/plugin-manager-gatk-packs.png",
+      "sha256": "0415fca7ad617c7a45a2000754618f89bd72922e5a3e05b3961c169c2133c729",
+      "size": 277586
+    },
+    {
+      "path": "user-manual/assets/screenshots/06-human-germline-variants/settings-advanced-experimental.png",
+      "sha256": "47bf4a181270952bc7d08f8edade305d4375c407a9372898df6935ba315b3593",
+      "size": 163960
+    },
+    {
+      "path": "user-manual/assets/screenshots/07-assembly/assembly-advanced-settings.png",
+      "sha256": "5e5dc28a7e4dc706a04ca3fecf9d78ae1cf0353719ac5e6824b133b9bf6e2034",
+      "size": 99858
+    },
+    {
+      "path": "user-manual/assets/screenshots/07-assembly/assembly-bundle-in-analyses.png",
+      "sha256": "eafb94e8fe9b0b83ed4fb5605cbf2914156a1fc1611879b828cdffc8aca43957",
+      "size": 298857
+    },
+    {
+      "path": "user-manual/assets/screenshots/07-assembly/assembly-sheet-assembler-picker.png",
+      "sha256": "d013ad3401bfa741be8c9f46f801f9c7a346d984d6ebf742f9350575d40f7aea",
+      "size": 61540
+    },
+    {
+      "path": "user-manual/assets/screenshots/07-assembly/assembly-sheet-curated-arguments.png",
+      "sha256": "e871626cb7b94a70e06ebf63067fde613f4076d60459cc4dc557642f2bb932ba",
+      "size": 326773
+    },
+    {
+      "path": "user-manual/assets/screenshots/07-assembly/assembly-sheet-flye.png",
+      "sha256": "d5e40ee4decafce47840313a62e036e726c9d923e426a7b425b47f26d6ffcc81",
+      "size": 271625
+    },
+    {
+      "path": "user-manual/assets/screenshots/07-assembly/assembly-sheet-hifiasm.png",
+      "sha256": "f666bd33646e34bb5859f592c1202c8fdc652e85419f315caba20bfb1a8bbc9d",
+      "size": 258963
+    },
+    {
+      "path": "user-manual/assets/screenshots/07-assembly/assembly-submenu.png",
+      "sha256": "671ea07bcc8c24bb900cdbcf9b887f30f9464050409d51aacdd85c04061317a2",
+      "size": 570723
+    },
+    {
+      "path": "user-manual/assets/screenshots/07-assembly/assembly-viewport.png",
+      "sha256": "eafb94e8fe9b0b83ed4fb5605cbf2914156a1fc1611879b828cdffc8aca43957",
+      "size": 298857
+    },
+    {
+      "path": "user-manual/assets/screenshots/07-assembly/assembly-wizard-spades.png",
+      "sha256": "7fa876c39cde51925f61227f37e606ec9d956ee2be15623f0233dfac4bb367ba",
+      "size": 327485
+    },
+    {
+      "path": "user-manual/assets/screenshots/07-assembly/contig-context-menu.png",
+      "sha256": "09ebe734ef8f6813bafdd0c9f1dd6c79618f38379f895c955cfc2f3e1b0fa551",
+      "size": 82002
+    },
+    {
+      "path": "user-manual/assets/screenshots/07-assembly/contig-detail-pane.png",
+      "sha256": "751dfb3bac18e934264af2d12cedb8c509b14fc75e51f12398768b6519fa3259",
+      "size": 102397
+    },
+    {
+      "path": "user-manual/assets/screenshots/07-assembly/create-bundle-action-bar.png",
+      "sha256": "592ecf1f238ad3d703165b55605968894d3834f755426568bc8bdcf1a622a6f4",
+      "size": 41816
+    },
+    {
+      "path": "user-manual/assets/screenshots/07-assembly/derived-bundle-in-sidebar.png",
+      "sha256": "2c4cf2b61726c5496bb16b1a4787a4853d5d91d6db20994a28a2d8de72e77696",
+      "size": 65198
+    },
+    {
+      "path": "user-manual/assets/screenshots/07-assembly/flye-contig-table.png",
+      "sha256": "b5ca61d4da2dddcc0d82da56271f39674800bcaa07baa6b5fc9ab894ab809c31",
+      "size": 389683
+    },
+    {
+      "path": "user-manual/assets/screenshots/08-workflows/export-provenance-complete-alert.png",
+      "sha256": "b2378a853e72dc900dc8c3c5680921d7a0e6d8c8ed9efb94cdfd95fa68d6ebb2",
+      "size": 68889
+    },
+    {
+      "path": "user-manual/assets/screenshots/08-workflows/export-provenance-save-panel.png",
+      "sha256": "60b0dd3615b8527e5973c8114f13cdeef32375a65be2e9691e9c9d7e5261b3d9",
+      "size": 54651
+    },
+    {
+      "path": "user-manual/assets/screenshots/08-workflows/export-provenance-submenu.png",
+      "sha256": "7b051f88ee9713fe5ad876a2bcfc1825d63930a8d8ab849378193a90046949c1",
+      "size": 1263145
+    },
+    {
+      "path": "user-manual/assets/screenshots/08-workflows/nextflow-export-main-nf.png",
+      "sha256": "93c3a7a7b7a7e0662c1ca0091f84d2a9baeea62f15f140d27a2efe83274b83ea",
+      "size": 305812
+    },
+    {
+      "path": "user-manual/assets/screenshots/08-workflows/workflow-builder-experimental-toggle.png",
+      "sha256": "5330277075a78705caed990481ec33cccccc519b7735a476b5d97049f2be563c",
+      "size": 64598
+    },
+    {
+      "path": "user-manual/assets/screenshots/08-workflows/workflow-builder-palette.png",
+      "sha256": "14824bfbf260e15db41efa730f979a411c900cc712f7512522d027a37a5f408c",
+      "size": 70978
+    },
+    {
+      "path": "user-manual/assets/screenshots/08-workflows/workflow-builder-sidebar-library.png",
+      "sha256": "deadedcda996458c29ffc64574e33f1dbcf061a7b8189c31560794c6080ccc78",
+      "size": 85774
+    },
+    {
+      "path": "user-manual/assets/screenshots/08-workflows/workflow-library-linked-package.png",
+      "sha256": "66ceb8a108c9c3549a84ed082a57410e67c48cf385af87cad3472030f16ac271",
+      "size": 123216
+    },
+    {
+      "path": "user-manual/assets/screenshots/08-workflows/workflow-operations-runner.png",
+      "sha256": "f70db0e1b5a8d8818db2df35111d26f7cb52224f316700f5d4502ae345d19213",
+      "size": 430364
+    },
+    {
+      "path": "user-manual/assets/screenshots/09-genotyping/genotype-call-evidence.png",
+      "sha256": "538ae98f4e922831d2c2414108a9ffd9e30f5cafb744efe00a43b1bf31f9b56f",
+      "size": 546371
+    },
+    {
+      "path": "user-manual/assets/screenshots/09-genotyping/genotype-export-save-panel.png",
+      "sha256": "eb4681582555b96d266fe7cd824ec65a469d3a3e157de4c4921c3f31c5cf7dd7",
+      "size": 52088
+    },
+    {
+      "path": "user-manual/assets/screenshots/09-genotyping/genotype-inspector-display.png",
+      "sha256": "6896ed20d9c06394f38f7e410d738657b9da37d841be0854e0e3fc46f3bab52e",
+      "size": 121457
+    },
+    {
+      "path": "user-manual/assets/screenshots/09-genotyping/genotype-inspector-export.png",
+      "sha256": "2f2e7076e1668a077212628358e5679ad6d614e4dce5a876af98f813aa6d0594",
+      "size": 27215
+    },
+    {
+      "path": "user-manual/assets/screenshots/09-genotyping/genotype-matrix-overview.png",
+      "sha256": "a556b7c099dce5dd82be434ab2b2a50d0cd271cc120df4bdac5d9c9093add762",
+      "size": 515499
+    },
+    {
+      "path": "user-manual/assets/screenshots/09-genotyping/genotype-matrix-reading.png",
+      "sha256": "a556b7c099dce5dd82be434ab2b2a50d0cd271cc120df4bdac5d9c9093add762",
+      "size": 515499
+    },
+    {
+      "path": "user-manual/assets/screenshots/09-genotyping/genotype-pivot-workbook.png",
+      "sha256": "51feaa1c15fbb19dc76389524bb24eece223a58d78f16a4f3039395929641936",
+      "size": 241638
+    },
+    {
+      "path": "user-manual/assets/screenshots/09-genotyping/genotyping-advanced-options.png",
+      "sha256": "1aa86772e4ea38d0185d47eb15100c377dcf83c7454219f3fad28f757fb560e0",
+      "size": 415285
+    },
+    {
+      "path": "user-manual/assets/screenshots/09-genotyping/genotyping-analysis-mode.png",
+      "sha256": "41e47009d7e45267475d157fb16605f79a21182aa58251a78763791818c23afe",
+      "size": 27654
+    },
+    {
+      "path": "user-manual/assets/screenshots/09-genotyping/genotyping-full-length-dialog.png",
+      "sha256": "7fb48351ee032fa372d90389467b08914df7bf4ba170d0e77df9aa156fce2b17",
+      "size": 422262
+    },
+    {
+      "path": "user-manual/assets/screenshots/09-genotyping/genotyping-operations-row.png",
+      "sha256": "e84498d587c309f622c11330f05f3a01873b9c1762377bc0b25aab742eccfe97",
+      "size": 382573
+    },
+    {
+      "path": "user-manual/assets/screenshots/09-genotyping/genotyping-run-dialog.png",
+      "sha256": "0f68661b4e7ebe547ccba7cfc0fcfb48e0282ad60fb53efe90c85f0aa62ebbeb",
+      "size": 425750
+    },
+    {
+      "path": "user-manual/assets/screenshots/09-genotyping/genotyping-submenu.png",
+      "sha256": "748e6557886d3f370bec258ec875f43621588baf3451a56eb08774113dc8d047",
+      "size": 995262
+    },
+    {
+      "path": "user-manual/assets/screenshots/appendices/ai-assistant-azure-endpoint.png",
+      "sha256": "5ab9d3cfc82c9f2ee8fd580e7529b173a992513e37eac550bda67e1cfeef2b9f",
+      "size": 86472
+    },
+    {
+      "path": "user-manual/assets/screenshots/appendices/ai-assistant-panel.png",
+      "sha256": "f0f422ff387da9fc9e329a29bbb649f88f4cf9cd1d2fc54cde7af413632679f1",
+      "size": 563066
+    },
+    {
+      "path": "user-manual/assets/screenshots/appendices/ai-assistant-provider-setup.png",
+      "sha256": "ef22d3d4a1a37aeedb4a6f1d9d8778309bc372a43262dc5100d25f8bfd7ab065",
+      "size": 136633
+    },
+    {
+      "path": "user-manual/assets/screenshots/appendices/operations-panel-failed-row.png",
+      "sha256": "910661d9096c783dde105fdb0b6d2983a36f80a0a2907168ff88d7bd91b84edb",
+      "size": 365473
+    },
+    {
+      "path": "user-manual/assets/screenshots/appendices/primer-scheme-import-card.png",
+      "sha256": "99f0dbfbe5e5fe67fc7aa8df43a0270387f1edc599a9b2c69bd8fd206df0a209",
+      "size": 32473
+    },
+    {
+      "path": "user-manual/assets/screenshots/appendices/primer-scheme-import-sheet.png",
+      "sha256": "804909aed3b9033be747c70f8472476110997a781709c53f44ca0b1e22882568",
+      "size": 354519
+    },
+    {
+      "path": "user-manual/assets/screenshots/appendices/shared-projects-read-only-banner.png",
+      "sha256": "e743ff5a542f38586427c443074136ea65139a27e83d4c1c7fbe78386250aa20",
+      "size": 643747
+    },
+    {
+      "path": "user-manual/fixtures/hg002-chr20/.gitignore",
+      "sha256": "74302619161258307171b784a208d0ebdced18516171f58df071266cfef357a8",
+      "size": 572
+    },
+    {
+      "path": "user-manual/fixtures/hg002-chr20/GRCh38.chr20.10.0-10.5Mb.fasta",
+      "sha256": "3ee1418353a681cbd415a278ecc0bd9579121eac2bc483448ab78ca679840101",
+      "size": 510021
+    },
+    {
+      "path": "user-manual/fixtures/hg002-chr20/GRCh38.chr20.10.0-10.5Mb.fasta.fai",
+      "sha256": "4a0709fc0f675c6d0e561b5d3874903f1bf8a97227e000b924217e961d7bb4d7",
+      "size": 34
+    },
+    {
+      "path": "user-manual/fixtures/hg002-chr20/HG002.chr20.10.0-10.5Mb.benchmark.vcf.gz",
+      "sha256": "ce11942dbc99c4b465806ada8e24fcbb5f6c75a011ae4ce019056785dcccd850",
+      "size": 39454
+    },
+    {
+      "path": "user-manual/fixtures/hg002-chr20/HG002.chr20.10.0-10.5Mb.benchmark.vcf.gz.tbi",
+      "sha256": "e114e661517e6038fc49125a0de1e5f47fa40f569fab0cd8bec99e33b5a385b3",
+      "size": 393
+    },
+    {
+      "path": "user-manual/fixtures/hg002-chr20/HG002.chr20.10.0-10.5Mb_R1.fastq.gz",
+      "sha256": "18bd4ba6deb88ab15b996894229271903242bc0bf936a24481c1ee4b9e091478",
+      "size": 8690798
+    },
+    {
+      "path": "user-manual/fixtures/hg002-chr20/HG002.chr20.10.0-10.5Mb_R2.fastq.gz",
+      "sha256": "d37e5aa268b21a171668053a6075b13fceab5aabd0ecee7066fb190fb0e23bdf",
+      "size": 9277239
+    },
+    {
+      "path": "user-manual/fixtures/hg002-chr20/README.md",
+      "sha256": "b12f7e466e93eb60f374b47c1250972f56ee6ec36dfa555cd24298dc6c24e403",
+      "size": 8562
+    },
+    {
+      "path": "user-manual/fixtures/hg002-chr20/expected/variants/bcftools/HG002.bcftools.vcf.gz",
+      "sha256": "1ff78b390eb8384e4700574cce8ac70982e5307215063e1b5d428b51f59929d0",
+      "size": 46134
+    },
+    {
+      "path": "user-manual/fixtures/hg002-chr20/expected/variants/bcftools/HG002.bcftools.vcf.gz.tbi",
+      "sha256": "7c8798cb98a4f49af493e1489fadeaf4b23ec33eede335dc344252d0b48277bf",
+      "size": 368
+    },
+    {
+      "path": "user-manual/fixtures/hg002-chr20/expected/variants/lofreq/HG002.lofreq.vcf.gz",
+      "sha256": "fdd60a25eeba9fbf8aa463cb62c58c2a1b04e27e206579f13bb0938719459bfe",
+      "size": 14112
+    },
+    {
+      "path": "user-manual/fixtures/hg002-chr20/expected/variants/lofreq/HG002.lofreq.vcf.gz.tbi",
+      "sha256": "c6ec4d8797abb058297f1b7656b1273716a31bc6f6bc3232713138747baf7719",
+      "size": 387
+    },
+    {
+      "path": "user-manual/fixtures/hg002-chr20/fetch.sh",
+      "sha256": "4c947f2d7a855ebbdc2bf826237526405b9c4aa0d72f0c189fae034ad12d96a4",
+      "size": 2535
+    },
+    {
+      "path": "user-manual/fixtures/hg002-chr20/regenerate.sh",
+      "sha256": "905713de64380fbf54160368850b69a4d15d790d069200e72338ac3d2b7aee91",
+      "size": 3187
+    },
+    {
+      "path": "user-manual/fixtures/hg002-long-reads/.gitignore",
+      "sha256": "451f3e5a9d47bf39d07dd0981b3934172299bbe1c728c15e39cdab8d01ecba4b",
+      "size": 426
+    },
+    {
+      "path": "user-manual/fixtures/hg002-long-reads/HG002.chrM.hifi.fastq.gz",
+      "sha256": "ea3c7e1656747411f7f1b0dff15bd04b33fece00ad7ed2bfd2118f247d60ddc6",
+      "size": 3840627
+    },
+    {
+      "path": "user-manual/fixtures/hg002-long-reads/HG002.chrM.ont.fastq.gz",
+      "sha256": "e22f062c57d3a5072d7c2dfaed3a590edaf0f1042b141b189a0b3ff84959ed2f",
+      "size": 4996932
+    },
+    {
+      "path": "user-manual/fixtures/hg002-long-reads/README.md",
+      "sha256": "857f87b1bcbc06c4b44f0ae17f35de156c8bb59c1f29e93ec1d7527575361ee4",
+      "size": 8987
+    },
+    {
+      "path": "user-manual/fixtures/hg002-long-reads/expected/flye/assembly.fasta",
+      "sha256": "576a400ae5805d9e128a098e26458f06a251e8478f47249cec4b001afde4384b",
+      "size": 16642
+    },
+    {
+      "path": "user-manual/fixtures/hg002-long-reads/expected/hifiasm/contigs.fasta",
+      "sha256": "e41546b90905052bad336e478e15fdeae7cbed82742fe939a1cbbcc8997e8598",
+      "size": 33153
+    },
+    {
+      "path": "user-manual/fixtures/hg002-long-reads/fetch.sh",
+      "sha256": "25b539111210e76957c7f0653c0724fd89356a31578a908ff282e10c96b9c5c9",
+      "size": 2998
+    },
+    {
+      "path": "user-manual/fixtures/hg002-long-reads/ont-run/fastq_pass/barcode01/HG002_chrM_pass_barcode01_0.fastq.gz",
+      "sha256": "e22f062c57d3a5072d7c2dfaed3a590edaf0f1042b141b189a0b3ff84959ed2f",
+      "size": 4996932
+    },
+    {
+      "path": "user-manual/fixtures/hg002-long-reads/regenerate.sh",
+      "sha256": "b846b5687ef4a05d8145f9b60f842b7fb10c5a656b47de1a04f926e53c0720f2",
+      "size": 446
+    }
+  ]
+}

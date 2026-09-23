@@ -58,7 +58,7 @@ You need a project open. If you do not have one, choose **File > New Project** (
 
 This chapter uses the HG002 chromosome 20 slice. Download the file `GRCh38.chr20.10.0-10.5Mb.fasta` from the manual's fixtures on GitHub at
 
-https://github.com/dhoconno/lungfish-genome-explorer/tree/main/docs/user-manual/fixtures/hg002-chr20
+https://github.com/dhoconno/lungfish-manual-media/tree/manual-v2026.9.39/user-manual/fixtures/hg002-chr20
 
 On that GitHub page, click the file name to open it, then use the Download raw file button at the top right of the file view, and save it into your working folder. Step 4 below uses this file. Download `HG002.chr20.10.0-10.5Mb.benchmark.vcf.gz` and its `.tbi` file from the same folder the same way. The `.tbi` is an index, a small companion file that lets a tool jump straight to a position instead of reading the whole compressed file from the start, and a tool that needs one and cannot find it stops with an error. The benchmark VCF is this chapter's known-variants file, standing in for a public catalogue, and the chapter calls it the known-variants file throughout.
 
