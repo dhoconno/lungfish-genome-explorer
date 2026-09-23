@@ -21,6 +21,11 @@
 #                                                   # implied automatically by --tier unit,
 #                                                   # whose large --skip selection exceeds
 #                                                   # ARG_MAX in serial mode)
+#   scripts/full-suite-gate.sh --timeout-seconds N  # override the tier's default overall
+#                                                   # wall-clock budget for the test-runner
+#                                                   # attempt; a hung test is killed and the
+#                                                   # gate fails with a named timeout instead
+#                                                   # of hanging forever (see TST-05)
 #
 # Every run retains a unique evidence directory under .build/gate-logs.
 # Parallel XCTest uses xUnit plus explicit case records; serial XCTest uses
@@ -55,6 +60,7 @@ FILTER=""
 TIER=""
 SKIP=""
 PARALLEL=0
+TIMEOUT_SECONDS=""
 while [ $# -gt 0 ]; do
     case "$1" in
         --describe-selection) DESCRIBE_SELECTION=1; shift ;;
@@ -65,6 +71,16 @@ while [ $# -gt 0 ]; do
         --quiet) QUIET=1; shift ;;
         --require-tools) REQUIRE_TOOLS=1; shift ;;
         --parallel) PARALLEL=1; shift ;;
+        --timeout-seconds)
+            # Overall wall-clock budget for the test-runner attempt (TST-05).
+            # Without this, a hung test (a fake CLI process that ignores
+            # SIGTERM, for example) stalls the gate forever instead of
+            # failing it. Tiers get a sane default in gate_evidence.py;
+            # this overrides it.
+            [ $# -ge 2 ] || { echo "--timeout-seconds requires a value" >&2; exit 64; }
+            TIMEOUT_SECONDS="$2"
+            shift 2
+            ;;
         --filter)
             # Without this guard a bare `--filter` shifts past the end of the
             # argument list and leaves FILTER empty, which silently means "run
@@ -187,6 +203,7 @@ run_gate() {
         --filter "$FILTER" --skip "$SKIP")
     [ "$PARALLEL" -eq 1 ] && command+=(--parallel)
     [ "$REQUIRE_TOOLS" -eq 1 ] && command+=(--require-tools)
+    [ -n "$TIMEOUT_SECONDS" ] && command+=(--timeout-seconds "$TIMEOUT_SECONDS")
     command+=(-- "${ORIGINAL_ARGV[@]}")
     if [ "$REQUIRE_TOOLS" -eq 1 ]; then
         LUNGFISH_REQUIRE_TOOLS=1 "${command[@]}"

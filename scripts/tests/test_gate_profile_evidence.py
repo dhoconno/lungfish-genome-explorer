@@ -1,6 +1,7 @@
 """Evidence integrity checks independent of Swift compilation or credential tools."""
 import importlib.util
 import json
+import os
 from pathlib import Path
 import tempfile
 import copy
@@ -214,6 +215,52 @@ while True: time.sleep(.01)
             self.assertIsNotNone(command['intervention'])
             result = gate.analyze_attempt(root, command, {'xctest': ['ExampleTests/testA'], 'swift-testing': []}, False, False)
             self.assertFalse(result['passed'])
+
+    def test_command_record_timeout_kills_the_whole_process_group(self):
+        # TST-05 regression: a hung test (a fake CLI child that ignores
+        # SIGTERM) previously stalled the gate forever instead of failing
+        # it. This spawns a parent that itself ignores SIGTERM and forks a
+        # grandchild that also ignores SIGTERM, so only a process-group
+        # kill (not a plain process.terminate()) can end it.
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            child_pid_file = root / 'child.pid'
+            script = f"""import os, signal, sys, time
+signal.signal(signal.SIGTERM, lambda *_: None)
+pid = os.fork()
+if pid == 0:
+    signal.signal(signal.SIGTERM, lambda *_: None)
+    with open({str(child_pid_file)!r}, "w") as f:
+        f.write(str(os.getpid()))
+    while True:
+        time.sleep(0.01)
+else:
+    while True:
+        time.sleep(0.01)
+"""
+            started = time.monotonic()
+            command = gate.command_record(
+                [sys.executable, '-c', script], root, root, 'runner',
+                timeout_seconds=1,
+            )
+            elapsed = time.monotonic() - started
+            self.assertEqual(command['intervention'], 'timeout')
+            self.assertNotEqual(command['exitStatus'], 0)
+            # Bounded well under the SIGTERM/SIGKILL grace windows plus the
+            # 1s budget, so this proves the group was actually killed
+            # rather than the test merely timing out on its own.
+            self.assertLess(elapsed, 20)
+            deadline = time.monotonic() + 5
+            child_pid = None
+            while time.monotonic() < deadline:
+                if child_pid_file.exists():
+                    child_pid = int(child_pid_file.read_text().strip())
+                    break
+                time.sleep(0.05)
+            self.assertIsNotNone(child_pid, "grandchild never started")
+            time.sleep(0.2)  # let SIGKILL delivery land
+            with self.assertRaises(ProcessLookupError):
+                os.kill(child_pid, 0)
 
     def test_replayed_authoritative_and_discovery_interventions_are_rejected(self):
         with tempfile.TemporaryDirectory() as temp:

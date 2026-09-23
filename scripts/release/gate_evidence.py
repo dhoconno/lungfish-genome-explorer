@@ -18,6 +18,7 @@ from pathlib import Path
 import platform
 import re
 import shutil
+import signal
 import stat
 import subprocess
 import sys
@@ -99,8 +100,21 @@ def runtime_identity():
             "requireTools": os.environ.get("LUNGFISH_REQUIRE_TOOLS", "0")}
 
 
-def command_record(argv, root, directory, name, *, split=False):
-    """Retain the actual exit, including a watchdog termination; never promote it."""
+def command_record(argv, root, directory, name, *, split=False, timeout_seconds=None):
+    """Retain the actual exit, including a watchdog termination; never promote it.
+
+    `timeout_seconds`, when given, is an overall wall-clock budget (TST-05):
+    a hung process (for example a cancellation test whose subject leaves a
+    live child that ignores SIGTERM, so the harness never observes exit)
+    would otherwise stall the gate forever, reading as "still running"
+    rather than as a red result. On expiry the process GROUP is killed
+    (SIGTERM, then SIGKILL if it does not exit promptly) so children the
+    direct child spawned do not survive it, and the record's
+    ``intervention`` is set to ``"timeout"``. This is best-effort, not a
+    guarantee: a child that reparents to PID 1 or double-forks out of the
+    group is not caught here (see PERF-13/WFL-12 for the app-side
+    process-tree cancellation contract this does not attempt to replace).
+    """
     started, tick = now(), time.monotonic()
     intervention = None
     log = directory / (name + ".log")
@@ -109,10 +123,29 @@ def command_record(argv, root, directory, name, *, split=False):
         error = stderr.open("xb") if stderr else None
         try:
             process = subprocess.Popen(argv, cwd=root, stdout=output,
-                                       stderr=error if error else subprocess.STDOUT)
+                                       stderr=error if error else subprocess.STDOUT,
+                                       start_new_session=True)
             next_watchdog = time.monotonic()
             intervention = None
             while process.poll() is None:
+                if timeout_seconds is not None and time.monotonic() - tick >= timeout_seconds:
+                    intervention = "timeout"
+                    try:
+                        os.killpg(process.pid, signal.SIGTERM)
+                    except ProcessLookupError:
+                        pass
+                    try:
+                        process.wait(timeout=10)
+                    except subprocess.TimeoutExpired:
+                        try:
+                            os.killpg(process.pid, signal.SIGKILL)
+                        except ProcessLookupError:
+                            pass
+                        try:
+                            process.wait(timeout=5)
+                        except subprocess.TimeoutExpired:
+                            pass
+                    break
                 # Xcode occasionally fails to reap an XCTest child. Terminate
                 # the stuck parent and preserve intervention even if it traps TERM to exit zero.
                 children = ""
@@ -375,6 +408,21 @@ def analyze_attempt(directory, command, selection, parallel, require_tools):
     return command
 
 
+# Overall wall-clock budget (seconds) for the primary test-runner attempt,
+# by tier (TST-05). A hung test previously stalled the gate indefinitely
+# instead of failing it; these are generous upper bounds observed to comfortably
+# exceed a healthy run (the audited unit tier took ~26 min including one hang),
+# not tuned lower-bound SLAs. Tiers not listed here (custom filters, profiles)
+# get no default and must pass --timeout-seconds explicitly to be bounded.
+DEFAULT_TIER_TIMEOUT_SECONDS = {
+    "smoke": 5 * 60,
+    "unit": 30 * 60,
+    "integration": 45 * 60,
+    "conformance": 90 * 60,
+    "full": 90 * 60,
+}
+
+
 def run_swift_gate(args):
     root, directory = Path(args.root).resolve(), Path(args.output).resolve()
     profile = getattr(args, "profile", None)
@@ -435,6 +483,7 @@ def run_swift_gate(args):
     discovered = directory / "discovered-swift-testing.jsonl"
     if discovered.exists():
         second["files"].append(file_record(discovered, directory))
+    timeout_seconds = getattr(args, "timeout_seconds", None) or DEFAULT_TIER_TIMEOUT_SECONDS.get(args.tier)
     if not errors:
         def attempt(name, include, exclude, parallel, role, chosen):
             target = directory / name
@@ -448,7 +497,10 @@ def run_swift_gate(args):
                 command += ["--parallel", "--verbose"]
                 if getattr(args, "workers", None):
                     command += ["--num-workers", str(args.workers)]
-            result = analyze_attempt(target, command_record(command, root, target, "runner"), chosen, parallel, args.require_tools)
+            result = analyze_attempt(
+                target,
+                command_record(command, root, target, "runner", timeout_seconds=timeout_seconds),
+                chosen, parallel, args.require_tools)
             result["role"] = role
             for record in result["files"]:
                 record["path"] = name + "/" + record["path"]
@@ -830,6 +882,11 @@ def main():
     swift.add_argument("--skip", default="")
     swift.add_argument("--parallel", action="store_true")
     swift.add_argument("--require-tools", action="store_true")
+    swift.add_argument("--timeout-seconds", type=int, default=None,
+                        help="Overall wall-clock budget for the primary test-runner attempt "
+                             "(TST-05). Overrides the tier default in DEFAULT_TIER_TIMEOUT_SECONDS; "
+                             "a hung test is killed (process group SIGTERM then SIGKILL) and the "
+                             "gate fails with intervention=timeout rather than hanging forever.")
     swift.add_argument("gate_argv", nargs=argparse.REMAINDER)
     python = sub.add_parser("python")
     python.add_argument("tests", nargs="+")
