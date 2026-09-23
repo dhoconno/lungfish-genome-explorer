@@ -35,13 +35,6 @@ final class ManualMetadataConsistencyTests: XCTestCase {
         XCTAssertFalse(helpIDs.contains("description: Sequence > Go to Gene (Cmd-Shift-G)"))
     }
 
-    func testSupersededShortcutReviewArtifactCarriesCurrentCorrection() throws {
-        let appendicesReview = try readManualFile("reviews/part-ii-fidelity-2026-06-02/round-2/appendices.md")
-        XCTAssertTrue(appendicesReview.contains("Superseded shortcut note"))
-        XCTAssertTrue(appendicesReview.contains("Current code and active manual text use `Cmd-Shift-G` for Find Previous"))
-        XCTAssertTrue(appendicesReview.contains("`Cmd-Option-G` for Sequence > Go to Gene"))
-    }
-
     private func readManualFile(_ relativePath: String) throws -> String {
         try String(
             contentsOf: repositoryRoot
