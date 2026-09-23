@@ -1251,6 +1251,12 @@ IDENTITY_PY
         require_command "$command"
     done
 
+    # umask 077 protects the release directory itself (it may briefly hold
+    # signing material before the app is archived) but must not leak into the
+    # app bundle xcodebuild produces below: an 0700/0600 app is unreadable by
+    # any other macOS account it is installed for. Scope the restrictive
+    # umask to directory creation only, then restore a normal umask before
+    # the build step. See REL-01.
     umask 077
     prepare_release_dir
     /bin/mkdir -p "$RELEASE_LOG_DIR"
@@ -1258,6 +1264,7 @@ IDENTITY_PY
         --release-dir "$RELEASE_DIR" \
         --repository-key "$repository_key"
     /bin/rm -rf "$ARCHIVE_RESULT_BUNDLE_PATH"
+    umask 022
     cd "$PROJECT_ROOT"
 
     if [ -n "${SOURCE_DATE_EPOCH:-}" ] && [ -z "${LUNGFISH_BUILD_TIMESTAMP:-}" ]; then
@@ -1323,6 +1330,11 @@ IDENTITY_PY
         echo "archived app not found: $APP_PATH" >&2
         exit 72
     fi
+    # Belt-and-suspenders for REL-01: normalize modes on the freshly archived
+    # app regardless of what umask was active during the build, so a shipped
+    # bundle is always world-readable/executable. Mode bits are not part of
+    # the code signature seal, so this is safe to do before signing.
+    /bin/chmod -R u+rwX,go+rX,go-w "$APP_PATH"
     "$RELEASE_PYTHON" "$RELEASE_TARGET_SECURITY_SCRIPT" record-archive \
         --archive-path "$ARCHIVE_PATH" \
         --repository-key "$repository_key"
