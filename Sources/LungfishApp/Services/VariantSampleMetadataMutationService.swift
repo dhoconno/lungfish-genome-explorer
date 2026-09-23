@@ -23,15 +23,16 @@ struct VariantSampleMetadataMutationRow: Sendable, Equatable {
 
 struct VariantSampleMetadataMutationService {
     private let fileManager: FileManager
-    private let writeProvenance: (ProvenanceEnvelope, URL) throws -> URL
+    private let writeProvenance: (ProvenanceEnvelope, URL, VariantMutationPublication) throws -> URL
 
     init(
         fileManager: FileManager = .default,
         provenanceWriter: ProvenanceWriter = ProvenanceWriter(signingProvider: nil)
     ) {
         self.fileManager = fileManager
-        self.writeProvenance = { envelope, bundleURL in
-            try provenanceWriter.write(envelope, to: bundleURL)
+        self.writeProvenance = { envelope, bundleURL, publication in
+            try provenanceWriter.observingPublications { try publication.observeProvenance($0) }
+                .write(envelope, to: bundleURL)
         }
     }
 
@@ -40,7 +41,7 @@ struct VariantSampleMetadataMutationService {
         writeProvenance: @escaping (ProvenanceEnvelope, URL) throws -> URL
     ) {
         self.fileManager = fileManager
-        self.writeProvenance = writeProvenance
+        self.writeProvenance = { envelope, bundleURL, _ in try writeProvenance(envelope, bundleURL) }
     }
 
     func updateSampleMetadata(
@@ -103,18 +104,24 @@ struct VariantSampleMetadataMutationService {
         }
 
         let startedAt = Date()
-        let backupDirectory = try makeBackupDirectory()
-        defer { try? fileManager.removeItem(at: backupDirectory) }
-        let backups = try targets.map { try backupDatabase($0.databaseURL, in: backupDirectory) }
-        let databaseInputs = try targets.map {
-            try ProvenanceFileDescriptor.file(url: $0.databaseURL, format: .unknown, role: .input)
-        }
-        let contextInputs = try contextInputDescriptors(bundleURL: bundleURL)
-
+        // REC-01: route through the same recovery path as variant deletion
+        // (`VariantMutationPublication`) instead of a bespoke backup/restore
+        // that used `try?` to swallow restore failures and deleted its only
+        // backup copy via `defer` regardless of whether restore succeeded.
+        // On an unrecoverable failure this throws `ScientificPublicationRecoveryRequired`,
+        // which keeps the backup/snapshot and surfaces both the original and
+        // the restoration error rather than silently discarding one.
+        let publication = try VariantMutationPublication(
+            databaseURLs: targets.map(\.databaseURL),
+            bundleURL: bundleURL,
+            fileManager: fileManager
+        )
         do {
+            let databaseInputs = try targets.map { try publication.inputDescriptor(for: $0.databaseURL) }
+            let contextInputs = try contextInputDescriptors(bundleURL: bundleURL)
             var updatedCounts: [String: Int] = [:]
             for target in targets {
-                let database = try VariantDatabase(url: target.databaseURL, readWrite: true)
+                let database = publication.database(at: target.databaseURL)
                 let count = try mutate(database, target)
                 if count > 0 {
                     updatedCounts[target.databaseURL.path] = count
@@ -122,9 +129,11 @@ struct VariantSampleMetadataMutationService {
             }
 
             guard !updatedCounts.isEmpty else {
+                publication.commit(retainConsumedInputs: false)
                 return VariantSampleMetadataMutationResult(updatedCountsByDatabase: [:], provenanceURL: nil)
             }
 
+            try publication.checkpoint()
             let updatedTargets = targets.filter { updatedCounts[$0.databaseURL.path] != nil }
             let databaseOutputs = try updatedTargets.map {
                 try ProvenanceFileDescriptor.file(url: $0.databaseURL, format: .unknown, role: .output)
@@ -136,21 +145,21 @@ struct VariantSampleMetadataMutationService {
                 targets: updatedTargets,
                 contextInputs: contextInputs,
                 databaseInputs: databaseInputs.filter { input in
-                    updatedCounts[input.path] != nil
+                    updatedCounts[input.originPath ?? input.path] != nil
                 },
                 databaseOutputs: databaseOutputs,
                 updatedCounts: updatedCounts,
                 startedAt: startedAt,
                 completedAt: completedAt
             )
-            let provenanceURL = try writeProvenance(envelope, bundleURL)
+            let provenanceURL = try writeProvenance(envelope, bundleURL, publication)
+            publication.commit()
             return VariantSampleMetadataMutationResult(
                 updatedCountsByDatabase: updatedCounts,
                 provenanceURL: provenanceURL
             )
         } catch {
-            restore(backups)
-            throw error
+            try publication.rollback(after: error)
         }
     }
 
@@ -276,26 +285,6 @@ struct VariantSampleMetadataMutationService {
         return result
     }
 
-    private func makeBackupDirectory() throws -> URL {
-        let url = fileManager.temporaryDirectory
-            .appendingPathComponent("variant-sample-metadata-mutation-\(UUID().uuidString)", isDirectory: true)
-        try fileManager.createDirectory(at: url, withIntermediateDirectories: true)
-        return url
-    }
-
-    private func backupDatabase(_ databaseURL: URL, in backupDirectory: URL) throws -> VariantSampleMetadataDatabaseBackup {
-        let backupURL = backupDirectory.appendingPathComponent(UUID().uuidString + "-" + databaseURL.lastPathComponent)
-        try fileManager.copyItem(at: databaseURL, to: backupURL)
-        return VariantSampleMetadataDatabaseBackup(originalURL: databaseURL, backupURL: backupURL)
-    }
-
-    private func restore(_ backups: [VariantSampleMetadataDatabaseBackup]) {
-        for backup in backups {
-            try? fileManager.removeItem(at: backup.originalURL)
-            try? fileManager.copyItem(at: backup.backupURL, to: backup.originalURL)
-        }
-    }
-
     private func sourceFileMatches(_ lhs: String, _ rhs: String) -> Bool {
         lhs.trimmingCharacters(in: .whitespacesAndNewlines)
             .caseInsensitiveCompare(rhs.trimmingCharacters(in: .whitespacesAndNewlines)) == .orderedSame
@@ -369,9 +358,4 @@ private enum MutationKind {
             ]
         }
     }
-}
-
-private struct VariantSampleMetadataDatabaseBackup {
-    let originalURL: URL
-    let backupURL: URL
 }

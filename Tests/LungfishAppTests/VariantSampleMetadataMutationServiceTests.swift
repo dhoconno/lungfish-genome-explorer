@@ -23,10 +23,14 @@ final class VariantSampleMetadataMutationServiceTests: XCTestCase {
         let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(from: fixture.bundleURL))
         XCTAssertEqual(envelope.workflowName, "Variant sample metadata edit")
         XCTAssertEqual(envelope.options.explicit["sampleName"]?.stringValue, "SAMPLE_A")
-        XCTAssertTrue(envelope.files.contains { $0.path == fixture.databaseURL.path && $0.role == .input })
+        // REC-01: inputs now go through `VariantMutationPublication`, which
+        // records the database's SQLite *snapshot* path as `.path` and the
+        // real database location as `.originPath` (matching the sibling
+        // `VariantSampleMetadataImportService`, which already uses this path).
+        XCTAssertTrue(envelope.files.contains { $0.originPath == fixture.databaseURL.path && $0.role == .input })
         XCTAssertTrue(envelope.outputs.contains { $0.path == fixture.databaseURL.path && $0.role == .output })
         let inputDB = try XCTUnwrap(envelope.files.first {
-            $0.path == fixture.databaseURL.path && $0.role == .input
+            $0.originPath == fixture.databaseURL.path && $0.role == .input
         })
         let outputDB = try XCTUnwrap(envelope.outputs.first {
             $0.path == fixture.databaseURL.path && $0.role == .output
@@ -92,6 +96,56 @@ final class VariantSampleMetadataMutationServiceTests: XCTestCase {
         ))
     }
 
+    /// REC-01 regression: when both the provenance write AND the SQLite
+    /// restoration fail, the service must surface a
+    /// `ScientificPublicationRecoveryRequired` carrying both error
+    /// descriptions and keep the recovery snapshot on disk, instead of
+    /// silently swallowing the restore failure (the old `try?`-based
+    /// `restore(_:)`) and deleting its only backup via an unconditional
+    /// `defer`.
+    func testFailedRestorationAfterProvenanceFailureRetainsRecoveryAndBothErrors() throws {
+        let fixture = try makeVariantBundle()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let provenance = fixture.bundleURL.appendingPathComponent(ProvenanceWriter.provenanceFilename)
+        let previous = Data("previous provenance".utf8)
+        try previous.write(to: provenance)
+
+        let manager = RestorationFailingFileManager(destination: provenance)
+        let writer = ProvenanceWriter(publicationMutationDidOccur: { mutation in
+            if mutation.affectedURLs.contains(provenance) {
+                manager.failRestoration = true
+                throw IntentionalMutationProvenanceFailure.write
+            }
+        }, signingProvider: nil)
+        let service = VariantSampleMetadataMutationService(fileManager: manager, provenanceWriter: writer)
+
+        do {
+            _ = try service.updateSampleMetadata(
+                sampleName: "SAMPLE_A",
+                metadata: ["cohort": "treated"],
+                bundleURL: fixture.bundleURL,
+                targets: [VariantSampleMetadataImportTarget(databaseURL: fixture.databaseURL, trackName: "Variants")]
+            )
+            XCTFail("Expected explicit recovery-required error")
+        } catch let error as ScientificPublicationRecoveryRequired {
+            defer { for url in error.recoveryURLs { try? FileManager.default.removeItem(at: url) } }
+            XCTAssertTrue(error.originalErrorDescription.contains("IntentionalMutationProvenanceFailure"))
+            XCTAssertTrue(error.restorationErrorDescription.contains("restoration blocked"))
+            XCTAssertTrue(
+                error.recoveryURLs.allSatisfy { FileManager.default.fileExists(atPath: $0.path) },
+                "Recovery artifacts must survive an unrecoverable failure, not be deleted"
+            )
+            // Only the provenance sidecar restoration was blocked by the
+            // fault; the SQLite mutation itself is successfully rolled back
+            // via `restorePublicationSnapshot`, so the database is back to
+            // its pre-mutation state. The recovery snapshot retained above is
+            // what lets a human confirm this and finish the cleanup by hand.
+            XCTAssertNil(
+                try VariantDatabase(url: fixture.databaseURL).sampleMetadata(name: "SAMPLE_A")["cohort"]
+            )
+        }
+    }
+
     private func makeVariantBundle() throws -> (root: URL, bundleURL: URL, databaseURL: URL) {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("VariantSampleMetadataMutation-\(UUID().uuidString)", isDirectory: true)
@@ -122,4 +176,17 @@ final class VariantSampleMetadataMutationServiceTests: XCTestCase {
 
 private enum IntentionalMutationProvenanceFailure: Error {
     case write
+}
+
+private final class RestorationFailingFileManager: FileManager, @unchecked Sendable {
+    let destination: URL
+    var failRestoration = false
+    init(destination: URL) { self.destination = destination; super.init() }
+    override func copyItem(at source: URL, to destination: URL) throws {
+        if failRestoration && destination.deletingLastPathComponent() == self.destination.deletingLastPathComponent()
+            && destination.lastPathComponent.contains(".provenance-restore-") {
+            throw NSError(domain: "fixture", code: 1, userInfo: [NSLocalizedDescriptionKey: "restoration blocked"])
+        }
+        try super.copyItem(at: source, to: destination)
+    }
 }
