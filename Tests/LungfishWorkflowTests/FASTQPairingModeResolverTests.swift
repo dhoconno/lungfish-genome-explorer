@@ -3,9 +3,12 @@
 // SPDX-License-Identifier: MIT
 //
 // Paired imports are stored as one interleaved FASTQ whose bundle metadata
-// says so, and their mates often carry identical names. The resolver is the
-// single source of truth every fastq subcommand consults, so these tests pin
-// its precedence: explicit flag, then bundle metadata, then read names.
+// says so, and their mates often carry identical names. Some of those
+// bundles are MIXED (merged reads plus pairs). The resolver is the single
+// answer every fastq subcommand consults, so these tests pin the contract:
+// an explicit `single` reads nothing, an explicit `interleaved` is verified
+// against the records, and a mixed file is paired only by an operation that
+// pairs by name.
 
 import Foundation
 import LungfishIO
@@ -26,14 +29,14 @@ final class FASTQPairingModeResolverTests: XCTestCase {
         try? FileManager.default.removeItem(at: root)
     }
 
-    // MARK: - Name-based probe
+    // MARK: - Name-based probe (legacy helper kept for the genotyping tests)
 
     func testIdenticalNameMatesAreDetectedWhenAccepted() async throws {
         let url = root.appendingPathComponent("identical.fastq")
         try InterleavedFASTQFixture.write(pairCount: 20, naming: .identical, to: url)
 
         let strict = try await IlluminaAmpliconPairMerger.fastqIsInterleavedPairs(at: url)
-        XCTAssertFalse(strict, "The strict mapping probe must keep ignoring identical names")
+        XCTAssertFalse(strict, "The strict probe must keep ignoring identical names")
 
         let relaxed = try await IlluminaAmpliconPairMerger.fastqIsInterleavedPairs(
             at: url,
@@ -42,54 +45,53 @@ final class FASTQPairingModeResolverTests: XCTestCase {
         XCTAssertTrue(relaxed, "Adjacent records with the same key and no mate number are a pair")
     }
 
-    func testRelaxedProbeStillRejectsSingleEndReadsWithDistinctNames() async throws {
+    // MARK: - Auto
+
+    func testAutoPairsEveryMateNamingStyleOfAStrictFile() {
+        for naming in InterleavedFASTQFixture.MateNaming.allCases {
+            let url = root.appendingPathComponent("\(naming.rawValue).fastq")
+            try? InterleavedFASTQFixture.write(pairCount: 12, naming: naming, to: url)
+            let decision = FASTQPairingModeResolver.resolvePairing(inputURL: url)
+            XCTAssertTrue(decision.pairAware, "\(naming) mates must be recognised without metadata")
+            XCTAssertEqual(decision.layout, .strictlyInterleaved, "\(naming)")
+            XCTAssertEqual(decision.resolution.source, .contentScan, "\(naming)")
+            XCTAssertNil(decision.warning, "\(naming)")
+        }
+    }
+
+    func testAutoRunsAMixedFileAsSingleReadsUnlessTheOperationPairsByName() throws {
+        for naming in InterleavedFASTQFixture.MateNaming.allCases {
+            let url = root.appendingPathComponent("mixed-\(naming.rawValue).fastq")
+            try InterleavedFASTQFixture.writeMixed(pairCount: 12, mergedCount: 5, naming: naming, to: url)
+
+            let positional = FASTQPairingModeResolver.resolvePairing(inputURL: url)
+            XCTAssertFalse(positional.pairAware, "\(naming): a positional tool must not pair a mixed file")
+            XCTAssertEqual(positional.layout, .mixedMergedAndPairs, "\(naming)")
+            XCTAssertNotNil(positional.warning, "\(naming): the fallback must be explained")
+
+            let byName = FASTQPairingModeResolver.resolvePairing(inputURL: url, pairsByName: true)
+            XCTAssertTrue(byName.pairAware, "\(naming): a by-name operation may pair a mixed file")
+            XCTAssertEqual(byName.layout, .mixedMergedAndPairs, "\(naming)")
+            XCTAssertNil(byName.warning, "\(naming)")
+        }
+    }
+
+    func testAutoRunsDistinctNameSingleEndReadsAsSingle() throws {
         let url = root.appendingPathComponent("single.fastq")
         let text = (0..<20).map { index -> String in
             "@read\(index)\n\(InterleavedFASTQFixture.deterministicSequence(seed: UInt64(index)))\n+\n\(String(repeating: "I", count: 60))"
         }.joined(separator: "\n") + "\n"
         try text.write(to: url, atomically: true, encoding: .utf8)
 
-        let relaxed = try await IlluminaAmpliconPairMerger.fastqIsInterleavedPairs(
-            at: url,
-            acceptingIdenticalNames: true
-        )
-        XCTAssertFalse(relaxed)
-    }
-
-    func testResolverFallsBackToNamesForAllMateNamingStyles() async throws {
-        for naming in InterleavedFASTQFixture.MateNaming.allCases {
-            let url = root.appendingPathComponent("\(naming.rawValue).fastq")
-            try InterleavedFASTQFixture.write(pairCount: 12, naming: naming, to: url)
-            let isInterleaved = try await FASTQPairingModeResolver.isInterleaved(inputURL: url)
-            XCTAssertTrue(isInterleaved, "\(naming) mates must be recognised without metadata")
-        }
+        let decision = FASTQPairingModeResolver.resolvePairing(inputURL: url)
+        XCTAssertFalse(decision.pairAware)
+        XCTAssertEqual(decision.layout, .singleEnd)
+        XCTAssertNil(decision.warning)
     }
 
     // MARK: - Bundle metadata
 
-    func testBundleSidecarPairingModeWinsOverNames() async throws {
-        // Metadata says interleaved even though every name is distinct, and
-        // says single-end even though names look paired: metadata wins.
-        let interleavedByMetadata = try InterleavedFASTQFixture.writeBundle(
-            named: "meta-interleaved",
-            in: root,
-            pairCount: 1,
-            naming: .identical,
-            pairingMode: .interleaved
-        )
-        XCTAssertEqual(
-            FASTQPairingModeResolver.bundlePairingMode(for: interleavedByMetadata.fastqURL),
-            .interleaved
-        )
-        XCTAssertEqual(
-            FASTQPairingModeResolver.bundlePairingMode(for: interleavedByMetadata.bundleURL),
-            .interleaved
-        )
-        let resolvedFromFile = try await FASTQPairingModeResolver.isInterleaved(
-            inputURL: interleavedByMetadata.fastqURL
-        )
-        XCTAssertTrue(resolvedFromFile)
-
+    func testRecordedSingleEndPairingWinsWithoutReadingTheRecords() throws {
         let singleByMetadata = try InterleavedFASTQFixture.writeBundle(
             named: "meta-single",
             in: root,
@@ -97,10 +99,62 @@ final class FASTQPairingModeResolverTests: XCTestCase {
             naming: .slashSuffix,
             pairingMode: .singleEnd
         )
-        let resolvedSingle = try await FASTQPairingModeResolver.isInterleaved(
-            inputURL: singleByMetadata.fastqURL
+        let decision = FASTQPairingModeResolver.resolvePairing(inputURL: singleByMetadata.fastqURL)
+        XCTAssertFalse(decision.pairAware, "Recorded single-end pairing must override paired-looking names")
+        XCTAssertEqual(decision.resolution.source, .bundleMetadata)
+    }
+
+    func testRecordedInterleavedPairingIsVerifiedAgainstTheRecords() throws {
+        // A VSP2 bundle records `interleaved` while holding merged reads.
+        let mixedBundle = try InterleavedFASTQFixture.writeMixedBundle(
+            named: "vsp2-like",
+            in: root,
+            pairCount: 20,
+            mergedCount: 7,
+            naming: .identical,
+            pairingMode: .interleaved
         )
-        XCTAssertFalse(resolvedSingle, "Recorded single-end pairing must override paired-looking names")
+        XCTAssertEqual(FASTQPairingModeResolver.bundlePairingMode(for: mixedBundle.fastqURL), .interleaved)
+        let decision = FASTQPairingModeResolver.resolvePairing(inputURL: mixedBundle.fastqURL)
+        XCTAssertFalse(decision.pairAware, "The recorded pairing is a claim; the records decide")
+        XCTAssertEqual(decision.layout, .mixedMergedAndPairs)
+
+        let strictBundle = try InterleavedFASTQFixture.writeBundle(
+            named: "meta-interleaved",
+            in: root,
+            pairCount: 1,
+            naming: .identical,
+            pairingMode: .interleaved
+        )
+        XCTAssertEqual(FASTQPairingModeResolver.bundlePairingMode(for: strictBundle.bundleURL), .interleaved)
+        XCTAssertTrue(FASTQPairingModeResolver.resolvePairing(inputURL: strictBundle.fastqURL).pairAware)
+    }
+
+    func testMaterializedCopyUsesTheBundleMetadataAsHints() throws {
+        // The GUI hands the CLI a scratch copy with no sidecar; the original
+        // bundle's merge evidence must still demote a strict-looking scan.
+        let bundle = try InterleavedFASTQFixture.writeBundle(
+            named: "merged-lineage",
+            in: root,
+            pairCount: 8,
+            naming: .identical,
+            pairingMode: .interleaved
+        )
+        var metadata = FASTQMetadataStore.load(for: bundle.fastqURL) ?? PersistedFASTQMetadata()
+        metadata.readClassification = ReadClassification(files: [
+            .init(filename: "merged.fastq", role: .merged, readCount: 3),
+        ])
+        FASTQMetadataStore.save(metadata, for: bundle.fastqURL)
+
+        let scratch = root.appendingPathComponent("scratch.fastq")
+        try FileManager.default.copyItem(at: bundle.fastqURL, to: scratch)
+
+        let withoutHints = FASTQPairingModeResolver.resolvePairing(inputURL: scratch)
+        XCTAssertTrue(withoutHints.pairAware, "The scratch copy alone scans as strict pairs")
+
+        let withHints = FASTQPairingModeResolver.resolvePairing(inputURL: scratch, metadataFrom: bundle.bundleURL)
+        XCTAssertFalse(withHints.pairAware, "Merge evidence in the bundle metadata demotes the scan to mixed")
+        XCTAssertEqual(withHints.layout, .mixedMergedAndPairs)
     }
 
     func testLooseFASTQWithoutMetadataReturnsNilBundlePairing() throws {
@@ -111,7 +165,7 @@ final class FASTQPairingModeResolverTests: XCTestCase {
 
     // MARK: - Explicit answer
 
-    func testExplicitAnswerOverridesMetadataAndNames() async throws {
+    func testExplicitSingleIsFinalAndReadsNothing() throws {
         let bundle = try InterleavedFASTQFixture.writeBundle(
             named: "explicit",
             in: root,
@@ -119,18 +173,38 @@ final class FASTQPairingModeResolverTests: XCTestCase {
             naming: .identical,
             pairingMode: .interleaved
         )
-        let forcedSingle = try await FASTQPairingModeResolver.isInterleaved(
-            inputURL: bundle.fastqURL,
+        let forcedSingle = FASTQPairingModeResolver.resolvePairing(inputURL: bundle.fastqURL, explicit: false)
+        XCTAssertFalse(forcedSingle.pairAware)
+        XCTAssertEqual(forcedSingle.resolution.source, .explicit)
+        XCTAssertNil(forcedSingle.warning)
+
+        let missing = FASTQPairingModeResolver.resolvePairing(
+            inputURL: root.appendingPathComponent("does-not-exist.fastq"),
             explicit: false
         )
-        XCTAssertFalse(forcedSingle)
+        XCTAssertFalse(missing.pairAware)
+        XCTAssertEqual(missing.layout, .singleEnd)
+    }
+
+    func testExplicitInterleavedIsHonouredForStrictPairsAndRefusedOtherwise() throws {
+        let strict = root.appendingPathComponent("strict.fastq")
+        try InterleavedFASTQFixture.write(pairCount: 12, naming: .identical, to: strict)
+        let honoured = FASTQPairingModeResolver.resolvePairing(inputURL: strict, explicit: true)
+        XCTAssertTrue(honoured.pairAware)
+        XCTAssertNil(honoured.warning)
+
+        let mixed = root.appendingPathComponent("mixed.fastq")
+        try InterleavedFASTQFixture.writeMixed(pairCount: 12, mergedCount: 4, naming: .slashSuffix, to: mixed)
+        let refusedMixed = FASTQPairingModeResolver.resolvePairing(inputURL: mixed, explicit: true)
+        XCTAssertFalse(refusedMixed.pairAware, "--pairing interleaved must not pair a mixed file by position")
+        XCTAssertEqual(refusedMixed.layout, .mixedMergedAndPairs)
+        XCTAssertNotNil(refusedMixed.warning)
 
         let loose = root.appendingPathComponent("loose-single.fastq")
         try "@a\nACGT\n+\nIIII\n@b\nACGT\n+\nIIII\n".write(to: loose, atomically: true, encoding: .utf8)
-        let forcedInterleaved = try await FASTQPairingModeResolver.isInterleaved(
-            inputURL: loose,
-            explicit: true
-        )
-        XCTAssertTrue(forcedInterleaved)
+        let refusedSingle = FASTQPairingModeResolver.resolvePairing(inputURL: loose, explicit: true)
+        XCTAssertFalse(refusedSingle.pairAware, "No adjacent mates means nothing can be paired")
+        XCTAssertEqual(refusedSingle.layout, .singleEnd)
+        XCTAssertNotNil(refusedSingle.warning)
     }
 }

@@ -46,7 +46,7 @@ Two operations rewrite each read on its own. Reverse Complement flips every read
 
 [FASTQ](../../GLOSSARY.md#fastq) is the read file format [Importing Sequencing Reads](01-importing-fastq.md) introduces. Five of the six operations write a new FASTQ file. Translate writes protein FASTA instead, the plain sequence format with no quality scores, here holding amino acid letters, because one amino acid comes from three bases and no single quality score describes three measurements honestly. No operation changes its input.
 
-Two more utilities exist only on the command line. Interleave folds a separate R1 file and R2 file into one [interleaved FASTQ](../../GLOSSARY.md#interleaved-fastq), where the two mates of each fragment sit as neighbouring records, and Deinterleave splits such a file back into two. Importing a paired sample already stores it interleaved, so you never need either one inside the window.
+Two more utilities exist only on the command line. Interleave folds a separate R1 file and R2 file into one [interleaved FASTQ](../../GLOSSARY.md#interleaved-fastq), where the two mates of each fragment sit as neighbouring records, and Deinterleave splits such a file back into two. Given a file that holds merged single reads as well as pairs, Deinterleave matches mates by name and needs a third output, `--unpaired`, for the reads that have no mate. Importing a paired sample already stores it interleaved, so you never need either one inside the window.
 
 So reach for this chapter when a later tool refuses your reads because of their form, and reach for the trimming chapter when it refuses them because of their quality.
 

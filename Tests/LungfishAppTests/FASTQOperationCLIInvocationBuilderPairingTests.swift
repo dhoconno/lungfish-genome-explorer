@@ -70,6 +70,65 @@ final class FASTQOperationCLIInvocationBuilderPairingTests: XCTestCase {
         }
     }
 
+    func testMixedBundleRecordedAsInterleavedPassesSinglePairing() throws {
+        // A VSP2 bundle records pairingMode=interleaved while holding merged
+        // reads. The recorded pairing is verified against the records, so the
+        // CLI is told `single` and no positional pair tool ever sees the file.
+        let bundle = try InterleavedFASTQFixture.writeMixedBundle(
+            named: "vsp2", in: root, pairCount: 6, mergedCount: 3, naming: .identical, pairingMode: .interleaved
+        )
+        for inputURL in [bundle.fastqURL, bundle.bundleURL] {
+            let launch = FASTQOperationLaunchRequest.derivative(
+                request: .subsampleCount(10),
+                inputURLs: [inputURL],
+                outputMode: .perInput
+            )
+            let invocation = try FASTQOperationCLIInvocationBuilder().buildInvocation(for: launch)
+            XCTAssertTrue(invocation.arguments.containsSequence(["--pairing", "single"]), "\(inputURL.lastPathComponent): \(invocation.arguments)")
+        }
+
+        // The execution service passes the ORIGINAL bundle's pairing for a
+        // materialized scratch copy; the copy is verified with the bundle's
+        // metadata as hints.
+        let scratch = root.appendingPathComponent("materialized-mixed.fastq")
+        try FileManager.default.copyItem(at: bundle.fastqURL, to: scratch)
+        let launch = FASTQOperationLaunchRequest.derivative(
+            request: .searchMotif(pattern: "ACGT", regex: false),
+            inputURLs: [scratch],
+            outputMode: .perInput
+        )
+        let invocation = try FASTQOperationCLIInvocationBuilder().buildInvocation(
+            for: launch,
+            outputTargetPath: "<derived>",
+            pairingMode: .interleaved,
+            pairingMetadataURL: bundle.bundleURL
+        )
+        XCTAssertTrue(invocation.arguments.containsSequence(["--pairing", "single"]), "\(invocation.arguments)")
+    }
+
+    func testPairingArgumentsVerifyARecordedInterleavedClaimAgainstTheRecords() throws {
+        let strict = root.appendingPathComponent("strict.fastq")
+        try InterleavedFASTQFixture.write(pairCount: 4, naming: .casava, to: strict)
+        XCTAssertEqual(
+            FASTQOperationCLIInvocationBuilder.pairingArguments(for: .interleaved, verifiedAgainst: strict, metadataFrom: nil),
+            ["--pairing", "interleaved"]
+        )
+        let mixed = root.appendingPathComponent("mixed.fastq")
+        try InterleavedFASTQFixture.writeMixed(pairCount: 4, mergedCount: 2, naming: .casava, to: mixed)
+        XCTAssertEqual(
+            FASTQOperationCLIInvocationBuilder.pairingArguments(for: .interleaved, verifiedAgainst: mixed, metadataFrom: nil),
+            ["--pairing", "single"]
+        )
+        XCTAssertEqual(
+            FASTQOperationCLIInvocationBuilder.pairingArguments(for: .singleEnd, verifiedAgainst: mixed, metadataFrom: nil),
+            ["--pairing", "single"]
+        )
+        XCTAssertEqual(
+            FASTQOperationCLIInvocationBuilder.pairingArguments(for: nil, verifiedAgainst: mixed, metadataFrom: nil),
+            []
+        )
+    }
+
     func testSingleEndBundleMetadataPassesSinglePairing() throws {
         let bundle = try InterleavedFASTQFixture.writeBundle(
             named: "single", in: root, pairCount: 2, naming: .slashSuffix, pairingMode: .singleEnd

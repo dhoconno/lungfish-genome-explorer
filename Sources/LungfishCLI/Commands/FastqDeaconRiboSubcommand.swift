@@ -66,16 +66,19 @@ struct FastqDeaconRiboSubcommand: AsyncParsableCommand {
         // keeps or drops both mates of a fragment together, and the result
         // is joined back into one interleaved file at the planned output
         // path. Handed the interleaved file directly, Deacon would judge
-        // each mate alone and orphan the other.
-        let isInterleaved: Bool
+        // each mate alone and orphan the other. A file that mixes merged
+        // reads with pairs runs as single reads: the reformat split pairs by
+        // position and would mis-pair it.
+        let pairingDecision: FASTQPairingDecision?
         if inputURLs.count == 1 {
-            isInterleaved = try await pairing.resolveIsInterleaved(inputURL: inputURLs[0])
+            pairingDecision = pairing.resolvePairing(inputURL: inputURLs[0])
         } else {
             guard pairing.pairing != .interleaved else {
                 throw ValidationError("--pairing interleaved applies to one interleaved input; R1/R2 inputs are already paired.")
             }
-            isInterleaved = false
+            pairingDecision = nil
         }
+        let isInterleaved = pairingDecision?.pairAware ?? false
 
         let effectiveThreads = max(1, threads ?? ProcessInfo.processInfo.activeProcessorCount)
         let resolvedDatabaseID = DatabaseRegistry.canonicalDatabaseID(for: databaseID)
@@ -180,6 +183,8 @@ struct FastqDeaconRiboSubcommand: AsyncParsableCommand {
                 resolvedDatabaseID: resolvedDatabaseID,
                 toolVersion: toolVersion,
                 isInterleaved: isInterleaved,
+                readLayout: pairingDecision?.layout,
+                readLayoutReason: pairingDecision?.resolution.reason,
                 invocations: invocations,
                 status: .failed
             )
@@ -195,6 +200,8 @@ struct FastqDeaconRiboSubcommand: AsyncParsableCommand {
             resolvedDatabaseID: resolvedDatabaseID,
             toolVersion: toolVersion,
             isInterleaved: isInterleaved,
+            readLayout: pairingDecision?.layout,
+            readLayoutReason: pairingDecision?.resolution.reason,
             invocations: invocations,
             status: .completed
         )
@@ -343,6 +350,8 @@ struct FastqDeaconRiboSubcommand: AsyncParsableCommand {
         resolvedDatabaseID: String,
         toolVersion: String,
         isInterleaved: Bool,
+        readLayout: FASTQInputLayout?,
+        readLayoutReason: String?,
         invocations: [DeaconRiboInvocationRecord],
         status: RunStatus
     ) async throws {
@@ -360,6 +369,8 @@ struct FastqDeaconRiboSubcommand: AsyncParsableCommand {
                 "threads": .integer(effectiveThreads),
                 "pairing": pairing.provenanceValue,
                 "interleaved": .boolean(isInterleaved),
+                "readLayout": .string((readLayout ?? .pairedFiles).rawValue),
+                "readLayoutReason": readLayoutReason.map(ParameterValue.string) ?? .null,
                 "condaEnvironment": .string("deacon"),
             ]
         )

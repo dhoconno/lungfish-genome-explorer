@@ -362,7 +362,8 @@ struct FASTQOperationExecutionService {
                     for: executionPlan.resolvedRequest,
                     outputTargetPath: executionPlan.outputTarget.path,
                     pairingMode: executionPlan.originalRequest.inputURLs.first
-                        .flatMap(FASTQPairingModeResolver.bundlePairingMode(for:))
+                        .flatMap(FASTQPairingModeResolver.bundlePairingMode(for:)),
+                    pairingMetadataURL: executionPlan.originalRequest.inputURLs.first
                 )
                 invocations.append(invocation)
 

@@ -97,7 +97,7 @@ struct AppFASTQOutputBundleWriter: FASTQOutputBundleWriting {
             )
             try fileManager.createDirectory(at: stagingBundleURL, withIntermediateDirectories: true)
 
-            let pairingMode = pairingMode(for: sourceInputURL)
+            let pairingMode = outputPairingMode(for: sourceURL, sourceInputURL: sourceInputURL)
             let statisticsName = FASTQOperationPlanner.sanitizedStem(for: sourceURL)
             progress?(0, "Computing statistics for \(statisticsName)\u{2026}")
             let stats = try await computeStatistics(from: sourceURL)
@@ -225,6 +225,30 @@ struct AppFASTQOutputBundleWriter: FASTQOutputBundleWriting {
     /// same Swift reader when seqkit is unavailable.
     private func computeStatistics(from sourceURL: URL) async throws -> FASTQDatasetStatistics {
         try await statisticsCalculator(sourceURL)
+    }
+
+    /// The pairing to record on an operation's output: what the operation
+    /// actually wrote, not what its source claimed.
+    ///
+    /// A source recorded single-end stays single-end without a scan. A source
+    /// that held pairs is checked against the output's records with the
+    /// source metadata as hints: only a strictly interleaved output is
+    /// labelled `interleaved`. An output that mixes merged reads with pairs
+    /// (or lost its pairing) is labelled `singleEnd`, the contract default,
+    /// so no later tool pairs it by position.
+    func outputPairingMode(for outputFASTQ: URL, sourceInputURL: URL?) -> IngestionMetadata.PairingMode {
+        let sourcePairingMode = pairingMode(for: sourceInputURL)
+        guard sourcePairingMode != .singleEnd else { return .singleEnd }
+        let resolution = FASTQInputLayoutResolver.resolve(fastqURL: outputFASTQ, metadataFrom: sourceInputURL)
+        switch resolution.layout {
+        case .strictlyInterleaved:
+            return .interleaved
+        case .mixedMergedAndPairs, .singleEnd, .pairedFiles:
+            logger.info(
+                "importFASTQOutput: \(outputFASTQ.lastPathComponent, privacy: .public) is \(resolution.layout.displayName, privacy: .public) (\(resolution.reason, privacy: .public)); recording single-end pairing"
+            )
+            return .singleEnd
+        }
     }
 
     private func pairingMode(for sourceInputURL: URL?) -> IngestionMetadata.PairingMode {

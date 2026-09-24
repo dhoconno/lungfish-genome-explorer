@@ -238,7 +238,7 @@ lungfish-cli fastq sequence-filter "$READS" \
   --output adapter-reads.fastq
 ```
 
-Each command reads the pairing the bundle records and keeps mates together, as the window does. `--pairing` overrides that choice, taking `interleaved`, `single`, or `auto`, the default, which reads the bundle's record first and then the read names.
+Each command reads the pairing the bundle records and keeps mates together, as the window does. `--pairing` overrides that choice, taking `interleaved`, `single`, or `auto`, the default, which reads the bundle's record first and then the read names. A bundle written by a merge recipe holds merged single reads between the pairs that did not merge. The two search commands match reads by name, so on such a file they still return both mates of a matching pair and a matching merged read on its own. The filters and `subsample` cannot pair such a file safely, so they treat every record as a single read and say so on standard error.
 
 Four defaults of `sequence-filter` differ from the window and change the result, which is why the last command states every setting. `--search-end` defaults to `both`, an option the window does not offer, `--min-overlap` defaults to 8 instead of 16, `--error-rate` defaults to 0.1 instead of 0.15, and `--keep-matched` is off unless you type it, the opposite of the window. To pull reads from an explicit list of read names rather than a pattern, `lungfish-cli extract reads --by-id` does it, and its options are listed in the [CLI Reference](../appendices/cli-reference.md).
 

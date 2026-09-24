@@ -33,7 +33,11 @@ struct FastqSearchTextSubcommand: AsyncParsableCommand {
         let inputURL = try validateInput(input)
         try output.validateOutput()
 
-        let isInterleaved = try await pairing.resolveIsInterleaved(inputURL: inputURL)
+        // Both pair-aware branches below pair records by fragment NAME, so a
+        // file that mixes merged reads with pairs is safe: a matched pair
+        // comes back whole and a matched merged read comes back alone.
+        let pairingDecision = pairing.resolvePairing(inputURL: inputURL, pairsByName: true)
+        let isInterleaved = pairingDecision.pairAware
         let searchesDescription = field == "description"
         var searchArgs = ["grep", "-p", query]
         if searchesDescription {
@@ -107,6 +111,8 @@ struct FastqSearchTextSubcommand: AsyncParsableCommand {
                 "regex": .boolean(regex),
                 "pairing": pairing.provenanceValue,
                 "interleaved": .boolean(isInterleaved),
+                "readLayout": pairingDecision.readLayoutProvenanceValue,
+                "readLayoutReason": pairingDecision.readLayoutReasonProvenanceValue,
                 "force": .boolean(output.force),
                 "compress": .boolean(output.compress)
             ],
@@ -115,6 +121,7 @@ struct FastqSearchTextSubcommand: AsyncParsableCommand {
                 "regex": .boolean(false),
                 "pairing": FASTQPairingOptions.provenanceDefault,
                 "interleaved": .boolean(false),
+                "readLayout": FASTQPairingOptions.readLayoutProvenanceDefault,
                 "force": .boolean(false),
                 "compress": .boolean(false)
             ],

@@ -1,5 +1,6 @@
 import Darwin
 import XCTest
+import LungfishTestSupport
 @testable import LungfishApp
 import LungfishCore
 @testable import LungfishIO
@@ -2682,11 +2683,9 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
         )
 
         let stagedFASTQ = tempDir.appendingPathComponent("source.norrna.fastq")
-        try FASTQOperationTestHelper.writeSyntheticFASTQ(
-            to: stagedFASTQ,
-            readCount: 2,
-            readLength: 14
-        )
+        // The output's pairing is what the operation wrote, verified against
+        // its records: one whole pair keeps the source's interleaved label.
+        try InterleavedFASTQFixture.write(pairCount: 1, naming: .identical, to: stagedFASTQ)
         try writeSyntheticProvenance(
             to: tempDir,
             name: "Deacon rRNA FASTQ filter",
@@ -2768,6 +2767,60 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
         } else {
             XCTFail("Expected materialized full FASTQ payload")
         }
+    }
+
+    func testAppFASTQOutputBundleWriterLabelsAMixedOutputSingleEndNotInterleaved() async throws {
+        // A search or filter run on a paired bundle can write a file that
+        // mixes whole pairs with lone reads. Copying the source's
+        // `interleaved` label onto it would make every later positional
+        // pair tool mis-pair the file, so the importer records what the
+        // operation actually wrote.
+        let tempDir = try FASTQOperationTestHelper.makeTempDir(prefix: "FASTQExecImportMixedOutput")
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let sourceBundle = try InterleavedFASTQFixture.writeBundle(
+            named: "source", in: tempDir, pairCount: 4, naming: .identical, pairingMode: .interleaved
+        )
+        let stagedFASTQ = tempDir.appendingPathComponent("source.search-motif.fastq")
+        try InterleavedFASTQFixture.writeMixed(pairCount: 3, mergedCount: 2, naming: .identical, to: stagedFASTQ)
+        try writeSyntheticProvenance(
+            to: tempDir,
+            name: "lungfish fastq search-motif",
+            toolName: "seqkit",
+            toolVersion: "2.8.0",
+            command: ["seqkit", "grep", "--by-seq", "-p", "GATTACA", sourceBundle.fastqURL.path, "-o", stagedFASTQ.path],
+            inputURL: sourceBundle.fastqURL,
+            outputURL: stagedFASTQ,
+            parameters: ["pattern": .string("GATTACA")]
+        )
+
+        let destinationBundle = tempDir.appendingPathComponent(
+            "source-search-motif.\(FASTQBundle.directoryExtension)",
+            isDirectory: true
+        )
+        let ingestor = SpyFASTQOutputIngestor { _ in }
+        let writer = AppFASTQOutputBundleWriter(ingestor: ingestor)
+        let request = FASTQOperationLaunchRequest.derivative(
+            request: .searchMotif(pattern: "GATTACA", regex: false),
+            inputURLs: [sourceBundle.bundleURL],
+            outputMode: .perInput
+        )
+
+        let bundleURL = try await writer.importFASTQOutput(
+            sourceURL: stagedFASTQ,
+            bundleURL: destinationBundle,
+            originalRequest: request,
+            sourceInputURL: sourceBundle.bundleURL
+        )
+
+        let config = try XCTUnwrap(ingestor.configs.first)
+        XCTAssertEqual(config.pairingMode, .singleEnd, "the ingestor must not be told the mixed output is interleaved")
+        let bundledFASTQ = try XCTUnwrap(FASTQBundle.resolvePrimaryFASTQURL(for: bundleURL))
+        let ingestion = try XCTUnwrap(FASTQMetadataStore.load(for: bundledFASTQ)?.ingestion)
+        XCTAssertEqual(ingestion.pairingMode, .singleEnd)
+        let manifest = try XCTUnwrap(FASTQBundle.loadDerivedManifest(in: bundleURL))
+        XCTAssertEqual(manifest.pairingMode, .singleEnd)
+        XCTAssertEqual(manifest.cachedStatistics.readCount, 8)
     }
 
     func testAppFASTQOutputBundleWriterPreservesDeaconRiboProvenanceInImportedBundle() async throws {

@@ -21,7 +21,16 @@ extension FASTQDerivativeService {
         provenanceCollector: FASTQDerivativeNativeProvenanceCollector?,
         progress: (@Sendable (String) -> Void)?
     ) async throws -> FASTQDerivativeOperation {
-        let isInterleaved = isInterleavedBundle(sourceBundleURL)
+        // Every pair-aware branch below pairs records by POSITION (reformat
+        // and bbduk interleaved=t, fastp --interleaved_in, cutadapt
+        // --interleaved, the deacon R1/R2 split), so only a strictly
+        // interleaved input turns them on. A file that mixes merged reads
+        // with pairs runs as single reads (owner contract, FASTQInputLayout).
+        let readLayout = resolvedReadLayout(of: sourceFASTQ, in: sourceBundleURL)
+        let isInterleaved = readLayout.layout == .strictlyInterleaved
+        if readLayout.layout == .mixedMergedAndPairs {
+            progress?("Input mixes merged reads and pairs; every record is treated as a single read")
+        }
 
         switch request {
         case .subsampleProportion(let proportion):
@@ -213,12 +222,11 @@ extension FASTQDerivativeService {
                 "subs=\(substitutions)",
                 "ow=t"
             ]
-            if isInterleaved {
-                // clumpify compares and clusters whole pairs and keeps both
-                // mates adjacent; without it identical-name mates are
-                // reordered as independent single reads.
-                args.append("interleaved=t")
-            }
+            // clumpify interleaved=t compares and clusters whole pairs and
+            // keeps both mates adjacent. interleaved=f is stated for the
+            // single-read case so BBTools' own name detection cannot pair a
+            // mixed file by position.
+            args.append(isInterleaved ? "interleaved=t" : "interleaved=f")
             if optical {
                 args.append("optical=t")
                 args.append("dupedist=\(opticalDistance)")

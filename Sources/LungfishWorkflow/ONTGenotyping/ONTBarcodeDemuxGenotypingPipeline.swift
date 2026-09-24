@@ -2392,10 +2392,13 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         condaManager: CondaManager,
         progressHandler: (@Sendable (Double, String) -> Void)? = nil
     ) async throws -> [IlluminaSampleInput] {
-        // Probe first so a fully pre-merged cohort never needs the bbtools env.
+        // Resolve first so a fully pre-merged cohort never needs the bbtools
+        // env. The shared layout resolver reads bundle metadata and records;
+        // a mixed sample (merged reads plus pairs) counts as paired here and
+        // the merger separates its pairs by name before bbmerge.
         var pairedIndices: [Int] = []
         for (index, sample) in samples.enumerated() {
-            if try await IlluminaAmpliconPairMerger.fastqIsInterleavedPairs(at: sample.fastqURL) {
+            if FASTQInputLayoutResolver.resolve(inputURLs: [sample.fastqURL]).layout.holdsPairs {
                 pairedIndices.append(index)
             }
         }

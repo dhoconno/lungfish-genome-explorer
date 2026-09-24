@@ -119,6 +119,65 @@ final class WorkflowBuilderNativeRunnerTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: runDirectory.appendingPathComponent("outputs").path))
     }
 
+    func testRunnerTreatsAMixedBundleRecordedAsInterleavedAsSingleReads() async throws {
+        // A VSP2 bundle records pairingMode=interleaved while holding merged
+        // reads. The runner must not label it interleaved (the recipe would
+        // split it into R1/R2 by position); it enters as single reads and
+        // the paired recipe refuses it up front.
+        let fixture = try makeProjectFixture(bundleName: "Mixed")
+        try InterleavedFASTQFixture.writeMixed(pairCount: 6, mergedCount: 3, naming: .identical, to: fixture.r1URL)
+        FASTQMetadataStore.save(
+            PersistedFASTQMetadata(ingestion: IngestionMetadata(pairingMode: .interleaved, originalFilenames: ["Mixed.fastq"])),
+            for: fixture.r1URL
+        )
+        let graph = try VSP2WorkflowTemplate.makeGraph(inputBundleRelativePath: "@/Imports/Mixed.lungfishfastq")
+        let runDirectory = fixture.workflowBundleURL
+            .appendingPathComponent("runs/00000000-0000-4000-8000-000000000603", isDirectory: true)
+        let executor = FakeWorkflowBuilderRecipeExecutor()
+        let runner = WorkflowBuilderNativeRunner(recipeExecutor: executor)
+
+        do {
+            _ = try await runner.run(
+                graph: graph,
+                projectURL: fixture.projectURL,
+                runDirectoryURL: runDirectory,
+                workflowBundleURL: fixture.workflowBundleURL,
+                argv: ["lungfish-cli", "workflow", "builder-run", "--workflow", fixture.workflowBundleURL.path],
+                threads: 2
+            )
+            XCTFail("A mixed bundle must not be presented to a paired recipe as interleaved pairs")
+        } catch RecipeEngineError.inputRequirementNotMet(let required, let actual) {
+            XCTAssertEqual(required, .paired)
+            XCTAssertEqual(actual, .single)
+        }
+        XCTAssertTrue(executor.invocations.isEmpty)
+    }
+
+    func testRunnerAcceptsAStrictlyInterleavedBundleAsInterleaved() async throws {
+        let fixture = try makeProjectFixture(bundleName: "Strict")
+        try InterleavedFASTQFixture.write(pairCount: 6, naming: .identical, to: fixture.r1URL)
+        FASTQMetadataStore.save(
+            PersistedFASTQMetadata(ingestion: IngestionMetadata(pairingMode: .interleaved, originalFilenames: ["Strict.fastq"])),
+            for: fixture.r1URL
+        )
+        let graph = try VSP2WorkflowTemplate.makeGraph(inputBundleRelativePath: "@/Imports/Strict.lungfishfastq")
+        let runDirectory = fixture.workflowBundleURL
+            .appendingPathComponent("runs/00000000-0000-4000-8000-000000000604", isDirectory: true)
+        let executor = FakeWorkflowBuilderRecipeExecutor()
+        let runner = WorkflowBuilderNativeRunner(recipeExecutor: executor)
+
+        _ = try await runner.run(
+            graph: graph,
+            projectURL: fixture.projectURL,
+            runDirectoryURL: runDirectory,
+            workflowBundleURL: fixture.workflowBundleURL,
+            argv: ["lungfish-cli", "workflow", "builder-run", "--workflow", fixture.workflowBundleURL.path],
+            threads: 2
+        )
+        let invocation = try XCTUnwrap(executor.invocations.first)
+        XCTAssertEqual(invocation.input.format, .interleaved)
+    }
+
     func testRunnerPreservesGzippedFASTQExtensionWhenBundlingRecipeOutput() async throws {
         let fixture = try makePairedProjectFixture()
         let graph = try VSP2WorkflowTemplate.makeGraph(inputBundleRelativePath: "@/Imports/Sample.lungfishfastq")

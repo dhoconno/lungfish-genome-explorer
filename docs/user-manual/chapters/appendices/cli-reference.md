@@ -1029,6 +1029,8 @@ The window runs these operations from the FASTQ Operations sheet, which [Trimmin
 
 Nine of them, `subsample`, `contaminant-filter`, `entropy-filter`, `scrub-human`, `deacon-ribo`, `sequence-filter`, `deduplicate`, `search-text`, and `search-motif`, also take `--pairing`. With `interleaved`, adjacent records are mates and are kept or dropped together, and with `single` every record stands alone. The default, `auto`, reads the pairing recorded by the `.lungfishfastq` bundle the input sits in, then inspects read names, recognising mates with identical names, `/1` and `/2` suffixes, or Casava descriptions. The window passes the bundle's own pairing, so a command run on the file inside a paired bundle keeps its mates together as the window does.
 
+The recorded pairing is a claim the command checks against the records. A bundle written by a merge recipe holds merged single reads between the pairs that did not merge, and `interleaved` would pair such a file by position. On a mixed file the command therefore treats every record as a single read, warns on standard error, and records `readLayout` and `readLayoutReason` in provenance. `search-text` and `search-motif` match by read name, so they still return whole pairs and lone merged reads from a mixed file.
+
 Run this from the folder holding the hg002-chr20 practice data. It trims adapters and low-quality ends from the first read file with fastp and writes a gzipped result.
 
 ```bash
@@ -1291,7 +1293,7 @@ lungfish-cli fastq deduplicate <input> [--subs <subs>] [--optical] [--dupedist <
 
 ### `fastq merge`
 
-Merges overlapping mates of an interleaved paired-end file into single reads with bbmerge.
+Merges overlapping mates of an interleaved paired-end file into single reads with bbmerge. Given a file that already mixes merged reads with pairs, it merges only the pairs, matched by read name, and writes the merged reads through unchanged. A single-end file is refused.
 
 ```text
 lungfish-cli fastq merge <input> [--min-overlap <min-overlap>] [--strict] [--count-duplicates] --output <output> [--force] [--compress]
@@ -1338,16 +1340,17 @@ lungfish-cli fastq interleave --in1 <in1> --in2 <in2> --output <output> [--force
 Splits an [interleaved FASTQ](../../GLOSSARY.md#interleaved-fastq) into separate R1 and R2 files.
 
 ```text
-lungfish-cli fastq deinterleave <input> --out1 <out1> --out2 <out2>
+lungfish-cli fastq deinterleave <input> --out1 <out1> --out2 <out2> [--unpaired <unpaired>]
 ```
 
-It takes `--out1` and `--out2` in place of `--output`, and has no `--force`.
+It takes `--out1` and `--out2` in place of `--output`, and has no `--force`. A file in which every record is followed by its mate is split by position. A file that mixes merged single reads with pairs, such as the output of a merge recipe, is split by read name instead, and then `--unpaired` is required for the reads that have no mate. A single-end file is refused.
 
 | Argument or flag | What it does |
 |---|---|
 | `<input>` | Input interleaved FASTQ file. |
 | `--out1 <out1>` | Output R1 file (required). |
 | `--out2 <out2>` | Output R2 file (required). |
+| `--unpaired <unpaired>` | Output file for reads without an adjacent mate. Required when the input mixes merged reads with pairs. |
 
 ### `fastq reverse-complement`
 

@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import LungfishIO
 
 public struct MappingReadGroup: Sendable, Codable, Equatable {
     public let id: String
@@ -87,6 +88,9 @@ public struct MappingRunRequest: Sendable, Codable, Equatable {
     public let minimumMappingQuality: Int
     public let advancedArguments: [String]
     public let compatibilityReadClassOverride: MappingReadClass?
+    /// The resolved layout of `inputFASTQURLs`, or `nil` until the pipeline
+    /// resolves it (``FASTQInputLayoutResolver``) after input materialization.
+    public let inputLayout: FASTQInputLayout?
 
     public init(
         tool: MappingTool,
@@ -107,7 +111,8 @@ public struct MappingRunRequest: Sendable, Codable, Equatable {
         includeSupplementary: Bool = true,
         minimumMappingQuality: Int = 0,
         advancedArguments: [String] = [],
-        compatibilityReadClassOverride: MappingReadClass? = nil
+        compatibilityReadClassOverride: MappingReadClass? = nil,
+        inputLayout: FASTQInputLayout? = nil
     ) {
         self.tool = tool
         self.modeID = modeID
@@ -128,6 +133,7 @@ public struct MappingRunRequest: Sendable, Codable, Equatable {
         self.minimumMappingQuality = minimumMappingQuality
         self.advancedArguments = advancedArguments
         self.compatibilityReadClassOverride = compatibilityReadClassOverride
+        self.inputLayout = inputLayout
     }
 
     public func withInputFASTQURLs(_ inputFASTQURLs: [URL], pairedEnd: Bool? = nil) -> MappingRunRequest {
@@ -150,7 +156,8 @@ public struct MappingRunRequest: Sendable, Codable, Equatable {
             includeSupplementary: includeSupplementary,
             minimumMappingQuality: minimumMappingQuality,
             advancedArguments: advancedArguments,
-            compatibilityReadClassOverride: compatibilityReadClassOverride
+            compatibilityReadClassOverride: compatibilityReadClassOverride,
+            inputLayout: inputLayout
         )
     }
 
@@ -174,7 +181,8 @@ public struct MappingRunRequest: Sendable, Codable, Equatable {
             includeSupplementary: includeSupplementary,
             minimumMappingQuality: minimumMappingQuality,
             advancedArguments: advancedArguments,
-            compatibilityReadClassOverride: compatibilityReadClassOverride
+            compatibilityReadClassOverride: compatibilityReadClassOverride,
+            inputLayout: inputLayout
         )
     }
 
@@ -198,8 +206,47 @@ public struct MappingRunRequest: Sendable, Codable, Equatable {
             includeSupplementary: includeSupplementary,
             minimumMappingQuality: minimumMappingQuality,
             advancedArguments: advancedArguments,
-            compatibilityReadClassOverride: compatibilityReadClassOverride
+            compatibilityReadClassOverride: compatibilityReadClassOverride,
+            inputLayout: inputLayout
         )
+    }
+
+    public func withInputLayout(_ inputLayout: FASTQInputLayout?) -> MappingRunRequest {
+        MappingRunRequest(
+            tool: tool,
+            modeID: modeID,
+            inputFASTQURLs: inputFASTQURLs,
+            originalInputFASTQURLs: originalInputFASTQURLs,
+            inputMaterializationStartedAt: inputMaterializationStartedAt,
+            inputMaterializationEndedAt: inputMaterializationEndedAt,
+            referenceFASTAURL: referenceFASTAURL,
+            sourceReferenceBundleURL: sourceReferenceBundleURL,
+            projectURL: projectURL,
+            outputDirectory: outputDirectory,
+            sampleName: sampleName,
+            readGroup: readGroup,
+            pairedEnd: pairedEnd,
+            threads: threads,
+            includeSecondary: includeSecondary,
+            includeSupplementary: includeSupplementary,
+            minimumMappingQuality: minimumMappingQuality,
+            advancedArguments: advancedArguments,
+            compatibilityReadClassOverride: compatibilityReadClassOverride,
+            inputLayout: inputLayout
+        )
+    }
+
+    /// The layout the command builder acts on: the resolved `inputLayout`,
+    /// else what the `pairedEnd` flag and file count already say.
+    public var effectiveInputLayout: FASTQInputLayout {
+        if let inputLayout { return inputLayout }
+        return pairedEnd && inputFASTQURLs.count == 2 ? .pairedFiles : .singleEnd
+    }
+
+    /// The layout decision for this run: the effective layout and the
+    /// handling `tool` applies to it in `modeID`.
+    public var readLayoutPlan: MappingReadLayoutPlan {
+        MappingReadLayoutPlan.resolve(tool: tool, modeID: modeID, layout: effectiveInputLayout)
     }
 
     public func resolvedReadGroup(defaultPlatform: String? = nil) -> MappingReadGroup {

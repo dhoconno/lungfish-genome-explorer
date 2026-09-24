@@ -598,10 +598,25 @@ public final class RecipeEngine: Sendable {
     }
 
     /// reformat.sh: interleaved → paired R1/R2
+    ///
+    /// The split pairs records by position, so it only runs on a file the
+    /// resolver finds strictly interleaved. A file that mixes merged reads
+    /// with pairs (a VSP2 or amplicon-merge bundle fed back into a paired
+    /// recipe) is passed on unchanged as `.single`, the contract default; a
+    /// later step that needs R1/R2 then reports the format mismatch instead
+    /// of mapping mis-paired mates.
     private func convertInterleavedToPaired(
         input: StepInput,
         context: StepContext
     ) async throws -> StepOutput {
+        let resolution = FASTQInputLayoutResolver.resolve(inputURLs: [input.r1])
+        guard resolution.layout == .strictlyInterleaved else {
+            logger.warning(
+                "interleaved→pairedR1R2 skipped for \(input.r1.lastPathComponent, privacy: .public): \(resolution.reason, privacy: .public) Records continue as single reads."
+            )
+            return StepOutput(r1: input.r1, format: .single)
+        }
+
         let outR1 = context.workspace.appendingPathComponent(
             "\(context.sampleName)_conv_R1.fq.gz")
         let outR2 = context.workspace.appendingPathComponent(
@@ -612,6 +627,7 @@ public final class RecipeEngine: Sendable {
             "in=\(input.r1.path)",
             "out=\(outR1.path)",
             "out2=\(outR2.path)",
+            "interleaved=t",
             "threads=\(context.threads)",
             "ow=t",
         ]

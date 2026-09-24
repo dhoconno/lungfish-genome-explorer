@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import LungfishIO
 
 /// Streams a paired R1/R2 FASTQ into one interleaved FASTQ without any
 /// external tool, and counts FASTQ records for import integrity checks.
@@ -124,6 +125,119 @@ public enum FASTQPairInterleaver {
             throw InterleaveError.recordCountMismatch(expected: total, actual: written)
         }
         return Counts(r1Records: output1.recordsWritten, r2Records: output2.recordsWritten, writtenRecords: written)
+    }
+
+    /// Record counts of a by-name partition of a mixed file.
+    public struct MixedCounts: Sendable, Equatable {
+        /// Adjacent mate pairs found and written as pairs.
+        public let pairs: Int
+        /// Records without an adjacent mate (merged or orphan reads).
+        public let unpaired: Int
+
+        public init(pairs: Int, unpaired: Int) {
+            self.pairs = pairs
+            self.unpaired = unpaired
+        }
+    }
+
+    /// Splits a file that mixes adjacent mate pairs with unpaired reads into
+    /// R1, R2, and unpaired streams, pairing records by NAME rather than by
+    /// position.
+    ///
+    /// Two adjacent records are mates under ``FASTQReadLayoutClassifier``'s
+    /// rule (identical read IDs, `/1` `/2` suffixes, or Casava descriptions).
+    /// Every other record goes to `unpaired` in its original order. Records
+    /// are copied byte for byte. A strictly interleaved file comes out with
+    /// an empty unpaired stream, so callers may use this for both layouts.
+    public static func partitionMixed(
+        interleaved: URL,
+        r1 sink1: FileHandle,
+        r2 sink2: FileHandle,
+        unpaired sinkUnpaired: FileHandle
+    ) throws -> MixedCounts {
+        var output1 = BufferedSink(handle: sink1)
+        var output2 = BufferedSink(handle: sink2)
+        var outputUnpaired = BufferedSink(handle: sinkUnpaired)
+        let counts = try partitionMixed(
+            interleaved: interleaved,
+            onPair: { first, second in
+                try output1.write(first)
+                try output2.write(second)
+            },
+            onUnpaired: { record in try outputUnpaired.write(record) }
+        )
+        try output1.flush()
+        try output2.flush()
+        try outputUnpaired.flush()
+        return counts
+    }
+
+    /// Splits a mixed file into one interleaved file of whole pairs and one
+    /// file of unpaired reads, pairing records by name.
+    ///
+    /// The pairs file is strictly interleaved, so a tool that pairs by
+    /// position (`bbmerge interleaved=t`, `reformat interleaved=t`) can run on
+    /// it safely; the unpaired reads pass around that tool untouched.
+    public static func partitionMixed(
+        interleaved: URL,
+        pairs sinkPairs: FileHandle,
+        unpaired sinkUnpaired: FileHandle
+    ) throws -> MixedCounts {
+        var outputPairs = BufferedSink(handle: sinkPairs)
+        var outputUnpaired = BufferedSink(handle: sinkUnpaired)
+        let counts = try partitionMixed(
+            interleaved: interleaved,
+            onPair: { first, second in
+                try outputPairs.write(first)
+                try outputPairs.write(second)
+            },
+            onUnpaired: { record in try outputUnpaired.write(record) }
+        )
+        try outputPairs.flush()
+        try outputUnpaired.flush()
+        return counts
+    }
+
+    private static func partitionMixed(
+        interleaved: URL,
+        onPair: ([[UInt8]], [[UInt8]]) throws -> Void,
+        onUnpaired: ([[UInt8]]) throws -> Void
+    ) throws -> MixedCounts {
+        let reader = try FASTQRawLineReader(url: interleaved)
+        defer { reader.close() }
+        let file = interleaved.lastPathComponent
+        var total = 0
+        var pairs = 0
+        var unpaired = 0
+        var pending: [[UInt8]]? = nil
+
+        while let record = try readRecord(from: reader, file: file, recordNumber: total + 1) {
+            total += 1
+            if total & 0x3FFF == 0 { try Task.checkCancellation() }
+            guard let previous = pending else {
+                pending = record
+                continue
+            }
+            if FASTQReadLayoutClassifier.areMates(headerText(previous[0]), headerText(record[0])) {
+                try onPair(previous, record)
+                pairs += 1
+                pending = nil
+            } else {
+                try onUnpaired(previous)
+                unpaired += 1
+                pending = record
+            }
+        }
+        if let last = pending {
+            try onUnpaired(last)
+            unpaired += 1
+        }
+        return MixedCounts(pairs: pairs, unpaired: unpaired)
+    }
+
+    /// The header line without its leading `@`, as the classifier expects.
+    private static func headerText(_ line: [UInt8]) -> String {
+        String(decoding: line.dropFirst(), as: UTF8.self)
     }
 
     /// Counts four-line FASTQ records in a plain or gzip-compressed file.

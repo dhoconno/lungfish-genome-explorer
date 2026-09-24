@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import LungfishIO
 
 public struct ManagedMappingCommand: Sendable, Equatable {
     public let executable: String
@@ -112,6 +113,12 @@ public enum MappingCommandBuilder {
             "-t", String(request.threads),
             "-R", readGroupHeader(readGroup),
         ]
+        // Smart pairing: bwa-mem2 pairs adjacent same-name records and maps
+        // the rest single, so one interleaved or mixed file gets `-p`
+        // (MappingTool+ReadLayout). Two R1/R2 files pair on their own.
+        if request.inputFASTQURLs.count == 1, request.readLayoutPlan.handling == .asPairs {
+            arguments.append("-p")
+        }
         arguments += request.advancedArguments
         arguments.append(indexPrefixURL.path)
         arguments.append(contentsOf: request.inputFASTQURLs.map(\.path))
@@ -146,6 +153,11 @@ public enum MappingCommandBuilder {
         arguments += ["-S", rawAlignmentURL.path]
         if request.pairedEnd && request.inputFASTQURLs.count == 2 {
             arguments += ["-1", request.inputFASTQURLs[0].path, "-2", request.inputFASTQURLs[1].path]
+        } else if request.inputFASTQURLs.count == 1, request.readLayoutPlan.handling == .asPairs {
+            // `--interleaved` pairs records by position, so only a strictly
+            // interleaved file gets it; a mixed file runs as single reads
+            // through `-U` (MappingTool+ReadLayout).
+            arguments += ["--interleaved", request.inputFASTQURLs[0].path]
         } else {
             arguments += ["-U", request.inputFASTQURLs.map(\.path).joined(separator: ",")]
         }
@@ -188,6 +200,12 @@ public enum MappingCommandBuilder {
             ]
         } else if let inputURL = request.inputFASTQURLs.first {
             arguments.append("in=\(inputURL.path)")
+            // `interleaved=auto` never pairs identically named mates, and
+            // `interleaved=t` pairs a mixed file blindly by position, so the
+            // flag states the resolved layout (MappingTool+ReadLayout).
+            let interleaved = request.inputFASTQURLs.count == 1
+                && request.readLayoutPlan.handling == .asPairs
+            arguments.append("interleaved=\(interleaved ? "t" : "f")")
         }
 
         return ManagedMappingCommand(

@@ -49,7 +49,8 @@ struct FastqSequenceFilterSubcommand: AsyncParsableCommand {
             throw CLIError.conversionFailed(reason: "Either --sequence or --fasta-path must be specified")
         }
 
-        let isInterleaved = try await pairing.resolveIsInterleaved(inputURL: inputURL)
+        let pairingDecision = pairing.resolvePairing(inputURL: inputURL)
+        let isInterleaved = pairingDecision.pairAware
 
         var args: [String] = ["in=\(inputURL.path)"]
 
@@ -58,12 +59,12 @@ struct FastqSequenceFilterSubcommand: AsyncParsableCommand {
         } else {
             args.append("out=\(output.output)")
         }
-        if isInterleaved {
-            // Pair-aware: a pair counts as matched when either mate matches
-            // (bbduk's default removeifeitherbad=t), so `outm=` receives both
-            // mates and `out=` drops both. Nothing is ever split.
-            args.append("interleaved=t")
-        }
+        // Pair-aware: a pair counts as matched when either mate matches
+        // (bbduk's default removeifeitherbad=t), so `outm=` receives both
+        // mates and `out=` drops both. Nothing is ever split. interleaved=f
+        // is stated for the single-read case so bbduk's own name detection
+        // cannot pair a mixed file by position.
+        args.append(isInterleaved ? "interleaved=t" : "interleaved=f")
 
         if let sequence {
             args.append("literal=\(sequence)")
@@ -155,6 +156,8 @@ struct FastqSequenceFilterSubcommand: AsyncParsableCommand {
                 "searchReverseComplement": .boolean(searchReverseComplement),
                 "pairing": pairing.provenanceValue,
                 "interleaved": .boolean(isInterleaved),
+                "readLayout": pairingDecision.readLayoutProvenanceValue,
+                "readLayoutReason": pairingDecision.readLayoutReasonProvenanceValue,
                 "force": .boolean(output.force),
                 "compress": .boolean(output.compress)
             ],
@@ -168,6 +171,7 @@ struct FastqSequenceFilterSubcommand: AsyncParsableCommand {
                 "searchReverseComplement": .boolean(false),
                 "pairing": FASTQPairingOptions.provenanceDefault,
                 "interleaved": .boolean(false),
+                "readLayout": FASTQPairingOptions.readLayoutProvenanceDefault,
                 "force": .boolean(false),
                 "compress": .boolean(false)
             ],

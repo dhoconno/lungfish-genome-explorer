@@ -193,6 +193,80 @@ final class MappingDocumentStateBuilderTests: XCTestCase {
         XCTAssertEqual(fallbackState.contextRows.first { $0.0 == "Paired End" }?.1, "No")
     }
 
+    /// A run recorded under the read-layout contract carries the resolved
+    /// layout and the mapper's handling, so the row no longer needs the
+    /// sidecar: bwa-mem2 `-p` paired an interleaved file, bowtie2 mapped a
+    /// mixed file as single-end, and both say so.
+    func testPairedEndRowUsesTheRecordedLayoutDecision() throws {
+        let inputFASTQ = tempRoot.appendingPathComponent("sample.lungfishfastq/sample.fastq.gz")
+        let referenceFASTA = tempRoot.appendingPathComponent("reference.fa")
+        let outputDirectory = tempRoot.appendingPathComponent("bwa-run", isDirectory: true)
+        try FileManager.default.createDirectory(at: inputFASTQ.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: outputDirectory, withIntermediateDirectories: true)
+        try Data().write(to: inputFASTQ)
+        try ">chr1\nACGT\n".write(to: referenceFASTA, atomically: true, encoding: .utf8)
+
+        func provenance(tool: MappingTool, layout: FASTQInputLayout) throws -> (MappingResult, MappingProvenance) {
+            let request = MappingRunRequest(
+                tool: tool,
+                modeID: MappingMode.defaultShortRead.id,
+                inputFASTQURLs: [inputFASTQ],
+                referenceFASTAURL: referenceFASTA,
+                outputDirectory: outputDirectory,
+                sampleName: "sample",
+                pairedEnd: false,
+                threads: 4,
+                inputLayout: layout
+            )
+            let result = MappingResult(
+                mapper: tool,
+                modeID: request.modeID,
+                bamURL: outputDirectory.appendingPathComponent("sample.sorted.bam"),
+                baiURL: outputDirectory.appendingPathComponent("sample.sorted.bam.bai"),
+                totalReads: 50,
+                mappedReads: 50,
+                unmappedReads: 0,
+                wallClockSeconds: 1,
+                contigs: []
+            )
+            let provenance = MappingProvenance.build(
+                request: request,
+                result: result,
+                mapperInvocation: try MappingProvenance.mapperInvocation(
+                    for: request,
+                    referenceLocator: ReferenceLocator(
+                        referenceURL: referenceFASTA,
+                        indexPrefixURL: outputDirectory.appendingPathComponent("reference-index")
+                    )
+                ),
+                normalizationInvocations: [],
+                mapperVersion: "x",
+                samtoolsVersion: "1.24",
+                inputLayoutReason: "test"
+            )
+            return (result, provenance)
+        }
+
+        let (bwaResult, bwaProvenance) = try provenance(tool: .bwaMem2, layout: .strictlyInterleaved)
+        let bwaState = MappingDocumentStateBuilder.build(result: bwaResult, provenance: bwaProvenance, projectURL: nil)
+        XCTAssertEqual(bwaState.contextRows.first { $0.0 == "Paired End" }?.1, "Yes (interleaved)")
+        XCTAssertEqual(bwaState.contextRows.first { $0.0 == "Read Layout" }?.1, "interleaved pairs")
+
+        let (bowtieResult, bowtieProvenance) = try provenance(tool: .bowtie2, layout: .mixedMergedAndPairs)
+        let bowtieState = MappingDocumentStateBuilder.build(result: bowtieResult, provenance: bowtieProvenance, projectURL: nil)
+        XCTAssertEqual(
+            bowtieState.contextRows.first { $0.0 == "Paired End" }?.1,
+            "No (mixed merged reads and pairs mapped as single-end)"
+        )
+
+        let (minimapResult, minimapProvenance) = try provenance(tool: .minimap2, layout: .mixedMergedAndPairs)
+        let minimapState = MappingDocumentStateBuilder.build(result: minimapResult, provenance: minimapProvenance, projectURL: nil)
+        XCTAssertEqual(
+            minimapState.contextRows.first { $0.0 == "Paired End" }?.1,
+            "Yes (interleaved; merged reads mapped as single reads)"
+        )
+    }
+
     func testPairedEndDescriptionCoversMapperInterleaveBehaviour() {
         XCTAssertEqual(
             MappingDocumentStateBuilder.pairedEndDescription(pairedEnd: true, mapper: .bowtie2, inputPairingMode: .pairedEnd),

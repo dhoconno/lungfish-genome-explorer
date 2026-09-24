@@ -120,6 +120,149 @@ public enum InterleavedFASTQFixture {
         return (bundleURL, fastqURL)
     }
 
+    // MARK: - Mixed files (merged single reads between interleaved pairs)
+
+    /// The name of merged read `index` in a mixed fixture.
+    public static func mergedName(_ index: Int) -> String {
+        "merged\(index)"
+    }
+
+    /// Deterministic 100-base merged read, distinct from every pair read.
+    public static func defaultMergedSequence(_ index: Int) -> String {
+        deterministicSequence(seed: 10_000 + UInt64(index), length: 100)
+    }
+
+    /// FASTQ text for a MIXED file: `pairCount` interleaved pairs with
+    /// `mergedCount` merged single reads spread between them (one merged
+    /// read after every pair until the merged reads run out, and the
+    /// remainder at the end). This is the layout the VSP2 and Illumina
+    /// amplicon merge recipes leave behind: a positional pair tool given
+    /// this file pairs a merged read with the next mate.
+    public static func mixedFastqText(
+        pairCount: Int,
+        mergedCount: Int,
+        naming: MateNaming,
+        sequences: PairSequences? = nil,
+        mergedSequences: (@Sendable (_ mergedIndex: Int) -> String)? = nil
+    ) -> String {
+        var lines: [String] = []
+        var mergedEmitted = 0
+        func emitMerged() {
+            let sequence = mergedSequences?(mergedEmitted) ?? defaultMergedSequence(mergedEmitted)
+            lines.append("@" + mergedName(mergedEmitted))
+            lines.append(sequence)
+            lines.append("+")
+            lines.append(String(repeating: "I", count: sequence.count))
+            mergedEmitted += 1
+        }
+        for index in 0..<pairCount {
+            let pair = sequences?(index) ?? defaultSequences(index)
+            for (mate, sequence) in [(1, pair.mate1), (2, pair.mate2)] {
+                lines.append("@" + header(pairIndex: index, mate: mate, naming: naming))
+                lines.append(sequence)
+                lines.append("+")
+                lines.append(String(repeating: "I", count: sequence.count))
+            }
+            if mergedEmitted < mergedCount {
+                emitMerged()
+            }
+        }
+        while mergedEmitted < mergedCount {
+            emitMerged()
+        }
+        return lines.joined(separator: "\n") + "\n"
+    }
+
+    /// Writes a loose mixed FASTQ.
+    public static func writeMixed(
+        pairCount: Int,
+        mergedCount: Int,
+        naming: MateNaming,
+        sequences: PairSequences? = nil,
+        mergedSequences: (@Sendable (_ mergedIndex: Int) -> String)? = nil,
+        to url: URL
+    ) throws {
+        try mixedFastqText(
+            pairCount: pairCount,
+            mergedCount: mergedCount,
+            naming: naming,
+            sequences: sequences,
+            mergedSequences: mergedSequences
+        ).write(to: url, atomically: true, encoding: .utf8)
+    }
+
+    /// Writes a `.lungfishfastq` bundle holding one MIXED FASTQ whose sidecar
+    /// records `pairingMode` (`interleaved` by default, as a VSP2 bundle does).
+    @discardableResult
+    public static func writeMixedBundle(
+        named name: String,
+        in directory: URL,
+        pairCount: Int,
+        mergedCount: Int,
+        naming: MateNaming,
+        pairingMode: IngestionMetadata.PairingMode = .interleaved,
+        sequences: PairSequences? = nil,
+        mergedSequences: (@Sendable (_ mergedIndex: Int) -> String)? = nil
+    ) throws -> (bundleURL: URL, fastqURL: URL) {
+        let bundleURL = directory.appendingPathComponent(
+            "\(name).\(FASTQBundle.directoryExtension)",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        let fastqURL = bundleURL.appendingPathComponent("\(name).fastq")
+        try writeMixed(
+            pairCount: pairCount,
+            mergedCount: mergedCount,
+            naming: naming,
+            sequences: sequences,
+            mergedSequences: mergedSequences,
+            to: fastqURL
+        )
+        let metadata = PersistedFASTQMetadata(
+            ingestion: IngestionMetadata(pairingMode: pairingMode, originalFilenames: ["\(name).fastq"])
+        )
+        FASTQMetadataStore.save(metadata, for: fastqURL)
+        return (bundleURL, fastqURL)
+    }
+
+    /// Asserts that a mixed fixture's records were never paired by position:
+    /// every pair read (`frag…`) is directly followed by its mate, and every
+    /// merged read (`merged…`) stands alone.
+    public static func assertMixedIntegrity(
+        _ records: [FASTQRecord],
+        _ message: @autoclosure () -> String = "",
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let context = message()
+        var index = 0
+        while index < records.count {
+            let key = fragmentKey(records[index])
+            if key.hasPrefix("frag") {
+                guard index + 1 < records.count else {
+                    XCTFail("Pair read '\(records[index].identifier)' has no mate after it. \(context)", file: file, line: line)
+                    return
+                }
+                XCTAssertEqual(
+                    fragmentKey(records[index + 1]), key,
+                    "Pair read '\(records[index].identifier)' must be followed by its mate, found '\(records[index + 1].identifier)'. \(context)",
+                    file: file, line: line
+                )
+                index += 2
+            } else {
+                XCTAssertTrue(key.hasPrefix("merged"), "Unexpected record '\(records[index].identifier)'. \(context)", file: file, line: line)
+                if index + 1 < records.count {
+                    XCTAssertNotEqual(
+                        fragmentKey(records[index + 1]), key,
+                        "Merged read '\(records[index].identifier)' must stand alone. \(context)",
+                        file: file, line: line
+                    )
+                }
+                index += 1
+            }
+        }
+    }
+
     /// Reads every record of a FASTQ (plain or gzip).
     public static func readRecords(at url: URL) async throws -> [FASTQRecord] {
         var records: [FASTQRecord] = []
