@@ -103,7 +103,7 @@ public enum IlluminaAmpliconPairMerger {
     ///
     /// Handles both Casava 1.8+ (`NAME 1:N:0:index`, mate in the description)
     /// and the older `NAME/1` form.
-    static func fragmentKey(identifier: String, description: String?) -> String {
+    public static func fragmentKey(identifier: String, description: String?) -> String {
         var name = identifier
         if name.count > 2, name.hasSuffix("/1") || name.hasSuffix("/2") {
             name.removeLast(2)
@@ -113,7 +113,7 @@ public enum IlluminaAmpliconPairMerger {
     }
 
     /// Returns the mate number (1 or 2) when the record advertises one.
-    static func mateNumber(identifier: String, description: String?) -> Int? {
+    public static func mateNumber(identifier: String, description: String?) -> Int? {
         if identifier.hasSuffix("/1") { return 1 }
         if identifier.hasSuffix("/2") { return 2 }
         guard let description else { return nil }
@@ -133,7 +133,18 @@ public enum IlluminaAmpliconPairMerger {
     /// Reads at most `pairingProbeRecordCount` records: paired input shows the
     /// same fragment name on adjacent records with mate numbers 1 then 2.
     /// Single-end or already-merged input does not.
-    public static func fastqIsInterleavedPairs(at url: URL) async throws -> Bool {
+    ///
+    /// - Parameter acceptingIdenticalNames: when `true`, two adjacent records
+    ///   that share a fragment key and carry no mate number at all also count
+    ///   as a pair. Paired imports stored as one interleaved file frequently
+    ///   name both mates identically (no `/1` `/2`, no Casava description),
+    ///   so the FASTQ operations use this relaxed rule as their name-based
+    ///   fallback. The mapping path keeps the strict default because a
+    ///   pre-merged amplicon file must never be re-merged.
+    public static func fastqIsInterleavedPairs(
+        at url: URL,
+        acceptingIdenticalNames: Bool = false
+    ) async throws -> Bool {
         let reader = FASTQReader(validateSequence: false)
         var pending: (key: String, mate: Int?)?
         var inspected = 0
@@ -145,8 +156,12 @@ public enum IlluminaAmpliconPairMerger {
             let mate = mateNumber(identifier: record.identifier, description: record.description)
             if let previous = pending {
                 fragments += 1
-                if previous.key == key, previous.mate == 1, mate == 2 {
-                    pairedFragments += 1
+                if previous.key == key {
+                    if previous.mate == 1, mate == 2 {
+                        pairedFragments += 1
+                    } else if acceptingIdenticalNames, previous.mate == nil, mate == nil {
+                        pairedFragments += 1
+                    }
                 }
                 // Consume both records of the candidate fragment so a run of
                 // identical identifiers cannot be counted more than once.
