@@ -145,6 +145,55 @@ final class ReadBudgetAndOffMainPackTests: XCTestCase {
         XCTAssertEqual(ReadViewportPolicy.fetchLimit(forBudget: Int.max), Int.max)
     }
 
+    func testSpreadSampleBannerSaysSampledEvenlyAcrossTheView() {
+        let state = ReadBudgetState(
+            displayedReads: 50_000, totalReads: 1_200_000, isEstimated: false, loadedAll: false,
+            isSpreadAcrossWindow: true
+        )
+        let banner = state.bannerMessage ?? ""
+        XCTAssertTrue(banner.contains("sampled evenly across the view"), "a subsample-based fetch must say it is spread across the window, not merely 'in view'")
+        XCTAssertTrue(banner.contains("50,000"))
+        XCTAssertTrue(banner.contains("1,200,000"))
+    }
+
+    func testLegacyPrefixSampleBannerKeepsInViewWording() {
+        // Default `isSpreadAcrossWindow: false` covers "Load all"'s plain
+        // fetch and any caller that hasn't adopted the subsample path yet.
+        let state = ReadBudgetState(
+            displayedReads: 50_000, totalReads: 600_000, isEstimated: false, loadedAll: false
+        )
+        let banner = state.bannerMessage ?? ""
+        XCTAssertTrue(banner.contains("in view"))
+        XCTAssertFalse(banner.contains("sampled evenly across the view"))
+    }
+
+    func testTransportTruncatedBannerFlagsAnIncompleteSample() {
+        let state = ReadBudgetState(
+            displayedReads: 50_000, totalReads: 1_200_000, isEstimated: false, loadedAll: false,
+            isSpreadAcrossWindow: true, isTransportTruncated: true
+        )
+        XCTAssertTrue(state.bannerMessage?.contains("sample may be incomplete") == true)
+    }
+
+    func testApplyReadBudgetPropagatesSpreadFlagFromASubsampledFetch() {
+        // Simulates a fetchReadSketch outcome: the reads array already came
+        // back subsampled (spread) and at-or-under budget from the provider,
+        // with `exactTotal` reflecting the true window count from `-c`.
+        let reads = makeExtremeDepthPile(count: 50_000)
+        let result = SequenceViewerView.applyReadBudget(
+            reads: reads,
+            budget: ReadViewportPolicy.defaultVisibleReadBudget,
+            exactTotal: 1_200_000,
+            estimatedTotal: nil,
+            loadedAll: false,
+            wasSpreadAcrossWindow: true
+        )
+        XCTAssertTrue(result.state.isSpreadAcrossWindow)
+        XCTAssertEqual(result.state.totalReads, 1_200_000)
+        XCTAssertTrue(result.state.isSampled)
+        XCTAssertEqual(result.reads.count, ReadViewportPolicy.defaultVisibleReadBudget)
+    }
+
     func testBudgetOverflowWithoutAnyCountIsReportedAsAnEstimate() {
         // The fetch was capped at budget + 1, so the true total is unknown; the
         // banner must not present the cap as if it were the real count.
