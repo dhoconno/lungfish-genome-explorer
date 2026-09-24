@@ -851,8 +851,9 @@ extension MainSplitViewController {
     }
 
     func refreshSidebarAndDisplayMappingResult(at url: URL) {
-        refreshSidebarAndSelectDerivedURL(url)
-        displayMappingAnalysisFromSidebar(at: url)
+        refreshSidebarAndSelectDerivedURL(url) { [weak self] in
+            self?.displayMappingAnalysisFromSidebar(at: url)
+        }
     }
 
     func displayMappingAnalysisFromSidebar(at url: URL) {

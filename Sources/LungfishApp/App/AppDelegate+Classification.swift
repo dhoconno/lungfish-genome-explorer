@@ -2694,16 +2694,23 @@ extension AppDelegate {
 
                     activityIndicator?.hide()
 
-                    // Refresh sidebar to show all new files
-                    sidebarController?.reloadFromFilesystem()
+                    // Refresh sidebar to show all new files. The recursive project
+                    // scan runs off the main actor; only the cheap apply and the
+                    // follow-up selection happen back on it once it returns.
+                    // Plain `Task`: `scheduleOnMainRunLoop`'s block is already
+                    // @MainActor, so the task inherits that isolation.
+                    Task { [weak self, weak sidebarController] in
+                        await sidebarController?.reloadFromFilesystemAsync(notifyUnchangedSelectionRefresh: true)?.value
+                        guard let self else { return }
 
-                    // Select the first downloaded file in the sidebar to highlight what's being viewed
-                    if result.error == nil {
-                        sidebarController?.selectItem(forURL: result.url)
-                        self.requestInspectorDocumentModeAfterDownload(in: targetController)
+                        // Select the first downloaded file in the sidebar to highlight what's being viewed
+                        if result.error == nil {
+                            sidebarController?.selectItem(forURL: result.url)
+                            self.requestInspectorDocumentModeAfterDownload(in: targetController)
+                        }
+
+                        debugLog("handleMultipleDownloadsSync: Completed importing \(importedFileCount) files")
                     }
-
-                    debugLog("handleMultipleDownloadsSync: Completed importing \(importedFileCount) files")
                 }
             }
         } else {

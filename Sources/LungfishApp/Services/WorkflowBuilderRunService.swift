@@ -59,6 +59,7 @@ public final class WorkflowBuilderRunService {
     public enum ExecutionError: Error, Equatable {
         case validationFailed([WorkflowValidationIssue])
         case nodeFailed(nodeID: UUID, message: String)
+        case bundleBusy(String)
     }
 
     public typealias NodeExecutor = @MainActor (WorkflowNode, WorkflowBuilderRunBinding) async throws -> Void
@@ -134,7 +135,7 @@ public final class WorkflowBuilderRunService {
             runID.uuidString,
         ]
 
-        let parentOperationID = operationCenter.start(
+        let startResult = operationCenter.begin(
             title: "Workflow Run: \(graph.name)",
             detail: "Running workflow \(runID.uuidString)",
             operationType: .workflow,
@@ -143,6 +144,9 @@ public final class WorkflowBuilderRunService {
             workflowRunID: runID,
             routeContext: routeContext
         )
+        guard case .started(let parentOperationID) = startResult else {
+            throw ExecutionError.bundleBusy("The workflow bundle is busy. Wait for its current operation to finish.")
+        }
         operationCenter.log(id: parentOperationID, level: .info, message: "Run ID: \(runID.uuidString)")
         operationCenter.log(id: parentOperationID, level: .info, message: "Sample: \(binding.sample.path)")
         operationCenter.log(id: parentOperationID, level: .info, message: "Project: \(binding.project.path)")

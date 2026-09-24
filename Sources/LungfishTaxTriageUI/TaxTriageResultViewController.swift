@@ -31,6 +31,20 @@ private struct TaxTriageBAMReferenceSnapshot: Sendable {
     let parsedMappedReads: Bool
 }
 
+/// Mutable box for a background reader thread's pipe output, joined via
+/// `DispatchGroup.wait()` from a `Task.detached` body (never the main actor).
+private final class TaxTriagePipeReadBox: @unchecked Sendable {
+    var data = Data()
+}
+
+/// Per-sample discovery result for the batch unique-read computation,
+/// produced off the main actor in `Task.detached` and applied back to
+/// `self` as a single `Sendable` value.
+private struct TaxTriageBatchSampleDiscovery: Sendable {
+    let indexURL: URL?
+    let organismToAccessions: [String: [String]]
+}
+
 private enum TaxTriageDatabasePageLoadResult: Sendable {
     case success(TaxTriageDatabasePageSnapshot)
     case failure(String)
@@ -256,6 +270,21 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
     /// Background task computing deduplicated read counts per organism row.
     private var deduplicatedReadCountTask: Task<Void, Never>?
 
+    /// Coalesces `batchFlatTableView.reloadUniqueReadsColumn()` calls made from
+    /// the batch dedup loop to at most one per 250 ms, so scrolling the table
+    /// during a large batch computation is not interrupted once per organism.
+    private var pendingUniqueReadsColumnReloadTask: Task<Void, Never>?
+
+    private func scheduleCoalescedUniqueReadsColumnReload() {
+        guard pendingUniqueReadsColumnReloadTask == nil else { return }
+        pendingUniqueReadsColumnReloadTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 250_000_000)
+            guard let self, !Task.isCancelled else { return }
+            self.pendingUniqueReadsColumnReloadTask = nil
+            self.batchFlatTableView.reloadUniqueReadsColumn()
+        }
+    }
+
     /// Filename for the batch-level unique-reads cache under `<batchDir>`.
     ///
     /// PERF-04: versioned `v2` because `v1` values were computed from
@@ -377,7 +406,30 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
     private(set) var isMultiSampleSingleResultMode: Bool = false
 
     /// All flat metrics loaded for the batch group, before sample filtering.
-    private(set) var allBatchGroupRows: [TaxTriageMetric] = []
+    private(set) var allBatchGroupRows: [TaxTriageMetric] = [] {
+        didSet { normalizedOrganismSampleRowIndex = nil }
+    }
+
+    /// Keyed lookup from `"\(normalizedOrganism)\t\(sampleId)"` to the matching
+    /// `allBatchGroupRows` entry, built lazily and invalidated whenever
+    /// `allBatchGroupRows` changes. Avoids the O(rows) linear scan that
+    /// `syncUniqueReadsToFlatTable`/`applySingleUniqueReadCount` previously
+    /// repeated per (organism, sample) pair during batch dedup computation.
+    private var normalizedOrganismSampleRowIndex: [String: TaxTriageMetric]?
+
+    private func organismSampleRowIndex() -> [String: TaxTriageMetric] {
+        if let cached = normalizedOrganismSampleRowIndex { return cached }
+        var index: [String: TaxTriageMetric] = [:]
+        index.reserveCapacity(allBatchGroupRows.count)
+        for row in allBatchGroupRows {
+            guard let sample = row.sample else { continue }
+            let key = "\(normalizedOrganismName(row.organism))\t\(sample)"
+            // Keep the first match, mirroring the previous `first(where:)` semantics.
+            if index[key] == nil { index[key] = row }
+        }
+        normalizedOrganismSampleRowIndex = index
+        return index
+    }
 
     /// The batch group root directory (parent of sample subdirectories).
     var batchGroupURL: URL?
@@ -1655,7 +1707,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
     }
 
     /// Collects regular files recursively under a directory that match a predicate.
-    private func collectFilesRecursively(in directory: URL, matching predicate: (URL) -> Bool) -> [URL] {
+    private nonisolated func collectFilesRecursively(in directory: URL, matching predicate: (URL) -> Bool) -> [URL] {
         guard let enumerator = FileManager.default.enumerator(
             at: directory,
             includingPropertiesForKeys: [.isRegularFileKey],
@@ -1679,7 +1731,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
     /// Parses a gcfmapping file into a normalized organism→accessions map.
     ///
     /// Format: accession\tGCF_ID\torganism_name\tdescription
-    private func parseGCFMappingData(url: URL) -> OrganismAccessionMap {
+    private nonisolated func parseGCFMappingData(url: URL) -> OrganismAccessionMap {
         guard let content = try? String(contentsOf: url, encoding: .utf8) else { return [:] }
         var mapping: OrganismAccessionMap = [:]
         for line in content.components(separatedBy: .newlines) {
@@ -1731,7 +1783,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
     }
 
     /// Merges a parsed organism→accessions mapping into an existing destination map.
-    private func mergeOrganismMappings(_ incoming: OrganismAccessionMap, into destination: inout OrganismAccessionMap) {
+    private nonisolated func mergeOrganismMappings(_ incoming: OrganismAccessionMap, into destination: inout OrganismAccessionMap) {
         for (organism, accessions) in incoming {
             destination[organism, default: []].append(contentsOf: accessions)
             destination[organism] = uniqueAccessionsPreservingOrder(destination[organism] ?? [])
@@ -1746,7 +1798,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         }
     }
 
-    private func uniqueAccessionsPreservingOrder(_ accessions: [String]) -> [String] {
+    private nonisolated func uniqueAccessionsPreservingOrder(_ accessions: [String]) -> [String] {
         var seen = Set<String>()
         var ordered: [String] = []
         ordered.reserveCapacity(accessions.count)
@@ -1758,7 +1810,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         return ordered
     }
 
-    private func normalizedOrganismName(_ value: String) -> String {
+    private nonisolated func normalizedOrganismName(_ value: String) -> String {
         OrganismNameNormalizer.normalizedKey(value)
     }
 
@@ -1862,8 +1914,14 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         deduplicatedReadCountTask = Task { [weak self] in
             guard let self else { return }
 
+            // Resolve reference lengths off the main actor, and only once: a
+            // length missing from the header/idxstats parse will never appear
+            // by re-running samtools again for the same BAM, so the old
+            // per-accession re-parse inside the loop below only added
+            // redundant `Process` spawns on the main actor without ever
+            // finding anything new.
             if self.accessionLengths.isEmpty {
-                self.parseBamReferenceLengths(bamURL: bamURL, indexURL: bamIndexURL)
+                await self.parseBamReferenceLengthsOffMain(bamURL: bamURL, indexURL: bamIndexURL)
             }
 
             for row in rowsByReadCount {
@@ -1882,9 +1940,8 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
 
                 for accession in rowAccessions {
                     if Task.isCancelled { return }
-                    if self.accessionLengths[accession] == nil {
-                        self.parseBamReferenceLengths(bamURL: bamURL, indexURL: bamIndexURL)
-                    }
+                    // Missing means skip: the length was already resolved once
+                    // above from the full BAM header/idxstats parse.
                     guard let contigLength = self.accessionLengths[accession] else { continue }
 
                     do {
@@ -1956,71 +2013,73 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
 
             // Build per-sample organism→accession mappings and accession lengths
             // without touching the shared `accessionLengths`/`organismToAccessions` dicts.
+            // Prefer pre-built sample-scoped mappings from configureFromDatabase(),
+            // snapshotted here (Sendable) so the fallback discovery below can run
+            // entirely off the main actor.
+            let prebuiltOrgToAccessionsBySample = self.organismToAccessionsBySample
+
             for subdir in subdirs {
                 if Task.isCancelled { return }
                 let sampleId = subdir.lastPathComponent
                 guard let bamURL = bamsBySample[sampleId] else { continue }
+                let prebuiltMapping = prebuiltOrgToAccessionsBySample[sampleId] ?? [:]
 
-                // Resolve BAM index (adjacent or external under this sample subtree).
-                let indexCandidates = self.collectFilesRecursively(in: subdir) { fileURL in
-                    let ext = fileURL.pathExtension.lowercased()
-                    return ext == "bai" || ext == "csi"
-                }
-                guard let indexURL = self.resolveBamIndex(for: bamURL, allOutputFiles: indexCandidates) else {
+                // Directory walks (BAM index resolution, GCF mapping discovery) and
+                // GCF file parsing are pure given their inputs, so they run in a
+                // detached task rather than on the main actor. Only the small,
+                // Sendable discovery result below is applied back to `self`.
+                let discovery = await Task.detached(priority: .userInitiated) { [weak self] () -> TaxTriageBatchSampleDiscovery in
+                    // `self` is only used to reach `nonisolated` helper methods
+                    // (pure functions of their arguments); nothing here reads or
+                    // writes main-actor-isolated state.
+                    guard let self else { return TaxTriageBatchSampleDiscovery(indexURL: nil, organismToAccessions: [:]) }
+                    let indexCandidates = self.collectFilesRecursively(in: subdir) { fileURL in
+                        let ext = fileURL.pathExtension.lowercased()
+                        return ext == "bai" || ext == "csi"
+                    }
+                    guard let indexURL = self.resolveBamIndex(for: bamURL, allOutputFiles: indexCandidates) else {
+                        return TaxTriageBatchSampleDiscovery(indexURL: nil, organismToAccessions: [:])
+                    }
+
+                    var localOrgToAccessions = prebuiltMapping
+                    if localOrgToAccessions.isEmpty {
+                        let gcfFiles = self.collectFilesRecursively(in: subdir) { fileURL in
+                            fileURL.lastPathComponent.contains("gcfmapping.tsv")
+                        }
+                        for gcfURL in gcfFiles {
+                            let parsed = self.parseGCFMappingData(url: gcfURL)
+                            self.mergeOrganismMappings(parsed, into: &localOrgToAccessions)
+                        }
+                    }
+                    return TaxTriageBatchSampleDiscovery(indexURL: indexURL, organismToAccessions: localOrgToAccessions)
+                }.value
+
+                guard let indexURL = discovery.indexURL else {
                     logger.debug("Batch dedup: no BAM index for sample \(sampleId, privacy: .public)")
                     continue
                 }
-
-                // Prefer pre-built sample-scoped mappings from configureFromDatabase().
-                var localOrgToAccessions: [String: [String]] = self.organismToAccessionsBySample[sampleId] ?? [:]
-
-                // Fallback: parse any recursive GCF mapping files for this sample.
-                if localOrgToAccessions.isEmpty {
-                    let gcfFiles = self.collectFilesRecursively(in: subdir) { fileURL in
-                        fileURL.lastPathComponent.contains("gcfmapping.tsv")
-                    }
-                    for gcfURL in gcfFiles {
-                        let parsed = self.parseGCFMappingData(url: gcfURL)
-                        self.mergeOrganismMappings(parsed, into: &localOrgToAccessions)
-                    }
-                }
-
-                if localOrgToAccessions.isEmpty {
+                let localOrgToAccessions = discovery.organismToAccessions
+                guard !localOrgToAccessions.isEmpty else {
                     logger.debug("Batch dedup: no GCF mapping for sample \(sampleId, privacy: .public)")
                     continue
                 }
 
-                // Parse accession lengths from BAM header for this sample's references.
+                // Parse accession lengths from BAM header for this sample's references,
+                // off the main actor: the samtools spawn and pipe drains run in a
+                // detached task, draining stdout and stderr concurrently so a noisy
+                // samtools cannot deadlock the caller. This is the batch-mode twin of
+                // the single-sample `parseBamReferenceLengthsOffMain` path above.
                 var localLengths: [String: Int] = [:]
                 if let samtoolsPath = ManagedToolLocator.managedToolExecutablePath(.samtools) {
-                    let samtools = URL(fileURLWithPath: samtoolsPath)
-                    let proc = Process()
-                    proc.executableURL = samtools
-                    proc.arguments = ["view", "-H", bamURL.path]
-                    let pipe = Pipe()
-                    proc.standardOutput = pipe
-                    proc.standardError = Pipe()
-                    if let _ = try? proc.run() {
-                        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-                        proc.waitUntilExit()
-                        if let output = String(data: data, encoding: .utf8) {
-                            for line in output.components(separatedBy: .newlines) where line.hasPrefix("@SQ") {
-                                let fields = line.components(separatedBy: "\t")
-                                var name: String?
-                                var length: Int?
-                                for field in fields {
-                                    if field.hasPrefix("SN:") {
-                                        name = String(field.dropFirst(3))
-                                    } else if field.hasPrefix("LN:") {
-                                        length = Int(field.dropFirst(3))
-                                    }
-                                }
-                                if let name, let length, length > 0 {
-                                    localLengths[name] = length
-                                }
-                            }
-                        }
-                    }
+                    let headerBamPath = bamURL.path
+                    let snapshot = await Task.detached(priority: .userInitiated) {
+                        Self.parseBamReferenceLengthsSnapshot(
+                            bamPath: headerBamPath,
+                            indexPath: nil,
+                            samtoolsPath: samtoolsPath
+                        )
+                    }.value
+                    localLengths = snapshot.accessionLengths
                 }
 
                 let provider = AlignmentDataProvider(
@@ -2059,7 +2118,13 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
                         // Use the BAM-derived unique count — no capping against TSV read count.
                         let trueUnique = max(1, totalUnique)
                         self.perSampleDeduplicatedReadCounts[normalizedOrganism, default: [:]][sampleId] = trueUnique
-                        self.syncUniqueReadsToFlatTable()
+                        // Update only this (organism, sample) key through the cached
+                        // index, and coalesce the table reload, rather than rescanning
+                        // every computed pair (syncUniqueReadsToFlatTable) once per
+                        // organism — this was the O(organisms x samples x rows) pass
+                        // that repainted the table once per organism during a batch run.
+                        self.updateFlatTableKey(normalizedOrganism: normalizedOrganism, sampleId: sampleId, uniqueReadCount: trueUnique)
+                        self.scheduleCoalescedUniqueReadsColumnReload()
                     }
                 }
             }
@@ -2253,41 +2318,47 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
     /// Merges `perSampleDeduplicatedReadCounts` into `batchFlatTableView.uniqueReadsByKey`
     /// and reloads the table so the Unique Reads column reflects the latest computed values.
     ///
-    /// Called after each background deduplication update so the batch flat table stays current.
-    /// Uses merge semantics so that DB-cached values are preserved for rows not yet
-    /// recomputed from BAM.
+    /// Called after a full recompute (e.g. loading a persisted cache) so the batch
+    /// flat table stays current. Uses merge semantics so that DB-cached values are
+    /// preserved for rows not yet recomputed from BAM.
+    ///
+    /// The per-(organism, sample) incremental path during batch dedup computation
+    /// uses `applyOneUniqueReadCountToFlatTable` instead, which updates a single
+    /// key through the cached index rather than rescanning every computed pair
+    /// and re-linear-scanning `allBatchGroupRows` for each one (previously
+    /// O(organisms x samples x rows) over the course of a batch computation).
     private func syncUniqueReadsToFlatTable() {
         guard isBatchGroupMode || isMultiSampleSingleResultMode else { return }
         for (normalizedOrganism, perSample) in perSampleDeduplicatedReadCounts {
             for (sampleId, count) in perSample {
-                // Find the display organism name by matching normalisation.
-                // Prefer the raw organism name from allBatchGroupRows for accurate key construction.
-                let displayOrganism: String
-                if let match = allBatchGroupRows.first(where: {
-                    normalizedOrganismName($0.organism) == normalizedOrganism && $0.sample == sampleId
-                }) {
-                    displayOrganism = match.organism
-                } else {
-                    // Fall back to the normalized name if no exact match found.
-                    displayOrganism = normalizedOrganism
-                }
-                let key = "\(sampleId)\t\(displayOrganism)"
-                let readCount = batchFlatTableView.totalReadsByKey[key]
-                    ?? allBatchGroupRows.first {
-                        normalizedOrganismName($0.organism) == normalizedOrganism && $0.sample == sampleId
-                    }?.reads
-                    ?? 0
-                batchFlatTableView.uniqueReadsByKey[key] = ClassifierUniqueReads.normalizedOrFloor(
-                    stored: count,
-                    readCount: readCount
-                )
+                updateFlatTableKey(normalizedOrganism: normalizedOrganism, sampleId: sampleId, uniqueReadCount: count)
             }
         }
         // Reload visible rows without resetting scroll position.
         batchFlatTableView.reloadUniqueReadsColumn()
     }
 
-    private func resolveBamIndex(for bamURL: URL, allOutputFiles: [URL]) -> URL? {
+    /// Updates a single (organism, sample) entry in `batchFlatTableView.uniqueReadsByKey`
+    /// using the cached row index, without touching any other key or reloading the table.
+    /// Callers that update many keys in a loop (batch dedup computation) should call this
+    /// per key and reload the table once at the end, rather than calling
+    /// `syncUniqueReadsToFlatTable()` per key.
+    private func updateFlatTableKey(normalizedOrganism: String, sampleId: String, uniqueReadCount: Int) {
+        // Find the display organism name by matching normalisation.
+        // Prefer the raw organism name from allBatchGroupRows for accurate key construction.
+        let rowIndex = organismSampleRowIndex()
+        let indexKey = "\(normalizedOrganism)\t\(sampleId)"
+        let matchedRow = rowIndex[indexKey]
+        let displayOrganism = matchedRow?.organism ?? normalizedOrganism
+        let key = "\(sampleId)\t\(displayOrganism)"
+        let readCount = batchFlatTableView.totalReadsByKey[key] ?? matchedRow?.reads ?? 0
+        batchFlatTableView.uniqueReadsByKey[key] = ClassifierUniqueReads.normalizedOrFloor(
+            stored: uniqueReadCount,
+            readCount: readCount
+        )
+    }
+
+    private nonisolated func resolveBamIndex(for bamURL: URL, allOutputFiles: [URL]) -> URL? {
         let fm = FileManager.default
         let adjacentBAI = URL(fileURLWithPath: bamURL.path + ".bai")
         if fm.fileExists(atPath: adjacentBAI.path) { return adjacentBAI }
@@ -2323,6 +2394,26 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         mergeBAMReferenceSnapshot(snapshot)
     }
 
+    /// Off-main variant of `parseBamReferenceLengths`. The samtools spawns and
+    /// blocking pipe reads happen in a detached task; only the final,
+    /// `Sendable` snapshot merge touches `self` on the main actor.
+    private func parseBamReferenceLengthsOffMain(bamURL: URL, indexURL: URL? = nil) async {
+        guard let samtoolsPath = ManagedToolLocator.managedToolExecutablePath(.samtools) else {
+            logger.warning("Cannot parse BAM references: samtools not found")
+            return
+        }
+        let bamPath = bamURL.path
+        let indexPath = indexURL?.path
+        let snapshot = await Task.detached(priority: .userInitiated) {
+            Self.parseBamReferenceLengthsSnapshot(
+                bamPath: bamPath,
+                indexPath: indexPath,
+                samtoolsPath: samtoolsPath
+            )
+        }.value
+        mergeBAMReferenceSnapshot(snapshot)
+    }
+
     private nonisolated static func parseBamReferenceLengthsSnapshot(
         bamPath: String,
         indexPath: String?,
@@ -2343,13 +2434,28 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
             proc.standardError = errPipe
             do {
                 try proc.run()
-                let outData = outPipe.fileHandleForReading.readDataToEndOfFile()
-                let errData = errPipe.fileHandleForReading.readDataToEndOfFile()
+                // Read stdout and stderr CONCURRENTLY to prevent pipe deadlock:
+                // reading stdout to EOF before touching stderr blocks forever if
+                // samtools writes more than one pipe buffer (64 KB) of warnings.
+                let outBox = TaxTriagePipeReadBox()
+                let errBox = TaxTriagePipeReadBox()
+                let group = DispatchGroup()
+                group.enter()
+                DispatchQueue.global(qos: .userInitiated).async {
+                    outBox.data = outPipe.fileHandleForReading.readDataToEndOfFile()
+                    group.leave()
+                }
+                group.enter()
+                DispatchQueue.global(qos: .userInitiated).async {
+                    errBox.data = errPipe.fileHandleForReading.readDataToEndOfFile()
+                    group.leave()
+                }
+                group.wait()
                 proc.waitUntilExit()
                 return (
                     proc.terminationStatus,
-                    String(data: outData, encoding: .utf8) ?? "",
-                    String(data: errData, encoding: .utf8) ?? ""
+                    String(data: outBox.data, encoding: .utf8) ?? "",
+                    String(data: errBox.data, encoding: .utf8) ?? ""
                 )
             } catch {
                 logger.warning("Failed to run samtools \(arguments.joined(separator: " "), privacy: .public): \(error.localizedDescription, privacy: .public)")

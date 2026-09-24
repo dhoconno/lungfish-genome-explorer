@@ -53,6 +53,43 @@ public struct OperationLogEntry: Sendable, Identifiable {
     }
 }
 
+/// The reason `OperationCenter.begin` refused to start an operation.
+///
+/// Currently the only refusal reason is a conflicting bundle lock, but this is
+/// a struct (not a bare string) so a future refusal reason can be added
+/// without changing every caller's switch statement into a compile error in
+/// the wrong place.
+public struct OperationStartRefusal: Sendable {
+    /// The id of the visible "Bundle is busy" failed row `OperationCenter`
+    /// inserted for this refusal, so a caller that wants to reference it
+    /// (for example, to log alongside the refusal) can.
+    public let id: UUID
+    /// The title of the operation currently holding the conflicting lock.
+    public let blockingOperationTitle: String
+    /// A user-facing message describing the conflict, matching the failed
+    /// row's `detail` text.
+    public let message: String
+}
+
+/// The result of `OperationCenter.begin`, which the caller must switch on
+/// before doing any work that mutates the target bundle or launches a
+/// subprocess/transport.
+public enum OperationStartResult: Sendable {
+    /// The operation was registered and is `.running`. The caller may proceed.
+    case started(UUID)
+    /// A bundle lock conflicted. The caller MUST NOT launch a subprocess,
+    /// transport, or bundle mutation. A visible "Bundle is busy" failed row
+    /// has already been inserted; the caller needs to do nothing further
+    /// unless it wants to log or present its own message using `refusal`.
+    case refused(OperationStartRefusal)
+
+    /// The started operation's id, or `nil` when refused.
+    public var startedID: UUID? {
+        if case .started(let id) = self { return id }
+        return nil
+    }
+}
+
 public struct OperationRetryMetadata: Sendable, Identifiable, Codable, Equatable {
     public let id: UUID
     public let timestamp: Date
@@ -298,6 +335,29 @@ public final class OperationCenter: ObservableObject {
         items.filter { $0.state.isActive }.count
     }
 
+    /// All currently running or cancelling operations.
+    ///
+    /// Used by FEA-06's quit and window-close warnings: `applicationShouldTerminate`
+    /// checks every active item, while a window-close check narrows to
+    /// ``activeItems(forProjectURL:)`` so closing one project window does not
+    /// warn about work running in a different project's window.
+    public var activeItems: [Item] {
+        items.filter { $0.state.isActive }
+    }
+
+    /// Active operations whose ``OperationRouteContext/projectURL`` matches
+    /// `projectURL`, plus any active operation with no route context (routing
+    /// is best-effort, so an unrouted operation is treated as belonging to
+    /// every window rather than silently ignored).
+    public func activeItems(forProjectURL projectURL: URL?) -> [Item] {
+        guard let projectURL else { return activeItems }
+        let standardized = projectURL.standardizedFileURL
+        return activeItems.filter { item in
+            guard let itemProjectURL = item.routeContext?.projectURL else { return true }
+            return itemProjectURL == standardized
+        }
+    }
+
     // MARK: - Bundle Locking
 
     /// Returns whether an ordinary exact-target operation can start without
@@ -370,6 +430,15 @@ public final class OperationCenter: ObservableObject {
 
     /// Starts tracking a new operation.
     ///
+    /// This entry point cannot tell its caller whether the bundle lock refused
+    /// the operation: it always returns a normal `UUID`, even when the row it
+    /// inserted is already `.failed` ("Bundle is busy"). Any caller that passes
+    /// `targetBundleURL` or `additionalLockedBundleURLs` — i.e. any caller for
+    /// whom the refusal matters — must use ``begin(title:detail:operationType:targetBundleURL:additionalLockedBundleURLs:startedAt:cliCommand:workflowRunID:routeContext:onCancel:)``
+    /// instead, and must not launch a subprocess or mutate the bundle unless it
+    /// receives `.started`. This overload remains for callers with no bundle
+    /// target, where refusal cannot occur.
+    ///
     /// - Parameters:
     ///   - title: Human-readable operation title.
     ///   - detail: Initial status detail text.
@@ -378,6 +447,8 @@ public final class OperationCenter: ObservableObject {
     ///   - cliCommand: Optional reconstructed CLI invocation for display.
     ///   - onCancel: Callback invoked if the user cancels the operation.
     /// - Returns: The unique ID for the new operation item.
+    @available(*, deprecated, message: "Use begin(...) when the operation carries a targetBundleURL or additionalLockedBundleURLs, so a bundle-lock refusal cannot be ignored.")
+    @discardableResult
     public func start(
         title: String,
         detail: String,
@@ -390,6 +461,82 @@ public final class OperationCenter: ObservableObject {
         routeContext: OperationRouteContext? = nil,
         onCancel: (@Sendable () -> Void)? = nil
     ) -> UUID {
+        insertOperation(
+            title: title,
+            detail: detail,
+            operationType: operationType,
+            targetBundleURL: targetBundleURL,
+            additionalLockedBundleURLs: additionalLockedBundleURLs,
+            startedAt: startedAt,
+            cliCommand: cliCommand,
+            workflowRunID: workflowRunID,
+            routeContext: routeContext,
+            onCancel: onCancel
+        ).id
+    }
+
+    /// Starts tracking a new operation, refusing a call the caller cannot ignore.
+    ///
+    /// Unlike ``start(title:detail:operationType:targetBundleURL:additionalLockedBundleURLs:startedAt:cliCommand:workflowRunID:routeContext:onCancel:)``,
+    /// this makes a bundle-lock conflict a value the caller must switch on. The
+    /// visible "Bundle is busy" failed row is still inserted on refusal (same
+    /// behaviour as `start`) so the Operations panel keeps showing what
+    /// happened; only the return type changes so the refusal cannot be
+    /// dropped on the floor.
+    ///
+    /// Callers MUST NOT launch a subprocess, transport, or bundle mutation
+    /// before checking the result, and MUST NOT do so at all when the result
+    /// is `.refused`.
+    ///
+    /// - Returns: `.started(UUID)` when the operation was registered and is
+    ///   now `.running`, or `.refused(OperationStartRefusal)` when a bundle
+    ///   lock conflicted. The refused case's `id` is the id of the visible
+    ///   failed row, in case the caller wants to reference it.
+    public func begin(
+        title: String,
+        detail: String,
+        operationType: OperationType = .download,
+        targetBundleURL: URL? = nil,
+        additionalLockedBundleURLs: [URL] = [],
+        startedAt: Date = Date(),
+        cliCommand: String? = nil,
+        workflowRunID: UUID? = nil,
+        routeContext: OperationRouteContext? = nil,
+        onCancel: (@Sendable () -> Void)? = nil
+    ) -> OperationStartResult {
+        let outcome = insertOperation(
+            title: title,
+            detail: detail,
+            operationType: operationType,
+            targetBundleURL: targetBundleURL,
+            additionalLockedBundleURLs: additionalLockedBundleURLs,
+            startedAt: startedAt,
+            cliCommand: cliCommand,
+            workflowRunID: workflowRunID,
+            routeContext: routeContext,
+            onCancel: onCancel
+        )
+        guard let refusal = outcome.refusal else { return .started(outcome.id) }
+        return .refused(refusal)
+    }
+
+    private struct InsertOutcome {
+        let id: UUID
+        let refusal: OperationStartRefusal?
+    }
+
+    private func insertOperation(
+        title: String,
+        detail: String,
+        operationType: OperationType,
+        targetBundleURL: URL?,
+        additionalLockedBundleURLs: [URL],
+        startedAt: Date,
+        cliCommand: String?,
+        workflowRunID: UUID?,
+        routeContext: OperationRouteContext?,
+        onCancel: (@Sendable () -> Void)?
+    ) -> InsertOutcome {
         let id = UUID()
         var requestedLocks: [String: BundleLockScope] = [:]
         if let targetBundleURL { requestedLocks[canonicalLockPath(targetBundleURL)] = .exact }
@@ -423,7 +570,10 @@ public final class OperationCenter: ObservableObject {
             changes.send(.inserted(id: id, index: 0))
             notifyRemovedItems(trimCompletedItemsIfNeeded())
             postStateChangedNotification(id: id, state: .failed)
-            return id
+            return InsertOutcome(
+                id: id,
+                refusal: OperationStartRefusal(id: id, blockingOperationTitle: lockHolder.title, message: blockedDetail)
+            )
         }
 
         items.insert(
@@ -449,7 +599,7 @@ public final class OperationCenter: ObservableObject {
         changes.send(.inserted(id: id, index: 0))
         notifyRemovedItems(trimCompletedItemsIfNeeded())
         postStateChangedNotification(id: id, state: .running)
-        return id
+        return InsertOutcome(id: id, refusal: nil)
     }
 
     /// Sets the cancellation callback for an existing operation.

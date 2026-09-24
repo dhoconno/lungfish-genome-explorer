@@ -856,7 +856,13 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         }
         try FileManager.default.createDirectory(at: request.outputDirectory, withIntermediateDirectories: true)
         progressHandler?(0.04, "Preparing amplicon genotyping output workspace.")
-        _ = try copySpecialistPromptSnapshotIfNeeded(for: request)
+        // GEN-12 / D5 (2026-09-23 best-practices audit): AI haplotyping is
+        // disabled (the owner found it unreliable) and every entry point is
+        // unreachable, but every MCM-preset run still copied the AI
+        // specialist prompt into artifacts/ai-haplotyping/prompts and hashed
+        // it into provenance -- a needless step and reviewer confusion
+        // ("was AI used here?") while the feature is off. Skip it while D5
+        // is in force.
         let supportDirectory = request.outputDirectory
             .appendingPathComponent(".amplicon-genotyping", isDirectory: true)
         var failureCleanupDispositions: [AmpliconWorkDirectoryDisposition] = []
@@ -4477,7 +4483,13 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             "options": options,
             "resolvedDefaults": resolvedDefaults,
             "runtimeIdentity": runtimeIdentity,
-            "managedTools": managedToolDescriptors(ids: ["minimap2", "samtools", "pysam", "openpyxl"]),
+            // GEN-12 (2026-09-23 best-practices audit): bbtools/bbmerge was
+            // missing from this list even on runs where Illumina pair
+            // merging actually ran (IlluminaAmpliconPairMerger, invoked from
+            // mergeIlluminaPairsIfNeeded), so provenance never named a tool
+            // that materially changed the read counts and mapping inputs.
+            "managedTools": managedToolDescriptors(ids: ["minimap2", "samtools", "pysam", "openpyxl"]
+                + (illuminaPreparation?.pairMerge.performed == true ? ["bbtools"] : [])),
             "inputs": provenanceInputs,
             "files": provenanceFiles,
             "transientAlignmentOutputs": transientAlignmentOutputs,

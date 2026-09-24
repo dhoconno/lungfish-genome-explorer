@@ -140,8 +140,13 @@ final class ONTFluidigmSampleMaterializerTests: XCTestCase {
         let barcodesCSV = root.appendingPathComponent("ONT09_NB11_samples.csv")
         let outputDirectory = root.appendingPathComponent("ont-fluidigm-samples", isDirectory: true)
 
+        // GEN-01 (2026-09-23 best-practices audit): barcode assignment now
+        // anchors on CS1/rc(CS2) rather than searching the whole read, so
+        // the fixture must carry that layout.
+        let cs1 = "ACACTGACGACATGGTTCTACA"
+        let cs2rc = "AGACCAAGTCTCTGCTACCGTA"
         let barcode = "AAAACCCCGG"
-        let sequence = "TTTTCCCCAAAAGGGG\(barcode)"
+        let sequence = cs1 + "TTTTCCCCAAAAGGGG" + cs2rc + barcode
         try """
         @unique-1;size=7
         \(sequence)
@@ -214,6 +219,101 @@ final class ONTFluidigmSampleMaterializerTests: XCTestCase {
             XCTAssertEqual(Set([first, second]), Set(["LF2871", "LF2872"]))
             XCTAssertEqual(barcode, sharedBarcode)
         }
+    }
+
+    /// GEN-01 (2026-09-23 best-practices audit): before this fix,
+    /// `ONTFluidigmSampleMaterializer`'s `BarcodeMatcher` had NO CS1/CS2
+    /// awareness at all -- it scanned the whole read for any sample's
+    /// barcode as a free k-mer and took the leftmost match. A read whose
+    /// insert happens to contain a different sample's barcode sequence
+    /// (the shape several real MCM DRB alleles take) was silently
+    /// misattributed to that other sample even though its own anchored
+    /// barcode named a different animal. The anchored fix must only look
+    /// in the window after rc(CS2).
+    func testMaterializesToTrueSampleWhenInsertEmbedsAnotherSamplesBarcode() async throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let inputFASTQ = root.appendingPathComponent("barcode11.fastq")
+        let barcodesCSV = root.appendingPathComponent("ONT09_NB11_samples.csv")
+        let outputDirectory = root.appendingPathComponent("ont-fluidigm-samples", isDirectory: true)
+
+        let cs1 = "ACACTGACGACATGGTTCTACA"
+        let cs2rc = "AGACCAAGTCTCTGCTACCGTA"
+        let fld0001Barcode = "AAAACCCCGG"
+        let fld0026Barcode = "GAGTGTCACT"
+        let insertEmbeddingOtherBarcode = "ACGTACGTACGTACGT" + fld0026Barcode + "TTTTGGGGCCCCAAAA"
+        let read = cs1 + insertEmbeddingOtherBarcode + cs2rc + fld0001Barcode
+        try """
+        @read-1
+        \(read)
+        +
+        \(String(repeating: "I", count: read.count))
+        """.write(to: inputFASTQ, atomically: true, encoding: .utf8)
+        try """
+        sample,barcode
+        FLD0001,\(fld0001Barcode)
+        FLD0026,\(fld0026Barcode)
+        """.write(to: barcodesCSV, atomically: true, encoding: .utf8)
+
+        let result = try await ONTFluidigmSampleMaterializer().run(
+            ONTFluidigmSampleMaterializationRequest(
+                inputURL: inputFASTQ,
+                barcodeDefinitionsURL: barcodesCSV,
+                outputDirectory: outputDirectory,
+                force: true
+            )
+        )
+
+        XCTAssertEqual(result.inputReadCount, 1)
+        XCTAssertEqual(result.assignedReadCount, 1)
+        XCTAssertEqual(result.outputBundleURLs.map(\.lastPathComponent), ["FLD0001.lungfishfastq"])
+        XCTAssertFalse(result.outputBundleURLs.contains { $0.lastPathComponent == "FLD0026.lungfishfastq" })
+    }
+
+    /// GEN-01: a corrupted (1-mismatch) anchored barcode must leave the read
+    /// unassigned even when an unrelated sample's exact barcode appears
+    /// elsewhere in the read, outside the anchor window.
+    func testLeavesReadUnassignedWhenAnchoredBarcodeIsMismatchedRatherThanUsingDistantExactMatch() async throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let inputFASTQ = root.appendingPathComponent("barcode11.fastq")
+        let barcodesCSV = root.appendingPathComponent("ONT09_NB11_samples.csv")
+        let outputDirectory = root.appendingPathComponent("ont-fluidigm-samples", isDirectory: true)
+
+        let cs1 = "ACACTGACGACATGGTTCTACA"
+        let cs2rc = "AGACCAAGTCTCTGCTACCGTA"
+        let fld0001Barcode = "AAAACCCCGG"
+        let fld0026Barcode = "GAGTGTCACT"
+        let corruptedFLD0001Barcode = "AAAAGCCCGG"
+        XCTAssertNotEqual(corruptedFLD0001Barcode, fld0001Barcode)
+        let insertEmbeddingOtherBarcode = "ACGTACGTACGTACGT" + fld0026Barcode + "TTTTGGGGCCCCAAAA"
+        let read = cs1 + insertEmbeddingOtherBarcode + cs2rc + corruptedFLD0001Barcode
+        try """
+        @read-1
+        \(read)
+        +
+        \(String(repeating: "I", count: read.count))
+        """.write(to: inputFASTQ, atomically: true, encoding: .utf8)
+        try """
+        sample,barcode
+        FLD0001,\(fld0001Barcode)
+        FLD0026,\(fld0026Barcode)
+        """.write(to: barcodesCSV, atomically: true, encoding: .utf8)
+
+        let result = try await ONTFluidigmSampleMaterializer().run(
+            ONTFluidigmSampleMaterializationRequest(
+                inputURL: inputFASTQ,
+                barcodeDefinitionsURL: barcodesCSV,
+                outputDirectory: outputDirectory,
+                force: true
+            )
+        )
+
+        XCTAssertEqual(result.inputReadCount, 1)
+        XCTAssertEqual(result.assignedReadCount, 0, "a mismatched anchor barcode must not fall back to a distant exact k-mer match")
+        XCTAssertEqual(result.outputBundleURLs, [])
     }
 
     /// R3-R3H-6: collision via reverse-complement, mirroring the amplicon

@@ -169,6 +169,146 @@ public struct ProjectStorageScanner {
         )
     }
 
+    /// FEA-06: finds directories still carrying the `.processing` sentinel
+    /// (see ``OperationMarker``) — outputs from an operation the sidebar is
+    /// hiding because it looks unfinished, whether that is still true or the
+    /// operation was interrupted by a quit, a crash, or a cancelled window
+    /// close before it could clear the marker.
+    ///
+    /// This is a separate, shallow, read-only pass rather than a case added
+    /// to ``scan(projectURL:progress:)``'s owned-work candidate walk: that
+    /// walk's hard-link tracking and ownership-marker rules exist to prove a
+    /// directory is safe to *delete*, which does not apply here — an
+    /// in-progress operation's output must never be offered for automatic
+    /// removal. Entries are always ``ProjectStorageClassification/Disposition/reviewRequired``,
+    /// which is never auto-selected by ``ProjectStorageScanResult/reclaimableLogicalBytes``.
+    /// Callers should cross-reference `OperationCenter.shared.activeItems`
+    /// before badging a match as "interrupted" versus "still running in this
+    /// session" (this scanner has no access to in-process operation state).
+    public func scanInterruptedOperationOutputs(
+        projectURL: URL,
+        maximumDepth: Int = 6
+    ) throws -> [ProjectStorageEntry] {
+        try cancellationCheck()
+        let project = projectURL.standardizedFileURL
+        let projectDescriptor: Int32
+        do {
+            projectDescriptor = try NoFollowFileSystem.openDirectoryHierarchy(project)
+        } catch {
+            throw OwnedWorkDirectoryMarkerError.unsafePath(project.path)
+        }
+        defer { Darwin.close(projectDescriptor) }
+        var projectInformation = stat()
+        guard Darwin.fstat(projectDescriptor, &projectInformation) == 0,
+              projectInformation.st_mode & S_IFMT == S_IFDIR else {
+            throw OwnedWorkDirectoryMarkerError.unsafePath(project.path)
+        }
+        let projectIdentity = FileSystemObjectIdentity(from: projectInformation)
+
+        var results: [ProjectStorageEntry] = []
+        try walkForInterruptedMarkers(
+            directory: project,
+            projectURL: project,
+            projectIdentity: projectIdentity,
+            depth: 0,
+            maximumDepth: maximumDepth,
+            results: &results
+        )
+        return results
+    }
+
+    private func walkForInterruptedMarkers(
+        directory: URL,
+        projectURL: URL,
+        projectIdentity: FileSystemObjectIdentity,
+        depth: Int,
+        maximumDepth: Int,
+        results: inout [ProjectStorageEntry]
+    ) throws {
+        try cancellationCheck()
+        guard depth <= maximumDepth else { return }
+
+        let children: [URL]
+        do {
+            children = try FileManager.default.contentsOfDirectory(
+                at: directory,
+                includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey],
+                options: [.skipsHiddenFiles]
+            )
+        } catch {
+            return
+        }
+
+        for child in children {
+            try cancellationCheck()
+            let resourceValues = try? child.resourceValues(
+                forKeys: [.isDirectoryKey, .isSymbolicLinkKey]
+            )
+            guard resourceValues?.isSymbolicLink != true,
+                  resourceValues?.isDirectory == true else { continue }
+
+            if OperationMarker.isInProgress(child) {
+                var information = stat()
+                let hasStat = Darwin.lstat(child.path, &information) == 0
+                    && information.st_mode & S_IFMT == S_IFDIR
+                let identity = hasStat
+                    ? FileSystemObjectIdentity(from: information)
+                    : FileSystemObjectIdentity(device: 0, inode: 0)
+                let (logicalBytes, allocatedBytes) = (try? directorySize(child)) ?? (0, 0)
+                let modificationDate = (try? child.resourceValues(forKeys: [.contentModificationDateKey]))?
+                    .contentModificationDate ?? Date()
+                let relative = relativePath(from: projectURL, to: child)
+                results.append(
+                    ProjectStorageEntry(
+                        projectIdentity: projectIdentity,
+                        relativePath: relative,
+                        identity: identity,
+                        category: .interruptedOutput,
+                        logicalBytes: logicalBytes,
+                        allocatedBytes: allocatedBytes,
+                        modificationDate: modificationDate,
+                        classification: .reviewRequired(
+                            .interruptedOperationOutput,
+                            reason: "Still carries the .processing marker from an operation that may have been interrupted."
+                        )
+                    )
+                )
+                // Do not descend into an in-progress output tree: its
+                // children are not independently interesting entries.
+                continue
+            }
+
+            try walkForInterruptedMarkers(
+                directory: child,
+                projectURL: projectURL,
+                projectIdentity: projectIdentity,
+                depth: depth + 1,
+                maximumDepth: maximumDepth,
+                results: &results
+            )
+        }
+    }
+
+    private func directorySize(_ url: URL) throws -> (logical: UInt64, allocated: UInt64) {
+        var logical: UInt64 = 0
+        var allocated: UInt64 = 0
+        guard let enumerator = FileManager.default.enumerator(
+            at: url,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: []
+        ) else {
+            return (0, 0)
+        }
+        for case let fileURL as URL in enumerator {
+            var information = stat()
+            guard Darwin.lstat(fileURL.path, &information) == 0 else { continue }
+            if information.st_mode & S_IFMT == S_IFDIR { continue }
+            logical = logical.addingReportingOverflow(UInt64(information.st_size)).partialValue
+            allocated = allocated.addingReportingOverflow(UInt64(information.st_blocks) * 512).partialValue
+        }
+        return (logical, allocated)
+    }
+
     public func scan(
         projectURL: URL,
         progress: ((ProjectStorageScanProgress) -> Void)? = nil
@@ -353,6 +493,16 @@ public struct ProjectStorageScanner {
                         candidate.url,
                         category: candidate.category,
                         projectURL: project
+                    )
+                case .interruptedOutput:
+                    // Never produced by discoverCandidates(_:) — interrupted
+                    // outputs are found by the separate, additive
+                    // scanInterruptedOperationOutputs(projectURL:) pass, not
+                    // this owned-work candidate walk. Exhaustive case kept
+                    // defensive rather than reachable.
+                    classification = .reviewRequired(
+                        .interruptedOperationOutput,
+                        reason: "Still carries the .processing marker from an operation that may have been interrupted."
                     )
                 }
             }

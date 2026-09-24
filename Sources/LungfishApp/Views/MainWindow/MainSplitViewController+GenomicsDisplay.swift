@@ -1315,19 +1315,22 @@ extension MainSplitViewController {
                             self.recordUITestEvent(
                                 "fastq.operation.completed target=\(completionTarget.lastPathComponent)"
                             )
-                            self.refreshSidebarAndSelectDerivedURL(completionTarget)
-                            switch result.resolvedRequest {
-                            case .assemble:
-                                self.displayAssemblyAnalysisFromSidebar(at: completionTarget)
-                            case .map:
-                                self.displayMappingAnalysisFromSidebar(at: completionTarget)
-                            default:
-                                break
+                            self.refreshSidebarAndSelectDerivedURL(completionTarget) { [weak self] in
+                                guard let self else { return }
+                                switch result.resolvedRequest {
+                                case .assemble:
+                                    self.displayAssemblyAnalysisFromSidebar(at: completionTarget)
+                                case .map:
+                                    self.displayMappingAnalysisFromSidebar(at: completionTarget)
+                                default:
+                                    break
+                                }
+                                self.requestInspectorDocumentModeAfterDownload()
                             }
                         } else {
                             self.sidebarController.requestReloadFromFilesystem()
+                            self.requestInspectorDocumentModeAfterDownload()
                         }
-                        self.requestInspectorDocumentModeAfterDownload()
                     }
                 }
             } catch is CancellationError {
@@ -1508,7 +1511,15 @@ extension MainSplitViewController {
         return candidate
     }
 
-    func refreshSidebarAndSelectDerivedURL(_ url: URL) {
+    /// Rebases/reloads the sidebar and selects a newly-derived output.
+    ///
+    /// The recursive project scan (`reloadFromFilesystemAsync`) runs off the main
+    /// actor; only the cheap apply and the selection happen back on it once the
+    /// scan returns. Callers that invoke this from a synchronous
+    /// `MainActor.assumeIsolated` completion cannot themselves `await`, so this
+    /// method stays synchronous and does the reload-dependent follow-up (including
+    /// `didSelect`) inside its own detached continuation instead.
+    func refreshSidebarAndSelectDerivedURL(_ url: URL, didSelect: (@MainActor () -> Void)? = nil) {
         let standardizedURL = url.standardizedFileURL
         let containingDirectory = standardizedURL.deletingLastPathComponent()
         let currentProject = sidebarController.currentProjectURL?.standardizedFileURL
@@ -1527,10 +1538,20 @@ extension MainSplitViewController {
         if currentProject != targetRoot {
             mainSplitLogger.info("refreshSidebarAndSelectDerivedURL: Rebasing sidebar project root to '\(targetRoot.path, privacy: .public)'")
             sidebarController.openProject(at: targetRoot)
-        } else {
-            sidebarController.reloadFromFilesystem()
+            finishRefreshSidebarAndSelectDerivedURL(standardizedURL, didSelect: didSelect)
+            return
         }
 
+        // Plain `Task`: this method is already running on the main actor
+        // (MainSplitViewController is @MainActor), so the task inherits that
+        // isolation without an explicit, and here redundant, `@MainActor` hop.
+        Task { [weak self, weak sidebarController] in
+            await sidebarController?.reloadFromFilesystemAsync(notifyUnchangedSelectionRefresh: true)?.value
+            self?.finishRefreshSidebarAndSelectDerivedURL(standardizedURL, didSelect: didSelect)
+        }
+    }
+
+    private func finishRefreshSidebarAndSelectDerivedURL(_ standardizedURL: URL, didSelect: (@MainActor () -> Void)?) {
         let selected = sidebarController.selectItem(forURL: standardizedURL)
         if !selected {
             mainSplitLogger.warning("refreshSidebarAndSelectDerivedURL: Could not select derived output '\(standardizedURL.path, privacy: .public)' after reload")
@@ -1546,6 +1567,7 @@ extension MainSplitViewController {
            selectedItem.url?.standardizedFileURL == standardizedURL {
             displayContent(for: selectedItem)
         }
+        didSelect?()
     }
 
     /// Returns true when `url` is inside `directory` using resolved paths.

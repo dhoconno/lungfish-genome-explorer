@@ -40,6 +40,14 @@ def parse_args():
     parser.add_argument("--demux-manifest", required=True)
     parser.add_argument("--sample-manifest")
     parser.add_argument("--assignment-mode", choices=["barcode", "query-prefix"], default="barcode")
+    # GEN-01 (2026-09-23 best-practices audit): anchors for barcode
+    # assignment. The Fluidigm ONT read layout is
+    # CS1 + insert + rc(CS2) + spacer + barcode. Defaults match
+    # ONTFluidigmAmpliconMaterializer.defaultForwardPrimer/defaultReversePrimer.
+    parser.add_argument("--forward-primer", default="ACACTGACGACATGGTTCTACA")
+    parser.add_argument("--reverse-primer", default="TACGGTAGCAGAGACTTGGTCT")
+    parser.add_argument("--barcode-anchor-mismatches", type=int, default=2)
+    parser.add_argument("--barcode-window-length", type=int, default=8)
     parser.add_argument("--output-dir", required=True)
     parser.add_argument("--prefix", default="barcode08")
     parser.add_argument("--require-both-end-softclips", action="store_true")
@@ -164,6 +172,34 @@ def load_barcodes(path):
     return entries
 
 
+def validate_no_duplicate_barcode_sequences(entries):
+    """GEN-09 (2026-09-23 best-practices audit): reject a barcode sheet
+    where two samples share an effective barcode (identical sequence, or
+    one sample's barcode equal to another's reverse complement). Mirrors
+    ONTFluidigmBarcodeCollisionValidation.swift, which the Swift
+    materializers already run; this script previously had no such check and
+    would resolve the collision to whichever sample happened to be tried
+    first in `entries` order.
+    """
+    seen_by = {}
+    for entry in entries:
+        sample = entry["sample"]
+        barcode = entry["barcode"]
+        rc = reverse_complement(barcode)
+        candidates = [barcode] if rc == barcode else [barcode, rc]
+        for candidate in candidates:
+            if not candidate:
+                continue
+            first_sample = seen_by.get(candidate)
+            if first_sample is not None and first_sample != sample:
+                raise ValueError(
+                    f"Barcode sheet assigns the same effective barcode '{candidate}' to both "
+                    f"'{first_sample}' and '{sample}'. Fix the barcode sheet so each sample has "
+                    "a unique barcode (forward or reverse-complement)."
+                )
+            seen_by[candidate] = sample
+
+
 def load_demux_manifest(path):
     with open(path) as handle:
         payload = json.load(handle)
@@ -244,6 +280,12 @@ def reference_source_locus(reference_name, reference_records):
 
 
 def barcode_regex(entries):
+    """Legacy leftmost-anywhere barcode patterns.
+
+    GEN-01: no longer used to assign samples (see anchored_assign_barcode
+    below), but kept so callers that only need "does this sequence contain
+    any barcode" (there are none left in this script) are unaffected.
+    """
     pattern_to_sample = {}
     ordered_patterns = []
     for entry in entries:
@@ -254,14 +296,86 @@ def barcode_regex(entries):
     return re.compile("|".join(re.escape(pattern) for pattern in ordered_patterns)), pattern_to_sample
 
 
-def assign_barcode(sequence, regex, pattern_to_sample):
+def _approximate_match_end(pattern, sequence, start_at, max_mismatches):
+    """Returns the index just past the first window starting at or after
+    start_at that matches pattern within max_mismatches, or None."""
+    pattern_len = len(pattern)
+    seq_len = len(sequence)
+    if pattern_len == 0 or seq_len < pattern_len:
+        return None
+    last_offset = seq_len - pattern_len
+    offset = max(0, start_at)
+    while offset <= last_offset:
+        mismatches = 0
+        for index in range(pattern_len):
+            if sequence[offset + index] != pattern[index]:
+                mismatches += 1
+                if mismatches > max_mismatches:
+                    break
+        if mismatches <= max_mismatches:
+            return offset + pattern_len
+        offset += 1
+    return None
+
+
+def anchored_assign_barcode(
+    sequence,
+    entries,
+    forward_primer,
+    reverse_primer,
+    anchor_mismatches=2,
+    window_length=8,
+):
+    """GEN-01 (2026-09-23 best-practices audit): assigns a read to exactly
+    one sample by requiring its barcode to appear in the short window
+    immediately after the CS1/rc(CS2) anchor, in the Fluidigm ONT read
+    layout `CS1 + insert + rc(CS2) + spacer + barcode`.
+
+    Previously `assign_barcode` searched the *whole* read (including the
+    amplicon insert) for any sample's barcode as a free substring and took
+    the leftmost match. Several MCM DRB alleles contain a Fluidigm barcode
+    as a 10-mer substring, so reads carrying those alleles were silently
+    reassigned to whichever sample owned that barcode. This function
+    instead returns None (unassigned) whenever the anchor cannot be found,
+    no barcode matches inside the window, or more than one sample's
+    barcode matches inside the window -- it never guesses.
+
+    Tries both the as-sequenced orientation and its reverse complement, so
+    a read is anchored correctly whichever end CS1 landed on.
+    """
     if not sequence:
         return None
-    match = regex.search(sequence.upper().replace("U", "T"))
-    if match is None:
-        return None
-    entry = pattern_to_sample[match.group(0)]
-    return entry["sample"], entry["barcode"], match.start()
+    normalized = sequence.upper().replace("U", "T")
+    reverse_primer_rc = reverse_complement(reverse_primer)
+    longest_barcode = max((len(entry["barcode"]) for entry in entries), default=0)
+
+    for candidate in (normalized, reverse_complement(normalized)):
+        cs2_end = _approximate_match_end(
+            reverse_primer_rc, candidate, 0, anchor_mismatches
+        )
+        if cs2_end is None:
+            continue
+        window_end = min(len(candidate), cs2_end + window_length + longest_barcode)
+        if cs2_end >= window_end:
+            continue
+        window = candidate[cs2_end:window_end]
+        matches = {}
+        for entry in entries:
+            barcode = entry["barcode"]
+            if not barcode:
+                continue
+            relative_start = window.find(barcode)
+            if relative_start != -1 and relative_start < window_length:
+                matches[entry["sample"]] = (entry, cs2_end + relative_start)
+        if len(matches) == 1:
+            (entry, start) = next(iter(matches.values()))
+            return entry["sample"], entry["barcode"], start
+        if len(matches) > 1:
+            # Ambiguous: more than one sample's barcode matches inside the
+            # anchored window. Do not guess; try the other orientation
+            # (which will usually be a dead end too) before giving up.
+            continue
+    return None
 
 
 def assign_query_prefix(query_name, sample_totals):
@@ -390,9 +504,16 @@ def main():
         if not args.barcodes:
             raise ValueError("--barcodes is required when --assignment-mode=barcode")
         barcode_entries = load_barcodes(args.barcodes)
-        regex, pattern_to_sample = barcode_regex(barcode_entries)
+        # GEN-01: reject barcode sheets that collide on the effective
+        # (forward or reverse-complement) barcode sequence, mirroring the
+        # Swift materializers' ONTFluidigmBarcodeCollisionValidation. Left
+        # unvalidated, anchored_assign_barcode would correctly report every
+        # read matching the shared barcode as ambiguous, but a clear sheet
+        # error at load time is a better user experience than a run full of
+        # unassigned reads.
+        validate_no_duplicate_barcode_sequences(barcode_entries)
     else:
-        regex, pattern_to_sample = None, None
+        barcode_entries = None
     total_input_reads = manifest["inputReadCount"]
     output_bam = os.path.join(args.output_dir, f"{args.prefix}.retained.demuxed.bam")
     output_bai = output_bam + ".bai"
@@ -428,7 +549,14 @@ def main():
             if args.assignment_mode == "query-prefix":
                 assignment = assign_query_prefix(read.query_name, manifest["sampleTotals"])
             else:
-                assignment = assign_barcode(sequence, regex, pattern_to_sample)
+                assignment = anchored_assign_barcode(
+                    sequence,
+                    barcode_entries,
+                    args.forward_primer,
+                    args.reverse_primer,
+                    anchor_mismatches=args.barcode_anchor_mismatches,
+                    window_length=args.barcode_window_length,
+                )
             if assignment is not None:
                 sample, barcode, start = assignment
                 barcode_cache[read.query_name] = (sample, barcode, start)
@@ -586,9 +714,16 @@ def main():
             "requireFullReferenceSpan": True,
             "requireBothEndSoftclips": args.require_both_end_softclips,
             "minSupport": args.min_support,
-            "haplotypeMinSamplePercent": 0.0,
-            "haplotypeMinLocusPercent": 0.0,
-            "haplotypeMinLocusPercentOverrides": [],
+            # GEN-12 (2026-09-23 best-practices audit): this used to hard-code
+            # 0.0/[] here regardless of what was actually passed on the
+            # command line, so provenance never reflected the thresholds a
+            # run really used whenever the caller set them above the
+            # defaults.
+            "haplotypeMinSamplePercent": min_sample_fraction * 100.0,
+            "haplotypeMinLocusPercent": min_locus_fraction * 100.0,
+            "haplotypeMinLocusPercentOverrides": [
+                f"{locus}={fraction * 100.0}" for locus, fraction in sorted(locus_fraction_overrides.items())
+            ],
             "demuxRetainedReadsOnly": args.assignment_mode == "barcode"
         },
         "runtimeIdentity": {"python": sys.version, "platform": platform.platform(), "pysam": pysam.__version__, "executable": sys.executable},

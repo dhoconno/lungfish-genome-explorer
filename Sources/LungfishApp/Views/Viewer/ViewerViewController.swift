@@ -2008,7 +2008,7 @@ public class ViewerViewController: NSViewController {
             )
             let cliCommand = CLIMSAActionCommandBuilder.displayCommand(arguments: args)
             let isBundleOutput = ["reference", "msa"].contains(request.outputKind)
-            let opID = OperationCenter.shared.start(
+            let startResult = OperationCenter.shared.begin(
                 title: isBundleOutput ? "Create MSA Selection Bundle" : "Export MSA Selection",
                 detail: isBundleOutput ? "Creating bundle from \(request.displayName)..." : "Exporting \(request.displayName)...",
                 operationType: .multipleSequenceAlignmentAction,
@@ -2019,6 +2019,11 @@ public class ViewerViewController: NSViewController {
                     windowStateScope: windowStateScope
                 )
             )
+            guard case .started(let opID) = startResult else {
+                // The bundle is locked by another operation. The visible
+                // "Bundle is busy" row is already inserted; do not launch the CLI runner.
+                return
+            }
             let runner = CLIMSAActionRunner()
             OperationCenter.shared.setCancelCallback(for: opID) {
                 runner.cancel()
@@ -2096,7 +2101,7 @@ public class ViewerViewController: NSViewController {
         let cliCommand = CLIMSAActionCommandBuilder.displayCommand(arguments: arguments)
         let projectURL = ProjectTempDirectory.findProjectRoot(targetBundleURL)
         guard canWriteProjectOutputs(projectURL: projectURL, workflowName: title) else { return }
-        let opID = OperationCenter.shared.start(
+        let startResult = OperationCenter.shared.begin(
             title: title,
             detail: detail,
             operationType: .multipleSequenceAlignmentAction,
@@ -2107,6 +2112,11 @@ public class ViewerViewController: NSViewController {
                 windowStateScope: windowStateScope
             )
         )
+        guard case .started(let opID) = startResult else {
+            // The bundle is locked by another operation. The visible
+            // "Bundle is busy" row is already inserted; do not launch the CLI runner.
+            return
+        }
         let runner = CLIMSAActionRunner()
         OperationCenter.shared.setCancelCallback(for: opID) {
             runner.cancel()
@@ -2220,7 +2230,7 @@ public class ViewerViewController: NSViewController {
                 force: false
             )
             let cliCommand = CLIMSAActionCommandBuilder.displayCommand(arguments: args)
-            let opID = OperationCenter.shared.start(
+            let startResult = OperationCenter.shared.begin(
                 title: "Build Tree with IQ-TREE",
                 detail: "Inferring tree from \(request.displayName)...",
                 operationType: .phylogeneticTreeInference,
@@ -2231,6 +2241,11 @@ public class ViewerViewController: NSViewController {
                     windowStateScope: windowStateScope
                 )
             )
+            guard case .started(let opID) = startResult else {
+                // The bundle is locked by another operation. The visible
+                // "Bundle is busy" row is already inserted; do not launch the CLI runner.
+                return
+            }
             let runner = CLITreeInferenceRunner()
             OperationCenter.shared.setCancelCallback(for: opID) {
                 runner.cancel()
@@ -2308,7 +2323,7 @@ public class ViewerViewController: NSViewController {
                 args: Array(args.dropFirst())
             )
             let title = TreeBundleTransformCommand.title(for: request.operation)
-            let opID = OperationCenter.shared.start(
+            let startResult = OperationCenter.shared.begin(
                 title: title,
                 detail: "\(title) on \(request.nodeLabel)...",
                 operationType: .phylogeneticTreeTransform,
@@ -2319,6 +2334,11 @@ public class ViewerViewController: NSViewController {
                     windowStateScope: windowStateScope
                 )
             )
+            guard case .started(let opID) = startResult else {
+                // The bundle is locked by another operation. The visible
+                // "Bundle is busy" row is already inserted; do not launch the CLI runner.
+                return
+            }
             let runner = CLITreeTransformRunner()
             OperationCenter.shared.setCancelCallback(for: opID) {
                 runner.cancel()

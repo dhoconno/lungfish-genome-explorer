@@ -850,7 +850,18 @@ extension AppDelegate {
             return
         }
 
-        Task.detached { [weak self] in
+        // WFL-12: the task must be stored and the OperationCenter row given
+        // a cancel callback, or the Operations panel shows no Cancel button
+        // and a stalled import can only be ended by quitting the app (the
+        // task itself already handles CancellationError correctly below —
+        // it was only ever unreachable). `TaskBox` lets the task capture a
+        // handle to itself for that callback, set immediately after
+        // `Task.detached` returns, below.
+        final class TaskBox: @unchecked Sendable {
+            var task: Task<Void, Never>?
+        }
+        let taskBox = TaskBox()
+        let task = Task.detached { [weak self] in
             var opID: UUID?
             var bundleURL: URL?
             do {
@@ -885,6 +896,16 @@ extension AppDelegate {
                         cliCommand: cliCmd,
                         routeContext: routeContext
                     )
+                }
+                // WFL-12: without this the Operations panel shows no Cancel
+                // button for this row, and a stalled import can only be
+                // ended by quitting the app. `taskBox.task` is set to this
+                // very task right after `Task.detached` returns below, and
+                // this line cannot run before that assignment happens.
+                if let opID {
+                    await appPerformOnMainRunLoop {
+                        OperationCenter.shared.setCancelCallback(for: opID) { taskBox.task?.cancel() }
+                    }
                 }
 
                 if let opID {
@@ -949,7 +970,7 @@ extension AppDelegate {
                 }
             }
         }
-
+        taskBox.task = task
     }
 
     /// Derives the correct `pairedEnd` value for a mapping request from its

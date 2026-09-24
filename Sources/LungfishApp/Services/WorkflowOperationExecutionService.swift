@@ -53,7 +53,7 @@ struct DefaultWorkflowOperationBAMImporter: WorkflowOperationBAMImporting {
 
 protocol WorkflowOperationResultRefreshing: Sendable {
     @MainActor
-    func refresh(routeContext: OperationRouteContext?, preferredSelectionURL: URL)
+    func refresh(routeContext: OperationRouteContext?, preferredSelectionURL: URL) async
 }
 
 struct WorkflowOperationAIHaplotypingPublication: Sendable {
@@ -105,7 +105,7 @@ final class DefaultWorkflowOperationAIHaplotyper: WorkflowOperationAIHaplotyping
 
 struct DefaultWorkflowOperationResultRefresher: WorkflowOperationResultRefreshing {
     @MainActor
-    func refresh(routeContext: OperationRouteContext?, preferredSelectionURL: URL) {
+    func refresh(routeContext: OperationRouteContext?, preferredSelectionURL: URL) async {
         guard let splitViewController = AppDelegate.shared?
             .targetMainWindowController(routeContext: routeContext)?
             .mainSplitViewController else {
@@ -117,7 +117,9 @@ struct DefaultWorkflowOperationResultRefresher: WorkflowOperationResultRefreshin
             return
         }
 
-        splitViewController.sidebarController.reloadFromFilesystem()
+        // The recursive project scan runs off the main actor; only the cheap
+        // apply and the selection happen back on it once the scan returns.
+        await splitViewController.sidebarController.reloadFromFilesystemAsync(notifyUnchangedSelectionRefresh: true)?.value
         _ = splitViewController.sidebarController.selectItem(
             forURL: preferredSelectionURL.standardizedFileURL
         )
@@ -197,7 +199,7 @@ final class WorkflowOperationExecutionService {
             executableName: CLICommandIdentity.executableName,
             arguments: arguments
         )
-        let operationID = operationCenter.start(
+        let startResult = operationCenter.begin(
             title: "12S Reference Bundle",
             detail: "Creating 12S reference bundle",
             operationType: .workflow,
@@ -205,12 +207,26 @@ final class WorkflowOperationExecutionService {
             cliCommand: cliCommand,
             routeContext: routeContext
         )
+        guard case .started(let operationID) = startResult else {
+            throw LocalWorkflowExecutionError.bundleBusy("The output bundle is busy. Wait for its current operation to finish.")
+        }
         operationCenter.log(id: operationID, level: .info, message: cliCommand)
         _ = operationCenter.updateWithLog(
             id: operationID,
             progress: 0.01,
             detail: "Launching lungfish-cli for 12S reference bundle creation..."
         )
+        // WFL-12: without a cancel callback the Operations panel shows no
+        // Cancel button for this row, and a stalled run can only be ended by
+        // quitting the app. See runONTGenotyping for the same pattern.
+        operationCenter.setCancelCallback(for: operationID) { [self] in
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    guard self.operationCenter.items.first(where: { $0.id == operationID })?.state == .cancelling else { return }
+                    self.processRunner.cancel()
+                }
+            }
+        }
 
         do {
             let result = try await processRunner.runLungfishCLI(
@@ -220,6 +236,10 @@ final class WorkflowOperationExecutionService {
                     Self.recordProcessOutput(output, operationID: operationID, operationCenter: operationCenter)
                 }
             )
+            if operationCenter.items.first(where: { $0.id == operationID })?.state == .cancelling {
+                operationCenter.acknowledgeCancellation(id: operationID)
+                throw CancellationError()
+            }
             if !result.didStreamOutput {
                 logProcessOutput(result, operationID: operationID)
             }
@@ -250,7 +270,7 @@ final class WorkflowOperationExecutionService {
                 detail: "12S reference bundle created. Output: \(configuration.outputURL.path)",
                 outputURLs: outputURLs
             )
-            resultRefresher.refresh(
+            await resultRefresher.refresh(
                 routeContext: routeContext,
                 preferredSelectionURL: configuration.outputURL
             )
@@ -277,7 +297,7 @@ final class WorkflowOperationExecutionService {
             arguments: arguments
         )
         let bundleURL = twelveSAmpliconMatchingBundleURL(for: configuration)
-        let operationID = operationCenter.start(
+        let startResult = operationCenter.begin(
             title: "12S Amplicon Matching",
             detail: "Running 12S amplicon matching workflow",
             operationType: .workflow,
@@ -285,12 +305,26 @@ final class WorkflowOperationExecutionService {
             cliCommand: cliCommand,
             routeContext: routeContext
         )
+        guard case .started(let operationID) = startResult else {
+            throw LocalWorkflowExecutionError.bundleBusy("The output bundle is busy. Wait for its current operation to finish.")
+        }
         operationCenter.log(id: operationID, level: .info, message: cliCommand)
         _ = operationCenter.updateWithLog(
             id: operationID,
             progress: 0.01,
             detail: "Launching lungfish-cli for 12S amplicon matching..."
         )
+        // WFL-12: without a cancel callback the Operations panel shows no
+        // Cancel button for this row, and a stalled run can only be ended by
+        // quitting the app. See runONTGenotyping for the same pattern.
+        operationCenter.setCancelCallback(for: operationID) { [self] in
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    guard self.operationCenter.items.first(where: { $0.id == operationID })?.state == .cancelling else { return }
+                    self.processRunner.cancel()
+                }
+            }
+        }
 
         do {
             let result = try await processRunner.runLungfishCLI(
@@ -300,6 +334,10 @@ final class WorkflowOperationExecutionService {
                     Self.recordProcessOutput(output, operationID: operationID, operationCenter: operationCenter)
                 }
             )
+            if operationCenter.items.first(where: { $0.id == operationID })?.state == .cancelling {
+                operationCenter.acknowledgeCancellation(id: operationID)
+                throw CancellationError()
+            }
             if !result.didStreamOutput {
                 logProcessOutput(result, operationID: operationID)
             }
@@ -329,7 +367,7 @@ final class WorkflowOperationExecutionService {
                 detail: "12S amplicon matching completed. Output: \(bundleURL.path)",
                 outputURLs: outputURLs
             )
-            resultRefresher.refresh(
+            await resultRefresher.refresh(
                 routeContext: routeContext,
                 preferredSelectionURL: bundleURL
             )
@@ -356,7 +394,7 @@ final class WorkflowOperationExecutionService {
             executableName: CLICommandIdentity.executableName,
             arguments: arguments
         )
-        let operationID = operationCenter.start(
+        let startResult = operationCenter.begin(
             title: "miSeq amplicon MHC genotyping",
             detail: "Running miSeq amplicon MHC genotyping workflow",
             operationType: .workflow,
@@ -364,6 +402,9 @@ final class WorkflowOperationExecutionService {
             cliCommand: cliCommand,
             routeContext: routeContext
         )
+        guard case .started(let operationID) = startResult else {
+            throw LocalWorkflowExecutionError.bundleBusy("The output directory is busy. Wait for its current operation to finish.")
+        }
         operationCenter.log(id: operationID, level: .info, message: cliCommand)
         _ = operationCenter.updateWithLog(
             id: operationID,
@@ -452,7 +493,7 @@ final class WorkflowOperationExecutionService {
                 detail: "miSeq amplicon MHC genotyping completed. Output: \(request.outputDirectory.path)",
                 outputURLs: outputURLs
             ) else { throw CancellationError() }
-            resultRefresher.refresh(
+            await resultRefresher.refresh(
                 routeContext: routeContext,
                 preferredSelectionURL: preferredSelectionURL(
                     for: request,
@@ -482,7 +523,7 @@ final class WorkflowOperationExecutionService {
             executableName: CLICommandIdentity.executableName,
             arguments: arguments
         )
-        let operationID = operationCenter.start(
+        let startResult = operationCenter.begin(
             title: "Full-length ONT MHC genotyping",
             detail: "Running full-length ONT MHC genotyping workflow",
             operationType: .workflow,
@@ -490,12 +531,26 @@ final class WorkflowOperationExecutionService {
             cliCommand: cliCommand,
             routeContext: routeContext
         )
+        guard case .started(let operationID) = startResult else {
+            throw LocalWorkflowExecutionError.bundleBusy("The output directory is busy. Wait for its current operation to finish.")
+        }
         operationCenter.log(id: operationID, level: .info, message: cliCommand)
         _ = operationCenter.updateWithLog(
             id: operationID,
             progress: 0.01,
             detail: "Launching lungfish-cli for full-length ONT MHC genotyping..."
         )
+        // WFL-12: without a cancel callback the Operations panel shows no
+        // Cancel button for this row, and a stalled run can only be ended by
+        // quitting the app. See runONTGenotyping for the same pattern.
+        operationCenter.setCancelCallback(for: operationID) { [self] in
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    guard self.operationCenter.items.first(where: { $0.id == operationID })?.state == .cancelling else { return }
+                    self.processRunner.cancel()
+                }
+            }
+        }
 
         do {
             let result = try await processRunner.runLungfishCLI(
@@ -505,6 +560,10 @@ final class WorkflowOperationExecutionService {
                     Self.recordProcessOutput(output, operationID: operationID, operationCenter: operationCenter)
                 }
             )
+            if operationCenter.items.first(where: { $0.id == operationID })?.state == .cancelling {
+                operationCenter.acknowledgeCancellation(id: operationID)
+                throw CancellationError()
+            }
             if !result.didStreamOutput {
                 logProcessOutput(result, operationID: operationID)
             }
@@ -527,7 +586,7 @@ final class WorkflowOperationExecutionService {
                 detail: "Full-length ONT MHC genotyping completed. Output: \(request.outputDirectory.path)",
                 outputURLs: outputURLs
             )
-            resultRefresher.refresh(
+            await resultRefresher.refresh(
                 routeContext: routeContext,
                 preferredSelectionURL: request.outputDirectory
             )

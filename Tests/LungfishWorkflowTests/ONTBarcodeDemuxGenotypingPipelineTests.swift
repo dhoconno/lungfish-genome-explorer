@@ -644,13 +644,17 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
         XCTAssertEqual(snapshot.calls.first { $0.sampleID == "DW472" && $0.locus == "MHC-DQ" }?.h1.pipeline, "M1DQ")
         let files = try FileManager.default.subpathsOfDirectory(atPath: outputDirectory.path)
         XCTAssertFalse(files.contains { $0.hasSuffix(".current-haplotype-analysis.json") || $0.hasSuffix("/current.xlsx") })
+        // GEN-12 / D5 (2026-09-23 best-practices audit): AI haplotyping is
+        // disabled, so the run no longer copies the AI specialist prompt
+        // into artifacts/ai-haplotyping/prompts or records a provenance
+        // step for it.
         let prompt = request.specialistPromptSnapshotURL
-        XCTAssertEqual(try String(contentsOf: prompt, encoding: .utf8),
-            try MCMHaplotypingPreset.mcmMHCmiseq.bundledSpecialistPromptMarkdown())
+        XCTAssertFalse(FileManager.default.fileExists(atPath: prompt.path))
+        XCTAssertFalse(files.contains { $0.contains("ai-haplotyping") })
         let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(from: outputDirectory))
-        XCTAssertTrue(envelope.outputs.contains { $0.path == prompt.path })
+        XCTAssertFalse(envelope.outputs.contains { $0.path == prompt.path })
         XCTAssertTrue(envelope.outputs.contains { $0.path == request.haplotypeAnalysisURL.path })
-        XCTAssertTrue(envelope.steps.contains { $0.toolName == "MCM specialist prompt snapshot" })
+        XCTAssertFalse(envelope.steps.contains { $0.toolName == "MCM specialist prompt snapshot" })
         let definitionInputs = envelope.steps.flatMap(\.inputs).filter { $0.path.hasSuffix("haplotype-definition.json") }
         XCTAssertFalse(definitionInputs.isEmpty)
         let frozenURL = GenotypeHaplotypeAnalysisResolver.retainedDefinitionSnapshotURL(for: outputDirectory)
@@ -3065,12 +3069,18 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
                 return {"HD": {"VN": "1.6"}}
 
         class Read:
+            # GEN-01 (2026-09-23 best-practices audit): barcode assignment
+            # now anchors on CS1/rc(CS2) rather than searching the whole
+            # read, so the fixture sequence must carry that layout
+            # (CS1 + insert + rc(CS2) + barcode) instead of a bare
+            # "barcode somewhere in the read" string.
             def __init__(self, query_name, reference_name):
                 self.query_name = query_name
                 self.reference_name = reference_name
                 self.reference_start = 0
                 self.reference_end = 4
-                self.query_sequence = "TTACGTAA"
+                self.query_sequence = "ACACTGACGACATGGTTCTACA" + "TT" + "AGACCAAGTCTCTGCTACCGTA" + "ACGT"
+                self.is_reverse = False
                 self.cigartuples = [(4, 2), (0, 4), (4, 2)]
                 self.is_unmapped = False
                 self.tags = {}
@@ -3167,12 +3177,18 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
                 return {"HD": {"VN": "1.6"}}
 
         class Read:
+            # GEN-01 (2026-09-23 best-practices audit): barcode assignment
+            # now anchors on CS1/rc(CS2) rather than searching the whole
+            # read, so the fixture sequence must carry that layout
+            # (CS1 + insert + rc(CS2) + barcode) instead of a bare
+            # "barcode somewhere in the read" string.
             def __init__(self, query_name, reference_name):
                 self.query_name = query_name
                 self.reference_name = reference_name
                 self.reference_start = 0
                 self.reference_end = 4
-                self.query_sequence = "TTACGTAA"
+                self.query_sequence = "ACACTGACGACATGGTTCTACA" + "TT" + "AGACCAAGTCTCTGCTACCGTA" + "ACGT"
+                self.is_reverse = False
                 self.cigartuples = [(4, 2), (0, 4), (4, 2)]
                 self.is_unmapped = False
                 self.tags = {}
@@ -3253,6 +3269,183 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
         XCTAssertTrue(csv.contains("DW472,14_M1_DQA1_good,90,90"), csv)
         XCTAssertTrue(csv.contains("DW472,02_M1_G_sample_low,1,1"), csv)
         XCTAssertTrue(csv.contains("DW472,14_M1_DQA1_bleed,9,9"), csv)
+    }
+
+    /// GEN-01 (2026-09-23 best-practices audit): the reviewer's reproduction
+    /// at the Python filter level. Twenty reads of a DRB1 allele (whose
+    /// insert embeds the FLD0026 barcode as a substring, mirroring the real
+    /// MCM DRB alleles the audit found) and twenty reads of an unrelated
+    /// class I allele, all truly from Monkey_FLD0001. Before the anchored
+    /// fix, `assign_barcode` found the embedded FLD0026 k-mer via a free
+    /// substring search and moved half the DRB reads to a phantom
+    /// Monkey_FLD0026 row. After the fix, all forty reads stay in
+    /// Monkey_FLD0001 and no FLD0026 row appears at all.
+    func testAnchoredBarcodeAssignmentKeepsReadsWithEmbeddedOtherSampleBarcodeInTrueSample() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let scriptURL = root.appendingPathComponent("filter-demux-retained-bam.py")
+        let fakePysamURL = root.appendingPathComponent("pysam.py")
+        let referenceFASTA = root.appendingPathComponent("reference.fa")
+        let barcodesCSV = root.appendingPathComponent("barcodes.csv")
+        let demuxManifest = root.appendingPathComponent("demux-manifest.json")
+        let outputDirectory = root.appendingPathComponent("out", isDirectory: true)
+
+        try ONTBarcodeDemuxGenotypingPipeline.writeFilterScript(to: scriptURL)
+        // Read layout: CS1 + insert(embeds FLD0026 barcode) + rc(CS2) + FLD0001 barcode.
+        // FLD0001's own barcode is the true, anchored one; FLD0026's barcode
+        // only ever appears buried inside the insert, never anchored.
+        try """
+        __version__ = "fake"
+
+        class Header:
+            def to_dict(self):
+                return {"HD": {"VN": "1.6"}}
+
+        CS1 = "ACACTGACGACATGGTTCTACA"
+        CS2RC = "AGACCAAGTCTCTGCTACCGTA"
+        FLD0001_BARCODE = "AAAACCCCGG"
+        FLD0026_BARCODE = "GAGTGTCACT"
+
+        class Read:
+            def __init__(self, query_name, reference_name, insert):
+                self.query_name = query_name
+                self.reference_name = reference_name
+                self.reference_start = 0
+                self.reference_end = 4
+                self.query_sequence = CS1 + insert + CS2RC + FLD0001_BARCODE
+                self.is_reverse = False
+                self.cigartuples = [(4, 2), (0, 4), (4, 2)]
+                self.is_unmapped = False
+                self.tags = {}
+
+            def get_tag(self, tag):
+                if tag == "MD":
+                    return "4"
+                raise KeyError(tag)
+
+            def set_tag(self, tag, value, value_type=None):
+                self.tags[tag] = value
+
+        DRB_INSERT_EMBEDDING_FLD0026 = "ACGT" + FLD0026_BARCODE + "TTTTGGGGCCCCAAAA"
+        CLASS_I_INSERT = "ACGTACGTACGTACGTACGTACGTACGTACGT"
+
+        READS = (
+            [Read(f"drb-{i}", "MCM_MHC_MiSeq_0168", DRB_INSERT_EMBEDDING_FLD0026) for i in range(20)]
+            + [Read(f"classi-{i}", "MCM_MHC_MiSeq_0002", CLASS_I_INSERT) for i in range(20)]
+        )
+
+        class AlignmentFile:
+            def __init__(self, path, mode, header=None):
+                self.path = path
+                self.mode = mode
+                self.header = header or Header()
+                if "w" in mode:
+                    open(path, "w").close()
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+            def fetch(self, until_eof=True):
+                return list(READS)
+
+            def write(self, read):
+                with open(self.path, "a") as handle:
+                    handle.write(read.query_name + "\\n")
+
+        def index(path):
+            with open(path + ".bai", "w") as handle:
+                handle.write("index\\n")
+        """.write(to: fakePysamURL, atomically: true, encoding: .utf8)
+        try """
+        >MCM_MHC_MiSeq_0168
+        ACGT
+        >MCM_MHC_MiSeq_0002
+        ACGT
+        """.write(to: referenceFASTA, atomically: true, encoding: .utf8)
+        try """
+        sample,barcode
+        FLD0001,AAAACCCCGG
+        FLD0026,GAGTGTCACT
+        """.write(to: barcodesCSV, atomically: true, encoding: .utf8)
+        try #"{"inputReadCount":40,"barcodes":[{"barcodeID":"FLD0001","readCount":40}]}"#
+            .write(to: demuxManifest, atomically: true, encoding: .utf8)
+
+        _ = try runPython([
+            scriptURL.path,
+            "--input-bam", root.appendingPathComponent("input.bam").path,
+            "--reference-fasta", referenceFASTA.path,
+            "--barcodes", barcodesCSV.path,
+            "--demux-manifest", demuxManifest.path,
+            "--output-dir", outputDirectory.path,
+            "--prefix", "barcode10",
+            "--require-both-end-softclips",
+            "--max-mismatches", "0",
+        ], environment: ["PYTHONPATH": root.path])
+
+        let genotypesCSV = outputDirectory.appendingPathComponent("barcode10.retained_demux_genotypes.csv")
+        let csv = try String(contentsOf: genotypesCSV, encoding: .utf8)
+        XCTAssertTrue(csv.contains("FLD0001,MCM_MHC_MiSeq_0168,20,20"), csv)
+        XCTAssertTrue(csv.contains("FLD0001,MCM_MHC_MiSeq_0002,20,20"), csv)
+        XCTAssertFalse(csv.contains("FLD0026"), "no reads may be attributed to FLD0026: its barcode only ever appears embedded in the insert, never anchored -- \(csv)")
+    }
+
+    /// GEN-09 (2026-09-23 best-practices audit): a barcode sheet with two
+    /// samples sharing an effective barcode sequence must be rejected
+    /// before the filter runs, mirroring the Swift materializers'
+    /// `ONTFluidigmBarcodeCollisionValidation`.
+    func testAnchoredBarcodeAssignmentRejectsCollidingBarcodeSheet() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let scriptURL = root.appendingPathComponent("filter-demux-retained-bam.py")
+        let fakePysamURL = root.appendingPathComponent("pysam.py")
+        let referenceFASTA = root.appendingPathComponent("reference.fa")
+        let barcodesCSV = root.appendingPathComponent("barcodes.csv")
+        let demuxManifest = root.appendingPathComponent("demux-manifest.json")
+        let outputDirectory = root.appendingPathComponent("out", isDirectory: true)
+
+        try ONTBarcodeDemuxGenotypingPipeline.writeFilterScript(to: scriptURL)
+        try """
+        __version__ = "fake"
+        class Header:
+            def to_dict(self):
+                return {"HD": {"VN": "1.6"}}
+        class AlignmentFile:
+            def __init__(self, path, mode, header=None):
+                pass
+            def __enter__(self):
+                return self
+            def __exit__(self, exc_type, exc, tb):
+                return False
+            def fetch(self, until_eof=True):
+                return []
+        def index(path):
+            pass
+        """.write(to: fakePysamURL, atomically: true, encoding: .utf8)
+        try ">ref\nACGT\n".write(to: referenceFASTA, atomically: true, encoding: .utf8)
+        try """
+        sample,barcode
+        FLD0001,AAAACCCCGG
+        FLD0002,AAAACCCCGG
+        """.write(to: barcodesCSV, atomically: true, encoding: .utf8)
+        try #"{"inputReadCount":0,"barcodes":[]}"#.write(to: demuxManifest, atomically: true, encoding: .utf8)
+
+        XCTAssertThrowsError(try runPython([
+            scriptURL.path,
+            "--input-bam", root.appendingPathComponent("input.bam").path,
+            "--reference-fasta", referenceFASTA.path,
+            "--barcodes", barcodesCSV.path,
+            "--demux-manifest", demuxManifest.path,
+            "--output-dir", outputDirectory.path,
+            "--prefix", "barcode10",
+        ], environment: ["PYTHONPATH": root.path])) { error in
+            let message = (error as NSError).userInfo[NSLocalizedDescriptionKey] as? String ?? ""
+            XCTAssertTrue(message.contains("same effective barcode"), message)
+        }
     }
 
     func testRetainedDemuxFilterUsesSizeHeaderCountsForQueryPrefixSamples() throws {

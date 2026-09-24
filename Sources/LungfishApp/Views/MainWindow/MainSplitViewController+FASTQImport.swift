@@ -137,7 +137,7 @@ extension MainSplitViewController {
             }
             let bundleURL = importConfiguration.bundleURL
 
-            let opID = OperationCenter.shared.start(
+            let startResult = OperationCenter.shared.begin(
                 title: "Annotation Import",
                 detail: "Importing \(url.lastPathComponent)...",
                 operationType: .bundleBuild,
@@ -145,6 +145,17 @@ extension MainSplitViewController {
                 cliCommand: nil,
                 routeContext: operationRouteContext
             )
+            guard case .started(let opID) = startResult else {
+                // The bundle is locked by another operation. The visible
+                // "Bundle is busy" row is already inserted; do not import.
+                postSidebarFileDropCompleted(
+                    requestID: requestID,
+                    sourceURL: url,
+                    success: false,
+                    error: "Bundle is busy"
+                )
+                return
+            }
 
             do {
                 let result = try await ReferenceBundleAnnotationImportService()
@@ -950,9 +961,10 @@ extension MainSplitViewController {
                             self?.postSidebarFileDropCompleted(requestID: requestID, sourceURL: sourceURL, success: false, error: "Cancelled by user")
                             return
                         }
-                        self?.refreshSidebarAndSelectDerivedURL(completionTarget)
-                        self?.postSidebarFileDropCompleted(requestID: requestID, sourceURL: sourceURL, success: true, error: nil)
-                        self?.requestInspectorDocumentModeAfterDownload()
+                        self?.refreshSidebarAndSelectDerivedURL(completionTarget) { [weak self] in
+                            self?.postSidebarFileDropCompleted(requestID: requestID, sourceURL: sourceURL, success: true, error: nil)
+                            self?.requestInspectorDocumentModeAfterDownload()
+                        }
                     }
                 }
             } catch {
@@ -1083,9 +1095,10 @@ extension MainSplitViewController {
                             self?.postSidebarFileDropCompleted(requestID: requestID, sourceURL: sourceURL, success: false, error: "Cancelled by user")
                             return
                         }
-                        self?.refreshSidebarAndSelectDerivedURL(completionTarget)
-                        self?.postSidebarFileDropCompleted(requestID: requestID, sourceURL: sourceURL, success: true, error: nil)
-                        self?.requestInspectorDocumentModeAfterDownload()
+                        self?.refreshSidebarAndSelectDerivedURL(completionTarget) { [weak self] in
+                            self?.postSidebarFileDropCompleted(requestID: requestID, sourceURL: sourceURL, success: true, error: nil)
+                            self?.requestInspectorDocumentModeAfterDownload()
+                        }
                     }
                 }
             } catch {

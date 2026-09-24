@@ -161,27 +161,23 @@ public final class ONTFluidigmAmpliconMaterializer: Sendable {
                     )
                 }
                 let bases = Self.normalizedDNABases(record.sequence)
-                let primerExclusionRanges = Self.primerExclusionRanges(
-                    in: bases,
+                guard let sampleID = barcodeMatcher.assignAnchored(
+                    bases: bases,
                     forwardPrimer: request.forwardPrimer,
                     reversePrimer: request.reversePrimer,
-                    maxMismatches: request.primerMismatches
-                )
-                guard let entry = barcodeMatcher.assign(
-                    bases: bases,
-                    excluding: primerExclusionRanges
+                    primerMismatches: request.primerMismatches
                 ) else {
                     unassignedReadCount += 1
                     continue
                 }
                 assignedReadCount += 1
-                accumulators[entry.sampleID]?.recordAssignedRead()
+                accumulators[sampleID]?.recordAssignedRead()
                 guard let sequence = extractor.extract(from: bases) else {
                     unextractedReadCount += 1
                     continue
                 }
                 extractedReadCount += 1
-                accumulators[entry.sampleID]?.recordExtracted(sequence: sequence)
+                accumulators[sampleID]?.recordExtracted(sequence: sequence)
             }
             progress?(
                 chunkEndProgress,
@@ -528,86 +524,6 @@ public final class ONTFluidigmAmpliconMaterializer: Sendable {
         return String(decoding: rc.lexicographicallyPrecedes(sequence) ? rc : sequence, as: UTF8.self)
     }
 
-    private static func primerExclusionRanges(
-        in bases: [UInt8],
-        forwardPrimer: String,
-        reversePrimer: String,
-        maxMismatches: Int
-    ) -> [Range<Int>] {
-        let forward = Array(forwardPrimer.utf8)
-        let reverse = Array(reversePrimer.utf8)
-        let primers = [
-            forward,
-            reverseComplementBytes(reverse),
-            reverse,
-            reverseComplementBytes(forward),
-        ]
-        let ranges = primers.flatMap { primer in
-            matchingRanges(pattern: primer, in: bases, maxMismatches: maxMismatches)
-        }
-        return mergedRanges(ranges)
-    }
-
-    private static func matchingRanges(
-        pattern: [UInt8],
-        in bases: [UInt8],
-        maxMismatches: Int
-    ) -> [Range<Int>] {
-        let patternCount = pattern.count
-        guard patternCount > 0, bases.count >= patternCount else { return [] }
-        let lastOffset = bases.count - patternCount
-        var ranges: [Range<Int>] = []
-
-        var offset = 0
-        while offset <= lastOffset {
-            var mismatches = 0
-            var index = 0
-            while index < patternCount {
-                if bases[offset + index] != pattern[index] {
-                    mismatches += 1
-                    if mismatches > maxMismatches {
-                        break
-                    }
-                }
-                index += 1
-            }
-            if mismatches <= maxMismatches {
-                ranges.append(offset..<(offset + patternCount))
-            }
-            offset += 1
-        }
-        return ranges
-    }
-
-    private static func mergedRanges(_ ranges: [Range<Int>]) -> [Range<Int>] {
-        guard let first = ranges.sorted(by: { lhs, rhs in
-            lhs.lowerBound == rhs.lowerBound
-                ? lhs.upperBound < rhs.upperBound
-                : lhs.lowerBound < rhs.lowerBound
-        }).first else {
-            return []
-        }
-
-        var merged: [Range<Int>] = []
-        var currentLower = first.lowerBound
-        var currentUpper = first.upperBound
-        for range in ranges.sorted(by: { lhs, rhs in
-            lhs.lowerBound == rhs.lowerBound
-                ? lhs.upperBound < rhs.upperBound
-                : lhs.lowerBound < rhs.lowerBound
-        }).dropFirst() {
-            if range.lowerBound <= currentUpper {
-                currentUpper = max(currentUpper, range.upperBound)
-            } else {
-                merged.append(currentLower..<currentUpper)
-                currentLower = range.lowerBound
-                currentUpper = range.upperBound
-            }
-        }
-        merged.append(currentLower..<currentUpper)
-        return merged
-    }
-
     private static func reverseComplement(_ sequence: String) -> String {
         String(decoding: reverseComplementBytes(Array(sequence.utf8)), as: UTF8.self)
     }
@@ -781,114 +697,61 @@ public final class ONTFluidigmAmpliconMaterializer: Sendable {
         }
     }
 
+    /// GEN-01 (2026-09-23 best-practices audit): previously a free two-bit
+    /// leftmost k-mer scan over the whole read, which matched several MCM
+    /// DRB alleles' own sequence as a barcode. Replaced with
+    /// `ONTFluidigmAnchoredBarcodeAssigner`, which only looks in the short
+    /// window immediately after the CS1/rc(CS2) anchor and refuses to guess
+    /// when zero or multiple samples match there.
     private struct BarcodeMatcher: Sendable {
-        private struct Candidate: Sendable {
-            let entry: BarcodeEntry
-        }
-
-        private let mapsByLength: [Int: [UInt64: [Candidate]]]
-        private let lengths: [Int]
+        private let barcodesBySample: [(sampleID: String, barcode: [UInt8])]
 
         init?(entries: [BarcodeEntry]) {
-            var mapsByLength: [Int: [UInt64: [Candidate]]] = [:]
-            for entry in entries {
-                for barcode in [entry.barcode, entry.reverseComplementBarcode] where !barcode.isEmpty {
-                    guard let code = Self.twoBitCode(barcode) else { return nil }
-                    mapsByLength[barcode.utf8.count, default: [:]][code, default: []]
-                        .append(Candidate(entry: entry))
-                }
-            }
-            guard !mapsByLength.isEmpty else { return nil }
-            self.mapsByLength = mapsByLength
-            self.lengths = mapsByLength.keys.sorted()
+            guard !entries.isEmpty else { return nil }
+            // Only the forward-strand barcode is needed: the read itself is
+            // restored to the sequencing (CS1-first) orientation before the
+            // anchor search runs, so the barcode always appears in its
+            // as-sequenced orientation immediately after rc(CS2).
+            self.barcodesBySample = entries.map { ($0.sampleID, Array($0.barcode.utf8)) }
         }
 
-        func assign(bases bytes: [UInt8], excluding excludedRanges: [Range<Int>] = []) -> BarcodeEntry? {
-            var bestStart: Int?
-            var bestEntry: BarcodeEntry?
-            for length in lengths {
-                guard length <= bytes.count,
-                      let map = mapsByLength[length],
-                      let match = findFirst(
-                        in: bytes,
-                        length: length,
-                        map: map,
-                        excluding: excludedRanges
-                      ) else {
-                    continue
-                }
-                if bestStart == nil || match.start < bestStart! {
-                    bestStart = match.start
-                    bestEntry = match.entry
-                }
+        /// Assigns `bases` (already normalized to uppercase ACGTN) to the
+        /// unique sample whose barcode is found in the anchored window.
+        /// Tries the read's as-sequenced orientation first, then its
+        /// reverse complement (for chemistries where CS1 lands at the 3'
+        /// end). Returns nil for no anchor, no barcode match, or an
+        /// ambiguous (multi-sample) match -- never a leftmost guess.
+        func assignAnchored(
+            bases: [UInt8],
+            forwardPrimer: String,
+            reversePrimer: String,
+            primerMismatches: Int
+        ) -> String? {
+            let forward = Array(forwardPrimer.utf8)
+            let reverse = Array(reversePrimer.utf8)
+            let anchorMismatches = max(primerMismatches, 2)
+
+            if case .success(let assignment) = ONTFluidigmAnchoredBarcodeAssigner.assign(
+                bases: bases,
+                forwardPrimer: forward,
+                reversePrimer: reverse,
+                anchorMismatches: anchorMismatches,
+                barcodes: barcodesBySample
+            ) {
+                return assignment.sampleID
             }
-            return bestEntry
-        }
 
-        private func findFirst(
-            in bytes: [UInt8],
-            length: Int,
-            map: [UInt64: [Candidate]],
-            excluding excludedRanges: [Range<Int>]
-        ) -> (start: Int, entry: BarcodeEntry)? {
-            guard length > 0, length <= 31 else { return nil }
-            var code: UInt64 = 0
-            var validBases = 0
-            let mask = length == 31 ? UInt64.max >> 2 : (UInt64(1) << UInt64(length * 2)) - 1
-
-            for (index, byte) in bytes.enumerated() {
-                guard let bits = Self.baseBits(byte) else {
-                    code = 0
-                    validBases = 0
-                    continue
-                }
-                code = ((code << 2) | UInt64(bits)) & mask
-                validBases += 1
-                guard validBases >= length else { continue }
-
-                let start = index - length + 1
-                guard let candidate = map[code]?.first else { continue }
-                guard !Self.overlapsExcludedRange(
-                    start: start,
-                    length: length,
-                    excludedRanges: excludedRanges
-                ) else {
-                    continue
-                }
-                return (start, candidate.entry)
+            let rc = ONTFluidigmAnchoredBarcodeAssigner.reverseComplementBytes(bases)
+            if case .success(let assignment) = ONTFluidigmAnchoredBarcodeAssigner.assign(
+                bases: rc,
+                forwardPrimer: forward,
+                reversePrimer: reverse,
+                anchorMismatches: anchorMismatches,
+                barcodes: barcodesBySample
+            ) {
+                return assignment.sampleID
             }
             return nil
-        }
-
-        private static func overlapsExcludedRange(
-            start: Int,
-            length: Int,
-            excludedRanges: [Range<Int>]
-        ) -> Bool {
-            let end = start + length
-            return excludedRanges.contains { range in
-                start < range.upperBound && end > range.lowerBound
-            }
-        }
-
-        private static func twoBitCode(_ sequence: String) -> UInt64? {
-            guard !sequence.isEmpty, sequence.utf8.count <= 31 else { return nil }
-            var code: UInt64 = 0
-            for byte in sequence.utf8 {
-                guard let bits = baseBits(byte) else { return nil }
-                code = (code << 2) | UInt64(bits)
-            }
-            return code
-        }
-
-        private static func baseBits(_ byte: UInt8) -> UInt8? {
-            switch byte {
-            case UInt8(ascii: "A"), UInt8(ascii: "a"): return 0
-            case UInt8(ascii: "C"), UInt8(ascii: "c"): return 1
-            case UInt8(ascii: "G"), UInt8(ascii: "g"): return 2
-            case UInt8(ascii: "T"), UInt8(ascii: "t"): return 3
-            default: return nil
-            }
         }
     }
 

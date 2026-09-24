@@ -7,6 +7,16 @@ import XCTest
 @testable import LungfishKit
 @testable import LungfishWorkflow
 
+/// Test-only counter box for asserting on values mutated inside `Validator`
+/// closures. `Validator` is `@Sendable async`, but the coordinator always
+/// awaits it serially (never concurrently) before proceeding, so a plain
+/// unsynchronized counter is safe in practice; this box only exists to
+/// satisfy the compiler's Sendable closure-capture check.
+private final class TestMutableBox<Value>: @unchecked Sendable {
+    var value: Value
+    init(_ value: Value) { self.value = value }
+}
+
 @MainActor final class AlignmentScientificActionCoordinatorTests: XCTestCase {
     func testOperationReporterRetainsCapturedWindowAndProjectRoute() {
         let center = OperationCenter()
@@ -70,11 +80,11 @@ import XCTest
             sampleName: "S1", context: evidence, region: region,
             consensusMode: .bayesian, useAmbiguity: true
         )
-        var validations = 0
+        let validations = TestMutableBox(0)
         var fetched: AlignmentConsensusRequest?
         var published: AlignmentConsensusPublicationRequest?
         let coordinator = AlignmentScientificActionCoordinator(
-            validator: { _ in validations += 1 },
+            validator: { _ in validations.value += 1 },
             consensusFetcher: { _, request in
                 fetched = request
                 return .init(sequence: "ANGNN", referenceLength: 5, allLowDepth: false)
@@ -91,7 +101,7 @@ import XCTest
         XCTAssertTrue(generation.summary.contains("Read groups: rg1,rg2"))
         let destination = directory.appendingPathComponent("consensus.fasta")
         _ = try await coordinator.publishConsensus(generation, destination: .fasta(destination))
-        XCTAssertEqual(validations, 2)
+        XCTAssertEqual(validations.value, 2)
         XCTAssertEqual(published?.consensusRequest, export.consensusRequest)
         XCTAssertEqual(published?.region, region)
     }
@@ -195,14 +205,14 @@ import XCTest
 
     func testRegionValidatesImmediatelyBeforeStagingAndImmediatelyBeforePublication() async throws {
         let transaction = try makeTransaction()
-        var gates: [String] = []
+        let gates = TestMutableBox<[String]>([])
+        let didStage = TestMutableBox(false)
         var stagedConfig: BAMRegionExtractionConfig?
-        var didStage = false
         let coordinator = AlignmentScientificActionCoordinator(
-            validator: { _ in gates.append(didStage ? "post-stage" : "pre-stage") },
+            validator: { _ in gates.value.append(didStage.value ? "post-stage" : "pre-stage") },
             regionStager: { config in
                 stagedConfig = config
-                didStage = true
+                didStage.value = true
                 return transaction
             },
             publisher: { request in
@@ -217,7 +227,7 @@ import XCTest
             outputBaseName: "x"
         )
 
-        XCTAssertEqual(gates, ["pre-stage", "post-stage"])
+        XCTAssertEqual(gates.value, ["pre-stage", "post-stage"])
         XCTAssertEqual(stagedConfig?.regions, ["chrSynthetic:5-9"])
         XCTAssertEqual(stagedConfig?.indexURL?.path, "/evidence/a.bam.bai")
         XCTAssertEqual(result.finalURL.path, "/out/final.lungfishfastq")
@@ -226,13 +236,13 @@ import XCTest
     func testStaleSecondValidationCleansTransactionAndNeverPublishes() async throws {
         let transaction = try makeTransaction()
         transaction.appendExecutionRecord(executionRecord(stderr: "staged evidence"))
-        var validationCount = 0
+        let validationCount = TestMutableBox(0)
         var didPublish = false
         let capturedIdentity = try context().identity
         let coordinator = AlignmentScientificActionCoordinator(
             validator: { _ in
-                validationCount += 1
-                if validationCount == 2 { throw AlignmentActionContext.EvidenceError.staleEvidence(URL(fileURLWithPath: "/evidence/a.bam")) }
+                validationCount.value += 1
+                if validationCount.value == 2 { throw AlignmentActionContext.EvidenceError.staleEvidence(URL(fileURLWithPath: "/evidence/a.bam")) }
             },
             regionStager: { _ in transaction },
             publisher: { _ in
@@ -258,7 +268,7 @@ import XCTest
         }
 
         XCTAssertEqual(capturedIdentity, try context().identity)
-        XCTAssertEqual(validationCount, 2)
+        XCTAssertEqual(validationCount.value, 2)
         XCTAssertFalse(didPublish)
         XCTAssertTrue(transaction.isCleanedUp)
     }
@@ -266,14 +276,14 @@ import XCTest
     func testLaunchReportsCapturedIdentityAndStagedRecordsWhenSecondGateIsStale() async throws {
         let transaction = try makeTransaction()
         transaction.appendExecutionRecord(executionRecord(stderr: "staged evidence"))
-        var validationCount = 0
+        let validationCount = TestMutableBox(0)
         var didPublish = false
         var logs: [String] = []
         var terminals: [AlignmentScientificActionReporter.Terminal] = []
         let coordinator = AlignmentScientificActionCoordinator(
             validator: { _ in
-                validationCount += 1
-                if validationCount == 2 {
+                validationCount.value += 1
+                if validationCount.value == 2 {
                     throw AlignmentActionContext.EvidenceError.staleEvidence(URL(fileURLWithPath: "/evidence/a.bam"))
                 }
             },

@@ -1590,7 +1590,7 @@ private final class StubWorkflowOperationResultRefresher: WorkflowOperationResul
     private(set) var invocations: [URL] = []
 
     @MainActor
-    func refresh(routeContext: OperationRouteContext?, preferredSelectionURL: URL) {
+    func refresh(routeContext: OperationRouteContext?, preferredSelectionURL: URL) async {
         invocations.append(preferredSelectionURL.standardizedFileURL)
     }
 }

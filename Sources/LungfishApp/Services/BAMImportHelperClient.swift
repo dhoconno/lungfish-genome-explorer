@@ -4,6 +4,7 @@
 
 import Foundation
 import os
+import LungfishWorkflow
 
 /// Errors thrown by ``BAMImportHelperClient``.
 public enum BAMImportHelperClientError: Error, LocalizedError {
@@ -186,17 +187,14 @@ public enum BAMImportHelperClient {
             throw BAMImportHelperClientError.helperLaunchFailed(error.localizedDescription)
         }
 
-        var requestedCancel = false
-        while process.isRunning {
-            if shouldCancel?() == true {
-                requestedCancel = true
-                process.terminate()
-                break
-            }
-            Thread.sleep(forTimeInterval: 0.1)
-        }
-
-        process.waitUntilExit()
+        // PERF-13: terminate the whole process tree on cancel (not just the
+        // helper root), and register with NativeProcessRegistry so app quit
+        // also reaches it. The BAM import helper can spawn samtools children
+        // that must not outlive a cancelled import.
+        let requestedCancel = waitForHelperProcessExit(
+            process,
+            shouldCancel: { shouldCancel?() == true }
+        )
 
         stdoutHandle.readabilityHandler = nil
         stderrHandle.readabilityHandler = nil

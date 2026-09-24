@@ -283,6 +283,18 @@ public enum GenotypeHaplotypeCallStatus: String, Codable, Equatable, Sendable {
     case tooManyHaplotypes
     case tooManyGenotypes
     case specialCase
+    /// GEN-02 (2026-09-23 best-practices audit): two (or more) matched
+    /// haplotype definitions cannot be told apart from the observed
+    /// evidence alone -- either their required diagnostic alleles are
+    /// identical (e.g. two definitions authored the same way), or the
+    /// "matched" haplotype with fewer reads has no diagnostic allele that
+    /// isn't also explained by the other matched haplotype. Reporting such
+    /// a pair as a confident heterozygous call would silently misreport a
+    /// homozygote (e.g. M2/M2) as heterozygous (e.g. "M2 / M6") whenever
+    /// the two definitions share a full-weight allele. `haplotype1`/
+    /// `haplotype2` list the ambiguous candidates joined by "|" rather than
+    /// asserting a specific pairing.
+    case ambiguous
 }
 
 public enum GenotypeHaplotypeAnalysisSource: String, Codable, Equatable, Sendable {

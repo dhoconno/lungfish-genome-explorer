@@ -6,6 +6,76 @@ import Foundation
 import LungfishIO
 import LungfishWorkflow
 
+/// Cheap, stat-based identity for a file used to decide whether a cached
+/// SHA-256 digest is still trustworthy, without rereading the file.
+struct AlignmentEvidenceFileIdentity: Sendable, Equatable, Hashable {
+    let path: String
+    let byteCount: UInt64
+    let modificationDate: Double
+    let inode: UInt64
+    let device: Int32
+
+    init(path: String, byteCount: UInt64, modificationDate: Double, inode: UInt64, device: Int32) {
+        self.path = path
+        self.byteCount = byteCount
+        self.modificationDate = modificationDate
+        self.inode = inode
+        self.device = device
+    }
+
+    /// Reads the cheap identity fields for `url` with a single `stat(2)` call.
+    static func current(of url: URL) throws -> AlignmentEvidenceFileIdentity {
+        var info = stat()
+        guard stat(url.path, &info) == 0 else {
+            throw AlignmentActionContext.EvidenceError.missingEvidence(url)
+        }
+        let modTime = Double(info.st_mtimespec.tv_sec) + Double(info.st_mtimespec.tv_nsec) / 1_000_000_000
+        return AlignmentEvidenceFileIdentity(
+            path: url.standardizedFileURL.path,
+            byteCount: UInt64(info.st_size),
+            modificationDate: modTime,
+            inode: UInt64(info.st_ino),
+            device: info.st_dev
+        )
+    }
+}
+
+/// Caches SHA-256 digests keyed by cheap stat identity so repeated scientific
+/// actions on the same, unchanged alignment evidence never rehash. A hit
+/// requires path, size, mtime, inode and device to all match the cached
+/// entry; any difference forces a fresh digest.
+actor AlignmentEvidenceDigestCache {
+    static let shared = AlignmentEvidenceDigestCache()
+
+    private var digests: [AlignmentEvidenceFileIdentity: String] = [:]
+
+    /// Returns the cached digest for `identity` if present, computing and
+    /// caching a fresh one with `hash` otherwise. `hash` runs off this actor's
+    /// isolation only in the sense that callers should already be off the
+    /// main actor; the cache lookup itself is cheap (dictionary access).
+    func digest(
+        for identity: AlignmentEvidenceFileIdentity,
+        computingWith hash: () throws -> String
+    ) rethrows -> String {
+        if let cached = digests[identity] {
+            return cached
+        }
+        let computed = try hash()
+        digests[identity] = computed
+        return computed
+    }
+
+    /// Test/diagnostic seam: number of cached entries.
+    func cachedEntryCount() -> Int {
+        digests.count
+    }
+
+    /// Test seam: clears the cache so tests do not leak state across runs.
+    func removeAll() {
+        digests.removeAll()
+    }
+}
+
 /// Stable, user-independent identity of the alignment evidence currently shown
 /// by the full viewer.
 struct AlignmentEvidenceIdentity: Sendable, Equatable, Hashable {
@@ -181,13 +251,20 @@ struct AlignmentActionContext: Sendable, Equatable {
     var allowsClipboardActions: Bool { true }
 
     /// Re-check every final evidence payload immediately before an action is
-    /// launched or published.  The shared provenance hasher keeps this check
-    /// byte-for-byte compatible with output provenance records.
-    func validateCurrentSnapshots() throws {
-        try validateSnapshot(alignmentSnapshot, at: alignmentURL)
-        try validateSnapshot(indexSnapshot, at: indexURL)
+    /// launched or published. Runs entirely off the main actor: this is safe
+    /// to call from any isolation domain because it touches only `Sendable`
+    /// state and the file system. The shared provenance hasher keeps a real
+    /// rehash byte-for-byte compatible with output provenance records, but a
+    /// rehash only happens when the file's cheap stat identity (size, mtime,
+    /// inode, device) no longer matches what was cached for that digest, or
+    /// nothing has ever hashed this identity before.
+    nonisolated func validateCurrentSnapshots(
+        digestCache: AlignmentEvidenceDigestCache = .shared
+    ) async throws {
+        try await validateSnapshot(alignmentSnapshot, at: alignmentURL, digestCache: digestCache)
+        try await validateSnapshot(indexSnapshot, at: indexURL, digestCache: digestCache)
         if let decodingReferenceSnapshot, let decodingReferenceURL {
-            try validateSnapshot(decodingReferenceSnapshot, at: decodingReferenceURL)
+            try await validateSnapshot(decodingReferenceSnapshot, at: decodingReferenceURL, digestCache: digestCache)
         }
     }
 
@@ -209,15 +286,25 @@ struct AlignmentActionContext: Sendable, Equatable {
         )
     }
 
-    private func validateSnapshot(_ expected: AlignmentEvidenceFileSnapshot, at url: URL) throws {
+    private nonisolated func validateSnapshot(
+        _ expected: AlignmentEvidenceFileSnapshot,
+        at url: URL,
+        digestCache: AlignmentEvidenceDigestCache
+    ) async throws {
         guard FileManager.default.fileExists(atPath: url.path) else {
             throw EvidenceError.missingEvidence(url)
         }
-        let current = AlignmentEvidenceFileSnapshot(
-            url: url,
-            byteCount: try ProvenanceFileHasher.fileSize(of: url),
-            sha256: try ProvenanceFileHasher.sha256(of: url)
-        )
+        let identity = try AlignmentEvidenceFileIdentity.current(of: url)
+        // The cache's own dictionary lookup is actor-isolated (cheap), but the
+        // fallback hash on a miss must not run on whatever isolation domain
+        // called us (which may be the main actor); hop to a detached task so
+        // a cache miss never blocks the caller's executor for the hash.
+        let sha256 = try await Task.detached(priority: .userInitiated) {
+            try await digestCache.digest(for: identity) {
+                try ProvenanceFileHasher.sha256(of: url)
+            }
+        }.value
+        let current = AlignmentEvidenceFileSnapshot(url: url, byteCount: identity.byteCount, sha256: sha256)
         guard current == expected else { throw EvidenceError.staleEvidence(url) }
     }
 

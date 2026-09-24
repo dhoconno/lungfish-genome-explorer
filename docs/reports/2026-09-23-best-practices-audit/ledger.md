@@ -16,18 +16,18 @@ Single source of truth for finding status (plan rule 9). Status: `open`, `verifi
 | ARC-01 | P1 | Two execution models for GUI analyses, chosen per feature, with no shared service layer | open | | | |
 | ARC-02 | P1 | Nine copy-pasted CLI runner actors and about 12 ad-hoc, stringly-typed CLI event schemas | open | | | |
 | ARC-03 | P1 | Operations-panel "CLI command" strings are hand-built and drift from the real CLI (Kraken2 replay cannot run) | open | | | |
-| ARC-04 | P1 | `OperationCenter.start` can return an already-failed operation, and callers are not forced to notice | open | | | |
-| ARC-13 | P1 | TaxTriage view controller runs samtools synchronously on the main actor, with a pipe-ordering hazard | open | | | |
+| ARC-04 | P1 | `OperationCenter.start` can return an already-failed operation, and callers are not forced to notice | fixed | P1-A | c656e84c3 | OperationCenter.begin -> started/refused; 11 callers migrated; per-family never-launch tests; ratchet baseline 18 in pre-push |
+| ARC-13 | P1 | TaxTriage view controller runs samtools synchronously on the main actor, with a pipe-ordering hazard | fixed | P4-A | 447955d3d | samtools off main, concurrent drain; TaxTriage UI tests 37/37 integrated |
 | FEA-03 | P1 | Annotation edit and delete from the viewer and Inspector are not persisted for reference bundles | open | | | |
 | FEA-04 | P1 | The same BAM or VCF file does different things depending on the entry point, and BAM/VCF have no target choose | open | | | |
 | FEA-05 | P1 | Multi-file BAM or VCF import into an open bundle imports only the first file | open | | | |
-| FEA-06 | P1 | Quit and window close do not warn about running operations, and interrupted outputs become invisible | open | | | |
-| FEA-07 | P1 | `OperationCenter.start` does not enforce the bundle lock, so unchecked callers mutate locked bundles | open | | | |
+| FEA-06 | P1 | Quit and window close do not warn about running operations, and interrupted outputs become invisible | fixed | P1-B | b732ea628 | quit/close warning sheets; interrupted outputs surfaced in storage scan |
+| FEA-07 | P1 | `OperationCenter.start` does not enforce the bundle lock, so unchecked callers mutate locked bundles | fixed | P1-A | c656e84c3 | drawer-delete sub-claim was wrong (already pre-checked); others migrated |
 | FEA-08 | P1 | Read sort and colour modes are implemented and tested but unreachable in the alignment viewer | open | | | |
-| PERF-01 | P1 | Alignment scientific actions SHA-256 the whole BAM, index and reference on the main actor, twice per action | open | | | |
+| PERF-01 | P1 | Alignment scientific actions SHA-256 the whole BAM, index and reference on the main actor, twice per action | fixed | P4-A | f02c6cc87 | off-main hashing + stat-keyed digest cache; coordinator tests 20/20 |
 | PERF-02 | P1 | `NativeToolRunner.shared` actor is blocked for the full runtime of `runWithFileOutput` / `runPipeline` childre | open | | | |
-| PERF-03 | P1 | TaxTriage batch unique-read pass runs directory walks, file parsing and `samtools` on the main actor, then an  | open | | | |
-| PERF-05 | P1 | Eight post-import and post-operation call sites run the full recursive project scan synchronously on the main  | open | | | |
+| PERF-03 | P1 | TaxTriage batch unique-read pass runs directory walks, file parsing and `samtools` on the main actor, then an  | fixed | P4-A | 447955d3d | off-main discovery, keyed table sync, 250ms coalesced reload |
+| PERF-05 | P1 | Eight post-import and post-operation call sites run the full recursive project scan synchronously on the main  | fixed | P4-A | bea6e910b | 8/8 reloadFromFilesystem call sites now async |
 | PERF-06 | P1 | "Export annotations" and multi-source sequence export decompress and parse the entire genome into memory | open | | | |
 | REC-01 | P1 | Sibling mutation service deletes backup | fixed | P0-B | 12e6722a6 | VariantMutationPublication recovery path |
 | REC-02 | P1 | MSA/tree --force deletes output before work | partial | P0-B | 6898a985f | MSA extract/mask/trim atomic swap; tree infer --force still removes before work (follow-up) |
@@ -48,7 +48,7 @@ Single source of truth for finding status (plan rule 9). Status: `open`, `verifi
 | SCI-09 | P1 | NAO-MGS "coverage %" uses the furthest alignment end as reference length when references were not fetched | fixed | P3-A | 6538d8d39 | reference_length_source; UI shows coverage unavailable |
 | TST-03 | P1 | Swift Build migration broke subpath `Bundle.module` fixtures, crashing tests with SIGTRAP | fixed | P0-A | 18b87a387 | fixtureURL helper, 4 classes |
 | TST-04 | P1 | Stable-namespace change broke about 75 tests that hard-code `.lungfish` fake homes, and tests cannot inject an | partial | P0-A | b6c6cddfb,82133f4a6 | injectable appIdentity; ~50-60 tests still to migrate (follow-up lane) |
-| TST-05 | P1 | No per-test or overall timeout: a cancellation test hung for 14+ min and stalls the gate forever | partial | P0-A | 39f0ef622,76f14b0b5,7d7c3e4e2,651f0928d | gate wall-clock + tree kill; CLIImportRunner cancel hang is a confirmed product bug -> P1-B; test excluded via KNOWN_HANGING_TESTS |
+| TST-05 | P1 | No per-test or overall timeout: a cancellation test hung for 14+ min and stalls the gate forever | fixed | P0-A,P1-B | 88afe5580 | root cause: actor blocked on waitUntilExit; cancel nonisolated; 5/5 runs <1s; KNOWN_HANGING_TESTS removed; gate timeouts kept |
 | TST-06 | P1 | `ci.yml` has been an invalid workflow on every push since 2026-09-14 instead of being disabled cleanly | fixed | P0-A | 53371073b | workflow_dispatch only; valid file |
 | UX-01 | P1 | "Delete Annotation" from the viewer and the Inspector silently does nothing on reference bundles | open | | | |
 | UX-02 | P1 | Export failures are logged but never shown in EsViritu, TaxTriage (3 paths), NAO-MGS and NVD | fixed | P1-C | bfcad3925 | ResultExportCoordinator added to LungfishKit; migrated EsViritu, TaxTriage x3, NAO-MGS, NVD, plus Kraken2 and 12S; ResultExportCoordinatorTests 2/2 |
@@ -79,9 +79,9 @@ Single source of truth for finding status (plan rule 9). Status: `open`, `verifi
 | PERF-08 | P2 | Oriented virtual-FASTQ materialization loads the orient map twice as whole `String`s into two `Set<String>` of | open | | | |
 | PERF-09 | P2 | Loading-badge animation invalidates the whole sequence viewer at 18 fps, and horizontal pan redraw is a traili | open | | | |
 | PERF-10 | P2 | MSA drawing allocates an attributed string per residue and re-registers tooltips inside `draw(_:)`, and the gu | open | | | |
-| PERF-11 | P2 | Process-tree termination spawns `ps` per PID per loop, and quit terminates roots serially on the main thread | open | | | |
+| PERF-11 | P2 | Process-tree termination spawns `ps` per PID per loop, and quit terminates roots serially on the main thread | fixed | P1-B | 365e17396 | libproc snapshot per phase; concurrent terminateAll |
 | PERF-12 | P2 | Blocking waits pin cooperative-pool threads for tool lifetimes | open | | | |
-| PERF-13 | P2 | Import helper cancellation signals only the helper root and polls with `Thread.sleep` | open | | | |
+| PERF-13 | P2 | Import helper cancellation signals only the helper root and polls with `Thread.sleep` | fixed | P1-B | 793f54fc2 | waitForHelperProcessExit + tree termination at 4 sites |
 | REL-06 | P2 | App version inside the hashed dependency manifest resets "Later" and stales receipts every release | open | | | |
 | REL-07 | P2 | Five hand-maintained version sites where one would do | open | | | |
 | REL-08 | P2 | Legacy alpha bridge and pre-2026.9.2 previews are offered updates with a different bundle ID | open | | | |
@@ -127,7 +127,7 @@ Single source of truth for finding status (plan rule 9). Status: `open`, `verifi
 | UX-13 | P2 | The "viewport interface class" contract and dialog conventions are ceremonial or stale | open | | | |
 | UX-14 | P2 | No "no matches" or first-run empty states in result tables and empty projects | open | | | |
 | WFL-11 | P2 | Operations-panel CLI commands and several provenance argv records are not runnable | open | | | |
-| WFL-12 | P2 | Cancel missing or inert on several long-running paths | open | | | |
+| WFL-12 | P2 | Cancel missing or inert on several long-running paths | partial | P1-B | 01dd95338 | 12S x2, ONT MHC, CZ-ID, BLAST cancel wired; workflow-builder graph + AI provider calls not cancellable |
 | WFL-13 | P2 | MHC genotyping naming: "miSeq amplicon" workflow runs ONT data and tags it as MiSeq | open | | | |
 | WFL-14 | P2 | AI haplotyping exposed in the main viewport with no key check, no consent, macaque defaults | fixed | P1-C (D5) | 96dee9889 | aiHaplotypingUIEnabled=false removes the section from the viewport; defense-in-depth guard in requestAIHaplotyping; execution service/CLI kept; GenotypeResultViewportArtifactsAndOutlineTests 2 new + suite green |
 | WFL-15 | P2 | BLAST drawer inconsistencies: CZ ID no-op, `nt` vs `core_nt`, NAO-MGS taxon restriction, no persistence | open | | | |
@@ -166,16 +166,16 @@ Single source of truth for finding status (plan rule 9). Status: `open`, `verifi
 | UX-17 | P3 | `BatchTableView` ⌘-click quick-copy competes with standard ⌘-click multi-select | open | | | |
 | UX-18 | P3 | Sample-scope control differs per viewer. TaxTriage's segmented control does not scale | open | | | |
 | WFL-21 | P3 | Dead dialogs, launchers and engines kept alive only by tests | open | | | |
-| GEN-01 | P0 | ONT barcode assignment takes the leftmost exact barcode match anywhere in the read, including inside the ampli | open | | | |
-| GEN-02 | P0 | `minimumMatches: 1` plus a count-only match rule reports homozygotes as heterozygotes (DQ M2/M2 as "M2 / M6",  | open | | | |
-| GEN-03 | P1 | `--min-support` does not filter the report CSV or pipeline workbook, contrary to its help text | open | | | |
+| GEN-01 | P0 | ONT barcode assignment takes the leftmost exact barcode match anywhere in the read, including inside the ampli | fixed | G1 | 545fcea36 | anchored window after rc(CS2), both orientations, multi-match unassigned; 20-read DRB1 case all FLD0001 |
+| GEN-02 | P0 | `minimumMatches: 1` plus a count-only match rule reports homozygotes as heterozygotes (DQ M2/M2 as "M2 / M6",  | mitigated | G2 | 6dd8eb44f | 28-genotype golden test; 6 wrong-but-called now 'ambiguous'; calling rule itself pending owner decision |
+| GEN-03 | P1 | `--min-support` does not filter the report CSV or pipeline workbook, contrary to its help text | fixed | G2 | 4af5150a9 | help text corrected (report/workbook intentionally unfiltered) |
 | GEN-04 | P1 | Reads tied across alleles are credited in full to each allele with no ambiguity marker. minimap2 `-N 5` makes  | open | | | |
 | GEN-05 | P1 | "Locus %" uses three different locus groupings (pipeline haplotype filter, matrix "Viewed Locus", evidence pan | open | | | |
 | GEN-06 | P1 | "Minimum percent" means within-sample read fraction for known alleles but fraction of animals for candidate ro | open | | | |
 | GEN-07 | P1 | Illumina sample totals count mates before merging while retained reads count merged fragments, which halves re | open | | | |
 | GEN-08 | P2 | A second haplotype of "-" means both "homozygous" and "second haplotype not identified", and the viewer hides  | open | | | |
-| GEN-09 | P2 | The Python demux filter silently resolves duplicate or reverse-complement-colliding barcodes to the first samp | open | | | |
+| GEN-09 | P2 | The Python demux filter silently resolves duplicate or reverse-complement-colliding barcodes to the first samp | fixed | G1 | 545fcea36 | Python filter rejects colliding barcodes |
 | GEN-10 | P2 | Full-length ONT: a zero-SNP hit is a known call regardless of indel size, with no indel count in the call | open | | | |
 | GEN-11 | P2 | PacBio exact dual-barcode demux assigns multi-matching reads in Swift `Dictionary` iteration order, which vari | open | | | |
-| GEN-12 | P2 | Provenance and QC gaps: bbtools missing from `managedTools`, hard-coded "resolvedDefaults", hard-coded QC cut- | open | | | |
+| GEN-12 | P2 | Provenance and QC gaps: bbtools missing from `managedTools`, hard-coded "resolvedDefaults", hard-coded QC cut- | fixed | G2 | aa3cc573d | bbtools recorded, real thresholds, no AI prompt copy |
 | GEN-13 | P2 | Legacy `fastq ont-genotype` maps ONT reads with the short-read preset, ignores `--allow-indels`, and randomly  | open | | | |

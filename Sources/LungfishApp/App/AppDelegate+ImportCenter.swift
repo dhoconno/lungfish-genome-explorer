@@ -601,7 +601,7 @@ extension AppDelegate {
             windowStateScope: routeContext?.windowStateScopeID.map(WindowStateScope.init(id:)),
             workflowName: "Annotation import"
         ) else { return }
-        let opID = OperationCenter.shared.start(
+        let startResult = OperationCenter.shared.begin(
             title: "Annotation Import",
             detail: "Importing \(annotationURL.lastPathComponent)...",
             operationType: .bundleBuild,
@@ -609,6 +609,11 @@ extension AppDelegate {
             cliCommand: nil,
             routeContext: routeContext
         )
+        guard case .started(let opID) = startResult else {
+            // The bundle is locked by another operation. The visible
+            // "Bundle is busy" row is already inserted; do not import.
+            return
+        }
 
         do {
             let result = try await ReferenceBundleAnnotationImportService()
@@ -1707,14 +1712,7 @@ extension AppDelegate {
         }
         try process.run()
 
-        while process.isRunning {
-            if shouldCancel() {
-                process.terminate()
-                break
-            }
-            Thread.sleep(forTimeInterval: 0.1)
-        }
-        process.waitUntilExit()
+        _ = waitForHelperProcessExit(process, shouldCancel: shouldCancel)
         let completedAt = Date()
         debugLog(
             "runVCFImportViaHelper: process-exit status=\(process.terminationStatus) reason=\(process.terminationReason == .uncaughtSignal ? "signal" : "exit")"
@@ -1895,14 +1893,7 @@ extension AppDelegate {
         }
         try process.run()
 
-        while process.isRunning {
-            if shouldCancel() {
-                process.terminate()
-                break
-            }
-            Thread.sleep(forTimeInterval: 0.1)
-        }
-        process.waitUntilExit()
+        _ = waitForHelperProcessExit(process, shouldCancel: shouldCancel)
         let completedAt = Date()
         debugLog(
             "runVCFResumeViaHelper: process-exit status=\(process.terminationStatus) reason=\(process.terminationReason == .uncaughtSignal ? "signal" : "exit")"
@@ -2079,14 +2070,7 @@ extension AppDelegate {
         }
         try process.run()
 
-        while process.isRunning {
-            if shouldCancel() {
-                process.terminate()
-                break
-            }
-            Thread.sleep(forTimeInterval: 0.1)
-        }
-        process.waitUntilExit()
+        _ = waitForHelperProcessExit(process, shouldCancel: shouldCancel)
         let completedAt = Date()
         debugLog(
             "runVCFMaterializeViaHelper: process-exit status=\(process.terminationStatus) reason=\(process.terminationReason == .uncaughtSignal ? "signal" : "exit")"

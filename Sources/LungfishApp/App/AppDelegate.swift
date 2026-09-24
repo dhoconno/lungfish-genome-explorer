@@ -113,6 +113,11 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
     private var isTerminating = false
     private var manualHaplotypeTerminationTask: Task<Void, Never>?
     private var isReenteringManualHaplotypeTermination = false
+    /// FEA-06: set once the user has confirmed "Cancel Operations and Quit"
+    /// (or there was nothing running to warn about), so the re-entrant
+    /// `terminate()` call this triggers does not show the sheet again.
+    private var hasConfirmedQuitWithRunningOperations = false
+    private var quitOperationsWarningTask: Task<Void, Never>?
 
     /// Temporary storage for download URL while sheet is dismissing
     /// (relocated from the Direct-Launch Classification section; extensions cannot hold stored properties).
@@ -268,18 +273,29 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             sidebarController.openProject(at: parent)
         }
 
-        sidebarController.reloadFromFilesystem()
-        _ = sidebarController.selectItem(forURL: url)
+        // The recursive project scan runs off the main actor; only the cheap
+        // apply (materialize + outline update) and the follow-up selection
+        // happen once it returns. Callers do not await this method, so the
+        // sidebar catches up moments after the surrounding operation finishes
+        // rather than freezing it.
+        // Plain `Task`, with no explicit actor annotation: this method is
+        // already running on the main actor (AppDelegate is @MainActor), so
+        // the task inherits that isolation without a redundant re-hop.
+        Task { [weak self, weak sidebarController, weak controller] in
+            await sidebarController?.reloadFromFilesystemAsync(notifyUnchangedSelectionRefresh: true)?.value
+            guard let self, let sidebarController else { return }
+            _ = sidebarController.selectItem(forURL: url)
 
-        // Metagenomics results set their own inspector tab via contentMode
-        // notification; forcing "document" tab would override it.
-        let isMetagenomicsResult = url.lastPathComponent.hasPrefix("naomgs-")
-            || url.lastPathComponent.hasPrefix("kraken2-")
-            || url.lastPathComponent.hasPrefix("esviritu-")
-            || url.lastPathComponent.hasPrefix("taxtriage-")
-            || url.lastPathComponent.hasPrefix("nvd-")
-        if !isMetagenomicsResult {
-            requestInspectorDocumentModeAfterDownload(in: controller)
+            // Metagenomics results set their own inspector tab via contentMode
+            // notification; forcing "document" tab would override it.
+            let isMetagenomicsResult = url.lastPathComponent.hasPrefix("naomgs-")
+                || url.lastPathComponent.hasPrefix("kraken2-")
+                || url.lastPathComponent.hasPrefix("esviritu-")
+                || url.lastPathComponent.hasPrefix("taxtriage-")
+                || url.lastPathComponent.hasPrefix("nvd-")
+            if !isMetagenomicsResult {
+                self.requestInspectorDocumentModeAfterDownload(in: controller)
+            }
         }
     }
 
@@ -770,7 +786,13 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         projectStorageBindingGenerations.removeAll()
 
         // Ensure app-managed imports/workflows and any native tool descendants
-        // are stopped before AppKit tears down the process.
+        // are stopped before AppKit tears down the process. By the time
+        // applicationWillTerminate runs, applicationShouldTerminate's
+        // running-operations sheet (FEA-06) has already been confirmed and
+        // OperationCenter.cancelAll() already called once, so this is
+        // normally a fast no-op backstop; terminateAll (PERF-11) terminates
+        // every registered root concurrently rather than serially, so N
+        // stragglers still cost about one grace period total, not N.
         OperationCenter.shared.cancelAll()
         NativeProcessRegistry.shared.terminateAll(gracePeriod: 0.5)
 
@@ -826,6 +848,40 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         if manualHaplotypeTerminationTask != nil {
             return .terminateLater
         }
+
+        // FEA-06: quitting with running operations previously gave no
+        // warning at all — `OperationCenter.shared.items` was never
+        // consulted here, only manual-haplotype edits and project-load
+        // tasks. Ask first, unless the user already confirmed once for
+        // this quit attempt (the reply below re-enters `terminate()`).
+        if !hasConfirmedQuitWithRunningOperations {
+            let runningOperations = OperationCenter.shared.activeItems
+            if !runningOperations.isEmpty {
+                if quitOperationsWarningTask != nil {
+                    return .terminateLater
+                }
+                quitOperationsWarningTask = Task { [weak self] in
+                    guard let self else { return }
+                    let shouldQuit = await self.presentQuitWithRunningOperationsAlert(
+                        operations: runningOperations
+                    )
+                    self.quitOperationsWarningTask = nil
+                    guard shouldQuit else {
+                        reply(false)
+                        return
+                    }
+                    self.hasConfirmedQuitWithRunningOperations = true
+                    OperationCenter.shared.cancelAll()
+                    // Re-run the full gate chain (manual-haplotype transitions,
+                    // pending project tasks) rather than replying true
+                    // directly — cancelling operations does not by itself
+                    // make it safe to tear down the process.
+                    _ = self.applicationShouldTerminate(reply: reply)
+                }
+                return .terminateLater
+            }
+        }
+
         let dirtyControllers = mainWindowControllers.filter(
             \.requiresManualHaplotypeTransitionCoordination
         )
@@ -854,6 +910,43 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                 reply(allowed)
             }
         return .terminateLater
+    }
+
+    /// FEA-06: shows the quit-with-running-operations warning sheet and
+    /// returns `true` if the user chose to cancel the operations and quit.
+    ///
+    /// HIG-style destructive-action sheet: lists the running operations by
+    /// title, with "Cancel Operations and Quit" as the (destructive) default
+    /// action and "Don't Quit" as the safe cancel button.
+    private func presentQuitWithRunningOperationsAlert(
+        operations: [OperationCenter.Item]
+    ) async -> Bool {
+        let alert = NSAlert()
+        let count = operations.count
+        alert.messageText = count == 1
+            ? "Quit with 1 Operation Running?"
+            : "Quit with \(count) Operations Running?"
+        let listedTitles = operations.prefix(6).map { "• \($0.title)" }.joined(separator: "\n")
+        let overflowNote = count > 6 ? "\n… and \(count - 6) more" : ""
+        alert.informativeText =
+            "Quitting now will cancel the following operation"
+            + (count == 1 ? "" : "s")
+            + " and any partial output may remain on disk, "
+            + "visible under Manage Project Storage as interrupted:\n\n"
+            + listedTitles + overflowNote
+        alert.alertStyle = .warning
+        let quitButton = alert.addButton(withTitle: "Cancel Operations and Quit")
+        quitButton.hasDestructiveAction = true
+        let dontQuitButton = alert.addButton(withTitle: "Don't Quit")
+        dontQuitButton.keyEquivalent = "\r"
+        alert.applyLungfishBranding()
+
+        let window = mainWindowController?.window ?? NSApp.keyWindow
+        guard let window else {
+            return alert.runModal() == .alertFirstButtonReturn
+        }
+        let response = await alert.beginSheetModal(for: window)
+        return response == .alertFirstButtonReturn
     }
 
     /// A project task can retain its store across an await. Cancellation alone
