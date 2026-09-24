@@ -1212,6 +1212,13 @@ public class SequenceViewerView: NSView {
     /// Timer for coalescing scroll-triggered redraws at 60fps.
     var scrollRedrawTimer: Timer?
 
+    /// Wall-clock time of the last pan-driven redraw actually performed, used by
+    /// `throttledPanRedraw` (PERF-09) to redraw at most once per ~1/60s frame during a pan
+    /// instead of resetting a one-shot debounce timer on every scroll event, which can starve
+    /// entirely under fast trackpad momentum (each event arrives before the previous timer
+    /// fires, so it keeps getting cancelled and rescheduled).
+    var lastPanRedrawTime: CFTimeInterval = 0
+
     // MARK: - Zoom Thresholds (bp/pixel)
     //
     // Rendering modes based on zoom level:
