@@ -73,6 +73,61 @@ final class PerfBenchGenotypeMatrixTests: XCTestCase {
         print("[LUNGFISH_PERF_BENCH] GenotypeComparisonMatrixView cell-build (40 visible rows x \(columns.count) columns): median \(String(format: "%.3f", median * 1000)) ms")
     }
 
+    /// Attributes the cell-build cost to view lookup/creation vs. value+tooltip string building
+    /// vs. style/color/font resolution, using the `#if DEBUG` per-phase counters added to
+    /// `GenotypeComparisonMatrixView` (2026-09-24 best-practices audit, PERF-17 follow-up). This
+    /// is what actually tells us where to keep optimizing, as opposed to
+    /// `testCellBuildCostBenchmark`, which only reports the total.
+    func testCellBuildCostAttributionByPhase() throws {
+        let matrix = try makeLargeMatrix(sampleCount: 96, alleleCount: 200)
+        let descendants = Self.descendants(of: matrix)
+        let table = try XCTUnwrap(descendants.compactMap { $0 as? NSTableView }.first {
+            $0.accessibilityIdentifier() == "genotype-comparison-table"
+        })
+        let columns = table.tableColumns
+        let rowCount = table.numberOfRows
+
+        matrix.testingCellBuildProfilingEnabled = true
+        matrix.testingResetCellBuildProfile()
+        defer { matrix.testingCellBuildProfilingEnabled = false }
+
+        for row in 0..<min(rowCount, 40) {
+            for column in columns {
+                _ = matrix.tableView(table, viewFor: column, row: row)
+            }
+        }
+
+        let profile = matrix.testingCellBuildProfile
+        let totalMs = (profile.viewLookupSeconds + profile.valueSeconds + profile.styleSeconds) * 1000
+        print(
+            "[LUNGFISH_PERF_BENCH] cell-build phase attribution (\(profile.callCount) cells, " +
+            "reuse hits=\(profile.viewReuseHitCount) misses=\(profile.viewReuseMissCount)): " +
+            "viewLookup=\(String(format: "%.3f", profile.viewLookupSeconds * 1000))ms " +
+            " " +
+            "value=\(String(format: "%.3f", profile.valueSeconds * 1000))ms " +
+            "style=\(String(format: "%.3f", profile.styleSeconds * 1000))ms " +
+            "total=\(String(format: "%.3f", totalMs))ms"
+        )
+        XCTAssertGreaterThan(profile.callCount, 0)
+
+        // `tableView(_:viewFor:row:)` called directly (as this benchmark and the real AppKit
+        // scroll path both do) never returns its result to NSTableView's own reuse queue unless
+        // the view is actually attached as a row's subview and later scrolled off-screen by
+        // AppKit itself. Calling it in a bare loop over freshly-built rows/columns, as this
+        // synthetic harness does, is a worst case: every call misses the reuse queue and builds a
+        // brand new NSTableCellView + NSTextField + constraints. That is real cost (it's what the
+        // FIRST scroll through a freshly-loaded matrix pays), but it should not be mistaken for
+        // the steady-state cost of re-scrolling over rows/columns AppKit has already built once.
+        XCTAssertEqual(
+            profile.viewReuseHitCount, 0,
+            "Sanity check on the benchmark harness itself, not the production code: calling " +
+            "tableView(_:viewFor:row:) directly without ever attaching the returned views to " +
+            "the table cannot populate NSTableView's reuse queue, so every call here is " +
+            "expected to miss. If this ever fails, the harness's relationship to AppKit's real " +
+            "reuse queue has changed and the phase breakdown above needs re-reading."
+        )
+    }
+
     // MARK: - Fixture
 
     private static func descendants(of view: NSView) -> [NSView] {
