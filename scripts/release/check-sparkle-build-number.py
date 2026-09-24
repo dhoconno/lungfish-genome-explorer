@@ -1,5 +1,11 @@
 #!/usr/bin/env python3
-"""Require a planned CFBundleVersion to exceed every build in a Sparkle appcast."""
+"""Require a planned CFBundleVersion to exceed every build in a Sparkle appcast.
+
+The floor is the highest ``sparkle:version`` in the feed, including builds
+that ``release.py yank`` withdrew. A yank removes the item but leaves an
+``<lge:yanked build="N">`` marker in the channel, so the next publish must
+still exceed the yanked build (REL-04).
+"""
 
 from __future__ import annotations
 
@@ -12,6 +18,8 @@ import xml.etree.ElementTree as ET
 
 
 SPARKLE_VERSION = "{http://www.andymatuschak.org/xml-namespaces/sparkle}version"
+# Keep in sync with sparkle_yank.LGE_RELEASE_NS / YANK_MARKER_TAG.
+YANK_MARKER = "{urn:lungfish-genome-explorer:release}yanked"
 
 
 class BuildNumberError(RuntimeError):
@@ -30,6 +38,10 @@ def live_build_number(appcast: bytes) -> int:
         positive_integer((element.text or "").strip(), label="Sparkle appcast version")
         for element in root.iter(SPARKLE_VERSION)
     ]
+    versions.extend(
+        positive_integer(element.get("build", "").strip(), label="Sparkle yank marker build")
+        for element in root.iter(YANK_MARKER)
+    )
     if not versions:
         raise BuildNumberError("Sparkle appcast contains no sparkle:version")
     return max(versions)
@@ -52,16 +64,6 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Treat an HTTP 404 as an appcast that has not been initialized yet",
     )
-    parser.add_argument(
-        "--yank",
-        action="store_true",
-        help=(
-            "REL-04: allow the planned build to equal a known prior published build "
-            "(rather than requiring strictly greater), for restoring a withdrawn "
-            "release's appcast via 'release.py yank'. Still rejects a planned build "
-            "below the live one."
-        ),
-    )
     source = parser.add_mutually_exclusive_group(required=True)
     source.add_argument("--appcast", type=Path)
     source.add_argument("--appcast-url")
@@ -83,26 +85,14 @@ def main() -> int:
                 return 0
             raise
         current = live_build_number(appcast)
-        if args.yank:
-            # A yank restores a specific prior published build. Equality
-            # with the live (bad) build is never valid -- that build IS the
-            # live one -- but equality with an OLDER retained build the
-            # operator is restoring is exactly the yank case, so only reject
-            # strictly-below-current, not equal-to-current.
-            if planned < current:
-                raise BuildNumberError(
-                    f"planned Sparkle build {planned} is below live Sparkle build {current}; "
-                    "a yank can only restore a build that was already published"
-                )
-        elif planned <= current:
+        if planned <= current:
             raise BuildNumberError(
                 f"planned Sparkle build {planned} must exceed live Sparkle build {current}"
             )
     except (BuildNumberError, ET.ParseError, OSError) as exc:
         print(f"Sparkle build-number gate failed: {exc}", file=sys.stderr)
         return 64
-    comparison = ">=" if args.yank else ">"
-    print(f"Sparkle build-number gate passed: {planned} {comparison} {current}")
+    print(f"Sparkle build-number gate passed: {planned} > {current}")
     return 0
 
 

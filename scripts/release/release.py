@@ -31,7 +31,16 @@ from release_identity import prepare_identity_plist, identity_plist, fork_contra
 from bounded_process import run_bounded
 from release_profiles import ReleaseProfile, ProfileError, load_release_profile as _load_profile, write_release_profile
 from release_contract import load_contract  # noqa: E402
-from sparkle_yank import YankError, load_appcast_bytes, plan_yank, execute_yank  # noqa: E402
+from sparkle_yank import (  # noqa: E402
+    FeedTarget,
+    GitHubYankRunner,
+    YankError,
+    confirm_version,
+    execute_yank,
+    load_appcast_bytes,
+    parse_appcast_items,
+    plan_yank,
+)
 from gate_evidence import (EvidenceError, create_manifest, read_json,  # noqa: E402
                            source_identity, validate_result, verify_manifest)
 from release_cache_fingerprint import (  # noqa: E402
@@ -684,54 +693,79 @@ def run_doctor(root: Path, profile_path: Path | None) -> int:
     return 0
 
 
-def run_yank(root: Path, channel_name: str, restore_appcast_path: Path, execute: bool) -> int:
-    """REL-04: print (and, in a future round, perform) a Sparkle yank plan.
+def run_yank(
+    root: Path,
+    channel_name: str,
+    version: str,
+    *,
+    restore_appcast_path: Path | None = None,
+    execute: bool = False,
+    force: bool = False,
+    reason: str = "withdrawn by the release owner",
+    runner=None,
+    prompt=input,
+) -> int:
+    """REL-04: withdraw a release from a Sparkle channel feed.
 
-    Reads the currently published mutable appcast for ``channel_name`` from
-    its live URL, computes a plan to restore ``restore_appcast_path`` (a
-    retained prior appcast, e.g. from ``build/Release/<channel>/<commit>/``),
-    and prints the plan. Never mutates anything: --execute is accepted on
-    the CLI but rejected here with a clear message, matching this round's
-    "dry-run-by-default plan printer plus --execute; do NOT execute it"
-    instruction.
+    Plan-only unless ``execute``. Executing requires typing the exact
+    version. See sparkle_yank.py for the behaviour and safety rules.
+    ``runner`` is injectable so tests never touch GitHub.
     """
+    if not CALVER.fullmatch(version):
+        raise ReleaseError(f"version must be YYYY.M.PATCH without a leading v: {version}")
     contract = load_contract(root / "config/release-contract.json")
     channel = contract.channel(channel_name)
-    live_url = (
-        f"https://github.com/{contract.identity.repository}/releases/download/"
-        f"{channel.sparkleRelease}/{channel.appcastFilename}"
-    )
-    import urllib.request
+    if runner is None:
+        command_runner = SubprocessRunner(root, {"GH_REPO": contract.identity.repository})
+        runner = GitHubYankRunner(contract.identity.repository, command_runner)
 
-    request = urllib.request.Request(live_url, headers={"User-Agent": "Lungfish release yank"})
-    try:
-        with urllib.request.urlopen(request, timeout=30) as response:
-            live_appcast_xml = response.read()
-    except OSError as error:
-        raise ReleaseError(f"could not fetch live appcast at {live_url}: {error}") from error
-
-    restore_appcast_xml = load_appcast_bytes(restore_appcast_path)
+    targets = [FeedTarget(channel.sparkleRelease, channel.appcastFilename, primary=True)]
+    if channel.legacyBridgeRelease and channel.legacyBridgeAppcastFilename:
+        targets.append(
+            FeedTarget(channel.legacyBridgeRelease, channel.legacyBridgeAppcastFilename, primary=False)
+        )
 
     try:
+        live_feeds = {target: runner.fetch_appcast(target.release, target.filename) for target in targets}
+        restore_xml = None
+        restore_info = None
+        if restore_appcast_path is not None:
+            restore_xml = load_appcast_bytes(restore_appcast_path)
+            restore_items = parse_appcast_items(restore_xml)
+            if len(restore_items) == 1 and restore_items[0].short_version:
+                restore_info = runner.release_info(f"v{restore_items[0].short_version}")
         plan = plan_yank(
             channel=channel_name,
-            sparkle_release=channel.sparkleRelease,
-            appcast_filename=channel.appcastFilename,
-            live_appcast_xml=live_appcast_xml,
-            restore_appcast_xml=restore_appcast_xml,
+            version=version,
+            targets=targets,
+            live_feeds=live_feeds,
+            release_info=runner.release_info(f"v{version}"),
+            latest_full_release_tag=runner.latest_full_release_tag(),
+            restore_appcast_xml=restore_xml,
+            restore_release_info=restore_info,
+            reason=reason,
+            force=force,
         )
     except YankError as error:
         raise ReleaseError(str(error)) from error
 
     print(plan.render())
+    if not execute:
+        for change in plan.feeds:
+            if change.after is not None:
+                print(f"\n--- {change.target.release}/{change.target.filename} after the yank ---")
+                print(change.after.decode("utf-8"))
+        print("\nDry run: nothing was changed. Re-run with --execute to apply this plan.")
+        return 0
 
-    if execute:
-        try:
-            execute_yank(plan)
-        except NotImplementedError as error:
-            raise ReleaseError(str(error)) from error
-    else:
-        print("\n(dry run: pass --execute to perform this yank once it is implemented)")
+    try:
+        confirm_version(version, prompt)
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        evidence_dir = root / "build/Release" / channel_name / f"yank-{version}" / stamp
+        execute_yank(plan, runner, evidence_dir)
+    except YankError as error:
+        raise ReleaseError(str(error)) from error
+    print(f"\nYank of v{version} applied. Evidence: {evidence_dir}")
     return 0
 
 
@@ -2101,20 +2135,21 @@ def _parser() -> argparse.ArgumentParser:
     doctor.add_argument("--repo", type=Path, default=PROJECT_ROOT)
     yank = commands.add_parser(
         "yank",
-        help="print a plan to withdraw the live Sparkle release for a channel (REL-04)",
+        help="withdraw a release from its Sparkle feed (plan only unless --execute)",
     )
     yank.add_argument("channel", choices=("preview", "stable"))
+    yank.add_argument("version", help="version to withdraw, e.g. 2026.9.38")
     yank.add_argument(
         "--restore-appcast",
         type=Path,
-        required=True,
-        help="path to a retained prior appcast (e.g. build/Release/<channel>/<commit>/...) to restore",
+        help="retained single-item appcast of the last good release to offer instead (build/Release/<channel>/<commit>/sparkle-appcast/)",
     )
-    yank.add_argument(
-        "--execute",
-        action="store_true",
-        help="perform the withdrawal instead of only printing the plan (not implemented this round)",
-    )
+    yank.add_argument("--reason", default="withdrawn by the release owner",
+                      help="one sentence recorded in the GitHub release note")
+    yank.add_argument("--execute", action="store_true",
+                      help="apply the plan after typing the exact version to confirm")
+    yank.add_argument("--force", action="store_true",
+                      help="allow an empty feed or yanking the current Stable baseline")
     yank.add_argument("--repo", type=Path, default=PROJECT_ROOT)
     setup = commands.add_parser("setup", help="explicit one-time credential probes; macOS may request authorization")
     setup.add_argument("--profile", type=Path)
@@ -2169,7 +2204,15 @@ def main(argv: list[str] | None = None) -> int:
             result_status = run_doctor(root, args.profile)
             return result_status
         if args.command == "yank":
-            result_status = run_yank(root, args.channel, args.restore_appcast, args.execute)
+            result_status = run_yank(
+                root,
+                args.channel,
+                args.version,
+                restore_appcast_path=args.restore_appcast,
+                execute=args.execute,
+                force=args.force,
+                reason=args.reason,
+            )
             return result_status
         raise ReleaseError(f"unknown command: {args.command}")
     except (OSError, ReleaseError, ValueError) as error:
