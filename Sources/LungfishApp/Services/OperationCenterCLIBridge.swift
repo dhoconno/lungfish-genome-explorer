@@ -64,6 +64,14 @@ enum OperationCenterCLIBridge {
     static func acknowledgeCancellation(_ id: UUID) {
         OperationCenter.shared.acknowledgeCancellation(id: id)
     }
+
+    /// Marks an operation complete with the given bundle output. Callers
+    /// await this directly from a non-isolated async context; `@MainActor`
+    /// isolation handles the actor hop without an explicit `MainActor.run`.
+    @MainActor
+    static func completeOperation(_ id: UUID, detail: String, bundleURLs: [URL]) {
+        _ = OperationCenter.shared.complete(id: id, detail: detail, bundleURLs: bundleURLs)
+    }
 }
 
 private extension CLIEventLogLevel {
