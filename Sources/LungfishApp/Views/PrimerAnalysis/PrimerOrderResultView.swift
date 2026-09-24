@@ -72,14 +72,22 @@ struct PrimerOrderResultContent: View {
         return document.oligos.compactMap { seen.insert($0.poolName).inserted ? $0.poolName : nil }
     }
 
+    private var isNormalizedAssaySelection: Bool { document.selection.selectedAssayIDs != nil }
+
+    private var supportsIDTOPools: Bool {
+        document.oligos.allSatisfy { $0.sourceOligoID == nil || $0.nativePool != nil }
+    }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
                 VStack(alignment: .leading, spacing: 8) {
                     Text(document.metadata.name).font(.title2.weight(.semibold)).textSelection(.enabled)
-                    Text("\(document.oligos.count) oligos · \(poolNames.count) pools · \(Set(document.oligos.map(\.sourceResultID)).count) schemes")
+                    Text("\(document.oligos.count) oligos · \(poolNames.count) \(isNormalizedAssaySelection ? "order groups" : "pools") · \(Set(document.oligos.map(\.sourceResultID)).count) schemes")
                         .font(.callout).foregroundStyle(.secondary).monospacedDigit()
-                    Text("This order preserves the displayed oligos captured at export. The source design and original full ordering sheet remain unchanged.")
+                    Text(isNormalizedAssaySelection
+                        ? "This order preserves the explicit saved assay selection, including probes and alternatives. No pool is inferred for unpooled assays."
+                        : "This order preserves the displayed oligos captured at export. The source design and original full ordering sheet remain unchanged.")
                         .font(.callout).foregroundStyle(.secondary)
                 }
 
@@ -88,12 +96,14 @@ struct PrimerOrderResultContent: View {
                         HStack(spacing: 12) { outputActions }
                         VStack(alignment: .leading, spacing: 8) { outputActions }
                     }
-                    Text("The order workbook includes Order metadata. The IDT upload copy contains only the supplied template sheet.")
+                    Text(supportsIDTOPools
+                        ? "The order workbook includes Order metadata. The IDT upload copy contains only the supplied template sheet."
+                        : "The order workbook begins with an assay review table and includes Order metadata. This unpooled order has no IDT oPools workbook.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
 
                 VStack(alignment: .leading, spacing: 10) {
-                    Text("Pools in this order").font(.headline)
+                    Text(isNormalizedAssaySelection ? "Assay order groups" : "Pools in this order").font(.headline)
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: 220), alignment: .leading)], alignment: .leading, spacing: 8) {
                         ForEach(poolNames, id: \.self) { poolName in
                             HStack(alignment: .firstTextBaseline) {
@@ -145,9 +155,13 @@ struct PrimerOrderResultContent: View {
     @ViewBuilder
     private var outputActions: some View {
         Button("Open order workbook") { open("primer-order.xlsx") }
-            .help("Open primer-order.xlsx, including the IDT template and Order metadata.")
-        Button("Open IDT upload copy") { open("IDT-oPools.xlsx") }
-            .help("Open IDT-oPools.xlsx with the template sheet only.")
+            .help(supportsIDTOPools
+                ? "Open primer-order.xlsx, including the IDT template and Order metadata."
+                : "Open primer-order.xlsx with the assay review table and Order metadata.")
+        if supportsIDTOPools {
+            Button("Open IDT upload copy") { open("IDT-oPools.xlsx") }
+                .help("Open IDT-oPools.xlsx with the template sheet only.")
+        }
         Button("Open CSV") { open("ordering.csv") }
             .help("Open ordering.csv with every saved oligo identity and sequence.")
     }

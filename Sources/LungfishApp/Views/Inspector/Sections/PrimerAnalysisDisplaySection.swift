@@ -26,7 +26,8 @@ struct PrimerAnalysisDisplaySection: View {
                 .monospacedDigit()
                 .accessibilityIdentifier("primerAnalysisDisplay.count")
                 .help("Counts oligos currently shown after all display filters.")
-            Button("Export displayed primer order…") {
+            Button(session.hasNormalizedSchemeResults
+                ? "Export selected assays…" : "Export displayed primer order…") {
                 do {
                     orderExportError = nil
                     orderDraft = try session.makeOrderDraft()
@@ -38,6 +39,19 @@ struct PrimerAnalysisDisplaySection: View {
             .accessibilityIdentifier("primerAnalysisDisplay.exportOrder")
             .help(session.orderExportUnavailableReason
                 ?? "Exports the oligos currently displayed across all schemes and references.")
+            if session.hasReportedAlternatives {
+                Button("Export all reported assays…") {
+                    do {
+                        orderExportError = nil
+                        orderDraft = try session.makeOrderDraft(allReportedAssays: true)
+                    } catch {
+                        orderExportError = error.localizedDescription
+                    }
+                }
+                .disabled(session.orderExportUnavailableReason != nil)
+                .accessibilityIdentifier("primerAnalysisDisplay.exportAllAssays")
+                .help("Exports selected and alternative assays with their candidate labels and probes.")
+            }
             if let error = orderExportError {
                 Text(error).font(.caption).foregroundStyle(Color.lungfishDangerFallback).textSelection(.enabled)
             }
@@ -139,11 +153,15 @@ struct PrimerAnalysisDisplaySection: View {
             .accessibilityIdentifier("primerAnalysisDisplay.reference")
             .help(target.label)
 
-            Text("Pools").font(LungfishInspectorStyle.sectionTitleFont)
-                .help("Pool choices apply to every reference in this saved scheme.")
+            Text(target.primers.contains { $0.poolLabel != nil } ? "Assay / display groups" : "Pools")
+                .font(LungfishInspectorStyle.sectionTitleFont)
+                .help("These controls hide saved oligos by their native pool or display-only assay group.")
             ForEach(pools, id: \.self) { pool in
                 let id = PrimerAnalysisDisplaySettings.poolID(resultID: target.sourceResultID, pool: pool)
-                Toggle(pool.map { "Pool \($0)" } ?? "Unpooled", isOn: Binding(
+                let label = target.primers.first(where: { $0.pool == pool })?.poolLabel
+                    ?? target.intervals.first(where: { $0.pool == pool })?.poolLabel
+                    ?? pool.map { "Pool \($0)" } ?? "Unpooled"
+                Toggle(label, isOn: Binding(
                     get: { !session.settings.hiddenPoolIDs.contains(id) },
                     set: { session.setPoolShown(pool, resultID: target.sourceResultID, shown: $0) }))
                     .accessibilityIdentifier("primerAnalysisDisplay.pool.\(id)")

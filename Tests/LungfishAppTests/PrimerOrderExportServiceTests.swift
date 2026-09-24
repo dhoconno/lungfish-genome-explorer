@@ -103,6 +103,61 @@ final class PrimerOrderExportServiceTests: XCTestCase {
     XCTAssertThrowsError(try session.makeOrderDraft())
   }
 
+  func testNormalizedQPCROrdersKeepProbesAlternativesAndUnpooledIdentity() throws {
+    let fixture = try makeFixture()
+    defer { try? FileManager.default.removeItem(at: fixture.root) }
+    let loaded = try PrimerAnalysisViewerSnapshot.load(from: fixture.bundle)
+    let resultID = try XCTUnwrap(loaded.bundle.manifest.results.first?.id)
+    let inputID = try XCTUnwrap(loaded.bundle.manifest.inputs.first?.id)
+    let targetID = UUID(), selectedID = UUID(), alternativeID = UUID()
+    func oligo(_ role: PrimerOligoRole, _ assayID: UUID, _ start: Int) -> PrimerSchemeOligo {
+      .init(id: UUID(), name: role.rawValue, role: role,
+        sequence: role == .probe ? "AACCGG" : role == .forward ? "AACCAA" : "TTGGTT",
+        start: start, end: start + 6, strand: role == .reverse ? .reverse : .forward,
+        assayIDs: [assayID], pool: nil, nativeMetadata: [:])
+    }
+    let selectedOligos = [oligo(.forward, selectedID, 10), oligo(.probe, selectedID, 30),
+      oligo(.reverse, selectedID, 50)]
+    let alternativeOligos = [oligo(.forward, alternativeID, 12), oligo(.probe, alternativeID, 32),
+      oligo(.reverse, alternativeID, 52)]
+    let target = PrimerSchemeTarget(id: targetID, label: "qPCR target", referencePath: "generated.fasta",
+      referenceID: "reference", referenceLength: 100, sourceInputID: inputID,
+      bindingProjectionPath: "projection.json",
+      assays: [
+        .init(id: selectedID, start: 10, end: 56, memberIDs: selectedOligos.map(\.id),
+          pool: nil, status: .selected, rank: 1, nativeMetadata: [:]),
+        .init(id: alternativeID, start: 12, end: 58, memberIDs: alternativeOligos.map(\.id),
+          pool: nil, status: .alternative, rank: 2, nativeMetadata: [:]),
+      ], oligos: selectedOligos + alternativeOligos)
+    let document = PrimerSchemeResultsDocument(analysisID: loaded.bundle.manifest.analysisID,
+      runID: loaded.bundle.manifest.runID, resultID: UUID(), engine: .varvamp,
+      engineVersion: "1.3.2", adapterVersion: "1.0.0", mode: .qpcr,
+      resolvedOptions: [:], results: [.init(id: resultID, inputIDs: [inputID], targets: [target])],
+      artifacts: [], provenancePath: "native/provenance.json")
+    let presentation = try PrimerSchemeViewerAdapter.adapt(document: document)
+    let snapshot = PrimerAnalysisViewerSnapshot(bundle: loaded.bundle, provenance: loaded.provenance,
+      provenanceJSON: loaded.provenanceJSON, primer3Results: nil, toolProvenance: loaded.toolProvenance,
+      primalSchemeResults: presentation.results, primerSchemeResultsDocument: document,
+      derivedProvenance: loaded.derivedProvenance, workflowProvenance: loaded.workflowProvenance,
+      designReview: presentation.reviews, bindingContexts: [])
+    let session = PrimerAnalysisDisplaySession()
+    session.configure(snapshot); session.onOrderExportRequested = { _, _ in }
+
+    let selected = try session.makeOrderDraft()
+    XCTAssertEqual(selected.oligos.count, 3)
+    XCTAssertEqual(Set(selected.oligos.compactMap(\.oligoRole)), [.forward, .probe, .reverse])
+    XCTAssertTrue(selected.oligos.allSatisfy { $0.pool == nil && $0.nativePool == nil })
+    XCTAssertTrue(selected.oligos.allSatisfy { $0.poolName.contains("Unpooled_Selected_Rank_1") })
+
+    let all = try session.makeOrderDraft(allReportedAssays: true)
+    XCTAssertEqual(all.oligos.count, 6)
+    XCTAssertEqual(Set(all.oligos.compactMap(\.candidateStatus)), [.selected, .alternative])
+    XCTAssertEqual(Set(all.selection.selectedAssayIDs ?? []),
+      [selectedID.uuidString.lowercased(), alternativeID.uuidString.lowercased()])
+    XCTAssertTrue(all.oligos.filter { $0.candidateStatus == .alternative }
+      .allSatisfy { $0.poolName.contains("Unpooled_Alternative_Rank_2") })
+  }
+
   func testRejectsStaleSourceAndContradictorySelection() throws {
     let fixture = try makeFixture()
     defer { try? FileManager.default.removeItem(at: fixture.root) }

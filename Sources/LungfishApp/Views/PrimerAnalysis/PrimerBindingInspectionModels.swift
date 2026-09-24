@@ -2,6 +2,7 @@ import CryptoKit
 import Foundation
 import LungfishCore
 import LungfishIO
+import LungfishWorkflow
 
 struct PrimerBindingRowComparison: Identifiable, Sendable {
     let id: Int
@@ -22,6 +23,7 @@ struct PrimerBindingInspectionPrimer: Identifiable, Sendable {
     let alignedStart: Int
     let alignedEnd: Int
     let contiguousReference: Bool
+    var unavailableReason: String? = nil
     /// Same saved-output identity used by the Overview and Results selection.
     var reviewPrimerID: String = ""
 }
@@ -48,6 +50,10 @@ struct PrimerBindingInspectionContext: Identifiable, Sendable {
     func comparisons(for primer: PrimerBindingInspectionPrimer) throws -> [PrimerBindingRowComparison] {
         try rows.enumerated().map { index, row in
             try Task.checkCancellation()
+            if let reason = primer.unavailableReason {
+                return .init(id: index, rowName: row.name, alignedSite: "",
+                    status: "Unavailable: " + reason, mismatchCount: nil, mismatchPositions: [])
+            }
             return Self.compare(id: index, name: row.name, row: row.sequence,
                 lower: primer.alignedStart, upper: primer.alignedEnd, primer: primer.sequence,
                 strand: primer.strand, contiguousReference: primer.contiguousReference)
@@ -142,6 +148,89 @@ struct PrimerBindingInspectionContext: Identifiable, Sendable {
                 }
                 contexts.append(.init(id: contextID, title: title, alignedFASTA: displayFASTA,
                     annotations: annotations, primers: primers, unavailableReason: nil, rows: displayRows))
+            }
+        }
+        return contexts
+    }
+
+    static func loadNormalized(
+        bundle: PrimerAnalysisBundle, document: PrimerSchemeResultsDocument,
+        projections: [String: PrimerBindingProjection]
+    ) throws -> [Self] {
+        func read(_ path: String) throws -> Data {
+            guard let artifact = bundle.manifest.artifacts.first(where: { $0.relativePath == path }) else {
+                throw PrimerAnalysisBundleError.invalidArtifact(
+                    "Missing normalized binding inspection artifact: " + path)
+            }
+            let bytes = try Data(contentsOf: bundle.artifactURL(forRelativePath: path))
+            guard UInt64(bytes.count) == artifact.byteSize,
+                  SHA256.hash(data: bytes).map({ String(format: "%02x", $0) }).joined()
+                    == artifact.sha256.lowercased() else {
+                throw PrimerAnalysisBundleError.integrityMismatch(path)
+            }
+            return bytes
+        }
+        var contexts: [Self] = []
+        for result in document.results {
+            for target in result.targets {
+                try Task.checkCancellation()
+                guard let projection = projections[target.bindingProjectionPath] else {
+                    throw PrimerAnalysisBundleError.invalidArtifact(
+                        "Normalized binding projection is missing.")
+                }
+                let sourceRows = try parseFASTA(read(projection.sourcePath))
+                guard Set(sourceRows.map { $0.sequence.count }).count == 1,
+                      sourceRows.first?.sequence.count == projection.sourceLength else {
+                    throw PrimerAnalysisBundleError.invalidArtifact(
+                        "Normalized binding source rows disagree with the saved projection length.")
+                }
+                let generatedReferences = try parseFASTA(read(target.referencePath))
+                guard let generatedReference = generatedReferences.first(where: { $0.name == target.referenceID }),
+                      generatedReference.sequence.count == target.referenceLength else {
+                    throw PrimerAnalysisBundleError.invalidArtifact(
+                        "Normalized generated reference identity or length is inconsistent.")
+                }
+                let generatedReferenceURL = try bundle.artifactURL(forRelativePath: target.referencePath)
+                let displayFASTA = sourceRows.map {
+                    ">\($0.name)\n\(String($0.sequence))\n"
+                }.joined()
+                var annotations: [MultipleSequenceAlignmentBundle.AlignmentAnnotationRecord] = []
+                var primers: [PrimerBindingInspectionPrimer] = []
+                for oligo in target.oligos {
+                    let primerID = target.id.uuidString.lowercased() + ":" + oligo.id.uuidString.lowercased()
+                    let reviewID = oligo.id.uuidString.lowercased()
+                    switch PrimerSchemeViewerAdapter.project(oligo: oligo, through: projection) {
+                    case .exact(let start, let end):
+                        let interval = AnnotationInterval(start: start, end: end)
+                        annotations.append(.init(id: primerID, origin: .source,
+                            rowID: "inspection-row-0", rowName: sourceRows[0].name,
+                            sourceSequenceName: target.referenceID,
+                            sourceFilePath: generatedReferenceURL.path,
+                            sourceTrackID: "normalized-" + oligo.role.rawValue,
+                            sourceTrackName: oligo.role == .probe ? "Probe" : "Primer",
+                            sourceAnnotationID: oligo.id.uuidString.lowercased(),
+                            name: oligo.name, type: "primer_bind", strand: oligo.strand.rawValue,
+                            sourceIntervals: [.init(start: oligo.start, end: oligo.end)],
+                            alignedIntervals: [interval],
+                            qualifiers: ["sequence_5prime_to_3prime": [oligo.sequence],
+                                         "oligo_role": [oligo.role.rawValue]],
+                            note: "Saved generated-reference footprint with an exact one-to-one projection onto the original input rows.",
+                            projection: nil, warnings: []))
+                        primers.append(.init(id: primerID, name: oligo.name,
+                            sequence: oligo.sequence, strand: oligo.strand.rawValue,
+                            alignedStart: start, alignedEnd: end, contiguousReference: true,
+                            reviewPrimerID: reviewID))
+                    case .unavailable(let reason):
+                        primers.append(.init(id: primerID, name: oligo.name,
+                            sequence: oligo.sequence, strand: oligo.strand.rawValue,
+                            alignedStart: 0, alignedEnd: min(oligo.sequence.count, projection.sourceLength),
+                            contiguousReference: false, unavailableReason: reason,
+                            reviewPrimerID: reviewID))
+                    }
+                }
+                contexts.append(.init(id: target.id.uuidString.lowercased(), title: target.label,
+                    alignedFASTA: displayFASTA, annotations: annotations, primers: primers,
+                    unavailableReason: nil, rows: sourceRows))
             }
         }
         return contexts

@@ -54,18 +54,26 @@ enum PrimerOrderSheetWriter {
     let templateParts = directory.appendingPathComponent("template-parts", isDirectory: true)
     let uploadParts = directory.appendingPathComponent("upload-parts", isDirectory: true)
     let workbookParts = directory.appendingPathComponent("workbook-parts", isDirectory: true)
+    let supportsIDTOPools = oligos.allSatisfy { $0.sourceOligoID == nil || $0.nativePool != nil }
     var commands: [Command] = []
     commands.append(try await run("/usr/bin/unzip", version: unzipVersion,
       arguments: ["-q", retainedTemplate.path, "-d", templateParts.path], directory: directory))
     try Task.checkCancellation()
-    try FileManager.default.copyItem(at: templateParts, to: uploadParts)
-    try populateTemplate(at: uploadParts, oligos: oligos)
-    // Retain both generated OpenXML packages so the recorded ZIP commands can be replayed.
-    try FileManager.default.copyItem(at: uploadParts, to: workbookParts)
+    if supportsIDTOPools {
+      try FileManager.default.copyItem(at: templateParts, to: uploadParts)
+      try populateTemplate(at: uploadParts, oligos: oligos)
+      // Retain generated OpenXML parts so every recorded ZIP command can be replayed.
+      try FileManager.default.copyItem(at: uploadParts, to: workbookParts)
+    } else {
+      try FileManager.default.copyItem(at: templateParts, to: workbookParts)
+      try replaceVendorSheetWithAssayReview(at: workbookParts, oligos: oligos)
+    }
     try addMetadataSheet(at: workbookParts, oligos: oligos, metadata: metadata, selection: selection)
     try Data(csv(oligos: oligos, metadata: metadata).utf8)
       .write(to: directory.appendingPathComponent("ordering.csv"), options: .withoutOverwriting)
-    for (parts, filename) in [(uploadParts, "IDT-oPools.xlsx"), (workbookParts, "primer-order.xlsx")] {
+    let packages = (supportsIDTOPools ? [(uploadParts, "IDT-oPools.xlsx")] : [])
+      + [(workbookParts, "primer-order.xlsx")]
+    for (parts, filename) in packages {
       try Task.checkCancellation()
       let output = directory.appendingPathComponent(filename)
       try requireAbsent(output)
@@ -74,6 +82,59 @@ enum PrimerOrderSheetWriter {
     }
     try Task.checkCancellation()
     return Receipt(templateSHA256: hash, commands: commands)
+  }
+
+  /// An unpooled result has no vendor pool semantics. Its detailed workbook starts with an
+  /// assay review table so alternative assays cannot be mistaken for one compatible mixture.
+  private static func replaceVendorSheetWithAssayReview(at root: URL, oligos: [PrimerOrderOligo]) throws {
+    let workbookPath = root.appendingPathComponent("xl/workbook.xml")
+    let workbook = try XMLDocument(contentsOf: workbookPath, options: .nodePreserveAll)
+    guard let firstSheet = workbook.rootElement()?.elements(forName: "sheets").first?
+      .elements(forName: "sheet").first else { throw invalid("The order workbook is invalid.") }
+    setAttribute(firstSheet, "name", "Assay review")
+    try workbook.xmlData.write(to: workbookPath, options: .atomic)
+    let propertiesPath = root.appendingPathComponent("docProps/app.xml")
+    let properties = try XMLDocument(contentsOf: propertiesPath, options: .nodePreserveAll)
+    if let firstTitle = try properties.nodes(forXPath:
+      "//*[local-name()='TitlesOfParts']/*[local-name()='vector']/*[local-name()='lpstr']").first {
+      firstTitle.stringValue = "Assay review"
+    }
+    try properties.xmlData.write(to: propertiesPath, options: .atomic)
+
+    let header = ["Order group", "Oligo name", "Sequence (5′–3′)", "Role", "Candidate status",
+      "Assay IDs", "Native pool", "Source oligo ID"]
+    let sheet = XMLElement(name: "worksheet", uri: spreadsheetNamespace)
+    sheet.addNamespace(XMLNode.namespace(withName: "", stringValue: spreadsheetNamespace) as! XMLNode)
+    sheet.addChild(element("dimension", attributes: ["ref": "A1:H\(oligos.count + 1)"]))
+    let views = XMLElement(name: "sheetViews")
+    let view = element("sheetView", attributes: ["workbookViewId": "0", "showGridLines": "0"])
+    view.addChild(element("pane", attributes: ["ySplit": "1", "topLeftCell": "A2",
+      "activePane": "bottomLeft", "state": "frozen"]))
+    views.addChild(view); sheet.addChild(views)
+    let columns = XMLElement(name: "cols")
+    for (index, width) in [42, 34, 42, 16, 20, 68, 18, 68].enumerated() {
+      columns.addChild(element("col", attributes: ["min": String(index + 1), "max": String(index + 1),
+        "width": String(width), "customWidth": "1"]))
+    }
+    sheet.addChild(columns)
+    let data = XMLElement(name: "sheetData")
+    for (rowIndex, values) in ([header] + oligos.map { oligo in
+      [oligo.poolName, oligo.name, oligo.sequence, oligo.oligoRole?.rawValue ?? "",
+       oligo.candidateStatus?.rawValue ?? "", json(oligo.assayIDs ?? []), oligo.nativePool ?? "",
+       oligo.sourceOligoID ?? ""]
+    }).enumerated() {
+      let rowNumber = rowIndex + 1
+      let row = element("row", attributes: ["r": String(rowNumber), "ht": rowIndex == 0 ? "30" : "24",
+        "customHeight": "1"])
+      for (column, value) in values.enumerated() {
+        row.addChild(textCell("\(columnName(column + 1))\(rowNumber)", value: value, style: rowIndex == 0 ? 1 : 0))
+      }
+      data.addChild(row)
+    }
+    sheet.addChild(data)
+    let document = XMLDocument(rootElement: sheet)
+    document.version = "1.0"; document.characterEncoding = "UTF-8"
+    try document.xmlData.write(to: root.appendingPathComponent("xl/worksheets/sheet1.xml"), options: .atomic)
   }
 
   private static func run(_ executable: String, version: String, arguments: [String], directory: URL) async throws -> Command {
@@ -219,11 +280,12 @@ enum PrimerOrderSheetWriter {
     "Pool number", "Primer ID", "Target ID", "Source result ID", "Reference ID", "Amplicon IDs (JSON)",
     "Start (1-based inclusive)", "End (1-based inclusive)", "Strand", "Compatible rows", "Assessable rows",
     "Unassessed rows", "Total alignment rows", "Observed MSA compatibility (%)", "Order name",
-    "Requested by", "Project", "Order reference", "Order notes"]
+    "Requested by", "Project", "Order reference", "Order notes", "Source oligo ID", "Oligo role",
+    "Candidate status", "Assay IDs (JSON)", "Native pool"]
 
   // Keep the two-column order details compact while fitting the identity mapping below.
   private static let metadataColumnWidths: [Double] = [43, 62, 48, 14, 28, 14, 72, 72, 64, 64, 72, 22,
-    22, 12, 18, 18, 18, 22, 26, 36, 28, 28, 28, 62]
+    22, 12, 18, 18, 18, 22, 26, 36, 28, 28, 28, 62, 72, 18, 20, 72, 20]
 
   private static func metadataRowHeight(_ row: MetadataRow) -> Double {
     let font = row.header
@@ -250,12 +312,15 @@ enum PrimerOrderSheetWriter {
   private static func oligoRow(_ oligo: PrimerOrderOligo, metadata: PrimerOrderMetadata) -> [String] {
     let compatibility = oligo.compatibility
     return [oligo.poolName, oligo.name, oligo.sequence, String(oligo.sequence.count), oligo.schemeLabel,
-      String(oligo.pool), oligo.primerID, oligo.targetID, oligo.sourceResultID, oligo.referenceID, json(oligo.ampliconIDs),
+      oligo.pool.map(String.init) ?? "", oligo.primerID, oligo.targetID, oligo.sourceResultID, oligo.referenceID,
+      json(oligo.ampliconIDs),
       String(oligo.start + 1), String(oligo.end), oligo.strand,
       compatibility.map { String($0.matchingRows) } ?? "", compatibility.map { String($0.assessableRows) } ?? "",
       compatibility.map { String($0.unknownRows) } ?? "", compatibility.map { String($0.totalRows) } ?? "",
       compatibility?.percent.map { String($0) } ?? "", metadata.name, metadata.requestedBy,
-      metadata.project, metadata.orderReference, metadata.notes]
+      metadata.project, metadata.orderReference, metadata.notes, oligo.sourceOligoID ?? "",
+      oligo.oligoRole?.rawValue ?? "", oligo.candidateStatus?.rawValue ?? "",
+      json(oligo.assayIDs ?? []), oligo.nativePool ?? ""]
   }
 
   private static func csv(oligos: [PrimerOrderOligo], metadata: PrimerOrderMetadata) -> String {
@@ -276,39 +341,49 @@ enum PrimerOrderSheetWriter {
   private static func metadataRows(oligos: [PrimerOrderOligo], metadata: PrimerOrderMetadata,
                                     selection: PrimerOrderSelection) -> [MetadataRow] {
     let settings = selection.settings
+    let normalized = selection.selectedAssayIDs != nil
     var rows = [MetadataRow(values: ["Order metadata"], header: true)]
     let details = [
       ["Order name", metadata.name], ["Requested by", metadata.requestedBy], ["Project", metadata.project],
       ["Order reference", metadata.orderReference], ["Order notes", metadata.notes],
-      ["Scope", "Filtered derivative of saved oligos; no new design or optimization."],
+      ["Scope", normalized
+        ? "Explicit saved assay selection; no new design, pooling or optimization."
+        : "Filtered derivative of saved oligos; no new design or optimization."],
       ["Sequence orientation", "Saved 5′–3′ oligos; no inferred modifications."],
       ["Source analysis", selection.analysisURL.lastPathComponent],
       ["Analysis ID", selection.manifest.analysisID.uuidString], ["Run ID", selection.manifest.runID.uuidString],
       ["Captured at", ISO8601DateFormatter().string(from: selection.capturedAt)],
-      ["Exported oligos", String(oligos.count)], ["Named pools", String(Set(oligos.map(\.poolName)).count)],
+      ["Exported oligos", String(oligos.count)], [normalized ? "Order groups" : "Named pools", String(Set(oligos.map(\.poolName)).count)],
       ["Source schemes", String(Set(oligos.map(\.sourceResultID)).count)],
     ]
     rows += details.map { MetadataRow(values: $0,
-      numericColumns: ["Exported oligos", "Named pools", "Source schemes"].contains($0[0]) ? [1] : []) }
+      numericColumns: ["Exported oligos", "Named pools", "Order groups", "Source schemes"].contains($0[0]) ? [1] : []) }
+    if let assayIDs = selection.selectedAssayIDs {
+      rows.append(.init(values: ["All reported assays", String(selection.includesAllReportedAssays == true)]))
+      rows.append(.init(values: ["Selected assay count", String(assayIDs.count)], numericColumns: [1]))
+      rows += assayIDs.map { MetadataRow(values: ["Selected assay ID", $0]) }
+    }
     rows.append(.init(values: []))
-    rows.append(.init(values: ["Captured display settings"], header: true))
-    let filters = [
-      ["Forward oligos shown", String(settings.showForward)], ["Reverse oligos shown", String(settings.showReverse)],
-      ["Saved amplicon spans shown", String(settings.showAmplicons)], ["Identity dots shown", String(settings.showIdentityDots)],
-      ["Compatibility filter enabled", String(settings.filterByCompatibility)],
-      ["Minimum observed MSA compatibility (%)", String(settings.minimumCompatibilityPercent)],
-      ["Compatibility calculation ready", String(selection.compatibilityReady)],
-      ["Compatibility filter applied", String(settings.filterByCompatibility && selection.compatibilityReady)],
-      ["Keep unassessed oligos", String(settings.showUnassessed)],
-      ["Individually hidden oligos", String(settings.hiddenPrimerIDs.count)],
-      ["Hidden pools", String(settings.hiddenPoolIDs.count)],
-      ["Compatibility definition", "Compatible / assessable alignment rows; unresolved rows excluded."],
-    ]
-    rows += filters.map { MetadataRow(values: $0, numericColumns:
-      ["Minimum observed MSA compatibility (%)", "Individually hidden oligos", "Hidden pools"].contains($0[0]) ? [1] : []) }
-    rows += settings.hiddenPrimerIDs.sorted().map { MetadataRow(values: ["Hidden primer ID", $0]) }
-    rows += settings.hiddenPoolIDs.sorted().map { MetadataRow(values: ["Hidden pool ID", $0]) }
-    rows.append(.init(values: []))
+    if !normalized {
+      rows.append(.init(values: ["Captured display settings"], header: true))
+      let filters = [
+        ["Forward oligos shown", String(settings.showForward)], ["Reverse oligos shown", String(settings.showReverse)],
+        ["Saved amplicon spans shown", String(settings.showAmplicons)], ["Identity dots shown", String(settings.showIdentityDots)],
+        ["Compatibility filter enabled", String(settings.filterByCompatibility)],
+        ["Minimum observed MSA compatibility (%)", String(settings.minimumCompatibilityPercent)],
+        ["Compatibility calculation ready", String(selection.compatibilityReady)],
+        ["Compatibility filter applied", String(settings.filterByCompatibility && selection.compatibilityReady)],
+        ["Keep unassessed oligos", String(settings.showUnassessed)],
+        ["Individually hidden oligos", String(settings.hiddenPrimerIDs.count)],
+        ["Hidden pools", String(settings.hiddenPoolIDs.count)],
+        ["Compatibility definition", "Compatible / assessable alignment rows; unresolved rows excluded."],
+      ]
+      rows += filters.map { MetadataRow(values: $0, numericColumns:
+        ["Minimum observed MSA compatibility (%)", "Individually hidden oligos", "Hidden pools"].contains($0[0]) ? [1] : []) }
+      rows += settings.hiddenPrimerIDs.sorted().map { MetadataRow(values: ["Hidden primer ID", $0]) }
+      rows += settings.hiddenPoolIDs.sorted().map { MetadataRow(values: ["Hidden pool ID", $0]) }
+      rows.append(.init(values: []))
+    }
     rows.append(.init(values: ["Exported oligo identities"], header: true))
     rows.append(.init(values: csvHeader, header: true))
     rows += oligos.map { MetadataRow(values: oligoRow($0, metadata: metadata), numericColumns: [3, 5, 11, 12, 14, 15, 16, 17, 18]) }

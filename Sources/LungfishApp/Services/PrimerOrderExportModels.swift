@@ -11,6 +11,8 @@ struct PrimerOrderSelection: Codable, Equatable, Sendable {
   let compatibilityReady: Bool
   let compatibilitySummaries: [String: PrimerMSACompatibilitySummary]
   let selectedPrimerIDs: [String]
+  var selectedAssayIDs: [String]? = nil
+  var includesAllReportedAssays: Bool? = nil
 }
 
 struct PrimerOrderMetadata: Codable, Equatable, Sendable {
@@ -29,7 +31,7 @@ struct PrimerOrderOligo: Codable, Equatable, Identifiable, Sendable {
   let schemeLabel: String
   /// Unique within this order; independent schemes with the same pool number stay separate.
   let poolName: String
-  let pool: Int
+  let pool: Int?
   let referenceID: String
   let name: String
   let sequence: String
@@ -38,6 +40,11 @@ struct PrimerOrderOligo: Codable, Equatable, Identifiable, Sendable {
   let strand: String
   let ampliconIDs: [String]
   let compatibility: PrimerMSACompatibilitySummary?
+  var sourceOligoID: String? = nil
+  var oligoRole: PrimerOligoRole? = nil
+  var candidateStatus: PrimerAssayStatus? = nil
+  var assayIDs: [String]? = nil
+  var nativePool: String? = nil
 }
 
 struct PrimerOrderDraft: Identifiable, Sendable {

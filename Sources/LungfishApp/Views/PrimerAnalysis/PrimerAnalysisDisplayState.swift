@@ -1,4 +1,5 @@
 import Foundation
+import LungfishWorkflow
 import Observation
 import SwiftUI
 
@@ -155,16 +156,37 @@ final class PrimerAnalysisDisplaySession {
     return nil
   }
 
-  func makeOrderDraft() throws -> PrimerOrderDraft {
+  var hasNormalizedSchemeResults: Bool { sourceSnapshot?.primerSchemeResultsDocument != nil }
+  var hasReportedAlternatives: Bool {
+    sourceSnapshot?.primerSchemeResultsDocument?.results.contains {
+      $0.targets.contains { $0.assays.contains { $0.status == .alternative } }
+    } == true
+  }
+
+  func makeOrderDraft(allReportedAssays: Bool = false) throws -> PrimerOrderDraft {
     if let reason = orderExportUnavailableReason { throw PrimerOrderExportError.invalid(reason) }
     guard let snapshot = sourceSnapshot else { throw PrimerOrderExportError.invalid("The saved analysis is unavailable.") }
+    let assayIDs: [String]?
+    let selectedPrimerIDs: [String]
+    if let document = snapshot.primerSchemeResultsDocument {
+      let assays = document.results.flatMap { $0.targets.flatMap(\.assays) }
+        .filter { allReportedAssays || $0.status == .selected }
+      assayIDs = assays.map { $0.id.uuidString.lowercased() }
+      selectedPrimerIDs = try PrimerSchemeOrderSheet.rows(from: document,
+        selection: .selectedAssays(Set(assays.map(\.id)))).map(\.id)
+    } else {
+      assayIDs = nil
+      selectedPrimerIDs = targets.flatMap { visibility.visiblePrimers(in: $0).map(\.id) }
+    }
     let selection = PrimerOrderSelection(capturedAt: Date(), analysisURL: snapshot.bundle.url,
       manifest: snapshot.bundle.manifest, settings: settings, compatibilityReady: compatibilityReady,
       compatibilitySummaries: compatibilityReady ? compatibilitySummaries : [:],
-      selectedPrimerIDs: targets.flatMap { visibility.visiblePrimers(in: $0).map(\.id) })
+      selectedPrimerIDs: selectedPrimerIDs, selectedAssayIDs: assayIDs,
+      includesAllReportedAssays: snapshot.primerSchemeResultsDocument == nil ? nil : allReportedAssays)
     return PrimerOrderDraft(selection: selection,
       oligos: try PrimerOrderExportService.prepare(snapshot: snapshot, selection: selection),
-      defaultName: snapshot.bundle.url.deletingPathExtension().lastPathComponent + " order")
+      defaultName: snapshot.bundle.url.deletingPathExtension().lastPathComponent
+        + (allReportedAssays ? " all reported assays order" : " order"))
   }
 
   func isVisible(_ primer: PrimerReviewPrimer, in target: PrimerTargetDesignReview) -> Bool {

@@ -46,7 +46,7 @@ struct PrimerReviewContextMenu: View {
     let associated = target.intervals.first { $0.id == clicked.ampliconID }
     return Group {
       summary(primer.name)
-      summary("\(primer.sequence.count) nt · \(primer.name == "Internal probe" ? "Probe" : primer.strand == "+" ? "Forward (+)" : "Reverse (−)") · \(poolLabel(primer.pool))")
+      summary("\(primer.sequence.count) nt · \(primer.role == .probe ? "Probe" : primer.strand == "+" ? "Forward (+)" : "Reverse (−)") · \(primer.poolLabel ?? poolLabel(primer.pool))")
       summary("Binding site \(primer.start + 1)–\(primer.end) · 1-based inclusive")
       if target.presentation == .schemeReference { summary("Selected scheme oligo") }
       Divider()
@@ -67,13 +67,13 @@ struct PrimerReviewContextMenu: View {
             copy(PrimerReviewClipboard.ampliconFASTA(associated, in: target), clicked: clicked)
           }.disabled(PrimerReviewClipboard.ampliconFASTA(associated, in: target) == nil)
         }
-        poolCopy(primer.pool, clicked: clicked)
+        if primer.nativePool != nil { poolCopy(primer.pool, clicked: clicked) }
       }
       Divider()
       Button("Save Primer FASTA Bundle in Project") {
         export(.primer(targetID: target.id, primerID: primer.id), kind: .primerFASTA, clicked: clicked)
       }.disabled(actions.onExportRequested == nil || fasta == nil)
-      poolSave(primer.pool, clicked: clicked)
+      if primer.nativePool != nil { poolSave(primer.pool, clicked: clicked) }
       if let associated {
         Button("Extract Reference Amplicon Bundle in Project") {
           export(.amplicon(targetID: target.id, ampliconID: associated.id), kind: .referenceAmplicon, clicked: clicked)
@@ -88,7 +88,7 @@ struct PrimerReviewContextMenu: View {
     let fasta = PrimerReviewClipboard.ampliconFASTA(interval, in: target)
     return Group {
       summary(interval.name)
-      summary("\(interval.length) bp · \(poolLabel(interval.pool))")
+      summary("\(interval.length) bp · \(interval.poolLabel ?? poolLabel(interval.pool))")
       summary("\(interval.sizeLabel) · \(interval.start + 1)–\(interval.end)")
       summary(members.map { target.presentation == .schemeReference
         ? "\($0.count) oligos in the selected primer set" : "\($0.count) associated oligos" } ?? "Primer correspondence unavailable")

@@ -370,6 +370,191 @@ final class PrimerDesignDialogStateTests: XCTestCase {
     XCTAssertEqual(options.terminalGapPolicy, .observedOnly)
   }
 
+  func testPrimalMinimumBaseFrequencyIsVisibleAndForwardedExactly() throws {
+    let state = configuredState()
+    state.engine = .primalScheme
+    state.minimumBaseFrequency = "0.125"
+    XCTAssertEqual(try state.primalSchemeOptions().minimumBaseFrequency, 0.125)
+    state.minimumBaseFrequency = "1.1"
+    XCTAssertThrowsError(try state.primalSchemeOptions())
+    XCTAssertTrue(state.validationMessage?.contains("base frequency") == true)
+  }
+
+  func testEngineRoutingExposesBothNormalizedSchemeWorkflows() throws {
+    XCTAssertEqual(PrimerDesignEngine.allCases.map(\.rawValue),
+      ["Primer3", "PrimalScheme", "Olivar", "varVAMP"])
+    let state = configuredState()
+    state.engine = .olivar
+    XCTAssertEqual(try state.primerSchemeOptions().engine, .olivar)
+    state.engine = .varVAMP
+    XCTAssertEqual(try state.primerSchemeOptions().engine, .varvamp)
+  }
+
+  func testOlivarSettingsSurviveAdvancedToggleAndRoundTripExactly() throws {
+    let state = configuredState()
+    state.engine = .olivar
+    state.ampliconSizeMinimum = "320"
+    state.ampliconSize = "375"
+    state.ampliconSizeMaximum = "430"
+    state.schemeWorkers = "3"
+    state.olivarMinimumVariantFrequency = "0.0375"
+    state.olivarDegenerate = true
+    state.olivarCheckVariants = true
+    state.olivarTemperatureC = "61.5"
+    state.olivarRiskVariation = "2.25"
+    state.olivarBlastDatabasePath = "/db/non-target"
+    state.advancedExpanded = true
+    state.advancedExpanded = false
+
+    let options = try state.primerSchemeOptions()
+    XCTAssertEqual(options.engine, .olivar)
+    XCTAssertEqual(options.mode, .tiled)
+    XCTAssertEqual(options.minimumAmpliconLength, 320)
+    XCTAssertEqual(options.nominalAmpliconLength, 375)
+    XCTAssertEqual(options.maximumAmpliconLength, 430)
+    XCTAssertEqual(options.workers, 3)
+    XCTAssertEqual(options.requestedMinimumAmpliconLength, 320)
+    XCTAssertEqual(options.requestedMaximumAmpliconLength, 430)
+    XCTAssertTrue(options.suppliedOptionNames.isSuperset(of: ["engine", "mode", "grouping",
+      "nominalAmpliconLength", "minimumAmpliconLength", "maximumAmpliconLength", "workers",
+      "requestedMinimumAmpliconLength", "requestedMaximumAmpliconLength"]))
+    XCTAssertEqual(options.olivar?.minimumVariantFrequency, 0.0375)
+    XCTAssertEqual(options.olivar?.temperatureC, 61.5)
+    XCTAssertEqual(options.olivar?.riskWeights.variation, 2.25)
+    XCTAssertEqual(options.olivar?.blastDatabasePath, "/db/non-target")
+    XCTAssertTrue(options.olivar?.degenerate == true)
+    XCTAssertTrue(options.olivar?.checkVariants == true)
+  }
+
+  func testVarVAMPModesRetainSizingAndQPCRRequiresVisibleThreshold() throws {
+    let state = configuredState()
+    state.engine = .varVAMP
+    state.schemeMode = .single
+    state.ampliconSizeMinimum = "180"
+    state.ampliconSize = "220"
+    state.ampliconSizeMaximum = "260"
+    state.varVAMPReportCount = "7"
+
+    state.schemeMode = .qpcr
+    XCTAssertEqual(state.ampliconSizeMinimum, "70")
+    XCTAssertEqual(state.ampliconSize, "135")
+    XCTAssertEqual(state.ampliconSizeMaximum, "200")
+    XCTAssertThrowsError(try state.primerSchemeOptions())
+    XCTAssertTrue(state.validationMessage?.contains("consensus threshold") == true)
+    state.varVAMPConsensusThreshold = "0.91"
+    let untouchedQPCRBounds = try state.primerSchemeOptions()
+    XCTAssertNil(untouchedQPCRBounds.requestedMinimumAmpliconLength)
+    XCTAssertNil(untouchedQPCRBounds.requestedMaximumAmpliconLength)
+    XCTAssertFalse(untouchedQPCRBounds.suppliedOptionNames.contains("requestedMinimumAmpliconLength"))
+    XCTAssertFalse(untouchedQPCRBounds.suppliedOptionNames.contains("requestedMaximumAmpliconLength"))
+    state.varVAMPMaximumProbeAmbiguities = "1"
+    state.varVAMPQPCRTestCount = "17"
+    state.ampliconSizeMinimum = "80"
+    state.ampliconSize = "125"
+    state.ampliconSizeMaximum = "175"
+    let qpcr = try state.primerSchemeOptions()
+    XCTAssertEqual(qpcr.mode, .qpcr)
+    XCTAssertEqual(qpcr.varvamp?.cumulativeConsensusThreshold, 0.91)
+    XCTAssertEqual(qpcr.varvamp?.maximumProbeAmbiguities, 1)
+    XCTAssertEqual(qpcr.varvamp?.qpcrTestCount, 17)
+    XCTAssertEqual(qpcr.requestedMinimumAmpliconLength, 80)
+    XCTAssertEqual(qpcr.requestedMaximumAmpliconLength, 175)
+
+    state.schemeMode = .single
+    XCTAssertEqual(state.ampliconSizeMinimum, "180")
+    XCTAssertEqual(state.ampliconSize, "220")
+    XCTAssertEqual(state.ampliconSizeMaximum, "260")
+    XCTAssertEqual(try state.primerSchemeOptions().varvamp?.reportCount, 7)
+    state.schemeMode = .qpcr
+    XCTAssertEqual(state.ampliconSizeMinimum, "80")
+    XCTAssertEqual(state.ampliconSize, "125")
+    XCTAssertEqual(state.ampliconSizeMaximum, "175")
+    XCTAssertEqual(try state.primerSchemeOptions().varvamp?.cumulativeConsensusThreshold, 0.91)
+  }
+
+  func testVarVAMPModeSwitchOmitsInactiveControlsWithoutLosingEdits() throws {
+    let state = configuredState()
+    state.engine = .varVAMP
+    state.schemeMode = .qpcr
+    state.varVAMPConsensusThreshold = "0.88"
+    state.varVAMPMaximumProbeAmbiguities = "1"
+    state.varVAMPQPCRTestCount = "23"
+    state.varVAMPQPCRDeltaG = "-7"
+    state.varVAMPProbeSizeMinimum = "19"
+    state.varVAMPProbeSizeOptimum = "24"
+    state.varVAMPProbeSizeMaximum = "29"
+    XCTAssertEqual(try state.primerSchemeOptions().varvamp?.qpcrTestCount, 23)
+
+    state.schemeMode = .single
+    state.varVAMPTiledOverlap = "hidden-invalid"
+    let single = try state.primerSchemeOptions()
+    XCTAssertNil(single.varvamp?.maximumProbeAmbiguities)
+    XCTAssertNil(single.varvamp?.configOverrides.probeSizes)
+    XCTAssertEqual(single.varvamp?.qpcrTestCount, 50)
+    XCTAssertEqual(single.varvamp?.qpcrDeltaG, -3)
+    XCTAssertEqual(single.varvamp?.tiledOverlap, 25)
+    XCTAssertFalse(single.varvamp?.suppliedOptionNames.contains("tiledOverlap") == true)
+    XCTAssertFalse(single.varvamp?.suppliedOptionNames.contains("qpcrTestCount") == true)
+
+    state.varVAMPTiledOverlap = "31"
+    state.varVAMPReportCount = "hidden-invalid"
+    state.schemeMode = .tiled
+    state.varVAMPQPCRTestCount = "also-hidden-invalid"
+    let tiled = try state.primerSchemeOptions()
+    XCTAssertNil(tiled.varvamp?.reportCount)
+    XCTAssertEqual(tiled.varvamp?.tiledOverlap, 31)
+    XCTAssertEqual(tiled.varvamp?.qpcrTestCount, 50)
+
+    state.varVAMPQPCRTestCount = "23"
+    state.schemeMode = .qpcr
+    let restored = try state.primerSchemeOptions()
+    XCTAssertEqual(restored.varvamp?.maximumProbeAmbiguities, 1)
+    XCTAssertEqual(restored.varvamp?.qpcrTestCount, 23)
+    XCTAssertEqual(restored.varvamp?.qpcrDeltaG, -7)
+    XCTAssertEqual(restored.varvamp?.configOverrides.probeSizes?.minimum, 19)
+    XCTAssertEqual(restored.varvamp?.configOverrides.probeSizes?.optimum, 24)
+    XCTAssertEqual(restored.varvamp?.configOverrides.probeSizes?.maximum, 29)
+    XCTAssertEqual(state.varVAMPTiledOverlap, "31")
+    XCTAssertEqual(state.varVAMPReportCount, "hidden-invalid")
+  }
+
+  func testEngineSwitchRestoresPerEngineAndVarVAMPModeSizing() throws {
+    let state = configuredState()
+    state.engine = .varVAMP
+    state.schemeMode = .qpcr
+    state.varVAMPConsensusThreshold = "0.90"
+    state.ampliconSizeMinimum = "80"
+    state.ampliconSize = "125"
+    state.ampliconSizeMaximum = "175"
+
+    state.engine = .olivar
+    XCTAssertEqual([state.ampliconSizeMinimum, state.ampliconSize, state.ampliconSizeMaximum],
+      ["360", "400", "440"])
+    XCTAssertNoThrow(try state.primerSchemeOptions())
+    state.ampliconSizeMinimum = "300"
+    state.ampliconSize = "350"
+    state.ampliconSizeMaximum = "410"
+
+    state.engine = .primalScheme
+    XCTAssertEqual([state.ampliconSizeMinimum, state.ampliconSize, state.ampliconSizeMaximum],
+      ["360", "400", "440"])
+    state.ampliconSizeMinimum = "330"
+    state.ampliconSize = "370"
+    state.ampliconSizeMaximum = "420"
+
+    state.engine = .varVAMP
+    XCTAssertEqual(state.schemeMode, .qpcr)
+    XCTAssertEqual([state.ampliconSizeMinimum, state.ampliconSize, state.ampliconSizeMaximum],
+      ["80", "125", "175"])
+    XCTAssertNoThrow(try state.primerSchemeOptions())
+    state.engine = .olivar
+    XCTAssertEqual([state.ampliconSizeMinimum, state.ampliconSize, state.ampliconSizeMaximum],
+      ["300", "350", "410"])
+    state.engine = .primalScheme
+    XCTAssertEqual([state.ampliconSizeMinimum, state.ampliconSize, state.ampliconSizeMaximum],
+      ["330", "370", "420"])
+  }
+
   func testGapFollowupForcesLegacyTerminalPolicyAndCarriesBoundedExpansion() throws {
     let state = configuredState()
     state.engine = .primalScheme

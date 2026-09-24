@@ -21,7 +21,7 @@ final class PrimerOrderExportViewModel {
     }
 }
 
-/// Reviews the immutable displayed set captured when the Inspector action was invoked.
+/// Reviews the immutable displayed set or explicit saved assays captured by the Inspector action.
 struct PrimerOrderExportView: View {
     @Bindable var model: PrimerOrderExportViewModel
     var onCancel: () -> Void
@@ -32,11 +32,19 @@ struct PrimerOrderExportView: View {
         return model.draft.oligos.compactMap { seen.insert($0.poolName).inserted ? $0.poolName : nil }
     }
 
+    private var isNormalizedAssaySelection: Bool { model.draft.selection.selectedAssayIDs != nil }
+
+    private var title: String {
+        guard isNormalizedAssaySelection else { return "Export Displayed Primer Order" }
+        return model.draft.selection.includesAllReportedAssays == true
+            ? "Export All Reported Assays" : "Export Selected Assays"
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 8) {
                 Image(systemName: "square.and.arrow.up").foregroundStyle(.secondary)
-                Text("Export Displayed Primer Order").font(.headline)
+                Text(title).font(.headline)
                 Spacer()
             }
             .padding(.horizontal, 20).padding(.vertical, 16)
@@ -54,7 +62,7 @@ struct PrimerOrderExportView: View {
                             Text(message).font(.caption).foregroundStyle(.secondary)
                         }
                     }
-                    Text("Saved in this project’s Analyses folder. Includes a workbook with the IDT template and Order metadata, an upload-only workbook, and a detailed CSV. The JSON record preserves the selected oligos and filter settings.")
+                    Text(outputDescription)
                         .font(.caption).foregroundStyle(.secondary)
                     orderMetadata
                     Divider()
@@ -83,13 +91,22 @@ struct PrimerOrderExportView: View {
         .accessibilityIdentifier("primerOrderExport.sheet")
     }
 
+    private var outputDescription: String {
+        let supportsIDTOPools = model.draft.oligos.allSatisfy {
+            $0.sourceOligoID == nil || $0.nativePool != nil
+        }
+        return "Saved in this project’s Analyses folder. Includes a detailed order workbook and CSV"
+            + (supportsIDTOPools ? ", plus an upload-only IDT oPools workbook" : "")
+            + ". The JSON record preserves exact assay, oligo, role, candidate and pool provenance."
+    }
+
     private var frozenSelectionSummary: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("\(model.draft.oligos.count) oligos · \(poolNames.count) pools · \(Set(model.draft.oligos.map(\.sourceResultID)).count) schemes")
+            Text("\(model.draft.oligos.count) oligos · \(poolNames.count) order groups · \(Set(model.draft.oligos.map(\.sourceResultID)).count) schemes")
                 .font(.headline).monospacedDigit()
                 .accessibilityIdentifier("primerOrderExport.count")
             Text(model.draft.sourceName).font(.callout).textSelection(.enabled)
-            Text("This is the displayed set captured when this sheet opened, across all schemes and references. Display changes made later do not change this order.")
+            Text(selectionExplanation)
                 .font(.caption).foregroundStyle(.secondary)
             ForEach(poolNames, id: \.self) { poolName in
                 HStack(alignment: .firstTextBaseline) {
@@ -100,6 +117,15 @@ struct PrimerOrderExportView: View {
                 }.font(.caption).foregroundStyle(.secondary)
             }
         }
+    }
+
+    private var selectionExplanation: String {
+        guard isNormalizedAssaySelection else {
+            return "This is the displayed set captured when this sheet opened, across all schemes and references. Display changes made later do not change this order."
+        }
+        return model.draft.selection.includesAllReportedAssays == true
+            ? "This order contains every reported saved assay, including alternatives and probes. Display changes do not change the order."
+            : "This order contains the explicitly selected saved assays, including their probes. Display changes do not change the order."
     }
 
     private var orderMetadata: some View {

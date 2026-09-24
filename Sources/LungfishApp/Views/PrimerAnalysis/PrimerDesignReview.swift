@@ -6,6 +6,9 @@ struct PrimerReviewInterval: Identifiable, Sendable {
   let start: Int
   let end: Int
   let pool: Int?
+  var poolLabel: String? = nil
+  var candidateStatus: PrimerAssayStatus = .selected
+  var rank: Int? = nil
   var name: String = "Amplicon"
   var primerIDs: [String] = []
   var sizeLabel: String = "Reference span, including primers"
@@ -19,6 +22,10 @@ struct PrimerReviewPrimer: Identifiable, Sendable {
   let end: Int
   let strand: String
   let pool: Int?
+  var poolLabel: String? = nil
+  var role: PrimerOligoRole = .forward
+  var candidateStatus: PrimerAssayStatus = .selected
+  var nativePool: String? = nil
   var sequence: String = ""
   var ampliconIDs: [String] = []
 }

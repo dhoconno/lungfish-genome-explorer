@@ -121,7 +121,7 @@ struct PrimerAnalysisViewerView: View {
           case .overview: overview(snapshot)
           case .results:
             if let results = snapshot.primer3Results { Primer3ResultsView(results: results, bundleURL: snapshot.bundle.url, reviewTargets: snapshot.designReview, selection: $selection, onInspectSelection: { resultInspectionGeneration &+= 1 }) }
-            else if !snapshot.primalSchemeResults.isEmpty { PrimalSchemeResultsView(results: snapshot.primalSchemeResults, engineDescription: snapshot.toolProvenance.first?.toolName ?? "PrimalScheme3", reviewTargets: snapshot.designReview, selection: $selection, onInspectSelection: { resultInspectionGeneration &+= 1 }) }
+            else if !snapshot.primalSchemeResults.isEmpty { PrimalSchemeResultsView(results: snapshot.primalSchemeResults, engineDescription: snapshot.toolProvenance.first?.toolName ?? "PrimalScheme3", presentsReportedAssays: snapshot.primerSchemeResultsDocument != nil, reviewTargets: snapshot.designReview, selection: $selection, onInspectSelection: { resultInspectionGeneration &+= 1 }) }
             else { Text("Native scheme outputs are preserved in the Inspector’s Files tab.").foregroundStyle(.secondary) }
           case .binding: EmptyView()
           }

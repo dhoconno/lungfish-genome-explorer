@@ -60,13 +60,18 @@ extension MainSplitViewController {
     }
 
     private func exportDisplayedPrimerOrder(_ draft: PrimerOrderDraft, metadata: PrimerOrderMetadata, projectURL: URL) {
-        let title = "Export Displayed Primer Order"
+        let normalized = draft.selection.selectedAssayIDs != nil
+        let title = normalized
+            ? (draft.selection.includesAllReportedAssays == true ? "Export All Reported Assays" : "Export Selected Assays")
+            : "Export Displayed Primer Order"
         guard (projectSession.projectURL ?? sidebarController.currentProjectURL)?.standardizedFileURL == projectURL.standardizedFileURL,
             ProjectSession.contains(draft.selection.analysisURL, in: projectURL), canWriteProjectOutputs(workflowName: title) else { return }
         do {
             let destination = try PrimerAnalysisExportDestination(projectURL: projectURL, name: metadata.name, kind: .primerOrder)
             let center = OperationCenter.shared
-            let id = center.start(title: title, detail: "Verifying \(draft.oligos.count) displayed oligos…", operationType: .workflow,
+            let detail = normalized ? "Verifying \(draft.oligos.count) saved assay oligos…"
+                : "Verifying \(draft.oligos.count) displayed oligos…"
+            let id = center.start(title: title, detail: detail, operationType: .workflow,
                 targetBundleURL: destination.url, routeContext: .init(projectURL: projectURL, windowStateScope: windowStateScope))
             let task = Task { @MainActor [weak self] in
                 guard center.items.first(where: { $0.id == id })?.state.isActive == true else { return }

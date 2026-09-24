@@ -1,4 +1,5 @@
 import AppKit
+import LungfishWorkflow
 import SwiftUI
 import XCTest
 @testable import LungfishApp
@@ -25,16 +26,21 @@ final class PrimerDesignDialogVisualTests: XCTestCase {
     state.targetEnabled = true
     state.targetStart = "100"
     state.targetEnd = "200"
-    for (variant, engine) in [PrimerDesignEngine.primer3, .primalScheme, .primalScheme, .primalScheme].enumerated() {
+    for (variant, engine) in [PrimerDesignEngine.primer3, .primalScheme, .primalScheme, .primalScheme,
+      .olivar, .varVAMP].enumerated() {
       state.engine = engine
-      state.advancedExpanded = variant == 2
+      state.advancedExpanded = variant == 2 || engine == .olivar || engine == .varVAMP
       state.grouping = variant == 2 ? .combined : .independent
-      if variant >= 2 {
+      if (2...3).contains(variant) {
         state.ampliconSize = "200"
         state.ampliconSizeMinimum = "150"
         state.ampliconSizeMaximum = "250"
       }
-      let height: CGFloat = variant == 2 ? 1240 : 780
+      if engine == .varVAMP {
+        state.schemeMode = .qpcr
+        state.varVAMPConsensusThreshold = "0.90"
+      }
+      let height: CGFloat = state.advancedExpanded ? 1400 : 780
       let host = NSHostingView(rootView: PrimerDesignDialog(
         state: state, onRun: {}, onClose: {}))
       let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1020, height: height),
@@ -49,9 +55,49 @@ final class PrimerDesignDialogVisualTests: XCTestCase {
       let bitmap = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
       host.cacheDisplay(in: host.bounds, to: bitmap)
       let png = try XCTUnwrap(bitmap.representation(using: .png, properties: [:]))
-      let suffix = variant == 2 ? "-advanced-panel" : variant == 3 ? "-custom-bounds" : ""
+      let suffix = variant == 2 ? "-advanced-panel" : variant == 3 ? "-custom-bounds"
+        : engine == .varVAMP ? "-qpcr-advanced" : engine == .olivar ? "-advanced" : ""
       try png.write(to: output.appendingPathComponent("primer-design-\(engine.rawValue.lowercased())\(suffix).png"))
       window.close()
+    }
+
+    // Exercise every Olivar/varVAMP mode in both the concise and expanded forms.
+    // Expanded cases deliberately use a narrow dark window and long values to expose
+    // clipping, wrapping and contrast regressions that the standard light capture misses.
+    let schemeCases: [(name: String, engine: PrimerDesignEngine, mode: PrimerSchemeMode)] = [
+      ("olivar-tiled", .olivar, .tiled),
+      ("varvamp-single", .varVAMP, .single),
+      ("varvamp-tiled", .varVAMP, .tiled),
+      ("varvamp-qpcr", .varVAMP, .qpcr),
+    ]
+    for item in schemeCases {
+      for advanced in [false, true] {
+        state.engine = item.engine
+        state.schemeMode = item.mode
+        state.advancedExpanded = advanced
+        state.analysisName = advanced
+          ? "MHC class I primer design — long sample and project name layout verification"
+          : "Primer analysis"
+        state.varVAMPConsensusThreshold = item.mode == .qpcr ? "0.90" : ""
+        let width: CGFloat = advanced ? 720 : 1020
+        let height: CGFloat = advanced ? 1600 : 820
+        let host = NSHostingView(rootView: PrimerDesignDialog(state: state, onRun: {}, onClose: {}))
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: width, height: height),
+          styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        window.appearance = NSAppearance(named: advanced ? .darkAqua : .aqua)
+        host.frame = NSRect(x: 0, y: 0, width: width, height: height)
+        host.layoutSubtreeIfNeeded()
+        try await Task.sleep(for: .milliseconds(200))
+        host.layoutSubtreeIfNeeded()
+        let bitmap = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+        host.cacheDisplay(in: host.bounds, to: bitmap)
+        let png = try XCTUnwrap(bitmap.representation(using: .png, properties: [:]))
+        let suffix = advanced ? "advanced-narrow-dark-long" : "basic-light"
+        try png.write(to: output.appendingPathComponent("primer-design-\(item.name)-\(suffix).png"))
+        window.close()
+      }
     }
 
     // Recovery controls are rendered as explicit opt-ins for review.

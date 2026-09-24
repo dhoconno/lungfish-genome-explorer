@@ -22,7 +22,7 @@ struct PrimerDesignDialog: View {
       datasetLabel: "\(state.inputURLs.count) input files · Results saved in this project",
       tools: PrimerDesignEngine.allCases.map { engine in
         DatasetOperationToolSidebarItem(id: engine.rawValue, title: engine.rawValue,
-          subtitle: engine == .primer3 ? "Primer pairs & qPCR probes" : "Tiled primer pool schemes",
+          subtitle: toolSubtitle(engine),
           availability: .available)
       },
       selectedToolID: state.engine.rawValue,
@@ -158,10 +158,31 @@ struct PrimerDesignDialog: View {
   private var schemeSection: some View {
     VStack(alignment: .leading, spacing: 14) {
       Text("Scheme settings").font(.headline)
+      if state.engine == .varVAMP {
+        Picker("Design mode", selection: $state.schemeMode) {
+          Text("Single amplicon").tag(PrimerSchemeMode.single)
+          Text("Tiled amplicons").tag(PrimerSchemeMode.tiled)
+          Text("qPCR / dPCR primers + probe").tag(PrimerSchemeMode.qpcr)
+        }
+        Text(state.schemeMode == .qpcr
+          ? "varVAMP uses its qPCR optimizer for primer-and-probe assays. There is no separate dPCR optimizer."
+          : state.schemeMode == .single ? "Design one primer pair per reported assay." : "Design a tiled two-pool amplicon scheme.")
+          .font(.caption).foregroundStyle(.secondary)
+      } else if state.engine == .olivar {
+        Text("Mode: tiled amplicons").font(.callout.weight(.medium))
+      }
+      if state.engine == .varVAMP {
+        numberField(state.schemeMode == .qpcr
+          ? "Cumulative consensus threshold (required)"
+          : "Cumulative consensus threshold (blank = native automatic)",
+          $state.varVAMPConsensusThreshold)
+        Text("Controls cumulative base support when building the consensus; this differs from PrimalScheme’s frequency filter.")
+          .font(.caption).foregroundStyle(.secondary)
+      }
       Picker("Output grouping", selection: $state.grouping) {
         Text("One scheme per MSA").tag(PrimerAnalysisGrouping.independent)
         Text("Combined scheme from selected MSAs").tag(PrimerAnalysisGrouping.combined)
-      }
+      }.disabled(state.engine == .varVAMP)
       Text(state.grouping == .independent
         ? "Each alignment produces a separate scheme and retains its input identity."
         : "Design a combined panel from all selected alignments.")
@@ -174,7 +195,14 @@ struct PrimerDesignDialog: View {
       Text(state.ampliconSpanDescription).font(.caption).foregroundStyle(.secondary)
       Text("The target sets default bounds until you edit them. It is nominal; selection does not favor the closest size.")
         .font(.caption).foregroundStyle(.secondary)
-      numberField("Primer pools", $state.poolCount)
+      if state.engine == .primalScheme {
+        numberField("Primer pools", $state.poolCount)
+      } else if state.engine == .olivar || (state.engine == .varVAMP && state.schemeMode == .tiled) {
+        Text("Native pool behavior: two tiled pools").font(.caption).foregroundStyle(.secondary)
+      } else {
+        Text("Assays are unpooled.")
+          .font(.caption).foregroundStyle(.secondary)
+      }
     }
   }
 
@@ -198,7 +226,10 @@ struct PrimerDesignDialog: View {
             numberField("Minimum GC (%)", $state.primerMinGC)
             numberField("Maximum GC (%)", $state.primerMaxGC)
           }
-        } else {
+        } else if state.engine == .primalScheme {
+          numberField("Minimum base frequency", $state.minimumBaseFrequency)
+          Text("PrimalScheme's native per-base minimum frequency. The historical GUI default remains 0.")
+            .font(.caption).foregroundStyle(.secondary)
           numberField("CPU cores", $state.coreCount)
           numberField("Dimer score threshold", $state.dimerScore)
           Toggle("Check the primer mispriming database", isOn: $state.useMatchDB)
@@ -265,6 +296,8 @@ struct PrimerDesignDialog: View {
                 .font(.caption).foregroundStyle(.secondary)
             }
           }
+        } else {
+          PrimerSchemeAdvancedOptionsView(state: state)
         }
       }.padding(.top, 12)
     }
@@ -288,6 +321,15 @@ struct PrimerDesignDialog: View {
       Text(title).font(.caption).foregroundStyle(.secondary)
       TextField(title, text: value).textFieldStyle(.roundedBorder)
     }.frame(maxWidth: .infinity, alignment: .leading)
+  }
+
+  private func toolSubtitle(_ engine: PrimerDesignEngine) -> String {
+    switch engine {
+    case .primer3: "Primer pairs & qPCR probes"
+    case .primalScheme: "Tiled primer pool schemes"
+    case .olivar: "Tiled MSA primer schemes"
+    case .varVAMP: "Single, tiled & qPCR/probe assays"
+    }
   }
 
 }
