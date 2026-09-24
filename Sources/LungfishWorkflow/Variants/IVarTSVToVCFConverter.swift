@@ -70,12 +70,13 @@ public struct IVarTSVToVCFConverter: Sendable {
         guard let header = lines.first, header.hasPrefix("REGION\t") else {
             throw ConverterError.missingHeader
         }
-        let rows: [IVarTSVRow] = try lines.dropFirst().map { line in
+        let parsedRows: [IVarTSVRow] = try lines.dropFirst().map { line in
             guard let parsed = IVarTSVRow.parse(line: line, header: header) else {
                 throw ConverterError.malformedRow(line: line)
             }
             return parsed
         }
+        let rows = Self.deduplicated(parsedRows)
         let merged = IVarCodonMerger.merge(
             rows: rows.filter { $0.kind == .snp },
             consensusAF: options.consensusAF,
@@ -93,6 +94,56 @@ public struct IVarTSVToVCFConverter: Sendable {
                 IVarCodonMerger.MergedVariant(positions: [$0.pos], rows: [$0], kind: .single)
             }).sorted { $0.positions[0] < $1.positions[0] }
             try writeVCF(variants: allSorted, to: allHaplotypesVCFURL, options: options, sampleName: resolvedSampleName)
+        }
+    }
+
+    /// Deduplicates iVar TSV rows by (REGION, POS, REF, ALT).
+    ///
+    /// iVar's `variants` command emits one TSV row per GFF feature that
+    /// overlaps a position, so a variant inside two overlapping CDS
+    /// annotations (SARS-CoV-2's ORF1a and ORF1ab both cover 266-13483)
+    /// produces two rows for the same allele. Left undeduplicated, every
+    /// such variant is double-counted in the VCF, and duplicate rows break
+    /// the adjacent-position codon grouping in `IVarCodonMerger`.
+    ///
+    /// Rows are grouped by (region, pos, ref, alt) in first-seen order, and
+    /// each group keeps exactly one row: the first row that carries codon
+    /// annotation (`GFF_FEATURE`/`REF_CODON` non-nil), or the group's first
+    /// row if none do. Every distinct `GFF_FEATURE` seen for the kept
+    /// position is preserved, comma-joined, on the kept row's
+    /// `gffFeature`, so which CDS features overlapped the variant is not
+    /// silently lost, and callers relying on `gffFeature` for reporting
+    /// still see every feature name.
+    static func deduplicated(_ rows: [IVarTSVRow]) -> [IVarTSVRow] {
+        struct Key: Hashable {
+            let region: String
+            let pos: Int
+            let ref: String
+            let alt: String
+        }
+
+        var order: [Key] = []
+        var groups: [Key: [IVarTSVRow]] = [:]
+        for row in rows {
+            let key = Key(region: row.region, pos: row.pos, ref: row.ref, alt: row.alt)
+            if groups[key] == nil {
+                order.append(key)
+                groups[key] = [row]
+            } else {
+                groups[key]!.append(row)
+            }
+        }
+
+        return order.map { key in
+            let group = groups[key]!
+            guard group.count > 1 else { return group[0] }
+
+            let kept = group.first { $0.gffFeature != nil || $0.refCodon != nil } ?? group[0]
+            let features = group.compactMap(\.gffFeature).reduce(into: [String]()) { unique, feature in
+                if !unique.contains(feature) { unique.append(feature) }
+            }
+            guard features.count > 1 else { return kept }
+            return kept.withGFFFeature(features.joined(separator: ","))
         }
     }
 

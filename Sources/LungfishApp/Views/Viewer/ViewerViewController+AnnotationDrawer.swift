@@ -814,40 +814,15 @@ extension ViewerViewController: AnnotationTableDrawerDelegate {
         DispatchQueue.global(qos: .utility).async {
             do {
                 let manifest = try BundleManifest.load(from: bundleURL)
-                var changed = false
-                let updatedTracks = manifest.variants.map { track -> VariantTrackInfo in
-                    guard let liveCount = liveCounts[track.id],
-                          liveCount != track.variantCount else {
-                        return track
-                    }
-                    changed = true
-                    return VariantTrackInfo(
-                        id: track.id,
-                        name: track.name,
-                        description: track.description,
-                        path: track.path,
-                        indexPath: track.indexPath,
-                        databasePath: track.databasePath,
-                        variantType: track.variantType,
-                        variantCount: liveCount,
-                        source: track.source
-                    )
+                let changedCounts = manifest.variants.reduce(into: [String: Int]()) { result, track in
+                    guard let liveCount = liveCounts[track.id], liveCount != track.variantCount else { return }
+                    result[track.id] = liveCount
                 }
-                guard changed else { return }
-                let updatedManifest = BundleManifest(
-                    formatVersion: manifest.formatVersion,
-                    name: manifest.name,
-                    identifier: manifest.identifier,
-                    description: manifest.description,
-                    createdDate: manifest.createdDate,
-                    modifiedDate: Date(),
-                    source: manifest.source,
-                    genome: manifest.genome,
-                    annotations: manifest.annotations,
-                    variants: updatedTracks,
-                    tracks: manifest.tracks,
-                    metadata: manifest.metadata
-                )
+                guard !changedCounts.isEmpty else { return }
+                // `updatingVariantCounts` round-trips every other field (alignments,
+                // warnings, browserSummary, originBundlePath, recordStore, metadata)
+                // unchanged via BundleManifest.copy — see FEA-01.
+                let updatedManifest = manifest.updatingVariantCounts(changedCounts)
                 try updatedManifest.save(to: bundleURL)
                 annotDrawerLogger.info("syncVariantCountsToManifest: Persisted updated variant counts")
             } catch {

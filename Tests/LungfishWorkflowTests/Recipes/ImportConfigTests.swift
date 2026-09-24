@@ -15,7 +15,7 @@ final class ImportConfigTests: XCTestCase {
         XCTAssertEqual(config.platform, .illumina)
         XCTAssertTrue(config.optimizeStorage)
         XCTAssertEqual(config.clumpingTool, .auto)
-        XCTAssertEqual(config.qualityBinning, .illumina4)
+        XCTAssertEqual(config.qualityBinning, .none)
         XCTAssertEqual(config.compressionLevel, .balanced)
         XCTAssertNil(config.newRecipe)
         XCTAssertFalse(config.forceReimport)
@@ -96,7 +96,7 @@ final class ImportConfigTests: XCTestCase {
         XCTAssertNil(config.newRecipe)
         // Default platform is .illumina
         XCTAssertEqual(config.platform, .illumina)
-        XCTAssertEqual(config.qualityBinning, .illumina4)
+        XCTAssertEqual(config.qualityBinning, .none)
     }
 
     func testIlluminaAmpliconMergeRecipeIsAvailableBeforeGenotyping() throws {

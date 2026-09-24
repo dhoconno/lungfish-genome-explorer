@@ -103,7 +103,7 @@ The Project Lead activates the relevant Expert Review Groups:
 After each major feature:
 - What worked, what didn't, what was caught late
 - Update this process document if needed
-- Archive completed plans to `docs/archive/`
+- Delete finished plans/specs/reviews under `docs/` in the commit that completes them; git history preserves them (see `docs/README.md`)
 
 ---
 

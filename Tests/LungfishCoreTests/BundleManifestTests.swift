@@ -850,6 +850,73 @@ final class BundleManifestTests: XCTestCase {
         XCTAssertEqual(removed.alignments[0].id, "aln_2")
     }
 
+    /// FEA-01 regression: removing variant tracks must round-trip every other
+    /// field (alignments, warnings, browserSummary, originBundlePath,
+    /// recordStore, metadata) unchanged.
+    func testRemovingAllVariantTracksPreservesOtherFields() throws {
+        let alignmentTrack = AlignmentTrackInfo(
+            id: "aln_1", name: "sample.bam", format: .bam,
+            sourcePath: "alignments/sample.bam", indexPath: "alignments/sample.bam.bai",
+            addedDate: Date(), sampleNames: ["SampleA"]
+        )
+        let variantTrack = VariantTrackInfo(
+            id: "var_1",
+            name: "SNPs",
+            path: "variants/snps.bcf",
+            indexPath: "variants/snps.bcf.csi",
+            variantType: .snp,
+            variantCount: 42
+        )
+        let recordStore = ReferenceRecordStoreInfo(
+            schemaVersion: 1,
+            format: "genbank",
+            databasePath: "records/records.sqlite",
+            recordCount: 7
+        )
+        let warning = BundleWarning(category: "import", code: "W1", message: "test warning")
+
+        let manifest = BundleManifest(
+            formatVersion: "1.0",
+            name: "Fixture Genome",
+            identifier: "test.fixture",
+            originBundlePath: "@/Downloads/Fixture.lungfishref",
+            source: SourceInfo(organism: "Test organism", assembly: "TestAssembly", database: "Test"),
+            genome: GenomeInfo(
+                path: "genome/sequence.fa.gz",
+                indexPath: "genome/sequence.fa.gz.fai",
+                gzipIndexPath: "genome/sequence.fa.gz.gzi",
+                totalLength: 1_000_000,
+                chromosomes: [
+                    ChromosomeInfo(name: "chr1", length: 1_000_000, offset: 6, lineBases: 50, lineWidth: 51)
+                ]
+            ),
+            annotations: [],
+            variants: [variantTrack],
+            tracks: [],
+            alignments: [alignmentTrack],
+            warnings: [warning],
+            recordStore: recordStore
+        )
+
+        XCTAssertFalse(manifest.variants.isEmpty, "Fixture must start with a variant track")
+        XCTAssertFalse(manifest.alignments.isEmpty, "Fixture must start with an alignment track")
+
+        let updated = manifest.removingAllVariantTracks()
+
+        XCTAssertTrue(updated.variants.isEmpty)
+        XCTAssertEqual(updated.alignments, manifest.alignments, "Alignment tracks must survive variant deletion")
+        XCTAssertEqual(updated.warnings, manifest.warnings, "Warnings must survive variant deletion")
+        XCTAssertEqual(updated.recordStore, manifest.recordStore, "Record store must survive variant deletion")
+        XCTAssertEqual(updated.originBundlePath, manifest.originBundlePath)
+        XCTAssertEqual(updated.formatVersion, manifest.formatVersion)
+        XCTAssertEqual(updated.name, manifest.name)
+        XCTAssertEqual(updated.identifier, manifest.identifier)
+        XCTAssertEqual(updated.source, manifest.source)
+        XCTAssertEqual(updated.genome, manifest.genome)
+        XCTAssertEqual(updated.tracks, manifest.tracks)
+        XCTAssertGreaterThanOrEqual(updated.modifiedDate, manifest.modifiedDate)
+    }
+
     func testAlignmentTrackCodable() throws {
         let track = AlignmentTrackInfo(
             id: "aln_codable",

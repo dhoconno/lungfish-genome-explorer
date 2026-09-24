@@ -733,6 +733,11 @@ extension SidebarViewController: NSMenuDelegate {
     }
 
     private func performDeleteVariantTracks(bundleURL: URL, manifest: BundleManifest) {
+        // `manifest` here is only used to confirm the user's alert was answered
+        // against tracks that existed when the menu was opened. The actual
+        // mutation below re-reads the manifest fresh from disk immediately
+        // before writing, so a track added or changed in the meantime (by
+        // another operation) is not silently discarded — see FEA-01.
         let tracks = manifest.variants
         guard !tracks.isEmpty else { return }
         guard canWriteSidebarProjectOutputs(workflowName: "Variant track deletion", targetURL: bundleURL) else {
@@ -813,26 +818,16 @@ extension SidebarViewController: NSMenuDelegate {
                 }
             }
 
-            // Update manifest to remove variant tracks
-            let updatedManifest = BundleManifest(
-                formatVersion: manifest.formatVersion,
-                name: manifest.name,
-                identifier: manifest.identifier,
-                description: manifest.description,
-                createdDate: manifest.createdDate,
-                modifiedDate: Date(),
-                source: manifest.source,
-                genome: manifest.genome,
-                annotations: manifest.annotations,
-                variants: [],
-                tracks: manifest.tracks,
-                metadata: manifest.metadata
-            )
-
-            let manifestURL = bundleURL.appendingPathComponent("manifest.json")
+            // Re-read the manifest fresh from disk immediately before writing,
+            // rather than reusing the menu-time snapshot, so a track added or
+            // changed by another operation in the meantime is not lost.
+            // `removingAllVariantTracks()` round-trips every other field
+            // (alignments, warnings, browserSummary, originBundlePath,
+            // recordStore, metadata) unchanged via BundleManifest.copy — see FEA-01.
             do {
-                let jsonData = try JSONEncoder().encode(updatedManifest)
-                try jsonData.write(to: manifestURL, options: .atomic)
+                let currentManifest = try BundleManifest.load(from: bundleURL)
+                let updatedManifest = currentManifest.removingAllVariantTracks()
+                try updatedManifest.save(to: bundleURL)
             } catch {
                 errors.append("Failed to write manifest.json: \(error.localizedDescription)")
             }

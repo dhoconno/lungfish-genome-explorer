@@ -340,7 +340,15 @@ extension MainSplitViewController {
     // MARK: - FASTQ Import Sheet
 
     /// Presents the FASTQ import configuration sheet for the given file pairs.
-    func presentFASTQImportSheet(pairs: [FASTQFilePair], projectDirectory: URL, requestID: String?) {
+    func presentFASTQImportSheet(pairs: [FASTQFilePair], projectDirectory rawProjectDirectory: URL, requestID: String?) {
+        // A sidebar drop onto the "Imports" folder itself sets the drop
+        // destination to that folder. The CLI always writes to
+        // `<project>/Imports/<name>.lungfishfastq`, so passing the Imports
+        // folder itself as `projectDirectory` would make it write to
+        // `Imports/Imports/...`. Normalize back to the project root — see FEA-02.
+        let projectDirectory = rawProjectDirectory.lastPathComponent == "Imports"
+            ? rawProjectDirectory.deletingLastPathComponent()
+            : rawProjectDirectory
         guard canWriteProjectOutputs(workflowName: "FASTQ import") else { return }
         guard let window = view.window else {
             // Fallback: import first pair with defaults if no window for sheet
@@ -408,6 +416,13 @@ extension MainSplitViewController {
     }
 
     /// Imports a single FASTQ pair, resolving duplicates via sheet if needed.
+    ///
+    /// The duplicate check targets the CLI's real output location
+    /// (`FASTQBatchImporter.bundleOutputURL`, i.e. `<project>/Imports/<name>.lungfishfastq`),
+    /// not `<projectDirectory>/<name>.lungfishfastq` directly — `projectDirectory`
+    /// here is the project root, and checking the root never saw the bundle the
+    /// CLI actually wrote, so a second same-named import silently replaced the
+    /// first bundle and its derivatives with `--force` (see FEA-02).
     func importFASTQPair(
         pair: FASTQFilePair, index: Int, totalPairs: Int,
         config: FASTQImportConfiguration, projectDirectory: URL,
@@ -415,31 +430,35 @@ extension MainSplitViewController {
     ) async {
         let baseName = pair.sampleName
         var effectiveBundleName = baseName
+        var forceReplace = false
 
-        let bundleExt = FASTQBundle.directoryExtension
-        var bundleURL = projectDirectory.appendingPathComponent("\(effectiveBundleName).\(bundleExt)")
+        func destinationURL(forName name: String) -> URL {
+            FASTQBatchImporter.bundleOutputURL(
+                for: SamplePair(sampleName: name, r1: pair.r1, r2: pair.r2),
+                in: projectDirectory
+            )
+        }
 
-        // Check for existing bundle
+        var bundleURL = destinationURL(forName: effectiveBundleName)
+
+        // Check for an existing bundle at the CLI's real destination.
         if FileManager.default.fileExists(atPath: bundleURL.path) {
-            let resolution = await showDuplicateFileDialog(filename: "\(effectiveBundleName).\(bundleExt)")
+            let resolution = await showDuplicateFileDialog(filename: bundleURL.lastPathComponent)
             switch resolution {
             case .replace:
-                do {
-                    try FileManager.default.removeItem(at: bundleURL)
-                } catch {
-                    mainSplitLogger.error("importFASTQBatch: Failed to remove existing bundle: \(error)")
-                    postSidebarFileDropCompleted(requestID: requestID, sourceURL: pair.r1, success: false, error: error.localizedDescription)
-                    return
-                }
+                // Pass --force only after the user explicitly chose Replace.
+                // The CLI (not this code) performs the actual replacement, so
+                // an existing bundle is never deleted here ahead of time.
+                forceReplace = true
             case .keepBoth:
                 var counter = 2
                 var uniqueName = "\(baseName) \(counter)"
-                while FileManager.default.fileExists(atPath: projectDirectory.appendingPathComponent("\(uniqueName).\(bundleExt)").path) {
+                while FileManager.default.fileExists(atPath: destinationURL(forName: uniqueName).path) {
                     counter += 1
                     uniqueName = "\(baseName) \(counter)"
                 }
                 effectiveBundleName = uniqueName
-                bundleURL = projectDirectory.appendingPathComponent("\(effectiveBundleName).\(bundleExt)")
+                bundleURL = destinationURL(forName: effectiveBundleName)
             case .skip:
                 displayGenomicsFile(url: bundleURL)
                 postSidebarFileDropCompleted(requestID: requestID, sourceURL: pair.r1, success: true, error: nil)
@@ -458,6 +477,7 @@ extension MainSplitViewController {
                 projectDirectory: projectDirectory,
                 bundleName: effectiveBundleName,
                 importConfig: config,
+                forceReplace: forceReplace,
                 routeContext: operationRouteContext
             ) { [weak self, weak viewerController] result in
                 defer { continuation.resume() }

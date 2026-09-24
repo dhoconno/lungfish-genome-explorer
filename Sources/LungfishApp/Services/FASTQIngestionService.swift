@@ -356,6 +356,7 @@ public enum FASTQIngestionService {
         projectDirectory: URL,
         bundleName: String,
         importConfig: FASTQImportConfiguration,
+        forceReplace: Bool = false,
         routeContext: OperationRouteContext? = nil,
         completion: @escaping @MainActor (Result<URL, Error>) -> Void
     ) {
@@ -364,7 +365,9 @@ public enum FASTQIngestionService {
         let cliCmd = cliImportCommandPreview(
             pair: pair,
             projectDirectory: projectDirectory,
-            importConfig: importConfig
+            importConfig: importConfig,
+            bundleName: bundleName,
+            force: forceReplace
         )
         let opID = OperationCenter.shared.start(
             title: title,
@@ -380,6 +383,7 @@ public enum FASTQIngestionService {
                 projectDirectory: projectDirectory,
                 bundleName: bundleName,
                 importConfig: importConfig,
+                forceReplace: forceReplace,
                 operationID: opID,
                 completion: completion
             )
@@ -431,6 +435,7 @@ public enum FASTQIngestionService {
         projectDirectory: URL,
         bundleName: String,
         importConfig: FASTQImportConfiguration,
+        forceReplace: Bool = false,
         operationID opID: UUID,
         completion: @escaping @MainActor (Result<URL, Error>) -> Void
     ) async {
@@ -451,6 +456,7 @@ public enum FASTQIngestionService {
                     projectDirectory: projectDirectory,
                     bundleName: bundleName,
                     importConfig: importConfig,
+                    forceReplace: forceReplace,
                     operationID: opID
                 )
             }
@@ -492,12 +498,15 @@ public enum FASTQIngestionService {
         projectDirectory: URL,
         bundleName: String,
         importConfig: FASTQImportConfiguration,
+        forceReplace: Bool = false,
         operationID opID: UUID
     ) async -> Result<URL, Error> {
         let args = cliImportArguments(
             pair: pair,
             projectDirectory: projectDirectory,
-            importConfig: importConfig
+            importConfig: importConfig,
+            bundleName: bundleName,
+            force: forceReplace
         )
 
         // 5. Spawn CLI runner
@@ -550,13 +559,17 @@ public enum FASTQIngestionService {
     nonisolated static func cliImportCommandPreview(
         pair: FASTQFilePair,
         projectDirectory: URL,
-        importConfig: FASTQImportConfiguration
+        importConfig: FASTQImportConfiguration,
+        bundleName: String? = nil,
+        force: Bool = false
     ) -> String {
         CLIImportRunner.commandLine(
             arguments: cliImportArguments(
                 pair: pair,
                 projectDirectory: projectDirectory,
-                importConfig: importConfig
+                importConfig: importConfig,
+                bundleName: bundleName,
+                force: force
             )
         )
     }
@@ -596,7 +609,9 @@ public enum FASTQIngestionService {
     nonisolated static func cliImportArguments(
         pair: FASTQFilePair,
         projectDirectory: URL,
-        importConfig: FASTQImportConfiguration
+        importConfig: FASTQImportConfiguration,
+        bundleName: String? = nil,
+        force: Bool = false
     ) -> [String] {
         CLIImportRunner.buildCLIArguments(
             r1: pair.r1,
@@ -607,7 +622,9 @@ public enum FASTQIngestionService {
             qualityBinning: importConfig.qualityBinning.rawValue,
             optimizeStorage: !importConfig.skipClumpify,
             clumpingTool: importConfig.clumpingTool,
-            compressionLevel: importConfig.compressionLevel?.rawValue ?? "balanced"
+            compressionLevel: importConfig.compressionLevel?.rawValue ?? "balanced",
+            bundleName: bundleName,
+            force: force
         )
     }
 

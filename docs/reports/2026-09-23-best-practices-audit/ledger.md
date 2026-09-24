@@ -4,15 +4,15 @@ Single source of truth for finding status (plan rule 9). Status: `open`, `verifi
 
 | ID | P | Title | Status | Package | Commit | Evidence |
 |---|---|---|---|---|---|---|
-| FEA-01 | P0 | Manifest rewrites drop alignment tracks and the record store (variant deletion paths) | open | | | |
-| FEA-02 | P0 | GUI FASTQ import silently replaces same-named bundles, and ignores Keep Both and sample-sheet names | open | | | |
+| FEA-01 | P0 | Manifest rewrites drop alignment tracks and the record store (variant deletion paths) | fixed | P0-B | ca6f0f14d | BundleManifest copy-based mutators; sidebar + drawer + VCF merge migrated; round-trip tests |
+| FEA-02 | P0 | GUI FASTQ import silently replaces same-named bundles, and ignores Keep Both and sample-sheet names | fixed | P0-B | 30883db6a | dup check at Imports/, --force only on Replace, --name added, Replace trashes old bundle |
 | PERF-04 | P0 | Unique-read counts for TaxTriage and EsViritu are capped at 100,000 parsed reads per contig after buffering up | fixed | P0-C | e3efa6f77,b87e84661 | UniqueReadStartCounter 10/10 incl >100k; AlignmentDataProviderTests 55/55; caches renamed .v2 |
 | REL-01 | P0 | Shipped app bundles are owner-only (0700/0600) because of `umask 077` | open | | | |
 | SCI-01 | P0 | GFF exported to iVar collapses multi-segment CDS (ORF1ab frameshift, spliced CDS) into one span, which changes | fixed | P0-C | 3af455220 | CDSSegmentPhasesTests 6/6, AnnotationDatabaseGFFExporterTests 5/5; ivar split-vs-merged GFF compared manually |
 | TST-01 | P0 | Pre-push unit tier is red on HEAD: 117 failures plus 1 indefinite hang | open | | | |
 | TST-02 | P0 | No gate runs the broad suite: release selects 186 of about 14.2K tests, the hook is not installed, and 11 rele | open | | | |
-| WFL-01 | P0 | FASTQ-operation outputs are silently quality-binned and, when large, Trim Galore-trimmed during re-ingestion | open | | | |
-| WFL-02 | P0 | `tree infer iqtree` deletes the shared project `.tmp`, deletes pre-existing output on refusal, and can deadloc | open | | | |
+| WFL-01 | P0 | FASTQ-operation outputs are silently quality-binned and, when large, Trim Galore-trimmed during re-ingestion | fixed | P0-B | 7c3fb0fd5,+clumping fix | no re-binning; auto clumping skips instead of Trim Galore; read-count check before source delete |
+| WFL-02 | P0 | `tree infer iqtree` deletes the shared project `.tmp`, deletes pre-existing output on refusal, and can deadloc | fixed | P0-B | 6898a985f | no .tmp deletion, refusal deletes nothing, concurrent pipe drain |
 | ARC-01 | P1 | Two execution models for GUI analyses, chosen per feature, with no shared service layer | open | | | |
 | ARC-02 | P1 | Nine copy-pasted CLI runner actors and about 12 ad-hoc, stringly-typed CLI event schemas | open | | | |
 | ARC-03 | P1 | Operations-panel "CLI command" strings are hand-built and drift from the real CLI (Kraken2 replay cannot run) | open | | | |
@@ -29,8 +29,8 @@ Single source of truth for finding status (plan rule 9). Status: `open`, `verifi
 | PERF-03 | P1 | TaxTriage batch unique-read pass runs directory walks, file parsing and `samtools` on the main actor, then an  | open | | | |
 | PERF-05 | P1 | Eight post-import and post-operation call sites run the full recursive project scan synchronously on the main  | open | | | |
 | PERF-06 | P1 | "Export annotations" and multi-source sequence export decompress and parse the entire genome into memory | open | | | |
-| REC-01 | P1 | Sibling mutation service deletes backup | open | | | |
-| REC-02 | P1 | MSA/tree --force deletes output before work | open | | | |
+| REC-01 | P1 | Sibling mutation service deletes backup | fixed | P0-B | 12e6722a6 | VariantMutationPublication recovery path |
+| REC-02 | P1 | MSA/tree --force deletes output before work | partial | P0-B | 6898a985f | MSA extract/mask/trim atomic swap; tree infer --force still removes before work (follow-up) |
 | REC-03 | P1 | Kraken2 taxonomy/BLAST exports lack provenance | open | | | |
 | REC-04 | P1 | Sidebar VCF/folder drop silently discarded | open | | | |
 | REC-05 | P1 | About Saving text promises persistence FEA-03 disproves | open | | | |
@@ -44,19 +44,19 @@ Single source of truth for finding status (plan rule 9). Status: `open`, `verifi
 | SCI-05 | P1 | Mapping "reads mapped / total" and per-contig % count alignment records (secondary and supplementary), not rea | open | | | |
 | SCI-06 | P1 | Annotation extraction ignores strand and splicing, and the core API applies 5'/3' flanks by coordinate | open | | | |
 | SCI-07 | P1 | Region to bundle extraction with Reverse Complement does not transform variants | open | | | |
-| SCI-08 | P1 | Lossy quality binning on by default (silent on downloads and FASTQ operation outputs), mislabelled schemes, or | open | | | |
+| SCI-08 | P1 | Lossy quality binning on by default (silent on downloads and FASTQ operation outputs), mislabelled schemes, or | fixed | P0-B | 7c3fb0fd5 | binning default none everywhere (D1); scheme-name mislabel not yet addressed |
 | SCI-09 | P1 | NAO-MGS "coverage %" uses the furthest alignment end as reference length when references were not fetched | open | | | |
 | TST-03 | P1 | Swift Build migration broke subpath `Bundle.module` fixtures, crashing tests with SIGTRAP | open | | | |
 | TST-04 | P1 | Stable-namespace change broke about 75 tests that hard-code `.lungfish` fake homes, and tests cannot inject an | open | | | |
 | TST-05 | P1 | No per-test or overall timeout: a cancellation test hung for 14+ min and stalls the gate forever | open | | | |
 | TST-06 | P1 | `ci.yml` has been an invalid workflow on every push since 2026-09-14 instead of being disabled cleanly | open | | | |
 | UX-01 | P1 | "Delete Annotation" from the viewer and the Inspector silently does nothing on reference bundles | open | | | |
-| UX-02 | P1 | Export failures are logged but never shown in EsViritu, TaxTriage (3 paths), NAO-MGS and NVD | open | | | |
-| WFL-03 | P1 | "GATK + WhatsHap Phased" is selectable and runnable-looking but always dead-ends | open | | | |
+| UX-02 | P1 | Export failures are logged but never shown in EsViritu, TaxTriage (3 paths), NAO-MGS and NVD | fixed | P1-C | bfcad3925 | ResultExportCoordinator added to LungfishKit; migrated EsViritu, TaxTriage x3, NAO-MGS, NVD, plus Kraken2 and 12S; ResultExportCoordinatorTests 2/2 |
+| WFL-03 | P1 | "GATK + WhatsHap Phased" is selectable and runnable-looking but always dead-ends | fixed | P1-C | 919af40eb | BAMVariantCallingToolID.catalogCases filters the phased case behind an off flag; BAMVariantCallingDialogRoutingTests 26/26 |
 | WFL-04 | P1 | Viral Recon loses outputs on caller overrides and (likely) Nanopore; analysis folder has no provenance; cancel | open | | | |
 | WFL-05 | P1 | pbAA results are written into a sidebar-hidden folder; Savont batch samples route to "Unsupported analysis" | open | | | |
 | WFL-06 | P1 | Renamed classifier batch folders cannot be reopened (routing uses name prefix, not metadata) | open | | | |
-| WFL-07 | P1 | "Remove Human Reads" database chooser discards the chosen file and rejects the real index | open | | | |
+| WFL-07 | P1 | "Remove Human Reads" database chooser discards the chosen file and rejects the real index | fixed | P1-C | 5e51af98e | removeHumanReadsDatabaseID replaces the file-stem guess; .database dropped from required inputs; request/argv tests 3/3 |
 | WFL-08 | P1 | BAM primer trim never matches the scheme's contig to the BAM's `@SQ` name | open | | | |
 | WFL-09 | P1 | No shared dependency preflight: most workflows find a missing tool only by failing | open | | | |
 | WFL-10 | P1 | Wizard options silently ignored downstream (EsViritu min length, TaxTriage classifiers, demux, seeds, etc.) | open | | | |
@@ -119,8 +119,8 @@ Single source of truth for finding status (plan rule 9). Status: `open`, `verifi
 | UX-05 | P2 | Table search and column-filter UI copied four times and drifting. NAO-MGS has no search. TaxTriage hides searc | open | | | |
 | UX-06 | P2 | No table column state is persisted. Four ad-hoc `UserDefaults` schemes exist elsewhere | open | | | |
 | UX-07 | P2 | Same action, different names: BLAST, NCBI lookup, Copy TaxID, Extract labels drift across viewers | open | | | |
-| UX-08 | P2 | CZ-ID disables Extract on the action bar but the table menu still offers Kraken2 Extract and BLAST | open | | | |
-| UX-09 | P2 | Result load failures are shown three different ways, one of them silent | open | | | |
+| UX-08 | P2 | CZ-ID disables Extract on the action bar but the table menu still offers Kraken2 Extract and BLAST | fixed | P1-C | af7a09e1d | TaxonomyViewController.readLevelActionsAvailable threaded into TaxonomyTableView.validateMenuItem; CzIdImportWorkflowTests 7/7 |
+| UX-09 | P2 | Result load failures are shown three different ways, one of them silent | fixed | P1-C | bfcad3925,7d800e94f | 12S load failure now routes through clearViewport(statusMessage:) like Assembly/Mapping; TwelveSResultLoadFailureTests 1/1 |
 | UX-10 | P2 | Content Text Size is ignored by the Kraken2 table and most sequence-viewer chrome | open | | | |
 | UX-11 | P2 | Core sequence viewer and track headers are opaque to VoiceOver and keyboard | open | | | |
 | UX-12 | P2 | Inspector key/value rows reimplemented about 10 times with different layout and accessibility | open | | | |
@@ -129,12 +129,12 @@ Single source of truth for finding status (plan rule 9). Status: `open`, `verifi
 | WFL-11 | P2 | Operations-panel CLI commands and several provenance argv records are not runnable | open | | | |
 | WFL-12 | P2 | Cancel missing or inert on several long-running paths | open | | | |
 | WFL-13 | P2 | MHC genotyping naming: "miSeq amplicon" workflow runs ONT data and tags it as MiSeq | open | | | |
-| WFL-14 | P2 | AI haplotyping exposed in the main viewport with no key check, no consent, macaque defaults | open | | | |
+| WFL-14 | P2 | AI haplotyping exposed in the main viewport with no key check, no consent, macaque defaults | fixed | P1-C (D5) | 96dee9889 | aiHaplotypingUIEnabled=false removes the section from the viewport; defense-in-depth guard in requestAIHaplotyping; execution service/CLI kept; GenotypeResultViewportArtifactsAndOutlineTests 2 new + suite green |
 | WFL-15 | P2 | BLAST drawer inconsistencies: CZ ID no-op, `nt` vs `core_nt`, NAO-MGS taxon restriction, no persistence | open | | | |
 | WFL-16 | P2 | User-registered workflows are a half-surface: no menu, loose outputs, no sidebar result, "Beta1" copy | open | | | |
 | WFL-17 | P2 | Surface asymmetry: capabilities only on one surface (CLI-only exports, context-menu-only tree, import-only rec | open | | | |
 | WFL-18 | P2 | Two execution paths for the same operation with different defaults (orient, assembly Reassemble, genotyping) | open | | | |
-| WFL-19 | P2 | Failure-path quality: raw enum text, silent no-ops, cleanup errors failing successful runs | open | | | |
+| WFL-19 | P2 | Failure-path quality: raw enum text, silent no-ops, cleanup errors failing successful runs | partial | P1-C | b3dcd7dc3 | mapping error uses errorDescription; 3 classification cleanup sites changed try to try?; silent-no-op cases (orient, MAFFT-without-project) not addressed this round |
 | WFL-20 | P2 | Inconsistent result layouts across sibling tools (single vs batch, import destinations, warning states) | open | | | |
 | ARC-14 | P3 | `ResultViewportController` / `BlastVerifiable` are premature abstractions with no polymorphic consumer | open | | | |
 | ARC-16 | P3 | Misplaced vocabulary: UI event names in Core, test harness in Kit, CGPoint graph model in Workflow, dead notif | open | | | |
@@ -166,3 +166,16 @@ Single source of truth for finding status (plan rule 9). Status: `open`, `verifi
 | UX-17 | P3 | `BatchTableView` ⌘-click quick-copy competes with standard ⌘-click multi-select | open | | | |
 | UX-18 | P3 | Sample-scope control differs per viewer. TaxTriage's segmented control does not scale | open | | | |
 | WFL-21 | P3 | Dead dialogs, launchers and engines kept alive only by tests | open | | | |
+| GEN-01 | P0 | ONT barcode assignment takes the leftmost exact barcode match anywhere in the read, including inside the ampli | open | | | |
+| GEN-02 | P0 | `minimumMatches: 1` plus a count-only match rule reports homozygotes as heterozygotes (DQ M2/M2 as "M2 / M6",  | open | | | |
+| GEN-03 | P1 | `--min-support` does not filter the report CSV or pipeline workbook, contrary to its help text | open | | | |
+| GEN-04 | P1 | Reads tied across alleles are credited in full to each allele with no ambiguity marker. minimap2 `-N 5` makes  | open | | | |
+| GEN-05 | P1 | "Locus %" uses three different locus groupings (pipeline haplotype filter, matrix "Viewed Locus", evidence pan | open | | | |
+| GEN-06 | P1 | "Minimum percent" means within-sample read fraction for known alleles but fraction of animals for candidate ro | open | | | |
+| GEN-07 | P1 | Illumina sample totals count mates before merging while retained reads count merged fragments, which halves re | open | | | |
+| GEN-08 | P2 | A second haplotype of "-" means both "homozygous" and "second haplotype not identified", and the viewer hides  | open | | | |
+| GEN-09 | P2 | The Python demux filter silently resolves duplicate or reverse-complement-colliding barcodes to the first samp | open | | | |
+| GEN-10 | P2 | Full-length ONT: a zero-SNP hit is a known call regardless of indel size, with no indel count in the call | open | | | |
+| GEN-11 | P2 | PacBio exact dual-barcode demux assigns multi-matching reads in Swift `Dictionary` iteration order, which vari | open | | | |
+| GEN-12 | P2 | Provenance and QC gaps: bbtools missing from `managedTools`, hard-coded "resolvedDefaults", hard-coded QC cut- | open | | | |
+| GEN-13 | P2 | Legacy `fastq ont-genotype` maps ONT reads with the short-read preset, ignores `--allow-indels`, and randomly  | open | | | |

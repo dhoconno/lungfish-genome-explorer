@@ -57,7 +57,7 @@ You need a project open. If you do not have one, choose **File > New Project** (
 
 This chapter uses the HG002 long reads. Download the fixture folder from the manual's fixtures on GitHub at
 
-https://github.com/dhoconno/lungfish-genome-explorer/tree/main/docs/user-manual/fixtures/hg002-long-reads
+https://github.com/dhoconno/lungfish-manual-media/tree/manual-v2026.9.39/user-manual/fixtures/hg002-long-reads
 
 GitHub offers no download for a single folder, so open the repository's front page at https://github.com/dhoconno/lungfish-genome-explorer, click the green **Code** button, choose **Download ZIP**, double-click the downloaded file to unpack it, and find the folder inside it under `docs/user-manual/fixtures/`. That ZIP holds the whole manual repository rather than this one fixture, and it unpacks to a folder named `lungfish-genome-explorer-main`. Only two files inside it matter here, `HG002.chrM.ont.fastq.gz`, holding 950 Nanopore reads, and `HG002.chrM.hifi.fastq.gz`, holding 363 HiFi reads. Import both into your project as described in [Importing FASTQ Files](../03-reads/01-importing-fastq.md). Each file becomes its own [bundle](../../GLOSSARY.md#bundle), so the fixture gives you two sidebar rows rather than one. A bundle is a folder LGE treats as one object and draws as a single row, named for the file it came from, so look for rows reading `HG002.chrM.ont` and `HG002.chrM.hifi`. The import also records which sequencing instrument produced each file, which the next section relies on.
 

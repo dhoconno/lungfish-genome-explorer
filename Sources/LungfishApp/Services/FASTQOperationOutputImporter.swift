@@ -2,6 +2,9 @@ import Foundation
 import LungfishCore
 import LungfishIO
 import LungfishWorkflow
+import os.log
+
+private let logger = Logger(subsystem: LogSubsystem.app, category: "FASTQOperationOutputImporter")
 
 struct IdentityFASTQOperationImporter: FASTQOperationDirectImporting {
     func importOutputs(
@@ -105,13 +108,38 @@ struct AppFASTQOutputBundleWriter: FASTQOutputBundleWriting {
                     pairingMode: ingestionPipelinePairingMode(for: pairingMode),
                     outputDirectory: stagingBundleURL,
                     threads: max(1, ProcessInfo.processInfo.activeProcessorCount),
-                    deleteOriginals: true,
-                    qualityBinning: .illumina4,
-                    skipClumpify: false
+                    // We delete `sourceURL` ourselves below, only after
+                    // verifying the re-ingested output's read count matches
+                    // (WFL-01 item e). The pipeline must not delete it first.
+                    deleteOriginals: false,
+                    // D1 / WFL-01 / SCI-08: FASTQ operation outputs are never
+                    // re-binned or re-trimmed on re-import. Quality binning
+                    // stays off, and the clumping tool is pinned to `.bbtools`
+                    // (never `.auto`, which can silently resolve to Trim
+                    // Galore and adapter/quality-trim the operation's own
+                    // output — see ClumpingTool.resolve).
+                    qualityBinning: .none,
+                    skipClumpify: false,
+                    clumpingTool: .auto
                 ),
                 progress: { _, _ in }
             )
             let finalOutputURL = finalBundleURL.appendingPathComponent(result.outputFile.lastPathComponent)
+
+            // Only delete the pre-ingestion source once the re-ingested
+            // output has at least as many reads as the source had. A lower
+            // count means the pipeline dropped or filtered reads (e.g. a
+            // length cutoff), and the source must be kept (WFL-01 item e).
+            if result.outputFile != sourceURL {
+                let outputStats = try? await computeStatistics(from: result.outputFile)
+                if let outputStats, outputStats.readCount >= stats.readCount {
+                    try? fileManager.removeItem(at: sourceURL)
+                } else {
+                    logger.warning(
+                        "importFASTQOutput: keeping source \(sourceURL.lastPathComponent, privacy: .public) — re-ingested read count (\(outputStats?.readCount ?? -1)) did not meet or exceed the source count (\(stats.readCount))"
+                    )
+                }
+            }
 
             var metadata = FASTQMetadataStore.load(for: result.outputFile) ?? PersistedFASTQMetadata()
             metadata.ingestion = IngestionMetadata(

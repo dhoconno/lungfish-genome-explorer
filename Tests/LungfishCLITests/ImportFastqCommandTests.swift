@@ -131,12 +131,14 @@ final class ImportFastqCommandTests: XCTestCase {
         XCTAssertNil(command.threads)
     }
 
+    /// D1 (2026-09-23): quality binning defaults to "none" everywhere; it is
+    /// lossy and irreversible once originals are removed, so it is opt-in only.
     func testParseDefaultQualityBinning() throws {
         let command = try ImportCommand.FastqSubcommand.parse([
             "/data/fastq_dir",
             "--project", "/projects/Test.lungfish",
         ])
-        XCTAssertEqual(command.qualityBinning, "illumina4")
+        XCTAssertEqual(command.qualityBinning, "none")
     }
 
     func testParseShortProjectFlag() throws {
@@ -163,6 +165,16 @@ final class ImportFastqCommandTests: XCTestCase {
         XCTAssertEqual(command.clumpingTool, "trim-galore")
         XCTAssertEqual(command.compression, "maximum")
         XCTAssertTrue(command.force)
+    }
+
+    /// FEA-02: `--name` overrides the output bundle name for a single-sample import.
+    func testParseNameOption() throws {
+        let command = try ImportCommand.FastqSubcommand.parse([
+            "/data/sample_R1.fastq.gz",
+            "--project", "/projects/Test.lungfish",
+            "--name", "S1_L001 2",
+        ])
+        XCTAssertEqual(command.name, "S1_L001 2")
     }
 
     func testParseCanonicalVSP2TargetEnrichmentWithTrimGalore() throws {
@@ -465,6 +477,42 @@ final class ImportFastqCommandTests: XCTestCase {
                 error.localizedDescription.contains("Managed pigz failed"),
                 "Unexpected error: \(error.localizedDescription)"
             )
+        }
+    }
+
+    /// FEA-02 regression: `--name` is rejected outright when more than one
+    /// sample is detected, before any tool subprocess is invoked, so it can
+    /// never silently rename the wrong sample in a multi-sample import.
+    func testNameOptionRejectedWithMultipleDetectedSamples() async throws {
+        let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "import-fastq-name-multi-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let sampleA = tempDir.appendingPathComponent("SampleA_R1.fastq.gz")
+        let sampleB = tempDir.appendingPathComponent("SampleB_R1.fastq.gz")
+        try Data().write(to: sampleA)
+        try Data().write(to: sampleB)
+
+        let projectDir = tempDir.appendingPathComponent("Test.lungfish")
+        try FileManager.default.createDirectory(at: projectDir, withIntermediateDirectories: true)
+
+        let command = try ImportCommand.FastqSubcommand.parse([
+            sampleA.path, sampleB.path,
+            "--project", projectDir.path,
+            "--name", "OverrideName",
+            "--dry-run",
+        ])
+
+        do {
+            try await command.run()
+            XCTFail("Expected --name with multiple detected samples to throw")
+        } catch {
+            // ArgumentParser's ExitCode-based errors don't carry the printed
+            // message, so we only assert that it refused rather than
+            // silently applying the override to an arbitrary sample.
         }
     }
 }

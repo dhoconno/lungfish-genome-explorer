@@ -616,17 +616,20 @@ public final class FASTQImportConfigSheet: NSViewController {
 
     // MARK: - Platform Defaults
 
+    /// D1 (2026-09-23): quality binning defaults to "None" for every platform.
+    /// Binning is lossy and irreversible once originals are deleted, so it is
+    /// opt-in only — the user must explicitly choose a binning level here.
     private func defaultBinningIndex(for platform: LungfishIO.SequencingPlatform) -> Int {
-        switch platform {
-        case .illumina, .element, .mgi: return 0  // illumina4
-        case .oxfordNanopore, .pacbio, .ultima, .unknown: return 2  // none
-        }
+        2  // none
     }
 
     private func defaultOptimizeStorage(for platform: LungfishIO.SequencingPlatform) -> Bool {
         switch platform {
         case .illumina, .element, .mgi, .ultima:
-            return true
+            // Inputs too large for the clumpify memory budget default to no
+            // reordering. Trim Galore is never substituted silently because it
+            // trims and filters reads; users may still choose it explicitly.
+            return ClumpingTool.auto.resolve(estimatedInputBytes: totalInputSizeBytes()).resolved != .none
         case .oxfordNanopore, .pacbio, .unknown:
             return false
         }
@@ -637,7 +640,8 @@ public final class FASTQImportConfigSheet: NSViewController {
     }
 
     private func defaultClumpingTool() -> ClumpingTool {
-        ClumpingTool.auto.resolve(estimatedInputBytes: totalInputSizeBytes()).resolved
+        let resolved = ClumpingTool.auto.resolve(estimatedInputBytes: totalInputSizeBytes()).resolved
+        return resolved == .none ? .bbtools : resolved
     }
 
     private func totalInputSizeBytes() -> Int64 {

@@ -60,7 +60,7 @@ You need a project open. If you do not have one, choose **File > New Project** (
 
 This chapter uses the SRR36291587 reads. The reads themselves are too large to store on GitHub, so fetch them from the Sequence Read Archive, NCBI's public store of raw sequencing reads, as accession `SRR36291587`, following [Downloading Reads from the SRA](../03-reads/02-downloading-from-sra.md). The rest of the fixture's files, and the source and licence notes for the data, are on GitHub at
 
-https://github.com/dhoconno/lungfish-genome-explorer/tree/main/docs/user-manual/fixtures/sarscov2-srr36291587
+https://github.com/dhoconno/lungfish-genome-explorer/tree/main/Tests/Fixtures/sarscov2-srr36291587
 
 TaxTriage needs two things on the machine that no plugin pack supplies. The first is Nextflow, which LGE installs for you on first launch as one of the tools it needs before you can create or open a project at all. You do not have to install or check it yourself, and the dialog shows you its status in step 1 below.
 

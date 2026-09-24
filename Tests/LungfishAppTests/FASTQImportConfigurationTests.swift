@@ -210,10 +210,12 @@ struct FASTQImportConfigurationTests {
         largeSheet.loadViewIfNeeded()
 
         #expect(smallSheet.view.fastqImportStorageToolPopup()?.selectedClumpingTool == .bbtools)
-        #expect(largeSheet.view.fastqImportStorageToolPopup()?.selectedClumpingTool == .trimGalore)
+        // Large inputs never silently switch to Trim Galore (audit WFL-01, D1):
+        // storage optimization defaults off and the tool popup stays on BBTools.
+        #expect(largeSheet.view.fastqImportStorageToolPopup()?.selectedClumpingTool == .bbtools)
         let largeOptimizeCheckbox = largeSheet.view.fastqImportDescendants(of: NSButton.self)
             .first { $0.title == "Optimize storage (reorder reads for better compression)" }
-        #expect(largeOptimizeCheckbox?.state == .on)
+        #expect(largeOptimizeCheckbox?.state == .off)
     }
 
     @MainActor

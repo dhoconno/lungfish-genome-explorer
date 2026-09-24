@@ -61,7 +61,7 @@ You need a project open. If you do not have one, choose **File > New Project** (
 
 This chapter uses the SRR36291587 SARS-CoV-2 reads. The reads themselves are too large to store on GitHub, so fetch them from the Sequence Read Archive as accession `SRR36291587`, following [Downloading Reads from the SRA](../03-reads/02-downloading-from-sra.md). The archive is public and no account or login is needed. The rest of the fixture's files, and the source and licence notes for the data, are on GitHub at
 
-https://github.com/dhoconno/lungfish-genome-explorer/tree/main/docs/user-manual/fixtures/sarscov2-srr36291587
+https://github.com/dhoconno/lungfish-genome-explorer/tree/main/Tests/Fixtures/sarscov2-srr36291587
 
 Kraken 2 and Bracken both ship in the `metagenomics` [plugin pack](../../GLOSSARY.md#plugin-pack), which the Plugin Manager lists as **Metagenomics**. A plugin pack is a themed group of tools LGE installs on demand into private [conda](../../GLOSSARY.md#conda) environments, described in [Plugin Packs and Databases](../01-foundations/07-plugin-packs.md). A conda environment is a self-contained folder of programs, and LGE downloads these and keeps them inside its own storage, so nothing is added to the rest of your Mac and nothing has to be undone later. Open **Tools > Plugin Manager...** (Cmd-Shift-B) and install Metagenomics if it is not already there. The pack's card reports how many of its tools are ready, reading "4 of 4 ready" when the pack is complete, and it offers an **Install All** button until it is.
 

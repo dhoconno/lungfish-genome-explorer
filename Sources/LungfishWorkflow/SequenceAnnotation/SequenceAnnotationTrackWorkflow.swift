@@ -391,7 +391,13 @@ public enum SequenceAnnotationTrackWorkflow {
         let backupRoot = FileManager.default.temporaryDirectory
             .appendingPathComponent("lungfish-delete-annotation-track-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: backupRoot, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: backupRoot) }
+        // Only delete the backup once we know restoration is unnecessary
+        // (success) or has actually completed. If a restore is attempted and
+        // fails, `backupRoot` must survive as the last recovery artifact
+        // (REC-01) — deleting it unconditionally here would discard the only
+        // remaining copy of the pre-mutation files.
+        var backupRootSafeToDelete = true
+        defer { if backupRootSafeToDelete { try? FileManager.default.removeItem(at: backupRoot) } }
 
         var backups: [FileBackup] = []
         for url in removedURLs {
@@ -424,10 +430,12 @@ public enum SequenceAnnotationTrackWorkflow {
                 provenanceURL: provenanceURL
             )
         } catch {
+            backupRootSafeToDelete = false
             try throwAfterProvenancePublicationFailure(error) {
                 try originalManifestData.write(to: manifestURL, options: .atomic)
                 try restoreFiles(backups)
                 try provenanceSnapshot.restore()
+                backupRootSafeToDelete = true
             }
         }
     }
@@ -478,7 +486,13 @@ public enum SequenceAnnotationTrackWorkflow {
         let backupRoot = FileManager.default.temporaryDirectory
             .appendingPathComponent("lungfish-delete-annotations-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: backupRoot, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: backupRoot) }
+        // Only delete the backup once we know restoration is unnecessary
+        // (success) or has actually completed. If a restore is attempted and
+        // fails, `backupRoot` must survive as the last recovery artifact
+        // (REC-01) — deleting it unconditionally here would discard the only
+        // remaining copy of the pre-mutation files.
+        var backupRootSafeToDelete = true
+        defer { if backupRootSafeToDelete { try? FileManager.default.removeItem(at: backupRoot) } }
         let payloadBackups = try backupFiles(payloadsToBackup, backupRoot: backupRoot)
         let provenanceSnapshot = try ProvenanceSnapshot.capture(bundleURL: request.bundleURL, backupRoot: backupRoot)
         let inputDescriptors = try provenanceInputDescriptors(for: uniqueURLs([manifestURL] + trackPayloadURLs))
@@ -537,10 +551,12 @@ public enum SequenceAnnotationTrackWorkflow {
                 provenanceURL: provenanceURL
             )
         } catch {
+            backupRootSafeToDelete = false
             try throwAfterProvenancePublicationFailure(error) {
                 try originalManifestData.write(to: manifestURL, options: .atomic)
                 try restoreFiles(payloadBackups)
                 try provenanceSnapshot.restore()
+                backupRootSafeToDelete = true
             }
         }
     }
