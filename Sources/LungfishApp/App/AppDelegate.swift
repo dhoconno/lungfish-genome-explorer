@@ -268,18 +268,29 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             sidebarController.openProject(at: parent)
         }
 
-        sidebarController.reloadFromFilesystem()
-        _ = sidebarController.selectItem(forURL: url)
+        // The recursive project scan runs off the main actor; only the cheap
+        // apply (materialize + outline update) and the follow-up selection
+        // happen once it returns. Callers do not await this method, so the
+        // sidebar catches up moments after the surrounding operation finishes
+        // rather than freezing it.
+        // Plain `Task`, with no explicit actor annotation: this method is
+        // already running on the main actor (AppDelegate is @MainActor), so
+        // the task inherits that isolation without a redundant re-hop.
+        Task { [weak self, weak sidebarController, weak controller] in
+            await sidebarController?.reloadFromFilesystemAsync(notifyUnchangedSelectionRefresh: true)?.value
+            guard let self, let sidebarController else { return }
+            _ = sidebarController.selectItem(forURL: url)
 
-        // Metagenomics results set their own inspector tab via contentMode
-        // notification; forcing "document" tab would override it.
-        let isMetagenomicsResult = url.lastPathComponent.hasPrefix("naomgs-")
-            || url.lastPathComponent.hasPrefix("kraken2-")
-            || url.lastPathComponent.hasPrefix("esviritu-")
-            || url.lastPathComponent.hasPrefix("taxtriage-")
-            || url.lastPathComponent.hasPrefix("nvd-")
-        if !isMetagenomicsResult {
-            requestInspectorDocumentModeAfterDownload(in: controller)
+            // Metagenomics results set their own inspector tab via contentMode
+            // notification; forcing "document" tab would override it.
+            let isMetagenomicsResult = url.lastPathComponent.hasPrefix("naomgs-")
+                || url.lastPathComponent.hasPrefix("kraken2-")
+                || url.lastPathComponent.hasPrefix("esviritu-")
+                || url.lastPathComponent.hasPrefix("taxtriage-")
+                || url.lastPathComponent.hasPrefix("nvd-")
+            if !isMetagenomicsResult {
+                self.requestInspectorDocumentModeAfterDownload(in: controller)
+            }
         }
     }
 

@@ -506,7 +506,7 @@ extension SidebarViewController: NSMenuDelegate {
                         )
                     }
 
-                    self.reloadFromFilesystem()
+                    await self.reloadFromFilesystemAsync(notifyUnchangedSelectionRefresh: false)?.value
                     _ = self.selectItem(forURL: mergedURL)
                 } catch {
                     self.presentError(error)
