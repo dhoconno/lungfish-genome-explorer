@@ -9,12 +9,14 @@
 #     docs/reports/2026-09-23-best-practices-audit/), then checks that every
 #     File/Tools/... menu entry point named in docs/user-manual/features.yaml
 #     still resolves to a real MainMenu.swift title (FEA-16 in the same
-#     audit; scripts/checks/features-yaml-entry-points.py), then runs the
-#     unit tier of the full-suite gate (scripts/full-suite-gate.sh --tier
-#     unit) before pushing, so the regression gate runs locally on this fast
-#     Apple-Silicon Mac instead of on slow/usage-limited hosted CI. The full
-#     tier (everything, serial) remains the stable-release gate; run it
-#     explicitly with scripts/full-suite-gate.sh --tier full.
+#     audit; scripts/checks/features-yaml-entry-points.py), then py_compiles
+#     every bundled Python resource script under Sources/*/Resources (SIMP-16
+#     in the same audit; scripts/checks/compile-embedded-python.py), then
+#     runs the unit tier of the full-suite gate (scripts/full-suite-gate.sh
+#     --tier unit) before pushing, so the regression gate runs locally on
+#     this fast Apple-Silicon Mac instead of on slow/usage-limited hosted CI.
+#     The full tier (everything, serial) remains the stable-release gate;
+#     run it explicitly with scripts/full-suite-gate.sh --tier full.
 #   - a pre-commit hook that rejects new or modified files over 500 KB under
 #     docs/ (docs/ is meant to stay small; large binaries belong in the
 #     manual-media repo per docs/user-manual/media.lock). Override the limit
@@ -71,6 +73,12 @@ if ! python3 "$REPO_ROOT/scripts/checks/features-yaml-entry-points.py"; then
     exit 1
 fi
 
+echo "pre-push: compiling bundled Python resource scripts (use --no-verify to skip)..."
+if ! python3 "$REPO_ROOT/scripts/checks/compile-embedded-python.py"; then
+    echo "pre-push: a bundled Python resource script FAILED to compile — push aborted. Fix the script or use --no-verify." >&2
+    exit 1
+fi
+
 echo "pre-push: running unit-tier gate (use --no-verify to skip)..."
 if "$REPO_ROOT/scripts/full-suite-gate.sh" --tier unit; then
     exit 0
@@ -81,7 +89,7 @@ fi
 HOOK_EOF
 chmod +x "$PRE_PUSH_HOOK"
 echo "Installed pre-push hook at $PRE_PUSH_HOOK"
-echo "It runs the unchecked-operation-start ratchet, the features.yaml entry-point check, then scripts/full-suite-gate.sh --tier unit, before each push (bypass with: git push --no-verify)."
+echo "It runs the unchecked-operation-start ratchet, the features.yaml entry-point check, the embedded-Python compile check, then scripts/full-suite-gate.sh --tier unit, before each push (bypass with: git push --no-verify)."
 
 cat > "$PRE_COMMIT_HOOK" << 'HOOK_EOF'
 #!/bin/bash
