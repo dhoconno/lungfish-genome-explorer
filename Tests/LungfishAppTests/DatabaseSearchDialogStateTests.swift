@@ -5,6 +5,27 @@ import XCTest
 
 @MainActor
 final class DatabaseSearchDialogStateTests: XCTestCase {
+    func testCancelledGenBankImportCannotCommitLateResults() async throws {
+        let backend = DelayedDatabaseSearchBackend()
+        let state = DatabaseSearchDialogState(automationBackend: DatabaseSearchAutomationBackend { request in
+            try await backend.search(request)
+        })
+        let model = state.genBankGenomesViewModel
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".csv")
+        defer { try? FileManager.default.removeItem(at: url) }
+        try "accession\nNM_000546.6\n".write(to: url, atomically: true, encoding: .utf8)
+        try model.importAccessionList(at: url)
+        await backend.waitUntilStarted("NM_000546.6")
+        model.cancelSearch()
+        await backend.complete("NM_000546.6", accession: "NM_000546.6")
+        try await Task.sleep(nanoseconds: 50_000_000)
+        XCTAssertEqual(model.searchPhase, .idle)
+        XCTAssertTrue(model.results.isEmpty)
+        XCTAssertTrue(model.selectedRecords.isEmpty)
+        XCTAssertEqual(model.totalResultCount, 0)
+        XCTAssertFalse(model.hasMoreResults)
+    }
+
     func testStaleSearchResponseCannotOverwriteActiveQueryResults() async throws {
         let backend = DelayedDatabaseSearchBackend()
         let state = DatabaseSearchDialogState(

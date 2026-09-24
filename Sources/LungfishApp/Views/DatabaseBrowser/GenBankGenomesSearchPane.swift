@@ -19,6 +19,19 @@ struct GenBankGenomesSearchPane: View {
             summary: "Search NCBI nucleotide, genome, and virus records."
         ) {
             VStack(alignment: .leading, spacing: 8) {
+                if viewModel.ncbiSearchType == .nucleotide {
+                    HStack(spacing: 12) {
+                        Button("Import Accessions") {
+                            viewModel.importAccessionList()
+                        }
+                        .disabled(viewModel.isSearching || viewModel.isDownloading)
+                        .accessibilityIdentifier("database-search-genbank-import-accessions")
+                        Text("Use CSV, TSV, or plain text nucleotide accession lists. Versions are preserved; search filters do not apply to imported lists.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
                 Picker("Mode", selection: $viewModel.ncbiSearchType) {
                     Text(presentation.modeTitles[0]).tag(NCBISearchType.nucleotide)
                     Text(presentation.modeTitles[1]).tag(NCBISearchType.genome)

@@ -594,6 +594,7 @@ struct DatabaseBrowserPane<Accessory: View>: View {
                     .foregroundStyle(Color.lungfishCreamsicleFallback)
                     .disabled(!viewModel.isBulkSelectionActionEnabled)
                     .accessibilityIdentifier("database-search-bulk-selection-button")
+                    .help("Select all currently loaded results matching the result filters, or clear all selections.")
                 }
 
                 if !viewModel.selectedRecords.isEmpty {

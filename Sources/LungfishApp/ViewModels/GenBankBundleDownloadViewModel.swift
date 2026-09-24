@@ -41,6 +41,9 @@ public final class GenBankBundleDownloadViewModel: @unchecked Sendable {
         progressHandler: (@Sendable (Double, String) -> Void)? = nil
     ) async throws -> URL {
         let fileManager = FileManager.default
+        let startedAt = Date()
+        var provenanceSteps: [ProvenanceStep] = []
+        var warnings: [String] = []
 
         // Pre-flight: verify tools are available
         progressHandler?(0.01, "Checking tools...")
@@ -53,7 +56,9 @@ public final class GenBankBundleDownloadViewModel: @unchecked Sendable {
         progressHandler?(0.02, "Resolving accession \(accession)...")
         genBankDownloadLogger.info("downloadAndBuild: Fetching raw GenBank for \(accession, privacy: .public)")
 
+        let fetchStartedAt = Date()
         let (genBankContent, resolvedAccession) = try await ncbiService.fetchRawGenBank(accession: accession)
+        let fetchCompletedAt = Date()
         let genBankURL = tempDir.appendingPathComponent("\(resolvedAccession).gb")
         try genBankContent.write(to: genBankURL, atomically: true, encoding: .utf8)
 
@@ -61,14 +66,23 @@ public final class GenBankBundleDownloadViewModel: @unchecked Sendable {
 
         let reader = try GenBankReader(url: genBankURL)
         let records = try await reader.readAll()
-        guard let record = records.first else {
-            throw DatabaseServiceError.parseError(message: "No sequence records found in GenBank response")
+        guard records.count == 1, let record = records.first else {
+            throw DatabaseServiceError.parseError(message: "Expected one sequence record for \(accession); NCBI returned \(records.count).")
         }
 
         let bundleURL = BundleBuildHelpers.makeUniqueBundleURL(
             baseName: BundleBuildHelpers.sanitizedFilename(resolvedAccession),
             in: outputDirectory
         )
+        var completed = false
+        defer { if !completed { try? fileManager.removeItem(at: bundleURL) } }
+        let sourcesDir = bundleURL.appendingPathComponent("sources", isDirectory: true)
+        try fileManager.createDirectory(at: sourcesDir, withIntermediateDirectories: true)
+        let durableGenBankURL = sourcesDir.appendingPathComponent("record.gb")
+        try fileManager.copyItem(at: genBankURL, to: durableGenBankURL)
+        provenanceSteps.append(try Self.fetchProvenanceStep(
+            accession: resolvedAccession, format: "gb", output: durableGenBankURL,
+            startedAt: fetchStartedAt, completedAt: fetchCompletedAt))
         let genomeDir = bundleURL.appendingPathComponent("genome", isDirectory: true)
         let annotationsDir = bundleURL.appendingPathComponent("annotations", isDirectory: true)
         try fileManager.createDirectory(at: genomeDir, withIntermediateDirectories: true)
@@ -77,19 +91,32 @@ public final class GenBankBundleDownloadViewModel: @unchecked Sendable {
         progressHandler?(0.25, "Writing FASTA...")
 
         let plainFASTA = genomeDir.appendingPathComponent("sequence.fa")
+        let fastaStartedAt = Date()
         try FASTAWriter(url: plainFASTA).write([record.sequence])
+        provenanceSteps.append(try Self.conversionProvenanceStep(
+            entryPoint: "GenBankReader.readAll (first record) + FASTAWriter.write",
+            inputs: [durableGenBankURL], outputs: [plainFASTA],
+            options: ["sequenceName": .string(record.sequence.name)], startedAt: fastaStartedAt))
 
         progressHandler?(0.35, "Compressing FASTA (bgzip)...")
 
-        let bgzipResult = try await toolRunner.bgzipCompress(inputPath: plainFASTA, keepOriginal: false)
+        let fastaInput = try ProvenanceFileDescriptor.file(url: plainFASTA, format: .fasta, role: .input)
+        let bgzipVersion = await toolRunner.getToolVersion(.bgzip) ?? "unknown"
+        let bgzipStartedAt = Date()
+        let bgzipResult = try await toolRunner.bgzipCompress(inputPath: plainFASTA, keepOriginal: true)
         guard bgzipResult.isSuccess else {
             throw BundleBuildError.compressionFailed(bgzipResult.combinedOutput)
         }
 
         let compressedFASTA = genomeDir.appendingPathComponent("sequence.fa.gz")
 
+        provenanceSteps.append(try Self.nativeProvenanceStep(
+            tool: .bgzip, version: bgzipVersion, result: bgzipResult,
+            inputs: [fastaInput], outputs: [compressedFASTA], startedAt: bgzipStartedAt))
         progressHandler?(0.45, "Indexing FASTA (samtools faidx)...")
 
+        let samtoolsVersion = await toolRunner.getToolVersion(.samtools) ?? "unknown"
+        let faidxStartedAt = Date()
         let faiResult = try await toolRunner.indexFASTA(fastaPath: compressedFASTA)
         guard faiResult.isSuccess else {
             throw BundleBuildError.indexingFailed(faiResult.combinedOutput)
@@ -98,6 +125,12 @@ public final class GenBankBundleDownloadViewModel: @unchecked Sendable {
         let faiURL = compressedFASTA.appendingPathExtension("fai")
         let gziURL = compressedFASTA.appendingPathExtension("gzi")
 
+        provenanceSteps.append(try Self.nativeProvenanceStep(
+            tool: .samtools, version: samtoolsVersion, result: faiResult,
+            inputs: [try .file(url: compressedFASTA, format: .fasta, role: .input)],
+            outputs: [faiURL, gziURL].filter { fileManager.fileExists(atPath: $0.path) },
+            startedAt: faidxStartedAt))
+        try Task.checkCancellation()
         let chromosomes = BundleBuildHelpers.addSingleSequenceAccessionAliases(
             to: try BundleBuildHelpers.parseFai(at: faiURL),
             accessions: [
@@ -117,22 +150,51 @@ public final class GenBankBundleDownloadViewModel: @unchecked Sendable {
         var annotationTracks: [AnnotationTrackInfo] = []
         if includeGFF3Annotations {
             progressHandler?(0.52, "Fetching GFF3 annotations...")
+            let gffURL = sourcesDir.appendingPathComponent("record.gff3")
+            let gffStartedAt = Date()
+            var gffFetchCompleted = false
             do {
-                if let gff3Track = try await buildGFF3AnnotationTrack(
-                    accession: resolvedAccession,
-                    tempDir: tempDir,
-                    annotationsDir: annotationsDir,
-                    chromosomeSizes: chromosomeSizes
-                ) {
-                    annotationTracks.append(gff3Track)
-                }
+                let data = try await ncbiService.efetch(database: .nucleotide, ids: [resolvedAccession], format: .gff3)
+                try data.write(to: gffURL, options: .atomic)
+                gffFetchCompleted = true
             } catch {
-                genBankDownloadLogger.warning("downloadAndBuild: GFF3 annotation fetch failed; fallback to GenBank FEATURES. Error: \(error.localizedDescription, privacy: .public)")
+                try Task.checkCancellation()
+                if error is CancellationError || (error as? URLError)?.code == .cancelled { throw error }
+                warnings.append("GFF3 fetch fallback: \(error.localizedDescription)")
+            }
+            if gffFetchCompleted {
+                // Provenance errors must abort publication, not trigger annotation fallback.
+                provenanceSteps.append(try Self.fetchProvenanceStep(
+                    accession: resolvedAccession, format: "gff3", output: gffURL, startedAt: gffStartedAt))
+                let conversionStartedAt = Date()
+                var conversionError: String?
+                do {
+                    if let track = try await buildGFF3AnnotationTrack(
+                        gff3URL: gffURL, annotationsDir: annotationsDir, chromosomeSizes: chromosomeSizes
+                    ) {
+                        annotationTracks.append(track)
+                    } else {
+                        warnings.append("GFF3 fallback: no usable annotation records; using GenBank FEATURES.")
+                    }
+                } catch {
+                    try Task.checkCancellation()
+                    if error is CancellationError || (error as? URLError)?.code == .cancelled { throw error }
+                    conversionError = error.localizedDescription
+                    warnings.append("GFF3 conversion fallback: \(error.localizedDescription)")
+                }
+                let database = annotationsDir.appendingPathComponent("ncbi_gff3_annotations.db")
+                provenanceSteps.append(try Self.conversionProvenanceStep(
+                    entryPoint: "AnnotationDatabase.createFromGFF3", inputs: [gffURL],
+                    outputs: fileManager.fileExists(atPath: database.path) ? [database] : [],
+                    options: ["clipToChromosomeBounds": .boolean(true)],
+                    startedAt: conversionStartedAt, error: conversionError))
             }
         }
 
+        // If GFF3 is unavailable or empty, fallback to GenBank FEATURES.
         if annotationTracks.isEmpty && !record.annotations.isEmpty {
             progressHandler?(0.55, "Converting annotations...")
+            let annotationStartedAt = Date()
 
             do {
                 // Write BED12+ directly from parsed GenBank annotations,
@@ -155,6 +217,12 @@ public final class GenBankBundleDownloadViewModel: @unchecked Sendable {
                 let dbRecordCount = try AnnotationDatabase.createFromBED(bedURL: bedURL, outputURL: dbURL)
                 genBankDownloadLogger.info("downloadAndBuild: Created annotation database with \(dbRecordCount) records")
                 try? fileManager.removeItem(at: bedURL)
+                provenanceSteps.append(try Self.conversionProvenanceStep(
+                    entryPoint: "writeGenBankAnnotationsToBED + clipBEDCoordinates + AnnotationDatabase.createFromBED",
+                    inputs: [durableGenBankURL], outputs: [dbURL],
+                    options: ["chromosome": .string(record.locus.name), "clipToChromosomeBounds": .boolean(true),
+                              "preserveQualifiers": .boolean(true), "bedFormat": .string("BED12+")],
+                    startedAt: annotationStartedAt))
 
                 annotationTracks.append(
                     AnnotationTrackInfo(
@@ -222,35 +290,131 @@ public final class GenBankBundleDownloadViewModel: @unchecked Sendable {
 
         try manifest.save(to: bundleURL)
 
+        try Task.checkCancellation()
+        try Self.writeDownloadProvenance(
+            bundleURL: bundleURL, requestedAccession: accession, resolvedAccession: resolvedAccession,
+            includeGFF3Annotations: includeGFF3Annotations, steps: provenanceSteps,
+            startedAt: startedAt, stderr: warnings.joined(separator: "\n"))
+        completed = true
         progressHandler?(1.0, "Bundle ready: \(bundleURL.lastPathComponent)")
         genBankDownloadLogger.info("downloadAndBuild: Bundle complete at \(bundleURL.path, privacy: .public)")
         return bundleURL
     }
 
+    static func fetchProvenanceStep(
+        accession: String, format: String, output: URL, startedAt: Date, completedAt: Date = Date()
+    ) throws -> ProvenanceStep {
+        var components = URLComponents(string: "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi")!
+        components.queryItems = [
+            URLQueryItem(name: "db", value: "nuccore"),
+            URLQueryItem(name: "id", value: accession),
+            URLQueryItem(name: "rettype", value: format),
+            URLQueryItem(name: "retmode", value: "text")
+        ]
+        let remoteURL = components.url!.absoluteString
+        let payload = try ProvenanceFileDescriptor.file(url: output, role: .output)
+        return ProvenanceStep(
+            toolName: "NCBI EFetch (URLSession)", toolVersion: WorkflowRun.currentAppVersion,
+            argv: [],
+            reproducibleCommand: "curl --fail --location " + shellEscape(remoteURL)
+                + " --output " + shellEscape(output.path),
+            resolvedOptions: ["database": .string("nuccore"), "accession": .string(accession),
+                              "rettype": .string(format), "retmode": .string("text"),
+                              "commandPurpose": .string("Pinned replay URL; transport may resolve an accession through ESearch")],
+            runtimeIdentity: ProvenanceRuntimeIdentity(),
+            inputs: [ProvenanceFileDescriptor(path: remoteURL,
+                checksumSHA256: payload.checksumSHA256, fileSize: payload.fileSize, role: .input)],
+            outputs: [payload], exitStatus: 0, wallTimeSeconds: completedAt.timeIntervalSince(startedAt),
+            startedAt: startedAt, completedAt: completedAt)
+    }
+
+    static func conversionProvenanceStep(
+        entryPoint: String, inputs: [URL], outputs: [URL],
+        options: [String: ParameterValue], startedAt: Date, error: String? = nil
+    ) throws -> ProvenanceStep {
+        // These are in-process GUI transformations, so record the actual host argv
+        // together with the versioned entry point and all resolved parameters.
+        ProvenanceStep(toolName: entryPoint, toolVersion: WorkflowRun.currentAppVersion,
+            argv: ProcessInfo.processInfo.arguments, resolvedOptions: options,
+            runtimeIdentity: ProvenanceRuntimeIdentity(),
+            inputs: try inputs.map { try .file(url: $0, role: .input) },
+            outputs: try outputs.map { try .file(url: $0, role: .output) },
+            exitStatus: error == nil ? 0 : 1, wallTimeSeconds: Date().timeIntervalSince(startedAt),
+            stderr: error, startedAt: startedAt, completedAt: Date())
+    }
+
+    private static func nativeProvenanceStep(
+        tool: NativeTool, version: String, result: NativeToolResult,
+        inputs: [ProvenanceFileDescriptor], outputs: [URL], startedAt: Date
+    ) throws -> ProvenanceStep {
+        let executable = result.arguments.first ?? tool.rawValue
+        let environment: String?
+        let prefix: String?
+        switch tool.location {
+        case .managed(let name, _):
+            environment = name
+            prefix = URL(fileURLWithPath: executable).deletingLastPathComponent().deletingLastPathComponent().path
+        case .bundled:
+            environment = nil
+            prefix = nil
+        }
+        return ProvenanceStep(toolName: tool.rawValue, toolVersion: version, argv: result.arguments,
+            runtimeIdentity: ProvenanceRuntimeIdentity(executablePath: executable,
+                condaEnvironment: environment, condaPrefix: prefix), inputs: inputs,
+            outputs: try outputs.map { try .file(url: $0, role: .output) },
+            exitStatus: Int(result.exitCode), wallTimeSeconds: Date().timeIntervalSince(startedAt),
+            stderr: ProvenanceStderr.normalized(result.stderr), startedAt: startedAt, completedAt: Date())
+    }
+
+    /// Called only after all payloads and the manifest are finalized. The normal
+    /// project-copy importer rehydrates these paths when it relocates the bundle.
+    static func writeDownloadProvenance(
+        bundleURL: URL, requestedAccession: String, resolvedAccession: String,
+        includeGFF3Annotations: Bool, steps: [ProvenanceStep], startedAt: Date, stderr: String
+    ) throws {
+        let options: [String: ParameterValue] = [
+            "requestedAccession": .string(requestedAccession),
+            "resolvedAccession": .string(resolvedAccession),
+            "includeGFF3Annotations": .boolean(includeGFF3Annotations),
+            "keepUncompressedFASTA": .boolean(true),
+            "annotationFallback": .string("GenBank FEATURES when GFF3 is unavailable"),
+            "outputBundle": .file(bundleURL),
+            "containerRuntime": .string("none"),
+            "condaEnvironments": .string("htslib, samtools (see per-step runtime identities)")
+        ]
+        var builder = ProvenanceRunBuilder(
+            workflowName: "gui-genbank-download", workflowVersion: WorkflowRun.currentAppVersion,
+            toolName: "Lungfish", toolVersion: WorkflowRun.currentAppVersion)
+            .argv(ProcessInfo.processInfo.arguments)
+            .options(explicit: options, defaults: ["includeGFF3Annotations": .boolean(true)], resolved: options)
+            .runtime(ProvenanceRuntimeIdentity())
+        for step in steps { builder = builder.step(step) }
+        // Preserve the bundle root's path spelling. URL enumeration canonicalizes
+        // /var to /private/var, which would prevent the copy importer rebinding it.
+        guard let files = FileManager.default.enumerator(atPath: bundleURL.path) else {
+            throw CocoaError(.fileReadUnknown)
+        }
+        while let relativePath = files.nextObject() as? String {
+            let url = bundleURL.appendingPathComponent(relativePath)
+            guard try url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile == true else { continue }
+            builder = try builder.output(url)
+        }
+        let envelope = try builder.complete(exitStatus: 0, stderr: stderr,
+            startedAt: startedAt, endedAt: Date())
+        try ProvenanceWriter(signingProvider: nil).write(envelope, to: bundleURL)
+    }
+
+    private static func shellEscape(_ value: String) -> String {
+        "'" + value.replacingOccurrences(of: "'", with: "'\"'\"'") + "'"
+    }
+
     private func buildGFF3AnnotationTrack(
-        accession: String,
-        tempDir: URL,
+        gff3URL: URL,
         annotationsDir: URL,
         chromosomeSizes: [(String, Int64)]
     ) async throws -> AnnotationTrackInfo? {
-        genBankDownloadLogger.info("downloadAndBuild: Fetching GFF3 annotations for \(accession, privacy: .public)")
-        let gff3Data = try await ncbiService.efetch(
-            database: .nucleotide,
-            ids: [accession],
-            format: .gff3
-        )
-        guard let gff3Content = String(data: gff3Data, encoding: .utf8) else {
-            throw DatabaseServiceError.parseError(message: "Invalid GFF3 data encoding for \(accession)")
-        }
-
-        let featureCount = gff3FeatureRowCount(in: gff3Content)
-        guard featureCount > 0 else {
-            genBankDownloadLogger.warning("downloadAndBuild: NCBI returned no GFF3 feature rows for \(accession, privacy: .public)")
-            return nil
-        }
-
-        let gff3URL = tempDir.appendingPathComponent("\(accession).gff3")
-        try gff3Content.write(to: gff3URL, atomically: true, encoding: .utf8)
+        let gff3Content = try String(contentsOf: gff3URL, encoding: .utf8)
+        guard gff3FeatureRowCount(in: gff3Content) > 0 else { return nil }
 
         let dbURL = annotationsDir.appendingPathComponent("ncbi_gff3_annotations.db")
         let dbRecordCount = try await AnnotationDatabase.createFromGFF3(
@@ -259,7 +423,7 @@ public final class GenBankBundleDownloadViewModel: @unchecked Sendable {
             chromosomeSizes: chromosomeSizes
         )
         guard dbRecordCount > 0 else {
-            genBankDownloadLogger.warning("downloadAndBuild: GFF3 conversion produced no annotation records for \(accession, privacy: .public)")
+            genBankDownloadLogger.warning("downloadAndBuild: GFF3 conversion produced no annotation records")
             return nil
         }
 

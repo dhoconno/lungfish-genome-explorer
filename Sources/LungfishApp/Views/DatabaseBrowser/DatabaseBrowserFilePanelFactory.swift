@@ -15,6 +15,7 @@ enum DatabaseBrowserFilePanelFactory {
         panel.allowsMultipleSelection = false
         panel.allowedContentTypes = [
             .commaSeparatedText,
+            .tabSeparatedText,
             .plainText,
         ]
         return panel

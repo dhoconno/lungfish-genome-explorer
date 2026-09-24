@@ -450,7 +450,7 @@ public enum SearchScope: String, CaseIterable, Identifiable {
     var helpText: String {
         switch self {
         case .all: return "Searches accession numbers, organism names, titles, and descriptions"
-        case .accession: return "Search by accession number (e.g., NC_002549, MN908947)"
+        case .accession: return "Search by accession number (e.g., NM_000546.6, NM_000059.4)"
         case .organism: return "Search by organism or species name"
         case .title: return "Search within sequence titles and descriptions"
         case .bioProject: return "Search by BioProject accession (e.g., PRJNA989177)"
@@ -735,6 +735,8 @@ public class DatabaseBrowserViewModel: ObservableObject {
 
     /// Accessions imported from a CSV/text file. Takes precedence over searchText parsing.
     @Published var importedAccessions: [String] = []
+    /// Retains the exact imported query for retry without changing ordinary accession searches.
+    private var importedGenBankQuery: String?
 
     /// Maximum number of SRA results to return for non-accession queries
     @Published var sraResultLimit: Int = 50
@@ -1327,6 +1329,7 @@ public class DatabaseBrowserViewModel: ObservableObject {
         sraPubDateFrom = ""
         sraPubDateTo = ""
         importedAccessions = []
+        importedGenBankQuery = nil
         // Pathoplexus filters
         clearPathoplexusFilters()
     }
@@ -1334,11 +1337,16 @@ public class DatabaseBrowserViewModel: ObservableObject {
     /// Imports accession list from a CSV or text file.
     /// Opens a file panel, parses the file, and triggers batch search.
     func importAccessionList() {
+        guard !isDownloading else { return }
         let panel = DatabaseBrowserFilePanelFactory.accessionListImportPanel()
+        let importSource = source
+        let importSearchType = ncbiSearchType
 
         let handleSelection: (NSApplication.ModalResponse) -> Void = { [weak self] response in
             guard response == .OK, let url = panel.url else { return }
-            self?.handleImportedAccessionList(url: url)
+            guard let self, self.source == importSource,
+                  self.ncbiSearchType == importSearchType else { return }
+            self.handleImportedAccessionList(url: url)
         }
 
         if let window = NSApp.keyWindow ?? NSApp.mainWindow {
@@ -1348,29 +1356,39 @@ public class DatabaseBrowserViewModel: ObservableObject {
         }
     }
 
+    /// Uses the same file-import entry point for SRA and GenBank nucleotide lists.
+    /// Parsing finishes before mutating search state, so an invalid file is atomic.
+    func importAccessionList(at url: URL) throws {
+        guard !isDownloading else {
+            throw DatabaseServiceError.invalidQuery(reason: "Wait for the current download before importing accessions.")
+        }
+        let accessions: [String]
+        if isSRASearch {
+            accessions = try SRAAccessionParser.parseCSVFile(at: url)
+            guard !accessions.isEmpty else {
+                throw DatabaseServiceError.invalidQuery(reason: "No valid SRA accessions were found in the selected file.")
+            }
+        } else if isNCBISearch && ncbiSearchType == .nucleotide {
+            accessions = try GenBankAccessionParser.parseCSVFile(at: url)
+        } else {
+            throw DatabaseServiceError.invalidQuery(reason: "Accession lists are supported in SRA Runs and GenBank Nucleotide mode.")
+        }
+        importedAccessions = accessions
+        searchText = isNCBISearch
+            ? accessions.joined(separator: ", ")
+            : "\(accessions.count) accessions from \(url.lastPathComponent)"
+        importedGenBankQuery = isNCBISearch ? searchText : nil
+        searchScope = .accession
+        performSearch()
+    }
+
     private func handleImportedAccessionList(url: URL) {
         do {
-            let accessions = try SRAAccessionParser.parseCSVFile(at: url)
-            if accessions.isEmpty {
-                let alert = NSAlert()
-                alert.messageText = "No Valid Accessions"
-                alert.informativeText = "No valid SRA accessions were found in the selected file."
-                alert.alertStyle = .informational
-                alert.addButton(withTitle: "OK")
-                presentDatabaseBrowserAlert(alert)
-                return
-            }
-
-            logger.info("importAccessionList: Parsed \(accessions.count) accessions from \(url.lastPathComponent)")
-
-            importedAccessions = accessions
-            searchText = "\(accessions.count) accessions from \(url.lastPathComponent)"
-            searchScope = .accession
-            performSearch()
+            try importAccessionList(at: url)
         } catch {
             let alert = NSAlert()
             alert.messageText = "Import Failed"
-            alert.informativeText = "Could not read the file: \(error.localizedDescription)"
+            alert.informativeText = error.localizedDescription
             alert.alertStyle = .warning
             alert.addButton(withTitle: "OK")
             presentDatabaseBrowserAlert(alert)
@@ -1521,8 +1539,18 @@ public class DatabaseBrowserViewModel: ObservableObject {
         searchPhase = .connecting
         errorMessage = nil
         results = []
+        selectedRecord = nil
         selectedRecords = []
-        let capturedImportedAccessions = importedAccessions
+        totalResultCount = 0
+        hasMoreResults = false
+        let capturedImportedAccessions: [String]
+        if importedAccessions.isEmpty, isNCBISearch, ncbiSearchType == .nucleotide,
+           searchScope == .accession, searchText == importedGenBankQuery,
+           let accessions = try? GenBankAccessionParser.parseAccessionList(searchText) {
+            capturedImportedAccessions = accessions
+        } else {
+            capturedImportedAccessions = importedAccessions
+        }
         importedAccessions = []  // Clear after capture to prevent stale reuse on next search
         let searchToken = beginSearchValidation()
 
@@ -1669,6 +1697,10 @@ public class DatabaseBrowserViewModel: ObservableObject {
                     // Use the appropriate search method based on search type
                     switch searchType {
                     case .nucleotide:
+                        if !capturedImportedAccessions.isEmpty {
+                            searchResults = try await ncbi.lookupNucleotideAccessions(capturedImportedAccessions)
+                            break
+                        }
                         logger.info("performSearch: Calling NCBI nucleotide search (refseqOnly=\(useRefseqOnly))")
                         let pageSize = 200
                         var currentOffset = query.offset
