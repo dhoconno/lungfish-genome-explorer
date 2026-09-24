@@ -4,12 +4,14 @@ import json
 import math
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 import tempfile
 import textwrap
 import types
 import unittest
+from unittest import mock
 import uuid
 
 sys.dont_write_bytecode = True
@@ -18,12 +20,15 @@ ROOT = Path(__file__).resolve().parents[2]
 ADAPTER = ROOT / "Sources/LungfishWorkflow/Resources/PrimerDesignAdapters/v1"
 sys.path.insert(0, str(ADAPTER))
 
+import common as adapter_common  # noqa: E402
+import run as adapter_run  # noqa: E402
 from common import (  # noqa: E402
     AdapterError,
     accept_pair_length,
     adapter_sha256,
     sha256_file,
     validate_request,
+    validate_target_contract,
 )
 from olivar_adapter import (  # noqa: E402
     build_msa_projection,
@@ -155,6 +160,165 @@ class RequestContractTests(unittest.TestCase):
             with self.assertRaises(AdapterError) as raised:
                 validate_request(request)
             self.assertEqual(raised.exception.code, "invalid_option")
+
+    def test_blast_database_prefix_accepts_components_and_rejects_alias(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            prefix = root / "synthetic-db"
+            for suffix in (".nhr", ".nin", ".nsq"):
+                Path(str(prefix) + suffix).write_bytes(("fixture" + suffix).encode())
+            self.assertEqual(adapter_common.validate_blast_database_prefix(str(prefix), "blastDatabasePath"), str(prefix))
+            self.assertEqual(
+                [path.name for path in adapter_common.blast_database_components(prefix)],
+                ["synthetic-db.nhr", "synthetic-db.nin", "synthetic-db.nsq"],
+            )
+            Path(str(prefix) + ".nal").write_text("DBLIST other-db\n", encoding="utf-8")
+            with self.assertRaises(AdapterError) as raised:
+                adapter_common.validate_blast_database_prefix(str(prefix), "blastDatabasePath")
+            self.assertEqual(raised.exception.code, "unsupported_blast_alias")
+
+
+class ProvenanceRetentionTests(unittest.TestCase):
+    @staticmethod
+    def fake_runtime():
+        return {
+            "modulePath": str(ADAPTER / "common.py"),
+            "sourceVerification": [],
+            "environmentPrefix": str(Path(sys.executable).resolve().parent.parent),
+            "distribution": "test::olivar=1.3.3=fake",
+            "condaPackageRecord": None,
+        }
+
+    def write_request(self, root: Path) -> tuple[dict, Path]:
+        request = base_request(root)
+        request_path = root / "request.json"
+        request_path.write_text(json.dumps(request), encoding="utf-8")
+        return request, request_path
+
+    def test_failure_retains_caller_owned_runtime_and_attempted_event(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            _, request_path = self.write_request(root)
+
+            def fail_after_verification(request, stage, recorder):
+                recorder["runtime"] = self.fake_runtime()
+                recorder["nativeEvents"].append({
+                    "engine": "olivar", "kind": "inProcessAPI", "module": "olivar",
+                    "function": "tiling", "arguments": {"out_path": str(stage / "native")},
+                    "status": "attempted",
+                })
+                raise AdapterError("no_feasible_design", "synthetic failure")
+
+            with mock.patch("olivar_adapter.run_olivar", side_effect=fail_after_verification):
+                with self.assertRaises(AdapterError):
+                    adapter_run.execute(request_path)
+            provenance = json.loads((root / "output/provenance-v1.json").read_text(encoding="utf-8"))
+            self.assertEqual(provenance["runtime"]["distribution"], "test::olivar=1.3.3=fake")
+            self.assertEqual(provenance["nativeEvents"][0]["function"], "tiling")
+            self.assertEqual(provenance["nativeEvents"][0]["status"], "failed")
+
+    def test_success_has_durable_mapping_request_snapshot_and_event_arguments(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            _, request_path = self.write_request(root)
+
+            def succeed(request, stage, recorder):
+                recorder["runtime"] = self.fake_runtime()
+                config = stage / "config/input/varvamp-config.py"
+                config.parent.mkdir(parents=True)
+                config.write_text("VALUE = 1\n", encoding="utf-8")
+                native = stage / "native/input"
+                native.mkdir(parents=True)
+                (native / "result.txt").write_text("result\n", encoding="utf-8")
+                recorder["nativeEvents"].append({
+                    "engine": "olivar", "kind": "inProcessAPI", "module": "olivar",
+                    "function": "tiling",
+                    "arguments": {"ref_path": "/external/reference.olvr", "out_path": str(native), "config": str(config)},
+                    "status": "succeeded", "exitStatus": 0,
+                })
+                return [], recorder["runtime"], {"test": True}
+
+            with mock.patch("olivar_adapter.run_olivar", side_effect=succeed):
+                output = adapter_run.execute(request_path)
+            provenance = json.loads((output / "provenance-v1.json").read_text(encoding="utf-8"))
+            self.assertEqual(provenance["command"]["workingDirectory"], str(Path.cwd().resolve()))
+            mapping = provenance["command"]["pathMappings"][0]
+            self.assertFalse(Path(mapping["historicalPrefix"]).exists())
+            self.assertEqual(Path(mapping["durablePrefix"]), output)
+            replay_request = provenance["command"]["durableReplay"]["requestSnapshot"]
+            self.assertTrue((output / replay_request["path"]).is_file())
+            durable = provenance["nativeEvents"][0]["durableArguments"]
+            self.assertEqual(durable["out_path"], {"base": "outputDirectory", "path": "native/input"})
+            self.assertTrue((output / durable["config"]["path"]).is_file())
+
+    def test_input_mutation_fails_and_keeps_pre_execution_checksum(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            request, request_path = self.write_request(root)
+            input_path = Path(request["inputs"][0]["path"])
+            initial_sha = sha256_file(input_path)
+
+            def mutate(request, stage, recorder):
+                recorder["runtime"] = self.fake_runtime()
+                input_path.write_text(">changed\nTTTT\n", encoding="utf-8")
+                return [], recorder["runtime"], {"test": True}
+
+            with mock.patch("olivar_adapter.run_olivar", side_effect=mutate):
+                with self.assertRaises(AdapterError) as raised:
+                    adapter_run.execute(request_path)
+            self.assertEqual(raised.exception.code, "input_changed")
+            provenance = json.loads((root / "output/provenance-v1.json").read_text(encoding="utf-8"))
+            self.assertEqual(provenance["inputs"][0]["sha256"], initial_sha)
+            self.assertFalse(provenance["inputIntegrity"]["unchanged"])
+
+    def test_blast_components_are_snapshotted_before_execution_and_rechecked(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            request, request_path = self.write_request(root)
+            prefix = root / "synthetic-db"
+            components = []
+            for suffix in (".nhr", ".nin", ".nsq"):
+                component = Path(str(prefix) + suffix)
+                component.write_bytes(("before" + suffix).encode())
+                components.append(component)
+            request["options"]["blastDatabasePath"] = str(prefix)
+            request_path.write_text(json.dumps(request), encoding="utf-8")
+            initial_sha = sha256_file(components[0])
+
+            def mutate_component(request, stage, recorder):
+                recorder["runtime"] = self.fake_runtime()
+                components[0].write_bytes(b"after")
+                return [], recorder["runtime"], {"test": True}
+
+            with mock.patch("olivar_adapter.run_olivar", side_effect=mutate_component):
+                with self.assertRaises(AdapterError) as raised:
+                    adapter_run.execute(request_path)
+            self.assertEqual(raised.exception.code, "input_changed")
+            provenance = json.loads((root / "output/provenance-v1.json").read_text(encoding="utf-8"))
+            self.assertEqual(len(provenance["auxiliaryInputs"]), 3)
+            recorded = next(item for item in provenance["auxiliaryInputs"] if item["path"] == str(components[0]))
+            self.assertEqual(recorded["sha256"], initial_sha)
+            self.assertFalse(provenance["inputIntegrity"]["unchanged"])
+
+    def test_target_contract_rejects_assay_member_missing_reciprocal_assay_id(self):
+        assay_one = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+        assay_two = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
+        oligo_id = "cccccccc-cccc-4ccc-8ccc-cccccccccccc"
+        target = {
+            "id": INPUT_ID, "label": "target", "referencePath": "generated/reference.fasta",
+            "referenceID": "reference", "referenceLength": 20, "sourceInputID": INPUT_ID,
+            "bindingProjectionPath": "mappings/input.json",
+            "assays": [
+                {"id": assay_one, "start": 0, "end": 10, "memberIDs": [oligo_id], "pool": None, "status": "selected", "rank": 1, "nativeMetadata": {}},
+                {"id": assay_two, "start": 5, "end": 15, "memberIDs": [oligo_id], "pool": None, "status": "alternative", "rank": 2, "nativeMetadata": {}},
+            ],
+            "oligos": [
+                {"id": oligo_id, "name": "left", "role": "forward", "sequence": "ACGT", "start": 0, "end": 4,
+                 "strand": "+", "assayIDs": [assay_one], "pool": None, "nativeMetadata": {}},
+            ],
+        }
+        with self.assertRaisesRegex(AdapterError, "membership"):
+            validate_target_contract(target)
 
 
 class OlivarPairGuardTests(unittest.TestCase):
@@ -419,6 +583,26 @@ class NativeEnvironmentTests(unittest.TestCase):
         first_source = verified["sourceVerification"][0]
         self.assertEqual(first_source["byteSize"], Path(first_source["path"]).stat().st_size)
 
+    @unittest.skipUnless(os.environ.get("LUNGFISH_NATIVE_ADAPTER_INTEGRATION") == "1", "native integration opt-in")
+    def test_makeblastdb_prefix_component_inventory(self):
+        executable = shutil.which("makeblastdb")
+        self.assertIsNotNone(executable)
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            source = root / "source.fasta"
+            source.write_text(">synthetic\n" + "ACGT" * 40 + "\n", encoding="utf-8")
+            prefix = root / "synthetic-db"
+            completed = subprocess.run(
+                [executable, "-dbtype", "nucl", "-in", str(source), "-out", str(prefix)],
+                text=True, capture_output=True, timeout=30,
+                env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
+            )
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+            self.assertEqual(adapter_common.validate_blast_database_prefix(str(prefix), "blastDatabasePath"), str(prefix))
+            components = adapter_common.blast_database_components(prefix)
+            self.assertTrue({"nhr", "nin", "nsq"} <= {path.suffix.removeprefix(".") for path in components})
+            self.assertTrue(all(path.is_file() and not path.is_symlink() for path in components))
+
     @unittest.skipUnless(os.environ.get("LUNGFISH_NATIVE_ADAPTER_DESIGN") == "1", "real native design opt-in")
     def test_real_native_adapter_call_publishes_normalized_provenance(self):
         # Deterministic, non-biological in-memory sequence fixture.
@@ -491,11 +675,31 @@ class NativeEnvironmentTests(unittest.TestCase):
             self.assertEqual(provenance["exitStatus"], 0)
             self.assertEqual(provenance["adapterSHA256"], adapter_sha256(ADAPTER))
             self.assertEqual(provenance["outputs"], result["artifacts"])
+            self.assertTrue(provenance["inputIntegrity"]["unchanged"])
             self.assertEqual(provenance["runtime"]["environmentPrefix"], str(Path(sys.prefix).resolve()))
             self.assertIsNotNone(provenance["runtime"]["condaPackageRecord"])
-            self.assertTrue(provenance["command"]["nativeInvocations"])
+            self.assertEqual(Path(provenance["command"]["pathMappings"][0]["durablePrefix"]), output)
+            request_snapshot = provenance["command"]["durableReplay"]["requestSnapshot"]
+            self.assertTrue((output / request_snapshot["path"]).is_file())
             for key in ("MPLCONFIGDIR", "XDG_CACHE_HOME", "TMPDIR"):
                 self.assertIn(".adapter-stage-", provenance["command"]["environment"][key])
+            self.assertTrue(provenance["nativeEvents"])
+            self.assertTrue(all(event["status"] == "succeeded" for event in provenance["nativeEvents"]))
+            if engine == "olivar":
+                self.assertEqual(provenance["command"]["nativeInvocations"], [])
+                by_function = {event["function"]: event for event in provenance["nativeEvents"]}
+                self.assertTrue({"verify_runtime", "install_pair_guard", "MSA", "_get_consensus", "run_preprocess", "run_build", "tiling"} <= set(by_function))
+                self.assertEqual(
+                    set(by_function["tiling"]["arguments"]),
+                    {"ref_path", "out_path", "title", "max_amp_len", "min_amp_len", "w_egc", "w_lc", "w_ns", "w_var", "w_sensi", "w_combi", "temperature", "salinity", "dG_max", "min_GC", "max_GC", "min_complexity", "max_len", "check_var", "fP_prefix", "rP_prefix", "seed", "threads", "iterMul", "deg"},
+                )
+                durable_output = by_function["tiling"]["durableArguments"]["out_path"]
+                self.assertTrue((output / durable_output["path"]).is_dir())
+            else:
+                self.assertTrue(provenance["command"]["nativeInvocations"])
+                command_event = next(event for event in provenance["nativeEvents"] if event["function"] == "main")
+                durable_config = command_event["durableArguments"]["environment"]["VARVAMP_CONFIG"]
+                self.assertTrue((output / durable_config["path"]).is_file())
             self.assertEqual(result["engine"], engine)
             self.assertTrue(result["results"][0]["targets"][0]["assays"])
             for artifact in result["artifacts"]:

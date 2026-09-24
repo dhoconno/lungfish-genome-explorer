@@ -11,8 +11,11 @@ from pathlib import Path, PurePosixPath
 import platform
 import shlex
 import sys
+import time
 from typing import Any
 import uuid
+from contextlib import contextmanager
+from datetime import datetime, timezone
 
 
 SCHEMA_VERSION = 1
@@ -192,6 +195,64 @@ def _validate_optional_file(value: Any, name: str) -> str | None:
     return _validate_absolute_regular_file(value, name)
 
 
+_BLAST_NUCLEOTIDE_COMPONENT_SUFFIXES = {
+    "ndb", "nhr", "nin", "nog", "nos", "not", "nsq", "ntf", "nto", "njs",
+}
+_BLAST_REQUIRED_COMPONENT_SUFFIXES = {"nhr", "nin", "nsq"}
+
+
+def blast_database_components(prefix: Path) -> list[Path]:
+    """Return a safe materialized nucleotide BLAST database component set."""
+    if not prefix.is_absolute() or prefix.is_symlink() or prefix.parent.is_symlink() or not prefix.parent.is_dir():
+        raise AdapterError("invalid_option", "BLAST database prefix must have an existing absolute non-symlink parent")
+    alias = Path(str(prefix) + ".nal")
+    if prefix.suffix == ".nal" or alias.exists() or alias.is_symlink():
+        raise AdapterError(
+            "unsupported_blast_alias",
+            "BLAST alias databases are not supported; select a materialized nucleotide database prefix",
+            {"prefix": str(prefix), "aliasPath": str(prefix if prefix.suffix == ".nal" else alias)},
+        )
+    components: list[Path] = []
+    groups: dict[str, set[str]] = {}
+    prefix_marker = prefix.name + "."
+    for candidate in sorted(prefix.parent.glob(prefix.name + ".*")):
+        if not candidate.name.startswith(prefix_marker):
+            continue
+        tail = candidate.name[len(prefix_marker):]
+        pieces = tail.split(".")
+        suffix = pieces[-1]
+        volume = ".".join(pieces[:-1])
+        if suffix not in _BLAST_NUCLEOTIDE_COMPONENT_SUFFIXES or (volume and not all(part.isdigit() for part in pieces[:-1])):
+            continue
+        if candidate.is_symlink() or not candidate.is_file():
+            raise AdapterError("invalid_option", "BLAST database components must be non-symlink regular files", {"path": str(candidate)})
+        components.append(candidate)
+        groups.setdefault(volume, set()).add(suffix)
+    complete_groups = [name for name, suffixes in groups.items() if _BLAST_REQUIRED_COMPONENT_SUFFIXES <= suffixes]
+    incomplete_core_groups = {
+        name: sorted(suffixes & _BLAST_REQUIRED_COMPONENT_SUFFIXES)
+        for name, suffixes in groups.items()
+        if suffixes & _BLAST_REQUIRED_COMPONENT_SUFFIXES and not _BLAST_REQUIRED_COMPONENT_SUFFIXES <= suffixes
+    }
+    if not components or not complete_groups or incomplete_core_groups:
+        raise AdapterError(
+            "invalid_option",
+            "BLAST database prefix does not identify a complete nucleotide database",
+            {"prefix": str(prefix), "incompleteVolumes": incomplete_core_groups},
+        )
+    return components
+
+
+def validate_blast_database_prefix(value: Any, name: str) -> str | None:
+    if value is None:
+        return None
+    if not isinstance(value, str) or not value:
+        raise AdapterError("invalid_option", f"{name} must be an absolute BLAST database prefix")
+    prefix = Path(value)
+    blast_database_components(prefix)
+    return str(prefix)
+
+
 def validate_output_path(value: Any) -> Path:
     if not isinstance(value, str) or not value:
         raise AdapterError("unsafe_output_path", "outputDirectory must be an absolute path")
@@ -244,7 +305,7 @@ def _validate_olivar_options(options: dict[str, Any]) -> None:
     for key in ("forwardPrefix", "reversePrefix"):
         if not isinstance(options[key], str) or not set(options[key].upper()) <= set("ACGTRYSWKMBDHVN"):
             raise AdapterError("invalid_option", f"{key} must contain only IUPAC DNA bases")
-    options["blastDatabasePath"] = _validate_optional_file(options["blastDatabasePath"], "blastDatabasePath")
+    options["blastDatabasePath"] = validate_blast_database_prefix(options["blastDatabasePath"], "blastDatabasePath")
     risk = options["riskWeights"]
     if not isinstance(risk, dict) or set(risk) != RISK_WEIGHT_KEYS:
         raise AdapterError("invalid_option", "riskWeights must contain exactly the six documented keys")
@@ -274,7 +335,7 @@ def _validate_varvamp_options(options: dict[str, Any], mode: str) -> None:
     if any(character in options["schemeName"] for character in "\r\n\t/\\"):
         raise AdapterError("invalid_option", "schemeName contains unsafe characters")
     options["compatiblePrimersPath"] = _validate_optional_file(options["compatiblePrimersPath"], "compatiblePrimersPath")
-    options["blastDatabasePath"] = _validate_optional_file(options["blastDatabasePath"], "blastDatabasePath")
+    options["blastDatabasePath"] = validate_blast_database_prefix(options["blastDatabasePath"], "blastDatabasePath")
     if not isinstance(options["configOverrides"], dict):
         raise AdapterError("invalid_option", "configOverrides must be an object")
     override_keys = set(options["configOverrides"])
@@ -395,7 +456,7 @@ def inventory_artifacts(root: Path, excluded: set[str] | None = None) -> list[di
     for path in sorted(root.rglob("*")):
         if path.is_file() and path.relative_to(root).as_posix() not in excluded:
             relative = path.relative_to(root).as_posix()
-            kind = "log" if relative.startswith("logs/") else "mapping" if relative.startswith("mappings/") else "generatedReference" if relative.startswith("generated/") else "configuration" if relative.endswith("varvamp-config.py") else "native"
+            kind = "log" if relative.startswith("logs/") else "mapping" if relative.startswith("mappings/") else "generatedReference" if relative.startswith("generated/") else "requestSnapshot" if relative.startswith("replay/") else "configuration" if relative.endswith("varvamp-config.py") else "native"
             records.append(artifact_record(root, path, kind))
     return records
 
@@ -438,6 +499,62 @@ def shell_command(argv: list[str]) -> str:
     return shlex.join(argv)
 
 
+def _utc_now() -> str:
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+@contextmanager
+def native_event(
+    recorder: dict[str, Any],
+    *,
+    engine: str,
+    kind: str,
+    module: str,
+    function: str,
+    arguments: dict[str, Any],
+    module_path: str | None = None,
+):
+    """Append a typed event before a native call and retain its terminal state."""
+    event = {
+        "engine": engine,
+        "kind": kind,
+        "module": module,
+        "function": function,
+        "arguments": _json_primitive(arguments),
+        "status": "attempted",
+        "startedAt": _utc_now(),
+        "finishedAt": None,
+        "wallTimeSeconds": None,
+        "exitStatus": None,
+    }
+    if module_path is not None:
+        event["modulePath"] = module_path
+    recorder.setdefault("nativeEvents", []).append(event)
+    started = time.monotonic()
+    try:
+        yield event
+    except BaseException as error:
+        event.update({
+            "status": "failed",
+            "finishedAt": _utc_now(),
+            "wallTimeSeconds": time.monotonic() - started,
+            "exitStatus": 1,
+            "error": {
+                "type": error.__class__.__name__,
+                "message": str(error),
+                "code": error.code if isinstance(error, AdapterError) else None,
+            },
+        })
+        raise
+    else:
+        event.update({
+            "status": "succeeded",
+            "finishedAt": _utc_now(),
+            "wallTimeSeconds": time.monotonic() - started,
+            "exitStatus": 0,
+        })
+
+
 def validate_target_contract(target: dict[str, Any]) -> None:
     required = {
         "id", "label", "referencePath", "referenceID", "referenceLength", "sourceInputID",
@@ -457,6 +574,9 @@ def validate_target_contract(target: dict[str, Any]) -> None:
             raise AdapterError("native_contract_mismatch", "assay interval lies outside generated reference")
         if not assay["memberIDs"] or any(member not in oligos for member in assay["memberIDs"]):
             raise AdapterError("native_contract_mismatch", "assay references missing oligos")
+        for member in assay["memberIDs"]:
+            if assay["id"] not in oligos[member]["assayIDs"]:
+                raise AdapterError("native_contract_mismatch", "assay/oligo membership is not reciprocal")
     for oligo in oligos.values():
         if oligo["role"] not in {"forward", "reverse", "probe"} or oligo["strand"] not in {"+", "-"}:
             raise AdapterError("native_contract_mismatch", "invalid oligo role or strand")

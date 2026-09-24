@@ -16,6 +16,7 @@ from common import (
     AdapterError,
     accept_pair_length,
     deterministic_id,
+    native_event,
     sha256_file,
     validate_target_contract,
     write_json,
@@ -174,11 +175,32 @@ def build_msa_projection(gapped_consensus: str, generated_consensus: str) -> lis
     return blocks
 
 
-def capture_msa_projection(msa_path: Path, *, degenerate: bool, workers: int) -> tuple[str, str, list[dict[str, Any]]]:
-    runtime = verify_runtime()
-    msa_tools = runtime["modules"]["msa_tools"]
-    msa = msa_tools.MSA(str(msa_path), workers)
-    msa._get_consensus(workers, deg=degenerate, show_progress=False)
+def capture_msa_projection(
+    msa_path: Path,
+    *,
+    degenerate: bool,
+    workers: int,
+    modules: dict[str, Any] | None = None,
+    recorder: dict[str, Any] | None = None,
+) -> tuple[str, str, list[dict[str, Any]]]:
+    if modules is None:
+        modules = verify_runtime()["modules"]
+    recorder = recorder if recorder is not None else {"nativeEvents": []}
+    msa_tools = modules["msa_tools"]
+    with native_event(
+        recorder, engine="olivar", kind="inProcessAPI", module="msa_tools", function="MSA",
+        arguments={"fasta_path": str(msa_path), "n_cpu": workers},
+        module_path=str(Path(msa_tools.__file__).resolve()),
+    ) as event:
+        msa = msa_tools.MSA(str(msa_path), workers)
+        event["result"] = {"instanceType": "MSA", "sourcePath": str(msa_path)}
+    with native_event(
+        recorder, engine="olivar", kind="inProcessAPI", module="msa_tools.MSA", function="_get_consensus",
+        arguments={"sourcePath": str(msa_path), "n_cpu": workers, "deg": degenerate, "show_progress": False},
+        module_path=str(Path(msa_tools.__file__).resolve()),
+    ) as event:
+        msa._get_consensus(workers, deg=degenerate, show_progress=False)
+        event["result"] = {"consensusLength": len(str(msa.consensus))}
     gapped = "".join(str(base) for base in msa.consensus_array)
     generated = str(msa.consensus)
     return gapped, generated, build_msa_projection(gapped, generated)
@@ -194,6 +216,7 @@ def _build_reference(
     minimum_variant_frequency: float,
     degenerate: bool,
     blast_database: str | None,
+    recorder: dict[str, Any],
 ) -> bool:
     """Use pinned build primitives while accepting an invariant MSA.
 
@@ -202,24 +225,49 @@ def _build_reference(
     variant file is the native representation of the same empty variant set.
     """
     main = modules["main"]
-    fasta_path, variant_path = main.run_preprocess(
-        str(msa_path), msa_path.stem, str(out_path), workers,
-        minimum_variant_frequency, degenerate,
-    )
+    preprocess_arguments = {
+        "msa_path": str(msa_path), "msa_filename": msa_path.stem, "prefix": str(out_path),
+        "n_cpu": workers, "min_var": minimum_variant_frequency, "deg": degenerate,
+    }
+    with native_event(
+        recorder, engine="olivar", kind="inProcessAPI", module="main", function="run_preprocess",
+        arguments=preprocess_arguments,
+        module_path=str(Path(main.__file__).resolve()),
+    ) as event:
+        fasta_path, variant_path = main.run_preprocess(
+            str(msa_path), msa_path.stem, str(out_path), workers,
+            minimum_variant_frequency, degenerate,
+        )
+        event["result"] = {"fasta_path": fasta_path, "variant_path": variant_path}
     variant_file = Path(variant_path)
     empty_variant_table = len(variant_file.read_text(encoding="utf-8").splitlines()) <= 1
     if empty_variant_table:
         variant_path = None
-    main.run_build(
-        fasta_path,
-        str(msa_path) if degenerate else None,
-        variant_path,
-        blast_database,
-        str(out_path),
-        title,
-        workers,
-        deg=degenerate,
-    )
+    build_arguments = {
+        "fasta_path": fasta_path,
+        "msa_path": str(msa_path) if degenerate else None,
+        "var_path": variant_path,
+        "BLAST_db": blast_database,
+        "out_path": str(out_path),
+        "title": title,
+        "threads": workers,
+        "deg": degenerate,
+    }
+    with native_event(
+        recorder, engine="olivar", kind="inProcessAPI", module="main", function="run_build",
+        arguments=build_arguments,
+        module_path=str(Path(main.__file__).resolve()),
+    ):
+        main.run_build(
+            fasta_path,
+            str(msa_path) if degenerate else None,
+            variant_path,
+            blast_database,
+            str(out_path),
+            title,
+            workers,
+            deg=degenerate,
+        )
     return empty_variant_table
 
 
@@ -366,47 +414,62 @@ def normalize_olivar_outputs(
     return target
 
 
-def _invoke_tiling(modules: dict[str, Any], ref_input: Path, design_dir: Path, design_title: str, options: dict[str, Any]) -> None:
+def _invoke_tiling(
+    modules: dict[str, Any], ref_input: Path, design_dir: Path, design_title: str,
+    options: dict[str, Any], recorder: dict[str, Any], grouping: str, input_ids: list[str],
+) -> None:
     design_dir.mkdir(parents=True)
     risk = options["riskWeights"]
-    modules["olivar"].tiling(
-        ref_path=str(ref_input),
-        out_path=str(design_dir),
-        title=design_title,
-        max_amp_len=options["maximumAmpliconLength"],
-        min_amp_len=options["minimumAmpliconLength"],
-        w_egc=risk["extremeGC"],
-        w_lc=risk["lowComplexity"],
-        w_ns=risk["nonSpecificity"],
-        w_var=risk["variation"],
-        w_sensi=risk["sensitivity"],
-        w_combi=risk["combination"],
-        temperature=options["temperatureC"],
-        salinity=options["salinityM"],
-        dG_max=options["maximumDimerDeltaG"],
-        min_GC=options["minimumGC"],
-        max_GC=options["maximumGC"],
-        min_complexity=options["minimumComplexity"],
-        max_len=options["maximumPrimerLength"],
-        check_var=options["checkVariants"],
-        fP_prefix=options["forwardPrefix"],
-        rP_prefix=options["reversePrefix"],
-        seed=options["seed"],
-        threads=options["workers"],
-        iterMul=options["effort"],
-        deg=options["degenerate"],
-    )
+    arguments = {
+        "ref_path": str(ref_input), "out_path": str(design_dir), "title": design_title,
+        "max_amp_len": options["maximumAmpliconLength"], "min_amp_len": options["minimumAmpliconLength"],
+        "w_egc": risk["extremeGC"], "w_lc": risk["lowComplexity"], "w_ns": risk["nonSpecificity"],
+        "w_var": risk["variation"], "w_sensi": risk["sensitivity"], "w_combi": risk["combination"],
+        "temperature": options["temperatureC"], "salinity": options["salinityM"],
+        "dG_max": options["maximumDimerDeltaG"], "min_GC": options["minimumGC"],
+        "max_GC": options["maximumGC"], "min_complexity": options["minimumComplexity"],
+        "max_len": options["maximumPrimerLength"], "check_var": options["checkVariants"],
+        "fP_prefix": options["forwardPrefix"], "rP_prefix": options["reversePrefix"],
+        "seed": options["seed"], "threads": options["workers"], "iterMul": options["effort"],
+        "deg": options["degenerate"],
+    }
+    with native_event(
+        recorder, engine="olivar", kind="inProcessAPI", module="olivar", function="tiling",
+        arguments=arguments,
+        module_path=str(Path(modules["olivar"].__file__).resolve()),
+    ) as event:
+        event["adapterContext"] = {"grouping": grouping, "inputIDs": input_ids}
+        modules["olivar"].tiling(**arguments)
 
 
-def run_olivar(request: dict[str, Any], stage: Path) -> tuple[list[dict[str, Any]], dict[str, Any], dict[str, Any]]:
-    runtime = verify_runtime()
+def run_olivar(
+    request: dict[str, Any], stage: Path, recorder: dict[str, Any] | None = None,
+) -> tuple[list[dict[str, Any]], dict[str, Any], dict[str, Any]]:
+    recorder = recorder if recorder is not None else {"runtime": None, "nativeInvocations": [], "nativeEvents": []}
+    with native_event(
+        recorder, engine="olivar", kind="runtimeVerification", module="olivar_adapter", function="verify_runtime",
+        arguments={"engineVersion": ENGINE_VERSION, "sourceHashes": SOURCE_HASHES},
+        module_path=str(Path(__file__).resolve()),
+    ) as event:
+        runtime = verify_runtime()
+        recorder["runtime"] = runtime
+        event["result"] = {"distribution": runtime["distribution"], "modulePath": runtime["modulePath"]}
     modules = runtime["modules"]
     options = request["options"]
-    patched = install_pair_guard(
-        modules["tiling_helper"],
-        minimum=options["minimumAmpliconLength"],
-        maximum=options["maximumAmpliconLength"],
-    )
+    with native_event(
+        recorder, engine="olivar", kind="adapterTransform", module="olivar_adapter", function="install_pair_guard",
+        arguments={
+            "verifiedModulePath": str(Path(modules["tiling_helper"].__file__).resolve()),
+            "minimum": options["minimumAmpliconLength"], "maximum": options["maximumAmpliconLength"],
+        },
+        module_path=str(Path(__file__).resolve()),
+    ) as event:
+        patched = install_pair_guard(
+            modules["tiling_helper"],
+            minimum=options["minimumAmpliconLength"],
+            maximum=options["maximumAmpliconLength"],
+        )
+        event["result"] = {"patchedFunction": "tiling_helper.optimize", "sourceLocked": True}
     # olivar.main imported optimize by value; update that reference explicitly.
     modules["main"].optimize = patched
     references = stage / "native" / "references"
@@ -422,6 +485,7 @@ def run_olivar(request: dict[str, Any], stage: Path) -> tuple[list[dict[str, Any
         input_build_dir.mkdir()
         gapped, generated, blocks = capture_msa_projection(
             Path(item["path"]), degenerate=options["degenerate"], workers=options["workers"],
+            modules=modules, recorder=recorder,
         )
         mapping_records[input_id] = (gapped, generated, blocks)
         empty_variant_table = _build_reference(
@@ -433,6 +497,7 @@ def run_olivar(request: dict[str, Any], stage: Path) -> tuple[list[dict[str, Any
             minimum_variant_frequency=options["minimumVariantFrequency"],
             degenerate=options["degenerate"],
             blast_database=options["blastDatabasePath"],
+            recorder=recorder,
         )
         if empty_variant_table:
             empty_variant_inputs.append(input_id)
@@ -454,7 +519,10 @@ def run_olivar(request: dict[str, Any], stage: Path) -> tuple[list[dict[str, Any
             jobs.append(([item], ref_input, stage / "native" / "design" / item["id"], f"result-{item['id']}"))
     targets = []
     for job_items, ref_input, design_dir, design_title in jobs:
-        _invoke_tiling(modules, ref_input, design_dir, design_title, options)
+        _invoke_tiling(
+            modules, ref_input, design_dir, design_title, options, recorder,
+            request["grouping"], [item["id"] for item in job_items],
+        )
         for item in job_items:
             input_id = item["id"]
             reference_name = reference_titles[input_id]

@@ -80,5 +80,17 @@
     "mapped": "one-to-one source/generated interval",
     "collapsed": "many-to-zero, many-to-one, or many-to-two; no per-column bijection",
     "synthetic": "generated bases without source-column identity"
+  },
+  "blastDatabasePrefix": {
+    "supportedComponents": ["ndb", "nhr", "nin", "njs", "nog", "nos", "not", "nsq", "ntf", "nto"],
+    "requiredCorePerMaterializedVolume": ["nhr", "nin", "nsq"],
+    "aliases": "nal aliases are rejected; callers must supply a materialized nucleotide database prefix",
+    "provenance": "each component is inventoried in auxiliaryInputs and rechecked after execution"
+  },
+  "provenance": {
+    "historicalExecution": "command argv, replayCommand, workingDirectory, environment, and nativeInvocations retain exact attempted values",
+    "durableReplay": "command.pathMappings and command.durableReplay describe output-relative request/config/native references after atomic stage rename",
+    "nativeEvents": "typed caller-owned events with engine, kind, module, modulePath, function, complete arguments, durableArguments, status, timing, and exitStatus",
+    "inputIntegrity": "inputs and auxiliaryInputs are checksummed before native execution and rechecked afterward; change fails publication"
   }
 }

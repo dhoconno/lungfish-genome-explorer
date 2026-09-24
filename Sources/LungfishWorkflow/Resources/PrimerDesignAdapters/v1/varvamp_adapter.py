@@ -16,6 +16,7 @@ from common import (
     AdapterError,
     accept_pair_length,
     deterministic_id,
+    native_event,
     sha256_file,
     validate_target_contract,
     write_json,
@@ -439,10 +440,13 @@ def spawned_config_probe(config_path: Path) -> list[int]:
             os.environ["VARVAMP_CONFIG"] = previous
 
 
-def run_varvamp(request: dict[str, Any], stage: Path) -> tuple[list[dict[str, Any]], dict[str, Any], list[list[str]], dict[str, str], dict[str, Any]]:
+def run_varvamp(
+    request: dict[str, Any], stage: Path, recorder: dict[str, Any] | None = None,
+) -> tuple[list[dict[str, Any]], dict[str, Any], list[list[str]], dict[str, str], dict[str, Any]]:
+    recorder = recorder if recorder is not None else {"runtime": None, "nativeInvocations": [], "nativeEvents": []}
     options = request["options"]
     all_targets = []
-    native_invocations: list[list[str]] = []
+    native_invocations: list[list[str]] = recorder.setdefault("nativeInvocations", [])
     recorded_environment: dict[str, str] = {}
     runtime: dict[str, Any] | None = None
     effective_thresholds: dict[str, float] = {}
@@ -451,13 +455,24 @@ def run_varvamp(request: dict[str, Any], stage: Path) -> tuple[list[dict[str, An
         input_id = item["id"]
         native_dir = stage / "native" / input_id
         config_path = stage / "config" / input_id / "varvamp-config.py"
-        resolved_config = generate_varvamp_config(
-            config_path,
-            mode=request["mode"],
-            minimum=options["minimumAmpliconLength"],
-            maximum=options["maximumAmpliconLength"],
-            overrides=options["configOverrides"],
-        )
+        with native_event(
+            recorder, engine="varvamp", kind="adapterTransform", module="varvamp_adapter",
+            function="generate_varvamp_config",
+            arguments={
+                "path": str(config_path), "mode": request["mode"],
+                "minimum": options["minimumAmpliconLength"], "maximum": options["maximumAmpliconLength"],
+                "overrides": options["configOverrides"],
+            },
+            module_path=str(Path(__file__).resolve()),
+        ) as event:
+            resolved_config = generate_varvamp_config(
+                config_path,
+                mode=request["mode"],
+                minimum=options["minimumAmpliconLength"],
+                maximum=options["maximumAmpliconLength"],
+                overrides=options["configOverrides"],
+            )
+            event["result"] = {"path": str(config_path), "resolvedAssignments": resolved_config}
         effective_configs[input_id] = resolved_config
         config_path = config_path.resolve()
         previous_config = os.environ.get("VARVAMP_CONFIG")
@@ -466,7 +481,14 @@ def run_varvamp(request: dict[str, Any], stage: Path) -> tuple[list[dict[str, An
         try:
             # Import only after VARVAMP_CONFIG is set. Each adapter process runs
             # one request, so all independent invocations share identical config.
-            runtime = verify_runtime()
+            with native_event(
+                recorder, engine="varvamp", kind="runtimeVerification", module="varvamp_adapter",
+                function="verify_runtime", arguments={"engineVersion": ENGINE_VERSION, "sourceHashes": SOURCE_HASHES},
+                module_path=str(Path(__file__).resolve()),
+            ) as event:
+                runtime = verify_runtime()
+                recorder["runtime"] = runtime
+                event["result"] = {"distribution": runtime["distribution"], "modulePath": runtime["modulePath"]}
             command = runtime["modules"]["command"]
             alignment_module = runtime["modules"]["alignment"]
             captured: dict[str, Any] = {}
@@ -507,11 +529,23 @@ def run_varvamp(request: dict[str, Any], stage: Path) -> tuple[list[dict[str, An
                     argv += ["-pa", str(options["maximumProbeAmbiguities"])]
                 argv += ["-n", str(options["qpcrTestCount"]), "-d", str(options["qpcrDeltaG"])]
             argv += [item["path"], str(native_dir)]
-            native_invocations.append([sys.executable, "-m", "varvamp", *argv[1:]])
+            replay_argv = [sys.executable, "-m", "varvamp", *argv[1:]]
+            native_invocations.append(replay_argv)
             old_argv = sys.argv
             try:
-                sys.argv = argv
-                command.main()
+                with native_event(
+                    recorder, engine="varvamp", kind="inProcessCLI", module="varvamp.command",
+                    function="main",
+                    arguments={
+                        "argv": argv,
+                        "replayArgv": replay_argv,
+                        "environment": {"VARVAMP_CONFIG": str(config_path)},
+                    },
+                    module_path=str(Path(command.__file__).resolve()),
+                ) as event:
+                    event["adapterContext"] = {"inputID": input_id, "mode": request["mode"], "grouping": "perInput"}
+                    sys.argv = argv
+                    command.main()
             finally:
                 sys.argv = old_argv
                 alignment_module.process_alignment = original_process_alignment
