@@ -445,6 +445,52 @@ final class BatchTableViewTests: XCTestCase {
         XCTAssertEqual(table.displayedRows.map(\.name), ["alpha", "alphabet"])
     }
 
+    // MARK: - ColumnHeaderFilterMenu (UX-05: shared column-header menu)
+
+    func testDidClickColumnHeaderSortsAscendingThenDescendingThroughSharedMenu() throws {
+        let table = TestBatchTableView(frame: NSRect(x: 0, y: 0, width: 320, height: 240))
+        table.configure(rows: [
+            TestBatchRow(name: "charlie"),
+            TestBatchRow(name: "alpha"),
+            TestBatchRow(name: "bravo")
+        ])
+        guard let column = table.tableView.tableColumns.first(where: { $0.identifier.rawValue == "name" }) else {
+            return XCTFail("expected a name column")
+        }
+        column.sortDescriptorPrototype = NSSortDescriptor(key: "name", ascending: true)
+
+        // Exercises the actual ColumnFilterMenuHost conformance rather than
+        // reimplementing sort logic in the test: this is the same call
+        // AppKit makes when a user clicks a column header.
+        table.columnHeaderFilterMenu(sortByKey: "name", ascending: true)
+        XCTAssertEqual(table.tableView.sortDescriptors.first?.ascending, true)
+
+        table.columnHeaderFilterMenu(sortByKey: "name", ascending: false)
+        XCTAssertEqual(table.tableView.sortDescriptors.first?.ascending, false)
+    }
+
+    func testColumnHeaderFilterMenuHostAppliesAndClearsFilters() throws {
+        let table = TestBatchTableView(frame: NSRect(x: 0, y: 0, width: 320, height: 240))
+        table.configure(rows: [
+            TestBatchRow(name: "alpha"),
+            TestBatchRow(name: "beta")
+        ])
+
+        // Drives the same ColumnFilterMenuHost contract that
+        // LungfishApp.TaxonomyTableView and LungfishEsVirituUI.ViralDetectionTableView
+        // now also conform to, proving the shared menu's effect on a real host.
+        table.columnHeaderFilterMenu(
+            replaceFilterFor: "name",
+            with: ColumnFilter(columnId: "name", op: .contains, value: "alpha")
+        )
+        table.columnHeaderFilterMenuFiltersDidChange()
+        XCTAssertEqual(table.displayedRows.map(\.name), ["alpha"])
+
+        table.columnHeaderFilterMenu(removeFilterFor: "name")
+        table.columnHeaderFilterMenuFiltersDidChange()
+        XCTAssertEqual(table.displayedRows.map(\.name).sorted(), ["alpha", "beta"])
+    }
+
     func testMetadataSortUsesExactSampleValuesNaturalOrderingAndStableTies() throws {
         let table = TestBatchTableView(frame: NSRect(x: 0, y: 0, width: 320, height: 240))
         table.configure(rows: [
