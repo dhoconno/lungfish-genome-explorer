@@ -2246,7 +2246,7 @@ struct EsVirituProvenanceView: View {
 
             if let config {
                 Divider()
-                provenanceRow("Paired-End", value: config.isPairedEnd ? "Yes" : "No")
+                provenanceRow("Paired-End", value: config.readFormat.pairedEndLabel)
                 provenanceRow("Quality Filter", value: config.qualityFilter ? "Enabled" : "Disabled")
                 // WFL-10: "Min Read Length" intentionally removed --
                 // EsViritu has no such option, so this value was never

@@ -73,6 +73,21 @@ final class EsVirituReadFormatTests: XCTestCase {
         XCTAssertTrue(cfg.isPairedEnd)
     }
 
+    func testPairedEndLabelReflectsHowReadsActuallyRan() {
+        XCTAssertEqual(EsVirituReadFormat.paired.pairedEndLabel, "Yes")
+        XCTAssertEqual(EsVirituReadFormat.interleaved.pairedEndLabel, "Yes (interleaved)")
+        XCTAssertEqual(EsVirituReadFormat.unpaired.pairedEndLabel, "No")
+        XCTAssertTrue(EsVirituReadFormat.paired.runsAsPairs)
+        XCTAssertTrue(EsVirituReadFormat.interleaved.runsAsPairs)
+        XCTAssertFalse(EsVirituReadFormat.unpaired.runsAsPairs)
+
+        // An interleaved config keeps isPairedEnd false (that flag means two
+        // input files) but must still display as paired.
+        let interleaved = config(files: [URL(fileURLWithPath: "/x/reads.fastq")], readFormat: .interleaved)
+        XCTAssertFalse(interleaved.isPairedEnd)
+        XCTAssertEqual(interleaved.readFormat.pairedEndLabel, "Yes (interleaved)")
+    }
+
     func testFormatForSingleFileLayouts() {
         XCTAssertEqual(EsVirituReadFormat.forSingleFile(.strictlyInterleaved), .interleaved)
         XCTAssertEqual(EsVirituReadFormat.forSingleFile(.mixedInterleaved), .unpaired)
