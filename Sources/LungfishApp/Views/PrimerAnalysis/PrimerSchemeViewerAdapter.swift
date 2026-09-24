@@ -60,6 +60,7 @@ enum PrimerSchemeViewerAdapter {
               : "Unpooled · alternative" + (assay.rank.map { " rank \($0)" } ?? ""))
           return PrimerReviewInterval(id: assay.id.uuidString.lowercased(),
             start: assay.start, end: assay.end, pool: assayGroups[assay.id],
+            nativePool: assay.pool,
             poolLabel: groupLabel,
             candidateStatus: assay.status, rank: assay.rank,
             name: assay.status == .selected ? "Selected assay"
@@ -75,7 +76,8 @@ enum PrimerSchemeViewerAdapter {
             start: oligo.start, end: oligo.end, strand: oligo.strand.rawValue,
             pool: assayGroups[assay.id],
             poolLabel: groupLabel,
-            role: oligo.role, candidateStatus: assay.status, nativePool: oligo.pool ?? assay.pool,
+            role: oligo.role, candidateStatus: assay.status, rank: assay.rank,
+            nativePool: oligo.pool ?? assay.pool,
             sequence: oligo.sequence,
             ampliconIDs: oligo.assayIDs.map { $0.uuidString.lowercased() })
         }

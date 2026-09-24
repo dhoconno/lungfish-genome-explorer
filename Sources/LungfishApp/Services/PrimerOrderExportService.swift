@@ -17,6 +17,9 @@ struct PrimerOrderExportService: Sendable {
       snapshot.bundle.manifest == selection.manifest, snapshot.primer3Results == nil else {
       throw PrimerOrderExportError.invalid("The source analysis changed. Reopen it and capture a new order.")
     }
+    if let document = snapshot.primerSchemeResultsDocument {
+      return try prepareNormalized(document: document, snapshot: snapshot, selection: selection)
+    }
     guard !selection.settings.filterByCompatibility || selection.compatibilityReady else {
       throw PrimerOrderExportError.invalid("Complete the MSA comparison before exporting the filtered order.")
     }
@@ -25,9 +28,6 @@ struct PrimerOrderExportService: Sendable {
       selection.compatibilitySummaries.values.allSatisfy({
         $0.matchingRows >= 0 && $0.matchingRows <= $0.assessableRows && $0.assessableRows <= $0.totalRows
       }) else { throw PrimerOrderExportError.invalid("The captured display measurements are invalid.") }
-    if let document = snapshot.primerSchemeResultsDocument {
-      return try prepareNormalized(document: document, snapshot: snapshot, selection: selection)
-    }
     let targets = snapshot.designReview.filter { $0.presentation == .schemeReference }
     let visibility = PrimerAnalysisVisibility(settings: selection.settings,
       summaries: selection.compatibilitySummaries, compatibilityReady: selection.compatibilityReady)

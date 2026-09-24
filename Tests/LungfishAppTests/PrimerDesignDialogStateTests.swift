@@ -472,6 +472,26 @@ final class PrimerDesignDialogStateTests: XCTestCase {
     XCTAssertEqual(try state.primerSchemeOptions().varvamp?.cumulativeConsensusThreshold, 0.91)
   }
 
+  func testFreshVarVAMPModeSwitchRestoresExactDefaultSizing() {
+    let state = configuredState()
+    state.engine = .varVAMP
+
+    XCTAssertEqual(state.schemeMode, .tiled)
+    XCTAssertEqual(
+      [state.ampliconSizeMinimum, state.ampliconSize, state.ampliconSizeMaximum],
+      ["360", "400", "440"])
+
+    state.schemeMode = .qpcr
+    XCTAssertEqual(
+      [state.ampliconSizeMinimum, state.ampliconSize, state.ampliconSizeMaximum],
+      ["70", "135", "200"])
+
+    state.schemeMode = .tiled
+    XCTAssertEqual(
+      [state.ampliconSizeMinimum, state.ampliconSize, state.ampliconSizeMaximum],
+      ["360", "400", "440"])
+  }
+
   func testVarVAMPModeSwitchOmitsInactiveControlsWithoutLosingEdits() throws {
     let state = configuredState()
     state.engine = .varVAMP

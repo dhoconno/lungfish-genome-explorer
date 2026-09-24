@@ -149,6 +149,9 @@ final class PrimerAnalysisDisplaySession {
   var orderExportUnavailableReason: String? {
     if !isAvailable || sourceSnapshot == nil { return "Wait for a verified saved analysis." }
     if onOrderExportRequested == nil { return "Open this analysis in its project to export an order." }
+    // Normalized scheme orders are explicit assay selections from saved records.
+    // View filters only affect the viewport and must not redefine that membership.
+    if sourceSnapshot?.primerSchemeResultsDocument != nil { return nil }
     if settings.filterByCompatibility && !compatibilityReady {
       return "Complete the MSA comparison before exporting the filtered order."
     }

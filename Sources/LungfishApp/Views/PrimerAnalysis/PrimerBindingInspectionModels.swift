@@ -40,6 +40,10 @@ struct PrimerBindingInspectionContext: Identifiable, Sendable {
     let rows: [Row]
 
     func displayTrack(for primer: PrimerBindingInspectionPrimer, showIdentityDots: Bool) throws -> MSAReadOnlyPrimerTrack {
+        if let reason = primer.unavailableReason {
+            throw NSError(domain: "PrimerBindingInspection", code: 1,
+                userInfo: [NSLocalizedDescriptionKey: reason])
+        }
         let intervals = annotations.first { $0.id == primer.id }?.alignedIntervals ?? []
         let columns = intervals.flatMap { Array($0.start..<$0.end) }
         return try MSAReadOnlyPrimerTrack.make(id: primer.id, name: primer.name, sequence: primer.sequence,

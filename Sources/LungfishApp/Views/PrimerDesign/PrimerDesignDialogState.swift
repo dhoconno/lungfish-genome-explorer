@@ -546,7 +546,8 @@ final class PrimerDesignDialogState {
   }
 
   private func updateDefaultAmpliconBounds() {
-    guard let target = Int(ampliconSize.trimmingCharacters(in: .whitespacesAndNewlines)),
+    guard !isUpdatingAmpliconBounds,
+      let target = Int(ampliconSize.trimmingCharacters(in: .whitespacesAndNewlines)),
       (100...2000).contains(target) else { return }
     isUpdatingAmpliconBounds = true
     defer { isUpdatingAmpliconBounds = false }

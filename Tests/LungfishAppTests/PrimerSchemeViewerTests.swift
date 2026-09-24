@@ -16,6 +16,7 @@ final class PrimerSchemeViewerTests: XCTestCase {
     XCTAssertEqual(review.intervals.map(\.rank), [1, 2])
     XCTAssertEqual(review.intervals.map(\.name), ["Selected assay", "Alternative assay 2"])
     XCTAssertEqual(review.primers.filter { $0.role == .probe }.map(\.strand), ["-", "-"])
+    XCTAssertEqual(PrimerReferenceCoverageTrack.laneHeight(for: review), 102)
     XCTAssertEqual(Set(review.primers.flatMap(\.ampliconIDs)), Set(fixture.assayIDs.map { $0.uuidString.lowercased() }))
   }
 

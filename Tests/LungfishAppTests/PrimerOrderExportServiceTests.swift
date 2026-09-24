@@ -143,6 +143,10 @@ final class PrimerOrderExportServiceTests: XCTestCase {
     let session = PrimerAnalysisDisplaySession()
     session.configure(snapshot); session.onOrderExportRequested = { _, _ in }
 
+    session.settings.filterByCompatibility = true
+    session.settings.hiddenPrimerIDs = Set(snapshot.designReview.flatMap { $0.primers.map(\.id) })
+    XCTAssertNil(session.orderExportUnavailableReason)
+
     let selected = try session.makeOrderDraft()
     XCTAssertEqual(selected.oligos.count, 3)
     XCTAssertEqual(Set(selected.oligos.compactMap(\.oligoRole)), [.forward, .probe, .reverse])

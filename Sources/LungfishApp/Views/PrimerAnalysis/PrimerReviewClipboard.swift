@@ -24,7 +24,7 @@ enum PrimerReviewClipboard {
 
   private static func recordFASTA(_ primer: PrimerReviewPrimer, in target: PrimerTargetDesignReview, identifier: String) -> String? {
     guard let sequence = sequence(primer) else { return nil }
-    let pool = primer.pool.map { " pool=\($0)" } ?? ""
+    let pool = primer.nativePool.map { " pool=\(metadataValue($0))" } ?? ""
     let header = "\(identifier) name=\(metadataValue(primer.name)) target=\(metadataValue(target.referenceID)) source_result=\(metadataValue(target.sourceResultID)) oligo_id=\(metadataValue(primer.id)) coordinates=\(primer.start + 1)-\(primer.end) strand=\(primer.strand)\(pool) orientation=5prime-to-3prime"
     return ">\(header)\n\(sequence)\n"
   }
@@ -33,7 +33,7 @@ enum PrimerReviewClipboard {
     guard !interval.primerIDs.isEmpty, Set(interval.primerIDs).count == interval.primerIDs.count else { return nil }
     let members = target.primers.filter { interval.primerIDs.contains($0.id) }
     guard members.count == interval.primerIDs.count, Set(members.map(\.id)).count == members.count,
-      members.allSatisfy({ $0.ampliconIDs.contains(interval.id) && $0.pool == interval.pool }) else { return nil }
+      members.allSatisfy({ $0.ampliconIDs.contains(interval.id) }) else { return nil }
     return members
   }
 
@@ -42,9 +42,11 @@ enum PrimerReviewClipboard {
     return multipleFASTA(primers.map { (target, $0) })
   }
 
-  static func poolFASTA(sourceResultID: String, pool: Int, targets: [PrimerTargetDesignReview]) -> String? {
+  static func poolFASTA(sourceResultID: String, nativePool: String,
+                        targets: [PrimerTargetDesignReview]) -> String? {
+    guard !nativePool.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
     let members = targets.filter { $0.sourceResultID == sourceResultID }.flatMap { target in
-      target.primers.filter { $0.pool == pool }.map { (target, $0) }
+      target.primers.filter { $0.nativePool == nativePool }.map { (target, $0) }
     }
     guard !members.isEmpty else { return nil }
     return multipleFASTA(members)

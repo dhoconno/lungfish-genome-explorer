@@ -74,6 +74,10 @@ struct PrimerReferenceCoverageTrack: View {
   let target: PrimerTargetDesignReview
   var selection: Binding<PrimerReviewSelection?> = .constant(nil)
 
+  nonisolated static func laneHeight(for target: PrimerTargetDesignReview) -> CGFloat {
+    target.primers.contains(where: { $0.role == .probe }) ? 102 : 82
+  }
+
   private var pools: [Int?] {
     let values = Set(target.intervals.compactMap(\.pool) + target.primers.compactMap(\.pool)).sorted()
     return (values.isEmpty ? [nil] : values.map(Optional.some)).filter {
@@ -111,7 +115,7 @@ struct PrimerReferenceCoverageTrack: View {
           primerMark(primer, width: width, scale: scale)
         }
       }
-    }.frame(height: target.primers.contains(where: { $0.name == "Internal probe" }) ? 102 : 82)
+    }.frame(height: Self.laneHeight(for: target))
   }
 
   private func intervalMark(_ interval: PrimerReviewInterval, width: CGFloat, scale: CGFloat) -> some View {

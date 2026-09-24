@@ -6,6 +6,8 @@ struct PrimerReviewInterval: Identifiable, Sendable {
   let start: Int
   let end: Int
   let pool: Int?
+  /// Native scientific pool identity. `pool` is only a visual lane group.
+  var nativePool: String? = nil
   var poolLabel: String? = nil
   var candidateStatus: PrimerAssayStatus = .selected
   var rank: Int? = nil
@@ -25,6 +27,7 @@ struct PrimerReviewPrimer: Identifiable, Sendable {
   var poolLabel: String? = nil
   var role: PrimerOligoRole = .forward
   var candidateStatus: PrimerAssayStatus = .selected
+  var rank: Int? = nil
   var nativePool: String? = nil
   var sequence: String = ""
   var ampliconIDs: [String] = []
@@ -91,14 +94,14 @@ enum PrimerDesignReview {
           let start = Int(fields[1]), let end = Int(fields[2]), start >= 0, end > start, end <= length,
           let pool = Int(fields[4]), pool > 0 else { throw invalid() }
         spans[fields[0], default: []].append(.init(id: "\(id)-span-\(index)", start: start, end: end, pool: pool,
-          name: fields[3]))
+          nativePool: String(pool), name: fields[3]))
       }
     }
     return names.map { name in
       var intervals = spans[name] ?? []
       var targetPrimers: [PrimerReviewPrimer] = primers.filter { $0.reference == name }.map {
         .init(id: "\(id)-primer-\($0.id)", name: $0.name, start: $0.start, end: $0.end, strand: $0.strand,
-          pool: $0.pool, sequence: $0.sequence)
+          pool: $0.pool, nativePool: String($0.pool), sequence: $0.sequence)
       }
       associateNativeAmplicons(intervals: &intervals, primers: &targetPrimers)
       return PrimerTargetDesignReview(id: "\(id)-\(name)", label: "\(label) · \(labels[name] ?? name)",
@@ -129,6 +132,7 @@ enum PrimerDesignReview {
           primers: oligos.map {
             .init(id: $0.id.uuidString, name: $0.id == pair.internalOligo?.id ? "Internal probe" : ($0.orientation == .forward ? "Forward primer" : "Reverse primer"),
               start: $0.start, end: $0.end, strand: $0.orientation == .forward ? "+" : "-", pool: nil,
+              role: $0.id == pair.internalOligo?.id ? .probe : ($0.orientation == .forward ? .forward : .reverse),
               sequence: $0.sequence, ampliconIDs: [interval.id])
           }, notes: ["Alternative candidates are shown separately, not combined into a scheme.",
             "Denominator: the full saved template, not a selected subregion. Positional span is not an assay-success estimate."],

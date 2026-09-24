@@ -3,7 +3,7 @@ import Darwin
 import XCTest
 import LungfishCore
 import LungfishIO
-import LungfishWorkflow
+@testable import LungfishWorkflow
 @testable import LungfishApp
 
 final class PrimerAnalysisSelectionExportServiceTests: XCTestCase {
@@ -126,6 +126,71 @@ final class PrimerAnalysisSelectionExportServiceTests: XCTestCase {
     }
   }
 
+  func testNormalizedQPCRExportsPrimerAssociatedOligosAndReferenceAmpliconWithFullIdentity() async throws {
+    let fixture = try makeNormalizedFixture()
+    defer { try? FileManager.default.removeItem(at: fixture.root) }
+    let snapshot = try PrimerAnalysisViewerSnapshot.load(from: fixture.bundle)
+    let target = try XCTUnwrap(snapshot.designReview.first)
+    let amplicon = try XCTUnwrap(target.intervals.first)
+    let probe = try XCTUnwrap(target.primers.first { $0.role == .probe })
+    XCTAssertNil(amplicon.nativePool)
+    XCTAssertNil(probe.nativePool)
+
+    let actions: [(PrimerAnalysisExportSelection, PrimerAnalysisExportKind, String)] = [
+      (.primer(targetID: target.id, primerID: probe.id), .primerFASTA, "probe"),
+      (.amplicon(targetID: target.id, ampliconID: amplicon.id), .primerFASTA, "assay-oligos"),
+      (.amplicon(targetID: target.id, ampliconID: amplicon.id), .referenceAmplicon, "amplicon"),
+    ]
+    for (selection, kind, name) in actions {
+      let prepared = try PrimerAnalysisSelectionExportService.prepare(
+        snapshot: snapshot, selection: selection, kind: kind)
+      guard case .array(let primerValues)? = prepared.options["primers"] else {
+        return XCTFail("Expected primer provenance array")
+      }
+      let primerOptions = primerValues.compactMap { value -> [String: ParameterValue]? in
+        guard case .dictionary(let item) = value else { return nil }
+        return item
+      }
+      XCTAssertEqual(primerOptions.count, primerValues.count)
+      XCTAssertTrue(primerOptions.allSatisfy {
+        $0["nativePool"] == nil && $0["pool"] == nil && $0["oligoRole"] != nil
+          && $0["candidateStatus"] != nil && $0["candidateRank"] == .integer(1)
+          && $0["assayIDs"] != nil
+      })
+      let destination = fixture.root.appendingPathComponent("\(name).lungfishref")
+      let output = try await PrimerAnalysisSelectionExportService().export(
+        analysisURL: fixture.bundle, selection: selection, kind: kind,
+        destinationURL: destination,
+        invocationArgv: ["lungfish-app", "primer-analysis", "export", name])
+      XCTAssertEqual(output, destination)
+      let fastaName = kind == .primerFASTA ? "primers.fasta" : "amplicon.fasta"
+      let fasta = try String(contentsOf: output.appendingPathComponent(fastaName), encoding: .utf8)
+      XCTAssertFalse(fasta.contains("pool="), fasta)
+      XCTAssertTrue(FileManager.default.fileExists(atPath: output.appendingPathComponent(
+        "source-analysis/" + PrimerSchemeResultsDocument.storedRelativePath).path))
+      XCTAssertTrue(FileManager.default.fileExists(atPath: output.appendingPathComponent(
+        "source-analysis/generated/reference.fasta").path))
+      XCTAssertTrue(FileManager.default.fileExists(atPath: output.appendingPathComponent(
+        "source-analysis/maps/target.json").path))
+      XCTAssertNotNil(try ProvenanceEnvelopeReader.load(from: output))
+    }
+  }
+
+  func testNormalizedNativePoolExportPreservesSavedStringRatherThanDisplayGroup() throws {
+    let fixture = try makeNormalizedFixture(nativePool: "native-A")
+    defer { try? FileManager.default.removeItem(at: fixture.root) }
+    let snapshot = try PrimerAnalysisViewerSnapshot.load(from: fixture.bundle)
+    let target = try XCTUnwrap(snapshot.designReview.first)
+    XCTAssertTrue(target.primers.allSatisfy { $0.nativePool == "native-A" })
+    let prepared = try PrimerAnalysisSelectionExportService.prepare(snapshot: snapshot,
+      selection: .nativePool(sourceResultID: target.sourceResultID, pool: "native-A"),
+      kind: .primerFASTA)
+    XCTAssertEqual(prepared.options["nativePool"], .string("native-A"))
+    XCTAssertEqual(prepared.records.count, 3)
+    XCTAssertTrue(prepared.records.allSatisfy { $0.description.contains("pool=native-A") })
+    XCTAssertFalse(prepared.fasta.contains("pool=1 "))
+  }
+
   func testPublicationGuardFailureAndExistingDestinationLeaveNoNewOutput() async throws {
     let fixture = try makeFixture()
     defer { try? FileManager.default.removeItem(at: fixture.root) }
@@ -224,6 +289,68 @@ final class PrimerAnalysisSelectionExportServiceTests: XCTestCase {
         artifactPaths: payloads.keys.filter { $0.hasPrefix("native/") }.sorted())], artifacts: artifacts,
       destinationURL: root.appendingPathComponent("source.lungfishprimeranalysis"),
       invocation: .init(argv: ["stored-display-fixture"], callerVersion: "test", explicitOptions: [:], runtimeIdentity: .init())))
+    return (root, bundle.url)
+  }
+
+  private func makeNormalizedFixture(nativePool: String? = nil) throws -> (root: URL, bundle: URL) {
+    let physical = try XCTUnwrap(realpath(FileManager.default.temporaryDirectory.path, nil))
+    let root = URL(fileURLWithPath: String(cString: physical)).appendingPathComponent(UUID().uuidString)
+    free(physical)
+    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    let analysisID = UUID(), runID = UUID(), inputID = UUID(), resultID = UUID()
+    let targetID = UUID(), assayID = UUID()
+    let reference = String(repeating: "ACGT", count: 50)
+    let oligos = [
+      PrimerSchemeOligo(id: UUID(), name: "selected-forward", role: .forward,
+        sequence: String(reference.dropFirst(10).prefix(4)), start: 10, end: 14, strand: .forward,
+        assayIDs: [assayID], pool: nativePool, nativeMetadata: [:]),
+      PrimerSchemeOligo(id: UUID(), name: "selected-probe", role: .probe,
+        sequence: String(reference.dropFirst(30).prefix(4)), start: 30, end: 34, strand: .reverse,
+        assayIDs: [assayID], pool: nativePool, nativeMetadata: [:]),
+      PrimerSchemeOligo(id: UUID(), name: "selected-reverse", role: .reverse,
+        sequence: String(reference.dropFirst(76).prefix(4)), start: 76, end: 80, strand: .reverse,
+        assayIDs: [assayID], pool: nativePool, nativeMetadata: [:]),
+    ]
+    let assay = PrimerSchemeAssay(id: assayID, start: 10, end: 80,
+      memberIDs: oligos.map(\.id), pool: nativePool, status: .selected, rank: 1, nativeMetadata: [:])
+    let target = PrimerSchemeTarget(id: targetID, label: "Synthetic qPCR target",
+      referencePath: "generated/reference.fasta", referenceID: "consensus", referenceLength: reference.count,
+      sourceInputID: inputID, bindingProjectionPath: "maps/target.json", assays: [assay], oligos: oligos)
+    let projection = PrimerBindingProjection(sourceInputID: inputID, sourcePath: "inputs/source.fasta",
+      generatedReferencePath: target.referencePath, sourceLength: reference.count,
+      generatedLength: reference.count,
+      blocks: [.init(generatedStart: 0, generatedEnd: reference.count,
+        sourceStart: 0, sourceEnd: reference.count, kind: .mapped)])
+    let typed = PrimerSchemeDesignOptions(engine: .varvamp, mode: .qpcr, grouping: .independent,
+      nominalAmpliconLength: 135, minimumAmpliconLength: 70, maximumAmpliconLength: 200,
+      workers: 1, varvamp: .init(cumulativeConsensusThreshold: 0.8))
+    var resolved = typed.adapterOptions
+    resolved["adapterResolution"] = .object(["fixture": .boolean(true)])
+    let document = PrimerSchemeResultsDocument(analysisID: analysisID, runID: runID, resultID: resultID,
+      engine: .varvamp, engineVersion: "1.3.2", adapterVersion: "1.0.0", mode: .qpcr,
+      resolvedOptions: resolved, results: [.init(id: resultID, inputIDs: [inputID], targets: [target])],
+      artifacts: [], provenancePath: "native/provenance-v1.json")
+    let payloads: [(String, Data, String, String)] = [
+      ("inputs/source.fasta", Data(">source-row\n\(reference)\n".utf8), "input", "fasta"),
+      ("generated/reference.fasta", Data(">consensus\n\(reference)\n".utf8), "nativeOutput", "fasta"),
+      ("maps/target.json", try JSONEncoder().encode(projection), "nativeOutput", "json"),
+      (PrimerSchemeResultsDocument.storedRelativePath, try JSONEncoder().encode(document), "nativeOutput", "json"),
+      ("native/provenance-v1.json", Data("{\"fixture\":true}\n".utf8), "nativeOutput", "json"),
+    ]
+    let sourceArtifacts = try payloads.map { path, data, role, format in
+      let source = root.appendingPathComponent(UUID().uuidString)
+      try data.write(to: source)
+      return PrimerAnalysisSourceArtifact(sourceURL: source, relativePath: path, role: role, format: format)
+    }
+    let resultPaths = payloads.map(\.0).filter { !$0.hasPrefix("inputs/") }
+    let bundle = try PrimerAnalysisBundleWriter(provenanceWriter: .init(signingProvider: nil)).write(.init(
+      analysisID: analysisID, runID: runID, grouping: .independent,
+      inputs: [.init(id: inputID, label: "source-row", artifactPaths: ["inputs/source.fasta"])],
+      results: [.init(id: resultID, label: "varVAMP qPCR", inputIDs: [inputID], artifactPaths: resultPaths)],
+      artifacts: sourceArtifacts,
+      destinationURL: root.appendingPathComponent("normalized.lungfishprimeranalysis"),
+      invocation: .init(argv: ["normalized-selection-fixture"], callerVersion: "test",
+        explicitOptions: [:], runtimeIdentity: .init())))
     return (root, bundle.url)
   }
 
