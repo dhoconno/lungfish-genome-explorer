@@ -309,7 +309,17 @@ final class DetachedAlignmentViewerTests: XCTestCase {
         await gate.release(requests[0].bamURL)
         await gate.release(requests[1].bamURL)
         await gate.release(requests[2].bamURL)
-        for _ in 0..<100 { if controller.viewer.viewerView.testDetachedAlignmentSource?.identityURL == requests[2].bamURL { break }; await Task.yield() }
+        // Time-bounded, and waits for BOTH the latest source and both
+        // superseded cancellations: under the parallel unit tier a
+        // yield-count loop could stop before the second cancellation was
+        // recorded.
+        let expectedCancelled = Set(requests.prefix(2).map(\.bamURL))
+        let deadline = Date().addingTimeInterval(5)
+        while Date() < deadline {
+            let shown = controller.viewer.viewerView.testDetachedAlignmentSource?.identityURL == requests[2].bamURL
+            if shown, await gate.cancelledURLs() == expectedCancelled { break }
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
 
         let cancelled = await gate.cancelledURLs()
         XCTAssertEqual(cancelled, Set(requests.prefix(2).map(\.bamURL)))

@@ -148,7 +148,17 @@ final class ProcessTreeTerminatorTests: XCTestCase {
     private func readPID(_ url: URL) throws -> Int32 {
         let contents = try String(contentsOf: url, encoding: .utf8)
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        return try XCTUnwrap(Int32(contents), "Expected pid in \(url.path)")
+        // Not XCTUnwrap: this runs inside `waitForPIDFile`'s `try?` poll, and a
+        // PID file observed after creation but before its write would record
+        // an XCTest failure even though the poll just retries.
+        guard let pid = Int32(contents) else {
+            throw NSError(
+                domain: "ProcessTreeTerminatorTests",
+                code: 2,
+                userInfo: [NSLocalizedDescriptionKey: "Expected pid in \(url.path)"]
+            )
+        }
+        return pid
     }
 
     private func waitUntilProcessExits(pid: Int32, timeout: TimeInterval) async -> Bool {
