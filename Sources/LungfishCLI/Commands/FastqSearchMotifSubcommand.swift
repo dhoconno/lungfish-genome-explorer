@@ -24,28 +24,47 @@ struct FastqSearchMotifSubcommand: AsyncParsableCommand {
     @Flag(name: .customLong("regex"), help: "Treat pattern as a regular expression")
     var regex: Bool = false
 
+    @OptionGroup var pairing: FASTQPairingOptions
+
     func run() async throws {
         let inputURL = try validateInput(input)
         try output.validateOutput()
 
-        var args = ["grep", "--by-seq", "-p", pattern, inputURL.path, "-o", output.output]
-
+        let isInterleaved = try await pairing.resolveIsInterleaved(inputURL: inputURL)
+        var searchArgs = ["grep", "--by-seq", "-p", pattern]
         if regex {
-            args.append("-r")
+            searchArgs.append("-r")
         }
 
         let runner = NativeToolRunner.shared
         let startedAt = Date()
-        let result = try await runner.run(.seqkit, arguments: args, environment: [:], timeout: 1800)
-
-        if !result.isSuccess {
-            throw CLIError.conversionFailed(reason: result.stderr)
+        let args: [String]
+        let result: NativeToolResult
+        if isInterleaved {
+            // A motif is a property of the fragment, not of one mate: when
+            // either mate carries it, both mates are extracted, in their
+            // original interleaved order.
+            let paired = try await FastqPairedSearchSupport.runPairedSearch(
+                searchArguments: searchArgs,
+                sourceURL: inputURL,
+                outputPath: output.output,
+                runner: runner
+            )
+            args = paired.nativeArguments
+            result = paired.result
+        } else {
+            args = searchArgs + [inputURL.path, "-o", output.output]
+            result = try await runner.run(.seqkit, arguments: args, environment: [:], timeout: 1800)
+            if !result.isSuccess {
+                throw CLIError.conversionFailed(reason: result.stderr)
+            }
         }
 
         var cliArguments = ["search-motif", inputURL.path, "--output", output.output, "--pattern", pattern]
         if regex {
             cliArguments.append("--regex")
         }
+        cliArguments += pairing.cliArguments
         if output.force {
             cliArguments.append("--force")
         }
@@ -66,11 +85,15 @@ struct FastqSearchMotifSubcommand: AsyncParsableCommand {
                 "output": .file(outputURL),
                 "pattern": .string(pattern),
                 "regex": .boolean(regex),
+                "pairing": pairing.provenanceValue,
+                "interleaved": .boolean(isInterleaved),
                 "force": .boolean(output.force),
                 "compress": .boolean(output.compress)
             ],
             defaults: [
                 "regex": .boolean(false),
+                "pairing": FASTQPairingOptions.provenanceDefault,
+                "interleaved": .boolean(false),
                 "force": .boolean(false),
                 "compress": .boolean(false)
             ],

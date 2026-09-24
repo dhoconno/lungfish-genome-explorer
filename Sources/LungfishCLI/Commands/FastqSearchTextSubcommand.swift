@@ -27,26 +27,53 @@ struct FastqSearchTextSubcommand: AsyncParsableCommand {
     @Flag(name: .customLong("regex"), help: "Treat query as a regular expression")
     var regex: Bool = false
 
+    @OptionGroup var pairing: FASTQPairingOptions
+
     func run() async throws {
         let inputURL = try validateInput(input)
         try output.validateOutput()
 
-        var args = ["grep", "-p", query, inputURL.path, "-o", output.output]
-
-        if field == "description" {
-            args.append("--by-name")
+        let isInterleaved = try await pairing.resolveIsInterleaved(inputURL: inputURL)
+        let searchesDescription = field == "description"
+        var searchArgs = ["grep", "-p", query]
+        if searchesDescription {
+            searchArgs.append("--by-name")
         }
-
         if regex {
-            args.append("-r")
+            searchArgs.append("-r")
         }
 
         let runner = NativeToolRunner.shared
         let startedAt = Date()
-        let result = try await runner.run(.seqkit, arguments: args, environment: [:], timeout: 1800)
-
-        if !result.isSuccess {
-            throw CLIError.conversionFailed(reason: result.stderr)
+        let args: [String]
+        let result: NativeToolResult
+        if isInterleaved, !searchesDescription {
+            // ID queries name a fragment, so match on the fragment key: an
+            // exact base name then finds both `NAME/1` and `NAME/2`, and a
+            // query can never select one mate without the other.
+            args = searchArgs + FastqPairedSearchSupport.fragmentKeyIDArguments + [inputURL.path, "-o", output.output]
+            result = try await runner.run(.seqkit, arguments: args, environment: [:], timeout: 1800)
+            if !result.isSuccess {
+                throw CLIError.conversionFailed(reason: result.stderr)
+            }
+        } else if isInterleaved {
+            // Description text can differ between mates (Casava `1:N:0` vs
+            // `2:N:0`), so search first and then extract both mates of every
+            // fragment that matched.
+            let paired = try await FastqPairedSearchSupport.runPairedSearch(
+                searchArguments: searchArgs,
+                sourceURL: inputURL,
+                outputPath: output.output,
+                runner: runner
+            )
+            args = paired.nativeArguments
+            result = paired.result
+        } else {
+            args = searchArgs + [inputURL.path, "-o", output.output]
+            result = try await runner.run(.seqkit, arguments: args, environment: [:], timeout: 1800)
+            if !result.isSuccess {
+                throw CLIError.conversionFailed(reason: result.stderr)
+            }
         }
 
         var cliArguments = ["search-text", inputURL.path, "--output", output.output, "--query", query]
@@ -56,6 +83,7 @@ struct FastqSearchTextSubcommand: AsyncParsableCommand {
         if regex {
             cliArguments.append("--regex")
         }
+        cliArguments += pairing.cliArguments
         if output.force {
             cliArguments.append("--force")
         }
@@ -77,12 +105,16 @@ struct FastqSearchTextSubcommand: AsyncParsableCommand {
                 "query": .string(query),
                 "field": .string(field),
                 "regex": .boolean(regex),
+                "pairing": pairing.provenanceValue,
+                "interleaved": .boolean(isInterleaved),
                 "force": .boolean(output.force),
                 "compress": .boolean(output.compress)
             ],
             defaults: [
                 "field": .string("id"),
                 "regex": .boolean(false),
+                "pairing": FASTQPairingOptions.provenanceDefault,
+                "interleaved": .boolean(false),
                 "force": .boolean(false),
                 "compress": .boolean(false)
             ],
