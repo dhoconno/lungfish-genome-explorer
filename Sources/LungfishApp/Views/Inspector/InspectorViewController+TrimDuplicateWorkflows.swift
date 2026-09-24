@@ -137,7 +137,6 @@ extension InspectorViewController {
 
         final class ResultTracker: @unchecked Sendable {
             var completedTrackName: String?
-            var failureMessage: String?
         }
         let tracker = ResultTracker()
         let runner = CLIPrimerTrimRunner()
@@ -158,22 +157,12 @@ extension InspectorViewController {
                         primerOffset: primerTrimRequest.primerOffset
                     )
                     tracker.completedTrackName = result.trackName
-                    let events: [CLIPrimerTrimEvent] = [
-                        .runStart(message: "Starting deterministic UI test primer trim"),
-                        .attachStart(message: "Adopting deterministic primer-trimmed BAM into bundle"),
-                        .attachComplete(
-                            trackID: result.trackID,
-                            trackName: result.trackName,
-                            bamPath: result.bamURL.path,
-                            baiPath: result.indexURL.path,
-                            provenanceSidecarPath: result.provenanceSidecarURL.path
-                        ),
-                        .runComplete(
-                            trackID: result.trackID,
-                            trackName: result.trackName,
-                            bamPath: result.bamURL.path,
-                            baiPath: result.indexURL.path,
-                            provenanceSidecarPath: result.provenanceSidecarURL.path
+                    let events: [CLIEvent] = [
+                        .start(message: "Starting deterministic UI test primer trim"),
+                        .log(level: .info, message: "Adopting deterministic primer-trimmed BAM into bundle"),
+                        .complete(
+                            outputs: [result.bamURL.path, result.indexURL.path, result.provenanceSidecarURL.path],
+                            message: "trackID=\(result.trackID) trackName=\(result.trackName)"
                         )
                     ]
                     for event in events {
@@ -184,22 +173,14 @@ extension InspectorViewController {
                         }
                     }
                 } else {
-                    try await runner.run(arguments: cliArguments) { event in
-                        switch event {
-                        case .runComplete(_, let trackName, _, _, _):
-                            tracker.completedTrackName = trackName
-                        case .runFailed(let message):
-                            tracker.failureMessage = message
-                        default:
-                            break
-                        }
-
+                    let result = try await runner.run(arguments: cliArguments) { event in
                         DispatchQueue.main.async {
                             MainActor.assumeIsolated {
                                 Self.applyPrimerTrimEvent(event, operationID: opID)
                             }
                         }
                     }
+                    tracker.completedTrackName = result.trackName
                 }
 
                 DispatchQueue.main.async { [weak self] in
@@ -227,7 +208,7 @@ extension InspectorViewController {
                     }
                 }
             } catch {
-                let message = tracker.failureMessage ?? error.localizedDescription
+                let message = error.localizedDescription
                 DispatchQueue.main.async { [weak self] in
                     MainActor.assumeIsolated {
                         guard OperationCenter.shared.fail(
@@ -253,34 +234,28 @@ extension InspectorViewController {
     }
 
     @MainActor
-    private static func applyPrimerTrimEvent(_ event: CLIPrimerTrimEvent, operationID: UUID) {
-        let (progress, detail, level): (Double, String, OperationLogLevel) = {
+    private static func applyPrimerTrimEvent(_ event: CLIEvent, operationID: UUID) {
+        let (progress, detail, level): (Double?, String, OperationLogLevel) = {
             switch event {
-            case .runStart(let message):
+            case let .start(message):
                 return (0.01, message, .info)
-            case .preflightStart(let message):
-                return (0.02, message, .info)
-            case .preflightComplete(let message):
-                return (0.08, message, .info)
-            case .stageStart(let message):
-                return (0.10, message, .info)
-            case .stageProgress(let progress, let message):
-                return (max(0.10, min(0.80, progress)), message, .info)
-            case .stageComplete(let message):
-                return (0.80, message, .info)
-            case .attachStart(let message):
-                return (0.90, message, .info)
-            case .attachComplete(_, let trackName, _, _, _):
-                let detail = trackName.map { "Adopted alignment track \($0)" } ?? "Adopted alignment track"
-                return (0.97, detail, .info)
-            case .runComplete(_, let trackName, _, _, _):
-                return (0.99, "Reloading bundle with \(trackName)...", .info)
-            case .runFailed(let message):
+            case let .progress(fraction, message):
+                return (max(0.10, min(0.80, fraction)), message, .info)
+            case let .log(cliLevel, message):
+                return (nil, message, cliLevel.primerTrimOperationLogLevel)
+            case .output:
+                return (nil, "", .info)
+            case .complete:
+                return (0.99, "Reloading bundle...", .info)
+            case let .failed(message, _):
                 return (0.99, message, .error)
             }
         }()
 
-        _ = OperationCenter.shared.update(id: operationID, progress: progress, detail: detail)
+        if let progress {
+            _ = OperationCenter.shared.update(id: operationID, progress: progress, detail: detail)
+        }
+        guard !detail.isEmpty else { return }
         OperationCenter.shared.log(id: operationID, level: level, message: detail)
     }
 
@@ -794,4 +769,15 @@ extension InspectorViewController {
         syncAnnotationStateToViewer()
     }
 
+}
+
+private extension CLIEventLogLevel {
+    var primerTrimOperationLogLevel: OperationLogLevel {
+        switch self {
+        case .debug: return .debug
+        case .info: return .info
+        case .warning: return .warning
+        case .error: return .error
+        }
+    }
 }

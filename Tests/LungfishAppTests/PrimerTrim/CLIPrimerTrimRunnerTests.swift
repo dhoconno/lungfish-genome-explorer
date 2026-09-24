@@ -14,8 +14,8 @@ final class CLIPrimerTrimRunnerTests: XCTestCase {
         let cliURL = tempDir.appendingPathComponent("lungfish-cli")
         let script = """
         #!/bin/sh
-        printf '%s\\n' '{"event":"runStart","message":"starting"}'
-        printf '%s\\n' '{"event":"runComplete","outputAlignmentTrackID":"trimmed","outputAlignmentTrackName":"Trimmed","bamPath":"/tmp/trimmed.bam","baiPath":"/tmp/trimmed.bam.bai","provenanceSidecarPath":"/tmp/trimmed.primer-trim-provenance.json"}'
+        printf '%s\\n' '{"event":"start","message":"starting","progress":0}'
+        printf '%s\\n' '{"event":"complete","output":"/tmp/trimmed.bam","outputs":["/tmp/trimmed.bam","/tmp/trimmed.bam.bai","/tmp/trimmed.primer-trim-provenance.json"],"message":"trackID=trimmed trackName=Trimmed"}'
         exit 0
         """
         try script.write(to: cliURL, atomically: true, encoding: .utf8)
@@ -35,25 +35,24 @@ final class CLIPrimerTrimRunnerTests: XCTestCase {
         }
 
         final class Capturer: @unchecked Sendable {
-            var events: [CLIPrimerTrimEvent] = []
+            var events: [CLIEvent] = []
         }
         let capturer = Capturer()
 
         let runner = CLIPrimerTrimRunner()
-        try await runner.run(arguments: ["bam", "primer-trim"]) { event in
+        let result = try await runner.run(arguments: ["bam", "primer-trim"]) { event in
             capturer.events.append(event)
         }
 
         XCTAssertTrue(capturer.events.contains { event in
-            if case .runStart = event { return true }
+            if case .start = event { return true }
             return false
         })
-        XCTAssertTrue(capturer.events.contains { event in
-            if case .runComplete(let trackID, let trackName, _, _, _) = event {
-                return trackID == "trimmed" && trackName == "Trimmed"
-            }
-            return false
-        })
+        XCTAssertEqual(result.trackID, "trimmed")
+        XCTAssertEqual(result.trackName, "Trimmed")
+        XCTAssertEqual(result.bamPath, "/tmp/trimmed.bam")
+        XCTAssertEqual(result.baiPath, "/tmp/trimmed.bam.bai")
+        XCTAssertEqual(result.provenanceSidecarPath, "/tmp/trimmed.primer-trim-provenance.json")
     }
 
     func testCancelTerminatesCLIProcessTree() async throws {
@@ -68,7 +67,7 @@ final class CLIPrimerTrimRunnerTests: XCTestCase {
         #!/bin/sh
         nohup /bin/sh -c 'trap "" TERM HUP INT; while :; do sleep 1; done' >/dev/null 2>&1 &
         echo "$!" > "\(childPIDURL.path)"
-        printf '%s\\n' '{"event":"runStart","message":"starting"}'
+        printf '%s\\n' '{"event":"start","message":"starting","progress":0}'
         while kill -0 "$!" 2>/dev/null; do
           sleep 0.1
         done
@@ -122,51 +121,6 @@ final class CLIPrimerTrimRunnerTests: XCTestCase {
         XCTAssertTrue(arguments.contains("Primer-trimmed Sample"))
         XCTAssertTrue(arguments.contains("--format"))
         XCTAssertTrue(arguments.contains("json"))
-    }
-
-    func testParseEventDecodesRunStart() throws {
-        let line = #"{"event":"runStart","message":"Starting primer trim"}"#
-        let event = try XCTUnwrap(CLIPrimerTrimRunner.parseEvent(from: line))
-        guard case .runStart(let message) = event else {
-            XCTFail("Expected .runStart, got \(event)")
-            return
-        }
-        XCTAssertEqual(message, "Starting primer trim")
-    }
-
-    func testParseEventDecodesStageProgress() throws {
-        let line = #"{"event":"stageProgress","progress":0.45,"message":"trim 45%"}"#
-        let event = try XCTUnwrap(CLIPrimerTrimRunner.parseEvent(from: line))
-        guard case .stageProgress(let progress, let message) = event else {
-            XCTFail("Expected .stageProgress, got \(event)")
-            return
-        }
-        XCTAssertEqual(progress, 0.45, accuracy: 0.0001)
-        XCTAssertEqual(message, "trim 45%")
-    }
-
-    func testParseEventDecodesRunComplete() throws {
-        let line = #"""
-        {"event":"runComplete","progress":1.0,"message":"Primer trim complete","bundlePath":"/tmp/p.lungfishref","sourceAlignmentTrackID":"aln-source","outputAlignmentTrackID":"aln-trimmed","outputAlignmentTrackName":"Trimmed","bamPath":"/tmp/p.lungfishref/alignments/primer-trimmed/x.bam","baiPath":"/tmp/p.lungfishref/alignments/primer-trimmed/x.bam.bai","provenanceSidecarPath":"/tmp/p.lungfishref/alignments/primer-trimmed/x.primer-trim-provenance.json"}
-        """#
-        let event = try XCTUnwrap(CLIPrimerTrimRunner.parseEvent(from: line))
-        guard case .runComplete(let trackID, let trackName, let bamPath, _, _) = event else {
-            XCTFail("Expected .runComplete, got \(event)")
-            return
-        }
-        XCTAssertEqual(trackID, "aln-trimmed")
-        XCTAssertEqual(trackName, "Trimmed")
-        XCTAssertTrue(bamPath.hasSuffix("x.bam"))
-    }
-
-    func testParseEventReturnsNilForNonJSONLine() throws {
-        XCTAssertNil(try CLIPrimerTrimRunner.parseEvent(from: "Starting primer trim"))
-        XCTAssertNil(try CLIPrimerTrimRunner.parseEvent(from: ""))
-    }
-
-    func testParseEventReturnsNilForUnknownEvent() throws {
-        let line = #"{"event":"madeUpEvent","message":"x"}"#
-        XCTAssertNil(try CLIPrimerTrimRunner.parseEvent(from: line))
     }
 }
 

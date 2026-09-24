@@ -505,10 +505,40 @@ extension BAMCommand {
     }
 }
 
+/// Encodes over the shared `CLIEvent` wire schema (ARC-02, SIMP-04) instead of
+/// `PrimerTrimEvent`'s own ad hoc JSON shape. The rich completion fields
+/// (`outputAlignmentTrackID`, `bamPath`, `baiPath`, `provenanceSidecarPath`)
+/// that `CLIPrimerTrimRunner`'s only GUI caller never reads beyond the track
+/// name are folded into `complete`'s `outputs` (in the fixed order
+/// `[bamPath, baiPath, provenanceSidecarPath]`) and a
+/// `"trackID=… trackName=…"` message, matching `VariantsCommand`'s pattern.
 private func encode(event: BAMCommand.PrimerTrimEvent) -> String? {
-    let encoder = JSONEncoder()
-    guard let data = try? encoder.encode(event) else { return nil }
+    guard let data = try? JSONEncoder().encode(cliEvent(from: event)) else { return nil }
     return String(data: data, encoding: .utf8)
+}
+
+private func cliEvent(from event: BAMCommand.PrimerTrimEvent) -> CLIEvent {
+    switch event.event {
+    case "runStart":
+        return .start(message: event.message)
+    case "stageProgress":
+        return .progress(fraction: event.progress ?? 0, message: event.message)
+    case "attachComplete":
+        let trackID = event.outputAlignmentTrackID ?? ""
+        let trackName = event.outputAlignmentTrackName ?? ""
+        return .log(level: .info, message: "trackID=\(trackID) trackName=\(trackName): \(event.message)")
+    case "runComplete":
+        let outputs = [event.bamPath, event.baiPath, event.provenanceSidecarPath].compactMap { $0 }
+        let trackID = event.outputAlignmentTrackID ?? ""
+        let trackName = event.outputAlignmentTrackName ?? ""
+        return .complete(outputs: outputs, message: "trackID=\(trackID) trackName=\(trackName)")
+    case "runFailed":
+        return .failed(message: event.message, detail: nil)
+    default:
+        // Every other named step (preflightStart, preflightComplete,
+        // stageStart, stageComplete, attachStart) is a plain narration line.
+        return .log(level: .info, message: event.message)
+    }
 }
 
 private final class PrimerTrimEventEmitter: @unchecked Sendable {
