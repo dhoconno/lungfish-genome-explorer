@@ -239,4 +239,52 @@ public enum FASTQInputLayoutResolver {
             reason: classification.reason
         )
     }
+
+    /// Resolves the layout of a FASTQ that was materialized away from the
+    /// bundle whose metadata describes it.
+    ///
+    /// The GUI hands the CLI and the in-process derivative path a scratch copy
+    /// of a bundle's reads; the copy carries no sidecar, so the scan would
+    /// lose the bundle's merge evidence (a VSP2 recipe in the lineage). This
+    /// entry point scans `fastqURL` with the metadata of `hintURL`, the bundle
+    /// or the file inside it, as hints. With no `hintURL` it is
+    /// ``resolve(inputURLs:pairedFiles:explicit:recordLimit:)`` on the file.
+    public static func resolve(
+        fastqURL: URL,
+        metadataFrom hintURL: URL?,
+        recordLimit: Int = FASTQReadLayoutClassifier.defaultRecordLimit
+    ) -> FASTQInputLayoutResolution {
+        guard let hintURL else {
+            return resolve(inputURLs: [fastqURL], recordLimit: recordLimit)
+        }
+        let standardized = fastqURL.standardizedFileURL
+        if let format = SequenceInputResolver.inputSequenceFormat(for: standardized), format != .fastq {
+            return FASTQInputLayoutResolution(
+                layout: .singleEnd,
+                source: .notFASTQ,
+                reason: "The input is \(format.rawValue.uppercased()), not FASTQ reads."
+            )
+        }
+        let hints = FASTQReadLayoutClassifier.metadataHints(for: hintURL.standardizedFileURL)
+        if hints.pairingMode == .singleEnd, !hints.hasMergedOrUnpairedReads {
+            return FASTQInputLayoutResolution(
+                layout: .singleEnd,
+                source: .bundleMetadata,
+                reason: "The bundle metadata records single-end reads."
+            )
+        }
+        let scan = (try? FASTQReadLayoutClassifier.readHeaders(from: standardized, limit: recordLimit))
+            ?? (headers: [], scannedWholeFile: true)
+        let classification = FASTQReadLayoutClassifier.classify(
+            headers: scan.headers,
+            scannedWholeFile: scan.scannedWholeFile,
+            metadata: hints
+        )
+        return FASTQInputLayoutResolution(
+            layout: FASTQInputLayout(readLayout: classification.layout),
+            source: .contentScan,
+            classification: classification,
+            reason: classification.reason
+        )
+    }
 }
