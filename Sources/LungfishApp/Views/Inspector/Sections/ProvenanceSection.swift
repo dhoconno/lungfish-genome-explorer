@@ -470,7 +470,7 @@ struct ProvenanceSection: View {
     ) -> some View {
         Group {
             if usesGenotypePresentation {
-                GenotypeInspectorValueRow(
+                InspectorKeyValueRow(
                     label,
                     value: value,
                     font: LungfishInspectorStyle.controlFont,

@@ -494,7 +494,7 @@ public struct GenotypeResultDocumentSection: View {
     }
 
     private func valueRow(label: String, value: String) -> some View {
-        GenotypeInspectorValueRow(label, value: value, font: contentBodyFont)
+        InspectorKeyValueRow(label, value: value, font: contentBodyFont)
     }
 
     private var excelExportHelp: String {
