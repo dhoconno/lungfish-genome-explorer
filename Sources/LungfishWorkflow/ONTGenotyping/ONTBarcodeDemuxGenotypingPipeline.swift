@@ -1918,10 +1918,39 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         /// the full-reference-span filter can call the 244 bp DRB amplicons.
         var mappingFASTQURL: URL
         let prefixedFASTQURL: URL
+        /// GEN-07 (2026-09-23 best-practices audit): mate/record count of
+        /// `fastqURL` as imported. For interleaved paired input this counts
+        /// EACH mate once (so a 1,000-pair sample reads 2,000 here), matching
+        /// what `countWeightedFASTQRecords` returns before any merging. Use
+        /// `totalFragmentCount` for a sample/run denominator instead -- this
+        /// raw count exists for provenance and cache-key stability, not for
+        /// percentages.
         let readCount: Int
         let readCountSource: String
         /// How the reads were prepared for mapping, recorded in provenance.
         var mergeOutcome: IlluminaAmpliconPairMerger.Outcome?
+
+        /// GEN-07 (2026-09-23 best-practices audit): the sample's read count
+        /// in FRAGMENT units -- one count per physical read/amplicon
+        /// molecule, whether or not its mates were merged. This is the
+        /// correct denominator for retention percentages and pivot
+        /// `percent_reads_unmapped`; `readCount` alone halves retention for
+        /// any sample that needed on-the-fly bbmerge (GEN-07's original
+        /// defect), because it counts pre-merge mates while the retained
+        /// side counts post-merge fragments.
+        ///
+        /// - When `mergeOutcome` ran bbmerge, this is `pairCount` (merged
+        ///   fragments + unmerged mates folded back to one fragment each).
+        /// - Otherwise `readCount` is already fragment-denominated: either
+        ///   the input was single-end/pre-merged (one record per fragment),
+        ///   or an explicit override (`readCountSource` other than the raw
+        ///   weighted count) already reports fragments.
+        var totalFragmentCount: Int {
+            if let merge = mergeOutcome, merge.didMerge {
+                return merge.pairCount
+            }
+            return readCount
+        }
 
         init(
             sampleID: String,
@@ -2275,6 +2304,13 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
                 "mappingInputLabel": sample.prefixedFASTQURL.lastPathComponent,
                 "readCount": sample.readCount,
                 "readCountSource": sample.readCountSource,
+                // GEN-07: fragment-denominated total, always present so the
+                // filter's `sample_total_reads` (and every retention
+                // percentage derived from it) counts physical molecules, not
+                // pre-merge mates. See `totalFragmentCount` for why this can
+                // differ from `readCount`.
+                "totalPairs": sample.totalFragmentCount,
+                "readCountUnit": "fragments",
                 "retainsFullReadContext": isONTSampleBundles
                     ? Self.sampleInputRetainsFullReadContext(sample.sourceURL)
                     : false,
