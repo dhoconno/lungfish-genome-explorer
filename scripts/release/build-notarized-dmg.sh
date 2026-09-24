@@ -863,6 +863,30 @@ install_app_icon() {
         || /usr/libexec/PlistBuddy -c "Add :CFBundleIconName string AppIcon" "$info_plist"
 }
 
+install_third_party_notices() {
+    # REL-03: THIRD-PARTY-NOTICES is not part of the Xcode project's resource
+    # phase (the app is built from the local SwiftPM package graph, not a
+    # hand-maintained pbxproj file list), so it is never in the archived app
+    # unless a build step copies it in, same as the app icon above. Regenerate
+    # it from the manifests first so the shipped copy can never silently drift
+    # from Package.resolved / bundled-payloads.json / third-party-tools-lock.json.
+    local notices_source="${PROJECT_ROOT}/THIRD-PARTY-NOTICES"
+    local notices_dest="${APP_PATH}/Contents/Resources/THIRD-PARTY-NOTICES"
+
+    "$RELEASE_PYTHON" "$PROJECT_ROOT/scripts/release/generate-notices.py" --check >/dev/null 2>&1 || {
+        echo "THIRD-PARTY-NOTICES is stale relative to its manifests; regenerating before packaging" >&2
+        "$RELEASE_PYTHON" "$PROJECT_ROOT/scripts/release/generate-notices.py"
+    }
+
+    if [ ! -f "$notices_source" ]; then
+        echo "THIRD-PARTY-NOTICES not found after generation: $notices_source" >&2
+        exit 72
+    fi
+
+    /usr/bin/install -d "$(dirname "$notices_dest")"
+    /usr/bin/install -m 644 "$notices_source" "$notices_dest"
+}
+
 configure_sparkle_info_plist() {
     local info_plist="$1"
     if [ ! -f "$info_plist" ]; then
@@ -1355,6 +1379,7 @@ IDENTITY_PY
     fi
 
     install_app_icon
+    install_third_party_notices
     configure_sparkle_info_plist "$APP_PATH/Contents/Info.plist"
     "$RELEASE_PYTHON" - "$PROJECT_ROOT" "$APP_PATH" "$RELEASE_CHANNEL" <<'IDENTITY_PY'
 import sys
