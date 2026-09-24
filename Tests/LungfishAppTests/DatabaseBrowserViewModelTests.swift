@@ -33,6 +33,60 @@ final class DatabaseBrowserViewModelTests: XCTestCase {
         try await super.tearDown()
     }
 
+    func testGenBankImportPreservesVersionAndUsesSharedSelection() async throws {
+        let client = DatabaseBrowserMockHTTPClient()
+        await client.register(pattern: "efetch.fcgi", response: .text("""
+        LOCUS       NM_000546                 4 bp    DNA     linear   PRI 01-JAN-2020
+        DEFINITION  Human TP53 test fixture.
+        ACCESSION   NM_000546
+        VERSION     NM_000546.6
+          ORGANISM  Human TP53 test fixture
+        ORIGIN
+                1 acgt
+        //
+        """))
+        let model = DatabaseBrowserViewModel(source: .ncbi, ncbiService: NCBIService(httpClient: client))
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".tsv")
+        defer { try? FileManager.default.removeItem(at: url) }
+        try "accession\tnotes\nnm_000546.6\tTP53\nNM_000546.6\tduplicate\n".write(to: url, atomically: true, encoding: .utf8)
+
+        try model.importAccessionList(at: url)
+        try await waitForSearchResults(in: model)
+
+        XCTAssertNil(model.errorMessage)
+        XCTAssertEqual(model.results.map(\.accession), ["NM_000546.6"])
+        XCTAssertEqual(model.totalResultCount, 1)
+        XCTAssertFalse(model.hasMoreResults)
+        XCTAssertTrue(model.importedAccessions.isEmpty)
+        model.performBulkSelectionAction()
+        XCTAssertEqual(model.selectedRecords.count, 1)
+        model.performBulkSelectionAction()
+        XCTAssertTrue(model.selectedRecords.isEmpty)
+
+        // Retrying the imported query retains exact versions after the one-shot
+        // importedAccessions array has been consumed.
+        model.performSearch()
+        try await waitForSearchResults(in: model)
+        XCTAssertEqual(model.results.map(\.accession), ["NM_000546.6"])
+
+        await client.register(pattern: "esearch.fcgi", response: .text(#"{"esearchresult":{"count":"0","retmax":"200","retstart":"0","idlist":[]}}"#))
+        model.searchText = "a different query"
+        model.performSearch()
+        try await waitForSearchResults(in: model)
+        XCTAssertTrue(model.results.isEmpty, "Editing the query must not reuse imported accessions")
+        XCTAssertNil(model.errorMessage)
+    }
+
+    func testInvalidGenBankImportDoesNotStartSearchOrReplaceResults() throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".csv")
+        defer { try? FileManager.default.removeItem(at: url) }
+        try "accession\nSRR123456\n".write(to: url, atomically: true, encoding: .utf8)
+        viewModel.searchText = "previous query"
+        XCTAssertThrowsError(try viewModel.importAccessionList(at: url))
+        XCTAssertFalse(viewModel.isSearching)
+        XCTAssertEqual(viewModel.searchText, "previous query")
+    }
+
     // MARK: - Initialization
 
     func testInitializationDefaults() {

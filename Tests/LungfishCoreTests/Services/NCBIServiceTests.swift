@@ -727,78 +727,63 @@ final class NCBIServiceTests: XCTestCase {
     // MARK: - FetchRawGenBank Tests
 
     func testFetchRawGenBankReturnsContent() async throws {
-        // Register the search to find the UID
-        await mockClient.registerNCBISearch(ids: ["12345"])
-
-        // Register the GenBank fetch with full content including features
-        let gbContent = """
-        LOCUS       NC_002549              18959 bp    RNA     linear   VRL 01-JAN-2024
-        DEFINITION  Zaire ebolavirus, complete genome.
-        ACCESSION   NC_002549
-        VERSION     NC_002549.1
-        KEYWORDS    RefSeq.
-        SOURCE      Zaire ebolavirus
-          ORGANISM  Zaire ebolavirus
-                    Viruses; Riboviria; Orthornavirae; Negarnaviricota;
-                    Haploviricotina; Monjiviricetes; Mononegavirales;
-                    Filoviridae; Ebolavirus.
+        let content = """
+        LOCUS       NM_000546                4 bp    mRNA    linear   PRI 01-JAN-2024
+        DEFINITION  Human TP53 transcript, shortened test fixture.
+        ACCESSION   NM_000546
+        VERSION     NM_000546.6
+        SOURCE      Homo sapiens
+          ORGANISM  Homo sapiens
         FEATURES             Location/Qualifiers
-             source          1..18959
-                             /organism="Zaire ebolavirus"
-                             /mol_type="genomic RNA"
-             gene            470..2689
-                             /gene="NP"
-                             /locus_tag="EBOV_gp1"
-             CDS             470..2689
-                             /gene="NP"
-                             /locus_tag="EBOV_gp1"
-                             /product="nucleoprotein"
-                             /protein_id="YP_054878.1"
+             gene            1..4
+                             /gene="TP53"
         ORIGIN
-                1 atggatgact ctcgagaagt acttgtagat gg
+                1 acgt
         //
         """
-        await mockClient.register(pattern: "efetch.fcgi", response: .text(gbContent))
-
-        let result = try await service.fetchRawGenBank(accession: "NC_002549.1")
-
-        // Verify raw content is preserved
-        XCTAssertTrue(result.content.contains("LOCUS"))
-        XCTAssertTrue(result.content.contains("FEATURES"))
-        XCTAssertTrue(result.content.contains("gene            470..2689"))
-        XCTAssertTrue(result.content.contains("/gene=\"NP\""))
-        XCTAssertTrue(result.content.contains("CDS             470..2689"))
-        XCTAssertTrue(result.content.contains("/product=\"nucleoprotein\""))
-        XCTAssertTrue(result.content.contains("ORIGIN"))
-        XCTAssertTrue(result.content.contains("//"))
-
-        // Verify accession is extracted (uses VERSION line which includes version number)
-        XCTAssertTrue(result.accession == "NC_002549.1" || result.accession == "NC_002549",
-                      "Accession should be extracted from GenBank content")
+        await mockClient.register(pattern: "efetch.fcgi", response: .text(content))
+        let result = try await service.fetchRawGenBank(accession: "NM_000546.6")
+        XCTAssertEqual(result.content, content)
+        XCTAssertEqual(result.accession, "NM_000546.6", "VERSION must take precedence over ACCESSION")
     }
 
     func testFetchRawGenBankUsesAccessionEFetchBeforeSearching() async throws {
-        let gbContent = """
-        LOCUS       NC_002549              18959 bp    RNA     linear   VRL 01-JAN-2024
-        DEFINITION  Zaire ebolavirus, complete genome.
-        ACCESSION   NC_002549
-        VERSION     NC_002549.1
+        await mockClient.register(pattern: "efetch.fcgi", response: .text("""
+        LOCUS       NM_000546                4 bp    mRNA    linear   PRI 01-JAN-2024
+        ACCESSION   NM_000546
+        VERSION     NM_000546.6
         FEATURES             Location/Qualifiers
-             source          1..18959
+             gene            1..4
+                             /gene="TP53"
         ORIGIN
-                1 atggatgact ctcgagaagt
+                1 acgt
         //
-        """
-        await mockClient.register(pattern: "efetch.fcgi", response: .text(gbContent))
-
-        let result = try await service.fetchRawGenBank(accession: "NC_002549.1")
-
+        """))
+        let result = try await service.fetchRawGenBank(accession: "NM_000546.6")
         XCTAssertTrue(result.content.contains("FEATURES"))
         let requests = await mockClient.requests
         XCTAssertEqual(requests.count, 1)
         let url = try XCTUnwrap(requests.first?.url?.absoluteString)
         XCTAssertTrue(url.contains("efetch.fcgi"))
-        XCTAssertTrue(url.contains("id=NC_002549.1"))
+        XCTAssertTrue(url.contains("id=NM_000546.6"))
+    }
+
+    func testFetchRawGenBankRejectsVersionSubstitution() async throws {
+        await mockClient.register(pattern: "efetch.fcgi", response: .text("""
+        LOCUS       NM_000546                4 bp    mRNA    linear   PRI
+        ACCESSION   NM_000546
+        VERSION     NM_000546.6
+        ORIGIN
+                1 acgt
+        //
+        """))
+        do {
+            _ = try await service.fetchRawGenBank(accession: "NM_000546.5")
+            XCTFail("An explicit historical version must not be replaced")
+        } catch {
+            XCTAssertTrue(error.localizedDescription.contains("NM_000546.5"))
+            XCTAssertTrue(error.localizedDescription.contains("NM_000546.6"))
+        }
     }
 
     func testFetchRawGenBankNotFound() async throws {

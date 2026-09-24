@@ -274,6 +274,8 @@ extension ClassificationResult {
             goal: config.goal,
             inputFiles: config.inputFiles.map { resolvePersistedURL($0, relativeTo: directory) },
             isPairedEnd: config.isPairedEnd,
+            interleavedInput: config.interleavedInput,
+            inputLayout: config.inputLayout,
             databaseName: config.databaseName,
             inputFormat: config.inputFormat,
             databaseVersion: config.databaseVersion,

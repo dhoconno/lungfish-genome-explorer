@@ -36,7 +36,11 @@ struct AnnotationPopoverView: View {
 
             // Location info
             VStack(alignment: .leading, spacing: 4) {
-                LabeledContent("Location", value: "\(annotation.start)–\(annotation.end)")
+                // Stored 0-based half-open; show 1-based closed like the ruler.
+                LabeledContent(
+                    "Location",
+                    value: "\(GenomicCoordinateDisplay.formattedStart(annotation.start))–\(GenomicCoordinateDisplay.formattedEnd(annotation.end))"
+                )
                 LabeledContent("Length", value: "\(annotation.totalLength) bp")
 
                 if annotation.isDiscontinuous {

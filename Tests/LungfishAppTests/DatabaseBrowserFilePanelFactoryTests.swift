@@ -20,5 +20,6 @@ final class DatabaseBrowserFilePanelFactoryTests: XCTestCase {
         let contentTypes = try XCTUnwrap(panel.allowedContentTypes)
         XCTAssertTrue(contentTypes.contains(.commaSeparatedText))
         XCTAssertTrue(contentTypes.contains(.plainText))
+        XCTAssertTrue(contentTypes.contains(.tabSeparatedText))
     }
 }

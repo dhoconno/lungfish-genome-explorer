@@ -204,6 +204,11 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
     var onMatrixCommentEditRequested: ((GenotypeMatrixCommentEditRequest) -> Void)?
     var onSelectionCleared: (() -> Void)?
     var onDisplaySummaryChanged: ((Int, Int, Int) -> Void)?
+
+    /// The row counts last published through `onDisplaySummaryChanged`.
+    var displaySummary: (visibleRows: Int, totalRows: Int, hiddenCells: Int) {
+        (visibleRows.count, totalRowCount, hiddenCellCount)
+    }
     var onSearchProjectionChanged: (() -> Void)?
     var onVisibleProjectionChanged: (() -> Void)?
     var onMatrixVisibilityCapabilityChanged:

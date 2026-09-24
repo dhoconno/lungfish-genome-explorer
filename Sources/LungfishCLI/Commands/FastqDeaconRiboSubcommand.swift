@@ -10,6 +10,8 @@ struct DeaconRiboOutputPlan: Sendable, Equatable {
 }
 
 private struct DeaconRiboInvocationRecord: Sendable {
+    /// `deacon` for the classifier, `reformat` for the pair split/join steps.
+    let toolName: String
     let arguments: [String]
     let outputs: [URL]
     let exitCode: Int32
@@ -42,6 +44,8 @@ struct FastqDeaconRiboSubcommand: AsyncParsableCommand {
 
     var threads: Int? { globalOptions.threads }
 
+    @OptionGroup var pairing: FASTQPairingOptions
+
     @Option(name: [.customLong("output"), .customShort("o")], help: "Output directory")
     var outputDirectory: String
 
@@ -56,6 +60,21 @@ struct FastqDeaconRiboSubcommand: AsyncParsableCommand {
         }
         guard relativeThreshold >= 0, relativeThreshold <= 1 else {
             throw ValidationError("--relative-threshold must be between 0 and 1")
+        }
+
+        // One interleaved file is split into R1/R2 for Deacon, which then
+        // keeps or drops both mates of a fragment together, and the result
+        // is joined back into one interleaved file at the planned output
+        // path. Handed the interleaved file directly, Deacon would judge
+        // each mate alone and orphan the other.
+        let isInterleaved: Bool
+        if inputURLs.count == 1 {
+            isInterleaved = try await pairing.resolveIsInterleaved(inputURL: inputURLs[0])
+        } else {
+            guard pairing.pairing != .interleaved else {
+                throw ValidationError("--pairing interleaved applies to one interleaved input; R1/R2 inputs are already paired.")
+            }
+            isInterleaved = false
         }
 
         let effectiveThreads = max(1, threads ?? ProcessInfo.processInfo.activeProcessorCount)
@@ -73,34 +92,82 @@ struct FastqDeaconRiboSubcommand: AsyncParsableCommand {
             fallback: "0.15.0"
         )
 
+        let scratchDirectory = outputDirectoryURL.appendingPathComponent(
+            "deacon-ribo-pairs-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        defer { try? FileManager.default.removeItem(at: scratchDirectory) }
+
         var invocations: [DeaconRiboInvocationRecord] = []
         do {
-            if retention == .nonRRNA || retention == .both {
-                let record = try await runDeacon(
-                    inputURLs: inputURLs,
-                    databaseURL: databaseURL,
-                    outputURLs: outputs.nonRRNAOutputURLs,
-                    deplete: true,
-                    effectiveThreads: effectiveThreads
+            var deaconInputURLs = inputURLs
+            if isInterleaved {
+                try FileManager.default.createDirectory(at: scratchDirectory, withIntermediateDirectories: true)
+                let stem = Self.sequenceStem(for: inputURLs[0])
+                let inputR1 = scratchDirectory.appendingPathComponent("\(stem).input.R1.fastq")
+                let inputR2 = scratchDirectory.appendingPathComponent("\(stem).input.R2.fastq")
+                let record = try await Self.reformatPairs(
+                    arguments: [
+                        "in=\(inputURLs[0].path)",
+                        "out1=\(inputR1.path)",
+                        "out2=\(inputR2.path)",
+                        "interleaved=t",
+                    ],
+                    outputs: [inputR1, inputR2]
                 )
                 invocations.append(record)
                 guard record.exitCode == 0 else {
-                    throw CLIError.conversionFailed(reason: "Deacon rRNA filter failed: \(record.stderr)")
+                    throw CLIError.conversionFailed(reason: "reformat.sh deinterleave failed: \(record.stderr)")
                 }
+                deaconInputURLs = [inputR1, inputR2]
             }
 
-            if retention == .rRNA || retention == .both {
-                let rRNAOutputURLs = outputs.rRNAOutputURLs ?? []
-                let record = try await runDeacon(
-                    inputURLs: inputURLs,
-                    databaseURL: databaseURL,
-                    outputURLs: rRNAOutputURLs,
-                    deplete: false,
-                    effectiveThreads: effectiveThreads
-                )
-                invocations.append(record)
-                guard record.exitCode == 0 else {
-                    throw CLIError.conversionFailed(reason: "Deacon rRNA filter failed: \(record.stderr)")
+            let classes: [(deplete: Bool, outputURLs: [URL])] = [
+                (true, outputs.nonRRNAOutputURLs),
+                (false, outputs.rRNAOutputURLs ?? []),
+            ].filter { !$0.1.isEmpty }
+
+            for readClass in classes {
+                if isInterleaved, let finalOutputURL = readClass.outputURLs.first {
+                    let stem = finalOutputURL.deletingPathExtension().lastPathComponent
+                    let outputR1 = scratchDirectory.appendingPathComponent("\(stem).R1.fastq")
+                    let outputR2 = scratchDirectory.appendingPathComponent("\(stem).R2.fastq")
+                    let deaconRecord = try await runDeacon(
+                        inputURLs: deaconInputURLs,
+                        databaseURL: databaseURL,
+                        outputURLs: [outputR1, outputR2],
+                        deplete: readClass.deplete,
+                        effectiveThreads: effectiveThreads
+                    )
+                    invocations.append(deaconRecord)
+                    guard deaconRecord.exitCode == 0 else {
+                        throw CLIError.conversionFailed(reason: "Deacon rRNA filter failed: \(deaconRecord.stderr)")
+                    }
+                    let joinRecord = try await Self.reformatPairs(
+                        arguments: [
+                            "in1=\(outputR1.path)",
+                            "in2=\(outputR2.path)",
+                            "out=\(finalOutputURL.path)",
+                            "interleaved=t",
+                        ],
+                        outputs: [finalOutputURL]
+                    )
+                    invocations.append(joinRecord)
+                    guard joinRecord.exitCode == 0 else {
+                        throw CLIError.conversionFailed(reason: "reformat.sh interleave failed: \(joinRecord.stderr)")
+                    }
+                } else {
+                    let record = try await runDeacon(
+                        inputURLs: deaconInputURLs,
+                        databaseURL: databaseURL,
+                        outputURLs: readClass.outputURLs,
+                        deplete: readClass.deplete,
+                        effectiveThreads: effectiveThreads
+                    )
+                    invocations.append(record)
+                    guard record.exitCode == 0 else {
+                        throw CLIError.conversionFailed(reason: "Deacon rRNA filter failed: \(record.stderr)")
+                    }
                 }
             }
         } catch {
@@ -112,6 +179,7 @@ struct FastqDeaconRiboSubcommand: AsyncParsableCommand {
                 effectiveThreads: effectiveThreads,
                 resolvedDatabaseID: resolvedDatabaseID,
                 toolVersion: toolVersion,
+                isInterleaved: isInterleaved,
                 invocations: invocations,
                 status: .failed
             )
@@ -126,6 +194,7 @@ struct FastqDeaconRiboSubcommand: AsyncParsableCommand {
             effectiveThreads: effectiveThreads,
             resolvedDatabaseID: resolvedDatabaseID,
             toolVersion: toolVersion,
+            isInterleaved: isInterleaved,
             invocations: invocations,
             status: .completed
         )
@@ -207,10 +276,31 @@ struct FastqDeaconRiboSubcommand: AsyncParsableCommand {
         )
         let wallTime = Date().timeIntervalSince(startedAt)
         return DeaconRiboInvocationRecord(
+            toolName: "deacon",
             arguments: arguments,
             outputs: outputURLs,
             exitCode: result.exitCode,
             wallTime: wallTime,
+            stderr: result.stderr
+        )
+    }
+
+    /// Runs `reformat.sh` (BBTools) to split an interleaved file into R1/R2
+    /// or join R1/R2 back into one interleaved file.
+    private static func reformatPairs(
+        arguments: [String],
+        outputs: [URL]
+    ) async throws -> DeaconRiboInvocationRecord {
+        let runner = NativeToolRunner.shared
+        let env = await bbToolsEnvironment(runner: runner)
+        let startedAt = Date()
+        let result = try await runner.run(.reformat, arguments: arguments, environment: env, timeout: 1800)
+        return DeaconRiboInvocationRecord(
+            toolName: "reformat",
+            arguments: arguments,
+            outputs: outputs,
+            exitCode: result.exitCode,
+            wallTime: Date().timeIntervalSince(startedAt),
             stderr: result.stderr
         )
     }
@@ -252,6 +342,7 @@ struct FastqDeaconRiboSubcommand: AsyncParsableCommand {
         effectiveThreads: Int,
         resolvedDatabaseID: String,
         toolVersion: String,
+        isInterleaved: Bool,
         invocations: [DeaconRiboInvocationRecord],
         status: RunStatus
     ) async throws {
@@ -267,9 +358,12 @@ struct FastqDeaconRiboSubcommand: AsyncParsableCommand {
                 "absoluteThreshold": .integer(absoluteThreshold),
                 "relativeThreshold": .number(relativeThreshold),
                 "threads": .integer(effectiveThreads),
+                "pairing": pairing.provenanceValue,
+                "interleaved": .boolean(isInterleaved),
                 "condaEnvironment": .string("deacon"),
             ]
         )
+        let reformatVersion = await NativeToolRunner.shared.getToolVersion(.reformat) ?? "unknown"
 
         let sequenceFormat = SequenceFormat.from(url: inputURLs[0])
         let fileFormat: FileFormat = {
@@ -287,15 +381,18 @@ struct FastqDeaconRiboSubcommand: AsyncParsableCommand {
         } + provenanceRecords(for: databaseURL, role: .reference)
 
         for invocation in invocations {
+            let isDeacon = invocation.toolName == "deacon"
             await ProvenanceRecorder.shared.recordStep(
                 runID: runID,
-                toolName: "deacon",
-                toolVersion: toolVersion,
-                command: CLIProvenanceSupport.condaCommand(
-                    toolName: "deacon",
-                    environment: "deacon",
-                    arguments: invocation.arguments
-                ),
+                toolName: invocation.toolName,
+                toolVersion: isDeacon ? toolVersion : reformatVersion,
+                command: isDeacon
+                    ? CLIProvenanceSupport.condaCommand(
+                        toolName: "deacon",
+                        environment: "deacon",
+                        arguments: invocation.arguments
+                    )
+                    : [NativeTool.reformat.executableName] + invocation.arguments,
                 inputs: inputRecords,
                 outputs: invocation.outputs
                     .filter { FileManager.default.fileExists(atPath: $0.path) }

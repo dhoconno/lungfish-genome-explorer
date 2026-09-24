@@ -17,6 +17,52 @@ import XCTest
 /// - BundleBuildError.missingTools case
 final class GenBankBundleDownloadViewModelTests: XCTestCase {
 
+    func testDownloadProvenanceHashesFinalPayloadAndPreservesVersion() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundle = root.appendingPathComponent("NM_000546.6.lungfishref")
+        let sources = bundle.appendingPathComponent("sources")
+        let genome = bundle.appendingPathComponent("genome")
+        try FileManager.default.createDirectory(at: sources, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: genome, withIntermediateDirectories: true)
+        let source = sources.appendingPathComponent("record.gb")
+        let output = genome.appendingPathComponent("sequence.fa.gz")
+        try Data("VERSION NM_000546.6".utf8).write(to: source)
+        try Data("compressed sequence".utf8).write(to: output)
+        let start = Date(timeIntervalSinceNow: -1)
+        let fetch = try GenBankBundleDownloadViewModel.fetchProvenanceStep(
+            accession: "NM_000546.6", format: "gb", output: source, startedAt: start)
+        let conversion = try GenBankBundleDownloadViewModel.conversionProvenanceStep(
+            entryPoint: "test-conversion", inputs: [source], outputs: [output],
+            options: ["preserveQualifiers": .boolean(true)], startedAt: start)
+        XCTAssertEqual(conversion.inputs.first?.checksumSHA256, try ProvenanceFileHasher.sha256(of: source))
+        XCTAssertEqual(conversion.outputs.first?.checksumSHA256, try ProvenanceFileHasher.sha256(of: output))
+        XCTAssertEqual(conversion.exitStatus, 0)
+        try GenBankBundleDownloadViewModel.writeDownloadProvenance(
+            bundleURL: bundle, requestedAccession: "NM_000546.6", resolvedAccession: "NM_000546.6",
+            includeGFF3Annotations: false, steps: [fetch, conversion], startedAt: start, stderr: "fallback detail")
+        let envelope = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: bundle))
+        XCTAssertEqual(envelope.workflowName, "gui-genbank-download")
+        XCTAssertEqual(envelope.options.resolvedDefaults["resolvedAccession"], .string("NM_000546.6"))
+        XCTAssertEqual(envelope.options.resolvedDefaults["includeGFF3Annotations"], .boolean(false))
+        XCTAssertEqual(envelope.options.defaults["includeGFF3Annotations"], .boolean(true))
+        XCTAssertEqual(envelope.exitStatus, 0)
+        XCTAssertGreaterThan(try XCTUnwrap(envelope.wallTimeSeconds), 0)
+        XCTAssertEqual(envelope.stderr, "fallback detail")
+        XCTAssertFalse(envelope.argv.isEmpty)
+        XCTAssertTrue(fetch.reproducibleCommand.contains("id=NM_000546.6"))
+        let payload = try XCTUnwrap(envelope.outputs.first { URL(fileURLWithPath: $0.path).resolvingSymlinksInPath() == output.resolvingSymlinksInPath() }, "Outputs: \(envelope.outputs.map(\.path))")
+        XCTAssertEqual(payload.checksumSHA256, try ProvenanceFileHasher.sha256(of: output))
+        XCTAssertEqual(payload.fileSize, try ProvenanceFileHasher.fileSize(of: output))
+        let copied = root.appendingPathComponent("final.lungfishref")
+        try FileManager.default.copyItem(at: bundle, to: copied)
+        try GUIImportedProvenanceRehydrator.rehydrateImportedCopy(from: bundle, to: copied)
+        let relocated = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: copied))
+        XCTAssertEqual(relocated.outputs.count, envelope.outputs.count)
+        XCTAssertTrue(relocated.outputs.contains { URL(fileURLWithPath: $0.path).resolvingSymlinksInPath() == copied.appendingPathComponent("genome/sequence.fa.gz").resolvingSymlinksInPath() })
+        XCTAssertFalse(relocated.outputs.contains { $0.path.hasPrefix(bundle.path + "/") })
+    }
+
     // MARK: - Initialization
 
     func testInitializationCreatesViewModel() {
@@ -50,7 +96,7 @@ final class GenBankBundleDownloadViewModelTests: XCTestCase {
     func testSingleSequenceAccessionAliasesIncludeResolvedVersion() {
         let chromosomes = [
             ChromosomeInfo(
-                name: "MN908947",
+                name: "NM_000059",
                 length: 29_903,
                 offset: 0,
                 lineBases: 80,
@@ -60,11 +106,11 @@ final class GenBankBundleDownloadViewModelTests: XCTestCase {
 
         let enriched = BundleBuildHelpers.addSingleSequenceAccessionAliases(
             to: chromosomes,
-            accessions: ["MN908947.3"]
+            accessions: ["NM_000059.4"]
         )
 
-        XCTAssertEqual(enriched.first?.name, "MN908947")
-        XCTAssertEqual(enriched.first?.aliases, ["MN908947.3"])
+        XCTAssertEqual(enriched.first?.name, "NM_000059")
+        XCTAssertEqual(enriched.first?.aliases, ["NM_000059.4"])
     }
 
     // MARK: - Tool Pre-flight Validation

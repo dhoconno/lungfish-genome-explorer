@@ -3,8 +3,45 @@
 // SPDX-License-Identifier: MIT
 
 import SwiftUI
+import LungfishIO
 import LungfishWorkflow
 import LungfishKit
+
+/// The Kraken2 read format chosen for one grouped sample.
+///
+/// Separate R1/R2 files run `paired`. A single file or bundle is classified
+/// by ``FASTQReadLayoutClassifier``, exactly as ``EsVirituSampleReadPlan``
+/// does: strictly interleaved input runs `interleaved` (split into two mate
+/// files for `kraken2 --paired`); mixed pairs plus merged reads and true
+/// single-end input run `unpaired`.
+struct ClassificationSampleReadPlan: Equatable, Sendable {
+    let format: ClassificationConfig.ReadFormat
+    let layout: FASTQReadLayoutClassification?
+
+    var label: String {
+        ClassificationConfig.ReadFormat.inputLabel(format: format, layout: layout?.layout)
+    }
+
+    /// Compact tag for the batch sample list.
+    var shortLabel: String {
+        switch format {
+        case .paired: return "PE"
+        case .interleaved: return "interleaved PE"
+        case .unpaired: return layout?.layout == .mixedInterleaved ? "mixed, run as SE" : "SE"
+        }
+    }
+
+    static func plan(
+        for sample: MetagenomicsSampleInput,
+        classify: (URL) -> FASTQReadLayoutClassification = { FASTQReadLayoutClassifier.classify(inputURL: $0) }
+    ) -> ClassificationSampleReadPlan {
+        if sample.isPairedEnd {
+            return ClassificationSampleReadPlan(format: .paired, layout: nil)
+        }
+        let layout = classify(sample.fastq1)
+        return ClassificationSampleReadPlan(format: .forSingleFile(layout.layout), layout: layout)
+    }
+}
 
 // MARK: - ClassificationWizardSheet
 
@@ -110,6 +147,11 @@ struct ClassificationWizardSheet: View {
     @State private var memoryMapping: Bool = false
     @State private var extraArgumentsText: String = ""
 
+    /// Per-sample read plans keyed by sample ID, computed off the main actor.
+    @State private var readPlans: [String: ClassificationSampleReadPlan] = [:]
+    /// The input list `readPlans` was computed for.
+    @State private var readPlansInputFiles: [URL]?
+
     // MARK: - Callbacks
 
     /// Called when the user clicks Run.
@@ -198,6 +240,7 @@ struct ClassificationWizardSheet: View {
     /// Whether the Run button should be enabled.
     private var canRun: Bool {
         !groupedSamples.isEmpty
+            && readPlansInputFiles == inputFiles
             && selectedDatabase != nil
             && selectedDatabase?.status == .ready
             && advancedArgumentsParseError == nil
@@ -272,6 +315,18 @@ struct ClassificationWizardSheet: View {
         .background(Color.lungfishCanvasBackground)
         .tint(.lungfishCreamsicleFallback)
         .task { await loadDatabases() }
+        .task(id: inputFiles) {
+            let files = inputFiles
+            let samples = groupedSamples
+            let plans = await Task.detached(priority: .userInitiated) {
+                samples.reduce(into: [String: ClassificationSampleReadPlan]()) { result, sample in
+                    result[sample.sampleId] = ClassificationSampleReadPlan.plan(for: sample)
+                }
+            }.value
+            guard !Task.isCancelled else { return }
+            readPlans = plans
+            readPlansInputFiles = files
+        }
         .onReceive(NotificationCenter.default.publisher(for: .managedResourcesDidChange)) { _ in
             Task { await loadDatabases() }
         }
@@ -416,7 +471,7 @@ struct ClassificationWizardSheet: View {
 
             VStack(alignment: .leading, spacing: 4) {
                 ForEach(groupedSamples.prefix(8)) { sample in
-                    let mode = sample.isPairedEnd ? "PE" : "SE"
+                    let mode = readPlans[sample.sampleId]?.shortLabel ?? "checking\u{2026}"
                     Text("\u{2022} \(sample.sampleId) (\(mode))")
                         .font(.system(size: 11))
                         .lineLimit(1)
@@ -630,6 +685,8 @@ struct ClassificationWizardSheet: View {
         guard let extraArguments = try? AdvancedCommandLineOptions.parse(extraArgumentsText) else { return }
         let samples = groupedSamples
         guard !samples.isEmpty else { return }
+        guard readPlansInputFiles == inputFiles else { return }
+        let plans = readPlans
 
         let runToken = String(UUID().uuidString.prefix(8))
         let baseDir = inputFiles.first?.deletingLastPathComponent()
@@ -648,6 +705,7 @@ struct ClassificationWizardSheet: View {
 
             return Self.makeProfileConfig(
                 sample: sample,
+                readPlan: plans[sample.sampleId] ?? ClassificationSampleReadPlan.plan(for: sample),
                 database: db,
                 databasePath: dbPath,
                 outputDirectory: outputDir,
@@ -667,6 +725,7 @@ struct ClassificationWizardSheet: View {
     /// database-supported rank instead of guessing from a display name.
     static func makeProfileConfig(
         sample: MetagenomicsSampleInput,
+        readPlan: ClassificationSampleReadPlan? = nil,
         database: MetagenomicsDatabaseInfo,
         databasePath: URL,
         outputDirectory: URL,
@@ -676,10 +735,18 @@ struct ClassificationWizardSheet: View {
         memoryMapping: Bool,
         extraArguments: [String]
     ) -> ClassificationConfig {
-        ClassificationConfig(
+        // Without a plan (older callers and tests) separate files run paired
+        // and a single file runs unpaired, the pre-2026-09-24 behaviour.
+        let plan = readPlan ?? ClassificationSampleReadPlan(
+            format: sample.isPairedEnd ? .paired : .unpaired,
+            layout: nil
+        )
+        return ClassificationConfig(
             goal: .profile,
             inputFiles: sample.inputFiles,
-            isPairedEnd: sample.isPairedEnd,
+            isPairedEnd: plan.format == .paired,
+            interleavedInput: plan.format == .interleaved,
+            inputLayout: plan.layout,
             databaseName: database.name,
             databaseVersion: database.version ?? "unknown",
             databasePath: databasePath,

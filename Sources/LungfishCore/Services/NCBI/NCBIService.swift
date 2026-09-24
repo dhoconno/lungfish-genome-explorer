@@ -380,6 +380,15 @@ public actor NCBIService: DatabaseService {
 
         // Extract the accession from the GenBank content for accurate filename
         let resolvedAccession = extractAccession(from: content) ?? accession
+        let requested = accession.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+        if GenBankAccessionParser.isNucleotideAccession(requested) {
+            guard requested.split(separator: ".").first == resolvedAccession.split(separator: ".").first,
+                  !requested.contains(".") || requested == resolvedAccession else {
+                throw DatabaseServiceError.parseError(
+                    message: "NCBI returned \(resolvedAccession) for \(requested); the requested accession/version was not substituted."
+                )
+            }
+        }
 
         return (content: content, accession: resolvedAccession)
     }
@@ -454,17 +463,11 @@ public actor NCBIService: DatabaseService {
     /// Extracts the accession number from GenBank file content.
     private func extractAccession(from content: String) -> String? {
         let lines = content.components(separatedBy: "\n")
-        for line in lines {
-            if line.hasPrefix("ACCESSION") {
-                if let token = firstTokenAfterKeyword(line) {
-                    return token
-                }
-            }
-            if line.hasPrefix("VERSION") {
-                if let token = firstTokenAfterKeyword(line) {
-                    // VERSION line contains accession.version (e.g., NC_002549.1)
-                    return token
-                }
+        // VERSION follows ACCESSION in standard records; scan it first so
+        // downstream annotation requests remain pinned to the fetched sequence.
+        for keyword in ["VERSION", "ACCESSION"] {
+            for line in lines where line.hasPrefix(keyword) {
+                if let token = firstTokenAfterKeyword(line) { return token }
             }
         }
         return nil

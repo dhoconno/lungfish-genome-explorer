@@ -1210,7 +1210,7 @@ extension AppDelegate {
                             sampleId: sampleID,
                             resultDirectory: appRelativePath(from: esvBatchRoot, to: config.outputDirectory),
                             inputFiles: config.inputFiles.map(\.path),
-                            isPairedEnd: config.isPairedEnd
+                            isPairedEnd: config.readFormat.runsAsPairs
                         )
                     ]
                 )
@@ -1997,7 +1997,7 @@ extension AppDelegate {
                     sampleId: item.sampleId,
                     resultDirectory: appRelativePath(from: batchRoot, to: item.config.outputDirectory),
                     inputFiles: item.config.inputFiles.map(\.path),
-                    isPairedEnd: item.config.isPairedEnd
+                    isPairedEnd: item.config.readFormat.runsAsPairs
                 )
             }
 

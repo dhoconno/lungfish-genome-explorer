@@ -1181,8 +1181,9 @@ public struct SelectionSection: View {
                     if let chrom = annotation.chromosome {
                         LabeledContent("Chromosome", value: chrom)
                     }
-                    LabeledContent("Start", value: "\(annotation.start)")
-                    LabeledContent("End", value: "\(annotation.end)")
+                    // Stored 0-based half-open; show 1-based closed like the ruler.
+                    LabeledContent("Start", value: GenomicCoordinateDisplay.formattedStart(annotation.start))
+                    LabeledContent("End", value: GenomicCoordinateDisplay.formattedEnd(annotation.end))
                     LabeledContent("Length", value: "\(annotation.totalLength) bp")
                     let strandLabel: String = switch annotation.strand {
                     case .forward: "Forward (+)"

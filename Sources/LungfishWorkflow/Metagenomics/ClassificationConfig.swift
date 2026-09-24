@@ -89,8 +89,52 @@ public struct ClassificationConfig: Sendable, Codable, Equatable {
     /// Whether the input is paired-end.
     ///
     /// When `true`, ``inputFiles`` must contain exactly two elements and
-    /// the `--paired` flag is passed to `kraken2`.
-    public let isPairedEnd: Bool
+    /// the `--paired` flag is passed to `kraken2`. Mutable so the pipeline
+    /// can run a split interleaved input as a pair.
+    public var isPairedEnd: Bool
+
+    /// Whether the single input file holds strictly interleaved mates.
+    ///
+    /// Kraken2 has no interleaved mode, so the pipeline splits the file into
+    /// two temporary mate files and classifies them with `--paired`. Mirrors
+    /// ``EsVirituReadFormat/interleaved``: a file mixing merged reads with
+    /// pairs stays single-end.
+    public var interleavedInput: Bool
+
+    /// The read-layout classification that chose ``readFormat``, for provenance.
+    public var inputLayout: FASTQReadLayoutClassification?
+
+    /// How the configured inputs pair up (GUI/CLI parity with EsViritu).
+    public enum ReadFormat: String, Sendable, Codable, CaseIterable {
+        case unpaired
+        case paired
+        case interleaved
+
+        /// The read format for a classified single input file.
+        public static func forSingleFile(_ layout: FASTQReadLayout) -> ReadFormat {
+            layout == .strictlyInterleaved ? .interleaved : .unpaired
+        }
+
+        /// Wizard and summary label for an input with this format and layout.
+        public static func inputLabel(format: ReadFormat, layout: FASTQReadLayout?) -> String {
+            switch format {
+            case .paired:
+                return "Paired-end reads"
+            case .interleaved:
+                return "Interleaved paired-end reads"
+            case .unpaired:
+                return layout == .mixedInterleaved
+                    ? "Mixed paired and merged reads (run as single-end)"
+                    : "Single-end reads"
+            }
+        }
+    }
+
+    /// The read format derived from ``isPairedEnd`` and ``interleavedInput``.
+    public var readFormat: ReadFormat {
+        if isPairedEnd { return .paired }
+        return interleavedInput ? .interleaved : .unpaired
+    }
 
     /// Sequence format for the configured inputs.
     public var inputFormat: SequenceFormat
@@ -188,6 +232,8 @@ public struct ClassificationConfig: Sendable, Codable, Equatable {
         goal: Goal = .classify,
         inputFiles: [URL],
         isPairedEnd: Bool,
+        interleavedInput: Bool = false,
+        inputLayout: FASTQReadLayoutClassification? = nil,
         databaseName: String,
         inputFormat: SequenceFormat = .fastq,
         databaseVersion: String = "",
@@ -207,6 +253,8 @@ public struct ClassificationConfig: Sendable, Codable, Equatable {
         self.goal = goal
         self.inputFiles = inputFiles
         self.isPairedEnd = isPairedEnd
+        self.interleavedInput = interleavedInput
+        self.inputLayout = inputLayout
         self.inputFormat = inputFormat
         self.databaseName = databaseName
         self.databaseVersion = databaseVersion
@@ -260,6 +308,8 @@ public struct ClassificationConfig: Sendable, Codable, Equatable {
         goal: Goal = .classify,
         inputFiles: [URL],
         isPairedEnd: Bool,
+        interleavedInput: Bool = false,
+        inputLayout: FASTQReadLayoutClassification? = nil,
         databaseName: String,
         inputFormat: SequenceFormat = .fastq,
         databaseVersion: String = "",
@@ -279,6 +329,8 @@ public struct ClassificationConfig: Sendable, Codable, Equatable {
             goal: goal,
             inputFiles: inputFiles,
             isPairedEnd: isPairedEnd,
+            interleavedInput: interleavedInput,
+            inputLayout: inputLayout,
             databaseName: databaseName,
             inputFormat: inputFormat,
             databaseVersion: databaseVersion,
@@ -454,6 +506,12 @@ public enum ClassificationConfigError: Error, LocalizedError, Sendable {
     /// Paired-end mode requires exactly two input files.
     case pairedEndRequiresTwoFiles(got: Int)
 
+    /// Interleaved mode requires exactly one input file.
+    case interleavedRequiresOneFile(got: Int)
+
+    /// A config cannot be both separate-file paired and interleaved.
+    case interleavedConflictsWithPairedEnd
+
     /// An input file does not exist at the specified path.
     case inputFileNotFound(URL)
 
@@ -478,6 +536,10 @@ public enum ClassificationConfigError: Error, LocalizedError, Sendable {
             return "No input sequence files specified"
         case .pairedEndRequiresTwoFiles(let got):
             return "Paired-end mode requires exactly 2 input files, got \(got)"
+        case .interleavedRequiresOneFile(let got):
+            return "Interleaved mode requires exactly 1 input file, got \(got)"
+        case .interleavedConflictsWithPairedEnd:
+            return "Interleaved input cannot also be separate-file paired-end"
         case .inputFileNotFound(let url):
             return "Input file not found: \(url.lastPathComponent)"
         case .inputPathIsDirectory(let url):
@@ -504,6 +566,8 @@ extension ClassificationConfig {
         case originalInputFiles
         case inputFiles
         case isPairedEnd
+        case interleavedInput
+        case inputLayout
         case inputFormat
         case databaseName
         case databaseVersion
@@ -526,6 +590,9 @@ extension ClassificationConfig {
         let goal = try container.decodeIfPresent(Goal.self, forKey: .goal) ?? .classify
         let inputFiles = try container.decode([URL].self, forKey: .inputFiles)
         let isPairedEnd = try container.decode(Bool.self, forKey: .isPairedEnd)
+        // Sidecars written before interleaved support have no key: single-end.
+        let interleavedInput = try container.decodeIfPresent(Bool.self, forKey: .interleavedInput) ?? false
+        let inputLayout = try container.decodeIfPresent(FASTQReadLayoutClassification.self, forKey: .inputLayout)
         let inputFormat = try container.decodeIfPresent(SequenceFormat.self, forKey: .inputFormat) ?? .fastq
         let databaseName = try container.decode(String.self, forKey: .databaseName)
         let databaseVersion = try container.decodeIfPresent(String.self, forKey: .databaseVersion) ?? ""
@@ -552,6 +619,8 @@ extension ClassificationConfig {
             goal: goal,
             inputFiles: inputFiles,
             isPairedEnd: isPairedEnd,
+            interleavedInput: interleavedInput,
+            inputLayout: inputLayout,
             databaseName: databaseName,
             inputFormat: inputFormat,
             databaseVersion: databaseVersion,
@@ -584,6 +653,15 @@ extension ClassificationConfig {
 
         if isPairedEnd && inputFiles.count != 2 {
             throw ClassificationConfigError.pairedEndRequiresTwoFiles(got: inputFiles.count)
+        }
+
+        if interleavedInput {
+            if isPairedEnd {
+                throw ClassificationConfigError.interleavedConflictsWithPairedEnd
+            }
+            if inputFiles.count != 1 {
+                throw ClassificationConfigError.interleavedRequiresOneFile(got: inputFiles.count)
+            }
         }
 
         let fm = FileManager.default

@@ -603,11 +603,15 @@ extension AnnotationTableDrawerView {
         case Self.chromosomeColumn:
             tf.stringValue = annotation.chromosome
         case Self.startColumn:
-            tf.stringValue = numberFormatter.string(from: NSNumber(value: annotation.start)) ?? "\(annotation.start)"
+            // Stored 0-based half-open; show 1-based closed like the ruler,
+            // Go to Location and the source GenBank/GFF record.
+            let displayStart = GenomicCoordinateDisplay.displayStart(annotation.start)
+            tf.stringValue = numberFormatter.string(from: NSNumber(value: displayStart)) ?? "\(displayStart)"
             tf.font = .monospacedDigitSystemFont(ofSize: 11, weight: .regular)
             tf.alignment = .right
         case Self.endColumn:
-            tf.stringValue = numberFormatter.string(from: NSNumber(value: annotation.end)) ?? "\(annotation.end)"
+            let displayEnd = GenomicCoordinateDisplay.displayEnd(annotation.end)
+            tf.stringValue = numberFormatter.string(from: NSNumber(value: displayEnd)) ?? "\(displayEnd)"
             tf.font = .monospacedDigitSystemFont(ofSize: 11, weight: .regular)
             tf.alignment = .right
         case Self.sizeColumn:
@@ -984,9 +988,11 @@ extension AnnotationTableDrawerView {
         case Self.chromosomeColumn, Self.variantChromColumn:
             return annotation.chromosome
         case Self.startColumn:
-            return numberFormatter.string(from: NSNumber(value: annotation.start)) ?? "\(annotation.start)"
+            let displayStart = GenomicCoordinateDisplay.displayStart(annotation.start)
+            return numberFormatter.string(from: NSNumber(value: displayStart)) ?? "\(displayStart)"
         case Self.endColumn:
-            return numberFormatter.string(from: NSNumber(value: annotation.end)) ?? "\(annotation.end)"
+            let displayEnd = GenomicCoordinateDisplay.displayEnd(annotation.end)
+            return numberFormatter.string(from: NSNumber(value: displayEnd)) ?? "\(displayEnd)"
         case Self.sizeColumn:
             return formatSize(annotation.end - annotation.start)
         case Self.strandColumn:

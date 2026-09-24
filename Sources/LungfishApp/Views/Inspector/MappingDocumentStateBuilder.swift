@@ -1,7 +1,39 @@
 import Foundation
+import LungfishIO
 import LungfishWorkflow
 
 enum MappingDocumentStateBuilder {
+
+    /// The Run Settings "Paired End" value. `pairedEnd` is the request flag,
+    /// which is only ever true for a split R1/R2 file pair. An interleaved
+    /// single file reaches the mapper as one input, so the flag stays false
+    /// even though minimap2 (`-x sr`) and BBMap (`interleaved=auto`) pair
+    /// consecutive same-name records on their own; the label says so instead
+    /// of reporting "No" for a BAM that is properly paired. bwa-mem2 and
+    /// bowtie2 receive no interleave flag from `MappingCommandBuilder`, so for
+    /// them an interleaved file really is mapped as single-end reads.
+    static func pairedEndDescription(
+        pairedEnd: Bool,
+        mapper: MappingTool,
+        inputPairingMode: IngestionMetadata.PairingMode?
+    ) -> String {
+        if pairedEnd { return "Yes" }
+        guard inputPairingMode == .interleaved else { return "No" }
+        switch mapper {
+        case .minimap2, .bbmap:
+            return "Yes (interleaved)"
+        case .bwaMem2, .bowtie2:
+            return "No (interleaved input mapped as single-end)"
+        }
+    }
+
+    /// The recorded pairing mode of the run's FASTQ input, from the
+    /// `.lungfish-meta.json` sidecar next to the first input that has one.
+    static func inputPairingMode(for provenance: MappingProvenance) -> IngestionMetadata.PairingMode? {
+        provenance.inputFASTQPaths.lazy.compactMap { path in
+            FASTQMetadataStore.load(for: URL(fileURLWithPath: path))?.ingestion?.pairingMode
+        }.first
+    }
     static func build(
         result: MappingResult,
         provenance: MappingProvenance?,
@@ -126,7 +158,14 @@ enum MappingDocumentStateBuilder {
 
         rows.append(("Sample Name", provenance.sampleName))
         rows.append(("Read Class Hints", provenance.readClassHints.isEmpty ? "None recorded" : provenance.readClassHints.joined(separator: ", ")))
-        rows.append(("Paired End", provenance.pairedEnd ? "Yes" : "No"))
+        rows.append((
+            "Paired End",
+            pairedEndDescription(
+                pairedEnd: provenance.pairedEnd,
+                mapper: provenance.mapper,
+                inputPairingMode: inputPairingMode(for: provenance)
+            )
+        ))
         rows.append(("Threads", String(provenance.threads)))
         rows.append(("Minimum MAPQ", String(provenance.minimumMappingQuality)))
         rows.append(("Include Secondary", provenance.includeSecondary ? "Yes" : "No"))

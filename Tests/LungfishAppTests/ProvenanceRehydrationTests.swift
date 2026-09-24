@@ -314,6 +314,103 @@ final class ProvenanceRehydrationTests: XCTestCase {
         XCTAssertEqual(rehydrated.output?.sourceProvenancePath, sourceSidecarURL.path)
     }
 
+    /// Regression: an existing chunked FASTQ bundle carries a complete root
+    /// envelope (whose primary output is the bundle directory itself) plus a
+    /// rollup and per-output sidecars. Copying the bundle must select the
+    /// complete envelope rather than a single-output sidecar, and must rewrite
+    /// the directory-valued primary output without trying to hash a directory.
+    func testRehydrateSelectsCompleteBundleEnvelopeAndRewritesDirectoryPrimaryOutput() throws {
+        let tempDir = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let sourceBundleURL = tempDir.appendingPathComponent("barcode08.lungfishfastq", isDirectory: true)
+        let stagingBundleURL = tempDir.appendingPathComponent(".barcode08.staging.lungfishfastq", isDirectory: true)
+        let relativePaths = ["chunks/chunk_0.fastq", "chunks/chunk_1.fastq", "preview.fastq", "source-files.json"]
+        for bundleURL in [sourceBundleURL, stagingBundleURL] {
+            try FileManager.default.createDirectory(
+                at: bundleURL.appendingPathComponent("chunks", isDirectory: true),
+                withIntermediateDirectories: true
+            )
+            for relativePath in relativePaths {
+                try Data("payload \(relativePath)\n".utf8).write(
+                    to: bundleURL.appendingPathComponent(relativePath),
+                    options: .atomic
+                )
+            }
+        }
+
+        let sourceOutputs = try relativePaths.map {
+            try ProvenanceFileDescriptor.file(
+                url: sourceBundleURL.appendingPathComponent($0),
+                format: $0.hasSuffix(".json") ? .json : .fastq,
+                role: .output
+            )
+        }
+        let sourceEnvelope = ProvenanceEnvelope(
+            workflowName: "source FASTQ import",
+            workflowVersion: "1.0",
+            toolName: "source-fastq-import",
+            toolVersion: "1.0",
+            argv: ["source-fastq-import", sourceBundleURL.path],
+            files: sourceOutputs,
+            output: ProvenanceFileDescriptor(path: sourceBundleURL.path, format: .unknown, role: .output),
+            outputs: sourceOutputs,
+            steps: [
+                ProvenanceStep(
+                    toolName: "source-fastq-import",
+                    toolVersion: "1.0",
+                    argv: ["source-fastq-import", sourceBundleURL.path],
+                    outputs: sourceOutputs,
+                    exitStatus: 0,
+                    wallTimeSeconds: 0.1
+                )
+            ],
+            wallTimeSeconds: 0.1,
+            exitStatus: 0
+        )
+        try ProvenanceWriter(signingProvider: nil).write(sourceEnvelope, to: sourceBundleURL)
+        XCTAssertTrue(FileManager.default.fileExists(
+            atPath: sourceBundleURL
+                .appendingPathComponent(ProvenanceWriter.bundleProvenanceDirectoryName)
+                .appendingPathComponent("chunks/chunk_0.fastq.lungfish-provenance.json")
+                .path
+        ), "Fixture must contain per-output sidecars alongside the complete envelope")
+
+        var pathMap = [sourceBundleURL.path: stagingBundleURL.path]
+        for relativePath in relativePaths {
+            pathMap[sourceBundleURL.appendingPathComponent(relativePath).path] =
+                stagingBundleURL.appendingPathComponent(relativePath).path
+        }
+
+        let rehydrated = try ProvenanceRehydrator.rehydrateSelectedOutputs(
+            sourceDirectory: sourceBundleURL,
+            finalDirectory: stagingBundleURL,
+            pathMap: pathMap
+        )
+
+        XCTAssertEqual(rehydrated.workflowName, "source FASTQ import")
+        XCTAssertEqual(
+            Set(rehydrated.outputs.map(\.path)),
+            Set(relativePaths.map { stagingBundleURL.appendingPathComponent($0).path }),
+            "The complete envelope must win over single-output sidecars"
+        )
+        XCTAssertEqual(rehydrated.steps.count, 1)
+        XCTAssertEqual(rehydrated.steps.first?.outputs.count, relativePaths.count)
+        let primary = try XCTUnwrap(rehydrated.output)
+        XCTAssertEqual(primary.path, stagingBundleURL.path)
+        XCTAssertEqual(primary.originPath, sourceBundleURL.path)
+        XCTAssertNil(primary.checksumSHA256, "Directory outputs carry no checksum")
+        XCTAssertNil(primary.fileSize)
+        XCTAssertEqual(
+            primary.sourceProvenancePath,
+            sourceBundleURL.appendingPathComponent(ProvenanceRecorder.provenanceFilename).path
+        )
+        for output in rehydrated.outputs {
+            XCTAssertEqual(output.checksumSHA256, try ProvenanceFileHasher.sha256(of: URL(fileURLWithPath: output.path)))
+        }
+        XCTAssertNotNil(ProvenanceRecorder.loadEnvelope(from: stagingBundleURL))
+    }
+
     func testRehydrateRejectsReadableSidecarWithUnmatchedOutputs() throws {
         let tempDir = try makeTempDirectory()
         defer { try? FileManager.default.removeItem(at: tempDir) }

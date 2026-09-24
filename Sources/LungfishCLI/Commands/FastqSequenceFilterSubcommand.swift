@@ -39,6 +39,8 @@ struct FastqSequenceFilterSubcommand: AsyncParsableCommand {
     @Flag(name: .customLong("search-rc"), help: "Also search the reverse complement of the sequence")
     var searchReverseComplement: Bool = false
 
+    @OptionGroup var pairing: FASTQPairingOptions
+
     func run() async throws {
         let inputURL = try validateInput(input)
         try output.validateOutput()
@@ -47,12 +49,20 @@ struct FastqSequenceFilterSubcommand: AsyncParsableCommand {
             throw CLIError.conversionFailed(reason: "Either --sequence or --fasta-path must be specified")
         }
 
+        let isInterleaved = try await pairing.resolveIsInterleaved(inputURL: inputURL)
+
         var args: [String] = ["in=\(inputURL.path)"]
 
         if keepMatched {
             args.append("outm=\(output.output)")
         } else {
             args.append("out=\(output.output)")
+        }
+        if isInterleaved {
+            // Pair-aware: a pair counts as matched when either mate matches
+            // (bbduk's default removeifeitherbad=t), so `outm=` receives both
+            // mates and `out=` drops both. Nothing is ever split.
+            args.append("interleaved=t")
         }
 
         if let sequence {
@@ -110,6 +120,7 @@ struct FastqSequenceFilterSubcommand: AsyncParsableCommand {
         if searchReverseComplement {
             cliArguments.append("--search-rc")
         }
+        cliArguments += pairing.cliArguments
         if output.force {
             cliArguments.append("--force")
         }
@@ -142,6 +153,8 @@ struct FastqSequenceFilterSubcommand: AsyncParsableCommand {
                 "errorRate": .number(errorRate),
                 "keepMatched": .boolean(keepMatched),
                 "searchReverseComplement": .boolean(searchReverseComplement),
+                "pairing": pairing.provenanceValue,
+                "interleaved": .boolean(isInterleaved),
                 "force": .boolean(output.force),
                 "compress": .boolean(output.compress)
             ],
@@ -153,6 +166,8 @@ struct FastqSequenceFilterSubcommand: AsyncParsableCommand {
                 "errorRate": .number(0.1),
                 "keepMatched": .boolean(false),
                 "searchReverseComplement": .boolean(false),
+                "pairing": FASTQPairingOptions.provenanceDefault,
+                "interleaved": .boolean(false),
                 "force": .boolean(false),
                 "compress": .boolean(false)
             ],

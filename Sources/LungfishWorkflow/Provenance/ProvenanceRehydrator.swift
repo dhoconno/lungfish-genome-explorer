@@ -193,11 +193,24 @@ public enum ProvenanceRehydrator {
         if mappedSourcePaths.isEmpty {
             return decodedCandidates.first
         }
-        for candidate in decodedCandidates where provenanceOutputPaths(candidate.envelope).isDisjoint(with: mappedSourcePaths) == false {
-            return candidate
+        // A bundle contains both a complete envelope and per-output sidecars.
+        // Prefer the candidate covering the most copied outputs; choosing the
+        // first intersecting sidecar can silently discard the rest of a bundle.
+        var bestCandidate: (url: URL, envelope: ProvenanceEnvelope)?
+        var bestCoverage = 0
+        var bestDeclaredCoverage = 0
+        for candidate in decodedCandidates {
+            let coverage = provenanceOutputPaths(candidate.envelope).intersection(mappedSourcePaths).count
+            let declaredPaths = Set(candidate.envelope.outputs.map(\.path)
+                + (candidate.envelope.output.map { [$0.path] } ?? []))
+            let declaredCoverage = declaredPaths.intersection(mappedSourcePaths).count
+            if coverage > bestCoverage || (coverage > 0 && coverage == bestCoverage && declaredCoverage > bestDeclaredCoverage) {
+                bestCandidate = candidate
+                bestCoverage = coverage
+                bestDeclaredCoverage = declaredCoverage
+            }
         }
-
-        return nil
+        return bestCandidate
     }
 
     private static func appendDecodedSidecars(
@@ -494,6 +507,20 @@ public enum ProvenanceRehydrator {
             return descriptor
         }
         let finalURL = URL(fileURLWithPath: finalPath)
+        // A bundle-level envelope names the bundle directory itself as its
+        // primary output. Directories carry no checksum or size, and opening
+        // one as a file fails, so relocate the descriptor without hashing it.
+        if isDirectory(atPath: finalURL.path) || isDirectory(atPath: descriptor.path) {
+            return ProvenanceFileDescriptor(
+                path: finalURL.path,
+                checksumSHA256: nil,
+                fileSize: nil,
+                format: descriptor.format,
+                role: descriptor.role,
+                originPath: preserveOriginMetadata ? descriptor.path : nil,
+                sourceProvenancePath: preserveOriginMetadata ? sourceProvenancePath : nil
+            )
+        }
         return try ProvenanceFileDescriptor.file(
             url: finalURL,
             format: descriptor.format,
@@ -501,6 +528,12 @@ public enum ProvenanceRehydrator {
             originPath: preserveOriginMetadata ? descriptor.path : nil,
             sourceProvenancePath: preserveOriginMetadata ? sourceProvenancePath : nil
         )
+    }
+
+    private static func isDirectory(atPath path: String) -> Bool {
+        var isDirectory: ObjCBool = false
+        return FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory)
+            && isDirectory.boolValue
     }
 
     private static func mappedPath(for path: String, in pathMap: [String: String]) -> String? {

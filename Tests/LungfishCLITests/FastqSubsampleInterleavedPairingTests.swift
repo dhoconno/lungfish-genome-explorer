@@ -83,7 +83,9 @@ final class FastqSubsampleInterleavedPairingTests: XCTestCase {
         try await command.run()
 
         let records = try await readAllRecords(at: outputURL)
-        XCTAssertEqual(records.count, 100, "Requesting 50 pairs must yield exactly 100 records (both mates of every pair)")
+        // --count is a read count (the dialog says "Keep a fixed number of
+        // reads"), so 50 reads means 25 whole pairs, never 50 pairs.
+        XCTAssertEqual(records.count, 50, "Requesting 50 reads must yield exactly 50 records (25 whole pairs)")
 
         var index = 0
         while index < records.count {

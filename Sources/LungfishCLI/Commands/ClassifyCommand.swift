@@ -88,6 +88,20 @@ struct ClassifyCommand: AsyncParsableCommand {
     @Flag(name: .customLong("paired"), help: "Input files are paired-end reads")
     var pairedEnd: Bool = false
 
+    @Option(
+        name: .customLong("read-format"),
+        help: ArgumentHelp(
+            "Read layout: auto, unpaired, paired, or interleaved.",
+            discussion: """
+            auto (default) scans a single input: a file or bundle of strictly alternating \
+            R1/R2 records runs as interleaved pairs (split into two mate files for \
+            kraken2 --paired); interleaved pairs mixed with merged reads, and true \
+            single-end input, run unpaired. Two separate files need --paired.
+            """
+        )
+    )
+    var readFormat: ReadFormatChoice = .auto
+
     @Flag(name: .customLong("recursive"), help: "When an input is a directory, include eligible FASTQ/FASTA files in subfolders")
     var recursive: Bool = false
 
@@ -126,6 +140,45 @@ struct ClassifyCommand: AsyncParsableCommand {
     var extraArgs: String = ""
 
     @OptionGroup var globalOptions: GlobalOptions
+
+    /// `--read-format` values. `auto` resolves per input, mirroring
+    /// `lungfish esviritu detect` (NEW-06, D19).
+    enum ReadFormatChoice: String, ExpressibleByArgument, CaseIterable, Sendable {
+        case auto
+        case unpaired
+        case paired
+        case interleaved
+    }
+
+    /// The read format a run will use, with the layout scan that chose it.
+    struct ResolvedReadFormat: Equatable, Sendable {
+        let format: ClassificationConfig.ReadFormat
+        let layout: FASTQReadLayoutClassification?
+    }
+
+    /// Resolves `--read-format` and `--paired` into the classification read format.
+    ///
+    /// `auto` classifies a single input with ``FASTQReadLayoutClassifier``;
+    /// several inputs without `--paired` stay unpaired, as before.
+    func resolveReadFormat(inputURLs: [URL]) throws -> ResolvedReadFormat {
+        if pairedEnd {
+            guard readFormat == .auto || readFormat == .paired else {
+                throw CLIError.validationFailed(errors: [
+                    "--paired conflicts with --read-format \(readFormat.rawValue)."
+                ])
+            }
+            return ResolvedReadFormat(format: .paired, layout: nil)
+        }
+        switch readFormat {
+        case .unpaired: return ResolvedReadFormat(format: .unpaired, layout: nil)
+        case .paired: return ResolvedReadFormat(format: .paired, layout: nil)
+        case .interleaved: return ResolvedReadFormat(format: .interleaved, layout: nil)
+        case .auto:
+            guard inputURLs.count == 1 else { return ResolvedReadFormat(format: .unpaired, layout: nil) }
+            let layout = FASTQReadLayoutClassifier.classify(inputURL: inputURLs[0])
+            return ResolvedReadFormat(format: .forSingleFile(layout.layout), layout: layout)
+        }
+    }
 
     // MARK: - Execution
 
@@ -179,9 +232,21 @@ struct ClassifyCommand: AsyncParsableCommand {
             throw CLIError.validationFailed(errors: ["No eligible FASTQ or FASTA inputs found."])
         }
 
-        if pairedEnd && inputURLs.count != 2 {
+        // Resolve the read format (auto-detects interleaving for one input).
+        let resolvedReadFormat: ResolvedReadFormat
+        do {
+            resolvedReadFormat = try resolveReadFormat(inputURLs: inputURLs)
+        } catch {
+            failureContext.failureMessage = error.localizedDescription
+            throw error
+        }
+        if resolvedReadFormat.format == .paired && inputURLs.count != 2 {
             failureContext.failureMessage = "Paired-end mode requires exactly 2 input files, got \(inputURLs.count)."
             throw CLIError.validationFailed(errors: ["Paired-end mode requires exactly 2 input files, got \(inputURLs.count)."])
+        }
+        if resolvedReadFormat.format == .interleaved && inputURLs.count != 1 {
+            failureContext.failureMessage = "Interleaved mode requires exactly 1 input file, got \(inputURLs.count)."
+            throw CLIError.validationFailed(errors: ["Interleaved mode requires exactly 1 input file, got \(inputURLs.count)."])
         }
 
         let inputFormat: SequenceFormat
@@ -295,6 +360,7 @@ struct ClassifyCommand: AsyncParsableCommand {
         let effectiveThreads = globalOptions.threads ?? 4
         var config = makeConfig(
             inputURLs: executionInputURLs,
+            readFormat: resolvedReadFormat,
             databaseInfo: dbInfo,
             databasePath: dbPath,
             inputFormat: inputFormat,
@@ -320,7 +386,7 @@ struct ClassifyCommand: AsyncParsableCommand {
         print(formatter.keyValueTable([
             ("Input files", inputURLs.map(\.lastPathComponent).joined(separator: ", ")),
             ("Input format", inputFormat == .fasta ? "FASTA" : "FASTQ"),
-            ("Paired-end", pairedEnd ? "yes" : "no"),
+            ("Read format", "\(config.readFormat.rawValue) (\(ClassificationConfig.ReadFormat.inputLabel(format: config.readFormat, layout: config.inputLayout?.layout)))"),
             ("Database", databaseName),
             ("Preset", preset.rawValue),
             ("Confidence", String(format: "%.2f", config.confidence)),
@@ -665,6 +731,9 @@ struct ClassifyCommand: AsyncParsableCommand {
         if argvContainsOption(argv, names: ["--paired"]) {
             options["pairedEnd"] = .boolean(command.pairedEnd)
         }
+        if argvContainsOption(argv, names: ["--read-format"]) {
+            options["readFormat"] = .string(command.readFormat.rawValue)
+        }
         if argvContainsOption(argv, names: ["--recursive"]) {
             options["recursive"] = .boolean(command.recursive)
         }
@@ -760,6 +829,7 @@ struct ClassifyCommand: AsyncParsableCommand {
             "goal": .string(command.profile ? "profile" : "classify"),
             "preset": .string(command.preset.rawValue),
             "pairedEnd": .boolean(command.pairedEnd),
+            "readFormat": .string(command.readFormat.rawValue),
             "recursive": .boolean(command.recursive),
             "profile": .boolean(command.profile),
             "confidence": .number(command.confidence ?? presetParameters.confidence),
@@ -1099,6 +1169,7 @@ struct ClassifyCommand: AsyncParsableCommand {
         return [
             "preset": .string("balanced"),
             "pairedEnd": .boolean(false),
+            "readFormat": .string(ReadFormatChoice.auto.rawValue),
             "recursive": .boolean(false),
             "profile": .boolean(false),
             "confidence": .number(presetParameters.confidence),
@@ -1145,6 +1216,7 @@ struct ClassifyCommand: AsyncParsableCommand {
             "goal": .string(config.goal.rawValue),
             "preset": .string(preset),
             "pairedEnd": .boolean(config.isPairedEnd),
+            "readFormat": .string(config.readFormat.rawValue),
             "recursive": .boolean(recursive),
             "profile": .boolean(profileRequested),
             "confidence": .number(config.confidence),
@@ -1194,6 +1266,9 @@ struct ClassifyCommand: AsyncParsableCommand {
         }
         if argvContainsOption(argv, names: ["--paired"]) {
             options["pairedEnd"] = .boolean(config.isPairedEnd)
+        }
+        if argvContainsOption(argv, names: ["--read-format"]) {
+            options["readFormat"] = .string(config.readFormat.rawValue)
         }
         if argvContainsOption(argv, names: ["--recursive"]) {
             options["recursive"] = .boolean(true)
@@ -1505,6 +1580,7 @@ struct ClassifyCommand: AsyncParsableCommand {
 
     private func makeConfig(
         inputURLs: [URL],
+        readFormat: ResolvedReadFormat,
         databaseInfo: MetagenomicsDatabaseInfo,
         databasePath: URL,
         inputFormat: SequenceFormat,
@@ -1516,7 +1592,9 @@ struct ClassifyCommand: AsyncParsableCommand {
             preset.toPreset(),
             goal: profile ? .profile : .classify,
             inputFiles: inputURLs,
-            isPairedEnd: pairedEnd,
+            isPairedEnd: readFormat.format == .paired,
+            interleavedInput: readFormat.format == .interleaved,
+            inputLayout: readFormat.layout,
             databaseName: databaseName,
             inputFormat: inputFormat,
             databaseVersion: databaseInfo.version ?? "unknown",
@@ -1559,6 +1637,7 @@ struct ClassifyCommand: AsyncParsableCommand {
         }
         return makeConfig(
             inputURLs: inputURLs,
+            readFormat: try resolveReadFormat(inputURLs: inputURLs),
             databaseInfo: databaseInfo,
             databasePath: databasePath,
             inputFormat: inputFormat,
@@ -1574,11 +1653,14 @@ struct ClassifyCommand: AsyncParsableCommand {
         inputFormat: SequenceFormat,
         outputDirectory: URL
     ) throws -> ClassificationConfig {
-        ClassificationConfig.fromPreset(
+        let readFormat = try resolveReadFormat(inputURLs: inputURLs)
+        return ClassificationConfig.fromPreset(
             preset.toPreset(),
             goal: profile ? .profile : .classify,
             inputFiles: inputURLs,
-            isPairedEnd: pairedEnd,
+            isPairedEnd: readFormat.format == .paired,
+            interleavedInput: readFormat.format == .interleaved,
+            inputLayout: readFormat.layout,
             databaseName: databaseName,
             inputFormat: inputFormat,
             databaseVersion: "unknown",

@@ -112,6 +112,10 @@ struct CLIVariantCallingRunner {
             arguments += ["--medaka-model", medakaModel]
         }
 
+        if request.caller == .bcftools, let ploidy = request.ploidy {
+            arguments += ["--ploidy", ploidy.commandLineValue]
+        }
+
         if !request.advancedArguments.isEmpty {
             arguments += ["--extra-args", AdvancedCommandLineOptions.join(request.advancedArguments)]
         }

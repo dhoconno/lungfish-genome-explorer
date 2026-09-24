@@ -213,6 +213,12 @@ extension FASTQDerivativeService {
                 "subs=\(substitutions)",
                 "ow=t"
             ]
+            if isInterleaved {
+                // clumpify compares and clusters whole pairs and keeps both
+                // mates adjacent; without it identical-name mates are
+                // reordered as independent single reads.
+                args.append("interleaved=t")
+            }
             if optical {
                 args.append("optical=t")
                 args.append("dupedist=\(opticalDistance)")

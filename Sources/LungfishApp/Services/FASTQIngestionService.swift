@@ -631,6 +631,7 @@ public enum FASTQIngestionService {
             qualityBinning: importConfig.qualityBinning.rawValue,
             optimizeStorage: !importConfig.skipClumpify,
             clumpingTool: importConfig.clumpingTool,
+            pairingMode: importConfig.pairingMode,
             compressionLevel: importConfig.compressionLevel?.rawValue ?? "balanced",
             bundleName: bundleName,
             force: force
@@ -656,7 +657,7 @@ public enum FASTQIngestionService {
         )
     }
 
-    nonisolated private static func cliPlatformString(for platform: LungfishIO.SequencingPlatform) -> String {
+    nonisolated static func cliPlatformString(for platform: LungfishIO.SequencingPlatform) -> String {
         switch platform {
         case .illumina:
             return "illumina"
@@ -671,7 +672,7 @@ public enum FASTQIngestionService {
         }
     }
 
-    nonisolated private static func resolvedRecipeName(for importConfig: FASTQImportConfiguration) -> String? {
+    nonisolated static func resolvedRecipeName(for importConfig: FASTQImportConfiguration) -> String? {
         if let name = importConfig.recipeName {
             return name
         }

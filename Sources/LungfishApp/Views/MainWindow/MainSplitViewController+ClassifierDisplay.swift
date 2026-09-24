@@ -439,7 +439,7 @@ extension MainSplitViewController {
                     // this summary -- EsViritu has no such option, so
                     // `cfg.minReadLength` was never applied and echoing it
                     // here contradicted the actual computation.
-                    esVirituParams["Paired-End"] = cfg.isPairedEnd ? "Yes" : "No"
+                    esVirituParams["Paired-End"] = cfg.readFormat.pairedEndLabel
                     let runtimeStr = formatInspectorRuntime(sampleResult.runtime)
                     if !runtimeStr.isEmpty { esVirituParams["Runtime (first sample)"] = runtimeStr }
                 }
