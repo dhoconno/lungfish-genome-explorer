@@ -69,6 +69,10 @@ public enum IlluminaAmpliconPairMerger {
         /// the directory is deleted as soon as the merge returns.
         public let stagingRoot: URL?
         public let stderr: String
+        /// Reads that had no adjacent mate in a MIXED input (merged or orphan
+        /// reads). They bypass bbmerge and are appended to the mapping FASTQ
+        /// untouched. Zero for strictly interleaved input.
+        public var unpairedPassthroughCount: Int = 0
 
         public var didMerge: Bool { disposition == .merged }
     }
@@ -195,7 +199,13 @@ public enum IlluminaAmpliconPairMerger {
         stem: String,
         threads: Int
     ) async throws -> Outcome {
-        guard try await fastqIsInterleavedPairs(at: fastqURL) else {
+        // The layout resolver reads the bundle metadata and the records the
+        // same way every FASTQ consumer does. `bbmerge interleaved=t` pairs
+        // by position, so only strictly interleaved pairs are handed to it;
+        // in a MIXED file the pairs are first separated from the merged
+        // reads by name, and the merged reads bypass bbmerge untouched.
+        let resolution = FASTQInputLayoutResolver.resolve(inputURLs: [fastqURL])
+        guard resolution.layout.holdsPairs else {
             let count = try await countRecords(at: fastqURL)
             return Outcome(
                 mappingFASTQURL: fastqURL,
@@ -211,8 +221,28 @@ public enum IlluminaAmpliconPairMerger {
         }
 
         try FileManager.default.createDirectory(at: workingDirectory, withIntermediateDirectories: true)
+        let mergeInputURL: URL
+        let passthroughURL: URL?
+        let passthroughCount: Int
+        if resolution.layout == .mixedMergedAndPairs {
+            let partition = try partitionMixedInput(fastqURL: fastqURL, workingDirectory: workingDirectory, stem: stem)
+            mergeInputURL = partition.pairsURL
+            passthroughURL = partition.unpairedURL
+            passthroughCount = partition.counts.unpaired
+        } else {
+            mergeInputURL = fastqURL
+            passthroughURL = nil
+            passthroughCount = 0
+        }
+        defer {
+            if let passthroughURL {
+                try? FileManager.default.removeItem(at: mergeInputURL)
+                try? FileManager.default.removeItem(at: passthroughURL)
+            }
+        }
+
         let staging = try MergeStaging.plan(
-            fastqURL: fastqURL,
+            fastqURL: mergeInputURL,
             workingDirectory: workingDirectory,
             stem: stem
         )
@@ -249,14 +279,14 @@ public enum IlluminaAmpliconPairMerger {
         // destination path regardless of whitespace.
         let mappingURL = workingDirectory.appendingPathComponent("\(stem).for-mapping.fastq")
         let mappingCount = try concatenate(
-            sources: [mergedURL, unmergedURL],
+            sources: [mergedURL, unmergedURL] + (passthroughURL.map { [$0] } ?? []),
             into: mappingURL
         )
         guard mappingCount > 0 else {
             throw MergeError.bbmergeProducedNoReads(stderr: stderr)
         }
 
-        return Outcome(
+        var outcome = Outcome(
             mappingFASTQURL: mappingURL,
             disposition: .merged,
             pairCount: mergedCount + (unmergedCount / 2),
@@ -267,6 +297,41 @@ public enum IlluminaAmpliconPairMerger {
             stagingRoot: staging.temporaryRoot,
             stderr: stderr
         )
+        outcome.unpairedPassthroughCount = passthroughCount
+        return outcome
+    }
+
+    /// Splits a mixed input into a strictly interleaved pairs file and a
+    /// file of reads without a mate, both under `workingDirectory`.
+    ///
+    /// Shared with `lungfish-cli fastq merge`, which faces the same file.
+    public static func partitionMixedInput(
+        fastqURL: URL,
+        workingDirectory: URL,
+        stem: String
+    ) throws -> (pairsURL: URL, unpairedURL: URL, counts: FASTQPairInterleaver.MixedCounts) {
+        let pairsURL = workingDirectory.appendingPathComponent("\(stem).pairs.fastq")
+        let unpairedURL = workingDirectory.appendingPathComponent("\(stem).unpaired.fastq")
+        let fm = FileManager.default
+        fm.createFile(atPath: pairsURL.path, contents: nil)
+        fm.createFile(atPath: unpairedURL.path, contents: nil)
+        guard let pairsHandle = FileHandle(forWritingAtPath: pairsURL.path),
+              let unpairedHandle = FileHandle(forWritingAtPath: unpairedURL.path) else {
+            throw FASTQPairInterleaver.InterleaveError.unreadableInput(
+                file: fastqURL.lastPathComponent,
+                reason: "cannot open the pair and unpaired scratch files in \(workingDirectory.path)"
+            )
+        }
+        defer {
+            try? pairsHandle.close()
+            try? unpairedHandle.close()
+        }
+        let counts = try FASTQPairInterleaver.partitionMixed(
+            interleaved: fastqURL,
+            pairs: pairsHandle,
+            unpaired: unpairedHandle
+        )
+        return (pairsURL, unpairedURL, counts)
     }
 
     // MARK: - Whitespace staging

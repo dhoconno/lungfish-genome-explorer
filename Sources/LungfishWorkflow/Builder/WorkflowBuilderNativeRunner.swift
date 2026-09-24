@@ -161,10 +161,13 @@ public struct WorkflowBuilderNativeRunner: Sendable {
             throw WorkflowBuilderNativeRunnerError.noFASTQPayload(bundleURL.path)
         }
         if fastqFiles.count == 1 {
-            let pairingMode = FASTQMetadataStore.load(for: fastqFiles[0])?.ingestion?.pairingMode
+            // The sidecar's pairingMode is a claim; the resolver checks the
+            // records too. A file that mixes merged reads with pairs enters
+            // the recipe as single reads, never as positional pairs.
+            let resolution = FASTQInputLayoutResolver.resolve(inputURLs: [fastqFiles[0]])
             return StepInput(
                 r1: fastqFiles[0],
-                format: pairingMode == .interleaved ? .interleaved : .single
+                format: resolution.layout == .strictlyInterleaved ? .interleaved : .single
             )
         }
 

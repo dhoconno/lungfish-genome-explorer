@@ -484,6 +484,15 @@ public actor ClassificationPipeline {
         // split into two temporary mate files and classified with `--paired`.
         // The split runs after replay materialization so provenance and the
         // result sidecar keep the durable interleaved file, not the halves.
+        // A forced `--read-format interleaved` (or a stale wizard choice) is
+        // re-checked against the records before the positional split: a file
+        // that mixes merged reads with pairs runs unpaired, with a warning.
+        let interleavedRequest = Self.reconcileInterleavedRequest(effectiveConfig)
+        if let warning = interleavedRequest.warning {
+            logger.warning("\(warning, privacy: .public)")
+            progress?(0.04, warning)
+            effectiveConfig = interleavedRequest.config
+        }
         var kraken2Config = effectiveConfig
         let interleavedSplitDirectory = effectiveConfig.outputDirectory
             .appendingPathComponent(Self.interleavedSplitDirectoryName, isDirectory: true)
@@ -1136,6 +1145,33 @@ public actor ClassificationPipeline {
     /// Scratch directory (inside the run's output directory) holding the two
     /// mate files split from a strictly interleaved input for the kraken2 run.
     static let interleavedSplitDirectoryName = ".lungfish-interleaved-split"
+
+    /// Re-checks a request to split one input as interleaved pairs against
+    /// the records, through the shared layout resolver.
+    ///
+    /// kraken2 pairs the split halves by position, so only a strictly
+    /// interleaved file may be split. When the file mixes merged reads with
+    /// pairs, or holds no adjacent mates at all, the returned config runs
+    /// the file unpaired and `warning` says why. A config that did not ask
+    /// for interleaved handling is returned unchanged with no warning.
+    static func reconcileInterleavedRequest(
+        _ config: ClassificationConfig
+    ) -> (config: ClassificationConfig, resolution: FASTQInputLayoutResolution?, warning: String?) {
+        guard config.interleavedInput, config.inputFiles.count == 1, let source = config.inputFiles.first else {
+            return (config, nil, nil)
+        }
+        let resolution = FASTQInputLayoutResolver.resolve(inputURLs: [source])
+        guard resolution.layout != .strictlyInterleaved else {
+            return (config, resolution, nil)
+        }
+        var adjusted = config
+        adjusted.interleavedInput = false
+        adjusted.isPairedEnd = false
+        adjusted.inputLayout = resolution.classification ?? config.inputLayout
+        let warning = "\(source.lastPathComponent) was requested as interleaved pairs, but \(resolution.reason) "
+            + "kraken2 pairs split halves by position, so the reads run as single-end instead."
+        return (adjusted, resolution, warning)
+    }
 
     /// Splits a strictly interleaved FASTQ into `<stem>_R1.fastq` and
     /// `<stem>_R2.fastq` under `directory`, replacing any earlier split.
