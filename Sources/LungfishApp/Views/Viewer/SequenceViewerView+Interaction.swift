@@ -1857,20 +1857,56 @@ extension SequenceViewerView {
                 isDirectionInvertedFromDevice: event.isDirectionInvertedFromDevice
             )
             frame.pan(by: panAmount)
+            throttledPanRedraw()
+        }
+    }
 
+    /// Redraws at most once per ~1/60s frame while panning (PERF-09).
+    ///
+    /// The previous implementation invalidated and rescheduled a one-shot 1/60s timer on every
+    /// scroll event ("coalesce redraw at 60fps" in the comment, but the code was actually a
+    /// trailing debounce). Under trackpad momentum, events can arrive faster than 16.7ms apart,
+    /// so the timer kept getting cancelled before it ever fired and the view redrew late or only
+    /// once the gesture slowed — the opposite of the intended smoothing.
+    ///
+    /// This redraws immediately the first time a frame interval has elapsed since the last pan
+    /// redraw, and otherwise schedules exactly one trailing redraw for the remainder of the
+    /// current frame budget, so a burst of events still produces at least one redraw per frame
+    /// instead of zero.
+    func throttledPanRedraw() {
+        let frameInterval: CFTimeInterval = 1.0 / 60.0
+        let now = CACurrentMediaTime()
+        let elapsed = now - lastPanRedrawTime
+
+        if elapsed >= frameInterval {
             scrollRedrawTimer?.invalidate()
-            scrollRedrawTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 60.0, repeats: false) { [weak self] _ in
-                DispatchQueue.main.async {
-                    MainActor.assumeIsolated {
-                        guard let self else { return }
-                        self.setNeedsDisplay(self.bounds)
-                        self.viewController?.enhancedRulerView.setNeedsDisplay(self.viewController?.enhancedRulerView.bounds ?? .zero)
-                        self.viewController?.updateStatusBar()
-                        self.viewController?.scheduleViewStateSave()
-                    }
+            scrollRedrawTimer = nil
+            performPanRedraw()
+            return
+        }
+
+        // Already within a frame of the last redraw: ensure exactly one trailing redraw is
+        // scheduled for when the frame budget is up, but don't push it back on every event.
+        guard scrollRedrawTimer == nil else { return }
+        let remaining = frameInterval - elapsed
+        scrollRedrawTimer = Timer.scheduledTimer(withTimeInterval: max(0, remaining), repeats: false) { [weak self] _ in
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    self.scrollRedrawTimer = nil
+                    self.performPanRedraw()
                 }
             }
         }
+    }
+
+    /// Performs the actual pan redraw and records the timestamp used by `throttledPanRedraw`.
+    private func performPanRedraw() {
+        lastPanRedrawTime = CACurrentMediaTime()
+        setNeedsDisplay(bounds)
+        viewController?.enhancedRulerView.setNeedsDisplay(viewController?.enhancedRulerView.bounds ?? .zero)
+        viewController?.updateStatusBar()
+        viewController?.scheduleViewStateSave()
     }
 
     // MARK: - Selection Helpers

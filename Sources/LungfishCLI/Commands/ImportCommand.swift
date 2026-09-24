@@ -530,6 +530,35 @@ extension ImportCommand {
 
             let outputDirectory = resolveOutputDirectory(outputDir)
 
+            // NEW-01: `-o` historically meant "a plain directory to drop
+            // loose alignment files into", which silently produced a BAM/BAI
+            // pair with no manifest entry when someone pointed it at an
+            // existing `.lungfishref` bundle — the sidebar and viewer never
+            // see the alignment because `manifest.alignments` stays empty.
+            // Detect that case and attach the alignment as a real track via
+            // the same PreparedAlignmentAttachmentService the GUI Import
+            // Center uses, instead of silently mis-importing.
+            if outputDirectory.pathExtension.lowercased() == "lungfishref" {
+                guard FileManager.default.fileExists(
+                    atPath: outputDirectory.appendingPathComponent(BundleManifest.filename).path
+                ) else {
+                    print(formatter.error(
+                        "\(outputDir ?? outputDirectory.path) looks like a .lungfishref bundle path, but no bundle exists there yet. "
+                            + "`lungfish import bam` writes loose files into a plain directory; to attach an alignment to an existing "
+                            + "reference bundle, create the bundle first and use `lungfish bam adopt-mapping --bundle <bundle> --mapping-result <dir> --name <name>`."
+                    ))
+                    throw CLIExitCode.inputError.exitCode
+                }
+                try await runAttachToExistingBundle(
+                    inputURL: inputURL,
+                    ext: ext,
+                    bundleURL: outputDirectory,
+                    formatter: formatter,
+                    startedAt: startedAt
+                )
+                return
+            }
+
             print(formatter.header("BAM/CRAM Import"))
             print("")
             print(formatter.keyValueTable([
@@ -749,6 +778,121 @@ extension ImportCommand {
                 removeCreatedImportArtifacts(createdArtifacts)
                 throw error
             }
+        }
+
+        /// NEW-01: attaches `inputURL` to an existing `.lungfishref` bundle as a
+        /// real manifest alignment track, using the same
+        /// `PreparedAlignmentAttachmentService` primitive the GUI Import
+        /// Center's `--bam-import-helper` path uses (`BAMImportHelper.swift`
+        /// -> `BAMImportService.importBAM` -> the same attachment core).
+        /// Requires a coordinate-sorted input, matching this command's
+        /// pre-existing assumption (it has never sorted; it only indexes).
+        private func runAttachToExistingBundle(
+            inputURL: URL,
+            ext: String,
+            bundleURL: URL,
+            formatter: TerminalFormatter,
+            startedAt: Date
+        ) async throws {
+            guard ext != "sam" else {
+                print(formatter.error("Cannot attach a .sam alignment to a bundle. Convert to sorted, indexed BAM first (see project convention: never store SAM)."))
+                throw CLIExitCode.formatError.exitCode
+            }
+            let format: AlignmentFormat = ext == "cram" ? .cram : .bam
+
+            print(formatter.header("BAM/CRAM Import"))
+            print("")
+            print(formatter.keyValueTable([
+                ("Input", inputURL.lastPathComponent),
+                ("Format", ext.uppercased()),
+                ("Bundle", bundleURL.path),
+            ]))
+            print("")
+
+            let tempDirectory = try ProjectTempDirectory.createFromContext(
+                prefix: "lungfish-cli-bam-attach-",
+                contextURL: bundleURL
+            )
+            defer { try? FileManager.default.removeItem(at: tempDirectory) }
+
+            let stagedBAMURL = tempDirectory.appendingPathComponent(inputURL.lastPathComponent)
+            try FileManager.default.copyItem(at: inputURL, to: stagedBAMURL)
+
+            var stagedIndexURL: URL?
+            if let sourceIndexURL = existingAlignmentIndex(for: inputURL) {
+                let destination = tempDirectory.appendingPathComponent(sourceIndexURL.lastPathComponent)
+                try FileManager.default.copyItem(at: sourceIndexURL, to: destination)
+                stagedIndexURL = destination
+            } else {
+                if !globalOptions.quiet {
+                    print(formatter.info("Creating index..."))
+                }
+                let runner = NativeToolRunner.shared
+                let indexResult = try await runner.run(.samtools, arguments: ["index", stagedBAMURL.path], timeout: 3600)
+                guard indexResult.isSuccess else {
+                    print(formatter.error("Failed to index alignment. The file may need coordinate sorting first."))
+                    throw CLIExitCode.failure.exitCode
+                }
+                stagedIndexURL = URL(fileURLWithPath: stagedBAMURL.path + ".bai")
+            }
+            guard let resolvedStagedIndexURL = stagedIndexURL,
+                  FileManager.default.fileExists(atPath: resolvedStagedIndexURL.path) else {
+                print(formatter.error("Could not produce an index for the alignment."))
+                throw CLIExitCode.failure.exitCode
+            }
+
+            let outputTrackID = "aln_\(UUID().uuidString.prefix(8))"
+            let trackName = name ?? inputURL.deletingPathExtension().lastPathComponent
+            let service = PreparedAlignmentAttachmentService()
+            let request = PreparedAlignmentAttachmentRequest(
+                bundleURL: bundleURL,
+                stagedBAMURL: stagedBAMURL,
+                stagedIndexURL: resolvedStagedIndexURL,
+                outputTrackID: outputTrackID,
+                outputTrackName: trackName,
+                relativeDirectory: "alignments/imported",
+                format: format
+            )
+            let attachment = try await service.attach(request: request)
+
+            try await CLIProvenanceSupport.recordSingleStepRun(
+                name: "lungfish import bam",
+                parameters: bamProvenanceParameters(inputURL: inputURL),
+                defaults: bamProvenanceDefaults(),
+                resolved: [
+                    "bundle": .string(bundleURL.path),
+                    "trackId": .string(outputTrackID),
+                    "trackName": .string(trackName),
+                    "mappedReads": .integer(Int(attachment.mappedReads)),
+                    "unmappedReads": .integer(Int(attachment.unmappedReads))
+                ],
+                toolName: "lungfish import bam",
+                toolVersion: "lungfish-cli \(LungfishCLI.configuration.version)",
+                command: [CLICommandIdentity.executableName, "import", "bam", inputURL.path, "--output-dir", bundleURL.path]
+                    + (name.map { ["--name", $0] } ?? []),
+                inputs: [ProvenanceRecorder.fileRecord(url: inputURL, format: alignmentFileFormat(forExtension: ext), role: .input)],
+                outputs: [
+                    ProvenanceRecorder.fileRecord(url: attachment.bamURL, format: alignmentFileFormat(forExtension: ext), role: .output),
+                    ProvenanceRecorder.fileRecord(url: attachment.indexURL, format: .unknown, role: .index)
+                ],
+                exitCode: 0,
+                wallTime: Date().timeIntervalSince(startedAt),
+                stderr: nil,
+                status: .completed,
+                outputDirectory: bundleURL
+            )
+
+            print("")
+            print(formatter.header("Summary"))
+            print("")
+            print(formatter.keyValueTable([
+                ("Track ID", outputTrackID),
+                ("Track name", trackName),
+                ("Mapped reads", formatNumber(attachment.mappedReads)),
+                ("Unmapped reads", formatNumber(attachment.unmappedReads)),
+            ]))
+            print("")
+            print(formatter.success("BAM import complete: attached '\(trackName)' to \(bundleURL.lastPathComponent)"))
         }
 
         /// Copies a companion index file (.bai, .csi, .crai) if one exists next to the input.

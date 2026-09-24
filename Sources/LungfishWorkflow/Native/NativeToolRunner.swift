@@ -1083,133 +1083,143 @@ public actor NativeToolRunner {
         let temporaryOutputFile = temporaryOutputURL(for: outputFile)
 
         try Task.checkCancellation()
+        let logger = self.logger
 
+        // PERF-02: the process launch, wait and drain below must not run
+        // synchronously on this actor's executor — that would pin the actor
+        // for the child's whole lifetime and stall every other
+        // `NativeToolRunner.shared` caller. `Task.detached` moves the
+        // blocking `waitUntilExit`/`DispatchGroup.wait` work onto the
+        // cooperative pool instead of this actor; `onCancel` still reaches
+        // into the shared `cancellationState` to terminate the tree.
         return try await withTaskCancellationHandler {
-            try await withCheckedThrowingContinuation { continuation in
-            let process = Process()
-            process.executableURL = toolPath
-            process.arguments = arguments
+            try await Task.detached(priority: .utility) {
+                try await withCheckedThrowingContinuation { continuation in
+                    let process = Process()
+                    process.executableURL = toolPath
+                    process.arguments = arguments
 
-            if let workingDirectory {
-                process.currentDirectoryURL = workingDirectory
-            }
-
-            var processEnvironment = ProcessInfo.processInfo.environment
-            if let effectiveEnvironment {
-                for (key, value) in effectiveEnvironment {
-                    processEnvironment[key] = value
-                }
-            }
-            process.environment = processEnvironment
-
-            // Redirect stdout to a sibling temp file and publish only after success.
-            FileManager.default.createFile(atPath: temporaryOutputFile.path, contents: nil)
-            guard let outputHandle = FileHandle(forWritingAtPath: temporaryOutputFile.path) else {
-                try? FileManager.default.removeItem(at: temporaryOutputFile)
-                continuation.resume(throwing: NativeToolError.executionFailed(
-                    tool.rawValue, -1, "Cannot open temporary output file for writing: \(temporaryOutputFile.path)"
-                ))
-                return
-            }
-            process.standardOutput = outputHandle
-
-            let stderrPipe = Pipe()
-            process.standardError = stderrPipe
-            cancellationState.register(process: process)
-            defer { cancellationState.unregisterAllProcesses() }
-
-            let timeoutWorkItem = DispatchWorkItem {
-                cancellationState.cancelForTimeout()
-            }
-            cancellationState.register(timeoutWorkItem: timeoutWorkItem)
-            DispatchQueue.global().asyncAfter(
-                deadline: .now() + actualTimeout,
-                execute: timeoutWorkItem
-            )
-
-            do {
-                if cancellationState.isCancelled {
-                    throw CancellationError()
-                }
-                try process.run()
-
-                // Drain stderr concurrently to avoid deadlock on large output.
-                let stderrBox = DataBox()
-                let drainGroup = DispatchGroup()
-                drainGroup.enter()
-                DispatchQueue.global().async {
-                    stderrBox.value = stderrPipe.fileHandleForReading.readDataToEndOfFile()
-                    drainGroup.leave()
-                }
-
-                process.waitUntilExit()
-                drainGroup.wait()
-                timeoutWorkItem.cancel()
-
-                try? outputHandle.close()
-
-                if cancellationState.didTimeOut {
-                    continuation.resume(throwing: NativeToolError.timeout(tool.rawValue, actualTimeout))
-                    return
-                }
-
-                if cancellationState.isCancelled {
-                    continuation.resume(throwing: CancellationError())
-                    return
-                }
-                let stderr = String(data: stderrBox.value, encoding: .utf8) ?? ""
-
-                let result = NativeToolResult(
-                    exitCode: process.terminationStatus,
-                    stdout: "",
-                    stderr: stderr,
-                    arguments: [toolPath.path] + arguments
-                )
-
-                if result.isSuccess {
-                    try publishTemporaryOutput(temporaryOutputFile, to: outputFile)
-                    self.logger.info("\(tool.rawValue) completed successfully (output: \(outputFile.lastPathComponent))")
-                } else {
-                    try? FileManager.default.removeItem(at: temporaryOutputFile)
-                    self.logger.warning("\(tool.rawValue) exited with code \(result.exitCode)")
-                }
-
-                continuation.resume(returning: result)
-
-            } catch is CancellationError {
-                timeoutWorkItem.cancel()
-                try? outputHandle.close()
-                try? FileManager.default.removeItem(at: temporaryOutputFile)
-                if cancellationState.didTimeOut {
-                    continuation.resume(throwing: NativeToolError.timeout(tool.rawValue, actualTimeout))
-                    return
-                }
-                continuation.resume(throwing: CancellationError())
-            } catch {
-                timeoutWorkItem.cancel()
-                try? outputHandle.close()
-                try? FileManager.default.removeItem(at: temporaryOutputFile)
-                if cancellationState.isCancelled {
-                    if cancellationState.didTimeOut {
-                        continuation.resume(throwing: NativeToolError.timeout(tool.rawValue, actualTimeout))
-                    } else {
-                        continuation.resume(throwing: CancellationError())
+                    if let workingDirectory {
+                        process.currentDirectoryURL = workingDirectory
                     }
-                    return
-                }
-                continuation.resume(
-                    throwing: NativeToolError.executionFailed(
-                        tool.rawValue, -1, error.localizedDescription
+
+                    var processEnvironment = ProcessInfo.processInfo.environment
+                    if let effectiveEnvironment {
+                        for (key, value) in effectiveEnvironment {
+                            processEnvironment[key] = value
+                        }
+                    }
+                    process.environment = processEnvironment
+
+                    // Redirect stdout to a sibling temp file and publish only after success.
+                    FileManager.default.createFile(atPath: temporaryOutputFile.path, contents: nil)
+                    guard let outputHandle = FileHandle(forWritingAtPath: temporaryOutputFile.path) else {
+                        try? FileManager.default.removeItem(at: temporaryOutputFile)
+                        continuation.resume(throwing: NativeToolError.executionFailed(
+                            tool.rawValue, -1, "Cannot open temporary output file for writing: \(temporaryOutputFile.path)"
+                        ))
+                        return
+                    }
+                    process.standardOutput = outputHandle
+
+                    let stderrPipe = Pipe()
+                    process.standardError = stderrPipe
+                    cancellationState.register(process: process)
+                    defer { cancellationState.unregisterAllProcesses() }
+
+                    let timeoutWorkItem = DispatchWorkItem {
+                        cancellationState.cancelForTimeout()
+                    }
+                    cancellationState.register(timeoutWorkItem: timeoutWorkItem)
+                    DispatchQueue.global().asyncAfter(
+                        deadline: .now() + actualTimeout,
+                        execute: timeoutWorkItem
                     )
-                )
-            }
-        }
+
+                    do {
+                        if cancellationState.isCancelled {
+                            throw CancellationError()
+                        }
+                        try process.run()
+
+                        // Drain stderr concurrently to avoid deadlock on large output.
+                        let stderrBox = DataBox()
+                        let drainGroup = DispatchGroup()
+                        drainGroup.enter()
+                        DispatchQueue.global().async {
+                            stderrBox.value = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+                            drainGroup.leave()
+                        }
+
+                        process.waitUntilExit()
+                        drainGroup.wait()
+                        timeoutWorkItem.cancel()
+
+                        try? outputHandle.close()
+
+                        if cancellationState.didTimeOut {
+                            continuation.resume(throwing: NativeToolError.timeout(tool.rawValue, actualTimeout))
+                            return
+                        }
+
+                        if cancellationState.isCancelled {
+                            continuation.resume(throwing: CancellationError())
+                            return
+                        }
+                        let stderr = String(data: stderrBox.value, encoding: .utf8) ?? ""
+
+                        let result = NativeToolResult(
+                            exitCode: process.terminationStatus,
+                            stdout: "",
+                            stderr: stderr,
+                            arguments: [toolPath.path] + arguments
+                        )
+
+                        if result.isSuccess {
+                            try Self.publishTemporaryOutput(temporaryOutputFile, to: outputFile)
+                            logger.info("\(tool.rawValue) completed successfully (output: \(outputFile.lastPathComponent))")
+                        } else {
+                            try? FileManager.default.removeItem(at: temporaryOutputFile)
+                            logger.warning("\(tool.rawValue) exited with code \(result.exitCode)")
+                        }
+
+                        continuation.resume(returning: result)
+
+                    } catch is CancellationError {
+                        timeoutWorkItem.cancel()
+                        try? outputHandle.close()
+                        try? FileManager.default.removeItem(at: temporaryOutputFile)
+                        if cancellationState.didTimeOut {
+                            continuation.resume(throwing: NativeToolError.timeout(tool.rawValue, actualTimeout))
+                            return
+                        }
+                        continuation.resume(throwing: CancellationError())
+                    } catch {
+                        timeoutWorkItem.cancel()
+                        try? outputHandle.close()
+                        try? FileManager.default.removeItem(at: temporaryOutputFile)
+                        if cancellationState.isCancelled {
+                            if cancellationState.didTimeOut {
+                                continuation.resume(throwing: NativeToolError.timeout(tool.rawValue, actualTimeout))
+                            } else {
+                                continuation.resume(throwing: CancellationError())
+                            }
+                            return
+                        }
+                        continuation.resume(
+                            throwing: NativeToolError.executionFailed(
+                                tool.rawValue, -1, error.localizedDescription
+                            )
+                        )
+                    }
+                }
+            }.value
         } onCancel: {
             cancellationState.cancel()
         }
     }
 
-    private func temporaryOutputURL(for outputFile: URL) -> URL {
+    private nonisolated func temporaryOutputURL(for outputFile: URL) -> URL {
         outputFile.deletingLastPathComponent()
             .appendingPathComponent(
                 ".\(outputFile.lastPathComponent).\(UUID().uuidString).tmp",
@@ -1217,7 +1227,7 @@ public actor NativeToolRunner {
             )
     }
 
-    private func publishTemporaryOutput(_ temporaryOutputFile: URL, to outputFile: URL) throws {
+    private nonisolated static func publishTemporaryOutput(_ temporaryOutputFile: URL, to outputFile: URL) throws {
         if FileManager.default.fileExists(atPath: outputFile.path) {
             _ = try FileManager.default.replaceItemAt(
                 outputFile,
@@ -1402,167 +1412,171 @@ extension NativeToolRunner {
         }
 
         // Resolve all tool paths upfront
-        var toolPaths: [URL] = []
-        for stage in stages {
-            toolPaths.append(try findTool(stage.tool))
-        }
+        let toolPaths: [URL] = try stages.map { try findTool($0.tool) }
 
         let actualTimeout = timeout ?? defaultTimeout
         let stageNames = stages.map(\.tool.rawValue).joined(separator: " | ")
         logger.info("Running pipeline: \(stageNames)")
         let cancellationState = ProcessCancellationState()
+        let logger = self.logger
+        // Resolved on the actor up front: `bbToolsEnvironment` reads immutable
+        // actor state (`homeDirectory`, `appIdentity`), so it cannot be called
+        // from the detached task below.
+        let stageEnvironments = stages.map {
+            bbToolsEnvironment(for: $0.tool, overriding: environment)
+        }
 
         try Task.checkCancellation()
 
+        // PERF-02: see the comment in `runWithFileOutput`. The launch/wait/drain
+        // below must not block this actor's executor.
         return try await withTaskCancellationHandler {
-            try await withCheckedThrowingContinuation { continuation in
-            var processes: [Process] = []
-            var interStagePipes: [Pipe] = []
-            var stderrPipes: [Pipe] = []
-            let stdoutPipe = Pipe() // Captures final stage stdout
+            try await Task.detached(priority: .utility) {
+                try await withCheckedThrowingContinuation { continuation in
+                    var processes: [Process] = []
+                    var interStagePipes: [Pipe] = []
+                    var stderrPipes: [Pipe] = []
+                    let stdoutPipe = Pipe() // Captures final stage stdout
 
-            let stageEnvironments = stages.map {
-                bbToolsEnvironment(for: $0.tool, overriding: environment)
-            }
+                    // Create processes and wire pipes
+                    for (index, stage) in stages.enumerated() {
+                        let process = Process()
+                        process.executableURL = toolPaths[index]
+                        process.arguments = stage.arguments
+                        if let workingDirectory {
+                            process.currentDirectoryURL = workingDirectory
+                        }
+                        var processEnvironment = ProcessInfo.processInfo.environment
+                        if let stageEnvironment = stageEnvironments[index] {
+                            for (key, value) in stageEnvironment {
+                                processEnvironment[key] = value
+                            }
+                        }
+                        process.environment = processEnvironment
 
-            // Create processes and wire pipes
-            for (index, stage) in stages.enumerated() {
-                let process = Process()
-                process.executableURL = toolPaths[index]
-                process.arguments = stage.arguments
-                if let workingDirectory {
-                    process.currentDirectoryURL = workingDirectory
-                }
-                var processEnvironment = ProcessInfo.processInfo.environment
-                if let stageEnvironment = stageEnvironments[index] {
-                    for (key, value) in stageEnvironment {
-                        processEnvironment[key] = value
+                        let stderrPipe = Pipe()
+                        process.standardError = stderrPipe
+                        stderrPipes.append(stderrPipe)
+
+                        // Wire stdin from previous stage's pipe
+                        if index > 0 {
+                            process.standardInput = interStagePipes[index - 1]
+                        }
+
+                        // Wire stdout
+                        if index < stages.count - 1 {
+                            let pipe = Pipe()
+                            process.standardOutput = pipe
+                            interStagePipes.append(pipe)
+                        } else {
+                            process.standardOutput = stdoutPipe
+                        }
+
+                        processes.append(process)
+                        cancellationState.register(process: process)
                     }
-                }
-                process.environment = processEnvironment
+                    defer { cancellationState.unregisterAllProcesses() }
 
-                let stderrPipe = Pipe()
-                process.standardError = stderrPipe
-                stderrPipes.append(stderrPipe)
-
-                // Wire stdin from previous stage's pipe
-                if index > 0 {
-                    process.standardInput = interStagePipes[index - 1]
-                }
-
-                // Wire stdout
-                if index < stages.count - 1 {
-                    let pipe = Pipe()
-                    process.standardOutput = pipe
-                    interStagePipes.append(pipe)
-                } else {
-                    process.standardOutput = stdoutPipe
-                }
-
-                processes.append(process)
-                cancellationState.register(process: process)
-            }
-            defer { cancellationState.unregisterAllProcesses() }
-
-            // Timeout for the whole pipeline
-            let timeoutWorkItem = DispatchWorkItem {
-                cancellationState.cancelForTimeout()
-            }
-            cancellationState.register(timeoutWorkItem: timeoutWorkItem)
-            DispatchQueue.global().asyncAfter(
-                deadline: .now() + actualTimeout,
-                execute: timeoutWorkItem
-            )
-
-            do {
-                // Launch all processes (first to last)
-                for process in processes {
-                    if cancellationState.isCancelled {
-                        throw CancellationError()
+                    // Timeout for the whole pipeline
+                    let timeoutWorkItem = DispatchWorkItem {
+                        cancellationState.cancelForTimeout()
                     }
-                    try process.run()
-                }
-
-                // Drain all stderr pipes and final stdout concurrently to avoid
-                // deadlock when output exceeds the ~64 KB kernel pipe buffer.
-                let stderrBoxes = (0..<stages.count).map { _ in DataBox() }
-                let stdoutBox = DataBox()
-                let drainGroup = DispatchGroup()
-
-                for i in 0..<stages.count {
-                    let pipe = stderrPipes[i]
-                    let box = stderrBoxes[i]
-                    drainGroup.enter()
-                    DispatchQueue.global().async {
-                        box.value = pipe.fileHandleForReading.readDataToEndOfFile()
-                        drainGroup.leave()
-                    }
-                }
-                drainGroup.enter()
-                DispatchQueue.global().async {
-                    stdoutBox.value = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
-                    drainGroup.leave()
-                }
-
-                // Wait last-to-first for proper pipe back-pressure propagation
-                for process in processes.reversed() {
-                    process.waitUntilExit()
-                }
-                drainGroup.wait()
-                timeoutWorkItem.cancel()
-
-                if cancellationState.didTimeOut {
-                    continuation.resume(throwing: NativeToolError.timeout(stageNames, actualTimeout))
-                    return
-                }
-
-                if cancellationState.isCancelled {
-                    continuation.resume(throwing: CancellationError())
-                    return
-                }
-
-                let exitCodes = processes.map(\.terminationStatus)
-                let stderrStrings = stderrBoxes.map { String(data: $0.value, encoding: .utf8) ?? "" }
-                let stdout = String(data: stdoutBox.value, encoding: .utf8) ?? ""
-
-                let result = NativePipelineResult(
-                    exitCodes: exitCodes,
-                    stderrByStage: stderrStrings,
-                    stdout: stdout
-                )
-
-                if result.isSuccess {
-                    self.logger.info("Pipeline completed successfully: \(stageNames)")
-                } else {
-                    self.logger.warning("Pipeline failed: \(stageNames), exit codes: \(exitCodes)")
-                }
-
-                continuation.resume(returning: result)
-
-            } catch is CancellationError {
-                timeoutWorkItem.cancel()
-                if cancellationState.didTimeOut {
-                    continuation.resume(throwing: NativeToolError.timeout(stageNames, actualTimeout))
-                    return
-                }
-                continuation.resume(throwing: CancellationError())
-            } catch {
-                timeoutWorkItem.cancel()
-                if cancellationState.isCancelled {
-                    if cancellationState.didTimeOut {
-                        continuation.resume(throwing: NativeToolError.timeout(stageNames, actualTimeout))
-                    } else {
-                        continuation.resume(throwing: CancellationError())
-                    }
-                    return
-                }
-                continuation.resume(
-                    throwing: NativeToolError.executionFailed(
-                        stageNames, -1, error.localizedDescription
+                    cancellationState.register(timeoutWorkItem: timeoutWorkItem)
+                    DispatchQueue.global().asyncAfter(
+                        deadline: .now() + actualTimeout,
+                        execute: timeoutWorkItem
                     )
-                )
-            }
-        }
+
+                    do {
+                        // Launch all processes (first to last)
+                        for process in processes {
+                            if cancellationState.isCancelled {
+                                throw CancellationError()
+                            }
+                            try process.run()
+                        }
+
+                        // Drain all stderr pipes and final stdout concurrently to avoid
+                        // deadlock when output exceeds the ~64 KB kernel pipe buffer.
+                        let stderrBoxes = (0..<stages.count).map { _ in DataBox() }
+                        let stdoutBox = DataBox()
+                        let drainGroup = DispatchGroup()
+
+                        for i in 0..<stages.count {
+                            let pipe = stderrPipes[i]
+                            let box = stderrBoxes[i]
+                            drainGroup.enter()
+                            DispatchQueue.global().async {
+                                box.value = pipe.fileHandleForReading.readDataToEndOfFile()
+                                drainGroup.leave()
+                            }
+                        }
+                        drainGroup.enter()
+                        DispatchQueue.global().async {
+                            stdoutBox.value = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
+                            drainGroup.leave()
+                        }
+
+                        // Wait last-to-first for proper pipe back-pressure propagation
+                        for process in processes.reversed() {
+                            process.waitUntilExit()
+                        }
+                        drainGroup.wait()
+                        timeoutWorkItem.cancel()
+
+                        if cancellationState.didTimeOut {
+                            continuation.resume(throwing: NativeToolError.timeout(stageNames, actualTimeout))
+                            return
+                        }
+
+                        if cancellationState.isCancelled {
+                            continuation.resume(throwing: CancellationError())
+                            return
+                        }
+
+                        let exitCodes = processes.map(\.terminationStatus)
+                        let stderrStrings = stderrBoxes.map { String(data: $0.value, encoding: .utf8) ?? "" }
+                        let stdout = String(data: stdoutBox.value, encoding: .utf8) ?? ""
+
+                        let result = NativePipelineResult(
+                            exitCodes: exitCodes,
+                            stderrByStage: stderrStrings,
+                            stdout: stdout
+                        )
+
+                        if result.isSuccess {
+                            logger.info("Pipeline completed successfully: \(stageNames)")
+                        } else {
+                            logger.warning("Pipeline failed: \(stageNames), exit codes: \(exitCodes)")
+                        }
+
+                        continuation.resume(returning: result)
+
+                    } catch is CancellationError {
+                        timeoutWorkItem.cancel()
+                        if cancellationState.didTimeOut {
+                            continuation.resume(throwing: NativeToolError.timeout(stageNames, actualTimeout))
+                            return
+                        }
+                        continuation.resume(throwing: CancellationError())
+                    } catch {
+                        timeoutWorkItem.cancel()
+                        if cancellationState.isCancelled {
+                            if cancellationState.didTimeOut {
+                                continuation.resume(throwing: NativeToolError.timeout(stageNames, actualTimeout))
+                            } else {
+                                continuation.resume(throwing: CancellationError())
+                            }
+                            return
+                        }
+                        continuation.resume(
+                            throwing: NativeToolError.executionFailed(
+                                stageNames, -1, error.localizedDescription
+                            )
+                        )
+                    }
+                }
+            }.value
         } onCancel: {
             cancellationState.cancel()
         }
@@ -1584,173 +1598,175 @@ extension NativeToolRunner {
         try stages.forEach { _ = try requireProvenancePolicy(for: $0.tool) }
 
         // Resolve all tool paths upfront
-        var toolPaths: [URL] = []
-        for stage in stages {
-            toolPaths.append(try findTool(stage.tool))
-        }
+        let toolPaths: [URL] = try stages.map { try findTool($0.tool) }
 
         let actualTimeout = timeout ?? defaultTimeout
         let stageNames = stages.map(\.tool.rawValue).joined(separator: " | ")
         logger.info("Running pipeline (file output): \(stageNames) > \(outputFile.lastPathComponent)")
         let cancellationState = ProcessCancellationState()
         let temporaryOutputFile = temporaryOutputURL(for: outputFile)
+        let logger = self.logger
+        // Resolved on the actor up front; see `runPipeline`.
+        let stageEnvironments = stages.map {
+            bbToolsEnvironment(for: $0.tool, overriding: environment)
+        }
 
         try Task.checkCancellation()
 
+        // PERF-02: see the comment in `runWithFileOutput`. The launch/wait/drain
+        // below must not block this actor's executor.
         return try await withTaskCancellationHandler {
-            try await withCheckedThrowingContinuation { continuation in
-            var processes: [Process] = []
-            var interStagePipes: [Pipe] = []
-            var stderrPipes: [Pipe] = []
-            var outputHandle: FileHandle?
+            try await Task.detached(priority: .utility) {
+                try await withCheckedThrowingContinuation { continuation in
+                    var processes: [Process] = []
+                    var interStagePipes: [Pipe] = []
+                    var stderrPipes: [Pipe] = []
+                    var outputHandle: FileHandle?
 
-            let stageEnvironments = stages.map {
-                bbToolsEnvironment(for: $0.tool, overriding: environment)
-            }
-
-            // Create temp output and handle before building processes.
-            FileManager.default.createFile(atPath: temporaryOutputFile.path, contents: nil)
-            guard let handle = FileHandle(forWritingAtPath: temporaryOutputFile.path) else {
-                try? FileManager.default.removeItem(at: temporaryOutputFile)
-                continuation.resume(throwing: NativeToolError.executionFailed(
-                    stageNames, -1, "Cannot open temporary output file for writing: \(temporaryOutputFile.path)"
-                ))
-                return
-            }
-            outputHandle = handle
-
-            for (index, stage) in stages.enumerated() {
-                let process = Process()
-                process.executableURL = toolPaths[index]
-                process.arguments = stage.arguments
-                if let workingDirectory {
-                    process.currentDirectoryURL = workingDirectory
-                }
-                var processEnvironment = ProcessInfo.processInfo.environment
-                if let stageEnvironment = stageEnvironments[index] {
-                    for (key, value) in stageEnvironment {
-                        processEnvironment[key] = value
+                    // Create temp output and handle before building processes.
+                    FileManager.default.createFile(atPath: temporaryOutputFile.path, contents: nil)
+                    guard let handle = FileHandle(forWritingAtPath: temporaryOutputFile.path) else {
+                        try? FileManager.default.removeItem(at: temporaryOutputFile)
+                        continuation.resume(throwing: NativeToolError.executionFailed(
+                            stageNames, -1, "Cannot open temporary output file for writing: \(temporaryOutputFile.path)"
+                        ))
+                        return
                     }
-                }
-                process.environment = processEnvironment
+                    outputHandle = handle
 
-                let stderrPipe = Pipe()
-                process.standardError = stderrPipe
-                stderrPipes.append(stderrPipe)
+                    for (index, stage) in stages.enumerated() {
+                        let process = Process()
+                        process.executableURL = toolPaths[index]
+                        process.arguments = stage.arguments
+                        if let workingDirectory {
+                            process.currentDirectoryURL = workingDirectory
+                        }
+                        var processEnvironment = ProcessInfo.processInfo.environment
+                        if let stageEnvironment = stageEnvironments[index] {
+                            for (key, value) in stageEnvironment {
+                                processEnvironment[key] = value
+                            }
+                        }
+                        process.environment = processEnvironment
 
-                if index > 0 {
-                    process.standardInput = interStagePipes[index - 1]
-                }
+                        let stderrPipe = Pipe()
+                        process.standardError = stderrPipe
+                        stderrPipes.append(stderrPipe)
 
-                if index < stages.count - 1 {
-                    let pipe = Pipe()
-                    process.standardOutput = pipe
-                    interStagePipes.append(pipe)
-                } else {
-                    // Last stage: write directly to file
-                    process.standardOutput = handle
-                }
+                        if index > 0 {
+                            process.standardInput = interStagePipes[index - 1]
+                        }
 
-                processes.append(process)
-                cancellationState.register(process: process)
-            }
-            defer { cancellationState.unregisterAllProcesses() }
+                        if index < stages.count - 1 {
+                            let pipe = Pipe()
+                            process.standardOutput = pipe
+                            interStagePipes.append(pipe)
+                        } else {
+                            // Last stage: write directly to file
+                            process.standardOutput = handle
+                        }
 
-            let timeoutWorkItem = DispatchWorkItem {
-                cancellationState.cancelForTimeout()
-            }
-            cancellationState.register(timeoutWorkItem: timeoutWorkItem)
-            DispatchQueue.global().asyncAfter(
-                deadline: .now() + actualTimeout,
-                execute: timeoutWorkItem
-            )
-
-            do {
-                for process in processes {
-                    if cancellationState.isCancelled {
-                        throw CancellationError()
+                        processes.append(process)
+                        cancellationState.register(process: process)
                     }
-                    try process.run()
-                }
+                    defer { cancellationState.unregisterAllProcesses() }
 
-                // Drain all stderr pipes concurrently to avoid deadlock.
-                let stderrBoxes = (0..<stages.count).map { _ in DataBox() }
-                let drainGroup = DispatchGroup()
-                for i in 0..<stages.count {
-                    let pipe = stderrPipes[i]
-                    let box = stderrBoxes[i]
-                    drainGroup.enter()
-                    DispatchQueue.global().async {
-                        box.value = pipe.fileHandleForReading.readDataToEndOfFile()
-                        drainGroup.leave()
+                    let timeoutWorkItem = DispatchWorkItem {
+                        cancellationState.cancelForTimeout()
                     }
-                }
-
-                for process in processes.reversed() {
-                    process.waitUntilExit()
-                }
-                drainGroup.wait()
-                timeoutWorkItem.cancel()
-
-                try? outputHandle?.close()
-
-                if cancellationState.didTimeOut {
-                    continuation.resume(throwing: NativeToolError.timeout(stageNames, actualTimeout))
-                    return
-                }
-
-                if cancellationState.isCancelled {
-                    continuation.resume(throwing: CancellationError())
-                    return
-                }
-
-                let exitCodes = processes.map(\.terminationStatus)
-                let stderrStrings = stderrBoxes.map { String(data: $0.value, encoding: .utf8) ?? "" }
-
-                let result = NativePipelineResult(
-                    exitCodes: exitCodes,
-                    stderrByStage: stderrStrings,
-                    stdout: ""
-                )
-
-                if result.isSuccess {
-                    try publishTemporaryOutput(temporaryOutputFile, to: outputFile)
-                    self.logger.info("Pipeline completed (file output): \(stageNames)")
-                } else {
-                    try? FileManager.default.removeItem(at: temporaryOutputFile)
-                    self.logger.warning("Pipeline failed (file output): \(stageNames), exit codes: \(exitCodes)")
-                }
-
-                continuation.resume(returning: result)
-
-            } catch is CancellationError {
-                timeoutWorkItem.cancel()
-                try? outputHandle?.close()
-                try? FileManager.default.removeItem(at: temporaryOutputFile)
-                if cancellationState.didTimeOut {
-                    continuation.resume(throwing: NativeToolError.timeout(stageNames, actualTimeout))
-                    return
-                }
-                continuation.resume(throwing: CancellationError())
-            } catch {
-                timeoutWorkItem.cancel()
-                try? outputHandle?.close()
-                try? FileManager.default.removeItem(at: temporaryOutputFile)
-                if cancellationState.isCancelled {
-                    if cancellationState.didTimeOut {
-                        continuation.resume(throwing: NativeToolError.timeout(stageNames, actualTimeout))
-                    } else {
-                        continuation.resume(throwing: CancellationError())
-                    }
-                    return
-                }
-                continuation.resume(
-                    throwing: NativeToolError.executionFailed(
-                        stageNames, -1, error.localizedDescription
+                    cancellationState.register(timeoutWorkItem: timeoutWorkItem)
+                    DispatchQueue.global().asyncAfter(
+                        deadline: .now() + actualTimeout,
+                        execute: timeoutWorkItem
                     )
-                )
-            }
-        }
+
+                    do {
+                        for process in processes {
+                            if cancellationState.isCancelled {
+                                throw CancellationError()
+                            }
+                            try process.run()
+                        }
+
+                        // Drain all stderr pipes concurrently to avoid deadlock.
+                        let stderrBoxes = (0..<stages.count).map { _ in DataBox() }
+                        let drainGroup = DispatchGroup()
+                        for i in 0..<stages.count {
+                            let pipe = stderrPipes[i]
+                            let box = stderrBoxes[i]
+                            drainGroup.enter()
+                            DispatchQueue.global().async {
+                                box.value = pipe.fileHandleForReading.readDataToEndOfFile()
+                                drainGroup.leave()
+                            }
+                        }
+
+                        for process in processes.reversed() {
+                            process.waitUntilExit()
+                        }
+                        drainGroup.wait()
+                        timeoutWorkItem.cancel()
+
+                        try? outputHandle?.close()
+
+                        if cancellationState.didTimeOut {
+                            continuation.resume(throwing: NativeToolError.timeout(stageNames, actualTimeout))
+                            return
+                        }
+
+                        if cancellationState.isCancelled {
+                            continuation.resume(throwing: CancellationError())
+                            return
+                        }
+
+                        let exitCodes = processes.map(\.terminationStatus)
+                        let stderrStrings = stderrBoxes.map { String(data: $0.value, encoding: .utf8) ?? "" }
+
+                        let result = NativePipelineResult(
+                            exitCodes: exitCodes,
+                            stderrByStage: stderrStrings,
+                            stdout: ""
+                        )
+
+                        if result.isSuccess {
+                            try Self.publishTemporaryOutput(temporaryOutputFile, to: outputFile)
+                            logger.info("Pipeline completed (file output): \(stageNames)")
+                        } else {
+                            try? FileManager.default.removeItem(at: temporaryOutputFile)
+                            logger.warning("Pipeline failed (file output): \(stageNames), exit codes: \(exitCodes)")
+                        }
+
+                        continuation.resume(returning: result)
+
+                    } catch is CancellationError {
+                        timeoutWorkItem.cancel()
+                        try? outputHandle?.close()
+                        try? FileManager.default.removeItem(at: temporaryOutputFile)
+                        if cancellationState.didTimeOut {
+                            continuation.resume(throwing: NativeToolError.timeout(stageNames, actualTimeout))
+                            return
+                        }
+                        continuation.resume(throwing: CancellationError())
+                    } catch {
+                        timeoutWorkItem.cancel()
+                        try? outputHandle?.close()
+                        try? FileManager.default.removeItem(at: temporaryOutputFile)
+                        if cancellationState.isCancelled {
+                            if cancellationState.didTimeOut {
+                                continuation.resume(throwing: NativeToolError.timeout(stageNames, actualTimeout))
+                            } else {
+                                continuation.resume(throwing: CancellationError())
+                            }
+                            return
+                        }
+                        continuation.resume(
+                            throwing: NativeToolError.executionFailed(
+                                stageNames, -1, error.localizedDescription
+                            )
+                        )
+                    }
+                }
+            }.value
         } onCancel: {
             cancellationState.cancel()
         }

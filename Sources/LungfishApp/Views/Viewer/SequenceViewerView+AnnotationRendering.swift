@@ -877,6 +877,8 @@ extension SequenceViewerView {
             _ = addToolTip(badgeRect, owner: tooltip as NSString, userData: nil)
         }
 
+        lastDrawnLoadingBadgeRects.append(badgeRect)
+
         context.saveGState()
         context.setFillColor(NSColor.windowBackgroundColor.withAlphaComponent(0.92).cgColor)
         context.setStrokeColor(NSColor.separatorColor.withAlphaComponent(0.7).cgColor)
@@ -999,7 +1001,9 @@ extension SequenceViewerView {
         )
 
         context.saveGState()
-        context.setFillColor(NSColor(white: 0.4, alpha: 0.5).cgColor)
+        // UX-16: a fixed mid-gray (NSColor(white: 0.4, ...)) barely shows against a dark
+        // background in Dark Aqua. tertiaryLabelColor tracks appearance.
+        context.setFillColor(NSColor.tertiaryLabelColor.withAlphaComponent(0.6).cgColor)
         let path = CGPath(roundedRect: indicatorRect, cornerWidth: indicatorWidth / 2, cornerHeight: indicatorWidth / 2, transform: nil)
         context.addPath(path)
         context.fillPath()

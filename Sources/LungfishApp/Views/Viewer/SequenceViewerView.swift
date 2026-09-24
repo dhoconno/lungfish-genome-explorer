@@ -182,6 +182,14 @@ public class SequenceViewerView: NSView {
             // changes need to be tracked.
             cachedReadSetGeneration += 1
             cachedPackKey = nil
+            // PERF-09: maxReadSpan used to be recomputed by scanning up to 50,000 reads on
+            // every draw() call, including every ~55ms loading-badge animation tick. The scan
+            // result only depends on the read set itself, so compute it once here (keyed
+            // implicitly by cachedReadSetGeneration, which just advanced) instead of per frame.
+            cachedMaxReadSpan = cachedAlignedReads.isEmpty ? nil : max(
+                1,
+                cachedAlignedReads.lazy.prefix(50_000).map { max(1, $0.alignmentEnd - $0.position) }.max() ?? 500
+            )
             if cachedAlignedReads.isEmpty {
                 cachedReadMismatchCache = ReadMismatchCache()
             } else if let pending = pendingReadMismatchCache {
@@ -193,6 +201,10 @@ public class SequenceViewerView: NSView {
             }
         }
     }
+
+    /// Cached result of the `maxReadSpan` scan over `cachedAlignedReads`, recomputed only when
+    /// the read set itself changes (see the `didSet` above). Nil when there are no reads.
+    var cachedMaxReadSpan: Int?
 
     /// Mismatch cache computed off the main thread by a read fetch, consumed by
     /// the `cachedAlignedReads` `didSet` on commit so the expensive MD parse
@@ -293,6 +305,41 @@ public class SequenceViewerView: NSView {
 
     /// Current spinner phase in radians.
     var trackLoadingAnimationPhase: CGFloat = 0
+
+    /// Badge rects (view coordinates) drawn by `drawTrackLoadingBadge` during the most recent
+    /// `draw(_:)` pass. Cleared at the top of every full draw and repopulated as each badge is
+    /// drawn. The spinner-animation timer invalidates only the union of these rects instead of
+    /// the whole view (PERF-09), so a spinner tick during a fetch does not force a full re-run
+    /// of ruler/annotation/variant/coverage/read-track drawing every ~55ms.
+    var lastDrawnLoadingBadgeRects: [CGRect] = []
+
+    /// Test seam: rects passed to `setNeedsDisplay` by `advanceLoadingAnimationTick`, most
+    /// recent last. A rect equal to `bounds` denotes a full-view invalidation.
+    var testLoadingAnimationInvalidatedRects: [CGRect] = []
+
+    /// One tick of the loading-badge spinner: advances the phase and invalidates only the
+    /// badge rect(s) drawn on the last full pass, instead of the whole view (PERF-09). Factored
+    /// out of the timer closure so it is directly callable from tests without a live RunLoop timer.
+    func advanceLoadingAnimationTick() {
+        trackLoadingAnimationPhase += 0.34
+        if trackLoadingAnimationPhase > .pi * 2 {
+            trackLoadingAnimationPhase -= .pi * 2
+        }
+        if lastDrawnLoadingBadgeRects.isEmpty {
+            // Fall back to a full invalidate if no badge rect was recorded yet (e.g. the very
+            // first tick before any draw pass has run).
+            testLoadingAnimationInvalidatedRects.append(bounds)
+            setNeedsDisplay(bounds)
+        } else {
+            // Outset slightly: the stroked badge border and spinner arc extend a hair beyond
+            // the rect passed to drawTrackLoadingBadge.
+            for rect in lastDrawnLoadingBadgeRects {
+                let outset = rect.insetBy(dx: -2, dy: -2)
+                testLoadingAnimationInvalidatedRects.append(outset)
+                setNeedsDisplay(outset)
+            }
+        }
+    }
 
     /// Whether we're currently fetching consensus sequence data.
     var isFetchingConsensus: Bool = false
@@ -1065,6 +1112,13 @@ public class SequenceViewerView: NSView {
     /// Built at bundle load time by matching chromosome lengths when names differ.
     /// Empty if all names match or no variant tracks are loaded.
     var variantChromosomeAliasMap: [String: String] = [:]
+    /// Short, user-facing notes for every entry in `variantChromosomeAliasMap`
+    /// that `ChromosomeAliasResolver` could only match by contig length, not
+    /// by name/alias/version/synonym (SCI-14), e.g. "Matched VCF contig
+    /// NC_045512.2 to MN908947.3 by length". Surfaced as a tooltip on the
+    /// Variants tab in `AnnotationTableDrawerView` so this is visible in the
+    /// GUI rather than only logged.
+    var variantChromosomeLengthMatchNotes: [String] = []
     /// Cached per-track chromosome name sets from variant databases.
     var variantTrackChromosomeMap: [String: Set<String>] = [:]
 
@@ -1164,6 +1218,13 @@ public class SequenceViewerView: NSView {
 
     /// Timer for coalescing scroll-triggered redraws at 60fps.
     var scrollRedrawTimer: Timer?
+
+    /// Wall-clock time of the last pan-driven redraw actually performed, used by
+    /// `throttledPanRedraw` (PERF-09) to redraw at most once per ~1/60s frame during a pan
+    /// instead of resetting a one-shot debounce timer on every scroll event, which can starve
+    /// entirely under fast trackpad momentum (each event arrives before the previous timer
+    /// fires, so it keeps getting cancelled and rescheduled).
+    var lastPanRedrawTime: CFTimeInterval = 0
 
     // MARK: - Zoom Thresholds (bp/pixel)
     //
@@ -1309,12 +1370,7 @@ public class SequenceViewerView: NSView {
                 // Use MainActor.assumeIsolated instead of Task { @MainActor in } to avoid
                 // cooperative executor scheduling delays during AppKit layout-draw cycles.
                 MainActor.assumeIsolated {
-                    guard let self else { return }
-                    self.trackLoadingAnimationPhase += 0.34
-                    if self.trackLoadingAnimationPhase > .pi * 2 {
-                        self.trackLoadingAnimationPhase -= .pi * 2
-                    }
-                    self.setNeedsDisplay(self.bounds)
+                    self?.advanceLoadingAnimationTick()
                 }
             }
             trackLoadingAnimationTimer = timer
@@ -2259,6 +2315,7 @@ public class SequenceViewerView: NSView {
         // Skip expensive MAX(position) scans on the main thread; those are warmed asynchronously.
         self.cachedSampleCount = 0
         self.variantChromosomeAliasMap = [:]
+        self.variantChromosomeLengthMatchNotes = []
         self.variantTrackChromosomeMap = [:]
         for trackId in bundle.variantTrackIds {
             if let trackInfo = bundle.variantTrack(id: trackId),
@@ -2278,7 +2335,7 @@ public class SequenceViewerView: NSView {
                     self.variantTrackChromosomeMap[trackId] = trackChromosomes
 
                     // Fast path: name/alias/contig-length matching only.
-                    let aliasMap = Self.buildVariantChromosomeAliasMap(
+                    let (aliasMap, lengthMatchNotes) = Self.buildVariantChromosomeAliasMapWithLengthMatchNotes(
                         bundleChromosomes: bundle.manifest.genome?.chromosomes ?? [],
                         variantDB: db,
                         sequenceViewerLogger: sequenceViewerLogger,
@@ -2289,24 +2346,31 @@ public class SequenceViewerView: NSView {
                             self.variantChromosomeAliasMap[refChrom] = dbChrom
                         }
                     }
+                    for note in lengthMatchNotes where !self.variantChromosomeLengthMatchNotes.contains(note) {
+                        self.variantChromosomeLengthMatchNotes.append(note)
+                    }
                 }
             }
         }
         if let vc = self.viewController {
             vc.annotationDrawerView?.variantChromosomeAliasMap = self.variantChromosomeAliasMap
+            vc.annotationDrawerView?.variantChromosomeLengthMatchNotes = self.variantChromosomeLengthMatchNotes
         }
 
         // Warm expensive length-from-positions alias inference in the background so bundle
         // selection returns immediately even for very large variant databases.
         Self.warmVariantChromosomeAliasesAsync(
             bundle: bundle,
-            initialAliasMap: self.variantChromosomeAliasMap
-        ) { [weak self] mergedAliasMap in
+            initialAliasMap: self.variantChromosomeAliasMap,
+            initialLengthMatchNotes: self.variantChromosomeLengthMatchNotes
+        ) { [weak self] mergedAliasMap, mergedLengthMatchNotes in
             guard let self else { return }
             guard self.currentReferenceBundle?.url.standardizedFileURL == bundle.url.standardizedFileURL else { return }
             self.variantChromosomeAliasMap = mergedAliasMap
+            self.variantChromosomeLengthMatchNotes = mergedLengthMatchNotes
             if let vc = self.viewController {
                 vc.annotationDrawerView?.variantChromosomeAliasMap = mergedAliasMap
+                vc.annotationDrawerView?.variantChromosomeLengthMatchNotes = mergedLengthMatchNotes
             }
         }
 
@@ -2433,6 +2497,7 @@ public class SequenceViewerView: NSView {
         self.activeAlignmentFetchIdentity = nil
         self.cachedSampleCount = 0
         self.variantChromosomeAliasMap = [:]
+        self.variantChromosomeLengthMatchNotes = []
         self.variantTrackChromosomeMap = [:]
         self.alignmentChromosomeAliasMap = [:]
         self.alignmentDataProviders = []

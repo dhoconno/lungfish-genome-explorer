@@ -1102,6 +1102,66 @@ final class CondaManagerTests: XCTestCase {
         )
     }
 
+    /// PERF-14: `runTool`'s termination handler used to read the accumulated
+    /// stdout/stderr buffers 100ms after the process exited, on the theory
+    /// that any in-flight `readabilityHandler` callback would have finished
+    /// by then. That is a race, not a guarantee, and output still sitting in
+    /// the pipe past the delay was silently dropped. This drives a fake
+    /// micromamba that writes more than the ~64 KB kernel pipe buffer to
+    /// stdout and exits immediately, and asserts `runTool` returns every
+    /// byte -- proving the fix waits for real EOF rather than a timer.
+    func testRunToolReturnsFullStdoutPastPipeBufferSizeOnFastExit() async throws {
+        let sandbox = try makeMicromambaSandbox()
+        defer { try? FileManager.default.removeItem(at: sandbox) }
+
+        let bundledMicromamba = sandbox.appendingPathComponent("bundled-micromamba")
+        try FileManager.default.createDirectory(
+            at: bundledMicromamba.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        // 200,000 bytes: well past the ~64 KB kernel pipe buffer, so the
+        // parent must keep draining while the child is still writing, and the
+        // child exits immediately after its last write with nothing left to
+        // "settle" during any grace period.
+        let script = """
+        #!/bin/sh
+        case "$1" in
+            --version)
+                echo "2.0.5-0"
+                exit 0
+                ;;
+            run)
+                yes "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcd" | head -c 200000
+                exit 0
+                ;;
+            *)
+                echo "unexpected args: $@" >&2
+                exit 1
+                ;;
+        esac
+        """
+        try script.write(to: bundledMicromamba, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755],
+            ofItemAtPath: bundledMicromamba.path
+        )
+
+        let manager = CondaManager(
+            rootPrefix: sandbox.appendingPathComponent("conda"),
+            bundledMicromambaProvider: { bundledMicromamba },
+            bundledMicromambaVersionProvider: { "2.0.5-0" }
+        )
+        _ = try await manager.ensureMicromamba()
+
+        for _ in 0..<20 {
+            let result = try await manager.runTool(
+                name: "bigoutput",
+                environment: "bigoutput"
+            )
+            XCTAssertEqual(result.stdout.utf8.count, 200_000)
+        }
+    }
+
     func testRunToolCancellationTerminatesMicromambaProcessTree() async throws {
         let sandbox = try makeMicromambaSandbox()
         defer { try? FileManager.default.removeItem(at: sandbox) }

@@ -2018,4 +2018,56 @@ final class ReadTrackRendererTests: XCTestCase {
     func testBadgeAbsentWhenBothReferenceAndMDPresent() {
         XCTAssertFalse(ReadTrackRenderer.shouldShowNoReferenceBadge(hasReference: true, hasMDTags: true))
     }
+
+    // MARK: - UX-16: overflow bar contrast in Dark Aqua
+
+    /// The "+N reads not shown" overflow bar used to fill with a fixed near-white
+    /// (`NSColor(white: 0.88, alpha: 0.9)`) and draw `secondaryLabelColor` text on it. In Dark
+    /// Aqua `secondaryLabelColor` resolves to a light gray, so light text landed on a light bar.
+    /// `quaternarySystemFill`/`labelColor` are dynamic and must keep readable contrast in both
+    /// appearances.
+    func testOverflowBarMeetsMinimumContrastInDarkAqua() throws {
+        let appearance = try XCTUnwrap(NSAppearance(named: .darkAqua))
+        var fillComponents: (r: CGFloat, g: CGFloat, b: CGFloat, a: CGFloat) = (0, 0, 0, 0)
+        var textComponents: (r: CGFloat, g: CGFloat, b: CGFloat, a: CGFloat) = (0, 0, 0, 0)
+        appearance.performAsCurrentDrawingAppearance {
+            if let fill = NSColor.quaternarySystemFill.usingColorSpace(.sRGB) {
+                fillComponents = (fill.redComponent, fill.greenComponent, fill.blueComponent, fill.alphaComponent)
+            }
+            if let text = NSColor.labelColor.usingColorSpace(.sRGB) {
+                textComponents = (text.redComponent, text.greenComponent, text.blueComponent, text.alphaComponent)
+            }
+        }
+
+        // quaternarySystemFill is translucent; composite it over the window background
+        // (near-black in Dark Aqua) to get the effective on-screen fill color, the way it
+        // would actually be seen behind the read track's dark background.
+        let backdrop: CGFloat = 0.086 // approx NSColor.windowBackgroundColor luminance component in Dark Aqua
+        func composite(_ component: CGFloat, alpha: CGFloat) -> CGFloat {
+            component * alpha + backdrop * (1 - alpha)
+        }
+        let effectiveFill = (
+            r: composite(fillComponents.r, alpha: fillComponents.a),
+            g: composite(fillComponents.g, alpha: fillComponents.a),
+            b: composite(fillComponents.b, alpha: fillComponents.a)
+        )
+
+        func relativeLuminance(_ r: CGFloat, _ g: CGFloat, _ b: CGFloat) -> CGFloat {
+            func linearize(_ c: CGFloat) -> CGFloat {
+                c <= 0.03928 ? c / 12.92 : pow((c + 0.055) / 1.055, 2.4)
+            }
+            return 0.2126 * linearize(r) + 0.7152 * linearize(g) + 0.0722 * linearize(b)
+        }
+
+        let fillLuminance = relativeLuminance(effectiveFill.r, effectiveFill.g, effectiveFill.b)
+        let textLuminance = relativeLuminance(textComponents.r, textComponents.g, textComponents.b)
+        let lighter = max(fillLuminance, textLuminance)
+        let darker = min(fillLuminance, textLuminance)
+        let contrastRatio = (lighter + 0.05) / (darker + 0.05)
+
+        XCTAssertGreaterThanOrEqual(
+            contrastRatio, 4.5,
+            "overflow bar text must meet WCAG AA contrast (4.5:1) against its fill in Dark Aqua; got \(contrastRatio)"
+        )
+    }
 }

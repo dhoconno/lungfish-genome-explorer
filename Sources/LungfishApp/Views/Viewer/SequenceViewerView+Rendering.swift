@@ -24,6 +24,10 @@ extension SequenceViewerView {
         // draw pass; clear stale rects first so they don't accumulate as content scrolls/redraws.
         removeAllToolTips()
 
+        // Reset the loading-badge rect accumulator; drawTrackLoadingBadge repopulates it below
+        // as each badge is drawn, so the animation timer knows exactly what to invalidate later.
+        lastDrawnLoadingBadgeRects.removeAll(keepingCapacity: true)
+
         guard let context = NSGraphicsContext.current?.cgContext else {
             sequenceViewerLogger.warning("SequenceViewerView.draw: No graphics context available")
             return
@@ -449,10 +453,9 @@ extension SequenceViewerView {
                     // every pixel of pan.
                     let viewportSpan = max(1, visibleRegion.end - visibleRegion.start)
                     let panQuantum = max(1, viewportSpan / 4)
-                    let maxReadSpan = max(
-                        1,
-                        cachedAlignedReads.lazy.prefix(50_000).map { max(1, $0.alignmentEnd - $0.position) }.max() ?? 500
-                    )
+                    // PERF-09: cached on the cachedAlignedReads didSet instead of rescanning up
+                    // to 50,000 reads every draw() call (including every loading-badge tick).
+                    let maxReadSpan = cachedMaxReadSpan ?? 500
                     let packPadding = max(maxReadSpan, min(10_000, max(500, viewportSpan)))
                     let quantizedStart = (visibleRegion.start / panQuantum) * panQuantum
                     let packStart = max(0, quantizedStart - packPadding)
@@ -975,12 +978,36 @@ extension SequenceViewerView {
         sequenceViewerLogger: Logger,
         includeMaxPositionFallback: Bool = true
     ) -> [String: String] {
+        buildVariantChromosomeAliasMapWithLengthMatchNotes(
+            bundleChromosomes: bundleChromosomes,
+            variantDB: variantDB,
+            sequenceViewerLogger: sequenceViewerLogger,
+            includeMaxPositionFallback: includeMaxPositionFallback
+        ).aliasMap
+    }
+
+    /// Same matching as ``buildVariantChromosomeAliasMap`` (identical resolver,
+    /// identical cascade, identical result), but also returns short,
+    /// user-facing note strings for every mapping the resolver could only make
+    /// by contig length (SCI-14). The matching logic itself is untouched --
+    /// this only adds a user-visible surface for what was previously logged
+    /// but never shown in the UI.
+    ///
+    /// - Returns: The reference-name -> VCF-name alias map (identical to
+    ///   ``buildVariantChromosomeAliasMap``) plus one note per length-only
+    ///   mapping, e.g. "Matched VCF contig NC_045512.2 to MN908947.3 by length".
+    nonisolated static func buildVariantChromosomeAliasMapWithLengthMatchNotes(
+        bundleChromosomes: [ChromosomeInfo],
+        variantDB: VariantDatabase,
+        sequenceViewerLogger: Logger,
+        includeMaxPositionFallback: Bool = true
+    ) -> (aliasMap: [String: String], lengthMatchNotes: [String]) {
         let vcfChroms = Set(variantDB.allChromosomes())
         let refChromNames = Set(bundleChromosomes.map(\.name))
 
         // Check if all VCF chromosomes already match reference names
         let unmatched = vcfChroms.subtracting(refChromNames)
-        if unmatched.isEmpty { return [:] }
+        if unmatched.isEmpty { return ([:], []) }
 
         let vcfContigLengths = variantDB.contigLengths()
         let vcfMaxPositions: [String: Int] = includeMaxPositionFallback
@@ -1024,8 +1051,10 @@ extension SequenceViewerView {
         // shown against the wrong, similarly-sized contig has REF alleles
         // that will not match the displayed sequence, so this must not be
         // silent or buried in a count.
+        var lengthMatchNotes: [String] = []
         for (refName, vcfName) in aliasMap where resolver.lengthMatchedSources.contains(vcfName) {
             sequenceViewerLogger.warning("buildVariantChromosomeAliasMap: VCF contig '\(vcfName, privacy: .public)' shown on reference contig '\(refName, privacy: .public)' by LENGTH MATCH ONLY (no name/alias/version match found) — verify this is the intended contig; REF alleles may not match the displayed sequence")
+            lengthMatchNotes.append("Matched VCF contig \(vcfName) to \(refName) by length")
         }
 
         if !aliasMap.isEmpty {
@@ -1035,7 +1064,7 @@ extension SequenceViewerView {
             sequenceViewerLogger.info("buildVariantChromosomeAliasMap[\(mode, privacy: .public)]: Built \(aliasMap.count) chromosome aliases (\(nameMatchCount) name-based, \(lengthMatchCount) length-based) (e.g., \(aliasMap.first?.key ?? "") → \(aliasMap.first?.value ?? ""))")
         }
 
-        return aliasMap
+        return (aliasMap, lengthMatchNotes)
     }
 
     nonisolated static let variantAliasWarmupQueue = DispatchQueue(
@@ -1047,7 +1076,8 @@ extension SequenceViewerView {
     nonisolated static func warmVariantChromosomeAliasesAsync(
         bundle: ReferenceBundle,
         initialAliasMap: [String: String],
-        onComplete: @escaping @MainActor @Sendable ([String: String]) -> Void
+        initialLengthMatchNotes: [String] = [],
+        onComplete: @escaping @MainActor @Sendable ([String: String], [String]) -> Void
     ) {
         guard !bundle.variantTrackIds.isEmpty else { return }
         let bundleChromosomes = bundle.manifest.genome?.chromosomes ?? []
@@ -1055,6 +1085,7 @@ extension SequenceViewerView {
 
         variantAliasWarmupQueue.async {
             var merged = initial
+            var lengthMatchNotes = initialLengthMatchNotes
             for trackId in bundle.variantTrackIds {
                 guard let trackInfo = bundle.variantTrack(id: trackId),
                       let dbPath = trackInfo.databasePath else { continue }
@@ -1064,7 +1095,7 @@ extension SequenceViewerView {
                 ) else { continue }
                 guard let db = try? VariantDatabase(url: dbURL) else { continue }
 
-                let aliasMap = Self.buildVariantChromosomeAliasMap(
+                let (aliasMap, notes) = Self.buildVariantChromosomeAliasMapWithLengthMatchNotes(
                     bundleChromosomes: bundleChromosomes,
                     variantDB: db,
                     sequenceViewerLogger: sequenceViewerLogger,
@@ -1073,12 +1104,15 @@ extension SequenceViewerView {
                 for (refChrom, dbChrom) in aliasMap where merged[refChrom] == nil {
                     merged[refChrom] = dbChrom
                 }
+                for note in notes where !lengthMatchNotes.contains(note) {
+                    lengthMatchNotes.append(note)
+                }
             }
 
-            guard merged != initial else { return }
+            guard merged != initial || lengthMatchNotes != initialLengthMatchNotes else { return }
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
-                    onComplete(merged)
+                    onComplete(merged, lengthMatchNotes)
                 }
             }
         }

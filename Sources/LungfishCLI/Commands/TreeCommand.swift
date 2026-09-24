@@ -449,8 +449,11 @@ struct TreeCommand: AsyncParsableCommand {
             // in-flight working files (WFL-02).
             let tempRoot = projectURL.appendingPathComponent(".tmp", isDirectory: true)
             let stagingURL = tempRoot.appendingPathComponent("lungfish-tree-iqtree-\(UUID().uuidString)", isDirectory: true)
-            // Refuse-without-force must delete nothing. Only an output bundle
-            // this invocation itself created below may be cleaned up on failure.
+            // Refuse-without-force must delete nothing. REC-02: with --force,
+            // the new bundle is built at a fresh sibling path and only
+            // atomically swapped into place once IQ-TREE succeeds — the
+            // existing output must never be deleted before work starts, so a
+            // failed --force run leaves the previous tree untouched.
             var createdOutputInThisRun = false
             do {
                 guard FileManager.default.fileExists(atPath: msaBundleURL.path) else {
@@ -460,14 +463,20 @@ struct TreeCommand: AsyncParsableCommand {
                 if outputExisted, force == false {
                     throw ValidationError("Output tree bundle already exists: \(outputURL.path). Use --force to overwrite.")
                 }
-                if outputExisted, force {
-                    try FileManager.default.removeItem(at: outputURL)
-                }
-                createdOutputInThisRun = true
                 try FileManager.default.createDirectory(at: outputURL.deletingLastPathComponent(), withIntermediateDirectories: true)
                 try FileManager.default.createDirectory(at: stagingURL, withIntermediateDirectories: true)
                 defer {
                     try? FileManager.default.removeItem(at: stagingURL)
+                }
+                // `importTree` refuses to write into an existing directory,
+                // so build at a fresh sibling path first when replacing an
+                // existing output, and only swap it into place after the
+                // whole pipeline (including IQ-TREE itself) has succeeded.
+                let buildTargetURL = outputExisted
+                    ? stagingURL.appendingPathComponent("built").appendingPathExtension(outputURL.pathExtension)
+                    : outputURL
+                if !outputExisted {
+                    createdOutputInThisRun = true
                 }
 
                 emitter.emitProgress(0.12, message: "Preparing aligned FASTA input.")
@@ -548,7 +557,7 @@ struct TreeCommand: AsyncParsableCommand {
                 emitter.emitProgress(0.72, message: "Creating native .lungfishtree bundle.")
                 _ = try PhylogeneticTreeBundleImporter.importTree(
                     from: treefileURL,
-                    to: outputURL,
+                    to: buildTargetURL,
                     options: .init(
                         name: name ?? outputURL.deletingPathExtension().lastPathComponent,
                         argv: argv,
@@ -560,13 +569,13 @@ struct TreeCommand: AsyncParsableCommand {
                 )
 
                 emitter.emitProgress(0.84, message: "Preserving IQ-TREE artifacts.")
-                let artifactPaths = try copyIQTreeArtifacts(from: stagingURL, to: outputURL)
+                let artifactPaths = try copyIQTreeArtifacts(from: stagingURL, to: buildTargetURL)
                 let externalArgumentPathRewrites = [
                     stagedAlignmentURL.path: outputURL.appendingPathComponent("artifacts/iqtree/input.aligned.fasta").path,
                     prefixURL.path: outputURL.appendingPathComponent("artifacts/iqtree/run").path,
                 ]
                 try rewriteManifestAndProvenance(
-                    bundleURL: outputURL,
+                    bundleURL: buildTargetURL,
                     msaBundleURL: msaBundleURL,
                     artifactPaths: artifactPaths,
                     workflowName: workflowName,
@@ -600,16 +609,37 @@ struct TreeCommand: AsyncParsableCommand {
                     wallTimeSeconds: max(0, Date().timeIntervalSince(startedAt))
                 )
 
+                if outputExisted {
+                    // Atomic swap (REC-02): move the old bundle aside, move
+                    // the new one into place, then discard the old one only
+                    // after the replace has succeeded. Restore on failure so
+                    // a mid-swap error never leaves the output missing.
+                    let displacedURL = stagingURL.appendingPathComponent("displaced")
+                        .appendingPathExtension(outputURL.pathExtension)
+                    try FileManager.default.moveItem(at: outputURL, to: displacedURL)
+                    do {
+                        try FileManager.default.moveItem(at: buildTargetURL, to: outputURL)
+                    } catch {
+                        try? FileManager.default.moveItem(at: displacedURL, to: outputURL)
+                        throw error
+                    }
+                    try? FileManager.default.removeItem(at: displacedURL)
+                }
+
                 emitter.emitComplete(output: outputURL.path)
                 if globalOptions.outputFormat != .json && !globalOptions.quiet {
                     print("Inferred tree: \(outputURL.path)")
                 }
             } catch {
                 emitter.emitFailed(treeCommandErrorDescription(error))
-                // Only remove the output if THIS invocation created it (fresh
-                // or via --force). A plain refusal (exists, no --force) must
-                // leave the existing output untouched (WFL-02). Never remove
-                // the shared `.tmp` root — only this run's own staging dir.
+                // Only remove the output if THIS invocation created it fresh
+                // (no pre-existing bundle). A plain refusal (exists, no
+                // --force) or a failed --force run must leave the existing
+                // output untouched (WFL-02/REC-02): the --force build target
+                // lives under `stagingURL` and is discarded with it below,
+                // never touching `outputURL` unless the atomic swap above
+                // already completed. Never remove the shared `.tmp` root —
+                // only this run's own staging dir.
                 if createdOutputInThisRun {
                     try? FileManager.default.removeItem(at: outputURL)
                 }

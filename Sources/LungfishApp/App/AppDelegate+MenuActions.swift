@@ -72,6 +72,15 @@ extension AppDelegate {
             guard response == .OK, let url = panel.url else { return }
             guard let self = self else { return }
 
+            // NEW-03: focus an already-open project instead of creating a
+            // second window for it.
+            if let existing = self.controller(forProjectURL: url) {
+                NSApp.activate()
+                existing.showWindow(nil)
+                existing.window?.makeKeyAndOrderFront(nil)
+                return
+            }
+
             let controller = self.createAndShowMainWindow()
             NSApp.activate()
             self.openProject(url, in: controller)
@@ -81,6 +90,15 @@ extension AppDelegate {
     @IBAction func openRecentProjectFromMenu(_ sender: Any?) {
         guard let item = sender as? NSMenuItem,
               let url = item.representedObject as? URL else {
+            return
+        }
+
+        // NEW-03: focus an already-open project instead of creating a
+        // second window for it.
+        if let existing = controller(forProjectURL: url) {
+            NSApp.activate()
+            existing.showWindow(nil)
+            existing.window?.makeKeyAndOrderFront(nil)
             return
         }
 

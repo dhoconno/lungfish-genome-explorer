@@ -354,6 +354,93 @@ final class NativeToolRunnerTests: XCTestCase {
         }
     }
 
+    // MARK: - PERF-02: the actor must not block for a child's whole lifetime
+
+    /// A slow `runWithFileOutput` call (simulating a long `pigz` compression
+    /// or variant-calling pipeline) must not pin `NativeToolRunner`'s actor
+    /// executor: a concurrent, fast `run` call on the *same* actor instance
+    /// (as every caller shares via `.shared`) must complete well before the
+    /// slow call does. Before the PERF-02 fix, both `runWithFileOutput` and
+    /// `runPipeline`/`runPipelineWithFileOutput` ran `process.waitUntilExit()`
+    /// synchronously inside the actor-isolated continuation body, so the fast
+    /// call queued behind the slow one for its entire runtime.
+    func testSlowFileOutputRunDoesNotBlockConcurrentFastRunOnSameActor() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("NativeToolRunner PERF-02 \(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let runner = try makeSlowPigzManagedNativeToolRunner(root: root)
+
+        let outputDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("NativeToolRunner PERF-02 Output \(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: outputDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: outputDir) }
+        let outputURL = outputDir.appendingPathComponent("slow.out")
+
+        // Start the slow call but do not await it yet.
+        let slowTask = Task {
+            try await runner.runWithFileOutput(
+                .pigz,
+                arguments: ["--slow-compress"],
+                outputFile: outputURL,
+                timeout: 10
+            )
+        }
+
+        // Give the slow process time to actually launch before racing the fast one.
+        try await Task.sleep(nanoseconds: 200_000_000)
+
+        let fastStarted = Date()
+        let fastResult = try await withTimeout(nanoseconds: 2_000_000_000) {
+            try await runner.run(.seqkit, arguments: ["version"], timeout: 5)
+        }
+        let fastElapsed = Date().timeIntervalSince(fastStarted)
+
+        XCTAssertTrue(fastResult.isSuccess)
+        XCTAssertLessThan(
+            fastElapsed, 1.5,
+            "A fast call on the shared actor must not queue behind a slow runWithFileOutput call"
+        )
+
+        let slowResult = try await slowTask.value
+        XCTAssertTrue(slowResult.isSuccess, "Slow call should still complete successfully; stderr: \(slowResult.stderr)")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: outputURL.path))
+    }
+
+    private func makeSlowPigzManagedNativeToolRunner(root: URL) throws -> NativeToolRunner {
+        let fm = FileManager.default
+
+        let pigzDir = root.appendingPathComponent(".lungfish/conda/envs/pigz/bin", isDirectory: true)
+        try fm.createDirectory(at: pigzDir, withIntermediateDirectories: true)
+        let pigzURL = pigzDir.appendingPathComponent("pigz")
+        let pigzScript = """
+        #!/bin/sh
+        set -eu
+        case "$1" in
+          --slow-compress)
+            sleep 2
+            echo "compressed"
+            ;;
+          *)
+            echo "pigz 2.0"
+            ;;
+        esac
+        """
+        try pigzScript.write(to: pigzURL, atomically: true, encoding: .utf8)
+        try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: pigzURL.path)
+
+        let seqkitDir = root.appendingPathComponent(".lungfish/conda/envs/seqkit/bin", isDirectory: true)
+        try fm.createDirectory(at: seqkitDir, withIntermediateDirectories: true)
+        let seqkitURL = seqkitDir.appendingPathComponent("seqkit")
+        let seqkitScript = """
+        #!/bin/sh
+        echo "seqkit v2.0"
+        """
+        try seqkitScript.write(to: seqkitURL, atomically: true, encoding: .utf8)
+        try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: seqkitURL.path)
+
+        return NativeToolRunner(toolsDirectory: nil, homeDirectory: root)
+    }
+
     func testIvarVersionProbeUsesVersionSubcommand() {
         // iVar rejects --version as "Unknown command" but accepts the
         // `version` subcommand. NativeTool.versionArguments must reflect that
@@ -1061,7 +1148,7 @@ final class NativeToolRunnerTests: XCTestCase {
             try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executableURL.path)
         }
 
-        return (NativeToolRunner(toolsDirectory: nil, homeDirectory: root), root)
+        return (NativeToolRunner(toolsDirectory: nil, homeDirectory: root, appIdentity: .preview), root)
     }
 
     private func makeBBToolsJavaTestRunner() throws -> (runner: NativeToolRunner, root: URL) {
@@ -1095,7 +1182,7 @@ final class NativeToolRunnerTests: XCTestCase {
         try script.write(to: scriptURL, atomically: true, encoding: .utf8)
         try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: scriptURL.path)
 
-        return (NativeToolRunner(toolsDirectory: nil, homeDirectory: root), root)
+        return (NativeToolRunner(toolsDirectory: nil, homeDirectory: root, appIdentity: .preview), root)
     }
 
     private func containsTemporaryOutput(for outputURL: URL, in directory: URL) throws -> Bool {
@@ -1162,7 +1249,7 @@ final class NativeToolRunnerTests: XCTestCase {
         try script.write(to: executableURL, atomically: true, encoding: .utf8)
         try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executableURL.path)
 
-        return (NativeToolRunner(toolsDirectory: nil, homeDirectory: root), root)
+        return (NativeToolRunner(toolsDirectory: nil, homeDirectory: root, appIdentity: .preview), root)
     }
 
     private func waitForFile(at url: URL, timeoutNanoseconds: UInt64 = 5_000_000_000) async throws {
