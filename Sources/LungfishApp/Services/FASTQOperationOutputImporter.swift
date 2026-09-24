@@ -114,13 +114,15 @@ struct AppFASTQOutputBundleWriter: FASTQOutputBundleWriting {
                     deleteOriginals: false,
                     // D1 / WFL-01 / SCI-08: FASTQ operation outputs are never
                     // re-binned or re-trimmed on re-import. Quality binning
-                    // stays off, and the clumping tool is pinned to `.bbtools`
-                    // (never `.auto`, which can silently resolve to Trim
-                    // Galore and adapter/quality-trim the operation's own
-                    // output — see ClumpingTool.resolve).
+                    // stays off, and clumping uses `.auto`: BBTools clumpify
+                    // (reorder only) when the output fits its memory budget,
+                    // otherwise no clumping. `.auto` never substitutes Trim
+                    // Galore, so the operation's own output is never re-trimmed
+                    // (WFL-01/D1, see ClumpingTool.resolve), and large outputs
+                    // cannot OOM a pinned clumpify run.
                     qualityBinning: .none,
                     skipClumpify: false,
-                    clumpingTool: .bbtools
+                    clumpingTool: .auto
                 ),
                 progress: { _, _ in }
             )

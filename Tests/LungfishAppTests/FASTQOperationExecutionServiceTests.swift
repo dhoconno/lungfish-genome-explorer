@@ -2736,7 +2736,13 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
         // delete the source, and must not bin or clump-via-Trim-Galore.
         XCTAssertFalse(config.deleteOriginals, "FASTQOperationOutputImporter deletes the source itself, only after a read-count check")
         XCTAssertEqual(config.qualityBinning, .none)
-        XCTAssertEqual(config.clumpingTool, .bbtools)
+        XCTAssertEqual(config.clumpingTool, .auto)
+        // `.auto` may skip clumping for large outputs but must never resolve to
+        // Trim Galore, which would re-trim the operation's own output (WFL-01).
+        XCTAssertNotEqual(
+            ClumpingTool.auto.resolve(estimatedInputBytes: Int64.max / 4, physicalMemoryBytes: 8 << 30).resolved,
+            .trimGalore
+        )
         XCTAssertEqual(config.pairingMode.rawValue, FASTQIngestionConfig.PairingMode.interleaved.rawValue)
 
         let bundledFASTQ = try XCTUnwrap(FASTQBundle.resolvePrimaryFASTQURL(for: bundleURL))
