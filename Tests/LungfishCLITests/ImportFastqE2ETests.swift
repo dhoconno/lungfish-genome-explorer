@@ -150,6 +150,27 @@ final class ImportFastqE2ETests: XCTestCase {
         XCTAssertFalse(bundles.isEmpty, "At least one .lungfishfastq bundle should be created")
 
         let bundleURL = try XCTUnwrap(bundles.first)
+
+        // Data-loss regression (2026-09-24): with --no-optimize-storage the
+        // pipeline used to keep only R1 and delete the staged R2, while the
+        // bundle metadata still claimed an interleaved pair. The bundle FASTQ
+        // must hold every R1 and R2 record.
+        let inputPairs = try FASTQPairInterleaver.countRecords(in: fixtures.appendingPathComponent("test_1.fastq.gz"))
+        XCTAssertEqual(
+            inputPairs,
+            try FASTQPairInterleaver.countRecords(in: fixtures.appendingPathComponent("test_2.fastq.gz")),
+            "Fixture mates must match"
+        )
+        XCTAssertGreaterThan(inputPairs, 0)
+        let bundleFASTQs = try FileManager.default.contentsOfDirectory(at: bundleURL, includingPropertiesForKeys: nil)
+            .filter { $0.lastPathComponent.hasSuffix(".fastq.gz") }
+        let bundleFASTQ = try XCTUnwrap(bundleFASTQs.first, "Bundle should hold one .fastq.gz payload")
+        XCTAssertEqual(
+            try FASTQPairInterleaver.countRecords(in: bundleFASTQ),
+            2 * inputPairs,
+            "Imported bundle must hold R1 + R2 records (2 x \(inputPairs) pairs)"
+        )
+
         let provenanceURL = bundleURL.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
         XCTAssertTrue(
             FileManager.default.fileExists(atPath: provenanceURL.path),
