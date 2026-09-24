@@ -1,0 +1,29 @@
+# Captured from Lungfish Preview 2026.9.41 with capture-window.sh (2026-09-24 manual review).
+# App state: Demo project, Primer Schemes/QIASeqDIRECT-SARS2 clicked in the sidebar; the Inspector Bundle tab shows the display name, 563 primers, 223 amplicons, reference MN908947.3, equivalent NC_045512.2, organism, source built-in and version.
+id: primer-scheme-inspector
+chapter: appendices/primer-schemes
+caption: A primer scheme selected in the sidebar, with the Inspector showing the display name, the primer
+  and amplicon counts, and the reference and equivalent accessions.
+viewport_class: none
+app_state:
+  fixture: '{demo_project}'
+  open_files: []
+  window_size:
+  - 1400
+  - 900
+  appearance: light
+steps:
+- action: open_application
+  app: Lungfish Preview
+- action: wait_ready
+  signal: main_window_visible
+- action: resize_window
+  size:
+  - 1400
+  - 900
+  # PROSE-ONLY: click Primer Schemes/QIASeqDIRECT-SARS2 in the sidebar
+crop:
+  mode: window
+post:
+  retina: true
+  format: png

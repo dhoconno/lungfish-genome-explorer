@@ -1,9 +1,8 @@
-# Captured from Lungfish Preview 2026.9.13 with capture-window.sh (2026-09 campaign).
-# App state: The Call Variants dialog with iVar selected, its primer-trim checkbox ticked by hand, and the iVar Options section showing.
+# Captured from Lungfish Preview 2026.9.41 with capture-window.sh (2026-09-24 manual review).
+# App state: Demo project, chr20 bundle, Tools > Call Variants..., iVar selected on the untrimmed HG002 minimap2 track: the primer-trim confirmation is unticked, the iVar Options section (0.75, 0.25, 20, Ignore strand bias on) shows, and Run is unavailable until the BAM is confirmed as primer-trimmed.
 id: call-variants-dialog-ivar
 chapter: 05-variants/01-calling-variants-from-amplicons
-caption: The Call Variants dialog with iVar selected, showing the primer-trim checkbox already ticked
-  and the iVar Options section that only iVar displays.
+caption: "The Call Variants dialog with iVar selected on an alignment that has not been primer-trimmed, showing the unticked primer-trim confirmation, the iVar Options section that only iVar displays, and the Readiness line asking you to confirm the BAM was primer-trimmed."
 viewport_class: variant
 app_state:
   fixture: '{demo_project}'
@@ -27,7 +26,7 @@ steps:
 crop:
   mode: region
   region:
-  - 242
+  - 208
   - 102
   - 982
   - 696

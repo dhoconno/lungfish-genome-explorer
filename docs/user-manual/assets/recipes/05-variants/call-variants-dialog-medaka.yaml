@@ -1,5 +1,5 @@
-# Captured from Lungfish Preview 2026.9.13 with capture-window.sh (2026-09 campaign).
-# App state: The Call Variants dialog with Medaka selected, showing the Medaka Settings section and its empty Medaka Model field with placeholder text.
+# Captured from Lungfish Preview 2026.9.41 with capture-window.sh (2026-09-24 manual review).
+# App state: Demo project, chr20 bundle, Tools > Call Variants..., Medaka selected in the six-caller sidebar, Medaka Settings showing the empty Medaka Model field with its placeholder, Run unavailable.
 id: call-variants-dialog-medaka
 chapter: 05-variants/04-nanopore-variant-calling
 caption: The Call Variants dialog with Medaka selected in the tool sidebar, showing the two-column layout
@@ -29,7 +29,7 @@ steps:
 crop:
   mode: region
   region:
-  - 242
+  - 208
   - 102
   - 982
   - 696

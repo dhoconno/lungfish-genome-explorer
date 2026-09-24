@@ -1,5 +1,5 @@
-# Captured from Lungfish Preview 2026.9.40 with capture-window.sh (2026-09-24 manual review).
-# App state: In the Williams copy project, clicked Analyses/Amplicon genotyping results/amplicon-genotyping_3. The genotype matrix shows allele-target rows (Genotype column pinned at left) and one column per sample, with the Inspector Bundle tab showing Run Summary, Excel and QC Status.
+# Captured from Lungfish Preview 2026.9.41 with capture-window.sh (2026-09-24 manual review).
+# App state: Williams copy project, Analyses/Amplicon genotyping results/amplicon-genotyping_3 clicked: allele-target rows with the Genotype column pinned at left, one column per sample, Inspector Bundle tab with Run Summary, Excel and QC Status.
 id: genotype-matrix-reading
 chapter: 09-genotyping/03-reading-the-genotype-comparison
 caption: The genotype result window on the Williams MiSeq result, with allele-target rows named by their

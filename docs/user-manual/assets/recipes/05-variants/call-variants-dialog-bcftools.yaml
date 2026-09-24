@@ -1,5 +1,5 @@
-# Captured from Lungfish Preview 2026.9.13 with capture-window.sh (2026-09 campaign).
-# App state: The Call Variants dialog open with bcftools selected in the tool sidebar on the chr20 bundle's HG002 minimap2 alignment track.
+# Captured from Lungfish Preview 2026.9.41 with capture-window.sh (2026-09-24 manual review).
+# App state: Demo project, Reference Sequences/chr20_10.0-10.5Mb selected, Tools > Call Variants..., bcftools selected in the six-caller sidebar on the HG002 minimap2 track: Thresholds 0.05 and 10, bcftools Settings with the Ploidy control on Diploid and the caption 'Default for this bundle: Diploid, from organism Homo sapiens'.
 id: call-variants-dialog-bcftools
 chapter: 05-variants/01-calling-variants-from-amplicons
 caption: The Call Variants dialog with bcftools selected, showing the tool sidebar on the left and the
@@ -29,7 +29,7 @@ steps:
 crop:
   mode: region
   region:
-  - 242
+  - 208
   - 102
   - 982
   - 696

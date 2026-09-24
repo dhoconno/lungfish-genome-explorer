@@ -1,5 +1,5 @@
-# Captured from Lungfish Preview 2026.9.13 with capture-window.sh (2026-09 campaign).
-# App state: The Call Variants dialog with LoFreq selected by default and GATK HaplotypeCaller disabled in the tool sidebar showing the Requires GATK4 badge, because GATK4 needs reinstall in this profile; clicking the card was refused.
+# Captured from Lungfish Preview 2026.9.41 with capture-window.sh (2026-09-24 manual review).
+# App state: Demo project, chr20 bundle, Tools > Call Variants..., GATK HaplotypeCaller selected in the six-caller sidebar on the HG002 minimap2 track, with the Thresholds fields, GATK HaplotypeCaller Settings line, Extra arguments, and Readiness 'Ready to run GATK HaplotypeCaller on HG002 minimap2.'
 id: call-variants-dialog-gatk
 chapter: 06-human-germline-variants/01-haplotype-caller
 caption: The Call Variants dialog with GATK HaplotypeCaller selected, showing the tool sidebar, the Overview

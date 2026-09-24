@@ -1,5 +1,5 @@
-# Captured from Lungfish Preview 2026.9.13 with capture-window.sh (2026-09 campaign).
-# App state: The Medaka Model field filled with r1041_e82_400bps_hac_v5.0.0, the Readiness line naming it back, and Run enabled.
+# Captured from Lungfish Preview 2026.9.41 with capture-window.sh (2026-09-24 manual review).
+# App state: Same dialog as call-variants-dialog-medaka with r941_prom_sup_variant_g507 typed into the Medaka Model field; Readiness reads 'Ready to run Medaka with model r941_prom_sup_variant_g507.' and Run is enabled.
 id: medaka-model-field
 chapter: 05-variants/04-nanopore-variant-calling
 caption: The Medaka Model field with a model identifier typed in, the Readiness line naming that model
@@ -28,7 +28,7 @@ steps:
 crop:
   mode: region
   region:
-  - 242
+  - 208
   - 102
   - 982
   - 696

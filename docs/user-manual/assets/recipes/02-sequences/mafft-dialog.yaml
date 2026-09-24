@@ -1,5 +1,5 @@
-# Captured from Lungfish Preview 2026.9.13 with capture-window.sh (2026-09 campaign).
-# App state: The FASTQ/FASTA Operations sheet on its MAFFT pane for the primate-mito reference bundle, the scope line reading Aligning all 5 sequences, Strategy on Automatic, Advanced Options collapsed.
+# Captured from Lungfish Preview 2026.9.41 with capture-window.sh (2026-09-24 manual review).
+# App state: Demo project, Reference Sequences/primate-mito clicked, Tools > Multiple Sequence Alignment > MAFFT...; the scope line reads Aligning all 5 sequences, Strategy Automatic, Advanced Options collapsed.
 id: mafft-dialog
 chapter: 02-sequences/04-aligning-sequences
 caption: The MAFFT pane of the operations dialog, with the scope summary line above the Strategy popup

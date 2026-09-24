@@ -16,7 +16,7 @@ shots:
   - id: call-variants-dialog-bcftools
     caption: "The Call Variants dialog with bcftools selected, showing the tool sidebar on the left and the Overview, Thresholds, and bcftools Settings sections on the right, with the Ploidy control set to Diploid."
   - id: call-variants-dialog-ivar
-    caption: "The Call Variants dialog with iVar selected, showing the primer-trim checkbox already ticked and the iVar Options section that only iVar displays."
+    caption: "The Call Variants dialog with iVar selected on an alignment that has not been primer-trimmed, showing the unticked primer-trim confirmation, the iVar Options section that only iVar displays, and the Readiness line asking you to confirm the BAM was primer-trimmed."
   - id: variants-tab-two-callers
     caption: "The Variants tab of the table drawer with both the bcftools and LoFreq tracks loaded, and the Variant Track column naming which track each row came from."
 illustrations: []
@@ -77,7 +77,7 @@ The Thresholds fields filter the output of every caller except GATK HaplotypeCal
 
 ### Step 3. Call with bcftools
 
-Click **bcftools** in the tool sidebar. Its section opens with the line "bcftools will run mpileup and call as an orthogonal cross-check on the selected BAM", where orthogonal means a second opinion reached by a different route. Under it sits one control, **Ploidy**, offering Haploid and Diploid, with a caption naming the choice LGE made for this bundle and the evidence it used. On the fixture the caption gives Diploid, taken from the assembly name GRCh38 in the bundle's name, and Diploid is right for a human sample. Check that the Alignment Track menu names your minimap2 track. The Output Variant Track Name fills in as "minimap2 Mapping • bcftools". Leave every field alone and click **Run**.
+Click **bcftools** in the tool sidebar. Its section opens with the line "bcftools will run mpileup and call as an orthogonal cross-check on the selected BAM", where orthogonal means a second opinion reached by a different route. Under it sits one control, **Ploidy**, offering Haploid and Diploid, with a caption naming the choice LGE made for this bundle and the evidence it used. Here the caption gives Diploid, which is right for a human sample. In the demo project it cites the organism Homo sapiens, and in a bundle imported straight from the fixture file it cites the assembly name GRCh38 instead. Check that the Alignment Track menu names your minimap2 track. The Output Variant Track Name fills in as "minimap2 Mapping • bcftools". Leave every field alone and click **Run**.
 
 Watch the run in the [Operations Panel](../01-foundations/06-the-lungfish-project.md#the-operations-panel), which opens with **Operations > Show Operations Panel** (Cmd-Shift-P). LGE indexes the reference, runs [`bcftools mpileup`](../../GLOSSARY.md#mpileup) feeding straight into `bcftools call`, applies the threshold filter, sorts the rows, compresses the file with [`bgzip`](../../GLOSSARY.md#bgzip), indexes it with [`tabix`](../../GLOSSARY.md#tabix), and loads the rows into the database the table filters. When the run finishes, its row ends with "Created variant track minimap2 Mapping • bcftools".
 

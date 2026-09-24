@@ -1,5 +1,5 @@
-# Captured from Lungfish Preview 2026.9.13 with capture-window.sh (2026-09 campaign).
-# App state: the Map Reads (minimap2) wizard with HG002 reads selected, chr20_10.0-10.5Mb reference, and Short-read preset chosen
+# Captured from Lungfish Preview 2026.9.41 with capture-window.sh (2026-09-24 manual review).
+# App state: Demo project, Imports/HG002 (paired, 91,148 reads) selected, Tools > Mapping > minimap2...: chr20_10.0-10.5Mb reference, Short-read preset, Input Compatibility Ready, Read Group and Advanced Settings collapsed.
 id: mapping-wizard-overview
 chapter: 04-alignments/01-mapping-reads-to-a-reference
 caption: "The FASTQ/FASTA Operations dialog with minimap2 chosen in the tool list, the chr20_10.0-10.5Mb reference and the Short-read preset selected, the Input Compatibility readout reporting Ready, and the Read Group and Advanced Settings disclosures collapsed."
@@ -26,7 +26,7 @@ steps:
 crop:
   mode: region
   region:
-  - 242
+  - 208
   - 102
   - 982
   - 696
