@@ -6,6 +6,21 @@ import LungfishWorkflow
 import XCTest
 
 final class FastqImportONTProvenanceTests: XCTestCase {
+    // SCI-08 remainder: quality-binning help must describe the actual level
+    // counts (illumina4 -> 7 levels, eightLevel -> ~21 levels), not the
+    // misleading "4-level"/"8-level" names the raw values imply.
+    func testQualityBinningHelpDescribesActualLevelCounts() {
+        // ArgumentParser word-wraps help text to terminal width, so compare
+        // with whitespace collapsed rather than requiring an exact substring.
+        let help = FastqImportONTSubcommand.helpMessage()
+            .split(whereSeparator: \.isWhitespace)
+            .joined(separator: " ")
+        XCTAssertTrue(help.contains("illumina4"), help)
+        XCTAssertTrue(help.contains("7 quality levels"), help)
+        XCTAssertTrue(help.contains("eightLevel"), help)
+        XCTAssertTrue(help.contains("21 quality levels"), help)
+    }
+
     private var tempDir: URL!
 
     override func setUp() {

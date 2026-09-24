@@ -299,6 +299,26 @@ final class ImportFastqCommandTests: XCTestCase {
         XCTAssertTrue(command.dryRun)
     }
 
+    // SCI-08 remainder: the raw values "illumina4"/"eightLevel" are kept for
+    // backward-compatible provenance/CLI parsing, but the user-visible help
+    // must describe the real level counts, not the misleading names.
+    // clumpify.sh quantize=0,8,13,22,27,32,37 ("illumina4") yields 7 levels;
+    // quantize=2 ("eightLevel") yields roughly 21 levels on a 0-40 Phred
+    // range, not 4 or 8.
+    func testQualityBinningHelpDescribesActualLevelCounts() {
+        // ArgumentParser word-wraps help text to terminal width, so compare
+        // with whitespace collapsed rather than requiring an exact substring.
+        let help = ImportCommand.FastqSubcommand.helpMessage()
+            .split(whereSeparator: \.isWhitespace)
+            .joined(separator: " ")
+        XCTAssertTrue(help.contains("illumina4"), help)
+        XCTAssertTrue(help.contains("7 quality levels"), help)
+        XCTAssertTrue(help.contains("eightLevel"), help)
+        XCTAssertTrue(help.contains("21 quality levels"), help)
+        XCTAssertFalse(help.contains("4-level"), help)
+        XCTAssertFalse(help.contains("8-level"), help)
+    }
+
     func testResolveImportRecipeMapsVSP2AliasToDeclarativeRecipe() throws {
         let resolved = try ImportCommand.FastqSubcommand.resolveImportRecipe(named: "vsp2")
 

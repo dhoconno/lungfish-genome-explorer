@@ -330,36 +330,76 @@ struct FastqSubsampleSubcommand: AsyncParsableCommand {
         if proportion != nil && count != nil {
             throw ValidationError("Specify --proportion or --count, not both")
         }
-        // WFL-10: subsampling had no seed at all, so the exact reads kept by
-        // one run could never be reproduced from provenance. `seqkit sample`
-        // and `seqkit sample2` both take `-s`/`--rand-seed`; generate one
-        // when the caller does not supply one (matching the in-process
-        // `FASTQDerivativeService` subsample path's own random-seed
-        // behavior) and record the ACTUAL seed used either way, so a run's
-        // provenance is always sufficient to replay it.
+        guard proportion != nil || count != nil else {
+            throw ValidationError("Specify --proportion or --count")
+        }
+        // WFL-10: always resolve a seed (random when omitted) and record the
+        // actual value, so any run can be replayed exactly from provenance.
         let resolvedSeed = seed ?? Int64.random(in: 0...Int64.max)
-        var args = ["sample"]
         if let proportion {
             guard proportion > 0, proportion <= 1 else {
                 throw ValidationError("Proportion must be in (0, 1]")
             }
-            args += ["-p", String(proportion), "-s", String(resolvedSeed)]
-        } else if let count {
+        }
+        if let count {
             guard count > 0 else {
                 throw ValidationError("Count must be > 0")
             }
-            args = ["sample2", "-n", String(count), "-2", "-s", String(resolvedSeed)]
-        } else {
-            throw ValidationError("Specify --proportion or --count")
         }
-        args += [inputURL.path, "-o", output.output]
+
+        // SCI-16: paired imports are stored interleaved (mates on adjacent
+        // records). `seqkit sample`/`sample2` samples records independently,
+        // which orphans mates in interleaved input. Detect interleaving and
+        // use `reformat.sh` (pair-aware: it samples fragments, keeping both
+        // mates together) instead.
+        let isInterleaved = try await IlluminaAmpliconPairMerger.fastqIsInterleavedPairs(at: inputURL)
 
         let startedAt = Date()
-        let result = try await runner.run(.seqkit, arguments: args)
-        guard result.isSuccess else {
-            let command = count == nil ? "seqkit sample" : "seqkit sample2"
-            throw CLIError.conversionFailed(reason: "\(command) failed: \(result.stderr)")
+        let toolName: String
+        let args: [String]
+        let result: NativeToolResult
+        if isInterleaved {
+            toolName = "reformat"
+            var reformatArgs = [
+                "in=\(inputURL.path)",
+                "out=\(output.output)",
+                "interleaved=t",
+            ]
+            if let proportion {
+                reformatArgs.append("samplerate=\(proportion)")
+            }
+            if let count {
+                // With interleaved=t on paired input, reformat.sh's
+                // samplereadstarget counts output PAIRS (it doubles
+                // internally to keep both mates), so pass the pair count
+                // directly rather than doubling it here.
+                reformatArgs.append("samplereadstarget=\(count)")
+            }
+            reformatArgs.append("sampleseed=\(resolvedSeed)")
+            args = reformatArgs
+            let env = await bbToolsEnvironment(runner: runner)
+            result = try await runner.run(.reformat, arguments: args, environment: env, timeout: 1800)
+            guard result.isSuccess else {
+                throw CLIError.conversionFailed(reason: "reformat.sh sample failed: \(result.stderr)")
+            }
+        } else {
+            toolName = "seqkit"
+            if let proportion {
+                var seqkitArgs = ["sample", "-p", String(proportion), "-s", String(resolvedSeed)]
+                seqkitArgs += [inputURL.path, "-o", output.output]
+                args = seqkitArgs
+            } else {
+                var seqkitArgs = ["sample2", "-n", String(count!), "-2", "-s", String(resolvedSeed)]
+                seqkitArgs += [inputURL.path, "-o", output.output]
+                args = seqkitArgs
+            }
+            result = try await runner.run(.seqkit, arguments: args)
+            guard result.isSuccess else {
+                let command = count == nil ? "seqkit sample" : "seqkit sample2"
+                throw CLIError.conversionFailed(reason: "\(command) failed: \(result.stderr)")
+            }
         }
+
         var cliArguments = ["subsample"]
         if let proportion {
             cliArguments += ["--proportion", String(proportion)]
@@ -378,7 +418,7 @@ struct FastqSubsampleSubcommand: AsyncParsableCommand {
         let outputURL = URL(fileURLWithPath: output.output)
         try await recordFASTQNativeToolProvenance(
             workflowName: "lungfish fastq subsample",
-            nativeTool: .seqkit,
+            nativeTool: toolName == "reformat" ? .reformat : .seqkit,
             cliArguments: cliArguments,
             nativeArguments: args,
             result: result,
@@ -390,6 +430,7 @@ struct FastqSubsampleSubcommand: AsyncParsableCommand {
                 "proportion": proportion.map(ParameterValue.number) ?? .null,
                 "count": count.map(ParameterValue.integer) ?? .null,
                 "seed": .integer(Int(resolvedSeed)),
+                "interleaved": .boolean(isInterleaved),
                 "force": .boolean(output.force),
                 "compress": .boolean(output.compress)
             ],
@@ -397,6 +438,7 @@ struct FastqSubsampleSubcommand: AsyncParsableCommand {
                 "proportion": .null,
                 "count": .null,
                 "seed": .null,
+                "interleaved": .boolean(false),
                 "force": .boolean(false),
                 "compress": .boolean(false)
             ],
@@ -3459,7 +3501,7 @@ struct FastqImportONTSubcommand: AsyncParsableCommand {
     var optimizeStorage: Bool = false
 
     @Option(name: .customLong("quality-binning"),
-            help: "Quality binning for --optimize-storage: none, illumina4, or eightLevel (default: none)")
+            help: "Quality binning for --optimize-storage: none, illumina4 (7 quality levels), or eightLevel (~21 quality levels) (default: none)")
     var qualityBinning: QualityBinningScheme = .none
 
     func run() async throws {

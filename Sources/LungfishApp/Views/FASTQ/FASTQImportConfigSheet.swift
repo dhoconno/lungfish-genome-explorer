@@ -294,7 +294,12 @@ public final class FASTQImportConfigSheet: NSViewController {
         view.addSubview(pairingPopup)
 
         // Quality binning popup
-        binningPopup.addItems(withTitles: ["Illumina 4-level", "8-level", "None (preserve original)"])
+        // SCI-08: clumpify.sh quantize=0,8,13,22,27,32,37 ("illumina4") yields
+        // 7 distinct quality levels, and quantize=2 ("eightLevel") yields
+        // roughly 21 levels over a typical 0-40 Phred range — not 4 or 8.
+        // The persisted raw values keep the old names (illumina4/eightLevel)
+        // for backward compatibility; only the user-visible label changes.
+        binningPopup.addItems(withTitles: ["Illumina (7-level)", "Fine (~21-level)", "None (preserve original)"])
         binningPopup.selectItem(at: defaultBinningIndex(for: detectedPlatform))
         binningPopup.font = .systemFont(ofSize: 12)
         binningPopup.translatesAutoresizingMaskIntoConstraints = false

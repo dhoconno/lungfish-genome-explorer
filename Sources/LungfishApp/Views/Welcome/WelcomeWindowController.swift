@@ -42,8 +42,20 @@ public final class RecentProjectsManager: ObservableObject {
     public func addRecentProject(url: URL, name: String) {
         logger.info("Adding recent project: \(name, privacy: .public) at \(url.path, privacy: .public)")
 
-        // Remove any existing entry for this URL
-        recentProjects.removeAll { $0.url == url }
+        // NEW-03: dedupe by standardized, symlink-resolved path rather than
+        // raw URL equality. Two URLs that name the same project (e.g. one
+        // built via URL(fileURLWithPath:) without a trailing slash, one via
+        // appendingPathComponent(isDirectory: true), or one through a
+        // symlinked volume) can differ under plain `==` while pointing at
+        // the same folder, which produced duplicate Open Recent entries.
+        // Compare canonicalized `.path` strings, not `URL` equality: URL's
+        // `==` is sensitive to a trailing slash (`isDirectory: true` vs
+        // `false` for the same folder produces unequal URLs even after
+        // `.standardizedFileURL.resolvingSymlinksInPath()`), which let two
+        // constructions of the very same project path slip past the old
+        // `$0.url == url` dedupe check.
+        let canonical = ProjectSessionRegistry.canonicalProjectURL(url).path
+        recentProjects.removeAll { ProjectSessionRegistry.canonicalProjectURL($0.url).path == canonical }
 
         // Add to front
         let entry = RecentProject(url: url, name: name, lastOpened: Date())

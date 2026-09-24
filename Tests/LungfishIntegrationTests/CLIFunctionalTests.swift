@@ -558,6 +558,79 @@ final class CLIFunctionalTests: XCTestCase {
         }
     }
 
+    // NEW-01: `import bam <bam> -o <bundle.lungfishref>` used to write loose
+    // files into whatever `-o` pointed to, even an existing `.lungfishref`
+    // bundle, leaving `manifest.alignments` empty — the GUI sidebar/viewer
+    // never sees the alignment. `-o` pointed at an existing bundle must now
+    // attach a real manifest alignment track instead.
+    func testImportBAMAttachesToExistingBundleAsManifestTrack() async throws {
+        let bundleURL = tempDirectory.appendingPathComponent("Fixture.lungfishref", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: bundleURL.appendingPathComponent("alignments"),
+            withIntermediateDirectories: true
+        )
+        let manifest = BundleManifest(
+            formatVersion: "1.0",
+            name: "Fixture",
+            identifier: "fixture.\(UUID().uuidString)",
+            source: SourceInfo(organism: "Fixture organism", assembly: "Fixture assembly", database: "Fixture database"),
+            genome: nil,
+            alignments: []
+        )
+        try manifest.save(to: bundleURL)
+
+        let command = try ImportCommand.BAMSubcommand.parse([
+            TestFixtures.sarscov2.sortedBam.path,
+            "-o", bundleURL.path,
+            "--name", "Test Alignment",
+            "-q",
+        ])
+        try await command.run()
+
+        let updatedManifest = try BundleManifest.load(from: bundleURL)
+        XCTAssertEqual(updatedManifest.alignments.count, 1, "Attaching a BAM to an existing bundle must add exactly one manifest alignment track")
+        let track = try XCTUnwrap(updatedManifest.alignments.first)
+        XCTAssertEqual(track.name, "Test Alignment")
+        XCTAssertTrue(
+            FileManager.default.fileExists(atPath: bundleURL.appendingPathComponent(track.sourcePath).path),
+            "Attached BAM payload must exist at the manifest-recorded path"
+        )
+        XCTAssertTrue(
+            FileManager.default.fileExists(atPath: bundleURL.appendingPathComponent(track.indexPath).path),
+            "Attached BAM index must exist at the manifest-recorded path"
+        )
+        XCTAssertGreaterThan(track.mappedReadCount ?? 0, 0, "Attached track should record real mapped-read statistics")
+
+        // The original loose-file behavior must not have also fired: no
+        // top-level copy of the BAM should exist beside the manifest.
+        XCTAssertFalse(
+            FileManager.default.fileExists(
+                atPath: bundleURL.appendingPathComponent(TestFixtures.sarscov2.sortedBam.lastPathComponent).path
+            ),
+            "Bundle-attach path must not also perform the loose-directory copy"
+        )
+    }
+
+    func testImportBAMRejectsUninitializedLungfishrefTarget() async throws {
+        let bundleURL = tempDirectory.appendingPathComponent("NotYetCreated.lungfishref", isDirectory: true)
+
+        let command = try ImportCommand.BAMSubcommand.parse([
+            TestFixtures.sarscov2.sortedBam.path,
+            "-o", bundleURL.path,
+            "-q",
+        ])
+
+        do {
+            try await command.run()
+            XCTFail("Pointing -o at a non-existent .lungfishref bundle should be rejected with a clear error")
+        } catch {
+            // Rejected cleanly, no partial bundle materialized.
+            XCTAssertFalse(
+                FileManager.default.fileExists(atPath: bundleURL.appendingPathComponent(BundleManifest.filename).path)
+            )
+        }
+    }
+
     // MARK: - Extract: Error Handling
 
     /// Verifies that extracting a region beyond the genome length produces an error.

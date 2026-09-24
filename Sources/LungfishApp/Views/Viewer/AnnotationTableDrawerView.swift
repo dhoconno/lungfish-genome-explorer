@@ -387,6 +387,27 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
     var variantTrackDatabaseURLs: [URL] = []
     /// Maps reference chromosome names to variant DB chromosome names (from contig length matching).
     var variantChromosomeAliasMap: [String: String] = [:]
+    /// Short, user-facing notes (SCI-14) for every ``variantChromosomeAliasMap``
+    /// entry the resolver could only make by contig length, e.g. "Matched VCF
+    /// contig NC_045512.2 to MN908947.3 by length". Empty when every VCF
+    /// contig was matched by name/alias/version/synonym instead. Surfaced as
+    /// a tooltip on the Variants tab so it's visible in the GUI, not only logged.
+    var variantChromosomeLengthMatchNotes: [String] = [] {
+        didSet {
+            updateVariantsTabLengthMatchTooltip()
+        }
+    }
+
+    /// Sets (or clears) the tooltip on the Variants tab segment to reflect
+    /// whether any variant contig on this bundle was matched to the reference
+    /// by length alone rather than by name (SCI-14).
+    func updateVariantsTabLengthMatchTooltip() {
+        guard tabControl.segmentCount > DrawerTab.variants.rawValue else { return }
+        let tooltip = variantChromosomeLengthMatchNotes.isEmpty
+            ? nil
+            : variantChromosomeLengthMatchNotes.joined(separator: "\n")
+        tabControl.setToolTip(tooltip, forSegment: DrawerTab.variants.rawValue)
+    }
     /// Pre-computed SmartToken counts from cache warming.
     var smartTokenCounts: [String: Int] = [:]
     /// Active preset-chip selections (single selected value per INFO key).

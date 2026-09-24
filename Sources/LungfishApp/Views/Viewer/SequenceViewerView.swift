@@ -1112,6 +1112,13 @@ public class SequenceViewerView: NSView {
     /// Built at bundle load time by matching chromosome lengths when names differ.
     /// Empty if all names match or no variant tracks are loaded.
     var variantChromosomeAliasMap: [String: String] = [:]
+    /// Short, user-facing notes for every entry in `variantChromosomeAliasMap`
+    /// that `ChromosomeAliasResolver` could only match by contig length, not
+    /// by name/alias/version/synonym (SCI-14), e.g. "Matched VCF contig
+    /// NC_045512.2 to MN908947.3 by length". Surfaced as a tooltip on the
+    /// Variants tab in `AnnotationTableDrawerView` so this is visible in the
+    /// GUI rather than only logged.
+    var variantChromosomeLengthMatchNotes: [String] = []
     /// Cached per-track chromosome name sets from variant databases.
     var variantTrackChromosomeMap: [String: Set<String>] = [:]
 
@@ -2308,6 +2315,7 @@ public class SequenceViewerView: NSView {
         // Skip expensive MAX(position) scans on the main thread; those are warmed asynchronously.
         self.cachedSampleCount = 0
         self.variantChromosomeAliasMap = [:]
+        self.variantChromosomeLengthMatchNotes = []
         self.variantTrackChromosomeMap = [:]
         for trackId in bundle.variantTrackIds {
             if let trackInfo = bundle.variantTrack(id: trackId),
@@ -2327,7 +2335,7 @@ public class SequenceViewerView: NSView {
                     self.variantTrackChromosomeMap[trackId] = trackChromosomes
 
                     // Fast path: name/alias/contig-length matching only.
-                    let aliasMap = Self.buildVariantChromosomeAliasMap(
+                    let (aliasMap, lengthMatchNotes) = Self.buildVariantChromosomeAliasMapWithLengthMatchNotes(
                         bundleChromosomes: bundle.manifest.genome?.chromosomes ?? [],
                         variantDB: db,
                         sequenceViewerLogger: sequenceViewerLogger,
@@ -2338,24 +2346,31 @@ public class SequenceViewerView: NSView {
                             self.variantChromosomeAliasMap[refChrom] = dbChrom
                         }
                     }
+                    for note in lengthMatchNotes where !self.variantChromosomeLengthMatchNotes.contains(note) {
+                        self.variantChromosomeLengthMatchNotes.append(note)
+                    }
                 }
             }
         }
         if let vc = self.viewController {
             vc.annotationDrawerView?.variantChromosomeAliasMap = self.variantChromosomeAliasMap
+            vc.annotationDrawerView?.variantChromosomeLengthMatchNotes = self.variantChromosomeLengthMatchNotes
         }
 
         // Warm expensive length-from-positions alias inference in the background so bundle
         // selection returns immediately even for very large variant databases.
         Self.warmVariantChromosomeAliasesAsync(
             bundle: bundle,
-            initialAliasMap: self.variantChromosomeAliasMap
-        ) { [weak self] mergedAliasMap in
+            initialAliasMap: self.variantChromosomeAliasMap,
+            initialLengthMatchNotes: self.variantChromosomeLengthMatchNotes
+        ) { [weak self] mergedAliasMap, mergedLengthMatchNotes in
             guard let self else { return }
             guard self.currentReferenceBundle?.url.standardizedFileURL == bundle.url.standardizedFileURL else { return }
             self.variantChromosomeAliasMap = mergedAliasMap
+            self.variantChromosomeLengthMatchNotes = mergedLengthMatchNotes
             if let vc = self.viewController {
                 vc.annotationDrawerView?.variantChromosomeAliasMap = mergedAliasMap
+                vc.annotationDrawerView?.variantChromosomeLengthMatchNotes = mergedLengthMatchNotes
             }
         }
 
@@ -2482,6 +2497,7 @@ public class SequenceViewerView: NSView {
         self.activeAlignmentFetchIdentity = nil
         self.cachedSampleCount = 0
         self.variantChromosomeAliasMap = [:]
+        self.variantChromosomeLengthMatchNotes = []
         self.variantTrackChromosomeMap = [:]
         self.alignmentChromosomeAliasMap = [:]
         self.alignmentDataProviders = []
