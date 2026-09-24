@@ -3442,7 +3442,7 @@ struct FastqImportONTSubcommand: AsyncParsableCommand {
     var optimizeStorage: Bool = false
 
     @Option(name: .customLong("quality-binning"),
-            help: "Quality binning for --optimize-storage: none, illumina4, or eightLevel (default: none)")
+            help: "Quality binning for --optimize-storage: none, illumina4 (7 quality levels), or eightLevel (~21 quality levels) (default: none)")
     var qualityBinning: QualityBinningScheme = .none
 
     func run() async throws {

@@ -86,7 +86,7 @@ extension ImportCommand {
 
         @Option(
             name: .customLong("quality-binning"),
-            help: "Quality binning: illumina4, eightLevel, none (default: none). Binning is lossy and irreversible once originals are removed — opt in explicitly."
+            help: "Quality binning: illumina4 (7 quality levels), eightLevel (~21 quality levels), none (default: none). Binning is lossy and irreversible once originals are removed — opt in explicitly."
         )
         var qualityBinning: String = "none"
 
