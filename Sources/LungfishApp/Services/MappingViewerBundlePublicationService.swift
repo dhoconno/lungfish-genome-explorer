@@ -199,6 +199,22 @@ private final class MappingViewerSecureBundleRoot {
         } == 0
     }
 
+    /// Whether a directory entry exists at `relativePath` below the root
+    /// (any file type, symlinks not followed). `false` for a malformed path
+    /// or a missing intermediate directory, so callers that skip absent
+    /// optional payloads still hand every present entry to the strict
+    /// `openRegularFile` validation.
+    func payloadEntryExists(relativePath: String) -> Bool {
+        guard let (parent, name) = try? openParent(relativePath: relativePath) else {
+            return false
+        }
+        defer { Darwin.close(parent) }
+        var information = stat()
+        return name.withCString {
+            Darwin.fstatat(parent, $0, &information, AT_SYMLINK_NOFOLLOW)
+        } == 0
+    }
+
     func openRegularFile(relativePath: String, flags: Int32) throws -> Int32 {
         let (parent, name) = try openParent(relativePath: relativePath)
         defer { Darwin.close(parent) }
@@ -206,6 +222,14 @@ private final class MappingViewerSecureBundleRoot {
             Darwin.openat(parent, $0, flags | O_NOFOLLOW | O_CLOEXEC)
         }
         guard opened >= 0 else {
+            // A payload that simply is not there is a different failure from a
+            // path that escapes the bundle or resolves through a symlink; the
+            // operation failure report must say which one it saw.
+            if errno == ENOENT {
+                throw MappingViewerBundlePublicationError.missingViewerPayload(
+                    originalURL.appendingPathComponent(relativePath)
+                )
+            }
             throw MappingViewerBundlePublicationError.invalidViewerPayloadPath(relativePath)
         }
         var information = stat()
@@ -1065,8 +1089,14 @@ enum MappingViewerBundlePublicationService {
             if let path = annotation.databasePath, !path.isEmpty { specifications.append((path, .sqlite, .output)) }
         }
         for variant in manifest.variants {
-            specifications.append((variant.path, variantFormat(for: variant.path), .output))
-            if !variant.indexPath.isEmpty { specifications.append((variant.indexPath, .unknown, .index)) }
+            let payloadIsOptional = variantPayloadIsOptional(variant)
+            if !payloadIsOptional || bundleRoot.payloadEntryExists(relativePath: variant.path) {
+                specifications.append((variant.path, variantFormat(for: variant.path), .output))
+            }
+            if !variant.indexPath.isEmpty,
+               !payloadIsOptional || bundleRoot.payloadEntryExists(relativePath: variant.indexPath) {
+                specifications.append((variant.indexPath, .unknown, .index))
+            }
             if let path = variant.databasePath, !path.isEmpty { specifications.append((path, .sqlite, .output)) }
         }
         for track in manifest.tracks { specifications.append((track.path, .bigWig, .output)) }
@@ -1640,14 +1670,21 @@ enum MappingViewerBundlePublicationService {
             }
         }
         for variant in manifest.variants {
-            descriptors.append(try descriptor(
-                relativePath: variant.path,
-                format: variantFormat(for: variant.path),
-                role: payloadRole,
-                bundleURL: bundleURL,
-                fileManager: fileManager
-            ))
-            if !variant.indexPath.isEmpty {
+            let payloadIsOptional = variantPayloadIsOptional(variant)
+            let root = bundleURL.standardizedFileURL
+            func exists(_ relativePath: String) -> Bool {
+                fileManager.fileExists(atPath: root.appendingPathComponent(relativePath).path)
+            }
+            if !payloadIsOptional || exists(variant.path) {
+                descriptors.append(try descriptor(
+                    relativePath: variant.path,
+                    format: variantFormat(for: variant.path),
+                    role: payloadRole,
+                    bundleURL: bundleURL,
+                    fileManager: fileManager
+                ))
+            }
+            if !variant.indexPath.isEmpty, !payloadIsOptional || exists(variant.indexPath) {
                 descriptors.append(try descriptor(
                     relativePath: variant.indexPath,
                     format: .unknown,
@@ -1680,6 +1717,21 @@ enum MappingViewerBundlePublicationService {
 
     private static func variantFormat(for path: String) -> FileFormat {
         path.lowercased().hasSuffix(".bcf") ? .bcf : .vcf
+    }
+
+    /// `lungfish import vcf` (CLI, Import Center, and the auto-ingestor) keeps
+    /// the imported variants only in the track's SQLite database; the
+    /// manifest's `path`/`indexPath` are legacy `.bcf`/`.bcf.csi` compatibility
+    /// sentinels that never exist on disk (see
+    /// `VCFBundleVariantImport.makeTrackInfo` and the
+    /// `legacyBCFManifestFieldsAreSentinels` provenance flag). The viewer
+    /// serves such tracks from the database, so for a database-backed track a
+    /// declared payload that is absent is skipped instead of failing the
+    /// publication. A present entry is still validated in full, and a track
+    /// with no database keeps its payload mandatory.
+    private static func variantPayloadIsOptional(_ variant: VariantTrackInfo) -> Bool {
+        guard let databasePath = variant.databasePath else { return false }
+        return !databasePath.isEmpty
     }
 
     private static func descriptor(
