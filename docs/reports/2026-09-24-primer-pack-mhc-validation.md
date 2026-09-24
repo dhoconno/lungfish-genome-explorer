@@ -90,4 +90,3 @@ The following rulings were recorded during implementation and are retained here 
 6. Native oligo names are unique per target, with globally unique stable IDs. varVAMP reuses names across independent targets. If consumers assume globally unique names, they must use the saved target/result identities and be retested.
 7. A detached verifier allowed independent compilation with exact source hashes and a final integrated feature build. A mismatch would require integration retesting; the temporary verifier's source snapshot is preserved before removal.
 8. Additional advanced/batch acceptance could use the exact installed Python path to avoid readiness-lock contention; baseline calls and final product CLI checks kept managed preparation. If runtime preparation changes those outcomes, the advanced cases must be repeated through that path.
-
