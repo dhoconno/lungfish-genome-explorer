@@ -436,6 +436,92 @@ final class SequenceAnnotationCommandTests: XCTestCase {
         XCTAssertEqual(envelope.workflowName, "lungfish sequence delete-annotations")
     }
 
+    func testUpdateAnnotationPersistsNameTypeStrandAndNoteAndWritesProvenance() async throws {
+        let bundleURL = try makeReferenceBundle(sequence: "ATGTAAATGTAA")
+        let create = try SequenceCommand.AnnotateORFs.parse([
+            bundleURL.path,
+            "--sequence", "chr1",
+            "--start", "0",
+            "--end", "12",
+            "--frames", "+1",
+            "--min-length", "6",
+            "--track-id", "orfs_chr1",
+            "--track-name", "ORFs chr1",
+            "--quiet"
+        ])
+        try await create.run()
+
+        let dbURL = bundleURL.appendingPathComponent("annotations/orfs_chr1.db")
+        let rows = try AnnotationDatabase(url: dbURL).query(types: ["ORF"], limit: 10)
+        let rowID = try XCTUnwrap(rows.first?.rowID)
+
+        let update = try SequenceCommand.UpdateAnnotation.parse([
+            bundleURL.path,
+            "--track-id", "orfs_chr1",
+            "--row-id", String(rowID),
+            "--name", "renamed-orf",
+            "--type", "gene",
+            "--strand", "-",
+            "--note", "curated by hand",
+            "--quiet"
+        ])
+        try await update.run()
+
+        let updatedRows = try AnnotationDatabase(url: dbURL).queryForTable(limit: 10)
+        let updated = try XCTUnwrap(updatedRows.first { $0.rowID == rowID })
+        XCTAssertEqual(updated.name, "renamed-orf")
+        XCTAssertEqual(updated.type, "gene")
+        XCTAssertEqual(updated.strand, "-")
+        XCTAssertEqual(updated.attributes?.contains("Note=curated%20by%20hand"), true)
+
+        // Reopening the database (simulating a bundle reload) must still show the edit.
+        let reopened = try AnnotationDatabase(url: dbURL).queryForTable(limit: 10)
+        XCTAssertEqual(reopened.first { $0.rowID == rowID }?.name, "renamed-orf")
+
+        let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(
+            fromSidecar: bundleURL.appendingPathComponent(".lungfish-provenance.json")
+        ))
+        XCTAssertEqual(envelope.workflowName, "lungfish sequence update-annotation")
+        XCTAssertEqual(envelope.options.resolvedDefaults["track_id"]?.stringValue, "orfs_chr1")
+        XCTAssertEqual(envelope.options.resolvedDefaults["row_id"]?.integerValue, Int(rowID))
+        XCTAssertEqual(envelope.options.resolvedDefaults["name"]?.stringValue, "renamed-orf")
+    }
+
+    func testUpdateAnnotationRejectsUnknownRowIDWithoutMutation() async throws {
+        let bundleURL = try makeReferenceBundle(sequence: "ATGTAAATGTAA")
+        let create = try SequenceCommand.AnnotateORFs.parse([
+            bundleURL.path,
+            "--sequence", "chr1",
+            "--start", "0",
+            "--end", "12",
+            "--frames", "+1",
+            "--min-length", "6",
+            "--track-id", "orfs_chr1",
+            "--quiet"
+        ])
+        try await create.run()
+        let dbURL = bundleURL.appendingPathComponent("annotations/orfs_chr1.db")
+        let before = try AnnotationDatabase(url: dbURL).queryForTable(limit: 10)
+
+        let update = try SequenceCommand.UpdateAnnotation.parse([
+            bundleURL.path,
+            "--track-id", "orfs_chr1",
+            "--row-id", "999999",
+            "--name", "does-not-exist",
+            "--type", "gene",
+            "--quiet"
+        ])
+        do {
+            try await update.run()
+            XCTFail("Expected update of an unknown row ID to fail")
+        } catch SequenceAnnotationWorkflowError.annotationRowNotFound(let rowID) {
+            XCTAssertEqual(rowID, 999999)
+        }
+
+        let after = try AnnotationDatabase(url: dbURL).queryForTable(limit: 10)
+        XCTAssertEqual(before.map(\.name), after.map(\.name))
+    }
+
     func testDeleteAnnotationsPreservesBED12BlockStructure() async throws {
         let bundleURL = try makeReferenceBundle(sequence: String(repeating: "A", count: 400))
         let annotationsDir = bundleURL.appendingPathComponent("annotations", isDirectory: true)
