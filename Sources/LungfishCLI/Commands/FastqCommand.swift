@@ -314,6 +314,9 @@ struct FastqSubsampleSubcommand: AsyncParsableCommand {
     @Option(name: .customLong("count"), help: "Number of reads to keep")
     var count: Int?
 
+    @Option(name: .customLong("seed"), help: "Random seed for reproducible sampling")
+    var seed: Int?
+
     @OptionGroup var output: OutputOptions
 
     func run() async throws {
@@ -324,34 +327,90 @@ struct FastqSubsampleSubcommand: AsyncParsableCommand {
         if proportion != nil && count != nil {
             throw ValidationError("Specify --proportion or --count, not both")
         }
-        var args = ["sample"]
+        guard proportion != nil || count != nil else {
+            throw ValidationError("Specify --proportion or --count")
+        }
         if let proportion {
             guard proportion > 0, proportion <= 1 else {
                 throw ValidationError("Proportion must be in (0, 1]")
             }
-            args += ["-p", String(proportion)]
-        } else if let count {
+        }
+        if let count {
             guard count > 0 else {
                 throw ValidationError("Count must be > 0")
             }
-            args = ["sample2", "-n", String(count), "-2"]
-        } else {
-            throw ValidationError("Specify --proportion or --count")
         }
-        args += [inputURL.path, "-o", output.output]
+
+        // SCI-16: paired imports are stored interleaved (mates on adjacent
+        // records). `seqkit sample`/`sample2` samples records independently,
+        // which orphans mates in interleaved input. Detect interleaving and
+        // use `reformat.sh` (pair-aware: it samples fragments, keeping both
+        // mates together) instead.
+        let isInterleaved = try await IlluminaAmpliconPairMerger.fastqIsInterleavedPairs(at: inputURL)
 
         let startedAt = Date()
-        let result = try await runner.run(.seqkit, arguments: args)
-        guard result.isSuccess else {
-            let command = count == nil ? "seqkit sample" : "seqkit sample2"
-            throw CLIError.conversionFailed(reason: "\(command) failed: \(result.stderr)")
+        let toolName: String
+        let args: [String]
+        let result: NativeToolResult
+        if isInterleaved {
+            toolName = "reformat"
+            var reformatArgs = [
+                "in=\(inputURL.path)",
+                "out=\(output.output)",
+                "interleaved=t",
+            ]
+            if let proportion {
+                reformatArgs.append("samplerate=\(proportion)")
+            }
+            if let count {
+                // With interleaved=t on paired input, reformat.sh's
+                // samplereadstarget counts output PAIRS (it doubles
+                // internally to keep both mates), so pass the pair count
+                // directly rather than doubling it here.
+                reformatArgs.append("samplereadstarget=\(count)")
+            }
+            if let seed {
+                reformatArgs.append("sampleseed=\(seed)")
+            }
+            args = reformatArgs
+            let env = await bbToolsEnvironment(runner: runner)
+            result = try await runner.run(.reformat, arguments: args, environment: env, timeout: 1800)
+            guard result.isSuccess else {
+                throw CLIError.conversionFailed(reason: "reformat.sh sample failed: \(result.stderr)")
+            }
+        } else {
+            toolName = "seqkit"
+            if let proportion {
+                var seqkitArgs = ["sample", "-p", String(proportion)]
+                if let seed {
+                    seqkitArgs += ["-s", String(seed)]
+                }
+                seqkitArgs += [inputURL.path, "-o", output.output]
+                args = seqkitArgs
+            } else {
+                var seqkitArgs = ["sample2", "-n", String(count!), "-2"]
+                if let seed {
+                    seqkitArgs += ["-s", String(seed)]
+                }
+                seqkitArgs += [inputURL.path, "-o", output.output]
+                args = seqkitArgs
+            }
+            result = try await runner.run(.seqkit, arguments: args)
+            guard result.isSuccess else {
+                let command = count == nil ? "seqkit sample" : "seqkit sample2"
+                throw CLIError.conversionFailed(reason: "\(command) failed: \(result.stderr)")
+            }
         }
+
         var cliArguments = ["subsample"]
         if let proportion {
             cliArguments += ["--proportion", String(proportion)]
         }
         if let count {
             cliArguments += ["--count", String(count)]
+        }
+        if let seed {
+            cliArguments += ["--seed", String(seed)]
         }
         cliArguments += [inputURL.path, "--output", output.output]
         if output.force {
@@ -363,7 +422,7 @@ struct FastqSubsampleSubcommand: AsyncParsableCommand {
         let outputURL = URL(fileURLWithPath: output.output)
         try await recordFASTQNativeToolProvenance(
             workflowName: "lungfish fastq subsample",
-            nativeTool: .seqkit,
+            nativeTool: toolName == "reformat" ? .reformat : .seqkit,
             cliArguments: cliArguments,
             nativeArguments: args,
             result: result,
@@ -374,12 +433,16 @@ struct FastqSubsampleSubcommand: AsyncParsableCommand {
                 "output": .file(outputURL),
                 "proportion": proportion.map(ParameterValue.number) ?? .null,
                 "count": count.map(ParameterValue.integer) ?? .null,
+                "seed": seed.map(ParameterValue.integer) ?? .null,
+                "interleaved": .boolean(isInterleaved),
                 "force": .boolean(output.force),
                 "compress": .boolean(output.compress)
             ],
             defaults: [
                 "proportion": .null,
                 "count": .null,
+                "seed": .null,
+                "interleaved": .boolean(false),
                 "force": .boolean(false),
                 "compress": .boolean(false)
             ],
