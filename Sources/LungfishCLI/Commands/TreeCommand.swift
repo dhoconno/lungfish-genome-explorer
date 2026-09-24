@@ -391,8 +391,8 @@ struct TreeCommand: AsyncParsableCommand {
         @Option(name: .customLong("alrt"), help: "SH-aLRT replicate count")
         var alrt: Int?
 
-        @Option(name: .customLong("seed"), help: "Random seed")
-        var seed: Int = 1
+        @Option(name: .customLong("seed"), help: "Random seed (default: IQ-TREE chooses a time-based random seed when omitted)")
+        var seed: Int?
 
         @Flag(name: .customLong("safe"), help: "Enable IQ-TREE safe numerical mode")
         var safeMode: Bool = false
@@ -515,7 +515,9 @@ struct TreeCommand: AsyncParsableCommand {
                     }
                     iqtreeArguments += ["-alrt", String(alrt)]
                 }
-                iqtreeArguments += ["--seed", String(seed)]
+                if let seed {
+                    iqtreeArguments += ["--seed", String(seed)]
+                }
                 if safeMode {
                     iqtreeArguments.append("-safe")
                 }
@@ -649,7 +651,9 @@ struct TreeCommand: AsyncParsableCommand {
             if let alrt {
                 argv += ["--alrt", String(alrt)]
             }
-            argv += ["--seed", String(seed)]
+            if let seed {
+                argv += ["--seed", String(seed)]
+            }
             if safeMode {
                 argv.append("--safe")
             }

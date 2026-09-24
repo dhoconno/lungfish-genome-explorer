@@ -22,7 +22,7 @@ struct IQTreeInferenceOptions: Equatable, Sendable {
             sequenceType: "Auto",
             bootstrap: nil,
             alrt: nil,
-            seed: 1,
+            seed: nil,
             threads: nil,
             safeMode: false,
             keepIdenticalSequences: false,
