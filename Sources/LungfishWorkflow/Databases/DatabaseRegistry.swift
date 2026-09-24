@@ -250,6 +250,10 @@ public actor DatabaseRegistry {
     private let managedDatabaseDownloader: ManagedDatabaseDownloader?
     private let managedDatabaseToolRunner: ManagedDatabaseToolRunner?
     private let managedDatabaseProvenanceWriter: ManagedDatabaseProvenanceWriter
+    /// Other channels' `databases/` directories on this volume, given this
+    /// registry's database root. An identical verified file there is cloned
+    /// instead of downloaded.
+    private let siblingDatabaseRootsProvider: @Sendable (URL) -> [URL]
     /// Where `database.<id>.overrideFilename` lives. Injectable so tests use a
     /// private suite instead of the process-shared identity preferences.
     private let preferences: UserDefaults
@@ -263,6 +267,14 @@ public actor DatabaseRegistry {
         self.managedDatabaseDownloader = nil
         self.managedDatabaseToolRunner = nil
         self.managedDatabaseProvenanceWriter = Self.writeManagedDatabaseProvenance
+        self.siblingDatabaseRootsProvider = Self.channelSiblingDatabaseRoots
+    }
+
+    /// Every other existing upstream channel root on the same volume, mapped to
+    /// its `databases/` directory.
+    private static let channelSiblingDatabaseRoots: @Sendable (URL) -> [URL] = { databaseRoot in
+        ManagedStorageChannelRoots.siblingRoots(of: databaseRoot.deletingLastPathComponent())
+            .map { $0.appendingPathComponent("databases", isDirectory: true) }
     }
 
     init(
@@ -271,7 +283,8 @@ public actor DatabaseRegistry {
         managedDatabaseDownloader: ManagedDatabaseDownloader? = nil,
         managedDatabaseToolRunner: ManagedDatabaseToolRunner? = nil,
         managedDatabaseProvenanceWriter: ManagedDatabaseProvenanceWriter? = nil,
-        preferences: UserDefaults? = nil
+        preferences: UserDefaults? = nil,
+        siblingDatabaseRoots: [URL] = []
     ) {
         self.preferences = preferences ?? LungfishAppIdentity.current.preferences
         self.bundledDatabasesRoot = bundledDatabasesRoot
@@ -279,6 +292,8 @@ public actor DatabaseRegistry {
         self.managedDatabaseDownloader = managedDatabaseDownloader
         self.managedDatabaseToolRunner = managedDatabaseToolRunner
         self.managedDatabaseProvenanceWriter = managedDatabaseProvenanceWriter ?? Self.writeManagedDatabaseProvenance
+        let roots = siblingDatabaseRoots.map { $0.standardizedFileURL }
+        self.siblingDatabaseRootsProvider = { _ in roots }
     }
 
     init(
@@ -297,6 +312,7 @@ public actor DatabaseRegistry {
         self.managedDatabaseDownloader = managedDatabaseDownloader
         self.managedDatabaseToolRunner = managedDatabaseToolRunner
         self.managedDatabaseProvenanceWriter = managedDatabaseProvenanceWriter ?? Self.writeManagedDatabaseProvenance
+        self.siblingDatabaseRootsProvider = { _ in [] }
     }
 
     // MARK: - Public API
@@ -549,6 +565,28 @@ public actor DatabaseRegistry {
         try? fileManager.removeItem(at: tempDownloadURL)
         try? fileManager.removeItem(at: tempMD5URL)
 
+        // A sibling channel may already hold this exact file. Verify it against
+        // the published checksum and clone it instead of downloading again.
+        if !siblingManagedDatabaseCandidates(databaseID: databaseID, filename: manifest.filename, installDirectory: installDirectory).isEmpty {
+            let expectedMD5: String?
+            do {
+                let downloadedMD5 = try await downloadManagedDatabaseFile(from: md5URL) { _, _, _ in }
+                defer { try? fileManager.removeItem(at: downloadedMD5.fileURL) }
+                expectedMD5 = try parseExpectedMD5(from: downloadedMD5.fileURL)
+            } catch let error where Self.isCancellation(error) {
+                throw HumanScrubberDatabaseError.installationCancelled(databaseID: databaseID, displayName: manifest.displayName)
+            } catch {
+                expectedMD5 = nil
+            }
+            if let expectedMD5,
+               let cloned = await cloneManagedDatabaseFromSibling(
+                   databaseID: databaseID, manifest: manifest, installDirectory: installDirectory,
+                   expectedMD5: expectedMD5, progress: progress
+               ) {
+                return cloned
+            }
+        }
+
         progress?(0.02, "Preparing \(manifest.displayName)…")
         let totalStart = Date()
         var databaseDownloadWallTime: TimeInterval = 0
@@ -677,6 +715,13 @@ public actor DatabaseRegistry {
 
         try? fileManager.removeItem(at: tempOutputURL)
         try? fileManager.removeItem(at: tempFetchURL)
+
+        if let cloned = await cloneManagedDatabaseFromSibling(
+            databaseID: databaseID, manifest: manifest, installDirectory: installDirectory,
+            expectedMD5: nil, progress: progress
+        ) {
+            return cloned
+        }
 
         progress?(0.02, "Preparing \(manifest.displayName)…")
         let totalStart = Date()
@@ -821,6 +866,13 @@ public actor DatabaseRegistry {
         try? fileManager.removeItem(at: tempOutputURL)
         try? fileManager.removeItem(at: tempReferenceURL)
 
+        if let cloned = await cloneManagedDatabaseFromSibling(
+            databaseID: databaseID, manifest: manifest, installDirectory: installDirectory,
+            expectedMD5: nil, progress: progress
+        ) {
+            return cloned
+        }
+
         progress?(0.02, "Preparing \(manifest.displayName)…")
         let totalStart = Date()
         var downloadWallTime: TimeInterval = 0
@@ -955,6 +1007,122 @@ public actor DatabaseRegistry {
                 reason: error.localizedDescription
             )
         }
+    }
+
+    // MARK: - Sibling Root Clone
+
+    /// `<sibling>/databases/<id>/<filename>` regular files in other channel
+    /// roots on this volume.
+    private func siblingManagedDatabaseCandidates(databaseID: String, filename: String, installDirectory: URL) -> [URL] {
+        guard let databaseRoot = userDatabasesRootProvider() else { return [] }
+        return siblingDatabaseRootsProvider(databaseRoot.standardizedFileURL).compactMap { siblingRoot in
+            let candidate = siblingRoot
+                .appendingPathComponent(databaseID, isDirectory: true)
+                .appendingPathComponent(filename)
+            guard let values = try? candidate.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey]),
+                  values.isRegularFile == true, values.isSymbolicLink != true,
+                  APFSCloneSupport.onSameVolume(candidate, installDirectory) else { return nil }
+            return candidate
+        }
+    }
+
+    /// The SHA-256 the sibling's own install receipt recorded for `filename`.
+    /// Without a receipt there is nothing to verify against, so no clone.
+    private func recordedSHA256(inSiblingInstallDirectory directory: URL, filename: String) -> String? {
+        let sidecar = directory.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
+        guard let envelope = try? ProvenanceEnvelopeReader.loadCanonical(fromSidecar: sidecar),
+              envelope.exitStatus == 0 else { return nil }
+        return (envelope.outputs + envelope.files).first { descriptor in
+            URL(fileURLWithPath: descriptor.path).lastPathComponent == filename
+                && descriptor.checksumSHA256?.isEmpty == false
+        }?.checksumSHA256
+    }
+
+    /// Installs `manifest.filename` by cloning a verified sibling copy, or
+    /// returns `nil` so the caller downloads as before. The sibling file must
+    /// match the SHA-256 its own receipt recorded (and `expectedMD5` when the
+    /// publisher provides one), and the clone is verified again before it is
+    /// promoted. The receipt written here names the sibling as the source.
+    private func cloneManagedDatabaseFromSibling(
+        databaseID: String,
+        manifest: BundledDatabase,
+        installDirectory: URL,
+        expectedMD5: String?,
+        progress: (@Sendable (Double, String) -> Void)?
+    ) async -> URL? {
+        let fileManager = FileManager.default
+        let destinationURL = installDirectory.appendingPathComponent(manifest.filename)
+        for candidate in siblingManagedDatabaseCandidates(databaseID: databaseID, filename: manifest.filename, installDirectory: installDirectory) {
+            let siblingDirectory = candidate.deletingLastPathComponent()
+            let siblingStorageRoot = siblingDirectory.deletingLastPathComponent().deletingLastPathComponent()
+            guard let recorded = recordedSHA256(inSiblingInstallDirectory: siblingDirectory, filename: manifest.filename) else { continue }
+            progress?(0.05, "Checking \(manifest.displayName) in \(siblingStorageRoot.lastPathComponent)…")
+            let started = Date()
+            guard (try? FileDigest.sha256(of: candidate)) == recorded else { continue }
+            if let expectedMD5 {
+                guard let actual = try? md5Hex(of: candidate), actual.lowercased() == expectedMD5.lowercased() else { continue }
+            }
+            progress?(0.5, "Cloning \(manifest.displayName) from \(siblingStorageRoot.lastPathComponent)…")
+            let tempCloneURL = installDirectory.appendingPathComponent("\(manifest.filename).clone-\(UUID().uuidString)")
+            var didPromote = false
+            do {
+                try APFSCloneSupport.cloneItem(at: candidate, to: tempCloneURL)
+                let size = try ProvenanceFileHasher.fileSize(of: tempCloneURL)
+                guard size == (try ProvenanceFileHasher.fileSize(of: candidate)),
+                      try FileDigest.sha256(of: tempCloneURL) == recorded else {
+                    throw HumanScrubberDatabaseError.installationFailed(
+                        databaseID: databaseID, displayName: manifest.displayName,
+                        reason: "the clone did not verify against the sibling's receipt"
+                    )
+                }
+                if fileManager.fileExists(atPath: destinationURL.path) {
+                    try fileManager.removeItem(at: destinationURL)
+                }
+                try fileManager.moveItem(at: tempCloneURL, to: destinationURL)
+                didPromote = true
+                removeSupersededDatabaseFiles(in: installDirectory, keeping: manifest.filename, databaseID: databaseID)
+                let now = Date()
+                let step = StepExecution(
+                    toolName: "clonefile",
+                    toolVersion: "APFS",
+                    command: ["clonefile", candidate.path, destinationURL.path],
+                    inputs: [FileRecord(path: candidate.path, sha256: recorded, sizeBytes: size, format: .unknown, role: .input)],
+                    outputs: [FileRecord(path: destinationURL.path, sha256: recorded, sizeBytes: size, format: .unknown, role: .index)],
+                    exitCode: 0,
+                    wallTime: now.timeIntervalSince(started),
+                    stderr: nil,
+                    endTime: now
+                )
+                var extra: [String: ParameterValue] = [
+                    "installSource": .string("sibling-root-clone"),
+                    "clonedFrom": .string(candidate.path),
+                    "clonedFromRoot": .string(siblingStorageRoot.path),
+                    "sha256": .string(recorded),
+                ]
+                if let expectedMD5 {
+                    extra["expectedMD5"] = .string(expectedMD5)
+                    extra["actualMD5"] = .string(expectedMD5)
+                }
+                try writeManagedDatabaseInstallProvenance(
+                    installDirectory: installDirectory,
+                    manifest: manifest,
+                    steps: [step],
+                    totalWallTime: now.timeIntervalSince(started),
+                    extraParameters: extra
+                )
+                preferences.set(manifest.filename, forKey: overrideFilenameKey(for: databaseID))
+                progress?(1.0, "Installed \(manifest.displayName) (cloned from \(siblingStorageRoot.lastPathComponent))")
+                return destinationURL
+            } catch {
+                try? fileManager.removeItem(at: tempCloneURL)
+                if didPromote {
+                    try? fileManager.removeItem(at: destinationURL)
+                    try? fileManager.removeItem(at: installDirectory.appendingPathComponent(ProvenanceRecorder.provenanceFilename))
+                }
+                continue
+            }
+        }
+        return nil
     }
 
     // MARK: - Private Helpers
