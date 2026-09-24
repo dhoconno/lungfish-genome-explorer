@@ -484,13 +484,16 @@ def analyze_attempt(directory, command, selection, parallel, require_tools):
 
 # Overall wall-clock budget (seconds) for the primary test-runner attempt,
 # by tier (TST-05). A hung test previously stalled the gate indefinitely
-# instead of failing it; these are generous upper bounds observed to comfortably
-# exceed a healthy run (the audited unit tier took ~26 min including one hang),
-# not tuned lower-bound SLAs. Tiers not listed here (custom filters, profiles)
-# get no default and must pass --timeout-seconds explicitly to be bounded.
+# instead of failing it; these are generous upper bounds meant to comfortably
+# exceed a healthy run, not tuned lower-bound SLAs. The audited unit tier
+# took ~26 min including one hang; under concurrent load on a shared
+# machine (multiple worktrees building/testing at once) a clean run has
+# been observed to take the full 30 min, so the budget has headroom above
+# that. Tiers not listed here (custom filters, profiles) get no default and
+# must pass --timeout-seconds explicitly to be bounded.
 DEFAULT_TIER_TIMEOUT_SECONDS = {
     "smoke": 5 * 60,
-    "unit": 30 * 60,
+    "unit": 45 * 60,
     "integration": 45 * 60,
     "conformance": 90 * 60,
     "full": 90 * 60,
