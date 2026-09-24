@@ -10,21 +10,23 @@ import LungfishIO
 @MainActor
 final class MSAViewportInteractionTests: XCTestCase {
     private var temporaryDirectory: URL!
-    private var savedGutterWidth: Any?
+    // UserDefaults.standard resolves to the app's real bundle identity inside
+    // xctest (TST-10), so tests must never read or write through it. Use a
+    // suite-specific instance per test, injected into each controller before
+    // its view loads, and remove that suite's persistent domain in teardown.
+    private var gutterWidthSuiteName = ""
+    private var gutterWidthDefaults: UserDefaults!
 
     override func setUpWithError() throws {
-        savedGutterWidth = UserDefaults.standard.object(forKey: MultipleSequenceAlignmentViewController.gutterWidthDefaultsKey)
-        UserDefaults.standard.removeObject(forKey: MultipleSequenceAlignmentViewController.gutterWidthDefaultsKey)
+        gutterWidthSuiteName = "lungfish-test-\(UUID().uuidString)"
+        gutterWidthDefaults = UserDefaults(suiteName: gutterWidthSuiteName)
         temporaryDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
     }
 
     override func tearDownWithError() throws {
-        if let savedGutterWidth {
-            UserDefaults.standard.set(savedGutterWidth, forKey: MultipleSequenceAlignmentViewController.gutterWidthDefaultsKey)
-        } else {
-            UserDefaults.standard.removeObject(forKey: MultipleSequenceAlignmentViewController.gutterWidthDefaultsKey)
-        }
+        UserDefaults().removePersistentDomain(forName: gutterWidthSuiteName)
+        gutterWidthDefaults = nil
         try? FileManager.default.removeItem(at: temporaryDirectory)
     }
 
@@ -37,6 +39,7 @@ final class MSAViewportInteractionTests: XCTestCase {
         let bundle = temporaryDirectory.appendingPathComponent("test.lungfishmsa")
         _ = try MultipleSequenceAlignmentBundle.importAlignment(from: source, to: bundle)
         let controller = MultipleSequenceAlignmentViewController()
+        controller.gutterWidthDefaults = gutterWidthDefaults
         controller.view.frame = NSRect(x: 0, y: 0, width: 600, height: 600)
         try await controller.displayBundle(at: bundle)
         controller.view.layoutSubtreeIfNeeded()
