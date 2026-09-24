@@ -52,6 +52,34 @@ final class ImportCenterMenuTests: XCTestCase {
         XCTAssertEqual(projectItem.action, #selector(AppDelegate.openRecentProjectFromMenu(_:)))
     }
 
+    // NEW-03: adding the "same" project twice via URLs that are not `==`
+    // under raw URL equality (one without a trailing slash, one built with
+    // `isDirectory: true`) must not produce two Open Recent entries.
+    func testAddRecentProjectDeduplicatesEquivalentURLsRegardlessOfConstruction() throws {
+        let _ = NSApplication.shared
+        let baseURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("Dedup Project-\(UUID().uuidString).lungfish", isDirectory: true)
+        try FileManager.default.createDirectory(at: baseURL, withIntermediateDirectories: true)
+        let originalProjects = RecentProjectsManager.shared.recentProjects
+        RecentProjectsManager.shared.replaceRecentProjectsForTesting([])
+        defer {
+            RecentProjectsManager.shared.replaceRecentProjectsForTesting(originalProjects)
+            try? FileManager.default.removeItem(at: baseURL)
+        }
+
+        let withoutTrailingSlash = URL(fileURLWithPath: baseURL.path, isDirectory: false)
+        let withTrailingSlash = URL(fileURLWithPath: baseURL.path, isDirectory: true)
+        XCTAssertNotEqual(withoutTrailingSlash, withTrailingSlash, "Precondition: these must differ under raw URL equality for this test to be meaningful")
+
+        RecentProjectsManager.shared.addRecentProject(url: withoutTrailingSlash, name: "Dedup Project")
+        RecentProjectsManager.shared.addRecentProject(url: withTrailingSlash, name: "Dedup Project")
+
+        XCTAssertEqual(
+            RecentProjectsManager.shared.recentProjects.count, 1,
+            "Two additions naming the same project folder must collapse into a single Open Recent entry"
+        )
+    }
+
     func testMainMenuTopLevelMenusExposeStableIdentifiers() {
         let _ = NSApplication.shared
         let mainMenu = MainMenu.createMainMenu()

@@ -355,15 +355,23 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         }
     }
 
-    private func controller(forProjectURL projectURL: URL?) -> MainWindowController? {
+    // NEW-03: internal (not private) so other files in this module — e.g.
+    // AppDelegate+MenuActions.swift's Open Recent / Open Project Folder
+    // handlers — can check for an already-open project before creating a
+    // second window for it.
+    func controller(forProjectURL projectURL: URL?) -> MainWindowController? {
         guard let projectURL else { return nil }
-        let canonical = projectURL.standardizedFileURL.resolvingSymlinksInPath()
+        // Compare canonicalized `.path` strings, not `URL` equality: a
+        // trailing slash (isDirectory: true vs false for the same folder)
+        // makes two URLs for the identical path compare unequal even after
+        // standardizing and resolving symlinks.
+        let canonical = projectURL.standardizedFileURL.resolvingSymlinksInPath().path
         if let mainWindowController,
-           mainWindowController.projectSession.projectURL?.standardizedFileURL.resolvingSymlinksInPath() == canonical {
+           mainWindowController.projectSession.projectURL?.standardizedFileURL.resolvingSymlinksInPath().path == canonical {
             return mainWindowController
         }
         return mainWindowControllers.first {
-            $0.projectSession.projectURL?.standardizedFileURL.resolvingSymlinksInPath() == canonical
+            $0.projectSession.projectURL?.standardizedFileURL.resolvingSymlinksInPath().path == canonical
         }
     }
 
