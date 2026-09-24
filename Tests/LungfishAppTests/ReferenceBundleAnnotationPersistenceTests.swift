@@ -40,6 +40,45 @@ final class ReferenceBundleAnnotationPersistenceTests: XCTestCase {
 
     // MARK: - Delete
 
+    /// Live-GUI regression (2026-09-24): selecting a row in the annotation
+    /// drawer and pressing the Inspector's Delete Annotation changed nothing on
+    /// disk. The drawer builds its annotation with
+    /// `AnnotationSearchIndex.lookup...` + `record.toAnnotation()`, which only
+    /// stamped `annotation_db_row_id`, so `ReferenceBundleAnnotationRowLocation`
+    /// was nil and `handleAnnotationDeleted` returned silently. The other tests
+    /// here stamp the track id by hand and so never exercised that path.
+    func testDrawerSelectedAnnotationCarriesRowLocationAndInspectorDeletePersists() async throws {
+        let bundleURL = try makeBundleWithAnnotationTrack(named: "M3")
+        let (windowController, delegate) = try makeMainWindowAndDelegate()
+        try windowController.mainSplitViewController.viewerController.displayBundle(at: bundleURL, mode: .browse)
+
+        let bundle = ReferenceBundle(url: bundleURL, manifest: try BundleManifest.load(from: bundleURL))
+        let index = AnnotationSearchIndex()
+        XCTAssertTrue(index.buildFromDatabase(bundle: bundle, trackId: "imported", databasePath: "annotations/imported.db"))
+        let result = try XCTUnwrap(index.search(query: "geneA").first { $0.name == "geneA" })
+
+        let annotation = try XCTUnwrap(index.lookupSequenceAnnotation(for: result))
+        let location = try XCTUnwrap(
+            ReferenceBundleAnnotationRowLocation(annotation: annotation),
+            "a drawer-selected annotation must resolve to its database row"
+        )
+        XCTAssertEqual(location.trackID, "imported")
+
+        // What `InspectorViewController.handleAnnotationDeletedFromInspector` posts.
+        NotificationCenter.default.post(
+            name: .annotationDeleted,
+            object: nil,
+            userInfo: [
+                NotificationUserInfoKey.annotation: annotation,
+                NotificationUserInfoKey.changeSource: "inspector",
+                NotificationUserInfoKey.windowStateScope: windowController.projectSession.windowStateScope,
+            ]
+        )
+
+        try await waitForAnnotationRowCount(bundleURL: bundleURL, trackID: "imported", expected: 0)
+        withExtendedLifetime(delegate) {}
+    }
+
     func testViewerContextMenuDeleteConfirmationPersistsToBundleAndSurvivesReopen() async throws {
         let bundleURL = try makeBundleWithAnnotationTrack(named: "M1")
         let (windowController, delegate) = try makeMainWindowAndDelegate()

@@ -332,8 +332,8 @@ extension ViewerViewController: AnnotationTableDrawerDelegate {
         // Look up the full annotation record from SQLite (preserves BED12 exon blocks).
         // Falls back to a flat single-interval annotation if the database lookup fails.
         let annotation: SequenceAnnotation
-        if let record = annotationSearchIndex?.lookupAnnotation(for: result) {
-            annotation = record.toAnnotation()
+        if let resolved = annotationSearchIndex?.lookupSequenceAnnotation(for: result) {
+            annotation = resolved
         } else {
             let strand: Strand = switch result.strand {
             case "+": .forward

@@ -1250,20 +1250,28 @@ public final class AnnotationSearchIndex {
 
     /// Track-aware annotation lookup for drawer/inspector enrichment.
     public func lookupAnnotation(for result: SearchResult) -> AnnotationDatabaseRecord? {
+        lookupAnnotationWithTrack(for: result)?.record
+    }
+
+    /// Looks up the full record for `result` and converts it to a
+    /// `SequenceAnnotation` that carries BOTH row-location qualifiers
+    /// (`annotation_db_track_id` from the database that actually held the row,
+    /// and `annotation_db_row_id`). `AnnotationDatabaseRecord.toAnnotation()`
+    /// alone sets only the row id, so an annotation selected from the drawer
+    /// could not be resolved to a `ReferenceBundleAnnotationRowLocation` and
+    /// Inspector edits/deletes on it were silently dropped (FEA-03).
+    public func lookupSequenceAnnotation(for result: SearchResult) -> SequenceAnnotation? {
+        guard let (record, trackID) = lookupAnnotationWithTrack(for: result) else { return nil }
+        var annotation = record.toAnnotation()
+        annotation.qualifiers["annotation_db_track_id"] = AnnotationQualifier(trackID)
+        return annotation
+    }
+
+    private func lookupAnnotationWithTrack(for result: SearchResult) -> (record: AnnotationDatabaseRecord, trackID: String)? {
         let candidates = annotationChromosomeCandidates(for: result.chromosome)
-        if let matched = annotationDatabases.first(where: { $0.trackId == result.trackId }) {
-            for chromosome in candidates {
-                if let record = matched.db.lookupAnnotation(
-                    name: result.name,
-                    chromosome: chromosome,
-                    start: result.start,
-                    end: result.end
-                ) {
-                    return record
-                }
-            }
-        }
-        for handle in annotationDatabases {
+        let preferred = annotationDatabases.filter { $0.trackId == result.trackId }
+        let others = annotationDatabases.filter { $0.trackId != result.trackId }
+        for handle in preferred + others {
             for chromosome in candidates {
                 if let record = handle.db.lookupAnnotation(
                     name: result.name,
@@ -1271,7 +1279,7 @@ public final class AnnotationSearchIndex {
                     start: result.start,
                     end: result.end
                 ) {
-                    return record
+                    return (record, handle.trackId)
                 }
             }
         }

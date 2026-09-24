@@ -1769,8 +1769,8 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
     // MARK: - Extraction Actions
 
     func makeAnnotation(from result: AnnotationSearchIndex.SearchResult) -> SequenceAnnotation {
-        if let record = searchIndex?.lookupAnnotation(for: result) {
-            return record.toAnnotation()
+        if let annotation = searchIndex?.lookupSequenceAnnotation(for: result) {
+            return annotation
         }
 
         let type = AnnotationType.from(rawString: result.type) ?? .gene

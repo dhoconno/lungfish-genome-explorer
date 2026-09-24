@@ -1472,8 +1472,18 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         }
 
         guard let viewerController,
-              let bundleURL = currentReferenceBundleURL(for: viewerController),
-              let location = ReferenceBundleAnnotationRowLocation(annotation: annotation) else {
+              let bundleURL = currentReferenceBundleURL(for: viewerController) else {
+            return
+        }
+        guard let location = ReferenceBundleAnnotationRowLocation(annotation: annotation) else {
+            // A bundle is open but this annotation cannot be traced to its
+            // database row. Say so instead of silently dropping the delete
+            // while the Inspector has already cleared its selection.
+            showAlert(
+                title: "Delete Annotation Failed",
+                message: "\"\(annotation.name)\" could not be matched to a row in the bundle's annotation database, so nothing was deleted.",
+                presentingWindow: viewerController.view.window
+            )
             return
         }
 
