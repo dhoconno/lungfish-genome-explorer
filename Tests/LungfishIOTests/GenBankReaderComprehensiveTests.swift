@@ -506,6 +506,153 @@ final class GenBankReaderComprehensiveTests: XCTestCase {
         XCTAssertEqual(gene.qualifier(rawLocationQualifierKey), rawLocation)
     }
 
+    // MARK: - SCI-10: codon_start and transl_table honored
+
+    /// A CDS with `/codon_start=2` (phase 1) must translate skipping the
+    /// first base, matching NCBI's own `/translation` qualifier for a
+    /// partial CDS.
+    func testCodonStartQualifierSetsPhaseOnFivePrimeInterval() async throws {
+        let tempDir = FileManager.default.temporaryDirectory
+        let testFile = tempDir.appendingPathComponent("codon-start-\(UUID().uuidString).gb")
+        // Sequence from position 1: "N" + "ATGGCATAA" + padding.
+        // codon_start=2 means the first *complete* codon starts at the CDS's
+        // second base, i.e. skip 1 base (phase 1): translate "ATGGCATAA".
+        let content = """
+        LOCUS       CODONSTART               20 bp    DNA     linear   UNK 01-JAN-2024
+        DEFINITION  codon_start fixture.
+        ACCESSION   CODONSTART
+        VERSION     CODONSTART.1
+        FEATURES             Location/Qualifiers
+             source          1..20
+                             /organism="synthetic construct"
+             CDS             1..10
+                             /codon_start=2
+                             /gene="partial"
+        ORIGIN
+                1 natggcataa aaaaaaaaaa
+        //
+        """
+        try content.write(to: testFile, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: testFile) }
+
+        let reader = try GenBankReader(url: testFile)
+        let records = try await reader.readAll()
+        let record = try XCTUnwrap(records.first)
+        let cds = try XCTUnwrap(record.annotations.first { $0.type == .cds })
+
+        XCTAssertEqual(cds.intervals.first?.phase, 1, "codon_start=2 is 0-based phase 1")
+
+        let sequence = "natggcataaaaaaaaaaa".uppercased()
+        let result = TranslationEngine.translateCDS(
+            annotation: cds,
+            sequenceProvider: { start, end in
+                let s = sequence.index(sequence.startIndex, offsetBy: start)
+                let e = sequence.index(sequence.startIndex, offsetBy: min(end, sequence.count))
+                return String(sequence[s..<e])
+            }
+        )
+        XCTAssertEqual(result?.protein, "MA*")
+    }
+
+    /// A vertebrate mitochondrial CDS (`/transl_table=2`) reads AGA/AGG as
+    /// stop codons and TGA as Trp, matching NCBI's own translation for real
+    /// mito genes (e.g. COX1) instead of the standard genetic code.
+    func testTranslTableQualifierSelectsVertebrateMitochondrialCode() async throws {
+        let tempDir = FileManager.default.temporaryDirectory
+        let testFile = tempDir.appendingPathComponent("transl-table-\(UUID().uuidString).gb")
+        let content = """
+        LOCUS       MTFIX                    20 bp    DNA     linear   MAM 01-JAN-2024
+        DEFINITION  vertebrate mitochondrial transl_table fixture.
+        ACCESSION   MTFIX
+        VERSION     MTFIX.1
+        FEATURES             Location/Qualifiers
+             source          1..20
+                             /organism="Homo sapiens"
+                             /mitochondrion
+             CDS             1..9
+                             /gene="mt-fix"
+                             /transl_table=2
+        ORIGIN
+                1 agaaggtgaa aaaaaaaaaa
+        //
+        """
+        try content.write(to: testFile, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: testFile) }
+
+        let reader = try GenBankReader(url: testFile)
+        let records = try await reader.readAll()
+        let record = try XCTUnwrap(records.first)
+        let cds = try XCTUnwrap(record.annotations.first { $0.type == .cds })
+
+        let sequence = "agaaggtgaaaaaaaaaaa".uppercased()
+        let result = TranslationEngine.translateCDS(
+            annotation: cds,
+            sequenceProvider: { start, end in
+                let s = sequence.index(sequence.startIndex, offsetBy: start)
+                let e = sequence.index(sequence.startIndex, offsetBy: min(end, sequence.count))
+                return String(sequence[s..<e])
+            }
+        )
+        XCTAssertEqual(result?.protein, "**W", "AGA/AGG are stop and TGA is Trp under vertebrate mitochondrial code")
+    }
+
+    // MARK: - SCI-15: origin-spanning features on circular genomes
+
+    /// A CDS that wraps a circular plasmid's origin (`join(16..20,1..5)`) must
+    /// translate using the join's own segment order (transcription order),
+    /// not a re-sort by ascending genomic start, which would swap the two
+    /// segments and scramble the reading frame.
+    func testOriginSpanningCDSOnCircularPlasmidTranslatesInJoinOrder() async throws {
+        let tempDir = FileManager.default.temporaryDirectory
+        let testFile = tempDir.appendingPathComponent("circular-origin-\(UUID().uuidString).gb")
+        // 20 bp circular plasmid. Segment A = genomic [15,20) ("ATGGC"),
+        // Segment B = genomic [0,5) ("ATAAT"). join(16..20,1..5) (1-based)
+        // means transcription order is A then B: "ATGGC" + "ATAAT" =
+        // "ATGGCATAAT" -> ATG GCA TAA T -> M A * (then a trailing partial
+        // codon). A naive ascending-start sort would instead concatenate
+        // B then A: "ATAAT" + "ATGGC" = "ATAATATGGC", a frameshifted mess
+        // starting with Ile-Asn instead of Met.
+        let content = """
+        LOCUS       CIRCPLAS                20 bp    DNA     circular UNK 01-JAN-2024
+        DEFINITION  circular origin-spanning fixture.
+        ACCESSION   CIRCPLAS
+        VERSION     CIRCPLAS.1
+        FEATURES             Location/Qualifiers
+             source          1..20
+                             /organism="synthetic construct"
+             CDS             join(16..20,1..5)
+                             /gene="wrapCDS"
+        ORIGIN
+                1 ataatccccc cccccatggc
+        //
+        """
+        try content.write(to: testFile, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: testFile) }
+
+        let reader = try GenBankReader(url: testFile)
+        let records = try await reader.readAll()
+        let record = try XCTUnwrap(records.first)
+        let cds = try XCTUnwrap(record.annotations.first { $0.type == .cds })
+
+        // Confirm the parser preserved join order (not sorted ascending):
+        // starts should be [15, 0] in stored order (0-based).
+        XCTAssertEqual(cds.intervals.map(\.start), [15, 0])
+        XCTAssertTrue(cds.isOriginSpanning)
+
+        let sequence = "ATAATCCCCCCCCCCATGGC"
+        let result = TranslationEngine.translateCDS(
+            annotation: cds,
+            sequenceProvider: { start, end in
+                let s = sequence.index(sequence.startIndex, offsetBy: start)
+                let e = sequence.index(sequence.startIndex, offsetBy: min(end, sequence.count))
+                return String(sequence[s..<e])
+            }
+        )
+
+        XCTAssertEqual(result?.codingSequence, "ATGGCATAAT")
+        XCTAssertEqual(result?.protein, "MA*")
+    }
+
     private func parseSingleFeatureRecord(location: String) async throws -> GenBankRecord {
         let tempDir = FileManager.default.temporaryDirectory
         let testFile = tempDir.appendingPathComponent("location-fidelity-\(UUID().uuidString).gb")

@@ -109,7 +109,11 @@ public struct GFF3Feature: Sendable, Identifiable {
             type: annotationType,
             name: name,
             chromosome: seqid,  // Associate annotation with its source sequence
-            intervals: [AnnotationInterval(start: start - 1, end: end)], // Convert to 0-based
+            // Convert to 0-based; carry the GFF3 phase column onto the interval
+            // (SCI-10) so translation can honor it instead of always assuming
+            // phase 0. Only meaningful for CDS features; GFF3 writes "." (nil)
+            // for everything else.
+            intervals: [AnnotationInterval(start: start - 1, end: end, phase: phase)],
             strand: strand,
             qualifiers: qualifiers
         )
