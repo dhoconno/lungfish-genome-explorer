@@ -75,28 +75,28 @@ nav:
     - Provenance and Reproducibility: chapters/01-foundations/08-provenance-and-reproducibility.md
 
   - Sequences:
-    - Importing and Viewing: chapters/02-sequences/01-importing-and-viewing.md
+    - Importing and Viewing a Sequence: chapters/02-sequences/01-importing-and-viewing.md
     - Downloading from NCBI: chapters/02-sequences/02-downloading-from-ncbi.md
-    - Extracting and Comparing: chapters/02-sequences/03-extracting-and-comparing.md
+    - Extracting Sequences: chapters/02-sequences/03-extracting-and-comparing.md
     - Aligning Sequences: chapters/02-sequences/04-aligning-sequences.md
     - Building Trees: chapters/02-sequences/05-building-trees.md
 
   - Reads (FASTQ):
-    - Importing FASTQ: chapters/03-reads/01-importing-fastq.md
-    - Downloading from SRA: chapters/03-reads/02-downloading-from-sra.md
-    - Quality Control: chapters/03-reads/03-quality-control.md
-    - Trimming and Filtering: chapters/03-reads/04-trimming-and-filtering.md
+    - Importing Sequencing Reads: chapters/03-reads/01-importing-fastq.md
+    - Downloading Reads from the SRA: chapters/03-reads/02-downloading-from-sra.md
+    - Quality Control for Reads: chapters/03-reads/03-quality-control.md
+    - Trimming and Filtering Reads: chapters/03-reads/04-trimming-and-filtering.md
     - Decontamination: chapters/03-reads/05-decontamination.md
     - Subsetting and Extraction: chapters/03-reads/06-subsetting-and-extraction.md
-    - ONT Runs: chapters/03-reads/07-ont-runs.md
+    - Oxford Nanopore Runs: chapters/03-reads/07-ont-runs.md
     - Read Processing: chapters/03-reads/08-read-processing.md
 
   - Alignments:
     - Mapping Reads to a Reference: chapters/04-alignments/01-mapping-reads-to-a-reference.md
     - Reading an Alignment: chapters/04-alignments/02-reading-an-alignment.md
-    - Primer Trimming: chapters/04-alignments/03-primer-trimming.md
+    - Primer Trimming an Alignment: chapters/04-alignments/03-primer-trimming.md
     - Alignment Quality: chapters/04-alignments/04-alignment-quality.md
-    - Viral Recon Wizard: chapters/04-alignments/05-viral-recon-wizard.md
+    - The Viral Recon Wizard: chapters/04-alignments/05-viral-recon-wizard.md
 
   - Variants:
     - Calling Variants: chapters/05-variants/01-calling-variants-from-amplicons.md
@@ -106,8 +106,8 @@ nav:
     - Importing Existing VCFs: chapters/05-variants/06-importing-existing-vcfs.md
 
   - Classification:
-    - What Is Classification: chapters/06-classification/01-what-is-classification.md
-    - Running Kraken2: chapters/06-classification/02-running-kraken2.md
+    - What Is Read Classification: chapters/06-classification/01-what-is-classification.md
+    - Running Kraken 2: chapters/06-classification/02-running-kraken2.md
     - Running EsViritu: chapters/06-classification/03-running-esviritu.md
     - Running TaxTriage: chapters/06-classification/04-running-taxtriage.md
     - Importing NAO-MGS Results: chapters/06-classification/05-running-nao-mgs.md
@@ -144,12 +144,12 @@ nav:
     - CLI Reference: chapters/appendices/cli-reference.md
     - File Formats: chapters/appendices/file-formats.md
     - Keyboard Shortcuts: chapters/appendices/keyboard-shortcuts.md
-    - Primer Schemes: chapters/appendices/primer-schemes.md
+    - Primer Scheme Bundles: chapters/appendices/primer-schemes.md
     - Tool Versions: chapters/appendices/tool-versions.md
     - Running in CI: chapters/appendices/06-running-in-ci.md
-    - AI Assistant: chapters/appendices/ai-assistant.md
+    - The AI Assistant: chapters/appendices/ai-assistant.md
     - Power User Notes: chapters/appendices/power-user-notes.md
     - Shared Projects and Bundle Migration: chapters/appendices/shared-projects.md
     - Troubleshooting: chapters/appendices/troubleshooting.md
-    - Bibliography: chapters/appendices/bibliography.md
+    - Tool Bibliography: chapters/appendices/bibliography.md
     - Glossary: GLOSSARY.md

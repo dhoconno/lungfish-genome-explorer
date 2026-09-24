@@ -3,7 +3,7 @@ title: BLAST Verification
 chapter_id: 06-classification/06-blast-verification
 audience: bench-scientist
 prereqs: [06-classification/02-running-kraken2]
-estimated_reading_min: 24
+estimated_reading_min: 18
 task: Send a sample of a classifier's reads to NCBI BLAST and read the verdict it comes back with.
 tags: [classification, blast, verification]
 tools: [blast]
@@ -14,208 +14,199 @@ entry_points:
   - "CLI: lungfish-cli blast verify --kreport <kreport> --source <fastq> --kraken-output <kraken> --taxid <taxid>"
 shots:
   - id: blast-verify-popover
-    caption: "The Verify via NCBI BLAST popover open over a taxonomy row, showing the Reads to submit slider, the warning that reads leave the app for NCBI, and the Run BLAST button."
+    caption: "The Verify via NCBI BLAST popover open over the sunburst, showing the Reads to submit slider with its typed number field, the warning that reads leave the app for NCBI, and the Run BLAST button."
   - id: blast-results-drawer
     caption: "The BLAST Results drawer after a verification, showing the summary bar with its supporting and contradicting counts and confidence word, above the per-read rows in their six default columns."
 illustrations: []
-glossary_refs: [accession, bit-score, blast, coverage, e-value, kraken2, kreport, nt-database, percent-identity, query-coverage, read, read-classification, rid, taxon, taxonomic-rank]
+glossary_refs: [accession, bit-score, blast, contig, e-value, k-mer, kraken2, kreport, nt-database, percent-identity, query-coverage, read, read-classification, rid, taxon, taxonomic-rank, viewport]
 features_refs: []
 fixtures_refs: [sarscov2-srr36291587]
-brand_reviewed: true
-lead_approved: true
+brand_reviewed: false
+lead_approved: false
 ---
 
 ## What it is
 
-A [classifier](../../GLOSSARY.md#read-classification) such as [Kraken 2](../../GLOSSARY.md#kraken2) names the organism each [read](../../GLOSSARY.md#read) came from by matching short stretches of its sequence, called k-mers, against a reference database installed on your own machine. A k-mer is a fixed-length window of sequence, usually around 31 bases in a classifier database. That database, which you downloaded and installed in [Running Kraken 2](02-running-kraken2.md), is the whole of what the classifier knows, and it is built from pathogen sequence rather than from everything. If it does not hold the organism your sample actually contained, the classifier cannot report that organism. It reports the nearest relative it does hold, and it gives you no warning that it did so.
+Classifiers such as Kraken 2 name a read from short exact words in it, which is fast but can mislead. A [k-mer](../../GLOSSARY.md#k-mer) is a stretch of exactly k bases, and [Running Kraken 2](02-running-kraken2.md#what-it-is) shows how tools match on them.
 
-BLAST verification is the second opinion on that call. [BLAST](../../GLOSSARY.md#blast) is a search service NCBI runs over the public sequence collection, which is far larger than any database a classifier ships with. Given one sequence, BLAST normally returns a ranked list of every database record that resembles it, and leaves the interpretation to you. Lungfish Genome Explorer (LGE) asks a smaller question. It takes a sample of the reads one classifier assigned to one [taxon](../../GLOSSARY.md#taxon), which is a named group at any rank from species up to kingdom, and for each read it asks only whether the best public match names the same organism the classifier did.
+BLAST verification is a second opinion on a [classifier](../../GLOSSARY.md#read-classification)'s call. [BLAST](../../GLOSSARY.md#blast) is a search service that NCBI, the United States National Center for Biotechnology Information, runs over its public sequence collection. That collection is far larger than any database a classifier installs on your Mac, so it can name organisms the classifier never had a chance to report. Given one sequence, BLAST returns the database records that resemble it most, ranked from best to worst.
 
-Those reads travel over the internet to NCBI. Only the reads for that one taxon are sent, so verification checks a small sample rather than repeating the whole analysis, and the Before you start section below says exactly what leaves your Mac.
+Lungfish Genome Explorer (LGE) uses BLAST to ask one narrow question. It takes a small sample of the [reads](../../GLOSSARY.md#read) a classifier assigned to one [taxon](../../GLOSSARY.md#taxon), a named group of organisms at any level from species up to kingdom. For each read it asks whether the best public match agrees with the name the classifier gave. Every answer then rolls up into one word, Supported, Mixed, Unsupported, or Inconclusive, which [Reading the results](#reading-the-results) defines along with every number behind it.
 
-The answers roll up into one word. LGE counts each read that came back with a good match as supporting the classifier, when the match names the same organism, or contradicting it, when the match names something else. A good match here means a read that passed the per-read Verified rule, whose three numbers the Reading the results section gives. A read with no good match counts as neither, so the share is supporting divided by supporting plus contradicting.
+Treat the word as a strong second signal rather than a final answer. NCBI's collection is broad but not complete, twenty reads is a small sample, and a read can match a close relative well enough to count as agreement. When a classification surprises you, verify it before you act on it, and read the per-read rows rather than the summary word alone.
 
-| Share of supporting reads | Word |
+## Why you would do this
+
+Verification costs a wait and runs on one taxon at a time, so spend it where a second opinion would change what you do next. Four situations qualify.
+
+The first is an unexpected organism in a familiar sample type. A classifier that lacks the true source assigns its reads to the nearest relative it does hold, and that wrong name usually sits in the same genus or family, the [taxonomic ranks](../../GLOSSARY.md#taxonomic-rank) just above species. The public collection usually holds both the relative and the true source, so the reads land on whichever they really came from.
+
+The second is a low-abundance hit about to drive a decision, since a few dozen reads out of millions is fragile evidence. The third is two classifiers disagreeing about the same sample, which BLAST settles by agreeing with one of them or with neither. The fourth is a check before you report a result to someone else.
+
+The worked example verifies the Kraken 2 result from [Running Kraken 2](02-running-kraken2.md), where the taxon carrying the most reads is *Severe acute respiratory syndrome coronavirus 2* (SARS-CoV-2). Because you already expect that answer, you can tell a working check from a broken one. The example is viral rather than human because the classifier databases are pathogen databases.
+
+## Before you start
+
+You need a project open, as [The Lungfish Genome Explorer Project](../01-foundations/06-the-lungfish-project.md#procedure) shows.
+
+This chapter uses the sarscov2-srr36291587 fixture. Download the reads from the Sequence Read Archive as accession `SRR36291587`, following [Downloading Reads from the SRA](../03-reads/02-downloading-from-sra.md), and find the fixture's README with its source and licence at https://github.com/dhoconno/lungfish-genome-explorer/tree/v2026.9.40/Tests/Fixtures/sarscov2-srr36291587, as [Practice data for this manual](../01-foundations/06-the-lungfish-project.md#practice-data-for-this-manual) explains.
+
+You also need a finished classification open in its [viewport](../../GLOSSARY.md#viewport), the panel that fills the window and shows one result, because verification starts from a result rather than from a FASTQ. Run the walkthrough in [Running Kraken 2](02-running-kraken2.md) first if you have not. A result imported from CZ ID, a web-based metagenomics service, cannot be verified, because it carries no per-read identifiers to send.
+
+There is no plugin pack to install and no database to download, because the search runs on NCBI's computers. In exchange, the reads you verify leave your Mac. LGE sends the sequence of each sampled read and that read's identifier, plus LGE's own tool name and a fixed LGE contact address, and nothing about the sample, the project, or the rest of the file. NCBI keeps a submitted search for about a day and returns it to anyone holding its tracking number, so treat a submission as a disclosure. Check what a data-use agreement allows before you send reads from a sample it covers, and never send reads that may be human without that check. LGE has no local BLAST, so a sample you cannot send out cannot be verified this way.
+
+The wait depends on NCBI's queue, which LGE does not control. LGE waits for the time NCBI estimates, then checks every 10 seconds, then every 15, and every 30 once the job has run a while. It gives up after ten minutes. A timed-out job is not lost, as step 5 below explains.
+
+## Procedure
+
+These steps use the taxonomy viewport, where a Kraken 2 result opens. The other classifier viewports start verification in the ways the last section of this chapter lists.
+
+1. Open the Kraken 2 result made with the Viral database in [Running Kraken 2](02-running-kraken2.md) and click the *Severe acute respiratory syndrome coronavirus 2* row in the table of taxa. Verification runs on one taxon at a time, so select a single row. LGE picks the reads for you.
+
+2. Click **BLAST Verify** in the action bar, the strip of buttons under the table. Right-clicking the row and choosing **BLAST Matching Reads...** does the same. If the button is greyed out, hold the pointer over it and a tooltip names the reason, which is no row selected, more than one row selected, or a result that has no read-level data.
+
+3. Read the popover that opens over the middle of the sunburst chart, the ring chart beside the table where each wedge is one taxon. A popover is a small panel that closes when you click anywhere outside it. Its title reads `Verify "Severe acute respiratory syndrome coronavirus 2" via NCBI BLAST`, and the line under the slider warns that the reads leave the app for NCBI.
+   <!-- SHOT: blast-verify-popover -->
+
+4. Set **Reads to submit**, described under Settings, and click **Run BLAST** or press Return. A taxon with only one read shows a line stating that count instead of the slider, because there is nothing to choose.
+
+5. Watch the drawer at the bottom of the viewport, a panel that slides up from the lower edge. It opens on its **BLAST Results** tab and steps through three phases, submitting the reads, waiting for NCBI, and parsing the answer. Its **Cancel** button stops the job. The run also appears in the [Operations Panel](../01-foundations/06-the-lungfish-project.md#the-operations-panel), which opens with **Operations > Show Operations Panel** (Cmd-Shift-P), titled `BLAST` followed by the taxon name. If the job times out, the drawer's failure message gives the job's [request ID](../../GLOSSARY.md#rid), the tracking number NCBI assigned it, and a web address that collects the finished result from NCBI later in a browser.
+
+The drawer shares the space with **Collections**, a way of grouping taxa unrelated to verification. Both are buttons in the action bar. **BLAST Results** opens the drawer on its BLAST tab, switches to that tab if the drawer shows Collections, and closes the drawer if the BLAST tab is already showing. **Collections** only opens or closes the drawer, on whichever tab was last shown.
+
+## Settings
+
+The popover has one setting. Every other search setting is fixed, and the paragraphs after the entry list them so you can record them in a methods section.
+
+**Reads to submit:.** Sets how many of the taxon's reads LGE sends to NCBI, where more reads give a firmer answer and take longer to come back. The default is 20, enough for the supporting share to mean something, whereas below about ten reads a single read swings the share across a band boundary. Lower it for a quick check on an abundant taxon, and raise it when the first answer comes back Mixed. On the command line this is `--reads`.
+
+The slider runs from 1 to 50, and a number field beside it takes a typed value, which LGE pulls back inside that range if you type past either end. When the taxon holds fewer than 50 reads, its read count becomes the maximum, and when it holds fewer than 20 the default drops to that count. The count here includes reads assigned to taxa below the one you selected, such as the strains inside a species, and those reads are eligible to be sent. The command line accepts 1 to 100, but a request that sends more than 50 reads fails at NCBI's hourly limit, so keep it at 50 or below.
+
+Which reads LGE sends is fixed. It takes the longest reads first, five of them or a quarter of the request, whichever is smaller, and fills the rest with a random draw. A long read gives the search more sequence to work with, and the random draw keeps the sample from coming from one corner of the data. The draw is repeatable, so the same count on the same result sends the same reads.
+
+The rest of the search is fixed too. The program is `blastn`, which compares DNA against DNA, run in NCBI's megablast mode, a fast setting built for sequences that match closely. It suits reads from a known organism but can miss a distant relative that a slower search would find. From the taxonomy viewport the database is [`nt`](../../GLOSSARY.md#nt-database), NCBI's general nucleotide collection, and the other viewports search `core_nt`, a smaller version of `nt` that leaves out most chromosome-scale sequences of plants and animals. NCBI returns at most five hits per read, a hit being one database record that matched, and drops any hit with an e-value above `1e-10`, a measure of how likely the match is by chance that Reading the results explains.
+
+LGE also paces itself to follow NCBI's usage rules. It sends at most 50 sequences in any rolling hour, and a verification that would pass that limit stops at once with the message `NCBI rate limit exceeded. Retry after <n> seconds.`, so run a second 50-read verification after the hour is up. LGE also spaces submissions at least 10 seconds apart and waits for that gap on its own.
+
+## Reading the results
+
+The drawer shows a summary bar above one row per submitted read. The summary is built from the per-read numbers, so this section explains those first.
+
+<!-- SHOT: blast-results-drawer -->
+
+### The per-read table
+
+Each read gets a parent row showing its best hit. Click the disclosure triangle at the left of the row to show the other hits under it, ranked from best to worst, never more than five. Six columns show by default. Status is an icon at the left that mirrors the read's verdict. Read / Accession holds the read's identifier on a parent row and the matched record's [accession](../../GLOSSARY.md#accession), its catalogue number at NCBI, on a child row. Organism names the source of the matched record. Identity, E-value, and Bit Score are the three numbers below.
+
+### Percent identity
+
+[Percent identity](../../GLOSSARY.md#percent-identity), the Identity column, is the share of aligned positions where the read and the database record carry the same base. An alignment is the two sequences lined up base against base, with gaps allowed where one has extra bases. A read aligned over 250 positions with one mismatch scores 249 divided by 250, or 99.6 percent.
+
+Identity is counted only over the stretch that aligned, so it says nothing about how much of the read took part. A read that matched perfectly over its first 50 bases and not at all over its remaining 200 still reports 100 percent. Query coverage closes that gap.
+
+Identity in the high nineties is what a match to the right organism usually looks like. Identity in the 80s often means a relative rather than the organism itself.
+
+### Query coverage
+
+[Query coverage](../../GLOSSARY.md#query-coverage), in the Coverage column, is the share of the read that took part in the alignment. The read is the query, the sequence you asked about. A 250-base read whose alignment runs from base 1 to base 200 has 80 percent query coverage.
+
+Read identity and coverage together. Ninety-nine percent identity over a third of the read is much weaker evidence than 95 percent over all of it, because the unaligned two thirds may belong to something else entirely. The Coverage column is hidden until you show it, as described below.
+
+### E-value
+
+The [e-value](../../GLOSSARY.md#e-value) is the number of matches at least this good you would expect to find by chance alone, given the length of the read and the size of the database. Smaller is better. An e-value of 0.1 means one chance match in every ten searches like this one, which is weak evidence. An e-value of `1e-30`, meaning 10 to the power of minus 30, means chance essentially never produces a match this good.
+
+The scale is logarithmic, so each step in the exponent is a tenfold change, and `1e-30` is a billion billion times stronger than `1e-12` even though the printed numbers look alike. An e-value also shrinks as a match gets longer, so a short read can never reach the tiny e-values a long one can, however well it matches.
+
+### Bit score
+
+The [bit score](../../GLOSSARY.md#bit-score) measures how strong one alignment is. It rises with every matching base and falls with every mismatch and gap, so a longer, cleaner alignment scores higher. Unlike the e-value, it does not depend on the size of the database.
+
+A bit score has no fixed good or bad value, because it grows with the length of the read. Its use is comparing the hits for one read against each other. Expand a read's row and compare its hits. If the top hit scores 450 and the second 448, the read fits both records almost equally well, and the organism named on the top row is barely preferred. If the top hit scores 450 and the second 300, the top hit is a clear winner. Do not compare bit scores between reads of different lengths.
+
+### The per-read verdict
+
+LGE labels every read with one of four verdicts, shown by the Status icon and, once you turn it on, the Verdict column.
+
+| Verdict | Rule |
+|---|---|
+| **Verified** | The top hit has at least 90 percent identity, at least 80 percent query coverage, and an e-value of `1e-10` or smaller |
+| **Ambiguous** | A hit came back but falls short of any of the three Verified thresholds |
+| **Unverified** | No hit came back at all |
+| **Error** | The search failed for this read |
+
+Verified is about the quality of the match only. It says the read found a strong match, not that the match names the classifier's organism. The summary bar makes that second comparison.
+
+### The summary bar and the confidence word
+
+The summary bar reads `BLAST for <taxon>: <n> supporting, <n> contradicting (<n> reads)`, then a row of ten symbols and the confidence word. Only Verified reads count toward the summary.
+
+A Verified read is **supporting** when its top hit's organism agrees with the taxon the classifier named, and **contradicting** when it names something else. LGE tests agreement on names. The first words of the two names must match, which for a species name is the genus, or one name must contain the other, which handles virus names such as *Severe acute respiratory syndrome coronavirus 2*. Supporting therefore means the same genus or a closely matching name, not the same species. A read whose top hit is a different species in the same genus counts as supporting, so a Supported word can include close relatives. Check the Organism column when the exact species matters. Ambiguous, Unverified, and Error reads count as neither.
+
+The supporting share is supporting reads divided by supporting plus contradicting reads, and it sets the word.
+
+| Supporting share | Word |
 |---|---|
 | 80 percent and above | **Supported** |
 | 40 percent up to but not including 80 | **Mixed** |
 | Below 40 percent | **Unsupported** |
-| No read produced a good match | **Inconclusive** |
+| No read supporting or contradicting | **Inconclusive** |
 
-Inconclusive is not a failure of the sample. It usually means the reads were too short or too poor for the search to settle anything.
+The ten symbols split the submitted reads into tenths, rounded. A filled circle stands for supporting reads, a diamond for contradicting reads, and a hollow circle for reads that counted as neither. The bar is tinted to match the word, but you never need the colour.
 
-Treat the word as a strong second signal rather than a final answer. NCBI's collection is broad but it is not complete, twenty reads is a small sample and can be unlucky, and a read from one organism can match a close relative well enough to count as supporting. What this asks of you in practice is a habit. When a classification surprises you, verify it before you act on it, and read the per-read rows rather than the summary word alone.
+A phrase reading `<n> with conflicting organisms` can appear beside the word. It counts reads whose five hits span more than one genus, judged by the first word of each organism name. A handful is normal, but when it reaches about a quarter of the reads you sent, the reads themselves are ambiguous. That usually means they come from a conserved region, a stretch of sequence so little changed over evolutionary time that several genera still share it. Such reads cannot tell the organisms apart, which is a different problem from the classifier being wrong.
 
-## Why you would do this
+### Columns, copying, and exporting
 
-Verification costs you a wait while the reads travel to NCBI and the answer comes back, and you can only run it on one taxon at a time, so the point is to spend it where a second opinion changes what you would do next. Four situations reliably qualify.
+Five more columns are hidden at first, Accession, Coverage, Align Length, Tax ID, and Verdict. Right-click any column header to get a menu of column names, with a tick beside each one showing, and choose a name to show or hide it. LGE remembers the choice for every BLAST drawer, even after you quit. The Accession column fills in on parent rows too, so you can read every accession without expanding anything.
 
-An unexpected organism in a familiar sample type is the clearest one. A classifier that lacks the true source assigns the reads to a related organism it does hold, and that wrong name often belongs to the same genus or family, two levels of [taxonomic rank](../../GLOSSARY.md#taxonomic-rank) just above species. Reads landing on a close relative's record rather than the true source is the shape of the error. BLAST usually catches this, because the public collection holds the relative and the true source both, so the reads land on whichever one they really came from.
-
-A low-abundance hit that is about to drive a decision is the second. Abundance here means the number of reads assigned to a taxon, not a concentration you measured at the bench, and a few dozen reads out of the millions in a sequencing run is fragile evidence. The [Running Kraken 2](02-running-kraken2.md) chapter's advice to hold the long tail, meaning the many taxa that each carry only a handful of reads, to a read-count threshold you set in advance leaves you with exactly the hits BLAST is worth spending on.
-
-The third is a disagreement between two classifiers run on the same sample. BLAST settles it by agreeing with one of them, or with neither. The fourth is a check before you report a result to someone else. That one is the cheapest of the four and the one people skip.
-
-The worked example in this chapter runs against the reads from SRR36291587, which is a public sequencing run identifier at NCBI, holding SARS-CoV-2 data. It picks up after the Kraken 2 run in [Running Kraken 2](02-running-kraken2.md), where the taxon carrying the most reads is *Severe acute respiratory syndrome coronavirus 2* (SARS-CoV-2). That is a case where you already expect the answer, which makes it a good first verification to read, because you can tell a working check from a broken one. A viral example is used here rather than the human one this manual usually reaches for because the classifier databases are pathogen databases, so a viral sample is the only kind that uses every step of this feature.
-
-## Before you start
-
-You need a project open. If you do not have one, choose **File > New Project** (Cmd-N), or click Create Project on the Welcome window, and pick a folder. LGE creates the project's folders inside the one you picked and opens an empty project window, and the project takes the folder's own name.
-
-This chapter uses the SRR36291587 SARS-CoV-2 reads. The reads themselves are too large to store on GitHub, so fetch them from the Sequence Read Archive as accession `SRR36291587`, following [Downloading Reads from the SRA](../03-reads/02-downloading-from-sra.md). The download is 21.7 MB compressed, and how long it takes depends on your connection. The rest of the fixture's files, along with background notes on where the data came from and how it is licensed, are on GitHub at the address below. Reading them is optional and nothing in this chapter depends on it.
-
-https://github.com/dhoconno/lungfish-genome-explorer/tree/main/Tests/Fixtures/sarscov2-srr36291587
-
-You also need a finished classification open in its viewport, since verification starts from a result rather than from a FASTQ. A viewport is the panel that fills the LGE window and displays one result, and a classification opens in its own viewport when the run finishes. Run the Kraken 2 walkthrough in [Running Kraken 2](02-running-kraken2.md) first if you have not.
-
-Two things make this chapter different from the rest of the classification chapters. There is no plugin pack to install and no database to download, because the search runs on NCBI's machines rather than yours. In exchange, the reads you verify leave your Mac. What LGE sends is the sequence of each selected read and the read's own identifier, and nothing else. No sample name, no project, no file, and no part of the sample you did not select. NCBI holds a submitted search on its servers for a day or so and returns results to anyone holding the job's tracking number, so treat a submission as a disclosure. A sample under a data-use agreement, or one that carries human reads, should not be sent without first checking what that agreement allows. LGE offers no local BLAST, meaning a copy of the same search running on your own machine, so a sample you cannot send out is a sample you cannot verify this way.
-
-The wait is not something LGE controls, because your job queues at NCBI behind everyone else's and how long that takes varies with how busy the service is. What LGE does control is how long it waits. It checks repeatedly for the result, first every 10 seconds, then every 15, and every 30 once the job has been running a while, and it gives up after ten minutes. A timeout reports the job's request ID, which is the tracking number NCBI assigns each search, so the result stays collectable from NCBI's own site afterwards. Both outcomes happened while this chapter was written, on the same reads an hour apart. One run finished and one timed out, which is normal rather than a sign that anything is broken.
-
-## Procedure
-
-The steps below describe the taxonomy viewport, which is where a Kraken 2 result opens. The same verification runs from the viewports of the other classifiers in this part of the manual, which are EsViritu, TaxTriage, NAO-MGS, and Novel Virus Diagnostics, and the section after the settings explains what each of those calls it.
-
-1. Open the Kraken 2 result and select the taxon row you want to check. The result opens as a table of taxa, one organism per row, with the read counts beside each name. In the worked example the row to select is *Severe acute respiratory syndrome coronavirus 2*. Verification runs on one taxon at a time by design, so select a single row. You do not choose individual reads, since LGE picks them for you.
-
-2. Click **BLAST Verify** in the action bar, the strip of buttons under the results table. Right-clicking the row and choosing **BLAST Matching Reads...** does the same thing. If the button is greyed out, hover the pointer over it and a tooltip names the reason, which is that no row or more than one row is selected.
-
-3. Read the popover that opens, which is a small panel anchored to the button rather than a dialog that blocks the window, so clicking anywhere outside it cancels. For the worked example its title reads `Verify "Severe acute respiratory syndrome coronavirus 2" via NCBI BLAST`, and under the slider it warns that the reads leave the app for NCBI.
-   <!-- SHOT: blast-verify-popover -->
-
-4. Set the slider labelled **Reads to submit**, described in the next section, and click **Run BLAST**. If the taxon has only one read, LGE shows a line stating the fixed count instead of the slider, because there is nothing left to choose.
-
-5. Watch the drawer at the bottom of the viewport, which is a panel that slides up from the lower edge. It opens on its **BLAST Results** tab and shows the three phases of the job in turn. Those are submitting the reads, waiting for NCBI, and parsing what came back. The waiting phase has no expected length, since it depends on NCBI's queue, and LGE ends it either with a result or with a timeout at ten minutes. The run also appears in the Operations panel, which you open from the toolbar's Operations button, titled `BLAST <taxon>`, so you can leave the viewport and come back to it.
-
-The drawer is one of two tabs in the taxonomy viewport, sharing the space with Collections, which is a way of grouping taxa and has nothing to do with verification. The **BLAST Results** and **Collections** buttons in the action bar switch between them, and clicking the button for the tab already showing closes the drawer.
-
-## Settings
-
-The popover exposes exactly one setting. The bold label below ends with both a colon and a period. The colon is part of the label as the app draws it on screen, and the period closes the bold opening of the paragraph, so neither is a typing slip. Everything else about the search is fixed, and the last paragraphs of this section say what those fixed values are so you can record them in a methods section.
-
-**Reads to submit:.** Sets how many of the taxon's reads are sent to NCBI to be checked against `nt`, NCBI's general nucleotide collection, so more reads give a firmer answer and take longer. The default is 20, which is enough for the supporting share to mean something, whereas a sample below about ten reads swings so far on a single read that the band it lands in tells you little. The slider runs from 1 to 50, and when the taxon holds fewer than 50 reads the taxon's own count becomes the slider's maximum, since LGE cannot send reads that do not exist. Lower it for a quick check on an abundant taxon, and raise it when the first answer comes back Mixed and you want the split resolved. On the command line this is `--reads`, which accepts 1 to 100 there rather than stopping at 50, because a scripted run can be left to wait while a window cannot. Either limit gives the same kind of answer, so the difference does not change how you read a result.
-
-Which reads you get is not a setting, but it is worth knowing. LGE takes the longest reads first, up to five of them or a quarter of the sample, whichever is smaller, and fills the rest at random. A long read carries more sequence for the search to work with, while random picks keep the sample from being one unrepresentative corner of the data. The NAO-MGS viewport is the exception, because that pipeline maps reads to a reference genome. It spreads its picks across quarters of that genome instead, so its sample covers the whole genome rather than only its best-covered stretch.
-
-The rest of the search is set for you and neither the popover nor the command line exposes it. The program is `blastn`, which compares nucleotide sequence against nucleotide sequence and is the right program for sequencing reads. LGE selects it and runs it for you, and there is nothing to type. The database is [`nt`](../../GLOSSARY.md#nt-database), the same general nucleotide collection named above. Each read gets at most five hits back, a hit being one database record that matched, which is why an expanded read row never shows more than five.
-
-One further parameter can be pushed through to NCBI, but only from the command line, using the `--extra-args` flag described in the last section of this chapter. It is a pass-through rather than a supported setting, and nothing in the window offers it.
-
-## Reading the results
-
-The drawer leads with a summary bar, which gives the overall result. It reads `BLAST for <taxon>: <n> supporting, <n> contradicting (<n> reads)`, followed by a ten-dot bar and the confidence word. The bar always holds ten dots however many reads you sent, so each dot stands for a tenth of the sample rather than a fixed number of reads. A filled circle is a supporting read, a diamond is a contradicting one, and a hollow circle is a read that settled nothing. The bar is also tinted to match the word, but the word itself carries the whole meaning, so you never need the colour to read the result.
-
-<!-- SHOT: blast-results-drawer -->
-
-One extra phrase can appear beside the word, reading `<n> with conflicting organisms`. Each read comes back with its own short list of matches, and this counts the reads whose list disagrees at the genus level, meaning the read matched several unrelated organisms at similar quality rather than landing cleanly on one. Genus is the level tested because matches within a genus are expected and matches across genera are not. As a rule of thumb, a quarter of your submitted reads or more is a high count. It tells you the reads themselves are ambiguous, which is a different problem from the classifier being wrong. It usually indicates a conserved region, meaning a stretch of sequence that has changed so little over evolutionary time that many species still share it, so a read from that stretch cannot distinguish them.
-
-Below the summary sits one row per submitted read. The table nests each read's matches underneath it, and clicking the disclosure triangle at the left of a read's row expands it to show the hits ranked below its best one. Six columns are shown by default. Status is the icon at the left, which mirrors the Verdict value described below, Read / Accession holds the read's identifier on a parent row and the matched record's [accession](../../GLOSSARY.md#accession) on a child row, and Organism names what the hit was. The three numbers are Identity, E-value, and Bit Score.
-
-[Percent identity](../../GLOSSARY.md#percent-identity) is the share of aligned positions where the read and the database record agree, counted only over the stretch that actually aligned. A read reported at 99.6 percent over 250 aligned bases disagreed at one of those 250 positions. On its own it is easy to misread, because it says nothing about how much of the read took part.
-
-[E-value](../../GLOSSARY.md#e-value) is how many matches this good you would expect to see by chance, given how long the read is and how large the database is. Smaller is better. The scale is logarithmic, which means each step in the exponent is a tenfold change, so the gap between two e-values is far larger than the printed digits suggest. A value of `1e-30`, which is ten to the power of minus thirty, means chance alone would essentially never produce this match, while a value near `0.1` means chance alone plausibly would. The per-read Verified rule described below draws its line at `1e-10`.
-
-[Bit score](../../GLOSSARY.md#bit-score) measures the same alignment's strength on a scale that does not shift with database size. That makes it the number to compare across two searches run months apart. It rises with both the length and the quality of the match, so a longer and cleaner alignment scores higher, and reading it means comparing it against the other hits for the same read rather than against a fixed number.
-
-Five more columns are hidden until you ask for them, which are Accession, Coverage, Align Length, Tax ID, and Verdict. Right-click the column header, which on a trackpad means clicking it with two fingers, and a menu of the column names appears with a tick beside each one already showing. Choose a name to show or hide that column. There is no menu-bar equivalent. LGE remembers your choice for every BLAST drawer from then on, including after you quit. The hidden Accession column repeats the accession the Read / Accession column already shows on child rows, and its use is that it also fills in on parent rows, so you can read every accession without expanding anything.
-
-Two of the hidden columns are worth turning on the first time you read a drawer. Verdict shows LGE's own per-read call, which is Verified when the top hit clears all three thresholds, meaning at least 90 percent identity, at least 80 percent query coverage, and an e-value of `1e-10` or smaller. It reads Ambiguous when a hit came back but fell short of any of those three, Unverified when nothing significant came back at all, and Error when the search failed for that read. Those are the numbers behind the good match that decides the summary word.
-
-The other is [query coverage](../../GLOSSARY.md#query-coverage), the share of the read that took part in the alignment.
-
-Coverage is the number that stops a high identity from misleading you. Ninety-nine percent identity across a third of the read is much weaker evidence than 95 percent across all of it.
-
-Right-clicking a row offers Copy Sequence as FASTA, Copy Read ID, and Copy Accession, plus Expand All and Collapse All. Two buttons sit along the bottom of the drawer. **Open in NCBI BLAST** opens the full result on NCBI's own site in your browser, where every hit is available rather than the five LGE kept, and **Re-run BLAST** reopens the popover so you can set the read count again before it submits a fresh sample. Re-running is the move after a timeout, and it is also how you get a second sample when the first one came back Mixed. **Export** in the summary bar writes the table as CSV or TSV through a Save dialog, covering every read and every hit whether or not the rows are expanded. Both formats are plain text tables, CSV separating the columns with commas and TSV with tabs, and CSV is the one that opens cleanly by double-clicking it in a spreadsheet.
+Right-clicking a row offers Copy Sequence as FASTA, Copy Read ID, Copy Accession, Expand All, and Collapse All. **Open in NCBI BLAST** opens the full result on NCBI's site, where every hit is available rather than the five LGE keeps. **Re-run BLAST** submits the same number of reads again at once, and because the draw is repeatable they are the same reads. To send more, click **BLAST Verify** again and raise the slider. **Export** in the summary bar saves the table as CSV (comma-separated) or TSV (tab-separated), covering every read and every hit whether the rows are expanded or not.
 
 ## What good looks like
 
-Read the summary bar and the per-read organisms together, because either one alone can mislead you.
+Read the summary word and the per-read rows together, because either alone can mislead you.
 
-A verification you can rely on has a Supported word, and per-read rows that name the classifier's organism and clear the Verified rule's three thresholds comfortably, with identity and coverage in the high nineties and e-values far smaller than `1e-10`. The worked example below returned exactly that, with both submitted reads matching *Severe acute respiratory syndrome coronavirus 2* at 100 percent identity.
+A verification you can rely on has a Supported word, and per-read rows that name the classifier's organism with identity and coverage in the high nineties and e-values far below `1e-10`. In one example run on the SRR36291587 Viral result, made with two reads because a five-read attempt had timed out, both submitted reads matched *Severe acute respiratory syndrome coronavirus 2* at 100 percent identity. Two reads show the mechanics and say nothing about the sample, so leave the slider at 20 for any verification whose answer you intend to use.
 
-An Unsupported word is not automatically bad news about your sample, and what you do next depends on what the rows say. If they consistently name one other organism, the classifier probably assigned the reads to a relative it had in its database, and that other organism is your better answer. If they name a scatter of unrelated organisms with mediocre identities, the reads are probably uninformative rather than wrong. That happens when a read is low-complexity, meaning it repeats one or two bases over most of its length, or adapter-contaminated, meaning it still carries the short synthetic sequence the library preparation attached rather than sequence from the organism. The honest conclusion for such a taxon is that it is unresolved.
+An Unsupported word is not automatically bad news about your sample. If the rows consistently name one other organism with high identity, the classifier probably assigned the reads to a relative it held, and that other organism is the better answer. If they name a scatter of unrelated organisms at middling identity, the reads are probably uninformative. That happens when a read is low-complexity, meaning it repeats one or two bases over most of its length, or when it still carries adapter, the short synthetic sequence attached during library preparation. The honest conclusion for such a taxon is that it is unresolved.
 
-Two results deserve a second run rather than an interpretation. Inconclusive means no read produced a significant hit, which on short or poor-quality reads says more about the reads than about the taxon, so send more reads or verify a taxon with longer ones. Mixed on a small sample can be nothing more than sampling noise, since two supporting reads out of three is a 67 percent share and lands in the Mixed band on evidence far too thin to act on. Raise the slider and run it again before you read anything into it.
+Two results call for another run rather than an interpretation. Inconclusive means no read found a strong match, which on short or poor-quality reads says more about the reads than the taxon, so send more reads or verify a taxon with longer ones. Mixed on a small sample can be sampling noise, since two supporting reads out of three is a 67 percent share on evidence far too thin to act on. Raise the slider and run it again.
 
-That warning applies to this chapter's own example. The reference run submitted 2 reads, not the default 20, because an earlier attempt at 5 reads timed out at LGE's ten-minute ceiling and the page needed a completed job to show. Two reads demonstrate the mechanics and nothing more. A two-read Supported verdict is not evidence about the sample, for exactly the reason the paragraph above gives. Leave the slider at its default of 20 for any verification whose answer you intend to use.
+A result from the NAO-MGS viewport leans toward Supported, because that viewport limits the search to the taxon's own records, as the table below notes. There, read the identities and the count of reads that settled nothing rather than trusting the word.
 
-Finally, be honest about what a Supported verdict covers. It says the reads LGE sent match the organism the classifier named. It does not say the classifier's read counts are right, that the abundance estimate holds, or that a related organism is absent. Verification checks what the reads are, not how many of them there are.
+Finally, Supported says only that the reads LGE sent match the organism the classifier named. It does not say the classifier's read counts are right, that the abundance estimate holds, or that a related organism is absent. Verification checks what the reads are, not how many there are.
 
 ## On the command line
 
-This section is optional. If you do your work in the LGE window, everything above is complete without it, and nothing here unlocks a result the popover cannot produce. It is here for readers who want to script a run or repeat one on a server. The whole verification runs headless, meaning with no window at all, by typing commands into the Terminal application.
-
-One thing does live only here. Recovering a timed-out job by its request ID is a command-line and browser route, so a reader working in the window has no way to collect a timed-out result from inside LGE and should simply run the verification again from the popover.
-
-The command needs three inputs the viewport assembles for you. Those are the [kreport](../../GLOSSARY.md#kreport) for the taxonomy tree, the per-read Kraken 2 output for the read identifiers, and the source FASTQ for the sequences themselves. The source FASTQ must be uncompressed. A compressed one has a name ending in `.fastq.gz`, and `gunzip reads.fastq.gz` writes the uncompressed `reads.fastq` beside it. Pointing `--source` at a `.gz` file does not report a clear error. It reports that no matching reads were found, which names the wrong cause, so check the extension first. The Kraken 2 output may be gzipped.
-
-In the command below, the backslash at the end of each line tells the shell that the command continues on the next line. You can equally type it all on one line without the backslashes.
+This section is optional, and nothing later in this manual needs it. The `lungfish-cli` program ships inside LGE, and [Finding the program](../appendices/cli-reference.md#finding-the-program) shows how to run it.
 
 ```bash
+# The command needs a plain FASTQ, so uncompress the reads first.
+gunzip -k SRR36291587_1.fastq.gz
+
+# Verify SARS-CoV-2 (NCBI taxonomy ID 2697049) in the Kraken 2 Viral result,
+# including reads assigned below it, as the window does.
 lungfish-cli blast verify \
-  --kreport classification.kreport \
-  --kraken-output classification.kraken \
-  --source sars-reads.fastq \
-  --taxid 2697049 \
-  --reads 2 -v
+  --kreport ./kraken2-viral/classification.kreport \
+  --kraken-output ./kraken2-viral/classification.kraken \
+  --source SRR36291587_1.fastq \
+  --taxid 2697049 --include-children \
+  --reads 20 -v
 ```
 
-`--taxid` picks the taxon, and its number comes from the kreport's seventh tab-separated column, or from the Tax ID column of the taxonomy table, which you turn on the same way you turn on a drawer column. In the fixture's kreport the fields run percentage, clade reads, direct reads, minimizers, distinct minimizers, rank code, taxid, name, so `S1` is the sixth field and `2697049` is the seventh.
-
-`--reads` is the slider. `--include-children` also pulls in reads assigned to taxa below the one you named, such as the species inside a genus. `--max-concurrent` caps how many searches this process has running at the same time, defaulting to 1 to stay inside NCBI's usage limits. `--extra-args` forwards further NCBI parameters as `KEY=VALUE` tokens, for example `WORD_SIZE=11`, which is an advanced option covered by NCBI's own BLAST documentation rather than this manual. Adding `--format json` prints the summary as JSON, and `-v` adds the per-read table shown below.
-
-The run above printed its inputs, then its progress, then this.
-
-```
-Verification Results
-
-Taxon        : Severe acute respiratory syndrome coronavirus 2 (txid2697049)
-Supporting   : 2/2 (top hit matches taxon)
-Contradicting: 0/2 (top hit differs)
-Inconclusive : 0 (no significant hit)
-Ambiguous    : 0
-Unverified   : 0
-Errors       : 0
-Confidence   : Supported
-BLAST RID    : 9WZYE9M0014
-Program      : blastn
-Database     : nt
-```
-
-Two of those lines can look like the same thing. `Inconclusive` counts reads whose search returned nothing significant, and it is also the summary word when that is true of every read. `Unverified` is the per-read verdict for one such read. The first is a count and a summary, the second is a label on a single row.
-
-The per-read table follows.
-
-```
-Per-Read Results
-
-  PASS SRR36291587.1  Severe acute respiratory syndrome coronavirus 2  100.0%
-  PASS SRR36291587.2  Severe acute respiratory syndrome coronavirus 2  100.0%
-```
-
-The `BLAST RID` is the [request ID](../../GLOSSARY.md#rid) NCBI gave the job, and the command prints a link built from it so you can open the full result in a browser. That identifier is what makes a timeout recoverable. An earlier run of the same command with `--reads 5` was still queued when LGE gave up at ten minutes, and it printed `BLAST job timed out after 10 minutes (RID: 9WZADAY9016)` with the same link, so the result was still collectable from NCBI afterwards.
-
-LGE paces its own submissions whichever way you run it. It waits at least ten seconds between submissions and treats fifty sequences an hour as its ceiling, and on reaching that ceiling it waits rather than failing, until enough of the hour has passed for the next submission to fit. That hourly limit is a separate thing from the slider's maximum of 50, which applies to one search, so two full 50-read searches inside an hour will make the second one wait.
-
-One habit belongs to the terminal alone. Verify the taxa that matter rather than looping over every row, and leave `--max-concurrent` alone unless you know why you are raising it.
+Four differences change the result. The window always includes reads assigned below the chosen taxon, and the command does so only with `--include-children`. The command accepts up to 100 reads but fails above 50 for the same hourly limit, and it picks reads slightly differently, taking only the longest reads for a request of ten or fewer. The source FASTQ must be uncompressed, because a `.fastq.gz` file makes the command report that no matching reads were found. This is a known defect, listed with its workaround in [Known defects in this release](../appendices/troubleshooting.md#known-defects-in-this-release). When a job times out, the command prints its request ID and the web address that collects the result.
 
 ## Where else verification starts
 
-Every classifier viewport carries the same **BLAST Verify** button in its action bar and opens the same drawer, and the behaviour is identical everywhere. Only the wording of the right-click item changes.
-
-| Viewport | Right-click item |
-|---|---|
-| Taxonomy, where Kraken 2 results open | **BLAST Matching Reads...** |
-| EsViritu | **BLAST Verify...** |
-| TaxTriage | **Verify with BLAST...** |
-| Novel Virus Diagnostics | **Verify with BLAST...** |
-
-NAO-MGS is the one that behaves differently. Rather than opening the popover, its right-click menu offers the read count directly. An abundant taxon shows **BLAST 20 Reads** and **BLAST 50 Reads**, a taxon of fifty reads or fewer shows an item naming its own count, such as **BLAST All 34 Reads**, and a taxon between 21 and 50 reads shows both the 20-read item and the all-reads one.
-
-Novel Virus Diagnostics differs in what it sends. That pipeline has already assembled the reads into contigs, a contig being one longer sequence stitched together from many overlapping reads, so verification submits the selected contig's own sequence rather than a sample of reads. Its drawer still carries a confidence word, since it runs the same verification summary.
-
-The 12S metabarcoding viewport is the one that drops the word. That viewport identifies animal species from a short stretch of the mitochondrial 12S gene, and it BLASTs the sequences it could not match against its local reference set. Its drawer shows a plain `BLAST results for <name>` heading instead of a confidence word, because a single unmatched sequence has no supporting share to compute.
+| Viewport | How to start it | What LGE sends and searches | Summary |
+|---|---|---|---|
+| Taxonomy, where Kraken 2 results open | **BLAST Verify** in the action bar, or right-click **BLAST Matching Reads...** | Sampled reads, searched against `nt` | Confidence word |
+| EsViritu | **BLAST Verify** in the action bar, or right-click **BLAST Verify...** | Sampled reads, searched against `core_nt` | Confidence word |
+| TaxTriage | **BLAST Verify** in the action bar, or right-click **Verify with BLAST...** | Sampled reads, searched against `core_nt` | Confidence word |
+| NAO-MGS | **BLAST Verify** in the action bar, or right-click **BLAST 20 Reads**, **BLAST 50 Reads**, or **BLAST All N Reads** (N being the taxon's unique read count) | Reads spread across the four quarters of the reference genome, searched against only that taxon's own records in `core_nt`, so the word leans toward Supported | Confidence word |
+| [Novel Virus Diagnostics](09-novel-virus-detection.md) | **BLAST Verify** in the action bar, or right-click a contig and choose **Verify with BLAST...** | The selected [contig](../../GLOSSARY.md#contig)'s own sequence, searched against `core_nt` | Confidence word |
+| [12S metabarcoding](10-twelve-s-metabarcoding.md) | **BLAST Verify** in the action bar while the Unresolved view shows | The unresolved sequences, searched against `core_nt` | `BLAST results for <name>` heading, no word |
 
 ## Next
 
-Continue to [Running Freyja](07-running-freyja.md), which estimates how much of each viral lineage a mixed sample holds, or to [Novel Virus Diagnostics](09-novel-virus-detection.md) for the contig-level BLAST path this chapter has referred to. To go back to the classification that raised the question, return to [Running Kraken 2](02-running-kraken2.md) or [Running EsViritu](03-running-esviritu.md).
+Continue to [Running Freyja](07-running-freyja.md), which estimates how much of each viral lineage a mixed sample holds, or to [Novel Virus Diagnostics](09-novel-virus-detection.md) for contig-level verification. To go back to the classification that raised the question, return to [Running Kraken 2](02-running-kraken2.md) or [Running EsViritu](03-running-esviritu.md).

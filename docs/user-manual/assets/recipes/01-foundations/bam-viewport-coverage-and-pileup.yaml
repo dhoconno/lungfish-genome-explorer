@@ -2,8 +2,7 @@
 # App state: The chr20_10.0-10.5Mb bundle zoomed to a ~28bp window around position 250,516, with the HG002 minimap2 alignment track's Depth coverage histogram drawn above the stacked read pileup showing base mismatches highlighted.
 id: bam-viewport-coverage-and-pileup
 chapter: 01-foundations/04-alignment-files
-caption: The chr20 10.0-10.5Mb bundle in the demo project with its HG002 minimap2 alignment track selected,
-  showing the coverage track above the stacked reads.
+caption: "The coverage track, whose height is the number of reads over each position, drawn above the pileup of HG002 reads stacked where they map on the chromosome 20 slice."
 viewport_class: none
 app_state:
   fixture: '{demo_project}'

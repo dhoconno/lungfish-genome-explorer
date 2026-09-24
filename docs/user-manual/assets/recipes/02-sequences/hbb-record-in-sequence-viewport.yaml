@@ -3,8 +3,7 @@
 # App state: The HBB reference bundle open in the sequence viewport with the whole-record view showing the annotation lane with genes drawn above the base ruler, and the Inspector on HBB's Bundle tab.
 id: hbb-record-in-sequence-viewport
 chapter: 02-sequences/01-importing-and-viewing
-caption: The imported HBB gene record open in the sequence viewport, with its annotation features drawn
-  above the bases.
+caption: "The imported HBB gene record open in the sequence viewport, with its annotation features drawn below the bases."
 viewport_class: none
 app_state:
   fixture: '{demo_project}'

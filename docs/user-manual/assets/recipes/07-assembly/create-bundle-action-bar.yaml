@@ -2,9 +2,7 @@
 # App state: Substitution: the demo project holds no MEGAHIT run, so this uses the HG002-chrM SPAdes run instead, with its one (and therefore longest) contig row selected. The action bar reads 1 contig selected, with BLAST Contig, Copy FASTA, Export FASTA, and Create Bundle enabled.
 id: create-bundle-action-bar
 chapter: 07-assembly/04-extracting-contigs
-caption: The assembly result viewport for the HG002 mitochondrial MEGAHIT run, with the longest contig
-  selected in the table and the action bar below reading one contig selected, so BLAST Contig, Copy FASTA,
-  Export FASTA, and Create Bundle are all enabled.
+caption: "The action bar under the contig table reading 1 contig selected, with BLAST Contig, Copy FASTA, Export FASTA, and Create Bundle all enabled."
 viewport_class: assembly
 app_state:
   fixture: '{demo_project}'

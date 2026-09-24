@@ -2,7 +2,7 @@
 # App state: The Database Browser on its SRA Runs pane with the Advanced Search Filters panel expanded.
 id: sra-runs-pane
 chapter: 03-reads/02-downloading-from-sra
-caption: The Database Browser on its SRA Runs pane, with the Import Accessions button above the query
+caption: The Search Online Databases dialog on its SRA Runs pane, with the Import Accessions button above the query
   field and the Advanced Search Filters panel expanded to show Platform, Strategy, Layout, Min Size (Mbases),
   Publication Date, and Max Results.
 viewport_class: none

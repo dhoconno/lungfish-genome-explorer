@@ -2,7 +2,7 @@
 # App state: Import Center Classification Results tab, cropped to the NAO-MGS Results card
 id: nao-mgs-import-card
 chapter: 06-classification/05-running-nao-mgs
-caption: "The Import Center's Classification Results tab, showing the NAO-MGS Results card with the file hint reading virus_hits_final.tsv.gz or _virus_hits.tsv.gz."
+caption: "The NAO-MGS Results card, with the file hint reading virus_hits_final.tsv.gz or _virus_hits.tsv.gz."
 viewport_class: none
 app_state:
   fixture: '{demo_project}'

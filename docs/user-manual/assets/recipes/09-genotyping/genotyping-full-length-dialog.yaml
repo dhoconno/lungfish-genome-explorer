@@ -1,10 +1,8 @@
-# Captured from Lungfish Preview 2026.9.13 with capture-window.sh (2026-09 campaign).
-# App state: The Workflow Operations dialog on Full-length ONT MHC genotyping (WD17_S164_L001 selected), scrolled to show the Length Filter group (Min Length 2,000, Max Length 4,000), the Call Thresholds group (Locus % 1), and the Advanced Options disclosure expanded to Keep Intermediates, Orient Reference, Forward Primers, and Reverse Primers (all None).
+# Captured from Lungfish Preview 2026.9.40 with capture-window.sh (2026-09-24 manual review).
+# App state: Williams copy project, Imports/WD1_S148_L001 selected, Tools > Genotyping > miSeq amplicon MHC genotyping..., then clicked the Full-length ONT MHC genotyping card, expanded Advanced Options, and scrolled so the Length Filter (Min 2,000, Max 4,000), Call Thresholds (Locus % 1), Haplotype Definition (Assay, Species, Definition, Manage...), and Advanced Options (Keep Intermediates, Orient Reference, Forward Primers, Reverse Primers, all None) are visible.
 id: genotyping-full-length-dialog
 chapter: 09-genotyping/02-running-genotyping
-caption: The Workflow Operations dialog on Full-length ONT MHC genotyping, showing the Length Filter group
-  with Min Length and Max Length, the Call Thresholds group with its Locus % field, and the Advanced Options
-  disclosure holding Orient Reference, Forward Primers, and Reverse Primers.
+caption: "The Workflow Operations dialog on Full-length ONT MHC genotyping, showing the Length Filter group with Min Length and Max Length, the Call Thresholds group with its Locus % field, the Haplotype Definition group, and the Advanced Options disclosure holding Orient Reference, Forward Primers, and Reverse Primers."
 viewport_class: none
 app_state:
   fixture: '{williams_project}'

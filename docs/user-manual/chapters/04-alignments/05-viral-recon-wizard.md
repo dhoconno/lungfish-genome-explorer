@@ -3,7 +3,7 @@ title: The Viral Recon Wizard
 chapter_id: 04-alignments/05-viral-recon-wizard
 audience: bench-scientist
 prereqs: [01-foundations/03-amplicon-vs-shotgun, 01-foundations/07-plugin-packs, 03-reads/01-importing-fastq, 04-alignments/01-mapping-reads-to-a-reference, 04-alignments/03-primer-trimming]
-estimated_reading_min: 21
+estimated_reading_min: 15
 task: Run the nf-core/viralrecon pipeline from a four-control wizard so one SARS-CoV-2 amplicon sample yields an alignment, variant calls, a consensus genome, and lineage assignments in one pass.
 tags: [alignments, workflows, viralrecon, nf-core, nextflow, amplicon, consensus, sars-cov-2]
 tools: [nextflow, nf-core/viralrecon, bowtie2, ivar, bcftools, pangolin, nextclade]
@@ -19,194 +19,175 @@ shots:
   - id: viral-recon-advanced-open
     caption: "The Advanced disclosure expanded, showing the annotation note, the Choose GFF... button, and the Extra parameters field with its schema-checking caption."
   - id: viral-recon-inspector-outputs
-    caption: "The Inspector after a finished run, listing the Consensus, Lineage, Variants, Quality, and Provenance sections with one row per output file."
+    caption: "The Inspector after a finished run, headed by the sample name and listing the Consensus, Lineage, and Quality sections with one row per output file."
 illustrations: []
-glossary_refs: [alignment-track, amplicon-dropout, bam, consensus-fasta, container, docker, ivar, lineage, mosdepth, multiqc, nextflow, nf-core, operations-panel, primer-scheme, provenance, reference-bundle, run-bundle, sample-sheet]
+glossary_refs: [alignment-track, amplicon, amplicon-dropout, bam, checksum, consensus-fasta, container, coverage-breadth, depth, docker, inspector, ivar, lineage, mosdepth, multiqc, nextflow, nf-core, operations-panel, paired-end, pipeline, primer-scheme, provenance, reference-bundle, required-setup-pack, run-bundle, sample-sheet, shotgun, table-drawer, vcf]
 features_refs: [align.viral-recon]
 fixtures_refs: [sarscov2-srr36291587]
-brand_reviewed: true
-lead_approved: true
+brand_reviewed: false
+lead_approved: false
 ---
 
 ## What it is
 
-Every chapter before this one asked you to run a single operation and look at what it produced. Map the reads, then trim the primers, then call the variants, then build a consensus. Each step is a separate dialog, and you decide between them whether the result is good enough to carry forward. A [pipeline](../../GLOSSARY.md#nextflow) chains those steps together and runs them without stopping to ask. You supply reads and a primer scheme at one end and collect an alignment, a variant table, a consensus genome, and a stack of quality reports at the other.
+A [pipeline](../../GLOSSARY.md#pipeline) is a fixed chain of analysis steps that runs from start to finish without stopping to ask you anything. You supply reads at one end and collect an alignment, a list of variants, a consensus genome, and quality reports at the other. This chapter covers the Viral Recon wizard in Lungfish Genome Explorer (LGE), which runs one such pipeline on SARS-CoV-2 amplicon reads.
 
-The pipeline behind this chapter is [nf-core/viralrecon](../../GLOSSARY.md#nf-core), an openly published viral reconstruction workflow. Reconstruction here means rebuilding the sample's own genome sequence from reads compared against a known reference. nf-core is a community that curates pipelines written in [Nextflow](../../GLOSSARY.md#nextflow), a language for describing analysis steps and the files that pass between them.
+The pipeline is [nf-core/viralrecon](../../GLOSSARY.md#nf-core), an openly published workflow that rebuilds a virus's genome sequence from reads compared against a known reference. nf-core is a community that curates pipelines written in [Nextflow](../../GLOSSARY.md#nextflow), a language for describing analysis steps and the files passed between them. LGE pins release 3.0.0 of the pipeline, meaning it always runs that exact version, so the same reads give the same answer months apart.
 
-Five programs do the work inside viralrecon, and each one owns a single step.
+Five programs do the main work inside the pipeline, and each owns one step.
 
 | Program | What it contributes |
 |---|---|
-| Bowtie2 | Places each read at the position on the reference it matches best |
-| [iVar](../../GLOSSARY.md#ivar) | Cuts primer sequence off the read ends, then calls the variant positions |
+| Bowtie2 | Places each read where it best matches the reference |
+| [iVar](../../GLOSSARY.md#ivar) | Cuts primer bases off the read ends, then calls the variant positions |
 | BCFtools | Writes the [consensus genome](../../GLOSSARY.md#consensus-fasta), the sample's own sequence with its variants applied |
 | Pangolin | Assigns the consensus a SARS-CoV-2 [lineage](../../GLOSSARY.md#lineage) name |
-| Nextclade | Assigns the same consensus a clade under a second naming system |
+| Nextclade | Assigns the same consensus a clade, a branch of the virus family tree, under a second naming system |
 
-Lungfish Genome Explorer (LGE) pins release 3.0.0 of the pipeline. Pinning means fixing the version so it never moves under you, and LGE has already done it for you by recording the revision in its tool lock manifest, the file that names the exact version of every outside program the app runs. The same reads therefore give the same answer months apart.
+The wizard asks for a primer scheme and a minimum read count, keeps two more options under Advanced, shows a Platform control only when it cannot tell the machine, and settles everything else for you. It reads the sequencing platform from the read bundle, writes the [sample sheet](../../GLOSSARY.md#sample-sheet) that tells the pipeline which read files belong to which sample, fetches the reference genome, and stages the primer files. When the run finishes, LGE copies the outputs into your project and adds the alignment and the variants as tracks over one [reference bundle](../../GLOSSARY.md#reference-bundle). A track is one layer of data drawn along a genome.
 
-The Viral Recon wizard is LGE's front end onto that pipeline. It shows four controls. Everything else the pipeline needs, and there is a great deal of it, the wizard settles for you. It reads the sequencing platform, meaning the kind of machine that produced the reads, out of the metadata your read bundle recorded when the reads were imported rather than asking you for it. It then writes the [samplesheet](../../GLOSSARY.md#sample-sheet), a small table listing which read files belong to which sample, obtains the reference genome, and stages the primer files. Just before Nextflow starts, and never after, it records a [run bundle](../../GLOSSARY.md#run-bundle) describing exactly what it is about to do. When the run finishes, LGE copies the outputs back into your project and registers the alignment, variants, and consensus as tracks over one [reference bundle](../../GLOSSARY.md#reference-bundle). A track is one layer of data drawn over a genome, so three tracks over one genome means three views of the same coordinates.
+The wizard handles one virus and one library design. The reference is always the Wuhan-Hu-1 genome `MN908947.3`, the GenBank record SARS-CoV-2 results are reported against, so the pane has no reference control. The trailing `.3` is the version of that record. An [amplicon](../../GLOSSARY.md#amplicon) protocol copies the target in overlapping PCR pieces, and its [primer scheme](../../GLOSSARY.md#primer-scheme) lists where each primer binds, as [Amplicons and Shotgun Sequencing](../01-foundations/03-amplicon-vs-shotgun.md#amplicon-sequencing) explains. A [shotgun](../../GLOSSARY.md#shotgun) library is made from DNA broken at random, so reads land anywhere on the genome. The examples here are SARS-CoV-2 because the pipeline is viral by design and the wizard accepts no other organism.
 
-The wizard works for one virus only, and that narrowness is worth stating plainly. The reference is always the Wuhan-Hu-1 genome `MN908947.3`, which is why the sheet offers no reference control at all. Every read the pipeline handles is compared against that one fixed genome, and every position it reports is a position on it. The trailing `.3` is the version of that GenBank record rather than a third genome, and this is the record every SARS-CoV-2 result in the literature is reported against. The protocol is always [amplicon](../01-foundations/03-amplicon-vs-shotgun.md), meaning the virus was amplified in numbered pieces by PCR rather than sheared at random. A SARS-CoV-2 [primer scheme](../../GLOSSARY.md#primer-scheme) is required before the run will start. The rule that follows is simple. Use the wizard when your sample is SARS-CoV-2 amplicon material and you want the whole standard analysis in one pass. For any other virus, or a shotgun library, assemble the individual mapping, primer-trim, and variant-calling dialogs from the earlier chapters instead.
-
-This chapter uses a SARS-CoV-2 dataset because viralrecon is a viral pipeline by design and the wizard refuses every other organism, so no human or macaque example is possible here.
+So use the wizard when your sample is SARS-CoV-2 amplicon material and you want the standard analysis in one pass, and use the separate mapping, primer-trimming, and variant-calling chapters for any other virus or for a shotgun library.
 
 ## Why you would do this
 
-Running the four steps by hand is not hard, and the earlier chapters show that it teaches you a great deal about what each one does. The case for a pipeline is not that it is easier. It is that it is the same every time.
+Running each step by hand teaches you what it does, and the earlier chapters of this part take that route. A pipeline offers something else, which is sameness from one sample to the next.
 
-Consider a laboratory sequencing twenty SARS-CoV-2 samples a week for public health surveillance. Every sample needs the same treatment, and the interesting comparison is between one sample and another rather than between two runs of the same sample. If sample 7 was mapped with slightly different settings than sample 12, any difference you see between their consensus genomes might be biology or might be the settings, and you have no way to tell which. A pipeline removes that doubt because every sample gets the same settings. Every sample passes through identical steps with identical parameters, so a difference in the output is a difference in the sample.
+Consider a laboratory sequencing twenty SARS-CoV-2 samples a week for public-health surveillance. The comparison that matters is between samples. If sample 7 was mapped with different settings from sample 12, a difference between their consensus genomes could be biology or could be the settings, and nothing tells you which. A pipeline puts every sample through identical steps with identical parameters, so a difference in the output reflects a difference in the sample.
 
-The second reason is completeness. viralrecon produces outputs you would probably not build by hand, and two of them matter more than they look. [Amplicon dropout](../../GLOSSARY.md#amplicon-dropout) is when one amplicon fails to amplify, so no reads cover that stretch of the genome and the variant caller reports nothing there. On screen, no reads and no variants look exactly the same as a stretch that matched the reference perfectly, which is the most dangerous way for an analysis to be wrong. The per-amplicon coverage table is the only thing that tells the two apart, because it shows the missing reads directly. The consensus genome, meanwhile, arrives already assigned to a Pangolin lineage and a Nextclade clade, which is the form a surveillance database expects.
+The pipeline also writes outputs you would probably not build by hand. [Amplicon dropout](../../GLOSSARY.md#amplicon-dropout) happens when one amplicon fails to amplify, so no reads cover that stretch of the genome and the variant caller reports nothing there. On screen, a stretch with no reads looks the same as a stretch that matched the reference perfectly. The per-amplicon coverage table is what tells the two apart. The consensus also arrives with a Pangolin lineage and a Nextclade clade, which is the form surveillance databases expect.
 
-This chapter works against the SRR36291587 SARS-CoV-2 reads, a QIAseq Direct amplicon library of 86,281 paired-end Illumina read pairs from a public NCBI Sequence Read Archive run. Paired-end means each fragment was read from both ends, so the two reads of a pair sit a known distance apart on the genome. The library is large enough to behave like a real patient sample rather than a teaching toy.
+This chapter's example is SRR36291587, a public SARS-CoV-2 run prepared with the QIAseq Direct amplicon kit and sequenced on an Illumina machine. A [paired-end](../../GLOSSARY.md#paired-end) run reads each fragment from both ends, and LGE stores the two mates of a sample together in one bundle. This run holds 85,199 read pairs.
 
 ## Before you start
 
-You need a project open. If you do not have one, choose **File > New Project** (Cmd-N), or click Create Project on the Welcome window, and pick a folder.
+You need a project open, as [The Lungfish Genome Explorer Project](../01-foundations/06-the-lungfish-project.md#procedure) shows.
 
-This chapter uses the SRR36291587 SARS-CoV-2 reads. The reads themselves are too large to store on GitHub, so fetch them from the Sequence Read Archive as accession `SRR36291587`, following [Downloading Reads from the SRA](../03-reads/02-downloading-from-sra.md). The supporting files sit with the manual's practice data on GitHub at
+This chapter uses the sarscov2-srr36291587 fixture. Its reads are not stored on GitHub, so download them into your project from the SRA as accession `SRR36291587`, as [Downloading Reads from the SRA](../03-reads/02-downloading-from-sra.md) shows. [The sarscov2-srr36291587 fixture folder](https://github.com/dhoconno/lungfish-genome-explorer/tree/v2026.9.40/Tests/Fixtures/sarscov2-srr36291587) holds only the `MN908947.3` reference, its GFF3 annotation, and expected variant files, as [Practice data for this manual](../01-foundations/06-the-lungfish-project.md#practice-data-for-this-manual) explains. You do not need to download them here, because the wizard fetches its own reference.
 
-https://github.com/dhoconno/lungfish-genome-explorer/tree/main/Tests/Fixtures/sarscov2-srr36291587
+A container is a sealed package holding a program and everything it needs to run, and Docker Desktop is the free app from docker.com that runs them. Unlike the mappers in [Mapping Reads to a Reference](01-mapping-reads-to-a-reference.md), this pipeline runs in containers, so Docker Desktop must be running first, as [Tools that run in containers](../01-foundations/07-plugin-packs.md#tools-that-run-in-containers) explains. Leave Docker Desktop running for the whole analysis.
 
-and you do not need to download them for this chapter, because the wizard obtains its own reference.
+Nextflow arrives with the [Required Setup pack](../../GLOSSARY.md#required-setup-pack), the one pack LGE installs by itself, so there is nothing to install.
 
-This pipeline runs inside Docker containers, so Docker Desktop must be installed and running. A [container](../../GLOSSARY.md#container) is a packaged copy of a program together with everything it needs to run, which is how a pipeline guarantees that the Bowtie2 on your Mac behaves like the Bowtie2 on everyone else's. [Docker](../../GLOSSARY.md#docker) is the software that runs those containers, and Docker Desktop is its Mac application, downloaded from https://www.docker.com/products/docker-desktop/ rather than from the LGE Plugin Manager. Start it before you open the wizard and leave it running for the whole analysis. You can tell it is running by the small whale icon in the Mac menu bar at the top right of the screen. Docker is also the only execution profile that reaches a working run here. An execution profile is the pipeline's setting for where its programs come from and run, and this wizard offers no choice of one because the app will not start the run any other way.
-
-Nextflow itself comes with the Required Setup pack, which means you have it already if the app opened your project at all and there is no check for you to run. See [Plugin Packs](../01-foundations/07-plugin-packs.md) in the rare case the Plugin Manager shows that pack as not yet installed.
-
-The first run also downloads two things over the internet. LGE fetches the `MN908947.3` reference from NCBI GenBank if your project does not already hold it, and Nextflow pulls the pipeline's container images. Both are cached afterwards, so a second run skips them.
+The first run downloads two things over the internet. LGE fetches the `MN908947.3` reference into the project's `Downloads` folder if the project does not already hold it, and Nextflow pulls the pipeline and its container images. Both are kept afterwards, so later runs skip them. Expect a first run on a laptop to take tens of minutes, most of it spent downloading containers. Later runs are faster.
 
 ## Procedure
 
-The worked example runs the SRR36291587 reads through the pipeline using the QIAseq Direct scheme, which is the scheme this library was actually prepared with.
-
 ### Opening the wizard
 
-1. Import the SRR36291587 reads into the project if they are not already there, following [Importing Sequencing Reads](../03-reads/01-importing-fastq.md). The imported reads appear as one row in the left sidebar. Click that row once to highlight it, which selects the bundle rather than opening it. The wizard takes whatever is selected as its input, so selecting the wrong thing is the usual way to reach a sheet whose Readiness line names a missing input and whose Run button stays greyed out.
+1. Click the SRR36291587 read bundle once in the sidebar to select it. The wizard takes the selected bundles as its input. With nothing selected, its Readiness line reads "Select at least one FASTQ bundle."
 
-2. Choose **Tools > Mapping > Viral Recon...**. It is the fifth item in that submenu, below minimap2, BWA-MEM2, Bowtie2, and BBMap.
-
-    Note. Viral Recon sits among the mappers because it produces an alignment as they do. The separate **Workflow Operations...** item elsewhere in the Tools menu is a general Nextflow and Snakemake runner rather than this wizard.
+2. Choose **Tools > Mapping > Viral Recon...**. It sits among the mappers because it produces an alignment as they do. The dialog follows the layout [Operation dialogs](../01-foundations/06-the-lungfish-project.md#operation-dialogs) describes.
 
     <!-- SHOT: viral-recon-menu-item -->
 
-3. Read the sheet from the top. It opens with a heading reading Viral Recon and one line beneath it saying "SARS-CoV-2 consensus and variant analysis from FASTQ bundles. Requires Docker Desktop." Below that heading sit four sections in a fixed order. Inputs, Primer Scheme, Minimum mapped reads, and Readiness, with a collapsed Advanced section sitting between the third and the fourth. A disclosure is a collapsible section, closed until you click its triangle.
+3. Read the pane from the top. A heading reads Viral Recon, with the line "SARS-CoV-2 consensus and variant analysis from FASTQ bundles. Requires Docker Desktop." beneath it. Below sit the Inputs, Primer Scheme, and Minimum mapped reads sections, then a collapsed Advanced disclosure, then the Readiness line. A disclosure is a section that stays closed until you click its triangle.
 
     <!-- SHOT: viral-recon-wizard-overview -->
 
-### Filling in the four controls
+### Filling in the controls
 
-1. Check the **Inputs** summary. One selected bundle shows its path relative to the project, which for these reads reads `Imports/SRR36291587.lungfishfastq`, and several selected bundles show a count instead. Underneath sits a line reading `Platform: Illumina` or `Platform: Oxford Nanopore`, which LGE read off the bundle metadata rather than asking you. A **Platform** control with an Illumina and a Nanopore segment appears here only when that detection failed, so most runs never see it at all. Mixing platforms in one selection is refused outright, with a message asking you to split the run by platform, which is easy to trigger by shift-clicking a whole folder of bundles where some were sequenced on a MiSeq and others on a MinION.
+1. Check the **Inputs** section. One selected bundle shows its path inside the project, and several show a count such as "3 FASTQ bundles selected." A line beneath reads `Platform: Illumina` or `Platform: Oxford Nanopore`, taken from the bundle's own record of the machine. A **Platform** control appears here only when that record is missing. Selecting Illumina and Nanopore bundles together is refused with a message asking you to split the run by platform.
 
-2. Open the **Primer Scheme** menu and choose **QIAseq Direct SARS-CoV-2 with Booster A**. The menu holds the same eight bundled SARS-CoV-2 schemes the primer-trim dialog offers, each marked Built-in, plus any `.lungfishprimers` folder in the project's own Primer Schemes folder, marked Project. Under the menu a caption names the scheme's accession, its primer count, and its amplicon count. For this scheme it reads `MN908947.3 · 563 primers · 223 amplicons`, and those are that one scheme's own fixed numbers rather than anything measured from your reads, so a different scheme shows different ones. The primer count should be roughly twice the amplicon count, since each amplicon needs a primer at each end. Match the caption against the numbers your kit's documentation gives, because a wrong scheme trims the wrong positions and nothing in the interface will tell you. When you have no kit box in hand, the scheme name is usually recorded on the kit insert or in the sample metadata that came with the reads, and otherwise the person who prepared the library is the one to ask.
+2. Open the **Primer Scheme** menu and choose **QIAseq Direct SARS-CoV-2 with Booster A (Built-in)**, the kit this library was prepared with. LGE ships eight SARS-CoV-2 schemes, listed in [Shipped schemes](../appendices/primer-schemes.md#shipped-schemes). The menu marks them (Built-in) and adds any scheme in the project's own Primer Schemes folder, marked (Project). Under the menu a caption names the scheme's reference accession, its primer count, and its amplicon count. Compare those counts with your kit's documentation and with the Shipped schemes table, because a wrong scheme trims the wrong positions and nothing on screen warns you.
 
-3. Leave **Minimum mapped reads** at 1000 unless you have a reason to move it. It is the number of reads that must align to the virus before a sample is analysed at all, and a sample below it is dropped rather than given a consensus built on too little evidence.
+3. Leave **Minimum mapped reads** at 1000.
 
-4. Leave **Advanced** collapsed. It holds a replacement annotation file and a free-text parameter field, and a standard run needs neither. The picture below is posed with the section clicked open so you can see what is inside, which is the one place the illustration and the procedure differ.
+4. Leave **Advanced** collapsed. It holds a replacement annotation file and a field for extra pipeline parameters, and a standard run needs neither. The picture shows it opened so you can see what is inside.
 
     <!-- SHOT: viral-recon-advanced-open -->
 
-5. Read the **Readiness** line at the foot of the sheet. When everything is set it reads "Ready to run Viral Recon." and Run is enabled. When something is missing it names only the first missing piece, not all of them, working through inputs, then a platform, then a scheme, so a second message can appear after you fix the first.
+5. Read the **Readiness** line. When everything is set it reads "Ready to run Viral Recon." and Run is enabled. When something is missing it names only the first problem, working through inputs, platform, scheme, minimum mapped reads, and extra parameters in that order, so a second message can appear after you fix the first.
 
-### Running and watching
+### Watching the run
 
-Click **Run**. LGE writes a `viralrecon.lungfishrun` bundle into the project's `Analyses/` folder, recording the pipeline name, the pinned release, the executor, the inputs, and every parameter, then launches Nextflow from it. A run bundle is a folder holding the full description of one run, so a colleague can see what was asked for without rerunning anything.
+Click **Run**. LGE first writes a run bundle named `viralrecon.lungfishrun` into the project's `Analyses/` folder, and a repeat run gets `viralrecon-2.lungfishrun`. A [run bundle](../../GLOSSARY.md#run-bundle) records the run before it starts, as [Running External Workflows](../08-workflows/03-running-external-workflows.md#reading-the-results) explains. This one holds the sample sheet, the staged primer files, and every parameter the wizard passed.
 
-Watch the row titled `Viral Recon` in the [Operations Panel](../../GLOSSARY.md#operations-panel), which you open with **Operations > Show Operations Panel** (Cmd-Shift-P). Its detail line names the platform, the sample count, and the reference accession. Expand the row to read the pipeline's own output as it streams in, which is how you follow a long run. Right-clicking the row copies a text record of exactly what the app asked the pipeline to do, which is worth pasting into an email or a lab notebook when a run fails and someone else has to work out why.
+Watch the run in the [Operations Panel](../01-foundations/06-the-lungfish-project.md#the-operations-panel), which opens with **Operations > Show Operations Panel** (Cmd-Shift-P). The row is titled Viral Recon. Its detail line names the platform, the sample count, and the reference, then reports whether the reference was downloaded or found in the project. Expand the row to read the pipeline's own messages as they arrive. To see the same run as a command, right-click its row and choose Copy CLI Command, as [The Operations Panel](../01-foundations/06-the-lungfish-project.md#the-operations-panel) describes. A failed run turns its row red, and [Start here, at the failed row](../appendices/troubleshooting.md#start-here-at-the-failed-row) explains what to copy from it.
 
-Leave the app running and the Mac awake meanwhile. This is a genuine multi-step pipeline over a real amplicon library, and it takes far longer than any single dialog in the earlier chapters. No measured time is quoted here because no timed run of this fixture has been recorded, so plan for an unattended stretch rather than a coffee break.
-
-When the run succeeds, LGE copies the outputs into a new folder under `Analyses/viralrecon-<timestamp>/` and adds it to the sidebar. Clicking it opens the reference bundle inside it rather than the folder itself, because the alignment, the variants, and the consensus are all registered as tracks over that one genome.
+Keep LGE open and the Mac awake until the row finishes. The result lands under `Analyses/` in a new folder, as [Where results land](../01-foundations/06-the-lungfish-project.md#where-results-land) describes. For this wizard that folder is `viralrecon-<timestamp>`. A run over several samples writes one `viralrecon-batch-<timestamp>` folder instead, with one subfolder per sample.
 
 ## Settings
 
-The wizard's five settings are documented below. Three sit in plain view and two live inside the Advanced disclosure. Each entry ends with a short sentence naming how the setting reaches the command line, and a reader working only in the app can skip that closing sentence every time. One label below ends with a stray colon before its period, which is copied from the label the sheet itself draws, so no word is missing there.
+The pane has five settings. Scheme and Minimum mapped reads sit in plain view, Platform appears only when the bundles do not record their machine, and Annotation and Extra parameters live inside the Advanced disclosure.
 
-**Platform.** Tells the pipeline which sequencing machine produced the reads, because short paired Illumina reads and long Nanopore reads pass through different steps of the workflow. The default is Illumina, and this control appears at all only when the selected bundles do not name their own platform, so a normal run never shows it. Set it by hand when the Readiness line says the platform could not be detected, which happens when reads are copied out of a bundle and back in as bare files, because the small metadata file that recorded the machine does not travel with them. On the command line this is `--param platform=<illumina|nanopore>`, where the angle brackets and the upright bar mean you type one of the two words shown and no brackets.
+**Platform.** Tells the pipeline which kind of sequencing machine produced the reads, because short paired Illumina reads and long Nanopore reads pass through different steps. The default is Illumina, and the control appears only when the selected bundles do not record their own platform, so most runs never show it. Set it by hand when the Inputs section says it could not detect an Illumina or Oxford Nanopore platform, which happens when reads were copied out of their bundle and lost that record. On the command line this is `--param platform=illumina` or `--param platform=nanopore`.
 
-**Scheme.** Names the set of PCR primers used to amplify the virus, so the pipeline knows where each amplicon starts and ends and can cut the primer sequence off the reads. The default is the first scheme in alphabetical order, which is ARTIC SARS-CoV-2 V3 marked Built-in. That default was not chosen for your sample and is almost always the wrong one, so change it on every run unless your kit really is ARTIC V3. Always match the scheme to the kit the wet-lab protocol used, because a mismatched scheme trims the wrong positions and leaves real primer sequence behind. Primer bases are copies of the primer rather than of the sample, so leaving them in fakes variant calls at the amplicon edges. On the command line this is `--param primer_bed=<path>`, together with `--param primer_left_suffix` and `--param primer_right_suffix` read off the scheme.
+**Scheme.** Names the set of PCR primers that amplified the virus, so the pipeline knows where each amplicon starts and ends and can cut the primer bases off the reads. The default is the first scheme in alphabetical order, ARTIC SARS-CoV-2 V3 (Built-in), which was not chosen for your sample. Change it on every run to the scheme your kit used, because primer bases are copies of the primer rather than of the sample, and a wrong scheme leaves them in place to fake variant calls at the amplicon edges. On the command line this is `--param primer_bed=<path>`, together with `--param primer_left_suffix` and `--param primer_right_suffix`.
 
-**Minimum mapped reads:.** Sets how many reads must align to the SARS-CoV-2 genome before a sample is kept, and a sample with fewer is dropped from the run rather than given a consensus sequence built on too little evidence. The default is 1000, and the small up and down arrows beside the field move the number in hundreds anywhere from 1 to 1,000,000, though you can also select the field and type a value straight in. Lower it when you deliberately sequenced low-titre samples, meaning samples carrying very little virus, and want a partial consensus anyway. Raise it when you would rather see nothing than a genome full of unresolved positions. On the command line this is `--param min_mapped_reads`.
+**Minimum mapped reads:.** Sets how many reads must align to the SARS-CoV-2 genome before a sample is analysed, and a sample with fewer is dropped rather than given a consensus built on too little evidence. The default is 1000, and the arrows beside the number move it in steps of 100 between 1 and 1,000,000. Lower it for low-titre samples, meaning samples carrying very little virus, when a partial consensus is still useful, and raise it when you would rather have no result than one full of unknown bases. On the command line this is `--param min_mapped_reads`.
 
-**Annotation.** Points the run at a gene annotation file, a General Feature Format or GFF file listing where each gene sits on the genome, so a variant is reported as falling inside a named gene rather than at a bare position. The default is none, because the reference LGE downloads already carries its own GFF3 annotations, which is what the note above the button says. Most readers will never change this. Choose a file only when you hold a curated annotation that differs from the reference's own, for example one with an added or renamed open reading frame, which is a stretch of sequence read as one protein-coding unit, and a Clear button appears beside the chooser once you have picked one. On the command line this is `--param gff`.
+**Annotation.** Points the run at a GFF3 file, a gene annotation listing where each gene sits on the genome, so variants are reported against named genes. The default is none, because the reference LGE downloads already carries its own GFF3 annotation, as the note above the **Choose GFF...** button says. Choose a file only when you hold a curated annotation that differs from the reference's own, and click **Clear** to return to the default. On the command line this is `--param gff`.
 
-**Extra parameters.** Passes further pipeline parameters straight to viralrecon. Each one is two dashes, then the parameter name, then a space, then the value, and several are separated by spaces, so `--variant_caller bcftools --skip_fastqc true` sets two of them. Type the dashes exactly as shown. The default is empty, and each name you type is checked against the pipeline's own parameter list, published at https://nf-co.re/viralrecon/3.0.0/parameters, before the run starts, so a misspelling is refused at the sheet rather than several minutes into a run. Use it for a pipeline option the wizard does not expose, and expect a parameter the wizard owns to be refused with a message naming it. On the command line this is `--param`.
+**Extra parameters.** Passes further viralrecon parameters to the pipeline, each written as two dashes, the name, a space, and the value, so `--variant_caller bcftools --skip_fastqc true` sets two. The default is empty, and each name is checked against the pipeline's own parameter list before the run starts, so a misspelling is refused at the pane rather than minutes into the run. Use it for a pipeline option the pane does not show, after reading the published list at https://nf-co.re/viralrecon/3.0.0/parameters. On the command line this is `--param`.
 
-Two groups of parameters behave differently in that field, and the distinction is worth knowing before you type into it. Parameters the wizard owns are refused, because overriding them would contradict the inputs you chose on the sheet. Those are `input`, `outdir`, `platform`, `protocol`, the four primer parameters `primer_bed`, `primer_fasta`, `primer_left_suffix`, and `primer_right_suffix`, then `genome`, `fasta`, `gff`, `fastq_dir`, `sequencing_summary`, and the two Freyja skips `skip_freyja` and `skip_freyja_boot`. Everything else the pipeline defines is accepted, including `variant_caller`, `consensus_caller`, `min_mapped_reads`, `max_cpus`, `max_memory`, and every skip step other than Freyja's.
+The field refuses every parameter the wizard sets from its own controls, among them `input`, `outdir`, `platform`, `protocol`, `genome`, `fasta`, `gff`, and the four `primer_` parameters, with a message saying the wizard sets it. It also refuses `skip_freyja` and `skip_freyja_boot`, because the pipeline pins Freyja to a container built for Intel processors whose bootstrap step fails on Apple Silicon Macs. Assembly and Kraken 2 are skipped by default, and `--skip_assembly false` or `--skip_kraken2 false` turns them back on. The wizard also passes `max_cpus`, set to your Mac's core count up to 8, and `max_memory`, set to `8.GB`, and you may override both here. Before the first run has downloaded the pipeline there is no parameter list to check against, so only `variant_caller`, `consensus_caller`, `min_mapped_reads`, `max_cpus`, `max_memory`, and the skip parameters are accepted.
 
 ## Reading the results
 
-A finished run leaves a folder under `Analyses/viralrecon-<timestamp>/`. Click it in the sidebar and the viewport opens the `MN908947.3` reference bundle it contains, with three layers over one coordinate system, meaning positions counted along the reference genome. The [alignment track](../../GLOSSARY.md#alignment-track) is the primer-trimmed [BAM](../../GLOSSARY.md#bam) the variant caller actually read, so the reads you look at and the calls you read are the same evidence. The untrimmed alignment is kept too, in the raw pipeline output tree beside the bundle, and it is there for checking rather than for reading. The variant track holds the iVar calls, and you read them on the Variants tab of the table drawer exactly as [Calling Variants](../05-variants/01-calling-variants-from-amplicons.md) describes. The consensus is the sample's own genome sequence.
+A run leaves three items under `Analyses/`. The `viralrecon.lungfishrun` run bundle records how the run was set up, `viralrecon-results-<code>` is the pipeline's raw output, and `viralrecon-<timestamp>` is the result to open. Click the `viralrecon-<timestamp>` folder in the sidebar. The viewport opens the copy of the `MN908947.3` reference bundle inside it, with two tracks drawn along the same positions. A [BAM](../../GLOSSARY.md#bam) file holds one row per aligned read, with an index beside it that lets a viewer jump to any position. The [alignment track](../../GLOSSARY.md#alignment-track), named Viral Recon Alignment, is the primer-trimmed BAM the variant caller read, so the reads you look at and the calls you read are the same evidence. For a batch run, click one sample's subfolder instead, since the batch folder itself shows only a prompt to pick a sample.
 
-Do not assume the consensus lines up with the reference position for position. On one recorded run of SRR11140748, a different SARS-CoV-2 sample and not the fixture this chapter uses, the consensus came out 29,900 bases against a 29,903 base reference. BCFtools applied that sample's deletions when it built the sequence, among them an `AATT` becoming a single `A` at position 20,297, a loss of three bases. A shortfall of a few bases is expected on any sample carrying deletions. LGE corrects for those missing bases when it draws the consensus, so that position 500 on the reference still points at the matching base of the consensus rather than at whichever base happens to be five hundredth in the file.
+The second track holds the iVar variant calls and is named after the sample, ending in Variants. A [VCF](../../GLOSSARY.md#vcf) is a tab-separated file with one row per position where the sample differs from the reference. The rows appear on the **Variants** tab of the [table drawer](../../GLOSSARY.md#table-drawer), which [Reading the Variants Table](../05-variants/02-reading-the-variant-browser.md#what-it-is) covers.
 
-The rest of the run is catalogued in the Inspector, grouped by what each file answers rather than by which directory the pipeline wrote it to. The sections appear in a fixed order, most interpreted result first, and only sections with files in them appear at all.
+The rest of the run is catalogued in the [Inspector](../../GLOSSARY.md#inspector), headed by the sample name and a count of outputs. Files are grouped by what they answer rather than by the folder the pipeline wrote them to, with the most interpreted result first. A section appears only when it has files. Clicking a row opens that file in the Mac's default application for its type.
 
 <!-- SHOT: viral-recon-inspector-outputs -->
 
-| Section | Rows you will see |
-|---|---|
-| Consensus | Consensus Sequence, the assembled genome for this sample |
-| Lineage | Pangolin Lineage and Nextclade Clade, two independent assignments |
-| Variants | Variant Calls, every position where the sample differs from the reference |
-| Quality | Run Quality Summary, the two coverage tables, and the read reports |
-| Provenance | Sorted Alignment and Alignment Index, the evidence files the rest was derived from rather than an interpretation |
+| Section | Rows | What each row holds |
+|---|---|---|
+| Consensus | Consensus Sequence | The sample's own genome as a FASTA file |
+| Lineage | Pangolin Lineage, Nextclade Clade | Two independent naming assignments for that genome |
+| Quality | Run Quality Summary | One row per sample with read counts, coverage, and variant totals |
+| Quality | Coverage Depth by Amplicon, Coverage Depth Across Genome | The [mosdepth](../../GLOSSARY.md#mosdepth) tables of read depth per amplicon and along the genome |
+| Quality | Read Trimming Report, Full Run Report | The read-trimming page and the [MultiQC](../../GLOSSARY.md#multiqc) page combining every step, both opening in your web browser |
 
-Read the Quality section first, before you trust anything above it. Run Quality Summary is one row per sample carrying read counts, coverage, and variant totals, which is the fastest way to see whether the run is worth reading at all. Coverage Depth by Amplicon is the [mosdepth](../../GLOSSARY.md#mosdepth) table giving read depth for each amplicon separately, and it is the table that catches dropout. Read depth is the number of reads stacked over one position of the genome. Coverage Depth Across Genome gives the same measure along the whole genome. Full Run Report is the [MultiQC](../../GLOSSARY.md#multiqc) page combining every step of the run, and clicking it leaves LGE and opens the page in your web browser.
+For this sample, expect both tools to name an Omicron lineage or clade. EsViritu's closest match for these reads is an Omicron BQ.1.23 genome, `OP400692.1`, as [Running EsViritu](../06-classification/03-running-esviritu.md#the-reference-run) shows. That match names only the nearest known genome, so any Omicron call from Pangolin and Nextclade agrees with it.
 
-The two lineage rows deserve a word, because they are the pipeline's most quotable output and the easiest to over-read. Pangolin assigns a SARS-CoV-2 lineage name and reports how confident it is. Nextclade assigns a clade under a different naming system and adds its own per-sample quality flags. They are separate tools reading the same consensus, so agreement between them is reassuring and disagreement is a signal to look at coverage before believing either. No confidence figure is quoted here, because no run of this fixture has been recorded to read one off.
-
-The Alignment Index in that last row is a small helper file that lets the app jump straight to any position of the alignment instead of reading it from the start, and you will never need to open it yourself. The raw pipeline output tree is preserved untouched beside the bundle rather than moved into it, so the [provenance](../../GLOSSARY.md#provenance) record stays checkable against what Nextflow actually wrote. The bundle keeps its own copies of the consensus, lineage, and report files, which is why the Inspector still resolves after that tree is cleaned up.
+The result folder keeps its own copies of the consensus, lineage, and report files in `consensus/`, `lineage/`, and `reports/`, so the Inspector still works after the raw output is cleaned up. The pipeline's raw output tree stays untouched beside it in `Analyses/viralrecon-results-<code>/`. LGE writes a [provenance](../../GLOSSARY.md#provenance) record beside every result, holding the command, the tool version, and a [checksum](../../GLOSSARY.md#checksum) of each file, and [Provenance and Reproducibility](../01-foundations/08-provenance-and-reproducibility.md#reading-the-results) shows how to read it.
 
 ## What good looks like
 
-Four checks, in order. A failure at any one of them makes the checks after it meaningless, so work down the list rather than picking the one that interests you.
+Work through two checks in order. A failure at one makes the checks after it meaningless.
 
-First, confirm the sample was not dropped. A sample with fewer mapped reads than the Minimum mapped reads threshold produces no consensus at all, so an empty Consensus section usually means the pipeline set that sample aside on purpose rather than that the run broke.
+First, confirm the sample was kept. A sample with fewer mapped reads than Minimum mapped reads produces no consensus, so an empty or missing Consensus section usually means the pipeline set the sample aside on purpose. Run Quality Summary shows how many reads mapped.
 
-Second, read the per-amplicon coverage. Every amplicon should carry reads. An amplicon at or near zero depth is dropout, and the stretch of genome under it has no evidence either way, so the absence of variant calls there means nothing at all. No cut-off depth is quoted here because none has been measured on this fixture, so read the column against the other amplicons of the same run and treat any amplicon far below its neighbours as suspect. Amplicon dropout is common in real surveillance material and is not by itself a reason to discard a sample, but it is always a reason to qualify what you say about that region.
+Second, read the per-amplicon coverage. [Depth](../../GLOSSARY.md#depth), also called coverage, is the number of reads covering one position, and [coverage breadth](../../GLOSSARY.md#coverage-breadth) is the share of positions with at least one read. Every amplicon should carry reads. An amplicon at or near zero depth is dropout, and the stretch under it has no evidence either way, so an absence of variant calls there means nothing. No fixed cut-off applies, so compare each amplicon with the others in the same run and treat one far below its neighbours as suspect. Dropout is common in surveillance material and is not by itself a reason to discard a sample, but it limits what you can say about that region.
 
-Third, look at the consensus for runs of `N`. The letter `N` stands for an unknown base, one the pipeline had too little evidence to name, which is what masking means. A consensus that is mostly `N` is a low-coverage sample rather than a novel genome. No percentage of `N` is given here as a pass mark, because that threshold depends on the surveillance programme you report to rather than on the pipeline. Where the `N` runs fall should match the amplicons the coverage table showed as thin, and a mismatch between the two is worth investigating before you go further.
-
-Fourth, compare the two lineage calls. Pangolin and Nextclade reading the same consensus should tell a consistent story. When they disagree, or when Pangolin reports low confidence, the usual cause is a consensus carrying too many masked positions for either tool to place it. That sends you back to the coverage table rather than to the lineage call.
-
-Freyja is worth naming here because you will see it referred to in the pipeline's own documentation and will not see it in your results. viralrecon's Freyja lineage-abundance step and its bootstrap are always skipped and cannot be turned back on. The pipeline pins Freyja to a container built for Intel processors only. Macs have shipped with Apple Silicon chips since late 2020, and you can check yours under **Apple menu > About This Mac**, where an Apple Silicon machine reads M1 or later. On those Macs the helper processes Freyja's bootstrap step starts are killed, which fails the whole run after every other output has already been written. LGE runs Freyja natively from the wastewater-surveillance pack instead, where a real Apple Silicon build exists, and [Running Freyja](../06-classification/07-running-freyja.md) covers that path. Assembly and Kraken2 are also skipped by default, though those two you can switch back on with `--skip_assembly false` or `--skip_kraken2 false` in the Extra parameters field.
+Reading the consensus itself, its masked `N` positions, and the two lineage calls is covered in [Extracting a Consensus Sequence](../05-variants/05-consensus-and-lineage.md). The pipeline's own Freyja step, which estimates a mix of lineages in one sample, is always skipped here, and LGE runs Freyja separately as [Running Freyja](../06-classification/07-running-freyja.md) explains.
 
 ## On the command line
 
-This section is optional. A reader working entirely in the app can stop at the previous section and lose nothing.
+This section is optional, and nothing later in this manual needs it. The `lungfish-cli` program ships inside LGE, and [Finding the program](../appendices/cli-reference.md#finding-the-program) shows how to run it.
 
-The wizard builds a `lungfish-cli` command and runs it, so the command line is the same path rather than a parallel one. The difference is the input. The wizard writes the pipeline's samplesheet for you from the bundles you selected, while on the command line you write it yourself and pass exactly one with `--input`.
-
-The block below is a hand-written command that reproduces the procedure, not a transcript of what the wizard itself runs. It differs in two places. For the reference the wizard stages a local copy and passes `--param fasta=` and `--param gff=` where the block passes `--param genome=MN908947.3`, and it writes its run bundle with `--bundle-path` where the block uses `--bundle-root`. Both forms are accepted.
+The block below repeats the procedure from inside the project folder, reusing the sample sheet and primer files the wizard staged in its run bundle.
 
 ```bash
 lungfish-cli workflow run nf-core/viralrecon \
   --executor docker \
   --version 3.0.0 \
-  --input samplesheet.csv \
-  --results-dir Analyses/viralrecon-results \
-  --expected-output Analyses/viralrecon-results \
+  --input Analyses/viralrecon.lungfishrun/inputs/samplesheet.csv \
+  --results-dir Analyses/viralrecon-results-cli \
+  --expected-output Analyses/viralrecon-results-cli \
   --bundle-root Analyses \
   --param platform=illumina \
   --param protocol=amplicon \
-  --param primer_bed=Primer\ Schemes/QIASeqDIRECT-SARS2.lungfishprimers/primers.bed \
   --param genome=MN908947.3 \
+  --param primer_bed=Analyses/viralrecon.lungfishrun/inputs/primers/primers.bed \
+  --param primer_fasta=Analyses/viralrecon.lungfishrun/inputs/primers/primers.fasta \
+  --param primer_left_suffix=_LEFT \
+  --param primer_right_suffix=_RIGHT \
+  --param variant_caller=ivar \
+  --param consensus_caller=bcftools \
   --param min_mapped_reads=1000 \
+  --param skip_assembly=true \
+  --param skip_kraken2=true \
   --cpus 8 \
   --memory 8.GB
 ```
 
-`viralrecon` is accepted as shorthand for `nf-core/viralrecon`. The backslash before the space in the primer path is not a typing mistake. It tells the shell that the space belongs to the `Primer Schemes` folder name rather than separating two arguments. The parameters the wizard refuses in its Extra parameters field, `primer_bed` and `genome` among them, are required here, because on the command line there is no wizard control that owns them.
-
-Six options are worth knowing beyond the ones above. `--prepare-only` writes the run bundle and prints the command preview without launching Nextflow, which is how you inspect a run before committing to it. `--dry-run` validates without executing. `--params-file` reads parameters from a JSON or YAML file instead of repeating `--param`. `--repeat-from <bundle>` validates an earlier run bundle and then starts a fresh attempt from it, which is the reproducibility path. `--resume` continues from the last checkpoint of an interrupted run. `--workdir` overrides where Nextflow keeps its intermediate files. The `--cpus 8` and `--memory 8.GB` in the block match the wizard's own defaults on a machine with eight or more cores. On a smaller Mac, set `--cpus` to the number of cores you have and leave `--memory` alone.
-
-Two behaviours will surprise you if you read `--help` alone, and neither is a bug worth reporting. `--executor` accepts `docker`, `conda`, and `local`, then refuses everything but `docker` with a message saying so. The other two words are accepted only because the flag is shared with other workflows, since release 3.0.0 defines no local profile and LGE never enables Nextflow's conda support for it. `--timeout` is accepted in the same way and then has no effect here, because that flag belongs to the local-workflow path where it does work.
-
-`lungfish-cli provenance bibliography <bundle>` reads any bundle carrying LGE provenance and prints a first-pass citation list, which is where a methods section starts.
+Two differences change what you get. The wizard hands the pipeline its own downloaded copy of the reference with `--param fasta=` and `--param gff=`, where the block names the genome with `--param genome=`. The command also stops at the raw output tree and the run bundle, because only the app builds the viewable result folder with its tracks and Inspector catalogue. On a Mac with fewer than eight cores, set `--cpus` to your core count.
 
 ## Next
 
-That closes this part. Continue to [Calling Variants](../05-variants/01-calling-variants-from-amplicons.md), which walks through by hand the same variant calling the pipeline just did silently. Run it after the pipeline rather than instead of it. Doing the steps yourself is how you find out which settings the pipeline chose for you and what you gave up by letting it choose.
+Continue to [Calling Variants](../05-variants/01-calling-variants-from-amplicons.md), which does by hand the variant calling the pipeline just did for you. Run it after the pipeline rather than instead of it, to see which settings the pipeline chose on your behalf.

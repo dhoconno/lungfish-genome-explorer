@@ -1,10 +1,8 @@
-# Captured from Lungfish Preview 2026.9.13 with capture-window.sh (2026-09 campaign).
-# App state: The database search dialog open on GenBank & Genomes with NC_012920.1 typed into the query field, RefSeq Only unchecked and Include GFF3 Annotations checked (defaults).
+# Captured from Lungfish Preview 2026.9.40 with capture-window.sh (2026-09-24 manual review).
+# App state: Tools > Search Online Databases > Search NCBI..., GenBank & Genomes pane, Mode Nucleotide, RefSeq Only unchecked and Include GFF3 Annotations checked (defaults), NC_012920.1 typed into the query field and Search clicked; one result listed (NC_012920.1, Homo sapiens mitochondrion, complete genome, 16,569 bp).
 id: ncbi-search-dialog
 chapter: 02-sequences/02-downloading-from-ncbi
-caption: The database search dialog on its GenBank & Genomes pane, with the Mode picker on Nucleotide,
-  the RefSeq Only and Include GFF3 Annotations checkboxes below it, and the accession typed into the query
-  field.
+caption: "The database search dialog on its GenBank & Genomes pane, with the Mode picker on Nucleotide, the RefSeq Only and Include GFF3 Annotations checkboxes below it, the accession typed into the query field, and the one matching record listed under Results."
 viewport_class: none
 app_state:
   fixture: '{demo_project}'
@@ -27,10 +25,10 @@ steps:
 crop:
   mode: region
   region:
-  - 245
-  - 140
-  - 890
-  - 590
+  - 250
+  - 138
+  - 903
+  - 628
 post:
   retina: true
   format: png

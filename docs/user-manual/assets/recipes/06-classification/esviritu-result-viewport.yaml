@@ -1,0 +1,30 @@
+# Captured from Lungfish Preview 2026.9.40 with capture-window.sh (2026-09-24 manual review).
+# App state: Ran Tools > Classification > EsViritu... from the window on Imports/SRR36291587 (unbinned interleaved pairs, quality filter on, 14 threads). Clicked the esviritu-batch result in Analyses, chose List Over Detail in the Inspector's Panel Layout, and clicked the single detection row. Captured from Lungfish Preview 2026.9.40 (2026-09-24 manual review).
+id: esviritu-result-viewport
+chapter: 06-classification/03-running-esviritu
+caption: "The EsViritu viewport for SRR36291587 in the List Over Detail layout, with the detection table above and the alignment evidence for the selected row below, showing the coverage track across the SARS-CoV-2 genome."
+viewport_class: none
+app_state:
+  fixture: '{demo_project}'
+  open_files: []
+  window_size:
+  - 1400
+  - 900
+  appearance: light
+steps:
+- action: open_application
+  app: Lungfish Preview
+- action: wait_ready
+  signal: main_window_visible
+- action: resize_window
+  size:
+  - 1400
+  - 900
+  # PROSE-ONLY: select Analyses/esviritu-batch-<timestamp>
+  # PROSE-ONLY: Inspector Panel Layout: List Over Detail
+  # PROSE-ONLY: click the SRR36291587 detection row
+crop:
+  mode: window
+post:
+  retina: true
+  format: png

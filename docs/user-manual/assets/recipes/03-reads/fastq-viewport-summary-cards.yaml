@@ -1,6 +1,6 @@
-# Captured from Lungfish Preview 2026.9.13 with capture-window.sh (2026-09 campaign).
+# Captured from Lungfish Preview 2026.9.40 with capture-window.sh (2026-09-24 manual review).
 # Shared with 01-foundations; same capture, copied for this part.
-# App state: The HG002 FASTQ bundle open in the FASTQ viewport, showing the nine summary cards (Reads, Bases, Mean Length, Median Length, N50, Mean Q, Q20, Q30, GC) above the three sparkline charts (Length Dist., Q / Position, Q Score Dist.).
+# App state: Clicked Imports/HG002 (paired R1+R2 imported with defaults, 91,148 reads, no binning). The FASTQ viewport shows the nine summary cards above the three sparkline charts, Operations tab selected.
 id: fastq-viewport-summary-cards
 chapter: 03-reads/03-quality-control
 caption: The FASTQ viewport for the HG002 chromosome 20 slice, showing the nine summary cards above the

@@ -3,7 +3,7 @@ title: Quality Control for Reads
 chapter_id: 03-reads/03-quality-control
 audience: bench-scientist
 prereqs: [01-foundations/02-sequencing-reads, 03-reads/01-importing-fastq]
-estimated_reading_min: 18
+estimated_reading_min: 20
 task: Read a FASTQ bundle's quality summary and decide whether the reads are fit to analyse.
 tags: [reads, qc, quality, phred, sparkline]
 tools: []
@@ -11,7 +11,7 @@ parameters_refs: [fastq.refresh-qc-summary]
 entry_points:
   - "Tools > QC & Reporting > Refresh QC Summary..."
   - "FASTQ viewport > summary cards and sparkline strip"
-  - "FASTQ viewport > Operations tab > Compute Quality Report"
+  - "FASTQ viewport > Q / Position or Q Score Dist. sparkline > Click to Compute"
   - "CLI: lungfish-cli fastq qc-summary"
 shots:
   - id: fastq-viewport-summary-cards
@@ -19,176 +19,177 @@ shots:
   - id: refresh-qc-summary-dialog
     caption: "The FASTQ/FASTA Operations window on Refresh QC Summary, with the HG002 chromosome 20 bundle listed as the input and the Output Strategy control below."
   - id: fastq-sparkline-popover
-    caption: "The Q / Position sparkline clicked open into its full-size popover, showing per-position quality falling away over the last ten bases of the read."
+    caption: "The Q / Position sparkline clicked open into its full-size popover, showing per-position quality falling away over the last few bases of the read."
   - id: fastq-viewport-reads-tab
     caption: "The Reads tab of the FASTQ viewport, listing the first records with their read identifier, length, mean quality, and sequence."
 illustrations: []
-glossary_refs: [fastq, phred-score, read, read-length, paired-end, n50, quality-binning, gc-content, sparkline, quality-control]
+glossary_refs: [fastq, phred-score, read, read-length, paired-end, n50, quality-binning, gc-content, sparkline, quality-control, bundle, viewport, adapter, required-setup-pack, inspector, depth, coverage-breadth]
 features_refs: []
 fixtures_refs: [hg002-chr20]
-brand_reviewed: true
-lead_approved: true
+brand_reviewed: false
+lead_approved: false
 ---
 
 ## What it is
 
-Quality control is the step where you look at a set of reads and decide whether they are fit to analyse. Reads are unfit when the base calls are too uncertain to trust, so that a difference you find later might be the sample or might be the instrument. In Lungfish Genome Explorer (LGE) that step has no separate screen. The numbers live in the FASTQ viewport, on view the moment you click a [read bundle](../../GLOSSARY.md#bundle) in the sidebar. A viewport is the main panel to the right of the sidebar, the one that changes to suit whatever you selected. A bundle is the folder LGE treats as one sample's reads. There is no QC tab to open.
+Quality control is the step where you look at a set of reads and decide whether they are fit to analyse. A [read](../../GLOSSARY.md#read) is one stretch of DNA sequence the instrument reported, and each of its bases is a base call, the instrument's decision about which of A, C, G, or T sat at that position. A set of reads is unfit when too many of those calls are uncertain. A difference you find later might then come from the sample or from the instrument, and nothing downstream can tell the two apart.
 
-What you read there is a summary of every base in the bundle. LGE scans the reads and reports nine numbers as cards along the top of the viewport, then draws three small charts beneath them. The nine fall into four groups. Two cards say how many reads and bases there are, three say how long the reads are, three say how good the base calls are, and one says what fraction of the bases are G or C. A base call is the instrument's decision about which of A, C, G, or T sat at one position, and the GC fraction is a rough fingerprint of which organism the DNA came from. Where a card gives one number for the whole bundle, a chart gives the spread behind it, such as how many reads sit at each length.
+In Lungfish Genome Explorer (LGE) this step has no separate screen. A read bundle holds one sample's reads. Click one in the sidebar and the [viewport](../../GLOSSARY.md#viewport), the large central pane that changes to suit whatever you selected, becomes the FASTQ viewport. [FASTQ](../../GLOSSARY.md#fastq) is the read file format [Importing Sequencing Reads](01-importing-fastq.md) introduces. The FASTQ viewport shows nine summary cards across the top, three small charts beneath them, and a table of individual reads below that. This chapter is the one place in the manual that explains all of them.
 
-Import computes all of this as its last step, so the cards and the charts are already filled by the time a bundle appears in the sidebar. Import in LGE runs a scan over every read, not only a file copy, which is why it takes longer than dragging a file into a folder. **Tools > QC & Reporting > Refresh QC Summary...** recomputes the summary for a bundle you select afterwards.
+The nine cards fall into four groups. Two say how much data there is, three say how long the reads are, three say how trustworthy the base calls are, and one says what share of the bases are G or C. Where a card gives one number for the whole bundle, a chart gives the spread behind it, such as how many reads sit at each length.
 
-The summary reports per-position quality across the read, the read-length distribution, the quality-score distribution, and [GC content](../../GLOSSARY.md#gc-content). It does not report adapter contamination. An adapter is a short piece of synthetic DNA the library preparation attaches to each end of a fragment so the instrument can grip it, and it is not part of your sample. No number in this readout tells you how much adapter sequence is in your reads, so do not go looking for one. The signature of adapter read-through shows up in the length distribution instead, and the next chapter explains how to read it.
+Import computes all of this as its last step, so the cards and charts are already filled when a bundle appears in the sidebar. **Tools > QC & Reporting > Refresh QC Summary...** recomputes the summary later. No card measures adapter contamination. An [adapter](../../GLOSSARY.md#adapter) is a short piece of synthetic DNA that library preparation attaches to each end of a fragment, and it is not part of your sample. Its signature shows up in the length chart instead, as Reading the results explains.
 
-Look at these numbers before you spend an hour of compute on reads that were never going to give you an answer.
+Read these numbers before you spend an hour of computing time on reads that were never going to give you an answer.
 
 ## Why you would do this
 
-Bad reads produce bad alignments, and bad alignments produce bad variant calls. Alignment is the step that works out where each read came from on a reference genome. Variant calling is the step after it, which compares the stacked-up reads to the reference and reports the positions where your sample differs. The cost of catching a problem here is a minute of looking. The cost of catching it three steps later is re-running everything downstream, and sometimes withdrawing a result you already reported.
+Bad reads produce bad alignments, and bad alignments produce bad variant calls. Alignment, also called mapping, works out where each read came from on a reference genome, and variant calling then reports the positions where your sample differs from that reference. Catching a problem here costs a minute of looking. Catching it three steps later means running everything downstream again, and sometimes withdrawing a result you already reported.
 
-Quality control is also how you notice that you imported the wrong files. An Illumina instrument cuts every read to the same length, usually somewhere between 75 and 300 bases, while a long-read instrument returns reads of whatever length each fragment happened to be, often many thousands of bases. So a read-length distribution spread over thousands of bases means long reads, not the Illumina pair you thought you selected. A GC content far from what your organism should show means something else is in the sample. Neither of those is a quality problem in the strict sense, and both are worth finding before mapping rather than after.
+Quality control is also how you notice that you imported the wrong files. An Illumina instrument reads every fragment for the same number of cycles, one base added and photographed per cycle, so its reads come out close to one fixed length, usually somewhere between 75 and 300 bases. A long-read instrument such as Oxford Nanopore returns reads as long as each molecule happened to be, often many thousands of bases. A length chart spread over thousands of bases therefore means long reads, not the Illumina pair you thought you selected. A GC figure far from what your organism should show means something else is in the tube. Neither is a quality problem in the strict sense, and both are worth finding before mapping.
 
-This chapter works through the HG002 chromosome 20 slice, a pair of Illumina read files from a human genome whose true sequence is already known. The reads are 2x250 base pairs, which means two reads of 250 bases each, one taken from each end of the same DNA fragment. They come from a 500 kb window of chromosome 20. They are a healthy run, so what you see here is the shape a good result takes. Learning that shape is what lets you recognise a bad one.
+This chapter works through the HG002 chromosome 20 slice. HG002 is a human genome from the Genome in a Bottle project whose true sequence is already known. The slice holds Illumina reads from a 500 kb window of chromosome 20, sequenced as 2x250, meaning two reads of 250 bases taken from opposite ends of each DNA fragment. A [paired-end](../../GLOSSARY.md#paired-end) run gives two mates per DNA fragment, as [Importing Sequencing Reads](01-importing-fastq.md) explains. The run is healthy, so what you see here is the shape a good result takes, and learning that shape is what lets you recognise a bad one.
 
 ## Before you start
 
-You need a project open. If you do not have one, choose **File > New Project** (Cmd-N), or click Create Project on the Welcome window, and pick a folder. A new, empty folder is the right choice, since LGE fills it as you work. LGE runs on macOS, so every keyboard shortcut in this manual uses the Mac Command key.
+You need a project open, as [The Lungfish Genome Explorer Project](../01-foundations/06-the-lungfish-project.md#procedure) shows.
 
-This chapter uses the HG002 chromosome 20 slice. Download the files `HG002.chr20.10.0-10.5Mb_R1.fastq.gz` and `HG002.chr20.10.0-10.5Mb_R2.fastq.gz` from the manual's fixtures on GitHub at
+This chapter uses the HG002 chromosome 20 fixture. Download `HG002.chr20.10.0-10.5Mb_R1.fastq.gz` and `HG002.chr20.10.0-10.5Mb_R2.fastq.gz` from the [hg002-chr20 fixture folder](https://github.com/dhoconno/lungfish-genome-explorer/tree/v2026.9.39/docs/user-manual/fixtures/hg002-chr20), as [Practice data for this manual](../01-foundations/06-the-lungfish-project.md#practice-data-for-this-manual) explains.
 
-https://github.com/dhoconno/lungfish-manual-media/tree/manual-v2026.9.39/user-manual/fixtures/hg002-chr20
+Import the pair as [Importing Sequencing Reads](01-importing-fastq.md) shows. Leave the import sheet's Quality Binning control on its default, None (preserve original), which keeps every score exactly as the instrument wrote it. The figures in this chapter come from an import with that default.
 
-and remember where you saved them. Import the pair first, following [Importing Sequencing Reads](01-importing-fastq.md). This chapter starts from the bundle that import produced.
-
-Refreshing the summary uses `seqkit`, a read-counting program LGE runs for you. It comes from the Required Setup pack, the one set of tools LGE installs by itself the first time you need it, so you install nothing by hand for this chapter. Some later chapters need Docker Desktop, a separate program that runs packaged analysis tools. This chapter does not.
+The summary is computed by `seqkit`, a program that counts and measures reads. `seqkit` arrives with the [Required Setup pack](../../GLOSSARY.md#required-setup-pack), the one pack LGE installs by itself, so there is nothing to install.
 
 ## Procedure
 
-The first three steps read the summary that import already computed. The rest recompute it, which is what you do after an operation has changed the reads.
+The first three steps read the summary that import already computed. Steps 4 and 5 recompute it, which is what you do after an operation has changed the reads or when you want every bundle measured the same way.
 
-1. Click the `HG002.chr20.10.0-10.5Mb` bundle in the sidebar under `Imports/`. You downloaded two files whose names end in `_R1` and `_R2`, and import merged the pair into this one bundle under the name they share, so a single row is what you should expect to see. The main viewport switches to the FASTQ viewport.
+1. Click the `HG002.chr20.10.0-10.5Mb` bundle under `Imports/` in the sidebar. Import joined the `_R1` and `_R2` files into this one bundle under the name they share, so a single row is what you should see. The viewport switches to the FASTQ viewport.
 
-2. Read the nine summary cards along the top of the viewport. Take Mean Q, Q20, Q30, and GC first, since those four are the quality verdict. The other five, Reads, Bases, Mean Length, Median Length, and N50, describe how much data you have and how long the reads are. Reading the results below explains every one of the nine.
+2. Read the nine summary cards along the top. Take Mean Q, Q20, Q30, and GC first, since those four carry the quality verdict. Reads, Bases, Mean Length, Median Length, and N50 describe how much data you have and how long the reads are. [Reading the results](#reading-the-results) explains every card.
 
     <!-- SHOT: fastq-viewport-summary-cards -->
 
-3. Read the three [sparkline](../../GLOSSARY.md#sparkline) charts below the cards. A sparkline is a small chart drawn without axes or labels, sized to sit in a strip. They are labelled Length Dist., Q / Position, and Q Score Dist. Click any one of them to open it full size in a small floating window.
+3. Read the three [sparkline](../../GLOSSARY.md#sparkline) charts below the cards, labelled Length Dist., Q / Position, and Q Score Dist. A sparkline is a small chart drawn without axes, sized to sit in a strip. Click one to open it full size in a popover, a panel that floats over the window and closes when you click elsewhere.
 
     <!-- SHOT: fastq-sparkline-popover -->
 
-4. To recompute the summary, keep the bundle selected and choose **Tools > QC & Reporting > Refresh QC Summary...**. The FASTQ/FASTA Operations window opens with that operation already selected, which you can confirm by finding Refresh QC Summary highlighted in the operation list down the left side of the window. FASTQ/FASTA Operations is the title of the window, not a menu you can find. The window handles both FASTQ files, which carry a quality score for every base, and FASTA files, which carry sequence alone, so its title names both.
-
-5. Confirm that the bundle listed in the Inputs section is the one you meant, then click Run. To watch it go, open the Operations Panel with **Operations > Show Operations Panel** (Cmd-Shift-P), which you can do before or after clicking Run, since the run works whether or not the panel is open. Its row reads Running while the scan is under way and Completed when it finishes, and the cards and charts update in place.
+4. Keep the bundle selected and choose **Tools > QC & Reporting > Refresh QC Summary...**. The FASTQ/FASTA Operations window opens with Refresh QC Summary selected and the bundle named under Inputs. The dialog follows the layout [Operation dialogs](../01-foundations/06-the-lungfish-project.md#operation-dialogs) describes.
 
     <!-- SHOT: refresh-qc-summary-dialog -->
 
-There is a second way in. Some bundles carry no quality statistics, and on those the two quality sparklines read Click to Compute instead of drawing a chart. That happens on a derived bundle, meaning one an operation produced from another bundle rather than one import created, such as the trimmed bundle you get from Quality Trim. Clicking either sparkline runs the same computation and fills them. That path appears in the Operations Panel as a row titled Quality Report.
+5. Click Run. Watch the run in the [Operations Panel](../01-foundations/06-the-lungfish-project.md#the-operations-panel), which opens with **Operations > Show Operations Panel** (Cmd-Shift-P). When the row completes, the cards and charts update in place. No new item appears in the sidebar, because the refresh rewrites the bundle's stored summary rather than writing a separate result.
+
+There is a second way to fill the charts. Some bundles carry a summary without the quality distributions, and on those the Q / Position and Q Score Dist. sparklines read Click to Compute instead of drawing. Clicking either one runs a quick quality report that fills both, and it appears in the Operations Panel as a row titled Quality Report. The Inspector's Dataset Statistics section shows the same state in its Quality Report row, which reads Cached once the distributions exist and Not Computed before.
 
 ## Settings
 
-The Refresh QC Summary pane carries no tool-specific controls. Its Primary Settings section says so, reading "No additional primary settings are required for this QC summary refresh." Read counts, the length distribution, and the quality statistics are all computed from the reads with nothing to tune. Below that section sits one general control, which does apply here.
+The Refresh QC Summary pane has no tool-specific controls. Its Primary Settings section reads "No additional primary settings are required for this QC summary refresh." Counts, lengths, and quality statistics are measured from the reads, so there is nothing to tune. The one control the dialog shows is the shared output choice.
 
-**Output Strategy.** Chooses whether the run writes one QC summary next to each selected dataset or pools every selected dataset into one summary. Per Input, the first of its two values, keeps each library separate, where a library is one prepared sample loaded onto the sequencer. It defaults to Per Input, which is what you want whenever the selected bundles are different samples, since pooling two samples into one set of numbers hides a problem in either of them. Switch to the other value, Grouped Result, when the selected files are parts of one library and you want a single set of numbers. This setting has no command-line flag, which matters only if you plan to script the run and can be ignored if you work in the app.
+**Output Strategy.** Chooses whether several selected bundles get one output each or one pooled output. Leave it on Per Input, the default. For this operation the choice changes nothing. [Trimming and Filtering](04-trimming-and-filtering.md#shared-settings) explains the two choices. This setting has no command-line flag.
 
 ## Reading the results
 
-The nine cards sit above the charts and are measured from the reads rather than typed in, so none of them is editable. Here is what they read for this fixture, taken from a real import on 2026-09-06.
+The nine cards are measured from the reads, so none of them can be edited. The table gives what each card measures and the value this fixture showed.
 
-| Card | Value | What it reports |
+| Card | What it measures | This fixture |
 |---|---|---|
-| Reads, Bases | 91,148 and 22,662,846 | The totals for the bundle |
-| Mean Length, Median Length, N50 | 249, 250, and 250 | The read-length distribution |
-| Mean Q | 24.9 | The average base quality |
-| Q20, Q30 | 95.0% and 91.0% | The percentage of bases at or above those scores |
-| GC | 39.4% | The percentage of bases that are G or C |
+| Reads | How many read records the bundle holds, both mates counted | 91.1K (91,148) |
+| Bases | The total number of bases across every read | 22.66 Mb (22,662,846) |
+| Mean Length | The average read length, rounded to a whole base | 249 bp |
+| Median Length | The length of the middle read once every read is sorted by length | 250 bp |
+| N50 | The length at which reads that long or longer hold half of all bases | 250 bp |
+| Mean Q | The average base quality on the Phred scale | 25.3 at import, 36.7 after Refresh QC Summary |
+| Q20 | The percentage of bases scoring 20 or higher | 95.0% at import, 94.6% after refresh |
+| Q30 | The percentage of bases scoring 30 or higher | 91.0% at import, 91.3% after refresh |
+| GC | The percentage of bases that are G or C | 39.4% |
 
-Read them in this order.
+The cards shorten large numbers. Reads shows 91.1K, where K means thousand, and Bases shows 22.66 Mb, where Mb means million bases. Open the [Inspector](../../GLOSSARY.md#inspector) with **View > Show Inspector** (Cmd-Opt-I) if it is hidden. Its Dataset Statistics section gives the same measurements under slightly longer labels, with Read Count as an exact number, Mean Length to a tenth of a base, and two values no card shows, Min Length and Max Length.
 
-Reads is how many records the bundle holds, and Bases is how many individual letters those records add up to. Here 91,148 is 45,574 [paired-end](../../GLOSSARY.md#paired-end) pairs counted as individual reads, since a bundle stores both mates together. To judge whether that is a lot, divide the base count by the size of the region. Spread over a 500 kb window, 22,662,846 bases work out to roughly 45 bases covering each position, written 45x and called the depth of coverage, which is comfortable for calling variants in a human sample. A count far below what your sequencing provider quoted means files went missing between the instrument and your disk. Providers often quote millions of reads or gigabases rather than a raw count, so convert before you compare, remembering that one gigabase is a billion bases.
+### Reads and Bases
 
-Mean Length is the average [read length](../../GLOSSARY.md#read-length) in bases, Median Length is the length of the middle read once you sort them all by length, and [N50](../../GLOSSARY.md#n50) is the length such that half of all sequenced bases sit in reads at least that long. To see what N50 adds, imagine four reads of 400, 200, 100, and 100 bases. The median is 150 and the mean is 200, but the N50 is 400, because that one longest read holds 400 of the 800 bases by itself. N50 answers which read length most of your sequence sits in, which the mean and median cannot, since both count a 35-base read and a 250-base read as one read each. On this fixture all three land at the top of the range, and 249 against 250 and 250 says almost every read is full length.
+Reads is the number of records in the bundle. Here 91,148 is 45,574 pairs counted one read at a time, because the bundle stores both mates. Bases is how many letters those reads add up to.
 
-A mean below the median means a tail of shorter reads is pulling the average down. Here the card reads 249 against a median of 250, a gap of about one base, which is a thin tail and nothing to act on. Treat a gap under about five bases on a fixed-length run as normal. A gap of tens of bases means a large tail, and that is worth looking at in the Length Dist. chart before you map.
+To judge whether that is enough data, compare Bases with the size of the region the reads came from. [Depth](../../GLOSSARY.md#depth), also called coverage, is the number of reads covering one position, and [coverage breadth](../../GLOSSARY.md#coverage-breadth) is the share of positions with at least one read. Dividing Bases by the region's size gives a rough depth before any mapping. Here 22,662,846 bases over the 500,000-base window come to about 45x, read as 45 times, which is comfortable for calling variants in a human sample. A count far below what your sequencing provider quoted means files went missing between the instrument and your disk. Providers often quote millions of reads or gigabases, where one gigabase is a billion bases, so convert before you compare.
 
-Mean Q is the average base quality on the [Phred scale](../../GLOSSARY.md#phred-score), a scale where the score counts how confident the instrument is that it read the base correctly. Q20 means a 1 in 100 chance the base is wrong and Q30 means 1 in 1,000, so higher is better and every ten points is a tenfold improvement. Q20 and Q30 are the percentage of bases at or above those two scores. At 95.0% and 91.0% this run is healthy. What good looks like below gives the threshold to judge a Q30 figure against.
+### Mean Length, Median Length, and N50
 
-GC is the percentage of bases that are G or C, and it is a property of the organism rather than of the run. As a rough guide, human DNA runs about 41 percent G or C across the whole genome. This fixture reads 39.4%, which is the value for this particular 500 kb window rather than for the genome as a whole, since GC drifts from one region to the next. A figure far from what your organism should show usually means another species is in the sample.
+Mean Length is the average [read length](../../GLOSSARY.md#read-length) in bases, and Median Length is the length of the middle read once every read is sorted by length. [N50](../../GLOSSARY.md#n50) here is computed over reads rather than over contigs, the longer sequences an assembler rebuilds from overlapping reads, so it is the read length at which reads that long or longer hold half of all sequenced bases, the same statistic [When to Assemble](../07-assembly/01-when-to-assemble.md#what-the-numbers-mean) works through for an assembly. On this fixture all three sit at the top of the range, 249, 250, and 250, which says almost every read is full length.
 
-Mean Q deserves one note. The card reads 24.9 while the same reads scanned from the command line report 34.9. Both are correct and they measure different things. Quote the card's 24.9 when you write down a number for this bundle, since the card is what the app shows and it is the more conservative of the two.
+A mean below the median means a tail of shorter reads is pulling the average down. The Inspector gives the mean as 248.6 against a median of 250, a gap of under two bases, which is a thin tail and nothing to act on. On a fixed-length run, treat a gap under about five bases as normal. A gap of tens of bases means a large tail, and that is worth a look in the Length Dist. chart before you map. The shortest read here is 35 bases, shown as Min Length in the Inspector.
 
-The reason they differ is what a Phred score stands for. A score of Q30 is shorthand for an error probability of 1 in 1,000, and Q10 is shorthand for 1 in 10. Average those two as scores and you get Q20. Average the probabilities they stand for, 0.001 and 0.1, and you get 0.0505, which converts back to about Q13. The card takes the second route, averaging the error probabilities and converting the answer back to a score. That is the honest way to average this kind of scale, because a bad base is far more wrong than a good base is right, so a handful of terrible bases pulls the answer down hard. The command line reports the plain arithmetic mean of the scores themselves. Compare a card to a card and a command-line figure to a command-line figure, and never one to the other.
+### Q20 and Q30
+
+A [Phred score](../../GLOSSARY.md#phred-score) is a per-base quality on a logarithmic scale, where 20 means one wrong base in a hundred and 30 means one in a thousand.
+
+Q20 and Q30 are the percentages of bases scoring at or above 20 and 30. They answer the question you usually care about, which is how much of the data you can trust. This fixture reads 95.0% and 91.0%, which is healthy for Illumina. [What good looks like](#what-good-looks-like) gives the threshold to judge a Q30 figure against.
+
+### GC
+
+[GC content](../../GLOSSARY.md#gc-content) is the share of bases that are G or C. It is a property of the organism rather than of the run. Human DNA averages about 41 percent GC across the whole genome. This fixture reads 39.4%, which is the value for this particular 500 kb window, since GC drifts from one region of a genome to the next. A figure far from what your organism should show usually means another species is in the sample.
+
+### Mean Q in the app and on the command line
+
+Mean Q is the average base quality of the whole bundle, and it needs a closer reading than the other cards because a Phred score cannot be averaged in only one way. A score of Q30 stands for an error probability of 1 in 1,000, and Q10 stands for 1 in 10. Average the two scores and you get Q20. Average the probabilities they stand for, 0.001 and 0.1, and you get 0.0505, which converts back to about Q13. The second answer is the more cautious one for this kind of scale. A bad base is far more wrong than a good base is right, so a few terrible bases raise the true error rate sharply.
+
+LGE uses both routes, depending on what built the summary. When import builds it, `seqkit` averages the error probabilities and converts the result back to a score, so the card is the more conservative figure. When Refresh QC Summary builds it, LGE runs the same scan as `lungfish-cli fastq qc-summary`, which takes the plain average of the scores themselves. On this fixture the card reads 25.3, while the command line reports 36.7 for the same reads. Both are correct, and they measure different things. When you write a figure down, say which one it is. The import-time figure is the more cautious of the two.
+
+After a refresh, then, the Mean Q card holds the plain average, which sits higher than the import-time figure for the same reads. The other eight cards mean the same thing whichever route built them. Compare Mean Q only between bundles whose summaries were built the same way. The simplest way to be sure is to run Refresh QC Summary on every bundle you want to compare, and to say which kind of average you used when you write a number down.
 
 ### The three charts
 
-Below the cards sit the three sparklines. Each opens full size in a small floating window when clicked. The cards always describe every read in the bundle, but the charts are built from the first 100,000 reads, so on a larger bundle they describe a sample rather than the whole file. This fixture holds 91,148 reads, fewer than that, so here the charts describe every read too.
+Below the cards sit the three sparklines. The cards always describe every read. The charts built at import, or by Click to Compute, describe only the first 100,000 reads in the stored file, and after Refresh QC Summary they describe every read. Import can reorder reads to make the file compress better, so the first 100,000 are a convenience sample rather than a random one. This fixture holds 91,148 reads, fewer than 100,000, so here every chart covers every read. Right-click a full-size chart and choose Copy Chart as PNG to put a picture of it on the clipboard.
 
-Length Dist. is the read-length distribution, a count of how many reads fall at each length. On this fixture it is a single spike at the right-hand end. 71.1% of reads are exactly 250 bases, and widening that to 249 or 250 catches 91.0% of them, with a thin tail running down to a minimum of 35. That shape is what a healthy fixed-length run looks like. A second hump well to the left of the spike is the signature of adapter read-through, where the DNA fragment was shorter than the read so the instrument ran off the end of it and into the adapter sequence.
+Length Dist. is the read-length distribution, a count of how many reads fall at each length, titled Read Length Distribution at full size. On this fixture it is a single spike at the right-hand end. 71.1% of reads are exactly 250 bases, and widening that to 249 or 250 catches 91.0% of them, with a thin tail running down to 35. That shape is what a healthy fixed-length run looks like. A second hump well to the left of the spike is the signature of adapter read-through, where the fragment was shorter than the read so the instrument ran off its end and into the adapter.
 
-Q / Position is per-position quality, plotted as a box for each position along the read rather than a single line. The box covers the middle half of the quality scores seen at that position, from the lowest quarter up to the highest quarter, with a line inside marking the median and thin whiskers reaching out toward the extremes. A tall box means the reads disagree at that position and a short one means they agree. The chart shows quality falling away toward the 3' end, meaning the end of the read the instrument sequenced last, which every Illumina run does because the chemistry degrades a little with each cycle. On this fixture the mean holds above Q30 from base 1 through base 240, peaks at Q36.5 around base 14, first drops below Q30 at base 241, and reaches its lowest point of Q22.8 at base 250, the final base. It never falls below Q20 at any position. A run that crosses below Q20 well before the read ends is one that gains from quality trimming.
+Q / Position is per-position quality. The sparkline draws the median score at each position along the read, over shaded bands that mark Q20 and Q30. The full chart, titled Per-Position Quality Scores, draws a box for each position. The box spans the middle half of the scores seen there, a line across it marks the median, a small triangle marks the mean, and whiskers reach out to the 10th and 90th percentiles, the scores a tenth of the bases fall below and a tenth rise above. A tall box means the reads disagree at that position and a short one means they agree. Quality falls toward the 3' end, the end of the read the instrument sequenced last, which every Illumina run shows because the chemistry degrades a little with each cycle. On this fixture the mean stays above Q30 from base 1 to base 243, drops below it at base 244, and ends at Q22.6 on base 250, never falling below Q20. A run that crosses below Q20 well before the read ends is one that gains from quality trimming.
 
-Q Score Dist. is the quality-score distribution, a count of how many bases carry each score. Its shape depends on whether the reads were quality binned. [Quality binning](../../GLOSSARY.md#quality-binning) rounds each score to one of a few values so the file takes less disk space, and LGE applies it by default when importing Illumina reads. You can turn it off at import time by setting the Quality Binning control to None (preserve original) in the import configuration sheet. Binning changes only how finely the scores are recorded, never which bases were called, so leaving it on does not change an analysis result. This bundle was binned, so its chart is a handful of tall spikes rather than a smooth curve, with 84.1% of bases sitting at Q37 and 7.2% at Q32. Read a binned chart by where the tall spikes sit rather than by its overall shape. A binned run is healthy when the tallest spikes sit at high scores, as here where the biggest is at Q37, and it is a worry when the tall spikes sit near Q20 or below.
+Q Score Dist. is the quality-score distribution, a count of how many bases carry each score, titled Quality Score Distribution at full size. Its shape depends on [quality binning](../../GLOSSARY.md#quality-binning), which rounds every score at import to one of a few values so the file compresses better. Binning is off unless you choose it, so a bundle imported with the default draws a spread of bars across many scores, usually with the tallest near the top. A binned bundle draws a handful of tall spikes instead. On this fixture 42.6% of bases sit at Q40 and 25.0% at Q39. Read either shape by where the bulk of the bases sits. A run is healthy when most bases sit at high scores, and it is a worry when the tallest bars sit near Q20 or below. Binning changes how finely scores are recorded, never which bases were called.
 
 ### The Reads tab
 
-Two tabs sit under the charts, Operations and Reads. The Reads tab is a table of individual records with columns for the row number, the read identifier, the length, the mean quality, and the sequence. It loads the first 1,000 records in file order rather than the whole bundle, so it is a window onto the start of the file rather than a random sample of it or a summary.
+Two tabs sit under the charts, Operations and Reads. Operations lists the operation categories, such as QC & Reporting and Trimming & Filtering, and choosing one opens the FASTQ/FASTA Operations window. The Reads tab is a table of individual records with columns for the row number, Read ID, Length, Mean Q, and Sequence. Read ID is the read's name from the first line of its record, and Mean Q here is the plain average of that one read's scores. The table loads the first 1,000 records of the stored file. It is a window onto the start of the file, not a random sample and not a summary, and because import may have reordered the reads, the start of the file is not the start of the run.
 
 <!-- SHOT: fastq-viewport-reads-tab -->
 
-Use it when a card surprises you and you want to see actual reads. A header that does not look the way your instrument writes headers tells you something a summary number cannot. So does a run of `N` characters through the sequence column, where `N` marks a position the instrument could not call as any of A, C, G, or T.
+Use it when a card surprises you and you want to see actual reads. A read name that does not look the way your instrument writes names tells you something a summary cannot, such as reads that a tool renamed before they reached you. So does a run of `N` characters in the Sequence column, where `N` marks a position the instrument could not call as any of A, C, G, or T.
 
 ### What the summary does not gate
 
-The summary does not block downstream operations. It informs them. A bundle with a poor Q30 can still be mapped, and LGE will not stop you. The numbers tell you which artefacts to expect in the result and which operation would clear them first.
+The summary informs downstream operations and never blocks them. A bundle with a poor Q30 can still be mapped, and LGE will not stop you. The numbers tell you which artefacts to expect in the result and which operation would clear them first.
 
 ## What good looks like
 
 Four checks decide whether a bundle is ready for the next step.
 
-Check that Q30 sits where the platform puts it. Illumina and Oxford Nanopore are the two kinds of sequencer you are most likely to meet, and your sequencing provider's run report says which one produced your files. On an Illumina run, a common rule of thumb rather than a published specification is that a Q30 above roughly 80% is healthy, and this fixture's 91.0% is comfortable. A figure well below that is worth raising with your provider before you analyse the data. Nanopore reads score much lower on this number by design, so judge those by the Mean Q card instead of by Q30, and do not compare the two platforms on the same threshold.
+Check that Q30 sits where the platform puts it. Your sequencing provider's run report names the instrument that produced your files. On an Illumina run, a common rule of thumb rather than a published specification is that a Q30 above roughly 80% is healthy, and this fixture's 91.0% is comfortable. A figure well below that is worth raising with your provider before you analyse the data. As a rule of thumb for an Illumina run, the import-time Mean Q should sit above about Q20 and the refreshed Mean Q above about Q30, and a run below either has probably failed. Nanopore reads score much lower on Q30 by design, so judge those by Mean Q instead, and never hold the two platforms to one threshold.
 
-Check that Q / Position holds above Q20 for most of the read. A curve that sags only over the last few bases, as this fixture's does over its last ten, needs nothing done to it. A curve that crosses Q20 in the middle of the read is telling you to trim.
+Check that Q / Position holds above Q20 for most of the read. A curve that sags only over the last few bases, as this fixture's does over its last seven, needs nothing done to it. A curve that crosses Q20 in the middle of the read is telling you to trim.
 
-Check that Length Dist. is a single spike at the length your kit was configured for. That length comes from your sequencing provider's run report, which names the read length the instrument was set to, 250 bases for this fixture. A second hump to the left means adapter read-through, and a broad spread over thousands of bases means the files came from a long-read instrument rather than the short-read run you expected.
+Check that Length Dist. is a single spike at the length your kit was configured for. Your provider's run report names that length, 250 bases for this fixture. A second hump to the left means adapter read-through, and a broad spread over thousands of bases means the files came from a long-read instrument rather than the short-read run you expected.
 
-Check that GC lands near the value your organism should show. Judge it in percentage points, the plain difference between the two figures, rather than as a relative change. Within about five percentage points is fine, since GC varies from one region of a genome to the next, and this fixture's 39.4% against a human figure of about 41 percent is well inside that. A larger shift on a sample you know well is worth chasing down before you continue.
+Check that GC lands near the value your organism should show. Judge it in percentage points, the plain difference between the two figures. Within about five points is fine, since GC varies from one region of a genome to the next, and this fixture's 39.4% against a human figure of about 41 percent is well inside that. A larger shift on a sample you know well is worth chasing down before you continue.
 
-A bundle that fails on any of these goes through an operation under **Tools > Trimming & Filtering** first, then back through Refresh QC Summary to confirm the fix took. Only then do you map it. Trimming writes a new bundle and leaves the imported one untouched, so nothing you do here destroys your original reads. Low quality across the read is fixed by **Tools > Trimming & Filtering > Quality Trim...** and adapter read-through by **Tools > Trimming & Filtering > Adapter Removal...**. [Trimming and Filtering](04-trimming-and-filtering.md) covers both and explains the settings each one takes.
+A bundle that fails any of these goes through an operation under **Tools > Trimming & Filtering** first. Low quality across the read calls for Quality Trim, and adapter read-through calls for Adapter Removal, both covered in [Trimming and Filtering](04-trimming-and-filtering.md). Trimming writes a new bundle and leaves the imported one untouched, so nothing you do here destroys your original reads. Then run Refresh QC Summary on both the original and the trimmed bundle. That puts both Mean Q cards on the same average, so the before-and-after comparison is fair. Only then map the trimmed reads.
 
-A GC content far from expectation is not a trimming problem, and what to do about it depends on what you meant to sequence. If you were sequencing one organism, the other species is contamination and [Decontamination](05-decontamination.md) removes it. If you were sequencing a mixed sample on purpose, the mixture is the signal and you carry on to classification.
+A GC figure far from expectation is not a trimming problem, and what to do about it depends on what you meant to sequence. If you were sequencing one organism, the other species is contamination, and [Decontamination](05-decontamination.md) removes it. If you were sequencing a mixed sample on purpose, the mixture is the signal and you carry on to classification.
 
 ## On the command line
 
-This section is optional. The app already computes everything the four checks above need, so you can skip to Next and lose nothing. Two facts are command-line only, the shortest read length in a bundle and a read 1 against read 2 comparison, and the rest of the section repeats work the cards already did.
+This section is optional. [Finding the program](../appendices/cli-reference.md#finding-the-program) shows how to run `lungfish-cli`.
 
-`lungfish-cli fastq qc-summary` writes statistics of the same shape as a JSON file. JSON is a plain text file laid out for other programs to read rather than for a person, which is what you want for a pipeline log or a report that something other than a person has to open.
+`lungfish-cli fastq qc-summary` computes the summary Refresh QC Summary uses and writes it as a JSON file, a plain text layout meant for other programs to read. To see the same run as a command, right-click its row and choose Copy CLI Command, as [The Operations Panel](../01-foundations/06-the-lungfish-project.md#the-operations-panel) describes. The command below runs on the two downloaded fixture files instead of the bundle.
 
 ```bash
-# One report for the imported bundle's reads.
-lungfish-cli fastq qc-summary \
-  "$HOME/Desktop/lge-docs/LGE Manual Demo.lungfish/Imports/HG002.chr20.10.0-10.5Mb.lungfishfastq/HG002.chr20.10.0-10.5Mb.fastq.gz" \
-  --output ~/Downloads/hg002-qc.json
-
-# Several inputs in one call, still one report.
+# One report holding one entry per input file, here read 1 and read 2.
 lungfish-cli fastq qc-summary \
   ~/Downloads/HG002.chr20.10.0-10.5Mb_R1.fastq.gz \
   ~/Downloads/HG002.chr20.10.0-10.5Mb_R2.fastq.gz \
   --output ~/Downloads/hg002-pair-qc.json
-
-# Overwrite a report you already wrote, gzipped.
-lungfish-cli fastq qc-summary ~/Downloads/reads.fastq.gz \
-  --output ~/Downloads/reads-qc.json.gz --force --compress
 ```
 
-The command takes as many input files as you hand it and writes one report holding one entry per input, each with its own statistics. Run it on the two fixture files together and the report carries an `inputs` list of two, letting you compare read 1 against read 2 directly. On this fixture read 1 reports Q30 at 93.9% and read 2 at 88.6%, with the arithmetic mean quality at Q37.5 and Q36.0. Every one of those four figures is a command-line figure, so compare them only to each other and never to a card, which counts the pair as one merged bundle in any case. Read 2 being the weaker of a pair is normal for paired-end Illumina, because the second read is sequenced after the flow cell has already been through one full read.
-
-Two flags shape the output. Without `--force` the command refuses to write over a file that already exists, printing `Error: Output file already exists: <path>. Use --force to overwrite.` rather than replacing it silently. `--compress` gzips the JSON on the way out, worth having when you are archiving many reports. Both are off by default. The global options `--format json`, `--verbose`, `--quiet`, and `--log-file` behave here as they do across `lungfish-cli`.
-
-The report holds more than the nine cards show. `minReadLength` and `maxReadLength` are both in the JSON, and no card displays either, so the command line is where you go for the shortest read in a bundle. On this fixture they are 35 and 250.
-
-The report and the cards do not agree number for number, and that is expected. The cards come from `seqkit`, which import runs, while the command line counts the bases itself, so Mean Q is the largest gap between them but not the only one. On this fixture the report gives Q20 as 94.62% against the card's 95.0%, and Q30 as 91.28% against the card's 91.0%, since `seqkit` hands these two over already rounded to whole percents. GC agrees to the tenth of a percent the card shows. The rule from Reading the results holds throughout. Compare a card to a card and a report to a report.
-
-One further difference is worth knowing. The command line scans every read, while the in-app quality report takes its exact counts from `seqkit` and then builds the three distributions from a sample of the first 100,000 reads. On a bundle larger than that, the charts describe a sample and the cards describe the whole file. On this fixture, with 91,148 reads, the sample is the whole file and the two agree.
+Two things about the report change what you read from it. Its Mean Q is the plain average of the scores, the kind of figure the cards show after a refresh but not straight after import. It also keeps one entry per file, so run on the two downloaded files it compares read 1 with read 2, which the bundle's cards cannot do. On this fixture read 1 reports Q30 at 93.9% and read 2 at 88.6%. Read 2 being the weaker of a pair is normal for paired-end Illumina, because it is sequenced after the flow cell, the glass slide the sequencing happens on, has already been through one full read.
 
 ## Next
 
-Continue to [Trimming and Filtering](04-trimming-and-filtering.md) to clean up reads that fail these checks, or to [Decontamination](05-decontamination.md) when the GC content says another organism is in the sample.
+Continue to [Trimming and Filtering](04-trimming-and-filtering.md) to clean up reads that fail these checks, or to [Decontamination](05-decontamination.md) when the GC figure says another organism is in the sample.

@@ -3,8 +3,7 @@
 # App state: Verify via NCBI BLAST popover open over the Riboviria taxon row in the Kraken2 taxonomy viewport, showing the Reads to submit slider, the NCBI warning, and the Run BLAST button (not clicked)
 id: blast-verify-popover
 chapter: 06-classification/06-blast-verification
-caption: The Verify via NCBI BLAST popover open over a taxonomy row, showing the Reads to submit slider,
-  the warning that reads leave the app for NCBI, and the Run BLAST button.
+caption: "The Verify via NCBI BLAST popover open over the sunburst, showing the Reads to submit slider with its typed number field, the warning that reads leave the app for NCBI, and the Run BLAST button."
 viewport_class: taxonomy
 app_state:
   fixture: '{demo_project}'

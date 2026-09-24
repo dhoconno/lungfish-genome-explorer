@@ -2,8 +2,7 @@
 # App state: Preview build 4673. Actual simulated MHC result, compact filtered pivot export save panel.
 id: genotype-export-save-panel
 chapter: 09-genotyping/04-haplotype-definitions-and-export
-caption: The Export Genotype View save panel opened by Filtered Pivot..., with the teaching export filename
-  ending in -filtered-pivot.xlsx.
+caption: "The Export Genotype View save panel, proposing a file name built from the result name, the word genotype, and a timestamp, ending in .xlsx."
 viewport_class: none
 app_state:
   fixture: '{demo_project}'

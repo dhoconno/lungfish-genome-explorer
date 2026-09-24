@@ -2,8 +2,7 @@
 # App state: The demo project sidebar showing Analyses above Imports, Phylogenetic Trees, Primer Schemes, Reference Sequences, and metadata.json. GATE NOTE: the demo project's Analyses subfolders carry script-chosen names (HG002-chrM, kraken2-SRR36291587, mapping-HG002, nvd-demo) rather than the app's own <tool>-<timestamp> shape; not renamed for this capture, so the folder names in this screenshot differ from what a live run produces.
 id: sidebar-folder-conventions
 chapter: 01-foundations/06-the-lungfish-project
-caption: The sidebar of the demo project, showing the Analyses group above the Imports, Reference Sequences,
-  Primer Schemes, and Extractions folders.
+caption: "The sidebar of the demo project, showing the Analyses group above the Imports, Phylogenetic Trees, Primer Schemes, and Reference Sequences folders."
 viewport_class: none
 app_state:
   fixture: '{demo_project}'

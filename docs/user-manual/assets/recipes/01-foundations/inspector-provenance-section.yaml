@@ -2,9 +2,7 @@
 # App state: The chr20_10.0-10.5Mb reference bundle selected in the demo project, with the Inspector's Provenance section open on the right showing Run Summary above the Lineage and Files & Outputs blocks (Warnings did not appear, since this run had none).
 id: inspector-provenance-section
 chapter: 01-foundations/08-provenance-and-reproducibility
-caption: The chr20 reference bundle selected in the demo project, with the Inspector's Provenance section
-  open on the right showing Run Summary above the Warnings, Lineage, Files & Outputs, Invocation & Options,
-  Runtime, and Raw JSON blocks.
+caption: "The chr20 reference bundle selected in the demo project, with the Inspector's Provenance tab open on the right showing Run Summary above the Warnings, Lineage, Files & Outputs, Invocation & Options, Runtime, and Raw JSON blocks."
 viewport_class: none
 app_state:
   fixture: '{demo_project}'

@@ -1,9 +1,8 @@
-# Captured from Lungfish Preview 2026.9.13 with capture-window.sh (2026-09 campaign).
-# App state: The dialog's Haplotyping group with the Analysis Mode segmented picker on Genotype only, and the AI preset segment greyed out; the caption beneath reads 'Maps reads and reports genotypes without haplotyping' rather than a caption about configured API access.
+# Captured from Lungfish Preview 2026.9.40 with capture-window.sh (2026-09-24 manual review).
+# App state: Same dialog as genotyping-run-dialog, scrolled a little to show the Haplotyping group: Analysis Mode segmented picker on Genotyping only, beside Deterministic haplotyping, with the caption 'Report detected alleles and supporting reads without assigning haplotypes.'
 id: genotyping-analysis-mode
 chapter: 09-genotyping/02-running-genotyping
-caption: The dialog's Haplotyping group with the Analysis Mode segmented picker on Genotype only, and
-  the AI preset segment greyed out under the caption about configured API access.
+caption: "The dialog's Haplotyping group with the Analysis Mode segmented picker set to Genotyping only, beside Deterministic haplotyping, and the caption describing the chosen mode."
 viewport_class: none
 app_state:
   fixture: '{williams_project}'
@@ -27,10 +26,10 @@ steps:
 crop:
   mode: region
   region:
-  - 277
-  - 458
-  - 460
-  - 90
+  - 285
+  - 505
+  - 590
+  - 85
 post:
   retina: true
   format: png

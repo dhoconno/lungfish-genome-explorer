@@ -1,0 +1,34 @@
+# Captured from Lungfish Preview 2026.9.40 with capture-window.sh (2026-09-24 manual review).
+# App state: Same state as esviritu-result-viewport, then clicked Zoom In six times from the whole-genome view to about 0.6 bp/px, showing OP400692.1:14,672-15,136 with individual reads.
+id: esviritu-alignment-evidence
+chapter: 06-classification/03-running-esviritu
+caption: The full alignment viewer filling the detail pane after a detection row is selected, showing
+  the read pileup over the matched viral reference.
+viewport_class: none
+app_state:
+  fixture: '{demo_project}'
+  open_files: []
+  window_size:
+  - 1400
+  - 900
+  appearance: light
+steps:
+- action: open_application
+  app: Lungfish Preview
+- action: wait_ready
+  signal: main_window_visible
+- action: resize_window
+  size:
+  - 1400
+  - 900
+  # PROSE-ONLY: from esviritu-result-viewport state, click the viewer's Zoom In button six times
+crop:
+  mode: region
+  region:
+  - 289
+  - 403
+  - 798
+  - 462
+post:
+  retina: true
+  format: png

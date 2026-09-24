@@ -1,6 +1,6 @@
-# Captured from Lungfish Preview 2026.9.13 with capture-window.sh (2026-09 campaign).
+# Captured from Lungfish Preview 2026.9.40 with capture-window.sh (2026-09-24 manual review).
 # Shared with 01-foundations; same capture, copied for this part.
-# App state: The Reads tab of the HG002 FASTQ viewport, listing the first records with columns for row number, Read ID, Length, Mean Q, and Sequence.
+# App state: Clicked Imports/HG002 (paired, 91,148 reads, defaults) and chose the Reads tab of the FASTQ viewport, listing the first records with columns #, Read ID, Length, Mean Q and Sequence.
 id: fastq-viewport-reads-tab
 chapter: 03-reads/03-quality-control
 caption: The Reads tab of the FASTQ viewport, listing the first records with their read identifier, length,

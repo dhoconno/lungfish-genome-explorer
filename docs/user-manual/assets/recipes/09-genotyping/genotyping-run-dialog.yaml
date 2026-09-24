@@ -1,10 +1,8 @@
-# Captured from Lungfish Preview 2026.9.13 with capture-window.sh (2026-09 campaign).
-# App state: The Workflow Operations dialog opened from Tools > Genotyping > miSeq amplicon MHC genotyping... with WD1_S148_L001 selected, showing the Reference group (Project Reference set to 26128_ipd-mhc-mamu-2021-07-09.lungfishref), the FASTQ Bundles group, the Report group with Report Name amplicon-genotyping, and the Run Parameters group with Threads and Min Reads above the Illumina sample bundles caption.
+# Captured from Lungfish Preview 2026.9.40 with capture-window.sh (2026-09-24 manual review).
+# App state: In the Williams copy project, clicked Imports/WD1_S148_L001, then Tools > Genotyping > miSeq amplicon MHC genotyping... The Workflow Operations window shows the Reference group (Project Reference 26128_ipd-mhc-mamu-2021-07-09.lungfishref with Replace... and Clear), FASTQ Bundles, the Report group, and Run Parameters (Threads 14, Minimum supporting reads 1) above the Illumina sample bundles caption.
 id: genotyping-run-dialog
 chapter: 09-genotyping/02-running-genotyping
-caption: The Workflow Operations dialog on miSeq amplicon MHC genotyping, showing the Reference group
-  with its Project Reference menu, the FASTQ Bundles group, the Report group with Report Name, and the
-  Run Parameters group with Threads and Min Reads above the read-only mode caption.
+caption: "The Workflow Operations dialog on miSeq amplicon MHC genotyping, showing the Reference group with its Project Reference menu, the FASTQ Bundles group, the Report group with Report Name, and the Run Parameters group with Threads and Minimum supporting reads above the read-only mode caption."
 viewport_class: none
 app_state:
   fixture: '{williams_project}'

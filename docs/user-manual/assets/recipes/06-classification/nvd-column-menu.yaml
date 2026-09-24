@@ -2,8 +2,7 @@
 # App state: Existing imported NVD teaching table, standard column menu open.
 id: nvd-column-menu
 chapter: 06-classification/09-novel-virus-detection
-caption: The right-click menu on the contig outline's column header, showing the Standard Columns checklist,
-  Reset Column Widths, and the Sample Metadata section.
+caption: "The right-click menu on the contig outline's column header, showing the Standard Columns checklist and Reset Column Widths."
 viewport_class: none
 app_state:
   fixture: '{demo_project}'

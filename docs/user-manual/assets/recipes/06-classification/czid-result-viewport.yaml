@@ -2,9 +2,7 @@
 # App state: Classifications/czid-demo open,Sidebar and Inspector hidden,sunburst left,taxon table right,imported-result action bar visible.
 id: czid-result-viewport
 chapter: 06-classification/08-importing-cz-id-results
-caption: An imported CZ ID result open in the taxonomy viewport, with the sunburst on the left, the per-taxon
-  table on the right, and the action bar reading Imported CZ-ID result followed by the sample name and
-  taxon count.
+caption: "An imported CZ-ID result open in the taxonomy viewport, with the summary cards across the top, the sunburst on the left, the per-taxon table on the right, and the action bar along the bottom naming the imported result."
 viewport_class: none
 app_state:
   fixture: '{demo_project}'

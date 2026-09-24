@@ -40,9 +40,9 @@ operations:
       - label: Output Strategy
         control: radio
         default: Per Input
-        allowed: Per Input only, because this operation is not in the configurable-output set and the picker shows no other choice
-        effect: Writes one QC summary next to each selected dataset. The operation never pools datasets, so the picker is fixed on Per Input.
-        when_to_change: rarely, since no other choice is offered
+        allowed: Per Input, Grouped Result
+        effect: Shown on the dialog but ignored by this operation. The refresh always rewrites each selected bundle's own summary.
+        when_to_change: never
         cli_flag: null
     cli_only:
       - flag: --force
@@ -55,7 +55,11 @@ operations:
       The dialog shows no tool-specific controls. Its Primary Settings pane reads
       "No additional primary settings are required for this QC summary refresh."
       Read counts, length distribution, and quality statistics are all computed
-      from the selected FASTQ data with no tunable inputs.
+      from the selected FASTQ data with no tunable inputs. The refresh runs
+      `lungfish-cli fastq qc-summary` and writes its statistics into each bundle's
+      stored summary, so after a refresh Mean Q is the arithmetic mean of scores
+      rather than seqkit's error-probability average, and the charts cover every
+      read rather than the first 100,000.
 
   fastq.demultiplex-barcodes:
     title: Demultiplex Barcodes
@@ -250,7 +254,7 @@ operations:
     notes: >-
       Adapter Sequence appears only while Adapter Mode is Manual Sequence. This
       operation always runs adapter detection and quality trimming in the same
-      fastp pass, so the CLI's --no-adapter-trimming has no dialog counterpart. Live-checked in Preview 2026.9.13 on 2026-09-06.
+      fastp pass, so the CLI's --no-adapter-trimming has no dialog counterpart.
 
   fastq.quality-trim:
     title: Quality Trim
@@ -370,7 +374,7 @@ operations:
         allowed: Literal Sequence, Reference FASTA
         effect: Chooses whether you type one primer sequence or point at a FASTA file holding a whole primer set. Reference FASTA asks for the file in the Inputs section.
         when_to_change: Pick Reference FASTA for tiled amplicon schemes, which have dozens of primers.
-        cli_flag: --literal or --ref
+        cli_flag: --literal, or --ref with --engine cutadapt-linked
       - label: Primer Sequence
         control: text
         default: ""
@@ -409,7 +413,7 @@ operations:
     cli_only:
       - flag: --engine
         default: "bbduk"
-        effect: Selects the trimming engine, either bbduk or cutadapt-linked, and the dialog always uses bbduk.
+        effect: Selects the trimming engine, bbduk or cutadapt-linked. The dialog passes cutadapt-linked when Primer Source is Reference FASTA and uses bbduk otherwise.
       - flag: --minimum-overlap
         default: "12"
         effect: The minimum overlap for cutadapt-linked primer matching, so it applies only to the cutadapt-linked engine.
@@ -543,10 +547,9 @@ operations:
         default: "false"
         effect: Writes the scrubbed FASTQ gzip-compressed.
     notes: >-
-      The Primary Settings pane reads "This tool uses the dedicated embedded
-      workflow pane or the fixed database chooser above", so the human database
-      is picked in the Inputs section rather than as a settings control. The
-      chosen database supplies the CLI's --database-id. Live-checked in Preview 2026.9.13 on 2026-09-06.
+      The operation always uses the managed Deacon pan-human index
+      (--database-id deacon-panhuman). The dialog shows no database row and no
+      settings controls.
 
   fastq.remove-ribosomal-rna:
     title: Remove ribosomal RNA sequences
@@ -752,7 +755,7 @@ operations:
       Substitutions, Optical Duplicates, and Optical Distance appear only while
       Preset is Custom, and Optical Distance appears only while Optical
       Duplicates is on. The same preset also drives the FASTQ viewport's inline
-      parameter bar. Live-checked in Preview 2026.9.13 on 2026-09-06.
+      parameter bar.
 
   fastq.merge-overlapping-pairs:
     title: Merge Overlapping Pairs
@@ -798,7 +801,7 @@ operations:
       The dialog always passes --count-duplicates, so identical merged sequences
       collapse into counted exemplars whose support is written into the FASTQ
       header as size=N. The CLI leaves that flag off by default. The input must
-      be an interleaved FASTQ. Live-checked in Preview 2026.9.13 on 2026-09-06.
+      be an interleaved FASTQ.
 
   fastq.repair-paired-end-files:
     title: Repair Paired-End Files
@@ -938,12 +941,11 @@ operations:
         cli_flag: null
     cli_only: []
     notes: >-
-      The reference is chosen in the Inputs section. A "Save unoriented reads"
-      checkbox exists only on the FASTQ viewport's inline parameter bar, where it
-      is on by default (FASTQDatasetViewController.swift line 1119). The Tools
-      dialog hard-codes saveUnoriented to false
-      (FASTQOperationDialogState.swift line 687), and lungfish-cli fastq orient
-      exposes no matching flag.
+      The reference is chosen in the Inputs section. The dialog always discards
+      reads vsearch cannot place (saveUnoriented false,
+      FASTQOperationDialogState.swift), and lungfish-cli fastq orient has no flag
+      to keep them. The FASTQ viewport's former inline "Save unoriented reads"
+      checkbox is no longer reachable in 2026.9.40.
 
   fastq.correct-sequencing-errors:
     title: Correct Sequencing Errors
@@ -1018,7 +1020,7 @@ operations:
         effect: Writes the subsampled FASTQ gzip-compressed.
     notes: >-
       The field starts empty, so a proportion must be entered before the Run
-      button becomes available. Live-checked in Preview 2026.9.13 on 2026-09-06.
+      button becomes available.
 
   fastq.subsample-by-count:
     title: Subsample by Count
@@ -1379,7 +1381,7 @@ operations:
         control: popup
         default: the platform detected from the read headers
         allowed: Illumina, Oxford Nanopore, PacBio, Element Biosciences, Ultima Genomics, MGI / DNBSEQ, Unknown / Other
-        effect: Records which sequencing instrument produced the reads. The choice drives the starting values of Quality Binning and Optimize storage, and it is written into the bundle.
+        effect: Records which sequencing instrument produced the reads. The choice drives the starting value of Optimize storage, and it is written into the bundle.
         when_to_change: Change it when the detected platform is wrong, which happens most often with reads that were renamed or reprocessed before you got them.
         cli_flag: --platform
       - label: Pairing
@@ -1391,23 +1393,23 @@ operations:
         cli_flag: null
       - label: Quality Binning
         control: popup
-        default: Illumina 4-level for Illumina, Element Biosciences, and MGI / DNBSEQ, and None (preserve original) for the other platforms
-        allowed: Illumina 4-level, 8-level, None (preserve original)
-        effect: Rounds each base quality score to one of a small set of values so the file compresses harder. Illumina 4-level keeps four values, 8-level keeps eight, and None keeps every original score.
+        default: None (preserve original) for every platform
+        allowed: Illumina (7-level), Fine (~21-level), None (preserve original)
+        effect: Rounds each base quality score to a smaller set of values so the file compresses harder. Illumina (7-level) keeps seven distinct scores, Fine (~21-level) about twenty-one, and None keeps every original score.
         when_to_change: Choose None when a downstream tool reads exact quality values, for example a variant caller that models per-base error rates.
         cli_flag: --quality-binning
       - label: Optimize storage (reorder reads for better compression)
         control: checkbox
-        default: on for Illumina, Element Biosciences, MGI / DNBSEQ, and Ultima Genomics, and off for Oxford Nanopore, PacBio, and Unknown / Other
+        default: on for Illumina, Element Biosciences, MGI / DNBSEQ, and Ultima Genomics when the total input fits half the BBTools clumpify memory budget, otherwise off, and off for Oxford Nanopore, PacBio, and Unknown / Other
         allowed: on, off
         effect: Groups reads that share sequence content next to each other before compressing, which shrinks the stored file. Read order in the bundle no longer matches the order in the source file.
         when_to_change: Turn it off on a machine short of memory, or when a downstream step depends on the original read order.
         cli_flag: --no-optimize-storage
       - label: Compression Tool
         control: popup
-        default: resolved from the total input size against the machine's memory
+        default: BBTools clumpify. Trim Galore is never chosen automatically.
         allowed: BBTools clumpify, Trim Galore --clumpify
-        effect: Picks the program that does the reordering. Trim Galore also performs adapter detection and removal, quality trimming, and short-read filtering, so it changes the reads and not only their order.
+        effect: Picks the program that does the reordering. Trim Galore also performs adapter detection and removal, quality trimming, and short-read filtering, so it changes the reads and not only their order. Greyed out while Optimize storage is off.
         when_to_change: Pick Trim Galore only when you want its adapter and quality trimming as part of the import.
         cli_flag: --clumping-tool
       - label: Compression Level
@@ -1453,7 +1455,7 @@ operations:
       after the panel closes, and the same sheet opens when you drag reads onto
       the sidebar. The sheet has no sample-name field, since the sample name comes
       from the shared filename stem. The recipe picker and its description are
-      hidden until the recipe checkbox is on. Live-checked in Preview 2026.9.13 on 2026-09-06.
+      hidden until the recipe checkbox is on.
 
   import.fastq-sample-sheet:
     title: FASTQ Sample Sheet
@@ -1579,11 +1581,17 @@ operations:
         allowed: Auto, Fast, Low Memory
         effect: Chooses how much memory the import may use while it reads the VCF into the bundle's database. The segmented picker lives in Settings under General in the VCF Import section, not in the Import Center, and its caption reads "Auto balances speed and memory. Fast uses more RAM for large files. Low Memory streams in chunks." (GeneralSettingsTab.swift). The code also defines an ultra-low-memory profile the picker does not offer, and the picker tags Low Memory as lowMemory against the enum's raw value low-memory, matched by a lowercased fallback.
         when_to_change: Choose Low Memory before importing a very large VCF on a machine with little RAM, and Fast when RAM is plentiful and the import is slow.
-        cli_flag: null
+        cli_flag: --import-profile
     cli_only:
       - flag: --output-dir
         default: the current directory
-        effect: Names the directory the validated VCF and its index are copied into.
+        effect: Names the folder the validated VCF, its index, and provenance records are copied into, or an existing .lungfishref bundle to attach the VCF to as a new variant track.
+      - flag: --name
+        default: the file name
+        effect: Sets the variant track's display name when attaching to a bundle.
+      - flag: --import-profile
+        default: auto
+        effect: Sets the database import profile when attaching to a bundle, one of auto, low-memory, fast, or ultra-low-memory.
       - flag: --format
         default: text
         effect: Accepted with the values text, json, and tsv, and ignored on this subcommand, which prints the same text summary whatever you pass (settled 2026-09-07).
@@ -1674,7 +1682,7 @@ operations:
       carries annotations, so importing one produces a bundle with an annotation
       track already attached, where a bare FASTA does not. The import compresses
       and indexes the sequence and builds the bundle without asking you to confirm
-      anything. Live-checked in Preview 2026.9.13 on 2026-09-06.
+      anything.
 
   import.annotation-track:
     title: Annotation Track
@@ -1711,8 +1719,9 @@ operations:
     notes: >-
       The card opens a file panel that accepts one or more .gtf, .gff, .gff3, or
       .bed files, and the three settings above then appear in an Import Annotation
-      Track alert. Selecting more than one file skips that alert and imports each
-      file into the chosen bundle with derived names. The dialog does not appear at
+      Track alert. When more than one file is selected the alert still appears for
+      the first file, but only its Reference choice is used, and each file is
+      imported into that bundle with a name and ID derived from its filename. The dialog does not appear at
       all when the project holds no reference bundle, so import a reference first.
       There is no CLI equivalent for attaching an annotation track.
 
@@ -2116,7 +2125,7 @@ operations:
       Organism through Sequence Properties appear in the other two modes. The
       primary button reads Search until you tick a result, then reads Download
       Selected. Selecting more than fifty records prompts you to confirm first. A
-      downloaded record becomes an indexed .lungfishref bundle in the project. Live-checked in Preview 2026.9.13 on 2026-09-06.
+      downloaded record becomes an indexed .lungfishref bundle in the project.
 
   fetch.sra:
     title: Search SRA
@@ -2203,7 +2212,7 @@ operations:
       binning, and compression settings apply to the download too. Files come from
       the ENA mirrors over plain HTTP, so no SRA Toolkit install is needed, and each
       run lands as a .lungfishfastq bundle under the project's Imports folder with
-      its ENA provenance recorded. Live-checked in Preview 2026.9.13 on 2026-09-06.
+      its ENA provenance recorded.
 
   fetch.pathoplexus:
     title: Search Pathoplexus
@@ -2435,7 +2444,7 @@ operations:
       from its sample name." An Input Compatibility panel above Advanced Settings
       reports the detected format, the detected read type, and the longest read seen,
       and it disables Run when the preset and the reads do not match. Output is always
-      a coordinate-sorted, indexed BAM. Live-checked in Preview 2026.9.13 on 2026-09-06.
+      a coordinate-sorted, indexed BAM.
 
   map.bwa-mem2:
     title: Map Reads (BWA-MEM2)
@@ -3331,15 +3340,15 @@ operations:
         control: text
         default: "0.05"
         allowed: a decimal between 0 and 1, or blank
-        effect: Records the smallest fraction of reads that must carry an alternate base for the call to interest you. For LoFreq this number is written into the run's provenance record but is never passed to LoFreq itself.
-        when_to_change: Leave it alone for LoFreq, since changing it does not change the calls. Set a LoFreq threshold through Extra arguments instead.
+        effect: Removes calls whose allele frequency is below this value after LoFreq finishes, using a bcftools view filter. The filter is skipped, and the skip recorded in provenance, when the VCF carries no allele-frequency tag.
+        when_to_change: Raise it to drop low-frequency calls from the track. The window sends 0.05 by default.
         cli_flag: --min-af
       - label: Minimum Depth
         control: text
         default: "10"
         allowed: a whole number, or blank
-        effect: Records how many reads must cover a position before a call there is trusted. For LoFreq this number is written into the run's provenance record but is never passed to LoFreq itself.
-        when_to_change: Leave it alone for LoFreq. Use Extra arguments with LoFreq's own --min-cov to set a real depth floor.
+        effect: Removes calls with fewer reads than this after LoFreq finishes, using a bcftools view filter. The filter is skipped, and the skip recorded in provenance, when the VCF carries no depth tag.
+        when_to_change: Raise it to drop calls at thinly covered positions. The window sends 10 by default.
         cli_flag: --min-depth
       - label: Extra arguments
         control: text
@@ -3507,15 +3516,15 @@ operations:
         control: text
         default: "0.05"
         allowed: a decimal between 0 and 1, or blank
-        effect: Records a frequency floor in the run's provenance. It is never passed to Medaka, which decides frequencies with its own trained model.
-        when_to_change: Leave it alone for Medaka. Use Extra arguments for any real Medaka threshold.
+        effect: Removes calls whose allele frequency is below this value after Medaka finishes, using a bcftools view filter. The filter is skipped, and the skip recorded in provenance, when the VCF carries no allele-frequency tag.
+        when_to_change: Raise it to drop low-frequency calls from the track. The window sends 0.05 by default.
         cli_flag: --min-af
       - label: Minimum Depth
         control: text
         default: "10"
         allowed: a whole number, or blank
-        effect: Records a depth floor in the run's provenance. It is never passed to Medaka.
-        when_to_change: Leave it alone for Medaka. Use Extra arguments for any real Medaka threshold.
+        effect: Removes calls with fewer reads than this after Medaka finishes, using a bcftools view filter. The filter is skipped, and the skip recorded in provenance, when the VCF carries no depth tag.
+        when_to_change: Raise it to drop calls at thinly covered positions. The window sends 10 by default.
         cli_flag: --min-depth
       - label: Medaka Model
         control: text
@@ -3582,15 +3591,15 @@ operations:
         control: text
         default: "0.05"
         allowed: a decimal between 0 and 1, or blank
-        effect: Records a frequency floor in the run's provenance. It is never passed to bcftools.
-        when_to_change: Leave it alone for bcftools. Use Extra arguments for any real threshold.
+        effect: Removes calls whose allele frequency is below this value after bcftools finishes, using a bcftools view filter. The filter is skipped, and the skip recorded in provenance, when the VCF carries no allele-frequency tag.
+        when_to_change: Raise it to drop low-frequency calls from the track. The window sends 0.05 by default.
         cli_flag: --min-af
       - label: Minimum Depth
         control: text
         default: "10"
         allowed: a whole number, or blank
-        effect: Records a depth floor in the run's provenance. It is never passed to bcftools.
-        when_to_change: Leave it alone for bcftools. Use Extra arguments for any real threshold.
+        effect: Removes calls with fewer reads than this after bcftools finishes, using a bcftools view filter. The filter is skipped, and the skip recorded in provenance, when the VCF carries no depth tag.
+        when_to_change: Raise it to drop calls at thinly covered positions. The window sends 10 by default.
         cli_flag: --min-depth
       - label: Extra arguments
         control: text
@@ -3648,15 +3657,15 @@ operations:
         control: text
         default: "0.05"
         allowed: a decimal between 0 and 1, or blank
-        effect: Records a frequency floor in the run's provenance. It is never passed to Clair3, which uses its own trained network.
-        when_to_change: Leave it alone for Clair3. Use Extra arguments for any real threshold.
+        effect: Removes calls whose allele frequency is below this value after Clair3 finishes, using a bcftools view filter. The filter is skipped, and the skip recorded in provenance, when the VCF carries no allele-frequency tag.
+        when_to_change: Raise it to drop low-frequency calls from the track. The window sends 0.05 by default.
         cli_flag: --min-af
       - label: Minimum Depth
         control: text
         default: "10"
         allowed: a whole number, or blank
-        effect: Records a depth floor in the run's provenance. It is never passed to Clair3.
-        when_to_change: Leave it alone for Clair3. Use Extra arguments for any real threshold.
+        effect: Removes calls with fewer reads than this after Clair3 finishes, using a bcftools view filter. The filter is skipped, and the skip recorded in provenance, when the VCF carries no depth tag.
+        when_to_change: Raise it to drop calls at thinly covered positions. The window sends 10 by default.
         cli_flag: --min-depth
       - label: Clair3 Model
         control: text
@@ -3846,6 +3855,10 @@ operations:
         default: "false"
         effect: Writes and prints the command plan without running either tool.
     notes: >-
+      Hidden in 2026.9.40. The Call Variants dialog no longer lists this entry
+      (BAMVariantCallingCatalog.swift phasedCallerCatalogEnabled = false), so its
+      settings describe controls a reader cannot reach, and lungfish-cli
+      variants phase is the only phased route.
       Phasing works out which nearby variants sit on the same copy of a chromosome,
       which matters when two changes in one gene could either disable both copies or
       leave one intact. This entry needs two packs, gatk-core and phasing, and both are
@@ -3893,7 +3906,7 @@ operations:
         effect: Opens a strip of one-click filters. Biological Effect holds SNV, Indel, High Impact, Moderate+, and ClinVar Path. Quality / QC holds PASS, Qual >= 30, and DP >= 10. Population / Frequency holds Rare (<1%), Minor (<=20%), Mixed (20-80%), and Dominant (>=80%). Sample / Genotype holds Bookmarked, and its Het Only chip is defined but never offered in this release (SmartToken.isAvailable returns false with the reason "Genotype filtering not yet supported").
         when_to_change: Use it whenever you want a common filter without composing a query. The button is titled "Presets" followed by a triangle, and it hides itself when the window is narrow or the VCF defines no INFO keys.
         cli_flag: null
-      - label: Search Builder...
+      - label: Query Builder...
         control: popup
         default: one blank rule, with Match All logic
         allowed: any number of rules across the seven categories
@@ -3913,6 +3926,13 @@ operations:
         allowed: press to clear
         effect: Drops every active variant filter, both the chips and anything the Search Builder wrote. Its tooltip reads "Clear variant filter".
         when_to_change: Use it whenever you want the full table back.
+        cli_flag: null
+      - label: Profiles
+        control: popup
+        default: No Profile
+        allowed: the built-in profiles Clinical, Research, QC, and High Confidence, profiles you saved, and Save Current as Profile...
+        effect: Applies a saved set of filter rules to the variant table in one step, or saves the current rules under a name.
+        when_to_change: Pick a profile when you reapply the same filter often.
         cli_flag: null
     cli_only: []
     notes: >-
@@ -4224,7 +4244,7 @@ operations:
       - label: "Confidence:"
         control: slider
         default: "0.20"
-        allowed: 0.00 to 1.00 in steps of 0.05
+        allowed: 0.00 to 1.00 in steps of 0.05, set with the slider or typed into its number field
         effect: Sets how much of a read must match a taxon before Kraken2 will commit to that name. A read that falls short is pushed up to a broader group or left unclassified rather than being named.
         when_to_change: Raise it when the report is full of implausible species, and lower it when too many reads come back unclassified.
         cli_flag: --confidence
@@ -4286,7 +4306,7 @@ operations:
       and threshold 10, and it exposes none of those three as controls. Results land in
       Analyses/kraken2-<timestamp>/ inside the project, never beside the source FASTQ. When
       the selected database needs more memory than the Mac has, a banner names the required
-      and available gigabytes and the memory mapping box is checked for you. Live-checked in Preview 2026.9.13 on 2026-09-06.
+      and available gigabytes and the memory mapping box is checked for you.
 
   classify.esviritu:
     title: EsViritu
@@ -4361,7 +4381,7 @@ operations:
       installs, and the wizard shows its version and size instead of a picker, with a
       Download Database... button when it is missing. Separate CLI subcommands manage it,
       esviritu download-db and esviritu db-status. Results land in
-      Analyses/esviritu-<timestamp>/ inside the project. Live-checked in Preview 2026.9.13 on 2026-09-06.
+      Analyses/esviritu-<timestamp>/ inside the project.
 
   classify.taxtriage:
     title: TaxTriage
@@ -4560,7 +4580,7 @@ operations:
         cli_flag: --output
       - label: "Name:"
         control: text
-        default: a name built from the taxon and the run
+        default: kraken2_ followed by the taxon name with spaces as underscores, with a timestamp appended when left unchanged
         allowed: any text, and it cannot be blank
         effect: Names the bundle or file that is written. It only appears for the Save as Bundle and Save to File destinations.
         when_to_change: Change it when the suggested name will not tell you what the reads are six months from now.
@@ -4621,9 +4641,9 @@ operations:
         cli_flag: null
       - label: Select All
         control: checkbox
-        default: "false"
+        default: "true, so every sample starts selected"
         allowed: "true, false"
-        effect: Ticks or unticks every sample currently visible in the sample picker. The picker only appears for a result covering several samples.
+        effect: Ticks or unticks every sample currently visible in the sample picker, which sits in the Inspector's Samples & Metadata section under Sample Filter and appears for single-sample results too.
         when_to_change: Use it to start from all samples and untick a few, rather than ticking twenty by hand.
         cli_flag: null
       - label: "Filter…"
@@ -4984,7 +5004,7 @@ operations:
       Length to SPAdes with the summary "Lungfish post-filter", which is what makes the
       wizard show the stepper, but ManagedAssemblyPipeline.buildSpadesCommand never
       reads the value and AssemblyOutputNormalizer computes statistics from the
-      unfiltered contigs.fasta. The setting is silently ignored. Live-checked in Preview 2026.9.13 on 2026-09-06.
+      unfiltered contigs.fasta. The setting is silently ignored.
 
   assemble.megahit:
     title: MEGAHIT
@@ -5546,7 +5566,7 @@ operations:
       single summary line when there is no choice to make, that is when nothing
       is selected or the selection is the whole file. Direction Adjustment,
       Symbol Policy, Threads, Deterministic threading, the FASTQ toggle, and
-      MAFFT Parameters sit inside the collapsed Advanced Options group. Live-checked in Preview 2026.9.13 on 2026-09-06.
+      MAFFT Parameters sit inside the collapsed Advanced Options group.
 
   msa.view:
     title: Alignment viewport display controls
@@ -5776,7 +5796,7 @@ operations:
         cli_flag: --alrt
       - label: Seed
         control: text
-        default: 1
+        default: blank, meaning no seed is passed and IQ-TREE picks one from the clock
         allowed: blank, or an integer of 1 or more
         effect: Fixes the starting point of the random choices IQ-TREE makes, so the same alignment and the same seed give the same tree. Leaving it blank lets IQ-TREE pick one.
         when_to_change: Change it when you want to check that a different random start reaches the same tree.
@@ -5943,7 +5963,7 @@ operations:
       - docs/user-manual/reviews/fidelity-2026-09/cli-help/fastq.txt
       - docs/user-manual/reviews/fidelity-2026-09/ground-truth/09-genotyping.md
     settings:
-      - label: Project Reference
+      - label: Reference
         control: popup
         default: the first MHC reference found in the project, or nothing when the project holds none
         allowed: any reference in the project, or an allele FASTA file, a .lungfishref bundle, or a .lungfishmhcref bundle you pick with the Choose or Replace button beside the picker
@@ -5978,20 +5998,27 @@ operations:
         effect: How many worker threads the mapping step uses. More threads finish sooner on a machine with spare cores.
         when_to_change: Lower it when you need to keep cores free for other work while a long run proceeds.
         cli_flag: --threads
-      - label: Min Reads
+      - label: Minimum supporting reads
         control: number
         default: "1"
         allowed: integers above 0
-        effect: The fewest reads that must match an allele before that allele appears as a row in the report. A read counts only when it matches the allele across its whole length with no mismatches.
+        effect: Sets the fewest retained reads an allele needs before the haplotype caller counts it as evidence. It removes no rows from the report files or workbook.
         when_to_change: Raise it on deeply sequenced libraries to cut the long tail of one-read and two-read hits that are usually sequencing error.
         cli_flag: --min-support
       - label: Analysis Mode
         control: radio
-        default: Genotype only, or AI preset when AI provider access is configured
-        allowed: "AI preset, Deterministic, Genotype only"
-        effect: Decides how far the run goes. Genotype only maps reads and reports which alleles each sample carries, and the other two settings add a haplotype analysis on top of that.
-        when_to_change: Leave it on Genotype only for genotyping work, which is what this chapter covers.
-        cli_flag: null
+        default: Genotyping only
+        allowed: "Genotyping only, Deterministic haplotyping"
+        effect: Decides how far the run goes. Genotyping only maps reads and reports which alleles each sample carries, and Deterministic haplotyping adds named haplotype calls against the chosen Haplotype Definition.
+        when_to_change: Choose Deterministic haplotyping when a haplotype definition set exists for your panel.
+        cli_flag: --genotype-only, or --haplotype-definition for Deterministic haplotyping
+      - label: Haplotype Definition
+        control: popup
+        default: no definition
+        allowed: the Assay, Species, and Definition menus, filled from the project's haplotype definition sets, plus a Manage... button that opens the definitions window
+        effect: Chooses the named haplotype definition set the run calls haplotypes against. With an MHC reference bundle that carries its own definitions, the group shows that bundle's summary instead of the menus.
+        when_to_change: Choose a definition when you want named haplotype calls rather than allele genotypes alone.
+        cli_flag: --haplotype-definition, with --haplotype-assay and --haplotype-species
       - label: minimap2 arguments
         control: text
         default: empty
@@ -6026,12 +6053,6 @@ operations:
       - flag: --analysis-name
         default: the value of --output-name
         effect: Labels this analysis inside the workbook separately from the output file name.
-      - flag: --comparison-workbook
-        default: none
-        effect: Lays an existing workbook's expected calls beside the new result for side-by-side checking.
-      - flag: --comparison-name
-        default: Illumina-31262
-        effect: Names the comparison sheet built from --comparison-workbook.
       - flag: --sort-threads
         default: "4"
         effect: Sets how many threads samtools uses to sort the alignments before filtering.
@@ -6059,14 +6080,11 @@ operations:
       for separate per-sample reports." The workflow also declares the
       lungfish-tools base pack, which is the lock file's own top-level packID
       rather than a packTools entry, so gating lists only read-mapping.
-      haplotyping controls not registered
-      (placeholder scope): the Preset picker shown under the AI preset analysis
-      mode, and the Assay, Species, and Definition pickers with their Manage...
-      button shown under Deterministic. The matching CLI flags
-      --haplotype-assay, --haplotype-species, --haplotype-definition-scope,
-      --haplotype-definition, --haplotype-min-sample-percent,
-      --haplotype-min-locus-percent, and
-      --haplotype-min-locus-percent-override are left out for the same reason. Live-checked in Preview 2026.9.13 on 2026-09-06.
+      There is no AI preset analysis mode. The Haplotype Definition group
+      appears under Deterministic haplotyping. The CLI flags
+      --haplotype-definition-scope, --haplotype-min-sample-percent,
+      --haplotype-min-locus-percent, and --haplotype-min-locus-percent-override
+      are listed in the CLI reference.
 
   genotype.full-length-ont:
     title: Full-length ONT MHC genotyping
@@ -6161,6 +6179,20 @@ operations:
         effect: Names the primer sequences trimmed from the end of each read.
         when_to_change: Supply it when your reads still carry the PCR primers used to make the amplicon.
         cli_flag: --reverse-primer
+      - label: Locus %
+        control: number
+        default: "1.0"
+        allowed: 0 to 100
+        effect: Drops a genotype row below this percent of the sample's retained reads at that locus before haplotype calls and the Excel output are made. It applies only when a haplotype definition is chosen, and Inspector filters change only what is shown. The command-line default is 0, which turns the filter off.
+        when_to_change: Raise it when low-level noise at one locus is producing spurious haplotype calls.
+        cli_flag: --haplotype-min-locus-percent
+      - label: Haplotype Definition
+        control: popup
+        default: no definition
+        allowed: the Assay, Species, and Definition menus, filled from the project's haplotype definition sets, plus a Manage... button that opens the definitions window
+        effect: Chooses the named haplotype definition set the run calls haplotypes against. With an MHC reference bundle that carries its own definitions, the group shows that bundle's summary instead of the menus.
+        when_to_change: Choose a definition when you want named haplotype calls rather than allele genotypes alone.
+        cli_flag: --haplotype-definition, with --haplotype-assay and --haplotype-species
       - label: Directory
         control: file
         default: the project's "Full-length ONT MHC genotyping results" folder
@@ -6214,33 +6246,21 @@ operations:
       --haplotype-assay, --haplotype-species, --haplotype-definition-scope, and
       --haplotype-definition are left out for the same reason.
 
-  genotype.export:
-    title: Export a genotype result
+  genotype.display:
+    title: Filter and colour the genotype matrix
     entry_points:
-      - "Genotype viewport > Actions > Export Excel View..."
-      - "Inspector > Genotype Display > Filtered Pivot..."
-      - "CLI: lungfish-cli genotype export --bundle <bundle> --output <file>"
-      - "CLI: lungfish-cli genotype export-pivot-xlsx --bundle <bundle> --output <file>"
-      - "CLI: lungfish-cli genotype export-labkey --bundle <bundle> --output-dir <dir>"
+      - "Inspector > View tab > Genotype Display"
     gating: []
     sources:
-      - Sources/LungfishGenotypeUI/GenotypeResultViewController.swift
       - Sources/LungfishGenotypeUI/GenotypeResultDisplaySection.swift
       - Sources/LungfishGenotypeUI/GenotypeResultDisplayState.swift
       - Sources/LungfishGenotypeUI/GenotypeNumericFilterDraft.swift
-      - Sources/LungfishGenotypeUI/GenotypeViewportExportService.swift
-      - Sources/LungfishGenotypeUI/GenotypeResultDocumentSection.swift
-      - Sources/LungfishIO/Bundles/ONTGenotypeResultBundle.swift
-      - Sources/LungfishCLI/Commands/GenotypeExportXlsxSubcommand.swift
-      - Sources/LungfishCLI/Commands/GenotypeExportLabKeySubcommand.swift
-      - docs/user-manual/reviews/fidelity-2026-09/cli-help/genotype.txt
-      - docs/user-manual/reviews/fidelity-2026-09/ground-truth/09-genotyping.md
     settings:
       - label: Min reads
         control: number
         default: "0"
         allowed: 0 through 100,000, where 0 turns the filter off
-        effect: Hides allele values in the matrix supported by fewer reads than this. The Filtered Pivot export then writes those hidden values out as blanks rather than numbers.
+        effect: Hides allele values in the matrix supported by fewer reads than this. The Genotype Matrix - Filtered worksheet of an Excel export then leaves those cells blank.
         when_to_change: Raise it to drop the low-count background before handing a table to a collaborator.
         cli_flag: --min-reads
       - label: Min percent
@@ -6270,7 +6290,7 @@ operations:
         allowed: any text
         effect: Keeps only the matrix rows whose allele name contains what you type.
         when_to_change: Use it to narrow a wide result to one locus family before exporting.
-        cli_flag: --filter
+        cli_flag: null
       - label: Samples
         control: text
         default: empty
@@ -6299,34 +6319,52 @@ operations:
         effect: Chooses what the matrix cell colours mean. Support shades each cell by its read count, Highlights shows only the colours you applied by hand, and None leaves cells plain.
         when_to_change: Switch to Highlights when you want an exported view to show only your own marks.
         cli_flag: null
-      - label: "Filtered Pivot..."
+    cli_only: []
+    notes: >-
+      Everything in the Genotype Display section is display state that never
+      changes the stored calls, which the section itself states as "Visual
+      filters do not change genotype calls." Min reads and Min percent carry
+      lowercase second words in the app. Show All Rows and Show All Columns
+      reverse hiding you applied yourself, and there is no automatic column
+      window. The matching command-line flags belong to lungfish-cli genotype
+      export and genotype export-pivot-xlsx.
+
+  genotype.export:
+    title: Export a genotype result
+    entry_points:
+      - "Inspector > Bundle tab > Excel > Export to Excel…"
+      - "CLI: lungfish-cli genotype export --bundle <bundle> --output <file>"
+      - "CLI: lungfish-cli genotype export-xlsx --bundle <bundle> --output <file>"
+      - "CLI: lungfish-cli genotype export-pivot-xlsx --bundle <bundle> --output <file>"
+      - "CLI: lungfish-cli genotype export-labkey --bundle <bundle> --output-dir <dir>"
+    gating: []
+    sources:
+      - Sources/LungfishGenotypeUI/GenotypeResultViewController.swift
+      - Sources/LungfishGenotypeUI/GenotypeResultDisplaySection.swift
+      - Sources/LungfishGenotypeUI/GenotypeResultDisplayState.swift
+      - Sources/LungfishGenotypeUI/GenotypeNumericFilterDraft.swift
+      - Sources/LungfishGenotypeUI/GenotypeViewportExportService.swift
+      - Sources/LungfishGenotypeUI/GenotypeResultDocumentSection.swift
+      - Sources/LungfishIO/Bundles/ONTGenotypeResultBundle.swift
+      - Sources/LungfishCLI/Commands/GenotypeExportXlsxSubcommand.swift
+      - Sources/LungfishCLI/Commands/GenotypeExportLabKeySubcommand.swift
+      - docs/user-manual/reviews/fidelity-2026-09/cli-help/genotype.txt
+      - docs/user-manual/reviews/fidelity-2026-09/ground-truth/09-genotyping.md
+    settings:
+      - label: "Export to Excel…"
         control: popup
         default: not applicable, because it is a button
-        allowed: pressed, and shown only when the result carries a workbook the pivot can be built from
-        effect: Writes a copy of the result workbook whose pivot sheet has the Min reads and Min percent filters already applied, so hidden values arrive blank rather than needing to be cleared in Excel. Every other sheet is carried through unchanged.
-        when_to_change: Use it when a collaborator wants the samples-across layout with the background already removed.
-        cli_flag: null
-      - label: "Export Excel View..."
-        control: popup
-        default: not applicable, because it is an Actions menu item
-        allowed: chosen from the Actions menu beside the view control
-        effect: Writes the matrix exactly as the viewport is showing it, together with your annotations, as an Excel workbook. A save panel asks where it goes, and the file format is fixed.
-        when_to_change: Use it when you want a snapshot of the view you are looking at rather than the whole result.
-        cli_flag: null
-      - label: Update and View Current Excel Version
-        control: popup
-        default: not applicable, because it is a button, and it is disabled while the workbook is already current or the bundle is read-only
-        allowed: pressed
-        effect: Rebuilds the bundle's own current.xlsx workbook from the displayed calls and annotations, records the change as a workbook revision, then opens the file.
-        when_to_change: Use it after making review edits you want carried into the workbook that lives inside the result bundle.
+        allowed: pressed, and disabled while an export is running
+        effect: Captures the result and the current display filters, then writes a one-way Excel report with Genotype Matrix - All, Genotype Matrix - Filtered (with an Evidence (display / raw support) column), Export Metadata, and Haplotype Calls when haplotype content exists, plus a .xlsx.provenance.json receipt and a .xlsx.export-<id> replay folder beside it.
+        when_to_change: Use it whenever someone outside LGE needs the reviewed result.
         cli_flag: null
     cli_only:
       - flag: --export-format
         default: xlsx
-        effect: Chooses the container the genotype export subcommand writes, accepting xlsx, csv, or tsv. The two in-app buttons each fix their own format instead.
+        effect: Chooses the container the genotype export subcommand writes, accepting xlsx, csv, or tsv. The in-app Export to Excel… button always writes XLSX.
       - flag: --view-projection
         default: none
-        effect: Points at a JSON file describing a rendered viewport, which is how the in-app Export Excel View reproduces exactly what was on screen.
+        effect: Points at a JSON file describing a rendered viewport, which is how an export reproduces exactly what was on screen.
       - flag: --lens
         default: none
         effect: Records which viewport view the export came from in the export's provenance.
@@ -6336,35 +6374,24 @@ operations:
       - flag: --active-haplotype-definition
         default: none
         effect: Names the haplotype definition set the calls are resolved against for the export.
-      - flag: --keep-empty-rows
-        default: "false"
-        effect: Keeps allele rows in the pivot export that are empty after filtering instead of removing them.
-      - flag: --source-workbook
-        default: the bundle's current.xlsx when one exists, otherwise its primary workbook
-        effect: Names the workbook the pivot export copies and filters.
+      - flag: --min-prevalence-percent
+        default: "0"
+        effect: Hides Filtered rows visible in fewer than this percent of samples, the window's "Seen in ≥ N% of animals" control.
       - flag: --force
         default: "false"
         effect: Overwrites an existing output file instead of stopping.
     notes: >-
-      The viewport offers two in-app exports and no format picker. Export Excel
-      View... sits in the Actions menu beside the view control, and Filtered
-      Pivot... sits at the foot of the Inspector's Genotype Display section.
-      Min reads and Min percent carry lowercase second words in the app.
-      Everything in the Genotype Display section is display state that never
-      changes the stored calls, which the section itself states as "Visual
-      filters do not change genotype calls." Show All Rows and Show All Columns
-      reverse hiding you applied yourself, and there is no automatic column
-      window and no "Showing N of M samples" banner. The genotype export-xlsx
-      subcommand writes four sheets, Matrix, Legend, Overrides, and Audit Log,
-      and takes no options beyond --bundle and --output. The genotype
+      The only in-app export is the Export to Excel… button in the Inspector's
+      Bundle tab. There is no Actions-menu export and no current.xlsx updater.
+      The display filters it captures are registered under genotype.display.
+      genotype export --percent-basis defaults to viewed-locus, the window's
+      Source Locus, while genotype export-pivot-xlsx defaults to
+      sample-retained. The older flags --source-workbook and --keep-empty-rows
+      are rejected. genotype export-xlsx replays a durable capture with
+      --snapshot, --provenance-request, and --python. The genotype
       export-labkey subcommand writes five CSV files, haplotype_calls.csv,
       allele_read_counts.csv, overrides.csv, audit_log.csv, and
-      smart_cohorts.csv, and also takes no tuning options. haplotyping controls
-      not registered (placeholder scope): the Actions menu's AI Discovery and
-      AI Refinement items, the "Show haplotyping view" and "Show genotype
-      matrix" Inspector toggle that appears only on older result shapes, the
-      call-evidence override editor, and the whole genotype ai-haplotyping
-      subcommand with its provider, mode, and prompt options.
+      smart_cohorts.csv. AI haplotyping is not exposed and is not registered.
 
   workflow.viral-recon:
     title: Viral Recon
@@ -6447,7 +6474,7 @@ operations:
       assert they never appear. The wizard also fixes the variant caller to
       iVar, the consensus caller to bcftools, and the protocol to amplicon.
       The Advanced disclosure group holds Annotation and Extra parameters and
-      starts collapsed. Requires Docker Desktop, which the header line states. Live-checked in Preview 2026.9.13 on 2026-09-06.
+      starts collapsed. Requires Docker Desktop, which the header line states.
 
   workflow.freyja-demix:
     title: Freyja demix
@@ -6803,15 +6830,9 @@ operations:
         effect: Chooses where the export folder is created. Putting it outside the project keeps the export separate from the data it describes.
         when_to_change: Choose a location you can share, such as a repository checkout, when the export is going to a collaborator.
         cli_flag: --output
-    cli_only:
-      - flag: --signature
-        default: "<sidecar>.signature.json"
-        effect: On provenance verify, names the signature artifact to check instead of the default beside the sidecar.
-      - flag: --public-key
-        default: "<sidecar>.pub"
-        effect: On provenance verify, names the public key artifact to check against instead of the default beside the sidecar.
+    cli_only: []
     notes: >-
-      The export is scoped to one artifact. Lungfish walks the visible viewport
+      The export is scoped to one artifact. LGE walks the visible viewport
       candidates and then the sidebar selection, and falls back to the most
       recent completed run when nothing is selected, so select the artifact
       whose history you want before choosing a target. An artifact with no
@@ -6824,6 +6845,25 @@ operations:
       copied records. Two further command-line subcommands have no menu
       equivalent. provenance verify checks a signature, and provenance
       bibliography generates a citation list from a bundle's provenance.
+
+  provenance.verify:
+    title: Verify a signed provenance record
+    entry_points:
+      - "CLI: lungfish-cli provenance verify <sidecar or folder> [--signature <file>] [--public-key <file>]"
+    gating: []
+    sources:
+      - Sources/LungfishCLI/Commands/ProvenanceCommand.swift
+    settings: []
+    cli_only:
+      - flag: --signature
+        default: "<sidecar>.signature.json"
+        effect: Names the signature artifact to check instead of the default beside the sidecar.
+      - flag: --public-key
+        default: "<sidecar>.pub"
+        effect: Names the public key artifact to check against instead of the default beside the sidecar.
+    notes: >-
+      Command line only. On an unsigned record it prints "Signature artifact is
+      missing" and exits non-zero. Signing is off by default.
 
   sequence.find-orfs:
     title: Find ORFs

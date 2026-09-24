@@ -1,6 +1,5 @@
-# Captured from Lungfish Preview 2026.9.13 with capture-window.sh (2026-09 campaign).
+# Captured from Lungfish Preview 2026.9.40 with capture-window.sh (2026-09-24 manual review).
 # App state: EsViritu pane's Advanced Settings disclosure expanded, showing Threads and Extra arguments
-# RECAPTURE NEEDED: the pinned image predates the 2026-09-23 removal of the Min read length stepper (audit WFL-10).
 id: esviritu-advanced-settings
 chapter: 06-classification/03-running-esviritu
 caption: The dialog's Advanced Settings disclosure expanded, showing the Threads stepper and the Extra
@@ -28,10 +27,10 @@ steps:
 crop:
   mode: region
   region:
-  - 208
-  - 102
-  - 982
-  - 696
+  - 211
+  - 100
+  - 974
+  - 699
 post:
   retina: true
   format: png

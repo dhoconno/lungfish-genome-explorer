@@ -2,9 +2,7 @@
 # App state: Tools > Genotyping with miSeq enabled and 12S and full-length ONT disabled.
 id: genotyping-submenu
 chapter: 09-genotyping/01-what-is-mhc-genotyping
-caption: The Tools menu open on its Genotyping submenu, showing the three specialized workflows it holds,
-  miSeq amplicon MHC genotyping..., Full-length ONT MHC genotyping..., and 12S Amplicon Matching..., with
-  any workflow that is not yet enabled shown in grey followed by (not enabled).
+caption: "The Tools menu open on its Genotyping submenu, showing the three specialized workflows it holds, miSeq amplicon MHC genotyping..., 12S Amplicon Matching..., and Full-length ONT MHC genotyping..., with any workflow that is not yet enabled shown in grey followed by (not enabled)."
 viewport_class: none
 app_state:
   fixture: '{demo_project}'

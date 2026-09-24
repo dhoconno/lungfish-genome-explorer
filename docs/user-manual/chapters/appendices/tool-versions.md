@@ -3,8 +3,8 @@ title: Tool Versions
 chapter_id: appendices/tool-versions
 audience: power-user
 prereqs: []
-estimated_reading_min: 24
-task: Look up the exact version of every tool, pipeline, and database this Lungfish release pins.
+estimated_reading_min: 15
+task: Look up the exact version of every tool, pipeline, and database this Lungfish Genome Explorer release pins.
 tags: [reference, tools, versions, provenance]
 tools: []
 entry_points:
@@ -14,50 +14,46 @@ illustrations: []
 glossary_refs: [assembler, commit, conda, dependency-set, executable, exit-status, home-folder, micromamba, nextflow, pinned, plugin-pack, provenance-sidecar, repository, tool-lock-manifest]
 features_refs: []
 fixtures_refs: []
-brand_reviewed: true
-lead_approved: true
+brand_reviewed: false
+lead_approved: false
 ---
 
 <a id="appendix-tool-versions"></a>
 
 ## What it is
 
-Lungfish Genome Explorer (LGE) organises your data, draws it, and decides which analysis program to run on it. The computing itself is done by outside programs. Mapping is minimap2, which lines reads up against a reference. Variant calling is GATK or LoFreq, which read a pile of aligned reads and report where the sample differs from that reference. Classification is Kraken 2, which names the organism each read came from. LGE gives those programs their files and reads their output back. This appendix lists which version of each one a single release of LGE installs.
+Lungfish Genome Explorer (LGE) runs outside programs to do the computing, such as minimap2 for mapping and Kraken 2 for classification. This appendix covers the pinned version of every tool, pipeline, and database one release of LGE installs, and nothing else. Four tables follow, for the tools every copy of LGE has, the tools that arrive with a plugin pack, two whole pipelines, and the reference databases.
 
-Look up a number here and move on. Four tables follow. The first holds the tools every copy of LGE has, the second the tools that arrive with an optional download, the third two whole pipelines, and the fourth the reference databases.
+The tables say what release 2026.9.40 pins. Your own machine can hold an older installed version, because a pack downloaded months ago does not update itself. A methods section should be written from the run's own record. LGE writes a [provenance](../../GLOSSARY.md#provenance) record beside every result, holding the command, the tool version, and a [checksum](../../GLOSSARY.md#checksum) of each file, and [Provenance and Reproducibility](../01-foundations/08-provenance-and-reproducibility.md#reading-the-results) shows how to read it.
 
-Read this before you quote any number from those tables. They say what release 2026.9.13 pins. Your own machine can hold an older installed version, because a pack downloaded months ago does not update itself. The exact versions your analysis actually used are recorded for you in the **[provenance sidecar](../../GLOSSARY.md#provenance-sidecar)** LGE writes beside every result, and that file is the one a methods section should be written from.
+Two windows show what your own machine has. The About window, at **Lungfish Genome Explorer > About Lungfish Genome Explorer**, prints the app version, the dependency set, and the tool versions. The Plugin Manager's Installed tab, at **Tools > Plugin Manager...** (Cmd-Shift-B), lists the exact packages inside each tool's environment, the private folder that holds it.
 
-Three routes tell you what your own machine has, and two of them need no terminal. The About window, at **Lungfish Genome Explorer > About Lungfish Genome Explorer**, prints the app version, the dependency set, and a version for every tool in an installed pack. The Plugin Manager's Installed tab, at **Tools > Plugin Manager...** (Cmd-Shift-B), lists the exact packages inside each environment. And the sidecar for one particular run is the file named `.lungfish-provenance.json` beside the result or inside the bundle's `provenance/` folder, plain text that opens in TextEdit or any other text editor. The [Tool Bibliography](bibliography.md) walks all three routes and shows what each one prints.
+Every number on this page is read out of one file, LGE's [tool lock manifest](../../GLOSSARY.md#tool-lock-manifest), which names one exact version of every outside program LGE depends on, so two people installing the same release get the same programs. It lives inside the app at `Contents/Resources/LungfishGenomeBrowser_LungfishWorkflow.bundle/Contents/Resources/ManagedTools/third-party-tools-lock.json`, and in a source checkout at `Sources/LungfishWorkflow/Resources/ManagedTools/third-party-tools-lock.json`. You do not need to open it, since the tables here are its contents.
 
-Every number on this page is read out of one file, LGE's **[tool lock manifest](../../GLOSSARY.md#tool-lock-manifest)**. A lock file names one exact version of every program written by somebody else that a piece of software depends on. That way two people installing the same release get the same programs, rather than whatever happened to be newest on the day each of them installed. You never need to open this file, since the tables below are its contents. It lives inside the app at `Contents/Resources/LungfishGenomeBrowser_LungfishWorkflow.bundle/Contents/Resources/ManagedTools/third-party-tools-lock.json`, and, for developers working from a checkout of the code, in the source tree at `Sources/LungfishWorkflow/Resources/ManagedTools/third-party-tools-lock.json`.
-
-A version fixed this way is called **[pinned](../../GLOSSARY.md#pinned)**, meaning locked to one exact number rather than allowed to change to a newer one. The whole pinned collection carries a name of its own, the **[dependency set](../../GLOSSARY.md#dependency-set)**. This appendix reflects dependency set `2026.2`, frozen on 2026-08-18, as shipped by app release 2026.9.13.
-
-Name the dependency set beside the app version in a methods section, because a later release will pin different numbers under a different name. One finished sentence looks like this.
+A version fixed this way is [pinned](../../GLOSSARY.md#pinned), locked to one exact number. The whole pinned collection is called the [dependency set](../../GLOSSARY.md#dependency-set). This appendix reflects dependency set `2026.2`, frozen on 2026-08-18, as shipped by app release 2026.9.40. Name the dependency set beside the app version in a methods section, as in this sentence.
 
 ```
-Analyses were run in Lungfish Genome Explorer 2026.9.13 (dependency set 2026.2),
+Analyses were run in Lungfish Genome Explorer 2026.9.40 (dependency set 2026.2),
 using minimap2 2.31 and Kraken 2 2.17.1.
 ```
 
-Copy each version string exactly as the table prints it, including any part of it that looks unusual.
+Copy each version string exactly as the table prints it.
 
 ## Reading the tables
 
-Four columns need a note each before you read them.
+Four columns need a note each.
 
-A **[conda](../../GLOSSARY.md#conda)** environment is a private folder holding one program and everything that program needs. It is kept apart from every other program, so two tools wanting different versions of the same underlying code can both work. LGE gives almost every tool its own environment, and the Environment column names it. These folders live under `~/.lungfish/conda`, where the `~` stands for your **[home folder](../../GLOSSARY.md#home-folder)**, the one named after your account. That folder is hidden, and you never need to open it. Ignore the Environment column unless a provenance record names an environment and you want to know which tool it belongs to.
+The Environment column names the [managed environment](../../GLOSSARY.md#managed-environment), the private folder that holds one tool and the libraries it needs. Ignore it unless a provenance record names an environment and you want to know which tool it belongs to. [Manage installed environments](../01-foundations/07-plugin-packs.md#manage-installed-environments) covers these folders.
 
-A **[plugin pack](../../GLOSSARY.md#plugin-pack)** is a themed group of tools that LGE installs only when you ask for it, named after the job it does. Installing the `assembly` pack brings in five **[assemblers](../../GLOSSARY.md#assembler)** at once, meaning programs that rebuild a genome from the overlaps between a sample's own reads. Nothing in a plugin pack is on a fresh machine until the pack is installed, which is the difference between the first table and the second.
+The Pack column in the second table names the pack a tool arrives with.
 
-The License column is the license the lock records for that tool, copied from the lock's own `license` field and not interpreted here. A license governs what you may do with the program. Using a tool for your own analysis and citing it in a paper is not redistribution, so no license in these tables restricts what almost every reader of this manual is doing. Read the tool's own license text only if you plan to ship the program itself inside something you hand to other people. A cell that points at a web page rather than naming a license, or one that names two licenses joined by OR, is the lock's own wording, and the same rule applies to it.
+The License column copies the lock's own `license` field without interpreting it. Using a tool for your own analysis and citing it is not redistribution, so read a tool's license text only if you plan to ship the program itself to other people.
 
-The Executables column names the program files, or **[executables](../../GLOSSARY.md#executable)**, that the environment provides. These are the names that show up in a provenance record and in a command line, and they often differ from the tool's display name. SAMtools is a tool whose executable happens to match, `samtools`, while IQ-TREE's is `iqtree3` and Clair3's is `run_clair3.sh`. Two rows list `python` instead, because they are code libraries rather than commands and they run inside the Python interpreter.
+The Executables column names the program files, or [executables](../../GLOSSARY.md#executable), that show up in a provenance record, which often differ from the tool's display name, as IQ-TREE's `iqtree3` does. Two rows list `python`, because they are code libraries that run inside the Python interpreter.
 
 ## Tools installed with every copy of LGE
 
-These eighteen come with every copy of LGE and install themselves without being asked. Seventeen are conda environments in the Required Setup pack, the one pack LGE installs by itself the first time it needs them, so no reader ever installs them by hand. The eighteenth is **[micromamba](../../GLOSSARY.md#micromamba)**, the small package manager that installs all the others. It ships inside the app itself rather than in an environment of its own. The lock stores it separately from the rest, in a labelled entry of its own that records no license.
+These eighteen come with every copy of LGE. Seventeen arrive with the [Required Setup pack](../../GLOSSARY.md#required-setup-pack), the one pack LGE installs by itself, so there is nothing to install. The eighteenth is **[micromamba](../../GLOSSARY.md#micromamba)**, the small package manager that installs all the others. It ships inside the app itself rather than in an environment of its own. The lock stores it separately from the rest, in a labelled entry of its own that records no license.
 
 | Tool | Version | Environment | License | Executables |
 |---|---|---|---|---|
@@ -86,15 +82,11 @@ The lock records some licenses loosely, which is why the bcftools cell reads a b
 
 The table prints the lock's own identifiers, so `bbtools` here is `BBTools` elsewhere. Either spelling identifies the tool, and a methods section reads better with the tool's own published capitalisation, `BBTools`, beside the version from this table.
 
-Three rows do work you may not associate with a named tool. pysam is the Python library that reads the BAM files behind a viewport's coverage and depth readouts, openpyxl writes the genotyping workbooks, and micromamba installed every other tool on this page.
+Three rows do work you may not associate with a named tool. pysam is the Python library that reads the BAM files, the files of aligned reads, behind a viewport's coverage and depth readouts, openpyxl writes the genotyping workbooks, and micromamba installed every other tool on this page.
 
 ## Tools installed by a plugin pack
 
-None of these tools is on a machine that has not installed its pack. A fresh copy of LGE cannot map a read until `read-mapping` is installed. The lock pins twenty-three tools across ten packs, and the Pack column below names all ten.
-
-Install a pack from the Plugin Manager at **Tools > Plugin Manager...** (Cmd-Shift-B). Its Packs tab lists every pack with an Install button beside each one, and a pack you already have reads as installed, which is also how you check what this machine holds. Installing downloads the tools over the internet, so most packs take a few minutes and the row reports its progress. Three packs, `gatk-core`, `phasing`, and `wastewater-surveillance`, install only from that window, because the command-line installer rejects them. For the other seven the command is `lungfish-cli conda install --pack read-mapping`, substituting your own pack name. Read "On the command line" below before typing that, since the bare name will not work as printed.
-
-An uninstalled pack's row in this table still describes any run that already happened. A version you find in a provenance sidecar is what ran, whatever this machine holds today.
+None of these tools is on a machine that has not installed its pack. The lock pins twenty-five tools across eleven packs. Install the `<pack-id>` [plugin pack](../../GLOSSARY.md#plugin-pack), a themed group of tools LGE installs on request, as [Plugin Packs](../01-foundations/07-plugin-packs.md#procedure) shows. Here `<pack-id>` is the value in the Pack column. Three packs, `gatk-core`, `phasing`, and `wastewater-surveillance`, are experimental, so turn experimental features on first, as [Experimental packs and features](../01-foundations/07-plugin-packs.md#experimental-packs-and-features) shows. A version you find in a provenance sidecar is what ran, whatever this machine holds today.
 
 | Pack | Tool | Version | Environment | License | Executables |
 |---|---|---|---|---|---|
@@ -103,6 +95,8 @@ An uninstalled pack's row in this table still describes any run that already hap
 | `read-mapping` | bowtie2 | 2.5.5 | `bowtie2` | GPL-3.0 | `bowtie2`, `bowtie2-build` |
 | `full-length-mhc-genotyping` | savont | 0.6.3 | `savont` | MIT | `savont` |
 | `full-length-mhc-genotyping` | blast | 2.16.0 | `blast` | Public Domain | `blastn` |
+| `pcr-primer-design` | primer3 | 2.6.1 | `primer3` | GPL-2.0-or-later | `primer3_core` |
+| `pcr-primer-design` | primalscheme3 | 3.3.0+lge.5 | `primalscheme3` | GPL-3.0 | `primalscheme3` |
 | `variant-calling` | lofreq | 2.1.5 | `lofreq` | MIT | `lofreq` |
 | `variant-calling` | ivar | 1.4.4 | `ivar` | GPL-3.0-or-later | `ivar` |
 | `variant-calling` | medaka | 2.2.2 | `medaka` | MPL-2.0 | `medaka` |
@@ -122,9 +116,9 @@ An uninstalled pack's row in this table still describes any run that already hap
 | `metagenomics` | ribodetector | 0.3.3 | `ribodetector` | GPL-3.0-or-later | `ribodetector_cpu` |
 | `wastewater-surveillance` | freyja | 2.0.3 | `freyja` | BSD-2-Clause | `freyja` |
 
-Bracken at 1.0.0 beside Kraken 2 at 2.17.1 is not an error. Each project numbers its own releases, so a low number simply means that project has cut fewer of them.
+LoFreq 2.1.5 rejects `--version`, so a LoFreq provenance record can carry the text `Unrecognized command '--version'` where a version belongs. Take LoFreq's version from this table. Bracken at 1.0.0 beside Kraken 2 at 2.17.1 is not an error. Each project numbers its own releases, so a low number simply means that project has cut fewer of them.
 
-Two entries name the pack rather than the tool in their Environment column. GATK4 installs into an environment called `gatk-core` and WhatsHap into one called `phasing`, so a provenance record naming either environment is naming the pack.
+Two entries name the pack rather than the tool in their Environment column. GATK4 installs into an environment called `gatk-core` and WhatsHap into one called `phasing`, so a provenance record naming either environment is naming the pack. The GATK Core pack holds GATK4 4.6.2.0 alone, and the Plugin Manager estimates its download at about 600 MB. The primalscheme3 version carries the suffix `+lge.5`, which marks a build LGE maintains on top of PrimalScheme 3.3.0, so copy it whole.
 
 ## Pinned external pipelines
 
@@ -145,9 +139,9 @@ Most readers should leave both pinned. To run a different TaxTriage revision, ad
 
 A classification result depends on its database as much as on its classifier, so a Kraken 2 report is not reproducible without the database version. The lock pins sixteen databases.
 
-The Source policy column is the lock's own word for where each database comes from, and it changes how much the version string can be trusted. Read the four values this way. `unpinnedArchive` means LGE downloads a named archive from a public server, where the version string in the table is the only identifier and nothing checks that the archive's contents have not changed since. `liveSnapshot` means the data is fetched fresh on every run and is not fixed at all, which the warning under the table explains. `localBuild` means LGE builds the database on your machine from upstream data rather than downloading a finished one. `bundledPayload` means the data ships with LGE itself, so those rows are present without any download.
+The Source policy column is the lock's own word for where each database comes from, and it changes how much the version string can be trusted. Read the four values this way. `unpinnedArchive` means LGE downloads a named archive, one compressed download file, from a public server, where the version string in the table is the only identifier and nothing checks that the archive's contents have not changed since. `liveSnapshot` means the data is fetched fresh on every run and is not fixed at all, which the warning under the table explains. `localBuild` means LGE builds the database on your machine from upstream data rather than downloading a finished one. `bundledPayload` is the lock's label for the two Deacon rows, whose data is still downloaded into LGE's managed storage the first time it is needed, or with `lungfish-cli conda db install-managed`.
 
-The Kraken 2 names carry a number suffix, as in Standard-8 and PlusPF-16, and that number is roughly the memory in gigabytes the database needs. Standard and PlusPF with no suffix are the full-size builds. Your own run's provenance sidecar names which one it used, and the Plugin Manager's Databases tab shows which ones this machine holds.
+The Kraken 2 names carry a number suffix, as in Standard-8 and PlusPF-16, and that number is roughly the memory in gigabytes the database needs. Standard and PlusPF with no suffix are the full-size builds. PlusPF adds protozoa and fungi to Standard, MinusB is Standard without bacteria, and EuPathDB46 holds eukaryotic pathogens. Your own run's provenance sidecar names which one it used, and the Plugin Manager's Databases tab shows which ones this machine holds.
 
 | Database | Tool | Name | Version | Source policy |
 |---|---|---|---|---|
@@ -180,28 +174,24 @@ The last two rows are reference data rather than searchable databases in the usu
 
 Two checks are worth running before you quote a number from this page in a paper.
 
-First, confirm your own copy reports this dependency set. Open **Lungfish Genome Explorer > About Lungfish Genome Explorer** and read the line beginning "Dependency set". This check needs no terminal. If your installed release is not 2026.9.13, the numbers here are not the numbers you ran.
+First, confirm your own copy reports this dependency set. Open **Lungfish Genome Explorer > About Lungfish Genome Explorer** and read the line beginning "Dependency set". This check needs no terminal. If your installed release is not 2026.9.40, the numbers here are not the numbers you ran, so take the versions from your run's provenance record instead.
 
-Second, confirm the machine has the pinned versions installed. The window route is the Plugin Manager's **Check for Tool Updates...** button, which reports anything that has drifted from what your copy expects. There is a command as well, and you can skip it if you do not use a terminal. Read "On the command line" below first, then run `lungfish-cli tools update --plan`, which compares what is on disk against what the lock pins and prints the outstanding work without doing any of it. It prints that list on screen for anybody to read. For readers writing scripts, it also reports **[exit status](../../GLOSSARY.md#exit-status)** 10 when work is pending and 0 when the machine matches the lock, which is the value a script tests.
+Second, confirm the machine has the pinned versions installed. The window route is the Plugin Manager's **Check for Tool Updates...** button, which reports anything that has drifted from what your copy expects. The command-line form is `lungfish-cli tools update --plan`, which prints the outstanding work without doing any of it and exits with [exit status](../../GLOSSARY.md#exit-status) 10 when work is pending and 0 when the machine matches the lock.
 
 The lock also carries a list of retired environments, removed from the pinned set so an upgrade can clean them up. That matters only when you are upgrading, and in dependency set 2026.2 the list is empty, so this release retires nothing.
 
 ## On the command line
 
-This section is optional. If you do your work in the LGE window, everything above is complete without it, and nothing here unlocks a result the tables cannot give you. It is here for readers who want to script a run or repeat one on a server.
-
-Before you type anything, read the [CLI Reference](cli-reference.md) section of the same name. It says where Terminal lives and how to open it. The short version follows.
-
-`lungfish-cli` is the command-line copy of LGE, and it arrives with the app. Installed releases do not put it on your `PATH`. The `PATH` is the list of folders your shell searches for programs, and the shell is the program reading what you type at the prompt. Because `lungfish-cli` sits outside those folders, typing its bare name at a fresh prompt will not find it. Either type its full path in quotation marks, which is the form the example below uses, or run the CLI Reference's one `export PATH` line first, after which the bare name works for the rest of that Terminal session.
+This section is optional, and nothing later in this manual needs it. The `lungfish-cli` program ships inside LGE, and [Finding the program](cli-reference.md#finding-the-program) shows how to run it. The command line keeps its own copy of the managed tools, separate from the app's, so the versions it reports describe the tools the command line uses.
 
 ```bash
 "/Applications/Lungfish Preview.app/Contents/MacOS/lungfish-cli" version --tools
 ```
 
-It prints the app version, the dependency set with the date it was frozen, and then the first table of this appendix, in five columns headed Tool, Version, Source, Environment, and Executables. Its first lines on release 2026.9.13 are these. The BBTools executables line is cut short here to fit the page, and the real output continues past the third row with the remaining fifteen tools.
+It prints the app version, the dependency set with the date it was frozen, and then the first table of this appendix, in five columns headed Tool, Version, Source, Environment, and Executables. Its first lines on release 2026.9.40 are these. The BBTools executables line is cut short here to fit the page, and the real output continues past the third row with the remaining fifteen tools.
 
 ```
-Lungfish 2026.9.13
+Lungfish 2026.9.40
 Dependency set: 2026.2 (2026-08-18)
 
 Bundled and Managed Tools
@@ -213,17 +203,13 @@ BCFtools               1.24     managed  bcftools               bcftools
 ...
 ```
 
-Its eighteen rows agree with the first table of this appendix on every version, environment, and executable. Three differences are presentation only, and the first has a consequence worth stating plainly. One tool sits in a different place in each list, because the two are ordered differently.
-
-- The command sorts alphabetically by display name. This appendix keeps the lock's own order.
-- The command writes display names such as `Samtools` and `Trim_Galore` where the lock stores identifiers such as `samtools` and `trim_galore`.
-- The command prints a Source column of `bundled` or `managed` in place of this appendix's License column, because it reads the license field without printing it.
+Its eighteen rows agree with the first table on every version, environment, and executable. The command sorts rows by source, bundled before managed, and then alphabetically by display name, writes display names such as `Samtools` where the lock stores `samtools`, and prints a Source column of `bundled` or `managed` in place of the License column.
 
 The command stops at those eighteen. It prints nothing about plugin pack tools, pipelines, or databases, so the other three tables here have no command-line equivalent, and the lock file is the only place all four live together.
 
 ## Which one governs
 
-Use this appendix for release notes, for planning, and for a methods section written before you have run anything. Use your run's provenance sidecar for a methods section describing a finished analysis, for a rerun, and for a review, because it records the program file that ran rather than the one the release pinned.
+Use this appendix for release notes, for planning, and for a methods section written before you have run anything. Use your run's provenance sidecar for a methods section describing a finished analysis, for a rerun, and for a review, because it records the version that actually ran rather than the one the release pinned.
 
 When the sidecar and this page disagree, the sidecar is right about your analysis, and the disagreement is telling you the machine was not up to date. The Plugin Manager's **Check for Tool Updates...** button, or `lungfish-cli tools update --plan`, tells you by how much.
 

@@ -2,8 +2,7 @@
 # App state: Actual Preview build 4673 filtered pivot export opened unmodified in Numbers at 125 percent. Two simulated samples, three public macaque allele targets, 376 retained fragments.
 id: genotype-pivot-workbook
 chapter: 09-genotyping/04-haplotype-definitions-and-export
-caption: 'The pivot sheet of an exported workbook in a spreadsheet application, with samples running across
-  the columns and allele targets down the rows beneath the Total and # Obs. columns.'
+caption: "The Genotype Matrix - Filtered worksheet of an exported report open in a spreadsheet application, with allele targets down the rows, one column per sample, and the Evidence (display / raw support) column at the right."
 viewport_class: none
 app_state:
   fixture: '{demo_project}'

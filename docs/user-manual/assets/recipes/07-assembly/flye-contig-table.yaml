@@ -1,5 +1,5 @@
-# Captured from Lungfish Preview 2026.9.13 with capture-window.sh (2026-09 campaign).
-# App state: Analyses/HG002-chrM-flye with one32652bp contig,43.0%GC,Flye2.9.6,46.6s; Bundle Inspector Source Data and Assembly Context visible. Local Preview2026.9.13 build4673,candidate9b767d3e4.
+# Captured from Lungfish Preview 2026.9.40 with capture-window.sh (2026-09-24 manual review).
+# App state: Ran Tools > Assembly > Flye... from the window on Imports/HG002.chrM.ont (950 reads) with all defaults (Nano HQ, 8 threads) in Preview 2026.9.40, then clicked Analyses/flye-2026-09-24T12-34-59: four contigs (9,841, 5,800, 5,202 and 1,294 bp; 22,137 bp total), Flye 2.9.6, wall time 54.6 s.
 id: flye-contig-table
 chapter: 07-assembly/03-running-flye-or-hifiasm
 caption: The HG002-chrM-flye result with one 32,652 bp contig at 43.0% GC in the table, and the Inspector

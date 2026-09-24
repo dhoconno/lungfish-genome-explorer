@@ -2,9 +2,7 @@
 # App state: The assembly sheet opened from Tools > Assembly > SPAdes... with Imports/HG002-chrM selected, showing Inputs, the Assembler/Read Type controls, the Isolate profile, and the readiness footer.
 id: assembly-wizard-spades
 chapter: 07-assembly/02-running-spades
-caption: The assembly sheet opened from Tools > Assembly > SPAdes..., showing the read-only Inputs rows,
-  the Assembler and Read Type controls at the top of Primary Settings, the Isolate profile, and the Readiness
-  panel at the bottom.
+caption: "The assembly sheet opened from Tools > Assembly > SPAdes..., showing the read-only Inputs rows, the Assembler and Read Type controls at the top of Primary Settings, the Isolate profile, and the Threads slider with its number field."
 viewport_class: fastq
 app_state:
   fixture: '{demo_project}'

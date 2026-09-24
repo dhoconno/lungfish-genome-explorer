@@ -2,9 +2,7 @@
 # App state: the Map Reads (minimap2) wizard with HG002 reads selected, chr20_10.0-10.5Mb reference, and Short-read preset chosen
 id: mapping-wizard-overview
 chapter: 04-alignments/01-mapping-reads-to-a-reference
-caption: The Map Reads (minimap2) wizard with the HG002 reference and the Short-read preset chosen, the
-  Input Compatibility readout reporting a match, and the collapsed Read Group and Advanced Settings disclosures
-  beneath it.
+caption: "The FASTQ/FASTA Operations dialog with minimap2 chosen in the tool list, the chr20_10.0-10.5Mb reference and the Short-read preset selected, the Input Compatibility readout reporting Ready, and the Read Group and Advanced Settings disclosures collapsed."
 viewport_class: fastq
 app_state:
   fixture: '{demo_project}'

@@ -2,8 +2,7 @@
 # App state: Workflow Operations dialog on 12S Amplicon Matching for SRR36291587, Read Platform segmented picker, Result Name and Min Soft Clip fields, Advanced Options expanded showing Max Indels and Run vsearch chimera review
 id: twelve-s-dialog-options
 chapter: 06-classification/10-twelve-s-metabarcoding
-caption: The same dialog's Read Platform segmented picker, Result Name field, and Min Soft Clip field,
-  with the Advanced Options disclosure expanded to show Max Indels and Run vsearch chimera review.
+caption: "The same dialog's Read Platform segmented picker, Result Name field, and Min Soft Clip number field, with the Advanced Options disclosure expanded to show Max Indels, Run vsearch chimera review, and the note that inputs must already be merged."
 viewport_class: none
 app_state:
   fixture: '{demo_project}'

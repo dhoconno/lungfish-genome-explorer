@@ -2,8 +2,7 @@
 # App state: A demo FASTQ bundle selected and the named Tools submenu open. HG002-fastpTrim was selected after the authorized trim run.
 id: tools-mapping-submenu
 chapter: 04-alignments/01-mapping-reads-to-a-reference
-caption: The open Tools > Mapping submenu, showing its five items, minimap2..., BWA-MEM2..., Bowtie2...,
-  BBMap..., and Viral Recon....
+caption: "The Tools menu with its Mapping submenu open, listing the minimap2, BWA-MEM2, Bowtie2, BBMap, and Viral Recon items."
 viewport_class: none
 app_state:
   fixture: '{demo_project}'

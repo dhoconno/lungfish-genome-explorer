@@ -124,6 +124,19 @@ to change it.
     genomes. Lower it for very short amplicons, raise it when adapters
     leave many short fragments.
 
+When the setting has a command-line flag, the entry may carry a fourth
+sentence that names it, in the fixed form "On the command line this is
+`--flag`." When the setting has no flag, the fourth sentence may say "This
+setting has no command-line flag." Nothing else goes in a fourth sentence,
+and the full flag list for every command lives in
+`chapters/appendices/cli-reference.md`, not in the chapter.
+
+    **Minimum read length.** Discards reads shorter than this after
+    trimming. The default is 50 bases, long enough to map uniquely on most
+    genomes. Lower it for very short amplicons, raise it when adapters
+    leave many short fragments. On the command line this is
+    `--min-length`.
+
 Explanations use the same sentence shapes across chapters. Introduce a
 number with what it measures ("Depth is the number of reads covering a
 position"), then what a typical value looks like on the fixture, then what

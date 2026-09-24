@@ -2,8 +2,7 @@
 # App state: HG002-12S Targets view,1 sample and110 exact human matches, all nine columns visible. Sidebar and Inspector hidden.
 id: twelve-s-result-species-table
 chapter: 06-classification/10-twelve-s-metabarcoding
-caption: The 12S viewport on its Targets view, showing the Sample, Scientific Name, Common Names, Group,
-  Tax ID, Exact Reads, % of Sample, Refs, and Alternates columns below the summary line.
+caption: "The 12S viewport on its Targets view for the HG002 reads, showing one Homo sapiens row with 110 exact reads and 100.0% of Sample under the Sample, Scientific Name, Common Names, Group, Tax ID, Exact Reads, % of Sample, Refs, and Alternates columns."
 viewport_class: none
 app_state:
   fixture: '{demo_project}'

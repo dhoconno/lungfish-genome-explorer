@@ -1,9 +1,9 @@
-# Captured from Lungfish Preview 2026.9.13 with capture-window.sh (2026-09 campaign).
-# App state: The Q / Position sparkline clicked open into its expanded Per-Position Quality Scores panel.
+# Captured from Lungfish Preview 2026.9.40 with capture-window.sh (2026-09-24 manual review).
+# App state: Clicked Imports/HG002 (paired, 91,148 reads, defaults), then clicked the Q / Position sparkline, which opens its expanded Per-Position Quality Scores panel.
 id: fastq-sparkline-popover
 chapter: 03-reads/03-quality-control
 caption: The Q / Position sparkline clicked open into its full-size popover, showing per-position quality
-  falling away over the last ten bases of the read.
+  falling away over the last few bases of the read.
 viewport_class: fastq
 app_state:
   fixture: '{demo_project}'
@@ -28,10 +28,10 @@ steps:
 crop:
   mode: region
   region:
-  - 474
-  - 155
-  - 653
-  - 416
+  - 425
+  - 222
+  - 640
+  - 330
 post:
   retina: true
   format: png

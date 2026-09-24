@@ -1,9 +1,8 @@
-# Captured from Lungfish Preview 2026.9.13 with capture-window.sh (2026-09 campaign).
-# App state: the Inspector Bundle tab for chr20_10.0-10.5Mb, scrolled to the Alignment Summary section for the HG002 minimap2 track
+# Captured from Lungfish Preview 2026.9.40 with capture-window.sh (2026-09-24 manual review).
+# App state: Clicked Reference Sequences/chr20_10.0-10.5Mb and scrolled the Inspector Bundle tab to the Alignment Summary for the HG002 minimap2 track (Total Mapped 91.0K, Total Unmapped 213, Mapped % 99.8%, Chromosomes 1, Est. Coverage 27.3x), with Read Groups and Flag Statistics collapsed below.
 id: alignment-inspector-stats
 chapter: 04-alignments/01-mapping-reads-to-a-reference
-caption: The Inspector for the new alignment track, showing Total Mapped, Total Unmapped, Mapped %, Chromosomes,
-  and Est. Coverage above the collapsed Flag Statistics list.
+caption: "The Inspector Alignment Summary for the HG002 minimap2 track, showing Total Mapped, Total Unmapped, Mapped %, Chromosomes, and Est. Coverage above the collapsed Read Groups and Flag Statistics sections."
 viewport_class: alignment
 app_state:
   fixture: '{demo_project}'
@@ -27,10 +26,10 @@ steps:
 crop:
   mode: region
   region:
-  - 1140
-  - 500
-  - 328
-  - 400
+  - 1085
+  - 612
+  - 312
+  - 285
 post:
   retina: true
   format: png

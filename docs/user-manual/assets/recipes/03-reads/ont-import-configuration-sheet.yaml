@@ -2,8 +2,7 @@
 # App state: ONT Run Folder import of fastq_pass detected one barcode directory, 5 MB. Platform Oxford Nanopore, recipe disabled.
 id: ont-import-configuration-sheet
 chapter: 03-reads/07-ont-runs
-caption: The Import FASTQ configuration sheet as it opens for an Oxford Nanopore run folder, with Platform
-  reading Oxford Nanopore and the recipe checkbox offering the two nanopore demultiplexing recipes.
+caption: "The Import FASTQ configuration sheet as it opens for an Oxford Nanopore run folder, with Platform reading Oxford Nanopore, no Pairing control, and the processing recipe checkbox off."
 viewport_class: none
 app_state:
   fixture: '{demo_project}'

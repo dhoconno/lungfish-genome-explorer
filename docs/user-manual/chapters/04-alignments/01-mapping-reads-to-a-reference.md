@@ -3,8 +3,8 @@ title: Mapping Reads to a Reference
 chapter_id: 04-alignments/01-mapping-reads-to-a-reference
 audience: bench-scientist
 prereqs: [01-foundations/02-sequencing-reads, 01-foundations/03-amplicon-vs-shotgun, 01-foundations/04-alignment-files, 03-reads/01-importing-fastq]
-estimated_reading_min: 25
-task: Map sequencing reads onto a reference genome and attach the resulting BAM to the reference bundle as an alignment track.
+estimated_reading_min: 19
+task: Map sequencing reads onto a reference genome with one of four mappers and read the alignment statistics of the BAM it produces.
 tags: [alignments, mapping, minimap2, bwa-mem2, bowtie2, bbmap, illumina, nanopore]
 tools: [minimap2, bwa-mem2, bowtie2, bbmap, samtools]
 parameters_refs: [map.minimap2, map.bwa-mem2, map.bowtie2, map.bbmap, import.bam]
@@ -17,74 +17,64 @@ entry_points:
   - "CLI: lungfish-cli map, lungfish-cli bam adopt-mapping, lungfish-cli import bam"
 shots:
   - id: tools-mapping-submenu
-    caption: "The open Tools > Mapping submenu, showing its five items, minimap2..., BWA-MEM2..., Bowtie2..., BBMap..., and Viral Recon...."
+    caption: "The Tools menu with its Mapping submenu open, listing the minimap2, BWA-MEM2, Bowtie2, BBMap, and Viral Recon items."
   - id: mapping-wizard-overview
-    caption: "The Map Reads (minimap2) wizard with the HG002 reference and the Short-read preset chosen, the Input Compatibility readout reporting a match, and the collapsed Read Group and Advanced Settings disclosures beneath it."
+    caption: "The FASTQ/FASTA Operations dialog with minimap2 chosen in the tool list, the chr20_10.0-10.5Mb reference and the Short-read preset selected, the Input Compatibility readout reporting Ready, and the Read Group and Advanced Settings disclosures collapsed."
   - id: mapping-wizard-advanced
     caption: "The Advanced Settings disclosure of the mapping wizard, expanded to show the Threads, Secondary alignments, Supplementary, Min mapping quality, and Extra arguments controls."
   - id: alignment-inspector-stats
-    caption: "The Inspector for the new alignment track, showing Total Mapped, Total Unmapped, Mapped %, Chromosomes, and Est. Coverage above the collapsed Flag Statistics list."
+    caption: "The Inspector Alignment Summary for the HG002 minimap2 track, showing Total Mapped, Total Unmapped, Mapped %, Chromosomes, and Est. Coverage above the collapsed Read Groups and Flag Statistics sections."
 illustrations: []
-glossary_refs: [bam, mapping, alignment, mapper, soft-clip, supplementary-alignment, mapq, read-group, flagstat, primary-alignment, secondary-alignment, properly-paired, coverage-breadth, mapping-preset, plugin-pack, reference-bundle, provenance]
+glossary_refs: [bam, mapping, alignment, mapper, mapq, soft-clip, cigar, supplementary-alignment, secondary-alignment, primary-alignment, read-group, flagstat, properly-paired, depth, coverage-breadth, mapping-preset, paired-end, contig, mark-duplicates, plugin-pack, required-setup-pack, reference-bundle, import-center, inspector, provenance, checksum]
 features_refs: [map]
 fixtures_refs: [hg002-chr20]
-brand_reviewed: true
-lead_approved: true
+brand_reviewed: false
+lead_approved: false
 ---
 
 ## What it is
 
-Mapping takes two things, a collection of sequencing reads and a reference genome, and works out where along that reference each read came from. A read is one short stretch of sequence the instrument reported, a few hundred bases long for the data in this chapter. Lungfish Genome Explorer (LGE) records the answer as a [BAM](../../GLOSSARY.md#bam) file, a compressed binary container holding one row per aligned read. Each row carries the read's sequence, the reference position it was placed at, which strand it matched, and a confidence score called [MAPQ](../../GLOSSARY.md#mapq) saying how sure the program was about the placement.
+Mapping takes a set of sequencing reads and a reference genome and works out where along the reference each read came from. A read is one stretch of DNA sequence the instrument reported, up to 250 bases long for the data in this chapter. A reference genome is a finished genome sequence for the species, used as the shared map every sample is compared against. The program that does the placing is called a [mapper](../../GLOSSARY.md#mapper). Lungfish Genome Explorer (LGE) offers four of them, minimap2, BWA-MEM2, Bowtie2, and BBMap, and minimap2 is the default.
 
-The program that does the placing is called a [mapper](../../GLOSSARY.md#mapper). LGE ships four of them, minimap2, BWA-MEM2, Bowtie2, and BBMap, and minimap2 is the default. Every one of them takes the same inputs and writes the same kind of BAM, so switching mappers changes the answers a little rather than changing what you get back. On the worked example below, the four mappers land within one percentage point of each other, and the comparison table under Reading the results shows exactly how far apart they sit.
+LGE writes the answer as a BAM file. A [BAM](../../GLOSSARY.md#bam) file holds one row per aligned read, with an index beside it that lets a viewer jump to any position. Each row records where the read landed, on which strand, and how sure the mapper was. [MAPQ](../../GLOSSARY.md#mapq) is the mapper's confidence in where it placed a read, from 0 for a read that fits several places equally to 60 for one clear placement, as [What one row of a BAM records](../01-foundations/04-alignment-files.md#what-one-row-of-a-bam-records) explains. LGE sorts the rows into genome order and writes the index for you.
 
-Two things about the output matter for everything that follows. The BAM comes out sorted by reference position, so the rows run in genome order rather than in the order the reads arrived. It also comes out with a companion index file beside it, ending in `.bai`. LGE writes that index for you and keeps it next to the BAM inside the project, so you never create it, open it, or move it yourself. The index is what lets a viewer jump straight to any coordinate without reading the whole file, which is why the alignment viewport can show you position 250,000 of chromosome 20 instantly rather than after a long scan.
+All four mappers take the same inputs and write the same kind of BAM. Switching mappers nudges the numbers rather than changing what you get back, and on clean human data the four land within one percentage point of each other.
 
-The entry point in the window is a two-part choice. You select the reads in the sidebar first. Then you choose a mapper from **Tools > Mapping**, which opens the wizard already knowing both facts. The reads come from your sidebar selection, and the mapper comes from the menu item you chose. Neither is a control inside the wizard, which is the part that catches people out.
-
-In practice, with reads and a reference already in your project, select the reads, choose the mapper from the Tools menu, set the reference and the preset, and click Run.
+In practice, select your reads, choose a mapper from **Tools > Mapping**, pick the reference and the preset, and click Run.
 
 ## Why you would do this
 
-Reads on their own tell you almost nothing. A single 250-base read from a human sample is a fragment of sequence with no address. It could be from chromosome 20, or from a repeat, a stretch of sequence the genome carries in many near-identical copies. Identical copies give the mapper no way to choose between them, and nothing in the FASTQ file says which copy the read came from. Mapping gives every read an address, and once reads have addresses you can stack them.
+A read on its own has no address. A 250-base read from a human sample could come from chromosome 20, or from a repeat, a stretch of sequence the genome carries in many near-identical copies, and nothing in the read file says which. Mapping gives every read an address, and reads with addresses can be stacked.
 
-Stacking is what makes the rest of this manual possible. When forty reads all sit over the same position and thirty-eight of them read A where the reference reads G, that is evidence of a real difference between your sample and the reference rather than one instrument error. Variant calling, consensus building, coverage checking, and primer trimming all read that stack. None of them can run until mapping has built it.
+The rest of this manual reads that stack. When 40 reads sit over one position and 38 of them read A where the reference reads G, that is evidence of a real difference in your sample rather than one instrument error. Variant calling, consensus building, coverage checks, and primer trimming all start from it, so none of them can run until mapping has built it.
 
-This chapter works through the HG002 chromosome 20 slice, a pair of Illumina read files from a well-characterized human genome. The slice holds 45,574 read pairs. A read pair is two reads sequenced from the two ends of one DNA fragment, so 45,574 pairs is 91,148 reads in total. They are drawn from a 500 kb window of chromosome 20, where kb means kilobases, so the window is 500,000 bases long. Its matching reference file holds that same window and nothing else, which is why the run finishes quickly rather than taking as long as a whole human genome would. Every number this chapter quotes came from a real run of the four mappers on 2026-09-06.
+This chapter maps reads from HG002, a man whose genome the Genome in a Bottle consortium has sequenced and checked many times over, which makes his data a common test set. A [paired-end](../../GLOSSARY.md#paired-end) run reads each fragment from both ends, and LGE stores the two mates of a sample together in one bundle. The fixture holds 45,574 read pairs, so 91,148 reads, all drawn from a 500 kb window of chromosome 20. A kb is a kilobase, a thousand bases, so the window is about 500,000 bases long (500,001 exactly, since both end positions are included). The matching reference holds that window and nothing else, which is why the run takes seconds rather than hours.
 
 ## Before you start
 
-You need a project open. If you do not have one, choose **File > New Project** (Cmd-N), or click Create Project on the Welcome window, and pick a folder.
+You need a project open, as [The Lungfish Genome Explorer Project](../01-foundations/06-the-lungfish-project.md#procedure) shows.
 
-This chapter uses the HG002 chromosome 20 slice, which is a fixture, the sample data set this manual works its examples against. Download the files `GRCh38.chr20.10.0-10.5Mb.fasta`, `HG002.chr20.10.0-10.5Mb_R1.fastq.gz`, and `HG002.chr20.10.0-10.5Mb_R2.fastq.gz` from the manual's fixtures on GitHub at
+This chapter uses the hg002-chr20 fixture. Download `GRCh38.chr20.10.0-10.5Mb.fasta`, `HG002.chr20.10.0-10.5Mb_R1.fastq.gz`, and `HG002.chr20.10.0-10.5Mb_R2.fastq.gz` from [the hg002-chr20 fixture folder](https://github.com/dhoconno/lungfish-genome-explorer/tree/v2026.9.39/docs/user-manual/fixtures/hg002-chr20), as [Practice data for this manual](../01-foundations/06-the-lungfish-project.md#practice-data-for-this-manual) explains.
 
-https://github.com/dhoconno/lungfish-manual-media/tree/manual-v2026.9.39/user-manual/fixtures/hg002-chr20
+Import the two FASTQ files as one paired sample, as [Importing Sequencing Reads](../03-reads/01-importing-fastq.md) describes. Import the FASTA as a reference, as [Importing and Viewing a Sequence](../02-sequences/01-importing-and-viewing.md) describes. That import makes a [reference bundle](../../GLOSSARY.md#reference-bundle), the folder LGE keeps a reference sequence in, and the mapper reads the reference from it.
 
-and remember where you saved them. On that page, click a filename and then the Download raw file button, since the page itself only previews the file. No GitHub account is needed to download them.
+Install the `read-mapping` [plugin pack](../../GLOSSARY.md#plugin-pack), a themed group of tools LGE installs on request, as [Plugin Packs](../01-foundations/07-plugin-packs.md#procedure) shows. It holds minimap2, BWA-MEM2, and Bowtie2. BBMap arrives with the [Required Setup pack](../../GLOSSARY.md#required-setup-pack), the one pack LGE installs by itself, so there is nothing to install.
 
-Both pieces have to be inside the project before the wizard will run. Import the two FASTQ files as described in [Importing Sequencing Reads](../03-reads/01-importing-fastq.md), and import the FASTA as a reference, which [Importing and Viewing a Sequence](../02-sequences/01-importing-and-viewing.md) covers. Importing the FASTA produces a [reference bundle](../../GLOSSARY.md#reference-bundle), a `.lungfishref` folder under the project's `Reference Sequences/`. The Finder shows that folder as a single item rather than something you open, which is normal on a Mac. The bundle is what the mapping result will be attached to, so it is the thing you need, not the loose FASTA.
-
-Three of the four mappers, minimap2, BWA-MEM2, and Bowtie2, arrive in the `read-mapping` [plugin pack](../../GLOSSARY.md#plugin-pack), which LGE installs on request rather than up front. Open **Tools > Plugin Manager...** (Cmd-Shift-B) and install that pack before you start. Installing downloads the three programs, so you need an internet connection, and the Plugin Manager shows progress while it works. BBMap is the exception. It comes from the BBTools environment in the Required Setup pack, so it is present as soon as a project can open at all.
+No container software is needed. The numbers in this chapter came from runs on 2026-09-06 with minimap2 2.31 and samtools 1.24, and the minimap2 run took under ten seconds on a recent Mac.
 
 ## Procedure
 
-The wizard has five sections stacked top to bottom, **Reference**, **Preset**, **Read Group**, **Input Compatibility**, and **Advanced Settings**. minimap2 titles the second section **Preset** and the other three mappers title the same section **Mode**, so you will see one name or the other on your own screen, never both. The two sections the wizard always asks you for are the reference and the preset. Read Group and Advanced Settings sit below them as collapsed disclosures, and both are optional, since every default inside them is sensible for an ordinary run. The numbered steps below therefore touch only three of the five sections.
-
-Skip the next paragraph if you selected only one read bundle, which is what the steps below assume. A read bundle is the sidebar item holding one sample's imported reads.
-
-Select more than one read bundle before you open the wizard and a sixth section appears between Preset and Read Group, asking whether to run each bundle separately or pool them into one. In that state the editable Read Group fields are replaced by a note reading "Each bundle gets its own read group, derived automatically from its sample name."
+**Tools > Mapping** opens the FASTQ/FASTA Operations dialog with the mapper you chose already selected in its tool list. The dialog follows the layout [Operation dialogs](../01-foundations/06-the-lungfish-project.md#operation-dialogs) describes. Its settings pane stacks five sections, **Reference**, **Preset**, **Read Group**, **Input Compatibility**, and **Advanced Settings**. minimap2 calls the second section Preset, while BWA-MEM2, Bowtie2, and BBMap call it Mode. Read Group and Advanced Settings start collapsed, and their defaults suit an ordinary run.
 
 <!-- SHOT: tools-mapping-submenu -->
 
-1. In the sidebar, click the `HG002.chr20.10.0-10.5Mb` read bundle so it is the selected item.
-2. Choose **Tools > Mapping** from the menu bar, then choose the mapper you want, **minimap2...** (the default), **BWA-MEM2...**, **Bowtie2...**, or **BBMap...**. The wizard opens, titled "Map Reads (minimap2)" for the default choice.
-3. Under **Reference**, click the picker and choose `GRCh38.chr20.10.0-10.5Mb`. The picker lists every reference bundle already in the project, and the path of the one you picked appears beneath it. To map against a FASTA that is not in the project, click **Browse...** below the picker and select the file instead.
-4. Under **Preset**, leave it on **Short-read**. The wizard already chose it for you by reading the first reads in the file. Change the setting yourself and the wizard stops guessing, so your choice stands for the rest of this wizard session no matter what else you touch.
-5. Check the **Input Compatibility** readout below the preset. A good reading ends in a line beginning with the word Ready. Then click **Run**.
+1. In the sidebar, click the read bundle you imported from the two HG002 files.
+2. Choose **Tools > Mapping > minimap2...**. The dialog opens with minimap2 selected in the tool list on the left.
+3. Under **Reference**, choose the bundle you imported from `GRCh38.chr20.10.0-10.5Mb.fasta`. It may be listed as `chr20_10.0-10.5Mb`, the name of the one sequence inside that FASTA, and its path appears under the picker.
+4. Leave **Preset** on **Short-read**, minimap2's starting preset, which suits these Illumina reads.
+5. Check that the **Input Compatibility** readout ends in a line that starts with Ready, then click **Run**.
 
-<!-- SHOT: mapping-wizard-overview -->
-
-The Input Compatibility readout is the check worth pausing on. It prints three lines describing what LGE found in your reads, followed by a verdict. For the fixture with minimap2 it reads exactly this.
+For the fixture the Input Compatibility readout says this.
 
 ```text
 Detected format: FASTQ
@@ -93,85 +83,127 @@ Observed max read length: 250 bp
 Ready: minimap2 is compatible with Illumina short reads.
 ```
 
-When the preset and the reads do not agree, the verdict line turns into a refusal instead of that Ready sentence, and the Run button stays disabled until you fix the mismatch.
+<!-- SHOT: mapping-wizard-overview -->
 
-Once you click Run, the wizard closes and a row appears in the Operations panel at the bottom of the project window, labelled `Map Reads (minimap2): HG002.chr20.10.0-10.5Mb`. Open the panel with **Operations > Show Operations Panel** (Cmd-Shift-P) if it is not already showing. Expand the row and you see the underlying pipeline with its resolved command line at each step. For minimap2 that is five steps, the mapper itself, then `samtools view` to drop records, then `samtools sort`, `samtools index`, and `samtools flagstat`. The records the filter drops are the ones the Advanced Settings you chose exclude, so with the defaults it drops secondary alignments and keeps everything else. The mapper writes a SAM file, which is the plain-text form of a BAM holding the same rows uncompressed. The filter step consumes it and the pipeline then deletes it, so the intermediate never lands in your project.
+The first three lines report what LGE found in the reads. When the preset and the reads do not match, the last line turns orange and names the mismatch instead, and Run stays disabled until you fix it.
 
-When every step turns green, the alignment track has been attached to the reference bundle. A step that fails turns red instead and stops the run, leaving its error text in the expanded row. Expand the reference bundle in the sidebar and the new track sits under it, named "minimap2 Mapping", the mapper's name followed by the word Mapping. You can rename it. The mapping run's own output folder sits under the project's `Analyses/`, in a subfolder named for the mapper followed by the date and time the run started, such as `Analyses/minimap2-2026-09-06T13-45-12/` for a run at 13:45:12 on 6 September 2026.
+Watch the run in the [Operations Panel](../01-foundations/06-the-lungfish-project.md#the-operations-panel), which opens with **Operations > Show Operations Panel** (Cmd-Shift-P). The row is titled Map Reads (minimap2) followed by the sample name. The result lands under `Analyses/` in a new folder, as [Where results land](../01-foundations/06-the-lungfish-project.md#where-results-land) describes. For this run the folder name starts with `minimap2-` and ends with the date and time the run began.
+
+When the row finishes, LGE selects the new result and opens it in the alignment viewport. The folder holds the sorted BAM, its index, a summary file called `mapping-result.json`, and a small reference bundle of its own that carries the new alignment track, named "minimap2 Mapping". The reference bundle you picked in step 3 is left unchanged.
 
 ## Settings
 
-Every setting below appears in all four mapping wizards, which are the same sheet with a different header and a different set of preset choices. The mapper is not one of the settings, because the menu item you clicked already chose it.
+Every setting below appears for all four mappers. The mapper itself is not a setting, because the menu item or the tool list chooses it.
 
-**Reference.** Names the genome the reads are lined up against, and every coordinate in the resulting alignment is a position in this sequence, so a different reference gives entirely different coordinates. It defaults to the first reference the app finds in the project, which is a convenience rather than a judgement, and it accepts any reference sequence in the project or a FASTA you pick with Browse.... Change it whenever the reads came from a different organism or a different strain than the one the picker happened to select first, and read the path the wizard prints under the picker to confirm you have the right one before you run. On the command line this is `--reference`.
+**Reference.** Names the genome the reads are lined up against, so every coordinate in the result is a position in this sequence. It defaults to the first reference LGE finds in the project, which is a convenience rather than a judgement, and **Browse...** picks a FASTA file from outside the project instead. Change it whenever the reads came from a different organism or strain than the one the picker chose, and read the path under the picker before you run. On the command line this is `--reference`.
 
-**Preset.** Tells minimap2 what kind of sequence it is being handed so it can pick scoring rules that match. Long-read machines trade accuracy for length, so short accurate reads and long noisy reads need very different error tolerances. It defaults to Short-read, and it offers Short-read, Assembly-to-assembly, Spliced CDS/cDNA, Oxford Nanopore, PacBio HiFi, and PacBio CLR, of which only Short-read applies to Illumina data. Match it to the machine that made your reads rather than to the organism, since the wizard only guesses from the first reads in the file and the guess can be wrong. On the command line this is `--preset`.
+**Preset.** Tells minimap2 what kind of sequence it is being handed, because short accurate reads and long, less accurate reads need different scoring rules. It starts on Short-read, or on whatever the first reads in the file suggest, and it stops guessing once you change it yourself. Match it to the machine that made your reads, using the table below, since a guess from the first few reads can be wrong. On the command line this is `--preset`.
 
-**Mode.** Is the same control under a different name, shown by BWA-MEM2, Bowtie2, and BBMap in place of minimap2's Preset. For BWA-MEM2 and Bowtie2 it defaults to Short-read and offers nothing else, because both programs are built for Illumina-length reads, so a picker holding one option is expected rather than a sign that anything failed to load. For BBMap it defaults to Standard and offers Standard and PacBio, and you switch to PacBio when the reads came off a PacBio instrument and are thousands of bases long. On the command line this is `--preset`.
+**Mode.** Plays the part of Preset for BWA-MEM2, Bowtie2, and BBMap. BWA-MEM2 and Bowtie2 offer only Short-read, because both are built for Illumina reads, so a control with one choice is expected, while BBMap defaults to Standard. Choose BBMap's PacBio mode only for long PacBio reads thousands of bases long. On the command line this is `--preset`.
 
-**Run Mode.** Decides whether several selected read sets each get their own alignment or all get poured into one. Combine only when the selected files really are pieces of one library, for example two sequencing runs of the same tube, because pouring them together loses any way to tell which read came from which sample and the automatic per-bundle read groups apply only to separate runs. It defaults to Run separately per bundle, which is almost always what you want, and the alternative is Combine all inputs and run once. This setting has no command-line flag. `lungfish-cli map` already treats all the inputs of one invocation as one sample's reads, so you run it once per sample instead.
+The table pairs each kind of read with its minimap2 preset and the token the command line uses for it. cDNA is DNA copied from RNA, so it carries spliced genes with their introns removed. A [contig](../../GLOSSARY.md#contig) is one continuous stretch of sequence an assembler rebuilt from overlapping reads.
 
-The next five settings sit inside the collapsed **Read Group** disclosure. A [read group](../../GLOSSARY.md#read-group) is a labelled block in the BAM header, written as an `@RG` line, saying which sample, library, instrument, and lane the reads came from. LGE fills in every field for you, so the five entries below are reference material. Read them only when a downstream tool asks you for a specific value. Tools that group reads by sample read these fields, joint variant callers among them, which are callers that examine several samples at once instead of one at a time. The bracketed flag in each label is the command-line name of that field, not something you type into the window.
+| Your sequences | Preset | `--preset` token |
+|---|---|---|
+| Illumina short reads | Short-read | `sr` |
+| Oxford Nanopore long reads | Oxford Nanopore | `map-ont` |
+| PacBio HiFi long reads | PacBio HiFi | `map-hifi` |
+| Older PacBio CLR long reads | PacBio CLR | `map-pb` |
+| cDNA mapped against a genome | Spliced CDS/cDNA | `splice` |
+| Contigs from a closely related genome | Assembly-to-assembly | `asm5` |
 
-**ID (--rg-id).** Writes a read-group identifier into the alignment file so downstream tools can tell one batch of reads from another, and it is a label rather than a filter. It defaults to the sample name taken from the input file, and it accepts any text without spaces, since the BAM header format uses whitespace to separate one field from the next and a space here would split the value in two. Set it when you plan to merge this alignment with others and need each batch to stay distinguishable. On the command line this is `--rg-id`.
+**Run Mode.** Appears only when you selected more than one read bundle, and decides whether each bundle gets its own alignment or all of them are pooled into one. The default is Run separately per bundle, which keeps samples apart, and in that state the Read Group fields give way to the note "Each bundle gets its own read group, derived automatically from its sample name." Choose Combine all inputs, run once only when the bundles are pieces of one library, such as two sequencing runs of the same tube, because pooling loses any record of which read came from which bundle. This setting has no command-line flag.
 
-**Sample (--rg-sm).** Records which biological sample the reads came from, and joint variant callers group reads by this field, so two files sharing a sample name are treated as one individual. It defaults to the sample name taken from the input file, and it accepts any text. Set it to your real specimen identifier when the file name is not one. On the command line this is `--rg-sm`.
+The next five settings sit inside the collapsed **Read Group** disclosure. A [read group](../../GLOSSARY.md#read-group) is the `@RG` line in a BAM header that names the sample, library, instrument, and lane the reads came from, and every read in the file carries the ID of its read group. Joint variant callers, which call several samples at once, use it to tell samples apart, and duplicate marking uses it to tell libraries apart. LGE fills in every field, so change one only when a downstream tool or a collaborator asks for a specific value. After the run the Inspector's Read Groups list shows what ended up in the file. The flag in each label is the command-line name of that field, not something you type into the window.
 
-**Library (--rg-lb).** Records which sequencing library the reads came from, which is what duplicate marking compares against. Duplicate marking is the later step that flags reads which are copies of one original fragment rather than independent evidence, and two reads can only be copies if they came from the same library. It defaults to the sample name taken from the input file, and it accepts any text. Set it when one sample was prepared as two separate libraries and you want duplicates judged within each. On the command line this is `--rg-lb`.
+**ID (--rg-id).** Writes the read-group identifier, the label each read carries to say which batch it belongs to. It defaults to the sample name and should not contain spaces, because some downstream tools mishandle them. Set it when you plan to merge this alignment with others and need each batch to stay distinguishable. On the command line this is `--rg-id`.
 
-**Platform (--rg-pl).** Records the sequencing technology, and some variant callers change their error model based on it. It is filled in from the preset you chose rather than left blank, so a short-read preset writes `ILLUMINA`, Oxford Nanopore writes `ONT`, the PacBio presets write `PACBIO`, splice mode writes `CDNA`, and assembly mode writes `ASSEMBLY`. The value shows in this field while the wizard is open, and after the run it lives only inside the BAM header. Correct it when the preset guessed a platform that does not match your instrument. Change the preset afterwards and the field rewrites itself to the new preset's value, but only while it still holds the old preset's value, so anything you typed in yourself is left alone. On the command line this is `--rg-pl`.
+**Sample (--rg-sm).** Records which biological sample the reads came from, and joint variant callers treat every read group sharing one sample name as one individual. It defaults to the sample name LGE takes from the read bundle. Set it to your real specimen identifier when the bundle name is not one. On the command line this is `--rg-sm`.
 
-**Platform unit (--rg-pu).** Records the exact flow cell and lane the reads came off, which makes it the finest-grained batch label in the read group. It defaults to the sample name taken from the input file, and it accepts any text. Fill it when you are chasing a run-specific artifact and need to separate lanes. On the command line this is `--rg-pu`.
+**Library (--rg-lb).** Records which sequencing library the reads came from, where a library is one batch of DNA fragments prepared for the sequencer. It defaults to the sample name, which is right when each sample has one library, since [duplicate marking](../../GLOSSARY.md#mark-duplicates) only compares reads within one library. Set it when one sample was prepared as two libraries and you want duplicates judged within each. On the command line this is `--rg-lb`.
 
-The last five settings sit inside the collapsed **Advanced Settings** disclosure. They decide which alignments survive into the finished BAM and let you hand raw options to the mapper. The defaults suit almost every run.
+**Platform (--rg-pl).** Records the sequencing technology, which some variant callers use to choose an error model. LGE fills it from the preset, writing `ILLUMINA` for Short-read and BBMap Standard, `ONT` for Oxford Nanopore, `PACBIO` for the PacBio choices, `CDNA` for Spliced CDS/cDNA, and `ASSEMBLY` for Assembly-to-assembly, and it rewrites the field when you change the preset unless you typed your own value. Correct it when that value does not match your instrument. On the command line this is `--rg-pl`.
+
+**Platform unit (--rg-pu).** Records the flow cell and lane the reads came off, the finest batch label a read group holds. It defaults to the sample name, because LGE has no flow-cell details to fill in. Fill it when you are chasing a problem confined to one lane and need to keep lanes apart. On the command line this is `--rg-pu`.
+
+The last five settings sit inside the collapsed **Advanced Settings** disclosure. They decide which alignments survive into the finished BAM, and the defaults suit almost every run.
 
 <!-- SHOT: mapping-wizard-advanced -->
 
-**Threads:.** Sets how many pieces of the mapping job run at the same time, so more threads finish sooner but leave less of the machine for anything else. The wizard already fills in the right number for your own Mac, which is its count of processor cores, and the stepper will not let you set more, so there is nothing to look up. Lower it when you want to keep working in other applications while a large run finishes. On the command line this is `--threads`.
+**Threads:.** Sets how many processor cores the mapper uses at once. The default is every core your Mac has, and the control will not go above your Mac's core count. Lower it to keep the Mac responsive during a long run. On the command line this is `--threads`.
 
-**Secondary alignments:.** Keeps the extra places a read could also have come from rather than only its best one, and repeated regions produce many of these. The checkbox is off by default, because a [secondary alignment](../../GLOSSARY.md#secondary-alignment) inflates read counts and confuses most downstream tools. Turn it on when you are studying repeats or gene families and need to see every plausible placement. Each mapper asks for them in its own way, and LGE sets the right option for whichever mapper you chose and records it in the run's provenance file, so there is nothing for you to type. On the command line this is `--secondary`.
+**Secondary alignments:.** Keeps a [secondary alignment](../../GLOSSARY.md#secondary-alignment) for each other place a read could also have come from, and repeated regions produce many of them. It is off by default, because secondary records inflate counts and confuse most downstream tools. Turn it on when you study repeats or gene families and need to see every plausible placement. On the command line this is `--secondary`.
 
-**Supplementary:.** Keeps the leftover pieces of a read that spans a break, where one part lands in one place and the rest lands elsewhere, which is the signature of a structural rearrangement. Ticked keeps those [supplementary alignments](../../GLOSSARY.md#supplementary-alignment) and unticked drops them, and the box is ticked by default, so the default preserves the split-read evidence. Turn it off only when a downstream tool chokes on split records. On the command line this is `--no-supplementary`, which is worded the opposite way round to the checkbox, since passing it drops the records that leaving the box ticked keeps.
+**Supplementary:.** Keeps the [supplementary alignment](../../GLOSSARY.md#supplementary-alignment) records of a read split across two places, one part here and the rest elsewhere, which is how a structural rearrangement such as a large deletion shows up in the reads. It is ticked by default, so that split-read evidence stays in the file. Untick it only when a downstream tool fails on split records. On the command line this is `--no-supplementary`.
 
-**Min mapping quality:.** Throws away any read the mapper was not confident it placed correctly, judged by [MAPQ](../../GLOSSARY.md#mapq), the per-read confidence score where 0 means the mapper could not choose between two or more locations and 60 means it found one clearly best location. It defaults to 0, which keeps everything, and the stepper accepts 0 to 60 whichever mapper you chose, though 60 is reached in practice only by minimap2 and BWA-MEM2, while Bowtie2 and BBMap scale their scores lower and top out below it. Raise it to about 20 when repeated sequence is putting reads in the wrong place, which shows in the viewport as a pile of low-MAPQ reads over one spot carrying variants that no neighbouring region supports. On the command line this is `--min-mapq`.
+**Min mapping quality:.** Drops every read whose MAPQ falls below this number. The default is 0, which keeps everything, and the control accepts 0 to 60. Raise it to about 20 when reads from repeats are landing in the wrong place, which shows as a pile of low-MAPQ reads carrying variants that no neighbouring region supports, and remember that one cutoff is stricter for some mappers than for others, as [What the four mappers give you on the same reads](#what-the-four-mappers-give-you-on-the-same-reads) explains. On the command line this is `--min-mapq`. Unlike the two later MAPQ controls, this one removes reads from the BAM, as [Three MAPQ cutoffs](04-alignment-quality.md#three-mapq-cutoffs) compares.
 
-**Extra arguments.** Passes options straight through to the mapper untouched, and nothing in the app checks that they make sense. It is empty by default, and it accepts any option of the mapper you chose, written the way you would type it at a command line. Use it only when a published protocol names a flag the wizard does not expose, and watch the field as you type, because LGE checks the text on every keystroke and unreadable text both blocks Run and appears as an orange message in the footer, the strip along the bottom edge of the sheet. On the command line this is `--extra-args`.
+**Extra arguments.** Passes text straight to the mapper without LGE checking it. The default is empty, which is right for almost every run. Use it only for a mapper option the dialog does not show, after reading that tool's own documentation. On the command line this is `--extra-args`.
 
-The field's placeholder text is the fastest hint at what each mapper accepts. It reads `--eqx -N 5` for minimap2, `-M -Y` for BWA-MEM2, `--very-sensitive -N 1` for Bowtie2, and `minid=0.97 local=t` for BBMap.
-
-For the record, the option LGE adds for you when Secondary alignments is ticked differs by mapper, `-k 10` for Bowtie2 and `secondary=t` for BBMap rather than one shared flag. You never type either one.
+LGE checks only that the Extra arguments text splits cleanly into separate options. Text it cannot split turns orange under the field and blocks Run. The grey placeholder in the field shows a sample for each mapper, `--eqx -N 5` for minimap2, `-M -Y` for BWA-MEM2, `--very-sensitive -N 1` for Bowtie2, and `minid=0.97 local=t` for BBMap.
 
 ### Importing an alignment somebody else made
 
-An alignment that already exists as a BAM, CRAM, or SAM file does not need mapping at all. Use **File > Import Center...** (Cmd-Shift-I), open the Alignments tab, and drop the file on the BAM/CRAM Alignments card. That card has no settings beyond the file panel, so there is nothing to configure. The importer indexes the alignment, collects per-chromosome and per-read-group statistics, and works out which reference assembly the file's own header declares, without asking you to confirm it. A CRAM stays a CRAM, sorted and indexed in place with a `.crai` index beside it, and only a SAM is normalised to a sorted, indexed BAM. On the command line this is `lungfish-cli import bam`, which takes `--name` to set the track's display name and `--output-dir` to name the project it lands in.
+A BAM or CRAM file that already exists needs no mapping. Open the [Import Center](../../GLOSSARY.md#import-center) with **File > Import Center...** (Cmd-Shift-I), which [The Import Center](../01-foundations/06-the-lungfish-project.md#the-import-center) describes. On its Alignments tab, drop the file on the BAM/CRAM Alignments card, which has no settings. LGE indexes the file, collects its per-chromosome and read-group statistics, and takes the reference assembly name from the file's own header without asking you to confirm it.
 
 ## Reading the results
 
-Click the new alignment track in the sidebar and the Inspector fills with statistics measured from the finished BAM.
+Click the new result under `Analyses/`. Open the [Inspector](../../GLOSSARY.md#inspector) with **View > Show Inspector** (Cmd-Opt-I) if it is hidden. Its Bundle tab lists the run's own sections first, Run Inputs, Run Settings, and Output Files. Below them sit Alignment Summary, Read Groups, and Flag Statistics, which describe the BAM itself.
+
+One idea makes every count below readable. A read is one sequenced piece of DNA, and a record is one row of the BAM. Most reads get exactly one record, called the [primary alignment](../../GLOSSARY.md#primary-alignment). A read that the mapper splits across two places also gets a supplementary record. So a count of records runs a little higher than a count of reads, and the Inspector shows both kinds, in different places.
+
+### The Alignment Summary
 
 <!-- SHOT: alignment-inspector-stats -->
 
-Five numbers sit at the top. Total Mapped is how many alignment records were placed on the reference. A record is one row of the BAM, and it is not quite the same thing as a read, because a read that the mapper splits across two places contributes two rows. The Flag Statistics list below settles the difference for this fixture. Total Unmapped is how many records were not placed. Mapped % is the first as a percentage of the two together, drawn as a bar beneath the figure. Chromosomes counts the reference sequences the BAM's header names, which is 1 for this fixture because the reference holds only the chromosome 20 slice. Est. Coverage is a rough estimate of average depth across that sequence, and it appears only when the alignment has a single contig, so a whole-genome reference shows no such row. It is worked out as the mapped record count times an assumed read length of 150 bases, divided by the length of the reference. On 250-base reads such as this fixture's it therefore understates the real depth by about two fifths, which is a defect in this release rather than a fact about your data.
+The Alignment Summary counts records. The Inspector rounds any count of 1,000 or more to thousands with one decimal place, so 90,990 shows as 91.0K.
 
-For the fixture mapped with minimap2 those five read 90,990, 213, 99.8%, 1, and 27.3x. Depth is the number of reads covering a single position, and it is a different measurement from breadth, which counts how many positions carry any read at all. The true mean depth on the HG002 slice is 44.7x, which the `mapping-result.json` described below and the coverage label in the alignment viewport both report, and it sits inside the 30x to 50x band a human genome project usually aims for. Read the Inspector's 27.3x as the 150-base estimate of that same figure. A region under 10x is too thin to call a variant with confidence.
+| Label | What it counts | Fixture value |
+|---|---|---|
+| Total Mapped | Records placed on the reference, supplementary records included | 91.0K, which is 90,990 |
+| Total Unmapped | Records the mapper could not place | 213 |
+| Mapped % | Total Mapped as a share of all records, drawn as a bar beneath | 99.8% |
+| Chromosomes | Reference sequences the BAM names | 1 |
+| Est. Coverage | An estimate of mean depth, explained below | 27.3x |
 
-Below the five sits a collapsed **Flag Statistics** list. Expand it for the raw [flagstat](../../GLOSSARY.md#flagstat) categories, meaning the counts `samtools flagstat` produces by tallying the flag bits on every record. Flag bits are a small set of yes-or-no markers each record carries, recording things like whether the record was placed at all and whether its mate landed nearby. Four of the categories are worth reading. Here is the whole set for the fixture run, and the numbers behind the paragraph that follows.
+[Depth](../../GLOSSARY.md#depth), also called coverage, is the number of reads covering one position, and [coverage breadth](../../GLOSSARY.md#coverage-breadth) is the share of positions with at least one read. Mean depth is the average of that number over every position in the reference.
 
-| Flag Statistics category | Count for the fixture |
+Est. Coverage is not measured. LGE multiplies Total Mapped by 150, an assumed read length, and divides by the length of the reference. For the fixture that is 90,990 times 150, divided by 500,001, which gives 27.3x. The 150 is a fixed guess rather than the length of your reads. These reads run up to 250 bases, so the estimate falls short of the measured mean depth of 44.7x by about two fifths.
+
+The size of that error follows your read length. Reads close to 150 bases give an estimate close to the truth, shorter reads push it too high, and nanopore reads thousands of bases long push it far too low. The row appears only when the reference holds a single sequence, so a whole-genome reference shows no Est. Coverage at all. Trust the measured mean depth instead, the `meanDepth` value in `mapping-result.json` (44.7 for this run). Output Files lists that file with a Reveal in Finder button, and it opens in any text editor. The same file holds `coverageBreadth`, 99.994% for this run, and `medianMAPQ`. How much depth is enough, and how to read depth position by position, is covered in [The coverage curve](02-reading-an-alignment.md#the-coverage-curve).
+
+### Run Settings
+
+Run Settings lists the mapper, the preset, the main settings you chose, the mapper and samtools versions, and four counts from `mapping-result.json`. These four count reads, not records, so a split read counts once.
+
+| Row | Fixture value |
 |---|---|
-| total | 91,203 |
-| primary | 91,148 |
-| supplementary | 55 |
-| primary mapped | 90,935 |
-| properly paired | 90,414 |
+| Mapped Reads | 90935 |
+| Unmapped Reads | 213 |
+| Total Reads | 91148 |
+| Mapped Rate | 99.8% |
 
-Read them in that order. The total of 91,203 is larger than the 91,148 reads you imported, which looks wrong until you notice the supplementary row. Fifty-five reads were split across two places on the reference and so contributed a second record each. Subtracting those gives 91,148, the [primary alignments](../../GLOSSARY.md#primary-alignment), which is one record per read and the honest count of the reads themselves. Of those, 90,935 were placed somewhere. The same 55 supplementary records explain why that figure sits below the Inspector's Total Mapped of 90,990, since Total Mapped counts every placed record and primary mapped counts only one per read. Each is 99.77% of its own total, 90,935 out of 91,148 primary records and 90,990 out of 91,203 records overall, so the two percentages agree to two decimal places without being the same fraction. The [properly paired](../../GLOSSARY.md#properly-paired) count of 90,414 is how many pairs landed at a sensible distance apart and pointing at each other as the library preparation intended. Out of the 91,148 paired reads that is 99.19%, a sign of a clean library.
+Total Reads matches the 91,148 reads you imported, which is the first thing to check after any run. Mapped Reads sits 55 below the Alignment Summary's Total Mapped, and the Flag Statistics list shows why.
 
-Every mapping run also writes a `mapping-result.json` beside the BAM, in the run's own folder under `Analyses/`, carrying figures the Inspector does not show. Among them is [coverage breadth](../../GLOSSARY.md#coverage-breadth), the fraction of reference positions with at least one read on them. For this run it is 99.994%, meaning almost every position of the 500 kb slice carries reads. To reach it without a terminal, right-click the alignment track in the sidebar, choose Show in Finder, and read the file in any text editor.
+### Flag Statistics
+
+Expand the collapsed **Flag Statistics** list for the raw [flagstat](../../GLOSSARY.md#flagstat) counts. `samtools flagstat` makes them by tallying the flags on every record, where a flag is a set of yes-or-no markers such as mapped, paired, or supplementary. Five rows tell the story. The last column gives the exact figure behind each rounded one.
+
+| Row | What it counts | Inspector shows | Exact count |
+|---|---|---|---|
+| total | Every record in the BAM | 91.2K | 91,203 |
+| primary | One record per read | 91.1K | 91,148 |
+| supplementary | Extra records for split reads | 55 | 55 |
+| primary mapped | Reads placed somewhere | 90.9K | 90,935 |
+| properly paired | Reads whose mate landed where the library says it should | 90.4K | 90,414 |
+
+Read them top to bottom. The total is 55 higher than the number of reads you imported, and the supplementary row accounts for exactly those 55 records. Take them away and you reach primary, 91,148, one record per read. Of those reads, 90,935 were placed, which is 99.77%. The Alignment Summary's Total Mapped of 90,990 counts the 55 supplementary records as well, which is why it sits 55 above primary mapped.
+
+A read is [properly paired](../../GLOSSARY.md#properly-paired) when its mate landed on the same sequence, facing it, at about the distance the fragments in the library were cut to. Here that is 90,414 of 91,148 reads, 99.19%, the mark of a clean library. Rows such as secondary and duplicates read 0 for this run, because the default settings drop secondary records and nothing has marked duplicates yet.
 
 ### What the four mappers give you on the same reads
 
-All four ran on the identical fixture with their default settings. The table records what each returned, so you can see how much the choice actually moves. Median MAPQ is the middle confidence score of all the placed reads, so half the reads scored above it and half below. The Records column counts every record the mapper wrote, unmapped ones included, which is why Bowtie2's 91,148 records still contains 907 reads it could not place. Your own run's median MAPQ is in the `mapping-result.json` described above rather than in the Inspector.
+All four mappers ran on the identical fixture with their default settings. Records is the Flag Statistics total, Mapped counts mapped records, and Mapped % is the share of records placed. Median MAPQ is the middle MAPQ of all placed reads, so half scored above it and half below.
 
 | Mapper | Records | Mapped | Mapped % | Mean depth | Median MAPQ |
 |---|---|---|---|---|---|
@@ -180,46 +212,30 @@ All four ran on the identical fixture with their default settings. The table rec
 | Bowtie2 | 91,148 | 90,241 | 99.00% | 44.8x | 42 |
 | BBMap | 91,148 | 90,658 | 99.46% | 45.0x | 45 |
 
-The record counts differ because the mappers disagree about how many split reads to report. minimap2 emitted 55 supplementary records and BWA-MEM2 emitted 169, while Bowtie2 and BBMap emitted none at all and so land on the input's own 91,148. The mapped percentages sit within a percentage point of each other, and mean depth is the same to within a third of a read. What separates them here is median MAPQ, where minimap2 and BWA-MEM2 both reach 60 while Bowtie2 reports 42 and BBMap 45, because the four programs scale that confidence score differently rather than because their placements are worse. That scaling is why a Min mapping quality cutoff does not mean the same thing across all four. A cutoff of 20 is a mild filter under minimap2 or BWA-MEM2 and a harsher one under Bowtie2 or BBMap, so set it against the mapper you actually ran.
+The record counts differ because the mappers disagree about how many split reads to report. minimap2 wrote 55 supplementary records and BWA-MEM2 wrote 169, while Bowtie2 and BBMap wrote none and so land on the input's own 91,148. The mapped percentages sit within one percentage point of each other, and mean depth agrees to within a third of a read.
 
-The practical reading is that on clean human short-read data against a correct reference, the mapper choice barely matters. minimap2 is the default and is a defensible pick for almost any project. BWA-MEM2 is what most production human resequencing pipelines call, so reach for it when you are reproducing one. Bowtie2 is worth naming when a published protocol names it. BBMap tolerates more sequence error, so it is worth a second run when another mapper reports a mapping rate you did not expect.
+Median MAPQ is where they part company, and the reason is scaling, not placement. Each mapper puts its confidence on its own scale. minimap2 and BWA-MEM2 give a clear placement 60. Bowtie2's scale stops at 42, so a read it is certain of scores 42. BBMap's scores also ran lower on these reads, with a median of 45. A Min mapping quality cutoff therefore means different things for different mappers. A cutoff of 20 is a mild filter under minimap2 or BWA-MEM2 and a stricter one under Bowtie2 or BBMap. Set any cutoff against the mapper you actually ran, and never compare MAPQ values between mappers.
+
+For clean human short reads against the right reference, the choice of mapper barely matters. minimap2 is the default, suits almost any project, and is the one to use for nanopore or PacBio reads. BWA-MEM2 is what many published human resequencing pipelines use, so choose it when you are reproducing one. Choose Bowtie2 when a published protocol names it. BBMap often tolerates more mismatches, so a second run with it is worth trying when another mapper reports a mapping rate you did not expect.
 
 ## What good looks like
 
-Four checks tell you a mapping run went the way you meant it to.
+Check the mapping rate against the reference you chose. For human reads against the matching human reference, Mapped Rate should sit above 99%, and all four mappers clear that on the fixture. A rate under 50% usually means the wrong reference, so confirm the bundle really is the genome you sequenced. A preset mismatch is the second suspect, since nanopore reads run through the Short-read preset mostly fail to map. A third cause applies to samples that hold more than one organism, such as a swab where a pathogen sits among human reads, because only the fraction matching your reference maps. [What Is Read Classification](../06-classification/01-what-is-classification.md) shows how to find out what a sample holds.
 
-Confirm the mapping rate against the reference you chose. For human reads against the matching human reference, Mapped % should sit above 99%, and all four mappers clear that on the fixture. A rate under 50% almost always means the wrong reference, so confirm the bundle really is the genome you sequenced rather than a related organism. A preset mismatch is the second possibility, since Oxford Nanopore reads run against the Short-read preset mostly fail to map because the error profile is wrong. The third applies once you move past a clean human sample like this one. A sample that holds more than one organism, such as a swab where a pathogen sits in a background of human reads, maps only the fraction that matches whichever reference you chose. Run classification first to find out what is actually in the sample, which [What Is Read Classification](../06-classification/01-what-is-classification.md) covers.
+Check the totals against your read count. Total Reads in Run Settings should equal the reads you imported, and the Flag Statistics total should equal that count plus the supplementary records, never less. A total below your read count means reads were dropped, which happens when Min mapping quality was raised.
 
-Confirm the depth is enough for what comes next. A mean depth of 44.7x on this fixture is comfortable for variant calling, and the Inspector's Est. Coverage of 27.3x is the same run seen through the 150-base assumption. Anything under about 10x leaves too little evidence to separate a real difference from an instrument error.
+Check the pairing when the reads are paired. Properly paired near 100% is healthy. If the run fails instead, a red row with a message about mismatched read names or unequal read counts in the two files usually means one file was cut short during download. A failed run turns its row red, and [Start here, at the failed row](../appendices/troubleshooting.md#start-here-at-the-failed-row) explains what to copy from it.
 
-Confirm the total against your read count. The Flag Statistics total should equal the reads you imported plus however many supplementary records the mapper emitted, and never less. A total well below your read count means reads were dropped, which happens when Min mapping quality was raised or when the reads and the reference genuinely do not correspond.
+Check depth with the measured mean depth, not Est. Coverage. The fixture's 44.7x is comfortable for calling variants in a human sample, while its Est. Coverage of 27.3x is the same run seen through the 150-base guess.
 
-Confirm the paired counts when the reads are paired. Properly paired near 100% is healthy. A failed run shows as a red row in the Operations panel, and expanding it prints the failure text, which for a pairing problem names mismatched read names or different read counts in the two files. That is the mark of a truncated download, a file that opens and looks complete but stops short of its full length with no error to warn you. Compare the file size against the figure the download page lists, or simply download the pair again from its original source and re-import it.
-
-Two more habits are worth keeping. LGE records the resolved tool version in the [provenance](../../GLOSSARY.md#provenance) sidecar of every mapping run, which is `mapping-provenance.json` sitting in the run's folder under `Analyses/` beside the result file described earlier, and it opens in a text editor like any other. If you re-run the same operation after a plugin pack update and the alignments come back slightly different, read the sidecar's version fields. The fixture runs above used minimap2 2.31 with samtools 1.24. A minor mapper release now and then nudges [soft-clip](../../GLOSSARY.md#soft-clip) boundaries by a base or two. A soft clip is an end of a read the mapper left unaligned while placing the rest, so moving its boundary shifts where the alignment is judged to start or stop. That is harmless for variant calling but leaves two BAMs that are not byte for byte identical.
+LGE writes a [provenance](../../GLOSSARY.md#provenance) record beside every result, holding the command, the tool version, and a [checksum](../../GLOSSARY.md#checksum) of each file, and [Provenance and Reproducibility](../01-foundations/08-provenance-and-reproducibility.md#reading-the-results) shows how to read it. If a re-run after a plugin pack update gives a slightly different BAM, compare the Mapper Version rows in Run Settings first. A new mapper release sometimes moves a soft clip by a base or two. A [soft clip](../../GLOSSARY.md#soft-clip) is a stretch at a read end that stays in the file but is left out of the pileup, written as `S` in the read's [CIGAR](../../GLOSSARY.md#cigar) string, as [The CIGAR string](../01-foundations/04-alignment-files.md#the-cigar-string) explains. That change is harmless for variant calling.
 
 ## On the command line
 
-This section is optional. Everything above happens in the window, and nothing later in this manual requires you to have run a command. The command-line flags named in the Settings section are there for reference too, so you never have to type one to use the wizard.
-
-Mapping from the command line takes two commands rather than one, and both are required. `lungfish-cli map` runs the mapper and writes its results into a directory. `lungfish-cli bam adopt-mapping` then attaches that directory's BAM to a reference bundle, which is the step that makes the track appear in the sidebar. A backslash at the end of a line means the command continues on the next line, so each block below is one command however many lines it spans.
-
-The GUI's preset labels and the command line's `--preset` tokens are not the same strings, so the table below pairs them before the commands that need them.
-
-| Data type | Wizard label | `--preset` token |
-|---|---|---|
-| Illumina short reads | Short-read | `sr` |
-| Oxford Nanopore long reads | Oxford Nanopore | `map-ont` |
-| PacBio HiFi (CCS) long reads | PacBio HiFi | `map-hifi` |
-| PacBio CLR (older long reads) | PacBio CLR | `map-pb` |
-| Assembly or assembled contigs | Assembly-to-assembly | `asm5` |
-
-A contig, in that last row, is one continuous stretch of sequence built by joining overlapping reads together.
-
-Two flags in the first command have no counterpart in the window. `--paired` tells the command line that the two files are the R1 and R2 halves of one pair, which the wizard works out on its own from the reads you selected. `--mapper` names the program, which the wizard takes from the menu item you clicked. Replace the project path in the second command with the path to your own project, since the one shown is the demo project this manual builds and is not created anywhere in this chapter.
+This section is optional, and nothing later in this manual needs it. The `lungfish-cli` program ships inside LGE, and [Finding the program](../appendices/cli-reference.md#finding-the-program) shows how to run it.
 
 ```bash
-# Map the fixture pair with minimap2.
+# Map the fixture pair with minimap2 into a folder of its own.
 lungfish-cli map \
   ~/Downloads/HG002.chr20.10.0-10.5Mb_R1.fastq.gz \
   ~/Downloads/HG002.chr20.10.0-10.5Mb_R2.fastq.gz \
@@ -228,22 +244,14 @@ lungfish-cli map \
   --sample-name HG002 \
   -o ~/Downloads/hg002-mapping
 
-# Attach the result to the reference bundle as a track.
+# Attach that result to a reference bundle as an alignment track.
 lungfish-cli bam adopt-mapping \
-  --bundle "$HOME/Desktop/lge-docs/LGE Manual Demo.lungfish/Reference Sequences/GRCh38.chr20.10.0-10.5Mb.lungfishref" \
+  --bundle "path/to/your/reference.lungfishref" \
   --mapping-result ~/Downloads/hg002-mapping \
   --name "minimap2 Mapping"
 ```
 
-The first command prints its settings, then the same figures the Inspector shows. For the fixture it reported 91,203 total reads, 90,990 mapped at 99.77%, 213 unmapped, and a 4.8 second runtime on a 14-core Apple Silicon machine. Read that runtime as a figure from one run on one machine rather than a promise. How long your own run takes rises with the number of reads and the size of the reference, so a whole human genome takes far longer than this 500 kb slice. The second command prints one line, `Attached alignment track 'minimap2 Mapping' (aln_86981CC7) to bundle.`
-
-Two tokens fall outside the preset table above because they belong to BBMap rather than minimap2. `bbmap-standard` is the Standard mode and the one BBMap falls back to when you omit the flag, and `bbmap-pacbio` is its PacBio mode. minimap2 also offers `splice` for spliced transcript alignment, shown in the wizard as Spliced CDS/cDNA.
-
-Four details of `map` are worth knowing. `--reference` wants a FASTA file rather than a bundle, so pass the FASTA. A `.lungfishref` path does work whenever LGE can pull the bundle's primary FASTA out of it, but when a bundle path is rejected, pass the FASTA file sitting inside that bundle instead. Multiple input files are treated as one sample's reads, so run the command once per sample rather than handing it a whole folder. `--format json` and `--format tsv` print the run summary for a script to read instead of a person. `--mapper` chooses among `minimap2`, `bwa-mem2`, `bowtie2`, and `bbmap`, which is the choice the menu item makes for you in the window.
-
-The adoption step mints its own track identifier, of the form `aln_` followed by eight characters, and the `aln_86981CC7` above is one. Pass `--track-id` to set that identifier yourself when a script needs a stable handle for the track it just attached. Adopting moves the BAM and its index into the bundle, so the mapping folder no longer holds them afterwards, and the folder keeps only the summary and provenance files.
-
-Both routes write a provenance sidecar, recording the command that ran, the version of each tool it called, and checksums of the files involved.
+Two differences change what you get. The command line needs `--paired` to treat the two files as mates, which the window works out for itself, and without it the pairing counts lose their meaning. The window also keeps its result in its own folder under `Analyses/` and leaves your reference bundle untouched, while `bam adopt-mapping` adds the track to the reference bundle you name.
 
 ## Next
 

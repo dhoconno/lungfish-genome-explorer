@@ -1,8 +1,8 @@
-# Captured from Lungfish Preview 2026.9.13 with capture-window.sh (2026-09 campaign).
-# App state: The Remove Human Reads pane with HG002 as input. On this profile the managed human database is not installed, so the Database row reads Required before this tool can run with a single Choose... button rather than the installed-database state the chapter describes.
+# Captured from Lungfish Preview 2026.9.40 with capture-window.sh (2026-09-24 manual review).
+# App state: Selected Imports/HG002 in the sidebar. Chose Tools > Decontamination > Remove Human Reads... The pane has no database row; it uses the managed Deacon pan-human index.
 id: human-scrub-dialog
 chapter: 03-reads/05-decontamination
-caption: "The Remove Human Reads pane, with the Database row in the Inputs section offering Choose... because no database is selected, and the settings pane below it holding no controls."
+caption: "The Remove Human Reads pane, with only the selected read bundle in the Inputs section and a line of text in place of settings controls, because the operation always uses the managed human index."
 viewport_class: fastq
 app_state:
   fixture: '{demo_project}'
@@ -26,10 +26,10 @@ steps:
 crop:
   mode: region
   region:
-  - 242
-  - 102
-  - 982
-  - 696
+  - 211
+  - 100
+  - 974
+  - 699
 post:
   retina: true
   format: png

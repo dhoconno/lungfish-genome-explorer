@@ -2,8 +2,7 @@
 # App state: Import Center opened via File > Import Center..., Classification Results tab selected, window resized to 980x900 so all six cards fit without scrolling
 id: import-center-classification-tab
 chapter: 06-classification/01-what-is-classification
-caption: The Import Center on its Classification Results tab, showing all six cards, Kraken2 Results,
-  EsViritu Results, TaxTriage Results, NAO-MGS Results, NVD Results, and CZ-ID Results.
+caption: "The Import Center on its Classification Results tab, showing all six cards, NAO-MGS Results, Kraken2 Results, EsViritu Results, TaxTriage Results, NVD Results, and CZ-ID Results."
 viewport_class: none
 app_state:
   fixture: '{demo_project}'

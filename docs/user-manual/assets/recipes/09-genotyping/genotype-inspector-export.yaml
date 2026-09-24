@@ -1,9 +1,8 @@
-# Captured from Lungfish Preview 2026.9.13 with capture-window.sh (2026-09 campaign).
-# App state: The Export block at the foot of the Inspector's Genotype Display section for the amplicon-genotyping_3 result, showing the Filtered Pivot... button and the caption stating the copy is a one-way export.
+# Captured from Lungfish Preview 2026.9.40 with capture-window.sh (2026-09-24 manual review).
+# App state: Williams copy project, amplicon-genotyping_3 selected; the Inspector Bundle tab scrolled to the Excel section holding the Export to Excel... button.
 id: genotype-inspector-export
 chapter: 09-genotyping/04-haplotype-definitions-and-export
-caption: The Export block at the foot of the Inspector's Genotype Display section, showing the Filtered
-  Pivot... button and the caption stating that the copy is one-way.
+caption: "The Excel section of the Inspector's Bundle tab on a genotype result, holding the Export to Excel… button."
 viewport_class: genotype
 app_state:
   fixture: '{williams_project}'
@@ -26,10 +25,10 @@ steps:
 crop:
   mode: region
   region:
-  - 1055
-  - 800
-  - 345
-  - 100
+  - 1085
+  - 555
+  - 312
+  - 62
 post:
   retina: true
   format: png

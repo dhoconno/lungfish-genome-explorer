@@ -1,9 +1,8 @@
-# Captured from Lungfish Preview 2026.9.13 with capture-window.sh (2026-09 campaign).
-# App state: Demo project open, Imports > HG002 selected, Inspector on the Bundle tab with Ingestion expanded
+# Captured from Lungfish Preview 2026.9.40 with capture-window.sh (2026-09-24 manual review).
+# App state: Demo project open, Imports > HG002 (paired, 91,148 reads) selected, Inspector on the Bundle tab with Ingestion expanded (Clumpified, Compressed, Pairing Interleaved, original R1 and R2 file names, sizes).
 id: inspector-fastq-detail
 chapter: 01-foundations/06-the-lungfish-project
-caption: The Inspector in close-up for the same FASTQ selection, showing read counts, length and quality
-  statistics, ingestion settings, the pipeline that produced the dataset, and the editable metadata fields.
+caption: "The Inspector in close-up for the same FASTQ selection, showing read counts, length and quality statistics, the Ingestion group with the pairing and the two original file names, and the start of the editable metadata fields."
 viewport_class: none
 app_state:
   fixture: '{demo_project}'

@@ -2,7 +2,7 @@
 # App state: The detail pane after selecting the WD10_S157_L001 sample column in the Williams amplicon-genotyping_3 result, showing the sample header metrics (Retained Unique Reads, Passed Alignments, Call-support check) and the Supported Alleles (Read support / Allele) list.
 id: genotype-call-evidence
 chapter: 09-genotyping/03-reading-the-genotype-comparison
-caption: "The selected sample's header metrics in the detail pane beside the Inspector's Selection panel, which lists the sample's allele targets as Read support and Allele field pairs."
+caption: "The selected sample's header metrics in the detail pane beside the Inspector's Selected Item tab, which lists the sample's allele targets as Read support and Allele field pairs."
 viewport_class: genotype
 app_state:
   fixture: '{williams_project}'

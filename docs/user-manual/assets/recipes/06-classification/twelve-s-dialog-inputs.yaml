@@ -2,8 +2,7 @@
 # App state: Workflow Operations dialog on 12S Amplicon Matching for SRR36291587, Inputs group showing Reference picker with Create 12S Reference..., Analysis Metadata picker, and FASTQ Bundles (1 selected)
 id: twelve-s-dialog-inputs
 chapter: 06-classification/10-twelve-s-metabarcoding
-caption: The Workflow Operations dialog on 12S Amplicon Matching, showing the Reference picker with its
-  Create 12S Reference... button, the Analysis Metadata picker, and the FASTQ Bundles list.
+caption: "The Workflow Operations dialog on 12S Amplicon Matching, showing the Reference picker with its Create 12S Reference... button, the Analysis Metadata picker with its Choose Metadata... button, and the FASTQ Bundles list."
 viewport_class: none
 app_state:
   fixture: '{demo_project}'

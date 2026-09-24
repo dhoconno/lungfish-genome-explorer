@@ -4,13 +4,13 @@ title: Lungfish Genome Explorer User Manual
 
 # Lungfish Genome Explorer User Manual
 
-Welcome. This manual is the documentation for **Lungfish Genome Explorer** (LGE), a macOS app for viral genome analysis built by the Lungfish research collaboration. It is organised into three parts. **Foundations** covers what to know before you start. **Working with the app** covers the workflows LGE supports, organized by what you are trying to do. **Reference** covers the command line, keyboard shortcuts, troubleshooting, and the [glossary](GLOSSARY.md).
+Welcome. This manual is the documentation for **Lungfish Genome Explorer** (LGE), a macOS app for genome analysis built by the Lungfish Research Collaboratory. It is organized into three parts. **Foundations** covers what to know before you start. **Working with the app** covers the workflows LGE supports, organized by what you are trying to do. **Reference** covers the command line, keyboard shortcuts, troubleshooting, and the [glossary](GLOSSARY.md).
 
 [Download Documentation as PDF](pdf/lungfish-user-manual.pdf){ .md-button }
 
 ## Foundations
 
-Read these first if you are new to genomics or new to LGE. Each is 5-10 minutes.
+Read these first if you are new to genomics or new to LGE. Each takes 5 to 10 minutes.
 
 - [What Is a Genome](chapters/01-foundations/01-what-is-a-genome.md)
 - [Sequencing Reads](chapters/01-foundations/02-sequencing-reads.md)
@@ -41,15 +41,15 @@ The specialized and downstream domains follow.
 
 | Appendix | What it holds |
 |---|---|
-| [CLI Reference](chapters/appendices/cli-reference.md) | Every `lungfish-cli` command, grouped by task, with a flat index |
+| [CLI Reference](chapters/appendices/cli-reference.md) | The syntax and every flag of every `lungfish-cli` command, grouped by task |
 | [File Formats](chapters/appendices/file-formats.md) | The standard formats LGE reads and writes, and every bundle format |
 | [Keyboard Shortcuts](chapters/appendices/keyboard-shortcuts.md) | Every shortcut, by menu and by window |
-| [Primer Schemes](chapters/appendices/primer-schemes.md) | The `.lungfishprimers` bundle and the eight shipped schemes |
+| [Primer Scheme Bundles](chapters/appendices/primer-schemes.md) | The `.lungfishprimers` bundle and the eight shipped schemes |
 | [Tool Versions](chapters/appendices/tool-versions.md) | The pinned version of every tool, pipeline, and database |
 | [Running in CI](chapters/appendices/06-running-in-ci.md) | Headless runs on a continuous integration runner |
 | [The AI Assistant](chapters/appendices/ai-assistant.md) | The Inspector's Assistant tab and its provider settings |
 | [Power User Notes](chapters/appendices/power-user-notes.md) | The exact arguments LGE passes to each tool, and the reproducibility caveats |
 | [Shared Projects and Bundle Migration](chapters/appendices/shared-projects.md) | Project locks, read-only windows, and older bundles |
 | [Troubleshooting](chapters/appendices/troubleshooting.md) | Symptoms on screen, what they mean, and what to do |
-| [Bibliography](chapters/appendices/bibliography.md) | Citations for every tool, and the command that prints them for a run |
+| [Tool Bibliography](chapters/appendices/bibliography.md) | Citations for every tool, and the command that prints them for a run |
 | [Glossary](GLOSSARY.md) | Every term the manual explains |

@@ -1,5 +1,5 @@
 # Captured from Lungfish Preview 2026.9.40 with capture-window.sh (2026-09-24 manual review).
-# App state: The Inspector's View tab open on the Genotype Display section for the amplicon-genotyping_3 result, showing the Alleles and Samples filter fields, Min reads and Min percent controls, the Percent Basis picker, and the Cell Color choice, with no filter row on the matrix itself.
+# App state: Williams copy project, amplicon-genotyping_3 selected; the Inspector View tab showing the Genotype Display section: Alleles and Samples filters, Min reads, Min percent, Seen in >= N% of animals, Percent Basis (Source Locus), Layout and locus order, Selected Rows and Columns, and Cell Color (Support).
 id: genotype-inspector-display
 chapter: 09-genotyping/03-reading-the-genotype-comparison
 caption: The Inspector's Genotype Display section with the Alleles and Samples filter fields, the Min reads, Min percent, and Seen in ≥ N% of animals controls, the Percent Basis picker set to Source Locus, and the Cell Color choice.
@@ -26,10 +26,10 @@ steps:
 crop:
   mode: region
   region:
-  - 1116
-  - 212
-  - 284
-  - 660
+  - 1085
+  - 196
+  - 312
+  - 655
 post:
   retina: true
   format: png
