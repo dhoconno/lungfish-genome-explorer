@@ -497,11 +497,105 @@ public struct DurableAtomicFileStore: Sendable {
 }
 
 public enum NoFollowFileSystem {
-    /// Opens an absolute directory path one component at a time without
-    /// following caller-controlled symbolic links. The caller owns the
-    /// returned descriptor and must close it.
+    /// Opens an absolute directory path without following caller-controlled
+    /// symbolic links. The caller owns the returned descriptor and must close
+    /// it.
+    ///
+    /// ## Anchoring and threat model
+    ///
+    /// When the path lies inside an LGE project (`*.lungfish`) or an LGE
+    /// bundle (any `*.lungfish…` directory such as `.lungfishref` or
+    /// `.lungfishfastq`), the no-follow walk is anchored at the outermost such
+    /// directory (see ``trustedAnchor(for:)``). The anchor is opened by its
+    /// full path, and only the components below it are walked one at a time
+    /// with `O_NOFOLLOW`.
+    ///
+    /// Symbolic links above the anchor belong to the user's own filesystem
+    /// layout (for example a home folder on another volume, or `/var` and
+    /// `/tmp`). LGE only needs to guard against links planted inside the
+    /// project or bundle, which could redirect writes outside it. Those are
+    /// still rejected, and so is an anchor whose final component is itself a
+    /// symbolic link.
+    ///
+    /// Anchoring also avoids opening protected folders such as `~/Desktop`,
+    /// `~/Documents` or `~/Downloads` as directories. macOS requires the
+    /// folder-level privacy (TCC) grant for that even when the user opened a
+    /// project inside them, and without it `openat` blocks indefinitely.
+    ///
+    /// Paths outside any project or bundle keep the full walk from `/`, with
+    /// only the platform `/var` and `/tmp` aliases canonicalized.
     public static func openDirectoryHierarchy(_ url: URL) throws -> Int32 {
+        try openDirectoryHierarchy(url, anchoredAt: trustedAnchor(for: url))
+    }
+
+    /// Opens `url` without following symbolic links below `anchor`.
+    ///
+    /// `anchor` must be `url` itself or one of its ancestors. It is opened by
+    /// full path, so symbolic links in its ancestors are followed, but its
+    /// final component must be a real directory. Every component between
+    /// `anchor` and `url` is opened with `O_NOFOLLOW`. Passing `nil` performs
+    /// the full walk from `/`.
+    public static func openDirectoryHierarchy(
+        _ url: URL,
+        anchoredAt anchor: URL?
+    ) throws -> Int32 {
         let requested = url.standardizedFileURL
+        guard requested.isFileURL, requested.path.hasPrefix("/") else {
+            throw POSIXError(.EINVAL)
+        }
+        guard let anchor else {
+            return try openFullHierarchy(requested)
+        }
+        let anchorURL = anchor.standardizedFileURL
+        guard anchorURL.isFileURL, anchorURL.path.hasPrefix("/") else {
+            throw POSIXError(.EINVAL)
+        }
+        let anchorComponents = NSString(string: anchorURL.path).pathComponents
+        let requestedComponents = NSString(string: requested.path).pathComponents
+        guard requestedComponents.count >= anchorComponents.count,
+              Array(requestedComponents.prefix(anchorComponents.count))
+                == anchorComponents else {
+            throw POSIXError(.EINVAL)
+        }
+        // O_NOFOLLOW applies only to the final component here: ancestors of
+        // the anchor (including /var and /tmp) are resolved normally.
+        let anchorDescriptor = Darwin.open(
+            anchorURL.path,
+            O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC
+        )
+        guard anchorDescriptor >= 0 else {
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+        }
+        return try walk(
+            from: anchorDescriptor,
+            components: requestedComponents.dropFirst(anchorComponents.count)
+        )
+    }
+
+    /// The directory at which ``openDirectoryHierarchy(_:)`` anchors its walk:
+    /// the outermost path component whose extension starts with `lungfish`
+    /// (a `.lungfish` project or a `.lungfish…` bundle), or `nil` when the
+    /// path is not inside one.
+    public static func trustedAnchor(for url: URL) -> URL? {
+        let requested = url.standardizedFileURL
+        guard requested.isFileURL else { return nil }
+        let components = NSString(string: requested.path).pathComponents
+        guard components.first == "/" else { return nil }
+        for index in components.indices.dropFirst() {
+            let pathExtension = NSString(string: components[index])
+                .pathExtension
+                .lowercased()
+            if pathExtension.hasPrefix("lungfish") {
+                let path = NSString.path(
+                    withComponents: Array(components[...index])
+                )
+                return URL(fileURLWithPath: path, isDirectory: true)
+            }
+        }
+        return nil
+    }
+
+    private static func openFullHierarchy(_ requested: URL) throws -> Int32 {
         // `/var` and `/tmp` are immutable compatibility links installed by
         // macOS itself. Canonicalize only these two platform aliases before
         // performing descriptor-relative no-follow traversal; arbitrary
@@ -514,15 +608,23 @@ public enum NoFollowFileSystem {
         } else {
             traversalPath = requested.path
         }
-        guard requested.isFileURL, traversalPath.hasPrefix("/") else {
-            throw POSIXError(.EINVAL)
-        }
-        var descriptor = Darwin.open("/", O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
+        let descriptor = Darwin.open("/", O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
         guard descriptor >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
+        return try walk(
+            from: descriptor,
+            components: NSString(string: traversalPath).pathComponents.dropFirst()
+        )
+    }
 
+    /// Walks `components` below `start` with `O_NOFOLLOW`. Takes ownership of
+    /// `start` and returns the descriptor of the final directory.
+    private static func walk(
+        from start: Int32,
+        components: ArraySlice<String>
+    ) throws -> Int32 {
+        var descriptor = start
         do {
-            let components = NSString(string: traversalPath).pathComponents
-            for component in components.dropFirst() where component != "/" {
+            for component in components where component != "/" {
                 let next = component.withCString {
                     Darwin.openat(
                         descriptor,

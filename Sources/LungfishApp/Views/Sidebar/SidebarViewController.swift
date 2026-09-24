@@ -136,6 +136,13 @@ public class SidebarViewController: NSViewController {
     /// is applied.
     private var sidebarScanGeneration: Int = 0
 
+    /// Coalesces the activation-driven backstop rescan (NEW-02).
+    var backstopRescanThrottle = SidebarBackstopRescanThrottle()
+    /// Clock for the backstop throttle. Tests substitute a manual clock.
+    var backstopRescanClock: @MainActor () -> ContinuousClock.Instant = { ContinuousClock.now }
+    /// Number of backstop rescans started. Read by tests.
+    private(set) var backstopRescanStartCount = 0
+
     #if DEBUG
     /// Test-only hook awaited between a background scan finishing and its result
     /// being applied.
@@ -393,6 +400,21 @@ public class SidebarViewController: NSViewController {
             self,
             selector: #selector(handleNavigateToSidebarItem(_:)),
             name: .navigateToSidebarItem,
+            object: nil
+        )
+
+        // NEW-02 backstop: rescan when the app or this window is activated, in
+        // case FSEvents missed an external change while in the background.
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleActivationForBackstopRescan(_:)),
+            name: NSApplication.didBecomeActiveNotification,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleActivationForBackstopRescan(_:)),
+            name: NSWindow.didBecomeKeyNotification,
             object: nil
         )
 
@@ -907,6 +929,7 @@ public class SidebarViewController: NSViewController {
         projectRecoverySnapshot = nil
         setProjectUnavailableStatus(nil)
         sidebarScanGeneration &+= 1
+        backstopRescanThrottle.reset()
         ProjectFilesystemRefreshCoordinator.shared.unregister(projectRefreshSubscriptionID)
         projectRefreshSubscriptionID = nil
         clearUniversalSearchState(for: projectURL)
@@ -1063,6 +1086,7 @@ public class SidebarViewController: NSViewController {
         // Invalidate any in-flight background scan so it cannot repopulate the
         // sidebar for a project that is no longer open.
         sidebarScanGeneration &+= 1
+        backstopRescanThrottle.reset()
         ProjectFilesystemRefreshCoordinator.shared.unregister(projectRefreshSubscriptionID)
         projectRefreshSubscriptionID = nil
         projectURL = nil
@@ -1251,6 +1275,106 @@ public class SidebarViewController: NSViewController {
                 notifyUnchangedSelectionRefresh: notifyUnchangedSelectionRefresh
             )
         }
+    }
+
+    // MARK: - Activation backstop rescan (NEW-02)
+
+    @objc private func handleActivationForBackstopRescan(_ notification: Notification) {
+        guard let window = view.window else { return }
+        if notification.name == NSWindow.didBecomeKeyNotification {
+            guard (notification.object as? NSWindow) === window else { return }
+        }
+        requestBackstopRescan(reason: notification.name.rawValue)
+    }
+
+    /// Starts a backstop rescan unless one ran within the throttle interval or
+    /// is still running.
+    ///
+    /// - Returns: The rescan task (its value is `true` when the tree changed and
+    ///   was applied), or `nil` when the request was coalesced or no project is
+    ///   open.
+    @discardableResult
+    func requestBackstopRescan(reason: String) -> Task<Bool, Never>? {
+        guard projectURL != nil, projectFilesystemUnavailableReason == nil else { return nil }
+        guard backstopRescanThrottle.shouldFire(at: backstopRescanClock()) else {
+            sidebarLogger.debug("backstopRescan: coalesced (\(reason, privacy: .public))")
+            return nil
+        }
+        sidebarLogger.info("backstopRescan: starting (\(reason, privacy: .public))")
+        return backstopRescan()
+    }
+
+    /// Rescans the project off the main actor and applies the result only if it
+    /// differs from the tree on screen, so an unchanged project keeps its rows,
+    /// selection, expansion and scroll position untouched (no flicker).
+    ///
+    /// Does not bump `sidebarScanGeneration` up front: any reload or incremental
+    /// update that starts while this scan runs owns the tree, and this result is
+    /// then discarded.
+    private func backstopRescan() -> Task<Bool, Never>? {
+        guard let projectURL else {
+            backstopRescanThrottle.finish()
+            return nil
+        }
+        backstopRescanStartCount += 1
+        let generation = sidebarScanGeneration
+        let binding = projectBindingID
+        return Task { [weak self] in
+            let nodes = await Task.detached(priority: .utility) {
+                SidebarProjectScanner.scanRootNodes(from: projectURL)
+            }.value
+            guard let self else { return false }
+            if self.projectBindingID == binding {
+                self.backstopRescanThrottle.finish()
+            }
+            // No `await` between these guards and finishReload.
+            guard self.projectBindingID == binding,
+                  self.sidebarScanGeneration == generation,
+                  self.projectURL?.standardizedFileURL == projectURL.standardizedFileURL else {
+                sidebarLogger.debug("backstopRescan: superseded, discarding result")
+                return false
+            }
+            let onScreen = self.rootItems.filter { $0 !== self.projectCatalogGroup }
+            if Self.sidebarItems(onScreen, match: nodes) {
+                sidebarLogger.debug("backstopRescan: tree unchanged")
+                return false
+            }
+            sidebarLogger.info("backstopRescan: tree changed on disk, applying")
+            self.sidebarScanGeneration &+= 1
+            self.finishReload(nodes: nodes, notifyUnchangedSelectionRefresh: false)
+            return true
+        }
+    }
+
+    #if DEBUG
+    /// Drops the FSEvents subscription so a test can simulate a missed event.
+    func detachFilesystemWatcherForTesting() {
+        ProjectFilesystemRefreshCoordinator.shared.unregister(projectRefreshSubscriptionID)
+        projectRefreshSubscriptionID = nil
+        projectBindingID = UUID()
+    }
+    #endif
+
+    /// Whether a materialized sidebar tree shows exactly what `nodes` describes.
+    static func sidebarItems(_ items: [SidebarItem], match nodes: [SidebarScanNode]) -> Bool {
+        guard items.count == nodes.count else { return false }
+        for (item, node) in zip(items, nodes) {
+            guard item.title == node.title,
+                  item.type == node.type,
+                  item.url?.standardizedFileURL == node.url?.standardizedFileURL,
+                  item.subtitle == node.subtitle,
+                  item.userInfo == node.userInfo else { return false }
+            switch node.badge {
+            case .symbol(let name):
+                guard item.icon == name, item.customImage == nil else { return false }
+            case .text:
+                guard item.icon == nil, item.customImage != nil else { return false }
+            case nil:
+                guard item.icon == nil, item.customImage == nil else { return false }
+            }
+            guard sidebarItems(item.children, match: node.children) else { return false }
+        }
+        return true
     }
 
     private func reloadFromFilesystem(notifyUnchangedSelectionRefresh: Bool) {
