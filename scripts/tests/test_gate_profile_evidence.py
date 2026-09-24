@@ -29,6 +29,35 @@ class ProfileEvidenceTests(unittest.TestCase):
             result = gate.analyze_attempt(root, record, {'xctest': ['ExampleTests/testA'], 'swift-testing': []}, False, False)
             self.assertFalse(result['passed'])
 
+    def _serial_result(self, text, expected):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / 'runner.log').write_text(text)
+            record = {'exitStatus': 0, 'files': [gate.file_record(root / 'runner.log', root)]}
+            return gate.analyze_attempt(root, record, {'xctest': expected, 'swift-testing': []}, False, False)
+
+    @staticmethod
+    def _bundle(name, cases):
+        body = "".join(f"Test Case '-[{name}.T {c}]' passed (0.1 seconds).\n" for c in cases)
+        n = len(cases)
+        return (f"Test Suite 'Selected tests' started at now.\nTest Suite '{name}.xctest' started at now.\n" + body
+                + f"Test Suite 'Selected tests' passed at now.\n\t Executed {n} test{'s' if n != 1 else ''}, with 0 failures (0 unexpected)\n")
+
+    def test_serial_multi_bundle_totals_are_summed(self):
+        # Swift Build runs one xctest process per bundle; the last bundle here
+        # selects nothing, which used to make the whole run read as incomplete.
+        text = self._bundle('A', ['t1', 't2']) + self._bundle('B', ['t3']) + self._bundle('C', [])
+        result = self._serial_result(text, ['A.T/t1', 'A.T/t2', 'B.T/t3'])
+        self.assertTrue(result['passed'], result)
+        self.assertEqual(result['errors'], [])
+
+    def test_serial_crashed_bundle_is_incomplete(self):
+        crashed = ("Test Suite 'Selected tests' started at now.\nTest Suite 'B.xctest' started at now.\n"
+                   "Test Case '-[B.T t3]' started.\n")
+        text = self._bundle('A', ['t1']) + crashed + self._bundle('C', [])
+        result = self._serial_result(text, ['A.T/t1', 'B.T/t3'])
+        self.assertFalse(result['passed'])
+
     def test_release_is_compact_sentinel_profile_with_bounded_workers(self):
         quick = gate.canonical_profile_options('quick')
         release = gate.canonical_profile_options('release')

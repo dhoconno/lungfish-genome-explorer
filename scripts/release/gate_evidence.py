@@ -365,8 +365,17 @@ def analyze_attempt(directory, command, selection, parallel, require_tools):
                 failed.add(name)
             if outcome == "skipped":
                 skipped.add(name)
-        totals = re.findall(r"Executed (\d+) tests?, with", log)
-        completion = bool(re.search(r"Test Suite '(All tests|Selected tests)' (passed|failed)", log)) and bool(totals) and int(totals[-1]) == len(completed)
+        # The Swift Build engine runs one xctest process per test bundle, and
+        # each prints its own outer "Selected tests"/"All tests" summary
+        # followed by that bundle's total. Sum the total that follows every
+        # outer summary (a bundle with no selected tests contributes 0), and
+        # require every outer suite that started to have finished, so a
+        # crashed bundle can never read as complete.
+        outer_started = len(re.findall(r"Test Suite '(?:All tests|Selected tests)' started", log))
+        outer_totals = re.findall(
+            r"Test Suite '(?:All tests|Selected tests)' (?:passed|failed)[^\n]*\n\s*Executed (\d+) tests?, with", log)
+        completion = (bool(outer_totals) and outer_started <= len(outer_totals)
+                      and sum(int(total) for total in outer_totals) == len(completed))
         evidence = "explicit-case-records-and-outer-suite-summary"
     skipped.update(suite + "/" + test for suite, test, outcome in terminal_records if outcome == "skipped")
     xctest = harness_result(selection["xctest"], completed, skipped, failed, completion, evidence)
