@@ -187,7 +187,8 @@ extension SequenceViewerView {
                     : "\(size) bp"
                 let chromosome = annot.chromosome ?? (viewController?.referenceFrame?.chromosome ?? "unknown")
                 let label = displayLabel(for: annot)
-                let coords = "\(chromosome):\(annot.start.formatted())-\(annot.end.formatted())"
+                // Stored 0-based half-open; the tooltip shows 1-based closed like the ruler.
+                let coords = GenomicRegion(chromosome: chromosome, start: annot.start, end: annot.end).displayString
                 var tooltip = "\(label)\n\(annot.type.rawValue) \(strandStr)\n\(coords) (\(sizeStr))"
 
                 // Enrich tooltip with annotation note

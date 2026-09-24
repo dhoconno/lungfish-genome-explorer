@@ -4,6 +4,7 @@
 
 import AppKit
 import SwiftUI
+import LungfishCore
 
 extension AnnotationTableDrawerView {
     // MARK: - Export Action
@@ -34,9 +35,12 @@ extension AnnotationTableDrawerView {
         case Self.chromosomeColumn:
             return annotation.chromosome
         case Self.startColumn:
-            return numberFormatter.string(from: NSNumber(value: annotation.start)) ?? "\(annotation.start)"
+            // Copy matches the 1-based closed value the cell shows.
+            let displayStart = GenomicCoordinateDisplay.displayStart(annotation.start)
+            return numberFormatter.string(from: NSNumber(value: displayStart)) ?? "\(displayStart)"
         case Self.endColumn:
-            return numberFormatter.string(from: NSNumber(value: annotation.end)) ?? "\(annotation.end)"
+            let displayEnd = GenomicCoordinateDisplay.displayEnd(annotation.end)
+            return numberFormatter.string(from: NSNumber(value: displayEnd)) ?? "\(displayEnd)"
         case Self.sizeColumn:
             return formatSize(annotation.end - annotation.start)
         case Self.strandColumn:

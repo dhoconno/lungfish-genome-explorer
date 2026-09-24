@@ -161,7 +161,8 @@ extension AppDelegate {
                 if success {
                     debugLog("goToGene: Navigated to \(match.name) at \(match.chromosome):\(match.start)-\(match.end)")
                 } else {
-                    showAlert(title: "Navigation Error", message: "Could not navigate to \(match.name) at \(match.chromosome):\(match.start)-\(match.end).")
+                    let shown = GenomicRegion(chromosome: match.chromosome, start: match.start, end: match.end).displayString
+                    showAlert(title: "Navigation Error", message: "Could not navigate to \(match.name) at \(shown).")
                 }
             }
         }
