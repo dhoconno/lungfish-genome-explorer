@@ -302,6 +302,9 @@ public struct TaxTriageConfig: Sendable, Codable, Equatable {
         }
 
         // Classification parameters
+        if !classifiers.isEmpty {
+            args += ["--classifiers", classifiers.joined(separator: ",")]
+        }
         args += ["--top_hits_count", String(topHitsCount)]
         args += ["--k2_confidence", String(k2Confidence)]
         args += ["--rank", rank]
