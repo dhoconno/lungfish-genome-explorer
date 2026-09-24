@@ -2,7 +2,12 @@ import SwiftUI
 
 /// A selectable Inspector key/value row that stays aligned when it fits and
 /// moves the value below its label before either string becomes compressed.
-public struct GenotypeInspectorValueRow: View {
+///
+/// Promoted from `LungfishGenotypeUI.GenotypeInspectorValueRow` (UX-12) so
+/// every Inspector section shares one label/value layout, font token, and
+/// combined accessibility element instead of maintaining private per-section
+/// row helpers with drifting label widths and alignment.
+public struct InspectorKeyValueRow: View {
     private let label: String
     private let value: String
     private let font: Font
@@ -21,7 +26,7 @@ public struct GenotypeInspectorValueRow: View {
     }
 
     public var body: some View {
-        GenotypeInspectorAdaptiveRowLayout {
+        InspectorKeyValueRowLayout {
             labelText.fixedSize(horizontal: false, vertical: true)
             valueText
         }
@@ -58,7 +63,7 @@ public struct GenotypeInspectorValueRow: View {
 /// accepts compression before reporting that it does not fit. This layout makes
 /// the decision from the uncompressed label/value widths, then proposes the full
 /// row width to the value only after choosing the label-over-value presentation.
-private struct GenotypeInspectorAdaptiveRowLayout: Layout {
+private struct InspectorKeyValueRowLayout: Layout {
     private let horizontalSpacing: CGFloat = 12
     private let verticalSpacing: CGFloat = 2
 

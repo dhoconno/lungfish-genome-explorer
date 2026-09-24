@@ -482,9 +482,6 @@ final class VariantTableEnhancementTests: XCTestCase {
         XCTAssertTrue(SmartToken.rareVariant.isAvailable(infoKeys: infoKeys, variantTypes: variantTypes, hasGenotypes: false))
         XCTAssertTrue(SmartToken.depthGE10.isAvailable(infoKeys: infoKeys, variantTypes: variantTypes, hasGenotypes: false))
         XCTAssertTrue(SmartToken.clinvarPathogenic.isAvailable(infoKeys: infoKeys, variantTypes: variantTypes, hasGenotypes: false))
-        // Heterozygous token is disabled until genotype-level post-filtering is implemented
-        XCTAssertFalse(SmartToken.heterozygous.isAvailable(infoKeys: infoKeys, variantTypes: variantTypes, hasGenotypes: false))
-        XCTAssertFalse(SmartToken.heterozygous.isAvailable(infoKeys: infoKeys, variantTypes: variantTypes, hasGenotypes: true))
     }
 
     func testSmartTokenAvailabilityMinimalKeys() {

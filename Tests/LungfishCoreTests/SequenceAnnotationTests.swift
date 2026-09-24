@@ -140,7 +140,16 @@ final class SequenceAnnotationTests: XCTestCase {
 
     // MARK: - Interval Tests
 
-    func testIntervalsAreSorted() {
+    /// SCI-15: `SequenceAnnotation.init` no longer force-sorts `intervals`
+    /// ascending by start. Doing so silently corrupted the segment order of a
+    /// GenBank `join(...)` location that wraps a circular molecule's origin
+    /// (for example `join(4000..4200,1..100)`), where the caller-supplied
+    /// order IS the correct transcription order and must be preserved.
+    /// Callers that need genomic-ascending order for their own purposes
+    /// (rendering, BED12/GFF3 export, bounding-box math) sort locally; see
+    /// `SequenceAnnotation.isOriginSpanning` for how they distinguish a
+    /// linear feature (safe to re-sort) from an origin-spanning one (not).
+    func testIntervalsPreserveCallerOrder() {
         let intervals = [
             AnnotationInterval(start: 3000, end: 3500),
             AnnotationInterval(start: 1000, end: 1500),
@@ -153,10 +162,26 @@ final class SequenceAnnotationTests: XCTestCase {
             intervals: intervals
         )
 
-        // Intervals should be sorted by start position
-        XCTAssertEqual(annotation.intervals[0].start, 1000)
-        XCTAssertEqual(annotation.intervals[1].start, 2000)
-        XCTAssertEqual(annotation.intervals[2].start, 3000)
+        XCTAssertEqual(annotation.intervals.map(\.start), [3000, 1000, 2000])
+    }
+
+    func testIntervalsInAscendingOrderStayAscending() {
+        // The overwhelmingly common case: a caller building intervals in
+        // genomic order (the only order GenBank/GFF3 ever write for an
+        // ordinary linear feature) sees them come back unchanged.
+        let intervals = [
+            AnnotationInterval(start: 1000, end: 1500),
+            AnnotationInterval(start: 2000, end: 2500),
+            AnnotationInterval(start: 3000, end: 3500)
+        ]
+
+        let annotation = SequenceAnnotation(
+            type: .cds,
+            name: "sorted",
+            intervals: intervals
+        )
+
+        XCTAssertEqual(annotation.intervals.map(\.start), [1000, 2000, 3000])
     }
 
     func testBoundingRegion() {

@@ -99,7 +99,7 @@ final class TreeCommandTests: XCTestCase {
         XCTAssertFalse(provenance.contains("/.tmp/"))
         XCTAssertFalse(provenance.contains("\\/.tmp\\/"))
 
-        XCTAssertTrue(recorder.joined().contains(#""event":"treeInferenceComplete""#))
+        XCTAssertTrue(recorder.joined().contains(#""event":"complete""#))
         // WFL-02: `.tmp` is the shared project-wide scratch root used by
         // other concurrent operations (SRA downloads, MAFFT materialization,
         // etc). Only this run's own staging subdirectory may be removed —
@@ -215,7 +215,7 @@ final class TreeCommandTests: XCTestCase {
             )
             XCTAssertTrue(remainingStagingDirs.isEmpty, "This run's own staging directory must be cleaned up even on failure")
         }
-        XCTAssertTrue(recorder.joined().contains(#""event":"treeInferenceFailed""#))
+        XCTAssertTrue(recorder.joined().contains(#""event":"failed""#))
         XCTAssertTrue(recorder.joined().contains("simulated IQ-TREE failure"))
     }
 
@@ -366,7 +366,7 @@ final class TreeCommandTests: XCTestCase {
         XCTAssertTrue(provenance.contains(#""selectedAlignedLength" : "2""#))
         XCTAssertFalse(provenance.contains("/.tmp/"))
         XCTAssertFalse(provenance.contains("\\/.tmp\\/"))
-        XCTAssertTrue(recorder.joined().contains(#""event":"treeInferenceComplete""#))
+        XCTAssertTrue(recorder.joined().contains(#""event":"complete""#))
     }
 
     func testInferIQTreePassesCuratedAndAdvancedOptionsToIQTreeAndProvenance() async throws {
@@ -476,7 +476,7 @@ final class TreeCommandTests: XCTestCase {
         XCTAssertEqual((provenanceJSON["options"] as? [String: Any])?["selectedTipCount"] as? Int, 2)
         XCTAssertFalse(provenance.contains("/.tmp/"))
         XCTAssertFalse(provenance.contains("\\/.tmp\\/"))
-        XCTAssertTrue(recorder.joined().contains(#""event":"treeExportComplete""#))
+        XCTAssertTrue(recorder.joined().contains(#""event":"complete""#))
     }
 
     func testTreeExtractSubtreeWritesNativeBundleWithProvenance() throws {
@@ -502,7 +502,7 @@ final class TreeCommandTests: XCTestCase {
         XCTAssertEqual(provenanceJSON["workflowName"] as? String, "phylogenetic-tree-extract-subtree")
         XCTAssertEqual(provenanceJSON["toolName"] as? String, "lungfish tree extract-subtree")
         XCTAssertEqual((provenanceJSON["input"] as? [String: Any])?["path"] as? String, bundleURL.path)
-        XCTAssertTrue(recorder.joined().contains(#""event":"treeTransformComplete""#))
+        XCTAssertTrue(recorder.joined().contains(#""event":"complete""#))
     }
 
     func testTreeRerootWritesNativeBundleWithProvenance() throws {

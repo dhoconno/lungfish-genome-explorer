@@ -1044,86 +1044,61 @@ extension ViewerViewController: EnhancedCoordinateRulerDelegate {
     }
 
     public func ruler(_ ruler: EnhancedCoordinateRulerView, didRequestPositionInput input: String) {
-        // Strip commas from user input (they may copy "chr1:1,000-10,000")
-        let cleaned = input.replacingOccurrences(of: ",", with: "")
-            .trimmingCharacters(in: .whitespaces)
-        guard !cleaned.isEmpty else { return }
+        // Routes through the shared `LocusQueryParser` (SCI-13/FEA-09) so this
+        // accepts exactly what `updatePositionField()` displays and what Copy
+        // Coordinates copies elsewhere in the app — including thousands-
+        // separator commas, a bare chromosome name, and `..` ranges.
+        let knownChromosomes = currentBundleDataProvider?.chromosomes.map(\.name) ?? []
+        guard let query = try? LocusQueryParser.parse(input, knownChromosomes: knownChromosomes) else {
+            NSSound.beep()
+            return
+        }
 
-        // Check if input is just a chromosome name (no colon)
-        if !cleaned.contains(":") && !cleaned.contains("-") && !cleaned.contains("..") {
-            if let provider = currentBundleDataProvider,
-               let chromInfo = provider.chromosomeInfo(named: cleaned) {
-                navigateToChromosomeAndPosition(
-                    chromosome: chromInfo.name,
-                    chromosomeLength: Int(chromInfo.length),
-                    start: 0,
-                    end: Int(chromInfo.length)
-                )
+        switch query {
+        case .chromosome(let name):
+            guard let provider = currentBundleDataProvider,
+                  let chromInfo = provider.chromosomeInfo(named: name) else {
+                NSSound.beep()
                 return
             }
-        }
-
-        // Parse coordinate string: chr:start-end, chr:start..end, start-end, position
-        var chromosome: String?
-        var startPosition: Int?
-        var endPosition: Int?
-
-        if cleaned.contains(":") {
-            let colonParts = cleaned.split(separator: ":", maxSplits: 1)
-            guard colonParts.count == 2 else { NSSound.beep(); return }
-            chromosome = String(colonParts[0])
-            parsePositionRange(String(colonParts[1]), start: &startPosition, end: &endPosition)
-        } else {
-            parsePositionRange(cleaned, start: &startPosition, end: &endPosition)
-        }
-
-        guard let start = startPosition else { NSSound.beep(); return }
-
-        // Convert 1-based user input to 0-based
-        let zeroBasedStart = max(0, start - 1)
-        let zeroBasedEnd = endPosition.map { max(0, $0) }
-
-        if let chrom = chromosome,
-           let provider = currentBundleDataProvider,
-           let chromInfo = provider.chromosomeInfo(named: chrom) {
-            let end = zeroBasedEnd ?? min(zeroBasedStart + AppSettings.shared.defaultZoomWindow, Int(chromInfo.length))
             navigateToChromosomeAndPosition(
-                chromosome: chrom,
+                chromosome: chromInfo.name,
                 chromosomeLength: Int(chromInfo.length),
-                start: zeroBasedStart,
-                end: end
+                start: 0,
+                end: Int(chromInfo.length)
             )
-        } else {
-            navigateToPosition(
-                chromosome: chromosome,
-                start: zeroBasedStart,
-                end: zeroBasedEnd
-            )
-        }
-    }
 
-    /// Parses "start-end", "start..end", or a single position.
-    private func parsePositionRange(_ input: String, start: inout Int?, end: inout Int?) {
-        if input.contains("..") {
-            let parts = input.split(separator: ".", omittingEmptySubsequences: true)
-            if parts.count == 2 {
-                start = Int(parts[0].trimmingCharacters(in: .whitespaces))
-                end = Int(parts[1].trimmingCharacters(in: .whitespaces))
+        case .position(let chromosome, let position):
+            let zeroBasedStart = max(0, position - 1)
+            if let chrom = chromosome,
+               let provider = currentBundleDataProvider,
+               let chromInfo = provider.chromosomeInfo(named: chrom) {
+                let end = min(zeroBasedStart + AppSettings.shared.defaultZoomWindow, Int(chromInfo.length))
+                navigateToChromosomeAndPosition(
+                    chromosome: chrom,
+                    chromosomeLength: Int(chromInfo.length),
+                    start: zeroBasedStart,
+                    end: end
+                )
+            } else {
+                navigateToPosition(chromosome: chromosome, start: zeroBasedStart, end: nil)
             }
-        } else if input.contains("-"), input.first != "-" {
-            if let hyphen = input.lastIndex(of: "-"), hyphen > input.startIndex {
-                let before = String(input[input.startIndex..<hyphen])
-                let after = String(input[input.index(after: hyphen)...])
-                if let s = Int(before.trimmingCharacters(in: .whitespaces)),
-                   let e = Int(after.trimmingCharacters(in: .whitespaces)) {
-                    start = s
-                    end = e
-                } else {
-                    start = Int(input.trimmingCharacters(in: .whitespaces))
-                }
+
+        case .range(let chromosome, let start, let end):
+            let zeroBasedStart = max(0, start - 1)
+            let zeroBasedEnd = max(zeroBasedStart, end)
+            if let chrom = chromosome,
+               let provider = currentBundleDataProvider,
+               let chromInfo = provider.chromosomeInfo(named: chrom) {
+                navigateToChromosomeAndPosition(
+                    chromosome: chrom,
+                    chromosomeLength: Int(chromInfo.length),
+                    start: zeroBasedStart,
+                    end: zeroBasedEnd
+                )
+            } else {
+                navigateToPosition(chromosome: chromosome, start: zeroBasedStart, end: zeroBasedEnd)
             }
-        } else {
-            start = Int(input.trimmingCharacters(in: .whitespaces))
         }
     }
 }

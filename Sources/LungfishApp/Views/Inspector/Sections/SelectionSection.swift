@@ -6,6 +6,7 @@ import SwiftUI
 import AppKit
 import LungfishCore
 import LungfishIO
+import LungfishKit
 import LungfishGenotypeUI
 import LungfishPhylogeneticsUI
 
@@ -927,7 +928,7 @@ public struct SelectionSection: View {
 
             VStack(alignment: .leading, spacing: 6) {
                 ForEach(Array(selection.detailRows.enumerated()), id: \.offset) { _, row in
-                    GenotypeInspectorValueRow(
+                    InspectorKeyValueRow(
                         row.0,
                         value: row.1,
                         font: LungfishInspectorStyle.controlFont

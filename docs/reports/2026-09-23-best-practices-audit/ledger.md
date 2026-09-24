@@ -14,8 +14,8 @@ Single source of truth for finding status (plan rule 9). Status: `open`, `verifi
 | WFL-01 | P0 | FASTQ-operation outputs are silently quality-binned and, when large, Trim Galore-trimmed during re-ingestion | fixed | P0-B | 7c3fb0fd5,+clumping fix | no re-binning; auto clumping skips instead of Trim Galore; read-count check before source delete |
 | WFL-02 | P0 | `tree infer iqtree` deletes the shared project `.tmp`, deletes pre-existing output on refusal, and can deadloc | fixed | P0-B | 6898a985f | no .tmp deletion, refusal deletes nothing, concurrent pipe drain |
 | ARC-01 | P1 | Two execution models for GUI analyses, chosen per feature, with no shared service layer | open | | | |
-| ARC-02 | P1 | Nine copy-pasted CLI runner actors and about 12 ad-hoc, stringly-typed CLI event schemas | open | | | |
-| ARC-03 | P1 | Operations-panel "CLI command" strings are hand-built and drift from the real CLI (Kraken2 replay cannot run) | open | | | |
+| ARC-02 | P1 | Nine copy-pasted CLI runner actors and about 12 ad-hoc, stringly-typed CLI event schemas | partial | P6-A | 6bc83748f | CLIEvent + CLISubprocessTransport; tree runners migrated; 7 runners remain |
+| ARC-03 | P1 | Operations-panel "CLI command" strings are hand-built and drift from the real CLI (Kraken2 replay cannot run) | open | P6-B |  | Kraken2/FASTQ argv unification pending |
 | ARC-04 | P1 | `OperationCenter.start` can return an already-failed operation, and callers are not forced to notice | fixed | P1-A | c656e84c3 | OperationCenter.begin -> started/refused; 11 callers migrated; per-family never-launch tests; ratchet baseline 18 in pre-push |
 | ARC-13 | P1 | TaxTriage view controller runs samtools synchronously on the main actor, with a pipe-ordering hazard | fixed | P4-A | 447955d3d | samtools off main, concurrent drain; TaxTriage UI tests 37/37 integrated |
 | FEA-03 | P1 | Annotation edit and delete from the viewer and Inspector are not persisted for reference bundles | fixed | P2-A | 55eb87a2c,cb7c10798 | viewer+Inspector delete/rename persist; reopen tests 3/3 |
@@ -23,7 +23,7 @@ Single source of truth for finding status (plan rule 9). Status: `open`, `verifi
 | FEA-05 | P1 | Multi-file BAM or VCF import into an open bundle imports only the first file | fixed | P2-A | 7e33703ef | sequential per-bundle import queue |
 | FEA-06 | P1 | Quit and window close do not warn about running operations, and interrupted outputs become invisible | fixed | P1-B | b732ea628 | quit/close warning sheets; interrupted outputs surfaced in storage scan |
 | FEA-07 | P1 | `OperationCenter.start` does not enforce the bundle lock, so unchecked callers mutate locked bundles | fixed | P1-A | c656e84c3 | drawer-delete sub-claim was wrong (already pre-checked); others migrated |
-| FEA-08 | P1 | Read sort and colour modes are implemented and tested but unreachable in the alignment viewer | open | | | |
+| FEA-08 | P1 | Read sort and colour modes are implemented and tested but unreachable in the alignment viewer | fixed | P7b | a13bc763 lane | sort/color modes wired via Inspector; context-menu Sort by Base pending |
 | PERF-01 | P1 | Alignment scientific actions SHA-256 the whole BAM, index and reference on the main actor, twice per action | fixed | P4-A | f02c6cc87 | off-main hashing + stat-keyed digest cache; coordinator tests 20/20 |
 | PERF-02 | P1 | `NativeToolRunner.shared` actor is blocked for the full runtime of `runWithFileOutput` / `runPipeline` childre | fixed | Q2 | eb48026d1 | actor no longer blocked (work in detached task); concurrency test blocked by TST-04 tool lookup in test env |
 | PERF-03 | P1 | TaxTriage batch unique-read pass runs directory walks, file parsing and `samtools` on the main actor, then an  | fixed | P4-A | 447955d3d | off-main discovery, keyed table sync, 250ms coalesced reload |
@@ -31,7 +31,7 @@ Single source of truth for finding status (plan rule 9). Status: `open`, `verifi
 | PERF-06 | P1 | "Export annotations" and multi-source sequence export decompress and parse the entire genome into memory | fixed | Q2 | c338d802d | annotation export never opens genome |
 | REC-01 | P1 | Sibling mutation service deletes backup | fixed | P0-B | 12e6722a6 | VariantMutationPublication recovery path |
 | REC-02 | P1 | MSA/tree --force deletes output before work | fixed | Q3 | dd086b592 | tree infer --force atomic swap; failing-iqtree test |
-| REC-03 | P1 | Kraken2 taxonomy/BLAST exports lack provenance | open | | | |
+| REC-03 | P1 | Kraken2 taxonomy/BLAST exports lack provenance | fixed | P6-B | 5b00ee8fb | taxonomy + BLAST export sidecars; manual haplotype export atomic |
 | REC-04 | P1 | Sidebar VCF/folder drop silently discarded | open | | | |
 | REC-05 | P1 | About Saving text promises persistence FEA-03 disproves | fixed | P2-A | cb7c10798 | About Saving now true |
 | REL-02 | P1 | CI workflow invalid since 2026-09-14, 24 straight failures, 12 previews shipped on red | accepted | P0-A | 53371073b | owner: hosted CI paused; disabled cleanly |
@@ -42,8 +42,8 @@ Single source of truth for finding status (plan rule 9). Status: `open`, `verifi
 | SCI-03 | P1 | Minimum AF and depth thresholds silently ignored for LoFreq, bcftools, Medaka and Clair3, yet recorded in prov | fixed | P0-C | ffd76587a | bcftools view -i post-filter; provenance records applied thresholds only; ViralVariantCallingPipelineTests (4 env failures: samtools path, TST-04) |
 | SCI-04 | P1 | bcftools caller runs with diploid ploidy and max-depth 250 on viral data | fixed | P0-C | ffd76587a | --ploidy 1, mpileup -d 0; managed bcftools 1.24 synthetic 2000x: DP=2000 haploid |
 | SCI-05 | P1 | Mapping "reads mapped / total" and per-contig % count alignment records (secondary and supplementary), not rea | fixed | P3-A | c734597fb | primary/primary mapped; 18-record fixture 80% |
-| SCI-06 | P1 | Annotation extraction ignores strand and splicing, and the core API applies 5'/3' flanks by coordinate | open | | | |
-| SCI-07 | P1 | Region to bundle extraction with Reverse Complement does not transform variants | open | | | |
+| SCI-06 | P1 | Annotation extraction ignores strand and splicing, and the core API applies 5'/3' flanks by coordinate | fixed | Q4 | 8260be365 | strand/splice-aware extraction; orientation-aware flanks |
+| SCI-07 | P1 | Region to bundle extraction with Reverse Complement does not transform variants | fixed | Q4 | 8c68a3ba1 | RC variants mirrored + REF/ALT RC |
 | SCI-08 | P1 | Lossy quality binning on by default (silent on downloads and FASTQ operation outputs), mislabelled schemes, or | fixed | P0-B,Q3 | 7c3fb0fd5,b90f9a337 | default none; labels corrected (illumina4=7 levels) |
 | SCI-09 | P1 | NAO-MGS "coverage %" uses the furthest alignment end as reference length when references were not fetched | fixed | P3-A | 6538d8d39 | reference_length_source; UI shows coverage unavailable |
 | TST-03 | P1 | Swift Build migration broke subpath `Bundle.module` fixtures, crashing tests with SIGTRAP | fixed | P0-A | 18b87a387 | fixtureURL helper, 4 classes |
@@ -69,13 +69,13 @@ Single source of truth for finding status (plan rule 9). Status: `open`, `verifi
 | ARC-11 | P2 | About 1,290 test hooks in production types, a symptom of logic trapped in view controllers | open | | | |
 | ARC-12 | P2 | `GenotypeResultViewController` is a 9.8K-line god object (323 stored vars, 508 funcs) | open | | | |
 | ARC-15 | P2 | Five external-process mechanisms, plus about 120 raw `Process()` sites across all layers | open | | | |
-| FEA-09 | P2 | Two locus parsers with different grammar, and no gene lookup in the locus field | open | | | |
+| FEA-09 | P2 | Two locus parsers with different grammar, and no gene lookup in the locus field | fixed | Q4 | 74609ce60 | one LocusQueryParser for ruler + Go to Location |
 | FEA-10 | P2 | Settings controls that nothing reads (default zoom window, max undo levels) | fixed | P2-A | 8632b57aa | default zoom wired; max undo control removed |
 | FEA-11 | P2 | Export Image/PDF can export a hidden view or the wrong window; some menu actions ignore the key window | open | | | |
-| FEA-12 | P2 | GUI BAM and VCF imports record a `lungfish-cli` command that the CLI cannot run | open | | | |
-| FEA-13 | P2 | Variant table dead controls: Het Only chip, single-option Match picker, silent preset rewrite | open | | | |
+| FEA-12 | P2 | GUI BAM and VCF imports record a `lungfish-cli` command that the CLI cannot run | fixed | P6-B | a1e282448 | BAM import real command; VCF import command removed (no CLI attach path yet) |
+| FEA-13 | P2 | Variant table dead controls: Het Only chip, single-option Match picker, silent preset rewrite | fixed | P7 | 6c6c748a9 | dead Het Only + single-option picker removed; preset normalization banner |
 | FEA-14 | P2 | Output placement differs by entry point (Imports, project root, drop folder, alignment-read-extractions with U | open | | | |
-| PERF-07 | P2 | Result and bundle selection opens SQLite databases and runs scans and JSON decodes on the main thread | open | | | |
+| PERF-07 | P2 | Result and bundle selection opens SQLite databases and runs scans and JSON decodes on the main thread | fixed | Q1b | a206f4813 | variant track scan off main with generation check; main-actor responsiveness test |
 | PERF-08 | P2 | Oriented virtual-FASTQ materialization loads the orient map twice as whole `String`s into two `Set<String>` of | fixed | Q2 | a95a10c9a | single streaming pass |
 | PERF-09 | P2 | Loading-badge animation invalidates the whole sequence viewer at 18 fps, and horizontal pan redraw is a traili | fixed | Q1 | fb926ae3f,8a5c88145 | badge-rect invalidation; pan throttle; cached maxReadSpan |
 | PERF-10 | P2 | MSA drawing allocates an attributed string per residue and re-registers tooltips inside `draw(_:)`, and the gu | partial | Q1 | 11df0160c | gutter range + tooltips fixed; per-residue attributed strings not yet cached |
@@ -91,19 +91,19 @@ Single source of truth for finding status (plan rule 9). Status: `open`, `verifi
 | REL-12 | P2 | Database archives and one pipeline are not integrity-pinned; one catalog ID/URL mismatch | open | | | |
 | REL-13 | P2 | Pages deploy job (pages:write, id-token:write) uses tag-pinned third-party actions | open | | | |
 | REL-14 | P2 | Code claims a Stable release triggers CI conformance; no workflow listens for it | fixed | P8-A | 267e82746 | stale claim removed |
-| SCI-10 | P2 | CDS translation ignores `/codon_start`, GFF phase and `/transl_table`, and reverse-strand phase comes from the | open | | | |
-| SCI-11 | P2 | GFF3 export writes phase 0 on every CDS segment, splits one CDS into distinct IDs, and leaves a dangling `Pare | open | | | |
+| SCI-10 | P2 | CDS translation ignores `/codon_start`, GFF phase and `/transl_table`, and reverse-strand phase comes from the | fixed | Q4 | a7f09c78a | codon_start, phase, transl_table |
+| SCI-11 | P2 | GFF3 export writes phase 0 on every CDS segment, splits one CDS into distinct IDs, and leaves a dangling `Pare | fixed | Q4 | f0b6bab26 | phase via CDSSegmentPhases, one ID, no dangling Parent |
 | SCI-12 | P2 | Bgzip FASTA reader returns `\r` and drops bases for CRLF FASTA | fixed | P3-D | f7da65c56 | CRLF bgzip fixture fail-then-pass |
-| SCI-13 | P2 | User-visible `chr:start-end` strings mix 0-based and 1-based conventions | open | | | |
+| SCI-13 | P2 | User-visible `chr:start-end` strings mix 0-based and 1-based conventions | fixed | Q4 | 74609ce60 | 1-based display strings |
 | SCI-14 | P2 | Variant track chromosome aliasing silently matches by length or max-position (up to 20% tolerance) | fixed | P3-D,Q3 | ddee0b5fa,024eab61c | length matches surfaced as tooltip |
-| SCI-15 | P2 | Origin-spanning features on circular genomes are sorted by start, which reorders segments | open | | | |
+| SCI-15 | P2 | Origin-spanning features on circular genomes are sorted by start, which reorders segments | fixed | Q4 | de9c25fdd | interval order preserved; bounding math uses min/max; renderer order-independent (orchestrator checked) |
 | SCI-16 | P2 | Interleaved paired FASTQ subsample via the CLI-backed Operations path is not pair-aware | fixed | Q3 | 7cf08caf7 | reproduced; interleaved -> reformat.sh pair-aware |
 | SCI-17 | P2 | Markdup shell pipeline: no `pipefail`, double-quote interpolation of paths, duplicate fraction over alignment  | fixed | P3-A | b1c665c91 | pipefail, argv paths, dup fraction over primary |
 | SCI-18 | P2 | Bracken always uses the 150 bp distribution regardless of actual read length | open | | | |
 | SIMP-01 | P2 | FASTQ operations have three independent CLI encodings; provenance records a command that did not run | open | | | |
 | SIMP-02 | P2 | About 5.9K lines of workbook-transaction recovery outlive their only writer | open | | | |
 | SIMP-03 | P2 | PrimalScheme3 adapter supports 4 fork versions and 2 external-binary-only selectors (about 3.3K lines) | open | | | |
-| SIMP-04 | P2 | Nine copy-pasted CLI subprocess runners (about 3.4K lines) next to an unused kernel runner | open | | | |
+| SIMP-04 | P2 | Nine copy-pasted CLI subprocess runners (about 3.4K lines) next to an unused kernel runner | partial | P6-A | 6bc83748f | 2 of 9 runners consolidated |
 | SIMP-05 | P2 | Verified dead code: about 5.0K production lines plus about 2.5K test lines (ranked list) | open | | | |
 | SIMP-06 | P2 | Same-named public types in two modules (`SequencingPlatform`, `AlignmentFilter*`) | open | | | |
 | SIMP-07 | P2 | Chromosome aliasing implemented at least 5 times; the dedicated resolver is unused | partial | P3-D | ddee0b5fa | variant-track path now uses resolver; other alias copies remain |
@@ -114,18 +114,18 @@ Single source of truth for finding status (plan rule 9). Status: `open`, `verifi
 | TST-10 | P2 | Flakiness sources: wall-clock budgets as tight as 0.1 s, global singletons and defaults, process-wide `setenv` | open | | | |
 | TST-11 | P2 | Silent skips: tool-gated app tests ignore `LUNGFISH_REQUIRE_TOOLS`, in-repo fixture misses skip, the conforman | open | | | |
 | TST-12 | P2 | XCUITests (40) run nowhere automatically, `appSmokeRequired: false`, core scientific journeys uncovered | open | | | |
-| UX-03 | P2 | Keyboard shortcuts implemented in `NSViewController.performKeyEquivalent` are probably never reached, and ⌘0 c | open | | | |
-| UX-04 | P2 | Edit > Copy and Edit > Find are dead in data views | open | | | |
-| UX-05 | P2 | Table search and column-filter UI copied four times and drifting. NAO-MGS has no search. TaxTriage hides searc | open | | | |
-| UX-06 | P2 | No table column state is persisted. Four ad-hoc `UserDefaults` schemes exist elsewhere | open | | | |
-| UX-07 | P2 | Same action, different names: BLAST, NCBI lookup, Copy TaxID, Extract labels drift across viewers | open | | | |
+| UX-03 | P2 | Keyboard shortcuts implemented in `NSViewController.performKeyEquivalent` are probably never reached, and ⌘0 c | fixed | P7,P7b | 0d42f3f8a + P7b | TaxTriage shortcuts as View menu items; Cmd-0 collision resolved (Opt-Cmd-0) |
+| UX-04 | P2 | Edit > Copy and Edit > Find are dead in data views | fixed | P7 | 287aaaa03 | copy TSV + find in BatchTableView tables |
+| UX-05 | P2 | Table search and column-filter UI copied four times and drifting. NAO-MGS has no search. TaxTriage hides searc | partial | P7b | a13bc763 lane | shared ColumnHeaderFilterMenu in Batch/Kraken2/EsViritu; NAO-MGS search field; NVD/NAO-MGS menu pending |
+| UX-06 | P2 | No table column state is persisted. Four ad-hoc `UserDefaults` schemes exist elsewhere | open | | | not attempted this pass |
+| UX-07 | P2 | Same action, different names: BLAST, NCBI lookup, Copy TaxID, Extract labels drift across viewers | partial | P7b | a13bc763 lane | label enum + Copy Taxon ID unified; BLAST/NCBI builder pending |
 | UX-08 | P2 | CZ-ID disables Extract on the action bar but the table menu still offers Kraken2 Extract and BLAST | fixed | P1-C | af7a09e1d | TaxonomyViewController.readLevelActionsAvailable threaded into TaxonomyTableView.validateMenuItem; CzIdImportWorkflowTests 7/7 |
 | UX-09 | P2 | Result load failures are shown three different ways, one of them silent | fixed | P1-C | bfcad3925,7d800e94f | 12S load failure now routes through clearViewport(statusMessage:) like Assembly/Mapping; TwelveSResultLoadFailureTests 1/1 |
-| UX-10 | P2 | Content Text Size is ignored by the Kraken2 table and most sequence-viewer chrome | open | | | |
+| UX-10 | P2 | Content Text Size is ignored by the Kraken2 table and most sequence-viewer chrome | fixed | P7b | a13bc763 lane | Kraken2 table ContentTypography |
 | UX-11 | P2 | Core sequence viewer and track headers are opaque to VoiceOver and keyboard | open | | | |
-| UX-12 | P2 | Inspector key/value rows reimplemented about 10 times with different layout and accessibility | open | | | |
+| UX-12 | P2 | Inspector key/value rows reimplemented about 10 times with different layout and accessibility | fixed | P7 | 1bf0c1400 | InspectorKeyValueRow in Kit |
 | UX-13 | P2 | The "viewport interface class" contract and dialog conventions are ceremonial or stale | open | | | |
-| UX-14 | P2 | No "no matches" or first-run empty states in result tables and empty projects | open | | | |
+| UX-14 | P2 | No "no matches" or first-run empty states in result tables and empty projects | partial | P7 | 94ee66683 | no-matches in BatchTableView only |
 | WFL-11 | P2 | Operations-panel CLI commands and several provenance argv records are not runnable | open | | | |
 | WFL-12 | P2 | Cancel missing or inert on several long-running paths | partial | P1-B | 01dd95338 | 12S x2, ONT MHC, CZ-ID, BLAST cancel wired; workflow-builder graph + AI provider calls not cancellable |
 | WFL-13 | P2 | MHC genotyping naming: "miSeq amplicon" workflow runs ONT data and tags it as MiSeq | fixed | P2-D | af5e6c94 lane | workflow kind derived from input mode |
@@ -140,7 +140,7 @@ Single source of truth for finding status (plan rule 9). Status: `open`, `verifi
 | ARC-16 | P3 | Misplaced vocabulary: UI event names in Core, test harness in Kit, CGPoint graph model in Workflow, dead notif | open | | | |
 | FEA-15 | P3 | About 27 orphaned action handlers, stale validation branches and invisible import history | open | | | |
 | FEA-16 | P3 | `features.yaml` GUI entry-point claims that do not exist in the menus | open | | | |
-| FEA-17 | P3 | Edit > Find (Cmd-F) is dead in the main window | open | | | |
+| FEA-17 | P3 | Edit > Find (Cmd-F) is dead in the main window | fixed | P7,P7b | a13bc763 lane | sidebar find fallback |
 | PERF-14 | P3 | Racy output-drain idioms (CondaManager 100 ms "drain delay", `readerGroup.enter` inside `readabilityHandler`) | fixed | Q2 | f31335bc0 | drain to EOF |
 | PERF-15 | P3 | Operation log entries are unbounded per operation | fixed | Q2 | a13f9b83b | 2000-entry cap with elision marker |
 | PERF-16 | P3 | Remaining `runModal`, redundant timer-to-main hops, and test probes as `nonisolated(unsafe)` statics in produc | open | | | |
@@ -149,7 +149,7 @@ Single source of truth for finding status (plan rule 9). Status: `open`, `verifi
 | REL-17 | P3 | Double notarization and no delta updates, so a full 167 MB download for each of about 38 releases a month | open | | | |
 | SCI-19 | P3 | `kraken2 --fasta-input` is not a Kraken2 option (warning only) but is recorded in provenance | fixed | P3-D | 7af100247 | --fasta-input removed |
 | SCI-20 | P3 | Assembly statistics drop IUPAC codes from contig length and count N in the GC denominator | fixed | P3-D | 01b7b995d | IUPAC in length, GC over ACGT |
-| SCI-21 | P3 | Variant extraction keeps the full REF for records straddling the region start | open | | | |
+| SCI-21 | P3 | Variant extraction keeps the full REF for records straddling the region start | fixed | Q4 | 8c68a3ba1 | straddling records excluded |
 | SIMP-09 | P3 | Process-doc sprawl and stale process pointers to dead code | open | | | |
 | SIMP-10 | P3 | 49 SHA-256 helpers and 15 CSV/TSV escapers with inconsistent rules | open | | | |
 | SIMP-11 | P3 | About 5.4K lines of test hooks in production types, and 109 source-text test files | open | | | |
@@ -161,10 +161,10 @@ Single source of truth for finding status (plan rule 9). Status: `open`, `verifi
 | SIMP-17 | P3 | Project-storage cleanup is 9.3K source lines plus 15.7K test lines for a move-to-Trash | open | | | |
 | TST-13 | P3 | Build health: 251 unique warnings, including concurrency-isolation warnings in tests and use of deprecated cle | open | | | |
 | TST-14 | P3 | Test effort is skewed toward release tooling and policy text over app behaviour | open | | | |
-| UX-15 | P3 | Alert and menu wording drift, success modals, dead "Not Yet Implemented" helper, ASCII ellipses | open | | | |
+| UX-15 | P3 | Alert and menu wording drift, success modals, dead "Not Yet Implemented" helper, ASCII ellipses | partial | P7 | 519e21ac3 | ellipsis/wording sweep |
 | UX-16 | P3 | Hard-coded light fills in the read track reduce dark-mode contrast | fixed | Q1 | a6d26ce62 | dynamic colors; WCAG contrast test |
-| UX-17 | P3 | `BatchTableView` ⌘-click quick-copy competes with standard ⌘-click multi-select | open | | | |
-| UX-18 | P3 | Sample-scope control differs per viewer. TaxTriage's segmented control does not scale | open | | | |
+| UX-17 | P3 | `BatchTableView` ⌘-click quick-copy competes with standard ⌘-click multi-select | fixed | P7 | 287aaaa03 | cmd-click quick-copy removed |
+| UX-18 | P3 | Sample-scope control differs per viewer. TaxTriage's segmented control does not scale | accepted | P7b | a13bc763 lane | control unreachable in production (batch mode uses Inspector picker); inert popup added should be DELETED in P5-A |
 | WFL-21 | P3 | Dead dialogs, launchers and engines kept alive only by tests | open | | | |
 | GEN-01 | P0 | ONT barcode assignment takes the leftmost exact barcode match anywhere in the read, including inside the ampli | fixed | G1 | 545fcea36 | anchored window after rc(CS2), both orientations, multi-match unassigned; 20-read DRB1 case all FLD0001 |
 | GEN-02 | P0 | `minimumMatches: 1` plus a count-only match rule reports homozygotes as heterozygotes (DQ M2/M2 as "M2 / M6",  | mitigated | G2 | 6dd8eb44f | 28-genotype golden test; 6 wrong-but-called now 'ambiguous'; calling rule itself pending owner decision |
@@ -184,3 +184,4 @@ Single source of truth for finding status (plan rule 9). Status: `open`, `verifi
 | NEW-02 | P2 | Sidebar watcher misses CLI changes in newly created project | not-reproduced-in-tests | Q3 |  | wiring traced; FSEvents deliver in ~3s for brand-new dirs; recheck live via Computer Use (repro project was in TCC-protected ~/Documents) |
 | NEW-03 | P3 | Open Recent duplicates; reopening opens second window | fixed | Q3 | 95cbdfeac | dedupe by path; focus existing window |
 | NEW-04 | P2 | test_releasing_lungfish_skill 26/36 failing at base | open | | | pre-existing |
+| PERF-17 | P1 | (new, measured) Genotype comparison matrix: 955 ms to build 40x96 visible cells, 350 ms full redraw | partial | Q1c,Q1d | d12957bff,abde7d24f | first-paint cell build ~707->~385 ms, redraw ~126->~93 ms; benchmark bypasses reuse queue (worst case); remaining floor = NSTextField per cell (custom-drawn cell deferred) |

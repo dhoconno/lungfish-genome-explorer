@@ -12,6 +12,42 @@ import LungfishWorkflow
 @testable import LungfishCore
 
 final class NaoMgsResultViewControllerSmokeTests: XCTestCase {
+    // MARK: - UX-05: free-text search (NAO-MGS previously had none)
+
+    @MainActor func testSearchFieldFiltersDisplayedRowsByTaxonNameOrSample() throws {
+        let controller = NaoMgsResultViewController()
+        controller.loadViewIfNeeded()
+        controller.configureWithCachedRows(
+            [
+                Self.makeCachedRow(sample: "sample-A", taxId: 1),
+                Self.makeCachedRow(sample: "sample-B", taxId: 2),
+            ],
+            manifest: Self.makeManifest()
+        )
+        XCTAssertEqual(controller.testTaxonomyTableView.numberOfRows, 2)
+
+        // Both rows share the name "Example virus" from makeCachedRow, so
+        // filtering by sample id alone must also narrow the results — the
+        // finding called out that NAO-MGS's filter bar held only the sample
+        // button, with no way to search by taxon name or sample at all.
+        controller.testSetTaxonomySearchText("sample-A")
+        XCTAssertEqual(controller.testTaxonomyTableView.numberOfRows, 1)
+
+        controller.testSetTaxonomySearchText("")
+        XCTAssertEqual(controller.testTaxonomyTableView.numberOfRows, 2)
+
+        controller.testSetTaxonomySearchText("nonexistent-query")
+        XCTAssertEqual(controller.testTaxonomyTableView.numberOfRows, 0)
+    }
+
+    @MainActor func testSearchFieldHasAccessibilityIdentifierAndLabel() throws {
+        let controller = NaoMgsResultViewController()
+        controller.loadViewIfNeeded()
+        let field = controller.testTaxonomySearchField
+        XCTAssertEqual(field.accessibilityIdentifier(), "naomgs-search-field")
+        XCTAssertEqual(field.accessibilityLabel(), "Filter taxa")
+    }
+
     @MainActor func testImportedMetadataImmediatelyUpdatesActualTaxonomyTableChooserAndCells() throws {
         let controller = NaoMgsResultViewController()
         controller.loadViewIfNeeded()

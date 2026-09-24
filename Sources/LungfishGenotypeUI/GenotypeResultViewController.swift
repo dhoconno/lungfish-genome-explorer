@@ -6896,8 +6896,8 @@ public final class GenotypeResultViewController: NSViewController {
                 let encoder = JSONEncoder()
                 encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
                 let data = try encoder.encode(assignments)
-                try data.write(to: url, options: .atomic)
-                try self.writeManualDefinitionsExportProvenance(
+                try self.writeManualDefinitionsExport(
+                    data: data,
                     outputURL: url,
                     assignmentCount: assignments.count,
                     startedAt: startedAt
@@ -6912,28 +6912,41 @@ public final class GenotypeResultViewController: NSViewController {
         }
     }
 
-    private func writeManualDefinitionsExportProvenance(
+    /// Writes the manual-haplotype-definitions JSON payload and its
+    /// provenance sidecar as a single atomic transaction.
+    ///
+    /// REC-03: this previously wrote the payload with `Data.write(atomic:)`
+    /// and only then wrote the sidecar in a second, separate step, so a crash
+    /// between the two left an orphaned payload with no sidecar. It also
+    /// recorded `lungfish-cli export-manual-haplotype-definitions`, which is
+    /// not a real CLI subcommand -- copying it into a terminal would fail.
+    /// This export has no CLI equivalent (it walks in-memory GUI annotation
+    /// state, not a bundle on disk), so — matching the convention used by
+    /// `SequenceViewerView+Drawing.writeSequenceFASTAExport` for other
+    /// GUI-only exports — the recorded command names the app, not
+    /// `lungfish-cli`, so it cannot be mistaken for a runnable command.
+    private func writeManualDefinitionsExport(
+        data: Data,
         outputURL: URL,
         assignmentCount: Int,
         startedAt: Date
     ) throws {
         guard let store = annotationStore else { return }
         let annotationURL = store.bundleURL.appendingPathComponent(GenotypeAnnotationSidecar.filename)
-        let argv = [
-            CLICommandIdentity.executableName,
-            "export-manual-haplotype-definitions",
-            "--bundle", store.bundleURL.path,
-            "--output", outputURL.path,
-        ]
-        var builder = ProvenanceRunBuilder(
-            workflowName: "Manual haplotype definition export",
-            workflowVersion: WorkflowRun.currentAppVersion,
+        let annotationExists = FileManager.default.fileExists(atPath: annotationURL.path)
+        try ScientificFileExportProvenance.writeAtomically(.init(
+            workflowName: "lungfish app manual haplotype definition export",
             toolName: "Lungfish Genome Explorer",
-            toolVersion: WorkflowRun.currentAppVersion
-        )
-        .argv(argv)
-        .options(
-            explicit: [
+            sourceURLs: annotationExists ? [annotationURL] : [],
+            outputURL: outputURL,
+            outputFormat: .json,
+            argv: [
+                "Lungfish Genome Explorer",
+                "export-manual-haplotype-definitions",
+                "--bundle", store.bundleURL.path,
+                "--output", outputURL.path,
+            ],
+            explicitOptions: [
                 "bundle": .file(store.bundleURL),
                 "output": .file(outputURL),
             ],
@@ -6942,15 +6955,29 @@ public final class GenotypeResultViewController: NSViewController {
             ],
             resolved: [
                 "assignmentCount": .integer(assignmentCount),
-            ]
-        )
-        .runtime(ProvenanceRuntimeIdentity())
-        if FileManager.default.fileExists(atPath: annotationURL.path) {
-            builder = try builder.input(annotationURL, format: .json, role: .input)
+            ],
+            startedAt: startedAt,
+            completedAt: Date()
+        )) { staged in
+            try data.write(to: staged, options: .atomic)
         }
-        builder = try builder.output(outputURL, format: .json, role: .output)
-        let envelope = try builder.complete(exitStatus: 0, startedAt: startedAt, endedAt: Date())
-        try ProvenanceWriter(signingProvider: nil).write(envelope, toSidecar: outputURL.appendingPathExtension("provenance.json"))
+    }
+
+    /// Test-only entry point for `writeManualDefinitionsExport`, bypassing
+    /// the `NSSavePanel` sheet so the write-and-sidecar behaviour (REC-03) is
+    /// directly testable.
+    func testingWriteManualDefinitionsExport(
+        data: Data,
+        outputURL: URL,
+        assignmentCount: Int,
+        startedAt: Date = Date()
+    ) throws {
+        try writeManualDefinitionsExport(
+            data: data,
+            outputURL: outputURL,
+            assignmentCount: assignmentCount,
+            startedAt: startedAt
+        )
     }
 
     private func rebuildOutline() {

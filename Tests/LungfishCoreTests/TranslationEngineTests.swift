@@ -565,6 +565,137 @@ final class TranslationEngineTests: XCTestCase {
         XCTAssertFalse(positions[2].isStart)
         XCTAssertTrue(positions[2].isStop)
     }
+
+    // MARK: - SCI-10: transl_table qualifier resolution
+
+    func testResolvedCodonTableDefaultsToStandard() {
+        let annotation = SequenceAnnotation(type: .cds, name: "test", start: 0, end: 9)
+        XCTAssertEqual(TranslationEngine.resolvedCodonTable(for: annotation).id, CodonTable.standard.id)
+    }
+
+    func testResolvedCodonTableReadsTranslTableQualifier() {
+        let annotation = SequenceAnnotation(
+            type: .cds, name: "test", start: 0, end: 9,
+            qualifiers: ["transl_table": AnnotationQualifier("2")]
+        )
+        XCTAssertEqual(TranslationEngine.resolvedCodonTable(for: annotation).id, 2)
+    }
+
+    func testResolvedCodonTableFallsBackToStandardForUnknownID() {
+        let annotation = SequenceAnnotation(
+            type: .cds, name: "test", start: 0, end: 9,
+            qualifiers: ["transl_table": AnnotationQualifier("999")]
+        )
+        XCTAssertEqual(TranslationEngine.resolvedCodonTable(for: annotation).id, CodonTable.standard.id)
+    }
+
+    /// Golden test: a vertebrate mitochondrial CDS (table 2) is translated
+    /// with AGA/AGG as stop codons and TGA as Trp, honoring `/transl_table`
+    /// automatically (translateCDS's table defaults to `nil`, which resolves
+    /// from the annotation's qualifiers).
+    func testTranslateCDSHonorsVertebrateMitochondrialTranslTable() {
+        // AGA AGG TGA -> table 2: Stop, Stop, Trp. Standard table would give
+        // Arg, Arg, Stop instead — a completely different reading.
+        let sequence = "AGAAGGTGA"
+        let annotation = SequenceAnnotation(
+            type: .cds, name: "mt_cox", start: 0, end: sequence.count,
+            strand: .forward,
+            qualifiers: ["transl_table": AnnotationQualifier("2")]
+        )
+
+        let result = TranslationEngine.translateCDS(
+            annotation: annotation,
+            sequenceProvider: { start, end in
+                let s = sequence.index(sequence.startIndex, offsetBy: start)
+                let e = sequence.index(sequence.startIndex, offsetBy: min(end, sequence.count))
+                return String(sequence[s..<e])
+            }
+        )
+
+        XCTAssertEqual(result?.protein, "**W", "AGA/AGG are stop codons and TGA is Trp under table 2")
+    }
+
+    func testTranslateCDSExplicitTableOverridesQualifier() {
+        // Same sequence, but caller passes an explicit standard table: the
+        // qualifier must NOT silently override an explicit caller choice.
+        let sequence = "AGAAGGTGA"
+        let annotation = SequenceAnnotation(
+            type: .cds, name: "mt_cox", start: 0, end: sequence.count,
+            strand: .forward,
+            qualifiers: ["transl_table": AnnotationQualifier("2")]
+        )
+
+        let result = TranslationEngine.translateCDS(
+            annotation: annotation,
+            sequenceProvider: { start, end in
+                let s = sequence.index(sequence.startIndex, offsetBy: start)
+                let e = sequence.index(sequence.startIndex, offsetBy: min(end, sequence.count))
+                return String(sequence[s..<e])
+            },
+            table: .standard
+        )
+
+        // AGA/AGG = Arg, TGA = Stop under the standard table.
+        XCTAssertEqual(result?.protein, "RR*")
+    }
+
+    // MARK: - SCI-10: codon_start / phase from the 5'-most segment
+
+    /// A codon_start=2 feature (phase 1) skips the first base before the
+    /// first complete codon, matching GenBank's convention that phase is
+    /// carried on the 5'-most segment.
+    func testTranslateCDSHonorsPhaseOnPlusStrand() {
+        // codon_start=2 => phase 1: skip 1 base "N", then ATG GCA TAA.
+        let annotation = SequenceAnnotation(
+            type: .cds,
+            name: "partial_cds",
+            intervals: [AnnotationInterval(start: 0, end: 10, phase: 1)],
+            strand: .forward
+        )
+
+        let result = TranslationEngine.translateCDS(
+            annotation: annotation,
+            sequenceProvider: { _, _ in "NATGGCATAA" }
+        )
+
+        XCTAssertEqual(result?.protein, "MA*")
+        XCTAssertEqual(result?.phaseOffset, 1)
+    }
+
+    /// On the reverse strand, phase must be read from the 5'-most segment in
+    /// TRANSCRIPTION order, which is the genomic-HIGHEST-coordinate segment,
+    /// not the lowest (SCI-10's "reverse-strand phase taken from the wrong
+    /// end").
+    func testTranslateCDSReadsPhaseFromFivePrimeSegmentOnMinusStrand() {
+        // Two exons: genomic [0,3) and [100,110). On the reverse strand,
+        // transcription order is descending genomic coordinate, so the 5'-most
+        // (first-transcribed) segment is [100,110), which carries phase 1.
+        // Forward-strand raw sequence at [100,110): "NATGGCATAA" truncated to
+        // 10 bases "NATGGCATAA"[0..<10]. Exon [0,3): "TTT" (irrelevant filler,
+        // consumed AFTER phase skip in transcription order — placed at the 3' end).
+        let annotation = SequenceAnnotation(
+            type: .cds,
+            name: "rev_partial_cds",
+            intervals: [
+                AnnotationInterval(start: 0, end: 3, phase: 0),
+                AnnotationInterval(start: 100, end: 110, phase: 1)
+            ],
+            strand: .reverse
+        )
+
+        let result = TranslationEngine.translateCDS(
+            annotation: annotation,
+            sequenceProvider: { start, _ in
+                if start == 100 { return "TTATGCCATA" }  // RC -> "TATGGCATAA"
+                if start == 0 { return "AAA" }
+                return nil
+            }
+        )
+
+        // Transcription order (descending genomic): exon[100,110) then
+        // exon[0,3). Phase comes from exon[100,110)'s phase = 1.
+        XCTAssertEqual(result?.phaseOffset, 1)
+    }
 }
 
 // MARK: - AminoAcidColorScheme Tests

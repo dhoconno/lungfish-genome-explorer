@@ -446,6 +446,12 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
 
     private let summaryBar = TaxTriageSummaryBar()
     private let sampleFilterControl = NSSegmentedControl()
+    /// Popup-menu alternative to `sampleFilterControl` for large sample
+    /// counts (UX-18: the segmented control does not scale — its own
+    /// comment elsewhere concedes this). Shown instead of the segmented
+    /// control once the sample count passes `sampleFilterPopUpThreshold`.
+    private let sampleFilterPopUp = NSPopUpButton()
+    private let sampleFilterPopUpThreshold = 6
     public let splitView = TrackedDividerSplitView()
     private let leftPaneContainer = FlippedSplitPaneFillContainerView()
     /// Supplied by the App composition root; leaf tests use the safe fallback.
@@ -1060,47 +1066,45 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         needsInitialSplitValidation = false
     }
 
-    // MARK: - Keyboard Shortcuts
+    // MARK: - Keyboard Shortcuts (UX-03)
 
-    /// Handles Cmd+]/Cmd+[ for sample switching and Cmd+0 for "All Samples".
-    public override func performKeyEquivalent(with event: NSEvent) -> Bool {
-        guard event.modifierFlags.contains(.command),
-              !event.modifierFlags.contains(.shift),
-              !event.modifierFlags.contains(.option),
-              sampleIds.count > 1 else {
-            return super.performKeyEquivalent(with: event)
-        }
+    /// Selects the next sample (⌘]), dispatched through the responder chain
+    /// from a real `View` menu item ([MainMenu.swift](../LungfishApp/App/MainMenu.swift)).
+    ///
+    /// These were previously implemented only as `NSViewController.performKeyEquivalent`
+    /// overrides. AppKit dispatches key equivalents down the *view* hierarchy
+    /// starting at the window's `contentView`, never to view controllers, so
+    /// that override was never reached by a real ⌘] keypress — only by a test
+    /// calling `performKeyEquivalent(with:)` directly. Real menu items with a
+    /// nil target reach this method via the responder chain instead, the same
+    /// pattern `TaxonomyViewController.expandAllTaxonomyItems` already uses.
+    @objc public func selectNextSample(_ sender: Any?) {
+        guard sampleIds.count > 1 else { return }
+        let maxIndex = sampleIds.count  // segment 0 is "All", 1..count are samples
+        guard selectedSampleIndex < maxIndex else { return }
+        selectedSampleIndex += 1
+        sampleFilterControl.selectedSegment = selectedSampleIndex
+        sampleFilterPopUp.selectItem(at: selectedSampleIndex)
+        applyCurrentSampleFilter()
+    }
 
-        switch event.charactersIgnoringModifiers {
-        case "]":
-            // Cmd+] — next sample
-            let maxIndex = sampleIds.count  // segment 0 is "All", 1..count are samples
-            if selectedSampleIndex < maxIndex {
-                selectedSampleIndex += 1
-                sampleFilterControl.selectedSegment = selectedSampleIndex
-                applyCurrentSampleFilter()
-            }
-            return true
+    /// Selects the previous sample (⌘[). See ``selectNextSample(_:)``.
+    @objc public func selectPreviousSample(_ sender: Any?) {
+        guard sampleIds.count > 1, selectedSampleIndex > 0 else { return }
+        selectedSampleIndex -= 1
+        sampleFilterControl.selectedSegment = selectedSampleIndex
+        sampleFilterPopUp.selectItem(at: selectedSampleIndex)
+        applyCurrentSampleFilter()
+    }
 
-        case "[":
-            // Cmd+[ — previous sample
-            if selectedSampleIndex > 0 {
-                selectedSampleIndex -= 1
-                sampleFilterControl.selectedSegment = selectedSampleIndex
-                applyCurrentSampleFilter()
-            }
-            return true
-
-        case "0":
-            // Cmd+0 — "All Samples" overview
-            selectedSampleIndex = 0
-            sampleFilterControl.selectedSegment = 0
-            applyCurrentSampleFilter()
-            return true
-
-        default:
-            return super.performKeyEquivalent(with: event)
-        }
+    /// Selects the "All Samples" overview (⌥⌘0 — plain ⌘0 is already View >
+    /// Zoom to Fit). See ``selectNextSample(_:)``.
+    @objc public func selectAllSamplesOverview(_ sender: Any?) {
+        guard sampleIds.count > 1 else { return }
+        selectedSampleIndex = 0
+        sampleFilterControl.selectedSegment = 0
+        sampleFilterPopUp.selectItem(at: 0)
+        applyCurrentSampleFilter()
     }
 
     private func setupMiniBAMViewer() {
@@ -1287,10 +1291,23 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         sampleFilterControl.translatesAutoresizingMaskIntoConstraints = false
         sampleFilterControl.isHidden = true
         view.addSubview(sampleFilterControl)
+
+        sampleFilterPopUp.setAccessibilityIdentifier("taxtriage-sample-filter-popup")
+        sampleFilterPopUp.setAccessibilityLabel("TaxTriage Sample Filter")
+        sampleFilterPopUp.target = self
+        sampleFilterPopUp.action = #selector(sampleFilterPopUpChanged(_:))
+        sampleFilterPopUp.translatesAutoresizingMaskIntoConstraints = false
+        sampleFilterPopUp.isHidden = true
+        view.addSubview(sampleFilterPopUp)
     }
 
     @objc private func sampleFilterChanged(_ sender: NSSegmentedControl) {
         selectedSampleIndex = sender.selectedSegment
+        applyCurrentSampleFilter()
+    }
+
+    @objc private func sampleFilterPopUpChanged(_ sender: NSPopUpButton) {
+        selectedSampleIndex = sender.indexOfSelectedItem
         applyCurrentSampleFilter()
     }
 
@@ -1354,7 +1371,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
     }
 
     private func updateFilterRowHeightForContentTypography() {
-        let isVisible = !sampleFilterControl.isHidden || !organismSearchField.isHidden
+        let isVisible = !sampleFilterControl.isHidden || !sampleFilterPopUp.isHidden || !organismSearchField.isHidden
         guard isVisible else {
             sampleFilterHeightConstraint?.constant = 0
             return
@@ -1404,24 +1421,40 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         }
     }
 
-    /// Rebuilds the sample filter segments from the discovered sample IDs.
+    /// Rebuilds the sample filter control from the discovered sample IDs.
+    ///
+    /// Uses the segmented control for small sample counts, and a popup menu
+    /// once the count passes `sampleFilterPopUpThreshold` (UX-18: the
+    /// segmented control does not scale to large sample counts — a run with
+    /// dozens of samples produced dozens of tiny, unreadable segments).
     private func rebuildSampleFilterSegments() {
         let ids = sampleIds
         if ids.count <= 1 {
+            // UX-05: the organism search field used to be coupled to the
+            // sample-scope control and hid itself for single-sample results,
+            // the most common case, leaving no way to find an organism.
+            // Only the (now-redundant) sample control hides here; the search
+            // field stays reachable.
             sampleFilterControl.isHidden = true
-            organismSearchField.isHidden = true
-            sampleFilterHeightConstraint?.constant = 0
-            sampleFilterTopSpacingConstraint?.constant = 0
-            sampleFilterBottomSpacingConstraint?.constant = 0
+            sampleFilterPopUp.isHidden = true
+            organismSearchField.isHidden = false
+            updateFilterRowHeightForContentTypography()
+            sampleFilterTopSpacingConstraint?.constant = 4
+            sampleFilterBottomSpacingConstraint?.constant = 4
             selectedSampleIndex = 0
             return
         }
 
+        let useScalablePopUp = ids.count > sampleFilterPopUpThreshold
+
         sampleFilterControl.segmentCount = ids.count + 1
         sampleFilterControl.setLabel("All Samples", forSegment: 0)
+        sampleFilterPopUp.removeAllItems()
+        sampleFilterPopUp.addItem(withTitle: "All Samples")
         for (i, sampleId) in ids.enumerated() {
             let display = resolvedDisplayNames[sampleId] ?? sampleId
             sampleFilterControl.setLabel(display, forSegment: i + 1)
+            sampleFilterPopUp.addItem(withTitle: display)
         }
 
         // Apply pre-selected sample if set by sidebar routing
@@ -1433,7 +1466,9 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
             selectedSampleIndex = 0
         }
         sampleFilterControl.selectedSegment = selectedSampleIndex
-        sampleFilterControl.isHidden = false
+        sampleFilterPopUp.selectItem(at: selectedSampleIndex)
+        sampleFilterControl.isHidden = useScalablePopUp
+        sampleFilterPopUp.isHidden = !useScalablePopUp
         organismSearchField.isHidden = false
         updateFilterRowHeightForContentTypography()
         sampleFilterTopSpacingConstraint?.constant = 4
@@ -1540,12 +1575,14 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         guard let sampleId else {
             selectedSampleIndex = 0
             sampleFilterControl.selectedSegment = 0
+            sampleFilterPopUp.selectItem(at: 0)
             applyCurrentSampleFilter()
             return
         }
         if let idx = sampleIds.firstIndex(of: sampleId) {
             selectedSampleIndex = idx + 1
             sampleFilterControl.selectedSegment = idx + 1
+            sampleFilterPopUp.selectItem(at: idx + 1)
             applyCurrentSampleFilter()
         }
     }
@@ -2812,6 +2849,16 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         samplePickerState = ClassifierSamplePickerState(allSamples: Set(sampleIds))
         samplePickerState.selectedSamples = Set(sampleIds)
 
+        // UX-03 (reproduced): `sampleFilterControl` is created with a single
+        // "All Samples" segment and was never rebuilt to match the loaded
+        // sample count. The ⌘]/⌘[/⌘0 handlers in `performKeyEquivalent`
+        // index into this control by `sampleIds.count`, so on any real
+        // multi-sample batch this crashed with an out-of-bounds segment
+        // index the moment the shortcut fired (reachable or not). Rebuild
+        // the segments here so the control's segment count always matches
+        // `sampleIds`.
+        rebuildSampleFilterSegments()
+
         resetDatabaseLoadedRows()
 
         // Wire batch flat table callbacks (same pattern as configureFromDatabase).
@@ -2868,8 +2915,13 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
             self.collapseMiniBAMDetailPane()
         }
 
-        // Show flat table, hide single-result UI.
+        // Show flat table, hide single-result UI. Batch group mode always
+        // uses the flat table + Inspector sample picker (a multi-select
+        // checklist via samplePickerState — see applyBatchGroupFilter), never
+        // the single-selection sampleFilterControl/sampleFilterPopUp, so both
+        // stay hidden here regardless of sample count.
         sampleFilterControl.isHidden = true
+        sampleFilterPopUp.isHidden = true
         blastDrawer.isHidden = true
         organismTableView.isHidden = true
         batchOverviewView.isHidden = true
@@ -3233,6 +3285,12 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
             filterTop,
             sampleFilterControl.centerXAnchor.constraint(equalTo: view.centerXAnchor),
             filterHeight,
+
+            // Sample filter popup (UX-18: scalable alternative to the segmented
+            // control for large sample counts, occupying the same row)
+            sampleFilterPopUp.centerYAnchor.constraint(equalTo: sampleFilterControl.centerYAnchor),
+            sampleFilterPopUp.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 8),
+            sampleFilterPopUp.widthAnchor.constraint(lessThanOrEqualToConstant: 220),
 
             // Organism search field (right-aligned on the same row as sample filter)
             organismSearchField.centerYAnchor.constraint(equalTo: sampleFilterControl.centerYAnchor),
@@ -4248,6 +4306,17 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
     /// Returns the sample filter segmented control for testing.
     public var testSampleFilterControl: NSSegmentedControl { sampleFilterControl }
 
+    /// Returns the scalable sample filter popup for testing (UX-18).
+    public var testSampleFilterPopUp: NSPopUpButton { sampleFilterPopUp }
+
+    /// Test hook: rebuilds the (currently unreachable in production —
+    /// see `TaxTriageSampleScopeTests`) single-selection sample filter
+    /// control/popup directly, bypassing `configureFromDatabase`'s
+    /// batch-group re-hide.
+    public func testRebuildSampleFilterSegments() {
+        rebuildSampleFilterSegments()
+    }
+
     /// Returns the last requested divider position for testing.
     public var testRequestedDividerPosition: CGFloat? { splitView.requestedDividerPosition(at: 0) }
 
@@ -4757,7 +4826,7 @@ final class TaxTriageOrganismTableView: NSView, NSTableViewDataSource, NSTableVi
         menu.addItem(copyAccessionItem)
 
         let copyTaxIdItem = NSMenuItem(
-            title: "Copy TaxID",
+            title: LungfishUIStrings.Classifier.copyTaxonID,
             action: #selector(contextCopyTaxIdAction(_:)),
             keyEquivalent: ""
         )

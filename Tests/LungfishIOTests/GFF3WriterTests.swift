@@ -425,11 +425,70 @@ final class GFF3WriterTests: XCTestCase {
         // Should have header + 3 feature lines (one per interval)
         XCTAssertEqual(lines.count, 4)
 
-        // Each interval should have Parent attribute pointing to main annotation
+        // SCI-11: multi-interval features share ONE ID across every segment
+        // line (the standard GFF3 idiom for a single multi-line feature) and
+        // carry no `Parent` attribute, since this writer never emits a
+        // separate parent feature for that ID to point at. The old behavior
+        // (`_N`-suffixed IDs plus a `Parent` pointing at an ID that was never
+        // written) produced a dangling reference and split re-imports into
+        // unrelated features.
+        let ids = lines[1...3].compactMap { line -> String? in
+            line.split(separator: "\t").last?
+                .split(separator: ";")
+                .first { $0.hasPrefix("ID=") }
+                .map { String($0.dropFirst(3)) }
+        }
+        XCTAssertEqual(ids.count, 3)
+        XCTAssertEqual(Set(ids).count, 1, "All segments of one multi-interval feature must share the same ID")
+
         for i in 1...3 {
-            XCTAssertTrue(lines[i].contains("Parent="))
+            XCTAssertFalse(lines[i].contains("Parent="), "No Parent attribute should be emitted when the parent feature is not exported")
             XCTAssertTrue(lines[i].contains("exon"))
         }
+    }
+
+    /// SCI-11 golden test: a 2-segment CDS (segment lengths 10 and 8, so the
+    /// second segment starts mid-codon) exports correct per-segment phase
+    /// using the shared `CDSSegmentPhases` helper, and the file round-trips
+    /// cleanly through `GFF3Reader` with the phase preserved per segment.
+    func testWriteMultiSegmentCDSComputesCorrectPhasePerSegment() async throws {
+        let url = createTempFile()
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        // Segment 1: 10 bp (phase 0, cumulative 10 -> next phase = (3-10%3)%3 = 2).
+        // Segment 2: 8 bp, phase 2.
+        let annotation = SequenceAnnotation(
+            type: .cds,
+            name: "TestCDS",
+            chromosome: "chr1",
+            intervals: [
+                AnnotationInterval(start: 0, end: 10),
+                AnnotationInterval(start: 100, end: 108)
+            ],
+            strand: .forward
+        )
+
+        try await GFF3Writer.write([annotation], to: url)
+
+        let content = try String(contentsOf: url, encoding: .utf8)
+        let lines = content.split(separator: "\n").filter { !$0.hasPrefix("#") }
+        XCTAssertEqual(lines.count, 2)
+
+        func phaseColumn(_ line: Substring) -> String {
+            let fields = line.split(separator: "\t")
+            return String(fields[7])
+        }
+
+        XCTAssertEqual(phaseColumn(lines[0]), "0", "First segment (phase 0) starts a fresh reading frame")
+        XCTAssertEqual(phaseColumn(lines[1]), "2", "Second segment: 10 bases already consumed, (3 - 10%3) % 3 = 2")
+
+        // Round-trip through GFF3Reader: re-import produces two features
+        // (this writer/reader pair does not group multi-line features by ID
+        // on import), each carrying its own segment's phase.
+        let reader = GFF3Reader()
+        let reimported = try await reader.readAll(from: url)
+        XCTAssertEqual(reimported.count, 2)
+        XCTAssertEqual(Set(reimported.map(\.phase)), [0, 2])
     }
 
     func testAnnotationTypeMapping() async throws {

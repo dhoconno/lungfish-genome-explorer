@@ -436,7 +436,7 @@ public final class TaxonomyReadExtractionAction {
         }
     }
 
-    /// Presents an "Extraction failed" alert sheet on `hostWindow`.
+    /// Presents an "Extraction Failed" alert sheet on `hostWindow`.
     ///
     /// Extracted into its own `@MainActor` helper so the failure path in
     /// `startExtraction` doesn't need to spawn a nested main-actor task from
@@ -444,7 +444,7 @@ public final class TaxonomyReadExtractionAction {
     @MainActor
     private func presentErrorAlert(_ errorDesc: String, on hostWindow: NSWindow) async {
         let alert = NSAlert()
-        alert.messageText = "Extraction failed"
+        alert.messageText = "Extraction Failed"
         alert.informativeText = errorDesc
         alert.alertStyle = .warning
         alert.addButton(withTitle: "OK")

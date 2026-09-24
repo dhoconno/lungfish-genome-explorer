@@ -330,6 +330,33 @@ final class TaxonomyViewControllerTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: unwritableURL.path))
     }
 
+    /// REC-03: the kebab-menu CSV/TSV taxonomy export used to write only the
+    /// payload with no provenance sidecar at all, unlike the sibling
+    /// `exportResults` path tested above. Asserts the sidecar now exists and
+    /// records the source classification inputs.
+    func testDelimitedExportWritesProvenanceSidecar() throws {
+        let vc = TaxonomyViewController()
+        _ = vc.view
+
+        let result = makeTestResult()
+        let resultDirectory = result.config.outputDirectory
+        try FileManager.default.createDirectory(at: resultDirectory, withIntermediateDirectories: true)
+        try "@r1\nACGT\n+\n!!!!\n".write(to: result.config.inputFiles[0], atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: resultDirectory) }
+
+        vc.configure(result: result)
+        let outputURL = resultDirectory.appendingPathComponent("classification.csv")
+
+        _ = try vc.writeDelimitedExport(tree: result.tree, separator: ",", to: outputURL)
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: outputURL.path))
+        let sidecarURL = ProvenanceRecorder.fileSidecarURL(for: outputURL)
+        let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: sidecarURL))
+        XCTAssertEqual(envelope.workflowName, "lungfish app taxonomy table export")
+        let inputPaths = Set(envelope.files.filter { $0.role == .input }.map(\.path))
+        XCTAssertTrue(inputPaths.contains(result.config.inputFiles[0].path))
+    }
+
     func testDelimitedExportWarningPresenterSeamIsInvoked() throws {
         // Verifies the warningPresenter test seam used by the export
         // write-failure path actually fires when invoked.

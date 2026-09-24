@@ -1088,19 +1088,16 @@ extension AppDelegate {
             helperBaseURL = helperBaseURL.deletingPathExtension()
         }
         let helperTrackID = helperBaseURL.lastPathComponent
-        let helperDBPath = bundleURL
-            .appendingPathComponent("variants")
-            .appendingPathComponent("\(helperTrackID).db")
-            .path
-        let cliCmd = OperationCenter.buildCLICommand(
-            subcommand: "--vcf-import-helper",
-            args: [
-                "--vcf-path", vcfURL.path,
-                "--output-db-path", helperDBPath,
-                "--source-file", vcfURL.lastPathComponent,
-                "--import-profile", selectedImportProfile.rawValue,
-            ]
-        )
+        // FEA-12: `--vcf-import-helper` launches this same app executable as
+        // a background worker; it is not a `lungfish-cli` flag, and unlike
+        // BAM there is no `lungfish-cli import vcf` path that attaches to an
+        // existing bundle's variant database the way this helper does
+        // (`import vcf` only writes loose files to a plain output
+        // directory). Recording an invented command here would fail exactly
+        // like the flag it replaces, so leave `cliCommand` nil: the
+        // Operations panel hides "Copy CLI Command" for this row instead of
+        // showing one that cannot run.
+        let cliCmd: String? = nil
         let opID = OperationCenter.shared.start(
             title: "Importing \(vcfURL.lastPathComponent)",
             detail: "Importing VCF variants (\(profileLabel))...",
@@ -2319,14 +2316,7 @@ extension AppDelegate {
         }
 
         let cancelFlag = OSAllocatedUnfairLock(initialState: false)
-        let cliCmd = OperationCenter.buildCLICommand(
-            subcommand: "--bam-import-helper",
-            args: [
-                "--bam-path", bamURL.path,
-                "--bundle-path", bundleURL.path,
-                "--name", bamURL.lastPathComponent,
-            ]
-        )
+        let cliCmd = BAMImportCLICommand.build(bamURL: bamURL, bundleURL: bundleURL)
         let opID = OperationCenter.shared.start(
             title: "Importing \(bamURL.lastPathComponent)",
             detail: "Importing alignments...",

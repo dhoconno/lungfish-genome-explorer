@@ -9,6 +9,7 @@ import AppKit
 import LungfishCore
 import LungfishWorkflow
 import LungfishKit
+import LungfishTaxTriageUI
 import UniformTypeIdentifiers
 
 /// Builds the application's main menu bar programmatically.
@@ -99,7 +100,7 @@ public final class MainMenu {
         ).identifier = NSUserInterfaceItemIdentifier(MainMenuAccessibilityID.about)
 
         appMenu.addItem(
-            withTitle: "Check for Updates...",
+            withTitle: "Check for Updates…",
             action: #selector(AppDelegate.checkForUpdates(_:)),
             keyEquivalent: ""
         ).identifier = NSUserInterfaceItemIdentifier(MainMenuAccessibilityID.checkForUpdates)
@@ -108,7 +109,7 @@ public final class MainMenu {
 
         // Preferences
         let prefsItem = NSMenuItem(
-            title: "Settings...",
+            title: "Settings…",
             action: #selector(AppDelegate.showPreferences(_:)),
             keyEquivalent: ","
         )
@@ -174,7 +175,7 @@ public final class MainMenu {
 
         // Open Project Folder (Cmd-O)
         fileMenu.addItem(
-            withTitle: "Open Project Folder...",
+            withTitle: "Open Project Folder…",
             action: #selector(AppDelegate.openProjectFolder(_:)),
             keyEquivalent: "o"
         ).identifier = NSUserInterfaceItemIdentifier(MainMenuAccessibilityID.openProjectFolder)
@@ -398,7 +399,7 @@ public final class MainMenu {
         let findMenu = NSMenu(title: "Find")
 
         findMenu.addItem(
-            withTitle: "Find...",
+            withTitle: "Find…",
             action: #selector(NSTextView.performFindPanelAction(_:)),
             keyEquivalent: "f"
         ).tag = NSTextFinder.Action.showFindInterface.rawValue
@@ -584,6 +585,36 @@ public final class MainMenu {
 
         viewMenu.addItem(.separator())
 
+        // TaxTriage sample stepping (UX-03: previously implemented only as
+        // NSViewController.performKeyEquivalent overrides, which AppKit never
+        // reaches — key equivalents are dispatched down the view hierarchy,
+        // not to view controllers. These use nil target (responder chain) so
+        // they auto-disable when no TaxTriageResultViewController is active,
+        // matching the Taxonomy Expand/Collapse pattern above. ⌘0 is already
+        // Zoom to Fit, so "All Samples" uses ⌥⌘0 instead.
+        let nextSampleItem = viewMenu.addItem(
+            withTitle: "Next Sample",
+            action: #selector(TaxTriageResultViewController.selectNextSample(_:)),
+            keyEquivalent: "]"
+        )
+        nextSampleItem.keyEquivalentModifierMask = [.command]
+
+        let previousSampleItem = viewMenu.addItem(
+            withTitle: "Previous Sample",
+            action: #selector(TaxTriageResultViewController.selectPreviousSample(_:)),
+            keyEquivalent: "["
+        )
+        previousSampleItem.keyEquivalentModifierMask = [.command]
+
+        let allSamplesItem = viewMenu.addItem(
+            withTitle: "All Samples",
+            action: #selector(TaxTriageResultViewController.selectAllSamplesOverview(_:)),
+            keyEquivalent: "0"
+        )
+        allSamplesItem.keyEquivalentModifierMask = [.command, .option]
+
+        viewMenu.addItem(.separator())
+
         // DNA/RNA mode toggle
         let nucleotideModeItem = viewMenu.addItem(
             withTitle: "Show as RNA (U instead of T)",
@@ -701,7 +732,7 @@ public final class MainMenu {
         let toolsMenu = NSMenu(title: "Tools")
 
         let model = ToolsMenuModel.build(isEnabled: { workflowLibraryEnablementStore.isWorkflowEnabled($0) })
-        let primerDesignItem = NSMenuItem(title: "PCR primer design", action: nil, keyEquivalent: "")
+        let primerDesignItem = NSMenuItem(title: "PCR Primer Design", action: nil, keyEquivalent: "")
         primerDesignItem.identifier = NSUserInterfaceItemIdentifier("tools-pcr-primer-design")
         let primerDesignMenu = NSMenu(title: primerDesignItem.title)
         for engine in PrimerDesignEngine.allCases {
@@ -754,19 +785,19 @@ public final class MainMenu {
         let searchDatabasesMenu = NSMenu(title: "Search Online Databases")
 
         searchDatabasesMenu.addItem(
-            withTitle: "Search NCBI...",
+            withTitle: "Search NCBI…",
             action: #selector(ToolsMenuActions.searchNCBI(_:)),
             keyEquivalent: ""
         )
 
         searchDatabasesMenu.addItem(
-            withTitle: "Search SRA...",
+            withTitle: "Search SRA…",
             action: #selector(ToolsMenuActions.searchSRA(_:)),
             keyEquivalent: ""
         )
 
         searchDatabasesMenu.addItem(
-            withTitle: "Search Pathoplexus...",
+            withTitle: "Search Pathoplexus…",
             action: #selector(ToolsMenuActions.searchPathoplexus(_:)),
             keyEquivalent: ""
         )
@@ -968,7 +999,7 @@ public final class MainMenu {
 
     private static func makeSetWindowSizeItem() -> NSMenuItem {
         let item = NSMenuItem(
-            title: "Set Size...",
+            title: "Set Size…",
             action: #selector(AppDelegate.showWindowSizeDialog(_:)),
             keyEquivalent: ""
         )
@@ -1036,7 +1067,7 @@ public final class MainMenu {
         ).identifier = NSUserInterfaceItemIdentifier(MainMenuAccessibilityID.releaseNotes)
 
         helpMenu.addItem(
-            withTitle: "Report an Issue...",
+            withTitle: "Report an Issue…",
             action: #selector(HelpMenuActions.reportIssue(_:)),
             keyEquivalent: ""
         ).identifier = NSUserInterfaceItemIdentifier(MainMenuAccessibilityID.reportIssue)

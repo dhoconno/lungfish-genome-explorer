@@ -353,4 +353,170 @@ final class VariantDatabaseExtractionTests: XCTestCase {
         let count2 = try VariantDatabase(url: outURL).query(chromosome: "chr1", start: 0, end: 500).count
         XCTAssertEqual(count2, 3, "Second extraction should overwrite first")
     }
+
+    // MARK: - SCI-07: Reverse-complement extraction transforms variants
+
+    /// SNP at 0-based position 10 (VCF POS 11) within a region [0, 20).
+    /// Region length 20. Mirrored position = 20 - 11 = 9. REF/ALT reverse-complemented.
+    func testExtractRegionReverseComplementMirrorsSNPPosition() throws {
+        let vcf = """
+        ##fileformat=VCFv4.3
+        #CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO
+        chr1\t11\trsSNP\tA\tG\t30.0\tPASS\t.
+        """
+        let db = try createDatabase(from: vcf, name: "snp_source.db")
+        let outURL = tempDir.appendingPathComponent("snp_rc.db")
+
+        let count = try db.extractRegion(
+            chromosome: "chr1", start: 0, end: 20,
+            outputURL: outURL,
+            isReverseComplement: true
+        )
+        XCTAssertEqual(count, 1)
+
+        let extracted = try VariantDatabase(url: outURL).query(chromosome: "chr1", start: 0, end: 20)
+        XCTAssertEqual(extracted.count, 1)
+        let variant = try XCTUnwrap(extracted.first)
+        // Original 0-based position 10, region length 20: mirrored = 20 - 1 - 10 = 9.
+        XCTAssertEqual(variant.position, 9)
+        XCTAssertEqual(variant.ref, "T", "REF A reverse-complements to T")
+        XCTAssertEqual(variant.alt, "C", "ALT G reverse-complements to C")
+    }
+
+    /// Worked example from the audit: region [100, 200) 0-based, SNP at 0-based 110
+    /// (VCF POS 111), REF A / ALT G. Mirrored position = 200 - 1 - 110 = 89.
+    func testExtractRegionReverseComplementMatchesAuditWorkedExample() throws {
+        let vcf = """
+        ##fileformat=VCFv4.3
+        #CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO
+        chr1\t111\trsSNP\tA\tG\t30.0\tPASS\t.
+        """
+        let db = try createDatabase(from: vcf, name: "audit_source.db")
+        let outURL = tempDir.appendingPathComponent("audit_rc.db")
+
+        try db.extractRegion(
+            chromosome: "chr1", start: 100, end: 200,
+            outputURL: outURL,
+            isReverseComplement: true
+        )
+
+        let extracted = try VariantDatabase(url: outURL).query(chromosome: "chr1", start: 0, end: 100)
+        let variant = try XCTUnwrap(extracted.first)
+        XCTAssertEqual(variant.position, 89)
+        XCTAssertEqual(variant.ref, "T")
+        XCTAssertEqual(variant.alt, "C")
+    }
+
+    /// Insertion REF=A ALT=ATT at 0-based position 10 in region [0,20).
+    func testExtractRegionReverseComplementTransformsInsertion() throws {
+        let vcf = """
+        ##fileformat=VCFv4.3
+        #CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO
+        chr1\t11\trsINS\tA\tATT\t30.0\tPASS\t.
+        """
+        let db = try createDatabase(from: vcf, name: "ins_source.db")
+        let outURL = tempDir.appendingPathComponent("ins_rc.db")
+
+        let count = try db.extractRegion(
+            chromosome: "chr1", start: 0, end: 20,
+            outputURL: outURL,
+            isReverseComplement: true
+        )
+        XCTAssertEqual(count, 1)
+
+        let extracted = try VariantDatabase(url: outURL).query(chromosome: "chr1", start: 0, end: 20)
+        let variant = try XCTUnwrap(extracted.first)
+        XCTAssertEqual(variant.ref, "T", "REF A reverse-complements to T")
+        XCTAssertEqual(variant.alt, "AAT", "ALT ATT reverse-complements to AAT")
+    }
+
+    /// Deletion REF=ATCG ALT=A fully inside region [0,20) at 0-based position 5.
+    func testExtractRegionReverseComplementTransformsDeletion() throws {
+        let vcf = """
+        ##fileformat=VCFv4.3
+        #CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO
+        chr1\t6\trsDEL\tATCG\tA\t30.0\tPASS\t.
+        """
+        let db = try createDatabase(from: vcf, name: "del_source.db")
+        let outURL = tempDir.appendingPathComponent("del_rc.db")
+
+        let count = try db.extractRegion(
+            chromosome: "chr1", start: 0, end: 20,
+            outputURL: outURL,
+            isReverseComplement: true
+        )
+        XCTAssertEqual(count, 1)
+
+        let extracted = try VariantDatabase(url: outURL).query(chromosome: "chr1", start: 0, end: 20)
+        let variant = try XCTUnwrap(extracted.first)
+        // REF ATCG (0-based [5,9)) reverse-complements to CGAT.
+        XCTAssertEqual(variant.ref, "CGAT")
+        XCTAssertEqual(variant.alt, "T", "ALT A reverse-complements to T")
+        // Mirrored position: region length 20, original span [5,9) -> mirrored [11,15).
+        XCTAssertEqual(variant.position, 11)
+    }
+
+    func testExtractRegionReverseComplementDropsSymbolicAllele() throws {
+        let vcf = """
+        ##fileformat=VCFv4.3
+        #CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO
+        chr1\t11\trsSNP\tA\tG\t30.0\tPASS\t.
+        chr1\t15\trsSYM\tA\t<DEL>\t30.0\tPASS\t.
+        """
+        let db = try createDatabase(from: vcf, name: "symbolic_source.db")
+        let outURL = tempDir.appendingPathComponent("symbolic_rc.db")
+
+        let count = try db.extractRegion(
+            chromosome: "chr1", start: 0, end: 20,
+            outputURL: outURL,
+            isReverseComplement: true
+        )
+        XCTAssertEqual(count, 1, "The symbolic <DEL> ALT cannot be reverse-complemented and should be dropped")
+    }
+
+    // MARK: - SCI-21: Straddling records excluded
+
+    /// A deletion spans [95,105) (0-based); the extraction region starts at 100,
+    /// so the record straddles the region's left boundary and must be excluded
+    /// rather than truncated (truncating would leave a REF that does not match
+    /// the extracted sequence).
+    func testExtractRegionExcludesRecordStraddlingLeftBoundary() throws {
+        let vcf = """
+        ##fileformat=VCFv4.3
+        #CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO
+        chr1\t96\trsStraddle\tAAAAAAAAAA\tA\t30.0\tPASS\t.
+        chr1\t150\trsInside\tA\tG\t30.0\tPASS\t.
+        """
+        let db = try createDatabase(from: vcf, name: "straddle_source.db")
+        let outURL = tempDir.appendingPathComponent("straddle.db")
+
+        let count = try db.extractRegion(
+            chromosome: "chr1", start: 100, end: 200,
+            outputURL: outURL
+        )
+        XCTAssertEqual(count, 1, "Only the fully-contained record should be extracted")
+
+        let extracted = try VariantDatabase(url: outURL).query(chromosome: "chr1", start: 0, end: 100)
+        XCTAssertEqual(extracted.first?.variantID, "rsInside")
+    }
+
+    func testExtractRegionExcludesRecordStraddlingRightBoundary() throws {
+        let vcf = """
+        ##fileformat=VCFv4.3
+        #CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO
+        chr1\t150\trsInside\tA\tG\t30.0\tPASS\t.
+        chr1\t195\trsStraddle\tAAAAAAAAAA\tA\t30.0\tPASS\t.
+        """
+        let db = try createDatabase(from: vcf, name: "straddle_right_source.db")
+        let outURL = tempDir.appendingPathComponent("straddle_right.db")
+
+        let count = try db.extractRegion(
+            chromosome: "chr1", start: 100, end: 200,
+            outputURL: outURL
+        )
+        XCTAssertEqual(count, 1, "Only the fully-contained record should be extracted")
+
+        let extracted = try VariantDatabase(url: outURL).query(chromosome: "chr1", start: 0, end: 100)
+        XCTAssertEqual(extracted.first?.variantID, "rsInside")
+    }
 }

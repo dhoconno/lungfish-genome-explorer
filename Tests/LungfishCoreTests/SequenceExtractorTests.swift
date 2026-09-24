@@ -515,4 +515,210 @@ final class SequenceExtractorTests: XCTestCase {
             XCTAssertTrue(error is ExtractionError)
         }
     }
+
+    // MARK: - SCI-06: Strand- and splice-aware annotation extraction
+
+    /// Single-exon minus-strand CDS: extraction with reverseComplement=true must
+    /// return the reverse complement of the plus-strand span, and translating it
+    /// must equal the CDS's own `proteinSequence` (previously the two disagreed:
+    /// the nucleotide sequence was the plus-strand span, but the protein was
+    /// already strand-correct from `translateCDS`).
+    func testMinusStrandSingleExonCDSReverseComplementMatchesTranslation() throws {
+        // Plus-strand genomic bases at [0,12): "TTATTTGCCAT"... use a clean 12bp ORF.
+        // Forward genomic: "ATGGCATAACC" is irrelevant; construct so that RC gives an ORF.
+        // Forward (plus strand) bases at [0,9): "TTATGCCAT"
+        // RC: "ATGGCATAA" -> ATG GCA TAA -> M A *
+        let forwardGenome = "TTATGCCAT"
+        let provider: SequenceExtractor.SequenceProvider = { _, start, end in
+            guard start >= 0, end <= forwardGenome.count else { return nil }
+            let s = forwardGenome.index(forwardGenome.startIndex, offsetBy: start)
+            let e = forwardGenome.index(forwardGenome.startIndex, offsetBy: end)
+            return String(forwardGenome[s..<e])
+        }
+
+        let annotation = SequenceAnnotation(
+            type: .cds,
+            name: "minus_cds",
+            chromosome: "chr1",
+            start: 0,
+            end: 9,
+            strand: .reverse
+        )
+
+        let request = ExtractionRequest(source: .annotation(annotation), reverseComplement: true)
+        let result = try SequenceExtractor.extract(
+            request: request,
+            sequenceProvider: provider,
+            chromosomeLength: 9
+        )
+
+        XCTAssertEqual(result.nucleotideSequence, "ATGGCATAA", "Should be the reverse complement of the plus-strand span")
+        XCTAssertEqual(result.proteinSequence, "MA*")
+        XCTAssertTrue(result.fastaHeader.contains("[feature orientation]"))
+    }
+
+    /// Two-exon minus-strand CDS: copied-as-FASTA output (RC on, exons
+    /// concatenated) must equal the reverse complement of the joined exons in
+    /// transcription order, and must equal the annotation's own translation.
+    func testMinusStrandMultiExonCDSMatchesReverseComplementOfJoinedExons() throws {
+        // Exon A (genomic [0,6)): "TTATGC" ; Exon B (genomic [100,103)): "CAT"
+        // Ascending genomic (stored) order: [Exon A, Exon B]
+        // Concatenated ascending: "TTATGC" + "CAT" = "TTATGCCAT"
+        // RC of that whole string: "ATGGCATAA" -> ATG GCA TAA -> M A *
+        let provider: SequenceExtractor.SequenceProvider = { _, start, _ in
+            if start == 0 { return "TTATGC" }
+            if start == 100 { return "CAT" }
+            return nil
+        }
+
+        let annotation = SequenceAnnotation(
+            type: .cds,
+            name: "minus_multi_cds",
+            chromosome: "chr1",
+            intervals: [
+                AnnotationInterval(start: 0, end: 6),
+                AnnotationInterval(start: 100, end: 103)
+            ],
+            strand: .reverse
+        )
+
+        let request = ExtractionRequest(
+            source: .annotation(annotation),
+            reverseComplement: true,
+            concatenateExons: true
+        )
+        let result = try SequenceExtractor.extract(
+            request: request,
+            sequenceProvider: provider,
+            chromosomeLength: 103
+        )
+
+        XCTAssertEqual(result.nucleotideSequence, "ATGGCATAA")
+        XCTAssertEqual(result.proteinSequence, "MA*", "Nucleotide and protein must agree")
+    }
+
+    /// flank5=3 on a minus-strand feature must add bases from the genomic-higher
+    /// coordinate side (`end..end+3`), and after reverse complementing they land
+    /// at the 5' end of the output (SCI-06 acceptance test from the audit).
+    func testMinusStrandFlank5AddsFromGenomicHighSide() throws {
+        // Genomic layout: feature at [10,20). Downstream (3' on genomic axis,
+        // 5' in feature orientation) flank at [20,23) = "TTT".
+        // Feature span [10,20) plus-strand = 10 bases of "A".
+        // RC(feature span) = 10 T's. RC(downstream flank "TTT") = "AAA", which
+        // must appear at the 5' (leading) end of the RC'd output.
+        // Extraction fetches the whole flanked genomic span in one call for a
+        // contiguous (single-interval) annotation. Genome: [0,10) padding,
+        // [10,20) = 10 A's (the feature), [20,23) = "TTT" (the flank).
+        let genome = String(repeating: "N", count: 10) + String(repeating: "A", count: 10) + "TTT"
+        let provider: SequenceExtractor.SequenceProvider = { _, start, end in
+            guard start >= 0, end <= genome.count else { return nil }
+            let s = genome.index(genome.startIndex, offsetBy: start)
+            let e = genome.index(genome.startIndex, offsetBy: end)
+            return String(genome[s..<e])
+        }
+
+        let annotation = SequenceAnnotation(
+            type: .gene,
+            name: "minus_gene",
+            chromosome: "chr1",
+            start: 10,
+            end: 20,
+            strand: .reverse
+        )
+
+        let request = ExtractionRequest(
+            source: .annotation(annotation),
+            flank5Prime: 3,
+            reverseComplement: true
+        )
+        let result = try SequenceExtractor.extract(
+            request: request,
+            sequenceProvider: provider,
+            chromosomeLength: 30
+        )
+
+        // Effective genomic range extended on the high-coordinate (3') side by
+        // the feature's 5' flank: [10, 23).
+        XCTAssertEqual(result.effectiveStart, 10)
+        XCTAssertEqual(result.effectiveEnd, 23)
+        // RC("TTT") = "AAA" leads, then RC(10 A's) = 10 T's.
+        XCTAssertEqual(result.nucleotideSequence, "AAA" + String(repeating: "T", count: 10))
+    }
+
+    /// Plus-strand equivalent of the flank test: flank5 must add bases from the
+    /// genomic-lower coordinate side, unaffected by this change.
+    func testPlusStrandFlank5AddsFromGenomicLowSide() throws {
+        // Genome: [0,7) padding, [7,10) = "TTT" (the flank), [10,20) = 10 A's
+        // (the feature). Extraction fetches the merged span [7,20) in one call.
+        let genome = String(repeating: "N", count: 7) + "TTT" + String(repeating: "A", count: 10)
+        let provider: SequenceExtractor.SequenceProvider = { _, start, end in
+            guard start >= 0, end <= genome.count else { return nil }
+            let s = genome.index(genome.startIndex, offsetBy: start)
+            let e = genome.index(genome.startIndex, offsetBy: end)
+            return String(genome[s..<e])
+        }
+
+        let annotation = SequenceAnnotation(
+            type: .gene,
+            name: "plus_gene",
+            chromosome: "chr1",
+            start: 10,
+            end: 20,
+            strand: .forward
+        )
+
+        let request = ExtractionRequest(
+            source: .annotation(annotation),
+            flank5Prime: 3
+        )
+        let result = try SequenceExtractor.extract(
+            request: request,
+            sequenceProvider: provider,
+            chromosomeLength: 30
+        )
+
+        XCTAssertEqual(result.effectiveStart, 7)
+        XCTAssertEqual(result.effectiveEnd, 20)
+        XCTAssertEqual(result.nucleotideSequence, "TTT" + String(repeating: "A", count: 10))
+    }
+
+    // MARK: - SCI-15: origin-spanning extraction preserves join order
+
+    /// Concatenated extraction of an origin-spanning circular feature must
+    /// use the annotation's own segment order, not a re-sort by ascending
+    /// genomic start, matching `TranslationEngine.translateCDS`'s behavior
+    /// for the identical fixture.
+    func testExtractAnnotationOriginSpanningPreservesJoinOrder() throws {
+        // Segment A: genomic [15,20) = "ATGGC". Segment B: genomic [0,5) = "ATAAT".
+        // Stored in join order [A, B] (not ascending), as a circular
+        // `join(16..20,1..5)` GenBank location would parse.
+        let annotation = SequenceAnnotation(
+            type: .cds,
+            name: "wrapCDS",
+            chromosome: "chr1",
+            intervals: [
+                AnnotationInterval(start: 15, end: 20),
+                AnnotationInterval(start: 0, end: 5)
+            ],
+            strand: .forward
+        )
+        XCTAssertTrue(annotation.isOriginSpanning)
+
+        let sequence = "ATAATCCCCCCCCCCATGGC"
+        let provider: SequenceExtractor.SequenceProvider = { _, start, end in
+            guard start >= 0, end <= sequence.count else { return nil }
+            let s = sequence.index(sequence.startIndex, offsetBy: start)
+            let e = sequence.index(sequence.startIndex, offsetBy: end)
+            return String(sequence[s..<e])
+        }
+
+        let request = ExtractionRequest(source: .annotation(annotation), concatenateExons: true)
+        let result = try SequenceExtractor.extract(
+            request: request,
+            sequenceProvider: provider,
+            chromosomeLength: sequence.count
+        )
+
+        XCTAssertEqual(result.nucleotideSequence, "ATGGC" + "ATAAT", "Join order (A then B), not genomic-ascending (B then A)")
+    }
 }

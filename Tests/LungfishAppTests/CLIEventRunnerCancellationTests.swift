@@ -33,7 +33,7 @@ final class CLIEventRunnerCancellationTests: XCTestCase {
 
     func testTreeInferenceRunnerCancelReturnsBeforeSleepingCLIExits() async throws {
         let fakeCLI = try makeSleepingCLI(directoryPrefix: "cli-tree-inference-cancel")
-        let runner = CLITreeInferenceRunner(cliURLOverride: fakeCLI.executable)
+        let runner = CLITreeRunner(label: "tree inference", cliURLOverride: fakeCLI.executable)
         let operationID = await startOperation(type: .phylogeneticTreeInference)
         let runTask = Task {
             try await runner.run(arguments: ["tree", "infer"], operationID: operationID)
@@ -51,7 +51,7 @@ final class CLIEventRunnerCancellationTests: XCTestCase {
 
     func testTreeTransformRunnerCancelReturnsBeforeSleepingCLIExits() async throws {
         let fakeCLI = try makeSleepingCLI(directoryPrefix: "cli-tree-transform-cancel")
-        let runner = CLITreeTransformRunner(cliURLOverride: fakeCLI.executable)
+        let runner = CLITreeRunner(label: "tree transform", cliURLOverride: fakeCLI.executable)
         let operationID = await startOperation(type: .phylogeneticTreeTransform)
         let runTask = Task {
             try await runner.run(arguments: ["tree", "reroot"], operationID: operationID)
@@ -78,8 +78,8 @@ final class CLIEventRunnerCancellationTests: XCTestCase {
             do {
                 switch kind {
                 case 0: _ = try await CLIMSAActionRunner(cliURLOverride: fakeCLI.executable).run(arguments: [], operationID: operationID)
-                case 1: _ = try await CLITreeInferenceRunner(cliURLOverride: fakeCLI.executable).run(arguments: [], operationID: operationID)
-                default: _ = try await CLITreeTransformRunner(cliURLOverride: fakeCLI.executable).run(arguments: [], operationID: operationID)
+                case 1: _ = try await CLITreeRunner(label: "tree inference", cliURLOverride: fakeCLI.executable).run(arguments: [], operationID: operationID)
+                default: _ = try await CLITreeRunner(label: "tree transform", cliURLOverride: fakeCLI.executable).run(arguments: [], operationID: operationID)
                 }
                 XCTFail("Cancelled helper must not return a successful result")
             } catch is CancellationError {

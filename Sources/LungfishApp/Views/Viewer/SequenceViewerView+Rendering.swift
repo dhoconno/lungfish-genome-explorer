@@ -67,7 +67,7 @@ extension SequenceViewerView {
             } else if currentReferenceBundle != nil {
                 // Reference bundle mode: draw from cached bundle data
                 sequenceViewerLogger.debug("SequenceViewerView.draw: Drawing bundle content for \(frame.chromosome)")
-                drawBundleContent(frame: frame, context: context)
+                drawBundleContent(frame: frame, context: context, dirtyRect: dirtyRect)
             } else if detachedAlignmentSource != nil {
                 // Detached evidence mode reuses the full read/coverage renderer but has
                 // no annotation database and no implicit reference sequence.
@@ -94,7 +94,19 @@ extension SequenceViewerView {
     /// - Annotations are always fetched for the visible region from SQLite
     /// - Sequence is only fetched when zoomed in enough to be visible (<500 bp/pixel)
     ///   because reading 240 MB of bgzip data for a full chromosome is impractical
-    func drawBundleContent(frame: ReferenceFrame, context: CGContext) {
+    ///
+    /// - Parameter dirtyRect: The rect AppKit actually asked to repaint. PERF-09/audit
+    ///   finding "SequenceViewerView draw(_:) ignores dirtyRect and repaints every track":
+    ///   each track's *drawing* call below is skipped when its vertical band does not
+    ///   intersect `dirtyRect`, so a narrow invalidation (e.g. the loading-badge rect) no
+    ///   longer repaints the ruler/annotations/variants/coverage/reads it doesn't touch.
+    ///   Fetch-trigger checks and the Y-layout bookkeeping (`lastAnnotationBottomY`,
+    ///   `lastVariantBottomY`, `readContentHeight`, etc.) stay unconditional — later tracks'
+    ///   positions and other code (hit-testing) depend on them even when this pass doesn't
+    ///   paint that band, and a full redraw (`dirtyRect == bounds`) always intersects every
+    ///   band, so pixel output for a full redraw is unchanged.
+    func drawBundleContent(frame: ReferenceFrame, context: CGContext, dirtyRect: NSRect? = nil) {
+        let dirtyRect = dirtyRect ?? bounds
         guard let bundle = currentReferenceBundle else {
             sequenceViewerLogger.warning("drawBundleContent: currentReferenceBundle is nil")
             return
@@ -233,6 +245,12 @@ extension SequenceViewerView {
         }
 
         // --- Draw annotations (above variants) ---
+        // Annotation drawing also computes `lastAnnotationBottomY` as a side effect of its own
+        // layout pass (expanded mode sizes it from label/sub-track heights actually drawn), so
+        // unlike coverage/reads below, this track's own draw call cannot be skipped without
+        // duplicating that layout logic — variant/read positioning depends on the real value.
+        // It stays unconditional; PERF-09/audit's dirtyRect skip is applied to reads and coverage
+        // instead, which do not have this forward dependency.
         if cachedAnnotationRegion?.chromosome == visibleRegion.chromosome,
            !cachedBundleAnnotations.isEmpty {
             sequenceViewerLogger.debug("drawBundleContent: Drawing \(self.cachedBundleAnnotations.count) annotations")
@@ -368,7 +386,8 @@ extension SequenceViewerView {
                 consensusMaskingEnabled: consensusMaskingEnabledSetting,
                 consensusGapThreshold: Double(consensusGapThresholdPercentSetting) / 100.0,
                 consensusMaskingMinDepth: consensusMaskingMinDepthSetting,
-                showStrandColors: showStrandColorsSetting
+                showStrandColors: showStrandColorsSetting,
+                colorMode: readColorModeSetting
             )
 
             // Coverage strip is always visible.
@@ -385,15 +404,21 @@ extension SequenceViewerView {
                 width: bounds.width,
                 height: coverageStripHeight
             )
-            ReadTrackRenderer.drawCoverage(
-                depthPoints: cachedDepthPoints,
-                regionStart: visibleRegion.start,
-                regionEnd: visibleRegion.end,
-                frame: frame,
-                context: context,
-                rect: coverageRect,
-                scaleMode: coverageScaleModeSetting
-            )
+            // PERF-09/audit: the coverage strip's Y band is fully known before it draws (unlike
+            // annotations above), so a narrow dirtyRect that doesn't reach it — the loading-badge
+            // rect being the common case — can skip the O(depth points) draw entirely. A full
+            // redraw's dirtyRect always covers bounds, hence always intersects this band.
+            if dirtyRect.intersects(coverageRect) {
+                ReadTrackRenderer.drawCoverage(
+                    depthPoints: cachedDepthPoints,
+                    regionStart: visibleRegion.start,
+                    regionEnd: visibleRegion.end,
+                    frame: frame,
+                    context: context,
+                    rect: coverageRect,
+                    scaleMode: coverageScaleModeSetting
+                )
+            }
             if isFetchingDepth && cachedDepthPoints.isEmpty {
                 let elapsed = depthFetchStartTime.map { Date().timeIntervalSince($0) } ?? 0
                 if elapsed > 0.15 {
@@ -465,8 +490,8 @@ extension SequenceViewerView {
                         readGeneration: cachedReadSetGeneration,
                         chromosome: visibleRegion.chromosome,
                         scaleTier: ReadPackCacheKey.quantizeScale(scale),
-                        sortMode: "position",
-                        sortPosition: nil,
+                        sortMode: readSortModeSetting.rawValue,
+                        sortPosition: readSortModeSetting == .baseAtPosition ? readSortPositionSetting : nil,
                         maxRows: maxRowsLimit,
                         verticalCompress: verticallyCompressContigSetting,
                         prioritizedRegion: maxRowsLimit == nil ? nil : quantizedStart..<(quantizedStart + viewportSpan),
@@ -510,8 +535,8 @@ extension SequenceViewerView {
                             reads: readsForPacking,
                             frame: ReadPackFrame(frame),
                             maxRows: maxRowsLimit,
-                            sortMode: .position,
-                            sortPosition: nil,
+                            sortMode: readSortModeSetting,
+                            sortPosition: readSortModeSetting == .baseAtPosition ? readSortPositionSetting : nil,
                             prioritizedRegion: visibleRegion.start..<visibleRegion.end
                         )
                         cachedPackScale = scale
@@ -573,34 +598,46 @@ extension SequenceViewerView {
                     // viewport are culled instead of being walked read-by-read.
                     let contentClipRect = clipRect.offsetBy(dx: 0, dy: readScrollOffset)
 
-                    if tier == .packed {
-                        ReadTrackRenderer.drawPackedReads(
-                            packedReads: cachedPackedReads, overflow: cachedPackOverflow, frame: frame,
-                            referenceSequence: cachedBundleSequence,
-                            referenceStart: cachedSequenceRegion?.start ?? Int(frame.start),
-                            settings: displaySettings,
-                            verticalCompress: verticallyCompressContigSetting,
-                            maxRowsLimit: maxRowsLimit,
-                            maskedPositions: maskedPositions,
-                            layout: cachedPackedReadLayout,
-                            clipRect: contentClipRect,
-                            mismatchCache: cachedReadMismatchCache,
-                            context: context, rect: drawRect
-                        )
-                    } else {
-                        ReadTrackRenderer.drawBaseReads(
-                            packedReads: cachedPackedReads, overflow: cachedPackOverflow, frame: frame,
-                            referenceSequence: cachedBundleSequence,
-                            referenceStart: cachedSequenceRegion?.start ?? Int(frame.start),
-                            settings: displaySettings,
-                            verticalCompress: verticallyCompressContigSetting,
-                            maxRowsLimit: maxRowsLimit,
-                            maskedPositions: maskedPositions,
-                            layout: cachedPackedReadLayout,
-                            clipRect: contentClipRect,
-                            mismatchCache: cachedReadMismatchCache,
-                            context: context, rect: drawRect
-                        )
+                    // PERF-09/audit: ReadTrackRenderer already culls rows to `clipRect`
+                    // internally (ReadTrackCulling.visibleRowRange, listed as exemplary in the
+                    // audit's "Preserve" section) — it just was never told about a narrow
+                    // invalidation, so a badge-only redraw still walked every visible row when
+                    // packing 50k+ reads. Narrowing the clip passed in to `dirtyRect`'s overlap
+                    // lets that existing culling skip rows outside the current repaint, and
+                    // skips the call outright when there is no overlap at all. A full redraw's
+                    // dirtyRect covers all of `bounds`, so the intersection equals `contentClipRect`
+                    // there and pixel output is unchanged.
+                    let paintClipRect = contentClipRect.intersection(dirtyRect.offsetBy(dx: 0, dy: readScrollOffset))
+                    if !paintClipRect.isEmpty {
+                        if tier == .packed {
+                            ReadTrackRenderer.drawPackedReads(
+                                packedReads: cachedPackedReads, overflow: cachedPackOverflow, frame: frame,
+                                referenceSequence: cachedBundleSequence,
+                                referenceStart: cachedSequenceRegion?.start ?? Int(frame.start),
+                                settings: displaySettings,
+                                verticalCompress: verticallyCompressContigSetting,
+                                maxRowsLimit: maxRowsLimit,
+                                maskedPositions: maskedPositions,
+                                layout: cachedPackedReadLayout,
+                                clipRect: paintClipRect,
+                                mismatchCache: cachedReadMismatchCache,
+                                context: context, rect: drawRect
+                            )
+                        } else {
+                            ReadTrackRenderer.drawBaseReads(
+                                packedReads: cachedPackedReads, overflow: cachedPackOverflow, frame: frame,
+                                referenceSequence: cachedBundleSequence,
+                                referenceStart: cachedSequenceRegion?.start ?? Int(frame.start),
+                                settings: displaySettings,
+                                verticalCompress: verticallyCompressContigSetting,
+                                maxRowsLimit: maxRowsLimit,
+                                maskedPositions: maskedPositions,
+                                layout: cachedPackedReadLayout,
+                                clipRect: paintClipRect,
+                                mismatchCache: cachedReadMismatchCache,
+                                context: context, rect: drawRect
+                            )
+                        }
                     }
 
                     context.restoreGState()
@@ -780,7 +817,8 @@ extension SequenceViewerView {
             consensusMaskingEnabled: consensusMaskingEnabledSetting,
             consensusGapThreshold: Double(consensusGapThresholdPercentSetting) / 100,
             consensusMaskingMinDepth: consensusMaskingMinDepthSetting,
-            showStrandColors: showStrandColorsSetting
+            showStrandColors: showStrandColorsSetting,
+            colorMode: readColorModeSetting
         )
         if tier == .packed {
             ReadTrackRenderer.drawPackedReads(packedReads: packed, overflow: overflow, frame: frame, referenceSequence: source.referenceSequence, referenceStart: 0, settings: settings, verticalCompress: verticallyCompressContigSetting, maxRowsLimit: maxRows, maskedPositions: [], layout: cachedPackedReadLayout, clipRect: rect, mismatchCache: cachedReadMismatchCache, context: context, rect: rect)
@@ -812,8 +850,8 @@ extension SequenceViewerView {
             readGeneration: cachedReadSetGeneration,
             chromosome: region.chromosome,
             scaleTier: ReadPackCacheKey.quantizeScale(frame.scale),
-            sortMode: "position",
-            sortPosition: nil,
+            sortMode: readSortModeSetting.rawValue,
+            sortPosition: readSortModeSetting == .baseAtPosition ? readSortPositionSetting : nil,
             maxRows: maxRows,
             verticalCompress: verticallyCompressContigSetting,
             prioritizedRegion: maxRows == nil ? nil : region.start..<region.end,
@@ -832,8 +870,8 @@ extension SequenceViewerView {
                 reads: cachedAlignedReads.filter { $0.chromosome == region.chromosome },
                 frame: ReadPackFrame(frame),
                 maxRows: maxRows,
-                sortMode: .position,
-                sortPosition: nil,
+                sortMode: readSortModeSetting,
+                sortPosition: readSortModeSetting == .baseAtPosition ? readSortPositionSetting : nil,
                 prioritizedRegion: region.start..<region.end
             )
             return ([], 0, maxRows)
@@ -1065,6 +1103,59 @@ extension SequenceViewerView {
         }
 
         return (aliasMap, lengthMatchNotes)
+    }
+
+    /// Result of scanning a bundle's variant tracks: sample count, per-track chromosome sets,
+    /// and the fast (name/alias/contig-length only) chromosome alias map.
+    struct VariantTrackScanResult {
+        var sampleCount: Int = 0
+        var trackChromosomeMap: [String: Set<String>] = [:]
+        var aliasMap: [String: String] = [:]
+        var lengthMatchNotes: [String] = []
+    }
+
+    /// PERF-07 (2026-09-23 best-practices audit): the body of `setReferenceBundle`'s variant-track
+    /// scan, extracted so it can run off the main actor. Opens every variant database declared by
+    /// the bundle and reads `sampleCount()` / `allChromosomes()` plus the fast alias map — the
+    /// same work `setReferenceBundle` used to do synchronously on main. `VariantDatabase` is
+    /// `@unchecked Sendable` and already designed for background access (see its class doc), and
+    /// `buildVariantChromosomeAliasMapWithLengthMatchNotes` is already `nonisolated static`.
+    nonisolated static func scanVariantTracksSynchronously(bundle: ReferenceBundle) -> VariantTrackScanResult {
+        var result = VariantTrackScanResult()
+        for trackId in bundle.variantTrackIds {
+            guard let trackInfo = bundle.variantTrack(id: trackId),
+                  let dbPath = trackInfo.databasePath,
+                  let dbURL = try? bundle.memberURL(
+                      for: dbPath,
+                      field: "variants[\(trackId)].databasePath"
+                  ),
+                  let db = try? VariantDatabase(url: dbURL) else {
+                continue
+            }
+
+            let count = db.sampleCount()
+            if count > 0 {
+                result.sampleCount = max(result.sampleCount, count)
+                sequenceViewerLogger.info("SequenceViewerView.scanVariantTracksSynchronously: Found \(count) samples in variant track '\(trackId, privacy: .public)'")
+            }
+
+            result.trackChromosomeMap[trackId] = Set(db.allChromosomes())
+
+            // Fast path: name/alias/contig-length matching only.
+            let (aliasMap, lengthMatchNotes) = Self.buildVariantChromosomeAliasMapWithLengthMatchNotes(
+                bundleChromosomes: bundle.manifest.genome?.chromosomes ?? [],
+                variantDB: db,
+                sequenceViewerLogger: sequenceViewerLogger,
+                includeMaxPositionFallback: false
+            )
+            for (refChrom, dbChrom) in aliasMap where result.aliasMap[refChrom] == nil {
+                result.aliasMap[refChrom] = dbChrom
+            }
+            for note in lengthMatchNotes where !result.lengthMatchNotes.contains(note) {
+                result.lengthMatchNotes.append(note)
+            }
+        }
+        return result
     }
 
     nonisolated static let variantAliasWarmupQueue = DispatchQueue(

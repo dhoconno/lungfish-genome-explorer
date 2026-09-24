@@ -466,6 +466,15 @@ public enum NotificationUserInfoKey {
     /// Key for strand-colored read backgrounds toggle (Bool).
     public static let showStrandColors = "showStrandColors"
 
+    /// Key for the read sort mode (FEA-08; ReadSortMode raw value String).
+    public static let readSortMode = "readSortMode"
+
+    /// Key for the read-sort focal position, used only by `.baseAtPosition` (FEA-08; Int).
+    public static let readSortPosition = "readSortPosition"
+
+    /// Key for the read color mode (FEA-08; ReadColorMode raw value String).
+    public static let readColorMode = "readColorMode"
+
     /// Key for the viewport content mode (ViewportContentMode raw value String).
     public static let contentMode = "contentMode"
 }

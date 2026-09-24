@@ -57,7 +57,7 @@ final class GenotypeInspectorPresentationTests: XCTestCase {
 
     func testMountedLongProductionProvenanceOptionLabelWrapsAtNarrowEnlargedTextWidth() async throws {
         let label = "haplotypeDropoutLocusFractionOverrides (Resolved Default)"
-        let row = GenotypeInspectorValueRow(
+        let row = InspectorKeyValueRow(
             label,
             value: "{}",
             font: .system(size: 26)

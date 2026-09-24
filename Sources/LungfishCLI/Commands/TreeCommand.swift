@@ -74,7 +74,7 @@ struct TreeCommand: AsyncParsableCommand {
 
             private func execute(emit: @escaping (String) -> Void) throws {
                 let startedAt = Date()
-                let emitter = TreeExportCLIEventEmitter(
+                let emitter = CLIEventEmitter(
                     enabled: globalOptions.outputFormat == .json,
                     emit: emit
                 )
@@ -432,7 +432,7 @@ struct TreeCommand: AsyncParsableCommand {
 
         private func execute(emit: @escaping (String) -> Void) async throws {
             let startedAt = Date()
-            let emitter = TreeInferenceCLIEventEmitter(enabled: globalOptions.outputFormat == .json, emit: emit)
+            let emitter = CLIEventEmitter(enabled: globalOptions.outputFormat == .json, emit: emit)
             let workflowName = "phylogenetic-tree-infer-iqtree"
             let wrapperToolName = "lungfish tree infer iqtree"
             let wrapperToolVersion = PhylogeneticTreeBundleImporter.toolVersion
@@ -797,150 +797,6 @@ struct TreeCommand: AsyncParsableCommand {
     }
 }
 
-private final class TreeInferenceCLIEventEmitter: @unchecked Sendable {
-    private struct Event: Encodable {
-        let event: String
-        let progress: Double?
-        let message: String?
-        let output: String?
-        let error: String?
-    }
-
-    private let enabled: Bool
-    private let emitLine: (String) -> Void
-    private let lock = NSLock()
-
-    init(enabled: Bool, emit: @escaping (String) -> Void) {
-        self.enabled = enabled
-        self.emitLine = emit
-    }
-
-    func emitStart(message: String) {
-        emit(Event(event: "treeInferenceStart", progress: 0, message: message, output: nil, error: nil))
-    }
-
-    func emitProgress(_ progress: Double, message: String) {
-        emit(Event(event: "treeInferenceProgress", progress: max(0, min(1, progress)), message: message, output: nil, error: nil))
-    }
-
-    func emitComplete(output: String) {
-        emit(Event(event: "treeInferenceComplete", progress: 1, message: nil, output: output, error: nil))
-    }
-
-    func emitFailed(_ message: String) {
-        emit(Event(event: "treeInferenceFailed", progress: nil, message: nil, output: nil, error: message))
-    }
-
-    private func emit(_ event: Event) {
-        guard enabled else { return }
-        lock.lock()
-        defer { lock.unlock() }
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.sortedKeys]
-        guard let data = try? encoder.encode(event),
-              let line = String(data: data, encoding: .utf8) else {
-            return
-        }
-        emitLine(line)
-    }
-}
-
-private final class TreeExportCLIEventEmitter: @unchecked Sendable {
-    private struct Event: Encodable {
-        let event: String
-        let progress: Double?
-        let message: String?
-        let output: String?
-        let error: String?
-    }
-
-    private let enabled: Bool
-    private let emitLine: (String) -> Void
-    private let lock = NSLock()
-
-    init(enabled: Bool, emit: @escaping (String) -> Void) {
-        self.enabled = enabled
-        self.emitLine = emit
-    }
-
-    func emitStart(message: String) {
-        emit(Event(event: "treeExportStart", progress: 0, message: message, output: nil, error: nil))
-    }
-
-    func emitProgress(_ progress: Double, message: String) {
-        emit(Event(event: "treeExportProgress", progress: max(0, min(1, progress)), message: message, output: nil, error: nil))
-    }
-
-    func emitComplete(output: String) {
-        emit(Event(event: "treeExportComplete", progress: 1, message: nil, output: output, error: nil))
-    }
-
-    func emitFailed(_ message: String) {
-        emit(Event(event: "treeExportFailed", progress: nil, message: nil, output: nil, error: message))
-    }
-
-    private func emit(_ event: Event) {
-        guard enabled else { return }
-        lock.lock()
-        defer { lock.unlock() }
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.sortedKeys]
-        guard let data = try? encoder.encode(event),
-              let line = String(data: data, encoding: .utf8) else {
-            return
-        }
-        emitLine(line)
-    }
-}
-
-private final class TreeTransformCLIEventEmitter: @unchecked Sendable {
-    private struct Event: Encodable {
-        let event: String
-        let progress: Double?
-        let message: String?
-        let output: String?
-        let error: String?
-    }
-
-    private let enabled: Bool
-    private let emitLine: (String) -> Void
-    private let lock = NSLock()
-
-    init(enabled: Bool, emit: @escaping (String) -> Void) {
-        self.enabled = enabled
-        self.emitLine = emit
-    }
-
-    func emitStart(message: String) {
-        emit(Event(event: "treeTransformStart", progress: 0, message: message, output: nil, error: nil))
-    }
-
-    func emitProgress(_ progress: Double, message: String) {
-        emit(Event(event: "treeTransformProgress", progress: max(0, min(1, progress)), message: message, output: nil, error: nil))
-    }
-
-    func emitComplete(output: String) {
-        emit(Event(event: "treeTransformComplete", progress: 1, message: nil, output: output, error: nil))
-    }
-
-    func emitFailed(_ message: String) {
-        emit(Event(event: "treeTransformFailed", progress: nil, message: nil, output: nil, error: message))
-    }
-
-    private func emit(_ event: Event) {
-        guard enabled else { return }
-        lock.lock()
-        defer { lock.unlock() }
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.sortedKeys]
-        guard let data = try? encoder.encode(event),
-              let line = String(data: data, encoding: .utf8) else {
-            return
-        }
-        emitLine(line)
-    }
-}
-
 private func executeTreeTransform(
     bundlePath: String,
     outputPath: String,
@@ -950,7 +806,7 @@ private func executeTreeTransform(
     emit: @escaping (String) -> Void,
     transform: (PhylogeneticTreeBundle, URL, PhylogeneticTreeBundleTransformProvenance) throws -> PhylogeneticTreeBundle
 ) throws {
-    let emitter = TreeTransformCLIEventEmitter(
+    let emitter = CLIEventEmitter(
         enabled: globalOptions.outputFormat == .json,
         emit: emit
     )

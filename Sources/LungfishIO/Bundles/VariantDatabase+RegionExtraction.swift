@@ -14,7 +14,17 @@ extension VariantDatabase {
     /// Extracts variants (and optionally genotypes) from a region into a new database.
     ///
     /// Coordinate transform: positions are shifted by `-extractionStart` so the new
-    /// database is zero-based relative to the extracted sub-sequence.
+    /// database is zero-based relative to the extracted sub-sequence. When
+    /// `isReverseComplement` is true, each record's position is additionally
+    /// mirrored to the reverse-complemented coordinate system and its REF/ALT
+    /// alleles are reverse-complemented (SCI-07), so the extracted variants stay
+    /// consistent with the reverse-complemented sequence in the derived bundle.
+    ///
+    /// A record whose span starts before the region (SCI-21) is excluded rather
+    /// than truncated: trimming would leave a REF that no longer matches the
+    /// extracted sequence at that position, which is worse than omitting the
+    /// record. This is documented app-visible behavior, not a bug to silently
+    /// paper over.
     ///
     /// - Parameters:
     ///   - chromosome: Source chromosome name.
@@ -25,6 +35,10 @@ extension VariantDatabase {
     ///   - outputURL: Where to create the new database.
     ///   - newChromosome: Chromosome name in the new database (defaults to source name).
     ///   - sampleFilter: Optional set of sample names to include. `nil` = all samples.
+    ///   - isReverseComplement: When true, mirror positions and reverse-complement
+    ///     REF/ALT to match a reverse-complemented extracted sequence. Symbolic
+    ///     and breakend ALTs (`<...>`, `]`/`[`) cannot be meaningfully
+    ///     reverse-complemented and are dropped in this mode.
     /// - Returns: Number of variants written.
     @discardableResult
     public func extractRegion(
@@ -34,7 +48,8 @@ extension VariantDatabase {
         end: Int,
         outputURL: URL,
         newChromosome: String? = nil,
-        sampleFilter: Set<String>? = nil
+        sampleFilter: Set<String>? = nil,
+        isReverseComplement: Bool = false
     ) throws -> Int {
         guard let sourceDB = self.db else {
             throw VariantDatabaseError.createFailed("Source database is not open")
@@ -240,19 +255,57 @@ extension VariantDatabase {
             let filter = sqlite3_column_text(variantQueryStmt, 9).map { String(cString: $0) }
             let info = sqlite3_column_text(variantQueryStmt, 10).map { String(cString: $0) }
 
-            // Shift coordinates relative to extraction start
-            let newPosition = max(0, sourcePosition - start)
-            let newEnd = min(end - start, sourceEnd - start)
+            // SCI-21: a record whose span starts before the region is excluded
+            // rather than truncated. Trimming the REF would leave it not
+            // matching the extracted sequence at the truncated position, which
+            // is worse than omitting the record from the extracted track.
+            guard sourcePosition >= start else { continue }
+            // Also exclude records that end at or after the region's end but
+            // whose REF extends past it (a straddling record on the right
+            // side), for the same reason.
+            guard sourceEnd <= end else { continue }
+
+            // Shift coordinates relative to extraction start.
+            let newPosition = sourcePosition - start
+            let newEnd = sourceEnd - start
             guard newEnd > newPosition || (variantType == "SNP" && newEnd == newPosition) else { continue }
             let effectiveEnd = max(newPosition + 1, newEnd)
 
+            let finalPosition: Int
+            let finalEnd: Int
+            let finalRef: String
+            let finalAlt: String
+            if isReverseComplement {
+                // SCI-07: mirror the position into the reverse-complemented
+                // coordinate system and reverse-complement REF/ALT so the
+                // variant stays anchored to the correct base in the RC'd
+                // extracted sequence. Symbolic/breakend ALTs cannot be
+                // meaningfully reverse-complemented; drop them.
+                guard Self.isSimpleAllele(ref), Self.isSimpleAllele(alt) else { continue }
+                let regionLength = end - start
+                // Mirror the half-open interval [newPosition, effectiveEnd) about
+                // the region's midpoint: the base at offset i from the left
+                // becomes the base at offset i from the right after RC.
+                let mirroredPosition = regionLength - effectiveEnd
+                let mirroredEnd = regionLength - newPosition
+                finalPosition = mirroredPosition
+                finalEnd = mirroredEnd
+                finalRef = TranslationEngine.reverseComplement(ref)
+                finalAlt = TranslationEngine.reverseComplement(alt)
+            } else {
+                finalPosition = newPosition
+                finalEnd = effectiveEnd
+                finalRef = ref
+                finalAlt = alt
+            }
+
             sqlite3_reset(insertVariantStmt)
             variantDBBindText(insertVariantStmt, 1, targetChrom)
-            sqlite3_bind_int64(insertVariantStmt, 2, Int64(newPosition))
-            sqlite3_bind_int64(insertVariantStmt, 3, Int64(effectiveEnd))
+            sqlite3_bind_int64(insertVariantStmt, 2, Int64(finalPosition))
+            sqlite3_bind_int64(insertVariantStmt, 3, Int64(finalEnd))
             variantDBBindText(insertVariantStmt, 4, variantID)
-            variantDBBindText(insertVariantStmt, 5, ref)
-            variantDBBindText(insertVariantStmt, 6, alt)
+            variantDBBindText(insertVariantStmt, 5, finalRef)
+            variantDBBindText(insertVariantStmt, 6, finalAlt)
             variantDBBindText(insertVariantStmt, 7, variantType)
             if let q = quality {
                 sqlite3_bind_double(insertVariantStmt, 8, q)
@@ -426,6 +479,18 @@ extension VariantDatabase {
 
         variantDBLogger.info("extractRegion: Extracted \(insertCount) variants (\(samplesWithGenotypes.count) samples with genotypes) from \(chromosome):\(start)-\(end)")
         return insertCount
+    }
+
+    /// Whether an allele string is a plain sequence of nucleotide bases (including
+    /// IUPAC ambiguity codes) that `TranslationEngine.reverseComplement` can
+    /// transform meaningfully. Symbolic alleles (`<DEL>`, `<INS>`, ...) and
+    /// breakend alleles (containing `[` or `]`) are excluded (SCI-07).
+    static func isSimpleAllele(_ allele: String) -> Bool {
+        guard !allele.isEmpty else { return false }
+        if allele == "." { return false }
+        return allele.allSatisfy { char in
+            "ACGTUNRYSWKMBDHVacgtunryswkmbdhv".contains(char)
+        }
     }
 
     // MARK: - VCF Line Streaming
