@@ -1,12 +1,12 @@
 {
-  "_comment": "Binaries and payloads actually embedded in the shipped app bundle (not installed on demand). Read by scripts/release/generate-notices.py to build THIRD-PARTY-NOTICES. Keep in sync with what Contents/Resources actually contains.",
+  "_comment": "Binaries and payloads actually embedded in the shipped app bundle (not installed on demand). Read by scripts/release/generate-notices.py to build THIRD-PARTY-NOTICES. URLs must be pinned: {pin:<identity>} expands to that dependency's Package.resolved commit, and generation fails on any branch-following GitHub URL. Keep in sync with what Contents/Resources actually contains.",
   "bootstrapBinaries": [
     {
       "id": "micromamba",
       "displayName": "micromamba",
       "version": "2.9.0-0",
       "license": "BSD-3-Clause",
-      "sourceUrl": "https://github.com/mamba-org/mamba",
+      "sourceUrl": "https://github.com/mamba-org/mamba/tree/2.9.0",
       "copyright": "Copyright (c) 2019, QuantStack and Mamba Contributors",
       "path": "Contents/Resources/LungfishGenomeBrowser_LungfishWorkflow.bundle/Tools/micromamba",
       "notes": "Bundled bootstrap binary used to create and manage per-tool conda environments under ~/.lungfish. Version and sha256 are sourced from third-party-tools-lock.json bootstrap.micromamba."
@@ -24,8 +24,8 @@
       "displayName": "Linux kernel (Apple Containerization boot image)",
       "version": "6.12.28",
       "license": "GPL-2.0",
-      "sourceUrl": "https://github.com/apple/containerization",
-      "sourceOffer": "Written offer: the exact kernel source and build configuration used to produce this image are available on request to dhoconno@wisc.edu for three years from the date of this release, and are also obtainable from the upstream Apple Containerization project's kernel build recipe at https://github.com/apple/containerization/tree/main/kernel for the pinned containerization revision recorded in Package.resolved.",
+      "sourceUrl": "https://github.com/apple/containerization/tree/{pin:containerization}",
+      "sourceOffer": "Written offer: the exact kernel source and build configuration used to produce this image are available on request to dhoconno@wisc.edu for three years from the date of this release, and are also obtainable from the upstream Apple Containerization project's kernel build recipe at https://github.com/apple/containerization/tree/{pin:containerization}/kernel (the containerization revision pinned in Package.resolved for this release).",
       "copyright": "Copyright (C) Linux kernel contributors. The Linux kernel is free software licensed under GPL-2.0-only; see https://www.gnu.org/licenses/old-licenses/gpl-2.0.html for the full license text.",
       "path": "Contents/Resources/LungfishGenomeBrowser_LungfishWorkflow.bundle/Contents/Resources/Containerization/vmlinux",
       "notes": "ARM64 Linux kernel boot image (Ubuntu 22.04 toolchain) used as the VM kernel for the Apple Containerization runtime that executes Nextflow/TaxTriage pipelines in an isolated Linux VM. Built from the upstream apple/containerization kernel recipe. GPL-2.0 requires this notice and a source offer; see sourceOffer."
@@ -35,7 +35,7 @@
       "displayName": "Apple Containerization init rootfs",
       "version": "matches containerization Package.resolved pin",
       "license": "Apache-2.0",
-      "sourceUrl": "https://github.com/apple/containerization",
+      "sourceUrl": "https://github.com/apple/containerization/tree/{pin:containerization}",
       "copyright": "Copyright the Apple Containerization project contributors",
       "path": "Contents/Resources/LungfishGenomeBrowser_LungfishWorkflow.bundle/Contents/Resources/Containerization/init.rootfs.tar.gz",
       "notes": "Minimal Linux init rootfs (vminitd/vmexec) shipped by the apple/containerization SwiftPM package and re-embedded here for the container VM."
