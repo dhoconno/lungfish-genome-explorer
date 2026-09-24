@@ -120,6 +120,15 @@ final class MSAViewportInteractionTests: XCTestCase {
     }
 
     func testWheelScrollsEveryRowSurfaceAndSynchronizesHorizontalComparison() async throws {
+        // Under the gate's one-process-per-test parallel mode, this test can be the
+        // first (and only) AppKit activity in its process. NSApplication.shared is
+        // lazily bootstrapped by AppKit, and a synthetic scrollWheel event dispatched
+        // before that bootstrap has settled is silently dropped by NSScrollView --
+        // observed as a deterministic failure in isolation that does not reproduce
+        // when this test runs after any other AppKit-touching test in the same
+        // process. Force the same warm state explicitly instead of depending on
+        // another test's side effect.
+        _ = NSApplication.shared
         let controller = try await controller(columns: 100, rowCount: 90)
         controller.resetZoom()
         let selectedBefore = controller.testingSelectedFASTARecords
@@ -131,6 +140,7 @@ final class MSAViewportInteractionTests: XCTestCase {
         defer { window.contentView = nil }
         window.layoutIfNeeded()
         controller.view.layoutSubtreeIfNeeded()
+        try await Task.sleep(nanoseconds: 50_000_000)
         // Control target establishes that the synthetic event drives native AppKit scrolling.
         for surface in [scroll as NSView, gutter, matrix, controller.testingGutterResizeHandle,
                         try descendant(controller.view, "msaComparisonLabel"),
@@ -153,6 +163,10 @@ final class MSAViewportInteractionTests: XCTestCase {
     }
 
     func testWheelOverTrailingBlankRowWidthUsesTheNativeMatrixScrollPath() async throws {
+        // See the comment in testWheelScrollsEveryRowSurfaceAndSynchronizesHorizontal
+        // Comparison: a synthetic scrollWheel dispatched before NSApplication.shared
+        // has been touched anywhere in this process is silently dropped.
+        _ = NSApplication.shared
         let controller = try await controller(rowCount: 90)
         let matrix = try descendant(controller.view, "multiple-sequence-alignment-matrix-view")
         let scroll = try XCTUnwrap(matrix.enclosingScrollView)
@@ -161,6 +175,7 @@ final class MSAViewportInteractionTests: XCTestCase {
         defer { window.contentView = nil }
         window.layoutIfNeeded()
         controller.view.layoutSubtreeIfNeeded()
+        try await Task.sleep(nanoseconds: 50_000_000)
         let blankX = matrix.bounds.maxX - 16
         XCTAssertGreaterThan(blankX, controller.testingAlignmentColumnWidth * 6)
         let hit = try XCTUnwrap(matrix.hitTest(matrix.convert(NSPoint(x: blankX, y: 12), to: matrix.superview)))
