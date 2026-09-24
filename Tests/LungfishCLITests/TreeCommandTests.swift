@@ -521,7 +521,7 @@ final class TreeCommandTests: XCTestCase {
         try command.executeForTesting { _ in }
 
         let bundle = try PhylogeneticTreeBundle.load(from: outputURL)
-        XCTAssertEqual(Set(bundle.normalizedTree.nodes.filter(\.isTip).map(\.displayLabel)), ["A", "B", "C"])
+        XCTAssertEqual(bundle.normalizedTree.nodes.filter(\.isTip).map(\.displayLabel).sorted(), ["A", "B", "C"])
         let provenanceJSON = try jsonObject(at: outputURL.appendingPathComponent(".lungfish-provenance.json"))
         XCTAssertEqual(provenanceJSON["workflowName"] as? String, "phylogenetic-tree-reroot")
         XCTAssertEqual(provenanceJSON["toolName"] as? String, "lungfish tree reroot")

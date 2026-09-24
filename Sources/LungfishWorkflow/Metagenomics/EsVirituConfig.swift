@@ -36,6 +36,26 @@ public enum EsVirituReadFormat: String, Codable, Sendable, CaseIterable {
                 : "Single-end reads"
         }
     }
+
+    /// Whether EsViritu processed the input as mate pairs. True for two-file
+    /// and interleaved input; false for unpaired (including mixed) input.
+    public var runsAsPairs: Bool {
+        self != .unpaired
+    }
+
+    /// Value for the "Paired-End" row in Operation Details and the result
+    /// provenance panel. Interleaved input ran as pairs (fastp received
+    /// `--interleaved_in`), so it must not read as "No".
+    public var pairedEndLabel: String {
+        switch self {
+        case .paired:
+            return "Yes"
+        case .interleaved:
+            return "Yes (interleaved)"
+        case .unpaired:
+            return "No"
+        }
+    }
 }
 
 // MARK: - EsVirituConfig
