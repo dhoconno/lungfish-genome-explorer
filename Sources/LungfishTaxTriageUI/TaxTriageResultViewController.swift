@@ -2812,6 +2812,16 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         samplePickerState = ClassifierSamplePickerState(allSamples: Set(sampleIds))
         samplePickerState.selectedSamples = Set(sampleIds)
 
+        // UX-03 (reproduced): `sampleFilterControl` is created with a single
+        // "All Samples" segment and was never rebuilt to match the loaded
+        // sample count. The ⌘]/⌘[/⌘0 handlers in `performKeyEquivalent`
+        // index into this control by `sampleIds.count`, so on any real
+        // multi-sample batch this crashed with an out-of-bounds segment
+        // index the moment the shortcut fired (reachable or not). Rebuild
+        // the segments here so the control's segment count always matches
+        // `sampleIds`.
+        rebuildSampleFilterSegments()
+
         resetDatabaseLoadedRows()
 
         // Wire batch flat table callbacks (same pattern as configureFromDatabase).
