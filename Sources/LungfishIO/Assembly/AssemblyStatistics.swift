@@ -81,9 +81,13 @@ public enum AssemblyStatisticsCalculator {
     public static func compute(fromFASTAString fasta: String) -> AssemblyStatistics {
         var contigLengths: [Int64] = []
         var gcCount: Int64 = 0
-        var totalBases: Int64 = 0
+        // Denominator for GC fraction: unambiguous A/C/G/T bases only
+        // (SCI-20). Distinct from total assembly length, which counts every
+        // residue including N and IUPAC ambiguity codes.
+        var totalUnambiguousBases: Int64 = 0
         var currentLength: Int64 = 0
         var currentGC: Int64 = 0
+        var currentUnambiguousBases: Int64 = 0
 
         // Normalize CR-LF to LF to handle Windows line endings
         let normalized = fasta.replacingOccurrences(of: "\r\n", with: "\n")
@@ -94,24 +98,34 @@ public enum AssemblyStatisticsCalculator {
                 if currentLength > 0 {
                     contigLengths.append(currentLength)
                     gcCount += currentGC
-                    totalBases += currentLength
+                    totalUnambiguousBases += currentUnambiguousBases
                 }
                 currentLength = 0
                 currentGC = 0
+                currentUnambiguousBases = 0
             } else {
-                // Sequence line
+                // Sequence line. SCI-20: contig length counts every residue,
+                // including IUPAC ambiguity codes (R, Y, K, M, S, W, B, D, H,
+                // V) and N — dropping them undercounts contig and assembly
+                // length relative to QUAST and every other assembly tool.
+                // The GC fraction, however, is computed only over
+                // unambiguous A/C/G/T bases (`totalBases`, the denominator):
+                // N and ambiguity codes carry no G/C information and must
+                // not be counted as "not G or C" in that ratio.
                 for char in line {
+                    guard !char.isWhitespace else { continue }
                     switch char {
                     case "G", "g", "C", "c":
                         currentGC += 1
+                        currentUnambiguousBases += 1
                         currentLength += 1
                     case "A", "a", "T", "t", "U", "u":
-                        currentLength += 1
-                    case "N", "n":
+                        currentUnambiguousBases += 1
                         currentLength += 1
                     default:
-                        // Skip whitespace/other
-                        break
+                        // N or an IUPAC ambiguity code: counts toward contig
+                        // length, but excluded from the GC denominator.
+                        currentLength += 1
                     }
                 }
             }
@@ -120,10 +134,10 @@ public enum AssemblyStatisticsCalculator {
         if currentLength > 0 {
             contigLengths.append(currentLength)
             gcCount += currentGC
-            totalBases += currentLength
+            totalUnambiguousBases += currentUnambiguousBases
         }
 
-        return computeFromLengths(contigLengths, gcCount: gcCount, totalBases: totalBases)
+        return computeFromLengths(contigLengths, gcCount: gcCount, totalBases: totalUnambiguousBases)
     }
 
     /// Computes statistics from an array of contig lengths.

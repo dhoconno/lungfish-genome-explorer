@@ -122,6 +122,10 @@ final class AssemblyStatisticsTests: XCTestCase {
         XCTAssertEqual(stats.gcFraction, 0.5, accuracy: 0.001)
     }
 
+    /// SCI-20: N bases count toward contig length (this part was already
+    /// correct) but must be EXCLUDED from the GC fraction's denominator,
+    /// since they carry no G/C information. The old behavior divided by all
+    /// 8 bases including the 4 Ns, understating GC (0.25 instead of 0.5).
     func testFASTAWithNBases() {
         let fasta = """
         >test
@@ -129,7 +133,33 @@ final class AssemblyStatisticsTests: XCTestCase {
         """
         let stats = AssemblyStatisticsCalculator.compute(fromFASTAString: fasta)
         XCTAssertEqual(stats.totalLengthBP, 8)  // N bases count toward length
-        XCTAssertEqual(stats.gcFraction, 0.25, accuracy: 0.001)  // 2 GC out of 8
+        XCTAssertEqual(stats.gcFraction, 0.5, accuracy: 0.001)  // 2 GC out of 4 unambiguous (ATCG) bases, N excluded
+    }
+
+    /// SCI-20 acceptance test: the exact worked example from the audit.
+    /// IUPAC ambiguity codes (R, Y here) must count toward contig length,
+    /// like N, but must also be excluded from the GC denominator like N.
+    func testFASTAWithIUPACAmbiguityCodesCountTowardLengthButNotGCDenominator() {
+        let fasta = """
+        >test
+        ACGTRYN
+        """
+        let stats = AssemblyStatisticsCalculator.compute(fromFASTAString: fasta)
+        XCTAssertEqual(stats.totalLengthBP, 7, "Every residue (including R, Y, N) counts toward contig length")
+        XCTAssertEqual(stats.gcFraction, 0.5, accuracy: 0.001, "GC fraction is G+C over unambiguous ACGT only (2 of ACGT), excluding R, Y and N")
+    }
+
+    /// The full IUPAC ambiguity alphabet must all count toward length and
+    /// all be excluded from the GC denominator, not just R/Y/N.
+    func testFASTAWithFullIUPACAlphabetCountsTowardLength() {
+        let fasta = """
+        >test
+        ACGTRYKMSWBDHVN
+        """
+        let stats = AssemblyStatisticsCalculator.compute(fromFASTAString: fasta)
+        XCTAssertEqual(stats.totalLengthBP, 15, "All 15 IUPAC symbols must count toward contig length")
+        // Unambiguous bases are only A, C, G, T (4 total); G+C = 2.
+        XCTAssertEqual(stats.gcFraction, 0.5, accuracy: 0.001)
     }
 
     func testEmptyFASTA() {
