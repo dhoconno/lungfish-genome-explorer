@@ -1,4 +1,4 @@
-// ReadBudgetAndOffMainPackTests.swift - Visible-read budget, banner, and off-main packing
+// ReadBudgetAndOffMainPackTests.swift - Displayed-depth cap bookkeeping, banner, and off-main packing
 // Copyright (c) 2024 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 
@@ -40,195 +40,182 @@ final class ReadBudgetAndOffMainPackTests: XCTestCase {
         ReferenceFrame(chromosome: "chr1", start: 100, end: 220, pixelWidth: pixelWidth)
     }
 
-    // MARK: - Budget
+    // MARK: - Displayed-depth cap (owner decision D9)
+    //
+    // The old 50,000-read budget and its stride trim (`applyReadBudget`,
+    // `ReadViewportPolicy.sampleReads`) are gone: a uniform count budget
+    // hollowed shallow flanks beside a deep amplicon. The provider now caps
+    // depth per bin (covered by LungfishIOTests.ReadDepthCapTests), so these
+    // tests pin the view-side bookkeeping, banner wording and settings.
 
-    func testExtremeDepthPileIsSampledDownToBudget() {
-        let reads = makeExtremeDepthPile(count: 600_000)
-        let budget = ReadViewportPolicy.defaultVisibleReadBudget
-
-        let result = SequenceViewerView.applyReadBudget(
-            reads: reads,
-            budget: budget,
-            exactTotal: 600_000,
-            estimatedTotal: nil,
-            loadedAll: false
+    private func outcome(
+        reads: Int, total: Int, estimated: Bool, cap: Int?, truncated: Bool = false
+    ) -> SequenceViewerView.TrackReadFetchOutcome {
+        SequenceViewerView.TrackReadFetchOutcome(
+            reads: (0..<reads).map { makeRead(name: "r\($0)", position: 100 + $0 % 100) },
+            estimatedTotal: total,
+            isEstimated: estimated,
+            cappedDepth: cap,
+            transportTruncated: truncated
         )
-
-        XCTAssertEqual(result.reads.count, budget)
-        XCTAssertEqual(result.state.displayedReads, budget)
-        XCTAssertEqual(result.state.totalReads, 600_000)
-        XCTAssertFalse(result.state.isEstimated)
-        XCTAssertTrue(result.state.isSampled)
     }
 
-    func testLoadAllPathKeepsEveryRead() {
-        let reads = makeExtremeDepthPile(count: 600_000)
+    func testDefaultCapIsFiveHundredAndClampsToRangeAndStep() {
+        XCTAssertEqual(ReadViewportPolicy.defaultMaxDisplayedDepth, 500)
+        XCTAssertEqual(ReadViewportPolicy.clampMaxDisplayedDepth(500), 500)
+        XCTAssertEqual(ReadViewportPolicy.clampMaxDisplayedDepth(0), 50)
+        XCTAssertEqual(ReadViewportPolicy.clampMaxDisplayedDepth(-10), 50)
+        XCTAssertEqual(ReadViewportPolicy.clampMaxDisplayedDepth(1_000_000), 5_000)
+        XCTAssertEqual(ReadViewportPolicy.clampMaxDisplayedDepth(524), 500, "snaps to the 50x step")
+        XCTAssertEqual(ReadViewportPolicy.clampMaxDisplayedDepth(525), 550)
+        XCTAssertEqual(ReadViewportPolicy.clampMaxDisplayedDepth(4_990), 5_000)
+    }
 
-        let result = SequenceViewerView.applyReadBudget(
-            reads: reads,
-            budget: ReadViewportPolicy.defaultVisibleReadBudget,
-            exactTotal: 600_000,
-            estimatedTotal: nil,
+    func testCappedWindowBannerSaysOnlyDeepRegionsAreSampled() {
+        let state = SequenceViewerView.readBudgetState(
+            outcomes: [outcome(reads: 72_087, total: 2_050_000, estimated: true, cap: 500)],
+            loadedAll: false
+        )
+        XCTAssertTrue(state.isSampled)
+        XCTAssertEqual(state.displayedReads, 72_087)
+        let banner = try? XCTUnwrap(state.bannerMessage)
+        XCTAssertEqual(
+            banner,
+            "Showing 72,087 of ~2,050,000 reads \u{00B7} regions above 500x are sampled to about 500x, "
+                + "all other regions show every read \u{00B7} depth, coverage and consensus use all reads"
+        )
+    }
+
+    func testWindowUnderTheCapShowsNoBannerAndAnExactCount() {
+        let state = SequenceViewerView.readBudgetState(
+            outcomes: [outcome(reads: 1_200, total: 1_200, estimated: false, cap: nil)],
+            loadedAll: false
+        )
+        XCTAssertFalse(state.isSampled)
+        XCTAssertNil(state.bannerMessage)
+        XCTAssertEqual(state.totalReads, 1_200)
+        XCTAssertFalse(state.isEstimated)
+    }
+
+    func testOutcomesAreNeverTrimmedAgainAfterTheCap() {
+        // A second count trim would thin the flanks the cap keeps whole.
+        let outcomes = [
+            outcome(reads: 60_000, total: 900_000, estimated: true, cap: 500),
+            outcome(reads: 40_000, total: 40_000, estimated: false, cap: nil),
+        ]
+        let state = SequenceViewerView.readBudgetState(outcomes: outcomes, loadedAll: false)
+        XCTAssertEqual(state.displayedReads, 100_000)
+        XCTAssertEqual(state.totalReads, 940_000)
+        XCTAssertTrue(state.isEstimated)
+        XCTAssertEqual(state.cappedDepth, 500)
+        XCTAssertTrue(state.bannerMessage?.contains("sampled to about 500x per track") == true,
+                      "each track is capped on its own, so a merged view must say so")
+    }
+
+    func testLowestAppliedCapIsQuotedWhenTracksDiffer() {
+        let state = SequenceViewerView.readBudgetState(
+            outcomes: [
+                outcome(reads: 10, total: 100, estimated: true, cap: 500),
+                outcome(reads: 10, total: 100, estimated: true, cap: 350),
+            ],
+            loadedAll: false
+        )
+        XCTAssertEqual(state.cappedDepth, 350)
+    }
+
+    func testLoadAllClearsTheBanner() {
+        let state = SequenceViewerView.readBudgetState(
+            outcomes: [outcome(reads: 600, total: 600, estimated: false, cap: nil)],
             loadedAll: true
         )
-
-        XCTAssertEqual(result.reads.count, 600_000)
-        XCTAssertTrue(result.state.loadedAll)
-        XCTAssertFalse(result.state.isSampled, "the banner must disappear once everything is loaded")
+        XCTAssertTrue(state.loadedAll)
+        XCTAssertFalse(state.isSampled, "the banner must disappear once everything is loaded")
+        XCTAssertNil(state.bannerMessage)
     }
 
-    func testNormalDepthIsUntouchedByTheBudget() {
-        // The whole point of a budget is that ordinary windows never notice it.
-        let reads = makeExtremeDepthPile(count: 1_200)
+    func testExactCountIsNotLabelledAsAnEstimate() {
+        let state = ReadBudgetState(
+            displayedReads: 40_000, totalReads: 600_000, isEstimated: false, loadedAll: false, cappedDepth: 500
+        )
+        XCTAssertTrue(state.bannerMessage?.contains("of 600,000 reads") == true)
+        XCTAssertFalse(state.bannerMessage?.contains("~") == true)
+    }
 
-        let result = SequenceViewerView.applyReadBudget(
-            reads: reads,
-            budget: ReadViewportPolicy.defaultVisibleReadBudget,
-            exactTotal: nil,
-            estimatedTotal: nil,
+    func testTransportTruncatedBannerFlagsAnIncompleteWindow() {
+        let capped = SequenceViewerView.readBudgetState(
+            outcomes: [outcome(reads: 250_000, total: 1_200_000, estimated: true, cap: 500, truncated: true)],
             loadedAll: false
         )
+        XCTAssertTrue(capped.bannerMessage?.contains("read safety limit reached, window may be incomplete") == true)
+        XCTAssertTrue(capped.bannerMessage?.contains("sampled to about 500x") == true)
 
-        XCTAssertEqual(result.reads.count, 1_200)
-        XCTAssertEqual(result.reads.map(\.id), reads.map(\.id))
-        XCTAssertFalse(result.state.isSampled)
-        XCTAssertNil(result.state.bannerMessage)
-    }
-
-    func testSamplingIsDeterministicAndUniform() {
-        let reads = makeExtremeDepthPile(count: 100_000)
-        let first = ReadViewportPolicy.sampleReads(reads, budget: 10_000)
-        let second = ReadViewportPolicy.sampleReads(reads, budget: 10_000)
-
-        XCTAssertEqual(first.map(\.id), second.map(\.id), "sampling must be stable across redraws")
-        XCTAssertEqual(first.count, 10_000)
-        // A uniform stride over 100k picks every 10th read.
-        XCTAssertEqual(first[0].name, reads[0].name)
-        XCTAssertEqual(first[1].name, reads[10].name)
-        XCTAssertEqual(first[9_999].name, reads[99_990].name)
-    }
-
-    func testBannerStatesSampledCountsAndProtectsDepthReading() {
-        let state = ReadBudgetState(
-            displayedReads: 50_000, totalReads: 600_000, isEstimated: false, loadedAll: false
+        // Truncation alone (nothing thinned) still raises the banner.
+        let uncapped = SequenceViewerView.readBudgetState(
+            outcomes: [outcome(reads: 250_000, total: 250_000, estimated: true, cap: nil, truncated: true)],
+            loadedAll: false
         )
-        let message = try? XCTUnwrap(state.bannerMessage)
-        let banner = message ?? ""
-        XCTAssertTrue(banner.contains("50,000"))
-        XCTAssertTrue(banner.contains("600,000"))
-        XCTAssertTrue(
-            banner.contains("depth, coverage and consensus use all reads"),
-            "a sampled pileup must say the coverage curve under it is still complete"
+        XCTAssertTrue(uncapped.isSampled)
+        XCTAssertFalse(uncapped.bannerMessage?.contains("sampled to about") == true)
+        XCTAssertTrue(uncapped.bannerMessage?.contains("depth, coverage and consensus use all reads") == true)
+    }
+
+    // MARK: - Settings plumbing
+
+    func testInspectorDefaultMatchesPolicyAndPayloadCarriesClampedCap() {
+        let inspector = InspectorViewController()
+        let model = inspector.viewModel.readStyleSectionViewModel
+        XCTAssertEqual(model.maxDisplayedDepth, Double(ReadViewportPolicy.defaultMaxDisplayedDepth))
+
+        model.maxDisplayedDepth = 1_230
+        var payload = inspector.makeReadDisplaySettingsPayload(from: model)
+        XCTAssertEqual(payload[NotificationUserInfoKey.maxDisplayedDepth] as? Int, 1_250)
+        XCTAssertNil(payload["visibleReadBudget"], "the retired read-count budget is no longer sent")
+
+        model.maxDisplayedDepth = 9_999
+        payload = inspector.makeReadDisplaySettingsPayload(from: model)
+        XCTAssertEqual(payload[NotificationUserInfoKey.maxDisplayedDepth] as? Int, 5_000)
+    }
+
+    func testViewerAppliesClampedCapAndRefetches() {
+        let viewer = ViewerViewController()
+        _ = viewer.view
+        XCTAssertEqual(viewer.viewerView.maxDisplayedDepthSetting, ReadViewportPolicy.defaultMaxDisplayedDepth)
+
+        let region = GenomicRegion(chromosome: "chr1", start: 100, end: 220)
+        let stale = viewer.viewerView.testBeginReadFetch(bundleURL: nil, trackID: "t", region: region)
+        viewer.applyReadDisplaySettings([NotificationUserInfoKey.maxDisplayedDepth: 20])
+
+        XCTAssertEqual(viewer.viewerView.maxDisplayedDepthSetting, 50, "clamped to the range floor")
+        XCTAssertEqual(viewer.viewerView.effectiveMaxDisplayedDepth, 50)
+        XCTAssertFalse(
+            viewer.viewerView.testCommitReadFetch(stale, reads: [makeRead(name: "stale", position: 120)], region: region),
+            "changing the cap must supersede an in-flight fetch so the window refetches"
         )
-        XCTAssertFalse(banner.contains("~"), "an exact count must not be labelled as an estimate")
+
+        // A retired key from an older payload is ignored, not misapplied.
+        let retired: [AnyHashable: Any] = ["visibleReadBudget": 50_000]
+        viewer.applyReadDisplaySettings(retired)
+        XCTAssertEqual(viewer.viewerView.maxDisplayedDepthSetting, 50)
     }
 
-    func testEstimatedTotalIsLabelledAsAnEstimate() {
-        let state = ReadBudgetState(
-            displayedReads: 50_000, totalReads: 480_000, isEstimated: true, loadedAll: false
-        )
-        XCTAssertTrue(state.bannerMessage?.contains("~480,000") == true)
-    }
+    // MARK: - View-level wiring
 
-    func testDepthDerivedEstimateUsesMeanDepthOverReadLength() {
-        // 600,000x mean depth across 100 bp with 150 bp reads -> 400,000 reads.
-        XCTAssertEqual(
-            ReadBudgetState.estimateReadCount(meanDepth: 600_000, windowSpan: 100, meanReadLength: 150),
-            400_000
-        )
-        XCTAssertNil(ReadBudgetState.estimateReadCount(meanDepth: 0, windowSpan: 100, meanReadLength: 150))
-        XCTAssertNil(ReadBudgetState.estimateReadCount(meanDepth: 10, windowSpan: 0, meanReadLength: 150))
-    }
-
-    func testFetchLimitAsksForOneMoreThanTheBudgetToDetectOverflow() {
-        XCTAssertEqual(ReadViewportPolicy.fetchLimit(forBudget: 50_000), 50_001)
-        XCTAssertEqual(ReadViewportPolicy.fetchLimit(forBudget: Int.max), Int.max)
-    }
-
-    func testSpreadSampleBannerSaysSampledEvenlyAcrossTheView() {
-        let state = ReadBudgetState(
-            displayedReads: 50_000, totalReads: 1_200_000, isEstimated: false, loadedAll: false,
-            isSpreadAcrossWindow: true
-        )
-        let banner = state.bannerMessage ?? ""
-        XCTAssertTrue(banner.contains("sampled evenly across the view"), "a subsample-based fetch must say it is spread across the window, not merely 'in view'")
-        XCTAssertTrue(banner.contains("50,000"))
-        XCTAssertTrue(banner.contains("1,200,000"))
-    }
-
-    func testLegacyPrefixSampleBannerKeepsInViewWording() {
-        // Default `isSpreadAcrossWindow: false` covers "Load all"'s plain
-        // fetch and any caller that hasn't adopted the subsample path yet.
-        let state = ReadBudgetState(
-            displayedReads: 50_000, totalReads: 600_000, isEstimated: false, loadedAll: false
-        )
-        let banner = state.bannerMessage ?? ""
-        XCTAssertTrue(banner.contains("in view"))
-        XCTAssertFalse(banner.contains("sampled evenly across the view"))
-    }
-
-    func testTransportTruncatedBannerFlagsAnIncompleteSample() {
-        let state = ReadBudgetState(
-            displayedReads: 50_000, totalReads: 1_200_000, isEstimated: false, loadedAll: false,
-            isSpreadAcrossWindow: true, isTransportTruncated: true
-        )
-        XCTAssertTrue(state.bannerMessage?.contains("sample may be incomplete") == true)
-    }
-
-    func testApplyReadBudgetPropagatesSpreadFlagFromASubsampledFetch() {
-        // Simulates a fetchReadSketch outcome: the reads array already came
-        // back subsampled (spread) and at-or-under budget from the provider,
-        // with `exactTotal` reflecting the true window count from `-c`.
-        let reads = makeExtremeDepthPile(count: 50_000)
-        let result = SequenceViewerView.applyReadBudget(
-            reads: reads,
-            budget: ReadViewportPolicy.defaultVisibleReadBudget,
-            exactTotal: 1_200_000,
-            estimatedTotal: nil,
-            loadedAll: false,
-            wasSpreadAcrossWindow: true
-        )
-        XCTAssertTrue(result.state.isSpreadAcrossWindow)
-        XCTAssertEqual(result.state.totalReads, 1_200_000)
-        XCTAssertTrue(result.state.isSampled)
-        XCTAssertEqual(result.reads.count, ReadViewportPolicy.defaultVisibleReadBudget)
-    }
-
-    func testBudgetOverflowWithoutAnyCountIsReportedAsAnEstimate() {
-        // The fetch was capped at budget + 1, so the true total is unknown; the
-        // banner must not present the cap as if it were the real count.
-        let reads = makeExtremeDepthPile(count: 50_001)
-        let result = SequenceViewerView.applyReadBudget(
-            reads: reads, budget: 50_000, exactTotal: nil, estimatedTotal: nil, loadedAll: false
-        )
-        XCTAssertEqual(result.reads.count, 50_000)
-        XCTAssertTrue(result.state.isEstimated)
-    }
-
-    // MARK: - View-level budget wiring
-
-    func testViewHoldsOnlyTheBudgetedReadsAndSetsBannerState() {
+    func testViewHoldsTheFetchedReadsAndSetsBannerState() {
         let view = SequenceViewerView(frame: NSRect(x: 0, y: 0, width: 1_200, height: 600))
-        let reads = makeExtremeDepthPile(count: 600_000)
-        let budgeted = SequenceViewerView.applyReadBudget(
-            reads: reads,
-            budget: ReadViewportPolicy.defaultVisibleReadBudget,
-            exactTotal: 600_000,
-            estimatedTotal: nil,
-            loadedAll: false
-        )
+        let fetched = outcome(reads: 44_000, total: 600_000, estimated: true, cap: 500)
+        let state = SequenceViewerView.readBudgetState(outcomes: [fetched], loadedAll: false)
 
         let region = GenomicRegion(chromosome: "chr1", start: 100, end: 220)
         let token = view.testBeginReadFetch(bundleURL: nil, trackID: "t", region: region)
-        XCTAssertTrue(view.testCommitReadFetch(token, reads: budgeted.reads, region: region))
-        view.setReadBudgetState(budgeted.state)
+        XCTAssertTrue(view.testCommitReadFetch(token, reads: fetched.reads, region: region))
+        view.setReadBudgetState(state)
 
-        XCTAssertEqual(view.testCachedAlignedReads.count, ReadViewportPolicy.defaultVisibleReadBudget)
+        XCTAssertEqual(view.testCachedAlignedReads.count, 44_000)
         XCTAssertTrue(view.readBudgetState.isSampled)
         XCTAssertEqual(view.readBudgetState.totalReads, 600_000)
     }
 
-    func testDepthQueryIsUnaffectedByTheReadBudget() {
+    func testDepthQueryIsUnaffectedByTheDepthCap() {
         // Depth comes from a separate whole-BAM query and must keep every read.
         let view = SequenceViewerView(frame: NSRect(x: 0, y: 0, width: 1_200, height: 600))
         let region = GenomicRegion(chromosome: "chr1", start: 100, end: 220)
@@ -248,7 +235,7 @@ final class ReadBudgetAndOffMainPackTests: XCTestCase {
     func testLoadAllClickOutsideTheTargetIsIgnored() {
         let view = SequenceViewerView(frame: NSRect(x: 0, y: 0, width: 1_200, height: 600))
         view.setReadBudgetState(
-            ReadBudgetState(displayedReads: 50_000, totalReads: 600_000, isEstimated: false, loadedAll: false)
+            ReadBudgetState(displayedReads: 50_000, totalReads: 600_000, isEstimated: true, loadedAll: false, cappedDepth: 500)
         )
         view.loadAllButtonRect = CGRect(x: 100, y: 100, width: 60, height: 20)
 
@@ -257,7 +244,6 @@ final class ReadBudgetAndOffMainPackTests: XCTestCase {
 
         XCTAssertTrue(view.handleLoadAllClick(at: NSPoint(x: 120, y: 110)))
         XCTAssertTrue(view.loadAllReadsRequested)
-        XCTAssertEqual(view.effectiveReadBudget, ReadViewportPolicy.loadAllReadCeiling)
     }
 
     // MARK: - Off-main packing

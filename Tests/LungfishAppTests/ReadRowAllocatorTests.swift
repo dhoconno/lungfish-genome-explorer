@@ -290,9 +290,9 @@ final class ReadRowAllocatorTests: XCTestCase {
         XCTAssertLessThan(elapsed, 2.0, "row assignment for 600k reads took \(elapsed)s")
     }
 
-    /// The realistic hot path: the display budget caps the packed set at 50k, so
-    /// a whole pack — sort included — has to stay well inside a frame budget's
-    /// worth of background work.
+    /// The realistic hot path: a 15 kb window at the default 500x depth cap with
+    /// 150 bp reads holds ~50k reads, so a whole pack (sort included) has to
+    /// stay well inside a frame budget of background work.
     func testPacksBudgetedReadSetQuickly() throws {
         try XCTSkipUnless(
             ProcessInfo.processInfo.environment["LUNGFISH_PERF_TESTS"] == "1",
@@ -300,7 +300,7 @@ final class ReadRowAllocatorTests: XCTestCase {
         )
         var rng = SeededGenerator(seed: 778)
         let frame = makeFrame(start: 0, end: 120, pixelWidth: 1_200)
-        let budget = ReadViewportPolicy.defaultVisibleReadBudget
+        let budget = 50_000
         var reads: [AlignedRead] = []
         reads.reserveCapacity(budget)
         for index in 0..<budget {

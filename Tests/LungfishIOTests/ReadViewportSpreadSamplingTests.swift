@@ -178,9 +178,9 @@ final class ReadViewportSpreadSamplingTests: XCTestCase {
             targetReads: 500
         )
         // fetchReadSketch parses up to 2x target from the subsampled stream
-        // before any final view-side trim; the viewport's own budget trim
-        // (ReadViewportPolicy.sampleReads) is what brings it down to exactly
-        // the display budget. Assert the raw sketch stays within that 2x
+        // before returning. This count-target sketch now serves the Mini BAM
+        // viewer and detached evidence (the main viewport uses the depth cap).
+        // Assert the raw sketch stays within that 2x
         // ceiling rather than silently growing unbounded.
         XCTAssertLessThanOrEqual(sketch.reads.count, 1_000)
     }

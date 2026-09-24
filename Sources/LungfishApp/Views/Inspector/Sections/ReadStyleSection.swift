@@ -26,10 +26,10 @@ public final class ReadStyleSectionViewModel {
     /// Whether to enforce `maxReadRows`; off means all rows are retained.
     public var limitReadRows: Bool = false
 
-    /// Maximum individual reads drawn per fetch window before the viewport
-    /// samples. Distinct from `maxReadRows`, which caps *rows*: at extreme depth
-    /// the read count is the cost driver long before the row count is.
-    public var visibleReadBudget: Double = Double(ReadViewportPolicy.defaultVisibleReadBudget)
+    /// Maximum displayed read depth per fetch window. Regions deeper than this
+    /// are subsampled to about this depth and every other region shows every
+    /// read. Distinct from `maxReadRows`, which caps rows.
+    public var maxDisplayedDepth: Double = Double(ReadViewportPolicy.defaultMaxDisplayedDepth)
 
     /// Whether to render read rows in compact vertical mode.
     public var verticallyCompressContig: Bool = true
@@ -1951,16 +1951,17 @@ public struct ReadStyleSection: View {
                     .help("Off keeps all mapped reads in the active view and enables stable vertical scrolling.")
 
                 NumericSliderField(
-                    "Read display budget",
-                    value: $viewModel.visibleReadBudget,
-                    in: 5_000...500_000,
-                    step: 5_000,
+                    "Maximum displayed depth",
+                    value: $viewModel.maxDisplayedDepth,
+                    in: Double(ReadViewportPolicy.maxDisplayedDepthRange.lowerBound)...Double(ReadViewportPolicy.maxDisplayedDepthRange.upperBound),
+                    step: Double(ReadViewportPolicy.maxDisplayedDepthStep),
+                    suffix: "x",
                     format: { Int($0).formatted() }
                 )
-                    .onChange(of: viewModel.visibleReadBudget) { _, _ in
+                    .onChange(of: viewModel.maxDisplayedDepth) { _, _ in
                         viewModel.onSettingsChanged?()
                     }
-                    .help("Windows with more reads than this show a uniform sample and say so. Depth, coverage and consensus always use every read.")
+                    .help("Regions deeper than this are sampled down to about this depth. All other regions show every read. Depth, coverage and consensus always use every read.")
 
                 Toggle("Use compact row height", isOn: $viewModel.verticallyCompressContig)
                     .onChange(of: viewModel.verticallyCompressContig) { _, _ in

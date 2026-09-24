@@ -572,7 +572,7 @@ extension InspectorViewController {
         [
             NotificationUserInfoKey.showReads: vm.showReads,
             NotificationUserInfoKey.maxReadRows: Int(vm.maxReadRows),
-            NotificationUserInfoKey.visibleReadBudget: Int(vm.visibleReadBudget),
+            NotificationUserInfoKey.maxDisplayedDepth: ReadViewportPolicy.clampMaxDisplayedDepth(Int(vm.maxDisplayedDepth)),
             NotificationUserInfoKey.limitReadRows: vm.limitReadRows,
             NotificationUserInfoKey.verticalCompressContig: vm.verticallyCompressContig,
             NotificationUserInfoKey.minMapQ: Int(vm.minMapQ),

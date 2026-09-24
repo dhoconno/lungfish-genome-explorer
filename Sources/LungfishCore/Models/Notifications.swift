@@ -128,7 +128,7 @@ extension Notification.Name {
     /// "consensusGapThresholdPercent" (Int), "consensusMinDepth" (Int),
     /// "consensusMaskingMinDepth" (Int), "consensusMinMapQ" (Int),
     /// "consensusMinBaseQ" (Int),
-    /// "limitReadRows" (Bool), "verticalCompressContig" (Bool),
+    /// "limitReadRows" (Bool), "maxDisplayedDepth" (Int), "verticalCompressContig" (Bool),
     /// "showConsensusTrack" (Bool), "consensusMode" (String),
     /// "consensusUseAmbiguity" (Bool)
     public static let readDisplaySettingsChanged = Notification.Name("readDisplaySettingsChanged")
@@ -374,8 +374,8 @@ public enum NotificationUserInfoKey {
     /// Key for maximum read rows to render (Int).
     public static let maxReadRows = "maxReadRows"
 
-    /// Maximum individual reads drawn per fetch window before sampling kicks in.
-    public static let visibleReadBudget = "visibleReadBudget"
+    /// Maximum displayed read depth per fetch window (Int). Deeper regions are subsampled.
+    public static let maxDisplayedDepth = "maxDisplayedDepth"
 
     /// Key for minimum MAPQ filter (Int).
     public static let minMapQ = "minMapQ"

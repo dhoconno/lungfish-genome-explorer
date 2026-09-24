@@ -1158,8 +1158,8 @@ public class ViewerViewController: NSViewController {
         if let limitRows = userInfo[NotificationUserInfoKey.limitReadRows] as? Bool {
             viewerView.limitReadRowsSetting = limitRows
         }
-        if let budget = userInfo[NotificationUserInfoKey.visibleReadBudget] as? Int {
-            viewerView.visibleReadBudgetSetting = max(1, budget)
+        if let depthCap = userInfo[NotificationUserInfoKey.maxDisplayedDepth] as? Int {
+            viewerView.maxDisplayedDepthSetting = ReadViewportPolicy.clampMaxDisplayedDepth(depthCap)
         }
         if let compressed = userInfo[NotificationUserInfoKey.verticalCompressContig] as? Bool {
             viewerView.verticallyCompressContigSetting = compressed
@@ -1238,6 +1238,7 @@ public class ViewerViewController: NSViewController {
         // Force read refetch if fetch-time filters changed
         if userInfo[NotificationUserInfoKey.showReads] != nil
             || userInfo[NotificationUserInfoKey.limitReadRows] != nil
+            || userInfo[NotificationUserInfoKey.maxDisplayedDepth] != nil
             || userInfo[NotificationUserInfoKey.minMapQ] != nil
             || userInfo[NotificationUserInfoKey.consensusMinMapQ] != nil
             || userInfo[NotificationUserInfoKey.consensusMinBaseQ] != nil
