@@ -123,7 +123,12 @@ final class EsVirituResultViewControllerSmokeTests: XCTestCase {
             "actual multi-selection clears the shared provider"
         )
         table.deselectAll(nil)
-        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        // Selection clearing is delivered asynchronously; poll with a bound
+        // instead of a fixed 50 ms spin, which is too short under load.
+        let clearDeadline = Date().addingTimeInterval(5)
+        while recorder.clearCount < clearCountBeforeMultiSelection + 2, Date() < clearDeadline {
+            RunLoop.main.run(until: Date().addingTimeInterval(0.01))
+        }
         XCTAssertEqual(
             recorder.clearCount,
             clearCountBeforeMultiSelection + 2,
