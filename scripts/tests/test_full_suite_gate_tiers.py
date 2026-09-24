@@ -78,9 +78,10 @@ class FullSuiteGateTierTests(unittest.TestCase):
             "parallel-hazard variables",
         )
         self.assertIn(
-            'SKIP="${INTEGRATION_FILTER}|${CONFORMANCE_FILTER}"',
+            'SKIP="${INTEGRATION_FILTER}|${CONFORMANCE_FILTER}|${KNOWN_HANGING_TESTS}"',
             gate,
-            "unit tier must skip exactly the integration + conformance selections",
+            "unit tier must skip the integration + conformance selections plus "
+            "any confirmed-hanging test carved out under KNOWN_HANGING_TESTS (TST-05)",
         )
 
     def test_measured_parallel_hazards_move_to_serial_integration_without_losing_coverage(self):
