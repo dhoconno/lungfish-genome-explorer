@@ -386,6 +386,73 @@ final class ExactBarcodeDemuxTests: XCTestCase {
         XCTAssertEqual(result.assignedReads, 1, "Internal barcodes should be found")
     }
 
+    // MARK: - GEN-11: Deterministic, conflict-aware multi-sample assignment
+
+    /// A read whose sequence satisfies TWO samples' barcode pairs (a chimera,
+    /// or an asymmetric design sharing one barcode) must be left unassigned
+    /// with an ambiguous count, not handed to whichever sample happens to be
+    /// visited first under Swift's per-process Dictionary hash seeding.
+    func testAmbiguousDualMatchIsUnassigned_NotArbitrarilyAssigned() async throws {
+        let bc1008 = "ACAGTCGAGCGCTGCGT"
+        let bc1009 = "ACACACGCGAGACAGAT"
+
+        let insert = randomInsert(length: 3000)
+
+        // This read satisfies sample_A's pair (bc1003 ... rc(bc1016)) AND,
+        // because it also contains bc1008 later in the same insert followed
+        // by rc(bc1009), sample_B's pair too.
+        let seq = bc1003 + insert + bc1008 + randomInsert(length: 2500) + rc(bc1009) + rc(bc1016)
+        let fastq = try writeTempFASTQ(records: [(id: "chimera1", seq: seq)])
+        defer { try? FileManager.default.removeItem(at: fastq.deletingLastPathComponent()) }
+
+        let config = ExactBarcodeDemuxConfig(
+            inputURL: fastq,
+            sampleBarcodes: [
+                .init(sampleName: "sample_A", forwardSequence: bc1003, reverseSequence: bc1016),
+                .init(sampleName: "sample_B", forwardSequence: bc1008, reverseSequence: bc1009),
+            ],
+            minimumInsert: 2000
+        )
+
+        let result = try await ExactBarcodeDemux.run(config: config, progress: { _, _ in })
+
+        XCTAssertEqual(result.assignedReads, 0, "A read matching two samples' barcode pairs must not be assigned to either")
+        XCTAssertEqual(result.unassignedReadCount, 1)
+        XCTAssertEqual(result.ambiguousReadCount, 1)
+        XCTAssertTrue(result.sampleResults.isEmpty)
+    }
+
+    /// The same ambiguous-read fixture must produce identical results across
+    /// repeated runs (simulating repeated process launches with different
+    /// hash seeds) — this is the direct regression test for GEN-11's
+    /// nondeterminism.
+    func testAmbiguousAssignmentIsDeterministicAcrossRepeatedRuns() async throws {
+        let bc1008 = "ACAGTCGAGCGCTGCGT"
+        let bc1009 = "ACACACGCGAGACAGAT"
+        let insert = randomInsert(length: 3000)
+        let seq = bc1003 + insert + bc1008 + randomInsert(length: 2500) + rc(bc1009) + rc(bc1016)
+
+        var outcomes: Set<String> = []
+        for _ in 0..<10 {
+            let fastq = try writeTempFASTQ(records: [(id: "chimera1", seq: seq)])
+            defer { try? FileManager.default.removeItem(at: fastq.deletingLastPathComponent()) }
+
+            let config = ExactBarcodeDemuxConfig(
+                inputURL: fastq,
+                sampleBarcodes: [
+                    .init(sampleName: "sample_A", forwardSequence: bc1003, reverseSequence: bc1016),
+                    .init(sampleName: "sample_B", forwardSequence: bc1008, reverseSequence: bc1009),
+                ],
+                minimumInsert: 2000
+            )
+            let result = try await ExactBarcodeDemux.run(config: config, progress: { _, _ in })
+            let assignedSample = result.sampleResults.first { $0.readIDs.contains("chimera1") }?.sampleName ?? "unassigned"
+            outcomes.insert(assignedSample)
+        }
+
+        XCTAssertEqual(outcomes, ["unassigned"], "Outcome must be identical (and unassigned) across repeated runs, never split between samples")
+    }
+
     // MARK: - CSV Parsing Tests
 
     func testAsymmetricCSVParseBarcode1Barcode2() throws {
