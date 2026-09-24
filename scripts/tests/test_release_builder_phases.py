@@ -21,7 +21,15 @@ PUBLIC_IDENTITY = json.loads((ROOT / "config/release-contract.json").read_text()
 
 
 class ReleaseBuilderFixture:
-    def __init__(self, case: unittest.TestCase):
+    def __init__(self, case: unittest.TestCase, app_smoke_required: bool = True):
+        """``app_smoke_required`` defaults to the strict policy so Stable smoke
+        binding stays covered. Tests that package the Preview channel pass
+        False, the shipped policy (D6a): with True, Preview packaging fails
+        because the builder runs the smoke only for Stable while the receipt
+        demands it for every channel. That release-code mismatch is pinned by
+        the expectedFailure test
+        test_preview_package_binds_app_smoke_when_policy_requires_it.
+        """
         self.case = case
         self.temporary = tempfile.TemporaryDirectory()
         self.root = Path(self.temporary.name).resolve()
@@ -38,7 +46,7 @@ class ReleaseBuilderFixture:
         self._copy_repository_inputs()
         contract_path = self.repo / "config/release-contract.json"
         contract = json.loads(contract_path.read_text())
-        contract["gates"]["appSmokeRequired"] = True
+        contract["gates"]["appSmokeRequired"] = app_smoke_required
         contract_path.write_text(json.dumps(contract))
         self._install_internal_phase_wrappers()
         self.cli_generator = self.root / "make-cli.py"
@@ -72,6 +80,8 @@ class ReleaseBuilderFixture:
             "scripts/release/bounded_process.py",
             "scripts/release/durable_notary.py",
             "scripts/release/signing_pipeline.py",
+            "scripts/release/upload-timeout.sh",
+            "scripts/release/swiftpm_build.py",
             "LungfishCLI-Info.plist",
             "Sources/LungfishCLIExecutable/EntryPoint.swift",
             "Lungfish.xcodeproj/xcshareddata/xcschemes/Lungfish.xcscheme",
@@ -158,6 +168,20 @@ class ReleaseBuilderFixture:
 
     def _install_internal_phase_wrappers(self):
         release_dir = self.repo / "scripts" / "release"
+        # REL-03 (a9f982c67) made the builder check/regenerate
+        # THIRD-PARTY-NOTICES from real manifests. Notice generation has its
+        # own tests (test_generate_notices); this fixture commits a notices
+        # file and a double that reports it current, so the builder phases
+        # under test never rewrite a tracked file from fixture manifests.
+        self._write(self.repo / "THIRD-PARTY-NOTICES", "Fixture third-party notices\n")
+        self._write_executable(
+            release_dir / "generate-notices.py",
+            r"""
+            #!/usr/bin/python3
+            import sys
+            raise SystemExit(0 if sys.argv[1:] == ["--check"] else 70)
+            """,
+        )
         self._write_executable(
             release_dir / "check-sparkle-build-number.py",
             r"""
@@ -596,7 +620,9 @@ class ReleaseBuilderFixture:
                 release = {
                     "targetCommitish": target,
                     "isPrerelease": "--prerelease" in arguments,
-                    "isDraft": False,
+                    # REL-05 (b1e84001b): versioned releases are created as
+                    # drafts and undrafted after the DMG digest is verified.
+                    "isDraft": "--draft" in arguments,
                     "assets": [],
                 }
                 if len(arguments) > 3 and not arguments[3].startswith("--"):
@@ -608,7 +634,10 @@ class ReleaseBuilderFixture:
             if release is None:
                 raise SystemExit(1)
             if action == "edit":
-                release["targetCommitish"] = arguments[arguments.index("--target") + 1]
+                if "--target" in arguments:
+                    release["targetCommitish"] = arguments[arguments.index("--target") + 1]
+                if "--draft=false" in arguments:
+                    release["isDraft"] = False
                 save()
                 raise SystemExit(0)
             if action == "upload":
@@ -866,6 +895,34 @@ class ReleaseBuilderPhaseTests(unittest.TestCase):
     def tearDown(self):
         self.fixture.cleanup()
 
+    def _use_preview_fixture(self):
+        """Replace the strict-policy fixture with one on the shipped (D6a)
+        app-smoke policy; see ReleaseBuilderFixture.__init__."""
+        self.fixture.cleanup()
+        self.fixture = ReleaseBuilderFixture(self, app_smoke_required=False)
+        return self.fixture
+
+    @unittest.expectedFailure
+    def test_preview_package_binds_app_smoke_when_policy_requires_it(self):
+        """Known release-code bug (triage R1, found 2026-09-24).
+
+        b35a3c006 (TST-02/D6) widened release-candidate-receipt.py's smoke
+        requirement from Stable-only to every channel whenever
+        gates.appSmokeRequired is true, but build-notarized-dmg.sh still runs
+        app_smoke_gate.py only when "$CHANNEL" = "stable" (the REQUIRE_APP_SMOKE
+        block before the receipt `create` call). So with appSmokeRequired true,
+        `package preview` always fails with "preview requires retained
+        exact-candidate real-app smoke evidence". Latent today because the
+        shipped contract keeps appSmokeRequired false (D6a); it bites as soon
+        as D6a is reversed. Fix: drop the Stable-only guard in the builder and
+        let app_smoke_gate.py (and gate_fixtures.make_app_smoke_fixture, which
+        hard-codes "stable") carry the selected channel; or narrow the receipt
+        back to Stable if Preview smoke is not wanted.
+        """
+        result = self.fixture.run("--package-only", "--channel", "preview")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertTrue((self.fixture.release / "app-smoke-evidence/app-smoke.result.json").is_file())
+
     def _stable_resume_args(self, fixture=None):
         selected = fixture or self.fixture
         return (
@@ -887,6 +944,7 @@ class ReleaseBuilderPhaseTests(unittest.TestCase):
 
     def test_fork_package_has_no_legacy_feed_requirement(self):
         from scripts.release.release_identity import fork_contract
+        self._use_preview_fixture()
         path = self.fixture.repo / "config/release-contract.json"
         original = json.loads(path.read_text())
         identity = dict(original["identity"], runtimeNamespace="org.example.fixture")
@@ -922,6 +980,7 @@ class ReleaseBuilderPhaseTests(unittest.TestCase):
     def test_package_only_needs_no_credentials_and_stops_before_private_or_remote_tools(
         self,
     ):
+        self._use_preview_fixture()
         result = self.fixture.run(
             "--package-only",
             "--channel",
@@ -1902,7 +1961,7 @@ class ReleaseBuilderPhaseTests(unittest.TestCase):
         self.assertEqual(floor.run_gate("43", "42").returncode, 0)
         for failed_asset in ("sparkle-beta:appcast-beta.xml", "sparkle-beta:Lungfish-2026.8.1-arm64.md", "sparkle-alpha:appcast-alpha.xml"):
             with self.subTest(failed_asset=failed_asset):
-                fixture = ReleaseBuilderFixture(self)
+                fixture = ReleaseBuilderFixture(self, app_smoke_required=False)
                 try:
                     evidence = fixture.root / "installed-bad-build-42.json"
                     bad_bytes = b'{"installedBuild":42,"promotionPaused":true,"fixture":true}\n'
