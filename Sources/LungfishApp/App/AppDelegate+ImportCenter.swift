@@ -15,32 +15,41 @@ extension AppDelegate {
     // MARK: - Import Center URL-Accepting Methods
 
     /// Import a BAM file from a known URL (called from Import Center).
-    func importBAMFromURL(_ url: URL) {
+    ///
+    /// Returns the started operation's id, or `nil` if the import was refused (no bundle
+    /// open, or another operation already holds the bundle's write lock). A multi-file
+    /// dispatch (`ImportCenterViewModel.dispatchFileImport`, FEA-05) awaits this id with
+    /// `MainSplitViewController.pollUntilOperationTerminal(id:)` before starting the next
+    /// file, so only the first of several BAMs no longer silently wins the lock race.
+    @discardableResult
+    func importBAMFromURL(_ url: URL) -> UUID? {
         guard let originController = activeMainWindowController(),
               let viewerController = originController.mainSplitViewController?.viewerController,
               let bundleURL = viewerController.currentBundleURL else {
             showAlert(title: "No Bundle Loaded", message: "Please open a reference genome bundle before importing alignments.")
-            return
+            return nil
         }
         guard canWriteProjectOutputs(
             projectURL: ProjectTempDirectory.findProjectRoot(bundleURL),
             windowStateScope: originController.projectSession.windowStateScope,
             workflowName: "BAM import",
             presentingWindow: originController.window
-        ) else { return }
-        performBAMImport(
+        ) else { return nil }
+        return performBAMImport(
             bamURL: url,
             bundleURL: bundleURL,
             routeContext: currentOperationRouteContext(for: originController)
         )
     }
 
-    /// Import a VCF file from a known URL (called from Import Center).
-    func importVCFFromURL(_ url: URL) {
+    /// Import a VCF file from a known URL (called from Import Center). See
+    /// `importBAMFromURL`'s doc comment (FEA-05).
+    @discardableResult
+    func importVCFFromURL(_ url: URL) -> UUID? {
         guard let originController = activeMainWindowController(),
               let originSplit = originController.mainSplitViewController else {
             showAlert(title: "No Project Open", message: "Please open a project before importing variants.")
-            return
+            return nil
         }
         let viewerController = originSplit.viewerController
         let bundleURL = viewerController?.currentBundleURL
@@ -50,14 +59,15 @@ extension AppDelegate {
                 windowStateScope: originController.projectSession.windowStateScope,
                 workflowName: "VCF import",
                 presentingWindow: originController.window
-            ) else { return }
-            performVCFImport(
+            ) else { return nil }
+            return performVCFImport(
                 vcfURL: url,
                 bundleURL: bundleURL,
                 routeContext: currentOperationRouteContext(for: originController)
             )
         } else {
             originSplit.loadVCFFilesInBackground(urls: [url])
+            return nil
         }
     }
 
@@ -1048,20 +1058,23 @@ extension AppDelegate {
         )
     }
 
-    internal func performVCFImport(vcfURL: URL, bundleURL: URL, routeContext explicitRouteContext: OperationRouteContext? = nil) {
+    /// Starts a VCF import as an `OperationCenter` operation and returns its id, or `nil`
+    /// if it was refused. See `performBAMImport`'s doc comment (FEA-05).
+    @discardableResult
+    internal func performVCFImport(vcfURL: URL, bundleURL: URL, routeContext explicitRouteContext: OperationRouteContext? = nil) -> UUID? {
         let routeContext = explicitRouteContext ?? currentOperationRouteContext()
         guard canWriteProjectOutputs(
             projectURL: ProjectTempDirectory.findProjectRoot(bundleURL),
             windowStateScope: routeContext?.windowStateScopeID.map(WindowStateScope.init(id:)),
             workflowName: "VCF import",
             presentingWindow: targetMainWindowController(routeContext: routeContext)?.window
-        ) else { return }
+        ) else { return nil }
         guard OperationCenter.shared.canStartOperation(on: bundleURL) else {
             if let holder = OperationCenter.shared.activeLockHolder(for: bundleURL) {
                 showAlert(title: "Operation in Progress",
                           message: "\"\(holder.title)\" is currently running on this bundle. Please wait for it to finish.")
             }
-            return
+            return nil
         }
 
         let cancelFlag = OSAllocatedUnfairLock(initialState: false)
@@ -1447,6 +1460,7 @@ extension AppDelegate {
                 }
             }
         }
+        return opID
     }
 
     internal nonisolated static func vcfManifestReplacingTrack(
@@ -2303,20 +2317,26 @@ extension AppDelegate {
 
     // MARK: - BAM/CRAM Import
 
-    internal func performBAMImport(bamURL: URL, bundleURL: URL, routeContext explicitRouteContext: OperationRouteContext? = nil) {
+    /// Starts a BAM import as an `OperationCenter` operation and returns its id, or `nil`
+    /// if it was refused (no bundle open, a write-lock conflict, or the bundle already
+    /// busy). Callers that need to wait for this import before starting another on the
+    /// same bundle -- see `ImportCenterViewModel`'s multi-file BAM/VCF dispatch (FEA-05)
+    /// -- await the returned id with `awaitOperationTerminal(id:)`.
+    @discardableResult
+    internal func performBAMImport(bamURL: URL, bundleURL: URL, routeContext explicitRouteContext: OperationRouteContext? = nil) -> UUID? {
         let routeContext = explicitRouteContext ?? currentOperationRouteContext()
         guard canWriteProjectOutputs(
             projectURL: ProjectTempDirectory.findProjectRoot(bundleURL),
             windowStateScope: routeContext?.windowStateScopeID.map(WindowStateScope.init(id:)),
             workflowName: "BAM import",
             presentingWindow: targetMainWindowController(routeContext: routeContext)?.window
-        ) else { return }
+        ) else { return nil }
         guard OperationCenter.shared.canStartOperation(on: bundleURL) else {
             if let holder = OperationCenter.shared.activeLockHolder(for: bundleURL) {
                 showAlert(title: "Operation in Progress",
                           message: "\"\(holder.title)\" is currently running on this bundle. Please wait for it to finish.")
             }
-            return
+            return nil
         }
 
         let cancelFlag = OSAllocatedUnfairLock(initialState: false)
@@ -2392,6 +2412,7 @@ extension AppDelegate {
                 }
             }
         }
+        return opID
     }
 
     @objc func exportFASTA(_ sender: Any?) {

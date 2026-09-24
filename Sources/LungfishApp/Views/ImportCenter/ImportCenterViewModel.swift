@@ -710,6 +710,23 @@ final class ImportCenterViewModel {
         // Close Import Center so it doesn't obscure the main window
         ImportCenterWindowController.close()
 
+        // BAM and VCF each mutate the SAME open bundle and take its write lock for the
+        // whole import (see `performBAMImport`/`performVCFImport`), so firing all of them
+        // at once has every import after the first refused by `canStartOperation` while
+        // Import Center still records all of them as `succeeded: true` (FEA-05). Queue
+        // them instead: start one, wait for it to reach a terminal state, then start the
+        // next, and record each file's history entry with its own true outcome.
+        switch action {
+        case .bam:
+            queueSequentialBundleImports(urls: urls, action: action) { appDelegate.importBAMFromURL($0) }
+            return
+        case .vcf:
+            queueSequentialBundleImports(urls: urls, action: action) { appDelegate.importVCFFromURL($0) }
+            return
+        default:
+            break
+        }
+
         switch action {
         case .fastq:
             appDelegate.importFASTQFromURLs(urls)
@@ -721,14 +738,8 @@ final class ImportCenterViewModel {
             for url in urls {
                 appDelegate.importONTRunFromURL(url)
             }
-        case .bam:
-            for url in urls {
-                appDelegate.importBAMFromURL(url)
-            }
-        case .vcf:
-            for url in urls {
-                appDelegate.importVCFFromURL(url)
-            }
+        case .bam, .vcf:
+            break // Handled above, before this switch, so each file is queued.
         case .fasta:
             for url in urls {
                 appDelegate.importFASTAFromURL(url)
@@ -786,6 +797,39 @@ final class ImportCenterViewModel {
         dispatchMessage = nil
         recordHistory(urls: urls, action: action, succeeded: true)
         logger.info("Dispatched \(urls.count) file(s) for \(String(describing: action)) import")
+    }
+
+    /// Starts `urls` one at a time against `start`, waiting for each `OperationCenter`
+    /// operation to reach a terminal state before starting the next, since all of them
+    /// target the same open bundle and its write lock only ever admits one importer at a
+    /// time (FEA-05). Each file's history entry reflects whether IT was actually accepted
+    /// (`start` returned a non-nil operation id), not the batch as a whole -- a file
+    /// refused because a prior sibling still held the lock, or because a bundle-level
+    /// precondition failed (e.g. an unsaved-changes prompt was declined), is recorded as
+    /// failed rather than folded into `succeeded: true` for every file.
+    /// `center` defaults to `.shared` for production callers; test-injectable so a test can
+    /// use a private `OperationCenter()` instance (the established pattern in
+    /// `OperationCenterLockingTests`) instead of the process-global singleton.
+    func queueSequentialBundleImports(
+        urls: [URL],
+        action: ImportCardInfo.ImportAction,
+        center: OperationCenter = .shared,
+        start: @escaping (URL) -> UUID?
+    ) {
+        lastDispatchOutcome = .started
+        dispatchMessage = nil
+        logger.info("Queuing \(urls.count) file(s) for sequential \(String(describing: action)) import")
+        Task { @MainActor [weak self] in
+            for url in urls {
+                guard let opID = start(url) else {
+                    self?.recordHistory(urls: [url], action: action, succeeded: false)
+                    continue
+                }
+                await MainSplitViewController.pollUntilOperationTerminal(id: opID, center: center)
+                let succeeded = center.items.first { $0.id == opID }?.state == .completed
+                self?.recordHistory(urls: [url], action: action, succeeded: succeeded)
+            }
+        }
     }
 
     // MARK: - Wizard Sheets
