@@ -7,16 +7,39 @@ struct FASTQOperationCLIInvocationBuilder: Sendable {
         try buildInvocation(for: request, outputTargetPath: "<derived>")
     }
 
+    /// Builds the `lungfish-cli` invocation for a request.
+    ///
+    /// - Parameter pairingMode: the pairing recorded by the input's bundle,
+    ///   when the caller already knows it (the execution service reads it
+    ///   from the ORIGINAL input, because a derived bundle is materialized
+    ///   to a scratch file that carries no metadata). When `nil`, the
+    ///   builder looks next to the input path itself.
     func buildInvocation(
         for request: FASTQOperationLaunchRequest,
-        outputTargetPath: String
+        outputTargetPath: String,
+        pairingMode: IngestionMetadata.PairingMode? = nil
     ) throws -> FASTQCLIInvocation {
-        try legacyBuildInvocation(for: request, outputTargetPath: outputTargetPath)
+        try legacyBuildInvocation(for: request, outputTargetPath: outputTargetPath, pairingMode: pairingMode)
+    }
+
+    /// The `--pairing` arguments that make a `fastq` subcommand treat its
+    /// input the way the bundle recorded it, so the CLI never has to guess
+    /// from read names and `Copy CLI Command` reproduces the GUI run.
+    ///
+    /// `.pairedEnd` (separate R1/R2 files) and `nil` leave the CLI in auto
+    /// mode, which reads bundle metadata and then read names on its own.
+    static func pairingArguments(for pairingMode: IngestionMetadata.PairingMode?) -> [String] {
+        switch pairingMode {
+        case .interleaved: return ["--pairing", "interleaved"]
+        case .singleEnd: return ["--pairing", "single"]
+        case .pairedEnd, .none: return []
+        }
     }
 
     private func legacyBuildInvocation(
         for request: FASTQOperationLaunchRequest,
-        outputTargetPath: String
+        outputTargetPath: String,
+        pairingMode: IngestionMetadata.PairingMode?
     ) throws -> FASTQCLIInvocation {
         switch request {
         case .refreshQCSummary(let inputURLs):
@@ -26,12 +49,15 @@ struct FASTQOperationCLIInvocationBuilder: Sendable {
             )
 
         case .derivative(let request, let inputURLs, _):
+            let resolvedPairingMode = pairingMode
+                ?? inputURLs.first.flatMap(FASTQPairingModeResolver.bundlePairingMode(for:))
             return FASTQCLIInvocation(
                 subcommand: "fastq",
                 arguments: try fastqArguments(
                     for: request,
                     inputURLs: inputURLs,
-                    outputTarget: outputTargetPath
+                    outputTarget: outputTargetPath,
+                    pairingArguments: Self.pairingArguments(for: resolvedPairingMode)
                 )
             )
 
@@ -232,7 +258,8 @@ struct FASTQOperationCLIInvocationBuilder: Sendable {
     private func fastqArguments(
         for request: FASTQDerivativeRequest,
         inputURLs: [URL],
-        outputTarget: String
+        outputTarget: String,
+        pairingArguments: [String]
     ) throws -> [String] {
         guard let inputURL = inputURLs.first else {
             return ["qc-summary", "--output", outputTarget]
@@ -240,9 +267,9 @@ struct FASTQOperationCLIInvocationBuilder: Sendable {
 
         switch request {
         case .subsampleProportion(let proportion):
-            return ["subsample", inputURL.path, "--proportion", String(proportion), "-o", outputTarget]
+            return ["subsample", inputURL.path, "--proportion", String(proportion)] + pairingArguments + ["-o", outputTarget]
         case .subsampleCount(let count):
-            return ["subsample", inputURL.path, "--count", "\(count)", "-o", outputTarget]
+            return ["subsample", inputURL.path, "--count", "\(count)"] + pairingArguments + ["-o", outputTarget]
         case .lengthFilter(let min, let max):
             var arguments = ["length-filter", inputURL.path]
             if let min { arguments += ["--min", "\(min)"] }
@@ -252,15 +279,17 @@ struct FASTQOperationCLIInvocationBuilder: Sendable {
         case .searchText(let query, let field, let regex):
             var arguments = ["search-text", inputURL.path, "--query", query, "--field", field.rawValue]
             if regex { arguments.append("--regex") }
+            arguments += pairingArguments
             arguments += ["-o", outputTarget]
             return arguments
         case .searchMotif(let pattern, let regex):
             var arguments = ["search-motif", inputURL.path, "--pattern", pattern]
             if regex { arguments.append("--regex") }
+            arguments += pairingArguments
             arguments += ["-o", outputTarget]
             return arguments
         case .deduplicate(let preset, let substitutions, let optical, let opticalDistance):
-            var arguments = ["deduplicate", inputURL.path, "--subs", "\(substitutions)", "-o", outputTarget]
+            var arguments = ["deduplicate", inputURL.path, "--subs", "\(substitutions)"] + pairingArguments + ["-o", outputTarget]
             if optical { arguments += ["--optical", "--dupedist", "\(opticalDistance)"] }
             _ = preset
             return arguments
@@ -334,8 +363,7 @@ struct FASTQOperationCLIInvocationBuilder: Sendable {
                 "--mode", mode.rawValue,
                 "--kmer", "\(kmerSize)",
                 "--hdist", "\(hammingDistance)",
-                "-o", outputTarget,
-            ]
+            ] + pairingArguments + ["-o", outputTarget]
             if let referenceFasta {
                 arguments.insert(contentsOf: ["--ref", referenceFasta], at: 4)
             }
@@ -346,8 +374,7 @@ struct FASTQOperationCLIInvocationBuilder: Sendable {
                 "--entropy", FASTQDerivativeRequest.entropyArgument(entropy),
                 "--window", "\(window)",
                 "--kmer", "\(kmer)",
-                "-o", outputTarget,
-            ]
+            ] + pairingArguments + ["-o", outputTarget]
         case .pairedEndMerge(let strictness, let minOverlap):
             var arguments = ["merge", inputURL.path, "--min-overlap", "\(minOverlap)", "-o", outputTarget]
             if strictness == .strict { arguments.append("--strict") }
@@ -436,6 +463,7 @@ struct FASTQOperationCLIInvocationBuilder: Sendable {
             }
             if keepMatched { arguments.append("--keep-matched") }
             if searchReverseComplement { arguments.append("--search-rc") }
+            arguments += pairingArguments
             return arguments
         case .errorCorrection(let kmerSize):
             return ["error-correct", inputURL.path, "--kmer", "\(kmerSize)", "-o", outputTarget]
@@ -508,14 +536,13 @@ struct FASTQOperationCLIInvocationBuilder: Sendable {
             }
             return arguments
         case .humanReadScrub(let databaseID, _):
-            return ["scrub-human", inputURL.path, "--database-id", databaseID, "-o", outputTarget]
+            return ["scrub-human", inputURL.path, "--database-id", databaseID] + pairingArguments + ["-o", outputTarget]
         case .ribosomalRNAFilter(let retention, _):
             return [
                 "deacon-ribo", inputURL.path,
                 "--database-id", DeaconRibokmersDatabaseInstaller.databaseID,
                 "--retain", retention.rawValue,
-                "-o", outputTarget,
-            ]
+            ] + pairingArguments + ["-o", outputTarget]
         }
     }
 }

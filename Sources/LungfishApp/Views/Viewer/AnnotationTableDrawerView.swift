@@ -1896,12 +1896,14 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         let type = form.typeField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
         let chromosome = form.chromosomeField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty, !type.isEmpty, !chromosome.isEmpty,
-              let start = Int(form.startField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)),
-              let end = Int(form.endField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)),
-              end >= start else {
+              let displayStart = Int(form.startField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)),
+              let displayEnd = Int(form.endField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)),
+              displayStart >= 1, displayEnd >= displayStart else {
             NSSound.beep()
             return
         }
+        let start = GenomicCoordinateDisplay.storedStart(fromDisplay: displayStart)
+        let end = GenomicCoordinateDisplay.storedEnd(fromDisplay: displayEnd)
         let attributes = form.attributesField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
         let parsedAttrs = attributes.isEmpty ? [:] : AnnotationDatabase.parseAttributes(attributes)
         let geneName = parsedAttrs["gene"] ?? parsedAttrs["gene_name"] ?? parsedAttrs["gene_id"]
@@ -2012,8 +2014,10 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         let nameField = textField(result.name, placeholder: "Name")
         let typeField = textField(result.type, placeholder: "Type")
         let chromosomeField = textField(result.chromosome, placeholder: "Chromosome")
-        let startField = textField("\(result.start)", placeholder: "Start")
-        let endField = textField("\(result.end)", placeholder: "End")
+        // The form shows and accepts 1-based closed coordinates, matching the
+        // table; performAnnotationEdit/Creation convert back to stored values.
+        let startField = textField("\(GenomicCoordinateDisplay.displayStart(result.start))", placeholder: "Start")
+        let endField = textField("\(GenomicCoordinateDisplay.displayEnd(result.end))", placeholder: "End")
         let strandField = textField(result.strand, placeholder: "Strand")
         let attributesValue = currentRecord?.attributes
             ?? result.attributes?.map { "\($0.key)=\($0.value)" }.sorted().joined(separator: ";")
@@ -2073,12 +2077,14 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         strand: String,
         attributes: String
     ) -> Bool {
+        // `start`/`end` are stored 0-based half-open; the string overload takes
+        // the 1-based closed values a user types into the form.
         performAnnotationCreation(
             name: name,
             type: type,
             chromosome: chromosome,
-            startValue: "\(start)",
-            endValue: "\(end)",
+            startValue: "\(GenomicCoordinateDisplay.displayStart(start))",
+            endValue: "\(GenomicCoordinateDisplay.displayEnd(end))",
             strand: strand,
             attributes: attributes
         )
@@ -2099,12 +2105,15 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         let chromosome = rawChromosome.trimmingCharacters(in: .whitespacesAndNewlines)
         let strandValue = rawStrand.trimmingCharacters(in: .whitespacesAndNewlines)
         let attributes = rawAttributes.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Form values are 1-based closed (what the table shows); store 0-based half-open.
         guard !name.isEmpty, !type.isEmpty, !chromosome.isEmpty,
-              let start = Int(rawStart.trimmingCharacters(in: .whitespacesAndNewlines)),
-              let end = Int(rawEnd.trimmingCharacters(in: .whitespacesAndNewlines)),
-              end >= start else {
+              let displayStart = Int(rawStart.trimmingCharacters(in: .whitespacesAndNewlines)),
+              let displayEnd = Int(rawEnd.trimmingCharacters(in: .whitespacesAndNewlines)),
+              displayStart >= 1, displayEnd >= displayStart else {
             return false
         }
+        let start = GenomicCoordinateDisplay.storedStart(fromDisplay: displayStart)
+        let end = GenomicCoordinateDisplay.storedEnd(fromDisplay: displayEnd)
         let parsedAttrs = attributes.isEmpty ? [:] : AnnotationDatabase.parseAttributes(attributes)
         let geneName = parsedAttrs["gene"] ?? parsedAttrs["gene_name"] ?? parsedAttrs["gene_id"]
         let strand = strandValue.isEmpty ? "." : strandValue
@@ -3396,9 +3405,10 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
         case "chromosome":
             return row.chromosome
         case "start":
-            return String(row.start)
+            // Column filters compare against the 1-based value the Start cell shows.
+            return String(GenomicCoordinateDisplay.displayStart(row.start))
         case "end":
-            return String(row.end)
+            return String(GenomicCoordinateDisplay.displayEnd(row.end))
         case "size":
             return String(row.end - row.start)
         case "strand":
@@ -5470,9 +5480,10 @@ func annotationColumnValueOffMain(_ row: AnnotationSearchIndex.SearchResult, key
     case "chromosome":
         return row.chromosome
     case "start":
-        return String(row.start)
+        // Must match annotationColumnValue: filters see the displayed 1-based start.
+        return String(GenomicCoordinateDisplay.displayStart(row.start))
     case "end":
-        return String(row.end)
+        return String(GenomicCoordinateDisplay.displayEnd(row.end))
     case "size":
         return String(row.end - row.start)
     case "strand":

@@ -71,7 +71,8 @@ public struct PhylogeneticTreeBundle: Sendable, Equatable {
             destinationURL: destinationURL,
             workflowName: "phylogenetic-tree-extract-subtree",
             actionID: "tree.extract-subtree",
-            provenance: provenance.withOptions(options)
+            provenance: provenance.withOptions(options),
+            isRooted: manifest.isRooted
         )
     }
 
@@ -89,7 +90,8 @@ public struct PhylogeneticTreeBundle: Sendable, Equatable {
             destinationURL: destinationURL,
             workflowName: "phylogenetic-tree-reroot",
             actionID: "tree.reroot",
-            provenance: provenance.withOptions(options)
+            provenance: provenance.withOptions(options),
+            isRooted: true
         )
     }
 
@@ -111,6 +113,7 @@ public struct PhylogeneticTreeBundle: Sendable, Equatable {
             workflowName: "phylogenetic-tree-relabel",
             actionID: "tree.relabel",
             provenance: provenance.withOptions(options),
+            isRooted: manifest.isRooted,
             metadataURL: metadataURL
         )
     }
@@ -136,6 +139,7 @@ public struct PhylogeneticTreeBundle: Sendable, Equatable {
         workflowName: String,
         actionID: String,
         provenance: PhylogeneticTreeBundleTransformProvenance,
+        isRooted: Bool,
         metadataURL: URL? = nil
     ) throws -> PhylogeneticTreeBundle {
         let started = Date()
@@ -150,7 +154,7 @@ public struct PhylogeneticTreeBundle: Sendable, Equatable {
             sourceURL: URL(fileURLWithPath: "derived.nwk"),
             requestedFormat: "newick"
         )
-        let normalized = TreeNormalizer.normalizedTree(from: parsed.tree, rooted: true)
+        let normalized = TreeNormalizer.normalizedTree(from: parsed.tree, rooted: isRooted)
         let warnings = TreeWarningCollector.warnings(for: normalized)
         do {
             try fm.createDirectory(at: destinationURL.appendingPathComponent("tree"), withIntermediateDirectories: true)
@@ -188,7 +192,7 @@ public struct PhylogeneticTreeBundle: Sendable, Equatable {
                 sourceFileName: url.lastPathComponent,
                 treeCount: 1,
                 primaryTreeID: normalized.treeID,
-                isRooted: true,
+                isRooted: isRooted,
                 tipCount: normalized.nodes.filter(\.isTip).count,
                 internalNodeCount: normalized.nodes.filter { !$0.isTip }.count,
                 branchLengthUnit: self.manifest.branchLengthUnit,

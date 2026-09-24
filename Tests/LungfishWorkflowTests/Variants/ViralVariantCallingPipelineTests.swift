@@ -188,12 +188,12 @@ final class ViralVariantCallingPipelineTests: XCTestCase {
     }
 
     func testBcftoolsCommandLineUsesMpileupCallAndAdvancedArguments() throws {
-        let pipeline = try makePipeline(caller: .bcftools, advancedArguments: ["--ploidy", "1"])
+        let pipeline = try makePipeline(caller: .bcftools, advancedArguments: ["-P", "0.001"])
 
         let plan = try pipeline.buildExecutionPlan()
 
         XCTAssertTrue(plan.commandLine.contains("bcftools mpileup"))
-        XCTAssertTrue(plan.commandLine.contains(" | bcftools call"))
+        XCTAssertTrue(plan.commandLine.contains(" | bcftools call -P 0.001"))
         XCTAssertTrue(plan.commandLine.contains("--ploidy 1"))
     }
 
@@ -204,7 +204,7 @@ final class ViralVariantCallingPipelineTests: XCTestCase {
         // and the tool's default 250-read max-depth, which is far below
         // typical amplicon coverage. The mpileup stage must request AD/DP
         // tags and an effectively unlimited depth, and the call stage must
-        // request haploid genotypes.
+        // request haploid genotypes for this viral fixture bundle.
         let pipeline = try makePipeline(caller: .bcftools)
 
         let plan = try pipeline.buildExecutionPlan()
@@ -213,6 +213,94 @@ final class ViralVariantCallingPipelineTests: XCTestCase {
         XCTAssertTrue(plan.commandLine.contains("-d 0"))
         XCTAssertTrue(plan.commandLine.contains("-a FORMAT/AD,FORMAT/DP,INFO/AD"))
         XCTAssertTrue(plan.commandLine.contains("--ploidy 1"))
+        XCTAssertEqual(pipeline.resolvedPloidy, .haploid)
+    }
+
+    // MARK: - bcftools ploidy follows the reference organism
+
+    func testBcftoolsCommandLineIsDiploidForHumanReferenceBundle() throws {
+        // Regression: SCI-04 made `--ploidy 1` unconditional, which on the
+        // manual's HG002 chromosome 20 example dropped 623 heterozygous
+        // sites and wrote every genotype as `1`. A human bundle must call
+        // diploid by default.
+        let pipeline = try makePipeline(caller: .bcftools, sourceOrganism: "Homo sapiens")
+
+        let plan = try pipeline.buildExecutionPlan()
+
+        XCTAssertTrue(plan.commandLine.contains("--ploidy 2"))
+        XCTAssertFalse(plan.commandLine.contains("--ploidy 1"))
+        XCTAssertEqual(pipeline.resolvedPloidy, .diploid)
+    }
+
+    func testBcftoolsCommandLineIsDiploidForFASTASliceNamedAfterGRCh38() throws {
+        // The manual's fixture is imported from `GRCh38.chr20.10.0-10.5Mb.fasta`,
+        // so the organism field holds the bundle name rather than a species.
+        let pipeline = try makePipeline(caller: .bcftools, sourceOrganism: "GRCh38.chr20.10.0-10.5Mb")
+
+        XCTAssertEqual(pipeline.resolvedPloidy, .diploid)
+        XCTAssertTrue(try pipeline.buildExecutionPlan().commandLine.contains("--ploidy 2"))
+    }
+
+    func testExplicitPloidyOverridesManifestDefault() throws {
+        let viralAsDiploid = try makePipeline(caller: .bcftools, ploidy: .diploid)
+        let humanAsHaploid = try makePipeline(caller: .bcftools, sourceOrganism: "Homo sapiens", ploidy: .haploid)
+
+        XCTAssertTrue(try viralAsDiploid.buildExecutionPlan().commandLine.contains("--ploidy 2"))
+        XCTAssertTrue(try humanAsHaploid.buildExecutionPlan().commandLine.contains("--ploidy 1"))
+    }
+
+    func testBcftoolsRejectsPloidyInAdvancedArguments() throws {
+        // A `--ploidy` typed into Extra arguments used to be silently
+        // overridden by LGE's own flag. It is now refused outright so the
+        // Ploidy setting is the single source of truth.
+        let pipeline = try makePipeline(caller: .bcftools, advancedArguments: ["--ploidy", "2"])
+
+        XCTAssertThrowsError(try pipeline.buildExecutionPlan()) { error in
+            XCTAssertEqual(
+                error as? ViralVariantCallingPipelineError,
+                .reservedAdvancedArgument(VariantCallingPloidy.reservedExtraArgumentMessage)
+            )
+        }
+    }
+
+    func testNonBcftoolsCallersIgnorePloidyInAdvancedArguments() throws {
+        // Only bcftools owns the reserved flag. LoFreq's arguments are passed
+        // through untouched, as before.
+        let pipeline = try makePipeline(caller: .lofreq, advancedArguments: ["--ploidy", "2"])
+
+        XCTAssertNoThrow(try pipeline.buildExecutionPlan())
+    }
+
+    func testBcftoolsCallerParametersJSONRecordsPloidyAndBasis() async throws {
+        let toolRunner = try makeFakeVariantToolRunner()
+        let derived = try makePipeline(caller: .bcftools, toolRunner: toolRunner, sourceOrganism: "Homo sapiens")
+        let explicit = try makePipeline(caller: .bcftools, toolRunner: toolRunner, ploidy: .diploid)
+
+        let derivedResult = try await derived.run()
+        let explicitResult = try await explicit.run()
+
+        let derivedJSON = try XCTUnwrap(JSONSerialization.jsonObject(with: XCTUnwrap(derivedResult.callerParametersJSON.data(using: .utf8))) as? [String: Any])
+        XCTAssertEqual(derivedJSON["ploidy"] as? Int, 2)
+        XCTAssertEqual(derivedJSON["ploidyBasis"] as? String, "organismName")
+        XCTAssertTrue(derivedResult.commandLine.contains("--ploidy 2"))
+        XCTAssertTrue(derivedResult.provenanceSteps.contains { step in
+            step.toolName == "bcftools" && step.command.contains("call") && step.command.contains("--ploidy") && step.command.contains("2")
+        })
+
+        let explicitJSON = try XCTUnwrap(JSONSerialization.jsonObject(with: XCTUnwrap(explicitResult.callerParametersJSON.data(using: .utf8))) as? [String: Any])
+        XCTAssertEqual(explicitJSON["ploidy"] as? Int, 2)
+        XCTAssertEqual(explicitJSON["ploidyBasis"] as? String, "explicit")
+    }
+
+    func testNonBcftoolsCallerParametersJSONOmitsPloidy() async throws {
+        let toolRunner = try makeFakeVariantToolRunner()
+        let pipeline = try makePipeline(caller: .lofreq, advancedArguments: ["--call-indels"], toolRunner: toolRunner)
+
+        let result = try await pipeline.run()
+
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: XCTUnwrap(result.callerParametersJSON.data(using: .utf8))) as? [String: Any])
+        XCTAssertNil(json["ploidy"])
+        XCTAssertNil(json["ploidyBasis"])
     }
 
     // MARK: - SCI-03: minimum AF and depth thresholds applied for non-iVar callers
@@ -569,7 +657,9 @@ final class ViralVariantCallingPipelineTests: XCTestCase {
         bamToFASTQConverter: @escaping ViralVariantCallingPipeline.BAMToFASTQConverter = convertBAMToSingleFASTQ,
         callerExecutor: ViralVariantCallingPipeline.CallerExecutor? = nil,
         minimumAlleleFrequency: Double? = 0.05,
-        minimumDepth: Int? = 10
+        minimumDepth: Int? = 10,
+        sourceOrganism: String = "Virus",
+        ploidy: VariantCallingPloidy? = nil
     ) throws -> ViralVariantCallingPipeline {
         let bundleURL = tempDir.appendingPathComponent("test.lungfishref", isDirectory: true)
         let referenceURL = tempDir.appendingPathComponent("reference.fa")
@@ -590,7 +680,7 @@ final class ViralVariantCallingPipelineTests: XCTestCase {
             formatVersion: "1.0",
             name: "Test Bundle",
             identifier: "test.bundle",
-            source: SourceInfo(organism: "Virus", assembly: "TestAssembly", database: "Test"),
+            source: SourceInfo(organism: sourceOrganism, assembly: "TestAssembly", database: "Test"),
             genome: GenomeInfo(
                 path: "genome/sequence.fa.gz",
                 indexPath: "genome/sequence.fa.gz.fai",
@@ -639,7 +729,8 @@ final class ViralVariantCallingPipelineTests: XCTestCase {
             minimumDepth: minimumDepth,
             ivarPrimerTrimConfirmed: true,
             medakaModel: (caller == .medaka || caller == .clair3) ? medakaModel : nil,
-            advancedArguments: advancedArguments
+            advancedArguments: advancedArguments,
+            ploidy: ploidy
         )
 
         let stagingRoot = tempDir.appendingPathComponent("staging-\(caller.rawValue)-\(UUID().uuidString)", isDirectory: true)

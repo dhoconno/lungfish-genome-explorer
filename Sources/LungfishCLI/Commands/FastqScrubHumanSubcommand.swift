@@ -46,10 +46,18 @@ struct FastqScrubHumanSubcommand: AsyncParsableCommand {
     )
     var compatibilityRemoveReads: Bool = false
 
+    @OptionGroup var pairing: FASTQPairingOptions
+
     func run() async throws {
         let inputURL = try validateInput(input)
         try output.validateOutput()
         _ = compatibilityRemoveReads
+
+        // Resolve pairing against the original input (bundle metadata lives
+        // next to it, not next to the decompressed scratch copy). Deacon is
+        // handed R1/R2 for interleaved input so it drops both mates of a
+        // human fragment; run on one file it would judge each mate alone.
+        let isInterleaved = try await pairing.resolveIsInterleaved(inputURL: inputURL)
 
         let runner = NativeToolRunner.shared
         let resolvedDatabaseID = Self.canonicalHumanReadRemovalDatabaseID(for: databaseID)
@@ -102,7 +110,7 @@ struct FastqScrubHumanSubcommand: AsyncParsableCommand {
             }
         }
 
-        if try await Self.looksInterleavedFASTQ(at: scrubInputURL) {
+        if isInterleaved {
             let inputR1 = workspace.appendingPathComponent("scrub-human-input-\(UUID().uuidString)-R1.fastq")
             let inputR2 = workspace.appendingPathComponent("scrub-human-input-\(UUID().uuidString)-R2.fastq")
             let outputR1 = workspace.appendingPathComponent("scrub-human-output-\(UUID().uuidString)-R1.fastq")
@@ -169,6 +177,7 @@ struct FastqScrubHumanSubcommand: AsyncParsableCommand {
         if compatibilityRemoveReads {
             cliArguments.append("--remove-reads")
         }
+        cliArguments += pairing.cliArguments
         if output.force {
             cliArguments.append("--force")
         }
@@ -182,6 +191,8 @@ struct FastqScrubHumanSubcommand: AsyncParsableCommand {
             resolvedDatabaseID: resolvedDatabaseID,
             databasePath: dbPath,
             removeReadsCompatibilityFlag: compatibilityRemoveReads,
+            pairing: pairing.pairing.rawValue,
+            resolvedInterleaved: isInterleaved,
             force: output.force,
             compress: output.compress,
             resolvedCompressOutput: shouldCompressOutput,
@@ -286,6 +297,8 @@ extension FastqScrubHumanSubcommand {
         resolvedDatabaseID: String,
         databasePath: URL,
         removeReadsCompatibilityFlag: Bool,
+        pairing: String = "auto",
+        resolvedInterleaved: Bool = false,
         force: Bool,
         compress: Bool,
         resolvedCompressOutput: Bool,
@@ -299,6 +312,9 @@ extension FastqScrubHumanSubcommand {
         if removeReadsCompatibilityFlag {
             explicit["removeReadsCompatibilityFlag"] = .boolean(true)
         }
+        if pairing != "auto" {
+            explicit["pairing"] = .string(pairing)
+        }
         if force {
             explicit["force"] = .boolean(true)
         }
@@ -308,6 +324,7 @@ extension FastqScrubHumanSubcommand {
 
         let defaults: [String: ParameterValue] = [
             "removeReadsCompatibilityFlag": .boolean(false),
+            "pairing": .string("auto"),
             "force": .boolean(false),
             "compress": .boolean(false)
         ]
@@ -318,6 +335,8 @@ extension FastqScrubHumanSubcommand {
             "resolvedDatabaseID": .string(resolvedDatabaseID),
             "databasePath": .file(databasePath),
             "removeReadsCompatibilityFlag": .boolean(removeReadsCompatibilityFlag),
+            "pairing": .string(pairing),
+            "interleaved": .boolean(resolvedInterleaved),
             "force": .boolean(force),
             "compress": .boolean(compress),
             "resolvedCompressOutput": .boolean(resolvedCompressOutput),
@@ -337,20 +356,6 @@ extension FastqScrubHumanSubcommand {
 }
 
 private extension FastqScrubHumanSubcommand {
-    static func looksInterleavedFASTQ(at url: URL) async throws -> Bool {
-        let reader = FASTQReader(validateSequence: false)
-        var iterator = reader.records(from: url).makeAsyncIterator()
-        guard let first = try await iterator.next(),
-              let second = try await iterator.next(),
-              let firstPair = first.readPair,
-              let secondPair = second.readPair else {
-            return false
-        }
-        return firstPair.pairId == secondPair.pairId
-            && firstPair.readNumber == 1
-            && secondPair.readNumber == 2
-    }
-
     static func deinterleaveFASTQ(
         inputFASTQ: URL,
         outputR1: URL,

@@ -571,7 +571,8 @@ final class AnnotationTableContextMenuTests: XCTestCase {
         let form = drawer.makeAnnotationCreateAccessoryView(defaultRegion: region)
 
         XCTAssertEqual(form.chromosomeField.stringValue, "chr2")
-        XCTAssertEqual(form.startField.stringValue, "120")
+        // Selection region is stored 0-based half-open; the form shows 1-based closed.
+        XCTAssertEqual(form.startField.stringValue, "121")
         XCTAssertEqual(form.endField.stringValue, "180")
     }
 
@@ -871,5 +872,108 @@ final class AnnotationTableContextMenuTests: XCTestCase {
         let menu = NSMenu()
         drawer.menuNeedsUpdate(menu)
         XCTAssertNotNil(findMenuItem(titled: "Extract 3 Sequences\u{2026}", in: menu))
+    }
+
+    // MARK: - Coordinate display convention
+
+    /// BED stores 0-based half-open; the Start/End cells (and their copy text)
+    /// show 1-based closed, matching the ruler and Go to Location.
+    func testStartAndEndCellsShowOneBasedClosedCoordinates() throws {
+        let drawer = try createDrawerWithDatabase(lines: [
+            "chr1\t70544\t72152\tHBB\t0\t-\t70544\t72152\t0,0,0\t1\t1608\t0\tgene\tgene=HBB"
+        ])
+        XCTAssertTrue(drawer.selectAnnotation(named: "HBB"))
+        let row = try XCTUnwrap(drawer.displayedAnnotations.firstIndex { $0.name == "HBB" })
+
+        XCTAssertEqual(drawer.cellValueString(for: AnnotationTableDrawerView.startColumn, row: row), "70,545")
+        XCTAssertEqual(drawer.cellValueString(for: AnnotationTableDrawerView.endColumn, row: row), "72,152")
+        // Size is unchanged by the convention (end minus start) and keeps its abbreviated form.
+        XCTAssertEqual(drawer.cellValueString(for: AnnotationTableDrawerView.sizeColumn, row: row), "1.6 kb")
+        XCTAssertEqual(drawer.autoSizeCellValueString(for: AnnotationTableDrawerView.startColumn, row: row), "70,545")
+        XCTAssertEqual(drawer.autoSizeCellValueString(for: AnnotationTableDrawerView.endColumn, row: row), "72,152")
+    }
+
+    /// Column filters (`start >= 70545`) compare against the displayed 1-based value.
+    func testColumnFilterValuesUseDisplayedStart() throws {
+        let drawer = try createDrawerWithDatabase(lines: [
+            "chr1\t70544\t72152\tHBB\t0\t-\t70544\t72152\t0,0,0\t1\t1608\t0\tgene\tgene=HBB"
+        ])
+        let row = try XCTUnwrap(drawer.displayedAnnotations.first { $0.name == "HBB" })
+
+        XCTAssertEqual(drawer.annotationColumnValue(row, key: "start"), "70545")
+        XCTAssertEqual(drawer.annotationColumnValue(row, key: "end"), "72152")
+        XCTAssertEqual(drawer.annotationColumnValue(row, key: "size"), "1608")
+        XCTAssertEqual(annotationColumnValueOffMain(row, key: "start"), "70545")
+        XCTAssertEqual(annotationColumnValueOffMain(row, key: "end"), "72152")
+        XCTAssertTrue(drawer.annotationColumnMatches(actual: drawer.annotationColumnValue(row, key: "start"), op: "=", expected: "70545", key: "start"))
+    }
+
+    /// `start:`/`end:`/`region:` clauses are typed 1-based closed and stored 0-based half-open.
+    func testFilterTextCoordinatesAreConvertedFromOneBased() throws {
+        let drawer = try createDrawerWithDatabase(lines: [
+            "chr1\t70544\t72152\tHBB\t0\t-\t70544\t72152\t0,0,0\t1\t1608\t0\tgene\tgene=HBB"
+        ])
+
+        let byKey = drawer.parseAnnotationFilterText("start:70545 end:72152")
+        XCTAssertEqual(byKey.start, 70_544)
+        XCTAssertEqual(byKey.end, 72_152)
+
+        let byRegion = drawer.parseAnnotationFilterText("region:chr1:70545-72152")
+        XCTAssertEqual(byRegion.chromosome, "chr1")
+        XCTAssertEqual(byRegion.start, 70_544)
+        XCTAssertEqual(byRegion.end, 72_152)
+
+        let single = try XCTUnwrap(drawer.parseRange("5-5"))
+        XCTAssertEqual(single.start, 4)
+        XCTAssertEqual(single.end, 5)
+        XCTAssertNil(drawer.parseRange("0-5"), "Position 0 does not exist in 1-based coordinates")
+        XCTAssertNil(drawer.parseRange("9-5"))
+
+        // A feature ending exactly at the typed start position still overlaps it.
+        let row = try XCTUnwrap(drawer.displayedAnnotations.first { $0.name == "HBB" })
+        let atEnd = drawer.parseAnnotationFilterText("start:72152")
+        XCTAssertEqual(drawer.applyAnnotationAdvancedFilters([row], query: atEnd).count, 1)
+        let pastEnd = drawer.parseAnnotationFilterText("start:72153")
+        XCTAssertEqual(drawer.applyAnnotationAdvancedFilters([row], query: pastEnd).count, 0)
+        let atStart = drawer.parseAnnotationFilterText("end:70545")
+        XCTAssertEqual(drawer.applyAnnotationAdvancedFilters([row], query: atStart).count, 1)
+        let beforeStart = drawer.parseAnnotationFilterText("end:70544")
+        XCTAssertEqual(drawer.applyAnnotationAdvancedFilters([row], query: beforeStart).count, 0)
+    }
+
+    /// The create/edit form takes 1-based closed values and stores 0-based half-open.
+    func testAnnotationFormCoordinatesRoundTripThroughStorage() throws {
+        let drawer = try createDrawerWithDatabase(lines: [
+            "chr1\t100\t200\tgene-a\t0\t+\t100\t200\t0,0,0\t1\t100\t0\tgene\tgene=gene-a"
+        ])
+
+        XCTAssertTrue(drawer.performAnnotationCreation(
+            name: "typed", type: "misc_feature", chromosome: "chr1",
+            startValue: "221", endValue: "260", strand: "+", attributes: ""
+        ))
+        XCTAssertTrue(drawer.selectAnnotation(named: "typed"))
+        let typed = try XCTUnwrap(drawer.displayedAnnotations.first { $0.name == "typed" })
+        XCTAssertEqual(typed.start, 220)
+        XCTAssertEqual(typed.end, 260)
+
+        // Editing shows the stored row back in the same 1-based convention.
+        let form = drawer.makeAnnotationEditForm(for: typed, currentRecord: nil)
+        XCTAssertEqual(form.startField.stringValue, "221")
+        XCTAssertEqual(form.endField.stringValue, "260")
+
+        // The Int overload takes stored coordinates and must persist them unchanged.
+        XCTAssertTrue(drawer.performAnnotationCreation(
+            name: "stored", type: "misc_feature", chromosome: "chr1",
+            start: 300, end: 340, strand: "+", attributes: ""
+        ))
+        XCTAssertTrue(drawer.selectAnnotation(named: "stored"))
+        let stored = try XCTUnwrap(drawer.displayedAnnotations.first { $0.name == "stored" })
+        XCTAssertEqual(stored.start, 300)
+        XCTAssertEqual(stored.end, 340)
+
+        XCTAssertFalse(drawer.performAnnotationCreation(
+            name: "zero", type: "misc_feature", chromosome: "chr1",
+            startValue: "0", endValue: "10", strand: "+", attributes: ""
+        ), "Position 0 does not exist in 1-based coordinates")
     }
 }

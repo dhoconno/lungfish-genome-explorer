@@ -84,6 +84,13 @@ struct PhylogeneticTreeSubtreeExporter {
     }
 }
 
+/// Rewrites a tree as Newick rooted on a chosen node.
+///
+/// The normalized tree is walked as an undirected graph starting from the selected node.
+/// Internal node labels follow the Newick convention of annotating the edge above the node
+/// (support values), so a label travels with its edge when the new root reverses that edge.
+/// If the old root is left with a single onward neighbour it is spliced out and the two branch
+/// lengths are summed, so the tree keeps its total length and gains no unary node.
 struct PhylogeneticTreeRerooter {
     let bundle: PhylogeneticTreeBundle
     let nodesByID: [String: PhylogeneticTreeNormalizedNode]
@@ -92,12 +99,30 @@ struct PhylogeneticTreeRerooter {
     init(bundle: PhylogeneticTreeBundle) {
         self.bundle = bundle
         self.nodesByID = Dictionary(uniqueKeysWithValues: bundle.normalizedTree.nodes.map { ($0.id, $0) })
+        // TreeNormalizer records every edge twice (parent.childIDs and child.parentID), so the
+        // adjacency list must be deduplicated or every branch is written once per duplicate entry.
+        // Children keep their original order and the parent comes last, so a rerooted clade reads
+        // the same way as the source tree.
         var neighbors: [String: [String]] = [:]
+        func connect(_ first: String, to second: String) {
+            if neighbors[first, default: []].contains(second) == false {
+                neighbors[first, default: []].append(second)
+            }
+        }
         for node in bundle.normalizedTree.nodes {
-            neighbors[node.id, default: []].append(contentsOf: node.childIDs)
+            for childID in node.childIDs {
+                connect(node.id, to: childID)
+            }
             if let parentID = node.parentID {
-                neighbors[node.id, default: []].append(parentID)
-                neighbors[parentID, default: []].append(node.id)
+                connect(node.id, to: parentID)
+            }
+        }
+        for node in bundle.normalizedTree.nodes {
+            for childID in node.childIDs {
+                connect(childID, to: node.id)
+            }
+            if let parentID = node.parentID {
+                connect(parentID, to: node.id)
             }
         }
         self.neighborsByID = neighbors
@@ -106,28 +131,60 @@ struct PhylogeneticTreeRerooter {
     func newick(rootedOn selected: PhylogeneticTreeNormalizedNode) throws -> String {
         if selected.isTip, let parentID = selected.parentID {
             let tip = label(for: selected) + ":0.0"
-            let rest = try writeDirected(nodeID: parentID, previousID: selected.id, branchLength: selected.branchLength)
+            let rest = try writeDirected(nodeID: parentID, previousID: selected.id, branchLength: selected.branchLength) ?? ""
             return "(\(tip),\(rest));"
         }
-        let children = try (neighborsByID[selected.id] ?? []).map { childID in
+        let children = try (neighborsByID[selected.id] ?? []).compactMap { childID in
             try writeDirected(nodeID: childID, previousID: selected.id, branchLength: edgeLength(between: selected.id, and: childID))
         }
-        return "(\(children.joined(separator: ",")))\(labelForInternalRoot(selected));"
+        return "(\(children.joined(separator: ",")))\(labelForNewRoot(selected));"
     }
 
-    private func writeDirected(nodeID: String, previousID: String, branchLength: Double?) throws -> String {
+    /// Writes the subtree hanging off `nodeID` when approached from `previousID`.
+    /// Returns nil when the node contributes nothing (an old root left with no onward edge).
+    private func writeDirected(nodeID: String, previousID: String, branchLength: Double?) throws -> String? {
         guard let node = nodesByID[nodeID] else {
             throw PhylogeneticTreeBundleError.nodeNotFound(nodeID)
         }
-        let children = try (neighborsByID[nodeID] ?? []).filter { $0 != previousID }.map { childID in
+        let onwardIDs = (neighborsByID[nodeID] ?? []).filter { $0 != previousID }
+        if node.parentID == nil, node.isTip == false {
+            if onwardIDs.isEmpty {
+                return nil
+            }
+            if onwardIDs.count == 1, let onlyID = onwardIDs.first {
+                let merged = summedLength(branchLength, edgeLength(between: nodeID, and: onlyID))
+                return try writeDirected(nodeID: onlyID, previousID: nodeID, branchLength: merged)
+            }
+        }
+        let children = try onwardIDs.compactMap { childID in
             try writeDirected(nodeID: childID, previousID: nodeID, branchLength: edgeLength(between: nodeID, and: childID))
         }
         var result = children.isEmpty ? "" : "(\(children.joined(separator: ",")))"
-        result += label(for: node)
+        result += edgeLabel(for: node, approachedFrom: previousID)
         if let branchLength {
             result += ":\(branchLength)"
         }
         return result
+    }
+
+    private func summedLength(_ first: Double?, _ second: Double?) -> Double? {
+        if first == nil, second == nil {
+            return nil
+        }
+        return (first ?? 0) + (second ?? 0)
+    }
+
+    /// The label written for `node` given the node it was reached from in the rerooted walk.
+    /// Tip labels stay with the tip. An internal label annotates the edge to the node's original
+    /// parent, so when that edge is walked in reverse the label is written on the original parent.
+    private func edgeLabel(for node: PhylogeneticTreeNormalizedNode, approachedFrom previousID: String) -> String {
+        if node.isTip || node.parentID == previousID {
+            return label(for: node)
+        }
+        guard let previous = nodesByID[previousID], previous.isTip == false, previous.parentID == node.id else {
+            return ""
+        }
+        return label(for: previous)
     }
 
     private func edgeLength(between firstID: String, and secondID: String) -> Double? {
@@ -140,8 +197,12 @@ struct PhylogeneticTreeRerooter {
         return nil
     }
 
-    private func labelForInternalRoot(_ node: PhylogeneticTreeNormalizedNode) -> String {
-        node.isTip ? "" : label(for: node)
+    private func labelForNewRoot(_ node: PhylogeneticTreeNormalizedNode) -> String {
+        if node.isTip {
+            return ""
+        }
+        // A label on the new root annotated its old parent edge, which is now written on the old parent.
+        return node.parentID == nil ? label(for: node) : ""
     }
 
     private func label(for node: PhylogeneticTreeNormalizedNode) -> String {

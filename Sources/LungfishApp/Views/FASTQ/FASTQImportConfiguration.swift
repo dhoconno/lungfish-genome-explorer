@@ -126,6 +126,42 @@ public struct FASTQFilePair: Sendable {
         self.sampleSheetURL = sampleSheetURL
     }
 
+    /// Applies the Import sheet's Pairing choice to detected pairs.
+    ///
+    /// Single-end and Interleaved split every detected R1/R2 pair into two
+    /// single-file samples named after each file's stem (the plain
+    /// ``sampleName`` strips `_R1`/`_R2`, which would make the two bundles
+    /// collide); Paired-end keeps the pairs. Mirrors
+    /// `FASTQBatchImporter.applyPairing` on the CLI side.
+    public static func applying(
+        pairingMode: FASTQIngestionConfig.PairingMode,
+        to pairs: [FASTQFilePair]
+    ) -> [FASTQFilePair] {
+        guard pairingMode != .pairedEnd else { return pairs }
+        return pairs.flatMap { pair -> [FASTQFilePair] in
+            guard let r2 = pair.r2 else { return [pair] }
+            return [pair.r1, r2].map { url in
+                FASTQFilePair(
+                    r1: url,
+                    r2: nil,
+                    sampleNameOverride: Self.fileStem(url),
+                    metadata: pair.metadata,
+                    sampleSheetURL: pair.sampleSheetURL
+                )
+            }
+        }
+    }
+
+    /// The filename without `.fastq(.gz)`/`.fq(.gz)`, read suffix included.
+    private static func fileStem(_ url: URL) -> String {
+        var name = url.lastPathComponent
+        for ext in [".fastq.gz", ".fq.gz", ".fastq", ".fq"] where name.lowercased().hasSuffix(ext) {
+            name = String(name.dropLast(ext.count))
+            break
+        }
+        return name
+    }
+
     /// Human-readable sample name derived from the filename.
     public var sampleName: String {
         if let sampleNameOverride, !sampleNameOverride.isEmpty {

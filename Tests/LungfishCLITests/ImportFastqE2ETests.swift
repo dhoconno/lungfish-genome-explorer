@@ -4,6 +4,7 @@
 
 import XCTest
 import Foundation
+import LungfishIO
 import LungfishTestSupport
 import LungfishWorkflow
 
@@ -57,6 +58,110 @@ final class ImportFastqE2ETests: XCTestCase {
         XCTAssertTrue(stdout.contains("--compression"),       "Help should mention --compression")
         XCTAssertTrue(stdout.contains("--force"),             "Help should mention --force")
         XCTAssertTrue(stdout.contains("--recipe"),            "Help should mention --recipe")
+        XCTAssertTrue(stdout.contains("--pairing"),           "Help should mention --pairing")
+    }
+
+    // MARK: - --pairing (Import sheet Pairing popup parity, 2026-09-24)
+
+    /// Copies the sarscov2 pair into a fresh input directory and returns it.
+    private func stageFixturePair(_ fixtures: URL) throws -> URL {
+        let tmpInput = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cli-pairing-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tmpInput, withIntermediateDirectories: true)
+        for name in ["test_1.fastq.gz", "test_2.fastq.gz"] {
+            try FileManager.default.copyItem(
+                at: fixtures.appendingPathComponent(name),
+                to: tmpInput.appendingPathComponent(name)
+            )
+        }
+        return tmpInput
+    }
+
+    private func makeProject() throws -> URL {
+        let tmpProject = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cli-pairing-\(UUID().uuidString).lungfish")
+        try FileManager.default.createDirectory(
+            at: tmpProject.appendingPathComponent("Imports"), withIntermediateDirectories: true)
+        return tmpProject
+    }
+
+    private func bundles(in project: URL) throws -> [URL] {
+        try FileManager.default.contentsOfDirectory(
+            at: project.appendingPathComponent("Imports"), includingPropertiesForKeys: nil
+        ).filter { $0.pathExtension == "lungfishfastq" }.sorted { $0.lastPathComponent < $1.lastPathComponent }
+    }
+
+    private func bundleFASTQ(_ bundle: URL) throws -> URL {
+        try XCTUnwrap(
+            try FileManager.default.contentsOfDirectory(at: bundle, includingPropertiesForKeys: nil)
+                .first { $0.lastPathComponent.hasSuffix(".fastq.gz") }
+        )
+    }
+
+    func testPairingSingleImportsADetectedPairAsTwoSamples() throws {
+        guard let fixtures = fixturesDir else { throw XCTSkip("Fixtures not found") }
+        let tmpInput = try stageFixturePair(fixtures)
+        defer { try? FileManager.default.removeItem(at: tmpInput) }
+        let tmpProject = try makeProject()
+        defer { try? FileManager.default.removeItem(at: tmpProject) }
+        let inputPairs = try FASTQPairInterleaver.countRecords(in: fixtures.appendingPathComponent("test_1.fastq.gz"))
+
+        let (exitCode, _, stderr) = try runCLI([
+            "import", "fastq", tmpInput.path,
+            "--project", tmpProject.path,
+            "--platform", "illumina",
+            "--pairing", "single",
+            "--no-optimize-storage",
+        ])
+
+        XCTAssertEqual(exitCode, 0, "Import should succeed. stderr: \(stderr)")
+        let created = try bundles(in: tmpProject)
+        XCTAssertEqual(created.map(\.lastPathComponent), ["test_1.lungfishfastq", "test_2.lungfishfastq"])
+        for bundle in created {
+            let fastq = try bundleFASTQ(bundle)
+            XCTAssertEqual(try FASTQPairInterleaver.countRecords(in: fastq), inputPairs)
+            XCTAssertEqual(FASTQMetadataStore.load(for: fastq)?.ingestion?.pairingMode, .singleEnd)
+        }
+    }
+
+    func testPairingInterleavedRecordsASingleFileAsInterleavedPairs() throws {
+        guard let fixtures = fixturesDir else { throw XCTSkip("Fixtures not found") }
+        let tmpInput = try stageFixturePair(fixtures)
+        defer { try? FileManager.default.removeItem(at: tmpInput) }
+        let tmpProject = try makeProject()
+        defer { try? FileManager.default.removeItem(at: tmpProject) }
+        let inputRecords = try FASTQPairInterleaver.countRecords(in: fixtures.appendingPathComponent("test_1.fastq.gz"))
+
+        let (exitCode, _, stderr) = try runCLI([
+            "import", "fastq", tmpInput.appendingPathComponent("test_1.fastq.gz").path,
+            "--project", tmpProject.path,
+            "--platform", "illumina",
+            "--pairing", "interleaved",
+            "--no-optimize-storage",
+        ])
+
+        XCTAssertEqual(exitCode, 0, "Import should succeed. stderr: \(stderr)")
+        let created = try bundles(in: tmpProject)
+        XCTAssertEqual(created.count, 1)
+        let fastq = try bundleFASTQ(try XCTUnwrap(created.first))
+        XCTAssertEqual(try FASTQPairInterleaver.countRecords(in: fastq), inputRecords, "The file is kept whole")
+        XCTAssertEqual(FASTQMetadataStore.load(for: fastq)?.ingestion?.pairingMode, .interleaved)
+    }
+
+    func testPairingRejectsUnknownValues() throws {
+        guard let fixtures = fixturesDir else { throw XCTSkip("Fixtures not found") }
+        let tmpProject = try makeProject()
+        defer { try? FileManager.default.removeItem(at: tmpProject) }
+
+        let (exitCode, stdout, stderr) = try runCLI([
+            "import", "fastq", fixtures.path,
+            "--project", tmpProject.path,
+            "--pairing", "sideways",
+            "--dry-run",
+        ])
+
+        XCTAssertNotEqual(exitCode, 0)
+        XCTAssertTrue((stdout + stderr).contains("Unknown pairing value"), stdout + stderr)
     }
 
     func testDryRunWithFixtures() throws {
@@ -150,6 +255,27 @@ final class ImportFastqE2ETests: XCTestCase {
         XCTAssertFalse(bundles.isEmpty, "At least one .lungfishfastq bundle should be created")
 
         let bundleURL = try XCTUnwrap(bundles.first)
+
+        // Data-loss regression (2026-09-24): with --no-optimize-storage the
+        // pipeline used to keep only R1 and delete the staged R2, while the
+        // bundle metadata still claimed an interleaved pair. The bundle FASTQ
+        // must hold every R1 and R2 record.
+        let inputPairs = try FASTQPairInterleaver.countRecords(in: fixtures.appendingPathComponent("test_1.fastq.gz"))
+        XCTAssertEqual(
+            inputPairs,
+            try FASTQPairInterleaver.countRecords(in: fixtures.appendingPathComponent("test_2.fastq.gz")),
+            "Fixture mates must match"
+        )
+        XCTAssertGreaterThan(inputPairs, 0)
+        let bundleFASTQs = try FileManager.default.contentsOfDirectory(at: bundleURL, includingPropertiesForKeys: nil)
+            .filter { $0.lastPathComponent.hasSuffix(".fastq.gz") }
+        let bundleFASTQ = try XCTUnwrap(bundleFASTQs.first, "Bundle should hold one .fastq.gz payload")
+        XCTAssertEqual(
+            try FASTQPairInterleaver.countRecords(in: bundleFASTQ),
+            2 * inputPairs,
+            "Imported bundle must hold R1 + R2 records (2 x \(inputPairs) pairs)"
+        )
+
         let provenanceURL = bundleURL.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
         XCTAssertTrue(
             FileManager.default.fileExists(atPath: provenanceURL.path),

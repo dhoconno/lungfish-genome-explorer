@@ -1289,7 +1289,9 @@ extension SequenceViewerView {
     @objc func copyAnnotationCoordinates(_ sender: NSMenuItem?) {
         guard let annotation = sender?.representedObject as? SequenceAnnotation else { return }
         let chrom = annotation.chromosome ?? viewController?.referenceFrame?.chromosome ?? ""
-        let coordString = "\(chrom):\(annotation.start)-\(annotation.end)"
+        // Same 1-based closed string the drawer's Copy Coordinates produces, so the
+        // clipboard value pastes straight back into Go to Location.
+        let coordString = GenomicRegion(chromosome: chrom, start: annotation.start, end: annotation.end).displayString
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
         pasteboard.setString(coordString, forType: .string)

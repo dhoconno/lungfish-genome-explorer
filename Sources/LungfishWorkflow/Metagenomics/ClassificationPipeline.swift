@@ -38,8 +38,13 @@ public enum ClassificationPipelineError: Error, LocalizedError, Sendable {
     /// The pipeline was cancelled.
     case cancelled
 
+    /// A strictly interleaved input could not be split into mate files.
+    case interleavedSplitFailed(String)
+
     public var errorDescription: String? {
         switch self {
+        case .interleavedSplitFailed(let reason):
+            return "Could not split interleaved input for kraken2: \(reason)"
         case .kraken2Failed(let code, let stderr):
             return "kraken2 failed with exit code \(code): \(stderr)"
         case .brackenFailed(let code, let stderr):
@@ -475,6 +480,75 @@ public actor ClassificationPipeline {
             throw error
         }
 
+        // Kraken2 has no interleaved mode: a strictly interleaved input is
+        // split into two temporary mate files and classified with `--paired`.
+        // The split runs after replay materialization so provenance and the
+        // result sidecar keep the durable interleaved file, not the halves.
+        var kraken2Config = effectiveConfig
+        let interleavedSplitDirectory = effectiveConfig.outputDirectory
+            .appendingPathComponent(Self.interleavedSplitDirectoryName, isDirectory: true)
+        defer { try? fm.removeItem(at: interleavedSplitDirectory) }
+        var interleavedSplitStepID: UUID?
+        if effectiveConfig.interleavedInput {
+            progress?(0.05, "Splitting interleaved pairs for kraken2...")
+            let splitStart = Date()
+            let source = effectiveConfig.inputFiles[0]
+            let splitCommand = ["LungfishWorkflow", "deinterleave-fastq", source.path, interleavedSplitDirectory.path]
+            let splitInputs = [
+                ProvenanceRecorder.fileRecord(url: source, format: effectiveConfig.provenanceInputFileFormat, role: .input),
+            ]
+            do {
+                let split = try await Self.splitInterleavedInput(source, into: interleavedSplitDirectory)
+                kraken2Config.inputFiles = [split.r1, split.r2]
+                kraken2Config.isPairedEnd = true
+                kraken2Config.interleavedInput = false
+                interleavedSplitStepID = await provenanceRecorder.recordStep(
+                    runID: runID,
+                    toolName: "Lungfish Classification Interleaved Split",
+                    toolVersion: WorkflowRun.currentAppVersion,
+                    command: splitCommand,
+                    resolvedOptions: [
+                        "readFormat": .string(effectiveConfig.readFormat.rawValue),
+                        "pairs": .integer(split.counts.r1Records),
+                    ],
+                    runtimeIdentity: ProvenanceRuntimeIdentity(),
+                    inputs: splitInputs,
+                    outputs: [split.r1, split.r2].map {
+                        ProvenanceRecorder.fileRecord(url: $0, format: .fastq, role: .output)
+                    },
+                    exitCode: 0,
+                    wallTime: Date().timeIntervalSince(splitStart),
+                    dependsOn: replayMaterializationStepID.map { [$0] } ?? []
+                )
+            } catch {
+                _ = await provenanceRecorder.recordStep(
+                    runID: runID,
+                    toolName: "Lungfish Classification Interleaved Split",
+                    toolVersion: WorkflowRun.currentAppVersion,
+                    command: splitCommand,
+                    resolvedOptions: ["readFormat": .string(effectiveConfig.readFormat.rawValue)],
+                    runtimeIdentity: ProvenanceRuntimeIdentity(),
+                    inputs: splitInputs,
+                    outputs: [],
+                    exitCode: 1,
+                    wallTime: Date().timeIntervalSince(splitStart),
+                    stderr: error.localizedDescription,
+                    dependsOn: replayMaterializationStepID.map { [$0] } ?? []
+                )
+                try await persistInterruptedClassificationRun(
+                    provenanceRecorder: provenanceRecorder,
+                    runID: runID,
+                    requestedConfig: config,
+                    effectiveConfig: effectiveConfig,
+                    resolution: profileResolution,
+                    status: .failed,
+                    profileState: "failed"
+                )
+                throw error
+            }
+        }
+        let kraken2Dependencies = [replayMaterializationStepID, interleavedSplitStepID].compactMap { $0 }
+
         progress?(0.10, "Detecting tool versions...")
 
         // Phase 2: Kraken2 version detection (0.10 -- 0.30). Bracken is probed
@@ -490,7 +564,7 @@ public actor ClassificationPipeline {
         progress?(0.30, "Running kraken2...")
 
         // Phase 3: Run kraken2 (0.30 -- 0.80)
-        let kraken2Args = effectiveConfig.kraken2Arguments()
+        let kraken2Args = kraken2Config.kraken2Arguments()
         let kraken2Command = ["kraken2"] + kraken2Args
         var durableReplayConfig = effectiveConfig
         durableReplayConfig.inputFiles = replayInputs.inputFiles
@@ -555,7 +629,7 @@ public actor ClassificationPipeline {
                 command: kraken2Command,
                 durableReplayCommand: durableKraken2Command,
                 inputs: inputRecords,
-                dependsOn: replayMaterializationStepID.map { [$0] } ?? [],
+                dependsOn: kraken2Dependencies,
                 exitCode: 130,
                 stderr: "Kraken2 classification cancelled.",
                 startedAt: kraken2Start
@@ -586,7 +660,7 @@ public actor ClassificationPipeline {
                 command: kraken2Command,
                 durableReplayCommand: durableKraken2Command,
                 inputs: inputRecords,
-                dependsOn: replayMaterializationStepID.map { [$0] } ?? [],
+                dependsOn: kraken2Dependencies,
                 exitCode: unavailable ? 127 : 1,
                 stderr: error.localizedDescription,
                 startedAt: kraken2Start
@@ -612,7 +686,7 @@ public actor ClassificationPipeline {
                 command: kraken2Command,
                 durableReplayCommand: durableKraken2Command,
                 inputs: inputRecords,
-                dependsOn: replayMaterializationStepID.map { [$0] } ?? [],
+                dependsOn: kraken2Dependencies,
                 exitCode: 1,
                 stderr: error.localizedDescription,
                 startedAt: kraken2Start
@@ -640,15 +714,19 @@ public actor ClassificationPipeline {
             githubReleaseVersion: kraken2GithubReleaseVersion(for: toolVersion),
             command: kraken2Command,
             durableReplayArgv: durableKraken2Command,
-            resolvedOptions: kraken2ResolvedOptions(config: effectiveConfig),
+            resolvedOptions: kraken2ResolvedOptions(config: kraken2Config),
             runtimeIdentity: kraken2RuntimeIdentity,
             inputs: inputRecords,
             outputs: kraken2Outputs,
             exitCode: kraken2Result.exitCode,
             wallTime: kraken2WallTime,
             stderr: kraken2Result.stderr,
-            dependsOn: replayMaterializationStepID.map { [$0] } ?? []
+            dependsOn: kraken2Dependencies
         )
+
+        // The halves are only needed by kraken2; drop them now rather than at
+        // scope exit so Bracken and sidecar work do not hold the disk.
+        try? fm.removeItem(at: interleavedSplitDirectory)
 
         if kraken2Result.exitCode != 0 {
             try await persistInterruptedClassificationRun(
@@ -1054,6 +1132,58 @@ public actor ClassificationPipeline {
     /// once the run finishes, so anything below it is transient even though it
     /// sits inside the project tree.
     private static let projectScratchDirectoryName = ".tmp"
+
+    /// Scratch directory (inside the run's output directory) holding the two
+    /// mate files split from a strictly interleaved input for the kraken2 run.
+    static let interleavedSplitDirectoryName = ".lungfish-interleaved-split"
+
+    /// Splits a strictly interleaved FASTQ into `<stem>_R1.fastq` and
+    /// `<stem>_R2.fastq` under `directory`, replacing any earlier split.
+    ///
+    /// The halves are plain FASTQ (kraken2 reads them directly) and live only
+    /// for the kraken2 step; `runPipeline` removes the directory afterwards.
+    static func splitInterleavedInput(
+        _ source: URL,
+        into directory: URL
+    ) async throws -> (r1: URL, r2: URL, counts: FASTQPairInterleaver.Counts) {
+        let fm = FileManager.default
+        try? fm.removeItem(at: directory)
+        try fm.createDirectory(at: directory, withIntermediateDirectories: true)
+        var stem = source.lastPathComponent
+        for suffix in [".gz", ".fastq", ".fq"] where stem.lowercased().hasSuffix(suffix) {
+            stem = String(stem.dropLast(suffix.count))
+        }
+        let r1 = directory.appendingPathComponent("\(stem)_R1.fastq")
+        let r2 = directory.appendingPathComponent("\(stem)_R2.fastq")
+
+        let worker = Task.detached(priority: .utility) { () throws -> FASTQPairInterleaver.Counts in
+            let fm = FileManager.default
+            fm.createFile(atPath: r1.path, contents: nil)
+            fm.createFile(atPath: r2.path, contents: nil)
+            guard let handle1 = FileHandle(forWritingAtPath: r1.path),
+                  let handle2 = FileHandle(forWritingAtPath: r2.path) else {
+                throw ClassificationPipelineError.interleavedSplitFailed(
+                    "cannot open mate files for writing in \(directory.path)"
+                )
+            }
+            defer {
+                try? handle1.close()
+                try? handle2.close()
+            }
+            return try FASTQPairInterleaver.deinterleave(interleaved: source, r1: handle1, r2: handle2)
+        }
+        do {
+            let counts = try await withTaskCancellationHandler {
+                try await worker.value
+            } onCancel: {
+                worker.cancel()
+            }
+            return (r1, r2, counts)
+        } catch {
+            try? fm.removeItem(at: directory)
+            throw error
+        }
+    }
 
     /// An execution input is durable when replaying the run months later will
     /// still find it: it is a regular file that either lives inside (or is) one
@@ -1570,7 +1700,25 @@ public actor ClassificationPipeline {
         logger.info("Detected bracken version: \(brackenVersion, privacy: .public)")
         try Task.checkCancellation()
 
+        // The conda launcher expands its paths unquoted, so Bracken runs in a
+        // whitespace-free scratch directory and the outputs move back after.
+        let staging = BrackenScratchStaging.plan(config: config, distributionURL: distributionURL)
+        defer { staging.cleanUp() }
         let brackenArgs = BrackenInvocation.arguments(
+            dialect: dialect,
+            databasePath: staging.stagedDatabasePath,
+            distributionURL: staging.stagedDistributionURL,
+            reportURL: staging.stagedReportURL,
+            outputURL: staging.stagedOutputURL,
+            reportOutputURL: staging.stagedReportOutputURL,
+            readLength: resolution.readLength,
+            levelCode: levelCode,
+            threshold: resolution.threshold
+        )
+        let brackenCommand = ["bracken"] + brackenArgs
+        // The same invocation against the modelled paths, for a reader who
+        // wants to replay the step outside the scratch directory.
+        let durableBrackenCommand = ["bracken"] + BrackenInvocation.arguments(
             dialect: dialect,
             databasePath: config.databasePath,
             distributionURL: distributionURL,
@@ -1581,7 +1729,6 @@ public actor ClassificationPipeline {
             levelCode: levelCode,
             threshold: resolution.threshold
         )
-        let brackenCommand = ["bracken"] + brackenArgs
         let brackenInputs = [
             ProvenanceRecorder.fileRecord(url: config.reportURL, format: .text, role: .input),
             ProvenanceRecorder.fileRecord(url: distributionURL, format: .unknown, role: .reference),
@@ -1591,6 +1738,8 @@ public actor ClassificationPipeline {
             distributionURL: distributionURL,
             dialect: dialect,
             effectiveArgv: brackenCommand,
+            durableArgv: durableBrackenCommand,
+            scratchDirectory: staging.scratchDirectory,
             substitutionNote: substitutionNote
         )
         let runtimeIdentity = managedRuntimeIdentity(
@@ -1631,6 +1780,37 @@ public actor ClassificationPipeline {
             }
         }
 
+        do {
+            try staging.prepare()
+        } catch {
+            let message = "Could not stage the Kraken report for Bracken: \(error.localizedDescription)"
+            let stepID = await provenanceRecorder.recordStep(
+                runID: runID,
+                toolName: "Lungfish Bracken Input Staging",
+                toolVersion: WorkflowRun.currentAppVersion,
+                command: ["LungfishWorkflow", "stage-bracken-inputs", staging.scratchDirectory.path],
+                resolvedOptions: resolvedOptions,
+                runtimeIdentity: ProvenanceRuntimeIdentity(),
+                inputs: brackenInputs,
+                outputs: [],
+                exitCode: 1,
+                wallTime: 0,
+                stderr: message,
+                dependsOn: dependsOn
+            )
+            return BrackenExecutionResult(
+                tree: tree,
+                outputURL: nil,
+                outcome: .degraded(
+                    resolution: resolution,
+                    reason: .toolFailed,
+                    message: message,
+                    toolVersion: brackenVersion
+                ),
+                terminalStepID: stepID
+            )
+        }
+
         logger.info("Running: bracken \(brackenArgs.joined(separator: " "), privacy: .public)")
         try Task.checkCancellation()
         let startedAt = Date()
@@ -1640,6 +1820,7 @@ public actor ClassificationPipeline {
                 name: "bracken",
                 arguments: brackenArgs,
                 environment: Self.brackenEnvironment,
+                workingDirectory: staging.scratchDirectory,
                 timeout: 3600
             )
         } catch is CancellationError {
@@ -1724,6 +1905,14 @@ public actor ClassificationPipeline {
         }
 
         let processWallTime = Date().timeIntervalSince(startedAt)
+        // Whatever Bracken wrote moves to the modelled paths now, so every
+        // check below sees the real output location. A failed move leaves
+        // the outputs missing, which the validation below reports.
+        do {
+            try staging.collectOutputs()
+        } catch {
+            logger.error("Could not move Bracken outputs out of scratch: \(error.localizedDescription, privacy: .public)")
+        }
         if Task.isCancelled {
             try? fm.removeItem(at: config.brackenURL)
             let brackenStepID = await provenanceRecorder.recordStep(
@@ -2008,6 +2197,7 @@ public actor ClassificationPipeline {
             "minimumHitGroups": .integer(config.minimumHitGroups),
             "threads": .integer(config.threads),
             "pairedEnd": .boolean(config.isPairedEnd),
+            "readFormat": .string(config.readFormat.rawValue),
             "memoryMapping": .boolean(config.memoryMapping),
             "quickMode": .boolean(config.quickMode),
             "inputFormat": .string(config.inputFormat.rawValue),
@@ -2053,6 +2243,7 @@ public actor ClassificationPipeline {
             "minimumHitGroups": .integer(requestedConfig.minimumHitGroups),
             "threads": .integer(requestedConfig.threads),
             "pairedEnd": .boolean(requestedConfig.isPairedEnd),
+            "readFormat": .string(requestedConfig.readFormat.rawValue),
             "memoryMapping": .boolean(requestedConfig.memoryMapping),
             "quickMode": .boolean(requestedConfig.quickMode),
             "inputFormat": .string(requestedConfig.inputFormat.rawValue),
@@ -2065,6 +2256,7 @@ public actor ClassificationPipeline {
             "minimumHitGroups": .integer(2),
             "threads": .integer(4),
             "pairedEnd": .boolean(false),
+            "readFormat": .string(ClassificationConfig.ReadFormat.unpaired.rawValue),
             "memoryMapping": .boolean(false),
             "quickMode": .boolean(false),
             "reportMinimizerData": .boolean(true),
@@ -2077,6 +2269,7 @@ public actor ClassificationPipeline {
             "minimumHitGroups": .integer(effectiveConfig.minimumHitGroups),
             "threads": .integer(effectiveConfig.threads),
             "pairedEnd": .boolean(effectiveConfig.isPairedEnd),
+            "readFormat": .string(effectiveConfig.readFormat.rawValue),
             "effectiveMemoryMapping": .boolean(effectiveConfig.memoryMapping),
             "quickMode": .boolean(effectiveConfig.quickMode),
             "reportMinimizerData": .boolean(true),
@@ -2130,6 +2323,7 @@ public actor ClassificationPipeline {
             "threads": .integer(config.threads),
             "memoryMapping": .boolean(config.memoryMapping),
             "pairedEnd": .boolean(config.isPairedEnd),
+            "readFormat": .string(config.readFormat.rawValue),
             "quickMode": .boolean(config.quickMode),
             "inputFormat": .string(config.inputFormat.rawValue),
             "reportMinimizerData": .boolean(true),
@@ -2166,6 +2360,8 @@ public actor ClassificationPipeline {
         distributionURL: URL,
         dialect: BrackenCLIDialect? = nil,
         effectiveArgv: [String]? = nil,
+        durableArgv: [String]? = nil,
+        scratchDirectory: URL? = nil,
         substitutionNote: String? = nil
     ) -> [String: ParameterValue] {
         var options: [String: ParameterValue] = [
@@ -2184,6 +2380,14 @@ public actor ClassificationPipeline {
         }
         if let effectiveArgv {
             options["effectiveArgv"] = .string(Self.shellQuotedArgv(effectiveArgv))
+        }
+        // The effective argv names scratch paths that are gone once the run
+        // ends; the durable argv is the same invocation on the modelled paths.
+        if let durableArgv {
+            options["durableArgv"] = .string(Self.shellQuotedArgv(durableArgv))
+        }
+        if let scratchDirectory {
+            options["scratchDirectory"] = .string(scratchDirectory.path)
         }
         // Present only when a substitution happened, so its absence is not evidence of one.
         if let substitutionNote {
@@ -2428,6 +2632,8 @@ private extension ClassificationConfig {
             goal: .profile,
             inputFiles: inputFiles,
             isPairedEnd: isPairedEnd,
+            interleavedInput: interleavedInput,
+            inputLayout: inputLayout,
             databaseName: databaseName,
             inputFormat: inputFormat,
             databaseVersion: databaseVersion,

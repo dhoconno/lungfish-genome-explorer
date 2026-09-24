@@ -1594,6 +1594,14 @@ public final class GenotypeResultViewController: NSViewController {
         onDisplayStateChanged?(displayState)
     }
 
+    /// Republishes the matrix row counts. The matrix publishes its first
+    /// summary while `configure(result:)` builds it, before a host can wire
+    /// `onDisplaySummaryChanged`, so hosts call this once wiring is done.
+    public func notifyDisplaySummaryIfAvailable() {
+        let summary = comparisonMatrix.displaySummary
+        onDisplaySummaryChanged?(summary.visibleRows, summary.totalRows, summary.hiddenCells)
+    }
+
     public func applyDisplayState(_ state: GenotypeResultDisplayState) {
         if requiresManualHaplotypeTransitionCoordination {
             let transition:
@@ -11812,6 +11820,10 @@ extension GenotypeResultViewController {
     ) {
         manualHaplotypeDraftDecisionProvider = provider
     }
+
+    var testingMatrixVisibleRowCount: Int { comparisonMatrix.displaySummary.visibleRows }
+    var testingMatrixTotalRowCount: Int { comparisonMatrix.displaySummary.totalRows }
+    var testingMatrixHiddenCellCount: Int { comparisonMatrix.displaySummary.hiddenCells }
 
     func testingWaitForManualHaplotypeTransitions() async {
         while manualHaplotypeTransitionMutationCoordinator.hasPendingMutation

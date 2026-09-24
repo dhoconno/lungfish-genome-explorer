@@ -619,6 +619,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         case .filesystemFallback(let fallback):
             projectSessionRegistry.unregister(controller.projectSession)
             controller.projectSession.closeProject()
+            controller.mainSplitViewController?.resetInspectorForProjectChange()
             let isNativeProject = fallback.url.pathExtension == ProjectFile.fileExtension
                 || FileManager.default.fileExists(atPath: fallback.url.appendingPathComponent("metadata.json").path)
                 || FileManager.default.fileExists(atPath: fallback.url.appendingPathComponent(".project.db").path)

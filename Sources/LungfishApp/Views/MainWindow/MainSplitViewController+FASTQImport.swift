@@ -414,11 +414,16 @@ extension MainSplitViewController {
     ) {
         guard let viewerController = self.viewerController else { return }
 
+        // The sheet's Pairing popup decides whether a detected R1/R2 pair is
+        // one sample or two; before 2026-09-24 the choice was stored and
+        // never read, so Single-end still imported the pair.
+        let effectivePairs = FASTQFilePair.applying(pairingMode: config.pairingMode, to: pairs)
+
         Task { @MainActor [weak self] in
             guard let self else { return }
-            for (index, pair) in pairs.enumerated() {
+            for (index, pair) in effectivePairs.enumerated() {
                 await self.importFASTQPair(
-                    pair: pair, index: index, totalPairs: pairs.count,
+                    pair: pair, index: index, totalPairs: effectivePairs.count,
                     config: config, projectDirectory: projectDirectory,
                     viewerController: viewerController, requestID: requestID
                 )

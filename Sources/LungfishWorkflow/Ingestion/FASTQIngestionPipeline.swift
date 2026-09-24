@@ -180,6 +180,8 @@ public enum FASTQIngestionError: Error, LocalizedError {
     case inputFileNotFound(URL)
     case pairedEndRequiresTwoFiles
     case clumpifyFailed(String)
+    case qualityBinningFailed(String)
+    case pairedOutputVerificationFailed(String)
     case compressionFailed(String)
     case toolNotFound(String)
 
@@ -193,6 +195,10 @@ public enum FASTQIngestionError: Error, LocalizedError {
             return "Paired-end mode requires exactly 2 input files (R1 and R2)"
         case .clumpifyFailed(let msg):
             return "Clumpify failed: \(msg)"
+        case .qualityBinningFailed(let msg):
+            return "Quality binning failed: \(msg)"
+        case .pairedOutputVerificationFailed(let msg):
+            return "Paired import integrity check failed: \(msg). Nothing was imported."
         case .compressionFailed(let msg):
             return "Compression failed: \(msg)"
         case .toolNotFound(let tool):
@@ -210,7 +216,12 @@ public enum FASTQIngestionError: Error, LocalizedError {
 /// The clumpify step sorts reads so that sequences sharing k-mers are adjacent,
 /// letting gzip find longer matches and improving downstream storage locality.
 ///
-/// Original files are deleted after successful processing.
+/// When clumping is off, paired input is still normalized to one interleaved
+/// file: `reformat.sh quantize=` when quality binning is requested, otherwise
+/// the tool-free ``FASTQPairInterleaver`` piped through bgzip/pigz. Every
+/// paired path except Trim Galore is verified to hold R1 + R2 records.
+///
+/// Original files are deleted only after successful, verified processing.
 public final class FASTQIngestionPipeline: @unchecked Sendable {
 
     private let runner = NativeToolRunner.shared
@@ -272,15 +283,60 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
         // Step 1: Clumpify + quality bin (50% of progress)
         let clumpifiedFile: URL
         let wasClumpified: Bool
+        // True when step 1 already wrote the final gzip at `outputFile`, so
+        // step 2 must not compress (or pass through) an input file instead.
+        var stepOneWroteFinalOutput = false
+        // Paired inputs must come out as one interleaved file holding every
+        // R1 and R2 record. Every paired path except Trim Galore (which
+        // filters reads) is verified against the input counts before any
+        // original is deleted.
+        var verifyPairedRecordCount = false
         var processingRecord: FASTQProcessingRecord?
         var provenanceSteps: [StepExecution] = []
 
         switch clumpingResolution.resolved {
         case .none:
-            logger.info("Clumpify skipped (disabled in preferences)")
-            clumpifiedFile = config.inputFiles[0]
+            if config.qualityBinning != .none {
+                // Binning without clumping: reformat.sh applies the same
+                // quantize rules clumpify.sh would, without the k-mer sort.
+                logger.info("Clumpify skipped; binning quality scores with reformat.sh")
+                progress(0.0, "Binning quality scores...")
+                let record = try await reformatQuantize(
+                    config: config,
+                    outputFile: outputFile,
+                    progress: { fraction, msg in
+                        progress(fraction * 0.5, msg)
+                    }
+                )
+                clumpifiedFile = record.url
+                processingRecord = record
+                provenanceSteps.append(contentsOf: record.steps)
+                stepOneWroteFinalOutput = true
+                verifyPairedRecordCount = config.pairingMode == .pairedEnd
+            } else if config.pairingMode == .pairedEnd {
+                // No tool touches the reads: interleave R1/R2 in Swift straight
+                // into the compressor. Before this branch existed the pipeline
+                // kept only R1 here and the staged R2 was deleted as an
+                // "original" (2026-09-24 data-loss fix).
+                logger.info("Clumpify skipped; interleaving paired reads")
+                progress(0.0, "Interleaving paired reads...")
+                let record = try await interleaveAndCompress(
+                    config: config,
+                    outputFile: outputFile,
+                    progress: { fraction, msg in
+                        progress(fraction * 0.5, msg)
+                    }
+                )
+                clumpifiedFile = record.url
+                processingRecord = record
+                provenanceSteps.append(contentsOf: record.steps)
+                stepOneWroteFinalOutput = true
+            } else {
+                logger.info("Clumpify skipped (disabled in preferences)")
+                clumpifiedFile = config.inputFiles[0]
+                progress(0.5, "Clumpify disabled, skipping...")
+            }
             wasClumpified = false
-            progress(0.5, "Clumpify disabled, skipping...")
         case .bbtools:
             progress(0.0, "Sorting reads by k-mer similarity...")
             do {
@@ -295,6 +351,7 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
                 processingRecord = record
                 provenanceSteps.append(contentsOf: record.steps)
                 wasClumpified = true
+                verifyPairedRecordCount = config.pairingMode == .pairedEnd
             } catch {
                 // Clumpify is mandatory for imported FASTQ workflows.
                 throw FASTQIngestionError.clumpifyFailed(error.localizedDescription)
@@ -322,14 +379,24 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
 
         try Task.checkCancellation()
 
+        if verifyPairedRecordCount {
+            progress(0.5, "Verifying paired read counts...")
+            try await Self.verifyInterleavedRecordCount(
+                output: clumpifiedFile,
+                r1: config.inputFiles[0],
+                r2: config.inputFiles[1]
+            )
+        }
+
         // Step 2: Compress with pigz/bgzip (35% of progress)
         progress(0.5, "Compressing...")
         let compressedFile: URL
 
-        if wasClumpified {
-            // clumpify.sh already produced compressed output with pigz.
+        if wasClumpified || stepOneWroteFinalOutput {
+            // Step 1 already wrote gzip output (clumpify.sh, reformat.sh, or
+            // the Swift interleaver piped through bgzip/pigz).
             compressedFile = clumpifiedFile
-            progress(0.85, "Compression complete (bbtools)")
+            progress(0.85, "Compression complete")
         } else if clumpifiedFile.pathExtension == "gz" {
             // Already compressed and clumpification was skipped
             compressedFile = clumpifiedFile
@@ -348,18 +415,25 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
             provenanceSteps.append(contentsOf: record.steps)
         }
 
-        // Delete originals if requested
+        let finalAttrs = try? FileManager.default.attributesOfItem(atPath: compressedFile.path)
+        let finalSize = (finalAttrs?[.size] as? Int64) ?? 0
+
+        // Delete originals only once the output exists and every applicable
+        // integrity check above has passed; a missing or empty output keeps
+        // the inputs so nothing is lost.
         if config.deleteOriginals {
+            guard finalSize > 0 else {
+                throw FASTQIngestionError.compressionFailed(
+                    "ingestion produced no output at \(compressedFile.lastPathComponent); originals were kept"
+                )
+            }
             for original in config.inputFiles {
-                if original != compressedFile {
+                if original.standardizedFileURL != compressedFile.standardizedFileURL {
                     try? FileManager.default.removeItem(at: original)
                     logger.info("Deleted original: \(original.lastPathComponent)")
                 }
             }
         }
-
-        let finalAttrs = try? FileManager.default.attributesOfItem(atPath: compressedFile.path)
-        let finalSize = (finalAttrs?[.size] as? Int64) ?? 0
 
         progress(1.0, "Ingestion complete")
 
@@ -442,13 +516,8 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
             args.append("interleaved=t")
         }
 
-        switch config.qualityBinning {
-        case .illumina4:
-            args.append("quantize=0,8,13,22,27,32,37")
-        case .eightLevel:
-            args.append("quantize=2")
-        case .none:
-            break
+        if let quantize = Self.quantizeArgument(for: config.qualityBinning) {
+            args.append(quantize)
         }
 
         progress(0.05, "Launching bbtools clumpify.sh...")
@@ -671,6 +740,288 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
 
 
 
+
+    /// Interleaves R1/R2 in Swift and pipes the stream through bgzip or pigz.
+    ///
+    /// This is the tool-free path for a paired import without storage
+    /// optimization or quality binning. `FASTQPairInterleaver` refuses
+    /// mismatched mate counts and checks its own written count, so the
+    /// output either holds every R1 and R2 record or does not exist.
+    private func interleaveAndCompress(
+        config: FASTQIngestionConfig,
+        outputFile: URL,
+        progress: @escaping @Sendable (Double, String) -> Void
+    ) async throws -> FASTQProcessingRecord {
+        let r1 = config.inputFiles[0]
+        let r2 = config.inputFiles[1]
+        let tool: NativeTool
+        let args: [String]
+        if (try? await runner.toolPath(for: .bgzip)) != nil {
+            tool = .bgzip
+            args = ["-@", String(max(1, config.threads)), "-c"]
+        } else if (try? await runner.toolPath(for: .pigz)) != nil {
+            tool = .pigz
+            args = ["-p", String(max(1, config.threads)), "-c"]
+        } else {
+            throw FASTQIngestionError.toolNotFound("pigz or bgzip")
+        }
+        let executableURL = try await runner.findTool(tool)
+        let fm = FileManager.default
+        let temporaryOutput = outputFile.deletingLastPathComponent().appendingPathComponent(
+            ".\(outputFile.lastPathComponent).interleave-\(UUID().uuidString).tmp"
+        )
+        let stderrFile = temporaryOutput.appendingPathExtension("stderr")
+
+        progress(0.05, "Interleaving paired reads into \(tool.executableName)...")
+        let stepStartedAt = Date()
+
+        // The interleaver is synchronous and blocks on pipe writes, so it runs
+        // on a detached task; cancellation reaches it through the worker task,
+        // whose `Task.checkCancellation` the record loop polls.
+        let worker = Task.detached(priority: .utility) {
+            () throws -> (counts: FASTQPairInterleaver.Counts, exitCode: Int32) in
+            let fm = FileManager.default
+            fm.createFile(atPath: temporaryOutput.path, contents: nil)
+            fm.createFile(atPath: stderrFile.path, contents: nil)
+            guard let outputHandle = FileHandle(forWritingAtPath: temporaryOutput.path),
+                  let stderrHandle = FileHandle(forWritingAtPath: stderrFile.path) else {
+                throw FASTQIngestionError.compressionFailed("cannot open \(temporaryOutput.lastPathComponent) for writing")
+            }
+            defer {
+                try? outputHandle.close()
+                try? stderrHandle.close()
+            }
+            let process = Process()
+            process.executableURL = executableURL
+            process.arguments = args
+            let stdin = Pipe()
+            process.standardInput = stdin
+            process.standardOutput = outputHandle
+            process.standardError = stderrHandle
+            try process.run()
+
+            let writer = stdin.fileHandleForWriting
+            let counts: FASTQPairInterleaver.Counts
+            do {
+                counts = try FASTQPairInterleaver.interleave(r1: r1, r2: r2, to: writer)
+                try writer.close()
+            } catch {
+                try? writer.close()
+                if process.isRunning { process.terminate() }
+                process.waitUntilExit()
+                throw error
+            }
+            process.waitUntilExit()
+            return (counts, process.terminationStatus)
+        }
+        let outcome: (counts: FASTQPairInterleaver.Counts, exitCode: Int32)
+        do {
+            outcome = try await withTaskCancellationHandler {
+                try await worker.value
+            } onCancel: {
+                worker.cancel()
+            }
+        } catch {
+            try? fm.removeItem(at: temporaryOutput)
+            try? fm.removeItem(at: stderrFile)
+            throw error
+        }
+
+        let stderr = (try? String(contentsOf: stderrFile, encoding: .utf8)) ?? ""
+        try? fm.removeItem(at: stderrFile)
+        guard outcome.exitCode == 0 else {
+            try? fm.removeItem(at: temporaryOutput)
+            throw FASTQIngestionError.compressionFailed(
+                "\(tool.executableName) exited with status \(outcome.exitCode): "
+                    + String(stderr.suffix(500)).trimmingCharacters(in: .whitespacesAndNewlines)
+            )
+        }
+        try? fm.removeItem(at: outputFile)
+        try fm.moveItem(at: temporaryOutput, to: outputFile)
+        let stepCompletedAt = Date()
+
+        progress(1.0, "Interleaved \(outcome.counts.writtenRecords) reads")
+        logger.info(
+            "Interleaved \(outcome.counts.r1Records) pairs into \(outputFile.lastPathComponent) with \(tool.executableName)"
+        )
+
+        let toolVersion = await runner.getToolVersion(tool) ?? Self.pinnedVersion(for: tool)
+        let interleaveCommand = ["LungfishWorkflow", "interleave-pairs", r1.path, r2.path]
+        let step = StepExecution(
+            toolName: tool.executableName,
+            toolVersion: toolVersion ?? "unknown",
+            command: interleaveCommand + ["|", executableURL.path] + args + [">", outputFile.path],
+            inputs: [
+                ProvenanceRecorder.fileRecord(url: r1, format: .fastq, role: .input),
+                ProvenanceRecorder.fileRecord(url: r2, format: .fastq, role: .input),
+            ],
+            outputs: [ProvenanceRecorder.fileRecord(url: outputFile, format: .fastq, role: .output)],
+            exitCode: outcome.exitCode,
+            wallTime: stepCompletedAt.timeIntervalSince(stepStartedAt),
+            stderr: stderr.isEmpty ? nil : stderr,
+            startTime: stepStartedAt,
+            endTime: stepCompletedAt
+        )
+        return FASTQProcessingRecord(
+            url: outputFile,
+            tool: tool.executableName,
+            toolVersion: toolVersion,
+            commandLine: "lungfish interleave-pairs \(r1.path) \(r2.path) | \(tool.executableName) \(args.joined(separator: " ")) > \(outputFile.path)",
+            steps: [step]
+        )
+    }
+
+    /// Returns the extension reformat.sh needs when a FASTQ's name and its
+    /// compression disagree (a `.gz` name on plain text, or gzip data under a
+    /// plain name), and `nil` when the extension already tells the truth.
+    static func reformatInputExtensionOverride(for url: URL) -> String? {
+        let namedGzip = url.pathExtension.lowercased() == "gz"
+        guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
+        defer { try? handle.close() }
+        let magic = (try? handle.read(upToCount: 2)) ?? Data()
+        let isGzip = magic.count == 2 && magic[magic.startIndex] == 0x1f && magic[magic.startIndex + 1] == 0x8b
+        switch (namedGzip, isGzip) {
+        case (true, false): return ".fq"
+        case (false, true): return ".fq.gz"
+        default: return nil
+        }
+    }
+
+    /// Bins quality scores with BBTools `reformat.sh` when clumping is off.
+    ///
+    /// Uses the same `quantize=` values `clumpify.sh` takes, so a binned
+    /// import looks the same whether or not it was clumped. Paired input is
+    /// written as one interleaved file, as every other paired path does.
+    private func reformatQuantize(
+        config: FASTQIngestionConfig,
+        outputFile: URL,
+        progress: @escaping @Sendable (Double, String) -> Void
+    ) async throws -> FASTQProcessingRecord {
+        guard let quantize = Self.quantizeArgument(for: config.qualityBinning) else {
+            preconditionFailure("reformatQuantize requires a binning scheme")
+        }
+        let reformat = try await runner.toolPath(for: .reformat)
+        // reformat.sh chooses its decompressor from the file name, and its
+        // extin= override does not change that. A plain FASTQ carrying a .gz
+        // name (or gzip data under a plain name) fails as "Not a gzip file",
+        // so read such a file through a correctly named link instead.
+        var stagedLinks: [URL] = []
+        defer { for link in stagedLinks { try? FileManager.default.removeItem(at: link) } }
+        func readableName(_ url: URL) throws -> URL {
+            guard let ext = Self.reformatInputExtensionOverride(for: url) else { return url }
+            let link = config.outputDirectory.appendingPathComponent(
+                ".reformat-input-\(UUID().uuidString)\(ext)"
+            )
+            try FileManager.default.createSymbolicLink(at: link, withDestinationURL: url)
+            stagedLinks.append(link)
+            return link
+        }
+        let inputFile = try readableName(config.inputFiles[0])
+        let inputFile2 = config.pairingMode == .pairedEnd ? try readableName(config.inputFiles[1]) : nil
+
+        var args = ["in=\(inputFile.path)"]
+        if let inputFile2 {
+            args.append("in2=\(inputFile2.path)")
+        }
+        args += [
+            "out=\(outputFile.path)",
+            "ow=t",
+            "pigz=t",
+            "zl=\(config.compressionLevel.zlValue)",
+            "threads=\(max(1, config.threads))",
+        ]
+        if inputFile2 != nil {
+            args.append("interleaved=t")
+        }
+        args.append(quantize)
+
+        let timeoutSeconds = max(900, Double(Self.estimatedUncompressedInputBytes(for: config.inputFiles)) / 2_500_000)
+        progress(0.05, "Launching bbtools reformat.sh...")
+
+        let stepStartedAt = Date()
+        let result = try await runner.run(
+            .reformat,
+            arguments: args,
+            workingDirectory: config.outputDirectory,
+            timeout: timeoutSeconds
+        )
+        let stepCompletedAt = Date()
+
+        guard result.isSuccess else {
+            try? FileManager.default.removeItem(at: outputFile)
+            throw FASTQIngestionError.qualityBinningFailed(
+                String((result.stderr.isEmpty ? result.stdout : result.stderr).suffix(2_000))
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+            )
+        }
+        guard FileManager.default.fileExists(atPath: outputFile.path) else {
+            throw FASTQIngestionError.qualityBinningFailed("reformat.sh completed without producing output")
+        }
+
+        progress(1.0, "reformat.sh complete")
+        logger.info("Binned quality scores with reformat.sh (\(config.qualityBinning.rawValue))")
+
+        let toolVersion = await runner.getToolVersion(.reformat) ?? Self.pinnedManagedToolVersion(named: "bbtools")
+        let step = StepExecution(
+            toolName: "reformat.sh",
+            toolVersion: toolVersion ?? "unknown",
+            command: [reformat.path] + args,
+            inputs: config.inputFiles.map {
+                ProvenanceRecorder.fileRecord(url: $0, format: .fastq, role: .input)
+            },
+            outputs: [ProvenanceRecorder.fileRecord(url: outputFile, format: .fastq, role: .output)],
+            exitCode: result.exitCode,
+            wallTime: stepCompletedAt.timeIntervalSince(stepStartedAt),
+            stderr: result.stderr.isEmpty ? nil : result.stderr,
+            startTime: stepStartedAt,
+            endTime: stepCompletedAt
+        )
+        return FASTQProcessingRecord(
+            url: outputFile,
+            tool: "reformat.sh",
+            toolVersion: toolVersion,
+            commandLine: "reformat.sh \(args.joined(separator: " "))",
+            steps: [step]
+        )
+    }
+
+    /// The `quantize=` argument clumpify.sh and reformat.sh share for a scheme.
+    static func quantizeArgument(for scheme: QualityBinningScheme) -> String? {
+        switch scheme {
+        case .illumina4:
+            return "quantize=0,8,13,22,27,32,37"
+        case .eightLevel:
+            return "quantize=2"
+        case .none:
+            return nil
+        }
+    }
+
+    /// Confirms an interleaved output holds exactly R1 + R2 records.
+    ///
+    /// Counting streams each file once through `/usr/bin/gzip -dc`, so the
+    /// check costs one extra read of the inputs and output; that is the
+    /// price of never deleting a pair whose mate went missing.
+    static func verifyInterleavedRecordCount(output: URL, r1: URL, r2: URL) async throws {
+        let counts = try await Task.detached(priority: .utility) { () throws -> (r1: Int, r2: Int, output: Int) in
+            let r1Count = try FASTQPairInterleaver.countRecords(in: r1)
+            try Task.checkCancellation()
+            let r2Count = try FASTQPairInterleaver.countRecords(in: r2)
+            try Task.checkCancellation()
+            let outputCount = try FASTQPairInterleaver.countRecords(in: output)
+            return (r1Count, r2Count, outputCount)
+        }.value
+        guard counts.r1 == counts.r2 else {
+            throw FASTQIngestionError.pairedOutputVerificationFailed(
+                "\(r1.lastPathComponent) has \(counts.r1) reads but \(r2.lastPathComponent) has \(counts.r2)"
+            )
+        }
+        guard counts.output == counts.r1 + counts.r2 else {
+            throw FASTQIngestionError.pairedOutputVerificationFailed(
+                "expected \(counts.r1 + counts.r2) interleaved reads (R1 + R2) but \(output.lastPathComponent) holds \(counts.output)"
+            )
+        }
+    }
 
     /// Compresses a FASTQ file with pigz (parallel gzip) or bgzip.
     private func compress(

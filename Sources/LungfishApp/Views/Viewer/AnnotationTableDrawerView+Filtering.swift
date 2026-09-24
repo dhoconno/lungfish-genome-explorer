@@ -1300,6 +1300,9 @@ extension AnnotationTableDrawerView {
         var typeFilter: Set<String>?
         var chromosome: String?
         var strand: String?
+        /// Stored 0-based half-open bounds. Users type 1-based closed values
+        /// (`start:70545`, `region:chr11:70545-72152`, matching the Start/End
+        /// columns); the parser converts them before they reach the overlap tests.
         var start: Int?
         var end: Int?
     }
@@ -1415,9 +1418,9 @@ extension AnnotationTableDrawerView {
                 case "strand":
                     query.strand = clause.value
                 case "start":
-                    query.start = Int(clause.value)
+                    query.start = Int(clause.value).map { GenomicCoordinateDisplay.storedStart(fromDisplay: $0) }
                 case "end":
-                    query.end = Int(clause.value)
+                    query.end = Int(clause.value).map { GenomicCoordinateDisplay.storedEnd(fromDisplay: $0) }
                 case "region":
                     if let parsed = parseRegion(clause.value) {
                         query.chromosome = parsed.chromosome
@@ -1443,9 +1446,9 @@ extension AnnotationTableDrawerView {
             } else if let value = token.value(after: "strand:") {
                 query.strand = value
             } else if let value = token.value(after: "start:"), let parsed = Int(value) {
-                query.start = parsed
+                query.start = GenomicCoordinateDisplay.storedStart(fromDisplay: parsed)
             } else if let value = token.value(after: "end:"), let parsed = Int(value) {
-                query.end = parsed
+                query.end = GenomicCoordinateDisplay.storedEnd(fromDisplay: parsed)
             } else if let value = token.value(after: "region:"), let parsed = parseRegion(value) {
                 query.chromosome = parsed.chromosome
                 query.start = parsed.start
@@ -2092,13 +2095,21 @@ extension AnnotationTableDrawerView {
         return genes
     }
 
+    /// Parses a user-typed `start-end` range. Input is 1-based closed, the
+    /// convention the Start/End and Position columns show and Go to Location
+    /// accepts; the result is stored 0-based half-open so it can be compared
+    /// directly against indexed rows. `100-100` is a valid single-base range.
     func parseRange(_ text: String) -> (start: Int, end: Int)? {
         let parts = text.split(separator: "-", maxSplits: 1).map(String.init)
-        guard parts.count == 2, let start = Int(parts[0]), let end = Int(parts[1]) else { return nil }
-        guard end > start else { return nil }
-        return (start, end)
+        guard parts.count == 2, let displayStart = Int(parts[0]), let displayEnd = Int(parts[1]) else { return nil }
+        guard displayStart >= 1, displayEnd >= displayStart else { return nil }
+        return (
+            GenomicCoordinateDisplay.storedStart(fromDisplay: displayStart),
+            GenomicCoordinateDisplay.storedEnd(fromDisplay: displayEnd)
+        )
     }
 
+    /// Parses `chrom:start-end`; see `parseRange` for the coordinate convention.
     func parseRegion(_ text: String) -> (chromosome: String, start: Int, end: Int)? {
         let pieces = text.split(separator: ":", maxSplits: 1).map(String.init)
         guard pieces.count == 2, !pieces[0].isEmpty else { return nil }

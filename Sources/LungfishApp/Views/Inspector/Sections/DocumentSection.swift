@@ -63,6 +63,11 @@ public final class DocumentSectionViewModel {
     /// bundle is selected. This metadata-only document has no viewport.
     var mhcReferenceBundleDocument: MHCReferenceBundleDocumentState?
 
+    /// Primer scheme bundle shown when a `.lungfishprimers` bundle is selected.
+    /// Like the MHC reference bundle this is metadata only: the viewport stays
+    /// empty and the Inspector carries the scheme's details.
+    var primerSchemeDocument: PrimerSchemeBundle?
+
     /// Callback for project-backed source data rows to navigate in the sidebar.
     var navigateToSourceData: ((URL) -> Void)?
 
@@ -87,6 +92,7 @@ public final class DocumentSectionViewModel {
         phylogeneticTreeDocument = nil
         genotypeResultDocument = nil
         mhcReferenceBundleDocument = nil
+        primerSchemeDocument = nil
         // viralReconDocument is deliberately preserved: a Viral Recon analysis
         // displays the reference bundle it aligned against, so this method runs
         // immediately after the catalogue is installed.
@@ -130,6 +136,7 @@ public final class DocumentSectionViewModel {
         phylogeneticTreeDocument = nil
         genotypeResultDocument = nil
         mhcReferenceBundleDocument = nil
+        primerSchemeDocument = nil
         viralReconDocument = nil
         navigateToSourceData = nil
         self.fastqStatistics = stats
@@ -170,6 +177,7 @@ public final class DocumentSectionViewModel {
         phylogeneticTreeDocument = nil
         genotypeResultDocument = nil
         mhcReferenceBundleDocument = nil
+        primerSchemeDocument = nil
         viralReconDocument = nil
         self.naoMgsManifest = manifest
         referenceTrackCapabilities = nil
@@ -189,6 +197,7 @@ public final class DocumentSectionViewModel {
         phylogeneticTreeDocument = nil
         genotypeResultDocument = nil
         mhcReferenceBundleDocument = nil
+        primerSchemeDocument = nil
         viralReconDocument = nil
         self.nvdManifest = manifest
         referenceTrackCapabilities = nil
@@ -205,6 +214,7 @@ public final class DocumentSectionViewModel {
         phylogeneticTreeDocument = nil
         genotypeResultDocument = nil
         mhcReferenceBundleDocument = nil
+        primerSchemeDocument = nil
         viralReconDocument = nil
         manifest = nil
         bundleURL = nil
@@ -230,6 +240,7 @@ public final class DocumentSectionViewModel {
         phylogeneticTreeDocument = nil
         genotypeResultDocument = nil
         mhcReferenceBundleDocument = nil
+        primerSchemeDocument = nil
         viralReconDocument = nil
         manifest = nil
         bundleURL = nil
@@ -255,6 +266,7 @@ public final class DocumentSectionViewModel {
         phylogeneticTreeDocument = nil
         genotypeResultDocument = nil
         mhcReferenceBundleDocument = nil
+        primerSchemeDocument = nil
         viralReconDocument = nil
         manifest = nil
         bundleURL = nil
@@ -281,6 +293,7 @@ public final class DocumentSectionViewModel {
         multipleSequenceAlignmentDocument = nil
         genotypeResultDocument = nil
         mhcReferenceBundleDocument = nil
+        primerSchemeDocument = nil
         viralReconDocument = nil
         manifest = nil
         bundleURL = nil
@@ -307,6 +320,7 @@ public final class DocumentSectionViewModel {
         multipleSequenceAlignmentDocument = nil
         phylogeneticTreeDocument = nil
         mhcReferenceBundleDocument = nil
+        primerSchemeDocument = nil
         viralReconDocument = nil
         manifest = nil
         bundleURL = nil
@@ -328,6 +342,7 @@ public final class DocumentSectionViewModel {
         mhcReferenceBundleDocument = state
         guard state != nil else { return }
 
+        primerSchemeDocument = nil
         viralReconDocument = nil
         mappingDocument = nil
         assemblyDocument = nil
@@ -349,6 +364,23 @@ public final class DocumentSectionViewModel {
         clearAlignmentTrackInventory()
     }
 
+    /// Updates the view model with a primer scheme bundle and clears other document modes.
+    func updatePrimerSchemeDocument(_ bundle: PrimerSchemeBundle?) {
+        update(manifest: nil, bundleURL: nil)
+        primerSchemeDocument = bundle
+        guard bundle != nil else { return }
+
+        viralReconDocument = nil
+        fastqStatistics = nil
+        sraRunInfo = nil
+        enaReadRecord = nil
+        ingestionMetadata = nil
+        fastqDerivativeManifest = nil
+        naoMgsManifest = nil
+        nvdManifest = nil
+        analysisManifestEntries = []
+    }
+
     /// Updates the view model with the Viral Recon output catalogue.
     ///
     /// Unlike its siblings this clears no bundle state. The catalogue is shown
@@ -365,6 +397,7 @@ public final class DocumentSectionViewModel {
         phylogeneticTreeDocument = nil
         genotypeResultDocument = nil
         mhcReferenceBundleDocument = nil
+        primerSchemeDocument = nil
         fastqStatistics = nil
         naoMgsManifest = nil
         nvdManifest = nil
@@ -478,6 +511,7 @@ public final class DocumentSectionViewModel {
             phylogeneticTreeDocument != nil ||
             genotypeResultDocument != nil ||
             mhcReferenceBundleDocument != nil ||
+            primerSchemeDocument != nil ||
             viralReconDocument != nil ||
             manifest != nil ||
             fastqStatistics != nil ||
@@ -683,6 +717,8 @@ public struct DocumentSection: View {
             MultipleSequenceAlignmentDocumentSection(state: multipleSequenceAlignmentDocument)
         } else if let mhcReferenceBundleDocument = viewModel.mhcReferenceBundleDocument {
             MHCReferenceBundleDocumentSection(state: mhcReferenceBundleDocument)
+        } else if let primerSchemeDocument = viewModel.primerSchemeDocument {
+            PrimerSchemeInspectorView(bundle: primerSchemeDocument)
         } else if let viralReconDocument = viewModel.viralReconDocument {
             VStack(alignment: .leading, spacing: 16) {
                 ViralReconDocumentSection(state: viralReconDocument)

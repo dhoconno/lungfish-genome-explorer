@@ -261,16 +261,144 @@ final class PhylogeneticTreeBundleTests: XCTestCase {
             )
         )
 
-        XCTAssertEqual(Set(rerooted.normalizedTree.nodes.filter(\.isTip).map(\.displayLabel)), ["A", "B", "C"])
+        XCTAssertEqual(tipLabels(of: rerooted), ["A", "B", "C"])
         XCTAssertEqual(
             try String(contentsOf: sourceBundleURL.appendingPathComponent("tree/primary.nwk"), encoding: .utf8),
             "((A:0.1,B:0.2)Clade:0.3,C:0.4);\n"
         )
-        XCTAssertTrue(try String(contentsOf: outputURL.appendingPathComponent("tree/primary.nwk"), encoding: .utf8).contains("C:0.0"))
+        XCTAssertEqual(
+            try String(contentsOf: outputURL.appendingPathComponent("tree/primary.nwk"), encoding: .utf8),
+            "(C:0.0,(A:0.1,B:0.2)Clade:0.7);\n"
+        )
         let provenanceJSON = try jsonObject(at: outputURL.appendingPathComponent(".lungfish-provenance.json"))
         XCTAssertEqual(provenanceJSON["workflowName"] as? String, "phylogenetic-tree-reroot")
         XCTAssertEqual((provenanceJSON["input"] as? [String: Any])?["path"] as? String, sourceBundleURL.path)
         XCTAssertEqual((provenanceJSON["options"] as? [String: Any])?["on"] as? String, "C")
+    }
+
+    func testRerootOnTipKeepsEveryTipOnceAndTotalLength() throws {
+        let sourceURL = try writeSource(name: "primate-mito.nwk", contents: Self.primateMitoNewick)
+        let sourceBundleURL = workspaceURL.appendingPathComponent("PrimateMito.lungfishtree", isDirectory: true)
+        let sourceBundle = try PhylogeneticTreeBundleImporter.importTree(from: sourceURL, to: sourceBundleURL)
+        let outputURL = workspaceURL.appendingPathComponent("PrimateMitoGorilla.lungfishtree", isDirectory: true)
+
+        let rerooted = try sourceBundle.rerootedBundle(
+            on: "Gorilla_NC_011120.1",
+            to: outputURL,
+            provenance: .init(toolName: "lungfish tree reroot", argv: [])
+        )
+
+        XCTAssertEqual(tipLabels(of: rerooted), Self.primateMitoTips)
+        XCTAssertEqual(rerooted.manifest.tipCount, 5)
+        XCTAssertTrue(rerooted.manifest.isRooted)
+        XCTAssertTrue(rerooted.normalizedTree.rooted)
+        XCTAssertEqual(totalBranchLength(of: rerooted), totalBranchLength(of: sourceBundle), accuracy: 1e-9)
+        let gorilla = try XCTUnwrap(rerooted.normalizedTree.nodes.first { $0.displayLabel == "Gorilla_NC_011120.1" })
+        XCTAssertEqual(gorilla.branchLength, 0.0)
+        XCTAssertNotNil(rerooted.normalizedTree.nodes.first { $0.parentID == nil && $0.childIDs.contains(gorilla.id) })
+        XCTAssertTrue(bundleContainsClade(rerooted, labels: ["Human_NC_012920.1", "Chimp_NC_001643.1"]))
+        XCTAssertTrue(bundleContainsClade(rerooted, labels: ["RhesusMacaque_NC_005943.1", "CynomolgusMacaque_NC_012670.1"]))
+
+        let roundTrip = try PhylogeneticTreeBundleImporter.importTree(
+            from: outputURL.appendingPathComponent("tree/primary.nwk"),
+            to: workspaceURL.appendingPathComponent("PrimateMitoGorillaRoundTrip.lungfishtree", isDirectory: true)
+        )
+        XCTAssertEqual(tipLabels(of: roundTrip), Self.primateMitoTips)
+        XCTAssertEqual(totalBranchLength(of: roundTrip), totalBranchLength(of: sourceBundle), accuracy: 1e-9)
+    }
+
+    func testRerootOnInternalNodeKeepsEveryTipOnceAndTotalLength() throws {
+        let sourceURL = try writeSource(name: "primate-mito.nwk", contents: Self.primateMitoNewick)
+        let sourceBundleURL = workspaceURL.appendingPathComponent("PrimateMito.lungfishtree", isDirectory: true)
+        let sourceBundle = try PhylogeneticTreeBundleImporter.importTree(from: sourceURL, to: sourceBundleURL)
+        let macaques: Set<String> = ["RhesusMacaque_NC_005943.1", "CynomolgusMacaque_NC_012670.1"]
+        let macaqueNodeID = try XCTUnwrap(nodeID(of: sourceBundle, withDescendantTips: macaques))
+        let outputURL = workspaceURL.appendingPathComponent("PrimateMitoMacaques.lungfishtree", isDirectory: true)
+
+        let rerooted = try sourceBundle.rerootedBundle(
+            on: macaqueNodeID,
+            to: outputURL,
+            provenance: .init(toolName: "lungfish tree reroot", argv: [])
+        )
+
+        XCTAssertEqual(tipLabels(of: rerooted), Self.primateMitoTips)
+        XCTAssertEqual(rerooted.manifest.tipCount, 5)
+        XCTAssertTrue(rerooted.manifest.isRooted)
+        XCTAssertEqual(totalBranchLength(of: rerooted), totalBranchLength(of: sourceBundle), accuracy: 1e-9)
+        let root = try XCTUnwrap(rerooted.normalizedTree.nodes.first { $0.parentID == nil })
+        XCTAssertEqual(root.childIDs.count, 3)
+        XCTAssertTrue(bundleContainsClade(rerooted, labels: ["Human_NC_012920.1", "Chimp_NC_001643.1"]))
+        XCTAssertTrue(bundleContainsClade(rerooted, labels: ["Human_NC_012920.1", "Chimp_NC_001643.1", "Gorilla_NC_011120.1"]))
+
+        let roundTrip = try PhylogeneticTreeBundleImporter.importTree(
+            from: outputURL.appendingPathComponent("tree/primary.nwk"),
+            to: workspaceURL.appendingPathComponent("PrimateMitoMacaquesRoundTrip.lungfishtree", isDirectory: true)
+        )
+        XCTAssertEqual(tipLabels(of: roundTrip), Self.primateMitoTips)
+        XCTAssertEqual(totalBranchLength(of: roundTrip), totalBranchLength(of: sourceBundle), accuracy: 1e-9)
+    }
+
+    func testRerootMovesSupportLabelWithItsEdgeAndSplicesOldRoot() throws {
+        let sourceURL = try writeSource(name: "support.nwk", contents: "(((A:0.1,B:0.2)90:0.3,C:0.4)80:0.5,D:0.6);")
+        let sourceBundleURL = workspaceURL.appendingPathComponent("Support.lungfishtree", isDirectory: true)
+        let sourceBundle = try PhylogeneticTreeBundleImporter.importTree(from: sourceURL, to: sourceBundleURL)
+        let cladeID = try XCTUnwrap(nodeID(of: sourceBundle, withDescendantTips: ["A", "B"]))
+        let outputURL = workspaceURL.appendingPathComponent("SupportRerooted.lungfishtree", isDirectory: true)
+
+        let rerooted = try sourceBundle.rerootedBundle(
+            on: cladeID,
+            to: outputURL,
+            provenance: .init(toolName: "lungfish tree reroot", argv: [])
+        )
+
+        XCTAssertEqual(
+            try String(contentsOf: outputURL.appendingPathComponent("tree/primary.nwk"), encoding: .utf8),
+            "(A:0.1,B:0.2,(C:0.4,D:1.1)90:0.3);\n"
+        )
+        XCTAssertEqual(tipLabels(of: rerooted), ["A", "B", "C", "D"])
+        XCTAssertEqual(totalBranchLength(of: rerooted), totalBranchLength(of: sourceBundle), accuracy: 1e-9)
+        let movedSupport = try XCTUnwrap(rerooted.normalizedTree.nodes.first { $0.rawLabel == "90" })
+        XCTAssertEqual(movedSupport.support?.rawValue, "90")
+        XCTAssertEqual(movedSupport.support?.interpretation, "bootstrap")
+    }
+
+    func testExtractAndRelabelInheritSourceRootednessWhileRerootIsRooted() throws {
+        let sourceURL = try writeSource(name: "unrooted.nwk", contents: "(A:0.1,B:0.2,(C:0.3,D:0.4):0.5);")
+        let sourceBundleURL = workspaceURL.appendingPathComponent("Unrooted.lungfishtree", isDirectory: true)
+        let sourceBundle = try PhylogeneticTreeBundleImporter.importTree(from: sourceURL, to: sourceBundleURL)
+        XCTAssertFalse(sourceBundle.manifest.isRooted)
+        try """
+        id\tlineage
+        A\tBA.1
+        B\tBA.2
+        C\tBA.5
+        D\tXBB
+        """.write(to: sourceBundleURL.appendingPathComponent("metadata.tsv"), atomically: true, encoding: .utf8)
+        let cladeID = try XCTUnwrap(nodeID(of: sourceBundle, withDescendantTips: ["C", "D"]))
+
+        let extracted = try sourceBundle.extractSubtreeBundle(
+            nodeID: cladeID,
+            to: workspaceURL.appendingPathComponent("Extracted.lungfishtree", isDirectory: true),
+            provenance: .init(toolName: "lungfish tree extract-subtree", argv: [])
+        )
+        let relabeled = try sourceBundle.relabeledBundle(
+            column: "lineage",
+            to: workspaceURL.appendingPathComponent("Relabeled.lungfishtree", isDirectory: true),
+            provenance: .init(toolName: "lungfish tree relabel", argv: [])
+        )
+        let rerooted = try sourceBundle.rerootedBundle(
+            on: "A",
+            to: workspaceURL.appendingPathComponent("Rerooted.lungfishtree", isDirectory: true),
+            provenance: .init(toolName: "lungfish tree reroot", argv: [])
+        )
+
+        XCTAssertFalse(extracted.manifest.isRooted)
+        XCTAssertFalse(extracted.normalizedTree.rooted)
+        XCTAssertFalse(relabeled.manifest.isRooted)
+        XCTAssertFalse(relabeled.normalizedTree.rooted)
+        XCTAssertTrue(rerooted.manifest.isRooted)
+        XCTAssertTrue(rerooted.normalizedTree.rooted)
+        XCTAssertEqual(tipLabels(of: rerooted), ["A", "B", "C", "D"])
     }
 
     func testRelabelFromMetadataColumnWritesNewBundle() throws {
@@ -340,6 +468,10 @@ final class PhylogeneticTreeBundleTests: XCTestCase {
     }
 
     private func bundleContainsClade(_ bundle: PhylogeneticTreeBundle, labels: Set<String>) -> Bool {
+        nodeID(of: bundle, withDescendantTips: labels) != nil
+    }
+
+    private func nodeID(of bundle: PhylogeneticTreeBundle, withDescendantTips labels: Set<String>) -> String? {
         let nodesByID = Dictionary(uniqueKeysWithValues: bundle.normalizedTree.nodes.map { ($0.id, $0) })
         func descendantTips(for node: PhylogeneticTreeNormalizedNode) -> Set<String> {
             if node.isTip {
@@ -350,6 +482,29 @@ final class PhylogeneticTreeBundleTests: XCTestCase {
                 result.formUnion(descendantTips(for: child))
             }
         }
-        return bundle.normalizedTree.nodes.contains { descendantTips(for: $0) == labels }
+        return bundle.normalizedTree.nodes.first { descendantTips(for: $0) == labels }?.id
     }
+
+    /// Every tip label in the bundle, sorted, so duplicated tips show up as extra entries.
+    private func tipLabels(of bundle: PhylogeneticTreeBundle) -> [String] {
+        bundle.normalizedTree.nodes.filter(\.isTip).map(\.displayLabel).sorted()
+    }
+
+    private func totalBranchLength(of bundle: PhylogeneticTreeBundle) -> Double {
+        bundle.normalizedTree.nodes.filter { $0.parentID != nil }.reduce(0) { $0 + ($1.branchLength ?? 0) }
+    }
+
+    /// docs/user-manual/fixtures/primate-mito/expected/primate-mito.treefile, inlined so the test
+    /// does not depend on the checkout layout.
+    private static let primateMitoNewick =
+        "(Human_NC_012920.1:0.0601418813,Chimp_NC_001643.1:0.0589380925,(Gorilla_NC_011120.1:0.0740422285,"
+        + "(RhesusMacaque_NC_005943.1:0.0650378784,CynomolgusMacaque_NC_012670.1:0.0298967035):0.8982249461):0.0295655762);"
+
+    private static let primateMitoTips = [
+        "Chimp_NC_001643.1",
+        "CynomolgusMacaque_NC_012670.1",
+        "Gorilla_NC_011120.1",
+        "Human_NC_012920.1",
+        "RhesusMacaque_NC_005943.1"
+    ]
 }

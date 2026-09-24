@@ -112,6 +112,14 @@ extension MainSplitViewController {
             return
         }
 
+        // Primer scheme bundles (.lungfishprimers) are metadata only. They are
+        // not documents, so they must never reach the genomics-file loader,
+        // which rejects them as an unsupported format.
+        if item.type == .primerSchemeBundle, let url = item.url {
+            displayPrimerSchemeBundleFromSidebar(at: url)
+            return
+        }
+
         // Classification results (Kraken2 kreport/kraken output)
         if item.type == .classificationResult, let url = item.url {
             routeClassifierDisplay(url: url)
@@ -207,6 +215,24 @@ extension MainSplitViewController {
                 inspectorController.clearSelection()
                 viewerController.clearViewport(statusMessage: "This document is no longer available in this window.")
             }
+        }
+    }
+
+    /// Shows a primer scheme bundle's details in the Inspector and leaves the
+    /// viewport empty with a pointer to them.
+    func displayPrimerSchemeBundleFromSidebar(at url: URL) {
+        inspectorController.clearSelection()
+        do {
+            let bundle = try PrimerSchemeBundle.load(from: url)
+            viewerController.clearViewport(
+                statusMessage: "Primer scheme \(bundle.manifest.displayName). Details are in the Inspector."
+            )
+            inspectorController.updatePrimerSchemeDocument(bundle)
+        } catch {
+            mainSplitLogger.error(
+                "displayPrimerSchemeBundle: Failed - \(error.localizedDescription, privacy: .public)"
+            )
+            viewerController.clearViewport(statusMessage: "Unable to load primer scheme \(url.deletingPathExtension().lastPathComponent).")
         }
     }
 
@@ -477,6 +503,7 @@ extension MainSplitViewController {
                     controller?.applyHighlight(request)
                 }
                 controller.notifyDisplayStateIfAvailable()
+                controller.notifyDisplaySummaryIfAvailable()
                 controller.notifySelectionStateIfAvailable()
                 controller.notifyMatrixVisibilityCapabilityIfAvailable()
             } catch is CancellationError {
