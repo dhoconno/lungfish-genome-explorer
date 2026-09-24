@@ -503,6 +503,7 @@ extension MainSplitViewController {
                     controller?.applyHighlight(request)
                 }
                 controller.notifyDisplayStateIfAvailable()
+                controller.notifyDisplaySummaryIfAvailable()
                 controller.notifySelectionStateIfAvailable()
                 controller.notifyMatrixVisibilityCapabilityIfAvailable()
             } catch is CancellationError {
