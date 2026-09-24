@@ -197,6 +197,10 @@ public struct AssemblyParameters: Codable, Sendable, Equatable {
     public let extraArgs: String
     /// Parsed advanced arguments passed to the assembler.
     public let advancedArguments: [String]
+    /// Why the profile in `mode` was chosen when the app or CLI picked it
+    /// from the reads (Flye's read-quality rule). Nil for user-typed profiles
+    /// and for records written before the rule existed.
+    public let profileBasis: String?
 
     public var advancedOptions: String { extraArgs }
 
@@ -210,6 +214,7 @@ public struct AssemblyParameters: Codable, Sendable, Equatable {
         case extraArgs
         case legacyAdvancedOptions = "advanced_options"
         case advancedArguments = "advanced_arguments"
+        case profileBasis = "profile_basis"
     }
 
     public init(
@@ -220,7 +225,8 @@ public struct AssemblyParameters: Codable, Sendable, Equatable {
         skipErrorCorrection: Bool,
         minContigLength: Int,
         extraArgs: String = "",
-        advancedArguments: [String] = []
+        advancedArguments: [String] = [],
+        profileBasis: String? = nil
     ) {
         self.mode = mode
         self.kmerSizes = kmerSizes
@@ -230,6 +236,7 @@ public struct AssemblyParameters: Codable, Sendable, Equatable {
         self.minContigLength = minContigLength
         self.extraArgs = extraArgs
         self.advancedArguments = advancedArguments
+        self.profileBasis = profileBasis
     }
 
     public init(from decoder: Decoder) throws {
@@ -243,6 +250,7 @@ public struct AssemblyParameters: Codable, Sendable, Equatable {
         self.extraArgs = try container.decodeIfPresent(String.self, forKey: .extraArgs)
             ?? (try container.decodeIfPresent(String.self, forKey: .legacyAdvancedOptions) ?? "")
         self.advancedArguments = try container.decodeIfPresent([String].self, forKey: .advancedArguments) ?? []
+        self.profileBasis = try container.decodeIfPresent(String.self, forKey: .profileBasis)
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -255,6 +263,7 @@ public struct AssemblyParameters: Codable, Sendable, Equatable {
         try container.encode(minContigLength, forKey: .minContigLength)
         try container.encode(extraArgs, forKey: .extraArgs)
         try container.encode(advancedArguments, forKey: .advancedArguments)
+        try container.encodeIfPresent(profileBasis, forKey: .profileBasis)
     }
 }
 
@@ -375,7 +384,8 @@ public enum ProvenanceBuilder {
             skipErrorCorrection: request.extraArguments.contains("--only-assembler"),
             minContigLength: request.effectiveMinContigLength ?? 0,
             extraArgs: AdvancedCommandLineOptions.join(request.extraArguments),
-            advancedArguments: request.extraArguments
+            advancedArguments: request.extraArguments,
+            profileBasis: request.profileSelectionBasis
         )
 
         return AssemblyProvenance(

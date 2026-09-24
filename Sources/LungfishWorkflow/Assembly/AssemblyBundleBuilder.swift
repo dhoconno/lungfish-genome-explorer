@@ -676,6 +676,9 @@ public final class AssemblyBundleBuilder: @unchecked Sendable {
         if let profile = request.selectedProfileID, !profile.isEmpty {
             paramItems.append(MetadataItem(label: "Profile", value: profile))
         }
+        if let profileBasis = request.profileSelectionBasis, !profileBasis.isEmpty {
+            paramItems.append(MetadataItem(label: "Profile Basis", value: profileBasis))
+        }
         if let memoryGB = request.memoryGB {
             paramItems.append(MetadataItem(label: "Memory", value: "\(memoryGB) GB"))
         }

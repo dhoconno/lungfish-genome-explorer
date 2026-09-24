@@ -104,7 +104,8 @@ public enum AssemblyRunner {
             memoryGB: request.memoryGB,
             minContigLength: request.effectiveMinContigLength,
             selectedProfileID: request.selectedProfileID,
-            extraArguments: request.extraArguments
+            extraArguments: request.extraArguments,
+            profileSelectionBasis: request.profileSelectionBasis
         )
 
         logger.info("Starting managed assembly: tool=\(request.tool.displayName, privacy: .public), project=\(projectName, privacy: .public)")
@@ -249,7 +250,8 @@ public enum AssemblyRunner {
             memoryGB: request.memoryGB,
             minContigLength: request.minContigLength,
             selectedProfileID: request.selectedProfileID,
-            extraArguments: request.extraArguments
+            extraArguments: request.extraArguments,
+            profileSelectionBasis: request.profileSelectionBasis
         )
         return ManagedAssemblyMaterializationResult(
             request: executionRequest,

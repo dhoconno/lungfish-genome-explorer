@@ -199,7 +199,9 @@ public enum AssemblyReadType: String, CaseIterable, Codable, Sendable {
         return output.prefix(size)
     }
 
-    private static func resolveFASTQURL(forInputURL url: URL) -> URL? {
+    /// Resolves the FASTQ payload behind an app-selected input (raw file,
+    /// bundle, or a file inside a bundle). Shared with the Flye profile selector.
+    static func resolveFASTQURL(forInputURL url: URL) -> URL? {
         let standardizedURL = url.standardizedFileURL
         if let resolved = FASTQBundle.resolvePrimaryFASTQURL(for: standardizedURL) {
             return resolved

@@ -55,6 +55,9 @@ public struct AssemblyRunRequest: Sendable, Codable, Equatable {
     public let minContigLength: Int?
     public let selectedProfileID: String?
     public let extraArguments: [String]
+    /// Why `selectedProfileID` holds what it holds when the app or CLI chose
+    /// it from the reads (Flye's Nano Raw / Nano HQ), recorded in provenance.
+    public let profileSelectionBasis: String?
 
     public init(
         tool: AssemblyTool,
@@ -67,7 +70,8 @@ public struct AssemblyRunRequest: Sendable, Codable, Equatable {
         memoryGB: Int? = nil,
         minContigLength: Int? = nil,
         selectedProfileID: String? = nil,
-        extraArguments: [String] = []
+        extraArguments: [String] = [],
+        profileSelectionBasis: String? = nil
     ) {
         self.tool = tool
         self.readType = readType
@@ -80,6 +84,7 @@ public struct AssemblyRunRequest: Sendable, Codable, Equatable {
         self.minContigLength = minContigLength
         self.selectedProfileID = selectedProfileID
         self.extraArguments = extraArguments
+        self.profileSelectionBasis = profileSelectionBasis
     }
 }
 
@@ -117,7 +122,8 @@ public extension AssemblyRunRequest {
             memoryGB: memoryGB,
             minContigLength: minContigLength,
             selectedProfileID: selectedProfileID,
-            extraArguments: extraArguments
+            extraArguments: extraArguments,
+            profileSelectionBasis: profileSelectionBasis
         )
     }
 }

@@ -552,7 +552,8 @@ private extension AssemblyRunRequest {
             memoryGB: memoryGB,
             minContigLength: minContigLength,
             selectedProfileID: selectedProfileID,
-            extraArguments: extraArguments
+            extraArguments: extraArguments,
+            profileSelectionBasis: profileSelectionBasis
         )
     }
 
@@ -568,7 +569,8 @@ private extension AssemblyRunRequest {
             memoryGB: memoryGB,
             minContigLength: minContigLength,
             selectedProfileID: selectedProfileID,
-            extraArguments: extraArguments
+            extraArguments: extraArguments,
+            profileSelectionBasis: profileSelectionBasis
         )
     }
 }
