@@ -181,8 +181,11 @@ Single source of truth for finding status (plan rule 9). Status: `open`, `verifi
 | GEN-13 | P2 | Legacy `fastq ont-genotype` maps ONT reads with the short-read preset, ignores `--allow-indels`, and randomly  | fixed | GEN-2 | ed8ab757e | legacy CLI hidden + deprecation notice |
 | DS-01 | P1 | Owner-reported: mapping viewport downsample clustered at window start | fixed | DS | 3c44ed94d | fetchReadSketch (count + samtools --subsample) per track; every-decile test; 3M-read BAM 19.8s -> 4.2s |
 | NEW-01 | P2 | CLI import bam -o bundle copied loose files, no track | fixed | Q3 | 6e4cac542 | attaches via PreparedAlignmentAttachmentService |
-| NEW-02 | P2 | Sidebar watcher misses CLI changes in newly created project | not-reproduced-in-tests | Q3 |  | wiring traced; FSEvents deliver in ~3s for brand-new dirs; recheck live via Computer Use (repro project was in TCC-protected ~/Documents) |
+| NEW-02 | P2 | Sidebar watcher misses CLI changes in newly created project | open | live-only |  | reproduced live 3x (signed app, backgrounded, 4-5 windows); NOT reproduced headless single-window (raw binary, /tmp and ~/Documents: FSEvents fire, sidebar reloads, root-removed banner works). Hypotheses: App Nap throttling main-run-loop refresh timer while backgrounded; multi-window registry; read-only fallback branch |
 | NEW-03 | P3 | Open Recent duplicates; reopening opens second window | fixed | Q3 | 95cbdfeac | dedupe by path; focus existing window |
 | NEW-04 | P2 | test_releasing_lungfish_skill 26/36 failing at base | open | | | pre-existing |
 | PERF-17 | P1 | (new, measured) Genotype comparison matrix: 955 ms to build 40x96 visible cells, 350 ms full redraw | partial | Q1c,Q1d | d12957bff,abde7d24f | first-paint cell build ~707->~385 ms, redraw ~126->~93 ms; benchmark bypasses reuse queue (worst case); remaining floor = NSTextField per cell (custom-drawn cell deferred) |
 | PERF-18 | P1 | (new) CLIVariantCallingRunner.cancel deadlocked behind in-flight run | fixed | P6-A2 | a84cb151c | struct runner; cancellation tests 3x |
+| NEW-06 | P2 | EsViritu labels interleaved pairs Single-end and runs -p unpaired | open | | | live GUI |
+| NEW-07 | P1 | Selecting an annotation starts Update Annotation ops and rewrites genome.db; one stuck at 0% holds bundle lock | open | fix lane | | live GUI |
+| DS-02 | P2 | Small contigs: padded fetch window spreads sample over whole contig; in-view share small | open | | | live GUI |
