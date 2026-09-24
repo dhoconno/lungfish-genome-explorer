@@ -73,7 +73,15 @@ public struct SequenceAnnotation: Identifiable, Codable, Sendable {
         self.type = type
         self.name = name
         self.chromosome = chromosome
-        self.intervals = intervals.sorted { $0.start < $1.start }
+        // Preserve caller-supplied interval order (SCI-15). For a linear feature
+        // this is normally already ascending genomic order, but for a GenBank
+        // `join()` location that wraps a circular molecule's origin (for example
+        // `join(4000..4200,1..100)`), the caller's order IS transcription order
+        // and must not be silently re-sorted into genomic order, which would
+        // scramble extraction and translation. Callers that need genomic-ascending
+        // order (rendering, BED12/GFF3 block export, bounding-box math) sort
+        // locally.
+        self.intervals = intervals
         self.strand = strand
         self.qualifiers = qualifiers
         self.color = color
@@ -141,6 +149,31 @@ public struct SequenceAnnotation: Identifiable, Codable, Sendable {
     /// Whether this is a discontinuous feature (multiple intervals)
     public var isDiscontinuous: Bool {
         intervals.count > 1
+    }
+
+    /// Whether `intervals` are stored in an order that is not genomic-
+    /// ascending by start position (SCI-15).
+    ///
+    /// `SequenceAnnotation.init` preserves caller-supplied interval order
+    /// rather than force-sorting it, specifically so an origin-spanning
+    /// feature on a circular molecule (GenBank `join(4000..4200,1..100)`) is
+    /// not corrupted. By GenBank/GFF3 convention, an ORDINARY linear
+    /// feature's location string always lists segments genomic-ascending,
+    /// even for a `complement(join(...))` reverse-strand feature (the strand
+    /// only affects how the concatenated sequence is later reverse-
+    /// complemented, not the order segments are written in). So a stored
+    /// order that is NOT genomic-ascending is the signal that a feature wraps
+    /// the origin, and its interval order must be used as given rather than
+    /// re-sorted by callers that need transcription order
+    /// (`TranslationEngine.translateCDS`, `SequenceExtractor`). This must NOT
+    /// be confused with "descending order" in general: a descending stored
+    /// order does happen to occur for reverse-strand features with only 2
+    /// segments where the join text was written descending, but GenBank/GFF3
+    /// only ever write ascending, so descending-and-unsorted is exactly the
+    /// origin-wrap signal, not a normal case to special-case away.
+    public var isOriginSpanning: Bool {
+        guard intervals.count > 1 else { return false }
+        return !zip(intervals, intervals.dropFirst()).allSatisfy { $0.start <= $1.start }
     }
 
     /// Checks if this annotation overlaps a given range
