@@ -10,27 +10,26 @@ import CryptoKit
 final class HumanScrubberDatabaseTests: XCTestCase {
 
     private var tempDir: URL!
-    private var savedOverrides: [String: String] = [:]
-    private let managedDatabaseOverrideKeys = [
-        "database.human-scrubber.overrideFilename",
-        "database.deacon-panhuman.overrideFilename",
-        "database.deacon-ribokmers.overrideFilename",
-    ]
+    /// A private suite per test: DatabaseRegistry writes its override keys
+    /// here instead of the process-shared preferences, which parallel xctest
+    /// workers see through cfprefsd.
+    private var preferencesSuiteName: String!
+    private var preferences: UserDefaults!
 
     override func setUp() async throws {
         try await super.setUp()
         tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("human-scrubber-tests-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
-        savedOverrides = Dictionary(uniqueKeysWithValues: managedDatabaseOverrideKeys.compactMap { key in
-            UserDefaults.standard.string(forKey: key).map { (key, $0) }
-        })
-        clearManagedDatabaseOverrideDefaults()
+        preferencesSuiteName = "HumanScrubberDatabaseTests-\(UUID().uuidString)"
+        preferences = try XCTUnwrap(UserDefaults(suiteName: preferencesSuiteName))
     }
 
     override func tearDown() async throws {
-        clearManagedDatabaseOverrideDefaults()
-        for (key, value) in savedOverrides { UserDefaults.standard.set(value, forKey: key) }
+        if let preferencesSuiteName {
+            preferences?.removePersistentDomain(forName: preferencesSuiteName)
+        }
+        preferences = nil
         if let tempDir {
             try? FileManager.default.removeItem(at: tempDir)
         }
@@ -68,7 +67,8 @@ final class HumanScrubberDatabaseTests: XCTestCase {
     func testHumanScrubberInstallerUsesPinnedManifestFilenameAndMd5URL() async throws {
         let registry = DatabaseRegistry(
             bundledDatabasesRoot: try bundledDatabasesRoot(),
-            userDatabasesRoot: tempDir.appendingPathComponent("user-databases")
+            userDatabasesRoot: tempDir.appendingPathComponent("user-databases"),
+            preferences: UserDefaults(suiteName: preferencesSuiteName)
         )
         guard let manifest = await registry.manifest(for: "human-scrubber") else {
             XCTFail("Expected human-scrubber manifest")
@@ -88,7 +88,8 @@ final class HumanScrubberDatabaseTests: XCTestCase {
     func testRequiredDatabasePathThrowsInstallRequiredWhenHumanScrubberDatabaseMissing() async throws {
         let registry = DatabaseRegistry(
             bundledDatabasesRoot: try bundledDatabasesRoot(),
-            userDatabasesRoot: tempDir.appendingPathComponent("empty-user-databases")
+            userDatabasesRoot: tempDir.appendingPathComponent("empty-user-databases"),
+            preferences: UserDefaults(suiteName: preferencesSuiteName)
         )
 
         do {
@@ -107,7 +108,8 @@ final class HumanScrubberDatabaseTests: XCTestCase {
     func testRequiredDatabasePathMapsLegacyHumanScrubberIDToCanonicalManifest() async throws {
         let registry = DatabaseRegistry(
             bundledDatabasesRoot: try bundledDatabasesRoot(),
-            userDatabasesRoot: tempDir.appendingPathComponent("empty-user-databases")
+            userDatabasesRoot: tempDir.appendingPathComponent("empty-user-databases"),
+            preferences: UserDefaults(suiteName: preferencesSuiteName)
         )
 
         do {
@@ -126,7 +128,8 @@ final class HumanScrubberDatabaseTests: XCTestCase {
     func testRequiredDatabasePathMapsDeaconAliasToCanonicalManifest() async throws {
         let registry = DatabaseRegistry(
             bundledDatabasesRoot: try bundledDatabasesRoot(),
-            userDatabasesRoot: tempDir.appendingPathComponent("empty-user-databases")
+            userDatabasesRoot: tempDir.appendingPathComponent("empty-user-databases"),
+            preferences: UserDefaults(suiteName: preferencesSuiteName)
         )
 
         do {
@@ -145,7 +148,8 @@ final class HumanScrubberDatabaseTests: XCTestCase {
     func testFASTQBatchImporterCanonicalizesLegacyHumanScrubberAliasToDeaconManagedDatabase() async throws {
         let registry = DatabaseRegistry(
             bundledDatabasesRoot: try bundledDatabasesRoot(),
-            userDatabasesRoot: tempDir.appendingPathComponent("empty-user-databases")
+            userDatabasesRoot: tempDir.appendingPathComponent("empty-user-databases"),
+            preferences: UserDefaults(suiteName: preferencesSuiteName)
         )
 
         do {
@@ -167,7 +171,8 @@ final class HumanScrubberDatabaseTests: XCTestCase {
     func testFASTQBatchImporterReportsInstallRequiredWhenHumanScrubberDatabaseMissing() async throws {
         let registry = DatabaseRegistry(
             bundledDatabasesRoot: try bundledDatabasesRoot(),
-            userDatabasesRoot: tempDir.appendingPathComponent("empty-user-databases")
+            userDatabasesRoot: tempDir.appendingPathComponent("empty-user-databases"),
+            preferences: UserDefaults(suiteName: preferencesSuiteName)
         )
         let config = FASTQBatchImporter.ImportConfig(
             projectDirectory: tempDir.appendingPathComponent("project"),
@@ -223,7 +228,8 @@ final class HumanScrubberDatabaseTests: XCTestCase {
         let registry = DatabaseRegistry(
             bundledDatabasesRoot: bundledRoot,
             userDatabasesRoot: userRoot,
-            managedDatabaseDownloader: downloader
+            managedDatabaseDownloader: downloader,
+            preferences: UserDefaults(suiteName: preferencesSuiteName)
         )
 
         let installed = try await registry.installManagedDatabase("human-scrubber", reinstall: true)
@@ -242,9 +248,9 @@ final class HumanScrubberDatabaseTests: XCTestCase {
         XCTAssertEqual(run.steps.first?.outputs.first?.path, installed.path)
         XCTAssertEqual(run.steps.first?.outputs.first?.sizeBytes, UInt64(payload.count))
         // Read the same preferences store DatabaseRegistry writes to (the
-        // identity-scoped suite), not UserDefaults.standard.
+        // injected per-test suite).
         XCTAssertEqual(
-            LungfishAppIdentity.current.preferences.string(forKey: "database.human-scrubber.overrideFilename"),
+            preferences.string(forKey: "database.human-scrubber.overrideFilename"),
             installed.lastPathComponent
         )
     }
@@ -269,7 +275,8 @@ final class HumanScrubberDatabaseTests: XCTestCase {
         let registry = DatabaseRegistry(
             bundledDatabasesRoot: bundledRoot,
             userDatabasesRoot: userRoot,
-            managedDatabaseDownloader: downloader
+            managedDatabaseDownloader: downloader,
+            preferences: UserDefaults(suiteName: preferencesSuiteName)
         )
 
         let installed = try await registry.installManagedDatabase("human-scrubber", reinstall: true)
@@ -315,7 +322,8 @@ final class HumanScrubberDatabaseTests: XCTestCase {
         let registry = DatabaseRegistry(
             bundledDatabasesRoot: bundledRoot,
             userDatabasesRoot: userRoot,
-            managedDatabaseToolRunner: toolRunner
+            managedDatabaseToolRunner: toolRunner,
+            preferences: UserDefaults(suiteName: preferencesSuiteName)
         )
 
         let installed = try await registry.installManagedDatabase("deacon-panhuman", reinstall: true)
@@ -381,7 +389,8 @@ final class HumanScrubberDatabaseTests: XCTestCase {
             bundledDatabasesRoot: bundledRoot,
             userDatabasesRoot: userRoot,
             managedDatabaseDownloader: downloader,
-            managedDatabaseToolRunner: toolRunner
+            managedDatabaseToolRunner: toolRunner,
+            preferences: UserDefaults(suiteName: preferencesSuiteName)
         )
 
         let installed = try await registry.installManagedDatabase("deacon-ribokmers", reinstall: true)
@@ -424,7 +433,8 @@ final class HumanScrubberDatabaseTests: XCTestCase {
             bundledDatabasesRoot: bundledRoot,
             userDatabasesRoot: userRoot,
             managedDatabaseDownloader: downloader,
-            managedDatabaseProvenanceWriter: provenanceWriter
+            managedDatabaseProvenanceWriter: provenanceWriter,
+            preferences: UserDefaults(suiteName: preferencesSuiteName)
         )
 
         do {
@@ -451,7 +461,7 @@ final class HumanScrubberDatabaseTests: XCTestCase {
                 atPath: installDirectory.appendingPathComponent(ProvenanceRecorder.provenanceFilename).path
             )
         )
-        XCTAssertNil(UserDefaults.standard.string(forKey: "database.human-scrubber.overrideFilename"))
+        XCTAssertNil(preferences.string(forKey: "database.human-scrubber.overrideFilename"))
     }
 
     func testRibokmersInstallRemovesReferenceAndIndexWhenProvenanceWriteFails() async throws {
@@ -494,7 +504,8 @@ final class HumanScrubberDatabaseTests: XCTestCase {
             userDatabasesRoot: userRoot,
             managedDatabaseDownloader: downloader,
             managedDatabaseToolRunner: toolRunner,
-            managedDatabaseProvenanceWriter: provenanceWriter
+            managedDatabaseProvenanceWriter: provenanceWriter,
+            preferences: UserDefaults(suiteName: preferencesSuiteName)
         )
 
         do {
@@ -520,7 +531,7 @@ final class HumanScrubberDatabaseTests: XCTestCase {
                 atPath: installDirectory.appendingPathComponent("ribokmers.fa.gz").path
             )
         )
-        XCTAssertNil(UserDefaults.standard.string(forKey: "database.deacon-ribokmers.overrideFilename"))
+        XCTAssertNil(preferences.string(forKey: "database.deacon-ribokmers.overrideFilename"))
         let resolvedPath = await registry.effectiveDatabasePath(for: "deacon-ribokmers")
         XCTAssertNil(resolvedPath)
     }
@@ -545,7 +556,8 @@ final class HumanScrubberDatabaseTests: XCTestCase {
             bundledDatabasesRoot: bundledRoot,
             userDatabasesRoot: userRoot,
             managedDatabaseDownloader: downloader,
-            managedDatabaseToolRunner: toolRunner
+            managedDatabaseToolRunner: toolRunner,
+            preferences: UserDefaults(suiteName: preferencesSuiteName)
         )
 
         do {
@@ -565,7 +577,7 @@ final class HumanScrubberDatabaseTests: XCTestCase {
                 atPath: installDirectory.appendingPathComponent("ribokmers.fa.gz").path
             )
         )
-        XCTAssertNil(UserDefaults.standard.string(forKey: "database.deacon-ribokmers.overrideFilename"))
+        XCTAssertNil(preferences.string(forKey: "database.deacon-ribokmers.overrideFilename"))
         let resolvedPath = await registry.effectiveDatabasePath(for: "deacon-ribokmers")
         XCTAssertNil(resolvedPath)
     }
@@ -600,12 +612,6 @@ final class HumanScrubberDatabaseTests: XCTestCase {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         return try decoder.decode(WorkflowRun.self, from: Data(contentsOf: url))
-    }
-
-    private func clearManagedDatabaseOverrideDefaults() {
-        for key in managedDatabaseOverrideKeys {
-            UserDefaults.standard.removeObject(forKey: key)
-        }
     }
 
     private static func md5Hex(_ data: Data) -> String {
