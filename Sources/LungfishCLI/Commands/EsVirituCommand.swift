@@ -4,6 +4,7 @@
 
 import ArgumentParser
 import Foundation
+import LungfishIO
 import LungfishWorkflow
 
 /// Run EsViritu viral detection on FASTQ files.
@@ -20,6 +21,9 @@ import LungfishWorkflow
 ///
 /// # Paired-end detection with custom threads
 /// lungfish esviritu detect --input R1.fastq.gz R2.fastq.gz --paired --sample MySample --db /path/to/db --threads 8
+///
+/// # Interleaved pairs in one file (auto-detected by default)
+/// lungfish esviritu detect --input interleaved.fastq.gz --read-format interleaved --sample MySample
 ///
 /// # Download the EsViritu database
 /// lungfish esviritu download-db
@@ -92,6 +96,20 @@ extension EsVirituCommand {
         )
         var pairedEnd: Bool = false
 
+        @Option(
+            name: .customLong("read-format"),
+            help: ArgumentHelp(
+                "Read layout: auto, unpaired, paired, or interleaved.",
+                discussion: """
+                auto (default) checks a single input file: strictly alternating \
+                R1/R2 records run as interleaved; interleaved pairs mixed with \
+                merged or orphan reads, and single-end files, run as unpaired. \
+                Two files run as unpaired unless --paired is given.
+                """
+            )
+        )
+        var readFormat: ReadFormatChoice = .auto
+
         @Flag(
             name: .customLong("recursive"),
             help: "When an input is a directory, include eligible FASTQ files in subfolders"
@@ -113,7 +131,40 @@ extension EsVirituCommand {
 
         @OptionGroup var globalOptions: GlobalOptions
 
+        /// `--read-format` values. `auto` resolves per input (NEW-06, D19).
+        enum ReadFormatChoice: String, ExpressibleByArgument, CaseIterable, Sendable {
+            case auto
+            case unpaired
+            case paired
+            case interleaved
+        }
+
         // MARK: - Execution
+
+        /// Resolves `--read-format` and `--paired` into the EsViritu read format.
+        ///
+        /// `auto` classifies a single input with ``FASTQReadLayoutClassifier``.
+        func resolveReadFormat(
+            inputURLs: [URL]
+        ) throws -> (format: EsVirituReadFormat, layout: FASTQReadLayoutClassification?) {
+            if pairedEnd {
+                guard readFormat == .auto || readFormat == .paired else {
+                    throw CLIError.validationFailed(errors: [
+                        "--paired conflicts with --read-format \(readFormat.rawValue)."
+                    ])
+                }
+                return (.paired, nil)
+            }
+            switch readFormat {
+            case .unpaired: return (.unpaired, nil)
+            case .paired: return (.paired, nil)
+            case .interleaved: return (.interleaved, nil)
+            case .auto:
+                guard inputURLs.count == 1 else { return (.unpaired, nil) }
+                let layout = FASTQReadLayoutClassifier.classify(inputURL: inputURLs[0])
+                return (EsVirituReadFormat.forSingleFile(layout.layout), layout)
+            }
+        }
 
         static func parse(_ arguments: [String]) throws -> Self {
             let trimmed = arguments.first == configuration.commandName
@@ -138,9 +189,22 @@ extension EsVirituCommand {
                 throw CLIExitCode.inputError.exitCode
             }
 
+            // Resolve the read format (auto-detects interleaving for one file).
+            let resolvedReadFormat: (format: EsVirituReadFormat, layout: FASTQReadLayoutClassification?)
+            do {
+                resolvedReadFormat = try resolveReadFormat(inputURLs: inputURLs)
+            } catch {
+                print(formatter.error(error.localizedDescription))
+                throw CLIExitCode.inputError.exitCode
+            }
+
             // Validate paired-end input count.
-            if pairedEnd && inputURLs.count != 2 {
+            if resolvedReadFormat.format == .paired && inputURLs.count != 2 {
                 print(formatter.error("Paired-end mode requires exactly 2 input files, got \(inputURLs.count)"))
+                throw CLIExitCode.inputError.exitCode
+            }
+            if resolvedReadFormat.format == .interleaved && inputURLs.count != 1 {
+                print(formatter.error("Interleaved mode requires exactly 1 input file, got \(inputURLs.count)"))
                 throw CLIExitCode.inputError.exitCode
             }
 
@@ -180,7 +244,7 @@ extension EsVirituCommand {
             // Build config.
             let config = EsVirituConfig(
                 inputFiles: inputURLs,
-                isPairedEnd: pairedEnd,
+                isPairedEnd: resolvedReadFormat.format == .paired,
                 sampleName: sampleName,
                 outputDirectory: outputDirectory,
                 databasePath: dbURL,
@@ -191,7 +255,9 @@ extension EsVirituCommand {
                 // parameterized with one either, so the flag never reached
                 // the tool; `EsVirituConfig` keeps its documented default.
                 threads: effectiveThreads,
-                extraArguments: try AdvancedCommandLineOptions.parse(extraArgs)
+                extraArguments: try AdvancedCommandLineOptions.parse(extraArgs),
+                readFormat: resolvedReadFormat.format,
+                inputLayout: resolvedReadFormat.layout
             )
 
             // Print configuration.
@@ -199,7 +265,7 @@ extension EsVirituCommand {
             print("")
             print(formatter.keyValueTable([
                 ("Input files", inputURLs.map(\.lastPathComponent).joined(separator: ", ")),
-                ("Paired-end", pairedEnd ? "yes" : "no"),
+                ("Read format", "\(config.readFormat.rawValue) (\(EsVirituReadFormat.inputLabel(format: config.readFormat, layout: config.inputLayout?.layout)))"),
                 ("Sample name", sampleName),
                 ("Database", dbURL.path),
                 ("Quality filter", config.qualityFilter ? "yes" : "no"),
@@ -248,18 +314,22 @@ extension EsVirituCommand {
             databaseURL: URL,
             outputDirectory: URL
         ) throws -> EsVirituConfig {
-            EsVirituConfig(
-                inputFiles: try CLIClassificationFolderResolver.expandInputArguments(
-                    inputFiles,
-                    recursive: recursive
-                ),
-                isPairedEnd: pairedEnd,
+            let inputURLs = try CLIClassificationFolderResolver.expandInputArguments(
+                inputFiles,
+                recursive: recursive
+            )
+            let resolved = try resolveReadFormat(inputURLs: inputURLs)
+            return EsVirituConfig(
+                inputFiles: inputURLs,
+                isPairedEnd: resolved.format == .paired,
                 sampleName: sampleName,
                 outputDirectory: outputDirectory,
                 databasePath: databaseURL,
                 qualityFilter: !noQC,
                 threads: globalOptions.threads ?? ProcessInfo.processInfo.activeProcessorCount,
-                extraArguments: try AdvancedCommandLineOptions.parse(extraArgs)
+                extraArguments: try AdvancedCommandLineOptions.parse(extraArgs),
+                readFormat: resolved.format,
+                inputLayout: resolved.layout
             )
         }
     }

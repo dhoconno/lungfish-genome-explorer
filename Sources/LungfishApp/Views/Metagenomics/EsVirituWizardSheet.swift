@@ -3,8 +3,44 @@
 // SPDX-License-Identifier: MIT
 
 import SwiftUI
+import LungfishIO
 import LungfishWorkflow
 import LungfishKit
+
+/// The EsViritu read format chosen for one grouped sample (NEW-06, D19).
+///
+/// Separate R1/R2 files run `paired`. A single file or bundle is classified
+/// by ``FASTQReadLayoutClassifier``: strictly interleaved input runs
+/// `interleaved`; mixed pairs plus merged reads and true single-end input
+/// run `unpaired`.
+struct EsVirituSampleReadPlan: Equatable, Sendable {
+    let format: EsVirituReadFormat
+    let layout: FASTQReadLayoutClassification?
+
+    var label: String {
+        EsVirituReadFormat.inputLabel(format: format, layout: layout?.layout)
+    }
+
+    /// Compact tag for the batch sample list.
+    var shortLabel: String {
+        switch format {
+        case .paired: return "PE"
+        case .interleaved: return "interleaved PE"
+        case .unpaired: return layout?.layout == .mixedInterleaved ? "mixed, run as SE" : "SE"
+        }
+    }
+
+    static func plan(
+        for sample: MetagenomicsSampleInput,
+        classify: (URL) -> FASTQReadLayoutClassification = { FASTQReadLayoutClassifier.classify(inputURL: $0) }
+    ) -> EsVirituSampleReadPlan {
+        if sample.isPairedEnd {
+            return EsVirituSampleReadPlan(format: .paired, layout: nil)
+        }
+        let layout = classify(sample.fastq1)
+        return EsVirituSampleReadPlan(format: .forSingleFile(layout.layout), layout: layout)
+    }
+}
 
 struct EsVirituRunReadiness {
     static func canRun(
@@ -13,9 +49,11 @@ struct EsVirituRunReadiness {
         sampleName: String,
         isDatabaseInstalled: Bool,
         databasePath: URL?,
-        extraArgumentsText: String = ""
+        extraArgumentsText: String = "",
+        readLayoutsReady: Bool = true
     ) -> Bool {
         groupedSampleCount > 0
+            && readLayoutsReady
             && isDatabaseInstalled
             && databasePath != nil
             && (isBatchMode || !sampleName.trimmingCharacters(in: .whitespaces).isEmpty)
@@ -120,6 +158,11 @@ struct EsVirituWizardSheet: View {
         lockReason: "Selections run as one classification batch (one operations entry, merged summary); each sample is classified separately within the batch."
     )
 
+    /// Read format per sample ID, classified off the main thread.
+    @State private var readPlans: [String: EsVirituSampleReadPlan] = [:]
+    /// The input list `readPlans` was computed for.
+    @State private var readPlansInputFiles: [URL]?
+
     // Advanced settings
     @State private var threads: Int = ProcessInfo.processInfo.activeProcessorCount
     @State private var extraArgumentsText: String = ""
@@ -186,7 +229,8 @@ struct EsVirituWizardSheet: View {
             sampleName: sampleName,
             isDatabaseInstalled: isDatabaseInstalled,
             databasePath: databasePath,
-            extraArgumentsText: extraArgumentsText
+            extraArgumentsText: extraArgumentsText,
+            readLayoutsReady: readPlansInputFiles == inputFiles
         )
     }
 
@@ -236,6 +280,18 @@ struct EsVirituWizardSheet: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .managedResourcesDidChange)) { _ in
             checkDatabaseStatus()
+        }
+        .task(id: inputFiles) {
+            let files = inputFiles
+            let samples = groupedSamples
+            let plans = await Task.detached(priority: .userInitiated) {
+                samples.reduce(into: [String: EsVirituSampleReadPlan]()) { result, sample in
+                    result[sample.sampleId] = EsVirituSampleReadPlan.plan(for: sample)
+                }
+            }.value
+            guard !Task.isCancelled else { return }
+            readPlans = plans
+            readPlansInputFiles = files
         }
         .onChange(of: canRun) { _, newValue in
             onRunnerAvailabilityChange?(newValue)
@@ -344,7 +400,7 @@ struct EsVirituWizardSheet: View {
 
                 VStack(alignment: .leading, spacing: 4) {
                     ForEach(groupedSamples.prefix(8)) { sample in
-                        let mode = sample.isPairedEnd ? "PE" : "SE"
+                        let mode = readPlans[sample.sampleId]?.shortLabel ?? "checking\u{2026}"
                         Text("\u{2022} \(sample.sampleId) (\(mode))")
                             .font(.system(size: 11))
                             .lineLimit(1)
@@ -362,7 +418,7 @@ struct EsVirituWizardSheet: View {
                     .font(.system(size: 12))
 
                 if let sample = groupedSamples.first {
-                    Text(sample.isPairedEnd ? "Paired-end reads" : "Single-end reads")
+                    Text(readPlans[sample.sampleId]?.label ?? "Checking read layout\u{2026}")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -553,6 +609,8 @@ struct EsVirituWizardSheet: View {
         guard let extraArguments = try? AdvancedCommandLineOptions.parse(extraArgumentsText) else { return }
         let samples = groupedSamples
         guard !samples.isEmpty else { return }
+        guard readPlansInputFiles == inputFiles else { return }
+        let plans = readPlans
 
         let runToken = String(UUID().uuidString.prefix(8))
         let baseDir = inputFiles.first?.deletingLastPathComponent()
@@ -570,6 +628,7 @@ struct EsVirituWizardSheet: View {
                 outputDir = baseDir.appendingPathComponent("esviritu-\(runToken)")
             }
 
+            let plan = plans[sample.sampleId] ?? EsVirituSampleReadPlan.plan(for: sample)
             return EsVirituConfig(
                 inputFiles: sample.inputFiles,
                 isPairedEnd: sample.isPairedEnd,
@@ -582,7 +641,9 @@ struct EsVirituWizardSheet: View {
                 // forwarded to the EsViritu tool at all (see
                 // `esVirituArguments()`).
                 threads: threads,
-                extraArguments: extraArguments
+                extraArguments: extraArguments,
+                readFormat: plan.format,
+                inputLayout: plan.layout
             )
         }
 
