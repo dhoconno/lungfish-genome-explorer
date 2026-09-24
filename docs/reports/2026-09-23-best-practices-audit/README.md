@@ -2,6 +2,8 @@
 
 **2026-09-23 · Review only · HEAD `a1f439076` (Preview 2026.9.38) · branch `claude/lge-best-practices-audit-0a1b8f`**
 
+> **Implementation round, 2026-09-24:** most of these findings are now fixed on this branch. See [implementation-status.md](implementation-status.md) for the summary and [ledger.md](ledger.md) for each finding.
+
 Nine specialist reviewers assessed Lungfish Genome Explorer (LGE) independently. None of them read the 2026-09-05 audit while forming findings. A tenth reviewer then compared the two audits. No source, test, script or config file was changed.
 
 - **Builds and tests:** one reviewer ran a cold build and the documented unit tier.

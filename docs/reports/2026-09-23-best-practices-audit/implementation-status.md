@@ -12,11 +12,9 @@ This report covers the round of work the owner authorized after reviewing the au
 | Fixed | 110+ |
 | Partial | ~20 |
 | Open | ~50, mostly P2/P3 and large structural items |
-| P0 findings fixed | 9 of 11 |
+| P0 findings fixed | 10 of 11 |
 
-Two P0s are not fully closed:
-- **TST-01, green unit tier:** see the final gate result below.
-- **GEN-02, homozygotes called heterozygous:** mitigated. Affected calls are now marked `ambiguous` instead of wrongly `called`. The calling rule itself is the owner's decision.
+One P0 is not fully closed. **GEN-02, homozygotes called heterozygous,** is mitigated. Affected calls are now marked `ambiguous` instead of wrongly `called`. The calling rule itself is the owner's decision.
 
 The branch has about 240 commits over the pre-audit base `a1f439076`: roughly 26.7k lines added and 13.4k removed across Sources, Tests and scripts. The checkout itself shrank from 489 MB to 189 MB (docs work).
 
@@ -86,7 +84,10 @@ The branch has about 240 commits over the pre-audit base `a1f439076`: roughly 26
 ## Verification
 
 - **Per lane:** targeted suites for every change, run again on the integrated branch after merging.
-- **Integrated unit tier:** before the final fixes, 13,830 XCTest and 590 Swift Testing tests were executed, with 9 failures. Seven were then fixed or proven pre-existing. The final run is recorded below.
+- **Integrated unit tier:** **GATE PASS on `26744cec9`**: 13,907 XCTest executed, 0 failures, with the five D8 tests quarantined. Two runs before it failed on load flakes, and all three flaky tests were fixed:
+  - a `readPID` that recorded an XCTest failure inside a `try?` poll;
+  - a yield-count loop in the detached alignment viewer test;
+  - human-scrubber tests sharing preferences across parallel workers. `DatabaseRegistry` now takes an injected preferences store.
 - **Computer Use on the installed debug build** (see [gui-verification.md](gui-verification.md)):
   - **Passed:** 11 items. DS-01, FEA-01, FEA-02, FEA-06, FEA-08, FEA-09, NEW-01, NEW-03, WFL-10, cancel-all, and the project lock warning.
   - **Found and then fixed in this session:**
@@ -125,6 +126,6 @@ The branch has about 240 commits over the pre-audit base `a1f439076`: roughly 26
 
 ## Testing the debug build
 
-`/Applications/Lungfish Debug.app` is built from the branch head. The previous debug app is in the Trash. Launch it by path. Another debug build in your primary checkout (`~/Documents/lungfish-genome-explorer/build/Debug/`) shares its bundle ID, and LaunchServices may pick that one otherwise. The Computer Use scratch data is at `~/Desktop/LGE-audit-verify.lungfish`, `~/Documents/audit-LGE-audit-scratch.lungfish` and `~/Documents/LGE-audit-inputs`. Delete them when you are done.
+`/Applications/Lungfish Debug.app` is built from `26744cec9`, the gated head. The previous debug app is in the Trash. Launch it by path. Another debug build in your primary checkout (`~/Documents/lungfish-genome-explorer/build/Debug/`) shares its bundle ID, and LaunchServices may pick that one otherwise. The Computer Use scratch data is at `~/Desktop/LGE-audit-verify.lungfish`, `~/Documents/audit-LGE-audit-scratch.lungfish` and `~/Documents/LGE-audit-inputs`. Delete them when you are done.
 
 Each rebuild of the ad-hoc-signed debug app invalidates its macOS Desktop permission. The first time it touches the Desktop scratch project, macOS may ask for Desktop access again. Until you answer, some operations sit at 0% (NEW-11).
