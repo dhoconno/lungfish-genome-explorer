@@ -130,10 +130,17 @@ extension TaxonomyViewController {
             NSWorkspace.shared.open(url)
         }
 
-        blastTab.onCancelBlast = {
-            // Cancel is handled via OperationCenter cancel callback;
-            // the drawer's cancel button is informational only.
+        blastTab.onCancelBlast = { [weak self] in
+            // WFL-12: previously this only logged — the button looked like
+            // it worked but the BLAST request kept running in the
+            // background. Route to the same OperationCenter cancel callback
+            // the Operations panel's own Cancel button uses.
+            guard let operationID = self?.currentBlastOperationID else {
+                blastVCLogger.info("BLAST cancel requested from drawer, but no active BLAST operation is tracked")
+                return
+            }
             blastVCLogger.info("BLAST cancel requested from drawer")
+            OperationCenter.shared.cancel(id: operationID)
         }
     }
 

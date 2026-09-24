@@ -69,6 +69,11 @@ public class MainWindowController: NSWindowController {
 
     private var manualHaplotypeCloseResolutionTask: Task<Void, Never>?
     private var isReenteringManualHaplotypeWindowClose = false
+    /// FEA-06: set once the user confirms closing this window with running
+    /// operations, so the re-entrant `performClose` this triggers does not
+    /// show the warning sheet again.
+    private var hasConfirmedCloseWithRunningOperations = false
+    private var operationsCloseWarningTask: Task<Void, Never>?
     private var manualHaplotypeDraftPresenceOverride: (() -> Bool)?
     private var manualHaplotypeDraftRevisionOverride: (() -> UUID?)?
     private var manualHaplotypeTransitionPreparationOverride:
@@ -842,6 +847,37 @@ extension MainWindowController: NSWindowDelegate {
         if manualHaplotypeCloseResolutionTask != nil {
             return false
         }
+
+        // FEA-06: closing a project window previously checked only
+        // manual-haplotype edits, never OperationCenter — a running import
+        // or classification scoped to this window's project was silently
+        // interrupted. Scope the check to this window's project so a long
+        // operation in another project's window does not block this close.
+        if !hasConfirmedCloseWithRunningOperations {
+            let runningOperations = OperationCenter.shared.activeItems(
+                forProjectURL: projectSession.projectURL
+            )
+            if !runningOperations.isEmpty {
+                if operationsCloseWarningTask != nil {
+                    return false
+                }
+                operationsCloseWarningTask = Task { @MainActor [weak self, weak sender] in
+                    guard let self else { return }
+                    let shouldClose = await self.presentCloseWithRunningOperationsAlert(
+                        operations: runningOperations
+                    )
+                    self.operationsCloseWarningTask = nil
+                    guard shouldClose, let sender else { return }
+                    self.hasConfirmedCloseWithRunningOperations = true
+                    for operation in runningOperations {
+                        OperationCenter.shared.cancel(id: operation.id)
+                    }
+                    sender.performClose(nil)
+                }
+                return false
+            }
+        }
+
         guard requiresManualHaplotypeTransitionCoordination else {
             return true
         }
@@ -858,6 +894,39 @@ extension MainWindowController: NSWindowDelegate {
                 sender.performClose(nil)
             }
         return false
+    }
+
+    /// FEA-06: shows the close-with-running-operations warning sheet scoped
+    /// to this window, and returns `true` if the user chose to cancel the
+    /// operations and close.
+    private func presentCloseWithRunningOperationsAlert(
+        operations: [OperationCenter.Item]
+    ) async -> Bool {
+        let alert = NSAlert()
+        let count = operations.count
+        alert.messageText = count == 1
+            ? "Close Window with 1 Operation Running?"
+            : "Close Window with \(count) Operations Running?"
+        let listedTitles = operations.prefix(6).map { "• \($0.title)" }.joined(separator: "\n")
+        let overflowNote = count > 6 ? "\n… and \(count - 6) more" : ""
+        alert.informativeText =
+            "Closing this window now will cancel the following operation"
+            + (count == 1 ? "" : "s")
+            + " for this project, and any partial output may remain on disk, "
+            + "visible under Manage Project Storage as interrupted:\n\n"
+            + listedTitles + overflowNote
+        alert.alertStyle = .warning
+        let closeButton = alert.addButton(withTitle: "Cancel Operations and Close")
+        closeButton.hasDestructiveAction = true
+        let dontCloseButton = alert.addButton(withTitle: "Don't Close")
+        dontCloseButton.keyEquivalent = "\r"
+        alert.applyLungfishBranding()
+
+        guard let window else {
+            return alert.runModal() == .alertFirstButtonReturn
+        }
+        let response = await alert.beginSheetModal(for: window)
+        return response == .alertFirstButtonReturn
     }
 
     public func windowWillEnterFullScreen(_ notification: Notification) {

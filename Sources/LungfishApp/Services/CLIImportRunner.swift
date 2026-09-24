@@ -49,6 +49,80 @@ public enum CLIImportEvent: Sendable {
     case importComplete(completed: Int, skipped: Int, failed: Int, totalDurationSeconds: Double)
 }
 
+/// A thread-safe box holding the currently running CLI process.
+///
+/// `cancel()` must be able to terminate the process tree without waiting for
+/// actor access on ``CLIImportRunner``. If cancellation went through the
+/// actor, a synchronous, non-suspending wait for process exit inside `run()`
+/// (see the historical `proc.waitUntilExit()` call) would occupy the actor's
+/// executor for the process's entire lifetime, and `cancel()` could never
+/// run concurrently — the actor would deadlock against itself. Termination
+/// is therefore driven from this plain, lock-protected box instead.
+private final class CLIImportProcessBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var process: Process?
+
+    func store(_ process: Process) {
+        lock.lock()
+        self.process = process
+        lock.unlock()
+    }
+
+    func clear(_ process: Process) {
+        lock.lock()
+        if self.process === process {
+            self.process = nil
+        }
+        lock.unlock()
+    }
+
+    /// Terminates the whole process tree rooted at the stored process, if any.
+    /// Safe to call from any thread, any number of times.
+    func terminateTree(gracePeriod: TimeInterval = 0.5) {
+        lock.lock()
+        let current = process
+        lock.unlock()
+        guard let current else { return }
+        ProcessTreeTerminator.terminate(rootProcess: current, gracePeriod: gracePeriod)
+    }
+}
+
+/// Resumes exactly once with the process's exit status, driven by
+/// `Process.terminationHandler` rather than a blocking `waitUntilExit()`
+/// call, so nothing that awaits it can occupy an actor's executor.
+private final class CLIImportExitCompletion: @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<Int32, Never>?
+    private var exitStatus: Int32?
+
+    func wait() async -> Int32 {
+        await withCheckedContinuation { continuation in
+            lock.lock()
+            if let exitStatus {
+                lock.unlock()
+                continuation.resume(returning: exitStatus)
+            } else {
+                self.continuation = continuation
+                lock.unlock()
+            }
+        }
+    }
+
+    func complete(exitStatus: Int32) {
+        let continuationToResume: CheckedContinuation<Int32, Never>?
+        lock.lock()
+        if self.exitStatus != nil {
+            continuationToResume = nil
+        } else {
+            self.exitStatus = exitStatus
+            continuationToResume = continuation
+            continuation = nil
+        }
+        lock.unlock()
+        continuationToResume?.resume(returning: exitStatus)
+    }
+}
+
 // MARK: - CLIImportRunner
 
 /// Manages a `lungfish-cli import fastq` subprocess, parsing its JSON progress events
@@ -57,6 +131,11 @@ public actor CLIImportRunner {
 
     /// The running CLI process, stored for cancellation support.
     private var process: Process?
+
+    /// Non-actor-isolated handle to the running process, used by ``cancel()``
+    /// so termination never has to wait for the actor's executor (see
+    /// ``CLIImportProcessBox``).
+    private let processBox = CLIImportProcessBox()
 
     // MARK: - Static: Binary Resolution
 
@@ -305,9 +384,11 @@ public actor CLIImportRunner {
         proc.standardError = stderrPipe
 
         self.process = proc
+        processBox.store(proc)
         NativeProcessRegistry.shared.register(proc)
         defer {
             NativeProcessRegistry.shared.unregister(proc)
+            processBox.clear(proc)
             if self.process === proc {
                 self.process = nil
             }
@@ -538,9 +619,15 @@ public actor CLIImportRunner {
                 consumeStdout(chunk)
             }
 
+            let exitCompletion = CLIImportExitCompletion()
+            proc.terminationHandler = { terminatedProcess in
+                exitCompletion.complete(exitStatus: terminatedProcess.terminationStatus)
+            }
+
             do {
                 try proc.run()
             } catch {
+                proc.terminationHandler = nil
                 stdoutHandle.readabilityHandler = nil
                 stderrHandle.readabilityHandler = nil
                 drainStreamHandlers()
@@ -555,7 +642,14 @@ public actor CLIImportRunner {
                 return
             }
 
-            proc.waitUntilExit()
+            // Wait for exit via the termination handler rather than the
+            // blocking `proc.waitUntilExit()`. This method runs on the
+            // `CLIImportRunner` actor; a blocking, non-suspending wait here
+            // would occupy the actor's executor for the whole subprocess
+            // lifetime, and `cancel()` (also an actor method) could never
+            // run concurrently to kill it — a deadlock (see TST-05/PERF-13).
+            let exitStatus = await exitCompletion.wait()
+            proc.terminationHandler = nil
             stdoutHandle.readabilityHandler = nil
             stderrHandle.readabilityHandler = nil
             drainStreamHandlers()
@@ -564,7 +658,6 @@ public actor CLIImportRunner {
             finishStdout()
 
             // Handle non-zero exit
-            let exitStatus = proc.terminationStatus
             if exitStatus != 0 {
                 let snapshot = state.withLock { current in
                     (
@@ -593,9 +686,10 @@ public actor CLIImportRunner {
                 onError(msg)
             }
         } onCancel: {
-            Task {
-                await self.cancel()
-            }
+            // `cancel()` is `nonisolated`, so this runs immediately without
+            // hopping through `Task { await self.cancel() }` or waiting for
+            // actor access — see ``cancel()`` for why that matters.
+            self.cancel()
         }
     }
 
@@ -647,9 +741,14 @@ public actor CLIImportRunner {
     // MARK: - Instance: Cancel
 
     /// Terminates the running CLI process tree, if any.
-    public func cancel() {
-        guard let proc = process else { return }
-        logger.info("Terminating CLI process tree rooted at \(proc.processIdentifier, privacy: .public)")
-        ProcessTreeTerminator.terminate(rootProcess: proc)
+    ///
+    /// Deliberately `nonisolated`: it must be callable — and must complete —
+    /// even while `run()` holds the actor executor awaiting other work.
+    /// Termination goes through ``processBox`` rather than the actor-isolated
+    /// `process` property so cancellation never has to wait in line behind
+    /// the very operation it is trying to stop.
+    public nonisolated func cancel() {
+        logger.info("Terminating CLI process tree")
+        processBox.terminateTree()
     }
 }

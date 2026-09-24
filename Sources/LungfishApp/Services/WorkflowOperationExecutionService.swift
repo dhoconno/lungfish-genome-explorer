@@ -216,6 +216,17 @@ final class WorkflowOperationExecutionService {
             progress: 0.01,
             detail: "Launching lungfish-cli for 12S reference bundle creation..."
         )
+        // WFL-12: without a cancel callback the Operations panel shows no
+        // Cancel button for this row, and a stalled run can only be ended by
+        // quitting the app. See runONTGenotyping for the same pattern.
+        operationCenter.setCancelCallback(for: operationID) { [self] in
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    guard self.operationCenter.items.first(where: { $0.id == operationID })?.state == .cancelling else { return }
+                    self.processRunner.cancel()
+                }
+            }
+        }
 
         do {
             let result = try await processRunner.runLungfishCLI(
@@ -225,6 +236,10 @@ final class WorkflowOperationExecutionService {
                     Self.recordProcessOutput(output, operationID: operationID, operationCenter: operationCenter)
                 }
             )
+            if operationCenter.items.first(where: { $0.id == operationID })?.state == .cancelling {
+                operationCenter.acknowledgeCancellation(id: operationID)
+                throw CancellationError()
+            }
             if !result.didStreamOutput {
                 logProcessOutput(result, operationID: operationID)
             }
@@ -299,6 +314,17 @@ final class WorkflowOperationExecutionService {
             progress: 0.01,
             detail: "Launching lungfish-cli for 12S amplicon matching..."
         )
+        // WFL-12: without a cancel callback the Operations panel shows no
+        // Cancel button for this row, and a stalled run can only be ended by
+        // quitting the app. See runONTGenotyping for the same pattern.
+        operationCenter.setCancelCallback(for: operationID) { [self] in
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    guard self.operationCenter.items.first(where: { $0.id == operationID })?.state == .cancelling else { return }
+                    self.processRunner.cancel()
+                }
+            }
+        }
 
         do {
             let result = try await processRunner.runLungfishCLI(
@@ -308,6 +334,10 @@ final class WorkflowOperationExecutionService {
                     Self.recordProcessOutput(output, operationID: operationID, operationCenter: operationCenter)
                 }
             )
+            if operationCenter.items.first(where: { $0.id == operationID })?.state == .cancelling {
+                operationCenter.acknowledgeCancellation(id: operationID)
+                throw CancellationError()
+            }
             if !result.didStreamOutput {
                 logProcessOutput(result, operationID: operationID)
             }
@@ -510,6 +540,17 @@ final class WorkflowOperationExecutionService {
             progress: 0.01,
             detail: "Launching lungfish-cli for full-length ONT MHC genotyping..."
         )
+        // WFL-12: without a cancel callback the Operations panel shows no
+        // Cancel button for this row, and a stalled run can only be ended by
+        // quitting the app. See runONTGenotyping for the same pattern.
+        operationCenter.setCancelCallback(for: operationID) { [self] in
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    guard self.operationCenter.items.first(where: { $0.id == operationID })?.state == .cancelling else { return }
+                    self.processRunner.cancel()
+                }
+            }
+        }
 
         do {
             let result = try await processRunner.runLungfishCLI(
@@ -519,6 +560,10 @@ final class WorkflowOperationExecutionService {
                     Self.recordProcessOutput(output, operationID: operationID, operationCenter: operationCenter)
                 }
             )
+            if operationCenter.items.first(where: { $0.id == operationID })?.state == .cancelling {
+                operationCenter.acknowledgeCancellation(id: operationID)
+                throw CancellationError()
+            }
             if !result.didStreamOutput {
                 logProcessOutput(result, operationID: operationID)
             }

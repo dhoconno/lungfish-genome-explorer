@@ -335,6 +335,29 @@ public final class OperationCenter: ObservableObject {
         items.filter { $0.state.isActive }.count
     }
 
+    /// All currently running or cancelling operations.
+    ///
+    /// Used by FEA-06's quit and window-close warnings: `applicationShouldTerminate`
+    /// checks every active item, while a window-close check narrows to
+    /// ``activeItems(forProjectURL:)`` so closing one project window does not
+    /// warn about work running in a different project's window.
+    public var activeItems: [Item] {
+        items.filter { $0.state.isActive }
+    }
+
+    /// Active operations whose ``OperationRouteContext/projectURL`` matches
+    /// `projectURL`, plus any active operation with no route context (routing
+    /// is best-effort, so an unrouted operation is treated as belonging to
+    /// every window rather than silently ignored).
+    public func activeItems(forProjectURL projectURL: URL?) -> [Item] {
+        guard let projectURL else { return activeItems }
+        let standardized = projectURL.standardizedFileURL
+        return activeItems.filter { item in
+            guard let itemProjectURL = item.routeContext?.projectURL else { return true }
+            return itemProjectURL == standardized
+        }
+    }
+
     // MARK: - Bundle Locking
 
     /// Returns whether an ordinary exact-target operation can start without
