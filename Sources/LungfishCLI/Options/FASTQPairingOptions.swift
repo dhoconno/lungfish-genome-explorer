@@ -5,6 +5,7 @@
 import ArgumentParser
 import Foundation
 import LungfishCore
+import LungfishIO
 import LungfishWorkflow
 
 /// How a `fastq` subcommand should treat the records of its single input.
@@ -42,9 +43,23 @@ struct FASTQPairingOptions: ParsableArguments {
         }
     }
 
-    /// Resolves the effective pairing for `inputURL`.
-    func resolveIsInterleaved(inputURL: URL) async throws -> Bool {
-        try await FASTQPairingModeResolver.isInterleaved(inputURL: inputURL, explicit: explicitInterleaved)
+    /// Resolves the effective pairing for `inputURL` and warns on stderr when
+    /// a requested pairing had to fall back to single reads.
+    ///
+    /// - Parameter pairsByName: pass `true` only for an operation that pairs
+    ///   records by fragment name, which may run pair-aware on a file that
+    ///   mixes merged reads with pairs. Positional tools (`interleaved=t`, an
+    ///   R1/R2 split) leave it `false` and run mixed input as single reads.
+    func resolvePairing(inputURL: URL, pairsByName: Bool = false) -> FASTQPairingDecision {
+        let decision = FASTQPairingModeResolver.resolvePairing(
+            inputURL: inputURL,
+            explicit: explicitInterleaved,
+            pairsByName: pairsByName
+        )
+        if let warning = decision.warning {
+            FileHandle.standardError.write(Data("Warning: \(warning)\n".utf8))
+        }
+        return decision
     }
 
     /// The arguments to replay this option exactly (empty for the default).
@@ -60,5 +75,23 @@ struct FASTQPairingOptions: ParsableArguments {
     /// Provenance default for the option.
     static var provenanceDefault: ParameterValue {
         .string(FASTQPairingArgument.auto.rawValue)
+    }
+
+    /// Provenance default for the resolved read layout.
+    static var readLayoutProvenanceDefault: ParameterValue {
+        .string(FASTQInputLayout.singleEnd.rawValue)
+    }
+}
+
+extension FASTQPairingDecision {
+    /// Provenance value for the resolved layout (`single_end`,
+    /// `strictly_interleaved`, `mixed_merged_and_pairs`).
+    var readLayoutProvenanceValue: ParameterValue {
+        .string(layout.rawValue)
+    }
+
+    /// Provenance value for the plain-language reason behind the layout.
+    var readLayoutReasonProvenanceValue: ParameterValue {
+        .string(resolution.reason)
     }
 }

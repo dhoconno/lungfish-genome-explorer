@@ -364,8 +364,11 @@ struct FastqSubsampleSubcommand: AsyncParsableCommand {
         // which orphans mates in interleaved input. Resolve pairing from the
         // --pairing flag, the bundle metadata, or read names (identical mate
         // names included) and use `reformat.sh` (pair-aware: it samples
-        // fragments, keeping both mates together) instead.
-        let isInterleaved = try await pairing.resolveIsInterleaved(inputURL: inputURL)
+        // fragments, keeping both mates together) instead. A file that mixes
+        // merged reads with pairs runs as single reads: reformat pairs by
+        // position and would mis-pair it.
+        let pairingDecision = pairing.resolvePairing(inputURL: inputURL)
+        let isInterleaved = pairingDecision.pairAware
 
         let startedAt = Date()
         let toolName: String
@@ -445,6 +448,8 @@ struct FastqSubsampleSubcommand: AsyncParsableCommand {
                 "seed": .integer(Int(resolvedSeed)),
                 "pairing": pairing.provenanceValue,
                 "interleaved": .boolean(isInterleaved),
+                "readLayout": pairingDecision.readLayoutProvenanceValue,
+                "readLayoutReason": pairingDecision.readLayoutReasonProvenanceValue,
                 "force": .boolean(output.force),
                 "compress": .boolean(output.compress)
             ],
@@ -454,6 +459,7 @@ struct FastqSubsampleSubcommand: AsyncParsableCommand {
                 "seed": .null,
                 "pairing": FASTQPairingOptions.provenanceDefault,
                 "interleaved": .boolean(false),
+                "readLayout": FASTQPairingOptions.readLayoutProvenanceDefault,
                 "force": .boolean(false),
                 "compress": .boolean(false)
             ],
@@ -1507,14 +1513,15 @@ struct FastqContaminantFilterSubcommand: AsyncParsableCommand {
             "k=\(kmerSize)",
             "hdist=\(hammingDistance)",
         ]
-        if interleaved {
-            // bbduk's own name-based pairing guess reports identical-name
-            // mates as "processed as unpaired" and splits them. With
-            // interleaved=t it treats adjacent records as a pair and, by its
-            // default removeifeitherbad=t, discards both mates when either
-            // one matches the contaminant, so no orphan survives.
-            args.append("interleaved=t")
-        }
+        // bbduk's own name-based pairing guess reports identical-name mates
+        // as "processed as unpaired" and splits them, and pairs /1 /2 or
+        // Casava names by position, which aborts on a file that mixes merged
+        // reads with pairs. So the layout is always stated: interleaved=t
+        // treats adjacent records as a pair and, by its default
+        // removeifeitherbad=t, discards both mates when either one matches
+        // the contaminant, so no orphan survives; interleaved=f judges every
+        // record alone.
+        args.append(interleaved ? "interleaved=t" : "interleaved=f")
 
         let referenceURL = try bbdukReferenceURL(mode: mode, reference: reference, homeDirectory: homeDirectory)
         args.append("ref=\(referenceURL.path)")
@@ -1527,7 +1534,8 @@ struct FastqContaminantFilterSubcommand: AsyncParsableCommand {
         guard kmerSize > 0 else { throw ValidationError("--kmer must be > 0") }
         guard hammingDistance >= 0 else { throw ValidationError("--hdist must be >= 0") }
         let runner = NativeToolRunner.shared
-        let isInterleaved = try await pairing.resolveIsInterleaved(inputURL: inputURL)
+        let pairingDecision = pairing.resolvePairing(inputURL: inputURL)
+        let isInterleaved = pairingDecision.pairAware
 
         let args = try Self.bbdukArguments(
             inputURL: inputURL,
@@ -1582,6 +1590,8 @@ struct FastqContaminantFilterSubcommand: AsyncParsableCommand {
                 "hdist": .integer(hammingDistance),
                 "pairing": pairing.provenanceValue,
                 "interleaved": .boolean(isInterleaved),
+                "readLayout": pairingDecision.readLayoutProvenanceValue,
+                "readLayoutReason": pairingDecision.readLayoutReasonProvenanceValue,
                 "force": .boolean(output.force),
                 "compress": .boolean(output.compress)
             ],
@@ -1592,6 +1602,7 @@ struct FastqContaminantFilterSubcommand: AsyncParsableCommand {
                 "hdist": .integer(1),
                 "pairing": FASTQPairingOptions.provenanceDefault,
                 "interleaved": .boolean(false),
+                "readLayout": FASTQPairingOptions.readLayoutProvenanceDefault,
                 "force": .boolean(false),
                 "compress": .boolean(false)
             ],
@@ -1673,13 +1684,12 @@ struct FastqEntropyFilterSubcommand: AsyncParsableCommand {
             "threads=\(threads)",
             "ow=t",
         ]
-        if interleaved {
-            // Pair-aware: bbduk drops both mates when either falls below the
-            // entropy threshold (removeifeitherbad=t), so the output never
-            // holds an orphan. Without this, identical-name mates are
-            // "processed as unpaired" and split.
-            args.append("interleaved=t")
-        }
+        // Pair-aware: bbduk drops both mates when either falls below the
+        // entropy threshold (removeifeitherbad=t), so the output never
+        // holds an orphan. The layout is always stated: left to its own
+        // detection bbduk splits identical-name mates and pairs /1 /2 or
+        // Casava names by position, which aborts on a mixed file.
+        args.append(interleaved ? "interleaved=t" : "interleaved=f")
         return args
     }
 
@@ -1703,7 +1713,8 @@ struct FastqEntropyFilterSubcommand: AsyncParsableCommand {
         guard threads > 0 else { throw ValidationError("--threads must be > 0") }
 
         let runner = NativeToolRunner.shared
-        let isInterleaved = try await pairing.resolveIsInterleaved(inputURL: inputURL)
+        let pairingDecision = pairing.resolvePairing(inputURL: inputURL)
+        let isInterleaved = pairingDecision.pairAware
         let heapGB = ManagedJavaHeapPolicy.heapGB(minimumGB: 4)
         let args = Self.bbdukArguments(
             inputURL: inputURL,
@@ -1757,6 +1768,8 @@ struct FastqEntropyFilterSubcommand: AsyncParsableCommand {
             "threads": .integer(threads),
             "pairing": pairing.provenanceValue,
             "interleaved": .boolean(isInterleaved),
+            "readLayout": pairingDecision.readLayoutProvenanceValue,
+            "readLayoutReason": pairingDecision.readLayoutReasonProvenanceValue,
             "force": .boolean(output.force),
             "compress": .boolean(output.compress),
         ]
@@ -1782,6 +1795,7 @@ struct FastqEntropyFilterSubcommand: AsyncParsableCommand {
                 "threads": .integer(4),
                 "pairing": FASTQPairingOptions.provenanceDefault,
                 "interleaved": .boolean(false),
+                "readLayout": FASTQPairingOptions.readLayoutProvenanceDefault,
                 "force": .boolean(false),
                 "compress": .boolean(false),
             ],
@@ -2182,13 +2196,40 @@ struct FastqMergeSubcommand: AsyncParsableCommand {
         let mergedURL = tempDir.appendingPathComponent("merged.fastq")
         let unmergedURL = tempDir.appendingPathComponent("unmerged.fastq")
 
+        // bbmerge interleaved=t pairs records by position, so only strictly
+        // interleaved pairs reach it. A file that already mixes merged reads
+        // with pairs (a merge recipe's output) is first split by NAME: the
+        // pairs go to bbmerge and the merged reads pass through untouched.
+        let resolution = FASTQInputLayoutResolver.resolve(inputURLs: [inputURL])
+        var bbmergeInputURL = inputURL
+        var passthroughURL: URL?
+        var passthroughReadCount = 0
+        switch resolution.layout {
+        case .strictlyInterleaved:
+            break
+        case .mixedMergedAndPairs:
+            let partition = try IlluminaAmpliconPairMerger.partitionMixedInput(
+                fastqURL: inputURL, workingDirectory: tempDir, stem: "input"
+            )
+            bbmergeInputURL = partition.pairsURL
+            passthroughURL = partition.unpairedURL
+            passthroughReadCount = partition.counts.unpaired
+            FileHandle.standardError.write(Data(
+                "Warning: \(inputURL.lastPathComponent) mixes merged reads with pairs (\(resolution.reason)) Merging the \(partition.counts.pairs) pairs; the \(partition.counts.unpaired) reads without a mate pass through unchanged.\n".utf8
+            ))
+        case .singleEnd, .pairedFiles:
+            throw ValidationError("The input holds no interleaved pairs to merge (\(resolution.reason)) Nothing was written.")
+        }
+
         var args = [
-            "in=\(inputURL.path)",
+            "in=\(bbmergeInputURL.path)",
             "out=\(mergedURL.path)",
             "outu=\(unmergedURL.path)",
             "minoverlap=\(minOverlap)",
+            "interleaved=t",
         ]
         if strict { args.append("strict=t") }
+        let outputSources = [mergedURL, unmergedURL] + (passthroughURL.map { [$0] } ?? [])
 
         let env = await bbToolsEnvironment(runner: runner)
         let startedAt = Date()
@@ -2202,7 +2243,7 @@ struct FastqMergeSubcommand: AsyncParsableCommand {
         var gzipResult: FASTQGzipProvenanceResult?
         var concatenateWallTime: TimeInterval = 0
         if countDuplicates {
-            let countedInputs = [mergedURL, unmergedURL].filter {
+            let countedInputs = outputSources.filter {
                 FileManager.default.fileExists(atPath: $0.path)
             }
             if countedInputs.isEmpty {
@@ -2229,7 +2270,7 @@ struct FastqMergeSubcommand: AsyncParsableCommand {
                 : outputURL
             FileManager.default.createFile(atPath: concatenatedURL.path, contents: nil)
             let outputHandle = try FileHandle(forWritingTo: concatenatedURL)
-            for url in [mergedURL, unmergedURL] {
+            for url in outputSources {
                 guard FileManager.default.fileExists(atPath: url.path) else { continue }
                 let inputHandle = try FileHandle(forReadingFrom: url)
                 defer { try? inputHandle.close() }
@@ -2278,12 +2319,17 @@ struct FastqMergeSubcommand: AsyncParsableCommand {
             "duplicateCountEncoding": .string(countDuplicates ? "size=N" : "none"),
             "countedOutputRecords": countedOutputRecords,
             "countedOutputReadCount": countedOutputReadCount,
+            "readLayout": .string(resolution.layout.rawValue),
+            "readLayoutReason": .string(resolution.reason),
+            "unpairedPassthroughReads": .integer(passthroughReadCount),
             "force": .boolean(output.force),
             "compress": .boolean(output.compress)
         ]
         let provenanceDefaults: [String: ParameterValue] = [
             "minOverlap": .integer(12),
             "strict": .boolean(false),
+            "readLayout": .string(FASTQInputLayout.strictlyInterleaved.rawValue),
+            "unpairedPassthroughReads": .integer(0),
             "countDuplicatesAfterMerge": .boolean(false),
             "duplicateCountEncoding": .string("none"),
             "force": .boolean(false),
@@ -2425,7 +2471,16 @@ struct FastqRepairSubcommand: AsyncParsableCommand {
 struct FastqDeinterleaveSubcommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "deinterleave",
-        abstract: "Split interleaved FASTQ into separate R1/R2 files"
+        abstract: "Split interleaved FASTQ into separate R1/R2 files",
+        discussion: """
+            A strictly interleaved file (every record followed by its mate) is \
+            split by position with reformat.sh. A file that mixes merged single \
+            reads with pairs, such as the output of the VSP2 or Illumina Amplicon \
+            Merge recipes, is split by read name instead: each adjacent mate pair \
+            goes to --out1 and --out2, and every read without an adjacent mate \
+            goes to --unpaired, which is required for such a file. A single-end \
+            file is refused.
+            """
     )
 
     @Argument(help: "Input interleaved FASTQ file")
@@ -2437,41 +2492,160 @@ struct FastqDeinterleaveSubcommand: AsyncParsableCommand {
     @Option(name: .customLong("out2"), help: "Output R2 file (required)")
     var out2: String
 
+    @Option(
+        name: .customLong("unpaired"),
+        help: "Output file for reads without an adjacent mate (merged or orphan reads). Required when the input mixes merged reads with pairs."
+    )
+    var unpaired: String?
+
+    /// The message printed when a mixed file is given without `--unpaired`.
+    static func mixedInputRequiresUnpairedMessage(reason: String) -> String {
+        "The input mixes merged reads with pairs (\(reason)) Pass --unpaired <file> to receive the reads that have no mate; "
+            + "the pairs then go to --out1 and --out2, matched by read name."
+    }
+
     func run() async throws {
         let inputURL = try validateInput(input)
-        let runner = NativeToolRunner.shared
-
-        let args = [
-            "in=\(inputURL.path)",
-            "out1=\(out1)",
-            "out2=\(out2)",
-            "interleaved=t",
-        ]
-
-        let env = await bbToolsEnvironment(runner: runner)
-        let startedAt = Date()
-        let result = try await runner.run(.reformat, arguments: args, environment: env, timeout: 1800)
-        guard result.isSuccess else {
-            throw CLIError.conversionFailed(reason: "reformat.sh deinterleave failed: \(result.stderr)")
-        }
         let out1URL = URL(fileURLWithPath: out1)
         let out2URL = URL(fileURLWithPath: out2)
-        try await recordFASTQNativeToolProvenance(
-            workflowName: "lungfish fastq deinterleave",
-            nativeTool: .reformat,
-            cliArguments: ["deinterleave", inputURL.path, "--out1", out1, "--out2", out2],
-            nativeArguments: args,
-            result: result,
-            inputURLs: [inputURL],
-            outputURLs: [out1URL, out2URL],
-            parameters: [
-                "input": .file(inputURL),
-                "out1": .file(out1URL),
-                "out2": .file(out2URL)
-            ],
-            startedAt: startedAt
-        )
-        FileHandle.standardError.write(Data("Deinterleaved: R1 → \(out1), R2 → \(out2)\n".utf8))
+        let unpairedURL = unpaired.map { URL(fileURLWithPath: $0) }
+        var cliArguments = ["deinterleave", inputURL.path, "--out1", out1, "--out2", out2]
+        if let unpaired {
+            cliArguments += ["--unpaired", unpaired]
+        }
+
+        let resolution = FASTQInputLayoutResolver.resolve(inputURLs: [inputURL])
+        var parameters: [String: ParameterValue] = [
+            "input": .file(inputURL),
+            "out1": .file(out1URL),
+            "out2": .file(out2URL),
+            "unpaired": unpairedURL.map(ParameterValue.file) ?? .null,
+            "readLayout": .string(resolution.layout.rawValue),
+            "readLayoutReason": .string(resolution.reason),
+        ]
+
+        switch resolution.layout {
+        case .strictlyInterleaved:
+            let runner = NativeToolRunner.shared
+            let args = [
+                "in=\(inputURL.path)",
+                "out1=\(out1)",
+                "out2=\(out2)",
+                "interleaved=t",
+            ]
+            let env = await bbToolsEnvironment(runner: runner)
+            let startedAt = Date()
+            let result = try await runner.run(.reformat, arguments: args, environment: env, timeout: 1800)
+            guard result.isSuccess else {
+                throw CLIError.conversionFailed(reason: "reformat.sh deinterleave failed: \(result.stderr)")
+            }
+            if let unpairedURL {
+                // Nothing lacks a mate; leave an empty file so a script that
+                // asked for the third output finds it.
+                FileManager.default.createFile(atPath: unpairedURL.path, contents: nil)
+            }
+            try await recordFASTQNativeToolProvenance(
+                workflowName: "lungfish fastq deinterleave",
+                nativeTool: .reformat,
+                cliArguments: cliArguments,
+                nativeArguments: args,
+                result: result,
+                inputURLs: [inputURL],
+                outputURLs: [out1URL, out2URL] + (unpairedURL.map { [$0] } ?? []),
+                parameters: parameters,
+                startedAt: startedAt
+            )
+            FileHandle.standardError.write(Data("Deinterleaved: R1 → \(out1), R2 → \(out2)\n".utf8))
+
+        case .mixedMergedAndPairs:
+            guard let unpairedURL else {
+                throw ValidationError(Self.mixedInputRequiresUnpairedMessage(reason: resolution.reason))
+            }
+            let startedAt = Date()
+            let counts = try await Self.partitionMixedInput(
+                inputURL: inputURL,
+                out1: out1URL,
+                out2: out2URL,
+                unpaired: unpairedURL
+            )
+            parameters["pairs"] = .integer(counts.pairs)
+            parameters["unpairedReads"] = .integer(counts.unpaired)
+            let outputs = [out1URL, out2URL, unpairedURL]
+            _ = try await CLIProvenanceSupport.recordSingleStepRun(
+                name: "lungfish fastq deinterleave",
+                parameters: parameters,
+                toolName: "lungfish",
+                toolVersion: WorkflowRun.currentAppVersion,
+                command: [CLICommandIdentity.executableName, "fastq"] + cliArguments,
+                stepCommand: ["LungfishWorkflow", "partition-mixed-fastq", inputURL.path, out1, out2, unpairedURL.path],
+                inputs: [ProvenanceRecorder.fileRecord(url: inputURL, format: .fastq, role: .input)],
+                outputs: outputs.map { ProvenanceRecorder.fileRecord(url: $0, format: .fastq, role: .output) },
+                exitCode: 0,
+                wallTime: Date().timeIntervalSince(startedAt),
+                stderr: nil,
+                status: .completed,
+                outputDirectory: out1URL.deletingLastPathComponent()
+            )
+            FileHandle.standardError.write(Data(
+                "Deinterleaved by read name: \(counts.pairs) pairs → \(out1) and \(out2), \(counts.unpaired) reads without a mate → \(unpairedURL.path)\n".utf8
+            ))
+
+        case .singleEnd, .pairedFiles:
+            throw ValidationError(
+                "The input is not interleaved (\(resolution.reason)) Nothing was written."
+            )
+        }
+    }
+
+    /// Splits a mixed file by read name, gzipping any output whose name ends
+    /// in `.gz`. Exposed for tests.
+    static func partitionMixedInput(
+        inputURL: URL,
+        out1: URL,
+        out2: URL,
+        unpaired: URL
+    ) async throws -> FASTQPairInterleaver.MixedCounts {
+        let fm = FileManager.default
+        let targets = [out1, out2, unpaired]
+        // Write plain text first; compress afterwards where the name asks.
+        let plainTargets = targets.map { target -> URL in
+            target.pathExtension.lowercased() == "gz"
+                ? target.deletingLastPathComponent()
+                    .appendingPathComponent(".\(target.deletingPathExtension().lastPathComponent).\(UUID().uuidString)")
+                : target
+        }
+        var handles: [FileHandle] = []
+        for plain in plainTargets {
+            fm.createFile(atPath: plain.path, contents: nil)
+            guard let handle = FileHandle(forWritingAtPath: plain.path) else {
+                throw CLIError.conversionFailed(reason: "Cannot open \(plain.path) for writing")
+            }
+            handles.append(handle)
+        }
+        let counts: FASTQPairInterleaver.MixedCounts
+        do {
+            counts = try FASTQPairInterleaver.partitionMixed(
+                interleaved: inputURL,
+                r1: handles[0],
+                r2: handles[1],
+                unpaired: handles[2]
+            )
+        } catch {
+            for handle in handles { try? handle.close() }
+            for plain in plainTargets { try? fm.removeItem(at: plain) }
+            throw error
+        }
+        for handle in handles { try? handle.close() }
+
+        for (plain, target) in zip(plainTargets, targets) where plain != target {
+            _ = try gzipCompressFASTQ(
+                sourceURL: plain,
+                outputURL: target,
+                failureDescription: "deinterleaved output"
+            )
+            try? fm.removeItem(at: plain)
+        }
+        return counts
     }
 }
 
@@ -2576,7 +2750,8 @@ struct FastqDeduplicateSubcommand: AsyncParsableCommand {
         let inputURL = try validateInput(input)
         try output.validateOutput()
         let runner = NativeToolRunner.shared
-        let isInterleaved = try await pairing.resolveIsInterleaved(inputURL: inputURL)
+        let pairingDecision = pairing.resolvePairing(inputURL: inputURL)
+        let isInterleaved = pairingDecision.pairAware
 
         let heapGB = ManagedJavaHeapPolicy.heapGB(minimumGB: 1)
         var args = [
@@ -2587,12 +2762,11 @@ struct FastqDeduplicateSubcommand: AsyncParsableCommand {
             "subs=\(substitutions)",
             "ow=t"
         ]
-        if isInterleaved {
-            // clumpify then compares and clusters whole pairs, and writes
-            // both mates of every surviving pair adjacent to each other.
-            // Without it, mates are reordered as independent single reads.
-            args.append("interleaved=t")
-        }
+        // interleaved=t: clumpify compares and clusters whole pairs and writes
+        // both mates of every surviving pair adjacent to each other.
+        // interleaved=f is stated for the single-read case so clumpify's own
+        // name detection cannot pair a mixed file by position.
+        args.append(isInterleaved ? "interleaved=t" : "interleaved=f")
         if optical {
             args.append("optical=t")
             args.append("dupedist=\(opticalDistance)")
@@ -2638,6 +2812,8 @@ struct FastqDeduplicateSubcommand: AsyncParsableCommand {
                 "dupedist": .integer(opticalDistance),
                 "pairing": pairing.provenanceValue,
                 "interleaved": .boolean(isInterleaved),
+                "readLayout": pairingDecision.readLayoutProvenanceValue,
+                "readLayoutReason": pairingDecision.readLayoutReasonProvenanceValue,
                 "force": .boolean(output.force),
                 "compress": .boolean(output.compress)
             ],
@@ -2647,6 +2823,7 @@ struct FastqDeduplicateSubcommand: AsyncParsableCommand {
                 "dupedist": .integer(40),
                 "pairing": FASTQPairingOptions.provenanceDefault,
                 "interleaved": .boolean(false),
+                "readLayout": FASTQPairingOptions.readLayoutProvenanceDefault,
                 "force": .boolean(false),
                 "compress": .boolean(false)
             ],

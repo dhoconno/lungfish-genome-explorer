@@ -30,7 +30,11 @@ struct FastqSearchMotifSubcommand: AsyncParsableCommand {
         let inputURL = try validateInput(input)
         try output.validateOutput()
 
-        let isInterleaved = try await pairing.resolveIsInterleaved(inputURL: inputURL)
+        // The pair-aware branch re-extracts by fragment NAME, so a file that
+        // mixes merged reads with pairs is safe: a merged read that carries
+        // the motif comes back alone, a pair comes back whole.
+        let pairingDecision = pairing.resolvePairing(inputURL: inputURL, pairsByName: true)
+        let isInterleaved = pairingDecision.pairAware
         var searchArgs = ["grep", "--by-seq", "-p", pattern]
         if regex {
             searchArgs.append("-r")
@@ -87,6 +91,8 @@ struct FastqSearchMotifSubcommand: AsyncParsableCommand {
                 "regex": .boolean(regex),
                 "pairing": pairing.provenanceValue,
                 "interleaved": .boolean(isInterleaved),
+                "readLayout": pairingDecision.readLayoutProvenanceValue,
+                "readLayoutReason": pairingDecision.readLayoutReasonProvenanceValue,
                 "force": .boolean(output.force),
                 "compress": .boolean(output.compress)
             ],
@@ -94,6 +100,7 @@ struct FastqSearchMotifSubcommand: AsyncParsableCommand {
                 "regex": .boolean(false),
                 "pairing": FASTQPairingOptions.provenanceDefault,
                 "interleaved": .boolean(false),
+                "readLayout": FASTQPairingOptions.readLayoutProvenanceDefault,
                 "force": .boolean(false),
                 "compress": .boolean(false)
             ],

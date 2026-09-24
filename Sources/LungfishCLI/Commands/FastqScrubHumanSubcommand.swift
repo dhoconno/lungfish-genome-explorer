@@ -56,8 +56,11 @@ struct FastqScrubHumanSubcommand: AsyncParsableCommand {
         // Resolve pairing against the original input (bundle metadata lives
         // next to it, not next to the decompressed scratch copy). Deacon is
         // handed R1/R2 for interleaved input so it drops both mates of a
-        // human fragment; run on one file it would judge each mate alone.
-        let isInterleaved = try await pairing.resolveIsInterleaved(inputURL: inputURL)
+        // human fragment; run on one file it would judge each mate alone. A
+        // file that mixes merged reads with pairs runs as single reads: the
+        // reformat split pairs by position and would mis-pair it.
+        let pairingDecision = pairing.resolvePairing(inputURL: inputURL)
+        let isInterleaved = pairingDecision.pairAware
 
         let runner = NativeToolRunner.shared
         let resolvedDatabaseID = Self.canonicalHumanReadRemovalDatabaseID(for: databaseID)
@@ -193,6 +196,8 @@ struct FastqScrubHumanSubcommand: AsyncParsableCommand {
             removeReadsCompatibilityFlag: compatibilityRemoveReads,
             pairing: pairing.pairing.rawValue,
             resolvedInterleaved: isInterleaved,
+            resolvedReadLayout: pairingDecision.layout.rawValue,
+            resolvedReadLayoutReason: pairingDecision.resolution.reason,
             force: output.force,
             compress: output.compress,
             resolvedCompressOutput: shouldCompressOutput,
@@ -299,6 +304,8 @@ extension FastqScrubHumanSubcommand {
         removeReadsCompatibilityFlag: Bool,
         pairing: String = "auto",
         resolvedInterleaved: Bool = false,
+        resolvedReadLayout: String = FASTQInputLayout.singleEnd.rawValue,
+        resolvedReadLayoutReason: String? = nil,
         force: Bool,
         compress: Bool,
         resolvedCompressOutput: Bool,
@@ -337,6 +344,8 @@ extension FastqScrubHumanSubcommand {
             "removeReadsCompatibilityFlag": .boolean(removeReadsCompatibilityFlag),
             "pairing": .string(pairing),
             "interleaved": .boolean(resolvedInterleaved),
+            "readLayout": .string(resolvedReadLayout),
+            "readLayoutReason": resolvedReadLayoutReason.map(ParameterValue.string) ?? .null,
             "force": .boolean(force),
             "compress": .boolean(compress),
             "resolvedCompressOutput": .boolean(resolvedCompressOutput),
