@@ -755,25 +755,40 @@ public final class GFF3Writer {
         // Determine seqid
         let seqid = annotation.chromosome ?? "unknown"
 
-        // Determine phase for CDS features
+        // Determine phase for CDS features (SCI-11). Per-segment phase is
+        // computed from the shared helper (also used by the iVar GFF exporter,
+        // SCI-01), which accounts for cumulative CDS length in transcription
+        // order rather than writing phase 0 on every segment.
         let isCDS = annotation.type == .cds
-
-        // Create a feature for each interval
-        for (index, interval) in annotation.intervals.enumerated() {
-            var intervalAttributes = attributes
-
-            // For multi-interval features, add part number
-            if annotation.intervals.count > 1 {
-                intervalAttributes["ID"] = "\(annotation.id.uuidString)_\(index + 1)"
-                intervalAttributes["Parent"] = annotation.id.uuidString
+        let phaseBySegmentStart: [Int: Int]
+        if isCDS {
+            let intervals = annotation.intervals.map {
+                CDSSegmentPhases.Interval(start: $0.start, end: $0.end)
             }
+            let computed = CDSSegmentPhases.compute(intervals: intervals, strand: annotation.strand.rawValue)
+            phaseBySegmentStart = Dictionary(uniqueKeysWithValues: computed.map { ($0.interval.start, $0.phase) })
+        } else {
+            phaseBySegmentStart = [:]
+        }
+
+        // Create a feature for each interval. Multi-interval features
+        // (spliced CDS/mRNA) share the SAME ID across every line, which is the
+        // standard GFF3 idiom for a single multi-line feature and needs no
+        // `Parent` attribute (SCI-11: previously each segment got a distinct
+        // `_N`-suffixed ID and a `Parent` pointing at an ID that this writer
+        // never emits, producing a dangling reference and splitting one CDS
+        // into unrelated features on re-import).
+        for interval in annotation.intervals {
+            let intervalAttributes = attributes
 
             // Convert from 0-based to 1-based coordinates
             let start = interval.start + 1
             let end = interval.end
 
-            // Get phase for CDS features
-            let phase: Int? = isCDS ? (interval.phase ?? 0) : nil
+            // Get phase for CDS features; fall back to the interval's own
+            // stored phase (e.g. read from an imported GFF3/GenBank record)
+            // only if the shared computation has no entry for it.
+            let phase: Int? = isCDS ? (phaseBySegmentStart[interval.start] ?? interval.phase ?? 0) : nil
 
             let feature = GFF3Feature(
                 seqid: seqid,
