@@ -30,7 +30,7 @@ extension FullLengthONTMHCGenotypingPipeline {
         _ rows: [FullLengthONTMHCClusterGenotypeRow],
         to url: URL
     ) throws {
-        var lines = ["sample\tcluster\tcluster_reads\tallele\tallele_length\taligned_bases\tscore"]
+        var lines = ["sample\tcluster\tcluster_reads\tallele\tallele_length\taligned_bases\tscore\tindel_bases"]
         lines += rows.map {
             [
                 $0.sample,
@@ -40,6 +40,7 @@ extension FullLengthONTMHCGenotypingPipeline {
                 String($0.alleleLength),
                 String($0.alignedBases),
                 String($0.score),
+                $0.indelBases.map(String.init) ?? "",
             ].joined(separator: "\t")
         }
         try (lines.joined(separator: "\n") + "\n").write(to: url, atomically: true, encoding: .utf8)
@@ -61,6 +62,11 @@ extension FullLengthONTMHCGenotypingPipeline {
                 "overall_input_reads",
                 "overall_unique_retained_reads",
                 "overall_unique_retained_percent",
+                // GEN-10 (D15) and GEN-04 (D12). Readers treat these as
+                // optional, so bundles written without them still load.
+                "indel_bases",
+                "review_flag",
+                "ambiguous_with",
             ].joined(separator: ","),
         ]
         lines += rows.map {
@@ -75,6 +81,9 @@ extension FullLengthONTMHCGenotypingPipeline {
                 String($0.overallInputReads),
                 String($0.overallUniqueRetainedReads),
                 optionalString($0.overallUniqueRetainedPercent),
+                optionalString($0.indelBases),
+                $0.reviewFlag,
+                csvEscape(($0.ambiguousWith ?? []).joined(separator: ";")),
             ].joined(separator: ",")
         }
         try (lines.joined(separator: "\n") + "\n").write(to: url, atomically: true, encoding: .utf8)

@@ -283,17 +283,16 @@ public enum GenotypeHaplotypeCallStatus: String, Codable, Equatable, Sendable {
     case tooManyHaplotypes
     case tooManyGenotypes
     case specialCase
-    /// GEN-02 (2026-09-23 best-practices audit): two (or more) matched
-    /// haplotype definitions cannot be told apart from the observed
-    /// evidence alone -- either their required diagnostic alleles are
-    /// identical (e.g. two definitions authored the same way), or the
-    /// "matched" haplotype with fewer reads has no diagnostic allele that
-    /// isn't also explained by the other matched haplotype. Reporting such
-    /// a pair as a confident heterozygous call would silently misreport a
-    /// homozygote (e.g. M2/M2) as heterozygous (e.g. "M2 / M6") whenever
-    /// the two definitions share a full-weight allele. `haplotype1`/
-    /// `haplotype2` list the ambiguous candidates joined by "|" rather than
-    /// asserting a specific pairing.
+    /// GEN-02 (D11): two or more candidate haplotypes have identical
+    /// observed diagnostic alleles, so the data cannot tell them apart
+    /// (e.g. MCM DP M4 and M7, whose definitions are identical). The
+    /// affected slot is an ambiguity token joining the candidates with "|"
+    /// ("M4|M7"); the other slot is a single name when it is resolved
+    /// ("M1" / "M4|M7"), or the same token when the group is the only
+    /// evidence. Needs review; never a confident heterozygous pair.
+    /// (Homozygotes that merely share an allele with another definition,
+    /// such as DQ M2/M2 vs M6, are no longer ambiguous: the analyzer drops
+    /// candidates without independent evidence and calls them homozygous.)
     case ambiguous
     /// GEN-08 (2026-09-23 best-practices audit): only one haplotype's
     /// diagnostic alleles were observed, AND every diagnostic call at this

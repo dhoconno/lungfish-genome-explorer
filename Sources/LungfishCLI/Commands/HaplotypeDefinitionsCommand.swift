@@ -78,7 +78,10 @@ struct HaplotypeDefinitionsValidateSubcommand: AsyncParsableCommand {
     func run() async throws {
         let service = HaplotypeDefinitionCommandService(projectRoot: nil)
         let definition = try service.validateDefinition(at: URL(fileURLWithPath: input))
-        try emitJSON(HaplotypeDefinitionValidatePayload(definition: definition))
+        try emitJSON(HaplotypeDefinitionValidatePayload(
+            definition: definition,
+            warnings: service.definitionWarnings(definition)
+        ))
     }
 }
 
@@ -460,13 +463,16 @@ private struct HaplotypeDefinitionValidatePayload: Encodable {
     let assayID: String
     let displayName: String
     let speciesCode: String
+    /// Non-fatal definition lint (GEN-02), e.g. indistinguishable haplotypes.
+    let warnings: [String]
 
-    init(definition: GenotypeHaplotypeDefinitionSet) {
+    init(definition: GenotypeHaplotypeDefinitionSet, warnings: [String]) {
         self.valid = true
         self.definitionID = definition.id
         self.assayID = definition.assayID
         self.displayName = definition.displayName
         self.speciesCode = definition.speciesCode
+        self.warnings = warnings
     }
 }
 

@@ -895,7 +895,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         try Self.writeFilterScript(to: scriptURL)
 
         progressHandler?(0.12, "Resolving reference and FASTQ inputs.")
-        let reference = try await resolveReference(for: request)
+        var reference = try await resolveReference(for: request)
         if let expectedSHA256 = request.lockedReferenceSHA256 {
             let actualSHA256 = try ProvenanceFileHasher.sha256(of: reference.referenceFASTAURL)
             guard actualSHA256 == expectedSHA256 else {
@@ -905,6 +905,13 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
                 )
             }
         }
+        // GEN-04 (D12): collapse identical reference sequences (including
+        // reverse complements) to one representative before mapping, so
+        // perfect reads are not split arbitrarily across tied copies.
+        reference.duplicateCollapse = try GenotypeReferenceDuplicateCollapser.collapse(
+            referenceFASTAURL: reference.referenceFASTAURL,
+            outputDirectory: supportDirectory.appendingPathComponent("reference", isDirectory: true)
+        )
 
         progressHandler?(0.18, "Resolving managed minimap2, samtools, pysam, and openpyxl tools.")
         let minimap2URL = try await condaManager.toolPath(name: "minimap2", environment: "minimap2")
@@ -930,7 +937,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         let mapping = try await runMapping(
             request: request,
             resolvedMode: resolvedMode,
-            referenceFASTAURL: reference.referenceFASTAURL,
+            referenceFASTAURL: reference.mappingReferenceFASTAURL,
             inputFASTQURLs: mappingInputFASTQURLs,
             illuminaPreparation: inputPlan.illuminaPreparation,
             minimap2URL: minimap2URL,
@@ -941,7 +948,8 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         let filter = try await runFilter(
             request: request,
             resolvedMode: resolvedMode,
-            referenceFASTAURL: reference.referenceFASTAURL,
+            referenceFASTAURL: reference.mappingReferenceFASTAURL,
+            referenceAmbiguityGroupsURL: reference.duplicateCollapse?.groupsJSONURL,
             barcodeDefinitionsURL: inputSnapshot.barcodeDefinitionsURL,
             demuxManifestURL: inputSnapshot.demuxManifestURL,
             requireBothEndSoftclips: inputPlan.illuminaPreparation?.requiresBothEndSoftclips
@@ -1891,6 +1899,14 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
     private struct ReferenceResolution {
         let referenceFASTAURL: URL
         let sourceReferenceBundleURL: URL?
+        /// GEN-04 (D12): identical-sequence collapse applied before mapping.
+        var duplicateCollapse: GenotypeReferenceDuplicateCollapser.Collapse? = nil
+
+        /// FASTA that minimap2 and the filter see: the collapsed copy when the
+        /// reference had duplicate sequences, otherwise the original.
+        var mappingReferenceFASTAURL: URL {
+            duplicateCollapse?.mappingReferenceFASTAURL ?? referenceFASTAURL
+        }
     }
 
     private struct SmallInputSnapshot {
@@ -3413,6 +3429,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         request: ONTBarcodeDemuxGenotypingRunRequest,
         resolvedMode: AmpliconGenotypingMode,
         referenceFASTAURL: URL,
+        referenceAmbiguityGroupsURL: URL?,
         barcodeDefinitionsURL: URL,
         demuxManifestURL: URL,
         requireBothEndSoftclips: Bool,
@@ -3431,6 +3448,9 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             "--provenance-command", request.argv.map(shellEscape).joined(separator: " "),
         ]
         request.appendHaplotypeThresholdArguments(to: &arguments)
+        if let referenceAmbiguityGroupsURL {
+            arguments += ["--reference-ambiguity-groups", referenceAmbiguityGroupsURL.path]
+        }
         switch resolvedMode {
         case .ontBarcodeDemux:
             arguments += [
@@ -4072,6 +4092,18 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
     ///
     /// The stats file is rewritten before provenance is recorded, so the
     /// checksum in the envelope covers the annotated content.
+    private static func referenceDuplicateGroupsRecord(
+        _ collapse: GenotypeReferenceDuplicateCollapser.Collapse?
+    ) -> [[String: Any]] {
+        (collapse?.groups ?? []).map { group in
+            [
+                "representative": group.representative,
+                "members": group.members,
+                "reverseComplementMembers": group.reverseComplementMembers,
+            ]
+        }
+    }
+
     private func annotateStatsJSONWithInputPreparation(
         statsJSONURL: URL,
         illuminaPreparation: IlluminaPreparation?
@@ -4266,6 +4298,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             "illuminaInputPreparation": illuminaInputPreparation,
             "sampleBundleInputPreparation": sampleBundleInputPreparation,
             "extraArguments": request.extraArguments,
+            "referenceDuplicateGroups": Self.referenceDuplicateGroupsRecord(reference.duplicateCollapse),
         ]
         let resolvedDefaults: [String: Any] = [
             "genotypeLocusDisplayOrder": try Self.referenceGenotypeLocusDisplayOrder(request.referenceSourceURL) as Any? ?? NSNull(),
@@ -4301,6 +4334,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             "illuminaInputPreparation": NSNull(),
             "sampleBundleInputPreparation": NSNull(),
             "extraArguments": [],
+            "referenceDuplicateGroups": [],
         ]
         let runtimeIdentity: [String: Any] = [
             "minimap2": minimap2URL.path,
@@ -4538,6 +4572,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             "inputFileCount": inputFASTQURLs.count,
             "mappingInputFileCount": mappingInputFASTQURLs.count,
             "sourceReferenceBundle": reference.sourceReferenceBundleURL?.path ?? NSNull(),
+            "warnings": [reference.duplicateCollapse?.warning].compactMap { $0 },
             "statistics": statistics,
             "steps": steps,
             "exitStatus": 0,

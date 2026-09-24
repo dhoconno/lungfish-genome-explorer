@@ -365,6 +365,38 @@ final class ONTGenotypeResultBundleTests: XCTestCase {
         )
     }
 
+    /// GEN-04 (D12): the `ambiguous_with` column carries a collapsed
+    /// identical-reference group onto the call; older CSVs without the
+    /// column (and rows with an empty value) load with no group.
+    func testGenotypeCSVRowCarriesReferenceAmbiguityGroup() throws {
+        let base = [
+            "sample": "S1",
+            "genotype": "MHC_001g1",
+            "passed_alignments": "20",
+            "passed_unique_reads": "20",
+        ]
+        var grouped = base
+        grouped["ambiguous_with"] = "MHC_001g1;MHC_002g2;MHC_003g3"
+        XCTAssertEqual(
+            ONTGenotypeResultBundle.makeCall(row: grouped)?.ambiguousWith,
+            ["MHC_001g1", "MHC_002g2", "MHC_003g3"]
+        )
+        var empty = base
+        empty["ambiguous_with"] = ""
+        XCTAssertNil(ONTGenotypeResultBundle.makeCall(row: empty)?.ambiguousWith)
+        XCTAssertNil(ONTGenotypeResultBundle.makeCall(row: base)?.ambiguousWith)
+        XCTAssertEqual(ONTGenotypeResultBundle.makeCall(row: base)?.passedUniqueReads, 20)
+
+        // GEN-10 (D15): full-length rows carry indel_bases; older CSVs do not.
+        var indel = base
+        indel["indel_bases"] = "9"
+        indel["review_flag"] = "indel"
+        XCTAssertEqual(ONTGenotypeResultBundle.makeCall(row: indel)?.indelBases, 9)
+        XCTAssertEqual(ONTGenotypeResultBundle.makeCall(row: indel)?.needsIndelReview, true)
+        XCTAssertNil(ONTGenotypeResultBundle.makeCall(row: base)?.indelBases)
+        XCTAssertEqual(ONTGenotypeResultBundle.makeCall(row: base)?.needsIndelReview, false)
+    }
+
     func testManifestRoundTripsReviewableRowCatalogDescriptor() throws {
         let descriptor = ONTMHCArtifactReference(
             path: "artifacts/reviewable-rows.json",
