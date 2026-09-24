@@ -794,6 +794,120 @@ final class BatchTableViewTests: XCTestCase {
         NSApp.sendAction(try XCTUnwrap(chooserItem.action), to: chooserItem.target, from: chooserItem)
         XCTAssertTrue(scoreColumn.isHidden)
     }
+
+    // MARK: - UX-04 / UX-17: responder contract
+
+    func testCopySelectedRowsWritesHeaderPlusSelectedRowsAsTSV() throws {
+        let pasteboard = RecordingPasteboard()
+        let table = CopyableBatchTableView(frame: NSRect(x: 0, y: 0, width: 320, height: 240))
+        table.pasteboardOverride = pasteboard
+        table.configure(rows: [
+            TestBatchRow(name: "alpha"),
+            TestBatchRow(name: "beta"),
+            TestBatchRow(name: "gamma"),
+        ])
+        table.tableView.selectRowIndexes(IndexSet([0, 2]), byExtendingSelection: false)
+
+        table.copy(nil)
+
+        let expected = "Name\nalpha\ngamma"
+        XCTAssertEqual(pasteboard.copiedString, expected)
+    }
+
+    func testCopyWithNoSelectionCopiesAllDisplayedRows() throws {
+        let pasteboard = RecordingPasteboard()
+        let table = CopyableBatchTableView(frame: NSRect(x: 0, y: 0, width: 320, height: 240))
+        table.pasteboardOverride = pasteboard
+        table.configure(rows: [
+            TestBatchRow(name: "alpha"),
+            TestBatchRow(name: "beta"),
+        ])
+
+        table.copy(nil)
+
+        XCTAssertEqual(pasteboard.copiedString, "Name\nalpha\nbeta")
+    }
+
+    func testPerformFindPanelActionFocusesSearchField() throws {
+        let table = TestBatchTableView(frame: NSRect(x: 0, y: 0, width: 320, height: 240))
+        table.configure(rows: [TestBatchRow(name: "alpha")])
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = table
+        window.makeKeyAndOrderFront(nil)
+        defer { window.orderOut(nil) }
+
+        let menuItem = NSMenuItem()
+        menuItem.tag = NSTextFinder.Action.showFindInterface.rawValue
+        table.performFindPanelAction(menuItem)
+
+        let fieldEditor = window.firstResponder as? NSText
+        XCTAssertEqual(fieldEditor?.delegate as? NSSearchField, table.testSearchField)
+    }
+
+    func testValidateMenuItemDisablesCopyAndSelectAllWithNoRows() throws {
+        let table = TestBatchTableView(frame: NSRect(x: 0, y: 0, width: 320, height: 240))
+        table.configure(rows: [])
+
+        let copyItem = NSMenuItem(title: "Copy", action: #selector(TestBatchTableView.copy(_:)), keyEquivalent: "")
+        let selectAllItem = NSMenuItem(
+            title: "Select All",
+            action: #selector(TestBatchTableView.selectAll(_:)),
+            keyEquivalent: ""
+        )
+        XCTAssertFalse(table.validateMenuItem(copyItem))
+        XCTAssertFalse(table.validateMenuItem(selectAllItem))
+
+        table.configure(rows: [TestBatchRow(name: "alpha")])
+        XCTAssertTrue(table.validateMenuItem(copyItem))
+        XCTAssertTrue(table.validateMenuItem(selectAllItem))
+    }
+
+    // MARK: - UX-14: no-matches overlay
+
+    func testNoMatchesOverlayAppearsWhenFilterExcludesAllRowsAndClearRestoresThem() throws {
+        let table = TestBatchTableView(frame: NSRect(x: 0, y: 0, width: 320, height: 240))
+        table.configure(rows: [
+            TestBatchRow(name: "alpha"),
+            TestBatchRow(name: "beta"),
+        ])
+        XCTAssertFalse(table.testNoMatchesStatusVisible)
+
+        table.setFilterText("nonexistent-needle")
+        XCTAssertTrue(table.displayedRows.isEmpty)
+        XCTAssertTrue(table.testNoMatchesStatusVisible)
+
+        table.setFilterText("")
+        XCTAssertFalse(table.testNoMatchesStatusVisible)
+        XCTAssertEqual(table.displayedRows.count, 2)
+    }
+
+    func testNoMatchesOverlayStaysHiddenWhenTableHasNoRowsAtAll() throws {
+        let table = TestBatchTableView(frame: NSRect(x: 0, y: 0, width: 320, height: 240))
+        table.configure(rows: [])
+        XCTAssertFalse(table.testNoMatchesStatusVisible)
+    }
+
+    func testCommandClickNoLongerCopiesAndInsteadExtendsSelection() throws {
+        // UX-17: Cmd-click on a row's cell must behave as standard multi-select,
+        // not as a quick-copy gesture that competes with it.
+        let table = TestBatchTableView(frame: NSRect(x: 0, y: 0, width: 320, height: 240))
+        table.configure(rows: [
+            TestBatchRow(name: "alpha"),
+            TestBatchRow(name: "beta"),
+        ])
+        table.tableView.allowsMultipleSelection = true
+
+        table.tableView.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false)
+        table.tableView.selectRowIndexes(IndexSet(integer: 1), byExtendingSelection: true)
+
+        XCTAssertEqual(table.tableView.selectedRowIndexes, IndexSet([0, 1]))
+    }
 }
 
 private struct TypographySnapshot {
@@ -854,6 +968,45 @@ private final class TestBatchTableView: BatchTableView<TestBatchRow> {
 
     override func didApplyDisplayedRows() {
         applyCount += 1
+    }
+}
+
+@MainActor
+private final class RecordingPasteboard: PasteboardWriting {
+    private(set) var copiedString: String?
+    func setString(_ string: String) {
+        copiedString = string
+    }
+}
+
+/// `TestBatchTableView` with a swappable pasteboard for `copy:` tests.
+@MainActor
+private final class CopyableBatchTableView: BatchTableView<TestBatchRow> {
+    var pasteboardOverride: PasteboardWriting?
+
+    override var columnSpecs: [BatchColumnSpec] {
+        [
+            BatchColumnSpec(
+                identifier: NSUserInterfaceItemIdentifier("name"),
+                title: "Name",
+                width: 120,
+                minWidth: 80,
+                defaultAscending: true
+            )
+        ]
+    }
+
+    override var cellCopyPasteboard: PasteboardWriting? { pasteboardOverride }
+
+    override func cellContent(
+        for column: NSUserInterfaceItemIdentifier,
+        row: TestBatchRow
+    ) -> (text: String, alignment: NSTextAlignment, font: NSFont?) {
+        (row.name, .left, nil)
+    }
+
+    override func rowIdentity(for row: TestBatchRow) -> String? {
+        row.name
     }
 }
 

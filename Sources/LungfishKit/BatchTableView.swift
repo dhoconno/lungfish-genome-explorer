@@ -8,24 +8,6 @@ import os.log
 
 // MARK: - BatchColumnSpec
 
-@MainActor
-private final class BatchQuickCopyTextField: NSTextField {
-    var pasteboard: PasteboardWriting?
-    var copiedValue: (() -> String)?
-
-    override func mouseDown(with event: NSEvent) {
-        guard event.modifierFlags.contains(.command),
-              let value = copiedValue?(),
-              !value.isEmpty,
-              let pasteboard else {
-            super.mouseDown(with: event)
-            return
-        }
-
-        pasteboard.setString(value)
-    }
-}
-
 /// Fixed `NSView.tag` used to locate the optional dimmed secondary text
 /// field on a reused cell view, since `NSTableCellView` only exposes a
 /// `textField` slot for the primary line.
@@ -90,7 +72,7 @@ public struct BatchColumnSpec {
 /// class header (not in extensions) because Swift does not allow `@objc` protocol
 /// conformances in extensions of generic classes.
 @MainActor
-open class BatchTableView<Row>: NSView, NSTableViewDataSource, NSTableViewDelegate {
+open class BatchTableView<Row>: NSView, NSTableViewDataSource, NSTableViewDelegate, NSMenuItemValidation {
 
     // MARK: - Subclass Hooks
 
@@ -272,6 +254,7 @@ open class BatchTableView<Row>: NSView, NSTableViewDataSource, NSTableViewDelega
     /// The table view. Accessible to subclasses for targeted column reloads.
     public private(set) var tableView: NSTableView!
     private var scrollView: NSScrollView!
+    private var noMatchesStatusView: ViewportStatusView!
     private var searchField: NSSearchField!
     private var searchHeightConstraint: NSLayoutConstraint!
     private var preferredFontProvider: any ContentPreferredFontProviding =
@@ -329,6 +312,15 @@ open class BatchTableView<Row>: NSView, NSTableViewDataSource, NSTableViewDelega
         addSubview(sv)
         self.scrollView = sv
 
+        // UX-14: overlay shown in place of a blank grid when a filter
+        // narrows the table to zero rows, so "no matches" reads as an
+        // explicit state rather than looking like a bug.
+        let statusView = ViewportStatusView()
+        statusView.translatesAutoresizingMaskIntoConstraints = false
+        statusView.isHidden = true
+        addSubview(statusView)
+        self.noMatchesStatusView = statusView
+
         let searchHeightConstraint = sf.heightAnchor.constraint(equalToConstant: 24)
         self.searchHeightConstraint = searchHeightConstraint
         NSLayoutConstraint.activate([
@@ -340,6 +332,10 @@ open class BatchTableView<Row>: NSView, NSTableViewDataSource, NSTableViewDelega
             sv.leadingAnchor.constraint(equalTo: leadingAnchor),
             sv.trailingAnchor.constraint(equalTo: trailingAnchor),
             sv.bottomAnchor.constraint(equalTo: bottomAnchor),
+            statusView.topAnchor.constraint(equalTo: sv.topAnchor),
+            statusView.leadingAnchor.constraint(equalTo: sv.leadingAnchor),
+            statusView.trailingAnchor.constraint(equalTo: sv.trailingAnchor),
+            statusView.bottomAnchor.constraint(equalTo: sv.bottomAnchor),
         ])
 
         let tv = NSTableView()
@@ -543,6 +539,123 @@ open class BatchTableView<Row>: NSView, NSTableViewDataSource, NSTableViewDelega
         applyContentTypography()
     }
 
+    // MARK: - Responder Contract (UX-04, UX-17)
+
+    /// Standard Mac responder contract for result tables: `copy:` puts the
+    /// selected rows on the pasteboard as TSV (header plus one line per
+    /// selected row, visible columns only, in display order), and
+    /// `performFindPanelAction:`/`performTextFinderAction:` with
+    /// `.showFindInterface` focus this table's own filter field instead of
+    /// opening a `NSTextFinder` panel, since the filter field already is
+    /// this table's "find" affordance. Implemented once here so every
+    /// `BatchTableView` subclass (EsViritu, Assembly and Mapping contig
+    /// tables, and any future adopter) gets Edit > Copy and Edit > Find for
+    /// free instead of each viewer inventing its own right-click-only copy.
+    open override var acceptsFirstResponder: Bool { true }
+
+    /// Visible, non-hidden columns in on-screen display order, used as the
+    /// column set for `copy:`'s TSV rendering.
+    private var visibleColumnsInDisplayOrder: [NSTableColumn] {
+        tableView.tableColumns.filter { !$0.isHidden }
+    }
+
+    /// Builds the TSV representation (header row + one row per `rows`) using
+    /// the same `columnValue(for:row:)` contract column filters already rely
+    /// on, so copied text matches what column-value filtering considers the
+    /// cell's value rather than any transient display formatting.
+    private func tsvRepresentation(for rows: [Row]) -> String? {
+        guard !rows.isEmpty else { return nil }
+        let columns = visibleColumnsInDisplayOrder
+        guard !columns.isEmpty else { return nil }
+
+        func tsvEscape(_ value: String) -> String {
+            value.replacingOccurrences(of: "\t", with: " ")
+                .replacingOccurrences(of: "\n", with: " ")
+        }
+
+        var lines: [String] = []
+        let header = columns.map { tsvEscape($0.title) }.joined(separator: "\t")
+        lines.append(header)
+        for row in rows {
+            let fields = columns.map { column in
+                tsvEscape(columnValue(for: column.identifier.rawValue, row: row))
+            }
+            lines.append(fields.joined(separator: "\t"))
+        }
+        return lines.joined(separator: "\n")
+    }
+
+    /// `copy:` — puts the current selection (or, with no selection, every
+    /// displayed row) on the pasteboard as TSV. Falls back to `.general`
+    /// when a subclass has not supplied ``cellCopyPasteboard`` (production
+    /// code always has a real `NSPasteboard`; tests inject a fake).
+    @objc open func copy(_ sender: Any?) {
+        let rows = selectedRowsByIdentity()
+        let rowsToCopy = rows.isEmpty ? displayedRows : rows
+        guard let tsv = tsvRepresentation(for: rowsToCopy) else { return }
+        if let cellCopyPasteboard {
+            cellCopyPasteboard.setString(tsv)
+        } else {
+            let pasteboard = NSPasteboard.general
+            pasteboard.clearContents()
+            pasteboard.setString(tsv, forType: .string)
+        }
+    }
+
+    /// `selectAll:` — selects every displayed row, matching standard
+    /// `NSTableView` behavior for a table that is otherwise a plain `NSView`.
+    @objc open override func selectAll(_ sender: Any?) {
+        guard !displayedRows.isEmpty else { return }
+        tableView.selectAll(sender)
+    }
+
+    /// `performFindPanelAction:` — the selector `Edit > Find` sends
+    /// (declared on `NSTextView`, not `NSResponder`, but dispatched by
+    /// Objective-C selector name, so any responder in the chain may
+    /// implement it). Focuses this table's own filter field for
+    /// `.showFindInterface`; other tags are forwarded up the responder chain
+    /// since this table has no find-next/previous/replace behavior of its own.
+    @objc open func performFindPanelAction(_ sender: Any?) {
+        guard let menuItem = sender as? NSMenuItem,
+              let tag = NSTextFinder.Action(rawValue: menuItem.tag),
+              tag == .showFindInterface else {
+            nextResponder?.tryToPerform(#selector(BatchTableView.performFindPanelAction(_:)), with: sender)
+            return
+        }
+        _ = focusSearchField()
+    }
+
+    /// `performTextFinderAction:` — declared on `NSResponder`; some callers
+    /// send this instead of `performFindPanelAction:`. Forwards to the same
+    /// handling.
+    @objc open override func performTextFinderAction(_ sender: Any?) {
+        performFindPanelAction(sender)
+    }
+
+    /// Makes the filter search field the window's first responder. Returns
+    /// `true` when the field could be focused (a window is attached).
+    @discardableResult
+    public func focusSearchField() -> Bool {
+        guard let window = self.window else { return false }
+        return window.makeFirstResponder(searchField)
+    }
+
+    open func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        switch menuItem.action {
+        case #selector(copy(_:)):
+            return !displayedRows.isEmpty
+        case #selector(selectAll(_:)):
+            return !displayedRows.isEmpty
+        case #selector(performFindPanelAction(_:)), #selector(performTextFinderAction(_:)):
+            if let tag = NSTextFinder.Action(rawValue: menuItem.tag) {
+                return tag == .showFindInterface
+            }
+            return true
+        default:
+            return true
+        }
+    }
+
     // MARK: - Empty Column Hiding
 
     /// Returns `true` if the given column has at least one non-nil / non-empty data value
@@ -629,7 +742,25 @@ open class BatchTableView<Row>: NSView, NSTableViewDataSource, NSTableViewDelega
             originalTitles: &originalColumnTitles
         )
         restoreSelectionByIdentityAfterDisplayedRowsChanged()
+        updateNoMatchesStatus()
         didApplyDisplayedRows()
+    }
+
+    /// Shows the "no matches" overlay (UX-14) when a free-text or column
+    /// filter has narrowed a non-empty table to zero rows. Stays hidden
+    /// when the table is legitimately empty (no rows were ever loaded), so
+    /// this overlay never substitutes for a tool-specific empty-result
+    /// message a subclass may show elsewhere.
+    private func updateNoMatchesStatus() {
+        let hasActiveFilter = !filterText.isEmpty || columnFilterSet.isActive
+        let shouldShow = displayedRows.isEmpty && !unfilteredRows.isEmpty && hasActiveFilter
+        noMatchesStatusView.isHidden = !shouldShow
+        guard shouldShow else { return }
+        noMatchesStatusView.configure(.noMatches()) { [weak self] in
+            guard let self else { return }
+            self.setFilterText("")
+            self.clearAllColumnFilters()
+        }
     }
 
     private func rowMatchesSearch(_ row: Row, filterText: String) -> Bool {
@@ -800,9 +931,7 @@ open class BatchTableView<Row>: NSView, NSTableViewDataSource, NSTableViewDelega
     open func makeCellView(identifier: NSUserInterfaceItemIdentifier) -> NSTableCellView {
         let cell = BatchTableCellView()
         cell.identifier = identifier
-        let tf = BatchQuickCopyTextField(labelWithString: "")
-        tf.pasteboard = cellCopyPasteboard
-        tf.copiedValue = { [weak tf] in tf?.stringValue ?? "" }
+        let tf = NSTextField(labelWithString: "")
         let typography = ContentTypography.current(
             preferredFontProvider: preferredFontProvider
         )
@@ -1098,22 +1227,6 @@ open class BatchTableView<Row>: NSView, NSTableViewDataSource, NSTableViewDelega
         let (text, alignment, font) = cellContent(for: id, row: rowData)
         cellView.textField?.stringValue = text
         cellView.textField?.alignment   = alignment
-        if let copyField = cellView.textField as? BatchQuickCopyTextField {
-            copyField.pasteboard = cellCopyPasteboard
-            // Copy source of record is `columnValue`, not the displayed text —
-            // when a secondary line replaces the primary line with a bundle
-            // display label (see `secondaryCellText`), `cellContent`'s text is
-            // no longer the row's stable identifier. `columnValue` stays keyed
-            // on that identifier (e.g. contig id) by contract, so Cmd-click
-            // copy keeps copying the ID even though the display label is what
-            // is visibly showing. Captures `rowData`/`id` by value (not
-            // `[weak self]`) since both are immutable snapshots for this
-            // render; re-rendering the reused cell for a different row
-            // reassigns this closure before it can be invoked with stale data.
-            copyField.copiedValue = { [weak self] in
-                self?.columnValue(for: id.rawValue, row: rowData) ?? text
-            }
-        }
         if let font {
             cellView.textField?.font = scaledContentFont(from: font)
         } else {
@@ -1289,6 +1402,9 @@ open class BatchTableView<Row>: NSView, NSTableViewDataSource, NSTableViewDelega
 extension BatchTableView {
     public var testSearchField: NSSearchField { searchField }
     public var testTableView: NSTableView { tableView }
+
+    /// Whether the UX-14 "no matches" overlay is currently visible.
+    public var testNoMatchesStatusVisible: Bool { !noMatchesStatusView.isHidden }
 
     /// Renders the cell view for `row`/`columnID` through the real
     /// `NSTableViewDelegate` path and returns its primary and (if visible)

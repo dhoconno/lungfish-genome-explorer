@@ -205,7 +205,7 @@ public final class BatchTaxTriageTableView: BatchTableView<TaxTriageMetric> {
 
     // MARK: - Menu Validation
 
-    func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+    public override func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
         if menuItem.action == #selector(contextBlastVerify(_:)) {
             // BLAST requires exactly one row (the clicked row).
             return tableView.clickedRow >= 0 && selectedRowsByIdentity().count <= 1
@@ -219,7 +219,7 @@ public final class BatchTaxTriageTableView: BatchTableView<TaxTriageMetric> {
         if menuItem.action == #selector(contextExtractReads(_:)) {
             return hasVisibleIdentitySelection() || tableView.clickedRow >= 0
         }
-        return true
+        return super.validateMenuItem(menuItem)
     }
 
     /// Returns the metrics for all currently selected rows.
