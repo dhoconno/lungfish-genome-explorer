@@ -292,6 +292,34 @@ final class FASTQOperationDialogRoutingTests: XCTestCase {
         XCTAssertEqual(state.readinessText, "Ready to configure output.")
     }
 
+    /// Regression test for WFL-19: launchRequestForSelectedTool()'s orient
+    /// branch does `guard let extraArguments = try? AdvancedCommandLineOptions
+    /// .parse(orientExtraArguments) else { return nil }`, but readiness
+    /// previously only checked the reference sequence. With malformed extra
+    /// arguments (e.g. an unterminated quote), Run stayed enabled and
+    /// prepareForRun() silently produced no pending request at all.
+    func testOrientRequiresValidExtraArgumentsBeforeRunCanProceed() {
+        let state = FASTQOperationDialogState(
+            initialCategory: .readProcessing,
+            selectedInputURLs: [URL(fileURLWithPath: "/tmp/sample.lungfishfastq")]
+        )
+
+        state.selectTool(.orientReads)
+        state.setAuxiliaryInput(
+            URL(fileURLWithPath: "/tmp/reference.fasta"),
+            for: .referenceSequence
+        )
+        XCTAssertTrue(state.isRunEnabled)
+
+        state.orientExtraArguments = "--id \"0.97"
+
+        XCTAssertFalse(state.isRunEnabled, "Orient must not report ready with malformed extra arguments")
+        XCTAssertNotEqual(state.readinessText, "Ready to configure output.")
+
+        state.prepareForRun()
+        XCTAssertNil(state.pendingLaunchRequest, "Run must not silently no-op with a stale/absent pending request")
+    }
+
     /// Regression test for AS22: prepareForRun()'s mafft branch checked
     /// selectedToolConfigurationIsReady (FASTQ-input confirmation, thread
     /// count, advanced-options parseability) but never checked for a

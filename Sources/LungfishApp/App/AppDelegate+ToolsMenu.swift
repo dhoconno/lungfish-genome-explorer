@@ -818,8 +818,17 @@ extension AppDelegate {
                         .sidebarController.requestReloadFromFilesystem()
                 }}
             } catch {
+                // WFL-19: show the user-facing localized message, not the raw
+                // enum/struct description; keep the raw text for diagnostics.
+                let localizedMessage = error.localizedDescription
+                let rawDetail = "\(error)"
                 DispatchQueue.main.async { MainActor.assumeIsolated {
-                    _ = OperationCenter.shared.fail(id: opID, detail: "\(error)")
+                    _ = OperationCenter.shared.fail(
+                        id: opID,
+                        detail: localizedMessage,
+                        errorMessage: localizedMessage,
+                        errorDetail: rawDetail
+                    )
                 }}
             }
         }
@@ -1676,8 +1685,17 @@ extension AppDelegate {
                     ) else { return }
                 }}
             } catch {
+                // WFL-19: show the user-facing localized message, not the raw
+                // enum/struct description; keep the raw text for diagnostics.
+                let localizedMessage = error.localizedDescription
+                let rawDetail = "\(error)"
                 DispatchQueue.main.async { MainActor.assumeIsolated {
-                    _ = OperationCenter.shared.fail(id: opID, detail: "\(error)")
+                    _ = OperationCenter.shared.fail(
+                        id: opID,
+                        detail: localizedMessage,
+                        errorMessage: localizedMessage,
+                        errorDetail: rawDetail
+                    )
                 }}
             }
         }

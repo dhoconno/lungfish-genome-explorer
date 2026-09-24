@@ -335,9 +335,18 @@ public enum FASTQIngestionService {
             }
         } catch {
             logger.error("Ingestion failed: \(error)")
+            // WFL-19: show the user-facing localized message, not the raw
+            // enum/struct description; keep the raw text for diagnostics.
+            let localizedMessage = error.localizedDescription
+            let rawDetail = "\(error)"
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
-                    _ = OperationCenter.shared.fail(id: opID, detail: "\(error)")
+                    _ = OperationCenter.shared.fail(
+                        id: opID,
+                        detail: localizedMessage,
+                        errorMessage: localizedMessage,
+                        errorDetail: rawDetail
+                    )
                 }
             }
         }
@@ -1581,9 +1590,18 @@ public enum FASTQIngestionService {
             }
         } catch {
             logger.error("CLI subprocess failed: \(error)")
+            // WFL-19: show the user-facing localized message, not the raw
+            // enum/struct description; keep the raw text for diagnostics.
+            let localizedMessage = error.localizedDescription
+            let rawDetail = "\(error)"
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
-                    guard OperationCenter.shared.fail(id: opID, detail: "\(error)") else {
+                    guard OperationCenter.shared.fail(
+                        id: opID,
+                        detail: localizedMessage,
+                        errorMessage: localizedMessage,
+                        errorDetail: rawDetail
+                    ) else {
                         completion(.failure(CancellationError()))
                         return
                     }

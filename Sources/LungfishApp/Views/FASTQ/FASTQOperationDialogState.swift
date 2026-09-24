@@ -1392,9 +1392,18 @@ final class FASTQOperationDialogState {
             return nil
 
         case .orientReads:
-            return auxiliaryInputURL(for: .referenceSequence) == nil
-                ? "Select a reference sequence to continue."
-                : nil
+            guard auxiliaryInputURL(for: .referenceSequence) != nil else {
+                return "Select a reference sequence to continue."
+            }
+            // WFL-19: malformed extra arguments must not silently no-op —
+            // surface the parse failure so Run is disabled with a reason
+            // instead of doing nothing when clicked.
+            do {
+                _ = try AdvancedCommandLineOptions.parse(orientExtraArguments)
+                return nil
+            } catch {
+                return error.localizedDescription
+            }
 
         case .ontFluidigmSampleSplit:
             if selectedInputURLs.count != 1 {

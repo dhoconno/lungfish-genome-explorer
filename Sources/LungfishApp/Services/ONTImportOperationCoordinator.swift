@@ -100,7 +100,14 @@ public final class ONTImportOperationCoordinator {
             )
             return result
         } catch {
-            _ = operationCenter.fail(id: opID, detail: "\(error)")
+            // WFL-19: show the user-facing localized message, not the raw
+            // enum/struct description; keep the raw text for diagnostics.
+            _ = operationCenter.fail(
+                id: opID,
+                detail: error.localizedDescription,
+                errorMessage: error.localizedDescription,
+                errorDetail: "\(error)"
+            )
             throw error
         }
     }
