@@ -88,6 +88,41 @@ final class PrimerSchemeCommandsTests: XCTestCase {
         XCTAssertEqual(explicit.requestedMaximumAmpliconLength, 1125)
     }
 
+    func testEqualsSyntaxRecordsExplicitDefaultValuedCommonAndEngineOptions() throws {
+        let workers = PrimerSchemeDesignOptions.defaultWorkers
+        let varvampArguments = [
+            "--msa=/tmp/a.fasta", "--output=/tmp/out.lungfishprimeranalysis",
+            "--mode=tiled", "--grouping=independent", "--amplicon-size=400",
+            "--workers=\(workers)", "--maximum-primer-ambiguities=2",
+        ]
+        let varvamp = try VarVAMPDesignCommand.parse(varvampArguments)
+        let options = try varvamp.makeOptions(argv: varvampArguments)
+        let common = try XCTUnwrap(options.provenanceOptions["common"]?.dictionaryValue)
+        let supplied = try XCTUnwrap(common["supplied"]?.dictionaryValue)
+        XCTAssertEqual(supplied["engine"]?.stringValue, "varvamp")
+        XCTAssertEqual(supplied["mode"]?.stringValue, "tiled")
+        XCTAssertEqual(supplied["grouping"]?.stringValue, "independent")
+        XCTAssertEqual(supplied["nominalAmpliconLength"]?.integerValue, 400)
+        XCTAssertEqual(supplied["workers"]?.integerValue, workers)
+        let native = try XCTUnwrap(options.provenanceOptions["varvamp"]?.dictionaryValue)
+        XCTAssertEqual(native["supplied"]?.dictionaryValue?["maximumPrimerAmbiguities"]?.integerValue,
+                       2)
+
+        let olivarArguments = [
+            "--msa=/tmp/a.fasta", "--output=/tmp/out.lungfishprimeranalysis",
+            "--grouping=independent", "--amplicon-size=400", "--workers=\(workers)",
+            "--minimum-complexity=0.4",
+        ]
+        let olivar = try OlivarDesignCommand.parse(olivarArguments)
+        let olivarOptions = try olivar.makeOptions(argv: olivarArguments)
+        let olivarNative = try XCTUnwrap(
+            olivarOptions.provenanceOptions["olivar"]?.dictionaryValue?["supplied"]?
+                .dictionaryValue)
+        XCTAssertEqual(olivarNative["minimumComplexity"]?.numberValue, 0.4)
+        XCTAssertEqual(olivarOptions.provenanceOptions["common"]?.dictionaryValue?["supplied"]?
+            .dictionaryValue?["grouping"]?.stringValue, "independent")
+    }
+
     func testHelpNamesLGEAdapterAndNativeSizeSemantics() throws {
         let olivar = OlivarDesignCommand.helpMessage()
         XCTAssertTrue(olivar.contains("LGE adapter"))

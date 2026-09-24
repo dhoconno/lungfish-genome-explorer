@@ -136,6 +136,18 @@ struct VarVAMPDesignCommand: AsyncParsableCommand {
                 .contains(where: { $0 != nil }) {
             inferred.insert("configOverrides")
         }
+        if mode != "tiled" { inferred.insert("mode") }
+        if grouping != "independent" { inferred.insert("grouping") }
+        if ampliconSize != 400 { inferred.insert("nominalAmpliconLength") }
+        if ampliconSizeMin != nil {
+            inferred.formUnion(["minimumAmpliconLength", "requestedMinimumAmpliconLength"])
+        }
+        if ampliconSizeMax != nil {
+            inferred.formUnion(["maximumAmpliconLength", "requestedMaximumAmpliconLength"])
+        }
+        if workers != PrimerSchemeDesignOptions.defaultWorkers { inferred.insert("workers") }
+        var allSupplied = supplied ?? inferred
+        allSupplied.insert("engine")
         let native = VarVAMPDesignOptions(
             cumulativeConsensusThreshold: consensusThreshold,
             maximumPrimerAmbiguities: maximumPrimerAmbiguities,
@@ -144,7 +156,7 @@ struct VarVAMPDesignCommand: AsyncParsableCommand {
             qpcrTestCount: qpcrTestCount, qpcrDeltaG: qpcrDeltaG,
             schemeName: schemeName, compatiblePrimersPath: compatiblePrimersPath,
             blastDatabasePath: blastDatabasePath, configOverrides: overrides,
-            suppliedOptionNames: supplied ?? inferred)
+            suppliedOptionNames: allSupplied)
         let options = PrimerSchemeDesignOptions(
             engine: .varvamp, mode: resolvedMode, grouping: .independent,
             nominalAmpliconLength: ampliconSize,
@@ -152,9 +164,13 @@ struct VarVAMPDesignCommand: AsyncParsableCommand {
             maximumAmpliconLength: ampliconSizeMax ?? defaultMaximum(for: ampliconSize),
             requestedMinimumAmpliconLength: ampliconSizeMin,
             requestedMaximumAmpliconLength: ampliconSizeMax,
-            workers: workers, varvamp: native)
+            workers: workers, suppliedOptionNames: allSupplied, varvamp: native)
         try options.validate()
         return options
+    }
+
+    func makeOptions(argv: [String]) throws -> PrimerSchemeDesignOptions {
+        try makeOptions(supplied: suppliedNames(argv))
     }
 
     func run() async throws {
@@ -164,7 +180,7 @@ struct VarVAMPDesignCommand: AsyncParsableCommand {
 
     private func execute(argv: [String]) async throws -> URL {
         let inputs = try primerSchemeInputs(msaPaths)
-        let options = try makeOptions(supplied: suppliedNames(argv))
+        let options = try makeOptions(argv: argv)
         var checksums: [URL: String] = [:]
         for input in inputs {
             checksums[input] = try await Primer3DesignPipeline.inspectInput(at: input).checksumSHA256
@@ -180,22 +196,24 @@ struct VarVAMPDesignCommand: AsyncParsableCommand {
     }
 
     private func suppliedNames(_ argv: [String]) -> Set<String> {
-        let mapping = [
-            "--consensus-threshold": "cumulativeConsensusThreshold",
-            "--maximum-primer-ambiguities": "maximumPrimerAmbiguities",
-            "--maximum-probe-ambiguities": "maximumProbeAmbiguities",
-            "--tiled-overlap": "tiledOverlap", "--report-count": "reportCount",
-            "--qpcr-test-count": "qpcrTestCount", "--qpcr-delta-g": "qpcrDeltaG",
-            "--scheme-name": "schemeName", "--compatible-primers": "compatiblePrimersPath",
-            "--blast-database": "blastDatabasePath",
+        let mapping: [String: Set<String>] = [
+            "--mode": ["mode"], "--grouping": ["grouping"],
+            "--amplicon-size": ["nominalAmpliconLength"],
+            "--amplicon-size-min": ["minimumAmpliconLength", "requestedMinimumAmpliconLength"],
+            "--amplicon-size-max": ["maximumAmpliconLength", "requestedMaximumAmpliconLength"],
+            "--workers": ["workers"],
+            "--consensus-threshold": ["cumulativeConsensusThreshold"],
+            "--maximum-primer-ambiguities": ["maximumPrimerAmbiguities"],
+            "--maximum-probe-ambiguities": ["maximumProbeAmbiguities"],
+            "--tiled-overlap": ["tiledOverlap"], "--report-count": ["reportCount"],
+            "--qpcr-test-count": ["qpcrTestCount"], "--qpcr-delta-g": ["qpcrDeltaG"],
+            "--scheme-name": ["schemeName"], "--compatible-primers": ["compatiblePrimersPath"],
+            "--blast-database": ["blastDatabasePath"],
         ]
-        var names = Set(argv.compactMap { mapping[$0] })
         let configPrefixes = ["--terminal-", "--primer-", "--probe-", "--qprimer-",
                               "--amplicon-gc-", "--amplicon-deletion-", "--pcr-"]
-        if argv.contains(where: { argument in configPrefixes.contains(where: argument.hasPrefix) }) {
-            names.insert("configOverrides")
-        }
-        return names
+        return primerSchemeSuppliedOptionNames(
+            argv, mapping: mapping, prefixes: configPrefixes)
     }
 
     private func doubleTriplet(_ min: Double?, _ opt: Double?, _ max: Double?, _ name: String)

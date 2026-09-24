@@ -217,6 +217,10 @@ public struct PrimerSchemeResultsDocument: Codable, Equatable, Sendable {
             throw PrimerSchemeDesignError.contractViolation(
                 "Stored resolved amplicon bounds, mode, or worker count are invalid.")
         }
+        guard projections.values.allSatisfy({ Self.safeRelativePath($0.sourcePath) }) else {
+            throw PrimerSchemeDesignError.contractViolation(
+                "Stored binding projection sourcePath must be a contained bundle-relative path.")
+        }
         try validateStoredEngineSettings()
         try validateEnvelope(
             knownInputIDs: knownInputIDs, projections: projections,
@@ -385,10 +389,35 @@ public struct PrimerSchemeResultsDocument: Codable, Equatable, Sendable {
                   case .object(let risk)? = resolvedOptions["riskWeights"],
                   Set(risk.keys) == Set(["extremeGC", "lowComplexity", "nonSpecificity",
                                          "variation", "sensitivity", "combination"]),
-                  risk.values.allSatisfy(\.isNumber) else {
+                  risk.values.allSatisfy(\.isNumber),
+                  resolvedOptions["blastDatabasePath"]?.isSafeStoredPath == true else {
                 throw PrimerSchemeDesignError.contractViolation(
                     "Stored OliVar resolved settings do not match adapter schema v1.")
             }
+            let stored = OlivarDesignOptions(
+                minimumVariantFrequency: resolvedOptions["minimumVariantFrequency"]!.storedNumber!,
+                degenerate: resolvedOptions["degenerate"]!.storedBoolean!, align: false,
+                temperatureC: resolvedOptions["temperatureC"]!.storedNumber!,
+                salinityM: resolvedOptions["salinityM"]!.storedNumber!,
+                maximumDimerDeltaG: resolvedOptions["maximumDimerDeltaG"]!.storedNumber!,
+                minimumGC: resolvedOptions["minimumGC"]!.storedNumber!,
+                maximumGC: resolvedOptions["maximumGC"]!.storedNumber!,
+                minimumComplexity: resolvedOptions["minimumComplexity"]!.storedNumber!,
+                maximumPrimerLength: resolvedOptions["maximumPrimerLength"]!.storedInteger!,
+                checkVariants: resolvedOptions["checkVariants"]!.storedBoolean!,
+                seed: resolvedOptions["seed"]!.storedInteger!,
+                effort: resolvedOptions["effort"]!.storedInteger!,
+                forwardPrefix: resolvedOptions["forwardPrefix"]!.storedString!,
+                reversePrefix: resolvedOptions["reversePrefix"]!.storedString!,
+                blastDatabasePath: resolvedOptions["blastDatabasePath"]!.storedNullableString,
+                riskWeights: .init(
+                    extremeGC: risk["extremeGC"]!.storedNumber!,
+                    lowComplexity: risk["lowComplexity"]!.storedNumber!,
+                    nonSpecificity: risk["nonSpecificity"]!.storedNumber!,
+                    variation: risk["variation"]!.storedNumber!,
+                    sensitivity: risk["sensitivity"]!.storedNumber!,
+                    combination: risk["combination"]!.storedNumber!))
+            try validateStoredSemantics { try stored.validate() }
         case .varvamp:
             let expected = common.union([
                 "cumulativeConsensusThreshold", "maximumPrimerAmbiguities",
@@ -405,15 +434,88 @@ public struct PrimerSchemeResultsDocument: Codable, Equatable, Sendable {
                   resolvedOptions["qpcrTestCount"]?.isInteger == true,
                   resolvedOptions["qpcrDeltaG"]?.isInteger == true,
                   resolvedOptions["schemeName"]?.isString == true,
-                  resolvedOptions["compatiblePrimersPath"]?.isNullableString == true,
-                  resolvedOptions["blastDatabasePath"]?.isNullableString == true,
+                  resolvedOptions["compatiblePrimersPath"]?.isSafeStoredPath == true,
+                  resolvedOptions["blastDatabasePath"]?.isSafeStoredPath == true,
                   case .object(let overrides)? = resolvedOptions["configOverrides"],
                   Self.validStoredVarVAMPOverrides(overrides),
                   mode != .qpcr || resolvedOptions["cumulativeConsensusThreshold"]?.isNumber == true else {
                 throw PrimerSchemeDesignError.contractViolation(
                     "Stored varVAMP resolved settings do not match adapter schema v1.")
             }
+            let stored = VarVAMPDesignOptions(
+                cumulativeConsensusThreshold: resolvedOptions["cumulativeConsensusThreshold"]!
+                    .storedNullableNumber,
+                maximumPrimerAmbiguities: resolvedOptions["maximumPrimerAmbiguities"]!.storedInteger!,
+                maximumProbeAmbiguities: resolvedOptions["maximumProbeAmbiguities"]!.storedNullableInteger,
+                tiledOverlap: resolvedOptions["tiledOverlap"]!.storedInteger!,
+                reportCount: resolvedOptions["reportCount"]!.storedNullableInteger,
+                qpcrTestCount: resolvedOptions["qpcrTestCount"]!.storedInteger!,
+                qpcrDeltaG: resolvedOptions["qpcrDeltaG"]!.storedInteger!,
+                schemeName: resolvedOptions["schemeName"]!.storedString!,
+                compatiblePrimersPath: resolvedOptions["compatiblePrimersPath"]!.storedNullableString,
+                blastDatabasePath: resolvedOptions["blastDatabasePath"]!.storedNullableString,
+                configOverrides: Self.storedVarVAMPOverrides(overrides))
+            try validateStoredSemantics { try stored.validate(mode: mode) }
         }
+    }
+
+    private func validateStoredSemantics(_ operation: () throws -> Void) throws {
+        do { try operation() }
+        catch {
+            throw PrimerSchemeDesignError.contractViolation(
+                "Stored resolved settings violate typed request semantics: \(error.localizedDescription)")
+        }
+    }
+
+    private static func storedVarVAMPOverrides(
+        _ values: [String: PrimerSchemeJSONValue]
+    ) -> VarVAMPConfigOverrides {
+        func number(_ key: String) -> Double? { values[key]?.storedNumber }
+        func integer(_ key: String) -> Int? { values[key]?.storedInteger }
+        func numbers(_ key: String) -> [Double]? { values[key]?.storedNumbers }
+        func integers(_ key: String) -> [Int]? { values[key]?.storedIntegers }
+        func doubleTriplet(_ key: String) -> PrimerSchemeDoubleTriplet? {
+            guard let item = numbers(key), item.count == 3 else { return nil }
+            return .init(minimum: item[0], maximum: item[1], optimum: item[2])
+        }
+        func intTriplet(_ key: String) -> PrimerSchemeIntTriplet? {
+            guard let item = integers(key), item.count == 3 else { return nil }
+            return .init(minimum: item[0], maximum: item[1], optimum: item[2])
+        }
+        func doubleRange(_ key: String) -> PrimerSchemeDoubleRange? {
+            guard let item = numbers(key), item.count == 2 else { return nil }
+            return .init(minimum: item[0], maximum: item[1])
+        }
+        func intRange(_ key: String) -> PrimerSchemeIntRange? {
+            guard let item = integers(key), item.count == 2 else { return nil }
+            return .init(minimum: item[0], maximum: item[1])
+        }
+        return .init(
+            terminalMaskingThreshold: number("TERMINAL_MASKING_THRESHOLD"),
+            primerTemperature: doubleTriplet("PRIMER_TMP"),
+            primerGCRange: doubleTriplet("PRIMER_GC_RANGE"),
+            primerSizes: intTriplet("PRIMER_SIZES"),
+            primerMaximumPolyX: integer("PRIMER_MAX_POLYX"),
+            primerMaximumDinucleotideRepeats: integer("PRIMER_MAX_DINUC_REPEATS"),
+            primerHairpin: number("PRIMER_HAIRPIN"),
+            primerGCEnd: intRange("PRIMER_GC_END"),
+            primerMinimum3PrimeWithoutAmbiguity: integer("PRIMER_MIN_3_WITHOUT_AMB"),
+            primerMaximumDimerTemperature: number("PRIMER_MAX_DIMER_TMP"),
+            primerMaximumDimerDeltaG: number("PRIMER_MAX_DIMER_DELTAG"),
+            endOverlap: integer("END_OVERLAP"),
+            probeTemperature: doubleTriplet("QPROBE_TMP"),
+            probeSizes: intTriplet("QPROBE_SIZES"),
+            probeGCRange: doubleTriplet("QPROBE_GC_RANGE"),
+            probeGCEnd: intRange("QPROBE_GC_END"),
+            qprimerDifference: number("QPRIMER_DIFF"),
+            probeTemperatureDifference: doubleRange("QPROBE_TEMP_DIFF"),
+            probeDistance: intRange("QPROBE_DISTANCE"),
+            ampliconGCRange: doubleRange("QAMPLICON_GC"),
+            ampliconDeletionCutoff: integer("QAMPLICON_DEL_CUTOFF"),
+            monovalentCationConcentration: number("PCR_MV_CONC"),
+            divalentCationConcentration: number("PCR_DV_CONC"),
+            dNTPConcentration: number("PCR_DNTP_CONC"),
+            DNAConcentration: number("PCR_DNA_CONC"))
     }
 
     private static func validStoredVarVAMPOverrides(
@@ -467,6 +569,36 @@ private extension PrimerSchemeJSONValue {
     var isNullableInteger: Bool { if case .null = self { return true }; return isInteger }
     var isNullableNumber: Bool { if case .null = self { return true }; return isNumber }
     var isNullableString: Bool { if case .null = self { return true }; return isString }
+    var isSafeStoredPath: Bool {
+        switch self {
+        case .null: return true
+        case .string(let value): return PrimerSchemeResultsDocument.safeRelativePath(value)
+        default: return false
+        }
+    }
+    var storedNumber: Double? {
+        switch self {
+        case .number(let value): return value
+        case .integer(let value): return Double(value)
+        default: return nil
+        }
+    }
+    var storedInteger: Int? { if case .integer(let value) = self { return value }; return nil }
+    var storedBoolean: Bool? { if case .boolean(let value) = self { return value }; return nil }
+    var storedString: String? { if case .string(let value) = self { return value }; return nil }
+    var storedNullableNumber: Double? { if case .null = self { return nil }; return storedNumber }
+    var storedNullableInteger: Int? { if case .null = self { return nil }; return storedInteger }
+    var storedNullableString: String? { if case .null = self { return nil }; return storedString }
+    var storedNumbers: [Double]? {
+        guard case .array(let values) = self else { return nil }
+        let result = values.compactMap(\.storedNumber)
+        return result.count == values.count ? result : nil
+    }
+    var storedIntegers: [Int]? {
+        guard case .array(let values) = self else { return nil }
+        let result = values.compactMap(\.storedInteger)
+        return result.count == values.count ? result : nil
+    }
     func isNumberArray(count: Int) -> Bool {
         guard case .array(let values) = self, values.count == count else { return false }
         return values.allSatisfy(\.isNumber)

@@ -23,6 +23,7 @@ struct PrimerSchemePreparedAuxiliaryInputs: Sendable {
     let options: PrimerSchemeDesignOptions
     let artifacts: [PrimerAnalysisSourceArtifact]
     let executedToStoredPaths: [String: String]
+    let originalToStoredPaths: [String: String]
 }
 
 enum PrimerSchemeInputPreparation {
@@ -134,9 +135,12 @@ enum PrimerSchemeInputPreparation {
     ) throws -> PrimerSchemePreparedAuxiliaryInputs {
         var resolved = options
         var artifacts: [PrimerAnalysisSourceArtifact] = []
-        var mappings: [String: String] = [:]
+        var executedMappings: [String: String] = [:]
+        var originalMappings: [String: String] = [:]
 
-        func copyRegular(_ source: URL, relativePath: String, role: String) throws -> URL {
+        func copyRegular(
+            _ source: URL, relativePath: String, role: String, originalPath: String?
+        ) throws -> URL {
             let values = try source.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey])
             guard source.isFileURL, source.path.hasPrefix("/"), values.isRegularFile == true,
                   values.isSymbolicLink != true else {
@@ -156,7 +160,8 @@ enum PrimerSchemeInputPreparation {
             }
             artifacts.append(.init(sourceURL: destination, relativePath: relativePath,
                                    role: role, format: format(for: source)))
-            mappings[source.path] = relativePath
+            if let originalPath { originalMappings[originalPath] = relativePath }
+            executedMappings[destination.path] = relativePath
             return destination
         }
 
@@ -212,11 +217,13 @@ enum PrimerSchemeInputPreparation {
             for component in components {
                 _ = try copyRegular(parent.appendingPathComponent(component.name),
                                     relativePath: directory + "/" + component.name,
-                                    role: "blastDatabase")
+                                    role: "blastDatabase", originalPath: nil)
             }
             let storedPrefix = directory + "/" + base
-            mappings[prefix.path] = storedPrefix
-            return scratchRoot.appendingPathComponent(storedPrefix).path
+            let executedPrefix = scratchRoot.appendingPathComponent(storedPrefix).path
+            originalMappings[raw] = storedPrefix
+            executedMappings[executedPrefix] = storedPrefix
+            return executedPrefix
         }
 
         if var olivar = resolved.olivar {
@@ -230,7 +237,8 @@ enum PrimerSchemeInputPreparation {
                 let source = URL(fileURLWithPath: path).standardizedFileURL
                 let relative = "auxiliary-inputs/compatible-primers/" + source.lastPathComponent
                 varvamp.compatiblePrimersPath = try copyRegular(
-                    source, relativePath: relative, role: "compatiblePrimers").path
+                    source, relativePath: relative, role: "compatiblePrimers",
+                    originalPath: path).path
             }
             if let path = varvamp.blastDatabasePath {
                 varvamp.blastDatabasePath = try copyBlastPrefix(path)
@@ -238,7 +246,8 @@ enum PrimerSchemeInputPreparation {
             resolved.varvamp = varvamp
         }
         return .init(options: resolved, artifacts: artifacts,
-                     executedToStoredPaths: mappings)
+                     executedToStoredPaths: executedMappings,
+                     originalToStoredPaths: originalMappings)
     }
 
     static func regularFiles(in url: URL) throws -> [URL] {

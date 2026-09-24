@@ -210,8 +210,13 @@ public struct PrimerSchemeDesignPipeline: Sendable {
                         "adapterArgv": .array(execution.argv.map(ParameterValue.string)),
                         "adapterEnvironment": .dictionary(environment.mapValues(ParameterValue.string)),
                         "adapterResolvedOptions": .dictionary(
-                            verified.document.resolvedOptions.mapValues(\.parameterValue)),
+                            rebaseJSON(
+                                verified.document.resolvedOptions,
+                                mappings: auxiliary.executedToStoredPaths
+                            ).mapValues(\.parameterValue)),
                         "executedToStoredInputPaths": .dictionary(pathMap.mapValues(ParameterValue.string)),
+                        "originalToStoredAuxiliaryInputPaths": .dictionary(
+                            auxiliary.originalToStoredPaths.mapValues(ParameterValue.string)),
                         "explicitPythonOverride": request.executableURL.map {
                             .string($0.path)
                         } ?? .null,

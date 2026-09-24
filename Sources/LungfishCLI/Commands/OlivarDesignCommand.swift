@@ -56,7 +56,7 @@ struct OlivarDesignCommand: AsyncParsableCommand {
         case "combined": resolvedGrouping = .combined
         default: throw ValidationError("--grouping must be independent or combined.")
         }
-        let inferred: Set<String> = [
+        var inferred: Set<String> = [
             minimumVariantFrequency != 0.01 ? "minimumVariantFrequency" : nil,
             degenerate ? "degenerate" : nil,
             temperatureC != 60 ? "temperatureC" : nil,
@@ -73,6 +73,17 @@ struct OlivarDesignCommand: AsyncParsableCommand {
             [riskExtremeGC, riskLowComplexity, riskNonSpecificity, riskVariation,
              riskSensitivity, riskCombination].contains(where: { $0 != 1 }) ? "riskWeights" : nil,
         ].compactMap { $0 }.reduce(into: Set<String>()) { $0.insert($1) }
+        if grouping != "independent" { inferred.insert("grouping") }
+        if ampliconSize != 400 { inferred.insert("nominalAmpliconLength") }
+        if ampliconSizeMin != nil {
+            inferred.formUnion(["minimumAmpliconLength", "requestedMinimumAmpliconLength"])
+        }
+        if ampliconSizeMax != nil {
+            inferred.formUnion(["maximumAmpliconLength", "requestedMaximumAmpliconLength"])
+        }
+        if workers != PrimerSchemeDesignOptions.defaultWorkers { inferred.insert("workers") }
+        var allSupplied = supplied ?? inferred
+        allSupplied.insert("engine")
         let olivar = OlivarDesignOptions(
             minimumVariantFrequency: minimumVariantFrequency, degenerate: degenerate,
             align: false, temperatureC: temperatureC, salinityM: salinityM,
@@ -85,7 +96,7 @@ struct OlivarDesignCommand: AsyncParsableCommand {
                 extremeGC: riskExtremeGC, lowComplexity: riskLowComplexity,
                 nonSpecificity: riskNonSpecificity, variation: riskVariation,
                 sensitivity: riskSensitivity, combination: riskCombination),
-            suppliedOptionNames: supplied ?? inferred)
+            suppliedOptionNames: allSupplied)
         let options = PrimerSchemeDesignOptions(
             engine: .olivar, mode: .tiled, grouping: resolvedGrouping,
             nominalAmpliconLength: ampliconSize,
@@ -93,9 +104,13 @@ struct OlivarDesignCommand: AsyncParsableCommand {
             maximumAmpliconLength: ampliconSizeMax ?? defaultMaximum(for: ampliconSize),
             requestedMinimumAmpliconLength: ampliconSizeMin,
             requestedMaximumAmpliconLength: ampliconSizeMax,
-            workers: workers, olivar: olivar)
+            workers: workers, suppliedOptionNames: allSupplied, olivar: olivar)
         try options.validate()
         return options
+    }
+
+    func makeOptions(argv: [String]) throws -> PrimerSchemeDesignOptions {
+        try makeOptions(supplied: suppliedNames(argv))
     }
 
     func run() async throws {
@@ -105,7 +120,7 @@ struct OlivarDesignCommand: AsyncParsableCommand {
 
     private func execute(argv: [String]) async throws -> URL {
         let inputs = try primerSchemeInputs(msaPaths)
-        let options = try makeOptions(supplied: suppliedNames(argv))
+        let options = try makeOptions(argv: argv)
         var checksums: [URL: String] = [:]
         for input in inputs {
             checksums[input] = try await Primer3DesignPipeline.inspectInput(at: input).checksumSHA256
@@ -121,20 +136,41 @@ struct OlivarDesignCommand: AsyncParsableCommand {
     }
 
     private func suppliedNames(_ argv: [String]) -> Set<String> {
-        let mapping = [
-            "--minimum-variant-frequency": "minimumVariantFrequency", "--degenerate": "degenerate",
-            "--temperature-c": "temperatureC", "--salinity-m": "salinityM",
-            "--maximum-dimer-delta-g": "maximumDimerDeltaG", "--minimum-gc": "minimumGC",
-            "--maximum-gc": "maximumGC", "--minimum-complexity": "minimumComplexity",
-            "--maximum-primer-length": "maximumPrimerLength", "--check-variants": "checkVariants",
-            "--seed": "seed", "--effort": "effort", "--forward-prefix": "forwardPrefix",
-            "--reverse-prefix": "reversePrefix", "--blast-database": "blastDatabasePath",
-            "--risk-extreme-gc": "riskWeights", "--risk-low-complexity": "riskWeights",
-            "--risk-non-specificity": "riskWeights", "--risk-variation": "riskWeights",
-            "--risk-sensitivity": "riskWeights", "--risk-combination": "riskWeights",
+        let mapping: [String: Set<String>] = [
+            "--grouping": ["grouping"], "--amplicon-size": ["nominalAmpliconLength"],
+            "--amplicon-size-min": ["minimumAmpliconLength", "requestedMinimumAmpliconLength"],
+            "--amplicon-size-max": ["maximumAmpliconLength", "requestedMaximumAmpliconLength"],
+            "--workers": ["workers"],
+            "--minimum-variant-frequency": ["minimumVariantFrequency"], "--degenerate": ["degenerate"],
+            "--temperature-c": ["temperatureC"], "--salinity-m": ["salinityM"],
+            "--maximum-dimer-delta-g": ["maximumDimerDeltaG"], "--minimum-gc": ["minimumGC"],
+            "--maximum-gc": ["maximumGC"], "--minimum-complexity": ["minimumComplexity"],
+            "--maximum-primer-length": ["maximumPrimerLength"], "--check-variants": ["checkVariants"],
+            "--seed": ["seed"], "--effort": ["effort"], "--forward-prefix": ["forwardPrefix"],
+            "--reverse-prefix": ["reversePrefix"], "--blast-database": ["blastDatabasePath"],
+            "--risk-extreme-gc": ["riskWeights"], "--risk-low-complexity": ["riskWeights"],
+            "--risk-non-specificity": ["riskWeights"], "--risk-variation": ["riskWeights"],
+            "--risk-sensitivity": ["riskWeights"], "--risk-combination": ["riskWeights"],
         ]
-        return Set(argv.compactMap { mapping[$0] })
+        return primerSchemeSuppliedOptionNames(argv, mapping: mapping)
     }
+}
+
+func primerSchemeSuppliedOptionNames(
+    _ argv: [String], mapping: [String: Set<String>], prefixes: [String] = []
+) -> Set<String> {
+    let flags = argv.compactMap { argument -> String? in
+        guard argument.hasPrefix("--") else { return nil }
+        return String(argument.split(separator: "=", maxSplits: 1,
+                                     omittingEmptySubsequences: false)[0])
+    }
+    var supplied = flags.reduce(into: Set<String>()) { result, flag in
+        result.formUnion(mapping[flag] ?? [])
+    }
+    if flags.contains(where: { flag in prefixes.contains(where: flag.hasPrefix) }) {
+        supplied.insert("configOverrides")
+    }
+    return supplied
 }
 
 func defaultMinimum(for nominal: Int) -> Int {

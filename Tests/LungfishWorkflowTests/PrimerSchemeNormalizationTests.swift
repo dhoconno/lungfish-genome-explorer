@@ -39,7 +39,7 @@ final class PrimerSchemeNormalizationTests: XCTestCase {
 
     func testRejectsMalformedProjectionWithOverlappingGeneratedBlocks() {
         let malformed = PrimerBindingProjection(
-            sourceInputID: inputID, sourcePath: "/run/input.fasta",
+            sourceInputID: inputID, sourcePath: "source-inputs/input.fasta",
             generatedReferencePath: "generated/reference.fasta",
             sourceLength: 100, generatedLength: 100,
             blocks: [
@@ -55,7 +55,7 @@ final class PrimerSchemeNormalizationTests: XCTestCase {
 
     func testAcceptsEqualWidthCollapsedBlockWithoutClaimingBijection() throws {
         let projection = PrimerBindingProjection(
-            sourceInputID: inputID, sourcePath: "/run/input.fasta",
+            sourceInputID: inputID, sourcePath: "source-inputs/input.fasta",
             generatedReferencePath: "generated/reference.fasta",
             sourceLength: 100, generatedLength: 100,
             blocks: [
@@ -73,7 +73,7 @@ final class PrimerSchemeNormalizationTests: XCTestCase {
 
     func testAcceptsZeroWidthCollapsedBlockForRemovedSourceColumns() throws {
         let projection = PrimerBindingProjection(
-            sourceInputID: inputID, sourcePath: "/run/input.fasta",
+            sourceInputID: inputID, sourcePath: "source-inputs/input.fasta",
             generatedReferencePath: "generated/reference.fasta",
             sourceLength: 101, generatedLength: 100,
             blocks: [
@@ -198,6 +198,70 @@ final class PrimerSchemeNormalizationTests: XCTestCase {
             projections: ["maps/target.json": projection()]))
     }
 
+    func testStrictReopenAcceptsTypedStoredSettingsAndContainedProjection() throws {
+        let document = storedVarVAMPDocument()
+        XCTAssertNoThrow(try document.validateStored(
+            knownInputIDs: [inputID], projections: ["maps/target.json": projection()]))
+    }
+
+    func testStrictReopenRejectsAbsoluteOrTraversingProjectionSourcePath() {
+        let document = storedVarVAMPDocument()
+        for sourcePath in ["/private/run/input.fasta", "../outside/input.fasta"] {
+            var unsafe = projection()
+            unsafe.sourcePath = sourcePath
+            XCTAssertThrowsError(try document.validateStored(
+                knownInputIDs: [inputID], projections: ["maps/target.json": unsafe]))
+        }
+    }
+
+    func testStrictReopenRejectsInvalidVarVAMPScalarRanges() {
+        for (key, value) in [
+            ("maximumPrimerAmbiguities", PrimerSchemeJSONValue.integer(-1)),
+            ("cumulativeConsensusThreshold", PrimerSchemeJSONValue.number(1.1)),
+        ] {
+            var document = storedVarVAMPDocument()
+            document.resolvedOptions[key] = value
+            XCTAssertThrowsError(try document.validateStored(
+                knownInputIDs: [inputID], projections: ["maps/target.json": projection()]))
+        }
+    }
+
+    func testStrictReopenRejectsUnorderedVarVAMPOverrideArray() {
+        var document = storedVarVAMPDocument()
+        document.resolvedOptions["configOverrides"] = .object([
+            "PRIMER_SIZES": .array([.integer(30), .integer(20), .integer(25)]),
+        ])
+        XCTAssertThrowsError(try document.validateStored(
+            knownInputIDs: [inputID], projections: ["maps/target.json": projection()]))
+    }
+
+    func testStrictReopenRejectsNegativeOlivarRiskWeight() {
+        let options = PrimerSchemeDesignOptions(
+            engine: .olivar, mode: .tiled, grouping: .independent,
+            nominalAmpliconLength: 120, minimumAmpliconLength: 120,
+            maximumAmpliconLength: 120, workers: 1, olivar: .init())
+        var document = makeDocument(mode: .tiled)
+        document.engine = .olivar
+        document.engineVersion = "1.3.3"
+        document.resolvedOptions = options.adapterOptions
+        document.resolvedOptions["adapterResolution"] = .object(["fixture": .boolean(true)])
+        var risk = document.resolvedOptions["riskWeights"]!
+        if case .object(var weights) = risk {
+            weights["extremeGC"] = .number(-1)
+            risk = .object(weights)
+        }
+        document.resolvedOptions["riskWeights"] = risk
+        XCTAssertThrowsError(try document.validateStored(
+            knownInputIDs: [inputID], projections: ["maps/target.json": projection()]))
+    }
+
+    func testStrictReopenRejectsUnsafeStoredAuxiliaryPath() {
+        var document = storedVarVAMPDocument()
+        document.resolvedOptions["compatiblePrimersPath"] = .string("../compatible.tsv")
+        XCTAssertThrowsError(try document.validateStored(
+            knownInputIDs: [inputID], projections: ["maps/target.json": projection()]))
+    }
+
     private var tiledOptions: PrimerSchemeDesignOptions {
         .init(engine: .varvamp, mode: .tiled, grouping: .independent,
               nominalAmpliconLength: 80, minimumAmpliconLength: 70,
@@ -209,6 +273,13 @@ final class PrimerSchemeNormalizationTests: XCTestCase {
               nominalAmpliconLength: 80, minimumAmpliconLength: 70,
               maximumAmpliconLength: 90, workers: 1,
               varvamp: .init(cumulativeConsensusThreshold: 0.9))
+    }
+
+    private func storedVarVAMPDocument() -> PrimerSchemeResultsDocument {
+        var document = makeDocument(mode: .tiled)
+        document.resolvedOptions = tiledOptions.adapterOptions
+        document.resolvedOptions["adapterResolution"] = .object(["fixture": .boolean(true)])
+        return document
     }
 
     private func makeDocument(
@@ -269,7 +340,8 @@ final class PrimerSchemeNormalizationTests: XCTestCase {
         generatedReferencePath: String = "generated/reference.fasta"
     ) -> PrimerBindingProjection {
         PrimerBindingProjection(
-            sourceInputID: sourceInputID ?? inputID, sourcePath: "/run/input.fasta",
+            sourceInputID: sourceInputID ?? inputID,
+            sourcePath: "source-inputs/input.fasta",
             generatedReferencePath: generatedReferencePath,
             sourceLength: 100, generatedLength: 100,
             blocks: [.init(generatedStart: 0, generatedEnd: 100, sourceStart: 0,

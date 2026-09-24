@@ -464,6 +464,7 @@ public struct PrimerSchemeDesignOptions: Codable, Equatable, Sendable {
     public var requestedMinimumAmpliconLength: Int?
     public var requestedMaximumAmpliconLength: Int?
     public var workers: Int
+    public var suppliedOptionNames: Set<String>
     public var olivar: OlivarDesignOptions?
     public var varvamp: VarVAMPDesignOptions?
 
@@ -472,7 +473,8 @@ public struct PrimerSchemeDesignOptions: Codable, Equatable, Sendable {
                 minimumAmpliconLength: Int, maximumAmpliconLength: Int,
                 requestedMinimumAmpliconLength: Int? = nil,
                 requestedMaximumAmpliconLength: Int? = nil,
-                workers: Int = Self.defaultWorkers, olivar: OlivarDesignOptions? = nil,
+                workers: Int = Self.defaultWorkers,
+                suppliedOptionNames: Set<String> = [], olivar: OlivarDesignOptions? = nil,
                 varvamp: VarVAMPDesignOptions? = nil) {
         self.engine = engine; self.mode = mode; self.grouping = grouping
         self.nominalAmpliconLength = nominalAmpliconLength
@@ -481,6 +483,7 @@ public struct PrimerSchemeDesignOptions: Codable, Equatable, Sendable {
         self.requestedMinimumAmpliconLength = requestedMinimumAmpliconLength
         self.requestedMaximumAmpliconLength = requestedMaximumAmpliconLength
         self.workers = workers
+        self.suppliedOptionNames = suppliedOptionNames
         self.olivar = olivar; self.varvamp = varvamp
     }
 
@@ -518,7 +521,7 @@ public struct PrimerSchemeDesignOptions: Codable, Equatable, Sendable {
     }
 
     public var provenanceOptions: [String: ParameterValue] {
-        var values: [String: ParameterValue] = [
+        let common: [String: ParameterValue] = [
             "engine": .string(engine.rawValue), "mode": .string(mode.rawValue),
             "grouping": .string(grouping.rawValue),
             "nominalAmpliconLength": .integer(nominalAmpliconLength),
@@ -528,6 +531,11 @@ public struct PrimerSchemeDesignOptions: Codable, Equatable, Sendable {
             "requestedMaximumAmpliconLength": requestedMaximumAmpliconLength.map(ParameterValue.integer) ?? .null,
             "workers": .integer(workers),
         ]
+        var values = common
+        values["common"] = .dictionary([
+            "supplied": .dictionary(common.filter { suppliedOptionNames.contains($0.key) }),
+            "resolved": .dictionary(common),
+        ])
         if let olivar { values["olivar"] = olivar.provenance }
         if let varvamp { values["varvamp"] = varvamp.provenance }
         return values

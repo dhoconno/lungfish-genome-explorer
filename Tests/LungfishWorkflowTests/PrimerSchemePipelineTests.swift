@@ -153,8 +153,11 @@ final class PrimerSchemePipelineTests: XCTestCase {
         XCTAssertNotEqual(executedPrefix, prefix.path)
         XCTAssertTrue(executedPrefix.hasSuffix("/example"))
         XCTAssertEqual(prepared.artifacts.filter { $0.role == "blastDatabase" }.count, 3)
-        XCTAssertEqual(prepared.executedToStoredPaths[prefix.path],
-                       String(executedPrefix.dropFirst(root.appendingPathComponent("scratch").path.count + 1)))
+        let storedPrefix = String(executedPrefix.dropFirst(
+            root.appendingPathComponent("scratch").path.count + 1))
+        XCTAssertEqual(prepared.executedToStoredPaths[executedPrefix], storedPrefix)
+        XCTAssertEqual(prepared.originalToStoredPaths[prefix.path], storedPrefix)
+        XCTAssertNil(prepared.executedToStoredPaths[prefix.path])
     }
 
     func testRejectsIncompleteOrAliasBlastDatabase() throws {
@@ -237,6 +240,104 @@ final class PrimerSchemePipelineTests: XCTestCase {
         XCTAssertNoThrow(try relocatedDocument.validateStored(
             knownInputIDs: [fixture.inputID],
             projections: [relocatedMapPath: relocatedProjection]))
+    }
+
+    func testPublishesAndRelocatesAuxiliarySettingsWithoutScratchPaths() async throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let compatible = fixture.root.appendingPathComponent("compatible.tsv")
+        try Data("LEFT_1\tACGTACGTAC\n".utf8).write(to: compatible)
+        let blastPrefix = fixture.root.appendingPathComponent("blast/example")
+        try FileManager.default.createDirectory(
+            at: blastPrefix.deletingLastPathComponent(), withIntermediateDirectories: true)
+        for suffix in ["nhr", "nin", "nsq"] {
+            try Data("blast-\(suffix)".utf8).write(
+                to: URL(fileURLWithPath: blastPrefix.path + "." + suffix))
+        }
+        let native = VarVAMPDesignOptions(
+            compatiblePrimersPath: compatible.path,
+            blastDatabasePath: blastPrefix.path,
+            suppliedOptionNames: [
+                "maximumPrimerAmbiguities", "compatiblePrimersPath", "blastDatabasePath",
+            ])
+        let options = PrimerSchemeDesignOptions(
+            engine: .varvamp, mode: .tiled, grouping: .independent,
+            nominalAmpliconLength: 80, minimumAmpliconLength: 70,
+            maximumAmpliconLength: 90, workers: 1,
+            suppliedOptionNames: ["engine", "mode", "grouping", "workers"],
+            varvamp: native)
+        let pipeline = fixture.pipeline { command in
+            try fixture.writeAdapterSuccess(command: command, mode: .tiled)
+            return fixture.execution(for: command)
+        }
+        let output = try await pipeline.run(request: fixture.request(options: options))
+        let bundle = try PrimerAnalysisBundle.load(from: output)
+        let document = try JSONDecoder().decode(
+            PrimerSchemeResultsDocument.self,
+            from: Data(contentsOf: output.appendingPathComponent(
+                PrimerSchemeResultsDocument.storedRelativePath)))
+        guard case .string(let storedCompatible)? = document.resolvedOptions["compatiblePrimersPath"],
+              case .string(let storedBlast)? = document.resolvedOptions["blastDatabasePath"] else {
+            return XCTFail("Published resolved auxiliary settings must be strings")
+        }
+        XCTAssertTrue(PrimerSchemeResultsDocument.safeRelativePath(storedCompatible))
+        XCTAssertTrue(PrimerSchemeResultsDocument.safeRelativePath(storedBlast))
+        XCTAssertFalse(storedCompatible.contains(".primer-scheme-run"))
+        XCTAssertFalse(storedBlast.contains(".primer-scheme-run"))
+        XCTAssertTrue(FileManager.default.fileExists(
+            atPath: output.appendingPathComponent(storedCompatible).path))
+        for suffix in ["nhr", "nin", "nsq"] {
+            XCTAssertTrue(FileManager.default.fileExists(
+                atPath: output.appendingPathComponent(storedBlast + "." + suffix).path))
+        }
+
+        let envelope = try ProvenanceJSON.decoder.decode(
+            ProvenanceEnvelope.self, from: bundle.canonicalProvenanceData)
+        let adapterResolved = try XCTUnwrap(
+            envelope.options.explicit["adapterResolvedOptions"]?.dictionaryValue)
+        XCTAssertEqual(adapterResolved["compatiblePrimersPath"]?.stringValue, storedCompatible)
+        XCTAssertEqual(adapterResolved["blastDatabasePath"]?.stringValue, storedBlast)
+        let originalMappings = try XCTUnwrap(
+            envelope.options.explicit["originalToStoredAuxiliaryInputPaths"]?.dictionaryValue)
+        XCTAssertEqual(originalMappings[compatible.path]?.stringValue, storedCompatible)
+        XCTAssertEqual(originalMappings[blastPrefix.path]?.stringValue, storedBlast)
+        let executedMappings = try XCTUnwrap(
+            envelope.options.explicit["executedToStoredInputPaths"]?.dictionaryValue)
+        XCTAssertTrue(executedMappings.contains {
+            $0.key.contains(".primer-scheme-run") && $0.value.stringValue == storedCompatible
+        })
+        XCTAssertTrue(executedMappings.contains {
+            $0.key.contains(".primer-scheme-run") && $0.value.stringValue == storedBlast
+        })
+        XCTAssertNil(executedMappings[compatible.path])
+        XCTAssertNil(executedMappings[blastPrefix.path])
+        let common = try XCTUnwrap(envelope.options.explicit["common"]?.dictionaryValue)
+        XCTAssertEqual(common["supplied"]?.dictionaryValue?["mode"]?.stringValue, "tiled")
+        XCTAssertEqual(envelope.options.explicit["varvamp"]?.dictionaryValue?["supplied"]?
+            .dictionaryValue?["maximumPrimerAmbiguities"]?.integerValue, 2)
+
+        let relocated = fixture.root.appendingPathComponent(
+            "relocated.lungfishprimeranalysis")
+        try FileManager.default.moveItem(at: output, to: relocated)
+        let relocatedBundle = try PrimerAnalysisBundle.load(from: relocated)
+        let relocatedEnvelope = try ProvenanceJSON.decoder.decode(
+            ProvenanceEnvelope.self, from: relocatedBundle.canonicalProvenanceData)
+        let relocatedResolved = try XCTUnwrap(
+            relocatedEnvelope.options.explicit["adapterResolvedOptions"]?.dictionaryValue)
+        XCTAssertEqual(relocatedResolved["compatiblePrimersPath"]?.stringValue,
+                       storedCompatible)
+        XCTAssertEqual(relocatedResolved["blastDatabasePath"]?.stringValue, storedBlast)
+        let relocatedDocument = try JSONDecoder().decode(
+            PrimerSchemeResultsDocument.self,
+            from: Data(contentsOf: relocated.appendingPathComponent(
+                PrimerSchemeResultsDocument.storedRelativePath)))
+        let mapPath = try XCTUnwrap(
+            relocatedDocument.results.first?.targets.first?.bindingProjectionPath)
+        let projection = try JSONDecoder().decode(
+            PrimerBindingProjection.self,
+            from: Data(contentsOf: relocated.appendingPathComponent(mapPath)))
+        XCTAssertNoThrow(try relocatedDocument.validateStored(
+            knownInputIDs: [fixture.inputID], projections: [mapPath: projection]))
     }
 
     func testPublishesProbeBearingAlternativeQPCRResult() async throws {
@@ -579,6 +680,30 @@ private final class Fixture: @unchecked Sendable {
         try Data("{}\n".utf8).write(to: packageRecord)
         let inputHash = try ProvenanceFileHasher.sha256(of: URL(fileURLWithPath: requestInput.path))
         let inputSize = try FileManager.default.attributesOfItem(atPath: requestInput.path)[.size] as! NSNumber
+        var auxiliaryInputs: [[String: Any]] = []
+        var postExecution: [[String: Any]] = [[
+            "id": requestInput.id.uuidString, "path": requestInput.path,
+            "sha256": inputHash, "byteSize": inputSize.intValue, "unchanged": true,
+        ]]
+        if case .string(let blastPrefix)? = command.request.options["blastDatabasePath"] {
+            let prefixURL = URL(fileURLWithPath: blastPrefix)
+            let componentNames = try FileManager.default.contentsOfDirectory(
+                atPath: prefixURL.deletingLastPathComponent().path)
+                .filter { $0.hasPrefix(prefixURL.lastPathComponent + ".") }.sorted()
+            for name in componentNames {
+                let component = prefixURL.deletingLastPathComponent().appendingPathComponent(name)
+                let sha256 = try ProvenanceFileHasher.sha256(of: component)
+                let byteSize = try ProvenanceFileHasher.fileSize(of: component)
+                auxiliaryInputs.append([
+                    "kind": "blastDatabaseComponent", "prefix": blastPrefix,
+                    "path": component.path, "sha256": sha256, "byteSize": byteSize,
+                ])
+                postExecution.append([
+                    "kind": "blastDatabaseComponent", "path": component.path,
+                    "sha256": sha256, "byteSize": byteSize, "unchanged": true,
+                ])
+            }
+        }
         let requestOptions = command.request.options.mapValues(jsonObject)
         var resolvedOptions = requestOptions
         resolvedOptions["adapterResolution"] = ["fixture": true]
@@ -631,13 +756,11 @@ private final class Fixture: @unchecked Sendable {
             ],
             "inputs": [["id": requestInput.id.uuidString, "path": requestInput.path,
                          "sha256": inputHash, "byteSize": inputSize.intValue]],
-            "auxiliaryInputs": [],
+            "auxiliaryInputs": auxiliaryInputs,
             "inputIntegrity": [
                 "checkedBeforeExecution": true, "checkedAfterExecution": true,
                 "unchanged": true,
-                "postExecution": [["id": requestInput.id.uuidString, "path": requestInput.path,
-                                   "sha256": inputHash, "byteSize": inputSize.intValue,
-                                   "unchanged": true]],
+                "postExecution": postExecution,
             ],
             "outputs": correctArtifacts,
             "nativeEvents": [[
