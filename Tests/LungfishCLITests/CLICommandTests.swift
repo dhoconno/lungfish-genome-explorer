@@ -1318,6 +1318,25 @@ final class FastqCommandTests: XCTestCase {
         XCTAssertNil(cmd.proportion)
     }
 
+    /// WFL-10: subsample had no seed option at all, so results were not
+    /// reproducible from provenance. Verifies `--seed` parses through.
+    func testSubsampleParsesSeed() throws {
+        let cmd = try FastqSubsampleSubcommand.parse([
+            "input.fastq", "--proportion", "0.5", "--seed", "42", "-o", "/tmp/out.fastq",
+        ])
+        XCTAssertEqual(cmd.seed, 42)
+    }
+
+    /// Without `--seed`, the field stays nil at parse time -- `run()` fills
+    /// in a random seed and records the actual value used in provenance
+    /// (verified at the pipeline level in FASTQSubsampleSeedTests).
+    func testSubsampleSeedDefaultsToNilWhenNotSpecified() throws {
+        let cmd = try FastqSubsampleSubcommand.parse([
+            "input.fastq", "--proportion", "0.5", "-o", "/tmp/out.fastq",
+        ])
+        XCTAssertNil(cmd.seed)
+    }
+
     // MARK: - Length Filter Argument Parsing
 
     /// Verifies that length-filter parses min and max length options.
