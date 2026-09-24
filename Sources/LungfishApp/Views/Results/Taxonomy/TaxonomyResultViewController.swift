@@ -1,26 +1,17 @@
-// TaxonomyResultViewController.swift - ResultViewportController conformances for taxonomy tools
+// TaxonomyResultViewController.swift - export support for taxonomy tools
 // Copyright (c) 2024 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
-// This file adds the `ResultViewportController` protocol conformance to the
-// Kraken2 taxonomy result view controller via an extension, keeping the large
-// implementation file untouched.
+// This file adds the shared export surface to the Kraken2 taxonomy result
+// view controller via an extension, keeping the large implementation file
+// untouched.
 //
-// ## Conformance notes
+// - configure(result:) already exists on TaxonomyViewController
+// - exportResults(to:format:) supports .csv and .tsv via the existing
+//   buildDelimitedExport helper; .json and .fasta throw unsupported errors
 //
-// ### TaxonomyViewController (Kraken2)
-//   - ResultType = ClassificationResult
-//   - configure(result:) already exists — satisfied automatically
-//   - summaryBarView returns the TaxonomySummaryBar subview
-//   - exportResults(to:format:) supports .csv and .tsv via the existing
-//     buildDelimitedExport helper; .json and .fasta throw unsupported errors
-//
-// ### BlastVerifiable
-//   Both classes carry a pre-existing `onBlastVerification` callback with
-//   tool-specific signatures that pre-date the `BlastVerifiable` protocol.
-//   Full conformance to `BlastVerifiable` (which requires the uniform
-//   `((BlastRequest) -> Void)?` callback) is deferred until those callbacks
-//   are migrated to the uniform `BlastRequest` type.
+// TaxonomyViewController and NaoMgsResultViewController each carry their own
+// pre-existing `onBlastVerification` callback with tool-specific signatures.
 
 import AppKit
 import Foundation
@@ -48,27 +39,10 @@ private enum TaxonomyExportError: LocalizedError {
     }
 }
 
-// MARK: - TaxonomyViewController: ResultViewportController
+// MARK: - TaxonomyViewController: export support
 
-/// Adds `ResultViewportController` conformance to ``TaxonomyViewController``.
-///
-/// `TaxonomyViewController` already implements `configure(result:ClassificationResult)`,
-/// so only the three remaining protocol requirements are synthesised here:
-/// `summaryBarView`, `exportResults(to:format:)`, and `resultTypeName`.
-extension TaxonomyViewController: ResultViewportController {
-
-    public typealias ResultType = ClassificationResult
-
-    // MARK: ResultViewportController
-
-    /// Returns the summary bar that sits at the top of the taxonomy browser.
-    ///
-    /// The `TaxonomySummaryBar` is always the first subview added in `loadView`,
-    /// so searching for it by type is reliable. Falls back to `view` if the
-    /// subview hierarchy has not yet been built.
-    public var summaryBarView: NSView {
-        view.subviews.first { $0 is TaxonomySummaryBar } ?? view
-    }
+/// Adds the shared export surface to ``TaxonomyViewController``.
+extension TaxonomyViewController {
 
     /// Exports the taxonomy tree to `url` in the requested format.
     ///
@@ -116,9 +90,6 @@ extension TaxonomyViewController: ResultViewportController {
             try content.write(to: tempURL, atomically: true, encoding: .utf8)
         }
     }
-
-    /// The human-readable name shown in menus and export dialogs.
-    public static var resultTypeName: String { "Classification" }
 
     private func taxonomyExportSourceURLs() throws -> [URL] {
         guard let result = classificationResult else {

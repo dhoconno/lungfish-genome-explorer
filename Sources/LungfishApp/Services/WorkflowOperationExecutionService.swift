@@ -660,16 +660,6 @@ final class WorkflowOperationExecutionService {
         return arguments
     }
 
-    private func ontGenotypingSubcommand(for request: ONTBarcodeDemuxGenotypingRunRequest) -> String {
-        let illuminaCohort = request.inputFASTQURLs.count > 1
-            && request.barcodeDefinitionsURL == nil
-            && (request.mode == .illuminaPaired || (request.mode == .auto && request.readType == .illumina))
-        let ontSampleBundleCohort = request.inputFASTQURLs.count > 1
-            && request.barcodeDefinitionsURL == nil
-            && (request.mode == .ontSampleBundles || (request.mode == .auto && request.readType == .ont))
-        return illuminaCohort || ontSampleBundleCohort ? "genotype-cohort" : "genotype"
-    }
-
     private func uniqueONTGenotypingRequestIfNeeded(
         _ request: ONTBarcodeDemuxGenotypingRunRequest
     ) throws -> ONTBarcodeDemuxGenotypingRunRequest {

@@ -60,56 +60,6 @@ final class UnifiedClassifierRunnerTests: XCTestCase {
         ))
     }
 
-    func testAnalysisTypeTitlesMatchSharedRunnerContract() {
-        XCTAssertEqual(UnifiedMetagenomicsWizard.AnalysisType.classification.sidebarTitle, "Kraken2")
-        XCTAssertEqual(UnifiedMetagenomicsWizard.AnalysisType.viralDetection.sidebarTitle, "EsViritu")
-        XCTAssertEqual(UnifiedMetagenomicsWizard.AnalysisType.clinicalTriage.sidebarTitle, "TaxTriage")
-
-        XCTAssertEqual(UnifiedMetagenomicsWizard.AnalysisType.classification.runnerTitle, "Kraken2")
-        XCTAssertEqual(UnifiedMetagenomicsWizard.AnalysisType.viralDetection.runnerTitle, "EsViritu")
-        XCTAssertEqual(UnifiedMetagenomicsWizard.AnalysisType.clinicalTriage.runnerTitle, "TaxTriage")
-    }
-
-    func testClinicalTriageDescriptionUsesPathogenDetectionLanguage() {
-        let description = UnifiedMetagenomicsWizard.AnalysisType.clinicalTriage.analysisDescription
-
-        XCTAssertTrue(description.localizedCaseInsensitiveContains("pathogen detection"))
-        XCTAssertTrue(description.localizedCaseInsensitiveContains("taxtriage"))
-        XCTAssertFalse(description.localizedCaseInsensitiveContains("clinical triage"))
-    }
-
-    func testSharedSectionOrderMatchesRunnerShellContract() {
-        XCTAssertEqual(
-            UnifiedMetagenomicsWizard.sharedSectionOrder,
-            ["Overview", "Prerequisites", "Samples", "Database", "Tool Settings", "Advanced Settings"]
-        )
-    }
-
-    func testInitialSelectionIsSeededForTesting() {
-        let wizard = UnifiedMetagenomicsWizard(inputFiles: [], initialSelection: .clinicalTriage)
-        XCTAssertEqual(wizard.testingInitialSelection, .clinicalTriage)
-        XCTAssertEqual(wizard.testingSidebarSelection, .clinicalTriage)
-    }
-
-    func testRunnerShellExposesStableAnalysisOptions() {
-        XCTAssertEqual(
-            UnifiedMetagenomicsWizard.AnalysisType.allCases,
-            [.classification, .viralDetection, .clinicalTriage]
-        )
-        XCTAssertEqual(
-            UnifiedMetagenomicsWizard.AnalysisType.allCases.map(\.runnerTitle),
-            ["Kraken2", "EsViritu", "TaxTriage"]
-        )
-        XCTAssertEqual(
-            UnifiedMetagenomicsWizard.AnalysisType.allCases.map(\.toolName),
-            [
-                "Classify & Profile (Kraken2)",
-                "Detect Viruses (EsViritu)",
-                "Detect Pathogens (TaxTriage)",
-            ]
-        )
-    }
-
     func testClassifierToolsUseEmbeddedFASTQOperationsRoutingContract() {
         for toolID in [FASTQOperationToolID.kraken2, .esViritu, .taxTriage] {
             let state = FASTQOperationDialogState(

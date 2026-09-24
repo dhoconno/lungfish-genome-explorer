@@ -63,7 +63,7 @@ Single source of truth for finding status (plan rule 9). Status: `open`, `verifi
 | ARC-05 | P2 | Per-window state leaks through globals (`mainWindowController`, `DocumentManager.shared` mirror, `NSApp.keyWin | open | | | |
 | ARC-06 | P2 | Window scoping of notifications is a fail-open convention reimplemented in three controllers | open | | | |
 | ARC-07 | P2 | GUI and CLI write different provenance for the same Kraken2 analysis | open | | | |
-| ARC-08 | P2 | Dead parallel FASTQ materializer (~1,100 lines) kept alive only by tests | open | | | |
+| ARC-08 | P2 | Dead parallel FASTQ materializer (~1,100 lines) kept alive only by tests | fixed | P5-A | P5-A | parallel FASTQ materializer + MaterializationPipeline removed |
 | ARC-09 | P2 | FASTQ derivative operations have two GUI code paths and two CLI-command builders | open | | | |
 | ARC-10 | P2 | `AppDelegate` extensions are the business-logic layer for import, export, downloads and classification | open | | | |
 | ARC-11 | P2 | About 1,290 test hooks in production types, a symptom of logic trapped in view controllers | open | | | |
@@ -104,7 +104,7 @@ Single source of truth for finding status (plan rule 9). Status: `open`, `verifi
 | SIMP-02 | P2 | About 5.9K lines of workbook-transaction recovery outlive their only writer | open | | | |
 | SIMP-03 | P2 | PrimalScheme3 adapter supports 4 fork versions and 2 external-binary-only selectors (about 3.3K lines) | open | | | |
 | SIMP-04 | P2 | Nine copy-pasted CLI subprocess runners (about 3.4K lines) next to an unused kernel runner | partial | P6-A | 6bc83748f | 2 of 9 runners consolidated |
-| SIMP-05 | P2 | Verified dead code: about 5.0K production lines plus about 2.5K test lines (ranked list) | open | | | |
+| SIMP-05 | P2 | Verified dead code: about 5.0K production lines plus about 2.5K test lines (ranked list) | fixed | P5-A | 45ec1f040..3b12093d3 | rows 1-5,7,9,11,12 removed; net -5.2K lines |
 | SIMP-06 | P2 | Same-named public types in two modules (`SequencingPlatform`, `AlignmentFilter*`) | open | | | |
 | SIMP-07 | P2 | Chromosome aliasing implemented at least 5 times; the dedicated resolver is unused | partial | P3-D | ddee0b5fa | variant-track path now uses resolver; other alias copies remain |
 | SIMP-08 | P2 | Docs and review artifacts dominate the checkout and the churn | open | | | |
@@ -136,10 +136,10 @@ Single source of truth for finding status (plan rule 9). Status: `open`, `verifi
 | WFL-18 | P2 | Two execution paths for the same operation with different defaults (orient, assembly Reassemble, genotyping) | open | | | |
 | WFL-19 | P2 | Failure-path quality: raw enum text, silent no-ops, cleanup errors failing successful runs | fixed | P1-C,Q3 | b3dcd7dc3,d47e79f1d | remaining raw errors + orient silent no-op |
 | WFL-20 | P2 | Inconsistent result layouts across sibling tools (single vs batch, import destinations, warning states) | open | | | |
-| ARC-14 | P3 | `ResultViewportController` / `BlastVerifiable` are premature abstractions with no polymorphic consumer | open | | | |
-| ARC-16 | P3 | Misplaced vocabulary: UI event names in Core, test harness in Kit, CGPoint graph model in Workflow, dead notif | open | | | |
-| FEA-15 | P3 | About 27 orphaned action handlers, stale validation branches and invisible import history | open | | | |
-| FEA-16 | P3 | `features.yaml` GUI entry-point claims that do not exist in the menus | open | | | |
+| ARC-14 | P3 | `ResultViewportController` / `BlastVerifiable` are premature abstractions with no polymorphic consumer | fixed | P5-A | P5-A | ResultViewportController/BlastVerifiable removed |
+| ARC-16 | P3 | Misplaced vocabulary: UI event names in Core, test harness in Kit, CGPoint graph model in Workflow, dead notif | partial | P5-A | P5-A | dead fastqOrientRequested removed |
+| FEA-15 | P3 | About 27 orphaned action handlers, stale validation branches and invisible import history | fixed | P5-A | P5-A | orphaned handlers removed |
+| FEA-16 | P3 | `features.yaml` GUI entry-point claims that do not exist in the menus | fixed | P5-A | P5-A | 14 entry points corrected; features-yaml check in pre-push (146/146) |
 | FEA-17 | P3 | Edit > Find (Cmd-F) is dead in the main window | fixed | P7,P7b | a13bc763 lane | sidebar find fallback |
 | PERF-14 | P3 | Racy output-drain idioms (CondaManager 100 ms "drain delay", `readerGroup.enter` inside `readabilityHandler`) | fixed | Q2 | f31335bc0 | drain to EOF |
 | PERF-15 | P3 | Operation log entries are unbounded per operation | fixed | Q2 | a13f9b83b | 2000-entry cap with elision marker |
@@ -151,13 +151,13 @@ Single source of truth for finding status (plan rule 9). Status: `open`, `verifi
 | SCI-20 | P3 | Assembly statistics drop IUPAC codes from contig length and count N in the GC denominator | fixed | P3-D | 01b7b995d | IUPAC in length, GC over ACGT |
 | SCI-21 | P3 | Variant extraction keeps the full REF for records straddling the region start | fixed | Q4 | 8c68a3ba1 | straddling records excluded |
 | SIMP-09 | P3 | Process-doc sprawl and stale process pointers to dead code | open | | | |
-| SIMP-10 | P3 | 49 SHA-256 helpers and 15 CSV/TSV escapers with inconsistent rules | open | | | |
+| SIMP-10 | P3 | 49 SHA-256 helpers and 15 CSV/TSV escapers with inconsistent rules | partial | P5-D | P5-D | FileDigest + DelimitedText; 5 call sites migrated |
 | SIMP-11 | P3 | About 5.4K lines of test hooks in production types, and 109 source-text test files | open | | | |
-| SIMP-12 | P3 | Two container-runtime factories plus a Docker fallback | open | | | |
+| SIMP-12 | P3 | Two container-runtime factories plus a Docker fallback | partial | P5-D | P5-D | dead half of container factory removed |
 | SIMP-13 | P3 | Copy-paste pairs: classifier VCs, genotype replay commands and payloads, tree runners | open | | | |
 | SIMP-14 | P3 | Small hygiene items: drifted agent copies, diverged prompt copy, unused fixture, `.gitignore` contradictions | open | | | |
 | SIMP-15 | P3 | `scripts/`: 45K Python lines, including one-off research labs and 23.5K lines of script tests | open | | | |
-| SIMP-16 | P3 | About 1.4K lines of Python embedded in Swift string literals | open | | | |
+| SIMP-16 | P3 | About 1.4K lines of Python embedded in Swift string literals | fixed | P5-D | P5-D | embedded Python moved to resources; compile check in pre-push |
 | SIMP-17 | P3 | Project-storage cleanup is 9.3K source lines plus 15.7K test lines for a move-to-Trash | open | | | |
 | TST-13 | P3 | Build health: 251 unique warnings, including concurrency-isolation warnings in tests and use of deprecated cle | open | | | |
 | TST-14 | P3 | Test effort is skewed toward release tooling and policy text over app behaviour | open | | | |
@@ -165,7 +165,7 @@ Single source of truth for finding status (plan rule 9). Status: `open`, `verifi
 | UX-16 | P3 | Hard-coded light fills in the read track reduce dark-mode contrast | fixed | Q1 | a6d26ce62 | dynamic colors; WCAG contrast test |
 | UX-17 | P3 | `BatchTableView` ⌘-click quick-copy competes with standard ⌘-click multi-select | fixed | P7 | 287aaaa03 | cmd-click quick-copy removed |
 | UX-18 | P3 | Sample-scope control differs per viewer. TaxTriage's segmented control does not scale | accepted | P7b | a13bc763 lane | control unreachable in production (batch mode uses Inspector picker); inert popup added should be DELETED in P5-A |
-| WFL-21 | P3 | Dead dialogs, launchers and engines kept alive only by tests | open | | | |
+| WFL-21 | P3 | Dead dialogs, launchers and engines kept alive only by tests | fixed | P5-A | P5-A | 15 orphaned handlers, BatchProcessingEngine, OrientWizardSheet, dead assembly chain |
 | GEN-01 | P0 | ONT barcode assignment takes the leftmost exact barcode match anywhere in the read, including inside the ampli | fixed | G1 | 545fcea36 | anchored window after rc(CS2), both orientations, multi-match unassigned; 20-read DRB1 case all FLD0001 |
 | GEN-02 | P0 | `minimumMatches: 1` plus a count-only match rule reports homozygotes as heterozygotes (DQ M2/M2 as "M2 / M6",  | mitigated | G2 | 6dd8eb44f | 28-genotype golden test; 6 wrong-but-called now 'ambiguous'; calling rule itself pending owner decision |
 | GEN-03 | P1 | `--min-support` does not filter the report CSV or pipeline workbook, contrary to its help text | fixed | G2 | 4af5150a9 | help text corrected (report/workbook intentionally unfiltered) |

@@ -82,69 +82,9 @@ actor MappingBatchTaskHandle {
 extension AppDelegate {
     // MARK: - ToolsMenuActions
 
-    @objc func showFASTQQCReportingOperations(_ sender: Any?) {
-        showFASTQOperationsDialog(sender, initialCategory: .qcReporting)
-    }
-
-    @objc func showFASTQDemultiplexingOperations(_ sender: Any?) {
-        showFASTQOperationsDialog(sender, initialCategory: .demultiplexing)
-    }
-
-    @objc func showFASTQTrimmingFilteringOperations(_ sender: Any?) {
-        showFASTQOperationsDialog(sender, initialCategory: .trimmingFiltering)
-    }
-
-    @objc func showFASTQDecontaminationOperations(_ sender: Any?) {
-        showFASTQOperationsDialog(sender, initialCategory: .decontamination)
-    }
-
-    @objc func showFASTQReadProcessingOperations(_ sender: Any?) {
-        showFASTQOperationsDialog(sender, initialCategory: .readProcessing)
-    }
-
-    @objc func showFASTQSearchSubsettingOperations(_ sender: Any?) {
-        showFASTQOperationsDialog(sender, initialCategory: .searchSubsetting)
-    }
-
-    @objc func showFASTQAlignmentOperations(_ sender: Any?) {
-        showFASTQOperationsDialog(sender, initialCategory: .alignment)
-    }
-
-    @objc func showFASTQMappingOperations(_ sender: Any?) {
-        showFASTQOperationsDialog(sender, initialCategory: .mapping)
-    }
-
-    @objc func showFASTQAssemblyOperations(_ sender: Any?) {
-        showFASTQOperationsDialog(sender, initialCategory: .assembly)
-    }
-
-    @objc func showFASTQClusteringOperations(_ sender: Any?) {
-        showFASTQOperationsDialog(sender, initialCategory: .clustering)
-    }
-
-    @objc func showFASTQClassificationOperations(_ sender: Any?) {
-        showFASTQOperationsDialog(sender, initialCategory: .classification)
-    }
-
-    @objc func showFASTQGenotypingOperations(_ sender: Any?) {
-        showFASTQOperationsDialog(sender, initialCategory: .genotyping)
-    }
-
-    @objc func showFASTQReverseComplementOperation(_ sender: Any?) {
-        showFASTQOperationsDialog(sender, initialCategory: .readProcessing, initialToolID: .reverseComplement)
-    }
-
-    @objc func showFASTQTranslateOperation(_ sender: Any?) {
-        showFASTQOperationsDialog(sender, initialCategory: .readProcessing, initialToolID: .translate)
-    }
-
     @objc func launchFASTQOperationToolFromMenu(_ sender: NSMenuItem) {
         guard let toolID = sender.representedObject as? FASTQOperationToolID else { return }
         showFASTQOperationsDialog(sender, initialCategory: toolID.categoryID, initialToolID: toolID)
-    }
-
-    @objc func showFreyjaDemix(_ sender: Any?) {
-        PluginManagerWindowController.show(packID: "wastewater-surveillance")
     }
 
     func canShowBAMVariantCalling(bundle: ReferenceBundle?) -> Bool {
@@ -1636,71 +1576,6 @@ extension AppDelegate {
         return preparedResult
     }
 
-    private func runOrientReads(config: OrientConfig) {
-        let opID = OperationCenter.shared.start(
-            title: "Orient Reads",
-            detail: "Orienting reads against \(config.referenceURL.lastPathComponent)",
-            routeContext: currentOperationRouteContext()
-        )
-
-        let task = Task.detached { [weak self] in
-            do {
-                // Materialize virtual FASTQs before running the pipeline.
-                let materializeTempDir = try ProjectTempDirectory.createFromContext(
-                    prefix: "orient-", contextURL: config.inputURL)
-                defer { try? FileManager.default.removeItem(at: materializeTempDir) }
-
-                let resolvedFiles = try await self?.resolveInputFiles(
-                    [config.inputURL],
-                    tempDirectory: materializeTempDir,
-                    progress: { message in
-                        DispatchQueue.main.async { MainActor.assumeIsolated {
-                            _ = OperationCenter.shared.update(id: opID, progress: 0, detail: message)
-                            OperationCenter.shared.log(id: opID, level: .info, message: message)
-                        }}
-                    }
-                ) ?? [config.inputURL]
-
-                let resolvedConfig = OrientConfig(
-                    inputURL: resolvedFiles.first ?? config.inputURL,
-                    referenceURL: config.referenceURL,
-                    wordLength: config.wordLength,
-                    dbMask: config.dbMask,
-                    qMask: config.qMask,
-                    saveUnoriented: config.saveUnoriented,
-                    threads: config.threads
-                )
-
-                let pipeline = OrientPipeline()
-                let result = try await pipeline.run(config: resolvedConfig) { fraction, message in
-                    DispatchQueue.main.async { MainActor.assumeIsolated {
-                        _ = OperationCenter.shared.update(id: opID, progress: fraction, detail: message)
-                        OperationCenter.shared.log(id: opID, level: .info, message: message)
-                    }}
-                }
-                DispatchQueue.main.async { MainActor.assumeIsolated {
-                    guard OperationCenter.shared.complete(
-                        id: opID,
-                        detail: "Orient complete: \(result.forwardCount) fwd, \(result.reverseComplementedCount) RC, \(result.unmatchedCount) unmatched"
-                    ) else { return }
-                }}
-            } catch {
-                // WFL-19: show the user-facing localized message, not the raw
-                // enum/struct description; keep the raw text for diagnostics.
-                let localizedMessage = error.localizedDescription
-                let rawDetail = "\(error)"
-                DispatchQueue.main.async { MainActor.assumeIsolated {
-                    _ = OperationCenter.shared.fail(
-                        id: opID,
-                        detail: localizedMessage,
-                        errorMessage: localizedMessage,
-                        errorDetail: rawDetail
-                    )
-                }}
-            }
-        }
-        OperationCenter.shared.setCancelCallback(for: opID) { task.cancel() }
-    }
 
 
     @objc func searchNCBI(_ sender: Any?) {

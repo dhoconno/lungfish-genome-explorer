@@ -155,7 +155,10 @@ let package = Package(
                 .product(name: "SystemPackage", package: "swift-system"),
                 .product(name: "AsyncAlgorithms", package: "swift-async-algorithms"),
             ],
-            path: "Sources/LungfishIO"
+            path: "Sources/LungfishIO",
+            resources: [
+                .copy("Resources/GenotypeWorkbook")
+            ]
         ),
         .testTarget(
             name: "LungfishIOTests",
@@ -185,7 +188,8 @@ let package = Package(
                 .copy("Resources/Databases"),
                 .copy("Resources/AIHaplotyping"),
                 .copy("Resources/MCMHaplotyping"),
-                .copy("Resources/Recipes")
+                .copy("Resources/Recipes"),
+                .copy("Resources/ONTGenotyping")
             ]
         ),
         .testTarget(

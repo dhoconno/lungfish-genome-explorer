@@ -512,30 +512,6 @@ final class WindowAppearanceTests: XCTestCase {
         XCTAssertFalse(taxtriageSource.contains("Color.accentColor"))
     }
 
-    func testUnifiedClassifierRunnerUsesSharedShellLayout() throws {
-        let inspected = try UnifiedMetagenomicsWizard(inputFiles: []).inspect()
-
-        // Behavioral replacement: the constructed wizard actually renders the
-        // sidebar's "Classifier" runner-section title/subtitle and a top-level
-        // HStack shell, proven on the live tree rather than by grepping for the
-        // private computed-property names.
-        _ = try inspected.find(text: "Classifier")
-        _ = try inspected.find(text: "Choose the analysis to configure")
-        XCTAssertNoThrow(try inspected.find(ViewType.HStack.self))
-
-        // source-text: no runtime seam — see docs/reports/2026-08-21-test-suite-review.md §3
-        // Deliberate dead-code check: confirms the removed WizardStep/
-        // analysisTypeSelector call sites have not been reintroduced. There is no
-        // rendered instance of removed code to assert against behaviorally.
-        let source = try String(
-            contentsOf: repositoryRoot()
-                .appendingPathComponent("Sources/LungfishApp/Views/Metagenomics/UnifiedMetagenomicsWizard.swift"),
-            encoding: .utf8
-        )
-        XCTAssertFalse(source.contains("WizardStep"))
-        XCTAssertFalse(source.contains("analysisTypeSelector"))
-    }
-
     func testToolPanelsRetainStandaloneShellAndSizing() throws {
         // Behavioral replacement: with `embeddedInOperationsDialog` left at its
         // default `false`, each wizard actually renders its own standalone

@@ -522,25 +522,10 @@ private final class WorkflowBuilderMenuActionRecorder: NSObject, ToolsMenuAction
     @objc func launchFASTQOperationToolFromMenu(_ sender: NSMenuItem) {}
     @objc func showHaplotypeDefinitions(_ sender: Any?) {}
 
-    @objc func showFASTQQCReportingOperations(_ sender: Any?) {}
-    @objc func showFASTQDemultiplexingOperations(_ sender: Any?) {}
-    @objc func showFASTQTrimmingFilteringOperations(_ sender: Any?) {}
-    @objc func showFASTQDecontaminationOperations(_ sender: Any?) {}
-    @objc func showFASTQReadProcessingOperations(_ sender: Any?) {}
-    @objc func showFASTQSearchSubsettingOperations(_ sender: Any?) {}
-    @objc func showFASTQAlignmentOperations(_ sender: Any?) {}
-    @objc func showFASTQMappingOperations(_ sender: Any?) {}
-    @objc func showFASTQAssemblyOperations(_ sender: Any?) {}
-    @objc func showFASTQClusteringOperations(_ sender: Any?) {}
-    @objc func showFASTQClassificationOperations(_ sender: Any?) {}
-    @objc func showFASTQGenotypingOperations(_ sender: Any?) {}
-    @objc func showFASTQReverseComplementOperation(_ sender: Any?) {}
-    @objc func showFASTQTranslateOperation(_ sender: Any?) {}
     @objc func launchWorkflowFromMenu(_ sender: NSMenuItem) {
         launchWorkflowInvocationCount += 1
     }
     @objc func promptEnableWorkflowFromMenu(_ sender: NSMenuItem) {}
-    @objc func showFreyjaDemix(_ sender: Any?) {}
     @objc func showBAMVariantCalling(_ sender: Any?) {}
     @objc func searchNCBI(_ sender: Any?) {}
     @objc func searchSRA(_ sender: Any?) {}

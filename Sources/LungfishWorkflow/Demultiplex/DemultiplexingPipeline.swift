@@ -3548,4 +3548,21 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
         return 0
     }
 
+    /// Compute a relative path from one URL to another (e.g. "../../parent-bundle.fastqbundle").
+    func relativePath(from baseURL: URL, to targetURL: URL) -> String {
+        let baseComponents = baseURL.standardizedFileURL.pathComponents
+        let targetComponents = targetURL.standardizedFileURL.pathComponents
+
+        var common = 0
+        while common < min(baseComponents.count, targetComponents.count),
+              baseComponents[common] == targetComponents[common] {
+            common += 1
+        }
+
+        let up = Array(repeating: "..", count: max(0, baseComponents.count - common))
+        let down = Array(targetComponents.dropFirst(common))
+        let parts = up + down
+        return parts.isEmpty ? "." : parts.joined(separator: "/")
+    }
+
 }
