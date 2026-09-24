@@ -20,8 +20,8 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SOURCES_DIR = REPO_ROOT / "Sources"
 SHARED_CONTROL = "Sources/LungfishKit/NumericSliderField.swift"
-# The depth-cap lane (D9) is editing this file; the orchestrator migrates it afterwards.
-ALLOWLIST = {"Sources/LungfishApp/Views/Inspector/Sections/ReadStyleSection.swift"}
+# Every slider has been migrated; keep this empty.
+ALLOWLIST = set()
 
 BARE_SLIDER = re.compile(r"(?<![A-Za-z0-9_])Slider\(")
 NS_SLIDER = re.compile(r"(?<![A-Za-z0-9_])NSSlider\(")

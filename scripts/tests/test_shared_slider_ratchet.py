@@ -5,7 +5,7 @@ import sys
 from pathlib import Path
 
 SCRIPT = Path(__file__).resolve().parents[1] / "ratchets" / "shared-slider-control.sh"
-ALLOWLISTED = "Sources/LungfishApp/Views/Inspector/Sections/ReadStyleSection.swift"
+INSPECTOR = "Sources/LungfishApp/Views/Inspector/Sections/ReadStyleSection.swift"
 
 
 def make_repo(tmp_path, files):
@@ -27,7 +27,7 @@ def run(repo):
 
 BASE = {
     "Sources/LungfishKit/NumericSliderField.swift": "Slider(value: $v, in: 0...1)\n",
-    ALLOWLISTED: "Slider(value: $v, in: 0...1)\n",
+    INSPECTOR: "NumericSliderField(\"x\", value: $v, in: 0...1)\n",
     "Sources/LungfishApp/Other.swift": "NumericSliderField(\"x\", value: $v, in: 0...1)\nif view is NSSlider {}\n// Slider( in a comment\n",
 }
 
@@ -48,8 +48,8 @@ def test_nsslider_construction_fails(tmp_path):
     assert run(make_repo(tmp_path, files)).returncode == 1
 
 
-def test_stale_allowlist_entry_fails(tmp_path):
-    files = dict(BASE, **{ALLOWLISTED: "NumericSliderField(\"x\", value: $v, in: 0...1)\n"})
+def test_allowlist_is_empty_so_every_file_is_checked(tmp_path):
+    files = dict(BASE, **{INSPECTOR: "Slider(value: $v, in: 0...1)\n"})
     result = run(make_repo(tmp_path, files))
     assert result.returncode == 1
-    assert "remove it from ALLOWLIST" in result.stderr
+    assert INSPECTOR + ":1" in result.stderr

@@ -1778,31 +1778,23 @@ public struct AlignmentViewSection: View {
                 .font(LungfishInspectorStyle.controlFont)
                 .foregroundStyle(.secondary)
 
-            HStack {
-                Text("Low support (of non-gap residues)")
-                Spacer()
-                Text("\(Int(viewModel.msaConsensusLowSupportThresholdPercent))%")
-                    .foregroundStyle(.secondary)
-            }
-            Slider(
+            NumericSliderField(
+                "Low support (of non-gap residues)",
                 value: $viewModel.msaConsensusLowSupportThresholdPercent,
                 in: 0...100,
-                step: 5
+                step: 5,
+                suffix: "%"
             )
             .onChange(of: viewModel.msaConsensusLowSupportThresholdPercent) { _, _ in
                 viewModel.onSettingsChanged?()
             }
 
-            HStack {
-                Text("High gap")
-                Spacer()
-                Text("\(Int(viewModel.msaConsensusHighGapThresholdPercent))%")
-                    .foregroundStyle(.secondary)
-            }
-            Slider(
+            NumericSliderField(
+                "High gap",
                 value: $viewModel.msaConsensusHighGapThresholdPercent,
                 in: 0...100,
-                step: 5
+                step: 5,
+                suffix: "%"
             )
             .onChange(of: viewModel.msaConsensusHighGapThresholdPercent) { _, _ in
                 viewModel.onSettingsChanged?()
