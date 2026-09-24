@@ -1,7 +1,7 @@
 # Captured from Lungfish Preview 2026.9.13 with capture-window.sh (2026-09 campaign).
 # App state: Exported by Preview build 4673 from chr20 reference import lineage.
 id: provenance-export-folder
-chapter: 01-foundations/08-provenance-and-reproducibility
+chapter: 08-workflows/02-exporting-as-nextflow-or-snakemake
 caption: The exported provenance folder open in Finder, with the primary artifact beside the provenance
   subdirectory of copied run records.
 viewport_class: none

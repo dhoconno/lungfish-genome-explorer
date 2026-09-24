@@ -1484,7 +1484,7 @@ operations:
     title: ONT Run Folder
     entry_points:
       - "File > Import Center... > Sequencing Reads > ONT Run Folder"
-      - "CLI: lungfish-cli import fastq <run-folder> --project <project> --platform ont"
+      - "CLI: lungfish-cli fastq import-ont <run-folder> --output <project folder>"
     gating: []
     sources:
       - Sources/LungfishApp/Views/ImportCenter/ImportCenterViewModel.swift
@@ -1521,9 +1521,21 @@ operations:
         when_to_change: Change it when you are importing more than one run and want the outputs kept apart by run name.
         cli_flag: null
     cli_only:
-      - flag: --platform
-        default: auto-detect
-        effect: Forces the platform to ont rather than letting the importer detect it from the read headers.
+      - flag: --include-unclassified
+        default: "off"
+        effect: Imports the unclassified folder as well. The window never passes it.
+      - flag: --concurrency
+        default: "4"
+        effect: Sets how many barcode folders are imported at once.
+      - flag: --storage-mode
+        default: chunked
+        effect: Chooses chunked, which keeps each barcode's chunk files side by side, or flattened, which joins them into one payload.
+      - flag: --optimize-storage
+        default: "off"
+        effect: Runs clumpify on the flattened payload and requires --storage-mode flattened. The window passes both when Optimize storage is on.
+      - flag: --quality-binning
+        default: none
+        effect: Chooses none, illumina4 (7 levels), or eightLevel (about 21 levels), and applies only with --optimize-storage.
     notes: >-
       The card opens a folder-only panel that accepts fastq_pass, a single barcode
       folder, or any folder of FASTQ chunks. The Import FASTQ configuration sheet
@@ -3241,6 +3253,13 @@ operations:
         effect: Caps how many rows of stacked reads are drawn. The help text notes that leaving it off "keeps all mapped reads in the active view and enables stable vertical scrolling".
         when_to_change: Turn it on when a very deep pile makes scrolling sluggish.
         cli_flag: null
+      - label: Maximum rows
+        control: slider with number field
+        default: "75"
+        allowed: 10 to 2,000 in steps of 10
+        effect: Sets how many rows of stacked reads are drawn when Limit visible rows is on.
+        when_to_change: Raise it to see more of a deep pile at once, or lower it when redrawing feels slow.
+        cli_flag: null
       - label: Maximum displayed depth
         control: slider with number field
         default: "500"
@@ -3296,6 +3315,20 @@ operations:
         allowed: any colour
         effect: Sets the tint used for reads on the reverse strand.
         when_to_change: Change it when the default pair is hard for you to tell apart.
+        cli_flag: null
+      - label: Sort reads by
+        control: popup
+        default: Position
+        allowed: Position, Read Name, Strand, Mapping Quality, Insert Size, Base at Position
+        effect: Chooses the order in which reads are stacked into rows.
+        when_to_change: Sort by Base at Position to group the reads that carry each base at a site you are checking.
+        cli_flag: null
+      - label: Color reads by
+        control: popup
+        default: Strand
+        allowed: Strand, Insert Size, Mapping Quality, Read Group, First/Second in Pair, Base Quality
+        effect: Chooses what the read tint shows. It can be changed only while Color reads by strand is on.
+        when_to_change: Choose Mapping Quality or Read Group when that property matters more than strand for the question you are asking.
         cli_flag: null
     cli_only: []
     notes: >-
@@ -3926,7 +3959,7 @@ operations:
         control: popup
         default: hidden until a filter is active
         allowed: press to clear
-        effect: Drops every active variant filter, both the chips and anything the Search Builder wrote. Its tooltip reads "Clear variant filter".
+        effect: Drops every active variant filter, both the chips and anything the Query Builder wrote. Its tooltip reads "Clear variant filter".
         when_to_change: Use it whenever you want the full table back.
         cli_flag: null
       - label: Profiles
@@ -3949,7 +3982,7 @@ operations:
       separated with a semicolon and always combine with AND. Per-sample clauses take
       the form Sample[<name>].<field> with GT, AF, and DP as the only fields. Three
       chip groups behave like radio buttons within themselves, the two type chips, the
-      two impact chips, and the three frequency chips. The Search Builder is disabled on
+      two impact chips, and the three frequency chips. The Query Builder is disabled on
       a very large variant database, and its tooltip then explains why. The sheet's own
       built-in presets include High-Confidence Coding, Rare Pathogenic, and Quality
       Review, and Save Preset... stores one of your own.
@@ -3986,7 +4019,7 @@ operations:
     notes: >-
       This command has no dialog. The in-app equivalent is the table drawer's Search
       Builder, but the two do not share a grammar. --filter accepts per-sample clauses
-      only (VariantSmartFilter), so a Search Builder query carrying filter, pos, type,
+      only (VariantSmartFilter), so a Query Builder query carrying filter, pos, type,
       qual, or an INFO comparison is rejected with "Unsupported smart-filter clause"
       (settled at the chapter 28 review on 2026-09-07). The command stages the output first,
       writes a provenance record beside it, and publishes the new VCF only once that

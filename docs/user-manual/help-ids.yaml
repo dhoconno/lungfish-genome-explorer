@@ -154,7 +154,7 @@ term:project:
 
 dialog.NCBISearchDialog:
   chapter: 02-sequences/02-downloading-from-ncbi
-  anchor: procedure-download-a-reference-by-accession
+  anchor: procedure
   scope: dialog
   description: Search NCBI by accession or text query and download.
 
@@ -166,13 +166,13 @@ dialog.SRASearchDialog:
 
 dialog.PathoplexusSearchDialog:
   chapter: 02-sequences/02-downloading-from-ncbi
-  anchor: pathoplexus-and-sra-when-not-to-use-ncbi-fetch
+  anchor: searching-pathoplexus
   scope: dialog
   description: Search Pathoplexus (sister database to NCBI) for viral genomes.
 
 dialog.ImportCenter:
-  chapter: 02-sequences/01-importing-and-viewing
-  anchor: three-ways-to-import
+  chapter: 01-foundations/06-the-lungfish-project
+  anchor: the-import-center
   scope: dialog
   description: Guided import for FASTAs, GenBank records, GFF3+FASTA pairs, FASTQs, VCFs, primer schemes.
 
@@ -183,8 +183,8 @@ dialog.MappingWizard:
   description: Map reads to a reference; pick a mapper and preset.
 
 dialog.OrientReadsWizard:
-  chapter: 03-reads/07-ont-runs
-  anchor: orient-the-reads
+  chapter: 03-reads/08-read-processing
+  anchor: orienting-long-reads-against-a-reference
   scope: dialog
   description: Orient ONT reads against a reference.
 
@@ -196,25 +196,25 @@ dialog.BAMPrimerTrimDialog:
 
 dialog.BAMVariantCallingDialog:
   chapter: 05-variants/01-calling-variants-from-amplicons
-  anchor: step-6-call-variants-with-ivar
+  anchor: procedure
   scope: dialog
   description: Call variants with iVar, LoFreq, Medaka, or bcftools against a bundle alignment track.
 
 dialog.UnifiedMetagenomicsWizard:
   chapter: 06-classification/01-what-is-classification
-  anchor: procedure
+  anchor: where-the-classifiers-live
   scope: dialog
-  description: Run a classifier (Kraken2, EsViritu, TaxTriage, NAO-MGS) against a FASTQ bundle.
+  description: Run a classifier (Kraken2, EsViritu, or TaxTriage) against a FASTQ bundle. NAO-MGS results are imported, not run.
 
 dialog.CzIdImportSheet:
-  chapter: 06-classification/07-importing-cz-id-results
+  chapter: 06-classification/08-importing-cz-id-results
   anchor: procedure
   scope: dialog
   description: Import, not run, a CZ-ID taxon report TSV, ZIP archive, or extracted folder.
 
 dialog.AssemblyWizard:
   chapter: 07-assembly/01-when-to-assemble
-  anchor: procedure
+  anchor: how-the-sheet-decides-what-you-may-run
   scope: dialog
   description: Run a de novo assembler (SPAdes, MEGAHIT, SKESA, Flye, Hifiasm).
 
@@ -238,7 +238,7 @@ dialog.MSAOperations:
 
 dialog.PluginManager:
   chapter: 01-foundations/07-plugin-packs
-  anchor: install-a-pack-from-the-plugin-manager
+  anchor: procedure
   scope: dialog
   description: Install, list, and remove Lungfish plugin packs.
 
@@ -250,7 +250,7 @@ dialog.WorkflowBuilder:
 
 dialog.FASTQImportConfigSheet:
   chapter: 03-reads/01-importing-fastq
-  anchor: procedure-import-the-same-pair-with-the-import-center
+  anchor: procedure
   scope: dialog
   description: FASTQ import configuration including pairing and metadata.
 
@@ -268,25 +268,25 @@ dialog.ProjectSampleMetadata:
 
 dialog.ExportProvenanceShell:
   chapter: 08-workflows/02-exporting-as-nextflow-or-snakemake
-  anchor: procedure-export-the-reads-to-variants-workflow-as-nextflow
+  anchor: procedure
   scope: dialog
   description: Export workflow as a runnable shell script.
 
 dialog.ExportProvenanceNextflow:
   chapter: 08-workflows/02-exporting-as-nextflow-or-snakemake
-  anchor: procedure-export-the-reads-to-variants-workflow-as-nextflow
+  anchor: procedure
   scope: dialog
   description: Export workflow as a Nextflow pipeline.
 
 dialog.ExportProvenanceSnakemake:
   chapter: 08-workflows/02-exporting-as-nextflow-or-snakemake
-  anchor: procedure-export-the-reads-to-variants-workflow-as-nextflow
+  anchor: procedure
   scope: dialog
   description: Export workflow as a Snakemake workflow.
 
 dialog.ExportProvenanceMethods:
   chapter: 08-workflows/02-exporting-as-nextflow-or-snakemake
-  anchor: procedure-export-the-reads-to-variants-workflow-as-nextflow
+  anchor: procedure
   scope: dialog
   description: Export workflow as a methods-section paragraph.
 
@@ -294,7 +294,7 @@ dialog.ExportProvenanceMethods:
 
 viewport.SequenceViewer:
   chapter: 02-sequences/01-importing-and-viewing
-  anchor: viewport-anatomy
+  anchor: the-viewport
   scope: viewport
   description: Linear sequence viewer with annotations and navigation.
 
@@ -314,17 +314,17 @@ viewport.VariantFilterTable:
   chapter: 05-variants/02-reading-the-variant-browser
   anchor: step-4-filter-with-the-preset-chips
   scope: viewport
-  description: Preset filter chips and the Search Builder above the Variants tab.
+  description: Preset filter chips and the Query Builder above the Variants tab.
 
 viewport.AssemblyViewer:
   chapter: 07-assembly/02-running-spades
-  anchor: interpretation
+  anchor: reading-the-results
   scope: viewport
   description: Assembly viewport with contig list, lengths, coverage, GC content.
 
 viewport.TaxonomyViewer:
   chapter: 06-classification/02-running-kraken2
-  anchor: interpretation
+  anchor: reading-the-results
   scope: viewport
   description: Classification result viewport with sunburst, taxon table, breadcrumb bar.
 
@@ -342,19 +342,19 @@ viewport.TreeViewer:
 
 viewport.FASTQViewer:
   chapter: 03-reads/03-quality-control
-  anchor: interpretation
+  anchor: reading-the-results
   scope: viewport
   description: FASTQ viewport with QC sparklines and per-file metadata.
 
 viewport.EsVirituResultViewer:
   chapter: 06-classification/03-running-esviritu
-  anchor: interpretation
+  anchor: reading-the-results
   scope: viewport
   description: EsViritu result viewport with per-strain coverage sparklines.
 
 viewport.TaxTriageResultViewer:
   chapter: 06-classification/04-running-taxtriage
-  anchor: reading-the-confidence-view
+  anchor: reading-the-results
   scope: viewport
   description: TaxTriage result viewport with confidence-ranked organism list and batch overview.
 
@@ -380,7 +380,7 @@ inspector.AnalysisSection.PrimerTrim:
 
 inspector.AnalysisSection.VariantCalling:
   chapter: 05-variants/01-calling-variants-from-amplicons
-  anchor: step-6-call-variants-with-ivar
+  anchor: procedure
   scope: inspector
   description: Inspector > Analysis > Variant Calling > Call Variants action.
 
@@ -392,7 +392,7 @@ inspector.AnalysisSection.Filtering:
 
 inspector.AnalysisSection.Annotations:
   chapter: 02-sequences/01-importing-and-viewing
-  anchor: viewport-anatomy
+  anchor: annotating-features-on-a-sequence
   scope: inspector
   description: Inspector > Analysis > Annotations subsection.
 
@@ -404,7 +404,7 @@ inspector.AnalysisSection.Consensus:
 
 inspector.AnalysisSection.Export:
   chapter: 08-workflows/02-exporting-as-nextflow-or-snakemake
-  anchor: procedure-export-the-reads-to-variants-workflow-as-nextflow
+  anchor: procedure
   scope: inspector
   description: Inspector > Analysis > Export subsection.
 
@@ -416,7 +416,7 @@ inspector.SampleMetadata:
 
 inspector.AlignmentTrackStats:
   chapter: 04-alignments/04-alignment-quality
-  anchor: read-the-inspector-stats
+  anchor: reading-the-results
   scope: inspector
   description: Inspector aggregate alignment stats for a BAM track.
 
@@ -430,7 +430,7 @@ inspector.VariantSection:
 
 menu.Tools.SearchOnlineDatabases.NCBI:
   chapter: 02-sequences/02-downloading-from-ncbi
-  anchor: procedure-download-a-reference-by-accession
+  anchor: procedure
   scope: menu
   description: Tools > Search Online Databases > Search NCBI...
 
@@ -442,7 +442,7 @@ menu.Tools.SearchOnlineDatabases.SRA:
 
 menu.Tools.SearchOnlineDatabases.Pathoplexus:
   chapter: 02-sequences/02-downloading-from-ncbi
-  anchor: pathoplexus-and-sra-when-not-to-use-this-dialog
+  anchor: searching-pathoplexus
   scope: menu
   description: Tools > Search Online Databases > Search Pathoplexus...
 
@@ -454,13 +454,13 @@ menu.Tools.FASTQOperations.Mapping:
 
 menu.Tools.FASTQOperations.Classification:
   chapter: 06-classification/01-what-is-classification
-  anchor: procedure
+  anchor: where-the-classifiers-live
   scope: menu
-  description: Tools > FASTQ/FASTA Operations > Classification...
+  description: Tools > Classification > Kraken2... / EsViritu... / TaxTriage...
 
 menu.Tools.FASTQOperations.Assembly:
   chapter: 07-assembly/01-when-to-assemble
-  anchor: procedure
+  anchor: how-the-sheet-decides-what-you-may-run
   scope: menu
   description: Tools > FASTQ/FASTA Operations > Assembly...
 
@@ -496,7 +496,7 @@ menu.Tools.FASTQOperations.MSA:
 
 menu.Tools.PluginManager:
   chapter: 01-foundations/07-plugin-packs
-  anchor: install-a-pack-from-the-plugin-manager
+  anchor: procedure
   scope: menu
   description: Tools > Plugin Manager (Cmd-Shift-B)
 
@@ -519,7 +519,7 @@ menu.File.Open:
   description: File > Open Project Folder... (Cmd-O)
 
 menu.File.ImportCenter:
-  chapter: 02-sequences/01-importing-and-viewing
+  chapter: 01-foundations/06-the-lungfish-project
   anchor: the-import-center
   scope: menu
   description: File > Import Center (Cmd-Shift-I)
@@ -531,8 +531,8 @@ menu.File.ImportONTRun:
   description: File > Import ONT Run
 
 menu.File.Export.Provenance:
-  chapter: 01-foundations/08-provenance-and-reproducibility
-  anchor: export-paths
+  chapter: 08-workflows/02-exporting-as-nextflow-or-snakemake
+  anchor: procedure
   scope: menu
   description: File > Export > Provenance submenu
 
@@ -556,43 +556,43 @@ menu.Operations.Panel:
 
 menu.Sequence.GoToPosition:
   chapter: 02-sequences/01-importing-and-viewing
-  anchor: navigation
+  anchor: moving-to-a-position
   scope: menu
   description: Sequence > Go to Location (Cmd-L)
 
 menu.Sequence.GoToGene:
   chapter: 02-sequences/01-importing-and-viewing
-  anchor: navigation
+  anchor: moving-to-a-position
   scope: menu
   description: Sequence > Go to Gene (Cmd-Option-G)
 
 menu.Sequence.ExtractVisibleRegion:
   chapter: 02-sequences/03-extracting-and-comparing
-  anchor: procedure-extract-a-region-as-a-new-bundle
+  anchor: extract-the-region-the-viewport-is-showing
   scope: menu
   description: Sequence > Extract Visible Region (Cmd-Shift-E)
 
 menu.Sequence.CopyAsFASTA:
   chapter: 02-sequences/03-extracting-and-comparing
-  anchor: procedure-copy-a-region-as-fasta
+  anchor: copy-the-visible-region-without-a-sheet
   scope: menu
   description: Sequence > Copy Visible Region as FASTA (Cmd-Shift-C)
 
 menu.Sequence.Translate:
-  chapter: 02-sequences/03-extracting-and-comparing
-  anchor: the-operations-at-a-glance
+  chapter: 02-sequences/01-importing-and-viewing
+  anchor: translating-a-sequence-to-protein
   scope: menu
   description: Sequence > Translate (Cmd-Shift-T)
 
 menu.Sequence.ReverseComplement:
   chapter: 02-sequences/03-extracting-and-comparing
-  anchor: the-operations-at-a-glance
+  anchor: settings
   scope: menu
   description: Sequence > Reverse Complement (Cmd-Shift-R)
 
 menu.Sequence.FindORFs:
   chapter: 02-sequences/03-extracting-and-comparing
-  anchor: procedure-find-orfs
+  anchor: procedure-marking-open-reading-frames
   scope: menu
   description: Sequence > Find ORFs
 
@@ -626,7 +626,7 @@ operations.Panel:
 
 operations.Panel.ProvenanceDisclosure:
   chapter: 01-foundations/08-provenance-and-reproducibility
-  anchor: where-sidecars-live
+  anchor: reading-the-results
   scope: viewport
   description: Provenance disclosure for an operation row.
 

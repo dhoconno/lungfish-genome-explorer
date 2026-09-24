@@ -1,7 +1,7 @@
 # Captured from Lungfish Preview 2026.9.13 with capture-window.sh (2026-09 campaign).
 # App state: The Packs tab with the Wastewater Surveillance card, its Install All button, and its five tools (Freyja, iVar ready; Pangolin, Nextclade needs install; minimap2 ready), 3 of 5 ready.
 id: plugin-manager-wastewater-pack
-chapter: 06-classification/07-running-freyja
+chapter: 01-foundations/07-plugin-packs
 caption: The Plugin Manager Packs tab, with Show Experimental Features turned on, showing the Wastewater
   Surveillance card, its Install All button, and the five tools it installs.
 viewport_class: none

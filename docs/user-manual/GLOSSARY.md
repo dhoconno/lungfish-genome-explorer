@@ -310,7 +310,7 @@ Terms appear in alphabetical order. Each entry is a one-sentence definition, fol
 
 **Flagstat**{#flagstat}. The per-category tally `samtools flagstat` produces by decoding the FLAG field of every record in a BAM, giving counts for total, primary, secondary, supplementary, mapped, properly paired, and singleton records, and shown in the alignment Inspector as a collapsed Flag Statistics list. See also FLAG, BAM, primary alignment.
 
-**Fluidigm sample barcode**{#fluidigm-sample-barcode}. The sample-identifying sequence carried between the fixed CS1 and CS2 primer sequences in a library built with Fluidigm Access Array primers, which Lungfish Genome Explorer reads to split one bulk Oxford Nanopore bundle into per-sample bundles of the insert lying between those two primers. See also barcode, demultiplex, amplicon.
+**Fluidigm sample barcode**{#fluidigm-sample-barcode}. The sample-identifying sequence that a library built with Fluidigm Access Array primers adds to each read next to the fixed CS1 and CS2 primer sequences. Lungfish Genome Explorer finds the two primers, reads the barcode beside them to assign the read to a sample, and splits one bulk Oxford Nanopore bundle into per-sample bundles of the insert lying between the two primers. See also barcode, demultiplex, amplicon.
 
 **FORMAT (in a VCF)**{#format}. The ninth VCF column, declaring a colon-separated list of keys that describe the per-sample payload columns following it, such as the `GT:PL:AD` that bcftools writes. The column is optional, and LoFreq output has no FORMAT and no sample column at all. See also VCF, INFO.
 

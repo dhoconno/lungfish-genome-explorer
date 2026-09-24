@@ -1,7 +1,7 @@
 # Captured from Lungfish Preview 2026.9.13 with capture-window.sh (2026-09 campaign).
 # App state: Demo FASTQ selected, File > Export open.
 id: file-export-menu
-chapter: 01-foundations/08-provenance-and-reproducibility
+chapter: 01-foundations/06-the-lungfish-project
 caption: The File > Export submenu open, showing the sequence, annotation, FASTQ, metadata, and image
   export items above the Provenance submenu.
 viewport_class: none

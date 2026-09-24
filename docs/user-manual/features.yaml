@@ -899,6 +899,8 @@ features:
     notes: >-
       Uses an AI provider to discover or refine haplotype definitions from
       genotype evidence and publishes a validated workbook revision.
+      Not exposed or documented in the manual (owner decision D5). The
+      subcommand still appears in lungfish-cli genotype --help.
   viewport.genotype-matrix:
     title: Genotype comparison viewport
     entry_points:
@@ -918,8 +920,10 @@ features:
   genotype.export:
     title: Export genotype results
     entry_points:
-      - "Genotype viewport > Export"
+      - "Inspector > Bundle tab > Excel > Export to Excel…"
+      - "CLI: lungfish genotype export"
       - "CLI: lungfish genotype export-xlsx"
+      - "CLI: lungfish genotype export-pivot-xlsx"
       - "CLI: lungfish genotype export-labkey"
     inputs: [genotype-bundle]
     outputs: [xlsx, csv, tsv, labkey-csv]
