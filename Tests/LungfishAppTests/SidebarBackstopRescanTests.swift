@@ -111,6 +111,64 @@ final class SidebarBackstopRescanTests: XCTestCase {
         )
     }
 
+    // MARK: - Previously empty folders (2026-09-24)
+
+    /// A project whose `Primer Schemes/` folder exists but is empty, as in a
+    /// freshly created project.
+    private func makeProjectWithEmptyFolder() throws -> (project: URL, folder: URL) {
+        let project = try makeProject()
+        let folder = project.appendingPathComponent("Primer Schemes", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        return (project, folder)
+    }
+
+    private func item(titled title: String, in items: [SidebarItem]) -> SidebarItem? {
+        for item in items {
+            if item.title == title { return item }
+            if let found = self.item(titled: title, in: item.children) { return found }
+        }
+        return nil
+    }
+
+    func testItemAddedToPreviouslyEmptyFolderAppearsAfterActivation() async throws {
+        let (projectURL, folder) = try makeProjectWithEmptyFolder()
+        let clock = ManualClock()
+        let (sidebar, _) = openedSidebar(at: projectURL, clock: clock)
+        XCTAssertEqual(item(titled: "Primer Schemes", in: sidebar.rootItems)?.children.count, 0)
+
+        try ">p\nACGT\n".write(
+            to: folder.appendingPathComponent("scheme.fasta"), atomically: true, encoding: .utf8
+        )
+
+        let task = try XCTUnwrap(sidebar.requestBackstopRescan(reason: "test activation"))
+        let applied = await task.value
+        XCTAssertTrue(applied)
+        let added = try XCTUnwrap(item(titled: "scheme.fasta", in: sidebar.rootItems))
+        XCTAssertGreaterThanOrEqual(
+            sidebar.outlineView.row(forItem: added), 0,
+            "An item added to a previously empty folder must be visible, not hidden in a collapsed folder"
+        )
+    }
+
+    func testIncrementalUpdateIntoPreviouslyEmptyFolderShowsTheNewRow() async throws {
+        let (projectURL, folder) = try makeProjectWithEmptyFolder()
+        let clock = ManualClock()
+        let (sidebar, _) = openedSidebar(at: projectURL, clock: clock)
+        let fileURL = folder.appendingPathComponent("scheme.fasta")
+        try ">p\nACGT\n".write(to: fileURL, atomically: true, encoding: .utf8)
+
+        let update = try XCTUnwrap(sidebar.updateSidebar(
+            changedPaths: FileSystemWatcher.ChangedPaths(nonSidecar: [fileURL], all: [fileURL])
+        ))
+        await update.value
+
+        let added = try XCTUnwrap(item(titled: "scheme.fasta", in: sidebar.rootItems))
+        XCTAssertGreaterThanOrEqual(
+            sidebar.outlineView.row(forItem: added), 0,
+            "The watcher's surgical insert must show the row; the backstop then sees an unchanged model and cannot repair it"
+        )
+    }
+
     func testUnchangedTreeIsNotReloaded() async throws {
         let projectURL = try makeProject()
         let clock = ManualClock()

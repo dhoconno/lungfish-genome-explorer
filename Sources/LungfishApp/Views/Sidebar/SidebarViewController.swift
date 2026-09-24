@@ -1176,6 +1176,10 @@ public class SidebarViewController: NSViewController {
         let selectedURLSet: Set<URL>
         let scrollAnchor: SidebarScrollAnchor?
         let expandedURLs: Set<URL>
+        /// Folders that were empty on screen. An empty folder cannot be
+        /// expanded, so it carries no collapse choice of the user's; if it
+        /// gains children it opens, as top-level folders do on first load.
+        let emptyFolderURLs: Set<URL>
         let shouldApplyInitialExpansionDefaults: Bool
     }
 
@@ -1189,8 +1193,24 @@ public class SidebarViewController: NSViewController {
             selectedURLSet: Set(selectedURLs),
             scrollAnchor: captureScrollAnchor(),
             expandedURLs: saveExpandedItemURLs(),
+            emptyFolderURLs: Self.emptyFolderURLs(in: rootItems),
             shouldApplyInitialExpansionDefaults: rootItems.isEmpty
         )
+    }
+
+    /// URLs of folders in `items` (recursively) that have no children.
+    static func emptyFolderURLs(in items: [SidebarItem]) -> Set<URL> {
+        var urls: Set<URL> = []
+        func visit(_ items: [SidebarItem]) {
+            for item in items {
+                if item.type == .folder, item.children.isEmpty, let url = item.url {
+                    urls.insert(url.standardizedFileURL)
+                }
+                visit(item.children)
+            }
+        }
+        visit(items)
+        return urls
     }
 
     /// Runs `body` with sidebar selection callbacks suppressed.
@@ -1434,8 +1454,11 @@ public class SidebarViewController: NSViewController {
             }
         }
 
-        // Restore expansion state captured before rebuilding.
-        restoreExpandedItemURLs(expandedURLs)
+        // Restore expansion state captured before rebuilding. Folders that were
+        // empty have no expansion state; open the ones that gained children so
+        // an externally added item is visible rather than hidden in a
+        // collapsed folder.
+        restoreExpandedItemURLs(expandedURLs.union(state.emptyFolderURLs))
 
         // Restore selection if possible
         restoreSelection(urls: selectedURLs)
@@ -1730,6 +1753,8 @@ public class SidebarViewController: NSViewController {
         parent: SidebarItem?,
         indexInParent: Int
     ) {
+        let wasEmpty = existingItem.children.isEmpty
+
         // Update title and subtitle if changed
         var itemNeedsReload = false
         if existingItem.title != rebuiltItem.title {
@@ -1801,6 +1826,19 @@ public class SidebarViewController: NSViewController {
                 inParent: existingItem,
                 withAnimation: .slideDown
             )
+        }
+
+        // NSOutlineView caches whether a row is expandable. A folder that was
+        // empty had no disclosure triangle and was never expanded, so rows
+        // inserted into it stayed invisible, while the model already matched
+        // the disk and the activation backstop saw nothing to repair. Reload the
+        // row when it gains or loses its first child, and open a folder that
+        // was empty, matching how top-level folders open on first load.
+        if wasEmpty != existingItem.children.isEmpty {
+            outlineView.reloadItem(existingItem, reloadChildren: true)
+            if wasEmpty, existingItem.type == .folder {
+                outlineView.expandItem(existingItem)
+            }
         }
 
         // Recurse into common items for subtitle/children updates
