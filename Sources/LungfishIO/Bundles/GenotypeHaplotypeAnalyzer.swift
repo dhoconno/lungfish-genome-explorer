@@ -7,7 +7,10 @@ public enum GenotypeHaplotypeAnalyzer {
     /// see, so a persisted analysis from older rules compares unequal to a
     /// fresh one and is recomputed rather than trusted.
     /// 2: GEN-02 (D11) independent-support rule and ambiguity groups.
-    public static let callingRulesVersion = 2
+    /// 3: GEN-05 (D13) the dropout locus fraction divides by the unique
+    ///    retained reads of the call's own source locus
+    ///    (`GenotypeLocusDenominator`), not the pooled haplotype group.
+    public static let callingRulesVersion = 3
 
     public static func analyze(
         calls: [ONTGenotypeCall],
@@ -29,12 +32,18 @@ public enum GenotypeHaplotypeAnalyzer {
     /// "live" threshold changes without touching the persisted pipeline
     /// output: the bundle's `haplotypeAnalysis` stays authoritative, while
     /// this re-analysis drives what the viewport renders.
+    ///
+    /// `locusDenominator` is the shared per-source-locus denominator. Pass
+    /// `GenotypeLocusDenominator(result:)` when the result carries candidate
+    /// clusters so the caller divides by exactly what the matrix shows; when
+    /// omitted it is built from `calls` alone.
     public static func analyze(
         calls: [ONTGenotypeCall],
         definitionSet: GenotypeHaplotypeDefinitionSet,
         generatedAt: String? = nil,
         dropoutFilter: GenotypeDropoutEvaluator?,
-        matrixReviews: [GenotypeAnnotationSidecar.MatrixReviewAnnotation] = []
+        matrixReviews: [GenotypeAnnotationSidecar.MatrixReviewAnnotation] = [],
+        locusDenominator: GenotypeLocusDenominator? = nil
     ) -> GenotypeHaplotypeAnalysis {
         let diagnosticValues = definitionSet.locusDefinitions.flatMap { locus in
             locus.haplotypes.flatMap { haplotype in
@@ -46,7 +55,8 @@ public enum GenotypeHaplotypeAnalyzer {
         ) {
             analyzePrepared(
                 calls: calls, definitionSet: definitionSet, generatedAt: generatedAt,
-                dropoutFilter: dropoutFilter, matrixReviews: matrixReviews
+                dropoutFilter: dropoutFilter, matrixReviews: matrixReviews,
+                locusDenominator: locusDenominator ?? GenotypeLocusDenominator(calls: calls)
             )
         }
     }
@@ -56,10 +66,16 @@ public enum GenotypeHaplotypeAnalyzer {
         definitionSet: GenotypeHaplotypeDefinitionSet,
         generatedAt: String?,
         dropoutFilter: GenotypeDropoutEvaluator?,
-        matrixReviews: [GenotypeAnnotationSidecar.MatrixReviewAnnotation]
+        matrixReviews: [GenotypeAnnotationSidecar.MatrixReviewAnnotation],
+        locusDenominator: GenotypeLocusDenominator
     ) -> GenotypeHaplotypeAnalysis {
         let reviewedCalls = GenotypeReviewedHaplotypeEvidence.callsForInference(calls, reviews: matrixReviews)
-        let filteredCalls = applyDropout(reviewedCalls, evaluator: dropoutFilter, definitionSet: definitionSet)
+        let filteredCalls = applyDropout(
+            reviewedCalls,
+            evaluator: dropoutFilter,
+            definitionSet: definitionSet,
+            locusDenominator: locusDenominator
+        )
         let callsBySample = Dictionary(grouping: filteredCalls, by: { normalizedSampleName($0.sample) })
         let observedLoci = observedDefinitionLoci(calls: calls, definitionSet: definitionSet)
         let rawSampleNames = Set(calls.map { normalizedSampleName($0.sample) })
@@ -534,31 +550,26 @@ public enum GenotypeHaplotypeAnalyzer {
     private static func applyDropout(
         _ calls: [ONTGenotypeCall],
         evaluator: GenotypeDropoutEvaluator?,
-        definitionSet: GenotypeHaplotypeDefinitionSet
+        definitionSet: GenotypeHaplotypeDefinitionSet,
+        locusDenominator: GenotypeLocusDenominator
     ) -> [ONTGenotypeCall] {
         guard let evaluator else { return calls }
-        // Build sample × locus-group totals once so the evaluator gets the
-        // correct denominator for the ratio tests.
         var sampleTotals: [String: Int] = [:]
-        var sampleLocusTotals: [String: [String: Int]] = [:]
         let canonicalDefinitionLocusByRawLocus = canonicalLocusLookup(for: definitionSet)
         for call in calls {
-            let sample = normalizedSampleName(call.sample)
-            let effectiveLocus = GenotypeHaplotypeLocusResolver.canonicalLocus(
-                for: call,
-                definitionSet: definitionSet
-            )
-            sampleTotals[sample, default: 0] += max(0, call.passedUniqueReads)
-            sampleLocusTotals[sample, default: [:]][effectiveLocus, default: 0] += max(0, call.passedUniqueReads)
+            sampleTotals[normalizedSampleName(call.sample), default: 0] += max(0, call.passedUniqueReads)
         }
         return calls.filter { call in
             let sample = normalizedSampleName(call.sample)
             let sampleTotal = sampleTotals[sample] ?? 0
+            // GEN-05 (D13): the locus fraction divides by the call's own
+            // source locus, never the pooled haplotype group. The per-locus
+            // threshold override is still keyed by the definition locus.
             let effectiveLocus = GenotypeHaplotypeLocusResolver.canonicalLocus(
                 for: call,
                 definitionSet: definitionSet
             )
-            let locusTotal = sampleLocusTotals[sample]?[effectiveLocus] ?? 0
+            let locusTotal = locusDenominator.total(for: call)
             let rawLocus = GenotypeHaplotypeLocusResolver.canonicalLocusName(call.locusGroup)
             let canonicalLocus = canonicalDefinitionLocusByRawLocus[rawLocus]
                 ?? effectiveLocus

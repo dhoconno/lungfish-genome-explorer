@@ -72,6 +72,19 @@ public enum GenotypeHaplotypeLocusResolver {
         }
     }
 
+    /// The haplotype locus a call's evidence belongs to. Reference metadata
+    /// (`haplotype_groups`) always wins; the allele-name heuristic in
+    /// `haplotypeEvidenceLocusName` is only the fallback for references
+    /// without it. The shipped MCM reference files MHC-I, -J and -K under
+    /// MHC-A while the name heuristic says MHC-B, so every grouping path must
+    /// come through here rather than calling the heuristic on `locusGroup`.
+    /// This grouping never feeds a read denominator: percentages divide by
+    /// the source locus (`GenotypeLocusDenominator`, GEN-05/D13).
+    public static func haplotypeEvidenceLocus(for call: ONTGenotypeCall) -> String {
+        metadataHaplotypeGroupLocus(for: call.genotype)
+            ?? haplotypeEvidenceLocusName(call.locusGroup)
+    }
+
     public static func isReportableHaplotypeLocus(_ rawLocus: String) -> Bool {
         let canonical = haplotypeEvidenceLocusName(rawLocus)
         return canonical != "MHC-L"

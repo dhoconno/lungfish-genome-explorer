@@ -193,7 +193,7 @@ final class GenotypeViewportExcelExportTests: XCTestCase {
         XCTAssertEqual(metadata["minimumSupportPercent"], "7.5")
         XCTAssertEqual(metadata["supportDenominator"], "Sample Retained")
         XCTAssertEqual(metadata["matrixMinimumPercent"], "0.0")
-        XCTAssertEqual(metadata["matrixPercentDenominator"], "Viewed Locus")
+        XCTAssertEqual(metadata["matrixPercentDenominator"], "Source Locus")
         XCTAssertEqual(payload["formulaCount"] as? Int, 0)
 
         let receipt = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: exported.provenanceURL)) as? [String: Any])

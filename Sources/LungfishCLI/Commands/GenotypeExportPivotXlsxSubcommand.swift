@@ -32,11 +32,14 @@ struct GenotypeExportPivotXlsxSubcommand: AsyncParsableCommand {
     @Option(name: .long, help: "Minimum displayed unique-read support in the Filtered matrix; 0 disables the filter.")
     var minReads: Int = 0
 
-    @Option(name: .long, help: "Minimum displayed support percent in the Filtered matrix; 0 disables the filter.")
+    @Option(name: .long, help: "Minimum per-sample read fraction, in percent, for Filtered matrix cells (known and candidate alleles alike); 0 disables the filter.")
     var minPercent: Double = 0
 
-    @Option(name: .long, help: "Known-call denominator for --min-percent: viewed-locus or sample-retained.")
+    @Option(name: .long, help: "Denominator for --min-percent: viewed-locus (the sample's unique reads at the allele's source locus) or sample-retained.")
     var percentBasis: PercentBasis = .sampleRetained
+
+    @Option(name: .long, help: "Seen in at least N% of animals: hide Filtered matrix rows visible in fewer than this percent of samples; 0 disables the filter.")
+    var minPrevalencePercent: Double = 0
 
     @Option(name: .long, help: "Captured genotype viewport defining the Filtered matrix's visible rows and samples.")
     var viewProjection: String?
@@ -60,6 +63,9 @@ struct GenotypeExportPivotXlsxSubcommand: AsyncParsableCommand {
         guard minPercent >= 0, minPercent <= 100 else {
             throw ValidationError("--min-percent must be between 0 and 100.")
         }
+        guard minPrevalencePercent >= 0, minPrevalencePercent <= 100 else {
+            throw ValidationError("--min-prevalence-percent must be between 0 and 100.")
+        }
     }
 
     func run() async throws {
@@ -78,13 +84,17 @@ struct GenotypeExportPivotXlsxSubcommand: AsyncParsableCommand {
         let filter = GenotypeMatrixBaseProjection.Filter(
             matrixMinimumReads: minReads,
             matrixMinimumPercent: minPercent,
-            matrixDenominator: percentBasis.denominator
+            matrixDenominator: percentBasis.denominator,
+            minimumPrevalencePercent: minPrevalencePercent
         )
         var argv = [CLICommandIdentity.executableName, "genotype", "export-pivot-xlsx",
                     "--bundle", bundleURL.path, "--output", outputURL.path]
         if minReads != 0 { argv += ["--min-reads", String(minReads)] }
         if minPercent != 0 {
             argv += ["--min-percent", String(minPercent), "--percent-basis", percentBasis.rawValue]
+        }
+        if minPrevalencePercent != 0 {
+            argv += ["--min-prevalence-percent", String(minPrevalencePercent)]
         }
         if let projectionURL { argv += ["--view-projection", projectionURL.path] }
         if let annotationURL { argv += ["--annotations", annotationURL.path] }
@@ -107,6 +117,7 @@ struct GenotypeExportPivotXlsxSubcommand: AsyncParsableCommand {
                     "minReads": String(minReads),
                     "minPercent": String(minPercent),
                     "percentBasis": percentBasis.rawValue,
+                    "minPrevalencePercent": String(minPrevalencePercent),
                     "viewProjection": projectionURL?.path ?? "none",
                     "annotations": annotationURL?.path ?? "bundle annotations.json when present",
                     "force": String(force),
@@ -116,13 +127,18 @@ struct GenotypeExportPivotXlsxSubcommand: AsyncParsableCommand {
                     "minReads": "0",
                     "minPercent": "0",
                     "percentBasis": PercentBasis.sampleRetained.rawValue,
+                    "minPrevalencePercent": "0",
                     "viewProjection": "none",
                     "annotations": "bundle annotations.json when present",
                     "force": "false",
                 ],
                 runtimeContext: [
-                    "candidatePercentBasis": "positive supporting samples / full logical sample roster",
+                    // GEN-05/GEN-06 (D13/D14): one read-fraction basis for
+                    // known and candidate rows; prevalence is its own control.
+                    "percentBasis": GenotypeExcelSnapshotBuilder.percentBasisDescription,
                     "knownPercentBasis": percentBasis.denominator.rawValue,
+                    "candidatePercentBasis": percentBasis.denominator.rawValue,
+                    "prevalenceBasis": GenotypeExcelSnapshotBuilder.prevalenceBasisDescription,
                 ],
                 replacingExisting: force
             ),

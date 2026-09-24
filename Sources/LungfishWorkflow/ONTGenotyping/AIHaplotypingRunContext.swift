@@ -153,7 +153,7 @@ public struct AIHaplotypingRunContext: Codable, Equatable, Sendable {
     }
 
     private static func region(for call: ONTGenotypeCall) -> String {
-        GenotypeHaplotypeLocusResolver.haplotypeEvidenceLocusName(call.locusGroup)
+        GenotypeHaplotypeLocusResolver.haplotypeEvidenceLocus(for: call)
     }
 
     private static func notes(

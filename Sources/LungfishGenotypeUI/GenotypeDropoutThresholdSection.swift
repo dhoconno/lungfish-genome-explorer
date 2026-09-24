@@ -67,6 +67,11 @@ struct GenotypeDropoutThresholdSection: View {
             VStack(alignment: .leading, spacing: 8) {
                 Toggle("% of locus reads", isOn: $locusFractionEnabled)
                     .font(contentBodyFont)
+                Text("Basis: \(GenotypeLocusDenominator.basisLabel), the sample's unique reads at the allele's own source locus.")
+                    .font(contentBodyFont)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("genotype-dropout-locus-basis")
                 if locusFractionEnabled {
                     InlineNumericSliderField(
                         accessibilityTitle: "% of locus reads",

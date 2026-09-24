@@ -129,6 +129,10 @@ public struct GenotypeResultDisplayState: Equatable {
     public var matrixMinimumReads: Int = 0
     public var matrixMinimumPercent: Double = 0
     public var matrixPercentDenominator: ONTGenotypeSupportDenominator = .viewedLocus
+    /// "Seen in at least N% of animals" (GEN-06, decision D14): a prevalence
+    /// filter over the logical sample roster, separate from the per-sample
+    /// read fraction `matrixMinimumPercent`. `0` (the default) is off.
+    public var matrixMinimumPrevalencePercent: Double = 0
     public var matrixRowFilterText: String = ""
     public var matrixSampleFilterText: String = ""
     /// Whether the manual haplotype summary band below matrix sample headers
@@ -163,6 +167,7 @@ public struct GenotypeResultDisplayState: Equatable {
         matrixMinimumReads: Int = 0,
         matrixMinimumPercent: Double = 0,
         matrixPercentDenominator: ONTGenotypeSupportDenominator = .viewedLocus,
+        matrixMinimumPrevalencePercent: Double = 0,
         matrixRowFilterText: String = "",
         matrixSampleFilterText: String = "",
         manualHaplotypeBandExpanded: Bool = false,
@@ -184,6 +189,7 @@ public struct GenotypeResultDisplayState: Equatable {
         self.matrixMinimumReads = max(0, matrixMinimumReads)
         self.matrixMinimumPercent = max(0, min(100, matrixMinimumPercent))
         self.matrixPercentDenominator = matrixPercentDenominator
+        self.matrixMinimumPrevalencePercent = max(0, min(100, matrixMinimumPrevalencePercent))
         self.matrixRowFilterText = matrixRowFilterText
         self.matrixSampleFilterText = matrixSampleFilterText
         self.manualHaplotypeBandExpanded = manualHaplotypeBandExpanded
@@ -252,6 +258,7 @@ extension GenotypeResultDisplayState {
         replaced.matrixMinimumReads = source.matrixMinimumReads
         replaced.matrixMinimumPercent = source.matrixMinimumPercent
         replaced.matrixPercentDenominator = source.matrixPercentDenominator
+        replaced.matrixMinimumPrevalencePercent = source.matrixMinimumPrevalencePercent
         replaced.matrixRowFilterText = source.matrixRowFilterText
         replaced.matrixSampleFilterText = source.matrixSampleFilterText
         replaced.manualHaplotypeBandExpanded =
@@ -270,6 +277,7 @@ extension GenotypeResultDisplayState {
             || matrixMinimumReads != previous.matrixMinimumReads
             || matrixMinimumPercent != previous.matrixMinimumPercent
             || matrixPercentDenominator != previous.matrixPercentDenominator
+            || matrixMinimumPrevalencePercent != previous.matrixMinimumPrevalencePercent
     }
 
     func requiresMatrixFilterPass(comparedTo previous: GenotypeResultDisplayState) -> Bool {

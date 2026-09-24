@@ -654,14 +654,24 @@ public struct ONTGenotypeCall: Codable, Equatable, Sendable {
         Self.inferLocusToken(from: genotype)
     }
 
+    /// The call's source locus (`source_loci` metadata first, the allele name
+    /// otherwise). This is the grouping key of the per-source-locus read
+    /// denominator, see `GenotypeLocusDenominator`.
     public var locusGroup: String {
-        guard let token = locusToken?.trimmingCharacters(in: .whitespacesAndNewlines), !token.isEmpty else {
-            return "Unknown"
-        }
+        Self.sourceLocusGroup(forLocusToken: locusToken ?? "")
+    }
+
+    /// Canonical source-locus group for a locus token or label. Idempotent:
+    /// passing an existing `locusGroup` returns it unchanged, so candidate
+    /// locus labels and call groups land on the same key.
+    public static func sourceLocusGroup(forLocusToken rawToken: String) -> String {
+        let token = rawToken.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !token.isEmpty else { return "Unknown" }
         if token.caseInsensitiveCompare("Unknown") == .orderedSame { return "Unknown" }
-        if let classIILocusGroup = Self.preciseClassIILocusGroup(from: token) {
+        if let classIILocusGroup = preciseClassIILocusGroup(from: token) {
             return classIILocusGroup
         }
+        if token.uppercased().hasPrefix("KIR-") { return token.uppercased() }
         return GenotypeHaplotypeLocusResolver.canonicalLocusName(token)
     }
 
@@ -780,7 +790,7 @@ public enum ONTGenotypeSupportDenominator: String, Codable, CaseIterable, Equata
     public var displayName: String {
         switch self {
         case .viewedLocus:
-            return "Viewed Locus"
+            return "Source Locus"
         case .sampleRetained:
             return "Sample Retained"
         }
@@ -1272,16 +1282,6 @@ public struct ONTGenotypeResultBundleData: Codable, Equatable, Sendable {
         )
     }
 
-    private struct SupportKey: Hashable {
-        let sample: String
-        let locus: String
-    }
-
-    private struct CallSupportContext {
-        let call: ONTGenotypeCall
-        let locus: String
-    }
-
     public let bundleURL: URL
     public let manifest: ONTGenotypeResultBundleManifest
     public let artifacts: ONTGenotypeResultArtifacts
@@ -1723,10 +1723,7 @@ public struct ONTGenotypeResultBundleData: Codable, Equatable, Sendable {
         let denominatorValue: Int?
         switch denominator {
         case .viewedLocus:
-            let locus = call.locusGroup
-            denominatorValue = viewedLocusDenominators(
-                contexts: callSupportContexts()
-            )[SupportKey(sample: call.sample, locus: locus)]
+            denominatorValue = GenotypeLocusDenominator(result: self).total(for: call)
         case .sampleRetained:
             denominatorValue = call.sampleUniqueRetainedReads
                 ?? samples.first { $0.sample == call.sample }?.passedUniqueReads
@@ -1755,18 +1752,10 @@ public struct ONTGenotypeResultBundleData: Codable, Equatable, Sendable {
         let threshold = minimumSupportPercent / 100
         switch denominator {
         case .viewedLocus:
-            let contexts = callSupportContexts()
-            let denominators = viewedLocusDenominators(contexts: contexts)
-            return contexts.compactMap { context in
-                guard let denominatorValue = denominators[
-                    SupportKey(sample: context.call.sample, locus: context.locus)
-                ],
-                      denominatorValue > 0 else {
-                    return nil
-                }
-                return Double(context.call.passedUniqueReads) / Double(denominatorValue) >= threshold
-                    ? context.call
-                    : nil
+            let denominators = GenotypeLocusDenominator(result: self)
+            return calls.filter { call in
+                guard let fraction = denominators.fraction(for: call) else { return false }
+                return fraction >= threshold
             }
         case .sampleRetained:
             let retainedBySample = Dictionary(uniqueKeysWithValues: samples.map {
@@ -1780,22 +1769,6 @@ public struct ONTGenotypeResultBundleData: Codable, Equatable, Sendable {
                 return Double(call.passedUniqueReads) / Double(denominatorValue) >= threshold
             }
         }
-    }
-
-    private func callSupportContexts() -> [CallSupportContext] {
-        calls.map { CallSupportContext(call: $0, locus: $0.locusGroup) }
-    }
-
-    private func viewedLocusDenominators(contexts: [CallSupportContext]) -> [SupportKey: Int] {
-        var denominators: [SupportKey: Int] = [:]
-        denominators.reserveCapacity(contexts.count)
-        for context in contexts {
-            denominators[
-                SupportKey(sample: context.call.sample, locus: context.locus),
-                default: 0
-            ] += context.call.passedUniqueReads
-        }
-        return denominators
     }
 
     private func makeLocusSummaries(from calls: [ONTGenotypeCall]) -> [ONTGenotypeLocusSummary] {

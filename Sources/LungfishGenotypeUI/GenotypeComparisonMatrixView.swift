@@ -1108,6 +1108,10 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
             "matrixMinimumReads": "\(displayState.matrixMinimumReads)",
             "matrixMinimumPercent": String(format: "%.1f", displayState.matrixMinimumPercent),
             "matrixPercentDenominator": displayState.matrixPercentDenominator.displayName,
+            "matrixPercentBasis": displayState.matrixPercentDenominator == .viewedLocus
+                ? "per-sample read fraction, \(GenotypeLocusDenominator.basisLabel)"
+                : "per-sample read fraction, sample retained reads",
+            "matrixMinimumPrevalencePercent": String(format: "%.1f", displayState.matrixMinimumPrevalencePercent),
             "matrixRowFilterText": displayState.matrixRowFilterText,
             "matrixSampleFilterText": displayState.matrixSampleFilterText,
             "cellColorMode": displayState.cellColorMode.displayName,
@@ -2323,7 +2327,8 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
             globalDenominator: displayState.supportDenominator,
             matrixMinimumReads: displayState.matrixMinimumReads,
             matrixMinimumPercent: displayState.matrixMinimumPercent,
-            matrixDenominator: displayState.matrixPercentDenominator
+            matrixDenominator: displayState.matrixPercentDenominator,
+            minimumPrevalencePercent: displayState.matrixMinimumPrevalencePercent
         ))
         allRows = derived.rows
         totalRowCount = derived.totalRowCount

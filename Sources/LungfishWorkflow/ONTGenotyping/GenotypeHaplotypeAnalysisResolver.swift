@@ -53,7 +53,8 @@ public enum GenotypeHaplotypeAnalysisResolver {
             definitionSet: definitionSet,
             generatedAt: nil,
             dropoutFilter: evaluator,
-            matrixReviews: sidecar?.matrixReviews ?? []
+            matrixReviews: sidecar?.matrixReviews ?? [],
+            locusDenominator: GenotypeLocusDenominator(result: result)
         )
     }
 

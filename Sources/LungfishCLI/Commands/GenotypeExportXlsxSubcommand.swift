@@ -95,8 +95,10 @@ struct GenotypeExportXlsxSubcommand: AsyncParsableCommand {
                     "annotations": "bundle annotations.json when present",
                 ],
                 runtimeContext: [
-                    "candidatePercentBasis": "positive supporting samples / full logical sample roster",
+                    "percentBasis": GenotypeExcelSnapshotBuilder.percentBasisDescription,
                     "knownPercentBasis": ONTGenotypeSupportDenominator.viewedLocus.rawValue,
+                    "candidatePercentBasis": ONTGenotypeSupportDenominator.viewedLocus.rawValue,
+                    "prevalenceBasis": GenotypeExcelSnapshotBuilder.prevalenceBasisDescription,
                 ],
                 replacingExisting: force
             ),

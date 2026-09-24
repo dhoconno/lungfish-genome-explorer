@@ -834,7 +834,7 @@ print(json.dumps(result))
             generatedAt: timestamp, authority: .init(analysis: analysis)))
     }
 
-    func testProjectionLegacyColorAndCandidatePopulationThresholdsArePreserved() throws {
+    func testProjectionLegacyColorAndCandidateReadFractionThresholdsArePreserved() throws {
         let observations: [ONTMHCCandidateObservation] = [
             .init(stableClusterID: "A", sampleID: "S1", readGroupID: "a", sourceClusterIDs: ["a"], sourceClusterReadCounts: ["a": 2], aggregatedSampleReadCount: 2, evidence: []),
             .init(stableClusterID: "A", sampleID: "S1", readGroupID: "b", sourceClusterIDs: ["b"], sourceClusterReadCounts: ["b": 2], aggregatedSampleReadCount: 2, evidence: []),
@@ -862,7 +862,9 @@ print(json.dumps(result))
             provisionalExon2SequencesByGenotype: [:], provisionalExon2ArtifactURLs: .empty, reviewableRowCatalog: nil)
         let snapshot = try GenotypeExcelSnapshotBuilder.capture(result: result, sidecar: .empty(generatedAt: timestamp),
             allProjection: nil, filteredProjection: nil, generatedAt: timestamp, authority: .init(analysis: nil),
-            filter: .init(matrixMinimumReads: 8, matrixMinimumPercent: 30, matrixDenominator: .sampleRetained))
+            // GEN-06 (D14): candidate cells use their own read fraction over
+            // the source-locus denominator (100% here) plus the read minimum.
+            filter: .init(matrixMinimumReads: 8, matrixMinimumPercent: 30, matrixDenominator: .viewedLocus))
         XCTAssertEqual(snapshot.allMatrix.rows.filter { $0.target.stableClusterID != nil }.count, 2)
         XCTAssertEqual(snapshot.filteredMatrix.rows.count, 1)
         let row = try XCTUnwrap(snapshot.filteredMatrix.rows.first)
