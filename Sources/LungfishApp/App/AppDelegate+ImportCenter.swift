@@ -1707,14 +1707,7 @@ extension AppDelegate {
         }
         try process.run()
 
-        while process.isRunning {
-            if shouldCancel() {
-                process.terminate()
-                break
-            }
-            Thread.sleep(forTimeInterval: 0.1)
-        }
-        process.waitUntilExit()
+        _ = waitForHelperProcessExit(process, shouldCancel: shouldCancel)
         let completedAt = Date()
         debugLog(
             "runVCFImportViaHelper: process-exit status=\(process.terminationStatus) reason=\(process.terminationReason == .uncaughtSignal ? "signal" : "exit")"
@@ -1895,14 +1888,7 @@ extension AppDelegate {
         }
         try process.run()
 
-        while process.isRunning {
-            if shouldCancel() {
-                process.terminate()
-                break
-            }
-            Thread.sleep(forTimeInterval: 0.1)
-        }
-        process.waitUntilExit()
+        _ = waitForHelperProcessExit(process, shouldCancel: shouldCancel)
         let completedAt = Date()
         debugLog(
             "runVCFResumeViaHelper: process-exit status=\(process.terminationStatus) reason=\(process.terminationReason == .uncaughtSignal ? "signal" : "exit")"
@@ -2079,14 +2065,7 @@ extension AppDelegate {
         }
         try process.run()
 
-        while process.isRunning {
-            if shouldCancel() {
-                process.terminate()
-                break
-            }
-            Thread.sleep(forTimeInterval: 0.1)
-        }
-        process.waitUntilExit()
+        _ = waitForHelperProcessExit(process, shouldCancel: shouldCancel)
         let completedAt = Date()
         debugLog(
             "runVCFMaterializeViaHelper: process-exit status=\(process.terminationStatus) reason=\(process.terminationReason == .uncaughtSignal ? "signal" : "exit")"
