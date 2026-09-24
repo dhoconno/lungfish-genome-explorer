@@ -13,32 +13,16 @@ final class CLIMSAActionRunnerTests: XCTestCase {
         try super.tearDownWithError()
     }
 
-    func testParseCompleteEvent() throws {
-        let json = """
-        {"event":"msaActionComplete","actionID":"msa.export.fasta","operationID":"op-123","output":"/project/alignment.fasta","warningCount":2}
-        """
-
-        let event = try XCTUnwrap(CLIMSAActionRunner.parseEvent(from: json))
-
-        guard case let .complete(actionID, operationID, output, warningCount) = event else {
-            return XCTFail("Expected complete event, got \(event)")
-        }
-        XCTAssertEqual(actionID, "msa.export.fasta")
-        XCTAssertEqual(operationID, "op-123")
-        XCTAssertEqual(output, "/project/alignment.fasta")
-        XCTAssertEqual(warningCount, 2)
-    }
-
     func testRunStreamsMSAActionEventsIntoOperationCenterAndCompletesWithOutputURL() async throws {
         let tempDir = try makeTemporaryDirectory()
         let output = tempDir.appendingPathComponent("alignment.fasta")
         let fakeCLI = tempDir.appendingPathComponent("lungfish-cli")
         let script = """
         #!/bin/sh
-        printf '%s\\n' '{"event":"msaActionStart","actionID":"msa.export.fasta","operationID":"op-123","progress":0,"message":"Exporting alignment..."}'
-        printf '%s\\n' '{"event":"msaActionProgress","actionID":"msa.export.fasta","operationID":"op-123","progress":0.5,"message":"Writing FASTA..."}'
-        printf '%s\\n' '{"event":"msaActionWarning","actionID":"msa.export.fasta","operationID":"op-123","message":"Annotations are not represented in FASTA.","warningCount":1}'
-        printf '%s\\n' '{"event":"msaActionComplete","actionID":"msa.export.fasta","operationID":"op-123","output":"\(output.path)","warningCount":1}'
+        printf '%s\\n' '{"event":"start","message":"Exporting alignment...","progress":0}'
+        printf '%s\\n' '{"event":"progress","progress":0.5,"message":"Writing FASTA..."}'
+        printf '%s\\n' '{"event":"log","level":"warning","message":"Annotations are not represented in FASTA."}'
+        printf '%s\\n' '{"event":"complete","output":"\(output.path)","outputs":["\(output.path)"]}'
         """
         try script.write(to: fakeCLI, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fakeCLI.path)
@@ -60,8 +44,6 @@ final class CLIMSAActionRunnerTests: XCTestCase {
         }
 
         XCTAssertEqual(result.outputURL.path, output.path)
-        XCTAssertEqual(result.actionID, "msa.export.fasta")
-        XCTAssertEqual(result.warningCount, 1)
         XCTAssertEqual(item?.state, .completed)
         XCTAssertEqual(item?.progress, 1.0)
         XCTAssertEqual(item?.detail, "MSA action complete")
@@ -76,9 +58,9 @@ final class CLIMSAActionRunnerTests: XCTestCase {
         let fakeCLI = tempDir.appendingPathComponent("lungfish-cli")
         let script = """
         #!/bin/sh
-        printf '%s\\n' '{"event":"msaActionStart","actionID":"msa.export.fasta","operationID":"op-456","progress":0,"message":"Creating bundle..."}'
-        printf '%s\\n' '{"event":"msaActionProgress","actionID":"msa.export.fasta","operationID":"op-456","progress":0.5,"message":"Writing bundle..."}'
-        printf '%s\\n' '{"event":"msaActionComplete","actionID":"msa.export.fasta","operationID":"op-456","output":"\(output.path)","warningCount":0}'
+        printf '%s\\n' '{"event":"start","message":"Creating bundle...","progress":0}'
+        printf '%s\\n' '{"event":"progress","progress":0.5,"message":"Writing bundle..."}'
+        printf '%s\\n' '{"event":"complete","output":"\(output.path)","outputs":["\(output.path)"]}'
         """
         try script.write(to: fakeCLI, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fakeCLI.path)
