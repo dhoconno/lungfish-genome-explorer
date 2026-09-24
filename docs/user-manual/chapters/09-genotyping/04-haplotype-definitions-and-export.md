@@ -29,7 +29,7 @@ The report contains these worksheets in order:
 | --- | --- |
 | Haplotype Calls | Present only when the result has real analyzed or manual call content. Shows effective calls with baseline, status, and source context. |
 | Genotype Matrix - All | The complete captured sample and evidence scope, with native annotations. |
-| Genotype Matrix - Filtered | The captured visible sample and row scope, with displayed support filters applied. |
+| Genotype Matrix - Filtered | The captured visible sample and row scope, with displayed support filters applied. A last column, Evidence (display / raw support), lists each sample's shown value next to its raw read count. |
 | Export Metadata | Capture time, scientific revision witnesses, filter settings and report semantics. |
 
 The matrices place samples across columns. If haplotype content exists, they also contain cached call bands. These are literal report values, not formulas or editable input tables. An unresolved call remains unresolved; genotype-only results do not acquire invented calls.
@@ -48,7 +48,9 @@ Filtering is not redaction. **The All worksheet still contains the complete capt
 
 A Filtered evidence row is included only when at least one displayed count is strictly positive among its visible sample columns. Rows with only zero or blank displayed cells are omitted, including rows carrying a review or comment. All retains those rows and annotations. A catalog-attested zero is numeric zero; an unknown cell is not silently converted to zero. Sample/header structure and haplotype bands follow the captured scope independently of this evidence-row rule.
 
-Native full-length ONT known-call and candidate occurrence values and their denominators are preserved. Candidate percentages use supporting samples over the full logical sample roster, not a substituted read denominator.
+Native full-length ONT known-call and candidate occurrence values and their denominators are preserved. Min percent is each cell's share of that sample's reads, for known and candidate alleles alike. With the Source Locus basis the share is taken against the sample's reads at the allele's own source locus. The separate Seen in ≥ N% of animals filter counts samples instead of reads. Export Metadata records both settings on their own lines.
+
+A cell comment in either matrix holds your note exactly as you typed it. A review shows only as formatting, with a bracketed grey number for a false positive and a dashed orange border for a false negative.
 
 ## Provenance and replay
 
