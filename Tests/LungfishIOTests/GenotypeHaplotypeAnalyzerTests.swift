@@ -1596,4 +1596,127 @@ final class GenotypeHaplotypeAnalyzerTests: XCTestCase {
             )
         )
     }
+
+    // MARK: - GEN-02 (2026-09-23 best-practices audit)
+
+    /// Loads the shipped MCM MiSeq haplotype definition set exactly as the
+    /// app ships it, from `Sources/LungfishWorkflow/Resources/MCMHaplotyping`.
+    /// `LungfishIOTests` has no dependency on `LungfishWorkflow`, so this
+    /// reads the file directly by its known repo-relative path (the same
+    /// pattern `GenBankReaderTests` uses for reading Swift source as a
+    /// fixture), rather than adding a cross-module resource dependency for
+    /// one test.
+    private static func shippedMCMDefinitionSet() throws -> GenotypeHaplotypeDefinitionSet {
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent(
+                "Sources/LungfishWorkflow/Resources/MCMHaplotyping/MCM-MHC-miSeq-20260617.lungfishmhcref/haplotypes/mcm-mhc-miseq-20260617.lungfishhaplotypedef.json"
+            )
+        let data = try Data(contentsOf: url)
+        return try JSONDecoder().decode(GenotypeHaplotypeDefinitionSet.self, from: data)
+    }
+
+    /// GEN-02: for every homozygous and heterozygous pair of haplotypes at
+    /// each MHC class II locus (DP, DQ, DR) in the shipped MCM definition
+    /// set, synthesize the calls a real sample carrying exactly that pair
+    /// would produce (100 reads per diagnostic allele of each haplotype
+    /// copy, exactly as the audit's Python port did) and run them through
+    /// the real Swift `GenotypeHaplotypeAnalyzer`.
+    ///
+    /// Before GEN-02, several homozygotes were reported as confident
+    /// heterozygous calls because a haplotype needs only one full-weight
+    /// (`minimumMatches: 1`) diagnostic allele to match, and some
+    /// definitions share a full-weight allele with another (DQ M2/M6 share
+    /// 0178; DR M4/M5 share 0020/0027/0182; DP M4 and M7 are identical).
+    /// After the fix, no genotype may be reported `called` with a
+    /// haplotype pair that isn't the truth: it is either exactly right, an
+    /// explicit `.ambiguous` (never a specific wrong pairing), or the
+    /// existing loud `ERR: TMH` / `ERR: NO HAP` outcomes this suite already
+    /// expects for class I under full expression.
+    func testMCMShippedDefinitionClassIIHaplotypePairsNeverMiscallHomozygotes() throws {
+        let definitionSet = try Self.shippedMCMDefinitionSet()
+
+        for locusDefinition in definitionSet.locusDefinitions where ["MHC-DP", "MHC-DQ", "MHC-DR"].contains(locusDefinition.locus) {
+            let haplotypes = locusDefinition.haplotypes
+            for i in 0..<haplotypes.count {
+                for j in i..<haplotypes.count {
+                    let first = haplotypes[i]
+                    let second = haplotypes[j]
+                    let truth = Set([first.name, second.name])
+
+                    var observedAlleles: [String] = []
+                    for haplotype in [first, second] {
+                        for allele in haplotype.diagnosticAlleles where !observedAlleles.contains(allele) {
+                            observedAlleles.append(allele)
+                        }
+                    }
+                    let calls = observedAlleles.map { allele in
+                        Self.call(
+                            sample: "LF0001",
+                            genotype: "\(allele)|haplotype_groups=\(locusDefinition.sourceLocus)",
+                            reads: 100
+                        )
+                    }
+
+                    let analysis = GenotypeHaplotypeAnalyzer.analyze(
+                        calls: calls,
+                        definitionSet: GenotypeHaplotypeDefinitionSet(
+                            id: definitionSet.id,
+                            assayID: definitionSet.assayID,
+                            displayName: definitionSet.displayName,
+                            speciesName: definitionSet.speciesName,
+                            speciesCode: definitionSet.speciesCode,
+                            prefix: definitionSet.prefix,
+                            locusDefinitions: [locusDefinition]
+                        )
+                    )
+
+                    let sample = try XCTUnwrap(
+                        analysis.samples.first,
+                        "\(locusDefinition.locus) \(first.name)/\(second.name): expected one sample in the analysis"
+                    )
+                    let call = try XCTUnwrap(
+                        sample.calls.first { $0.locus == locusDefinition.locus },
+                        "\(locusDefinition.locus) \(first.name)/\(second.name): expected a locus call"
+                    )
+
+                    switch call.status {
+                    case .called:
+                        let called = Set(call.matchedHaplotypes.map(\.name))
+                        XCTAssertEqual(
+                            called,
+                            truth,
+                            "\(locusDefinition.locus) \(first.name)/\(second.name): called \(call.haplotype1) / \(call.haplotype2), truth was \(first.name)/\(second.name)"
+                        )
+                    case .ambiguous:
+                        // GEN-02's whole point: an indistinguishable pair is
+                        // reported as ambiguous, never as a specific wrong
+                        // heterozygous pairing. Confirm it names only
+                        // haplotypes that are actually indistinguishable
+                        // from the true pair (never an unrelated haplotype).
+                        XCTAssertTrue(
+                            call.haplotype1.contains(first.name) || call.haplotype1.contains(second.name),
+                            "\(locusDefinition.locus) \(first.name)/\(second.name): ambiguous token '\(call.haplotype1)' does not reference either true haplotype"
+                        )
+                    case .tooManyHaplotypes, .noHaplotype, .tooManyGenotypes:
+                        // Loud failure modes the audit's report already
+                        // expects and explicitly asks not to be "fixed away"
+                        // (class I under full expression, and shared-allele
+                        // cascades at DP/DQ/DR beyond a single pair, where a
+                        // third definition's diagnostic allele overlaps the
+                        // synthetic pair's evidence). What GEN-02 forbids is
+                        // a wrong *specific* pairing reported as `.called`,
+                        // not a loud review-needed status.
+                        break
+                    case .notAssayed, .specialCase:
+                        XCTFail(
+                            "\(locusDefinition.locus) \(first.name)/\(second.name): unexpected status \(call.status)"
+                        )
+                    }
+                }
+            }
+        }
+    }
 }

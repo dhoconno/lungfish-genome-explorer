@@ -165,7 +165,7 @@ public enum GenotypeCohortSubjectBuilder {
             return true
         }
         switch status {
-        case .noHaplotype, .tooManyHaplotypes, .tooManyGenotypes:
+        case .noHaplotype, .tooManyHaplotypes, .tooManyGenotypes, .ambiguous:
             return true
         case .called, .notAssayed, .specialCase:
             return false

@@ -709,12 +709,36 @@ public enum GenotypeHaplotypeAnalyzer {
                 haplotype1 = matched[0].name
                 haplotype2 = "-"
                 notes = dominant.note
+            } else if let ambiguity = indistinguishableHaplotypePair(
+                locusDefinition: locusDefinition,
+                matched: matched
+            ) {
+                // GEN-02: the two matched definitions cannot be told apart
+                // from the observed diagnostic alleles alone -- reporting a
+                // specific pairing (e.g. "M2 / M6") here would frequently be
+                // wrong for a true homozygote (M2/M2) that merely shares a
+                // full-weight allele with a second definition (M6).
+                haplotype1 = ambiguity
+                haplotype2 = ambiguity
+                status = .ambiguous
+                notes = "GEN-02: \(matched[0].name) and \(matched[1].name) cannot be distinguished from the observed diagnostic alleles alone (each definition's required alleles are fully explained by the other). Reported as ambiguous rather than a specific heterozygous pair; review manually."
+                return GenotypeHaplotypeLocusCall(
+                    locus: locusDefinition.locus,
+                    sourceLocus: locusDefinition.sourceLocus,
+                    haplotype1: haplotype1,
+                    haplotype2: haplotype2,
+                    status: status,
+                    matchedHaplotypes: matched,
+                    observedGenotypeCount: observedGenotypes.count,
+                    observedGenotypes: observedGenotypes,
+                    notes: notes
+                )
             } else {
                 haplotype1 = matched[0].name
                 haplotype2 = matched[1].name
             }
             status = .called
-        } else if let dominant = dominantTopTwoMatches(scoredMatches) {
+        } else if let dominant = dominantTopTwoMatches(scoredMatches, locusDefinition: locusDefinition) {
             matched = dominant.matches
             haplotype1 = matched[0].name
             haplotype2 = matched[1].name
@@ -788,7 +812,8 @@ public enum GenotypeHaplotypeAnalyzer {
     }
 
     private static func dominantTopTwoMatches(
-        _ scoredMatches: [ScoredHaplotypeMatch]
+        _ scoredMatches: [ScoredHaplotypeMatch],
+        locusDefinition: GenotypeHaplotypeLocusDefinition
     ) -> DominantHaplotypeMatches? {
         guard scoredMatches.count > 2 else { return nil }
         let rankedComplete = scoredMatches.enumerated()
@@ -805,6 +830,29 @@ public enum GenotypeHaplotypeAnalyzer {
         guard selected.count == 2,
               selected[1].readSupport > 0,
               remaining.allSatisfy({ selected[1].readSupport > $0.readSupport * 10 }) else {
+            return nil
+        }
+        // GEN-02 (2026-09-23 best-practices audit): decline the call if
+        // either selected slot is indistinguishable from ANY other
+        // candidate that also matched (not only from the other selected
+        // slot). DP M5 and M6 are identical definitions: when the true
+        // sample is M1/M6, `rankedComplete` ties M5 and M6 and picks M5 by
+        // arbitrary offset order, silently asserting the wrong specific
+        // identity for that slot even though M1 (the other slot) is
+        // genuinely certain. Any such tie makes the whole read-dominance
+        // call unsafe to assert; the caller falls back to its loud TMH
+        // status rather than guessing between tied candidates.
+        let allCandidates = rankedComplete.map(\.match)
+        let hasAmbiguousSubstitute = selected.contains { candidate in
+            allCandidates.contains { other in
+                other.name != candidate.match.name
+                    && indistinguishableHaplotypePair(
+                        locusDefinition: locusDefinition,
+                        matched: [candidate.match, other]
+                    ) != nil
+            }
+        }
+        guard !hasAmbiguousSubstitute else {
             return nil
         }
         let selectedText = selected
@@ -922,6 +970,66 @@ public enum GenotypeHaplotypeAnalyzer {
                 )
             }
         }
+    }
+
+    /// GEN-02 (2026-09-23 best-practices audit): returns a display token
+    /// (e.g. "M4|M7") when the two matched haplotype definitions cannot be
+    /// distinguished from the *observed* evidence alone, or nil when they
+    /// can.
+    ///
+    /// Two failure shapes are covered:
+    /// 1. Identical definitions (e.g. MCM MHC-DP M4/M7 in the shipped set):
+    ///    the required-allele sets are equal, so any animal carrying either
+    ///    haplotype matches both, and a true M4/M4 or M7/M7 homozygote is
+    ///    indistinguishable from a true M4/M7 heterozygote.
+    /// 2. One matched haplotype's *observed* required diagnostics are a
+    ///    subset of the other matched haplotype's *observed* required
+    ///    diagnostics. This is the DQ M2/M6 and DR M4/M5 shape: with
+    ///    `minimumMatches: 1`, a haplotype needs only one full-weight
+    ///    allele to match. A true M2/M2 homozygote observes {0025, 0178};
+    ///    M6 requires {0022, 0178} but only needs 1 of 2, so it matches on
+    ///    0178 alone even though its *own* required allele 0022 was never
+    ///    observed. Whenever the "weaker" matched haplotype's observed
+    ///    required alleles contribute nothing 0022-like -- i.e. they are
+    ///    wholly contained in the stronger haplotype's observed required
+    ///    alleles -- the second haplotype has no evidence of its own and
+    ///    the pair is ambiguous rather than a confident heterozygous call.
+    private static func indistinguishableHaplotypePair(
+        locusDefinition: GenotypeHaplotypeLocusDefinition,
+        matched: [GenotypeHaplotypeMatchedDefinition]
+    ) -> String? {
+        guard matched.count == 2 else { return nil }
+        let definitionsByName = Dictionary(uniqueKeysWithValues: locusDefinition.haplotypes.map { ($0.name, $0) })
+        guard let first = definitionsByName[matched[0].name],
+              let second = definitionsByName[matched[1].name] else {
+            return nil
+        }
+        let firstRequired = Set(requiredDiagnosticAlleles(for: first))
+        let secondRequired = Set(requiredDiagnosticAlleles(for: second))
+        guard !firstRequired.isEmpty, !secondRequired.isEmpty else { return nil }
+
+        // Case 1: identical required-allele sets -- the two definitions are
+        // not distinguishable by design, whatever was actually observed.
+        if firstRequired == secondRequired {
+            return [matched[0].name, matched[1].name].sorted().joined(separator: "|")
+        }
+
+        // Case 2: the observed required diagnostics actually attributed to
+        // each matched haplotype (not the full definition) -- i.e. what
+        // caused it to be scored as matched at all.
+        let firstObservedRequired = Set(matched[0].observedDiagnosticAlleles).intersection(firstRequired)
+        let secondObservedRequired = Set(matched[1].observedDiagnosticAlleles).intersection(secondRequired)
+        guard !firstObservedRequired.isEmpty, !secondObservedRequired.isEmpty else { return nil }
+
+        // If either matched haplotype's observed required alleles are
+        // wholly explained by the other's, it contributed no evidence that
+        // couldn't equally be attributed to a homozygote of the other
+        // haplotype -- the pair is ambiguous.
+        if firstObservedRequired.isSubset(of: secondObservedRequired)
+            || secondObservedRequired.isSubset(of: firstObservedRequired) {
+            return [matched[0].name, matched[1].name].sorted().joined(separator: "|")
+        }
+        return nil
     }
 
     private static func effectiveMinimumMatches(for haplotype: GenotypeHaplotypeDefinition) -> Int {
@@ -1112,6 +1220,29 @@ public enum GenotypeHaplotypeAnalyzer {
             if selectedCount == 1,
                completeScores.count > 1,
                selected[0].readSupport <= completeScores[1].readSupport * 10 {
+                continue
+            }
+            // GEN-02 (2026-09-23 best-practices audit): this dominance rule
+            // shares the same failure mode as the plain matched.count == 2
+            // path and dominantTopTwoMatches -- a selected slot can be
+            // indistinguishable from another candidate that also matched
+            // (not only from the other selected slot), e.g. DP M5 and M6
+            // are identical definitions and tie on read support, so an
+            // arbitrary offset-order pick would silently assert the wrong
+            // specific identity even when the other slot is genuinely
+            // certain. Skip this selection (try selectedCount == 1, or fall
+            // through to the caller's TMG/TMH status) rather than guessing.
+            let candidatePool = scoredPotential.filter(\.hasCompleteRequiredEvidence).map(\.match)
+            let hasAmbiguousSubstitute = selected.contains { candidate in
+                candidatePool.contains { other in
+                    other.name != candidate.match.name
+                        && indistinguishableHaplotypePair(
+                            locusDefinition: locusDefinition,
+                            matched: [candidate.match, other]
+                        ) != nil
+                }
+            }
+            if hasAmbiguousSubstitute {
                 continue
             }
             let selectedObservedAlleles = Set(selected.flatMap(\.match.observedDiagnosticAlleles))
