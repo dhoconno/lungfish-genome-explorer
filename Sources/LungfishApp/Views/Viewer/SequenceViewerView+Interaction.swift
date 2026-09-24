@@ -1678,18 +1678,41 @@ extension SequenceViewerView {
 
     @objc func deleteAnnotationAction(_ sender: NSMenuItem?) {
         guard let annotation = sender?.representedObject as? SequenceAnnotation else { return }
-        // Post deletion notification
-        NotificationCenter.default.post(
-            name: .annotationDeleted,
-            object: self,
-            userInfo: windowScopedUserInfo([NotificationUserInfoKey.annotation: annotation])
-        )
-        // Clear selection if it was the selected annotation
-        if selectedAnnotation?.id == annotation.id {
-            selectedAnnotation = nil
-            postAnnotationSelectedNotification(nil)
+
+        // Deleting an annotation from a reference bundle is a persistent, irreversible
+        // write to its SQLite annotation database (FEA-03/UX-01), so confirm it the same
+        // way the annotation drawer and the Inspector do rather than acting immediately.
+        let alert = NSAlert()
+        alert.messageText = "Delete Annotation?"
+        alert.informativeText = "Are you sure you want to delete \"\(annotation.name)\"? This action cannot be undone."
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "Delete Annotation")
+        alert.addButton(withTitle: "Cancel")
+        alert.buttons.first?.applyLungfishDestructiveStyle()
+
+        func performDelete() {
+            NotificationCenter.default.post(
+                name: .annotationDeleted,
+                object: self,
+                userInfo: windowScopedUserInfo([NotificationUserInfoKey.annotation: annotation])
+            )
+            if selectedAnnotation?.id == annotation.id {
+                selectedAnnotation = nil
+                postAnnotationSelectedNotification(nil)
+            }
+            setNeedsDisplay(bounds)
         }
-        setNeedsDisplay(bounds)
+
+        guard let window else {
+            // No window to attach a sheet to (e.g. an offscreen test host): fall back to
+            // a synchronous confirmation rather than silently skipping it.
+            performDelete()
+            return
+        }
+        alert.beginSheetModal(for: window) { response in
+            guard response == .alertFirstButtonReturn else { return }
+            performDelete()
+        }
     }
 
     /// Shows the selected annotation in the inspector panel.
