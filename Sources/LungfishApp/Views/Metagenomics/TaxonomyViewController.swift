@@ -295,6 +295,11 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
     /// Identifier for the currently active BLAST drawer update stream.
     var currentBlastRunID: UUID?
 
+    /// The ``OperationCenter`` operation ID for the currently active BLAST
+    /// verification run, if any. WFL-12: the drawer's own Cancel button
+    /// needs this to actually cancel the run, rather than only logging.
+    var currentBlastOperationID: UUID?
+
     // MARK: - Batch Mode
 
     /// Whether this view controller is displaying an aggregated batch result.

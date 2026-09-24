@@ -174,12 +174,16 @@ extension ViewerViewController {
                 operationType: .blastVerification,
                 cliCommand: blastCliCmd
             )
+            // WFL-12: the drawer's own Cancel button reads this to actually
+            // cancel the run, rather than only logging.
+            controller?.currentBlastOperationID = opID
 
             let taxId = node.taxId
             let taxonName = node.name
             let resolvedSource = capturedSource
             let classificationOutput = capturedOutputURL
             let tree = capturedTree
+
 
             let task = Task.detached {
                 do {
@@ -382,6 +386,9 @@ extension ViewerViewController {
                 operationType: .blastVerification,
                 cliCommand: blastCliCmd
             )
+            // WFL-12: the drawer's own Cancel button reads this to actually
+            // cancel the run, rather than only logging.
+            controller.currentBlastOperationID = opID
 
             let taxId = node.taxId
             let taxonName = node.name
