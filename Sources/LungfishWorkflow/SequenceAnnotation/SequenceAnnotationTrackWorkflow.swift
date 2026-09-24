@@ -1029,16 +1029,32 @@ public enum SequenceAnnotationTrackWorkflow {
         }
     }
 
+    /// Restores each backup atomically. A concurrent reader (another test
+    /// process, or the app's own UI, sharing the same bundle under load) must
+    /// never observe `backup.original` as missing or partially written between
+    /// the old remove-then-copy steps -- for a SQLite database in particular,
+    /// that window can be read as a table-less DB. Stage the restored copy
+    /// beside the original and swap it in with a single atomic replace.
     private static func restoreFiles(_ backups: [FileBackup]) throws {
+        let fileManager = FileManager.default
         for backup in backups {
-            try FileManager.default.createDirectory(
+            try fileManager.createDirectory(
                 at: backup.original.deletingLastPathComponent(),
                 withIntermediateDirectories: true
             )
-            if FileManager.default.fileExists(atPath: backup.original.path) {
-                try FileManager.default.removeItem(at: backup.original)
+            let stagedURL = backup.original.deletingLastPathComponent()
+                .appendingPathComponent(".\(backup.original.lastPathComponent).restore-\(UUID().uuidString).tmp")
+            try fileManager.copyItem(at: backup.backup, to: stagedURL)
+            do {
+                if fileManager.fileExists(atPath: backup.original.path) {
+                    _ = try fileManager.replaceItemAt(backup.original, withItemAt: stagedURL)
+                } else {
+                    try fileManager.moveItem(at: stagedURL, to: backup.original)
+                }
+            } catch {
+                try? fileManager.removeItem(at: stagedURL)
+                throw error
             }
-            try FileManager.default.copyItem(at: backup.backup, to: backup.original)
         }
     }
 
