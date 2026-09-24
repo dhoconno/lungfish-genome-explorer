@@ -1943,6 +1943,19 @@ public class SequenceViewerView: NSView {
         sequenceViewerLogger.debug("SequenceViewerView.setAnnotations: Requested display refresh")
     }
 
+    /// Returns the currently displayed/cached copy of an annotation by id, checking
+    /// document-mode, bundle-mode and variant-mode caches in that order.
+    ///
+    /// Used as the defense-in-depth comparison base before persisting an
+    /// "update": if the incoming annotation is identical to what's already
+    /// cached, the caller should treat the update as a no-op rather than
+    /// starting an OperationCenter item / SQLite write for nothing.
+    func currentAnnotation(withID id: UUID) -> SequenceAnnotation? {
+        annotations.first(where: { $0.id == id })
+            ?? cachedBundleAnnotations.first(where: { $0.id == id })
+            ?? cachedVariantAnnotations.first(where: { $0.id == id })
+    }
+
     /// Updates a single annotation in-place (both document and bundle caches).
     ///
     /// Used when the inspector changes an annotation's color, name, or other properties.

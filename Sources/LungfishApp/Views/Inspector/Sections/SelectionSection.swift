@@ -637,7 +637,8 @@ public final class SelectionSectionViewModel {
     }
 
     private func commitChangesImmediately() {
-        guard var annotation = selectedAnnotation else { return }
+        guard let original = selectedAnnotation else { return }
+        var annotation = original
 
         annotation.name = name
         annotation.type = type
@@ -648,18 +649,49 @@ public final class SelectionSectionViewModel {
             annotation.color = annotationColor
         }
 
+        // Guards against a SwiftUI onChange that fires after `select(annotation:)`
+        // has already returned and reset `isUpdatingFromSelection` to false --
+        // the onChange guard is timing-dependent (SwiftUI defers onChange to the
+        // next render pass, which can land after the synchronous `select()` call
+        // completes), so this value comparison is the structural backstop that
+        // actually prevents a no-op "Update Annotation" operation from firing
+        // merely because the row was selected and its fields were populated.
+        // Compares only the fields this method can mutate (name/type/note/color);
+        // the others (intervals, strand, qualifiers, chromosome, parentID) never
+        // change here, so leaving them out of the comparison is intentional, not
+        // a stale-field bug. Color compares against the EFFECTIVE color
+        // `select(annotation:)` populated the color well with (falling back to
+        // the type's default when the annotation had none) -- comparing the
+        // extracted color against a `nil` `original.color` would treat the type
+        // default color well's onChange firing during selection as a genuine
+        // edit, which is the same class of bug as the name/type/notes case.
+        let originalEffectiveColor = original.color ?? original.type.defaultColor
+        guard annotation.name != original.name
+            || annotation.type != original.type
+            || annotation.note != original.note
+            || !Self.colorsApproximatelyEqual(annotation.color, originalEffectiveColor) else { return }
+
         selectedAnnotation = annotation
         onAnnotationUpdated?(annotation)
     }
 
     /// Commits color change, respecting the apply mode.
     func commitColorChange() {
-        guard var annotation = selectedAnnotation else { return }
+        guard let original = selectedAnnotation else { return }
 
         // Convert SwiftUI Color to AnnotationColor
         guard let annotationColor = extractAnnotationColor(from: color) else { return }
 
+        var annotation = original
         annotation.color = annotationColor
+
+        // Same structural guard as `commitChangesImmediately`, including the
+        // effective-color fallback so a color well populated from the type's
+        // default (rather than an explicit annotation color) doesn't look like
+        // an edit.
+        let originalEffectiveColor = original.color ?? original.type.defaultColor
+        guard !Self.colorsApproximatelyEqual(annotationColor, originalEffectiveColor) else { return }
+
         selectedAnnotation = annotation
 
         switch colorApplyMode {
@@ -673,6 +705,23 @@ public final class SelectionSectionViewModel {
             // Also notify to update all annotations of this type
             onApplyColorToAllOfType?(annotation.type, annotationColor)
         }
+    }
+
+    /// Compares two `AnnotationColor` values with a small tolerance.
+    ///
+    /// The color-well round trip (`AnnotationColor` -> SwiftUI `Color` -> `NSColor`/`CGColor`
+    /// -> `AnnotationColor`, see `select(annotation:)` and `extractAnnotationColor`) is not
+    /// guaranteed bit-exact -- colorspace conversion can introduce tiny floating-point drift
+    /// even when no user edit occurred. Exact `==` here would defeat the no-op guard's whole
+    /// purpose (rejecting a spurious "update" from a color well merely being populated), so
+    /// this tolerance is intentional, not a precision bug.
+    private static func colorsApproximatelyEqual(_ lhs: AnnotationColor?, _ rhs: AnnotationColor?) -> Bool {
+        guard let lhs, let rhs else { return lhs == nil && rhs == nil }
+        let tolerance = 0.004 // ~1/255, i.e. below one 8-bit color step
+        return abs(lhs.red - rhs.red) < tolerance
+            && abs(lhs.green - rhs.green) < tolerance
+            && abs(lhs.blue - rhs.blue) < tolerance
+            && abs(lhs.alpha - rhs.alpha) < tolerance
     }
 
     /// Extracts an AnnotationColor from a SwiftUI Color.
