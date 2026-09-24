@@ -222,8 +222,13 @@ final class FASTACollectionViewerRoutingTests: XCTestCase {
         XCTAssertNotNil(viewer.children.compactMap { $0 as? FASTACollectionViewController }.first)
     }
 
+    // Fixed at 2s originally; under the full unit tier's parallel CPU load, a
+    // 2s-second-sleep-plus-cancellation round trip (see
+    // testBlastCancelAndRerunUseTheCurrentAndLastRequests) can be starved past
+    // that budget even though the underlying behavior is correct once the
+    // Task actually gets scheduled (TST-10 -- wall-clock budgets under load).
     private func waitUntil(
-        timeout: Duration = .seconds(2),
+        timeout: Duration = .seconds(20),
         condition: @escaping @MainActor () -> Bool
     ) async {
         let clock = ContinuousClock()
