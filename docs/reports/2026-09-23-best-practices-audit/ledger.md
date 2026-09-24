@@ -25,10 +25,10 @@ Single source of truth for finding status (plan rule 9). Status: `open`, `verifi
 | FEA-07 | P1 | `OperationCenter.start` does not enforce the bundle lock, so unchecked callers mutate locked bundles | fixed | P1-A | c656e84c3 | drawer-delete sub-claim was wrong (already pre-checked); others migrated |
 | FEA-08 | P1 | Read sort and colour modes are implemented and tested but unreachable in the alignment viewer | open | | | |
 | PERF-01 | P1 | Alignment scientific actions SHA-256 the whole BAM, index and reference on the main actor, twice per action | fixed | P4-A | f02c6cc87 | off-main hashing + stat-keyed digest cache; coordinator tests 20/20 |
-| PERF-02 | P1 | `NativeToolRunner.shared` actor is blocked for the full runtime of `runWithFileOutput` / `runPipeline` childre | open | | | |
+| PERF-02 | P1 | `NativeToolRunner.shared` actor is blocked for the full runtime of `runWithFileOutput` / `runPipeline` childre | fixed | Q2 | eb48026d1 | actor no longer blocked (work in detached task); concurrency test blocked by TST-04 tool lookup in test env |
 | PERF-03 | P1 | TaxTriage batch unique-read pass runs directory walks, file parsing and `samtools` on the main actor, then an  | fixed | P4-A | 447955d3d | off-main discovery, keyed table sync, 250ms coalesced reload |
 | PERF-05 | P1 | Eight post-import and post-operation call sites run the full recursive project scan synchronously on the main  | fixed | P4-A | bea6e910b | 8/8 reloadFromFilesystem call sites now async |
-| PERF-06 | P1 | "Export annotations" and multi-source sequence export decompress and parse the entire genome into memory | open | | | |
+| PERF-06 | P1 | "Export annotations" and multi-source sequence export decompress and parse the entire genome into memory | fixed | Q2 | c338d802d | annotation export never opens genome |
 | REC-01 | P1 | Sibling mutation service deletes backup | fixed | P0-B | 12e6722a6 | VariantMutationPublication recovery path |
 | REC-02 | P1 | MSA/tree --force deletes output before work | fixed | Q3 | dd086b592 | tree infer --force atomic swap; failing-iqtree test |
 | REC-03 | P1 | Kraken2 taxonomy/BLAST exports lack provenance | open | | | |
@@ -76,11 +76,11 @@ Single source of truth for finding status (plan rule 9). Status: `open`, `verifi
 | FEA-13 | P2 | Variant table dead controls: Het Only chip, single-option Match picker, silent preset rewrite | open | | | |
 | FEA-14 | P2 | Output placement differs by entry point (Imports, project root, drop folder, alignment-read-extractions with U | open | | | |
 | PERF-07 | P2 | Result and bundle selection opens SQLite databases and runs scans and JSON decodes on the main thread | open | | | |
-| PERF-08 | P2 | Oriented virtual-FASTQ materialization loads the orient map twice as whole `String`s into two `Set<String>` of | open | | | |
+| PERF-08 | P2 | Oriented virtual-FASTQ materialization loads the orient map twice as whole `String`s into two `Set<String>` of | fixed | Q2 | a95a10c9a | single streaming pass |
 | PERF-09 | P2 | Loading-badge animation invalidates the whole sequence viewer at 18 fps, and horizontal pan redraw is a traili | fixed | Q1 | fb926ae3f,8a5c88145 | badge-rect invalidation; pan throttle; cached maxReadSpan |
 | PERF-10 | P2 | MSA drawing allocates an attributed string per residue and re-registers tooltips inside `draw(_:)`, and the gu | partial | Q1 | 11df0160c | gutter range + tooltips fixed; per-residue attributed strings not yet cached |
 | PERF-11 | P2 | Process-tree termination spawns `ps` per PID per loop, and quit terminates roots serially on the main thread | fixed | P1-B | 365e17396 | libproc snapshot per phase; concurrent terminateAll |
-| PERF-12 | P2 | Blocking waits pin cooperative-pool threads for tool lifetimes | open | | | |
+| PERF-12 | P2 | Blocking waits pin cooperative-pool threads for tool lifetimes | partial | Q2 | eb48026d1 | detached tasks still block pool threads; FASTQIngestionService.runCLISubprocess and runSamtoolsProcess deferred |
 | PERF-13 | P2 | Import helper cancellation signals only the helper root and polls with `Thread.sleep` | fixed | P1-B | 793f54fc2 | waitForHelperProcessExit + tree termination at 4 sites |
 | REL-06 | P2 | App version inside the hashed dependency manifest resets "Later" and stales receipts every release | open | | | |
 | REL-07 | P2 | Five hand-maintained version sites where one would do | open | | | |
@@ -141,8 +141,8 @@ Single source of truth for finding status (plan rule 9). Status: `open`, `verifi
 | FEA-15 | P3 | About 27 orphaned action handlers, stale validation branches and invisible import history | open | | | |
 | FEA-16 | P3 | `features.yaml` GUI entry-point claims that do not exist in the menus | open | | | |
 | FEA-17 | P3 | Edit > Find (Cmd-F) is dead in the main window | open | | | |
-| PERF-14 | P3 | Racy output-drain idioms (CondaManager 100 ms "drain delay", `readerGroup.enter` inside `readabilityHandler`) | open | | | |
-| PERF-15 | P3 | Operation log entries are unbounded per operation | open | | | |
+| PERF-14 | P3 | Racy output-drain idioms (CondaManager 100 ms "drain delay", `readerGroup.enter` inside `readabilityHandler`) | fixed | Q2 | f31335bc0 | drain to EOF |
+| PERF-15 | P3 | Operation log entries are unbounded per operation | fixed | Q2 | a13f9b83b | 2000-entry cap with elision marker |
 | PERF-16 | P3 | Remaining `runModal`, redundant timer-to-main hops, and test probes as `nonisolated(unsafe)` statics in produc | open | | | |
 | REL-15 | P3 | Nightly coordinator auto-commits agent worktrees into main inside the release tool, and is effectively unused | open | | | |
 | REL-16 | P3 | Dead or stale release/dependency artifacts (`containers/`, nonexistent smoke script reference) | open | | | |
