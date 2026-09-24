@@ -131,7 +131,11 @@ final class MappingViewportRoutingTests: XCTestCase {
         controller.excelSavePanelPresenter = { panel, _, completion in
             presented += 1
             XCTAssertEqual(panel.prompt, "Export")
-            XCTAssertTrue((panel.accessoryView as? NSTextField)?.stringValue.contains("Filtering does not remove data from the All worksheet.") == true)
+            // The "Filtering does not remove data from the All worksheet." disclosure
+            // moved into the Inspector's review-help popover
+            // (GenotypeResultDisplaySection.swift's Text(GenotypeExcelExportSession
+            // State.disclosure)); the save panel itself carries no accessory view.
+            XCTAssertNil(panel.accessoryView)
             completion(nil)
         }
         controller.onExcelExportRequested?()
@@ -1873,7 +1877,10 @@ private enum MappingRoutingFixture {
         on split: MainSplitViewController,
         excluding previous: SampleMetadataPresentationContext? = nil
     ) throws -> SampleMetadataPresentationContext {
-        let deadline = Date().addingTimeInterval(3)
+        // 3s was observed insufficient under the full unit tier's parallel CPU
+        // load (TST-10); the context installs correctly once the runloop
+        // catches up.
+        let deadline = Date().addingTimeInterval(20)
         while Date() < deadline {
             if let context = split.bamMetadataPresentationContext,
                context !== previous {
@@ -1890,7 +1897,7 @@ private enum MappingRoutingFixture {
     static func waitForInitialSampleRows(
         on split: MainSplitViewController
     ) throws -> ReferenceBundleViewportController {
-        let deadline = Date().addingTimeInterval(3)
+        let deadline = Date().addingTimeInterval(20)
         while Date() < deadline {
             if let viewport = split.viewerController.referenceBundleViewportController,
                viewport.testContigTableView.displayedRows.contains(where: { $0.sampleID == "S1" }) {
@@ -1913,7 +1920,7 @@ private enum MappingRoutingFixture {
         on viewport: ReferenceBundleViewportController,
         where predicate: (AlignmentActionContext) -> Bool = { _ in true }
     ) throws -> AlignmentActionContext {
-        let deadline = Date().addingTimeInterval(3)
+        let deadline = Date().addingTimeInterval(20)
         while Date() < deadline {
             if let context = viewport.testAlignmentActionContext, predicate(context) {
                 return context
