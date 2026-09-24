@@ -1755,12 +1755,15 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
 
     @objc func copyCoordinatesAction(_ sender: NSMenuItem) {
         guard let annotation = sender.representedObject as? AnnotationSearchIndex.SearchResult else { return }
-        // Variants use 1-based coordinates (VCF convention); annotations use 0-based (BED convention)
-        let start = activeTab == .variants ? annotation.start + 1 : annotation.start
-        let coords = "\(annotation.chromosome):\(start)-\(annotation.end)"
+        // SCI-13: both variants and annotations are stored 0-based half-open
+        // internally; `GenomicRegion.displayString` is the one place that
+        // converts to the 1-based closed convention the app shows and copies
+        // everywhere else, so a copied coordinate string always matches what
+        // Go to Location and the ruler accept.
+        let region = GenomicRegion(chromosome: annotation.chromosome, start: annotation.start, end: annotation.end)
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
-        pasteboard.setString(coords, forType: .string)
+        pasteboard.setString(region.displayString, forType: .string)
     }
 
     // MARK: - Extraction Actions

@@ -243,136 +243,78 @@ extension AppDelegate {
 
     /// Parses genomic location input and navigates the viewer.
     ///
+    /// Routes through the shared `LocusQueryParser` (SCI-13/FEA-09) so this
+    /// accepts exactly what the coordinate ruler displays and copies,
+    /// including thousands-separator commas and a bare chromosome name.
+    ///
     /// Supported formats:
+    /// - "chr2" - bare chromosome/contig name
     /// - "1000" - single position
     /// - "chr1:1000" - chromosome:position
-    /// - "chr1:1000-2000" or "chr1:1000..2000" - range
+    /// - "chr1:1,000-2,000" or "chr1:1000..2000" - range
     ///
     /// - Parameters:
     ///   - input: The user-provided position string
     ///   - viewerController: The viewer controller to navigate
     /// - Returns: A tuple with success status and optional error message
     private func parseAndNavigate(input: String, viewerController: ViewerViewController) -> (success: Bool, errorMessage: String?) {
-        var chromosome: String? = nil
-        var startPosition: Int? = nil
-        var endPosition: Int? = nil
+        let knownChromosomes = viewerController.currentBundleDataProvider?.chromosomes.map(\.name) ?? []
 
-        // Check if input contains a chromosome prefix (contains ":")
-        if input.contains(":") {
-            // Format: chromosome:position or chromosome:start-end
-            let colonParts = input.split(separator: ":", maxSplits: 1)
-            guard colonParts.count == 2 else {
-                return (false, "Invalid format. Expected 'chromosome:position' or 'chromosome:start-end'.")
-            }
-
-            chromosome = String(colonParts[0])
-            let positionPart = String(colonParts[1])
-
-            // Check for range separator (either "-" or "..")
-            if positionPart.contains("..") {
-                // Format: start..end
-                let rangeParts = positionPart.split(separator: ".", omittingEmptySubsequences: true)
-                guard rangeParts.count == 2,
-                      let start = Int(rangeParts[0].trimmingCharacters(in: .whitespaces)),
-                      let end = Int(rangeParts[1].trimmingCharacters(in: .whitespaces)) else {
-                    return (false, "Invalid range format. Expected 'start..end' with numeric values.")
-                }
-                startPosition = start
-                endPosition = end
-            } else if positionPart.contains("-") {
-                // Format: start-end (but need to handle negative numbers)
-                // Find the last hyphen that's preceded by a digit (to distinguish range separator from negative sign)
-                if let rangeHyphenIndex = positionPart.lastIndex(of: "-"),
-                   rangeHyphenIndex > positionPart.startIndex {
-                    let beforeHyphen = String(positionPart[positionPart.startIndex..<rangeHyphenIndex])
-                    let afterHyphen = String(positionPart[positionPart.index(after: rangeHyphenIndex)...])
-
-                    if let start = Int(beforeHyphen.trimmingCharacters(in: .whitespaces)),
-                       let end = Int(afterHyphen.trimmingCharacters(in: .whitespaces)) {
-                        startPosition = start
-                        endPosition = end
-                    } else {
-                        // Try parsing the whole thing as a single position
-                        if let pos = Int(positionPart.trimmingCharacters(in: .whitespaces)) {
-                            startPosition = pos
-                        } else {
-                            return (false, "Invalid position format. Expected numeric value.")
-                        }
-                    }
-                } else {
-                    // Single position
-                    if let pos = Int(positionPart.trimmingCharacters(in: .whitespaces)) {
-                        startPosition = pos
-                    } else {
-                        return (false, "Invalid position format. Expected numeric value.")
-                    }
-                }
-            } else {
-                // Single position
-                if let pos = Int(positionPart.trimmingCharacters(in: .whitespaces)) {
-                    startPosition = pos
-                } else {
-                    return (false, "Invalid position format. Expected numeric value.")
-                }
-            }
-        } else {
-            // No chromosome prefix - just a position or range
-            if input.contains("..") {
-                // Range with ".."
-                let rangeParts = input.split(separator: ".", omittingEmptySubsequences: true)
-                guard rangeParts.count == 2,
-                      let start = Int(String(rangeParts[0]).trimmingCharacters(in: .whitespaces)),
-                      let end = Int(String(rangeParts[1]).trimmingCharacters(in: .whitespaces)) else {
-                    return (false, "Invalid range format. Expected 'start..end' with numeric values.")
-                }
-                startPosition = start
-                endPosition = end
-            } else if input.contains("-") && input.first != "-" {
-                // Range with "-" (not starting with negative sign)
-                let rangeParts = input.split(separator: "-")
-                if rangeParts.count == 2,
-                   let start = Int(String(rangeParts[0]).trimmingCharacters(in: .whitespaces)),
-                   let end = Int(String(rangeParts[1]).trimmingCharacters(in: .whitespaces)) {
-                    startPosition = start
-                    endPosition = end
-                } else if let pos = Int(input.trimmingCharacters(in: .whitespaces)) {
-                    startPosition = pos
-                } else {
-                    return (false, "Invalid format. Expected position number or 'start-end' range.")
-                }
-            } else {
-                // Simple position number
-                if let pos = Int(input.trimmingCharacters(in: .whitespaces)) {
-                    startPosition = pos
-                } else {
-                    return (false, "Invalid position. Please enter a numeric value.")
-                }
-            }
-        }
-
-        // Validate we have at least a start position
-        guard let start = startPosition else {
+        let query: LocusQuery
+        do {
+            query = try LocusQueryParser.parse(input, knownChromosomes: knownChromosomes)
+        } catch let error as LocusQueryError {
+            return (false, error.errorDescription)
+        } catch {
             return (false, "Could not parse the position value.")
         }
 
-        // Convert from 1-based user input to 0-based internal coordinates
-        // Users typically think in 1-based coordinates for genomic positions
-        let zeroBasedStart = max(0, start - 1)
-        let zeroBasedEnd: Int? = endPosition.map { max(zeroBasedStart + 1, $0) }
-
-        // Navigate using the helper method
-        let success = navigateSequenceViewer(
-            viewerController,
-            chromosome: chromosome,
-            start: zeroBasedStart,
-            end: zeroBasedEnd
-        )
-
-        if success {
-            debugLog("goToPosition: Navigated to \(chromosome ?? "current"):\(zeroBasedStart)-\(zeroBasedEnd ?? zeroBasedStart)")
+        switch query {
+        case .chromosome(let name):
+            guard let chromosomeInfo = viewerController.currentBundleDataProvider?.chromosomeInfo(named: name) else {
+                return (false, "Unknown chromosome '\(name)'.")
+            }
+            let chromosomeLength = Int(chromosomeInfo.length)
+            viewerController.navigateToChromosomeAndPosition(
+                chromosome: chromosomeInfo.name,
+                chromosomeLength: chromosomeLength,
+                start: 0,
+                end: chromosomeLength
+            )
+            debugLog("goToPosition: Navigated to whole chromosome \(chromosomeInfo.name)")
             return (true, nil)
-        } else {
-            return (false, "Position is outside the sequence bounds.")
+
+        case .position(let chromosome, let position):
+            // Convert from 1-based user input to 0-based internal coordinates.
+            let zeroBasedStart = max(0, position - 1)
+            let success = navigateSequenceViewer(
+                viewerController,
+                chromosome: chromosome,
+                start: zeroBasedStart,
+                end: nil
+            )
+            if success {
+                debugLog("goToPosition: Navigated to \(chromosome ?? "current"):\(zeroBasedStart)")
+                return (true, nil)
+            } else {
+                return (false, "Position is outside the sequence bounds.")
+            }
+
+        case .range(let chromosome, let start, let end):
+            let zeroBasedStart = max(0, start - 1)
+            let zeroBasedEnd = max(zeroBasedStart + 1, end)
+            let success = navigateSequenceViewer(
+                viewerController,
+                chromosome: chromosome,
+                start: zeroBasedStart,
+                end: zeroBasedEnd
+            )
+            if success {
+                debugLog("goToPosition: Navigated to \(chromosome ?? "current"):\(zeroBasedStart)-\(zeroBasedEnd)")
+                return (true, nil)
+            } else {
+                return (false, "Position is outside the sequence bounds.")
+            }
         }
     }
 
