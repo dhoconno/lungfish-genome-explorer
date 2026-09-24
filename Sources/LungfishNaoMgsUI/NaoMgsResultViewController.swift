@@ -112,6 +112,11 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
     private let taxonomyTableView = NSTableView()
     private let taxonomyFilterBar = NSStackView()
     private let sampleFilterButton = NSButton(title: "All Samples", target: nil, action: nil)
+    private let taxonomySearchField = NSSearchField()
+
+    /// Free-text filter applied to the taxon and sample columns (UX-05: NAO-MGS
+    /// previously had no search field at all).
+    private var searchText: String = ""
 
     /// Per-column filters applied via column header click menus.
     private var columnFilterSet = ColumnFilterSet()
@@ -553,6 +558,14 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
 #endif
         var rows = sourceRows
 
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !query.isEmpty {
+            rows = rows.filter {
+                $0.name.localizedCaseInsensitiveContains(query)
+                    || $0.sample.localizedCaseInsensitiveContains(query)
+            }
+        }
+
         if columnFilterSet.isActive {
             rows = rows.filter { row in
                 columnFilterSet.matches { filter in
@@ -712,6 +725,11 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
                 self.startObservingSampleSelection()
             }
         }
+    }
+
+    @objc private func taxonomySearchFieldChanged(_ sender: NSSearchField) {
+        searchText = sender.stringValue
+        reloadTaxonomyTable()
     }
 
     @objc private func sampleFilterButtonClicked(_ sender: NSButton) {
@@ -1737,6 +1755,17 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
 
         taxonomyFilterBar.addArrangedSubview(sampleFilterButton)
 
+        // Free-text search field (UX-05: NAO-MGS previously had no search).
+        taxonomySearchField.translatesAutoresizingMaskIntoConstraints = false
+        taxonomySearchField.placeholderString = "Filter taxa\u{2026}"
+        taxonomySearchField.target = self
+        taxonomySearchField.action = #selector(taxonomySearchFieldChanged(_:))
+        taxonomySearchField.sendsSearchStringImmediately = true
+        taxonomySearchField.setAccessibilityIdentifier("naomgs-search-field")
+        taxonomySearchField.setAccessibilityLabel("Filter taxa")
+        taxonomySearchField.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        taxonomyFilterBar.addArrangedSubview(taxonomySearchField)
+
         taxonomyTableScrollView.translatesAutoresizingMaskIntoConstraints = false
         container.addSubview(taxonomyTableScrollView)
 
@@ -2124,7 +2153,7 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
         }
 
         // Copy Taxon ID
-        let copyTaxId = NSMenuItem(title: "Copy Taxon ID", action: #selector(contextCopyTaxonId(_:)), keyEquivalent: "")
+        let copyTaxId = NSMenuItem(title: LungfishUIStrings.Classifier.copyTaxonID, action: #selector(contextCopyTaxonId(_:)), keyEquivalent: "")
         copyTaxId.target = self
         copyTaxId.representedObject = row.taxId
         menu.addItem(copyTaxId)
@@ -2483,6 +2512,12 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
     var testBlastDrawerContainer: BlastResultsDrawerContainerView? { blastDrawerContainer }
     var testTaxonomyTableView: NSTableView { taxonomyTableView }
     var testTaxonomyScrollView: NSScrollView { taxonomyTableScrollView }
+    /// UX-05: NAO-MGS previously had no free-text search field at all.
+    var testTaxonomySearchField: NSSearchField { taxonomySearchField }
+    func testSetTaxonomySearchText(_ text: String) {
+        taxonomySearchField.stringValue = text
+        taxonomySearchFieldChanged(taxonomySearchField)
+    }
     var testActionBar: ClassifierActionBar { actionBar }
     func testSelectTaxonomyRow(_ index: Int) {
         taxonomyTableView.selectRowIndexes(IndexSet(integer: index), byExtendingSelection: false)
