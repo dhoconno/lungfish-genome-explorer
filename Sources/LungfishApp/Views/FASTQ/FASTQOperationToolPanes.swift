@@ -944,7 +944,7 @@ private struct FASTQOperationAdvancedSettingsSection: View {
                 Text("Input bundles are passed directly to the materializer; ONT chunks are not imported separately for this recipe.")
                     .foregroundStyle(.secondary)
             case .removeHumanReads:
-                Text("Human read removal stays fixed to the selected database input.")
+                Text("Human read removal uses the managed Deacon pan-human index.")
                     .foregroundStyle(.secondary)
             case .refreshQCSummary, .minimap2, .bwaMem2, .bowtie2, .bbmap, .viralRecon, .spades, .megahit, .skesa, .flye, .hifiasm, .kraken2, .esViritu, .taxTriage:
                 Text("This tool uses the embedded workflow pane.")
