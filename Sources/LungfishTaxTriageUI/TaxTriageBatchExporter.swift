@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import LungfishCore
 import LungfishIO
 import LungfishWorkflow
 
@@ -43,12 +44,12 @@ public enum TaxTriageBatchExporter {
 
         var csv = "Organism,Mean TASS,Samples Detected,Contamination Risk"
         for sid in sampleIds {
-            csv += ",\(escapeCSV(sid))"
+            csv += ",\(DelimitedText.csvField(sid))"
         }
         csv += "\n"
 
         for row in rows {
-            csv += "\(escapeCSV(row.organism))"
+            csv += "\(DelimitedText.csvField(row.organism))"
             csv += ",\(String(format: "%.4f", row.meanTASS))"
             csv += ",\(row.sampleCount)/\(sampleIds.count)"
             csv += ",\(row.isContaminationRisk ? "Yes" : "No")"
@@ -212,10 +213,4 @@ public enum TaxTriageBatchExporter {
         }
     }
 
-    private static func escapeCSV(_ value: String) -> String {
-        if value.contains(",") || value.contains("\"") || value.contains("\n") {
-            return "\"\(value.replacingOccurrences(of: "\"", with: "\"\""))\""
-        }
-        return value
-    }
 }

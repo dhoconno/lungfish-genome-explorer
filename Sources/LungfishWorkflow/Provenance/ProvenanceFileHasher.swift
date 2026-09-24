@@ -2,8 +2,8 @@
 // Copyright (c) 2024 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 
-import CryptoKit
 import Foundation
+import LungfishCore
 
 public enum ProvenanceFileHasherError: Error, LocalizedError, Sendable {
     case fileSizeUnavailable(String)
@@ -19,30 +19,21 @@ public enum ProvenanceFileHasherError: Error, LocalizedError, Sendable {
     }
 }
 
+/// Provenance-manifest-shaped wrapper over `LungfishCore.FileDigest`
+/// (SIMP-10). The streaming, cancellable SHA-256 implementation itself now
+/// lives in Core so other layers can hash files without depending on
+/// Workflow; this type keeps its existing API for the ~30 existing call
+/// sites and the directory-manifest logic below.
 public enum ProvenanceFileHasher {
-    private static let chunkSize = 1_048_576
-
     public static func sha256(of url: URL) throws -> String {
-        try sha256(of: url, cancellationCheck: {})
+        try FileDigest.sha256(of: url)
     }
 
     public static func sha256(
         of url: URL,
         cancellationCheck: () throws -> Void
     ) throws -> String {
-        let fileHandle = try FileHandle(forReadingFrom: url)
-        defer { try? fileHandle.close() }
-
-        var hasher = SHA256()
-        while try autoreleasepool(invoking: {
-            try cancellationCheck()
-            let chunk = fileHandle.readData(ofLength: chunkSize)
-            guard !chunk.isEmpty else { return false }
-            hasher.update(data: chunk)
-            return true
-        }) {}
-
-        return hasher.finalize().map { String(format: "%02x", $0) }.joined()
+        try FileDigest.sha256(of: url, cancellationCheck: cancellationCheck)
     }
 
     public static func fileSize(of url: URL) throws -> UInt64 {

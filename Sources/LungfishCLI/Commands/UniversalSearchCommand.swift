@@ -134,10 +134,10 @@ struct UniversalSearchCommand: AsyncParsableCommand {
             for result in results {
                 print([
                     result.kind,
-                    sanitizeTSV(result.title),
-                    sanitizeTSV(result.subtitle ?? ""),
-                    sanitizeTSV(result.format ?? ""),
-                    sanitizeTSV(relativePath(for: result.url, projectURL: projectURL)),
+                    DelimitedText.tsvField(result.title),
+                    DelimitedText.tsvField(result.subtitle ?? ""),
+                    DelimitedText.tsvField(result.format ?? ""),
+                    DelimitedText.tsvField(relativePath(for: result.url, projectURL: projectURL)),
                 ].joined(separator: "\t"))
             }
 
@@ -208,12 +208,6 @@ struct UniversalSearchCommand: AsyncParsableCommand {
         }
 
         return absolutePath
-    }
-
-    private func sanitizeTSV(_ value: String) -> String {
-        value
-            .replacingOccurrences(of: "\t", with: " ")
-            .replacingOccurrences(of: "\n", with: " ")
     }
 
     private func provenanceArgv(projectURL: URL, boundedLimit: Int) -> [String] {

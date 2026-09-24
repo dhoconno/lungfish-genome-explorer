@@ -368,7 +368,7 @@ public struct ResolvedSampleMetadata: Codable, Equatable, Sendable {
     }
 
     public func tsvString() -> String {
-        var lines = [columns.map(Self.tsvEscape).joined(separator: "\t")]
+        var lines = [columns.map(DelimitedText.tsvField).joined(separator: "\t")]
         for sampleID in sampleIDs {
             let record = records[sampleID, default: [:]]
             let values = columns.map { column -> String in
@@ -377,7 +377,7 @@ public struct ResolvedSampleMetadata: Codable, Equatable, Sendable {
                 }
                 return record[column, default: ""]
             }
-            lines.append(values.map(Self.tsvEscape).joined(separator: "\t"))
+            lines.append(values.map(DelimitedText.tsvField).joined(separator: "\t"))
         }
         return lines.joined(separator: "\n") + "\n"
     }
@@ -437,12 +437,6 @@ public struct ResolvedSampleMetadata: Codable, Equatable, Sendable {
         )
     }
 
-    private static func tsvEscape(_ value: String) -> String {
-        value
-            .replacingOccurrences(of: "\t", with: " ")
-            .replacingOccurrences(of: "\n", with: " ")
-            .replacingOccurrences(of: "\r", with: " ")
-    }
 }
 
 public enum SampleMetadataResolver {

@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
-import CryptoKit
+import LungfishCore
 import LungfishIO
 
 public enum AssemblyExecutionBackend: String, Codable, Sendable, Equatable {
@@ -410,7 +410,7 @@ public enum ProvenanceBuilder {
     ) -> InputFileRecord {
         let attrs = try? FileManager.default.attributesOfItem(atPath: url.path)
         let size = (attrs?[.size] as? Int64) ?? 0
-        let sha256: String? = size <= maxHashSizeBytes ? computeSHA256(of: url) : nil
+        let sha256: String? = size <= maxHashSizeBytes ? (try? FileDigest.sha256(of: url)) : nil
 
         return InputFileRecord(
             filename: url.lastPathComponent,
@@ -438,20 +438,4 @@ public enum ProvenanceBuilder {
         #endif
     }
 
-    private static func computeSHA256(of url: URL) -> String? {
-        guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
-        defer { try? handle.close() }
-
-        var hasher = SHA256()
-        let bufferSize = 1024 * 1024  // 1 MB chunks
-        while autoreleasepool(invoking: {
-            let chunk = handle.readData(ofLength: bufferSize)
-            guard !chunk.isEmpty else { return false }
-            hasher.update(data: chunk)
-            return true
-        }) {}
-
-        let digest = hasher.finalize()
-        return digest.map { String(format: "%02x", $0) }.joined()
-    }
 }

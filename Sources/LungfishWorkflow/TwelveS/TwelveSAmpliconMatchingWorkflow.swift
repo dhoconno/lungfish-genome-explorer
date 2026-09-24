@@ -610,7 +610,7 @@ public struct TwelveSAmpliconMatchingWorkflow: Sendable {
                 reference.metadata["primer_pairs"] ?? "",
                 reference.sourceHeader,
             ]
-            lines.append(fields.map(Self.tsvEscape).joined(separator: "\t"))
+            lines.append(fields.map(DelimitedText.tsvField).joined(separator: "\t"))
         }
         try (lines.joined(separator: "\n") + "\n").write(to: url, atomically: true, encoding: .utf8)
     }
@@ -631,7 +631,7 @@ public struct TwelveSAmpliconMatchingWorkflow: Sendable {
                     match.taxonomy ?? "",
                     match.nameSource ?? "",
                     match.reason ?? "",
-                ].map(Self.tsvEscape).joined(separator: "\t"))
+                ].map(DelimitedText.tsvField).joined(separator: "\t"))
             }
         }
         try (lines.joined(separator: "\n") + "\n").write(to: url, atomically: true, encoding: .utf8)
@@ -647,7 +647,7 @@ public struct TwelveSAmpliconMatchingWorkflow: Sendable {
         for reference in references {
             let counts = countsByTarget[reference.targetID, default: [:]]
             let row = [reference.targetID] + sampleOrder.map { String(counts[$0, default: 0]) }
-            lines.append(row.map(Self.tsvEscape).joined(separator: "\t"))
+            lines.append(row.map(DelimitedText.tsvField).joined(separator: "\t"))
         }
         try (lines.joined(separator: "\n") + "\n").write(to: url, atomically: true, encoding: .utf8)
     }
@@ -670,7 +670,7 @@ public struct TwelveSAmpliconMatchingWorkflow: Sendable {
                 Self.formatDouble(sample.exactMatchPercent),
                 Self.formatDouble(sample.unresolvedPercent),
                 String(sample.reassignedReads),
-            ].map(Self.tsvEscape).joined(separator: "\t"))
+            ].map(DelimitedText.tsvField).joined(separator: "\t"))
         }
         try (lines.joined(separator: "\n") + "\n").write(to: url, atomically: true, encoding: .utf8)
     }
@@ -809,7 +809,7 @@ public struct TwelveSAmpliconMatchingWorkflow: Sendable {
                 sampleCounts,
                 sequence.chimeraStatus.rawValue,
                 sequence.note ?? "",
-            ].map(Self.tsvEscape).joined(separator: "\t"))
+            ].map(DelimitedText.tsvField).joined(separator: "\t"))
         }
         try (lines.joined(separator: "\n") + "\n").write(to: url, atomically: true, encoding: .utf8)
     }
@@ -828,7 +828,7 @@ public struct TwelveSAmpliconMatchingWorkflow: Sendable {
                 String(move.reads),
                 decidedBy,
                 move.candidateSpecies.joined(separator: ";"),
-            ].map(Self.tsvEscape).joined(separator: "\t"))
+            ].map(DelimitedText.tsvField).joined(separator: "\t"))
         }
         try (lines.joined(separator: "\n") + "\n").write(to: url, atomically: true, encoding: .utf8)
     }
@@ -1161,12 +1161,6 @@ public struct TwelveSAmpliconMatchingWorkflow: Sendable {
         return name
     }
 
-    private static func tsvEscape(_ value: String) -> String {
-        value
-            .replacingOccurrences(of: "\t", with: " ")
-            .replacingOccurrences(of: "\n", with: " ")
-            .replacingOccurrences(of: "\r", with: " ")
-    }
 
     private static func formatDouble(_ value: Double) -> String {
         String(format: "%.6f", value)
