@@ -28,6 +28,20 @@ private final class PipeReadBuffer: @unchecked Sendable {
     }
 }
 
+/// Mutable box around `UniqueReadStartCounter` for use inside a
+/// `DispatchQueue.global` closure that is the sole owner of the box for its
+/// lifetime (see `AlignmentDataProvider.streamUniqueReadCount`). No lock is
+/// needed because only that one closure ever touches it.
+private final class UniqueReadCounterBox: @unchecked Sendable {
+    private var counter = UniqueReadStartCounter()
+
+    func ingest(chunk: String, leftover: inout String, isFinal: Bool = false) {
+        counter.ingest(chunk: chunk, leftover: &leftover, isFinal: isFinal)
+    }
+
+    var uniqueCount: Int { counter.uniqueCount }
+}
+
 final class SamtoolsCancellation: @unchecked Sendable {
     private let lock = NSLock()
     private var process: Process?
@@ -422,7 +436,7 @@ public final class AlignmentDataProvider: @unchecked Sendable {
     ///   - chromosome: Chromosome name
     ///   - start: 0-based start position
     ///   - end: 0-based exclusive end position
-    ///   - excludeFlags: SAM flag filter to exclude (default: unmapped | secondary | supplementary | dup = 0x904)
+    ///   - excludeFlags: SAM flag filter to exclude (default: unmapped | secondary | supplementary = 0x904)
     ///   - minMapQ: Minimum mapping quality (default: 0)
     ///   - maxReads: Cap on returned reads (default: 10,000)
     /// - Returns: Array of parsed alignment records
@@ -499,6 +513,130 @@ public final class AlignmentDataProvider: @unchecked Sendable {
         }
 
         return Int(result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)) ?? 0
+    }
+
+    /// Counts unique aligned reads in a genomic region by streaming
+    /// `samtools view` output through `UniqueReadStartCounter`, without a
+    /// read cap and without buffering the SAM text in memory.
+    ///
+    /// This exists because `fetchReads(maxReads:)` (used previously for this
+    /// purpose by TaxTriage and EsViritu's "Unique Reads" figure) parses at
+    /// most `maxReads` (100,000 by default) reads and buffers up to 500 MB
+    /// of raw SAM text before returning, so any contig with more than
+    /// 100,000 mapped reads silently under-reports its unique-read count
+    /// (PERF-04). The dedup key here is identical to
+    /// `AlignedRead.deduplicatedReadCount(from:)` in `AlignedReadDedup.swift`:
+    /// a read's 0-based start, its reference-consuming alignment end, and
+    /// its strand. Two reads sharing all three count as one.
+    ///
+    /// - Parameters:
+    ///   - chromosome: Chromosome name.
+    ///   - start: 0-based region start.
+    ///   - end: 0-based exclusive region end.
+    ///   - excludeFlags: SAM flag filter to exclude (default matches
+    ///     `fetchReads`: unmapped | secondary | supplementary = 0x904).
+    ///   - minMapQ: Minimum mapping quality.
+    /// - Returns: The number of distinct (position, alignmentEnd, strand)
+    ///   keys among reads passing the flag/quality filters, with no upper
+    ///   bound.
+    public func countUniqueReads(
+        chromosome: String,
+        start: Int,
+        end: Int,
+        excludeFlags: UInt16 = 0x904,
+        minMapQ: Int = 0,
+        readGroups: Set<String> = []
+    ) async throws -> Int {
+        guard !chromosome.isEmpty, start >= 0, end > start else {
+            throw AlignmentFetchError.invalidRegion("\(chromosome):\(start)-\(end)")
+        }
+
+        let regionStr = "\(chromosome):\(start + 1)-\(end)"
+        let arguments = viewArguments(
+            excludeFlags: excludeFlags,
+            minMapQ: minMapQ,
+            readGroups: readGroups
+        ) + ["-X", alignmentPath, indexPath, regionStr]
+
+        alignmentLogger.debug("Counting unique reads (streaming): samtools \(arguments.joined(separator: " "))")
+
+        let samtoolsPath = try findSamtools()
+        let cancellation = SamtoolsCancellation()
+        return try await withTaskCancellationHandler(operation: {
+            try Task.checkCancellation()
+            let value = try await Task.detached(priority: .userInitiated) {
+                try Self.streamUniqueReadCount(
+                    samtoolsPath: samtoolsPath,
+                    arguments: arguments,
+                    timeout: 300,
+                    cancellation: cancellation
+                )
+            }.value
+            try Task.checkCancellation()
+            return value
+        }, onCancel: { cancellation.cancel() })
+    }
+
+    /// Runs `samtools view` and feeds its stdout, 64 KB at a time, into a
+    /// `UniqueReadStartCounter`, never materializing the full SAM text.
+    static func streamUniqueReadCount(
+        samtoolsPath: String,
+        arguments: [String],
+        timeout: TimeInterval,
+        cancellation: SamtoolsCancellation? = nil
+    ) throws -> Int {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: samtoolsPath)
+        process.arguments = arguments
+        let stdoutPipe = Pipe()
+        let stderrPipe = Pipe()
+        process.standardOutput = stdoutPipe
+        process.standardError = stderrPipe
+        do { try process.run() } catch { throw AlignmentFetchError.samtoolsNotFound }
+        cancellation?.install(process)
+
+        let counterBox = UniqueReadCounterBox()
+        let group = DispatchGroup()
+        group.enter()
+        DispatchQueue.global(qos: .userInitiated).async {
+            defer { group.leave() }
+            var leftover = ""
+            while true {
+                let chunk = stdoutPipe.fileHandleForReading.readData(ofLength: 64 * 1024)
+                guard !chunk.isEmpty else { break }
+                // Lossy decoding: a strict UTF-8 decode returns nil when a
+                // multi-byte character straddles the 64 KB boundary, which
+                // would silently drop a whole chunk of reads. The fields the
+                // counter reads (FLAG, POS, CIGAR) are ASCII either way.
+                let text = String(decoding: chunk, as: UTF8.self)
+                counterBox.ingest(chunk: text, leftover: &leftover)
+            }
+            if !leftover.isEmpty {
+                counterBox.ingest(chunk: "", leftover: &leftover, isFinal: true)
+            }
+        }
+        let stderrBuffer = PipeReadBuffer()
+        group.enter()
+        DispatchQueue.global(qos: .userInitiated).async {
+            defer { group.leave() }
+            stderrBuffer.store(stderrPipe.fileHandleForReading.readDataToEndOfFile())
+        }
+
+        if group.wait(timeout: .now() + timeout) == .timedOut {
+            process.terminate()
+            _ = kill(process.processIdentifier, SIGKILL)
+            process.waitUntilExit()
+            stdoutPipe.fileHandleForReading.closeFile()
+            stderrPipe.fileHandleForReading.closeFile()
+            _ = group.wait(timeout: .now() + 5)
+            throw AlignmentFetchError.timeout
+        }
+        process.waitUntilExit()
+        guard process.terminationStatus == 0 else {
+            let stderrText = String(data: stderrBuffer.load(), encoding: .utf8) ?? ""
+            throw AlignmentFetchError.samtoolsFailed(stderrText.isEmpty ? "exit code \(process.terminationStatus)" : stderrText)
+        }
+        return counterBox.uniqueCount
     }
 
     /// Fetches a bounded deterministic read sketch for fast overview rendering.

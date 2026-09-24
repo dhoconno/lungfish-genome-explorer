@@ -12,6 +12,36 @@ import LungfishTestSupport
 // Artifacts lens, outline/review queue, and selected-sample workbench
 @MainActor
 final class GenotypeResultViewportArtifactsAndOutlineTests: GenotypeResultViewportTestCase {
+    // D5 / WFL-14 (2026-09-23 best-practices audit): the owner disabled AI
+    // haplotyping because it was unreliable, with no key check, consent
+    // step, or species-aware defaults. The "AI Haplotyping" section
+    // (both the "AI Discovery" and "AI Refinement" buttons) must not
+    // appear in the artifacts lens at all.
+    func testArtifactsLensNeverShowsAIHaplotypingSection() {
+        let controller = makeMatrixAnnotationGuardedController()
+        _ = controller.view
+        controller.configure(result: makeResult(samples: [], calls: []))
+
+        let text = controller.testingArtifactLensText
+        XCTAssertFalse(text.contains("AI Haplotyping"))
+        XCTAssertFalse(text.contains("AI Discovery"))
+        XCTAssertFalse(text.contains("AI Refinement"))
+    }
+
+    func testArtifactsLensNeverShowsAIHaplotypingSectionAfterAuditTimelineIsPresent() {
+        // The AI Haplotyping section was added right after the Audit
+        // Timeline section, so exercise that path too.
+        let controller = makeMatrixAnnotationGuardedController()
+        _ = controller.view
+        controller.configure(result: makeResult(samples: [], calls: []))
+        controller.applyAIHaplotypingFailed(NSError(domain: "D5Test", code: 1))
+
+        let text = controller.testingArtifactLensText
+        XCTAssertFalse(text.contains("AI Haplotyping"))
+        XCTAssertFalse(text.contains("AI Discovery"))
+        XCTAssertFalse(text.contains("AI Refinement"))
+    }
+
     func testArtifactsLensListsValidatedCandidateFASTAAndGenBankArtifactsWhenDeclared() throws {
         let root = try TestTempDirectory.make(prefix: "GenotypeCandidateGenBankLens")
         defer { TestTempDirectory.cleanup(root) }

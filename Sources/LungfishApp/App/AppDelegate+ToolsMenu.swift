@@ -1411,7 +1411,11 @@ extension AppDelegate {
                 .sidebarController.requestReloadFromFilesystem()
             return true
         } catch {
-            _ = OperationCenter.shared.fail(id: opID, detail: "\(error)")
+            // WFL-19: interpolating `error` directly prints the enum case
+            // name (e.g. "mapperNotInstalled(\"minimap2\")"), not the
+            // user-facing text `ManagedMappingPipelineError` already
+            // provides via `LocalizedError`.
+            _ = OperationCenter.shared.fail(id: opID, detail: error.localizedDescription)
             return false
         }
     }

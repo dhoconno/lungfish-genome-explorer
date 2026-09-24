@@ -446,21 +446,16 @@ extension MainSplitViewController {
             try fm.copyItem(at: sourceAnnoDir, to: targetAnnoDir)
         }
 
-        // Update target manifest: add genome + annotations from source, keep existing variants
+        // Update target manifest: add genome + annotations from source, keep
+        // existing variants/alignments/tracks/warnings/recordStore. Built with
+        // `mergingGenomeAndAnnotations` so every field the source doesn't
+        // explicitly contribute round-trips unchanged (see FEA-01) — signal
+        // tracks, warnings, browserSummary, originBundlePath and recordStore
+        // on the target bundle are not dropped by this merge.
         let targetManifest = try BundleManifest.load(from: targetBundleURL)
-        let updatedManifest = BundleManifest(
-            formatVersion: targetManifest.formatVersion,
-            name: sourceManifest.name.isEmpty ? targetManifest.name : sourceManifest.name,
-            identifier: targetManifest.identifier,
-            description: targetManifest.description,
-            createdDate: targetManifest.createdDate,
-            modifiedDate: Date(),
-            source: sourceManifest.source,
-            genome: sourceManifest.genome,
-            annotations: sourceManifest.annotations,
-            variants: targetManifest.variants,
-            alignments: targetManifest.alignments,
-            metadata: targetManifest.metadata
+        let updatedManifest = targetManifest.mergingGenomeAndAnnotations(
+            from: sourceManifest,
+            preferredName: sourceManifest.name
         )
         try updatedManifest.save(to: targetBundleURL)
     }

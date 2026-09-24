@@ -63,6 +63,23 @@ enum BAMVariantCallingToolID: String, CaseIterable, Sendable {
     var viralCaller: ViralVariantCaller? {
         ViralVariantCaller(rawValue: rawValue)
     }
+
+    /// D4 (2026-09-23 best-practices audit, WFL-03): "GATK + WhatsHap
+    /// Phased" reports readiness in the dialog but every launcher then
+    /// treats it as not-ready (`pendingPhasedVariantPlan` is read nowhere),
+    /// so the tool always dead-ends with a contradictory "Not Ready" alert.
+    /// Hide it from the catalog behind this single flag until phasing is
+    /// wired to a launcher; keep the case and its gates so re-enabling it
+    /// is a one-line change.
+    private static let phasedCallerCatalogEnabled = false
+
+    /// The cases the catalog and dialog should show. Prefer this over
+    /// `allCases` anywhere the tool list is presented to the user.
+    static var catalogCases: [BAMVariantCallingToolID] {
+        allCases.filter { tool in
+            tool != .gatkWhatsHapPhased || phasedCallerCatalogEnabled
+        }
+    }
 }
 
 struct BAMVariantCallingCatalog: Sendable {
@@ -74,14 +91,14 @@ struct BAMVariantCallingCatalog: Sendable {
 
     func sidebarItems() async -> [DatasetOperationToolSidebarItem] {
         var statusByPackID: [String: PluginPackStatus] = [:]
-        for packID in Set(BAMVariantCallingToolID.allCases.flatMap(\.requiredPackIDs)) {
+        for packID in Set(BAMVariantCallingToolID.catalogCases.flatMap(\.requiredPackIDs)) {
             statusByPackID[packID] = await statusProvider.status(forPackID: packID)
         }
         return Self.sidebarItems(statusByPackID: statusByPackID)
     }
 
     static func availableSidebarItems() -> [DatasetOperationToolSidebarItem] {
-        BAMVariantCallingToolID.allCases.map { tool in
+        BAMVariantCallingToolID.catalogCases.map { tool in
             DatasetOperationToolSidebarItem(
                 id: tool.rawValue,
                 title: tool.displayName,
@@ -106,7 +123,7 @@ struct BAMVariantCallingCatalog: Sendable {
     private static func sidebarItems(
         statusByPackID: [String: PluginPackStatus]
     ) -> [DatasetOperationToolSidebarItem] {
-        BAMVariantCallingToolID.allCases.map { tool in
+        BAMVariantCallingToolID.catalogCases.map { tool in
             DatasetOperationToolSidebarItem(
                 id: tool.rawValue,
                 title: tool.displayName,

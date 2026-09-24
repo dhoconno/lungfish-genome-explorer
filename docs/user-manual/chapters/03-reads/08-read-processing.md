@@ -137,7 +137,7 @@ This chapter uses the HG002 chromosome 20 slice. Download the files
 `HG002.chr20.10.0-10.5Mb_R2.fastq.gz` from the manual's practice data files
 on GitHub at
 
-https://github.com/dhoconno/lungfish-genome-explorer/tree/main/docs/user-manual/fixtures/hg002-chr20
+https://github.com/dhoconno/lungfish-manual-media/tree/manual-v2026.9.39/user-manual/fixtures/hg002-chr20
 
 and remember where you saved them. You need both files, because they are the
 two halves of one paired sample. On that GitHub page, click a filename, then
@@ -145,7 +145,7 @@ click the download button on the page that opens. The Orient Reads section
 uses two files from other practice folders instead. Download
 `HG002.chrM.ont.fastq.gz` from
 
-https://github.com/dhoconno/lungfish-genome-explorer/tree/main/docs/user-manual/fixtures/hg002-long-reads
+https://github.com/dhoconno/lungfish-manual-media/tree/manual-v2026.9.39/user-manual/fixtures/hg002-long-reads
 
 and `NC_012920.1.fasta` from
 

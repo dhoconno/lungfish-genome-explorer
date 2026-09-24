@@ -867,6 +867,84 @@ final class MSACommandTests: XCTestCase {
         XCTAssertTrue(recorder.joined().contains(#""event":"msaActionComplete""#))
     }
 
+    /// WFL-02/REC-02 regression: `--force` must never delete the existing
+    /// output up front. It should build the new bundle at a fresh sibling
+    /// path and only swap it into place once the build succeeds, and a
+    /// refusal (no --force) must leave the existing output byte-for-byte
+    /// untouched.
+    func testMaskColumnsSubcommandForceReplacesExistingOutputAtomically() throws {
+        let tempDir = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+            .appendingPathComponent(".build/test-artifacts/MSACommandTests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        let bundleURL = try makeMSABundle(
+            in: tempDir,
+            contents: """
+            >seq1
+            ACGTAA
+            >seq2
+            A-GTTA
+
+            """,
+            name: "mask-force-fixture"
+        )
+
+        let outputURL = tempDir.appendingPathComponent("masked-force.lungfishmsa", isDirectory: true)
+
+        // First run: create the initial output.
+        let firstCommand = try MSACommand.MaskColumnsSubcommand.parse([
+            bundleURL.path,
+            "--ranges", "2-3",
+            "--output", outputURL.path,
+            "--name", "first-run",
+            "--format", "json",
+        ])
+        try firstCommand.executeForTesting { _ in }
+        XCTAssertEqual(try MultipleSequenceAlignmentBundle.load(from: outputURL).manifest.name, "first-run")
+
+        // Refusal without --force must leave the existing output untouched.
+        let refusalCommand = try MSACommand.MaskColumnsSubcommand.parse([
+            bundleURL.path,
+            "--ranges", "6",
+            "--output", outputURL.path,
+            "--name", "should-not-apply",
+            "--format", "json",
+        ])
+        XCTAssertThrowsError(try refusalCommand.executeForTesting { _ in })
+        XCTAssertEqual(
+            try MultipleSequenceAlignmentBundle.load(from: outputURL).manifest.name,
+            "first-run",
+            "A refusal (no --force) must not modify the existing output at all"
+        )
+
+        // With --force, the new bundle replaces the old one after a
+        // successful build (never deleted up front).
+        let forceCommand = try MSACommand.MaskColumnsSubcommand.parse([
+            bundleURL.path,
+            "--ranges", "6",
+            "--output", outputURL.path,
+            "--name", "second-run",
+            "--force",
+            "--format", "json",
+        ])
+        try forceCommand.executeForTesting { _ in }
+        let replaced = try MultipleSequenceAlignmentBundle.load(from: outputURL)
+        XCTAssertEqual(replaced.manifest.name, "second-run")
+
+        // No leftover staging artifacts from the swap.
+        let siblingEntries = try FileManager.default.contentsOfDirectory(
+            at: tempDir, includingPropertiesForKeys: nil
+        ).map(\.lastPathComponent)
+        XCTAssertFalse(siblingEntries.contains { $0.contains("displaced") })
+        let tmpDir = tempDir.appendingPathComponent(".tmp")
+        if FileManager.default.fileExists(atPath: tmpDir.path) {
+            let tmpEntries = try FileManager.default.contentsOfDirectory(
+                at: tmpDir, includingPropertiesForKeys: nil
+            )
+            XCTAssertTrue(tmpEntries.isEmpty, "Build staging directory must be cleaned up after a successful --force swap")
+        }
+    }
+
     func testMaskColumnsSubcommandSupportsGapThresholdSelectorWithProvenance() throws {
         let tempDir = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
             .appendingPathComponent(".build/test-artifacts/MSACommandTests-\(UUID().uuidString)", isDirectory: true)

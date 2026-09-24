@@ -934,9 +934,11 @@ extension MSACommand {
                 if FileManager.default.fileExists(atPath: outputURL.path), force == false {
                     throw ValidationError("Output already exists: \(outputURL.path). Use --force to overwrite.")
                 }
-                if FileManager.default.fileExists(atPath: outputURL.path), force {
-                    try FileManager.default.removeItem(at: outputURL)
-                }
+                // Do NOT delete an existing output here. When --force is set,
+                // the publication snapshot below backs up the existing output
+                // before any new bytes are written, and restores it on failure
+                // (WFL-02/REC-02); deleting it up front would leave nothing to
+                // restore if writing failed partway through.
 
                 emitter.emitProgress(actionID: actionID, progress: 0.15, message: "Loading MSA bundle.")
                 let bundle = try MultipleSequenceAlignmentBundle.load(from: bundleURL)
@@ -1006,9 +1008,30 @@ extension MSACommand {
                         outputURL: outputURL
                     )
                     defer { try? FileManager.default.removeItem(at: stagingURL.deletingLastPathComponent()) }
+
+                    // `importAlignment` refuses to write into an existing
+                    // directory, so build the new bundle at a fresh sibling
+                    // path first and only replace `outputURL` after the build
+                    // succeeds — never delete the pre-existing output up
+                    // front (WFL-02/REC-02). The old bundle is moved aside
+                    // rather than deleted so a failed swap cannot lose it.
+                    let existedBeforeBuild = FileManager.default.fileExists(atPath: outputURL.path)
+                    let buildTargetURL = existedBeforeBuild
+                        ? outputURL.deletingLastPathComponent()
+                            .appendingPathComponent(".tmp", isDirectory: true)
+                            .appendingPathComponent("lungfish-msa-extract-built-\(UUID().uuidString)")
+                            .appendingPathExtension(outputURL.pathExtension)
+                        : outputURL
+                    if existedBeforeBuild {
+                        try FileManager.default.createDirectory(
+                            at: buildTargetURL.deletingLastPathComponent(),
+                            withIntermediateDirectories: true
+                        )
+                    }
+
                     _ = try MultipleSequenceAlignmentBundle.importAlignment(
                         from: stagingURL,
-                        to: outputURL,
+                        to: buildTargetURL,
                         options: .init(
                             name: name ?? outputURL.deletingPathExtension().lastPathComponent,
                             sourceFormat: .alignedFASTA,
@@ -1025,11 +1048,29 @@ extension MSACommand {
                         )
                     )
                     try addSelectionMetadataToBundleProvenance(
-                        bundleURL: outputURL,
+                        bundleURL: buildTargetURL,
                         rows: rows,
                         columns: columns,
                         outputKind: outputKind
                     )
+
+                    if existedBeforeBuild {
+                        // Atomic swap: move the old bundle aside, move the new
+                        // one into place, then discard the old one only after
+                        // the replace has succeeded.
+                        let displacedURL = buildTargetURL.deletingLastPathComponent()
+                            .appendingPathComponent("lungfish-msa-extract-displaced-\(UUID().uuidString)")
+                            .appendingPathExtension(outputURL.pathExtension)
+                        try FileManager.default.moveItem(at: outputURL, to: displacedURL)
+                        do {
+                            try FileManager.default.moveItem(at: buildTargetURL, to: outputURL)
+                        } catch {
+                            // Restore the original on failure.
+                            try? FileManager.default.moveItem(at: displacedURL, to: outputURL)
+                            throw error
+                        }
+                        try? FileManager.default.removeItem(at: displacedURL)
+                    }
                 case "reference":
                     emitter.emitProgress(actionID: actionID, progress: 0.55, message: "Writing native .lungfishref bundle.")
                     let columnRanges = try parseColumnRanges(columns, alignedLength: bundle.manifest.alignedLength)
@@ -1181,13 +1222,14 @@ extension MSACommand {
             let outputURL = URL(fileURLWithPath: outputPath).standardizedFileURL
             emitter.emitStart(actionID: actionID, message: "Starting MSA column masking.")
 
+            let existedBeforeBuild = FileManager.default.fileExists(atPath: outputURL.path)
             do {
-                if FileManager.default.fileExists(atPath: outputURL.path), force == false {
+                if existedBeforeBuild, force == false {
                     throw ValidationError("Output already exists: \(outputURL.path). Use --force to overwrite.")
                 }
-                if FileManager.default.fileExists(atPath: outputURL.path), force {
-                    try FileManager.default.removeItem(at: outputURL)
-                }
+                // Do NOT delete an existing output here (WFL-02/REC-02). With
+                // --force, the new bundle is built at a fresh sibling path
+                // below and only swapped into place once the build succeeds.
 
                 emitter.emitProgress(actionID: actionID, progress: 0.15, message: "Loading MSA bundle.")
                 let bundle = try MultipleSequenceAlignmentBundle.load(from: bundleURL)
@@ -1228,9 +1270,18 @@ extension MSACommand {
 
                 let argv = canonicalMaskColumnsArgv(bundleURL: bundleURL, outputURL: outputURL)
                 emitter.emitProgress(actionID: actionID, progress: 0.72, message: "Creating derived .lungfishmsa bundle.")
+
+                // `importAlignment` refuses to write into an existing
+                // directory, so build at a fresh sibling path first and only
+                // replace `outputURL` after the build succeeds — never
+                // delete the pre-existing output up front (WFL-02/REC-02).
+                let buildTargetURL = existedBeforeBuild
+                    ? stagingDir.appendingPathComponent("built").appendingPathExtension(outputURL.pathExtension)
+                    : outputURL
+
                 _ = try MultipleSequenceAlignmentBundle.importAlignment(
                     from: stagingAlignmentURL,
-                    to: outputURL,
+                    to: buildTargetURL,
                     options: .init(
                         name: name ?? outputURL.deletingPathExtension().lastPathComponent,
                         sourceFormat: .alignedFASTA,
@@ -1250,7 +1301,7 @@ extension MSACommand {
                     )
                 )
                 try addMaskMetadataToBundleProvenance(
-                    bundleURL: outputURL,
+                    bundleURL: buildTargetURL,
                     maskID: maskID,
                     selector: resolvedMask.selector,
                     ranges: resolvedMask.rangeDescription,
@@ -1262,6 +1313,22 @@ extension MSACommand {
                     maskedColumnCount: maskedColumnCount,
                     reason: reason
                 )
+
+                if existedBeforeBuild {
+                    // Atomic swap: move the old bundle aside, move the new
+                    // one into place, then discard the old one only after
+                    // the replace has succeeded. Restore on failure.
+                    let displacedURL = stagingDir.appendingPathComponent("displaced")
+                        .appendingPathExtension(outputURL.pathExtension)
+                    try FileManager.default.moveItem(at: outputURL, to: displacedURL)
+                    do {
+                        try FileManager.default.moveItem(at: buildTargetURL, to: outputURL)
+                    } catch {
+                        try? FileManager.default.moveItem(at: displacedURL, to: outputURL)
+                        throw error
+                    }
+                    try? FileManager.default.removeItem(at: displacedURL)
+                }
 
                 emitter.emitComplete(actionID: actionID, output: outputURL.path, warningCount: 0)
                 if globalOptions.outputFormat != .json && !globalOptions.quiet {
@@ -1550,12 +1617,13 @@ extension MSACommand {
                 if let gapThreshold, gapThreshold < 0 || gapThreshold > 1 {
                     throw ValidationError("--gap-threshold must be >= 0 and <= 1.")
                 }
-                if FileManager.default.fileExists(atPath: outputURL.path), force == false {
+                let existedBeforeBuild = FileManager.default.fileExists(atPath: outputURL.path)
+                if existedBeforeBuild, force == false {
                     throw ValidationError("Output already exists: \(outputURL.path). Use --force to overwrite.")
                 }
-                if FileManager.default.fileExists(atPath: outputURL.path), force {
-                    try FileManager.default.removeItem(at: outputURL)
-                }
+                // Do NOT delete an existing output here (WFL-02/REC-02). With
+                // --force, the new bundle is built at a fresh sibling path
+                // below and only swapped into place once the build succeeds.
 
                 emitter.emitProgress(actionID: actionID, progress: 0.15, message: "Loading MSA bundle.")
                 _ = try MultipleSequenceAlignmentBundle.load(from: bundleURL)
@@ -1602,9 +1670,18 @@ extension MSACommand {
 
                 let argv = canonicalTrimColumnsArgv(bundleURL: bundleURL, outputURL: outputURL)
                 emitter.emitProgress(actionID: actionID, progress: 0.72, message: "Creating derived .lungfishmsa bundle.")
+
+                // `importAlignment` refuses to write into an existing
+                // directory, so build at a fresh sibling path first and only
+                // replace `outputURL` after the build succeeds — never
+                // delete the pre-existing output up front (WFL-02/REC-02).
+                let buildTargetURL = existedBeforeBuild
+                    ? stagingDir.appendingPathComponent("built").appendingPathExtension(outputURL.pathExtension)
+                    : outputURL
+
                 _ = try MultipleSequenceAlignmentBundle.importAlignment(
                     from: stagingAlignmentURL,
-                    to: outputURL,
+                    to: buildTargetURL,
                     options: .init(
                         name: name ?? outputURL.deletingPathExtension().lastPathComponent,
                         sourceFormat: .alignedFASTA,
@@ -1624,12 +1701,28 @@ extension MSACommand {
                     )
                 )
                 try addTrimMetadataToBundleProvenance(
-                    bundleURL: outputURL,
+                    bundleURL: buildTargetURL,
                     mode: mode,
                     gapThreshold: gapThreshold,
                     removedColumnCount: removedSet.count,
                     retainedColumnCount: retainedColumnCount
                 )
+
+                if existedBeforeBuild {
+                    // Atomic swap: move the old bundle aside, move the new
+                    // one into place, then discard the old one only after
+                    // the replace has succeeded. Restore on failure.
+                    let displacedURL = stagingDir.appendingPathComponent("displaced")
+                        .appendingPathExtension(outputURL.pathExtension)
+                    try FileManager.default.moveItem(at: outputURL, to: displacedURL)
+                    do {
+                        try FileManager.default.moveItem(at: buildTargetURL, to: outputURL)
+                    } catch {
+                        try? FileManager.default.moveItem(at: displacedURL, to: outputURL)
+                        throw error
+                    }
+                    try? FileManager.default.removeItem(at: displacedURL)
+                }
 
                 emitter.emitComplete(actionID: actionID, output: outputURL.path, warningCount: 0)
                 if globalOptions.outputFormat != .json && !globalOptions.quiet {

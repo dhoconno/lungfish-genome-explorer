@@ -193,6 +193,52 @@ struct IVarTSVToVCFConverterTests {
         #expect(!actual.contains("\t101\t.\tG\tT\t"))
     }
 
+    @Test("SCI-02: duplicate rows for overlapping CDS (ORF1a/ORF1ab) collapse to one VCF record")
+    func deduplicatesOverlappingCDSRows() throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ivar-converter-dup-\(UUID().uuidString).vcf")
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        try IVarTSVToVCFConverter().convert(
+            tsvURL: fixtureURL("overlapping-cds-duplicate.tsv"),
+            primaryVCFURL: tmp,
+            allHaplotypesVCFURL: nil,
+            options: .init(
+                consensusAF: 0.75, mergeAFThreshold: 0.25, badQualityThreshold: 20,
+                ignoreStrandBias: true,
+                sourceLine: "iVar 1.4.4 (TSV-to-VCF: Lungfish)",
+                contigs: [.init(name: "chr1", length: 29903)]
+            )
+        )
+        let actual = try String(contentsOf: tmp, encoding: .utf8)
+        let dataLines = actual.split(separator: "\n").filter { !$0.hasPrefix("#") }
+        #expect(dataLines.count == 1)
+        #expect(actual.contains("chr1\t3030\t.\tG\tA\t"))
+    }
+
+    @Test("IVarTSVToVCFConverter.deduplicated keeps one row per (region, pos, ref, alt) and merges GFF_FEATURE")
+    func deduplicatedMergesGFFFeatures() throws {
+        let header = "REGION\tPOS\tREF\tALT\tREF_DP\tREF_RV\tREF_QUAL\tALT_DP\tALT_RV\tALT_QUAL\tALT_FREQ\tTOTAL_DP\tPVAL\tPASS\tGFF_FEATURE\tREF_CODON\tREF_AA\tALT_CODON\tALT_AA\tPOS_AA"
+        let rowA = try #require(IVarTSVRow.parse(
+            line: "chr1\t3030\tG\tA\t0\t0\t0\t1950\t935\t37\t1\t1950\t0\tTRUE\torf1ab\tGGT\tG\tAGT\tS\t922",
+            header: header
+        ))
+        let rowB = try #require(IVarTSVRow.parse(
+            line: "chr1\t3030\tG\tA\t0\t0\t0\t1950\t935\t37\t1\t1950\t0\tTRUE\torf1a\tGGT\tG\tAGT\tS\t922",
+            header: header
+        ))
+        let otherPosition = try #require(IVarTSVRow.parse(
+            line: "chr1\t4000\tC\tT\t0\t0\t0\t1950\t935\t37\t1\t1950\t0\tTRUE\tNA\tNA\tNA\tNA\tNA\tNA",
+            header: header
+        ))
+
+        let result = IVarTSVToVCFConverter.deduplicated([rowA, rowB, otherPosition])
+
+        #expect(result.count == 2)
+        #expect(result[0].pos == 3030)
+        #expect(result[0].gffFeature == "orf1ab,orf1a")
+        #expect(result[1].pos == 4000)
+    }
+
     @Test("emits LungfishNote when no GFF info present")
     func emitsLungfishNoteOnEmptyGFF() throws {
         let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("\(UUID().uuidString).vcf")

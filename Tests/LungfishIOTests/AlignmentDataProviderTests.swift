@@ -328,6 +328,109 @@ final class AlignmentDataProviderTests: XCTestCase {
         }
     }
 
+    // MARK: - PERF-04: streaming unique-read counting has no cap
+
+    func testCountUniqueReadsValidatesRegion() async {
+        let provider = AlignmentDataProvider(
+            alignmentPath: "/nonexistent.bam",
+            indexPath: "/nonexistent.bam.bai"
+        )
+
+        do {
+            _ = try await provider.countUniqueReads(chromosome: "", start: 0, end: 100)
+            XCTFail("Expected invalid region error")
+        } catch let error as AlignmentFetchError {
+            if case .invalidRegion = error {
+                // Expected
+            } else {
+                XCTFail("Expected .invalidRegion but got \(error)")
+            }
+        } catch {
+            XCTFail("Expected AlignmentFetchError but got \(type(of: error))")
+        }
+    }
+
+    func testCountUniqueReadsExceedsTheHundredThousandFetchReadsCap() async throws {
+        // PERF-04: fetchReads(maxReads: 100_000) (the prior implementation
+        // TaxTriage and EsViritu used for "Unique Reads") can never report
+        // more than 100,000. This streaming counter must report the true
+        // count on a contig with more distinct positions than that, without
+        // buffering the whole SAM stream first.
+        let tempDir = try makeTemporaryDirectory(prefix: "alignment-unique-reads-streaming")
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let uniquePositionCount = 100_050
+        let samScriptPath = tempDir.appendingPathComponent("emit.py")
+        try """
+        #!/usr/bin/env python3
+        import sys
+        for i in range(1, \(uniquePositionCount) + 1):
+            sys.stdout.write("read%d\\t0\\tchr1\\t%d\\t60\\t10M\\t*\\t0\\t0\\tACGTACGTAC\\tIIIIIIIIII\\n" % (i, i))
+        """.write(to: samScriptPath, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: samScriptPath.path)
+
+        let script = try makeFakeSamtools(in: tempDir, script: """
+        #!/bin/sh
+        /usr/bin/env python3 "\(samScriptPath.path)"
+        """)
+
+        let provider = AlignmentDataProvider(
+            alignmentPath: "/tmp/fake.bam",
+            indexPath: "/tmp/fake.bam.bai",
+            samtoolsPath: script.path
+        )
+
+        let uniqueCount = try await provider.countUniqueReads(chromosome: "chr1", start: 0, end: uniquePositionCount + 10)
+        XCTAssertEqual(uniqueCount, uniquePositionCount)
+    }
+
+    func testCountUniqueReadsDeduplicatesSamePositionEndStrand() async throws {
+        let tempDir = try makeTemporaryDirectory(prefix: "alignment-unique-reads-dedup")
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let script = try makeFakeSamtools(in: tempDir, script: """
+        #!/bin/sh
+        printf 'r1\\t0\\tchr1\\t100\\t60\\t50M\\t*\\t0\\t0\\tACGT\\tIIII\\n'
+        printf 'r2\\t0\\tchr1\\t100\\t60\\t50M\\t*\\t0\\t0\\tACGT\\tIIII\\n'
+        printf 'r3\\t0\\tchr1\\t200\\t60\\t50M\\t*\\t0\\t0\\tACGT\\tIIII\\n'
+        """)
+
+        let provider = AlignmentDataProvider(
+            alignmentPath: "/tmp/fake.bam",
+            indexPath: "/tmp/fake.bam.bai",
+            samtoolsPath: script.path
+        )
+
+        let uniqueCount = try await provider.countUniqueReads(chromosome: "chr1", start: 0, end: 1000)
+        XCTAssertEqual(uniqueCount, 2)
+    }
+
+    func testCountUniqueReadsPropagatesSamtoolsFailure() async throws {
+        let tempDir = try makeTemporaryDirectory(prefix: "alignment-unique-reads-failure")
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let script = try makeFakeSamtools(in: tempDir, script: """
+        #!/bin/sh
+        echo "boom" >&2
+        exit 3
+        """)
+
+        let provider = AlignmentDataProvider(
+            alignmentPath: "/tmp/fake.bam",
+            indexPath: "/tmp/fake.bam.bai",
+            samtoolsPath: script.path
+        )
+
+        do {
+            _ = try await provider.countUniqueReads(chromosome: "chr1", start: 0, end: 1000)
+            XCTFail("Expected samtools failure")
+        } catch AlignmentFetchError.samtoolsFailed(let message) {
+            XCTAssertTrue(message.contains("boom"))
+        } catch {
+            XCTFail("Expected AlignmentFetchError.samtoolsFailed, got \(error)")
+        }
+    }
+
     // MARK: - AlignmentFetchError
 
     func testAlignmentFetchErrorSamtoolsNotFoundDescription() {

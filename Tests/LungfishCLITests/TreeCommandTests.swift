@@ -99,7 +99,16 @@ final class TreeCommandTests: XCTestCase {
         XCTAssertFalse(provenance.contains("\\/.tmp\\/"))
 
         XCTAssertTrue(recorder.joined().contains(#""event":"treeInferenceComplete""#))
-        XCTAssertFalse(FileManager.default.fileExists(atPath: projectURL.appendingPathComponent(".tmp").path))
+        // WFL-02: `.tmp` is the shared project-wide scratch root used by
+        // other concurrent operations (SRA downloads, MAFFT materialization,
+        // etc). Only this run's own staging subdirectory may be removed —
+        // the shared root itself must survive.
+        XCTAssertTrue(FileManager.default.fileExists(atPath: projectURL.appendingPathComponent(".tmp").path))
+        let remainingStagingDirs = try FileManager.default.contentsOfDirectory(
+            at: projectURL.appendingPathComponent(".tmp"),
+            includingPropertiesForKeys: nil
+        )
+        XCTAssertTrue(remainingStagingDirs.isEmpty, "This run's own staging directory must be cleaned up")
     }
 
     func testInferIQTreeFailureCapturesStderrAndRemovesOutputBundle() async throws {
@@ -144,7 +153,16 @@ final class TreeCommandTests: XCTestCase {
         }
 
         XCTAssertFalse(FileManager.default.fileExists(atPath: outputURL.path))
-        XCTAssertFalse(FileManager.default.fileExists(atPath: projectURL.appendingPathComponent(".tmp").path))
+        // WFL-02: a failure must never delete the shared `.tmp` root (other
+        // concurrent operations may be using it) — only this run's own
+        // staging subdirectory is removed.
+        if FileManager.default.fileExists(atPath: projectURL.appendingPathComponent(".tmp").path) {
+            let remainingStagingDirs = try FileManager.default.contentsOfDirectory(
+                at: projectURL.appendingPathComponent(".tmp"),
+                includingPropertiesForKeys: nil
+            )
+            XCTAssertTrue(remainingStagingDirs.isEmpty, "This run's own staging directory must be cleaned up even on failure")
+        }
         XCTAssertTrue(recorder.joined().contains(#""event":"treeInferenceFailed""#))
         XCTAssertTrue(recorder.joined().contains("simulated IQ-TREE failure"))
     }

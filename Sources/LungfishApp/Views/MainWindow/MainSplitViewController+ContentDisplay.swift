@@ -588,8 +588,13 @@ extension MainSplitViewController {
             mainSplitLogger.error(
                 "displayTwelveSAmpliconResultBundle: Failed to load '\(url.lastPathComponent, privacy: .public)': \(error.localizedDescription, privacy: .public)"
             )
+            recordUITestEvent("twelveS.display.failed \(url.lastPathComponent) error=\(error.localizedDescription)")
             inspectorController.clearSelection()
-            viewerController.showNoSequenceSelected()
+            // Surface the failure the same way Assembly and Mapping do (UX-09):
+            // a status-bar message naming the failure, not the generic "No
+            // sequence selected" empty state, which read as if nothing had
+            // been clicked at all.
+            viewerController.clearViewport(statusMessage: "Unable to load 12S result.")
         }
     }
 

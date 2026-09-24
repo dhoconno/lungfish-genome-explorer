@@ -273,7 +273,9 @@ final class CLIImportRunnerTests: XCTestCase {
         XCTAssertTrue(args.contains("--quality-binning"))
         XCTAssertTrue(args.contains("--format"))
         XCTAssertTrue(args.contains("json"))
-        XCTAssertTrue(args.contains("--force"))
+        // FEA-02: --force must never be passed unless the caller explicitly
+        // opts in (i.e. the user chose Replace in the duplicate dialog).
+        XCTAssertFalse(args.contains("--force"))
         XCTAssertTrue(args.contains("--compression"))
         XCTAssertTrue(args.contains("balanced"))
         XCTAssertTrue(args.contains("illumina4"))
@@ -301,9 +303,58 @@ final class CLIImportRunnerTests: XCTestCase {
         XCTAssertTrue(args.contains("none"))
         XCTAssertTrue(args.contains("--format"))
         XCTAssertTrue(args.contains("json"))
-        XCTAssertTrue(args.contains("--force"))
+        // FEA-02: --force must never be passed unless the caller explicitly
+        // opts in (i.e. the user chose Replace in the duplicate dialog).
+        XCTAssertFalse(args.contains("--force"))
         XCTAssertTrue(args.contains("--compression"))
         XCTAssertTrue(args.contains("fast"))
+    }
+
+    /// FEA-02 regression: --force is appended only when the caller passes
+    /// `force: true` (i.e. after the user explicitly chose Replace).
+    func testBuildCLIArgumentsPassesForceOnlyWhenExplicitlyRequested() {
+        let base: (URL, URL?, URL, String, String?, String, Bool, String) = (
+            URL(fileURLWithPath: "/data/reads.fastq.gz"), nil,
+            URL(fileURLWithPath: "/project"), "illumina", nil,
+            "illumina4", true, "balanced"
+        )
+
+        let withoutForce = CLIImportRunner.buildCLIArguments(
+            r1: base.0, r2: base.1, projectDirectory: base.2,
+            platform: base.3, recipeName: base.4, qualityBinning: base.5,
+            optimizeStorage: base.6, compressionLevel: base.7
+        )
+        XCTAssertFalse(withoutForce.contains("--force"))
+
+        let withForce = CLIImportRunner.buildCLIArguments(
+            r1: base.0, r2: base.1, projectDirectory: base.2,
+            platform: base.3, recipeName: base.4, qualityBinning: base.5,
+            optimizeStorage: base.6, compressionLevel: base.7,
+            force: true
+        )
+        XCTAssertTrue(withForce.contains("--force"))
+    }
+
+    /// FEA-02 regression: an explicit bundle name reaches the CLI as `--name`,
+    /// so Keep Both and sample-sheet names are not silently dropped.
+    func testBuildCLIArgumentsForwardsBundleNameAsNameOption() {
+        let args = CLIImportRunner.buildCLIArguments(
+            r1: URL(fileURLWithPath: "/data/reads.fastq.gz"),
+            r2: nil,
+            projectDirectory: URL(fileURLWithPath: "/project"),
+            platform: "illumina",
+            recipeName: nil,
+            qualityBinning: "illumina4",
+            optimizeStorage: true,
+            compressionLevel: "balanced",
+            bundleName: "Sample1 2"
+        )
+
+        let nameIndex = args.firstIndex(of: "--name")
+        XCTAssertNotNil(nameIndex)
+        if let nameIndex {
+            XCTAssertEqual(args[nameIndex + 1], "Sample1 2")
+        }
     }
 
     func testBuildCLIArgumentsIncludesExplicitClumpingTool() {
@@ -407,9 +458,12 @@ final class CLIImportRunnerTests: XCTestCase {
             importConfig: config
         )
 
+        // FEA-02: --force is no longer appended unconditionally — it is only
+        // passed after the user explicitly chooses Replace in the duplicate
+        // dialog. This preview reflects the default (no --force) command.
         XCTAssertEqual(
             command,
-            "lungfish-cli import fastq /Volumes/iWES_WNPRC/ww_test/WI_Madison_MMSD_20260414_S7_R1.fastq.gz /Volumes/iWES_WNPRC/ww_test/WI_Madison_MMSD_20260414_S7_R2.fastq.gz --project /Volumes/iWES_WNPRC/ww_test/ww.lungfish --platform illumina --format json --quality-binning illumina4 --compression balanced --force --recipe wastewater-metagenomics"
+            "lungfish-cli import fastq /Volumes/iWES_WNPRC/ww_test/WI_Madison_MMSD_20260414_S7_R1.fastq.gz /Volumes/iWES_WNPRC/ww_test/WI_Madison_MMSD_20260414_S7_R2.fastq.gz --project /Volumes/iWES_WNPRC/ww_test/ww.lungfish --platform illumina --format json --quality-binning illumina4 --compression balanced --recipe wastewater-metagenomics"
         )
     }
 

@@ -16,11 +16,19 @@ private let logger = Logger(subsystem: LogSubsystem.workflow, category: "FASTQIn
 /// Binning reduces the alphabet of quality characters, improving gzip compression.
 /// All schemes preserve enough resolution for variant calling and QC.
 public enum QualityBinningScheme: String, Sendable, CaseIterable, Codable {
-    /// Illumina NovaSeq/NovaSeqX native binning (4 levels).
+    /// Named after Illumina's NovaSeq/NovaSeqX binning scheme, but the actual
+    /// `clumpify.sh quantize=0,8,13,22,27,32,37` boundaries used below produce
+    /// 7 distinct quality levels, not 4 (SCI-08). The raw value is kept as
+    /// "illumina4" for backward compatibility with persisted provenance and
+    /// CLI invocations; do not rename the case without a decode migration.
     case illumina4
-    /// 8-level binning — good balance of compression and resolution.
+    /// `clumpify.sh quantize=2` groups quality scores in steps of 2, which on
+    /// a typical 0-40 Phred range yields roughly 21 levels, not 8 (SCI-08).
+    /// The raw value is kept as "eightLevel" for backward compatibility.
     case eightLevel
-    /// No binning — preserve original quality scores.
+    /// No binning — preserve original quality scores exactly. This is the
+    /// default everywhere as of D1 (2026-09-23): binning is opt-in only, at
+    /// import time, never applied silently to downloads or derived outputs.
     case none
 }
 
@@ -70,7 +78,11 @@ public struct FASTQIngestionConfig: Sendable {
         outputDirectory: URL,
         threads: Int = 4,
         deleteOriginals: Bool = true,
-        qualityBinning: QualityBinningScheme = .illumina4,
+        // D1 (2026-09-23): quality binning is off by default everywhere.
+        // It is opt-in at import only, named correctly and recorded in
+        // provenance; it must never be applied silently to downloads or
+        // derived operation outputs (WFL-01, SCI-08).
+        qualityBinning: QualityBinningScheme = .none,
         skipClumpify: Bool = false,
         compressionLevel: CompressionLevel = .balanced,
         clumpingTool: ClumpingTool = .default

@@ -933,7 +933,11 @@ extension AppDelegate {
                     result = try await pipeline.profile(config: resolvedConfig, progress: progressCallback)
                 }
 
-                try FileManager.default.removeItem(at: materializeTempDir)
+                // WFL-19: this cleanup is also covered by the `defer` set up
+                // when `materializeTempDir` was created. A failure here (e.g.
+                // the directory already gone) must not turn an otherwise
+                // successful classification run into a failure.
+                try? FileManager.default.removeItem(at: materializeTempDir)
                 let capturedConfig = config
                 let outcomeMetadata = ClassificationBatchOutcomePolicy.singleResultMetadata(for: result)
                 DispatchQueue.main.async {
@@ -1246,7 +1250,9 @@ extension AppDelegate {
                     command: esCliArgv
                 )
 
-                try FileManager.default.removeItem(at: materializeTempDir)
+                // WFL-19: covered by the `defer` from creation; do not fail
+                // an otherwise-successful run over a cleanup error.
+                try? FileManager.default.removeItem(at: materializeTempDir)
                 let capturedResult = ioResult
                 let capturedConfig = config
                 let capturedDBBuildError = dbBuildErrorDescription
@@ -2267,7 +2273,9 @@ extension AppDelegate {
                     resultDirectory: result.outputDirectory
                 )
 
-                try FileManager.default.removeItem(at: materializeTempDir)
+                // WFL-19: covered by the `defer` from creation; do not fail
+                // an otherwise-successful run over a cleanup error.
+                try? FileManager.default.removeItem(at: materializeTempDir)
                 let capturedResult = result
                 let capturedConfig = config
                 let capturedDBBuildError = dbBuildErrorDescription

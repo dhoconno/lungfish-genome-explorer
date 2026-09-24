@@ -139,6 +139,18 @@ public final class GenotypeResultViewController: NSViewController {
     typealias Lens = GenotypeResultViewportLens
     typealias GenotypeResultLoader = @Sendable (URL) async throws -> ONTGenotypeResultBundleData
 
+    /// D5 (2026-09-23 best-practices audit, WFL-14): the owner disabled AI
+    /// haplotyping because it was unreliable, with no key check, consent
+    /// step or species-aware defaults. The section (and both its buttons)
+    /// is removed from the main viewport entirely rather than merely
+    /// disabled, since a visible-but-disabled control still implies the
+    /// feature is close to usable. The execution service, the CLI
+    /// subcommand (`lungfish genotype ai-haplotyping`, a deliberate
+    /// power-user path outside this viewport) and the underlying types are
+    /// all kept — only this GUI entry point is gated. Flip to `true` to
+    /// restore it once key check, consent and species-aware defaults land.
+    static let aiHaplotypingUIEnabled = false
+
     private enum DeferredMatrixAnnotationMutation {
         case style(
             request: GenotypeMatrixStyleRequest,
@@ -5467,7 +5479,9 @@ public final class GenotypeResultViewController: NSViewController {
         if let entries = annotationStore?.sidecar.auditLog, !entries.isEmpty {
             addAuditSection(title: "Audit Timeline", contents: [makeAuditTimelineHost(entries: entries)])
         }
-        addAuditSection(title: "AI Haplotyping", contents: [makeAIHaplotypingHost()])
+        if Self.aiHaplotypingUIEnabled {
+            addAuditSection(title: "AI Haplotyping", contents: [makeAIHaplotypingHost()])
+        }
         var artifactRows: [NSView] = [
             artifactRow(label: "Workbook", url: result.artifacts.workbookURL),
         ]
@@ -5610,6 +5624,10 @@ public final class GenotypeResultViewController: NSViewController {
     }
 
     private func requestAIHaplotyping(mode: GenotypeAIHaplotypingUIMode) {
+        // D5: defense-in-depth. The buttons that call this are not built
+        // while the section is disabled, but this guard keeps the path
+        // unreachable even if something else were to invoke it directly.
+        guard Self.aiHaplotypingUIEnabled else { return }
         guard let result else { return }
         guard let onAIHaplotypingRequested else {
             aiHaplotypingStatus = "AI haplotyping is not available in this app context."
@@ -11744,6 +11762,10 @@ extension GenotypeResultViewController {
 
     var testingResultTotalInputReads: Int? {
         result?.stats.totalInputReads
+    }
+
+    var testingArtifactLensText: String {
+        textContent(in: artifactStack).joined(separator: "\n")
     }
 
     func testingArtifactLabelLayout(label: String) -> (renderedWidth: CGFloat, intrinsicWidth: CGFloat)? {

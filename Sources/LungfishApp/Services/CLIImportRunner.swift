@@ -120,7 +120,9 @@ public actor CLIImportRunner {
         qualityBinning: String,
         optimizeStorage: Bool,
         clumpingTool: ClumpingTool = .default,
-        compressionLevel: String
+        compressionLevel: String,
+        bundleName: String? = nil,
+        force: Bool = false
     ) -> [String] {
         var args = ["import", "fastq", r1.path]
 
@@ -133,7 +135,16 @@ public actor CLIImportRunner {
         args += ["--format", "json"]
         args += ["--quality-binning", qualityBinning]
         args += ["--compression", compressionLevel]
-        args.append("--force")
+        // `--force` is only passed after the user has explicitly chosen
+        // Replace in the duplicate-file dialog (see FEA-02). Passing it
+        // unconditionally caused same-named imports to silently overwrite
+        // an existing bundle and its derivatives.
+        if force {
+            args.append("--force")
+        }
+        if let bundleName, !bundleName.isEmpty {
+            args += ["--name", bundleName]
+        }
 
         if let recipeName {
             args += ["--recipe", recipeName]

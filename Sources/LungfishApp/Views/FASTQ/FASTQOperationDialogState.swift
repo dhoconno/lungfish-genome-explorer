@@ -78,6 +78,12 @@ final class FASTQOperationDialogState {
     var filterByReadLengthMin: Int?
     var filterByReadLengthMax: Int?
 
+    /// WFL-07: the managed database used by "Remove Human Reads", chosen
+    /// from `DatabaseRegistry`'s managed ids (not a file the user picks —
+    /// `scrub-human` only ever resolves a registry id, so a chosen path was
+    /// silently discarded). Defaults to the panhuman Deacon index.
+    var removeHumanReadsDatabaseID: String = DeaconPanhumanDatabaseInstaller.databaseID
+
     var removeContaminantsMode: FASTQContaminantFilterMode
     var removeContaminantsKmerSize: Int
     var removeContaminantsHammingDistance: Int
@@ -592,10 +598,12 @@ final class FASTQOperationDialogState {
             )
 
         case .removeHumanReads:
+            // WFL-07: `removeHumanReadsDatabaseID` is the actual chosen
+            // database (a registry id), not a derived file-stem guess that
+            // discarded whatever the user had picked.
             return .derivative(
                 request: .humanReadScrub(
-                    databaseID: auxiliaryInputURL(for: .database)?.deletingPathExtension().lastPathComponent
-                        ?? DeaconPanhumanDatabaseInstaller.databaseID,
+                    databaseID: removeHumanReadsDatabaseID,
                     removeReads: true
                 ),
                 inputURLs: selectedInputURLs,
@@ -2089,7 +2097,17 @@ enum FASTQOperationToolID: String, CaseIterable, Sendable {
             return [.fastqDataset]
         case .primerTrimming:
             return [.fastqDataset, .primerSource]
-        case .removeHumanReads, .kraken2, .esViritu, .taxTriage:
+        case .removeHumanReads:
+            // WFL-07: `.database` is a generic file chooser that only
+            // accepts directories/extensionless files/db/k2d/sqlite/json,
+            // so the managed Deacon `.idx` index could never be selected
+            // through it, and whatever was picked was discarded anyway
+            // (the request only reads the file's stem as a registry id).
+            // Human-read scrubbing always targets a managed database
+            // resolved by id (see `removeHumanReadsDatabaseID`), so it is
+            // not a required auxiliary input.
+            return [.fastqDataset]
+        case .kraken2, .esViritu, .taxTriage:
             return [.fastqDataset, .database]
         case .removeContaminants:
             return [.fastqDataset, .contaminantReference]

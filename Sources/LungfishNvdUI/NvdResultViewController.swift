@@ -137,6 +137,10 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
     /// Currently selected sample IDs for filtering.
     private var selectedSamples: Set<String> = []
 
+    /// Export-failure presentation seam (UX-02). Tests inject a spy to assert
+    /// a failure was surfaced without driving real `NSAlert` UI.
+    var exportFailurePresenter: ExportFailurePresenting = DefaultExportFailurePresenter()
+
     // MARK: - Displayed Data
 
     /// Best hits (hit_rank=1) for currently selected samples.
@@ -2181,6 +2185,12 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
                 logger.info("Exported NVD contigs to \(url.lastPathComponent, privacy: .public)")
             } catch {
                 logger.error("Failed to export NVD contigs: \(error.localizedDescription, privacy: .public)")
+                ResultExportCoordinator.reportFailure(
+                    fileName: url.lastPathComponent,
+                    error: error,
+                    window: window,
+                    presenter: self.exportFailurePresenter
+                )
             }
         }
     }

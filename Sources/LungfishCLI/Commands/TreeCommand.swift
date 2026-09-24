@@ -442,23 +442,32 @@ struct TreeCommand: AsyncParsableCommand {
             let outputURL = URL(fileURLWithPath: outputPath).standardizedFileURL
             emitter.emitStart(message: "Starting IQ-TREE inference.")
 
+            // `.tmp` is the shared project-wide scratch root (ProjectTempDirectory,
+            // SRA downloads, classification/MAFFT materialization). Only this
+            // invocation's own staging subdirectory may ever be removed —
+            // deleting `.tmp` itself can destroy an unrelated operation's
+            // in-flight working files (WFL-02).
             let tempRoot = projectURL.appendingPathComponent(".tmp", isDirectory: true)
             let stagingURL = tempRoot.appendingPathComponent("lungfish-tree-iqtree-\(UUID().uuidString)", isDirectory: true)
+            // Refuse-without-force must delete nothing. Only an output bundle
+            // this invocation itself created below may be cleaned up on failure.
+            var createdOutputInThisRun = false
             do {
                 guard FileManager.default.fileExists(atPath: msaBundleURL.path) else {
                     throw ValidationError("Input MSA bundle not found: \(msaBundleURL.path)")
                 }
-                if FileManager.default.fileExists(atPath: outputURL.path), force == false {
+                let outputExisted = FileManager.default.fileExists(atPath: outputURL.path)
+                if outputExisted, force == false {
                     throw ValidationError("Output tree bundle already exists: \(outputURL.path). Use --force to overwrite.")
                 }
-                if FileManager.default.fileExists(atPath: outputURL.path), force {
+                if outputExisted, force {
                     try FileManager.default.removeItem(at: outputURL)
                 }
+                createdOutputInThisRun = true
                 try FileManager.default.createDirectory(at: outputURL.deletingLastPathComponent(), withIntermediateDirectories: true)
                 try FileManager.default.createDirectory(at: stagingURL, withIntermediateDirectories: true)
                 defer {
                     try? FileManager.default.removeItem(at: stagingURL)
-                    try? FileManager.default.removeItem(at: tempRoot)
                 }
 
                 emitter.emitProgress(0.12, message: "Preparing aligned FASTA input.")
@@ -595,9 +604,14 @@ struct TreeCommand: AsyncParsableCommand {
                 }
             } catch {
                 emitter.emitFailed(treeCommandErrorDescription(error))
-                try? FileManager.default.removeItem(at: outputURL)
+                // Only remove the output if THIS invocation created it (fresh
+                // or via --force). A plain refusal (exists, no --force) must
+                // leave the existing output untouched (WFL-02). Never remove
+                // the shared `.tmp` root — only this run's own staging dir.
+                if createdOutputInThisRun {
+                    try? FileManager.default.removeItem(at: outputURL)
+                }
                 try? FileManager.default.removeItem(at: stagingURL)
-                try? FileManager.default.removeItem(at: tempRoot)
                 throw error
             }
         }
@@ -963,10 +977,56 @@ private func runProcess(
     let stderrPipe = Pipe()
     process.standardOutput = stdoutPipe
     process.standardError = stderrPipe
+
+    // Drain both pipes concurrently on background threads *before* waiting
+    // for exit. IQ-TREE (e.g. with `-m MFP`) can write more to stdout/stderr
+    // than the pipe buffer holds; reading only after `waitUntilExit()` can
+    // deadlock forever once the child blocks on a full pipe (WFL-02).
+    final class PipeCollector: @unchecked Sendable {
+        private let lock = NSLock()
+        private var data = Data()
+        func append(_ chunk: Data) {
+            lock.lock()
+            data.append(chunk)
+            lock.unlock()
+        }
+        func collected() -> Data {
+            lock.lock()
+            defer { lock.unlock() }
+            return data
+        }
+    }
+    let stdoutCollector = PipeCollector()
+    let stderrCollector = PipeCollector()
+    let drainGroup = DispatchGroup()
+
+    drainGroup.enter()
+    DispatchQueue.global(qos: .utility).async {
+        let handle = stdoutPipe.fileHandleForReading
+        while true {
+            let chunk = handle.availableData
+            if chunk.isEmpty { break }
+            stdoutCollector.append(chunk)
+        }
+        drainGroup.leave()
+    }
+    drainGroup.enter()
+    DispatchQueue.global(qos: .utility).async {
+        let handle = stderrPipe.fileHandleForReading
+        while true {
+            let chunk = handle.availableData
+            if chunk.isEmpty { break }
+            stderrCollector.append(chunk)
+        }
+        drainGroup.leave()
+    }
+
     try process.run()
     process.waitUntilExit()
-    let stdout = String(data: stdoutPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-    let stderr = String(data: stderrPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+    drainGroup.wait()
+
+    let stdout = String(data: stdoutCollector.collected(), encoding: .utf8) ?? ""
+    let stderr = String(data: stderrCollector.collected(), encoding: .utf8) ?? ""
     return TreeProcessResult(
         exitStatus: process.terminationStatus,
         stdout: stdout,

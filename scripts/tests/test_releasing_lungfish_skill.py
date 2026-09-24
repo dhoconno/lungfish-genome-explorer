@@ -86,8 +86,6 @@ fi
             "agents/definitions/codex/release-agent.md",
             "docs/release/sparkle-updates.md",
             "docs/release/NEXT-RELEASE-HANDOFF.md",
-            "docs/superpowers/specs/2026-08-29-release-process-hardening-design.md",
-            "docs/superpowers/plans/2026-08-29-release-process-hardening.md",
             "SKILLS.md",
             "README.md",
         )

@@ -86,9 +86,9 @@ extension ImportCommand {
 
         @Option(
             name: .customLong("quality-binning"),
-            help: "Quality binning: illumina4, eightLevel, none (default: illumina4)"
+            help: "Quality binning: illumina4, eightLevel, none (default: none). Binning is lossy and irreversible once originals are removed — opt in explicitly."
         )
-        var qualityBinning: String = "illumina4"
+        var qualityBinning: String = "none"
 
         @Option(
             name: .customLong("log-dir"),
@@ -131,6 +131,12 @@ extension ImportCommand {
             help: "Reimport samples even if bundle already exists"
         )
         var force: Bool = false
+
+        @Option(
+            name: .customLong("name"),
+            help: "Override the output bundle name. Only valid when exactly one sample is detected."
+        )
+        var name: String?
 
         @Flag(
             name: .customLong("recursive"),
@@ -210,12 +216,35 @@ extension ImportCommand {
                 pairs = FASTQBatchImporter.detectPairs(from: fileURLs)
             }
 
+            // MARK: Apply --name override
+
+            let effectivePairs: [SamplePair]
+            if let name {
+                guard pairs.count == 1 else {
+                    print(formatter.error("--name requires exactly one detected sample (found \(pairs.count))."))
+                    throw CLIExitCode.inputError.exitCode
+                }
+                let original = pairs[0]
+                effectivePairs = [
+                    SamplePair(
+                        sampleName: name,
+                        r1: original.r1,
+                        r2: original.r2,
+                        relativePath: original.relativePath,
+                        metadata: original.metadata,
+                        sampleSheetURL: original.sampleSheetURL
+                    )
+                ]
+            } else {
+                effectivePairs = pairs
+            }
+
             // MARK: Print detected pairs
 
             print(formatter.header("FASTQ Import"))
             print("")
-            print(formatter.info("Detected \(pairs.count) sample(s):"))
-            for (i, pair) in pairs.enumerated() {
+            print(formatter.info("Detected \(effectivePairs.count) sample(s):"))
+            for (i, pair) in effectivePairs.enumerated() {
                 let index = String(format: "%3d", i + 1)
                 if let r2 = pair.r2 {
                     print("  \(index). \(pair.sampleName)  [paired]")
@@ -250,7 +279,7 @@ extension ImportCommand {
                 do {
                     // Auto-detect from the first FASTQ header; unknown headers still
                     // fall back to Illumina, but managed decompression failures are fatal.
-                    resolvedPlatform = try Self.detectPlatformFromPairs(pairs) ?? .illumina
+                    resolvedPlatform = try Self.detectPlatformFromPairs(effectivePairs) ?? .illumina
                 } catch let error as PlatformDetectionError {
                     print(formatter.error(error.localizedDescription))
                     switch error {
@@ -357,7 +386,7 @@ extension ImportCommand {
 
             let isJSON = globalOptions.outputFormat == .json
             let result = await FASTQBatchImporter.runBatchImport(
-                pairs: pairs,
+                pairs: effectivePairs,
                 config: config,
                 log: { event in
                     if isJSON || !globalOptions.quiet {

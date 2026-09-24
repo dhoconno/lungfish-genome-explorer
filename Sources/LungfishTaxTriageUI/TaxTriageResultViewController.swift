@@ -177,6 +177,10 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
     /// Persistence used by this controller for layout reads; set before loading its view.
     var layoutDefaults: UserDefaults = .standard
 
+    /// Export-failure presentation seam (UX-02). Tests inject a spy to assert
+    /// a failure was surfaced without driving real `NSAlert` UI.
+    var exportFailurePresenter: ExportFailurePresenting = DefaultExportFailurePresenter()
+
     // MARK: - Data
 
     /// The SQLite database backing this view (when opened from a pre-built DB).
@@ -251,6 +255,16 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
 
     /// Background task computing deduplicated read counts per organism row.
     private var deduplicatedReadCountTask: Task<Void, Never>?
+
+    /// Filename for the batch-level unique-reads cache under `<batchDir>`.
+    ///
+    /// PERF-04: versioned `v2` because `v1` values were computed from
+    /// `AlignmentDataProvider.fetchReads(maxReads: 100_000)`, which capped
+    /// any contig with more than 100,000 mapped reads at that ceiling. The
+    /// `v2` counter streams the whole contig with no cap via
+    /// `countUniqueReads`, so a `v1` cache's values must be recomputed
+    /// rather than trusted.
+    private static let batchUniqueReadsCacheFilename = "batch-unique-reads.v2.json"
 
     /// Background task paging SQLite-backed TaxTriage rows into the viewport.
     private var databaseRowLoadTask: Task<Void, Never>?
@@ -1834,10 +1848,6 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         return Double(intersection) / Double(denominator)
     }
 
-    private static func deduplicatedReadCount(from reads: [AlignedRead]) -> Int {
-        AlignedRead.deduplicatedReadCount(from: reads)
-    }
-
     private func scheduleDeduplicatedReadCountComputation(for rows: [TaxTriageTableRow]) {
         deduplicatedReadCountTask?.cancel()
         guard let bamURL, let bamIndexURL else { return }
@@ -1878,14 +1888,20 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
                     guard let contigLength = self.accessionLengths[accession] else { continue }
 
                     do {
-                        let fetchedReads = try await provider.fetchReads(
+                        // PERF-04: stream the whole contig through the
+                        // uncapped counter rather than fetchReads(maxReads:)
+                        // + deduplicatedReadCount(from:), which silently
+                        // undercounted any contig with more than 100,000
+                        // mapped reads and buffered up to 500 MB of SAM text
+                        // per contig to do it.
+                        let uniqueCount = try await provider.countUniqueReads(
                             chromosome: accession,
                             start: 0,
                             end: contigLength
                         )
-                        if fetchedReads.isEmpty { continue }
+                        guard uniqueCount > 0 else { continue }
                         fetchedAny = true
-                        totalUnique += Self.deduplicatedReadCount(from: fetchedReads)
+                        totalUnique += uniqueCount
                     } catch {
                         logger.debug("Failed dedup count for \(row.organism, privacy: .public) (\(accession, privacy: .public)): \(error.localizedDescription, privacy: .public)")
                     }
@@ -2023,14 +2039,17 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
                         guard let contigLength = localLengths[accession] else { continue }
 
                         do {
-                            let fetchedReads = try await provider.fetchReads(
+                            // PERF-04: uncapped streaming count (see the
+                            // single-sample path above for the full
+                            // rationale).
+                            let uniqueCount = try await provider.countUniqueReads(
                                 chromosome: accession,
                                 start: 0,
                                 end: contigLength
                             )
-                            if fetchedReads.isEmpty { continue }
+                            guard uniqueCount > 0 else { continue }
                             fetchedAny = true
-                            totalUnique += Self.deduplicatedReadCount(from: fetchedReads)
+                            totalUnique += uniqueCount
                         } catch {
                             logger.debug("Batch dedup: failed for \(normalizedOrganism, privacy: .public) (\(accession, privacy: .public)) in \(sampleId, privacy: .public): \(error.localizedDescription, privacy: .public)")
                         }
@@ -2051,7 +2070,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
 
                 // Also write the batch-level cache so the flat table loads instantly next time.
                 if let batchURL = self.batchGroupURL {
-                    let cacheURL = batchURL.appendingPathComponent("batch-unique-reads.json")
+                    let cacheURL = batchURL.appendingPathComponent(Self.batchUniqueReadsCacheFilename)
                     self.persistBatchUniqueReadsCache(to: cacheURL)
                 }
 
@@ -3317,7 +3336,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         // 3. Delete on-disk caches.
         if let batchURL = batchGroupURL {
             // Delete batch-level cache.
-            let cacheURL = batchURL.appendingPathComponent("batch-unique-reads.json")
+            let cacheURL = batchURL.appendingPathComponent(Self.batchUniqueReadsCacheFilename)
             try? FileManager.default.removeItem(at: cacheURL)
             // Delete the materialized batch manifest so next open re-parses fresh.
             let manifestURL = batchURL.appendingPathComponent(TaxTriageBatchManifest.filename)
@@ -3732,6 +3751,12 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
                 try self.writeBatchMatrixCSV(to: url)
             } catch {
                 logger.error("Failed to export TaxTriage organism matrix: \(error.localizedDescription, privacy: .public)")
+                ResultExportCoordinator.reportFailure(
+                    fileName: url.lastPathComponent,
+                    error: error,
+                    window: window,
+                    presenter: self.exportFailurePresenter
+                )
             }
         }
     }
@@ -3790,6 +3815,12 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
                 try self.writeBatchReport(to: url, result: result, config: config)
             } catch {
                 logger.error("Failed to export TaxTriage batch report: \(error.localizedDescription, privacy: .public)")
+                ResultExportCoordinator.reportFailure(
+                    fileName: url.lastPathComponent,
+                    error: error,
+                    window: window,
+                    presenter: self.exportFailurePresenter
+                )
             }
         }
     }
@@ -3858,6 +3889,12 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
                 logger.info("Exported \(fileTypeName, privacy: .public) to \(url.lastPathComponent, privacy: .public)")
             } catch {
                 logger.error("Export failed: \(error.localizedDescription, privacy: .public)")
+                ResultExportCoordinator.reportFailure(
+                    fileName: url.lastPathComponent,
+                    error: error,
+                    window: window,
+                    presenter: self.exportFailurePresenter
+                )
             }
         }
     }

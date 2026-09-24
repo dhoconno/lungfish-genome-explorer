@@ -648,10 +648,42 @@ extension BundleManifest {
             browserSummary: .some(nil))
     }
 
+    /// Returns a new manifest with every variant track removed. All other
+    /// fields (alignments, warnings, browserSummary, originBundlePath,
+    /// recordStore, metadata, etc.) round-trip unchanged via `copy`.
+    public func removingAllVariantTracks() -> BundleManifest {
+        // Mutators reset the cached browser summary and bump the modified date.
+        copy(modifiedDate: Date(), variants: [], browserSummary: .some(nil))
+    }
+
     /// Returns a new manifest with the variant count updated for a specific track.
     public func updatingVariantCount(trackId: String, newCount: Int) -> BundleManifest {
         let updatedVariants = variants.map { track -> VariantTrackInfo in
             guard track.id == trackId else { return track }
+            return VariantTrackInfo(
+                id: track.id,
+                name: track.name,
+                description: track.description,
+                path: track.path,
+                indexPath: track.indexPath,
+                databasePath: track.databasePath,
+                variantType: track.variantType,
+                variantCount: newCount,
+                source: track.source,
+                version: track.version
+            )
+        }
+        // Mutators reset the cached browser summary and bump the modified date.
+        return copy(modifiedDate: Date(), variants: updatedVariants, browserSummary: .some(nil))
+    }
+
+    /// Returns a new manifest with variant counts updated for multiple tracks
+    /// at once, keyed by track id. Tracks not present in `newCounts` are left
+    /// unchanged. All other manifest fields round-trip unchanged via `copy`.
+    public func updatingVariantCounts(_ newCounts: [String: Int]) -> BundleManifest {
+        guard !newCounts.isEmpty else { return self }
+        let updatedVariants = variants.map { track -> VariantTrackInfo in
+            guard let newCount = newCounts[track.id], newCount != track.variantCount else { return track }
             return VariantTrackInfo(
                 id: track.id,
                 name: track.name,
@@ -699,6 +731,24 @@ extension BundleManifest {
     public func addingAlignmentTrack(_ track: AlignmentTrackInfo) -> BundleManifest {
         // Mutators reset the cached browser summary and bump the modified date.
         copy(modifiedDate: Date(), alignments: alignments + [track], browserSummary: .some(nil))
+    }
+
+    /// Returns a new manifest with genome sequence and annotation tracks
+    /// replaced from `source` (e.g. a downloaded reference merged into a
+    /// variant-only bundle), while every other field on `self` — variants,
+    /// alignments, signal tracks, warnings, browserSummary, originBundlePath,
+    /// recordStore, metadata — round-trips unchanged via `copy`.
+    public func mergingGenomeAndAnnotations(from source: BundleManifest, preferredName: String? = nil) -> BundleManifest {
+        let effectiveName = (preferredName?.isEmpty == false) ? preferredName : nil
+        // Mutators reset the cached browser summary and bump the modified date.
+        return copy(
+            name: effectiveName,
+            modifiedDate: Date(),
+            source: source.source,
+            genome: .some(source.genome),
+            annotations: source.annotations,
+            browserSummary: .some(nil)
+        )
     }
 
     /// Returns a new manifest with the specified alignment track removed.

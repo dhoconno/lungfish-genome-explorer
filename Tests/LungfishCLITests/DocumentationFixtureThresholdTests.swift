@@ -10,7 +10,7 @@ final class DocumentationFixtureThresholdTests: XCTestCase {
 
     func testReadsToVariantsFixtureMatchesGUIIVarMinimumAFDefault() throws {
         let fixtureDirectory = repositoryRoot
-            .appendingPathComponent("docs/user-manual/fixtures/sarscov2-srr36291587")
+            .appendingPathComponent("Tests/Fixtures/sarscov2-srr36291587")
         let regenerateScript = try String(
             contentsOf: fixtureDirectory.appendingPathComponent("regenerate.sh"),
             encoding: .utf8
