@@ -653,6 +653,7 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
         defer { updatingViewportSize = false }
         if fitsViewport { updateFittedColumnWidth() }
         alignmentMatrixView.resizeToFitViewport(alignmentScrollView.contentView.bounds.size)
+        rowGutterView.visibleCanvasWidth = alignmentScrollView.contentView.bounds.width
     }
 
     private func configureLayout() {
@@ -1031,6 +1032,7 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
         let origin = alignmentScrollView.contentView.bounds.origin
         rowGutterView.verticalOffset = origin.y
         rowGutterView.horizontalOffset = origin.x
+        rowGutterView.visibleCanvasWidth = alignmentScrollView.contentView.bounds.width
         columnHeaderView.horizontalOffset = origin.x
         primerHeaderView.setBoundsOrigin(NSPoint(x: origin.x, y: 0))
         primerHeaderView.needsDisplay = true
@@ -2921,6 +2923,13 @@ private final class MSAAlignmentRowGutterView: NSView, NSViewToolTipOwner {
     var selectedRowIndex: Int?
     var selectedRowIndices = IndexSet()
 
+    /// Width of the alignment canvas's visible viewport (the scroll view's `contentView.bounds`),
+    /// NOT this gutter view's own `bounds.width` (the 232pt name column). PERF-10: the per-row
+    /// "first-last" source-coordinate range must cover every column visible in the canvas, but
+    /// the gutter is far narrower than the canvas, so using `bounds.width` under-reported the
+    /// visible span to roughly the gutter's own width worth of columns.
+    var visibleCanvasWidth: CGFloat = 0
+
     private var rows: [MSAAlignmentSequence] = []
     private var rowIDsByIndex: [String] = []
     private var coordinateMapsByRowID: [String: MultipleSequenceAlignmentBundle.RowCoordinateMap] = [:]
@@ -2928,7 +2937,7 @@ private final class MSAAlignmentRowGutterView: NSView, NSViewToolTipOwner {
     private var columnWidth = MSAAlignmentCanvasMetrics.defaultColumnWidth
     private var numberingMode: MSAAlignmentNumberingMode = .both
     private var consensusResidues: [Character] = []
-    private var toolTipTextByTag: [NSView.ToolTipTag: String] = [:]
+    private var toolTipTag: NSView.ToolTipTag?
 
     override var isFlipped: Bool { true }
 
@@ -2949,6 +2958,12 @@ private final class MSAAlignmentRowGutterView: NSView, NSViewToolTipOwner {
         self.columnWidth = columnWidth
         self.numberingMode = numberingMode
         needsDisplay = true
+        updateNameToolTip()
+    }
+
+    override func layout() {
+        super.layout()
+        updateNameToolTip()
     }
 
     var testingNumberingPreview: [String] {
@@ -2958,8 +2973,6 @@ private final class MSAAlignmentRowGutterView: NSView, NSViewToolTipOwner {
     override func draw(_ dirtyRect: NSRect) {
         NSColor.controlBackgroundColor.setFill()
         dirtyRect.fill()
-
-        clearNameToolTips()
 
         let rowHeight = MSAAlignmentCanvasMetrics.rowHeight
         let shiftedOffset = max(0, verticalOffset)
@@ -3015,7 +3028,6 @@ private final class MSAAlignmentRowGutterView: NSView, NSViewToolTipOwner {
             font: .systemFont(ofSize: 12, weight: rowIndex == referenceRowIndex ? .semibold : .regular),
             lineBreakMode: .byTruncatingMiddle
         )
-        registerNameToolTip(name, in: NSRect(x: rect.minX, y: rect.minY, width: bounds.width, height: rect.height))
         if let coordinateText {
             drawText(
                 coordinateText,
@@ -3027,10 +3039,15 @@ private final class MSAAlignmentRowGutterView: NSView, NSViewToolTipOwner {
         }
     }
 
-    /// Attaches the untruncated name as a tooltip so a narrow gutter stays readable.
-    private func registerNameToolTip(_ name: String, in rect: NSRect) {
-        let tag = addToolTip(rect, owner: self, userData: nil)
-        toolTipTextByTag[tag] = name
+    /// Registers a single full-bounds tooltip whose text is resolved lazily from the hover point
+    /// (`view(_:stringForToolTip:point:userData:)` below), instead of one `addToolTip` rect per
+    /// visible row re-registered on every `draw(_:)` call. PERF-10: mutating tooltip/tracking
+    /// state from inside drawing is an AppKit anti-pattern and ran on every scroll frame; this
+    /// only needs to run once per configure/layout since it does not depend on scroll position.
+    private func updateNameToolTip() {
+        clearNameToolTips()
+        guard bounds.width > 0, bounds.height > 0 else { return }
+        toolTipTag = addToolTip(bounds, owner: self, userData: nil)
     }
 
     func view(
@@ -3039,16 +3056,20 @@ private final class MSAAlignmentRowGutterView: NSView, NSViewToolTipOwner {
         point: NSPoint,
         userData data: UnsafeMutableRawPointer?
     ) -> String {
-        toolTipTextByTag[tag] ?? ""
+        guard let rowIndex = row(at: point), rows.indices.contains(rowIndex) else { return "" }
+        return rows[rowIndex].name
     }
 
+    /// Test seam mirroring the visible-row tooltip texts a hover would resolve, one per row
+    /// currently laid out in the gutter (not per pixel/point — the tooltip itself is a single
+    /// full-bounds rect resolved dynamically by row from the hover point).
     func testingToolTipTexts() -> [String] {
-        toolTipTextByTag.values.sorted()
+        rows.map(\.name).sorted()
     }
 
     private func clearNameToolTips() {
         removeAllToolTips()
-        toolTipTextByTag.removeAll(keepingCapacity: true)
+        toolTipTag = nil
     }
 
     /// The gutter width that would show every loaded label in full.
@@ -3095,9 +3116,14 @@ private final class MSAAlignmentRowGutterView: NSView, NSViewToolTipOwner {
 
     private func visibleAlignmentColumnsForNumbering() -> [Int] {
         guard !displayedColumns.isEmpty else { return [] }
-        guard bounds.width > 0, columnWidth > 0 else { return displayedColumns }
+        // PERF-10: use the canvas's visible viewport width, not this gutter view's own
+        // (much narrower) bounds.width, or the "first-last" range under-reports the visible
+        // span to roughly the gutter's own width worth of columns. Fall back to the gutter's
+        // width only if the canvas width hasn't been supplied yet (e.g. before first layout).
+        let width = visibleCanvasWidth > 0 ? visibleCanvasWidth : bounds.width
+        guard width > 0, columnWidth > 0 else { return displayedColumns }
         let firstDisplayColumn = max(0, Int(floor(horizontalOffset / columnWidth)))
-        let lastDisplayColumn = min(displayedColumns.count, Int(ceil((horizontalOffset + bounds.width) / columnWidth)))
+        let lastDisplayColumn = min(displayedColumns.count, Int(ceil((horizontalOffset + width) / columnWidth)))
         guard firstDisplayColumn < lastDisplayColumn else { return displayedColumns }
         return Array(displayedColumns[firstDisplayColumn..<lastDisplayColumn])
     }

@@ -2440,6 +2440,49 @@ final class ViewerBundleRoutingTests: XCTestCase {
         // to stay recoverable on hover.
         XCTAssertEqual(controller.testingToolTipTexts(), ["seq1", "seq2", "seq3"])
     }
+
+    /// PERF-10 regression: the row gutter's per-row "first-last" source-coordinate range must
+    /// cover every column visible in the (much wider) alignment canvas, not just the columns
+    /// that would fit across the narrow gutter itself. Before the fix, `sourceCoordinateRangeText`
+    /// derived its visible-column window from the gutter's own `bounds.width` (160-640pt), so at
+    /// a normal window width the reported range silently under-reported the true visible span.
+    func testGutterSourceCoordinateRangeCoversFullCanvasWidthNotGutterWidth() async throws {
+        let controller = MultipleSequenceAlignmentViewController()
+        // Wide enough that the canvas viewport (window width minus the gutter) shows far more
+        // columns at the default 12pt column width than the 160pt-minimum gutter itself would.
+        controller.view.frame = NSRect(x: 0, y: 0, width: 1200, height: 600)
+        let bundleURL = try makeWideMultipleSequenceAlignmentBundle(columnCount: 500)
+
+        try await controller.displayBundle(at: bundleURL)
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 1200, height: 600),
+            styleMask: [.titled], backing: .buffered, defer: false
+        )
+        window.contentView = controller.view
+        controller.testingSetGutterWidth(160)
+        controller.view.layoutSubtreeIfNeeded()
+
+        let preview = controller.testingRowNumberingPreview
+        XCTAssertEqual(preview.count, 3)
+
+        // Parse the "1-N" (or "N") coordinate suffix off "index\tname\tcoords".
+        func upperBound(_ label: String) -> Int {
+            let coords = label.split(separator: "\t").last.map(String.init) ?? ""
+            let last = coords.split(separator: "-").last.map(String.init) ?? coords
+            return Int(last) ?? 0
+        }
+
+        // At 12pt/column, a 160pt-wide window (the old, wrong basis) covers roughly 13
+        // columns — the bug's range would top out well under 20. The real canvas viewport
+        // (1200 - 160 = 1040pt) covers roughly 86 columns from the start of an unscrolled,
+        // ungapped row. Assert the reported upper bound reflects the canvas, not the gutter.
+        for label in preview {
+            XCTAssertGreaterThan(
+                upperBound(label), 40,
+                "gutter coordinate range '\(label)' looks bounded by the gutter's own width, not the canvas viewport"
+            )
+        }
+    }
 }
 
 private extension NSView {
