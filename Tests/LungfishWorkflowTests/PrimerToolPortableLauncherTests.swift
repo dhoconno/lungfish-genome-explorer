@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 import XCTest
 @testable import LungfishWorkflow
 
@@ -110,6 +111,81 @@ final class PrimerToolPortableLauncherTests: XCTestCase {
         XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: environment.path), [])
     }
 
+    func testLegacyRepairUsesReceiptTrackedExecutableInsteadOfCorruptUntrackedSource() throws {
+        let environment = temporaryRoot.appendingPathComponent("legacy-corrupt-source", isDirectory: true)
+        try makeFixture(
+            toolID: "primalscheme3",
+            environmentURL: environment,
+            logURL: temporaryRoot.appendingPathComponent("legacy-corrupt-source.log")
+        )
+        let spec = try makeManagedRuntimeReceipt(environmentURL: environment)
+        let executable = environment.appendingPathComponent("bin/primalscheme3")
+        let trustedBytes = try Data(contentsOf: executable)
+        let source = environment.appendingPathComponent(
+            "share/lungfish/managed-tools/primer-launchers/primalscheme3-upstream.py")
+        try FileManager.default.createDirectory(
+            at: source.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("corrupt untracked source\n".utf8).write(to: source)
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: source.path)
+
+        try PrimerToolPortableLauncher.repairManagedRuntime(
+            toolID: "primalscheme3", environmentURL: environment, runtimeSpec: spec)
+
+        XCTAssertEqual(try Data(contentsOf: source), trustedBytes)
+        XCTAssertNoThrow(try PrimerToolPortableLauncher.validate(
+            toolID: "primalscheme3", environmentURL: environment))
+        let managedReceipt = try ManagedPythonRuntimeReceipt.load(
+            from: ManagedPythonRuntimeReceipt.receiptURL(for: spec, environmentURL: environment))
+        XCTAssertTrue(managedReceipt.validates(spec: spec, environmentURL: environment))
+        XCTAssertEqual(managedReceipt.environmentPath, environment.standardizedFileURL.path)
+    }
+
+    func testLegacyRepairFailureAtEveryWriteBoundaryRestoresOriginalBytesAndModes() throws {
+        struct InjectedFailure: Error {}
+
+        for boundary in PrimerToolPortableLauncher.RepairMutationBoundary.allCases {
+            let environment = temporaryRoot.appendingPathComponent(
+                "legacy-rollback-\(String(describing: boundary))", isDirectory: true)
+            try makeFixture(
+                toolID: "primalscheme3",
+                environmentURL: environment,
+                logURL: temporaryRoot.appendingPathComponent("legacy-rollback.log")
+            )
+            let spec = try makeManagedRuntimeReceipt(environmentURL: environment)
+            let source = environment.appendingPathComponent(
+                "share/lungfish/managed-tools/primer-launchers/primalscheme3-upstream.py")
+            let launcherReceipt = environment.appendingPathComponent(
+                "share/lungfish/managed-tools/primer-launchers/primalscheme3-launcher.json")
+            try FileManager.default.createDirectory(
+                at: source.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try Data("preexisting untracked source\n".utf8).write(to: source)
+            try FileManager.default.setAttributes([.posixPermissions: 0o640], ofItemAtPath: source.path)
+            try Data("preexisting invalid launcher receipt\n".utf8).write(to: launcherReceipt)
+            try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: launcherReceipt.path)
+            let managedReceipt = ManagedPythonRuntimeReceipt.receiptURL(for: spec, environmentURL: environment)
+            let paths = [
+                environment.appendingPathComponent("bin/primalscheme3"),
+                source,
+                launcherReceipt,
+                managedReceipt,
+            ]
+            let before = try paths.map(fileState)
+
+            XCTAssertThrowsError(try PrimerToolPortableLauncher.repairManagedRuntime(
+                toolID: "primalscheme3",
+                environmentURL: environment,
+                runtimeSpec: spec,
+                failureInjector: { reached in
+                    if reached == boundary { throw InjectedFailure() }
+                }
+            ))
+
+            XCTAssertEqual(try paths.map(fileState), before, "Rollback failed at \(boundary)")
+            let restoredReceipt = try ManagedPythonRuntimeReceipt.load(from: managedReceipt)
+            XCTAssertTrue(restoredReceipt.validates(spec: spec, environmentURL: environment))
+        }
+    }
+
     private func makeFixture(toolID: String, environmentURL: URL, logURL: URL) throws {
         let bin = environmentURL.appendingPathComponent("bin", isDirectory: true)
         try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
@@ -149,5 +225,72 @@ final class PrimerToolPortableLauncherTests: XCTestCase {
         try process.run()
         process.waitUntilExit()
         return process.terminationStatus
+    }
+
+    private func makeManagedRuntimeReceipt(environmentURL: URL) throws -> ManagedPythonRuntimeSpec {
+        let version = "3.3.0+lge.5"
+        let requirementsData = Data("primalscheme3==\(version)\n".utf8)
+        let requirements = environmentURL.appendingPathComponent("share/lungfish/requirements.txt")
+        let wheel = environmentURL.appendingPathComponent("share/lungfish/wheels/primalscheme3.whl")
+        let metadata = environmentURL.appendingPathComponent("conda-meta/python.json")
+        for url in [requirements, wheel, metadata] {
+            try FileManager.default.createDirectory(
+                at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        }
+        try requirementsData.write(to: requirements)
+        try Data("fixture wheel\n".utf8).write(to: wheel)
+        try Data(#"{"name":"python","version":"3.12.11","build":"fixture","subdir":"osx-arm64"}"#.utf8)
+            .write(to: metadata)
+        let spec = ManagedPythonRuntimeSpec(
+            distributionName: "primalscheme3",
+            version: version,
+            pythonABI: "cp312",
+            platform: "osx-arm64",
+            basePackageSpecs: ["conda-forge::python=3.12.11=fixture"],
+            requirementsResource: "requirements.txt",
+            requirementsSHA256: SHA256.hash(data: requirementsData).map {
+                String(format: "%02x", $0)
+            }.joined()
+        )
+        let executable = environmentURL.appendingPathComponent("bin/primalscheme3")
+        let receipt = ManagedPythonRuntimeReceipt(
+            requested: spec,
+            environmentPath: environmentURL.path,
+            pythonVersion: "3.12.11",
+            condaPackages: [
+                .init(name: "python", version: "3.12.11", build: "fixture", subdir: "osx-arm64")
+            ],
+            requirements: try ManagedPythonRuntimeReceipt.fileRecord(
+                for: requirements, relativeTo: environmentURL),
+            downloadedWheels: [try ManagedPythonRuntimeReceipt.fileRecord(
+                for: wheel, relativeTo: environmentURL)],
+            installedDistributions: [.init(name: "primalscheme3", version: version)],
+            installedFiles: [try ManagedPythonRuntimeReceipt.fileRecord(
+                for: executable, relativeTo: environmentURL)],
+            commands: [.init(
+                argv: ["fixture-install"], reproducibleCommand: "fixture-install",
+                exitStatus: 0, wallTimeSeconds: 0, stderr: "")],
+            versionProbe: .init(
+                argv: [executable.path, "--version"], exitStatus: 0,
+                output: "PrimalScheme3-LGE version: \(version)"),
+            helpProbe: .init(argv: [executable.path, "--help"], exitStatus: 0, output: "Usage"),
+            startedAt: Date(),
+            completedAt: Date(),
+            wallTimeSeconds: 0
+        )
+        try receipt.write(to: ManagedPythonRuntimeReceipt.receiptURL(
+            for: spec, environmentURL: environmentURL))
+        return spec
+    }
+
+    private struct FileState: Equatable {
+        let data: Data
+        let posixPermissions: Int
+    }
+
+    private func fileState(_ url: URL) throws -> FileState {
+        let permissions = try XCTUnwrap(
+            FileManager.default.attributesOfItem(atPath: url.path)[.posixPermissions] as? NSNumber)
+        return FileState(data: try Data(contentsOf: url), posixPermissions: permissions.intValue)
     }
 }

@@ -169,11 +169,11 @@ public struct ManagedPythonRuntimeReceipt: Sendable, Codable, Hashable {
         }
     }
 
-    func replacingInstalledFiles(_ replacements: [FileRecord]) -> Self {
+    func replacingInstalledFiles(_ replacements: [FileRecord], environmentURL: URL? = nil) -> Self {
         let replacedPaths = Set(replacements.map(\.relativePath))
         return Self(
             requested: requested,
-            environmentPath: environmentPath,
+            environmentPath: environmentURL?.standardizedFileURL.path ?? environmentPath,
             pythonVersion: pythonVersion,
             condaPackages: condaPackages,
             requirements: requirements,
@@ -189,6 +189,10 @@ public struct ManagedPythonRuntimeReceipt: Sendable, Codable, Hashable {
             exitStatus: exitStatus,
             stderr: stderr
         )
+    }
+
+    func tracksInstalledFile(relativePath: String) -> Bool {
+        installedFiles.contains { $0.relativePath == relativePath }
     }
 
     static func validRelativePath(_ path: String) -> Bool {

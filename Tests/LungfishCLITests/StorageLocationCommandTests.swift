@@ -91,6 +91,18 @@ final class StorageLocationCommandTests: XCTestCase {
         XCTAssertEqual(installCallCount, 0)
     }
 
+    func testValidCommandLineCondaRootOverridesStaleInvalidEnvironmentRoot() throws {
+        let originalEnvironment = CondaCommand.processEnvironmentOverride
+        CondaCommand.processEnvironmentOverride = [
+            "LUNGFISH_CONDA_ROOT": "/tmp/stale lungfish root/conda"
+        ]
+        defer { CondaCommand.processEnvironmentOverride = originalEnvironment }
+
+        XCTAssertNoThrow(try CondaCommand.validateExplicitStorageOverrides(
+            explicitCondaRoot: "/tmp/lungfish-explicit-conda-root"
+        ))
+    }
+
     private func captureStandardOutput(_ operation: () async throws -> Void) async throws -> String {
         let pipe = Pipe()
         let originalStdout = dup(STDOUT_FILENO)

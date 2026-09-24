@@ -1,4 +1,5 @@
 import XCTest
+import CryptoKit
 import os
 @testable import LungfishWorkflow
 
@@ -258,7 +259,7 @@ final class CondaOfflinePackServiceTests: XCTestCase {
             ]
         )
         let archive = tempRoot.appendingPathComponent("portable-varvamp.tgz")
-        _ = try await CondaOfflinePackService().exportPack(
+        let exported = try await CondaOfflinePackService().exportPack(
             pack: pack,
             condaRoot: sourceRoot,
             output: archive,
@@ -296,6 +297,125 @@ final class CondaOfflinePackServiceTests: XCTestCase {
             XCTAssertEqual(values["sourceSizeBytes"], values["destinationSizeBytes"])
             XCTAssertEqual(values["action"], .string("validated-copy"))
         }
+
+        let directoryDestination = tempRoot.appendingPathComponent("destination-portable-directory")
+        let directoryInstalled = try await CondaOfflinePackService().installPack(
+            from: exported.packDirectory,
+            condaRoot: directoryDestination,
+            overwrite: false,
+            commandLine: ["lungfish-cli", "conda", "offline-install", exported.packDirectory.path]
+        )
+        let directoryProvenance = try decoder.decode(
+            WorkflowRun.self, from: Data(contentsOf: directoryInstalled.provenanceURL))
+        let directoryRecord = try XCTUnwrap(
+            directoryProvenance.parameters["portableLauncherImports"]?
+                .arrayValue?.first?.dictionaryValue)
+        XCTAssertEqual(directoryRecord["action"], .string("validated-copy"))
+    }
+
+    func testLegacyTwoToolArchiveMigratesOnlyStagedPrimalRuntimeAndRecordsProvenance() async throws {
+        let sourceRoot = tempRoot.appendingPathComponent("legacy-two-tool-source", isDirectory: true)
+        let primerEnvironment = sourceRoot.appendingPathComponent("envs/primer3", isDirectory: true)
+        let primalEnvironment = sourceRoot.appendingPathComponent("envs/primalscheme3", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: primerEnvironment.appendingPathComponent("bin"), withIntermediateDirectories: true)
+        try Data("primer3 fixture\n".utf8).write(
+            to: primerEnvironment.appendingPathComponent("bin/primer3_core"))
+        let runtime = try makeLegacyManagedPrimalRuntime(environmentURL: primalEnvironment)
+        let corruptExtra = primalEnvironment.appendingPathComponent(
+            "share/lungfish/managed-tools/primer-launchers/primalscheme3-upstream.py")
+        try FileManager.default.createDirectory(
+            at: corruptExtra.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("untracked corrupt preserved source\n".utf8).write(to: corruptExtra)
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: corruptExtra.path)
+
+        let pack = PluginPack(
+            id: "pcr-primer-design",
+            name: "PCR Primer Design",
+            description: "legacy two-tool fixture",
+            sfSymbol: "testtube.2",
+            packages: ["primer3", "primalscheme3"],
+            category: "Tests",
+            requirements: [
+                .init(
+                    id: "primer3", displayName: "Primer3", environment: "primer3",
+                    installPackages: [], executables: ["primer3_core"]),
+                .init(
+                    id: "primalscheme3", displayName: "PrimalScheme3",
+                    environment: "primalscheme3", installPackages: [],
+                    executables: ["primalscheme3"], pythonRuntime: runtime),
+            ]
+        )
+        let service = CondaOfflinePackService(packResolver: { id in id == pack.id ? pack : nil })
+        let archive = tempRoot.appendingPathComponent("legacy-two-tool.tgz")
+        let exported = try await service.exportPack(
+            pack: pack,
+            condaRoot: sourceRoot,
+            output: archive,
+            commandLine: ["lungfish-cli", "conda", "export-pack", "--pack", pack.id]
+        )
+        let sourceReceipt = exported.packDirectory.appendingPathComponent(
+            "envs/primalscheme3/share/lungfish/managed-tools/primer-launchers/primalscheme3-launcher.json")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: sourceReceipt.path))
+        let exportedCorruptBytes = try Data(contentsOf: exported.packDirectory.appendingPathComponent(
+            "envs/primalscheme3/share/lungfish/managed-tools/primer-launchers/primalscheme3-upstream.py"))
+
+        let destinationRoot = tempRoot.appendingPathComponent("legacy-two-tool-destination")
+        let installed = try await service.installPack(
+            from: archive,
+            condaRoot: destinationRoot,
+            overwrite: false,
+            commandLine: ["lungfish-cli", "conda", "offline-install", archive.path]
+        )
+
+        XCTAssertEqual(
+            Set(installed.installedEnvironments.map(\.lastPathComponent)),
+            Set(["primer3", "primalscheme3"]))
+        XCTAssertFalse(FileManager.default.fileExists(
+            atPath: destinationRoot.appendingPathComponent("envs/olivar").path))
+        XCTAssertFalse(FileManager.default.fileExists(
+            atPath: destinationRoot.appendingPathComponent("envs/varvamp").path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: sourceReceipt.path),
+                       "Legacy source pack must remain immutable.")
+        XCTAssertEqual(
+            try Data(contentsOf: exported.packDirectory.appendingPathComponent(
+                "envs/primalscheme3/share/lungfish/managed-tools/primer-launchers/primalscheme3-upstream.py")),
+            exportedCorruptBytes)
+
+        let destinationPrimal = destinationRoot.appendingPathComponent("envs/primalscheme3")
+        XCTAssertNoThrow(try PrimerToolPortableLauncher.validate(
+            toolID: "primalscheme3", environmentURL: destinationPrimal))
+        let destinationReceipt = try ManagedPythonRuntimeReceipt.load(
+            from: ManagedPythonRuntimeReceipt.receiptURL(
+                for: runtime, environmentURL: destinationPrimal))
+        XCTAssertTrue(destinationReceipt.validates(spec: runtime, environmentURL: destinationPrimal))
+        XCTAssertEqual(destinationReceipt.environmentPath, destinationPrimal.standardizedFileURL.path)
+        XCTAssertNotEqual(
+            try Data(contentsOf: destinationPrimal.appendingPathComponent(
+                "share/lungfish/managed-tools/primer-launchers/primalscheme3-upstream.py")),
+            exportedCorruptBytes,
+            "Migration must use the receipt-tracked original executable, not the untracked extra file.")
+
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let provenance = try decoder.decode(
+            WorkflowRun.self, from: Data(contentsOf: installed.provenanceURL))
+        let migrations = try XCTUnwrap(
+            provenance.parameters["portableLauncherImports"]?.arrayValue)
+        let migration = try XCTUnwrap(migrations.first?.dictionaryValue)
+        XCTAssertEqual(migration["toolID"], .string("primalscheme3"))
+        XCTAssertEqual(migration["action"], .string("migrated-legacy-managed-runtime"))
+        XCTAssertNotNil(migration["sourceExecutable"]?.dictionaryValue?["sha256"])
+        XCTAssertNotNil(migration["sourceManagedReceipt"]?.dictionaryValue?["sha256"])
+        XCTAssertNotNil(migration["destinationManagedReceipt"]?.dictionaryValue?["sha256"])
+        XCTAssertEqual(
+            migration["managedReceiptAction"],
+            .string("refreshed-installed-file-inventory-and-environment-path"))
+        XCTAssertEqual(migration["destinationArtifacts"]?.arrayValue?.count, 3)
+        XCTAssertTrue(migration["destinationArtifacts"]?.arrayValue?.allSatisfy {
+            $0.dictionaryValue?["action"]
+                == .string("generated-from-receipt-tracked-legacy-executable")
+        } == true)
     }
 
     func testInstallWithoutOverwritePreservesExistingEnvironmentAndRecordsFinalState() async throws {
@@ -883,6 +1003,70 @@ final class CondaOfflinePackServiceTests: XCTestCase {
         case nil:
             XCTFail("runTar did not complete within the timeout -- likely deadlocked on stderr pipe drain")
         }
+    }
+
+    private func makeLegacyManagedPrimalRuntime(
+        environmentURL: URL
+    ) throws -> ManagedPythonRuntimeSpec {
+        let version = "3.3.0+lge.5"
+        let requirementsData = Data("primalscheme3==\(version)\n".utf8)
+        let executable = environmentURL.appendingPathComponent("bin/primalscheme3")
+        let python = environmentURL.appendingPathComponent("bin/python")
+        let requirements = environmentURL.appendingPathComponent("share/lungfish/requirements.txt")
+        let wheel = environmentURL.appendingPathComponent("share/lungfish/wheels/primalscheme3.whl")
+        let metadata = environmentURL.appendingPathComponent("conda-meta/python.json")
+        for url in [executable, python, requirements, wheel, metadata] {
+            try FileManager.default.createDirectory(
+                at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        }
+        try Data("#!/old/prefix/bin/python\nprint('legacy primalscheme')\n".utf8).write(to: executable)
+        try Data("#!/bin/sh\nexit 0\n".utf8).write(to: python)
+        for url in [executable, python] {
+            try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
+        }
+        try requirementsData.write(to: requirements)
+        try Data("fixture wheel\n".utf8).write(to: wheel)
+        try Data(#"{"name":"python","version":"3.12.11","build":"fixture","subdir":"osx-arm64"}"#.utf8)
+            .write(to: metadata)
+        let spec = ManagedPythonRuntimeSpec(
+            distributionName: "primalscheme3",
+            version: version,
+            pythonABI: "cp312",
+            platform: "osx-arm64",
+            basePackageSpecs: ["conda-forge::python=3.12.11=fixture"],
+            requirementsResource: "requirements.txt",
+            requirementsSHA256: SHA256.hash(data: requirementsData).map {
+                String(format: "%02x", $0)
+            }.joined()
+        )
+        let receipt = ManagedPythonRuntimeReceipt(
+            requested: spec,
+            environmentPath: environmentURL.path,
+            pythonVersion: "3.12.11",
+            condaPackages: [
+                .init(name: "python", version: "3.12.11", build: "fixture", subdir: "osx-arm64")
+            ],
+            requirements: try ManagedPythonRuntimeReceipt.fileRecord(
+                for: requirements, relativeTo: environmentURL),
+            downloadedWheels: [try ManagedPythonRuntimeReceipt.fileRecord(
+                for: wheel, relativeTo: environmentURL)],
+            installedDistributions: [.init(name: "primalscheme3", version: version)],
+            installedFiles: [try ManagedPythonRuntimeReceipt.fileRecord(
+                for: executable, relativeTo: environmentURL)],
+            commands: [.init(
+                argv: ["fixture-install"], reproducibleCommand: "fixture-install",
+                exitStatus: 0, wallTimeSeconds: 0, stderr: "")],
+            versionProbe: .init(
+                argv: [executable.path, "--version"], exitStatus: 0,
+                output: "PrimalScheme3-LGE version: \(version)"),
+            helpProbe: .init(argv: [executable.path, "--help"], exitStatus: 0, output: "Usage"),
+            startedAt: Date(),
+            completedAt: Date(),
+            wallTimeSeconds: 0
+        )
+        try receipt.write(to: ManagedPythonRuntimeReceipt.receiptURL(
+            for: spec, environmentURL: environmentURL))
+        return spec
     }
 }
 

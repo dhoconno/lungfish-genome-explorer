@@ -796,10 +796,11 @@ public actor PluginPackStatusService: PluginPackStatusProviding {
                 continue
             }
             try Task.checkCancellation()
-            try PrimerToolPortableLauncher.prepare(
-                toolID: requirement.id, environmentURL: environmentURL)
-            try refreshPythonRuntimeReceiptIfNeeded(
-                for: requirement, environmentURL: environmentURL)
+            try PrimerToolPortableLauncher.repairManagedRuntime(
+                toolID: requirement.id,
+                environmentURL: environmentURL,
+                runtimeSpec: runtime
+            )
             try PrimerToolPortableLauncher.validate(
                 toolID: requirement.id, environmentURL: environmentURL)
         }
@@ -1315,25 +1316,25 @@ public actor PluginPackStatusService: PluginPackStatusProviding {
                 runRuntimeProbes: bootstrapReady
             )
             : nil
-        let portableLauncherFailure = missingExecutables.isEmpty && sourceOverlayFailure == nil
-            ? portableLauncherFailure(for: requirement, envURL: envURL)
-            : nil
         let pythonRuntimeFailure = missingExecutables.isEmpty && sourceOverlayFailure == nil
-            && portableLauncherFailure == nil
             ? pythonRuntimeFailure(for: requirement, envURL: envURL)
             : nil
+        let portableLauncherFailure = missingExecutables.isEmpty && sourceOverlayFailure == nil
+            && pythonRuntimeFailure == nil
+            ? portableLauncherFailure(for: requirement, envURL: envURL)
+            : nil
         let packageMetadataFailure = missingExecutables.isEmpty && sourceOverlayFailure == nil
-            && portableLauncherFailure == nil && pythonRuntimeFailure == nil
+            && pythonRuntimeFailure == nil && portableLauncherFailure == nil
             ? packageMetadataFailure(for: requirement, envURL: envURL)
             : nil
 
         let smokeTestFailure: String?
         if let sourceOverlayFailure {
             smokeTestFailure = sourceOverlayFailure
-        } else if let portableLauncherFailure {
-            smokeTestFailure = portableLauncherFailure
         } else if let pythonRuntimeFailure {
             smokeTestFailure = pythonRuntimeFailure
+        } else if let portableLauncherFailure {
+            smokeTestFailure = portableLauncherFailure
         } else if let packageMetadataFailure {
             smokeTestFailure = packageMetadataFailure
         } else if missingExecutables.isEmpty && bootstrapReady, let smokeTest = requirement.smokeTest {
@@ -1426,7 +1427,8 @@ public actor PluginPackStatusService: PluginPackStatusProviding {
                 ManagedPythonRuntimeReceipt.FileRecord(
                     relativePath: $0.relativePath, sha256: $0.sha256, sizeBytes: $0.sizeBytes)
             }
-        try receipt.replacingInstalledFiles(replacements).write(to: receiptURL)
+        try receipt.replacingInstalledFiles(
+            replacements, environmentURL: environmentURL).write(to: receiptURL)
     }
 
     private func sourceOverlayFailure(

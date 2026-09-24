@@ -22,6 +22,13 @@ public enum PrimerToolPortableLauncherError: Error, LocalizedError, Sendable, Eq
 }
 
 public enum PrimerToolPortableLauncher {
+    enum RepairMutationBoundary: CaseIterable {
+        case sourceWritten
+        case launcherWritten
+        case launcherReceiptWritten
+        case managedReceiptWritten
+    }
+
     public struct Artifact: Sendable, Codable, Hashable {
         public let relativePath: String
         public let sha256: String
@@ -63,6 +70,81 @@ public enum PrimerToolPortableLauncher {
     }
 
     public static func prepare(toolID: String, environmentURL: URL) throws {
+        try prepare(toolID: toolID, environmentURL: environmentURL, failureInjector: nil)
+    }
+
+    static func repairManagedRuntime(
+        toolID: String,
+        environmentURL: URL,
+        runtimeSpec: ManagedPythonRuntimeSpec,
+        failureInjector: ((RepairMutationBoundary) throws -> Void)? = nil
+    ) throws {
+        let definition = try definition(for: toolID)
+        let root = environmentURL.standardizedFileURL
+        let managedReceiptURL = ManagedPythonRuntimeReceipt.receiptURL(
+            for: runtimeSpec, environmentURL: root)
+        let managedReceipt = try ManagedPythonRuntimeReceipt.load(from: managedReceiptURL)
+        guard managedReceipt.validates(spec: runtimeSpec, environmentURL: root),
+              managedReceipt.tracksInstalledFile(relativePath: definition.launcherRelativePath) else {
+            throw PrimerToolPortableLauncherError.invalidReceipt(
+                "legacy managed runtime does not track its original \(definition.launcherRelativePath)")
+        }
+        let snapshots = try mutationURLs(definition: definition, root: root, managedReceiptURL: managedReceiptURL)
+            .map(fileSnapshot)
+        do {
+            try prepare(
+                toolID: toolID,
+                environmentURL: root,
+                failureInjector: failureInjector
+            )
+            let replacements = try artifacts(toolID: toolID, environmentURL: root).map {
+                ManagedPythonRuntimeReceipt.FileRecord(
+                    relativePath: $0.relativePath, sha256: $0.sha256, sizeBytes: $0.sizeBytes)
+            }
+            try managedReceipt.replacingInstalledFiles(
+                replacements, environmentURL: root).write(to: managedReceiptURL)
+            try failureInjector?(.managedReceiptWritten)
+            guard try ManagedPythonRuntimeReceipt.load(from: managedReceiptURL)
+                .validates(spec: runtimeSpec, environmentURL: root) else {
+                throw PrimerToolPortableLauncherError.invalidReceipt(
+                    "managed runtime receipt did not validate after portable launcher repair")
+            }
+            try validate(toolID: toolID, environmentURL: root)
+        } catch {
+            let originalError = error
+            do {
+                try restore(snapshots)
+            } catch {
+                throw PrimerToolPortableLauncherError.invalidReceipt(
+                    "portable launcher repair failed and rollback failed: \(error.localizedDescription)")
+            }
+            throw originalError
+        }
+    }
+
+    static func hasPermissionNormalization(toolID: String, environmentURL: URL) throws -> Bool {
+        let definition = try definition(for: toolID)
+        let root = environmentURL.standardizedFileURL
+        let receiptURL = root.appendingPathComponent(definition.receiptRelativePath)
+        let receipt = try JSONDecoder().decode(
+            Receipt.self, from: regularFileData(at: receiptURL, root: root))
+        let currentSource = try artifact(
+            relativePath: receipt.source.relativePath,
+            url: root.appendingPathComponent(receipt.source.relativePath),
+            root: root)
+        let currentLauncher = try artifact(
+            relativePath: receipt.launcher.relativePath,
+            url: root.appendingPathComponent(receipt.launcher.relativePath),
+            root: root)
+        return receipt.source.posixPermissions != currentSource.posixPermissions
+            || receipt.launcher.posixPermissions != currentLauncher.posixPermissions
+    }
+
+    private static func prepare(
+        toolID: String,
+        environmentURL: URL,
+        failureInjector: ((RepairMutationBoundary) throws -> Void)?
+    ) throws {
         let definition = try definition(for: toolID)
         let root = environmentURL.standardizedFileURL
         let python = root.appendingPathComponent("bin/python")
@@ -83,47 +165,57 @@ public enum PrimerToolPortableLauncher {
         let launcherURL = root.appendingPathComponent(definition.launcherRelativePath)
         let sourceURL = root.appendingPathComponent(definition.sourceRelativePath)
         let receiptURL = root.appendingPathComponent(definition.receiptRelativePath)
-        let sourceData: Data
-        let sourcePermissions: Int
-        if FileManager.default.fileExists(atPath: sourceURL.path) {
-            sourceData = try regularFileData(at: sourceURL, root: root)
-            sourcePermissions = try permissions(at: sourceURL)
-        } else {
-            sourceData = try regularFileData(at: launcherURL, root: root)
-            sourcePermissions = try permissions(at: launcherURL)
-        }
+        // An invalid or absent portable receipt means the only trusted legacy
+        // entry point is the executable already covered by the managed runtime
+        // receipt (or the just-installed executable before its first receipt).
+        // Never reuse an untracked preserved-source file from a partial repair.
+        let sourceData = try regularFileData(at: launcherURL, root: root)
+        let sourcePermissions = try permissions(at: launcherURL)
         guard !sourceData.starts(with: Data("#!/bin/sh\n# lungfish-primer-launcher-v1\n".utf8)) else {
             throw PrimerToolPortableLauncherError.invalidEntrypoint(
                 "managed launcher exists without its preserved upstream entrypoint")
         }
 
-        let launcherData = Data(launcherScript(for: definition).utf8)
-        let managedDirectory = receiptURL.deletingLastPathComponent()
-        try FileManager.default.createDirectory(at: managedDirectory, withIntermediateDirectories: true)
-        if !FileManager.default.fileExists(atPath: sourceURL.path) {
+        let snapshots = try [sourceURL, launcherURL, receiptURL].map(fileSnapshot)
+        do {
+            let launcherData = Data(launcherScript(for: definition).utf8)
+            let managedDirectory = receiptURL.deletingLastPathComponent()
+            try FileManager.default.createDirectory(at: managedDirectory, withIntermediateDirectories: true)
             try sourceData.write(to: sourceURL, options: .atomic)
             try FileManager.default.setAttributes(
                 [.posixPermissions: sourcePermissions], ofItemAtPath: sourceURL.path)
-        }
-        try launcherData.write(to: launcherURL, options: .atomic)
-        let launcherPermissions = sourcePermissions | 0o100
-        try FileManager.default.setAttributes(
-            [.posixPermissions: launcherPermissions], ofItemAtPath: launcherURL.path)
+            try failureInjector?(.sourceWritten)
+            try launcherData.write(to: launcherURL, options: .atomic)
+            let launcherPermissions = sourcePermissions | 0o100
+            try FileManager.default.setAttributes(
+                [.posixPermissions: launcherPermissions], ofItemAtPath: launcherURL.path)
+            try failureInjector?(.launcherWritten)
 
-        let receipt = Receipt(
-            schemaVersion: Receipt.schemaVersion,
-            toolID: toolID,
-            launcherFormatVersion: 1,
-            source: try artifact(
-                relativePath: definition.sourceRelativePath, url: sourceURL, root: root),
-            launcher: try artifact(
-                relativePath: definition.launcherRelativePath, url: launcherURL, root: root),
-            mafftBinariesRelativePath: definition.mafftBinariesRelativePath
-        )
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
-        try encoder.encode(receipt).write(to: receiptURL, options: .atomic)
-        try validate(toolID: toolID, environmentURL: root)
+            let receipt = Receipt(
+                schemaVersion: Receipt.schemaVersion,
+                toolID: toolID,
+                launcherFormatVersion: 1,
+                source: try artifact(
+                    relativePath: definition.sourceRelativePath, url: sourceURL, root: root),
+                launcher: try artifact(
+                    relativePath: definition.launcherRelativePath, url: launcherURL, root: root),
+                mafftBinariesRelativePath: definition.mafftBinariesRelativePath
+            )
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
+            try encoder.encode(receipt).write(to: receiptURL, options: .atomic)
+            try failureInjector?(.launcherReceiptWritten)
+            try validate(toolID: toolID, environmentURL: root)
+        } catch {
+            let originalError = error
+            do {
+                try restore(snapshots)
+            } catch {
+                throw PrimerToolPortableLauncherError.invalidReceipt(
+                    "portable launcher preparation failed and rollback failed: \(error.localizedDescription)")
+            }
+            throw originalError
+        }
     }
 
     public static func validate(toolID: String, environmentURL: URL) throws {
@@ -272,5 +364,56 @@ public enum PrimerToolPortableLauncher {
         let components = path.split(separator: "/", omittingEmptySubsequences: false)
         return !path.isEmpty && !path.hasPrefix("/") && !path.contains("\\")
             && components.allSatisfy { !$0.isEmpty && $0 != "." && $0 != ".." }
+    }
+
+    private struct FileSnapshot {
+        let url: URL
+        let data: Data?
+        let posixPermissions: Int?
+    }
+
+    private static func mutationURLs(
+        definition: Definition,
+        root: URL,
+        managedReceiptURL: URL
+    ) -> [URL] {
+        [
+            root.appendingPathComponent(definition.sourceRelativePath),
+            root.appendingPathComponent(definition.launcherRelativePath),
+            root.appendingPathComponent(definition.receiptRelativePath),
+            managedReceiptURL,
+        ]
+    }
+
+    private static func fileSnapshot(_ url: URL) throws -> FileSnapshot {
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            return FileSnapshot(url: url, data: nil, posixPermissions: nil)
+        }
+        let values = try url.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey])
+        guard values.isRegularFile == true, values.isSymbolicLink != true else {
+            throw PrimerToolPortableLauncherError.invalidEntrypoint(
+                "unsafe repair target at \(url.path)")
+        }
+        return FileSnapshot(
+            url: url,
+            data: try Data(contentsOf: url),
+            posixPermissions: try permissions(at: url)
+        )
+    }
+
+    private static func restore(_ snapshots: [FileSnapshot]) throws {
+        for snapshot in snapshots.reversed() {
+            if FileManager.default.fileExists(atPath: snapshot.url.path) {
+                try FileManager.default.removeItem(at: snapshot.url)
+            }
+            guard let data = snapshot.data, let posixPermissions = snapshot.posixPermissions else {
+                continue
+            }
+            try FileManager.default.createDirectory(
+                at: snapshot.url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try data.write(to: snapshot.url, options: .atomic)
+            try FileManager.default.setAttributes(
+                [.posixPermissions: posixPermissions], ofItemAtPath: snapshot.url.path)
+        }
     }
 }
