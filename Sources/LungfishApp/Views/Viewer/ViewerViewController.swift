@@ -2263,7 +2263,7 @@ public class ViewerViewController: NSViewController {
                 // "Bundle is busy" row is already inserted; do not launch the CLI runner.
                 return
             }
-            let runner = CLITreeInferenceRunner()
+            let runner = CLITreeRunner(label: "tree inference")
             OperationCenter.shared.setCancelCallback(for: opID) {
                 runner.cancel()
             }
@@ -2274,15 +2274,7 @@ public class ViewerViewController: NSViewController {
                 } catch is CancellationError {
                     return
                 } catch {
-                    DispatchQueue.main.async {
-                        MainActor.assumeIsolated {
-                            _ = OperationCenter.shared.fail(
-                                id: opID,
-                                detail: error.localizedDescription,
-                                errorMessage: error.localizedDescription
-                            )
-                        }
-                    }
+                    // CLITreeRunner already records failure on OperationCenter.
                 }
             }
         } catch {
@@ -2356,7 +2348,7 @@ public class ViewerViewController: NSViewController {
                 // "Bundle is busy" row is already inserted; do not launch the CLI runner.
                 return
             }
-            let runner = CLITreeTransformRunner()
+            let runner = CLITreeRunner(label: "tree transform")
             OperationCenter.shared.setCancelCallback(for: opID) {
                 runner.cancel()
             }
@@ -2367,15 +2359,7 @@ public class ViewerViewController: NSViewController {
                 } catch is CancellationError {
                     return
                 } catch {
-                    DispatchQueue.main.async {
-                        MainActor.assumeIsolated {
-                            _ = OperationCenter.shared.fail(
-                                id: opID,
-                                detail: error.localizedDescription,
-                                errorMessage: error.localizedDescription
-                            )
-                        }
-                    }
+                    // CLITreeRunner already records failure on OperationCenter.
                 }
             }
         } catch {

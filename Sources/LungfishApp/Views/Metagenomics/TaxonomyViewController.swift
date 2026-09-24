@@ -1601,9 +1601,47 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
 
     /// Builds and writes the delimited export content. Extracted from the
     /// NSSavePanel callback so the write-failure path is directly testable.
-    func writeDelimitedExport(tree: TaxonTree, separator: String, to url: URL) throws {
+    ///
+    /// REC-03: this export previously wrote only the CSV/TSV payload, with no
+    /// provenance sidecar recording which classification result and inputs
+    /// produced it. Writes atomically through
+    /// `ScientificFileExportProvenance`, the same helper used by sequence and
+    /// alignment exports, so a crash mid-write cannot leave a payload with no
+    /// (or a stale) sidecar.
+    @discardableResult
+    func writeDelimitedExport(tree: TaxonTree, separator: String, to url: URL, startedAt: Date = Date()) throws -> URL {
         let content = buildDelimitedExport(tree: tree, separator: separator)
-        try content.write(to: url, atomically: true, encoding: .utf8)
+        let sourceURLs = classificationResult?.config.inputFiles ?? []
+        let fileExtension = url.pathExtension.isEmpty ? "csv" : url.pathExtension
+        let separatorName = separator == "\t" ? "tsv" : "csv"
+        return try ScientificFileExportProvenance.writeAtomically(.init(
+            workflowName: "lungfish app taxonomy table export",
+            sourceURLs: sourceURLs,
+            outputURL: url,
+            outputFormat: .text,
+            argv: [
+                CLICommandIdentity.executableName,
+                "export", "taxonomy-table",
+                "--separator", separatorName,
+                "--output", url.path,
+            ],
+            explicitOptions: [
+                "sourcePaths": .array(sourceURLs.map { .file($0) }),
+                "outputPath": .file(url),
+                "separator": .string(separatorName),
+            ],
+            defaults: [
+                "outputFormat": .string(fileExtension),
+            ],
+            resolved: [
+                "nodeCount": .integer(tree.allNodes().count),
+                "outputByteCount": .integer(content.utf8.count),
+            ],
+            startedAt: startedAt,
+            completedAt: Date()
+        )) { staged in
+            try content.write(to: staged, atomically: true, encoding: .utf8)
+        }
     }
 
     private func presentWarning(title: String, message: String) {
