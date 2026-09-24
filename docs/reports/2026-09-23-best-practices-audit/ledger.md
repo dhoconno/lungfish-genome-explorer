@@ -166,16 +166,16 @@ Single source of truth for finding status (plan rule 9). Status: `open`, `verifi
 | UX-17 | P3 | `BatchTableView` ⌘-click quick-copy competes with standard ⌘-click multi-select | open | | | |
 | UX-18 | P3 | Sample-scope control differs per viewer. TaxTriage's segmented control does not scale | open | | | |
 | WFL-21 | P3 | Dead dialogs, launchers and engines kept alive only by tests | open | | | |
-| GEN-01 | P0 | ONT barcode assignment takes the leftmost exact barcode match anywhere in the read, including inside the ampli | open | | | |
-| GEN-02 | P0 | `minimumMatches: 1` plus a count-only match rule reports homozygotes as heterozygotes (DQ M2/M2 as "M2 / M6",  | open | | | |
-| GEN-03 | P1 | `--min-support` does not filter the report CSV or pipeline workbook, contrary to its help text | open | | | |
+| GEN-01 | P0 | ONT barcode assignment takes the leftmost exact barcode match anywhere in the read, including inside the ampli | fixed | G1 | 545fcea36 | anchored window after rc(CS2), both orientations, multi-match unassigned; 20-read DRB1 case all FLD0001 |
+| GEN-02 | P0 | `minimumMatches: 1` plus a count-only match rule reports homozygotes as heterozygotes (DQ M2/M2 as "M2 / M6",  | mitigated | G2 | 6dd8eb44f | 28-genotype golden test; 6 wrong-but-called now 'ambiguous'; calling rule itself pending owner decision |
+| GEN-03 | P1 | `--min-support` does not filter the report CSV or pipeline workbook, contrary to its help text | fixed | G2 | 4af5150a9 | help text corrected (report/workbook intentionally unfiltered) |
 | GEN-04 | P1 | Reads tied across alleles are credited in full to each allele with no ambiguity marker. minimap2 `-N 5` makes  | open | | | |
 | GEN-05 | P1 | "Locus %" uses three different locus groupings (pipeline haplotype filter, matrix "Viewed Locus", evidence pan | open | | | |
 | GEN-06 | P1 | "Minimum percent" means within-sample read fraction for known alleles but fraction of animals for candidate ro | open | | | |
 | GEN-07 | P1 | Illumina sample totals count mates before merging while retained reads count merged fragments, which halves re | open | | | |
 | GEN-08 | P2 | A second haplotype of "-" means both "homozygous" and "second haplotype not identified", and the viewer hides  | open | | | |
-| GEN-09 | P2 | The Python demux filter silently resolves duplicate or reverse-complement-colliding barcodes to the first samp | open | | | |
+| GEN-09 | P2 | The Python demux filter silently resolves duplicate or reverse-complement-colliding barcodes to the first samp | fixed | G1 | 545fcea36 | Python filter rejects colliding barcodes |
 | GEN-10 | P2 | Full-length ONT: a zero-SNP hit is a known call regardless of indel size, with no indel count in the call | open | | | |
 | GEN-11 | P2 | PacBio exact dual-barcode demux assigns multi-matching reads in Swift `Dictionary` iteration order, which vari | open | | | |
-| GEN-12 | P2 | Provenance and QC gaps: bbtools missing from `managedTools`, hard-coded "resolvedDefaults", hard-coded QC cut- | open | | | |
+| GEN-12 | P2 | Provenance and QC gaps: bbtools missing from `managedTools`, hard-coded "resolvedDefaults", hard-coded QC cut- | fixed | G2 | aa3cc573d | bbtools recorded, real thresholds, no AI prompt copy |
 | GEN-13 | P2 | Legacy `fastq ont-genotype` maps ONT reads with the short-read preset, ignores `--allow-indels`, and randomly  | open | | | |
