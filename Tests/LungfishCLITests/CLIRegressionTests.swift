@@ -4217,6 +4217,10 @@ final class DebugCommandRegressionTests: XCTestCase {
             inputURL.path,
             "--output-dir", outputDirectory.path,
             "--skip-clumpify",
+            // No binning, so the file passes through and stays at the input
+            // path. Binning without clumping now runs reformat.sh and writes
+            // a new file, which other tests cover.
+            "--binning", "none",
             "--quiet"
         ])
         try await command.run()

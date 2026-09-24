@@ -292,3 +292,38 @@ final class FASTQIngestionPipelineTests: XCTestCase {
 
         """
 }
+
+final class FASTQIngestionReformatExtensionOverrideTests: XCTestCase {
+    private var root: URL!
+
+    override func setUpWithError() throws {
+        root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("reformat-extin-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    }
+
+    override func tearDownWithError() throws {
+        try? FileManager.default.removeItem(at: root)
+    }
+
+    func testPlainTextNamedGzipGetsPlainExtension() throws {
+        let url = root.appendingPathComponent("reads.fastq.gz")
+        try "@r1\nACGT\n+\nIIII\n".write(to: url, atomically: true, encoding: .utf8)
+        XCTAssertEqual(FASTQIngestionPipeline.reformatInputExtensionOverride(for: url), ".fq")
+    }
+
+    func testGzipDataNamedPlainGetsGzipExtension() throws {
+        let url = root.appendingPathComponent("reads.fastq")
+        try Data([0x1f, 0x8b, 0x08, 0x00]).write(to: url)
+        XCTAssertEqual(FASTQIngestionPipeline.reformatInputExtensionOverride(for: url), ".fq.gz")
+    }
+
+    func testMatchingNameAndContentNeedsNoOverride() throws {
+        let plain = root.appendingPathComponent("reads.fastq")
+        try "@r1\nACGT\n+\nIIII\n".write(to: plain, atomically: true, encoding: .utf8)
+        XCTAssertNil(FASTQIngestionPipeline.reformatInputExtensionOverride(for: plain))
+        let gz = root.appendingPathComponent("reads.fq.gz")
+        try Data([0x1f, 0x8b, 0x08, 0x00]).write(to: gz)
+        XCTAssertNil(FASTQIngestionPipeline.reformatInputExtensionOverride(for: gz))
+    }
+}

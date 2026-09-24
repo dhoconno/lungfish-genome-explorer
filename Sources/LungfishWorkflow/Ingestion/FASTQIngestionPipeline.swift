@@ -871,6 +871,22 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
         )
     }
 
+    /// Returns the extension reformat.sh needs when a FASTQ's name and its
+    /// compression disagree (a `.gz` name on plain text, or gzip data under a
+    /// plain name), and `nil` when the extension already tells the truth.
+    static func reformatInputExtensionOverride(for url: URL) -> String? {
+        let namedGzip = url.pathExtension.lowercased() == "gz"
+        guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
+        defer { try? handle.close() }
+        let magic = (try? handle.read(upToCount: 2)) ?? Data()
+        let isGzip = magic.count == 2 && magic[magic.startIndex] == 0x1f && magic[magic.startIndex + 1] == 0x8b
+        switch (namedGzip, isGzip) {
+        case (true, false): return ".fq"
+        case (false, true): return ".fq.gz"
+        default: return nil
+        }
+    }
+
     /// Bins quality scores with BBTools `reformat.sh` when clumping is off.
     ///
     /// Uses the same `quantize=` values `clumpify.sh` takes, so a binned
@@ -885,8 +901,23 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
             preconditionFailure("reformatQuantize requires a binning scheme")
         }
         let reformat = try await runner.toolPath(for: .reformat)
-        let inputFile = config.inputFiles[0]
-        let inputFile2 = config.pairingMode == .pairedEnd ? config.inputFiles[1] : nil
+        // reformat.sh chooses its decompressor from the file name, and its
+        // extin= override does not change that. A plain FASTQ carrying a .gz
+        // name (or gzip data under a plain name) fails as "Not a gzip file",
+        // so read such a file through a correctly named link instead.
+        var stagedLinks: [URL] = []
+        defer { for link in stagedLinks { try? FileManager.default.removeItem(at: link) } }
+        func readableName(_ url: URL) throws -> URL {
+            guard let ext = Self.reformatInputExtensionOverride(for: url) else { return url }
+            let link = config.outputDirectory.appendingPathComponent(
+                ".reformat-input-\(UUID().uuidString)\(ext)"
+            )
+            try FileManager.default.createSymbolicLink(at: link, withDestinationURL: url)
+            stagedLinks.append(link)
+            return link
+        }
+        let inputFile = try readableName(config.inputFiles[0])
+        let inputFile2 = config.pairingMode == .pairedEnd ? try readableName(config.inputFiles[1]) : nil
 
         var args = ["in=\(inputFile.path)"]
         if let inputFile2 {
