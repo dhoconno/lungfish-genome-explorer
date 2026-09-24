@@ -112,8 +112,32 @@ public enum FASTQBatchImporter {
     // MARK: - Nested Types
 
     /// Configuration for a batch import run.
+    /// How input files pair up, as chosen in the Import FASTQ sheet's Pairing
+    /// popup or `lungfish-cli import fastq --pairing`.
+    ///
+    /// `auto` and `paired` pair files by their R1/R2 names (the historical
+    /// behaviour); `single` imports every file as its own single-end sample;
+    /// `interleaved` also imports every file on its own but records each one
+    /// as interleaved mates, so downstream tools treat it as pairs.
+    public enum ImportPairing: String, Sendable, CaseIterable {
+        case auto
+        case single
+        case paired
+        case interleaved
+
+        /// Whether detected R1/R2 pairs are kept together.
+        public var keepsDetectedPairs: Bool {
+            switch self {
+            case .auto, .paired: return true
+            case .single, .interleaved: return false
+            }
+        }
+    }
+
     public struct ImportConfig: Sendable {
         public let projectDirectory: URL
+        /// Pairing choice applied to every sample. Defaults to `auto`.
+        public let pairing: ImportPairing
         /// Sequencing platform. Drives default values for quality binning,
         /// storage optimisation, and compression level.
         public let platform: LungfishWorkflow.SequencingPlatform
@@ -146,9 +170,11 @@ public enum FASTQBatchImporter {
             compressionLevel: CompressionLevel? = nil,
             threads: Int = 4,
             logDirectory: URL? = nil,
-            forceReimport: Bool = false
+            forceReimport: Bool = false,
+            pairing: ImportPairing = .auto
         ) {
             self.projectDirectory = projectDirectory
+            self.pairing = pairing
             self.platform = platform
             self.recipe = recipe
             self.newRecipe = newRecipe
@@ -397,6 +423,28 @@ public enum FASTQBatchImporter {
         }
 
         return pairs.sorted { $0.sampleName < $1.sampleName }
+    }
+
+    /// Applies a pairing choice to detected samples.
+    ///
+    /// `single` and `interleaved` split every R1/R2 pair into two single-file
+    /// samples named after each file's stem (so `s_R1` and `s_R2` do not
+    /// collide); `auto` and `paired` leave the detection untouched.
+    public static func applyPairing(_ pairing: ImportPairing, to pairs: [SamplePair]) -> [SamplePair] {
+        guard !pairing.keepsDetectedPairs else { return pairs }
+        return pairs.flatMap { pair -> [SamplePair] in
+            guard let r2 = pair.r2 else { return [pair] }
+            return [pair.r1, r2].map { url in
+                SamplePair(
+                    sampleName: fastqStem(url),
+                    r1: url,
+                    r2: nil,
+                    relativePath: pair.relativePath,
+                    metadata: pair.metadata,
+                    sampleSheetURL: pair.sampleSheetURL
+                )
+            }
+        }.sorted { $0.sampleName < $1.sampleName }
     }
 
     // MARK: - Recipe Resolution
@@ -947,7 +995,11 @@ public enum FASTQBatchImporter {
                     clumpifyInput = try stageRawInputsForIngestion(rawInputs, in: workspace)
                     deleteIngestionInputsAfterRun = true
                 }
-                clumpifyPairingMode = processingPair.r2 != nil ? .pairedEnd : .singleEnd
+                // A single file is interleaved only when the user said so; the
+                // pipeline then keeps it whole and the metadata records pairs.
+                clumpifyPairingMode = processingPair.r2 != nil
+                    ? .pairedEnd
+                    : (config.pairing == .interleaved ? .interleaved : .singleEnd)
             }
 
             let ingestionConfig = FASTQIngestionConfig(
@@ -1038,7 +1090,9 @@ public enum FASTQBatchImporter {
             )
 
             // Write ingestion metadata sidecar
-            let pairingMeta: IngestionMetadata.PairingMode = processingPair.r2 != nil ? .interleaved : .singleEnd
+            let pairingMeta: IngestionMetadata.PairingMode = (processingPair.r2 != nil || config.pairing == .interleaved)
+                ? .interleaved
+                : .singleEnd
             let ingestion = IngestionMetadata(
                 isClumpified: ingestionResult.wasClumpified,
                 isCompressed: true,
@@ -1907,6 +1961,17 @@ public enum FASTQBatchImporter {
                 }
                 return ProvenanceRecorder.fileRecord(url: finalOutputURL, format: record.format, role: record.role)
             }
+            // A staged `raw-N-<name>` copy in the import workspace is byte
+            // identical to the original it was copied from; the durable
+            // record names the original, which outlives the workspace.
+            let inputs = step.inputs.map { record -> FileRecord in
+                let inputURL = URL(fileURLWithPath: record.path)
+                guard let originalURL = durableOriginalInputURL(for: inputURL, originalInputURLs: originalInputURLs),
+                      originalURL != inputURL.standardizedFileURL else {
+                    return record
+                }
+                return ProvenanceRecorder.fileRecord(url: originalURL, format: record.format, role: record.role)
+            }
             return StepExecution(
                 id: step.id,
                 toolName: step.toolName,
@@ -1917,7 +1982,7 @@ public enum FASTQBatchImporter {
                 durableReplayArgv: durableReplayArgv,
                 resolvedOptions: step.resolvedOptions,
                 runtimeIdentity: step.runtimeIdentity,
-                inputs: step.inputs,
+                inputs: inputs,
                 outputs: outputs,
                 exitCode: step.exitCode,
                 wallTime: step.wallTime,
@@ -2045,6 +2110,7 @@ public enum FASTQBatchImporter {
             ? .file(csvMetadataURL)
             : .null
         parameters["pairedEndInput"] = .boolean(pair.r2 != nil)
+        parameters["pairing"] = .string(config.pairing.rawValue)
         parameters["outputPairingMode"] = .string(ingestionResult.pairingMode.rawValue)
         parameters["wasClumpified"] = .boolean(ingestionResult.wasClumpified)
         parameters["requestedClumpingTool"] = .string(ingestionResult.requestedClumpingTool.rawValue)

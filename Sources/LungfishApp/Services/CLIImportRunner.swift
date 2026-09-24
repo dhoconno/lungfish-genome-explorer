@@ -188,6 +188,8 @@ public actor CLIImportRunner {
     ///   - qualityBinning: Whether to enable quality score binning.
     ///   - optimizeStorage: Whether to optimize storage (omitted flag means enabled).
     ///   - clumpingTool: Storage optimization tool selection.
+    ///   - pairingMode: The Import sheet's Pairing choice; `nil` leaves the
+    ///     CLI's name-based detection in charge.
     ///   - compressionLevel: Compression level (1-9).
     /// - Returns: Array of argument strings suitable for ``Process.arguments``.
     public static func buildCLIArguments(
@@ -199,6 +201,7 @@ public actor CLIImportRunner {
         qualityBinning: String,
         optimizeStorage: Bool,
         clumpingTool: ClumpingTool = .default,
+        pairingMode: FASTQIngestionConfig.PairingMode? = nil,
         compressionLevel: String,
         bundleName: String? = nil,
         force: Bool = false
@@ -211,6 +214,9 @@ public actor CLIImportRunner {
 
         args += ["--project", projectDirectory.path]
         args += ["--platform", platform]
+        if let pairingMode {
+            args += ["--pairing", pairingArgument(for: pairingMode)]
+        }
         args += ["--format", "json"]
         args += ["--quality-binning", qualityBinning]
         args += ["--compression", compressionLevel]
@@ -236,6 +242,15 @@ public actor CLIImportRunner {
         }
 
         return args
+    }
+
+    /// The `--pairing` value for an ingestion pairing mode.
+    public static func pairingArgument(for pairingMode: FASTQIngestionConfig.PairingMode) -> String {
+        switch pairingMode {
+        case .singleEnd: return "single"
+        case .pairedEnd: return "paired"
+        case .interleaved: return "interleaved"
+        }
     }
 
     /// Builds the display form of a `lungfish-cli` command using the same

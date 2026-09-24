@@ -461,9 +461,10 @@ final class CLIImportRunnerTests: XCTestCase {
         // FEA-02: --force is no longer appended unconditionally — it is only
         // passed after the user explicitly chooses Replace in the duplicate
         // dialog. This preview reflects the default (no --force) command.
+        // The sheet's Pairing choice is pinned as --pairing (2026-09-24).
         XCTAssertEqual(
             command,
-            "lungfish-cli import fastq /Volumes/iWES_WNPRC/ww_test/WI_Madison_MMSD_20260414_S7_R1.fastq.gz /Volumes/iWES_WNPRC/ww_test/WI_Madison_MMSD_20260414_S7_R2.fastq.gz --project /Volumes/iWES_WNPRC/ww_test/ww.lungfish --platform illumina --format json --quality-binning illumina4 --compression balanced --recipe wastewater-metagenomics"
+            "lungfish-cli import fastq /Volumes/iWES_WNPRC/ww_test/WI_Madison_MMSD_20260414_S7_R1.fastq.gz /Volumes/iWES_WNPRC/ww_test/WI_Madison_MMSD_20260414_S7_R2.fastq.gz --project /Volumes/iWES_WNPRC/ww_test/ww.lungfish --platform illumina --pairing paired --format json --quality-binning illumina4 --compression balanced --recipe wastewater-metagenomics"
         )
     }
 

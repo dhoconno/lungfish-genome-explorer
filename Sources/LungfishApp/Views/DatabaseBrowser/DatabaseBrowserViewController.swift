@@ -2918,6 +2918,34 @@ public class DatabaseBrowserViewModel: ObservableObject {
     /// confirms import settings. Downloads FASTQ files from ENA, then runs
     /// `CLIImportRunner` to create `.lungfishfastq` bundles, and finally augments
     /// each bundle's metadata sidecar with ENA provenance info.
+    /// The `lungfish-cli import fastq` argv for one downloaded SRA/ENA run.
+    ///
+    /// Built from the same sheet configuration the file-drop import uses, so
+    /// the Compression Tool popup (`clumpingTool`) and the Pairing popup are
+    /// honoured here too; before 2026-09-24 this path dropped the clumping
+    /// tool and always ran the platform default. The pairing choice applies
+    /// when the run downloaded a single file (single-end versus interleaved);
+    /// a run that arrived as R1/R2 imports as one paired sample.
+    nonisolated static func sraImportCLIArguments(
+        importConfig: FASTQImportConfiguration,
+        r1: URL,
+        r2: URL?,
+        projectDirectory: URL
+    ) -> [String] {
+        CLIImportRunner.buildCLIArguments(
+            r1: r1,
+            r2: r2,
+            projectDirectory: projectDirectory,
+            platform: FASTQIngestionService.cliPlatformString(for: importConfig.confirmedPlatform),
+            recipeName: FASTQIngestionService.resolvedRecipeName(for: importConfig),
+            qualityBinning: importConfig.qualityBinning.rawValue,
+            optimizeStorage: !importConfig.skipClumpify,
+            clumpingTool: importConfig.clumpingTool,
+            pairingMode: r2 == nil ? importConfig.pairingMode : .pairedEnd,
+            compressionLevel: importConfig.compressionLevel?.rawValue ?? "balanced"
+        )
+    }
+
     private func startENADownloadTask(
         records: [SearchResultRecord],
         importConfig: FASTQImportConfiguration,
@@ -2926,33 +2954,15 @@ public class DatabaseBrowserViewModel: ObservableObject {
     ) {
         let ena = enaService
         let sra = SRAService(ncbiService: ncbiService)
+        let confirmedPlatform = importConfig.confirmedPlatform
 
-        // Map confirmed platform to CLI string
-        let platformStr: String
-        switch importConfig.confirmedPlatform {
-        case .illumina:       platformStr = "illumina"
-        case .oxfordNanopore: platformStr = "ont"
-        case .pacbio:         platformStr = "pacbio"
-        case .ultima:         platformStr = "ultima"
-        default:              platformStr = "illumina"
-        }
-
-        // Resolve recipe name — prefer V2 recipeName, fall back to legacy
-        let recipeName: String? = {
-            if let name = importConfig.recipeName { return name }
-            guard let recipe = importConfig.postImportRecipe, !recipe.steps.isEmpty else { return nil }
-            if recipe.name.lowercased().contains("vsp2") {
-                if let nr = RecipeRegistryV2.allRecipes().first(where: { $0.name.lowercased().contains("vsp2") }) {
-                    return nr.id
-                }
-            }
-            return recipe.name.lowercased()
-        }()
-
+        // Recorded in the GUI provenance envelope; the argv itself comes from
+        // `sraImportCLIArguments` so the two never disagree.
+        let platformStr = FASTQIngestionService.cliPlatformString(for: confirmedPlatform)
+        let recipeName = FASTQIngestionService.resolvedRecipeName(for: importConfig)
         let compressionStr = importConfig.compressionLevel?.rawValue ?? "balanced"
         let qualityBinning = importConfig.qualityBinning.rawValue
-        let optimizeStorage = !importConfig.skipClumpify
-        let confirmedPlatform = importConfig.confirmedPlatform
+        let optimizeStorage = !importConfig.skipClumpify && importConfig.clumpingTool != .none
 
         let enaRouteContext = routeContext
         let projectURL = enaRouteContext?.projectURL
@@ -3174,15 +3184,11 @@ public class DatabaseBrowserViewModel: ObservableObject {
                     // directly in <project>.lungfish/Imports/ (not inside .tmp/)
                     let projectDirectory = projectURL ?? batchDir
 
-                    let args = CLIImportRunner.buildCLIArguments(
+                    let args = Self.sraImportCLIArguments(
+                        importConfig: importConfig,
                         r1: r1URL,
                         r2: r2URL,
-                        projectDirectory: projectDirectory,
-                        platform: platformStr,
-                        recipeName: recipeName,
-                        qualityBinning: qualityBinning,
-                        optimizeStorage: optimizeStorage,
-                        compressionLevel: compressionStr
+                        projectDirectory: projectDirectory
                     )
 
                     final class ResultTracker: @unchecked Sendable {

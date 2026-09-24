@@ -108,6 +108,19 @@ extension ImportCommand {
         )
         var platform: String?
 
+        @Option(
+            name: .customLong("pairing"),
+            help: ArgumentHelp(
+                "Read pairing: auto, single, paired, interleaved (default: auto)",
+                discussion: """
+                auto and paired match R1/R2 files by name. single imports every file as \
+                its own single-end sample, even when a mate is detected. interleaved \
+                imports every file on its own and records it as interleaved mates.
+                """
+            )
+        )
+        var pairing: String = "auto"
+
         @Flag(
             name: .customLong("no-optimize-storage"),
             help: "Skip read reordering for storage optimization"
@@ -163,7 +176,7 @@ extension ImportCommand {
 
             // MARK: Detect pairs
 
-            let pairs: [SamplePair]
+            let detectedPairs: [SamplePair]
             let fm = FileManager.default
 
             if let samplesheet {
@@ -173,7 +186,7 @@ extension ImportCommand {
                     throw CLIExitCode.inputError.exitCode
                 }
                 do {
-                    pairs = try FASTQSampleSheet.parse(url: sheetURL).samplePairs()
+                    detectedPairs = try FASTQSampleSheet.parse(url: sheetURL).samplePairs()
                 } catch {
                     print(formatter.error("Could not parse sample sheet: \(error.localizedDescription)"))
                     throw CLIExitCode.formatError.exitCode
@@ -187,9 +200,9 @@ extension ImportCommand {
                 if exists && isDirectory.boolValue {
                     do {
                         if recursive {
-                            pairs = try FASTQBatchImporter.detectPairsFromDirectoryRecursive(inputURL)
+                            detectedPairs = try FASTQBatchImporter.detectPairsFromDirectoryRecursive(inputURL)
                         } else {
-                            pairs = try FASTQBatchImporter.detectPairsFromDirectory(inputURL)
+                            detectedPairs = try FASTQBatchImporter.detectPairsFromDirectory(inputURL)
                         }
                     } catch let batchError as BatchImportError {
                         print(formatter.error(batchError.errorDescription ?? batchError.localizedDescription))
@@ -200,7 +213,7 @@ extension ImportCommand {
                         print(formatter.error("Input not found: \(input[0])"))
                         throw CLIExitCode.inputError.exitCode
                     }
-                    pairs = FASTQBatchImporter.detectPairs(from: [inputURL])
+                    detectedPairs = FASTQBatchImporter.detectPairs(from: [inputURL])
                 }
             } else {
                 // Multiple arguments: treat as explicit file paths
@@ -213,8 +226,16 @@ extension ImportCommand {
                     }
                     fileURLs.append(url)
                 }
-                pairs = FASTQBatchImporter.detectPairs(from: fileURLs)
+                detectedPairs = FASTQBatchImporter.detectPairs(from: fileURLs)
             }
+
+            // MARK: Apply --pairing
+
+            guard let pairingChoice = FASTQBatchImporter.ImportPairing(rawValue: pairing.lowercased()) else {
+                print(formatter.error("Unknown pairing value '\(pairing)'. Valid: auto, single, paired, interleaved"))
+                throw CLIExitCode.inputError.exitCode
+            }
+            let pairs = FASTQBatchImporter.applyPairing(pairingChoice, to: detectedPairs)
 
             // MARK: Apply --name override
 
@@ -363,7 +384,8 @@ extension ImportCommand {
                 compressionLevel: compLevel,
                 threads: threadCount,
                 logDirectory: logDirURL,
-                forceReimport: force
+                forceReimport: force,
+                pairing: pairingChoice
             )
 
             if !dryRun {
