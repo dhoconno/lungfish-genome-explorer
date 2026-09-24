@@ -1080,24 +1080,14 @@ extension AppDelegate {
         let cancelFlag = OSAllocatedUnfairLock(initialState: false)
         let selectedImportProfile = selectedVCFImportProfile()
         let profileLabel = Self.importProfileLabel(selectedImportProfile)
-        var helperBaseURL = vcfURL
-        if helperBaseURL.pathExtension.lowercased() == "gz" {
-            helperBaseURL = helperBaseURL.deletingPathExtension()
-        }
-        if helperBaseURL.pathExtension.lowercased() == "vcf" {
-            helperBaseURL = helperBaseURL.deletingPathExtension()
-        }
-        let helperTrackID = helperBaseURL.lastPathComponent
+        let helperTrackID = VCFBundleVariantImport.trackID(forVCFURL: vcfURL)
         // FEA-12: `--vcf-import-helper` launches this same app executable as
-        // a background worker; it is not a `lungfish-cli` flag, and unlike
-        // BAM there is no `lungfish-cli import vcf` path that attaches to an
-        // existing bundle's variant database the way this helper does
-        // (`import vcf` only writes loose files to a plain output
-        // directory). Recording an invented command here would fail exactly
-        // like the flag it replaces, so leave `cliCommand` nil: the
-        // Operations panel hides "Copy CLI Command" for this row instead of
-        // showing one that cannot run.
-        let cliCmd: String? = nil
+        // a background worker and is not a `lungfish-cli` flag. Record the
+        // runnable equivalent, `lungfish-cli import vcf <path> --output-dir
+        // <bundle.lungfishref> --import-profile <profile>`, which attaches
+        // through the same `VCFBundleVariantImport` core this import uses.
+        let cliCmd: String? = VCFImportCLICommand.build(
+            vcfURL: vcfURL, bundleURL: bundleURL, importProfile: selectedImportProfile)
         let opID = OperationCenter.shared.start(
             title: "Importing \(vcfURL.lastPathComponent)",
             detail: "Importing VCF variants (\(profileLabel))...",
@@ -1115,7 +1105,7 @@ extension AppDelegate {
             let isCancelled: @Sendable () -> Bool = { cancelFlag.withLock { $0 } }
 
             let trackId = helperTrackID
-            let dbFilename = "\(trackId).db"
+            let dbFilename = VCFBundleVariantImport.databaseFilename(trackID: trackId)
             let variantsDir = bundleURL.appendingPathComponent("variants")
             let finalDBURL = variantsDir.appendingPathComponent(dbFilename)
             let stagingDirectory = variantsDir.appendingPathComponent(".import-\(opID.uuidString)", isDirectory: true)
@@ -1283,10 +1273,8 @@ extension AppDelegate {
                 // on very large databases.
                 let currentManifestForChrom = try BundleManifest.load(from: bundleURL)
                 var rwDB: VariantDatabase! = try VariantDatabase(url: dbURL, readWrite: true)
-                let vcfChroms = rwDB.allChromosomes()
-                let chromMapping = mapVCFChromosomes(vcfChroms, toBundleChromosomes: currentManifestForChrom.genome?.chromosomes ?? [])
+                let chromMapping = try VCFBundleVariantImport.normalizeChromosomes(in: rwDB, toBundle: currentManifestForChrom)
                 if !chromMapping.isEmpty {
-                    try rwDB.renameChromosomes(chromMapping)
                     debugLog("performVCFImport: Remapped chromosomes: \(chromMapping)")
                 }
                 if isCancelled() {
@@ -1317,30 +1305,18 @@ extension AppDelegate {
                     debugLog("performVCFImport: Materialization complete")
                 }
 
-                // `databasePath` is authoritative for VCF imports. The BCF
-                // fields are legacy manifest compatibility sentinels and must
-                // not be interpreted as generated BCF/CSI artifacts.
-                let trackInfo = VariantTrackInfo(
-                    id: trackId,
-                    name: vcfURL.deletingPathExtension().lastPathComponent,
-                    description: "Imported from \(vcfURL.lastPathComponent)",
-                    path: "variants/\(trackId).bcf",
-                    indexPath: "variants/\(trackId).bcf.csi",
-                    databasePath: "variants/\(dbFilename)",
-                    variantType: .mixed,
-                    variantCount: variantCount,
-                    source: "VCF Import"
-                )
+                // `databasePath` is authoritative for VCF imports (see
+                // `VCFBundleVariantImport.makeTrackInfo`).
+                let trackInfo = VCFBundleVariantImport.makeTrackInfo(
+                    trackID: trackId, vcfURL: vcfURL, variantCount: variantCount)
 
-                let provenanceRelativePath = "variants/\(trackId).lungfish-provenance.json"
+                let provenanceRelativePath = VCFBundleVariantImport.provenanceRelativePath(trackID: trackId)
                 let provenanceURL = bundleURL.appendingPathComponent(provenanceRelativePath)
-                let manifestURL = bundleURL.appendingPathComponent(BundleManifest.filename)
                 // Capture file ownership before consuming the manifest used to
                 // construct its replacement. A later edit must not be blessed
                 // by a fresh snapshot at publication time.
-                let filePublication = try ScientificFilePublicationTransaction(
-                    protectedURLs: [manifestURL] + ProvenancePublicationArtifacts.sidecarArtifacts(for: provenanceURL),
-                    fileDestinations: [manifestURL] + ProvenancePublicationArtifacts.sidecarArtifacts(for: provenanceURL))
+                let filePublication = try VCFBundleVariantImport.makeFilePublication(
+                    bundleURL: bundleURL, trackID: trackId)
                 var filePublicationTransferred = false
                 defer {
                     if !filePublicationTransferred { filePublication.commit() }
@@ -1351,15 +1327,8 @@ extension AppDelegate {
 
                 let updatedManifest = Self.vcfManifestReplacingTrack(trackInfo, in: currentManifest)
 
-                let createdAt = ISO8601DateFormatter().string(from: Date())
-                try rwDB.setMetadataValues([
-                    "workflow_provenance_path": provenanceRelativePath,
-                    "artifact_database_path": "variants/\(dbFilename)",
-                    "source_vcf_path": vcfURL.path,
-                    "source_vcf_name": vcfURL.lastPathComponent,
-                    "import_profile": selectedImportProfile.rawValue,
-                    "created_at": createdAt,
-                ])
+                try rwDB.setMetadataValues(VCFBundleVariantImport.finalizationMetadata(
+                    trackID: trackId, vcfURL: vcfURL, importProfile: selectedImportProfile))
 
                 // Release the private writer before taking the coherent final
                 // snapshot. Publication checkpoints the final database before hashing.
@@ -1478,40 +1447,16 @@ extension AppDelegate {
         provenanceWriter: ProvenanceWriter = ProvenanceWriter(signingProvider: nil),
         writeProvenance: (ProvenanceWriter) throws -> Void
     ) throws {
-        let stagingDirectory = databasePublication.staging.directory
-        let manifestURL = bundleURL.appendingPathComponent(BundleManifest.filename)
-        let files = try filePublication ?? ScientificFilePublicationTransaction(
-            protectedURLs: [manifestURL] + ProvenancePublicationArtifacts.sidecarArtifacts(for: provenanceURL),
-            fileDestinations: [manifestURL] + ProvenancePublicationArtifacts.sidecarArtifacts(for: provenanceURL)
+        try VCFBundleVariantImport.publish(
+            databasePublication: databasePublication,
+            bundleURL: bundleURL,
+            provenanceURL: provenanceURL,
+            updatedManifest: updatedManifest,
+            filePublication: filePublication,
+            shouldCancel: shouldCancel,
+            provenanceWriter: provenanceWriter,
+            writeProvenance: writeProvenance
         )
-        let observedWriter = provenanceWriter.observingPublications { try files.observe($0) }
-        do {
-            // Validate the captured manifest generation before changing the DB,
-            // not only when rollback becomes necessary.
-            try files.validateCurrentOwnership()
-            let manifestDirectory = stagingDirectory.appendingPathComponent("manifest-publication", isDirectory: true)
-            try FileManager.default.createDirectory(at: manifestDirectory, withIntermediateDirectories: true)
-            try updatedManifest.save(to: manifestDirectory)
-            try databasePublication.publish(beforeRollback: { try files.validateCurrentOwnership() }) {
-                if shouldCancel() { throw VariantDatabaseError.cancelled }
-                try writeProvenance(observedWriter)
-                if shouldCancel() { throw VariantDatabaseError.cancelled }
-                try files.publish(stagedURL: manifestDirectory.appendingPathComponent(BundleManifest.filename), to: manifestURL)
-                if shouldCancel() { throw VariantDatabaseError.cancelled }
-            }
-            files.commit()
-        } catch let recovery as OperationImportStaging.RecoveryRequired {
-            // The database is still current or its restoration is uncertain.
-            // Preserve its matching files and both recovery owners together.
-            throw recovery.retainingRecoveryURLs([files.recoveryDirectoryURL] + files.displacedArtifactURLs)
-        } catch {
-            let original = error
-            do { try files.rollback(after: original) }
-            catch let recovery as ScientificPublicationRecoveryRequired {
-                throw OperationImportStaging.RecoveryRequired(directory: stagingDirectory,
-                    originalError: original, restorationError: recovery, additionalRecoveryURLs: recovery.recoveryURLs)
-            }
-        }
     }
 
     private func selectedVCFImportProfile() -> VCFImportProfile {

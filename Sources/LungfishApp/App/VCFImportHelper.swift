@@ -282,11 +282,13 @@ public enum VCFImportHelper {
             "single-import start chrom=\(chromosome ?? "all") profile=\(importProfile.rawValue) outputDB=\(outputDBURL.lastPathComponent)",
             debugLogURL: debugLogURL
         )
-        let count = try VariantDatabase.createFromVCF(
+        // Shared with `lungfish-cli import vcf --output-dir <bundle>` (FEA-12).
+        let count = try VCFBundleVariantImport.createDatabase(
             vcfURL: vcfURL,
-            outputURL: outputDBURL,
-            parseGenotypes: true,
+            outputDBURL: outputDBURL,
             sourceFile: sourceFile,
+            importProfile: importProfile,
+            onlyChromosome: chromosome,
             progressHandler: { progress, message in
                 guard emitProgress else { return }
                 let msg: String
@@ -304,11 +306,7 @@ public enum VCFImportHelper {
                     profile: nil
                 ))
             },
-            shouldCancel: nil,
-            importProfile: importProfile,
-            deferIndexBuild: true,
-            partitionByChromosome: false,
-            onlyChromosome: chromosome
+            shouldCancel: nil
         )
         appendDebugLog(
             "single-import complete chrom=\(chromosome ?? "all") variants=\(count)",

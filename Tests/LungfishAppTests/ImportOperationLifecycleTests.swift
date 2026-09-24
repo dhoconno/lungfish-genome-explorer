@@ -2,6 +2,7 @@ import XCTest
 import SQLite3
 @testable import LungfishApp
 import LungfishKit
+import LungfishWorkflow
 
 @MainActor
 final class ImportOperationLifecycleTests: XCTestCase {

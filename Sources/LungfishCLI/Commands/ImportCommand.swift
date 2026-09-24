@@ -1041,12 +1041,18 @@ extension ImportCommand {
 
 // MARK: - VCF Import
 
+/// `--import-profile` accepts the `VCFImportProfile` raw values
+/// (`auto`, `low-memory`, `fast`, `ultra-low-memory`).
+extension VCFImportProfile: ExpressibleByArgument {}
+
 extension ImportCommand {
 
     /// Import a VCF variant file into a Lungfish project.
     ///
     /// Validates the VCF header, counts variants, and copies the file
-    /// (and companion index) to the output directory.
+    /// (and companion index) to the output directory. When the output
+    /// directory is an existing `.lungfishref` bundle, the variants are
+    /// attached to the bundle's variant database instead (FEA-12).
     struct VCFSubcommand: AsyncParsableCommand {
         static let configuration = CommandConfiguration(
             commandName: "vcf",
@@ -1058,9 +1064,21 @@ extension ImportCommand {
 
         @Option(
             name: [.customLong("output-dir"), .customShort("o")],
-            help: "Output project directory (default: current directory)"
+            help: "Output project directory, or an existing .lungfishref bundle to attach the variants to (default: current directory)"
         )
         var outputDir: String?
+
+        @Option(
+            name: .customLong("name"),
+            help: "Display name for the variant track when attaching to a .lungfishref bundle (default: filename)"
+        )
+        var name: String?
+
+        @Option(
+            name: .customLong("import-profile"),
+            help: "Variant database import profile when attaching to a .lungfishref bundle: auto, low-memory, fast, ultra-low-memory (default: auto)"
+        )
+        var importProfile: VCFImportProfile?
 
         @OptionGroup var globalOptions: GlobalOptions
 
@@ -1086,6 +1104,36 @@ extension ImportCommand {
             }
 
             let outputDirectory = resolveOutputDirectory(outputDir)
+
+            // FEA-12: an existing `.lungfishref` bundle gets the variants
+            // attached to its variant database through the same
+            // `VCFBundleVariantImport` core the GUI Import Center uses.
+            if outputDirectory.pathExtension.lowercased() == "lungfishref" {
+                guard FileManager.default.fileExists(
+                    atPath: outputDirectory.appendingPathComponent(BundleManifest.filename).path
+                ) else {
+                    print(formatter.error(
+                        "\(outputDir ?? outputDirectory.path) looks like a .lungfishref bundle path, but no bundle exists there yet. "
+                            + "Create the reference bundle first, then attach the VCF to it."
+                    ))
+                    throw CLIExitCode.inputError.exitCode
+                }
+                guard ext == "vcf" else {
+                    print(formatter.error("Only .vcf or .vcf.gz files can be attached to a .lungfishref bundle."))
+                    throw CLIExitCode.formatError.exitCode
+                }
+                try runAttachToExistingBundle(
+                    inputURL: inputURL,
+                    bundleURL: outputDirectory,
+                    formatter: formatter,
+                    startedAt: startedAt
+                )
+                return
+            }
+            if name != nil || importProfile != nil {
+                print(formatter.error("--name and --import-profile apply only when --output-dir is an existing .lungfishref bundle."))
+                throw CLIExitCode.inputError.exitCode
+            }
 
             print(formatter.header("VCF Import"))
             print("")
@@ -1180,6 +1228,145 @@ extension ImportCommand {
                 removeCreatedImportArtifacts(createdArtifacts)
                 throw error
             }
+        }
+
+        /// Attaches `inputURL` to an existing bundle's variant database as
+        /// `variants/<track>.db`, updates the manifest's variant tracks and
+        /// writes `variants/<track>.lungfish-provenance.json`.
+        private func runAttachToExistingBundle(
+            inputURL: URL,
+            bundleURL: URL,
+            formatter: TerminalFormatter,
+            startedAt: Date
+        ) throws {
+            let profile = importProfile ?? .auto
+            print(formatter.header("VCF Import"))
+            print("")
+            print(formatter.keyValueTable([
+                ("Input", inputURL.lastPathComponent),
+                ("Bundle", bundleURL.path),
+                ("Import profile", profile.rawValue),
+            ]))
+            print("")
+
+            let quiet = globalOptions.quiet
+            let command = vcfAttachCommand(inputURL: inputURL, bundleURL: bundleURL)
+            let request = VCFBundleVariantImport.Request(
+                vcfURL: inputURL,
+                bundleURL: bundleURL,
+                trackName: name,
+                importProfile: profile
+            )
+            let result: VCFBundleVariantImport.Result
+            do {
+                result = try VCFBundleVariantImport.attachInProcess(
+                    request,
+                    progressHandler: { _, message in
+                        guard !quiet else { return }
+                        print(formatter.info(message))
+                    },
+                    makeProvenance: { context in
+                        try Self.vcfAttachProvenance(context: context, command: command, startedAt: startedAt)
+                    }
+                )
+            } catch {
+                print(formatter.error("VCF attach failed: \(error.localizedDescription)"))
+                throw CLIExitCode.failure.exitCode
+            }
+            if let warning = result.cleanupWarning {
+                print(formatter.warning(warning))
+            }
+
+            print("")
+            print(formatter.header("Summary"))
+            print("")
+            print(formatter.keyValueTable([
+                ("Track ID", result.trackInfo.id),
+                ("Track name", result.trackInfo.name),
+                ("Variants", formatNumber(Int64(result.variantCount))),
+                ("Database", result.trackInfo.databasePath ?? ""),
+                ("Renamed chromosomes", String(result.chromosomeMapping.count)),
+            ]))
+            print("")
+            print(formatter.success("VCF import complete: attached '\(result.trackInfo.name)' to \(bundleURL.lastPathComponent)"))
+        }
+
+        private func vcfAttachCommand(inputURL: URL, bundleURL: URL) -> [String] {
+            var command = [CLICommandIdentity.executableName, "import", "vcf", inputURL.path, "--output-dir", bundleURL.path]
+            if let name {
+                command += ["--name", name]
+            }
+            if let importProfile {
+                command += ["--import-profile", importProfile.rawValue]
+            }
+            if globalOptions.quiet {
+                command.append("--quiet")
+            }
+            if globalOptions.noColor {
+                command.append("--no-color")
+            }
+            return command
+        }
+
+        static func vcfAttachProvenance(
+            context: VCFBundleVariantImport.ProvenanceContext,
+            command: [String],
+            startedAt: Date
+        ) throws -> ProvenanceEnvelope {
+            let request = context.request
+            let toolVersion = "lungfish-cli \(LungfishCLI.configuration.version)"
+            let input = try ProvenanceFileDescriptor.file(url: request.vcfURL, format: .vcf, role: .input)
+            let output = try ProvenanceFileDescriptor.file(url: context.databaseURL, format: .unknown, role: .output)
+            let completedAt = Date()
+            let step = ProvenanceStep(
+                toolName: "lungfish import vcf",
+                toolVersion: toolVersion,
+                argv: command,
+                inputs: [input],
+                outputs: [output],
+                exitStatus: 0,
+                wallTimeSeconds: completedAt.timeIntervalSince(startedAt),
+                stderr: nil,
+                startedAt: startedAt,
+                completedAt: completedAt
+            )
+            return ProvenanceEnvelope(
+                createdAt: startedAt,
+                workflowName: "lungfish import vcf",
+                toolName: "lungfish import vcf",
+                toolVersion: toolVersion,
+                argv: command,
+                durableReplayArgv: command,
+                options: ProvenanceOptions(
+                    explicit: [
+                        "vcfPath": .file(request.vcfURL),
+                        "bundlePath": .file(request.bundleURL),
+                        "importProfile": .string(request.importProfile.rawValue),
+                    ],
+                    defaults: [
+                        "trackName": .string(VCFBundleVariantImport.defaultTrackName(forVCFURL: request.vcfURL)),
+                        "outputDirectory": .string("variants"),
+                    ],
+                    resolvedDefaults: [
+                        "trackId": .string(context.trackInfo.id),
+                        "trackName": .string(context.trackInfo.name),
+                        "variantCount": .integer(context.variantCount),
+                        "databasePath": .string(VCFBundleVariantImport.databaseRelativePath(trackID: context.trackInfo.id)),
+                        "workflowProvenancePath": .string(VCFBundleVariantImport.provenanceRelativePath(trackID: context.trackInfo.id)),
+                        "referenceBundleIdentifier": .string(context.originalManifest.identifier),
+                        "referenceBundleName": .string(context.originalManifest.name),
+                        "legacyBCFManifestFieldsAreSentinels": .boolean(true),
+                    ]
+                ),
+                runtimeIdentity: ProvenanceRuntimeIdentity(),
+                files: [input, output],
+                output: output,
+                outputs: [output],
+                steps: [step],
+                wallTimeSeconds: completedAt.timeIntervalSince(startedAt),
+                exitStatus: 0,
+                stderr: nil
+            )
         }
 
         /// Copies a companion index file (.tbi, .csi) if one exists next to the input.
