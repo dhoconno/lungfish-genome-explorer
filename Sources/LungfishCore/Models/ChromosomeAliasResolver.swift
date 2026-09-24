@@ -40,11 +40,28 @@ public struct ChromosomeAliasResolver: Sendable, Equatable {
     /// Reverse mapping: reference chromosome name -> source chromosome name.
     public let referenceToSource: [String: String]
 
+    /// Source chromosome names resolved only by length (Strategy 9): no exact,
+    /// alias, version-stripped, chr-prefix, synonym, fuzzy-prefix or
+    /// FASTA-description match was found, so the mapping rests solely on
+    /// sequence length (or, with proportional matching, on the furthest
+    /// variant/alignment position as a length proxy) (SCI-14). Callers that
+    /// display or act on a mapped track should surface these to the user
+    /// rather than silently trusting a length coincidence.
+    public let lengthMatchedSources: Set<String>
+
     /// The number of aliases in this resolver.
     public var count: Int { sourceToReference.count }
 
     /// Whether this resolver has no aliases (all names matched exactly).
     public var isEmpty: Bool { sourceToReference.isEmpty }
+
+    /// True if `sourceChromosome` was mapped by name (exact, alias, version,
+    /// chr-prefix, synonym or description match) rather than by length alone.
+    /// A name unknown to this resolver (no mapping at all) is also
+    /// considered non-length-matched.
+    public func isNameMatched(_ sourceChromosome: String) -> Bool {
+        !lengthMatchedSources.contains(sourceChromosome)
+    }
 
     // MARK: - Initialization
 
@@ -53,12 +70,15 @@ public struct ChromosomeAliasResolver: Sendable, Equatable {
     /// - Parameters:
     ///   - sourceToReference: Map from source chromosome names to reference names.
     ///   - referenceToSource: Map from reference chromosome names to source names.
+    ///   - lengthMatchedSources: Source names mapped only by length, not name.
     public init(
         sourceToReference: [String: String],
-        referenceToSource: [String: String]
+        referenceToSource: [String: String],
+        lengthMatchedSources: Set<String> = []
     ) {
         self.sourceToReference = sourceToReference
         self.referenceToSource = referenceToSource
+        self.lengthMatchedSources = lengthMatchedSources
     }
 
     /// An empty resolver that performs no aliasing.
@@ -258,6 +278,7 @@ public struct ChromosomeAliasResolver: Sendable, Equatable {
         var refToSource: [String: String] = [:]
         var matchedSources = Set<String>()
         var matchedRefs = Set<String>()
+        var lengthMatchedSources = Set<String>()
 
         // Track reference chromosomes that are "claimed" by exact source name matches.
         // These should not be available for length-based matching.
@@ -454,13 +475,15 @@ public struct ChromosomeAliasResolver: Sendable, Equatable {
 
                 if let match = bestMatch {
                     record(source: match, reference: ref.name)
+                    lengthMatchedSources.insert(match)
                 }
             }
         }
 
         return ChromosomeAliasResolver(
             sourceToReference: sourceToRef,
-            referenceToSource: refToSource
+            referenceToSource: refToSource,
+            lengthMatchedSources: lengthMatchedSources
         )
     }
 

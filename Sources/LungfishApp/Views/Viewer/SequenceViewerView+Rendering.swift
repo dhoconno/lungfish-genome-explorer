@@ -959,9 +959,16 @@ extension SequenceViewerView {
     /// Builds a map from reference chromosome names to variant DB chromosome names.
     ///
     /// When a VCF uses different chromosome naming (e.g., "7" vs "NC_041760.1"),
-    /// this method matches chromosomes by comparing reference lengths to variant
-    /// database max positions. A VCF chromosome matches a reference chromosome
-    /// if its max variant position is within 1% of the reference length.
+    /// this delegates to the shared ``ChromosomeAliasResolver`` (SCI-14,
+    /// SIMP-07): exact match, known alias, version-suffix stripping, `chr`
+    /// prefix, well-known synonyms and FASTA-description matching are all
+    /// tried before falling back to length. The previous implementation had
+    /// its own separate length-matching logic (contig length within 10bp, or
+    /// MAX(position) within 5-20% of the reference length) that could
+    /// silently pick a wrong contig purely because the lengths happened to
+    /// be close; any mapping this resolver makes by length alone is now
+    /// logged individually by name, not folded into a summary count, so it
+    /// is easy to notice and to check against the loaded VCF.
     nonisolated static func buildVariantChromosomeAliasMap(
         bundleChromosomes: [ChromosomeInfo],
         variantDB: VariantDatabase,
@@ -975,81 +982,55 @@ extension SequenceViewerView {
         let unmatched = vcfChroms.subtracting(refChromNames)
         if unmatched.isEmpty { return [:] }
 
-        var aliasMap: [String: String] = [:]  // ref name → VCF name
-        var usedVCFChroms = Set<String>()
+        let vcfContigLengths = variantDB.contigLengths()
+        let vcfMaxPositions: [String: Int] = includeMaxPositionFallback
+            ? variantDB.chromosomeMaxPositions()
+            : [:]
 
-        // Strategy 1: Name-based matching (fast, reliable with populated aliases)
-        // mapVCFChromosomes checks: exact match, aliases, version stripping, chr prefix,
-        // fuzzy prefix, and FASTA description matching
-        let nameMap = mapVCFChromosomes(Array(unmatched), toBundleChromosomes: bundleChromosomes)
-        // nameMap is [vcfChrom: bundleName] — invert to [bundleName: vcfChrom]
-        for (vcfChrom, bundleName) in nameMap {
-            if aliasMap[bundleName] == nil {
-                aliasMap[bundleName] = vcfChrom
-                usedVCFChroms.insert(vcfChrom)
-            }
+        let sourceChromosomes = unmatched.map { name -> ChromosomeAliasResolver.SourceChromosome in
+            // Prefer the VCF's own ##contig length; only fall back to the
+            // furthest observed variant position (a length proxy, not a
+            // measurement) when no contig header length is available.
+            let length = vcfContigLengths[name] ?? vcfMaxPositions[name].map(Int64.init)
+            return ChromosomeAliasResolver.SourceChromosome(name: name, length: length)
         }
 
-        // Strategy 2: Length-based matching for any remaining unmatched chromosomes.
-        // Uses VCF ##contig header lengths and optionally MAX(end_pos) as fallback.
-        let afterNameMatching = unmatched.subtracting(usedVCFChroms)
-        if !afterNameMatching.isEmpty {
-            let vcfContigLengths = variantDB.contigLengths()
-            let vcfMaxPositions: [String: Int]
-            if includeMaxPositionFallback && vcfContigLengths.isEmpty {
-                vcfMaxPositions = variantDB.chromosomeMaxPositions()
-            } else {
-                vcfMaxPositions = [:]
-            }
+        // MAX(position) is a lower bound on the true reference length, so it
+        // can only ever be matched with the proportional (non-exact)
+        // tolerance, never treated as if it were a real contig length.
+        let lengthConfig = ChromosomeAliasResolver.LengthMatchingConfig(
+            exactTolerance: 10,
+            allowProportionalMatch: includeMaxPositionFallback
+        )
 
-            for chrom in bundleChromosomes {
-                if vcfChroms.contains(chrom.name) { continue }
-                if aliasMap[chrom.name] != nil { continue }  // Already matched by name
+        let resolver = ChromosomeAliasResolver.build(
+            bundleChromosomes: bundleChromosomes,
+            sourceChromosomes: sourceChromosomes,
+            lengthConfig: lengthConfig
+        )
 
-                var bestMatch: String?
-                var bestDelta = Int64.max
+        // referenceToSource is already [bundle name → VCF name], the shape
+        // this function has always returned.
+        let aliasMap = resolver.referenceToSource
 
-                for vcfChrom in afterNameMatching where !usedVCFChroms.contains(vcfChrom) {
-                    if let contigLength = vcfContigLengths[vcfChrom] {
-                        let delta = abs(chrom.length - contigLength)
-                        guard delta <= 10 else { continue }
-                        if delta < bestDelta {
-                            bestDelta = delta
-                            bestMatch = vcfChrom
-                        }
-                    } else if let maxPos = vcfMaxPositions[vcfChrom] {
-                        let maxPos64 = Int64(maxPos)
-                        guard maxPos64 <= chrom.length else { continue }
-                        let delta = chrom.length - maxPos64
-                        let tolerance = chrom.length > 1_000_000
-                            ? chrom.length / 20
-                            : chrom.length / 5
-                        guard delta < tolerance else { continue }
-                        if delta < bestDelta {
-                            bestDelta = delta
-                            bestMatch = vcfChrom
-                        }
-                    }
-                }
-
-                if let match = bestMatch {
-                    aliasMap[chrom.name] = match
-                    usedVCFChroms.insert(match)
-                }
-            }
-        }
-
-        // Warn if we still have unmatched chromosomes
-        let finalUnmatched = unmatched.subtracting(usedVCFChroms)
+        let finalUnmatched = unmatched.subtracting(Set(aliasMap.values))
         if aliasMap.isEmpty && !finalUnmatched.isEmpty {
             let vcfSample = Array(finalUnmatched.prefix(3)).joined(separator: ", ")
             let refSample = Array(bundleChromosomes.prefix(3).map(\.name)).joined(separator: ", ")
             sequenceViewerLogger.warning("buildVariantChromosomeAliasMap: Could not match VCF chromosomes [\(vcfSample)] to reference chromosomes [\(refSample)] — variant queries may return empty results")
         }
 
+        // SCI-14: surface every length-only mapping individually. A VCF
+        // shown against the wrong, similarly-sized contig has REF alleles
+        // that will not match the displayed sequence, so this must not be
+        // silent or buried in a count.
+        for (refName, vcfName) in aliasMap where resolver.lengthMatchedSources.contains(vcfName) {
+            sequenceViewerLogger.warning("buildVariantChromosomeAliasMap: VCF contig '\(vcfName, privacy: .public)' shown on reference contig '\(refName, privacy: .public)' by LENGTH MATCH ONLY (no name/alias/version match found) — verify this is the intended contig; REF alleles may not match the displayed sequence")
+        }
+
         if !aliasMap.isEmpty {
-            let nameMatchCount = nameMap.count
-            let lengthMatchCount = aliasMap.count - nameMatchCount
+            let lengthMatchCount = aliasMap.values.filter(resolver.lengthMatchedSources.contains).count
+            let nameMatchCount = aliasMap.count - lengthMatchCount
             let mode = includeMaxPositionFallback ? "full" : "fast"
             sequenceViewerLogger.info("buildVariantChromosomeAliasMap[\(mode, privacy: .public)]: Built \(aliasMap.count) chromosome aliases (\(nameMatchCount) name-based, \(lengthMatchCount) length-based) (e.g., \(aliasMap.first?.key ?? "") → \(aliasMap.first?.value ?? ""))")
         }
