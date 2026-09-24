@@ -1,6 +1,7 @@
 import XCTest
 @testable import LungfishApp
 @testable import LungfishCore
+@testable import LungfishIO
 @testable import LungfishWorkflow
 
 final class MappingDocumentStateBuilderTests: XCTestCase {
@@ -120,6 +121,99 @@ final class MappingDocumentStateBuilderTests: XCTestCase {
             "Legacy Alignment Result",
             "Mapping Provenance"
         ])
+    }
+
+    /// An interleaved `.lungfishfastq` reaches minimap2 as ONE file, so the
+    /// request's `pairedEnd` flag is false even though `-x sr` pairs the
+    /// mates (the BAM is properly paired). The Inspector must not say "No".
+    func testPairedEndRowReflectsInterleavedInputForMinimap2() throws {
+        let projectURL = tempRoot.appendingPathComponent("project", isDirectory: true)
+        let inputFASTQ = projectURL.appendingPathComponent("Imports/HG002.lungfishfastq/HG002.fastq.gz")
+        let referenceFASTA = projectURL.appendingPathComponent("References/reference.fa")
+        let outputDirectory = projectURL.appendingPathComponent("Analyses/minimap2-run", isDirectory: true)
+        try FileManager.default.createDirectory(at: inputFASTQ.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: referenceFASTA.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: outputDirectory, withIntermediateDirectories: true)
+        try Data().write(to: inputFASTQ)
+        try ">chr1\nACGT\n".write(to: referenceFASTA, atomically: true, encoding: .utf8)
+        FASTQMetadataStore.save(
+            PersistedFASTQMetadata(ingestion: IngestionMetadata(pairingMode: .interleaved)),
+            for: inputFASTQ
+        )
+
+        let request = MappingRunRequest(
+            tool: .minimap2,
+            modeID: MappingMode.defaultShortRead.id,
+            inputFASTQURLs: [inputFASTQ],
+            referenceFASTAURL: referenceFASTA,
+            projectURL: projectURL,
+            outputDirectory: outputDirectory,
+            sampleName: "HG002",
+            pairedEnd: false,
+            threads: 4,
+            includeSecondary: false,
+            includeSupplementary: true,
+            minimumMappingQuality: 0,
+            advancedArguments: []
+        )
+        let result = MappingResult(
+            mapper: .minimap2,
+            modeID: request.modeID,
+            bamURL: outputDirectory.appendingPathComponent("HG002.sorted.bam"),
+            baiURL: outputDirectory.appendingPathComponent("HG002.sorted.bam.bai"),
+            totalReads: 91_148,
+            mappedReads: 90_935,
+            unmappedReads: 213,
+            wallClockSeconds: 4,
+            contigs: []
+        )
+        let provenance = MappingProvenance.build(
+            request: request,
+            result: result,
+            mapperInvocation: try MappingProvenance.mapperInvocation(
+                for: request,
+                referenceLocator: ReferenceLocator(
+                    referenceURL: referenceFASTA,
+                    indexPrefixURL: outputDirectory.appendingPathComponent("reference-index")
+                )
+            ),
+            normalizationInvocations: [],
+            mapperVersion: "2.31",
+            samtoolsVersion: "1.24"
+        )
+        XCTAssertFalse(provenance.pairedEnd)
+
+        let state = MappingDocumentStateBuilder.build(result: result, provenance: provenance, projectURL: projectURL)
+        let pairedEndRow = try XCTUnwrap(state.contextRows.first { $0.0 == "Paired End" })
+        XCTAssertEqual(pairedEndRow.1, "Yes (interleaved)")
+
+        // Without the sidecar the label falls back to the request flag.
+        FASTQMetadataStore.delete(for: inputFASTQ)
+        let fallbackState = MappingDocumentStateBuilder.build(result: result, provenance: provenance, projectURL: projectURL)
+        XCTAssertEqual(fallbackState.contextRows.first { $0.0 == "Paired End" }?.1, "No")
+    }
+
+    func testPairedEndDescriptionCoversMapperInterleaveBehaviour() {
+        XCTAssertEqual(
+            MappingDocumentStateBuilder.pairedEndDescription(pairedEnd: true, mapper: .bowtie2, inputPairingMode: .pairedEnd),
+            "Yes"
+        )
+        XCTAssertEqual(
+            MappingDocumentStateBuilder.pairedEndDescription(pairedEnd: false, mapper: .minimap2, inputPairingMode: .singleEnd),
+            "No"
+        )
+        XCTAssertEqual(
+            MappingDocumentStateBuilder.pairedEndDescription(pairedEnd: false, mapper: .bbmap, inputPairingMode: .interleaved),
+            "Yes (interleaved)"
+        )
+        XCTAssertEqual(
+            MappingDocumentStateBuilder.pairedEndDescription(pairedEnd: false, mapper: .bwaMem2, inputPairingMode: .interleaved),
+            "No (interleaved input mapped as single-end)"
+        )
+        XCTAssertEqual(
+            MappingDocumentStateBuilder.pairedEndDescription(pairedEnd: false, mapper: .bowtie2, inputPairingMode: nil),
+            "No"
+        )
     }
 
     func testBuildFallsBackDeterministicallyWithoutProvenance() throws {

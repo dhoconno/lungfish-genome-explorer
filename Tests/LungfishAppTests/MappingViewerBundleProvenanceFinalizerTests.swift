@@ -343,6 +343,226 @@ final class MappingViewerBundleProvenanceFinalizerTests: XCTestCase {
         ), "ACGT")
     }
 
+    /// Regression for the 2026-09-24 "Reference bundle viewer unavailable"
+    /// report: a source reference bundle carrying a VCF-import variant track
+    /// (database authoritative, `.bcf`/`.bcf.csi` manifest fields are legacy
+    /// sentinels that never exist on disk) must still publish a mapping viewer.
+    /// Before the fix the publication plan opened every declared variant path
+    /// and failed the whole mapping operation with "unsafe payload path".
+    func testPreparedCandidateWithDatabaseOnlyVariantTrackPublishesViewer() async throws {
+        let scaffold = try MappingViewerScaffold.make(
+            rootURL: tempDirectory,
+            payloadKind: .plainFASTA,
+            preparer: { source, candidate in
+                try MappingViewerBundlePreparer.prepareBaseBundle(
+                    sourceBundleURL: source,
+                    viewerBundleURL: candidate
+                )
+            }
+        )
+        defer { scaffold.cleanUp() }
+
+        // Mirror `lungfish import vcf` into the source bundle: only the SQLite
+        // database exists; the BCF/CSI paths are manifest sentinels.
+        let benchmarkVCF = scaffold.projectRootURL.appendingPathComponent("HG002.benchmark.vcf.gz")
+        let sentinelTrack = VCFBundleVariantImport.makeTrackInfo(
+            trackID: "HG002.benchmark",
+            vcfURL: benchmarkVCF,
+            variantCount: 961
+        )
+        let sourceVariantsDir = scaffold.sourceBundleURL.appendingPathComponent("variants", isDirectory: true)
+        try FileManager.default.createDirectory(at: sourceVariantsDir, withIntermediateDirectories: true)
+        let databasePath = try XCTUnwrap(sentinelTrack.databasePath)
+        try Data("variant-db".utf8).write(to: scaffold.sourceBundleURL.appendingPathComponent(databasePath))
+        XCTAssertFalse(FileManager.default.fileExists(
+            atPath: scaffold.sourceBundleURL.appendingPathComponent(sentinelTrack.path).path
+        ))
+        try BundleManifest.load(from: scaffold.sourceBundleURL)
+            .addingVariantTrack(sentinelTrack)
+            .save(to: scaffold.sourceBundleURL)
+
+        let resultDirectory = scaffold.viewerBundleURL.deletingLastPathComponent()
+        let candidateBundle = resultDirectory.appendingPathComponent(
+            ".src.candidate.lungfishref",
+            isDirectory: true
+        )
+        let finalBundle = resultDirectory.appendingPathComponent("src.lungfishref", isDirectory: true)
+        let fixtureBAM = packageRoot().appendingPathComponent(
+            "Tests/Fixtures/sarscov2/test.paired_end.sorted.bam"
+        )
+        let bamURL = resultDirectory.appendingPathComponent("Sample.sorted.bam")
+        let baiURL = bamURL.appendingPathExtension("bai")
+        try FileManager.default.copyItem(at: fixtureBAM, to: bamURL)
+        try FileManager.default.copyItem(at: fixtureBAM.appendingPathExtension("bai"), to: baiURL)
+
+        let initialResult = MappingResult(
+            mapper: .minimap2,
+            modeID: "short-read-default",
+            sourceReferenceBundleURL: scaffold.sourceBundleURL,
+            bamURL: bamURL,
+            baiURL: baiURL,
+            totalReads: 1,
+            mappedReads: 1,
+            unmappedReads: 0,
+            wallClockSeconds: 1,
+            contigs: []
+        )
+        try initialResult.save(to: resultDirectory)
+        try MappingProvenance(
+            mapper: .minimap2,
+            modeID: "short-read-default",
+            sampleName: "Sample",
+            pairedEnd: false,
+            threads: 1,
+            minimumMappingQuality: 0,
+            includeSecondary: true,
+            includeSupplementary: true,
+            advancedArguments: [],
+            inputFASTQURLs: [],
+            referenceFASTAURL: scaffold.sourceBundleURL.appendingPathComponent("genome/sequence.fa"),
+            sourceReferenceBundleURL: scaffold.sourceBundleURL,
+            mapperInvocation: MappingCommandInvocation(label: "minimap2", argv: ["minimap2", "-a"]),
+            normalizationInvocations: [],
+            mapperVersion: "test",
+            samtoolsVersion: "test",
+            wallClockSeconds: 1,
+            exitStatus: 0
+        ).save(to: resultDirectory)
+        try writeInitialCanonicalMappingProvenance(
+            resultDirectory: resultDirectory,
+            bamURL: bamURL,
+            baiURL: baiURL
+        )
+
+        // Same sequence as AppDelegate.prepareMappingViewerBundleIfPossible.
+        try MappingViewerBundlePreparer.prepareBaseBundle(
+            sourceBundleURL: scaffold.sourceBundleURL,
+            viewerBundleURL: candidateBundle
+        )
+        _ = try await BAMImportService.importBAM(
+            bamURL: bamURL,
+            bundleURL: candidateBundle,
+            name: "minimap2 Mapping"
+        )
+        let preparedResult = initialResult.withViewerBundle(
+            viewerBundleURL: finalBundle,
+            sourceReferenceBundleURL: scaffold.sourceBundleURL
+        )
+        try MappingViewerBundlePublicationService.publishCandidate(
+            candidateBundleURL: candidateBundle,
+            finalBundleURL: finalBundle
+        ) { publishedBundleURL, publicationPlan in
+            try MappingViewerBundlePublicationService.publish(
+                result: preparedResult,
+                resultDirectoryURL: resultDirectory,
+                sourceReferenceBundleURL: scaffold.sourceBundleURL,
+                viewerBundleURL: publishedBundleURL,
+                viewerPublicationPlan: publicationPlan
+            )
+        }
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: finalBundle.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: candidateBundle.path))
+        let storedResult = try MappingResult.load(from: resultDirectory)
+        XCTAssertEqual(storedResult.viewerBundleURL?.standardizedFileURL, finalBundle.standardizedFileURL)
+        let viewportInput = ReferenceBundleViewportInput.mappingResult(
+            result: storedResult,
+            resultDirectoryURL: resultDirectory,
+            provenance: MappingProvenance.load(from: resultDirectory)
+        )
+        XCTAssertEqual(viewportInput.renderedBundleURL, finalBundle.standardizedFileURL)
+
+        let viewerManifest = try BundleManifest.load(from: finalBundle)
+        XCTAssertEqual(viewerManifest.alignments.map(\.name), ["minimap2 Mapping"])
+        XCTAssertTrue(viewerManifest.variants.contains { $0.id == sentinelTrack.id })
+        XCTAssertTrue(FileManager.default.fileExists(
+            atPath: finalBundle.appendingPathComponent(databasePath).path
+        ))
+
+        let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(from: resultDirectory))
+        let publicationStep = try XCTUnwrap(envelope.steps.last)
+        XCTAssertEqual(publicationStep.exitStatus, 0)
+        XCTAssertTrue(publicationStep.outputs.contains {
+            $0.path == finalBundle.appendingPathComponent(databasePath).path
+        })
+        XCTAssertTrue(publicationStep.inputs.contains {
+            $0.path == scaffold.sourceBundleURL.appendingPathComponent(databasePath).path
+        })
+        XCTAssertFalse(
+            (publicationStep.inputs + publicationStep.outputs).contains { $0.path.hasSuffix(".bcf") || $0.path.hasSuffix(".bcf.csi") },
+            "Sentinel BCF paths must not be recorded as payloads"
+        )
+    }
+
+    func testPublishSkipsLegacyBCFSentinelsForDatabaseBackedVariantTracks() throws {
+        let fixture = try makeFixture()
+        let sentinelTrack = VCFBundleVariantImport.makeTrackInfo(
+            trackID: "benchmark",
+            vcfURL: tempDirectory.appendingPathComponent("benchmark.vcf.gz"),
+            variantCount: 3
+        )
+        let databasePath = try XCTUnwrap(sentinelTrack.databasePath)
+        for bundle in [fixture.sourceBundle, fixture.viewerBundle] {
+            try Data("benchmark-db".utf8).write(to: bundle.appendingPathComponent(databasePath))
+            try BundleManifest.load(from: bundle).addingVariantTrack(sentinelTrack).save(to: bundle)
+        }
+
+        try MappingViewerBundlePublicationService.publish(
+            result: fixture.preparedResult,
+            resultDirectoryURL: fixture.resultDirectory,
+            sourceReferenceBundleURL: fixture.sourceBundle,
+            viewerBundleURL: fixture.viewerBundle
+        )
+
+        let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(from: fixture.resultDirectory))
+        let publicationStep = try XCTUnwrap(envelope.steps.last)
+        let recordedPaths = Set((publicationStep.inputs + publicationStep.outputs).map(\.path))
+        XCTAssertTrue(recordedPaths.contains(fixture.viewerBundle.appendingPathComponent(databasePath).path))
+        XCTAssertTrue(recordedPaths.contains(fixture.sourceBundle.appendingPathComponent(databasePath).path))
+        XCTAssertFalse(recordedPaths.contains(fixture.viewerBundle.appendingPathComponent(sentinelTrack.path).path))
+        XCTAssertFalse(recordedPaths.contains(fixture.viewerBundle.appendingPathComponent(sentinelTrack.indexPath).path))
+        // The materialized variant track from the fixture is still fully recorded.
+        XCTAssertTrue(recordedPaths.contains(fixture.viewerBundle.appendingPathComponent("variants/calls.bcf").path))
+        XCTAssertEqual(
+            try MappingResult.load(from: fixture.resultDirectory).viewerBundleURL?.standardizedFileURL,
+            fixture.viewerBundle.standardizedFileURL
+        )
+    }
+
+    func testPublishReportsMissingRequiredVariantPayloadAsMissingPayload() throws {
+        let fixture = try makeFixture()
+        // A variant track WITHOUT a database has nothing else to serve from,
+        // so a missing payload stays fatal, but it must be reported as
+        // missing rather than as an unsafe path.
+        let payloadOnlyTrack = VariantTrackInfo(
+            id: "payload-only",
+            name: "Payload Only",
+            path: "variants/payload-only.vcf.gz",
+            indexPath: "variants/payload-only.vcf.gz.tbi"
+        )
+        try BundleManifest.load(from: fixture.viewerBundle)
+            .addingVariantTrack(payloadOnlyTrack)
+            .save(to: fixture.viewerBundle)
+
+        XCTAssertThrowsError(
+            try MappingViewerBundlePublicationService.publish(
+                result: fixture.preparedResult,
+                resultDirectoryURL: fixture.resultDirectory,
+                sourceReferenceBundleURL: fixture.sourceBundle,
+                viewerBundleURL: fixture.viewerBundle
+            )
+        ) { error in
+            guard case MappingViewerBundlePublicationError.missingViewerPayload(let url) = error else {
+                return XCTFail("Unexpected error: \(error)")
+            }
+            XCTAssertEqual(
+                url.standardizedFileURL,
+                fixture.viewerBundle.appendingPathComponent(payloadOnlyTrack.path).standardizedFileURL
+            )
+        }
+        XCTAssertNil(try MappingResult.load(from: fixture.resultDirectory).viewerBundleURL)
+    }
+
     func testFreshlyBuiltAppDisplaysPublishedMaterializedMappingViewer() async throws {
         guard let appPath = ProcessInfo.processInfo.environment["LUNGFISH_UI_TEST_APP_PATH"],
               !appPath.isEmpty
