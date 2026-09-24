@@ -14,12 +14,12 @@ final class AppShellAccessibilityTests: XCTestCase {
 
         let appMenu = try XCTUnwrap(mainMenu.items.first?.submenu)
         let aboutItem = try XCTUnwrap(appMenu.items.first(where: { $0.title == "About Lungfish Genome Explorer" }))
-        let settingsItem = try XCTUnwrap(appMenu.items.first(where: { $0.title == "Settings..." }))
+        let settingsItem = try XCTUnwrap(appMenu.items.first(where: { $0.title == "Settings…" }))
         XCTAssertEqual(aboutItem.identifier?.rawValue, "main-menu-about")
         XCTAssertEqual(settingsItem.identifier?.rawValue, "main-menu-settings")
 
         let fileMenu = try XCTUnwrap(mainMenu.items.first(where: { $0.title == "File" })?.submenu)
-        let openProjectFolderItem = try XCTUnwrap(fileMenu.items.first(where: { $0.title == "Open Project Folder..." }))
+        let openProjectFolderItem = try XCTUnwrap(fileMenu.items.first(where: { $0.title == "Open Project Folder…" }))
         let importCenterItem = try XCTUnwrap(fileMenu.items.first(where: { $0.title == "Import Center…" }))
         let manageProjectStorageItem = try XCTUnwrap(fileMenu.items.first(where: { $0.title == "Manage Project Storage…" }))
         XCTAssertEqual(openProjectFolderItem.identifier?.rawValue, "file-menu-open-project-folder")
@@ -55,7 +55,7 @@ final class AppShellAccessibilityTests: XCTestCase {
         let aiGuideItem = try XCTUnwrap(helpMenu.items.first(where: { $0.title == "AI Assistant Guide" }))
         let documentationItem = try XCTUnwrap(helpMenu.items.first(where: { $0.title == "Documentation" }))
         let releaseNotesItem = try XCTUnwrap(helpMenu.items.first(where: { $0.title == "Release Notes" }))
-        let reportIssueItem = try XCTUnwrap(helpMenu.items.first(where: { $0.title == "Report an Issue..." }))
+        let reportIssueItem = try XCTUnwrap(helpMenu.items.first(where: { $0.title == "Report an Issue…" }))
         XCTAssertEqual(helpItem.identifier?.rawValue, "help-menu-lungfish-help")
         XCTAssertEqual(gettingStartedItem.identifier?.rawValue, "help-menu-getting-started")
         XCTAssertEqual(vcfGuideItem.identifier?.rawValue, "help-menu-vcf-variants-guide")
@@ -136,7 +136,7 @@ final class AppShellAccessibilityTests: XCTestCase {
         }
         XCTAssertEqual(setSizeItems.count, 1)
         let setSizeItem = try XCTUnwrap(setSizeItems.first)
-        XCTAssertEqual(setSizeItem.title, "Set Size...")
+        XCTAssertEqual(setSizeItem.title, "Set Size…")
         XCTAssertEqual(setSizeItem.action, #selector(AppDelegate.showWindowSizeDialog(_:)))
     }
 

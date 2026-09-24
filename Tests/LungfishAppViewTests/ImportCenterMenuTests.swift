@@ -24,7 +24,7 @@ final class ImportCenterMenuTests: XCTestCase {
         let _ = NSApplication.shared
         let mainMenu = MainMenu.createMainMenu()
         let appMenu = try XCTUnwrap(mainMenu.items.first?.submenu)
-        let item = try XCTUnwrap(appMenu.items.first(where: { $0.title == "Check for Updates..." }))
+        let item = try XCTUnwrap(appMenu.items.first(where: { $0.title == "Check for Updates…" }))
 
         XCTAssertEqual(item.identifier?.rawValue, MainMenuAccessibilityID.checkForUpdates)
         XCTAssertEqual(item.action, #selector(AppDelegate.checkForUpdates(_:)))
@@ -105,11 +105,11 @@ final class ImportCenterMenuTests: XCTestCase {
         let operationsMenu = try XCTUnwrap(mainMenu.items.first(where: { $0.title == "Operations" })?.submenu)
 
         XCTAssertEqual(appMenu.items.first(where: { $0.title == "About Lungfish Genome Explorer" })?.identifier?.rawValue, MainMenuAccessibilityID.about)
-        XCTAssertEqual(appMenu.items.first(where: { $0.title == "Check for Updates..." })?.identifier?.rawValue, MainMenuAccessibilityID.checkForUpdates)
-        XCTAssertEqual(appMenu.items.first(where: { $0.title == "Settings..." })?.identifier?.rawValue, MainMenuAccessibilityID.settings)
+        XCTAssertEqual(appMenu.items.first(where: { $0.title == "Check for Updates…" })?.identifier?.rawValue, MainMenuAccessibilityID.checkForUpdates)
+        XCTAssertEqual(appMenu.items.first(where: { $0.title == "Settings…" })?.identifier?.rawValue, MainMenuAccessibilityID.settings)
         XCTAssertEqual(appMenu.items.first(where: { $0.title == "Quit Lungfish Genome Explorer" })?.identifier?.rawValue, MainMenuAccessibilityID.quit)
         XCTAssertEqual(fileMenu.items.first(where: { $0.title == "New Project" })?.identifier?.rawValue, MainMenuAccessibilityID.newProject)
-        XCTAssertEqual(fileMenu.items.first(where: { $0.title == "Open Project Folder..." })?.identifier?.rawValue, MainMenuAccessibilityID.openProjectFolder)
+        XCTAssertEqual(fileMenu.items.first(where: { $0.title == "Open Project Folder…" })?.identifier?.rawValue, MainMenuAccessibilityID.openProjectFolder)
         XCTAssertEqual(fileMenu.items.first(where: { $0.title == "Import Center…" })?.identifier?.rawValue, MainMenuAccessibilityID.importCenter)
         XCTAssertNil(toolsMenu.items.first(where: { $0.title == "Workflow Operations…" }))
         XCTAssertNotNil(toolsMenu.items.first(where: { $0.title == "Genotyping" })?.submenu)
