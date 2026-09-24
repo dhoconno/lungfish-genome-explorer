@@ -446,6 +446,38 @@ public class SidebarViewController: NSViewController {
         searchScheduler.submit(sender.stringValue)
     }
 
+    /// `performFindPanelAction:` — the selector `Edit > Find` sends. AppKit
+    /// walks the responder chain starting at the key window's first
+    /// responder, so when a result table's own `BatchTableView` (or another
+    /// data view implementing this selector) is first responder, ⌘F reaches
+    /// it there and this sidebar fallback is never consulted (FEA-17: "route
+    /// main-window Edit > Find to the sidebar/project search field when no
+    /// data view claims it"). This is only reached when nothing earlier in
+    /// the chain claims the selector — e.g. focus is on the sequence viewer,
+    /// an empty project, or a viewport with no table of its own.
+    @objc func performFindPanelAction(_ sender: Any?) {
+        guard let menuItem = sender as? NSMenuItem,
+              let tag = NSTextFinder.Action(rawValue: menuItem.tag),
+              tag == .showFindInterface else {
+            nextResponder?.tryToPerform(#selector(SidebarViewController.performFindPanelAction(_:)), with: sender)
+            return
+        }
+        _ = focusSearchField()
+    }
+
+    @objc override public func performTextFinderAction(_ sender: Any?) {
+        performFindPanelAction(sender)
+    }
+
+    /// Makes the project search field the window's first responder. Returns
+    /// `true` when the field could be focused (the sidebar's view is loaded
+    /// and attached to a window).
+    @discardableResult
+    public func focusSearchField() -> Bool {
+        guard isViewLoaded, let window = view.window else { return false }
+        return window.makeFirstResponder(searchField)
+    }
+
     private func clearSidebarSearchResults() {
         cancelUniversalSearch(reason: "query changed")
         universalSearchGeneration &+= 1
