@@ -14,8 +14,8 @@ Single source of truth for finding status (plan rule 9). Status: `open`, `verifi
 | WFL-01 | P0 | FASTQ-operation outputs are silently quality-binned and, when large, Trim Galore-trimmed during re-ingestion | fixed | P0-B | 7c3fb0fd5,+clumping fix | no re-binning; auto clumping skips instead of Trim Galore; read-count check before source delete |
 | WFL-02 | P0 | `tree infer iqtree` deletes the shared project `.tmp`, deletes pre-existing output on refusal, and can deadloc | fixed | P0-B | 6898a985f | no .tmp deletion, refusal deletes nothing, concurrent pipe drain |
 | ARC-01 | P1 | Two execution models for GUI analyses, chosen per feature, with no shared service layer | open | | | |
-| ARC-02 | P1 | Nine copy-pasted CLI runner actors and about 12 ad-hoc, stringly-typed CLI event schemas | partial | P6-A | 6bc83748f | CLIEvent + CLISubprocessTransport; tree runners migrated; 7 runners remain |
-| ARC-03 | P1 | Operations-panel "CLI command" strings are hand-built and drift from the real CLI (Kraken2 replay cannot run) | open | P6-B |  | Kraken2/FASTQ argv unification pending |
+| ARC-02 | P1 | Nine copy-pasted CLI runner actors and about 12 ad-hoc, stringly-typed CLI event schemas | partial | P6-A,P6-A2 | 6bc83748f,057d642b1..c17efbc1d | 6 of 9 runners on CLISubprocessTransport; 3 import runners remain |
+| ARC-03 | P1 | Operations-panel "CLI command" strings are hand-built and drift from the real CLI (Kraken2 replay cannot run) | fixed | P6-A2 | 809847a07 | Kraken2 single-sample replay runnable; ClassificationCLIInvocationBuilder |
 | ARC-04 | P1 | `OperationCenter.start` can return an already-failed operation, and callers are not forced to notice | fixed | P1-A | c656e84c3 | OperationCenter.begin -> started/refused; 11 callers migrated; per-family never-launch tests; ratchet baseline 18 in pre-push |
 | ARC-13 | P1 | TaxTriage view controller runs samtools synchronously on the main actor, with a pipe-ordering hazard | fixed | P4-A | 447955d3d | samtools off main, concurrent drain; TaxTriage UI tests 37/37 integrated |
 | FEA-03 | P1 | Annotation edit and delete from the viewer and Inspector are not persisted for reference bundles | fixed | P2-A | 55eb87a2c,cb7c10798 | viewer+Inspector delete/rename persist; reopen tests 3/3 |
@@ -100,10 +100,10 @@ Single source of truth for finding status (plan rule 9). Status: `open`, `verifi
 | SCI-16 | P2 | Interleaved paired FASTQ subsample via the CLI-backed Operations path is not pair-aware | fixed | Q3 | 7cf08caf7 | reproduced; interleaved -> reformat.sh pair-aware |
 | SCI-17 | P2 | Markdup shell pipeline: no `pipefail`, double-quote interpolation of paths, duplicate fraction over alignment  | fixed | P3-A | b1c665c91 | pipefail, argv paths, dup fraction over primary |
 | SCI-18 | P2 | Bracken always uses the 150 bp distribution regardless of actual read length | open | | | |
-| SIMP-01 | P2 | FASTQ operations have three independent CLI encodings; provenance records a command that did not run | open | | | |
+| SIMP-01 | P2 | FASTQ operations have three independent CLI encodings; provenance records a command that did not run | partial | P6-A2 | 6dbee03a4 | search-text/motif + length/dedup argv fixed; full one-builder collapse pending |
 | SIMP-02 | P2 | About 5.9K lines of workbook-transaction recovery outlive their only writer | open | | | |
 | SIMP-03 | P2 | PrimalScheme3 adapter supports 4 fork versions and 2 external-binary-only selectors (about 3.3K lines) | open | | | |
-| SIMP-04 | P2 | Nine copy-pasted CLI subprocess runners (about 3.4K lines) next to an unused kernel runner | partial | P6-A | 6bc83748f | 2 of 9 runners consolidated |
+| SIMP-04 | P2 | Nine copy-pasted CLI subprocess runners (about 3.4K lines) next to an unused kernel runner | partial | P6-A2 | 057d642b1..c17efbc1d | 6 of 9 consolidated |
 | SIMP-05 | P2 | Verified dead code: about 5.0K production lines plus about 2.5K test lines (ranked list) | fixed | P5-A | 45ec1f040..3b12093d3 | rows 1-5,7,9,11,12 removed; net -5.2K lines |
 | SIMP-06 | P2 | Same-named public types in two modules (`SequencingPlatform`, `AlignmentFilter*`) | open | | | |
 | SIMP-07 | P2 | Chromosome aliasing implemented at least 5 times; the dedicated resolver is unused | partial | P3-D | ddee0b5fa | variant-track path now uses resolver; other alias copies remain |
@@ -126,7 +126,7 @@ Single source of truth for finding status (plan rule 9). Status: `open`, `verifi
 | UX-12 | P2 | Inspector key/value rows reimplemented about 10 times with different layout and accessibility | fixed | P7 | 1bf0c1400 | InspectorKeyValueRow in Kit |
 | UX-13 | P2 | The "viewport interface class" contract and dialog conventions are ceremonial or stale | open | | | |
 | UX-14 | P2 | No "no matches" or first-run empty states in result tables and empty projects | partial | P7 | 94ee66683 | no-matches in BatchTableView only |
-| WFL-11 | P2 | Operations-panel CLI commands and several provenance argv records are not runnable | open | | | |
+| WFL-11 | P2 | Operations-panel CLI commands and several provenance argv records are not runnable | partial | P6-A2 | 4f2cccaac | round-trip parser tests for Kraken2 + FASTQ families |
 | WFL-12 | P2 | Cancel missing or inert on several long-running paths | partial | P1-B | 01dd95338 | 12S x2, ONT MHC, CZ-ID, BLAST cancel wired; workflow-builder graph + AI provider calls not cancellable |
 | WFL-13 | P2 | MHC genotyping naming: "miSeq amplicon" workflow runs ONT data and tags it as MiSeq | fixed | P2-D | af5e6c94 lane | workflow kind derived from input mode |
 | WFL-14 | P2 | AI haplotyping exposed in the main viewport with no key check, no consent, macaque defaults | fixed | P1-C (D5) | 96dee9889 | aiHaplotypingUIEnabled=false removes the section from the viewport; defense-in-depth guard in requestAIHaplotyping; execution service/CLI kept; GenotypeResultViewportArtifactsAndOutlineTests 2 new + suite green |
@@ -185,3 +185,4 @@ Single source of truth for finding status (plan rule 9). Status: `open`, `verifi
 | NEW-03 | P3 | Open Recent duplicates; reopening opens second window | fixed | Q3 | 95cbdfeac | dedupe by path; focus existing window |
 | NEW-04 | P2 | test_releasing_lungfish_skill 26/36 failing at base | open | | | pre-existing |
 | PERF-17 | P1 | (new, measured) Genotype comparison matrix: 955 ms to build 40x96 visible cells, 350 ms full redraw | partial | Q1c,Q1d | d12957bff,abde7d24f | first-paint cell build ~707->~385 ms, redraw ~126->~93 ms; benchmark bypasses reuse queue (worst case); remaining floor = NSTextField per cell (custom-drawn cell deferred) |
+| PERF-18 | P1 | (new) CLIVariantCallingRunner.cancel deadlocked behind in-flight run | fixed | P6-A2 | a84cb151c | struct runner; cancellation tests 3x |
