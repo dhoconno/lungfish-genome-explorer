@@ -176,7 +176,7 @@ final class ClassifierFullBAMViewerIntegrationTests: XCTestCase {
         XCTAssertEqual(actionContext.filters.readGroups, [])
         XCTAssertEqual(actionContext.outputCapability, .userSelectedDestination)
         XCTAssertEqual(actionContext.sourceReads, .bamFallback)
-        try actionContext.validateCurrentSnapshots()
+        try await actionContext.validateCurrentSnapshots()
 
         let region = GenomicRegion(chromosome: "synthetic-track-A", start: 0, end: 120)
         for _ in 0..<500 where !controller.viewer.viewerView.detachedEvidenceIsCurrent(source) {

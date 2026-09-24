@@ -92,7 +92,7 @@ struct AlignmentScientificActionReporter {
 /// owns all temporary payloads; this coordinator returns final publications only.
 @MainActor
 final class AlignmentScientificActionCoordinator {
-    typealias Validator = (AlignmentActionContext) throws -> Void
+    typealias Validator = @Sendable (AlignmentActionContext) async throws -> Void
     typealias RegionStager = (BAMRegionExtractionConfig) async throws -> AlignmentReadExtractionTransaction
     typealias SourceStager = (ReadIDExtractionConfig, Int, String?) async throws -> AlignmentReadExtractionTransaction
     typealias BAMStager = (ReadIDBAMExtractionConfig, Int, String?) async throws -> AlignmentReadExtractionTransaction
@@ -111,7 +111,7 @@ final class AlignmentScientificActionCoordinator {
     private let consensusPublisher: ConsensusPublisher
 
     init(
-        validator: @escaping Validator = { try $0.validateCurrentSnapshots() },
+        validator: @escaping Validator = { try await $0.validateCurrentSnapshots() },
         regionStager: @escaping RegionStager = defaultRegionStage,
         sourceStager: @escaping SourceStager = defaultSourceStage,
         bamStager: @escaping BAMStager = defaultBAMStage,
@@ -166,7 +166,7 @@ final class AlignmentScientificActionCoordinator {
               exportRequest.consensusRequest.filters == context.filters else {
             throw AlignmentScientificActionError.invalidRegion
         }
-        try validator(context)
+        try await validator(context)
         try Task.checkCancellation()
         let result = try await consensusFetcher(context, exportRequest.consensusRequest)
         try Task.checkCancellation()
@@ -178,7 +178,7 @@ final class AlignmentScientificActionCoordinator {
         destination: AlignmentConsensusPublicationDestination
     ) async throws -> AlignmentConsensusPublicationResult {
         try Task.checkCancellation()
-        try validator(generation.context)
+        try await validator(generation.context)
         try Task.checkCancellation()
         return try consensusPublisher(.init(
             context: generation.context,
@@ -301,11 +301,11 @@ final class AlignmentScientificActionCoordinator {
             outputDirectory: destination.finalURL.deletingLastPathComponent(), outputBaseName: outputBaseName, deduplicateReads: false
         )
         let provenance = provenance(context: context, argv: ["Lungfish.app", "alignment", "extract-region", region.contig, "\(region.start)", "\(region.end)"])
-        try validator(context) // scientific gate 1: immediately before staging
+        try await validator(context) // scientific gate 1: immediately before staging
         let transaction = try await regionStager(config)
         do {
             do {
-                try validator(context) // scientific gate 2: immediately before publication
+                try await validator(context) // scientific gate 2: immediately before publication
             } catch {
                 throw staleInputFailure(error, context: context, transaction: transaction)
             }
@@ -327,7 +327,7 @@ final class AlignmentScientificActionCoordinator {
         let missing = records.filter { $0.sequence.isEmpty || $0.sequence == "*" }.count
         let missingMessage = missing == 0 ? nil : "\(missing) selected alignment record(s) did not contain sequence."
         let transaction: AlignmentReadExtractionTransaction
-        try validator(context)
+        try await validator(context)
         switch context.sourceReads {
         case .sourceFASTQs(let urls) where !urls.isEmpty:
             transaction = try await sourceStager(.init(sourceFASTQs: urls, readIDs: names, keepReadPairs: true, outputDirectory: destination.finalURL.deletingLastPathComponent(), outputBaseName: outputBaseName), missing, missingMessage)
@@ -336,7 +336,7 @@ final class AlignmentScientificActionCoordinator {
         }
         do {
             do {
-                try validator(context)
+                try await validator(context)
             } catch {
                 throw staleInputFailure(error, context: context, transaction: transaction)
             }

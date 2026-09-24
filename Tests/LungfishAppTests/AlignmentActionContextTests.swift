@@ -53,7 +53,7 @@ final class AlignmentActionContextTests: XCTestCase {
         }
     }
 
-    func testContextIdentityAndSnapshotsAreStableAndDetectEvidenceChanges() throws {
+    func testContextIdentityAndSnapshotsAreStableAndDetectEvidenceChanges() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -77,12 +77,49 @@ final class AlignmentActionContextTests: XCTestCase {
 
         XCTAssertEqual(context.identity, equalContext.identity)
         XCTAssertEqual(context, equalContext)
-        XCTAssertNoThrow(try context.validateCurrentSnapshots())
+        // A fresh digest cache per test keeps this independent of other tests
+        // that may have hashed these exact paths (unlikely, since they're
+        // per-test temp directories, but explicit is cheap and avoids any
+        // possibility of a stale cross-test cache hit).
+        let digestCache = AlignmentEvidenceDigestCache()
+        try await context.validateCurrentSnapshots(digestCache: digestCache)
 
         try Data("changed BAM".utf8).write(to: bamURL)
-        XCTAssertThrowsError(try context.validateCurrentSnapshots()) {
-            XCTAssertEqual($0 as? AlignmentActionContext.EvidenceError, .staleEvidence(bamURL))
+        do {
+            try await context.validateCurrentSnapshots(digestCache: digestCache)
+            XCTFail("Expected stale evidence after the BAM's contents changed")
+        } catch let error as AlignmentActionContext.EvidenceError {
+            XCTAssertEqual(error, .staleEvidence(bamURL))
         }
+    }
+
+    /// A cache hit must never re-hash: an identity that already has a cached
+    /// digest short-circuits before the hasher runs at all.
+    func testDigestCacheServesCachedDigestWithoutRehashingOnIdentityMatch() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let fileURL = directory.appendingPathComponent("evidence.bam")
+        try Data("evidence".utf8).write(to: fileURL)
+
+        let identity = try AlignmentEvidenceFileIdentity.current(of: fileURL)
+        let cache = AlignmentEvidenceDigestCache()
+
+        var hashCallCount = 0
+        let first = try await cache.digest(for: identity) {
+            hashCallCount += 1
+            return "digest-value"
+        }
+        let second = try await cache.digest(for: identity) {
+            hashCallCount += 1
+            return "should-not-be-called"
+        }
+
+        XCTAssertEqual(first, "digest-value")
+        XCTAssertEqual(second, "digest-value")
+        XCTAssertEqual(hashCallCount, 1)
+        let count = await cache.cachedEntryCount()
+        XCTAssertEqual(count, 1)
     }
 
     func testReadOnlyClassifierContextAllowsClipboardAndUsesDestinationChooser() throws {
