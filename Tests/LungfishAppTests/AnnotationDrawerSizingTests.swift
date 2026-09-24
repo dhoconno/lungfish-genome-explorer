@@ -112,11 +112,21 @@ final class AnnotationDrawerSizingTests: XCTestCase {
         window.contentView?.layoutSubtreeIfNeeded()
 
         viewer.toggleAnnotationDrawer()
-        RunLoop.main.run(until: Date().addingTimeInterval(0.35))
-        viewer.view.layoutSubtreeIfNeeded()
+        // The bottom-constraint's animator sets its model value to the target
+        // immediately; only the visual layer interpolates. But under heavy
+        // parallel-test CPU contention the runloop pump backing the 0.25s
+        // NSAnimationContext can itself stall well past a short fixed sleep
+        // (TST-10: wall-clock budgets under load), so poll for the settled
+        // value instead of trusting a single fixed-duration wait.
+        let bottomConstraint = try XCTUnwrap(viewer.annotationDrawerBottomConstraint)
+        let deadline = Date().addingTimeInterval(10)
+        while bottomConstraint.constant != 0, Date() < deadline {
+            RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+            viewer.view.layoutSubtreeIfNeeded()
+        }
 
         XCTAssertTrue(viewer.isAnnotationDrawerOpen)
-        XCTAssertEqual(try XCTUnwrap(viewer.annotationDrawerBottomConstraint).constant, 0)
+        XCTAssertEqual(bottomConstraint.constant, 0)
         XCTAssertLessThan(try XCTUnwrap(viewer.annotationDrawerHeightConstraint).constant, 10_000)
     }
 }
