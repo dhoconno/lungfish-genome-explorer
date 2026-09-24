@@ -18,9 +18,9 @@ Single source of truth for finding status (plan rule 9). Status: `open`, `verifi
 | ARC-03 | P1 | Operations-panel "CLI command" strings are hand-built and drift from the real CLI (Kraken2 replay cannot run) | open | | | |
 | ARC-04 | P1 | `OperationCenter.start` can return an already-failed operation, and callers are not forced to notice | fixed | P1-A | c656e84c3 | OperationCenter.begin -> started/refused; 11 callers migrated; per-family never-launch tests; ratchet baseline 18 in pre-push |
 | ARC-13 | P1 | TaxTriage view controller runs samtools synchronously on the main actor, with a pipe-ordering hazard | fixed | P4-A | 447955d3d | samtools off main, concurrent drain; TaxTriage UI tests 37/37 integrated |
-| FEA-03 | P1 | Annotation edit and delete from the viewer and Inspector are not persisted for reference bundles | open | | | |
+| FEA-03 | P1 | Annotation edit and delete from the viewer and Inspector are not persisted for reference bundles | fixed | P2-A | 55eb87a2c,cb7c10798 | viewer+Inspector delete/rename persist; reopen tests 3/3 |
 | FEA-04 | P1 | The same BAM or VCF file does different things depending on the entry point, and BAM/VCF have no target choose | open | | | |
-| FEA-05 | P1 | Multi-file BAM or VCF import into an open bundle imports only the first file | open | | | |
+| FEA-05 | P1 | Multi-file BAM or VCF import into an open bundle imports only the first file | fixed | P2-A | 7e33703ef | sequential per-bundle import queue |
 | FEA-06 | P1 | Quit and window close do not warn about running operations, and interrupted outputs become invisible | fixed | P1-B | b732ea628 | quit/close warning sheets; interrupted outputs surfaced in storage scan |
 | FEA-07 | P1 | `OperationCenter.start` does not enforce the bundle lock, so unchecked callers mutate locked bundles | fixed | P1-A | c656e84c3 | drawer-delete sub-claim was wrong (already pre-checked); others migrated |
 | FEA-08 | P1 | Read sort and colour modes are implemented and tested but unreachable in the alignment viewer | open | | | |
@@ -33,7 +33,7 @@ Single source of truth for finding status (plan rule 9). Status: `open`, `verifi
 | REC-02 | P1 | MSA/tree --force deletes output before work | partial | P0-B | 6898a985f | MSA extract/mask/trim atomic swap; tree infer --force still removes before work (follow-up) |
 | REC-03 | P1 | Kraken2 taxonomy/BLAST exports lack provenance | open | | | |
 | REC-04 | P1 | Sidebar VCF/folder drop silently discarded | open | | | |
-| REC-05 | P1 | About Saving text promises persistence FEA-03 disproves | open | | | |
+| REC-05 | P1 | About Saving text promises persistence FEA-03 disproves | fixed | P2-A | cb7c10798 | About Saving now true |
 | REL-02 | P1 | CI workflow invalid since 2026-09-14, 24 straight failures, 12 previews shipped on red | accepted | P0-A | 53371073b | owner: hosted CI paused; disabled cleanly |
 | REL-03 | P1 | GPL-2.0 Linux kernel shipped without notice or source offer; THIRD-PARTY-NOTICES stale and not bundled | fixed-needs-legal-review | P8-A | a9f982c67 | generated notices + bundled + smoke gate; OWNER: review kernel source-offer wording (uses owner email), zstd BSD election, pin override license URLs |
 | REL-04 | P1 | No rollback or yank path for a bad Sparkle release; the floor gate blocks the obvious one | partial | P8-A | 267e82746 | yank plan (dry-run) + floor --yank; execute_yank not implemented this round |
@@ -47,19 +47,19 @@ Single source of truth for finding status (plan rule 9). Status: `open`, `verifi
 | SCI-08 | P1 | Lossy quality binning on by default (silent on downloads and FASTQ operation outputs), mislabelled schemes, or | fixed | P0-B | 7c3fb0fd5 | binning default none everywhere (D1); scheme-name mislabel not yet addressed |
 | SCI-09 | P1 | NAO-MGS "coverage %" uses the furthest alignment end as reference length when references were not fetched | fixed | P3-A | 6538d8d39 | reference_length_source; UI shows coverage unavailable |
 | TST-03 | P1 | Swift Build migration broke subpath `Bundle.module` fixtures, crashing tests with SIGTRAP | fixed | P0-A | 18b87a387 | fixtureURL helper, 4 classes |
-| TST-04 | P1 | Stable-namespace change broke about 75 tests that hard-code `.lungfish` fake homes, and tests cannot inject an | partial | P0-A | b6c6cddfb,82133f4a6 | injectable appIdentity; ~50-60 tests still to migrate (follow-up lane) |
+| TST-04 | P1 | Stable-namespace change broke about 75 tests that hard-code `.lungfish` fake homes, and tests cannot inject an | partial | P0-A2 | 270f5feaa | 117->18 unit-tier failures; appIdentity threaded through remaining resolvers |
 | TST-05 | P1 | No per-test or overall timeout: a cancellation test hung for 14+ min and stalls the gate forever | fixed | P0-A,P1-B | 88afe5580 | root cause: actor blocked on waitUntilExit; cancel nonisolated; 5/5 runs <1s; KNOWN_HANGING_TESTS removed; gate timeouts kept |
 | TST-06 | P1 | `ci.yml` has been an invalid workflow on every push since 2026-09-14 instead of being disabled cleanly | fixed | P0-A | 53371073b | workflow_dispatch only; valid file |
-| UX-01 | P1 | "Delete Annotation" from the viewer and the Inspector silently does nothing on reference bundles | open | | | |
+| UX-01 | P1 | "Delete Annotation" from the viewer and the Inspector silently does nothing on reference bundles | fixed | P2-A | cb7c10798 | same as FEA-03 |
 | UX-02 | P1 | Export failures are logged but never shown in EsViritu, TaxTriage (3 paths), NAO-MGS and NVD | fixed | P1-C | bfcad3925 | ResultExportCoordinator added to LungfishKit; migrated EsViritu, TaxTriage x3, NAO-MGS, NVD, plus Kraken2 and 12S; ResultExportCoordinatorTests 2/2 |
 | WFL-03 | P1 | "GATK + WhatsHap Phased" is selectable and runnable-looking but always dead-ends | fixed | P1-C | 919af40eb | BAMVariantCallingToolID.catalogCases filters the phased case behind an off flag; BAMVariantCallingDialogRoutingTests 26/26 |
 | WFL-04 | P1 | Viral Recon loses outputs on caller overrides and (likely) Nanopore; analysis folder has no provenance; cancel | open | | | |
-| WFL-05 | P1 | pbAA results are written into a sidebar-hidden folder; Savont batch samples route to "Unsupported analysis" | open | | | |
-| WFL-06 | P1 | Renamed classifier batch folders cannot be reopened (routing uses name prefix, not metadata) | open | | | |
+| WFL-05 | P1 | pbAA results are written into a sidebar-hidden folder; Savont batch samples route to "Unsupported analysis" | fixed | P2-B | af5e6c94 lane | pbAA to Analyses/pbaa-*; savont routed |
+| WFL-06 | P1 | Renamed classifier batch folders cannot be reopened (routing uses name prefix, not metadata) | fixed | P2-B | af5e6c94 lane | route by analysis-metadata.json; RenamedClassifierBatchRoutingTests 6/6 |
 | WFL-07 | P1 | "Remove Human Reads" database chooser discards the chosen file and rejects the real index | fixed | P1-C | 5e51af98e | removeHumanReadsDatabaseID replaces the file-stem guess; .database dropped from required inputs; request/argv tests 3/3 |
-| WFL-08 | P1 | BAM primer trim never matches the scheme's contig to the BAM's `@SQ` name | open | | | |
+| WFL-08 | P1 | BAM primer trim never matches the scheme's contig to the BAM's `@SQ` name | fixed | P2-D | af5e6c94 lane | @SQ names resolved; loud failure on mismatch |
 | WFL-09 | P1 | No shared dependency preflight: most workflows find a missing tool only by failing | open | | | |
-| WFL-10 | P1 | Wizard options silently ignored downstream (EsViritu min length, TaxTriage classifiers, demux, seeds, etc.) | open | | | |
+| WFL-10 | P1 | Wizard options silently ignored downstream (EsViritu min length, TaxTriage classifiers, demux, seeds, etc.) | fixed | P2-D | af5e6c94 lane | EsViritu min length removed (not an EsViritu option); TaxTriage classifiers; subsample --seed; IQ-TREE blank seed random |
 | ARC-05 | P2 | Per-window state leaks through globals (`mainWindowController`, `DocumentManager.shared` mirror, `NSApp.keyWin | open | | | |
 | ARC-06 | P2 | Window scoping of notifications is a fail-open convention reimplemented in three controllers | open | | | |
 | ARC-07 | P2 | GUI and CLI write different provenance for the same Kraken2 analysis | open | | | |
@@ -70,7 +70,7 @@ Single source of truth for finding status (plan rule 9). Status: `open`, `verifi
 | ARC-12 | P2 | `GenotypeResultViewController` is a 9.8K-line god object (323 stored vars, 508 funcs) | open | | | |
 | ARC-15 | P2 | Five external-process mechanisms, plus about 120 raw `Process()` sites across all layers | open | | | |
 | FEA-09 | P2 | Two locus parsers with different grammar, and no gene lookup in the locus field | open | | | |
-| FEA-10 | P2 | Settings controls that nothing reads (default zoom window, max undo levels) | open | | | |
+| FEA-10 | P2 | Settings controls that nothing reads (default zoom window, max undo levels) | fixed | P2-A | 8632b57aa | default zoom wired; max undo control removed |
 | FEA-11 | P2 | Export Image/PDF can export a hidden view or the wrong window; some menu actions ignore the key window | open | | | |
 | FEA-12 | P2 | GUI BAM and VCF imports record a `lungfish-cli` command that the CLI cannot run | open | | | |
 | FEA-13 | P2 | Variant table dead controls: Het Only chip, single-option Match picker, silent preset rewrite | open | | | |
@@ -128,7 +128,7 @@ Single source of truth for finding status (plan rule 9). Status: `open`, `verifi
 | UX-14 | P2 | No "no matches" or first-run empty states in result tables and empty projects | open | | | |
 | WFL-11 | P2 | Operations-panel CLI commands and several provenance argv records are not runnable | open | | | |
 | WFL-12 | P2 | Cancel missing or inert on several long-running paths | partial | P1-B | 01dd95338 | 12S x2, ONT MHC, CZ-ID, BLAST cancel wired; workflow-builder graph + AI provider calls not cancellable |
-| WFL-13 | P2 | MHC genotyping naming: "miSeq amplicon" workflow runs ONT data and tags it as MiSeq | open | | | |
+| WFL-13 | P2 | MHC genotyping naming: "miSeq amplicon" workflow runs ONT data and tags it as MiSeq | fixed | P2-D | af5e6c94 lane | workflow kind derived from input mode |
 | WFL-14 | P2 | AI haplotyping exposed in the main viewport with no key check, no consent, macaque defaults | fixed | P1-C (D5) | 96dee9889 | aiHaplotypingUIEnabled=false removes the section from the viewport; defense-in-depth guard in requestAIHaplotyping; execution service/CLI kept; GenotypeResultViewportArtifactsAndOutlineTests 2 new + suite green |
 | WFL-15 | P2 | BLAST drawer inconsistencies: CZ ID no-op, `nt` vs `core_nt`, NAO-MGS taxon restriction, no persistence | open | | | |
 | WFL-16 | P2 | User-registered workflows are a half-surface: no menu, loose outputs, no sidebar result, "Beta1" copy | open | | | |
@@ -179,3 +179,4 @@ Single source of truth for finding status (plan rule 9). Status: `open`, `verifi
 | GEN-11 | P2 | PacBio exact dual-barcode demux assigns multi-matching reads in Swift `Dictionary` iteration order, which vari | open | | | |
 | GEN-12 | P2 | Provenance and QC gaps: bbtools missing from `managedTools`, hard-coded "resolvedDefaults", hard-coded QC cut- | fixed | G2 | aa3cc573d | bbtools recorded, real thresholds, no AI prompt copy |
 | GEN-13 | P2 | Legacy `fastq ont-genotype` maps ONT reads with the short-read preset, ignores `--allow-indels`, and randomly  | open | | | |
+| DS-01 | P1 | Owner-reported: mapping viewport downsample clustered at window start | fixed | DS | 3c44ed94d | fetchReadSketch (count + samtools --subsample) per track; every-decile test; 3M-read BAM 19.8s -> 4.2s |
