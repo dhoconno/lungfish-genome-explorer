@@ -46,7 +46,7 @@ private typealias DBAccessionSummary = LungfishIO.NaoMgsAccessionSummary
 /// This class is `@MainActor` isolated and manages its `NSSplitView` directly
 /// so pane sizing and selection state stay local to this controller.
 @MainActor
-public final class NaoMgsResultViewController: NSViewController, NSSplitViewDelegate, NSPopoverDelegate, SampleMetadataPresentationConsumer {
+public final class NaoMgsResultViewController: NSViewController, NSSplitViewDelegate, NSPopoverDelegate, SampleMetadataPresentationConsumer, ColumnFilterMenuHost {
 
     // MARK: - Data (Database-backed)
 
@@ -113,6 +113,11 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
     private let taxonomyFilterBar = NSStackView()
     private let sampleFilterButton = NSButton(title: "All Samples", target: nil, action: nil)
     private let taxonomySearchField = NSSearchField()
+
+    /// Shared column-header sort/filter menu (UX-05: replaces a hand-rolled
+    /// copy that drifted from `TaxonomyTableView`/`ViralDetectionTableView`).
+    /// See `LungfishKit.ColumnHeaderFilterMenu`.
+    private lazy var columnHeaderFilterMenuController = ColumnHeaderFilterMenu(host: self)
 
     /// Free-text filter applied to the taxon and sample columns (UX-05: NAO-MGS
     /// previously had no search field at all).
@@ -2962,7 +2967,8 @@ extension NaoMgsResultViewController: NSTableViewDataSource {
 extension NaoMgsResultViewController: NSTableViewDelegate {
 
     public func tableView(_ tableView: NSTableView, didClick tableColumn: NSTableColumn) {
-        showColumnHeaderFilterMenu(for: tableColumn)
+        guard let headerView = taxonomyTableView.headerView else { return }
+        columnHeaderFilterMenuController.show(for: tableColumn, in: headerView)
     }
 
 
@@ -3078,197 +3084,45 @@ extension NaoMgsResultViewController: NSTextFieldDelegate {
     }
 }
 
-// MARK: - Column Header Filter Menus
+// MARK: - ColumnFilterMenuHost
 
 extension NaoMgsResultViewController {
 
-    /// Called by NSTableViewDelegate when a column header is clicked.
-    /// Shows a context menu with type-appropriate filter options.
-    func showColumnHeaderFilterMenu(for tableColumn: NSTableColumn) {
-        guard let headerView = taxonomyTableView.headerView,
-              let colIndex = taxonomyTableView.tableColumns.firstIndex(of: tableColumn) else { return }
+    public var columnHeaderFilterMenuColumns: [NSTableColumn] { taxonomyTableView.tableColumns }
 
-        let columnId = tableColumn.identifier.rawValue
-        let displayName = tableColumn.title.isEmpty ? "Column" : tableColumn.title
-        let isNumeric = columnTypes[columnId] ?? false
-
-        let menu = NSMenu()
-
-        // Sort options
-        let sortAscItem = NSMenuItem(title: "Sort Ascending", action: #selector(sortColumnAscending(_:)), keyEquivalent: "")
-        sortAscItem.target = self
-        sortAscItem.representedObject = tableColumn
-        menu.addItem(sortAscItem)
-
-        let sortDescItem = NSMenuItem(title: "Sort Descending", action: #selector(sortColumnDescending(_:)), keyEquivalent: "")
-        sortDescItem.target = self
-        sortDescItem.representedObject = tableColumn
-        menu.addItem(sortDescItem)
-
-        menu.addItem(NSMenuItem.separator())
-
-        // Filter options
-        if isNumeric {
-            for (label, op) in [
-                ("Filter \(displayName) \u{2265}\u{2026}", FilterOperator.greaterOrEqual),
-                ("Filter \(displayName) \u{2264}\u{2026}", FilterOperator.lessOrEqual),
-                ("Filter \(displayName) =\u{2026}", FilterOperator.equal),
-                ("Filter \(displayName) Between\u{2026}", FilterOperator.between),
-            ] {
-                let item = NSMenuItem(title: label, action: #selector(promptColumnFilter(_:)), keyEquivalent: "")
-                item.target = self
-                item.representedObject = ["columnId": columnId, "op": op] as [String: Any]
-                menu.addItem(item)
-            }
-        } else {
-            for (label, op) in [
-                ("Filter \(displayName) Contains\u{2026}", FilterOperator.contains),
-                ("Filter \(displayName) Equals\u{2026}", FilterOperator.equal),
-                ("Filter \(displayName) Starts With\u{2026}", FilterOperator.startsWith),
-            ] {
-                let item = NSMenuItem(title: label, action: #selector(promptColumnFilter(_:)), keyEquivalent: "")
-                item.target = self
-                item.representedObject = ["columnId": columnId, "op": op] as [String: Any]
-                menu.addItem(item)
-            }
-        }
-
-        let compositionItem = NSMenuItem(title: "Combine Filters", action: nil, keyEquivalent: "")
-        let compositionMenu = NSMenu(title: "Combine Filters")
-        for (title, composition) in [
-            ("All Filters (AND)", ColumnFilterComposition.all),
-            ("Any Filter (OR)", ColumnFilterComposition.any),
-        ] {
-            let item = NSMenuItem(title: title, action: #selector(setColumnFilterComposition(_:)), keyEquivalent: "")
-            item.target = self
-            item.representedObject = composition.rawValue
-            item.state = columnFilterSet.composition == composition ? .on : .off
-            compositionMenu.addItem(item)
-        }
-        compositionItem.submenu = compositionMenu
-        menu.addItem(compositionItem)
-
-        // Clear filter for this column (if active)
-        if columnFilters[columnId]?.isActive == true {
-            menu.addItem(NSMenuItem.separator())
-            let clearItem = NSMenuItem(title: "Clear \(displayName) Filter", action: #selector(clearColumnFilter(_:)), keyEquivalent: "")
-            clearItem.target = self
-            clearItem.representedObject = columnId
-            menu.addItem(clearItem)
-        }
-
-        // Clear all filters (if any are active)
-        if !columnFilters.isEmpty {
-            let clearAllItem = NSMenuItem(title: "Clear All Filters", action: #selector(clearAllColumnFilters(_:)), keyEquivalent: "")
-            clearAllItem.target = self
-            menu.addItem(clearAllItem)
-        }
-
-        let rect = headerView.headerRect(ofColumn: colIndex)
-        let anchorPoint = NSPoint(x: rect.minX + 8, y: rect.minY - 2)
-        menu.popUp(positioning: nil, at: anchorPoint, in: headerView)
+    public func columnHeaderFilterMenu(isNumericColumn columnId: String) -> Bool {
+        columnTypes[columnId] ?? false
     }
 
-    @objc private func promptColumnFilter(_ sender: NSMenuItem) {
-        guard let payload = sender.representedObject as? [String: Any],
-              let columnId = payload["columnId"] as? String,
-              let op = payload["op"] as? FilterOperator,
-              let window = view.window else { return }
+    public var columnHeaderFilterMenuFilterSet: ColumnFilterSet { columnFilterSet }
 
-        let alert = NSAlert()
-        alert.messageText = "Column Filter"
-        let displayName = taxonomyTableView.tableColumns
-            .first { $0.identifier.rawValue == columnId }?.title ?? columnId
-        alert.informativeText = "Enter a value for \(displayName) (\(op.rawValue))."
-        alert.addButton(withTitle: "Apply")
-        alert.addButton(withTitle: "Cancel")
-
-        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 240, height: 24))
-        field.placeholderString = op == .between ? "min value" : "filter value"
-        let excludeCheckbox = NSButton(checkboxWithTitle: "Exclude matching rows", target: nil, action: nil)
-
-        if op == .between {
-            let stack = NSStackView(frame: NSRect(x: 0, y: 0, width: 240, height: 78))
-            stack.orientation = .vertical
-            stack.spacing = 4
-            let field2 = NSTextField(frame: NSRect(x: 0, y: 0, width: 240, height: 24))
-            field2.placeholderString = "max value"
-            field2.tag = 2
-            stack.addArrangedSubview(field)
-            stack.addArrangedSubview(field2)
-            stack.addArrangedSubview(excludeCheckbox)
-            alert.accessoryView = stack
-        } else {
-            let stack = NSStackView(frame: NSRect(x: 0, y: 0, width: 240, height: 52))
-            stack.orientation = .vertical
-            stack.spacing = 6
-            stack.addArrangedSubview(field)
-            stack.addArrangedSubview(excludeCheckbox)
-            alert.accessoryView = stack
-        }
-
-        // Restore current value if filter exists
-        if let existing = columnFilters[columnId] {
-            field.stringValue = existing.value
-            excludeCheckbox.state = existing.isInverted ? .on : .off
-        }
-
-        alert.beginSheetModal(for: window) { [weak self] response in
-            guard response == .alertFirstButtonReturn, let self else { return }
-            let value = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !value.isEmpty else { return }
-
-            var value2: String? = nil
-            if op == .between, let stack = alert.accessoryView as? NSStackView,
-               let field2 = stack.arrangedSubviews.first(where: { $0.tag == 2 }) as? NSTextField {
-                value2 = field2.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
-            }
-
-            self.columnFilterSet.replaceFilters(
-                for: columnId,
-                with: ColumnFilter(
-                    columnId: columnId,
-                    op: op,
-                    value: value,
-                    value2: value2,
-                    isInverted: excludeCheckbox.state == .on
-                )
-            )
-            self.reloadTaxonomyTable()
-        }
+    public func columnHeaderFilterMenu(replaceFilterFor columnId: String, with filter: ColumnFilter) {
+        columnFilterSet.replaceFilters(for: columnId, with: filter)
     }
 
-    @objc private func setColumnFilterComposition(_ sender: NSMenuItem) {
-        guard let rawValue = sender.representedObject as? String,
-              let composition = ColumnFilterComposition(rawValue: rawValue) else { return }
-        columnFilterSet.composition = composition
-        reloadTaxonomyTable()
-    }
-
-    @objc private func sortColumnAscending(_ sender: NSMenuItem) {
-        guard let column = sender.representedObject as? NSTableColumn,
-              let proto = column.sortDescriptorPrototype else { return }
-        taxonomyTableView.sortDescriptors = [NSSortDescriptor(key: proto.key, ascending: true, selector: proto.selector)]
-        reloadTaxonomyTable()
-    }
-
-    @objc private func sortColumnDescending(_ sender: NSMenuItem) {
-        guard let column = sender.representedObject as? NSTableColumn,
-              let proto = column.sortDescriptorPrototype else { return }
-        taxonomyTableView.sortDescriptors = [NSSortDescriptor(key: proto.key, ascending: false, selector: proto.selector)]
-        reloadTaxonomyTable()
-    }
-
-    @objc private func clearColumnFilter(_ sender: NSMenuItem) {
-        guard let columnId = sender.representedObject as? String else { return }
+    public func columnHeaderFilterMenu(removeFilterFor columnId: String) {
         columnFilterSet.removeFilters(for: columnId)
+    }
+
+    public func columnHeaderFilterMenuRemoveAllFilters() {
+        columnFilterSet.removeAll()
+    }
+
+    public func columnHeaderFilterMenu(setComposition composition: ColumnFilterComposition) {
+        columnFilterSet.composition = composition
+    }
+
+    public func columnHeaderFilterMenu(sortByKey key: String, ascending: Bool) {
+        guard let proto = taxonomyTableView.tableColumns
+            .first(where: { $0.sortDescriptorPrototype?.key == key })?.sortDescriptorPrototype else { return }
+        taxonomyTableView.sortDescriptors = [NSSortDescriptor(key: key, ascending: ascending, selector: proto.selector)]
+    }
+
+    public func columnHeaderFilterMenuFiltersDidChange() {
         reloadTaxonomyTable()
     }
 
-    @objc private func clearAllColumnFilters(_ sender: Any?) {
-        columnFilterSet.removeAll()
-        reloadTaxonomyTable()
-    }
+    public var columnHeaderFilterMenuWindow: NSWindow? { view.window }
 }
 
 // MARK: - Column Filter Application

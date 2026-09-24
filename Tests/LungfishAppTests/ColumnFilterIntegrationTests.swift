@@ -409,7 +409,14 @@ struct KrakenTaxonomyRegressionTests {
         #expect(Set(table.sortedChildren(of: root).map(\.name)) == Set(["Viruses", "Bacteria"]))
     }
 
-    @Test("Custom classifier table sources expose shared exclude and composition controls")
+    // UX-05: the four classifier tables (BatchTableView, TaxonomyTableView,
+    // ViralDetectionTableView, NaoMgsResultViewController) used to each carry
+    // an independently-drifting copy of the column-header sort/filter/exclude
+    // menu. They now delegate to the single `LungfishKit.ColumnHeaderFilterMenu`
+    // (which itself owns the "Combine Filters" / "Exclude matching rows"
+    // strings), so this checks adoption of the shared host contract rather
+    // than for copy-pasted literal menu text in each source file.
+    @Test("Custom classifier table sources adopt the shared column-header filter menu")
     func customClassifierTablesExposeSharedFilterControls() throws {
         let root = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
@@ -422,9 +429,11 @@ struct KrakenTaxonomyRegressionTests {
         ] {
             let source = try String(contentsOf: root.appendingPathComponent(relativePath), encoding: .utf8)
             #expect(source.contains("ColumnFilterSet"))
-            #expect(source.contains("Combine Filters"))
-            #expect(source.contains("Exclude matching rows"))
+            #expect(source.contains("ColumnFilterMenuHost"))
+            #expect(source.contains("ColumnHeaderFilterMenu(host: self)"))
             #expect(source.contains("headerToolTip"))
+            #expect(!source.contains("\"Combine Filters\""), "\(relativePath) must not re-implement the shared composition submenu")
+            #expect(!source.contains("\"Exclude matching rows\""), "\(relativePath) must not re-implement the shared exclude checkbox")
         }
     }
 }
