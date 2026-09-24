@@ -16,13 +16,13 @@ Single source of truth for finding status (plan rule 9). Status: `open`, `verifi
 | ARC-01 | P1 | Two execution models for GUI analyses, chosen per feature, with no shared service layer | open | | | |
 | ARC-02 | P1 | Nine copy-pasted CLI runner actors and about 12 ad-hoc, stringly-typed CLI event schemas | open | | | |
 | ARC-03 | P1 | Operations-panel "CLI command" strings are hand-built and drift from the real CLI (Kraken2 replay cannot run) | open | | | |
-| ARC-04 | P1 | `OperationCenter.start` can return an already-failed operation, and callers are not forced to notice | open | | | |
+| ARC-04 | P1 | `OperationCenter.start` can return an already-failed operation, and callers are not forced to notice | fixed | P1-A | c656e84c3 | OperationCenter.begin -> started/refused; 11 callers migrated; per-family never-launch tests; ratchet baseline 18 in pre-push |
 | ARC-13 | P1 | TaxTriage view controller runs samtools synchronously on the main actor, with a pipe-ordering hazard | open | | | |
 | FEA-03 | P1 | Annotation edit and delete from the viewer and Inspector are not persisted for reference bundles | open | | | |
 | FEA-04 | P1 | The same BAM or VCF file does different things depending on the entry point, and BAM/VCF have no target choose | open | | | |
 | FEA-05 | P1 | Multi-file BAM or VCF import into an open bundle imports only the first file | open | | | |
 | FEA-06 | P1 | Quit and window close do not warn about running operations, and interrupted outputs become invisible | open | | | |
-| FEA-07 | P1 | `OperationCenter.start` does not enforce the bundle lock, so unchecked callers mutate locked bundles | open | | | |
+| FEA-07 | P1 | `OperationCenter.start` does not enforce the bundle lock, so unchecked callers mutate locked bundles | fixed | P1-A | c656e84c3 | drawer-delete sub-claim was wrong (already pre-checked); others migrated |
 | FEA-08 | P1 | Read sort and colour modes are implemented and tested but unreachable in the alignment viewer | open | | | |
 | PERF-01 | P1 | Alignment scientific actions SHA-256 the whole BAM, index and reference on the main actor, twice per action | open | | | |
 | PERF-02 | P1 | `NativeToolRunner.shared` actor is blocked for the full runtime of `runWithFileOutput` / `runPipeline` childre | open | | | |
