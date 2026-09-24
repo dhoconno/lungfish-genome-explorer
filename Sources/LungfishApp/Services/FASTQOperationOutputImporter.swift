@@ -360,6 +360,7 @@ struct AppFASTQOutputBundleWriter: FASTQOutputBundleWriting {
         }
 
         let kind = FASTQDerivativeOperationKind(rawValue: derivativeRequest.operationKindString) ?? .deduplicate
+        let pairingMode = FASTQPairingModeResolver.bundlePairingMode(for: sourceURL)
         switch derivativeRequest {
         case .ribosomalRNAFilter(let retention, let ensure):
             let outputRetention = riboDetectorRetention(for: outputURL, fallback: retention)
@@ -368,14 +369,22 @@ struct AppFASTQOutputBundleWriter: FASTQOutputBundleWriting {
                 riboDetectorRetention: outputRetention,
                 riboDetectorEnsure: ensure,
                 toolUsed: "deacon",
-                toolCommand: derivativeRequest.cliCommand(inputPath: sourceURL.path, outputPath: outputURL.path)
+                toolCommand: derivativeRequest.cliCommand(
+                    inputPath: sourceURL.path,
+                    outputPath: outputURL.path,
+                    pairingMode: pairingMode
+                )
             )
 
         default:
             return FASTQDerivativeOperation(
                 kind: kind,
                 toolUsed: CLICommandIdentity.executableName,
-                toolCommand: derivativeRequest.cliCommand(inputPath: sourceURL.path, outputPath: outputURL.path)
+                toolCommand: derivativeRequest.cliCommand(
+                    inputPath: sourceURL.path,
+                    outputPath: outputURL.path,
+                    pairingMode: pairingMode
+                )
             )
         }
     }

@@ -311,7 +311,10 @@ struct FastqSubsampleSubcommand: AsyncParsableCommand {
     @Option(name: .customLong("proportion"), help: "Fraction of reads to keep (0-1)")
     var proportion: Double?
 
-    @Option(name: .customLong("count"), help: "Number of reads to keep")
+    @Option(
+        name: .customLong("count"),
+        help: "Number of reads to keep. On interleaved input this is still a read count: whole pairs are kept, so the count is rounded down to an even number (minimum one pair)."
+    )
     var count: Int?
 
     @Option(
@@ -320,7 +323,16 @@ struct FastqSubsampleSubcommand: AsyncParsableCommand {
     )
     var seed: Int64?
 
+    @OptionGroup var pairing: FASTQPairingOptions
+
     @OptionGroup var output: OutputOptions
+
+    /// The number of pairs reformat.sh must emit so the output holds `count`
+    /// reads. `samplereadstarget` counts pairs on interleaved input, so the
+    /// GUI's "Keep a fixed number of reads" is halved here, never doubled.
+    static func interleavedPairTarget(forReadCount count: Int) -> Int {
+        max(1, count / 2)
+    }
 
     func run() async throws {
         let inputURL = try validateInput(input)
@@ -349,10 +361,11 @@ struct FastqSubsampleSubcommand: AsyncParsableCommand {
 
         // SCI-16: paired imports are stored interleaved (mates on adjacent
         // records). `seqkit sample`/`sample2` samples records independently,
-        // which orphans mates in interleaved input. Detect interleaving and
-        // use `reformat.sh` (pair-aware: it samples fragments, keeping both
-        // mates together) instead.
-        let isInterleaved = try await IlluminaAmpliconPairMerger.fastqIsInterleavedPairs(at: inputURL)
+        // which orphans mates in interleaved input. Resolve pairing from the
+        // --pairing flag, the bundle metadata, or read names (identical mate
+        // names included) and use `reformat.sh` (pair-aware: it samples
+        // fragments, keeping both mates together) instead.
+        let isInterleaved = try await pairing.resolveIsInterleaved(inputURL: inputURL)
 
         let startedAt = Date()
         let toolName: String
@@ -369,11 +382,10 @@ struct FastqSubsampleSubcommand: AsyncParsableCommand {
                 reformatArgs.append("samplerate=\(proportion)")
             }
             if let count {
-                // With interleaved=t on paired input, reformat.sh's
-                // samplereadstarget counts output PAIRS (it doubles
-                // internally to keep both mates), so pass the pair count
-                // directly rather than doubling it here.
-                reformatArgs.append("samplereadstarget=\(count)")
+                // With interleaved=t, reformat.sh's samplereadstarget counts
+                // output PAIRS. --count is a read count (the dialog says
+                // "Keep a fixed number of reads"), so ask for count/2 pairs.
+                reformatArgs.append("samplereadstarget=\(Self.interleavedPairTarget(forReadCount: count))")
             }
             reformatArgs.append("sampleseed=\(resolvedSeed)")
             args = reformatArgs
@@ -408,6 +420,7 @@ struct FastqSubsampleSubcommand: AsyncParsableCommand {
             cliArguments += ["--count", String(count)]
         }
         cliArguments += ["--seed", String(resolvedSeed)]
+        cliArguments += pairing.cliArguments
         cliArguments += [inputURL.path, "--output", output.output]
         if output.force {
             cliArguments.append("--force")
@@ -430,6 +443,7 @@ struct FastqSubsampleSubcommand: AsyncParsableCommand {
                 "proportion": proportion.map(ParameterValue.number) ?? .null,
                 "count": count.map(ParameterValue.integer) ?? .null,
                 "seed": .integer(Int(resolvedSeed)),
+                "pairing": pairing.provenanceValue,
                 "interleaved": .boolean(isInterleaved),
                 "force": .boolean(output.force),
                 "compress": .boolean(output.compress)
@@ -438,6 +452,7 @@ struct FastqSubsampleSubcommand: AsyncParsableCommand {
                 "proportion": .null,
                 "count": .null,
                 "seed": .null,
+                "pairing": FASTQPairingOptions.provenanceDefault,
                 "interleaved": .boolean(false),
                 "force": .boolean(false),
                 "compress": .boolean(false)
@@ -1446,6 +1461,8 @@ struct FastqContaminantFilterSubcommand: AsyncParsableCommand {
     @Option(name: .customLong("hdist"), help: "Hamming distance tolerance (default: 1)")
     var hammingDistance: Int = 1
 
+    @OptionGroup var pairing: FASTQPairingOptions
+
     @OptionGroup var output: OutputOptions
 
     static func bbdukReferenceURL(
@@ -1481,6 +1498,7 @@ struct FastqContaminantFilterSubcommand: AsyncParsableCommand {
         reference: String?,
         kmerSize: Int,
         hammingDistance: Int,
+        interleaved: Bool = false,
         homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser
     ) throws -> [String] {
         var args = [
@@ -1489,6 +1507,14 @@ struct FastqContaminantFilterSubcommand: AsyncParsableCommand {
             "k=\(kmerSize)",
             "hdist=\(hammingDistance)",
         ]
+        if interleaved {
+            // bbduk's own name-based pairing guess reports identical-name
+            // mates as "processed as unpaired" and splits them. With
+            // interleaved=t it treats adjacent records as a pair and, by its
+            // default removeifeitherbad=t, discards both mates when either
+            // one matches the contaminant, so no orphan survives.
+            args.append("interleaved=t")
+        }
 
         let referenceURL = try bbdukReferenceURL(mode: mode, reference: reference, homeDirectory: homeDirectory)
         args.append("ref=\(referenceURL.path)")
@@ -1501,6 +1527,7 @@ struct FastqContaminantFilterSubcommand: AsyncParsableCommand {
         guard kmerSize > 0 else { throw ValidationError("--kmer must be > 0") }
         guard hammingDistance >= 0 else { throw ValidationError("--hdist must be >= 0") }
         let runner = NativeToolRunner.shared
+        let isInterleaved = try await pairing.resolveIsInterleaved(inputURL: inputURL)
 
         let args = try Self.bbdukArguments(
             inputURL: inputURL,
@@ -1508,7 +1535,8 @@ struct FastqContaminantFilterSubcommand: AsyncParsableCommand {
             mode: mode,
             reference: reference,
             kmerSize: kmerSize,
-            hammingDistance: hammingDistance
+            hammingDistance: hammingDistance,
+            interleaved: isInterleaved
         )
 
         let env = await bbToolsEnvironment(runner: runner)
@@ -1528,6 +1556,7 @@ struct FastqContaminantFilterSubcommand: AsyncParsableCommand {
         if hammingDistance != 1 {
             cliArguments += ["--hdist", String(hammingDistance)]
         }
+        cliArguments += pairing.cliArguments
         cliArguments += ["--output", output.output]
         if output.force {
             cliArguments.append("--force")
@@ -1551,6 +1580,8 @@ struct FastqContaminantFilterSubcommand: AsyncParsableCommand {
                 "reference": .file(resolvedReferenceURL),
                 "kmer": .integer(kmerSize),
                 "hdist": .integer(hammingDistance),
+                "pairing": pairing.provenanceValue,
+                "interleaved": .boolean(isInterleaved),
                 "force": .boolean(output.force),
                 "compress": .boolean(output.compress)
             ],
@@ -1559,6 +1590,8 @@ struct FastqContaminantFilterSubcommand: AsyncParsableCommand {
                 "reference": .null,
                 "kmer": .integer(31),
                 "hdist": .integer(1),
+                "pairing": FASTQPairingOptions.provenanceDefault,
+                "interleaved": .boolean(false),
                 "force": .boolean(false),
                 "compress": .boolean(false)
             ],
@@ -1602,6 +1635,8 @@ struct FastqEntropyFilterSubcommand: AsyncParsableCommand {
     @Option(name: .customLong("threads"), help: "bbduk thread count (default: 4)")
     var threads: Int = 4
 
+    @OptionGroup var pairing: FASTQPairingOptions
+
     @OptionGroup var output: OutputOptions
 
     /// Validates the entropy parameters. Factored out so tests can exercise the
@@ -1625,9 +1660,10 @@ struct FastqEntropyFilterSubcommand: AsyncParsableCommand {
         window: Int,
         kmer: Int,
         threads: Int,
-        heapGB: Int
+        heapGB: Int,
+        interleaved: Bool = false
     ) -> [String] {
-        [
+        var args = [
             "in=\(inputURL.path)",
             "out=\(outputPath)",
             "-Xmx\(heapGB)g",
@@ -1637,6 +1673,14 @@ struct FastqEntropyFilterSubcommand: AsyncParsableCommand {
             "threads=\(threads)",
             "ow=t",
         ]
+        if interleaved {
+            // Pair-aware: bbduk drops both mates when either falls below the
+            // entropy threshold (removeifeitherbad=t), so the output never
+            // holds an orphan. Without this, identical-name mates are
+            // "processed as unpaired" and split.
+            args.append("interleaved=t")
+        }
+        return args
     }
 
     /// Formats the entropy threshold without trailing zeros so the recorded
@@ -1659,6 +1703,7 @@ struct FastqEntropyFilterSubcommand: AsyncParsableCommand {
         guard threads > 0 else { throw ValidationError("--threads must be > 0") }
 
         let runner = NativeToolRunner.shared
+        let isInterleaved = try await pairing.resolveIsInterleaved(inputURL: inputURL)
         let heapGB = ManagedJavaHeapPolicy.heapGB(minimumGB: 4)
         let args = Self.bbdukArguments(
             inputURL: inputURL,
@@ -1667,7 +1712,8 @@ struct FastqEntropyFilterSubcommand: AsyncParsableCommand {
             window: window,
             kmer: kmer,
             threads: threads,
-            heapGB: heapGB
+            heapGB: heapGB,
+            interleaved: isInterleaved
         )
 
         let env = await bbToolsEnvironment(runner: runner)
@@ -1692,6 +1738,7 @@ struct FastqEntropyFilterSubcommand: AsyncParsableCommand {
         if threads != 4 {
             cliArguments += ["--threads", String(threads)]
         }
+        cliArguments += pairing.cliArguments
         cliArguments += ["--output", output.output]
         if output.force {
             cliArguments.append("--force")
@@ -1708,6 +1755,8 @@ struct FastqEntropyFilterSubcommand: AsyncParsableCommand {
             "entropyWindow": .integer(window),
             "entropyKmer": .integer(kmer),
             "threads": .integer(threads),
+            "pairing": pairing.provenanceValue,
+            "interleaved": .boolean(isInterleaved),
             "force": .boolean(output.force),
             "compress": .boolean(output.compress),
         ]
@@ -1731,6 +1780,8 @@ struct FastqEntropyFilterSubcommand: AsyncParsableCommand {
                 "entropyWindow": .integer(FASTQEntropyFilterDefaults.window),
                 "entropyKmer": .integer(FASTQEntropyFilterDefaults.kmer),
                 "threads": .integer(4),
+                "pairing": FASTQPairingOptions.provenanceDefault,
+                "interleaved": .boolean(false),
                 "force": .boolean(false),
                 "compress": .boolean(false),
             ],
@@ -2517,12 +2568,15 @@ struct FastqDeduplicateSubcommand: AsyncParsableCommand {
     @Option(name: .customLong("dupedist"), help: "Pixel distance for optical duplicates (default: 40)")
     var opticalDistance: Int = 40
 
+    @OptionGroup var pairing: FASTQPairingOptions
+
     @OptionGroup var output: OutputOptions
 
     func run() async throws {
         let inputURL = try validateInput(input)
         try output.validateOutput()
         let runner = NativeToolRunner.shared
+        let isInterleaved = try await pairing.resolveIsInterleaved(inputURL: inputURL)
 
         let heapGB = ManagedJavaHeapPolicy.heapGB(minimumGB: 1)
         var args = [
@@ -2533,6 +2587,12 @@ struct FastqDeduplicateSubcommand: AsyncParsableCommand {
             "subs=\(substitutions)",
             "ow=t"
         ]
+        if isInterleaved {
+            // clumpify then compares and clusters whole pairs, and writes
+            // both mates of every surviving pair adjacent to each other.
+            // Without it, mates are reordered as independent single reads.
+            args.append("interleaved=t")
+        }
         if optical {
             args.append("optical=t")
             args.append("dupedist=\(opticalDistance)")
@@ -2553,6 +2613,7 @@ struct FastqDeduplicateSubcommand: AsyncParsableCommand {
         if opticalDistance != 40 {
             cliArguments += ["--dupedist", String(opticalDistance)]
         }
+        cliArguments += pairing.cliArguments
         cliArguments += ["--output", output.output]
         if output.force {
             cliArguments.append("--force")
@@ -2575,6 +2636,8 @@ struct FastqDeduplicateSubcommand: AsyncParsableCommand {
                 "subs": .integer(substitutions),
                 "optical": .boolean(optical),
                 "dupedist": .integer(opticalDistance),
+                "pairing": pairing.provenanceValue,
+                "interleaved": .boolean(isInterleaved),
                 "force": .boolean(output.force),
                 "compress": .boolean(output.compress)
             ],
@@ -2582,6 +2645,8 @@ struct FastqDeduplicateSubcommand: AsyncParsableCommand {
                 "subs": .integer(0),
                 "optical": .boolean(false),
                 "dupedist": .integer(40),
+                "pairing": FASTQPairingOptions.provenanceDefault,
+                "interleaved": .boolean(false),
                 "force": .boolean(false),
                 "compress": .boolean(false)
             ],
