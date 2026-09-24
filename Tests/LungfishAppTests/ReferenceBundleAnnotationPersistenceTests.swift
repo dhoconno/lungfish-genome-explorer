@@ -17,6 +17,7 @@ import XCTest
 @testable import LungfishApp
 @testable import LungfishCore
 @testable import LungfishIO
+import LungfishKit
 
 @MainActor
 final class ReferenceBundleAnnotationPersistenceTests: XCTestCase {
@@ -136,6 +137,159 @@ final class ReferenceBundleAnnotationPersistenceTests: XCTestCase {
         let reopened = try AnnotationDatabase(url: dbURL).queryForTable(limit: 10)
         XCTAssertEqual(reopened.first?.name, "renamed-gene")
         XCTAssertEqual(reopened.first?.type, "CDS")
+        withExtendedLifetime(delegate) {}
+    }
+
+    // MARK: - Selection is not an edit (regression)
+
+    /// Regression for the live-reproduced bug: simply SELECTING an annotation in the
+    /// drawer/viewer -- which the Inspector's SelectionSectionViewModel.select(annotation:)
+    /// mirrors into its editable `name`/`type`/`color`/`notes` fields for display -- must
+    /// never itself post `.annotationUpdated`. Before the fix, a SwiftUI onChange firing
+    /// on the next render pass (after `select(annotation:)` already returned and reset
+    /// `isUpdatingFromSelection` back to `false`) could commit the just-loaded, unchanged
+    /// values right back as an "edit", starting an OperationCenter "Update Annotation" item
+    /// and rewriting genome.db for a no-op.
+    func testSelectingAnnotationInSelectionSectionViewModelPostsNoUpdate() throws {
+        let annotation = SequenceAnnotation(
+            type: .gene,
+            name: "geneA",
+            chromosome: "chr1",
+            intervals: [AnnotationInterval(start: 2, end: 9)]
+        )
+        let vm = SelectionSectionViewModel()
+        var updates: [SequenceAnnotation] = []
+        vm.onAnnotationUpdated = { updates.append($0) }
+
+        vm.select(annotation: annotation)
+
+        // Simulate what a SwiftUI onChange would do if it fired the loaded value back
+        // through the commit path even though nothing was actually edited -- this is
+        // exactly the shape of the bug: the view's onChange handler calls `commitChanges()`
+        // / `commitColorChange()` with `viewModel.name`/`.type`/`.color` already equal to
+        // what `select(annotation:)` just populated.
+        vm.commitChanges()
+        vm.commitColorChange()
+
+        XCTAssertTrue(updates.isEmpty, "Selecting an annotation must not commit an update when nothing changed")
+    }
+
+    /// Same regression, exercised through the real notification path and a real bundle:
+    /// posting `.annotationUpdated` with an annotation identical to what the viewer already
+    /// has cached must not create an OperationCenter item or touch the SQLite file on disk.
+    func testAnnotationUpdatedNotificationIsNoOpWhenAnnotationIsUnchanged() async throws {
+        let bundleURL = try makeBundleWithAnnotationTrack(named: "M1")
+        let (windowController, delegate) = try makeMainWindowAndDelegate()
+        try windowController.mainSplitViewController.viewerController.displayBundle(at: bundleURL, mode: .browse)
+
+        let annotation = try annotationFromDatabase(bundleURL: bundleURL, trackID: "imported", name: "geneA")
+
+        // Seed the viewer's bundle-mode annotation cache directly with the same value the
+        // Inspector would have loaded, rather than waiting on the async fetch pipeline
+        // (`fetchAnnotationsAsync`) to populate it non-deterministically. This is exactly
+        // the cache `AppDelegate.handleAnnotationUpdated`'s no-op guard consults via
+        // `SequenceViewerView.currentAnnotation(withID:)`.
+        windowController.mainSplitViewController.viewerController.viewerView.cachedBundleAnnotations = [annotation]
+
+        let dbURL = bundleURL.appendingPathComponent("annotations/imported.db")
+        let mtimeBefore = try FileManager.default.attributesOfItem(atPath: dbURL.path)[.modificationDate] as? Date
+
+        NotificationCenter.default.post(
+            name: .annotationUpdated,
+            object: nil,
+            userInfo: [
+                NotificationUserInfoKey.annotation: annotation,
+                NotificationUserInfoKey.changeSource: "inspector",
+                NotificationUserInfoKey.windowStateScope: windowController.projectSession.windowStateScope,
+            ]
+        )
+
+        // Give any (incorrectly) spawned Task a chance to run before asserting nothing
+        // happened -- there is no positive condition to wait for, so a short fixed delay
+        // is the only option; the assertions below are what actually catch a regression.
+        try await Task.sleep(nanoseconds: 300_000_000)
+
+        XCTAssertTrue(
+            OperationCenter.shared.activeItems.isEmpty,
+            "Selecting/redisplaying an unchanged annotation must not start an OperationCenter item"
+        )
+        let mtimeAfter = try FileManager.default.attributesOfItem(atPath: dbURL.path)[.modificationDate] as? Date
+        XCTAssertEqual(mtimeBefore, mtimeAfter, "genome.db must not be rewritten for a no-op update")
+
+        let rows = try AnnotationDatabase(url: dbURL).queryForTable(limit: 10)
+        XCTAssertEqual(rows.first?.name, "geneA")
+        withExtendedLifetime(delegate) {}
+    }
+
+    /// Two rapid genuine updates (e.g. a fast retype) must never leave an operation stuck
+    /// `.running`/0% holding the bundle lock -- every path through
+    /// `persistReferenceBundleAnnotationUpdate` must end the operation exactly once, and a
+    /// delete afterward must succeed rather than being refused as "Bundle Busy".
+    func testRapidSuccessiveUpdatesLeaveNoRunningOperationAndBundleUnlocked() async throws {
+        let bundleURL = try makeBundleWithAnnotationTrack(named: "M1")
+        let (windowController, delegate) = try makeMainWindowAndDelegate()
+        try windowController.mainSplitViewController.viewerController.displayBundle(at: bundleURL, mode: .browse)
+
+        let original = try annotationFromDatabase(bundleURL: bundleURL, trackID: "imported", name: "geneA")
+        windowController.mainSplitViewController.viewerController.viewerView.cachedBundleAnnotations = [original]
+
+        var first = original
+        first.name = "first-rename"
+        var second = original
+        second.name = "second-rename"
+
+        let userInfoBase: [String: Any] = [
+            NotificationUserInfoKey.changeSource: "inspector",
+            NotificationUserInfoKey.windowStateScope: windowController.projectSession.windowStateScope,
+        ]
+
+        NotificationCenter.default.post(
+            name: .annotationUpdated,
+            object: nil,
+            userInfo: userInfoBase.merging([NotificationUserInfoKey.annotation: first]) { _, new in new }
+        )
+        NotificationCenter.default.post(
+            name: .annotationUpdated,
+            object: nil,
+            userInfo: userInfoBase.merging([NotificationUserInfoKey.annotation: second]) { _, new in new }
+        )
+
+        // The two `Task { ... }`s posted above both start on the main actor before either
+        // reaches its first `await`, so they run FIFO up to that suspension point: the
+        // first Task's `OperationCenter.begin(...)` (synchronous, on the main actor) wins
+        // the bundle lock before the second Task's `begin()` call ever runs, so the second
+        // update is refused ("Bundle Busy") rather than racing the first to disk. Only the
+        // first rename is therefore expected to land.
+        let dbURL = bundleURL.appendingPathComponent("annotations/imported.db")
+        try await waitFor {
+            // The workflow briefly recreates/rewrites this file mid-mutation, so an open
+            // failure here means "poll again shortly", not "the test has failed" --
+            // `waitFor` will still time out and fail if the file never settles.
+            guard let rows = try? AnnotationDatabase(url: dbURL).queryForTable(limit: 10) else { return false }
+            return rows.first?.name == "first-rename"
+        }
+
+        // No operation left running/holding the lock, for either the winning update or
+        // the one refused as "Bundle Busy".
+        try await waitFor {
+            OperationCenter.shared.activeItems.allSatisfy { $0.targetBundleURL?.standardizedFileURL != bundleURL.standardizedFileURL }
+        }
+        XCTAssertTrue(OperationCenter.shared.canStartOperation(on: bundleURL))
+
+        // A delete right afterward must succeed rather than being refused as "Bundle Busy",
+        // proving the lock was actually released.
+        let toDelete = try annotationFromDatabase(bundleURL: bundleURL, trackID: "imported", name: "first-rename")
+        NotificationCenter.default.post(
+            name: .annotationDeleted,
+            object: nil,
+            userInfo: [
+                NotificationUserInfoKey.annotation: toDelete,
+                NotificationUserInfoKey.changeSource: "inspector",
+                NotificationUserInfoKey.windowStateScope: windowController.projectSession.windowStateScope,
+            ]
+        )
+        try await waitForAnnotationRowCount(bundleURL: bundleURL, trackID: "imported", expected: 0)
+
         withExtendedLifetime(delegate) {}
     }
 

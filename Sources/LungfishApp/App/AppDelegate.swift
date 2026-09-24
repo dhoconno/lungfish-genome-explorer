@@ -1372,6 +1372,22 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
 
         let viewerController = viewerController(for: notification)
 
+        // Defense in depth against a spurious "update" posted with no genuine
+        // edit (e.g. a SwiftUI onChange firing while the Inspector merely
+        // populates its fields from a freshly-selected annotation): if the
+        // incoming annotation is identical to what's already displayed, there
+        // is nothing to persist, so skip straight past the document/bundle
+        // write paths below. This must not fire an OperationCenter item, a
+        // SQLite write, or a provenance entry for a no-op.
+        if let cached = viewerController?.viewerView.currentAnnotation(withID: annotation.id),
+           cached.name == annotation.name,
+           cached.type == annotation.type,
+           cached.note == annotation.note,
+           cached.color == annotation.color,
+           cached.strand == annotation.strand {
+            return
+        }
+
         if let document = viewerController?.currentDocument,
            let index = document.annotations.firstIndex(where: { $0.id == annotation.id }) {
             document.annotations[index] = annotation
@@ -1500,10 +1516,17 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                 note: annotation.note,
                 bundleURL: bundleURL
             )
-            guard OperationCenter.shared.complete(id: opID, detail: "Updated \(annotation.name)") else { return }
+            // The reload runs BEFORE `complete()` so a throw here still lands in
+            // the `catch` below while the operation is still `.running` --
+            // completing the operation first and only then reloading left a
+            // window where a reload failure landed on an operation that was
+            // already terminal, so `fail(id:)` was a silent no-op (its guard
+            // requires `state.isActive`) and the bundle lock, already released
+            // by `complete()`, could not be re-acquired to signal the failure.
             try reloadReferenceBundleAfterAnnotationEdit(bundleURL: bundleURL, viewerController: viewerController)
+            OperationCenter.shared.complete(id: opID, detail: "Updated \(annotation.name)")
         } catch {
-            guard OperationCenter.shared.fail(id: opID, detail: error.localizedDescription) else { return }
+            OperationCenter.shared.fail(id: opID, detail: error.localizedDescription)
             showAlert(
                 title: "Update Annotation Failed",
                 message: error.localizedDescription,
@@ -1540,10 +1563,13 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         }
         do {
             _ = try await ReferenceBundleManualAnnotationService().deleteAnnotation(location, bundleURL: bundleURL)
-            guard OperationCenter.shared.complete(id: opID, detail: "Deleted annotation") else { return }
+            // See the matching comment in `persistReferenceBundleAnnotationUpdate`:
+            // reload before complete so a reload failure still finds the
+            // operation `.running` and `fail(id:)` is not a silent no-op.
             try reloadReferenceBundleAfterAnnotationEdit(bundleURL: bundleURL, viewerController: viewerController)
+            OperationCenter.shared.complete(id: opID, detail: "Deleted annotation")
         } catch {
-            guard OperationCenter.shared.fail(id: opID, detail: error.localizedDescription) else { return }
+            OperationCenter.shared.fail(id: opID, detail: error.localizedDescription)
             showAlert(
                 title: "Delete Annotation Failed",
                 message: error.localizedDescription,
