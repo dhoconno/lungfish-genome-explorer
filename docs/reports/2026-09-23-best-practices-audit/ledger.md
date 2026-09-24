@@ -30,7 +30,7 @@ Single source of truth for finding status (plan rule 9). Status: `open`, `verifi
 | PERF-05 | P1 | Eight post-import and post-operation call sites run the full recursive project scan synchronously on the main  | fixed | P4-A | bea6e910b | 8/8 reloadFromFilesystem call sites now async |
 | PERF-06 | P1 | "Export annotations" and multi-source sequence export decompress and parse the entire genome into memory | open | | | |
 | REC-01 | P1 | Sibling mutation service deletes backup | fixed | P0-B | 12e6722a6 | VariantMutationPublication recovery path |
-| REC-02 | P1 | MSA/tree --force deletes output before work | partial | P0-B | 6898a985f | MSA extract/mask/trim atomic swap; tree infer --force still removes before work (follow-up) |
+| REC-02 | P1 | MSA/tree --force deletes output before work | fixed | Q3 | dd086b592 | tree infer --force atomic swap; failing-iqtree test |
 | REC-03 | P1 | Kraken2 taxonomy/BLAST exports lack provenance | open | | | |
 | REC-04 | P1 | Sidebar VCF/folder drop silently discarded | open | | | |
 | REC-05 | P1 | About Saving text promises persistence FEA-03 disproves | fixed | P2-A | cb7c10798 | About Saving now true |
@@ -44,7 +44,7 @@ Single source of truth for finding status (plan rule 9). Status: `open`, `verifi
 | SCI-05 | P1 | Mapping "reads mapped / total" and per-contig % count alignment records (secondary and supplementary), not rea | fixed | P3-A | c734597fb | primary/primary mapped; 18-record fixture 80% |
 | SCI-06 | P1 | Annotation extraction ignores strand and splicing, and the core API applies 5'/3' flanks by coordinate | open | | | |
 | SCI-07 | P1 | Region to bundle extraction with Reverse Complement does not transform variants | open | | | |
-| SCI-08 | P1 | Lossy quality binning on by default (silent on downloads and FASTQ operation outputs), mislabelled schemes, or | fixed | P0-B | 7c3fb0fd5 | binning default none everywhere (D1); scheme-name mislabel not yet addressed |
+| SCI-08 | P1 | Lossy quality binning on by default (silent on downloads and FASTQ operation outputs), mislabelled schemes, or | fixed | P0-B,Q3 | 7c3fb0fd5,b90f9a337 | default none; labels corrected (illumina4=7 levels) |
 | SCI-09 | P1 | NAO-MGS "coverage %" uses the furthest alignment end as reference length when references were not fetched | fixed | P3-A | 6538d8d39 | reference_length_source; UI shows coverage unavailable |
 | TST-03 | P1 | Swift Build migration broke subpath `Bundle.module` fixtures, crashing tests with SIGTRAP | fixed | P0-A | 18b87a387 | fixtureURL helper, 4 classes |
 | TST-04 | P1 | Stable-namespace change broke about 75 tests that hard-code `.lungfish` fake homes, and tests cannot inject an | partial | P0-A2 | 270f5feaa | 117->18 unit-tier failures; appIdentity threaded through remaining resolvers |
@@ -95,9 +95,9 @@ Single source of truth for finding status (plan rule 9). Status: `open`, `verifi
 | SCI-11 | P2 | GFF3 export writes phase 0 on every CDS segment, splits one CDS into distinct IDs, and leaves a dangling `Pare | open | | | |
 | SCI-12 | P2 | Bgzip FASTA reader returns `\r` and drops bases for CRLF FASTA | fixed | P3-D | f7da65c56 | CRLF bgzip fixture fail-then-pass |
 | SCI-13 | P2 | User-visible `chr:start-end` strings mix 0-based and 1-based conventions | open | | | |
-| SCI-14 | P2 | Variant track chromosome aliasing silently matches by length or max-position (up to 20% tolerance) | partial | P3-D | ddee0b5fa | via ChromosomeAliasResolver; length matches logged per name; not yet user-visible (kept max-pos fallback: viral VCFs often lack ##contig) |
+| SCI-14 | P2 | Variant track chromosome aliasing silently matches by length or max-position (up to 20% tolerance) | fixed | P3-D,Q3 | ddee0b5fa,024eab61c | length matches surfaced as tooltip |
 | SCI-15 | P2 | Origin-spanning features on circular genomes are sorted by start, which reorders segments | open | | | |
-| SCI-16 | P2 | Interleaved paired FASTQ subsample via the CLI-backed Operations path is not pair-aware | open | | | |
+| SCI-16 | P2 | Interleaved paired FASTQ subsample via the CLI-backed Operations path is not pair-aware | fixed | Q3 | 7cf08caf7 | reproduced; interleaved -> reformat.sh pair-aware |
 | SCI-17 | P2 | Markdup shell pipeline: no `pipefail`, double-quote interpolation of paths, duplicate fraction over alignment  | fixed | P3-A | b1c665c91 | pipefail, argv paths, dup fraction over primary |
 | SCI-18 | P2 | Bracken always uses the 150 bp distribution regardless of actual read length | open | | | |
 | SIMP-01 | P2 | FASTQ operations have three independent CLI encodings; provenance records a command that did not run | open | | | |
@@ -134,7 +134,7 @@ Single source of truth for finding status (plan rule 9). Status: `open`, `verifi
 | WFL-16 | P2 | User-registered workflows are a half-surface: no menu, loose outputs, no sidebar result, "Beta1" copy | open | | | |
 | WFL-17 | P2 | Surface asymmetry: capabilities only on one surface (CLI-only exports, context-menu-only tree, import-only rec | open | | | |
 | WFL-18 | P2 | Two execution paths for the same operation with different defaults (orient, assembly Reassemble, genotyping) | open | | | |
-| WFL-19 | P2 | Failure-path quality: raw enum text, silent no-ops, cleanup errors failing successful runs | partial | P1-C | b3dcd7dc3 | mapping error uses errorDescription; 3 classification cleanup sites changed try to try?; silent-no-op cases (orient, MAFFT-without-project) not addressed this round |
+| WFL-19 | P2 | Failure-path quality: raw enum text, silent no-ops, cleanup errors failing successful runs | fixed | P1-C,Q3 | b3dcd7dc3,d47e79f1d | remaining raw errors + orient silent no-op |
 | WFL-20 | P2 | Inconsistent result layouts across sibling tools (single vs batch, import destinations, warning states) | open | | | |
 | ARC-14 | P3 | `ResultViewportController` / `BlastVerifiable` are premature abstractions with no polymorphic consumer | open | | | |
 | ARC-16 | P3 | Misplaced vocabulary: UI event names in Core, test harness in Kit, CGPoint graph model in Workflow, dead notif | open | | | |
@@ -180,3 +180,7 @@ Single source of truth for finding status (plan rule 9). Status: `open`, `verifi
 | GEN-12 | P2 | Provenance and QC gaps: bbtools missing from `managedTools`, hard-coded "resolvedDefaults", hard-coded QC cut- | fixed | G2 | aa3cc573d | bbtools recorded, real thresholds, no AI prompt copy |
 | GEN-13 | P2 | Legacy `fastq ont-genotype` maps ONT reads with the short-read preset, ignores `--allow-indels`, and randomly  | open | | | |
 | DS-01 | P1 | Owner-reported: mapping viewport downsample clustered at window start | fixed | DS | 3c44ed94d | fetchReadSketch (count + samtools --subsample) per track; every-decile test; 3M-read BAM 19.8s -> 4.2s |
+| NEW-01 | P2 | CLI import bam -o bundle copied loose files, no track | fixed | Q3 | 6e4cac542 | attaches via PreparedAlignmentAttachmentService |
+| NEW-02 | P2 | Sidebar watcher misses CLI changes in newly created project | open | Q3 | | sub-agent still investigating |
+| NEW-03 | P3 | Open Recent duplicates; reopening opens second window | fixed | Q3 | 95cbdfeac | dedupe by path; focus existing window |
+| NEW-04 | P2 | test_releasing_lungfish_skill 26/36 failing at base | open | | | pre-existing |
