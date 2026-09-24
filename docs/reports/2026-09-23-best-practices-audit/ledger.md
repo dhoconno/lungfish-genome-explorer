@@ -75,7 +75,7 @@ Single source of truth for finding status (plan rule 9). Status: `open`, `verifi
 | FEA-12 | P2 | GUI BAM and VCF imports record a `lungfish-cli` command that the CLI cannot run | open | | | |
 | FEA-13 | P2 | Variant table dead controls: Het Only chip, single-option Match picker, silent preset rewrite | open | | | |
 | FEA-14 | P2 | Output placement differs by entry point (Imports, project root, drop folder, alignment-read-extractions with U | open | | | |
-| PERF-07 | P2 | Result and bundle selection opens SQLite databases and runs scans and JSON decodes on the main thread | open | | | |
+| PERF-07 | P2 | Result and bundle selection opens SQLite databases and runs scans and JSON decodes on the main thread | fixed | Q1b | a206f4813 | variant track scan off main with generation check; main-actor responsiveness test |
 | PERF-08 | P2 | Oriented virtual-FASTQ materialization loads the orient map twice as whole `String`s into two `Set<String>` of | fixed | Q2 | a95a10c9a | single streaming pass |
 | PERF-09 | P2 | Loading-badge animation invalidates the whole sequence viewer at 18 fps, and horizontal pan redraw is a traili | fixed | Q1 | fb926ae3f,8a5c88145 | badge-rect invalidation; pan throttle; cached maxReadSpan |
 | PERF-10 | P2 | MSA drawing allocates an attributed string per residue and re-registers tooltips inside `draw(_:)`, and the gu | partial | Q1 | 11df0160c | gutter range + tooltips fixed; per-residue attributed strings not yet cached |
@@ -184,3 +184,4 @@ Single source of truth for finding status (plan rule 9). Status: `open`, `verifi
 | NEW-02 | P2 | Sidebar watcher misses CLI changes in newly created project | not-reproduced-in-tests | Q3 |  | wiring traced; FSEvents deliver in ~3s for brand-new dirs; recheck live via Computer Use (repro project was in TCC-protected ~/Documents) |
 | NEW-03 | P3 | Open Recent duplicates; reopening opens second window | fixed | Q3 | 95cbdfeac | dedupe by path; focus existing window |
 | NEW-04 | P2 | test_releasing_lungfish_skill 26/36 failing at base | open | | | pre-existing |
+| PERF-17 | P1 | (new, measured) Genotype comparison matrix: 955 ms to build 40x96 visible cells, 350 ms full redraw | open | Q1c | | PerfBenchGenotypeMatrixTests |
