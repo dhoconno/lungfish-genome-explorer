@@ -8,7 +8,7 @@ final class ToolsMenuStructureTests: XCTestCase {
         _ = NSApplication.shared
         let mainMenu = MainMenu.createMainMenu()
         let toolsMenu = try XCTUnwrap(mainMenu.items.first { $0.title == "Tools" }?.submenu)
-        let item = try XCTUnwrap(toolsMenu.items.first { $0.title == "PCR primer design" })
+        let item = try XCTUnwrap(toolsMenu.items.first { $0.title == "PCR Primer Design" })
         XCTAssertEqual(item.identifier?.rawValue, "tools-pcr-primer-design")
         XCTAssertNotEqual(item.action, #selector(ToolsMenuActions.showPCRPrimerDesign(_:)))
         let submenu = try XCTUnwrap(item.submenu)
