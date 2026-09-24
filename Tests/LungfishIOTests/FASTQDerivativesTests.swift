@@ -1164,6 +1164,62 @@ final class FASTQDerivativesTests: XCTestCase {
         XCTAssertEqual(rcIDs.count, 2)
     }
 
+    // MARK: - PERF-08: single-pass orientation-set loading
+
+    /// `loadOrientationSets` must produce output identical to the old
+    /// two-call `loadForwardReadIDs` + `loadRCReadIDs` pair it replaces,
+    /// where `allReadIDs` takes the place of the old forward-only set unioned
+    /// with the RC set.
+    func testLoadOrientationSetsMatchesOldTwoPassAPI() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("orient-single-pass-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let url = tempDir.appendingPathComponent("orient-map.tsv")
+        let records: [(readID: String, orientation: String)] = [
+            ("read1", "+"), ("read2", "-"), ("read3", "+"),
+            ("read4", "-"), ("read5", "-")
+        ]
+        try FASTQOrientMapFile.write(records, to: url)
+
+        let oldForward = try FASTQOrientMapFile.loadForwardReadIDs(from: url)
+        let oldRC = try FASTQOrientMapFile.loadRCReadIDs(from: url)
+        let oldAll = oldForward.union(oldRC)
+
+        let sets = try FASTQOrientMapFile.loadOrientationSets(from: url)
+
+        XCTAssertEqual(sets.rcReadIDs, oldRC)
+        XCTAssertEqual(sets.allReadIDs, oldAll)
+        XCTAssertEqual(sets.allReadIDs.subtracting(sets.rcReadIDs), oldForward)
+    }
+
+    /// A synthetic orient map large enough to exercise the chunked line
+    /// reader's buffer boundary (many chunks, not just one), still matching
+    /// the old whole-file `String(contentsOf:)` implementation byte for byte.
+    func testLoadOrientationSetsOnLargeSyntheticMapMatchesWholeFileLoad() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("orient-large-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let url = tempDir.appendingPathComponent("orient-map.tsv")
+        let records: [(readID: String, orientation: String)] = (0..<50_000).map { index in
+            ("read-\(index)-abcdefghijklmnopqrstuvwxyz", index % 3 == 0 ? "-" : "+")
+        }
+        try FASTQOrientMapFile.write(records, to: url)
+
+        let expectedRC = Set(records.filter { $0.orientation == "-" }.map(\.readID))
+        let expectedAll = Set(records.map(\.readID))
+
+        let sets = try FASTQOrientMapFile.loadOrientationSets(from: url)
+
+        XCTAssertEqual(sets.rcReadIDs.count, expectedRC.count)
+        XCTAssertEqual(sets.rcReadIDs, expectedRC)
+        XCTAssertEqual(sets.allReadIDs.count, expectedAll.count)
+        XCTAssertEqual(sets.allReadIDs, expectedAll)
+    }
+
     // MARK: - Phase 1 Edge-Case Tests: Trim Position 4-Column Format
 
     func testTrimPositions4ColumnFormatWriteAndParse() throws {

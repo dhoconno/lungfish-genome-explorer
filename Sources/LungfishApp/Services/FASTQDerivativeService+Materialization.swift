@@ -124,12 +124,11 @@ extension FASTQDerivativeService {
         }
 
         if let orientMapURL {
-            let fwdReadIDs = try FASTQOrientMapFile.loadForwardReadIDs(from: orientMapURL)
-            let rcReadIDs = try FASTQOrientMapFile.loadRCReadIDs(from: orientMapURL)
+            let orientSets = try FASTQOrientMapFile.loadOrientationSets(from: orientMapURL)
             try await materializeOrientedReads(
                 fromRootFASTQ: extractTarget,
-                forwardReadIDs: fwdReadIDs,
-                rcReadIDs: rcReadIDs,
+                allReadIDs: orientSets.allReadIDs,
+                rcReadIDs: orientSets.rcReadIDs,
                 outputFASTQ: outputURL
             )
         }
@@ -192,13 +191,12 @@ extension FASTQDerivativeService {
                 throw FASTQDerivativeError.emptyResult
             }
         } else if let orientMapURL {
-            let fwdReadIDs = try FASTQOrientMapFile.loadForwardReadIDs(from: orientMapURL)
-            let rcReadIDs = try FASTQOrientMapFile.loadRCReadIDs(from: orientMapURL)
+            let orientSets = try FASTQOrientMapFile.loadOrientationSets(from: orientMapURL)
             let selectedReadIDs = try loadSelectedReadIDLookup(from: readIDListURL)
             try await materializeOrientedFASTAReads(
                 fromRootFASTA: rootFASTAURL,
-                forwardReadIDs: fwdReadIDs.filter { selectedReadIDs.contains($0) },
-                rcReadIDs: rcReadIDs.filter { selectedReadIDs.contains($0) },
+                allReadIDs: orientSets.allReadIDs.filter { selectedReadIDs.contains($0) },
+                rcReadIDs: orientSets.rcReadIDs.filter { selectedReadIDs.contains($0) },
                 outputFASTA: outputURL
             )
             return
@@ -212,12 +210,11 @@ extension FASTQDerivativeService {
         }
 
         if let orientMapURL {
-            let fwdReadIDs = try FASTQOrientMapFile.loadForwardReadIDs(from: orientMapURL)
-            let rcReadIDs = try FASTQOrientMapFile.loadRCReadIDs(from: orientMapURL)
+            let orientSets = try FASTQOrientMapFile.loadOrientationSets(from: orientMapURL)
             try await materializeOrientedFASTAReads(
                 fromRootFASTA: extractTarget,
-                forwardReadIDs: fwdReadIDs,
-                rcReadIDs: rcReadIDs,
+                allReadIDs: orientSets.allReadIDs,
+                rcReadIDs: orientSets.rcReadIDs,
                 outputFASTA: outputURL
             )
         }
@@ -229,11 +226,15 @@ extension FASTQDerivativeService {
     /// Strategy: Extract RC reads → reverse complement them → concatenate with forward reads.
     func materializeOrientedReads(
         fromRootFASTQ rootFASTQ: URL,
-        forwardReadIDs: Set<String>,
+        allReadIDs: Set<String>,
         rcReadIDs: Set<String>,
         outputFASTQ: URL
     ) async throws {
-        let selectedReadIDs = forwardReadIDs.union(rcReadIDs)
+        // PERF-08: `allReadIDs` is every read named in the orient map,
+        // forward or reverse-complemented (see `FASTQOrientMapFile.loadOrientationSets`).
+        // It replaces the old `forwardReadIDs.union(rcReadIDs)`, which forced
+        // callers to load and hold a redundant forward-only set.
+        let selectedReadIDs = allReadIDs
         guard !selectedReadIDs.isEmpty else {
             throw FASTQDerivativeError.emptyResult
         }
@@ -513,11 +514,12 @@ extension FASTQDerivativeService {
 
     func materializeOrientedFASTAReads(
         fromRootFASTA rootFASTA: URL,
-        forwardReadIDs: Set<String>,
+        allReadIDs: Set<String>,
         rcReadIDs: Set<String>,
         outputFASTA: URL
     ) async throws {
-        let selectedReadIDs = forwardReadIDs.union(rcReadIDs)
+        // PERF-08: see the comment in `materializeOrientedReads`.
+        let selectedReadIDs = allReadIDs
         guard !selectedReadIDs.isEmpty else {
             throw FASTQDerivativeError.emptyResult
         }

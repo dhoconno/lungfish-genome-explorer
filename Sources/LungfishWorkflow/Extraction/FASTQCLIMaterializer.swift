@@ -277,20 +277,19 @@ public final class FASTQCLIMaterializer: Sendable {
                 in: bundleURL,
                 field: "payload.orientMap.orientMapFilename"
             )
-            let fwdReadIDs = try FASTQOrientMapFile.loadForwardReadIDs(from: mapURL)
-            let rcReadIDs = try FASTQOrientMapFile.loadRCReadIDs(from: mapURL)
+            let orientSets = try FASTQOrientMapFile.loadOrientationSets(from: mapURL)
             if manifest.sequenceFormat == .fasta {
                 try await materializeOrientedFASTAReads(
                     fromRootFASTA: rootFASTQURL,
-                    forwardReadIDs: fwdReadIDs,
-                    rcReadIDs: rcReadIDs,
+                    allReadIDs: orientSets.allReadIDs,
+                    rcReadIDs: orientSets.rcReadIDs,
                     outputFASTA: outputURL
                 )
             } else {
                 try await materializeOrientedReads(
                     fromRootFASTQ: rootFASTQURL,
-                    forwardReadIDs: fwdReadIDs,
-                    rcReadIDs: rcReadIDs,
+                    allReadIDs: orientSets.allReadIDs,
+                    rcReadIDs: orientSets.rcReadIDs,
                     outputFASTQ: outputURL
                 )
             }
@@ -428,12 +427,11 @@ public final class FASTQCLIMaterializer: Sendable {
         }
 
         if let orientMapURL, fm.fileExists(atPath: orientMapURL.path) {
-            let fwdIDs = try FASTQOrientMapFile.loadForwardReadIDs(from: orientMapURL)
-            let rcIDs = try FASTQOrientMapFile.loadRCReadIDs(from: orientMapURL)
+            let orientSets = try FASTQOrientMapFile.loadOrientationSets(from: orientMapURL)
             try await materializeOrientedReads(
                 fromRootFASTQ: extractTarget,
-                forwardReadIDs: fwdIDs,
-                rcReadIDs: rcIDs,
+                allReadIDs: orientSets.allReadIDs,
+                rcReadIDs: orientSets.rcReadIDs,
                 outputFASTQ: outputURL
             )
         }
@@ -481,12 +479,11 @@ public final class FASTQCLIMaterializer: Sendable {
         }
 
         if let orientMapURL, fm.fileExists(atPath: orientMapURL.path) {
-            let fwdIDs = try FASTQOrientMapFile.loadForwardReadIDs(from: orientMapURL)
-            let rcIDs = try FASTQOrientMapFile.loadRCReadIDs(from: orientMapURL)
+            let orientSets = try FASTQOrientMapFile.loadOrientationSets(from: orientMapURL)
             try await materializeOrientedFASTAReads(
                 fromRootFASTA: extractTarget,
-                forwardReadIDs: fwdIDs,
-                rcReadIDs: rcIDs,
+                allReadIDs: orientSets.allReadIDs,
+                rcReadIDs: orientSets.rcReadIDs,
                 outputFASTA: outputURL
             )
         }
@@ -605,7 +602,7 @@ public final class FASTQCLIMaterializer: Sendable {
 
     private func materializeOrientedReads(
         fromRootFASTQ rootFASTQ: URL,
-        forwardReadIDs: Set<String>,
+        allReadIDs: Set<String>,
         rcReadIDs: Set<String>,
         outputFASTQ: URL
     ) async throws {
@@ -618,7 +615,7 @@ public final class FASTQCLIMaterializer: Sendable {
             let id = normalizedIdentifier(record.identifier)
             if rcReadIDs.contains(id) {
                 try writer.write(record.reverseComplement())
-            } else if forwardReadIDs.contains(id) {
+            } else if allReadIDs.contains(id) {
                 try writer.write(record)
             }
         }
@@ -626,7 +623,7 @@ public final class FASTQCLIMaterializer: Sendable {
 
     private func materializeOrientedFASTAReads(
         fromRootFASTA rootFASTA: URL,
-        forwardReadIDs: Set<String>,
+        allReadIDs: Set<String>,
         rcReadIDs: Set<String>,
         outputFASTA: URL
     ) async throws {
@@ -641,7 +638,7 @@ public final class FASTQCLIMaterializer: Sendable {
                 if let rc = seq.reverseComplement() {
                     writeFASTARecord(name: seq.name, sequence: rc.asString(), to: handle)
                 }
-            } else if forwardReadIDs.contains(id) {
+            } else if allReadIDs.contains(id) {
                 writeFASTARecord(name: seq.name, sequence: seq.asString(), to: handle)
             }
         }
