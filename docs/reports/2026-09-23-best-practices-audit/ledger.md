@@ -73,7 +73,7 @@ Single source of truth for finding status (plan rule 9). Status: `open`, `verifi
 | FEA-10 | P2 | Settings controls that nothing reads (default zoom window, max undo levels) | fixed | P2-A | 8632b57aa | default zoom wired; max undo control removed |
 | FEA-11 | P2 | Export Image/PDF can export a hidden view or the wrong window; some menu actions ignore the key window | open | | | |
 | FEA-12 | P2 | GUI BAM and VCF imports record a `lungfish-cli` command that the CLI cannot run | open | | | |
-| FEA-13 | P2 | Variant table dead controls: Het Only chip, single-option Match picker, silent preset rewrite | open | | | |
+| FEA-13 | P2 | Variant table dead controls: Het Only chip, single-option Match picker, silent preset rewrite | fixed | P7 | 6c6c748a9 | dead Het Only + single-option picker removed; preset normalization banner |
 | FEA-14 | P2 | Output placement differs by entry point (Imports, project root, drop folder, alignment-read-extractions with U | open | | | |
 | PERF-07 | P2 | Result and bundle selection opens SQLite databases and runs scans and JSON decodes on the main thread | fixed | Q1b | a206f4813 | variant track scan off main with generation check; main-actor responsiveness test |
 | PERF-08 | P2 | Oriented virtual-FASTQ materialization loads the orient map twice as whole `String`s into two `Set<String>` of | fixed | Q2 | a95a10c9a | single streaming pass |
@@ -114,8 +114,8 @@ Single source of truth for finding status (plan rule 9). Status: `open`, `verifi
 | TST-10 | P2 | Flakiness sources: wall-clock budgets as tight as 0.1 s, global singletons and defaults, process-wide `setenv` | open | | | |
 | TST-11 | P2 | Silent skips: tool-gated app tests ignore `LUNGFISH_REQUIRE_TOOLS`, in-repo fixture misses skip, the conforman | open | | | |
 | TST-12 | P2 | XCUITests (40) run nowhere automatically, `appSmokeRequired: false`, core scientific journeys uncovered | open | | | |
-| UX-03 | P2 | Keyboard shortcuts implemented in `NSViewController.performKeyEquivalent` are probably never reached, and ⌘0 c | open | | | |
-| UX-04 | P2 | Edit > Copy and Edit > Find are dead in data views | open | | | |
+| UX-03 | P2 | Keyboard shortcuts implemented in `NSViewController.performKeyEquivalent` are probably never reached, and ⌘0 c | partial | P7 | 0d42f3f8a | confirmed unreachable via real dispatch; latent segmented-control crash fixed; shortcut->menu migration pending |
+| UX-04 | P2 | Edit > Copy and Edit > Find are dead in data views | fixed | P7 | 287aaaa03 | copy TSV + find in BatchTableView tables |
 | UX-05 | P2 | Table search and column-filter UI copied four times and drifting. NAO-MGS has no search. TaxTriage hides searc | open | | | |
 | UX-06 | P2 | No table column state is persisted. Four ad-hoc `UserDefaults` schemes exist elsewhere | open | | | |
 | UX-07 | P2 | Same action, different names: BLAST, NCBI lookup, Copy TaxID, Extract labels drift across viewers | open | | | |
@@ -123,9 +123,9 @@ Single source of truth for finding status (plan rule 9). Status: `open`, `verifi
 | UX-09 | P2 | Result load failures are shown three different ways, one of them silent | fixed | P1-C | bfcad3925,7d800e94f | 12S load failure now routes through clearViewport(statusMessage:) like Assembly/Mapping; TwelveSResultLoadFailureTests 1/1 |
 | UX-10 | P2 | Content Text Size is ignored by the Kraken2 table and most sequence-viewer chrome | open | | | |
 | UX-11 | P2 | Core sequence viewer and track headers are opaque to VoiceOver and keyboard | open | | | |
-| UX-12 | P2 | Inspector key/value rows reimplemented about 10 times with different layout and accessibility | open | | | |
+| UX-12 | P2 | Inspector key/value rows reimplemented about 10 times with different layout and accessibility | fixed | P7 | 1bf0c1400 | InspectorKeyValueRow in Kit |
 | UX-13 | P2 | The "viewport interface class" contract and dialog conventions are ceremonial or stale | open | | | |
-| UX-14 | P2 | No "no matches" or first-run empty states in result tables and empty projects | open | | | |
+| UX-14 | P2 | No "no matches" or first-run empty states in result tables and empty projects | partial | P7 | 94ee66683 | no-matches in BatchTableView only |
 | WFL-11 | P2 | Operations-panel CLI commands and several provenance argv records are not runnable | open | | | |
 | WFL-12 | P2 | Cancel missing or inert on several long-running paths | partial | P1-B | 01dd95338 | 12S x2, ONT MHC, CZ-ID, BLAST cancel wired; workflow-builder graph + AI provider calls not cancellable |
 | WFL-13 | P2 | MHC genotyping naming: "miSeq amplicon" workflow runs ONT data and tags it as MiSeq | fixed | P2-D | af5e6c94 lane | workflow kind derived from input mode |
@@ -140,7 +140,7 @@ Single source of truth for finding status (plan rule 9). Status: `open`, `verifi
 | ARC-16 | P3 | Misplaced vocabulary: UI event names in Core, test harness in Kit, CGPoint graph model in Workflow, dead notif | open | | | |
 | FEA-15 | P3 | About 27 orphaned action handlers, stale validation branches and invisible import history | open | | | |
 | FEA-16 | P3 | `features.yaml` GUI entry-point claims that do not exist in the menus | open | | | |
-| FEA-17 | P3 | Edit > Find (Cmd-F) is dead in the main window | open | | | |
+| FEA-17 | P3 | Edit > Find (Cmd-F) is dead in the main window | partial | P7 | 287aaaa03 | Find in result tables; main-window sidebar Find pending |
 | PERF-14 | P3 | Racy output-drain idioms (CondaManager 100 ms "drain delay", `readerGroup.enter` inside `readabilityHandler`) | fixed | Q2 | f31335bc0 | drain to EOF |
 | PERF-15 | P3 | Operation log entries are unbounded per operation | fixed | Q2 | a13f9b83b | 2000-entry cap with elision marker |
 | PERF-16 | P3 | Remaining `runModal`, redundant timer-to-main hops, and test probes as `nonisolated(unsafe)` statics in produc | open | | | |
@@ -161,9 +161,9 @@ Single source of truth for finding status (plan rule 9). Status: `open`, `verifi
 | SIMP-17 | P3 | Project-storage cleanup is 9.3K source lines plus 15.7K test lines for a move-to-Trash | open | | | |
 | TST-13 | P3 | Build health: 251 unique warnings, including concurrency-isolation warnings in tests and use of deprecated cle | open | | | |
 | TST-14 | P3 | Test effort is skewed toward release tooling and policy text over app behaviour | open | | | |
-| UX-15 | P3 | Alert and menu wording drift, success modals, dead "Not Yet Implemented" helper, ASCII ellipses | open | | | |
+| UX-15 | P3 | Alert and menu wording drift, success modals, dead "Not Yet Implemented" helper, ASCII ellipses | partial | P7 | 519e21ac3 | ellipsis/wording sweep |
 | UX-16 | P3 | Hard-coded light fills in the read track reduce dark-mode contrast | fixed | Q1 | a6d26ce62 | dynamic colors; WCAG contrast test |
-| UX-17 | P3 | `BatchTableView` ⌘-click quick-copy competes with standard ⌘-click multi-select | open | | | |
+| UX-17 | P3 | `BatchTableView` ⌘-click quick-copy competes with standard ⌘-click multi-select | fixed | P7 | 287aaaa03 | cmd-click quick-copy removed |
 | UX-18 | P3 | Sample-scope control differs per viewer. TaxTriage's segmented control does not scale | open | | | |
 | WFL-21 | P3 | Dead dialogs, launchers and engines kept alive only by tests | open | | | |
 | GEN-01 | P0 | ONT barcode assignment takes the leftmost exact barcode match anywhere in the read, including inside the ampli | fixed | G1 | 545fcea36 | anchored window after rc(CS2), both orientations, multi-match unassigned; 20-read DRB1 case all FLD0001 |
