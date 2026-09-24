@@ -1720,6 +1720,14 @@ public class SequenceViewerView: NSView {
         detachedDepthFetchTask = depth
     }
 
+    #if DEBUG
+    /// Test seam: fires on `variantAliasWarmupQueue` at the start of `setReferenceBundle`'s
+    /// PERF-07 variant-track scan, before any `VariantDatabase` is opened. Lets tests assert the
+    /// scan actually left the main thread. `nonisolated(unsafe)` matches the existing
+    /// `fastaOperationThreadingProbe` pattern. Debug-only; compiled out of release builds.
+    nonisolated(unsafe) static var variantTrackScanThreadingProbe: (@Sendable () -> Void)?
+    #endif
+
     func testSetUserSelectionRange(_ range: Range<Int>) {
         selectionRange = range
         selectionStartBase = range.lowerBound
@@ -2312,65 +2320,62 @@ public class SequenceViewerView: NSView {
         self.readContentHeight = 0
 
         // Cache sample count and build a fast chromosome alias map from variant databases.
-        // Skip expensive MAX(position) scans on the main thread; those are warmed asynchronously.
+        //
+        // PERF-07 (2026-09-23 best-practices audit): this used to open every variant database,
+        // and call `sampleCount()` + `allChromosomes()` + the fast alias-map builder,
+        // synchronously on the main actor. A cohort VCF with tens of millions of variant rows
+        // costs roughly 1-2s here on bundle open. The scan now runs in a detached task and
+        // commits its result only if this bundle is still the current one when it finishes
+        // (the same generation-check pattern `warmVariantChromosomeAliasesAsync` already uses
+        // just below). Until it completes, `cachedSampleCount` stays 0 and
+        // `variantChromosomeAliasMap`/`variantTrackChromosomeMap` stay empty — draw(_:) already
+        // treats those as "nothing to show yet" (genotype rows simply don't draw), which is the
+        // existing loading state, not a new one.
         self.cachedSampleCount = 0
         self.variantChromosomeAliasMap = [:]
         self.variantChromosomeLengthMatchNotes = []
         self.variantTrackChromosomeMap = [:]
-        for trackId in bundle.variantTrackIds {
-            if let trackInfo = bundle.variantTrack(id: trackId),
-               let dbPath = trackInfo.databasePath,
-               let dbURL = try? bundle.memberURL(
-                   for: dbPath,
-                   field: "variants[\(trackId)].databasePath"
-               ) {
-                if let db = try? VariantDatabase(url: dbURL) {
-                    let count = db.sampleCount()
-                    if count > 0 {
-                        self.cachedSampleCount = max(self.cachedSampleCount, count)
-                        sequenceViewerLogger.info("SequenceViewerView.setReferenceBundle: Found \(count) samples in variant track '\(trackId, privacy: .public)'")
+        if let vc = self.viewController {
+            vc.annotationDrawerView?.variantChromosomeAliasMap = [:]
+            vc.annotationDrawerView?.variantChromosomeLengthMatchNotes = []
+        }
+
+        Self.variantAliasWarmupQueue.async { [weak self] in
+            #if DEBUG
+            Self.variantTrackScanThreadingProbe?()
+            #endif
+            let scan = Self.scanVariantTracksSynchronously(bundle: bundle)
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    guard self.currentReferenceBundle?.url.standardizedFileURL == bundle.url.standardizedFileURL else { return }
+                    self.cachedSampleCount = scan.sampleCount
+                    self.variantTrackChromosomeMap = scan.trackChromosomeMap
+                    self.variantChromosomeAliasMap = scan.aliasMap
+                    self.variantChromosomeLengthMatchNotes = scan.lengthMatchNotes
+                    if let vc = self.viewController {
+                        vc.annotationDrawerView?.variantChromosomeAliasMap = scan.aliasMap
+                        vc.annotationDrawerView?.variantChromosomeLengthMatchNotes = scan.lengthMatchNotes
                     }
+                    self.needsDisplay = true
 
-                    let trackChromosomes = Set(db.allChromosomes())
-                    self.variantTrackChromosomeMap[trackId] = trackChromosomes
-
-                    // Fast path: name/alias/contig-length matching only.
-                    let (aliasMap, lengthMatchNotes) = Self.buildVariantChromosomeAliasMapWithLengthMatchNotes(
-                        bundleChromosomes: bundle.manifest.genome?.chromosomes ?? [],
-                        variantDB: db,
-                        sequenceViewerLogger: sequenceViewerLogger,
-                        includeMaxPositionFallback: false
-                    )
-                    if !aliasMap.isEmpty {
-                        for (refChrom, dbChrom) in aliasMap where self.variantChromosomeAliasMap[refChrom] == nil {
-                            self.variantChromosomeAliasMap[refChrom] = dbChrom
+                    // Warm expensive length-from-positions alias inference in the background so
+                    // this fast pass returns promptly even for very large variant databases.
+                    Self.warmVariantChromosomeAliasesAsync(
+                        bundle: bundle,
+                        initialAliasMap: scan.aliasMap,
+                        initialLengthMatchNotes: scan.lengthMatchNotes
+                    ) { [weak self] mergedAliasMap, mergedLengthMatchNotes in
+                        guard let self else { return }
+                        guard self.currentReferenceBundle?.url.standardizedFileURL == bundle.url.standardizedFileURL else { return }
+                        self.variantChromosomeAliasMap = mergedAliasMap
+                        self.variantChromosomeLengthMatchNotes = mergedLengthMatchNotes
+                        if let vc = self.viewController {
+                            vc.annotationDrawerView?.variantChromosomeAliasMap = mergedAliasMap
+                            vc.annotationDrawerView?.variantChromosomeLengthMatchNotes = mergedLengthMatchNotes
                         }
                     }
-                    for note in lengthMatchNotes where !self.variantChromosomeLengthMatchNotes.contains(note) {
-                        self.variantChromosomeLengthMatchNotes.append(note)
-                    }
                 }
-            }
-        }
-        if let vc = self.viewController {
-            vc.annotationDrawerView?.variantChromosomeAliasMap = self.variantChromosomeAliasMap
-            vc.annotationDrawerView?.variantChromosomeLengthMatchNotes = self.variantChromosomeLengthMatchNotes
-        }
-
-        // Warm expensive length-from-positions alias inference in the background so bundle
-        // selection returns immediately even for very large variant databases.
-        Self.warmVariantChromosomeAliasesAsync(
-            bundle: bundle,
-            initialAliasMap: self.variantChromosomeAliasMap,
-            initialLengthMatchNotes: self.variantChromosomeLengthMatchNotes
-        ) { [weak self] mergedAliasMap, mergedLengthMatchNotes in
-            guard let self else { return }
-            guard self.currentReferenceBundle?.url.standardizedFileURL == bundle.url.standardizedFileURL else { return }
-            self.variantChromosomeAliasMap = mergedAliasMap
-            self.variantChromosomeLengthMatchNotes = mergedLengthMatchNotes
-            if let vc = self.viewController {
-                vc.annotationDrawerView?.variantChromosomeAliasMap = mergedAliasMap
-                vc.annotationDrawerView?.variantChromosomeLengthMatchNotes = mergedLengthMatchNotes
             }
         }
 
