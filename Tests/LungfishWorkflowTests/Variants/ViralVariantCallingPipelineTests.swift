@@ -762,7 +762,7 @@ final class ViralVariantCallingPipelineTests: XCTestCase {
         for arg in "$@"; do input="$arg"; done
         touch "$input.tbi"
         """)
-        return NativeToolRunner(toolsDirectory: nil, homeDirectory: home)
+        return NativeToolRunner(toolsDirectory: nil, homeDirectory: home, appIdentity: .preview)
     }
 
     private func writeFakeTool(home: URL, environment: String, executable: String, script: String) throws {

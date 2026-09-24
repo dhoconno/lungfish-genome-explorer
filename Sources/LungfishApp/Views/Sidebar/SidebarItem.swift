@@ -181,9 +181,11 @@ public enum SidebarItemType: Sendable {
                 canExportAlignment: true
             )
         case .primerAnalysisBundle:
+            // Primer analysis provenance belongs to its own read-only viewer,
+            // not the generic Inspector — see SidebarBundleCapabilityTests.
             return SidebarBundleCapabilities(
                 canOpen: true, canShowPackageContents: true, canGetBundleInfo: true,
-                canShowInInspector: true, canExportSequences: false
+                canShowInInspector: false, canExportSequences: false
             )
         case .mhcReferenceBundle, .fastqBundle, .phylogeneticTreeBundle,
              .primerSchemeBundle, .genotypeResultBundle, .twelveSAmpliconResultBundle, .czIdResult:

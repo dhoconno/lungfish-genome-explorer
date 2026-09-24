@@ -19,7 +19,8 @@ public enum ManagedToolLocator {
     /// matches the managed-tool resolution introduced for workflow execution.
     public static func managedToolExecutablePath(
         _ tool: NativeTool,
-        homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser
+        homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser,
+        appIdentity: LungfishAppIdentity = .current
     ) -> String? {
         guard case .managed(let environment, let executableName) = tool.location else {
             return nil
@@ -28,7 +29,8 @@ public enum ManagedToolLocator {
         let executableURL = CoreToolLocator.managedExecutableURL(
             environment: environment,
             executableName: executableName,
-            homeDirectory: homeDirectory
+            homeDirectory: homeDirectory,
+            appIdentity: appIdentity
         )
         guard FileManager.default.isExecutableFile(atPath: executableURL.path) else {
             return nil

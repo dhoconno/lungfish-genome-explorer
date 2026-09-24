@@ -19,7 +19,7 @@ struct NaoMgsSamplePartitionerTests {
         try "#!/bin/sh\nexit 0\n".write(to: pigzURL, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: pigzURL.path)
 
-        let resolved = NaoMgsSamplePartitioner.managedDecompressorURL(homeDirectory: home)
+        let resolved = NaoMgsSamplePartitioner.managedDecompressorURL(homeDirectory: home, appIdentity: .preview)
 
         #expect(resolved?.path == pigzURL.path)
     }

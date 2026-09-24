@@ -1472,7 +1472,8 @@ final class TaxTriagePipelineTests: XCTestCase {
         )
 
         let pipeline = TaxTriagePipeline(
-            homeDirectoryProvider: { tempHome }
+            homeDirectoryProvider: { tempHome },
+            appIdentity: .preview
         )
         let status = await pipeline.checkPrerequisites()
 

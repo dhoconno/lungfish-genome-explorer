@@ -710,7 +710,7 @@ private final class FASTQDerivativeToolFixture {
                 try Self.install(script: Self.vsearchScript(), tool: "vsearch", environment: "vsearch", homeDirectory: homeDirectory)
             }
         }
-        runner = NativeToolRunner(toolsDirectory: nil, homeDirectory: homeDirectory)
+        runner = NativeToolRunner(toolsDirectory: nil, homeDirectory: homeDirectory, appIdentity: .preview)
     }
 
     func cleanup() {

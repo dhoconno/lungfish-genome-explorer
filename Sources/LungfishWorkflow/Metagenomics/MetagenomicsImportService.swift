@@ -1371,12 +1371,14 @@ public enum MetagenomicsImportService {
 
     /// Resolves the managed samtools binary for NAO-MGS BAM materialization.
     internal static func managedSamtoolsExecutableURL(
-        homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser
+        homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser,
+        appIdentity: LungfishAppIdentity = .current
     ) -> URL? {
         let samtoolsURL = CoreToolLocator.managedExecutableURL(
             environment: "samtools",
             executableName: "samtools",
-            homeDirectory: homeDirectory
+            homeDirectory: homeDirectory,
+            appIdentity: appIdentity
         )
 
         return FileManager.default.isExecutableFile(atPath: samtoolsURL.path) ? samtoolsURL : nil

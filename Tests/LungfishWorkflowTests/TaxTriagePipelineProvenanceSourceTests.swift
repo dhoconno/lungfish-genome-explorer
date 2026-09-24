@@ -19,7 +19,8 @@ final class TaxTriagePipelineProvenanceSourceTests: XCTestCase {
         )
         let pipeline = TaxTriagePipeline(
             condaManager: fixture.condaManager,
-            homeDirectoryProvider: { fixture.home }
+            homeDirectoryProvider: { fixture.home },
+            appIdentity: .preview
         )
 
         let result = try await pipeline.run(config: config)
@@ -79,7 +80,8 @@ final class TaxTriagePipelineProvenanceSourceTests: XCTestCase {
         )
         let pipeline = TaxTriagePipeline(
             condaManager: fixture.condaManager,
-            homeDirectoryProvider: { fixture.home }
+            homeDirectoryProvider: { fixture.home },
+            appIdentity: .preview
         )
 
         setenv("LUNGFISH_TAXTRIAGE_FAKE_READONLY_OUTPUT", "1", 1)
@@ -121,7 +123,8 @@ extension TaxTriagePipelineProvenanceSourceTests {
         )
         let pipeline = TaxTriagePipeline(
             condaManager: fixture.condaManager,
-            homeDirectoryProvider: { fixture.home }
+            homeDirectoryProvider: { fixture.home },
+            appIdentity: .preview
         )
 
         let result = try await pipeline.run(config: config)

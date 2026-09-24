@@ -30,7 +30,8 @@ final class GUIRegressionTests: XCTestCase {
         let mainMenu = MainMenu.createMainMenu()
         let toolsMenu = try XCTUnwrap(mainMenu.items.first { $0.title == "Tools" }?.submenu)
 
-        XCTAssertEqual(toolsMenu.items.prefix(12).map(\.title), [
+        XCTAssertEqual(toolsMenu.items.prefix(13).map(\.title), [
+            "PCR primer design",
             "QC & Reporting",
             "Demultiplexing",
             "Trimming & Filtering",
@@ -59,6 +60,7 @@ final class GUIRegressionTests: XCTestCase {
         let visibleTitles = toolsMenu.items.compactMap { $0.isSeparatorItem ? nil : $0.title }
 
         XCTAssertEqual(visibleTitles, [
+            "PCR primer design",
             "QC & Reporting",
             "Demultiplexing",
             "Trimming & Filtering",

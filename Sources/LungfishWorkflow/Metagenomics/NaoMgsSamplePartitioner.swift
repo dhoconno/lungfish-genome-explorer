@@ -101,9 +101,10 @@ enum NaoMgsSamplePartitioner {
     }
 
     static func managedDecompressorURL(
-        homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser
+        homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser,
+        appIdentity: LungfishAppIdentity = .current
     ) -> URL? {
-        resolveManagedDecompressorURL(homeDirectory: homeDirectory)
+        resolveManagedDecompressorURL(homeDirectory: homeDirectory, appIdentity: appIdentity)
     }
 }
 
@@ -167,12 +168,14 @@ private func safePartitionFileName(for sample: String) -> String {
 /// Returns the URL for pigz (parallel gzip) from the managed tool environment,
 /// or `nil` when the managed runtime is not provisioned.
 private func resolveManagedDecompressorURL(
-    homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser
+    homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser,
+    appIdentity: LungfishAppIdentity = .current
 ) -> URL? {
     let pigzURL = CoreToolLocator.managedExecutableURL(
         environment: "pigz",
         executableName: "pigz",
-        homeDirectory: homeDirectory
+        homeDirectory: homeDirectory,
+        appIdentity: appIdentity
     )
 
     if FileManager.default.isExecutableFile(atPath: pigzURL.path) {

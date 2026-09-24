@@ -1441,7 +1441,8 @@ public actor TaxTriagePipeline {
         let url = CoreToolLocator.executableURL(
             environment: "nextflow",
             executableName: "nextflow",
-            homeDirectory: homeDirectoryProvider()
+            homeDirectory: homeDirectoryProvider(),
+            appIdentity: appIdentity
         )
         return FileManager.default.isExecutableFile(atPath: url.path) ? url : nil
     }
@@ -1449,7 +1450,7 @@ public actor TaxTriagePipeline {
     private func managedNextflowExecutionEnvironment(for executablePath: URL) -> [String: String] {
         var environment = ProcessInfo.processInfo.environment
         let home = homeDirectoryProvider()
-        let condaBin = CoreToolLocator.condaRoot(homeDirectory: home)
+        let condaBin = CoreToolLocator.condaRoot(homeDirectory: home, appIdentity: appIdentity)
             .appendingPathComponent("bin", isDirectory: true)
         let existingPath = environment["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin"
         environment["PATH"] = [

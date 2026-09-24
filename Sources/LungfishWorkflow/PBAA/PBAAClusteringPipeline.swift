@@ -539,7 +539,8 @@ public struct ProcessPBAANextflowRunner: PBAANextflowRunning {
         let managed = CoreToolLocator.executableURL(
             environment: "nextflow",
             executableName: "nextflow",
-            homeDirectory: homeDirectoryProvider()
+            homeDirectory: homeDirectoryProvider(),
+            appIdentity: appIdentity
         )
         if FileManager.default.isExecutableFile(atPath: managed.path) {
             await condaManager.repairManagedLaunchers(environment: "nextflow")
@@ -566,7 +567,7 @@ public struct ProcessPBAANextflowRunner: PBAANextflowRunning {
     func nextflowExecutionEnvironment(for executableURL: URL) -> [String: String] {
         var environment = ProcessInfo.processInfo.environment
         let home = homeDirectoryProvider()
-        let condaRoot = CoreToolLocator.condaRoot(homeDirectory: home)
+        let condaRoot = CoreToolLocator.condaRoot(homeDirectory: home, appIdentity: appIdentity)
         let condaBin = condaRoot.appendingPathComponent("bin", isDirectory: true)
         let existingPaths = (environment["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin")
             .split(separator: ":")

@@ -39,7 +39,7 @@ final class NativeBundleBuilderProvenanceTests: XCTestCase {
         """)
 
         let bundleURL = try await NativeBundleBuilder(
-            toolRunner: NativeToolRunner(toolsDirectory: nil, homeDirectory: home)
+            toolRunner: NativeToolRunner(toolsDirectory: nil, homeDirectory: home, appIdentity: .preview)
         ).build(configuration: BuildConfiguration(
             name: "Record Store",
             identifier: "org.lungfish.test.record-store",
@@ -127,7 +127,7 @@ final class NativeBundleBuilderProvenanceTests: XCTestCase {
         """)
 
         let builder = NativeBundleBuilder(
-            toolRunner: NativeToolRunner(toolsDirectory: nil, homeDirectory: home)
+            toolRunner: NativeToolRunner(toolsDirectory: nil, homeDirectory: home, appIdentity: .preview)
         )
         do {
             _ = try await builder.build(configuration: BuildConfiguration(
@@ -209,7 +209,7 @@ final class NativeBundleBuilderProvenanceTests: XCTestCase {
 
         do {
             _ = try await NativeBundleBuilder(
-                toolRunner: NativeToolRunner(toolsDirectory: nil, homeDirectory: home)
+                toolRunner: NativeToolRunner(toolsDirectory: nil, homeDirectory: home, appIdentity: .preview)
             ).build(configuration: BuildConfiguration(
                 name: "Mismatch",
                 identifier: "org.lungfish.test.mismatch",
@@ -265,7 +265,7 @@ final class NativeBundleBuilderProvenanceTests: XCTestCase {
         """)
 
         let builder = NativeBundleBuilder(
-            toolRunner: NativeToolRunner(toolsDirectory: nil, homeDirectory: home)
+            toolRunner: NativeToolRunner(toolsDirectory: nil, homeDirectory: home, appIdentity: .preview)
         )
         let bundleURL = try await builder.build(
             configuration: BuildConfiguration(

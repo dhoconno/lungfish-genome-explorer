@@ -434,8 +434,12 @@ final class DependencyPlannerTests: XCTestCase {
 
     func testBundledManifestOptsInForBrackenOnly() throws {
         let manifest = try ManagedToolLock.loadFromBundle()
-        let opted = manifest.packTools.filter { $0.preserveExistingInstall == true }.map(\.toolID)
-        XCTAssertEqual(opted, ["bracken"], "preserveExistingInstall is a per-tool exception, not a policy")
+        let opted = Set(manifest.packTools.filter { $0.preserveExistingInstall == true }.map(\.toolID))
+        XCTAssertEqual(
+            opted,
+            ["bracken", "primalscheme3"],
+            "preserveExistingInstall is a per-tool exception, not a policy"
+        )
     }
 
     func testPlanDecodesWithoutThePreservedField() throws {

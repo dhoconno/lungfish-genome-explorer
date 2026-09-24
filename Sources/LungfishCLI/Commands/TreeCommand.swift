@@ -681,19 +681,22 @@ struct TreeCommand: AsyncParsableCommand {
         static func resolveIQTreeExecutableForTesting(
             iqtreePath: String?,
             environment: [String: String],
-            managedHomeDirectory: URL
+            managedHomeDirectory: URL,
+            appIdentity: LungfishAppIdentity = .current
         ) throws -> URL {
             try resolveIQTreeExecutable(
                 iqtreePath: iqtreePath,
                 environment: environment,
-                managedHomeDirectory: managedHomeDirectory
+                managedHomeDirectory: managedHomeDirectory,
+                appIdentity: appIdentity
             )
         }
 
         private static func resolveIQTreeExecutable(
             iqtreePath: String?,
             environment: [String: String],
-            managedHomeDirectory: URL
+            managedHomeDirectory: URL,
+            appIdentity: LungfishAppIdentity = .current
         ) throws -> URL {
             if let iqtreePath {
                 let url = URL(fileURLWithPath: iqtreePath).standardizedFileURL
@@ -712,7 +715,8 @@ struct TreeCommand: AsyncParsableCommand {
                 let managedURL = CoreToolLocator.managedExecutableURL(
                     environment: "iqtree",
                     executableName: executable,
-                    homeDirectory: managedHomeDirectory
+                    homeDirectory: managedHomeDirectory,
+                    appIdentity: appIdentity
                 )
                 if FileManager.default.isExecutableFile(atPath: managedURL.path) {
                     return managedURL.standardizedFileURL

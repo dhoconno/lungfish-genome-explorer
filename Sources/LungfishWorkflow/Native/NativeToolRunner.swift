@@ -628,6 +628,9 @@ public actor NativeToolRunner {
     /// Home directory used for managed tool resolution.
     private let homeDirectory: URL
 
+    /// App identity used to resolve the managed-storage namespace (injectable for tests).
+    private let appIdentity: LungfishAppIdentity
+
     /// Default timeout for tool execution (5 minutes).
     private let defaultTimeout: TimeInterval = 300
 
@@ -658,6 +661,7 @@ public actor NativeToolRunner {
     public init() {
         self.toolsDirectory = Self.findToolsDirectory()
         self.homeDirectory = FileManager.default.homeDirectoryForCurrentUser
+        self.appIdentity = .current
         if let dir = self.toolsDirectory {
             logger.info("Tools directory resolved: \(dir.path, privacy: .public)")
         } else {
@@ -668,16 +672,19 @@ public actor NativeToolRunner {
     /// Creates a runner with an explicit tools directory (for testing).
     public init(
         toolsDirectory: URL?,
-        homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser
+        homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser,
+        appIdentity: LungfishAppIdentity = .current
     ) {
         self.toolsDirectory = toolsDirectory
         self.homeDirectory = homeDirectory
+        self.appIdentity = appIdentity
     }
 
     /// Allows deterministic verification of cancellation during process startup.
     init(processLauncher: @escaping @Sendable (Process) throws -> Void) {
         self.toolsDirectory = nil
         self.homeDirectory = FileManager.default.homeDirectoryForCurrentUser
+        self.appIdentity = .current
         self.processLauncher = processLauncher
     }
     
@@ -864,7 +871,8 @@ public actor NativeToolRunner {
             ?? "/usr/bin:/bin:/usr/sbin:/sbin"
         var managedEnvironment = CoreToolLocator.bbToolsEnvironment(
             homeDirectory: homeDirectory,
-            existingPath: existingPath
+            existingPath: existingPath,
+            appIdentity: appIdentity
         )
         if let environment {
             for (key, value) in environment where key != "PATH"
@@ -1230,7 +1238,8 @@ public actor NativeToolRunner {
             let managedToolPath = CoreToolLocator.managedExecutableURL(
                 environment: environment,
                 executableName: executableName,
-                homeDirectory: homeDirectory
+                homeDirectory: homeDirectory,
+                appIdentity: appIdentity
             )
             if FileManager.default.isExecutableFile(atPath: managedToolPath.path) {
                 logger.info("Found managed \(tool.rawValue) at \(managedToolPath.path)")

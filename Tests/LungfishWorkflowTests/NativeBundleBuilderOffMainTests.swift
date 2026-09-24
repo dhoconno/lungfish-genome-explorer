@@ -26,7 +26,7 @@ private actor BackgroundBuildRunner {
         toolsHome: URL
     ) async throws -> URL {
         let builder = NativeBundleBuilder(
-            toolRunner: NativeToolRunner(toolsDirectory: nil, homeDirectory: toolsHome)
+            toolRunner: NativeToolRunner(toolsDirectory: nil, homeDirectory: toolsHome, appIdentity: .preview)
         )
         return try await builder.build(configuration: configuration)
     }
@@ -203,7 +203,7 @@ final class NativeBundleBuilderOffMainTests: XCTestCase {
 private actor BackgroundToolChecker {
     func checkTools(homeDirectory: URL) async -> NativeBundleBuilder.MissingToolsInfo? {
         let builder = NativeBundleBuilder(
-            toolRunner: NativeToolRunner(toolsDirectory: nil, homeDirectory: homeDirectory)
+            toolRunner: NativeToolRunner(toolsDirectory: nil, homeDirectory: homeDirectory, appIdentity: .preview)
         )
         return await builder.checkRequiredTools()
     }
@@ -221,7 +221,7 @@ private enum MainActorBuildRunner {
         toolsHome: URL
     ) async throws -> URL {
         let builder = NativeBundleBuilder(
-            toolRunner: NativeToolRunner(toolsDirectory: nil, homeDirectory: toolsHome)
+            toolRunner: NativeToolRunner(toolsDirectory: nil, homeDirectory: toolsHome, appIdentity: .preview)
         )
         return try await builder.build(configuration: configuration)
     }

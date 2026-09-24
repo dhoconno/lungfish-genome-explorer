@@ -172,7 +172,8 @@ final class BAMImportServiceTests: XCTestCase {
 
             let resolved = BundleBuildHelpers.managedToolExecutablePath(
                 item.tool,
-                homeDirectory: homeDirectory
+                homeDirectory: homeDirectory,
+                appIdentity: .preview
             )
 
             XCTAssertEqual(resolved, executable.path)
