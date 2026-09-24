@@ -8,7 +8,8 @@ struct PrimerDesignCommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "design",
         abstract: "Design primers from explicitly selected sequence inputs",
-        subcommands: [Primer3Subcommand.self, PrimalScheme3Subcommand.self]
+        subcommands: [Primer3Subcommand.self, PrimalScheme3Subcommand.self,
+                      OlivarDesignCommand.self, VarVAMPDesignCommand.self]
     )
 
     static func parseIndexedPath(_ value: String, option: String) throws -> (url: URL, index: Int) {
