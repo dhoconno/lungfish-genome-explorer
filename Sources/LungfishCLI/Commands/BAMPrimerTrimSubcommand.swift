@@ -205,9 +205,55 @@ extension BAMCommand {
                 throw error
             }
 
-            // Determine the target reference name (defaults to the scheme's canonical accession).
+            // Determine the target reference name.
+            //
+            // WFL-08: an explicit `--target-reference` override is trusted as-is.
+            // Otherwise, defaulting blindly to the scheme's canonical accession is
+            // wrong whenever the BAM was mapped against an *equivalent* accession
+            // (e.g. scheme keyed on `MN908947.3`, BAM `@SQ SN:NC_045512.2`):
+            // `PrimerSchemeResolver.resolve` would see `targetReferenceName ==
+            // canonical`, treat it as a canonical match, and hand `ivar trim` a BED
+            // whose chromosome column names nothing in the BAM -- silently
+            // trimming zero primers. Resolve the scheme's canonical/equivalent
+            // accessions against the BAM's own `@SQ SN` names first (exact, then
+            // version-suffix-insensitive via `PrimerSchemeResolver.accessionsMatch`),
+            // and use the BAM's own name so the resolver's equivalent-accession BED
+            // rewrite actually fires. Fail loudly if nothing matches at all.
             let trimmedOverride = (targetReferenceName ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-            let targetReference = trimmedOverride.isEmpty ? scheme.manifest.canonicalAccession : trimmedOverride
+            let targetReference: String
+            if !trimmedOverride.isEmpty {
+                targetReference = trimmedOverride
+            } else {
+                let bamReferences: [String]
+                do {
+                    bamReferences = try await BAMRegionMatcher.readBAMReferences(
+                        bamURL: sourceBAMURL,
+                        runner: NativeToolRunner.shared
+                    )
+                } catch {
+                    let wrapped = BAMCommand.PrimerTrimRuntimeError(
+                        message: "Failed to read the BAM header of \(sourceBAMURL.path) to resolve the primer scheme's target reference: \(error.localizedDescription)"
+                    )
+                    emitFailure(error: wrapped, emitEvent: emitEvent, bundleURL: bundleURL)
+                    throw wrapped
+                }
+                let knownAccessions = [scheme.manifest.canonicalAccession] + scheme.manifest.equivalentAccessions
+                if let exactMatch = bamReferences.first(where: { knownAccessions.contains($0) }) {
+                    targetReference = exactMatch
+                } else if let aliasMatch = bamReferences.first(where: { bamName in
+                    knownAccessions.contains { PrimerSchemeResolver.accessionsMatch($0, bamName) }
+                }) {
+                    targetReference = aliasMatch
+                } else {
+                    let err = BAMCommand.PrimerTrimRuntimeError(
+                        message: "Primer scheme '\(scheme.manifest.name)' targets \(knownAccessions.joined(separator: ", ")), " +
+                            "but the BAM's @SQ reference names are \(bamReferences.isEmpty ? "empty" : bamReferences.joined(separator: ", ")). " +
+                            "Pass --target-reference to override."
+                    )
+                    emitFailure(error: err, emitEvent: emitEvent, bundleURL: bundleURL)
+                    throw err
+                }
+            }
             let workflowCommand = [
                 CLICommandIdentity.executableName, "bam", "primer-trim",
                 "--bundle", bundleURL.path,
