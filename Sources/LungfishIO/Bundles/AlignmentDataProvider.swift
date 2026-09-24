@@ -321,6 +321,28 @@ public struct AlignmentReadSketch: Sendable {
     }
 }
 
+/// Result of ``AlignmentDataProvider/fetchDepthCappedReads(chromosome:start:end:excludeFlags:minMapQ:readGroups:maxDisplayedDepth:maxReads:maxDisplayedBases:subsampleSeed:)``.
+public struct DepthCappedReadSketch: Sendable {
+    /// Reads to display, each exactly once.
+    public let reads: [AlignedRead]
+    /// Reads believed to be in the window: exact when `isEstimated` is false.
+    public let estimatedTotalReads: Int
+    /// True when `estimatedTotalReads` is an estimate (sampling or truncation).
+    public let isEstimated: Bool
+    /// The bin plan that produced the fetch.
+    public let plan: ReadDepthCapPlan
+    /// True when the read ceiling or byte budget stopped the fetch early.
+    public let transportTruncated: Bool
+    /// Number of `samtools` invocations, including the depth query.
+    public let samtoolsCalls: Int
+
+    /// The cap actually applied (may be below the requested cap when the
+    /// transport budget forced it down).
+    public var maxDisplayedDepth: Int { plan.maxDisplayedDepth }
+    /// True when at least one region of the window was thinned.
+    public var isDepthCapped: Bool { plan.isSampled }
+}
+
 struct BudgetedSamtoolsResult: Sendable {
     let exitCode: Int32
     let stdout: String
@@ -707,6 +729,232 @@ public final class AlignmentDataProvider: @unchecked Sendable {
             isSubsampled: true,
             transportTruncated: bounded.transportTruncated
         )
+    }
+
+    /// Default absolute read ceiling for a depth-capped fetch.
+    public static let depthCappedReadCeiling = 250_000
+
+    /// Default transport budget, in aligned bases, for a depth-capped fetch.
+    /// About 25 Mb of sequence is roughly 60 MB of SAM text.
+    public static let depthCappedBaseBudget = 25_000_000
+
+    /// Fetches reads for a window with displayed depth capped at
+    /// `maxDisplayedDepth`, keeping every read wherever the window is at or
+    /// under the cap.
+    ///
+    /// Steps: one depth query with the same read filters as the fetch, a
+    /// ``ReadDepthCapPlan`` over ~1 kb bins, then one `samtools view -M` per
+    /// distinct keep fraction over that fraction's merged regions (with
+    /// `--subsample` below 1). A read is kept only by the call whose regions
+    /// own its start position, so boundary-spanning reads appear exactly once.
+    /// `--subsample` hashes QNAME with a fixed seed, so the result is
+    /// deterministic and mates stay together within a fraction.
+    ///
+    /// No `samtools view -c` pass is made. The total is a Horvitz-Thompson
+    /// estimate (kept reads / fraction, summed over calls) and is exact when
+    /// nothing was sampled.
+    public func fetchDepthCappedReads(
+        chromosome: String,
+        start: Int,
+        end: Int,
+        excludeFlags: UInt16 = 0x904,
+        minMapQ: Int = 0,
+        readGroups: Set<String> = [],
+        maxDisplayedDepth: Int,
+        maxReads: Int = AlignmentDataProvider.depthCappedReadCeiling,
+        maxDisplayedBases: Int = AlignmentDataProvider.depthCappedBaseBudget,
+        subsampleSeed: Int = 19
+    ) async throws -> DepthCappedReadSketch {
+        guard !chromosome.isEmpty, start >= 0, end > start else {
+            throw AlignmentFetchError.invalidRegion("\(chromosome):\(start)-\(end)")
+        }
+        let depth = try await fetchReadFilterDepth(
+            chromosome: chromosome, start: start, end: end,
+            excludeFlags: excludeFlags, minMapQ: minMapQ, readGroups: readGroups
+        )
+        let plan = ReadDepthCapPlan.make(
+            depth: depth.map { (position: $0.position, depth: $0.depth) },
+            windowStart: start,
+            windowEnd: end,
+            maxDisplayedDepth: maxDisplayedDepth,
+            maxDisplayedBases: maxDisplayedBases
+        )
+        guard plan.totalBases > 0 else {
+            return DepthCappedReadSketch(
+                reads: [], estimatedTotalReads: 0, isEstimated: false, plan: plan,
+                transportTruncated: false, samtoolsCalls: 1
+            )
+        }
+
+        var kept: [AlignedRead] = []
+        var estimatedTotal = 0.0
+        var truncated = false
+        var calls = 1
+        var remainingReads = max(1, maxReads)
+        // Two bytes per base (SEQ + QUAL) plus a per-record allowance.
+        var remainingBytes = max(1 << 20, maxDisplayedBases * 2 + maxReads * 200)
+        for group in plan.groups {
+            guard remainingReads > 0, remainingBytes > 0 else { truncated = true; break }
+            var arguments = viewArguments(
+                excludeFlags: excludeFlags, minMapQ: minMapQ, readGroups: readGroups,
+                subsampleFraction: group.fraction < 1 ? group.fraction : nil, subsampleSeed: subsampleSeed
+            )
+            arguments += ["-M", "-X", alignmentPath, indexPath]
+            arguments += group.regions.map { "\(chromosome):\($0.lowerBound + 1)-\($0.upperBound)" }
+            let result = try await runSamtoolsBudgeted(
+                arguments: arguments, maxRecords: remainingReads, maxBytes: remainingBytes
+            )
+            calls += 1
+            remainingBytes -= result.stdout.utf8.count
+            let parsed = SAMParser.parse(result.stdout, maxReads: remainingReads)
+            var groupKept = 0
+            for read in parsed where plan.fraction(forReadStart: read.position) == group.fraction {
+                kept.append(read)
+                groupKept += 1
+            }
+            remainingReads -= groupKept
+            estimatedTotal += Double(groupKept) / group.fraction
+            if result.terminatedForBudget { truncated = true; break }
+        }
+        return DepthCappedReadSketch(
+            reads: kept,
+            estimatedTotalReads: Int(estimatedTotal.rounded()),
+            isEstimated: plan.isSampled || truncated,
+            plan: plan,
+            transportTruncated: truncated,
+            samtoolsCalls: calls
+        )
+    }
+
+    /// Per-position depth under exactly the read-fetch filters (flags, MAPQ,
+    /// read groups; no base-quality filter). `samtools depth` cannot filter by
+    /// read group, so with read groups the filtered reads are piped from
+    /// `samtools view -u` into `samtools depth -`.
+    func fetchReadFilterDepth(
+        chromosome: String, start: Int, end: Int,
+        excludeFlags: UInt16, minMapQ: Int, readGroups: Set<String>
+    ) async throws -> [DepthPoint] {
+        guard !readGroups.isEmpty else {
+            return try await fetchDepth(
+                chromosome: chromosome, start: start, end: end,
+                minMapQ: minMapQ, minBaseQ: 0, excludeFlags: excludeFlags
+            )
+        }
+        let viewArgs = viewArguments(excludeFlags: excludeFlags, minMapQ: minMapQ, readGroups: readGroups)
+            + ["-u", "-X", alignmentPath, indexPath, "\(chromosome):\(start + 1)-\(end)"]
+        // The view stage already applied the flag mask; clear depth's own
+        // implicit UNMAP|SECONDARY|QCFAIL|DUP filter so it counts what view kept.
+        let depthArgs = ["depth", "-g", "1796", "-"]
+        let samtoolsPath = try findSamtools()
+        let cancellation = SamtoolsCancellation()
+        let depthCancellation = SamtoolsCancellation()
+        let output = try await withTaskCancellationHandler(operation: {
+            try Task.checkCancellation()
+            let value = try await Task.detached(priority: .userInitiated) {
+                try Self.runSamtoolsPipeline(
+                    samtoolsPath: samtoolsPath, producer: viewArgs, consumer: depthArgs, timeout: 60,
+                    cancellation: cancellation, consumerCancellation: depthCancellation
+                )
+            }.value
+            try Task.checkCancellation()
+            return value
+        }, onCancel: { cancellation.cancel(); depthCancellation.cancel() })
+        return Self.parseDepthOutput(output).filter { $0.position >= start && $0.position < end }
+    }
+
+    /// Runs `samtools <producer> | samtools <consumer>` and returns the
+    /// consumer's stdout.
+    static func runSamtoolsPipeline(
+        samtoolsPath: String,
+        producer: [String],
+        consumer: [String],
+        timeout: TimeInterval,
+        cancellation: SamtoolsCancellation? = nil,
+        consumerCancellation: SamtoolsCancellation? = nil
+    ) throws -> String {
+        let first = Process()
+        first.executableURL = URL(fileURLWithPath: samtoolsPath)
+        first.arguments = producer
+        let second = Process()
+        second.executableURL = URL(fileURLWithPath: samtoolsPath)
+        second.arguments = consumer
+        let link = Pipe()
+        let stdoutPipe = Pipe()
+        let firstErr = Pipe()
+        let secondErr = Pipe()
+        first.standardOutput = link
+        first.standardError = firstErr
+        second.standardInput = link
+        second.standardOutput = stdoutPipe
+        second.standardError = secondErr
+        do {
+            try first.run()
+            try second.run()
+        } catch {
+            if first.isRunning { first.terminate() }
+            throw AlignmentFetchError.samtoolsNotFound
+        }
+        cancellation?.install(first)
+        consumerCancellation?.install(second)
+        // Our copies of the link must close so the consumer sees EOF.
+        link.fileHandleForReading.closeFile()
+        link.fileHandleForWriting.closeFile()
+
+        let stdoutBuffer = PipeReadBuffer()
+        let firstErrBuffer = PipeReadBuffer()
+        let secondErrBuffer = PipeReadBuffer()
+        let group = DispatchGroup()
+        // Drain all three pipes concurrently so no stage can block on a full pipe.
+        for (handle, buffer) in [
+            (stdoutPipe.fileHandleForReading, stdoutBuffer),
+            (firstErr.fileHandleForReading, firstErrBuffer),
+            (secondErr.fileHandleForReading, secondErrBuffer),
+        ] {
+            group.enter()
+            DispatchQueue.global(qos: .userInitiated).async {
+                defer { group.leave() }
+                buffer.store(handle.readDataToEndOfFile())
+            }
+        }
+        if group.wait(timeout: .now() + timeout) == .timedOut {
+            first.terminate()
+            second.terminate()
+            first.waitUntilExit()
+            second.waitUntilExit()
+            _ = group.wait(timeout: .now() + 5)
+            throw AlignmentFetchError.timeout
+        }
+        first.waitUntilExit()
+        second.waitUntilExit()
+        guard first.terminationStatus == 0, second.terminationStatus == 0 else {
+            let stderrText = String(decoding: firstErrBuffer.load() + secondErrBuffer.load(), as: UTF8.self)
+            throw AlignmentFetchError.samtoolsFailed(
+                stderrText.isEmpty ? "exit codes \(first.terminationStatus)/\(second.terminationStatus)" : stderrText
+            )
+        }
+        return String(data: stdoutBuffer.load(), encoding: .utf8) ?? ""
+    }
+
+    private func runSamtoolsBudgeted(
+        arguments: [String], maxRecords: Int, maxBytes: Int
+    ) async throws -> BudgetedSamtoolsResult {
+        let samtoolsPath = try findSamtools()
+        let cancellation = SamtoolsCancellation()
+        let result = try await withTaskCancellationHandler(operation: {
+            try Task.checkCancellation()
+            let value = try await Task.detached(priority: .userInitiated) {
+                try Self.runSamtoolsProcessBudgeted(
+                    samtoolsPath: samtoolsPath, arguments: arguments, timeout: 30,
+                    maxRecords: maxRecords, maxBytes: maxBytes, cancellation: cancellation
+                )
+            }.value
+            try Task.checkCancellation()
+            return value
+        }, onCancel: { cancellation.cancel() })
+        guard result.exitCode == 0 || result.terminatedForBudget else {
+            throw AlignmentFetchError.samtoolsFailed(result.stderr.isEmpty ? "exit code \(result.exitCode)" : result.stderr)
+        }
+        return result
     }
 
     private func fetchReadsBounded(
