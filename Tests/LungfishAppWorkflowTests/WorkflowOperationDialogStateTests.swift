@@ -187,7 +187,15 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
         XCTAssertEqual(request.haplotypeDefinitionSetID, definition.id)
         XCTAssertEqual(request.haplotypeAssayID, definition.assayID)
         XCTAssertEqual(request.haplotypeSpeciesCode, definition.speciesCode)
-        XCTAssertEqual(request.resultWorkflowKind, .miSeqAmpliconMHCGenotype)
+        // WFL-13: this fixture's bare `.lungfishfastq` bundle carries no
+        // assembly-read-type metadata, so `.auto` resolves to
+        // `.ontSampleBundles` (see `effectiveGenotypingMode`) -- the request
+        // must not be tagged with the MiSeq-specific workflow kind. The
+        // pipeline itself derives the correct kind from `request.mode` at
+        // run time (see `resolvedResultWorkflowKind`); the dialog no longer
+        // hard-codes it.
+        XCTAssertEqual(request.mode, .ontSampleBundles)
+        XCTAssertNil(request.resultWorkflowKind)
     }
 
     func testMHCReferenceBundleSelectionCollapsesHaplotypePickerStackAndSummarizesBundle() throws {
@@ -1070,7 +1078,11 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
         XCTAssertNil(request.presetID)
         XCTAssertNil(request.aiSpecialistPresetID)
         XCTAssertTrue(request.argv.contains("--genotype-only"))
-        XCTAssertEqual(request.resultWorkflowKind, .miSeqAmpliconMHCGenotype)
+        // WFL-13: no read-type override was set and this fixture's bundle
+        // has no assembly-read-type metadata, so this resolves to ONT
+        // sample-bundle mode and must not carry the MiSeq-specific kind.
+        XCTAssertEqual(request.mode, .ontSampleBundles)
+        XCTAssertNil(request.resultWorkflowKind)
         XCTAssertNil(request.haplotypeAssayID)
         XCTAssertNil(request.haplotypeDefinitionSetID)
     }
@@ -1119,7 +1131,11 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
             "MHC-DQ": 0.10,
             "MHC-DP": 0.10,
         ])
-        XCTAssertEqual(request.resultWorkflowKind, .miSeqAmpliconMHCGenotype)
+        // WFL-13: no read-type override was set and this fixture's bundle
+        // has no assembly-read-type metadata, so this resolves to ONT
+        // sample-bundle mode and must not carry the MiSeq-specific kind.
+        XCTAssertEqual(request.mode, .ontSampleBundles)
+        XCTAssertNil(request.resultWorkflowKind)
     }
 
     func testHaplotypeDefinitionSelectionTracksAssayScope() throws {
@@ -1335,6 +1351,92 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
         XCTAssertNil(request.barcodeDefinitionsURL)
         XCTAssertEqual(request.mode, .ontSampleBundles)
         XCTAssertEqual(request.readType, .ont)
+    }
+
+    /// WFL-13: an ONT-resolved amplicon genotyping request must not be
+    /// tagged with the MiSeq-specific `resultWorkflowKind` -- the pipeline
+    /// derives the correct kind at run time from `request.mode`, and the
+    /// dialog must not override that with a hard-coded MiSeq value
+    /// regardless of the actually-resolved input mode.
+    func testONTGenotypingRequestDoesNotHardCodeMiSeqWorkflowKind() throws {
+        let defaults = try makeDefaults()
+        let enablementStore = WorkflowLibraryEnablementStore(userDefaults: defaults)
+        enablementStore.setWorkflow(.ontGenotyping, enabled: true)
+        let packageStore = WorkflowLibraryImportedPackageStore(userDefaults: defaults)
+        let temp = try temporaryDirectory()
+        let referenceURL = temp.appendingPathComponent("ref.lungfishref", isDirectory: true)
+        let readsURL = temp.appendingPathComponent("barcode10.lungfishfastq", isDirectory: true)
+        let outputURL = temp.appendingPathComponent("Analyses", isDirectory: true)
+        for url in [referenceURL, readsURL, outputURL] {
+            try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        }
+
+        let state = WorkflowOperationDialogState(
+            projectURL: temp,
+            selectedReadURLs: [readsURL],
+            enablementStore: enablementStore,
+            packageStore: packageStore
+        )
+        state.selectedGenotypingMode = .auto
+        state.selectedGenotypingReadType = .ont
+        state.setReference(referenceURL)
+        state.setBarcodeDefinition(nil)
+        state.setOutputDirectory(outputURL)
+
+        let launchRequest = try state.makeLaunchRequest()
+        guard case .ontGenotyping(let request) = launchRequest else {
+            return XCTFail("Expected ONT genotyping request")
+        }
+        XCTAssertEqual(request.mode, .ontSampleBundles)
+        XCTAssertEqual(request.readType, .ont)
+        XCTAssertNil(
+            request.resultWorkflowKind,
+            "An ONT-resolved request must not be pre-tagged as MiSeq; the pipeline resolves the kind from the mode."
+        )
+    }
+
+    /// WFL-13 regression coverage: an explicitly Illumina-resolved request
+    /// still carries `mode: .illuminaPaired`, which is what
+    /// `ONTBarcodeDemuxGenotypingPipeline.resolvedResultWorkflowKind` keys
+    /// off to assign `.miSeqAmpliconMHCGenotype` at run time -- so genuinely
+    /// Illumina/MiSeq runs are unaffected by removing the dialog's
+    /// hard-coded override.
+    func testIlluminaGenotypingRequestCarriesIlluminaModeForPipelineToResolveMiSeqKind() throws {
+        let defaults = try makeDefaults()
+        let enablementStore = WorkflowLibraryEnablementStore(userDefaults: defaults)
+        enablementStore.setWorkflow(.ontGenotyping, enabled: true)
+        let packageStore = WorkflowLibraryImportedPackageStore(userDefaults: defaults)
+        let temp = try temporaryDirectory()
+        let referenceURL = temp.appendingPathComponent("ref.lungfishref", isDirectory: true)
+        let readsURL = temp.appendingPathComponent("dw001.lungfishfastq", isDirectory: true)
+        let outputURL = temp.appendingPathComponent("Analyses", isDirectory: true)
+        for url in [referenceURL, readsURL, outputURL] {
+            try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        }
+
+        let state = WorkflowOperationDialogState(
+            projectURL: temp,
+            selectedReadURLs: [readsURL],
+            enablementStore: enablementStore,
+            packageStore: packageStore
+        )
+        state.selectedGenotypingMode = .auto
+        state.selectedGenotypingReadType = .illumina
+        state.setReference(referenceURL)
+        state.setBarcodeDefinition(nil)
+        state.setOutputDirectory(outputURL)
+
+        let launchRequest = try state.makeLaunchRequest()
+        guard case .ontGenotyping(let request) = launchRequest else {
+            return XCTFail("Expected amplicon genotyping request")
+        }
+        XCTAssertEqual(request.mode, .illuminaPaired)
+        XCTAssertEqual(request.readType, .illumina)
+        // The dialog itself passes `nil`; the pipeline's own
+        // `resolvedResultWorkflowKind` assigns `.miSeqAmpliconMHCGenotype`
+        // for `.illuminaPaired` at run time (verified separately in
+        // LungfishWorkflowTests).
+        XCTAssertNil(request.resultWorkflowKind)
     }
 
     func testAmpliconGenotypingIlluminaModeAllowsMultipleReadBundlesWithoutBarcodes() throws {

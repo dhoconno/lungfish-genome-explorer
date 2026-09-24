@@ -314,6 +314,12 @@ struct FastqSubsampleSubcommand: AsyncParsableCommand {
     @Option(name: .customLong("count"), help: "Number of reads to keep")
     var count: Int?
 
+    @Option(
+        name: .customLong("seed"),
+        help: "Random seed for reproducible subsampling. Omit for a randomly generated seed, which is still recorded in provenance so the run can be replayed exactly."
+    )
+    var seed: Int64?
+
     @OptionGroup var output: OutputOptions
 
     func run() async throws {
@@ -324,17 +330,25 @@ struct FastqSubsampleSubcommand: AsyncParsableCommand {
         if proportion != nil && count != nil {
             throw ValidationError("Specify --proportion or --count, not both")
         }
+        // WFL-10: subsampling had no seed at all, so the exact reads kept by
+        // one run could never be reproduced from provenance. `seqkit sample`
+        // and `seqkit sample2` both take `-s`/`--rand-seed`; generate one
+        // when the caller does not supply one (matching the in-process
+        // `FASTQDerivativeService` subsample path's own random-seed
+        // behavior) and record the ACTUAL seed used either way, so a run's
+        // provenance is always sufficient to replay it.
+        let resolvedSeed = seed ?? Int64.random(in: 0...Int64.max)
         var args = ["sample"]
         if let proportion {
             guard proportion > 0, proportion <= 1 else {
                 throw ValidationError("Proportion must be in (0, 1]")
             }
-            args += ["-p", String(proportion)]
+            args += ["-p", String(proportion), "-s", String(resolvedSeed)]
         } else if let count {
             guard count > 0 else {
                 throw ValidationError("Count must be > 0")
             }
-            args = ["sample2", "-n", String(count), "-2"]
+            args = ["sample2", "-n", String(count), "-2", "-s", String(resolvedSeed)]
         } else {
             throw ValidationError("Specify --proportion or --count")
         }
@@ -353,6 +367,7 @@ struct FastqSubsampleSubcommand: AsyncParsableCommand {
         if let count {
             cliArguments += ["--count", String(count)]
         }
+        cliArguments += ["--seed", String(resolvedSeed)]
         cliArguments += [inputURL.path, "--output", output.output]
         if output.force {
             cliArguments.append("--force")
@@ -374,12 +389,14 @@ struct FastqSubsampleSubcommand: AsyncParsableCommand {
                 "output": .file(outputURL),
                 "proportion": proportion.map(ParameterValue.number) ?? .null,
                 "count": count.map(ParameterValue.integer) ?? .null,
+                "seed": .integer(Int(resolvedSeed)),
                 "force": .boolean(output.force),
                 "compress": .boolean(output.compress)
             ],
             defaults: [
                 "proportion": .null,
                 "count": .null,
+                "seed": .null,
                 "force": .boolean(false),
                 "compress": .boolean(false)
             ],

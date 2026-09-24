@@ -111,6 +111,57 @@ final class TreeCommandTests: XCTestCase {
         XCTAssertTrue(remainingStagingDirs.isEmpty, "This run's own staging directory must be cleaned up")
     }
 
+    // Reported 2026-09-23 (best-practices audit, WFL-10e): the dialog told
+    // users to "leave blank for random", but a blank seed silently mapped to
+    // the CLI's hard-coded default of 1, which is not random at all. Omitting
+    // `--seed` entirely must let IQ-TREE choose its own time-based random
+    // seed, and provenance must not claim a seed value that was never set.
+    func testInferIQTreeOmitsSeedFlagWhenNotSpecified() async throws {
+        let tempDir = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+            .appendingPathComponent(".build/test-artifacts/TreeCommandNoSeedTests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        let projectURL = tempDir.appendingPathComponent("Project.lungfish", isDirectory: true)
+        try FileManager.default.createDirectory(at: projectURL, withIntermediateDirectories: true)
+
+        let msaSourceURL = tempDir.appendingPathComponent("input.aligned.fasta")
+        try """
+        >A
+        ACGT
+        >B
+        ACGA
+
+        """.write(to: msaSourceURL, atomically: true, encoding: .utf8)
+        let msaBundleURL = projectURL.appendingPathComponent("Input.lungfishmsa", isDirectory: true)
+        _ = try MultipleSequenceAlignmentBundle.importAlignment(
+            from: msaSourceURL,
+            to: msaBundleURL,
+            options: .init(name: "Input")
+        )
+
+        let fakeIQTreeURL = try writeFakeIQTreeExecutable(in: tempDir)
+        let outputURL = projectURL.appendingPathComponent("Phylogenetic Trees/No Seed Tree.lungfishtree", isDirectory: true)
+        let command = try TreeCommand.InferIQTreeSubcommand.parse([
+            msaBundleURL.path,
+            "--project", projectURL.path,
+            "--output", outputURL.path,
+            "--name", "No Seed Tree",
+            "--model", "GTR+G",
+            "--iqtree-path", fakeIQTreeURL.path,
+            "--format", "json",
+        ])
+
+        try await command.executeForTesting { _ in }
+
+        let provenanceJSON = try jsonObject(at: outputURL.appendingPathComponent(".lungfish-provenance.json"))
+        let externalTool = try XCTUnwrap(provenanceJSON["externalTool"] as? [String: Any])
+        let argv = try XCTUnwrap(externalTool["argv"] as? [String])
+        XCTAssertFalse(argv.contains("--seed"), "Omitting --seed lets IQ-TREE pick its own random seed")
+
+        let provenance = try String(contentsOf: outputURL.appendingPathComponent(".lungfish-provenance.json"), encoding: .utf8)
+        XCTAssertFalse(provenance.contains(#""seed""#), "Provenance must not claim a seed value that was never set")
+    }
+
     func testInferIQTreeFailureCapturesStderrAndRemovesOutputBundle() async throws {
         let tempDir = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
             .appendingPathComponent(".build/test-artifacts/TreeCommandFailureTests-\(UUID().uuidString)", isDirectory: true)

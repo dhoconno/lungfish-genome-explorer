@@ -121,7 +121,6 @@ struct EsVirituWizardSheet: View {
     )
 
     // Advanced settings
-    @State private var minReadLength: Int = 100
     @State private var threads: Int = ProcessInfo.processInfo.activeProcessorCount
     @State private var extraArgumentsText: String = ""
 
@@ -461,14 +460,13 @@ struct EsVirituWizardSheet: View {
     private var advancedSettings: some View {
         DisclosureGroup("Advanced Settings", isExpanded: $showAdvanced) {
             VStack(alignment: .leading, spacing: 12) {
-                // Minimum read length
-                HStack {
-                    Text("Min read length:")
-                        .font(.system(size: 12))
-                        .frame(width: 120, alignment: .trailing)
-                    Stepper("\(minReadLength) bp", value: $minReadLength, in: 50...500, step: 10)
-                        .font(.system(size: 12))
-                }
+                // WFL-10: a "Min read length" stepper used to live here, but
+                // EsViritu's own CLI has no minimum-read-length flag and its
+                // fastp invocation is not parameterized with one either --
+                // there was never a way for this control's value to reach
+                // the tool. Removed rather than left as a control that
+                // silently did nothing (and, worse, was echoed back in the
+                // summary/inspector as though it had been applied).
 
                 // Threads
                 HStack {
@@ -579,7 +577,10 @@ struct EsVirituWizardSheet: View {
                 outputDirectory: outputDir,
                 databasePath: dbPath,
                 qualityFilter: qualityFilter,
-                minReadLength: minReadLength,
+                // WFL-10: no wizard control feeds this; `EsVirituConfig`
+                // keeps its documented default since the field is not
+                // forwarded to the EsViritu tool at all (see
+                // `esVirituArguments()`).
                 threads: threads,
                 extraArguments: extraArguments
             )

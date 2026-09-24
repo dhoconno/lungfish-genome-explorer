@@ -18,7 +18,6 @@ final class ConfigSummaryParametersTests: XCTestCase {
             outputDirectory: URL(fileURLWithPath: "/output"),
             databasePath: URL(fileURLWithPath: "/db/esviritu"),
             qualityFilter: true,
-            minReadLength: 75,
             threads: 8
         )
 
@@ -26,7 +25,6 @@ final class ConfigSummaryParametersTests: XCTestCase {
 
         XCTAssertEqual(params["sampleName"], .string("MySample"))
         XCTAssertEqual(params["qualityFilter"], .bool(true))
-        XCTAssertEqual(params["minReadLength"], .int(75))
         XCTAssertEqual(params["threads"], .int(8))
         XCTAssertEqual(params["isPairedEnd"], .bool(false))
 
@@ -34,6 +32,9 @@ final class ConfigSummaryParametersTests: XCTestCase {
         XCTAssertNil(params["inputFiles"])
         XCTAssertNil(params["outputDirectory"])
         XCTAssertNil(params["databasePath"])
+        // WFL-10: EsViritu has no minimum-read-length option, so this value
+        // is never applied and must not appear in the reproducibility summary.
+        XCTAssertNil(params["minReadLength"])
     }
 
     func testEsVirituConfigSummaryPairedEnd() {
@@ -46,8 +47,7 @@ final class ConfigSummaryParametersTests: XCTestCase {
             sampleName: "PairedSample",
             outputDirectory: URL(fileURLWithPath: "/output"),
             databasePath: URL(fileURLWithPath: "/db/esviritu"),
-            qualityFilter: false,
-            minReadLength: 100
+            qualityFilter: false
         )
 
         let params = config.summaryParameters()

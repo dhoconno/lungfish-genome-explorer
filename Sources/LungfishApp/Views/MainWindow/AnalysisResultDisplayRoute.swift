@@ -9,11 +9,17 @@ enum AnalysisResultDisplayRoute: Equatable {
     case czId
     case viralRecon
     case primerOrder
+    /// Savont clustering (and any future tool) whose per-sample output is a
+    /// loose sequence file rather than a typed bundle or directory. Routed
+    /// through the existing generic sequence-file display path
+    /// (`displayGenomicsFile`) instead of a dedicated viewer.
+    case fastaFile
     case unknown
 
     static func route(forToolID toolID: String) -> AnalysisResultDisplayRoute {
         let normalized = toolID.trimmingCharacters(in: .whitespacesAndNewlines)
         if normalized == "primer-order" { return .primerOrder }
+        if normalized == "savont" { return .fastaFile }
 
         if normalized.hasPrefix("naomgs") {
             return .naoMgs

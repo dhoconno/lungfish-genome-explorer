@@ -42,6 +42,12 @@ enum IQTreeSequenceTypeOption: String, CaseIterable, Sendable {
 final class IQTreeInferenceDialogState {
     static let toolID = "iqtree"
 
+    /// IQ-TREE's own hard minimum for `-B`/`--bootstrap` (ultrafast
+    /// bootstrap). The tool errors out below this count; validating for it
+    /// here (WFL-10) turns a runtime IQ-TREE failure into a readiness
+    /// message before Run is ever pressed.
+    static let minimumUFBootReplicates = 1000
+
     let request: MultipleSequenceAlignmentTreeInferenceRequest
     let projectURL: URL
     let sidebarItems: [DatasetOperationToolSidebarItem]
@@ -86,7 +92,7 @@ final class IQTreeInferenceDialogState {
         self.bootstrapReplicates = 1000
         self.alrtEnabled = false
         self.alrtReplicates = 1000
-        self.seed = 1
+        self.seed = nil
         self.threads = nil
         self.safeMode = false
         self.keepIdenticalSequences = false
@@ -143,8 +149,8 @@ final class IQTreeInferenceDialogState {
         if model.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             return "Enter an IQ-TREE model or model selection preset."
         }
-        if bootstrapEnabled && bootstrapReplicates <= 0 {
-            return "Enter a positive ultrafast bootstrap replicate count."
+        if bootstrapEnabled && bootstrapReplicates < Self.minimumUFBootReplicates {
+            return "Enter at least \(Self.minimumUFBootReplicates) ultrafast bootstrap replicates (IQ-TREE's UFBoot minimum)."
         }
         if alrtEnabled && alrtReplicates <= 0 {
             return "Enter a positive SH-aLRT replicate count."

@@ -724,6 +724,46 @@ final class TaxTriagePipelineTests: XCTestCase {
         XCTAssertTrue(args.contains("--skip_krona"))
     }
 
+    // Reported 2026-09-23 (best-practices audit, WFL-10b): `classifiers` was
+    // recorded in provenance and the inspector but never reached the
+    // Nextflow arguments, so a user's classifier selection silently had no
+    // effect on the run.
+    func testNextflowArgumentsIncludesClassifiers() throws {
+        let sample = TaxTriageSample(
+            sampleId: "S1",
+            fastq1: URL(fileURLWithPath: "/data/R1.fq.gz"),
+            platform: .illumina
+        )
+        let config = TaxTriageConfig(
+            samples: [sample],
+            outputDirectory: URL(fileURLWithPath: "/output"),
+            classifiers: ["kraken2", "diamond"]
+        )
+
+        let args = config.nextflowArguments()
+
+        XCTAssertTrue(args.contains("--classifiers"))
+        let flagIndex = try XCTUnwrap(args.firstIndex(of: "--classifiers"))
+        XCTAssertEqual(args[args.index(after: flagIndex)], "kraken2,diamond")
+    }
+
+    func testNextflowArgumentsOmitsClassifiersFlagWhenEmpty() {
+        let sample = TaxTriageSample(
+            sampleId: "S1",
+            fastq1: URL(fileURLWithPath: "/data/R1.fq.gz"),
+            platform: .illumina
+        )
+        let config = TaxTriageConfig(
+            samples: [sample],
+            outputDirectory: URL(fileURLWithPath: "/output"),
+            classifiers: []
+        )
+
+        let args = config.nextflowArguments()
+
+        XCTAssertFalse(args.contains("--classifiers"))
+    }
+
     // MARK: - TaxTriageResult Tests
 
     func testResultSummarySuccess() {

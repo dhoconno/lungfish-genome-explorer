@@ -132,6 +132,63 @@ final class IQTreeInferenceOptionsDialogTests: XCTestCase {
         XCTAssertFalse(source.contains("NSAlert"))
     }
 
+
+    // Reported 2026-09-23 (best-practices audit, WFL-10e): the dialog's own
+    // default for `seed` was the fixed value 1 even though its label says
+    // "leave blank for random". The default must be nil so a run left
+    // untouched actually gets IQ-TREE's own random seed, not a fixed one.
+    @MainActor
+    func testIQTreeInferenceDialogStateDefaultSeedIsNilForRandom() throws {
+        let request = MultipleSequenceAlignmentTreeInferenceRequest(
+            bundleURL: URL(fileURLWithPath: "/project/Analyses/Multiple Sequence Alignments/alignment.lungfishmsa"),
+            rows: "seq1,seq2",
+            columns: "10-200",
+            suggestedName: "alignment-tree.lungfishtree",
+            displayName: "alignment"
+        )
+        let state = IQTreeInferenceDialogState(
+            request: request,
+            projectURL: URL(fileURLWithPath: "/project")
+        )
+
+        XCTAssertNil(state.seed, "A fresh dialog must default to a random seed, not a fixed value")
+
+        state.prepareForRun()
+        let options = try XCTUnwrap(state.pendingOptions)
+        XCTAssertNil(options.seed, "An unmodified dialog must produce options with no fixed seed")
+    }
+
+    /// WFL-10: IQ-TREE's ultrafast bootstrap has a hard minimum of 1000
+    /// replicates; below that, the tool itself errors out. The dialog's
+    /// readiness check must catch this before Run is ever pressed, instead
+    /// of only checking for a positive count.
+    @MainActor
+    func testBootstrapBelowUFBootMinimumDisablesRun() throws {
+        let request = MultipleSequenceAlignmentTreeInferenceRequest(
+            bundleURL: URL(fileURLWithPath: "/project/Analyses/Multiple Sequence Alignments/alignment.lungfishmsa"),
+            rows: "seq1,seq2",
+            columns: "10-200",
+            suggestedName: "alignment-tree.lungfishtree",
+            displayName: "alignment"
+        )
+        let state = IQTreeInferenceDialogState(
+            request: request,
+            projectURL: URL(fileURLWithPath: "/project")
+        )
+        state.model = "GTR+G"
+        state.bootstrapEnabled = true
+        state.bootstrapReplicates = 100
+
+        XCTAssertFalse(state.isRunEnabled)
+        XCTAssertEqual(
+            state.validationMessage,
+            "Enter at least 1000 ultrafast bootstrap replicates (IQ-TREE's UFBoot minimum)."
+        )
+
+        state.bootstrapReplicates = 1000
+        XCTAssertTrue(state.isRunEnabled)
+    }
+
     @MainActor
     func testIQTreeInferenceDialogStateProducesOptionsForRunner() throws {
         let request = MultipleSequenceAlignmentTreeInferenceRequest(
@@ -149,7 +206,10 @@ final class IQTreeInferenceOptionsDialogTests: XCTestCase {
         state.model = "GTR+G"
         state.sequenceType = .dna
         state.bootstrapEnabled = true
-        state.bootstrapReplicates = 500
+        // WFL-10: IQ-TREE's ultrafast bootstrap has a hard minimum of 1000
+        // replicates; a lower count must fail the dialog's own readiness
+        // check rather than reach IQ-TREE and fail there instead.
+        state.bootstrapReplicates = 1500
         state.alrtEnabled = true
         state.alrtReplicates = 1000
         state.seed = 42
@@ -164,7 +224,7 @@ final class IQTreeInferenceOptionsDialogTests: XCTestCase {
         XCTAssertEqual(options.outputName, "alignment-tree")
         XCTAssertEqual(options.model, "GTR+G")
         XCTAssertEqual(options.sequenceType, "DNA")
-        XCTAssertEqual(options.bootstrap, 500)
+        XCTAssertEqual(options.bootstrap, 1500)
         XCTAssertEqual(options.alrt, 1000)
         XCTAssertEqual(options.seed, 42)
         XCTAssertEqual(options.threads, 4)
