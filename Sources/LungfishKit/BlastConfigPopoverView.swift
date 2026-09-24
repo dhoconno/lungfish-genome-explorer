@@ -67,21 +67,17 @@ public struct BlastConfigPopoverView: View {
                 .lineLimit(2)
 
             if showsSlider {
-                HStack {
-                    Text("Reads to submit:")
-                        .font(.subheadline)
-                    Slider(
-                        value: $readCount,
-                        in: 1...Double(maxReads),
-                        step: 1
-                    )
-                    .frame(minWidth: 80)
-                    .lungfishHelp(LungfishHelpContent.classifierBlastReadCount)
-                    Text("\(Int(readCount))")
-                        .font(.subheadline)
-                        .monospacedDigit()
-                        .frame(minWidth: 24, alignment: .trailing)
-                }
+                // Stacked (title over slider) so the slider keeps usable
+                // width inside the 280 pt popover next to the typed field.
+                NumericSliderField(
+                    "Reads to submit:",
+                    value: $readCount,
+                    in: 1...Double(maxReads),
+                    step: 1,
+                    titleFont: .subheadline,
+                    accessibilityTitle: "Reads to submit"
+                )
+                .lungfishHelp(LungfishHelpContent.classifierBlastReadCount)
             } else {
                 Text("Reads to submit: \(maxReads)")
                     .font(.subheadline)

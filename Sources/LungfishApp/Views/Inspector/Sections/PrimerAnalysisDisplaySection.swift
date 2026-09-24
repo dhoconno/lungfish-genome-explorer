@@ -102,16 +102,17 @@ struct PrimerAnalysisDisplaySection: View {
                     .accessibilityIdentifier("primerAnalysisDisplay.compatibilityFilter")
                     .help("Show only oligos meeting the minimum match percentage.")
                 VStack(alignment: .leading, spacing: 8) {
-                    HStack {
-                        Text("Minimum MSA matches")
-                        Spacer(minLength: 6)
-                        Text("\(session.settings.minimumCompatibilityPercent, specifier: "%.0f")%")
-                            .monospacedDigit()
-                    }
-                    Slider(value: $session.settings.minimumCompatibilityPercent, in: 0...100, step: 1)
-                        .accessibilityLabel("Minimum MSA match percent")
-                        .accessibilityIdentifier("primerAnalysisDisplay.minimumCompatibility")
-                        .help("Minimum percentage of assessable alignment rows that must match exactly.")
+                    NumericSliderField(
+                        "Minimum MSA matches",
+                        value: $session.settings.minimumCompatibilityPercent,
+                        in: 0...100,
+                        step: 1,
+                        suffix: "%",
+                        format: { String(format: "%.0f", $0) },
+                        accessibilityTitle: "Minimum MSA match percent",
+                        sliderIdentifier: "primerAnalysisDisplay.minimumCompatibility"
+                    )
+                    .help("Minimum percentage of assessable alignment rows that must match exactly.")
                     Toggle("Keep primers without match data", isOn: $session.settings.showUnassessed)
                         .accessibilityIdentifier("primerAnalysisDisplay.unassessed")
                         .help("Keep oligos that cannot be assessed against any alignment row.")

@@ -109,31 +109,26 @@ struct GenotypeDropoutThresholdSection: View {
                         .frame(width: 70, alignment: .leading)
                     let override = perLocusFractionPercents[locus]
                     let effective = override ?? locusFractionPercent
-                    Slider(
+                    InlineNumericSliderField(
+                        accessibilityTitle: "\(locus) % of locus reads",
                         value: Binding(
                             get: { effective },
                             set: { newValue in
-                                // Drop the override when the analyst slides
-                                // back onto the global value (within step
-                                // granularity). Otherwise the override
-                                // count would creep upward on every drag
-                                // event and the reset button would stay
-                                // armed on benign motions.
-                                if abs(newValue - locusFractionPercent) < 0.05 {
-                                    perLocusFractionPercents.removeValue(forKey: locus)
-                                } else {
-                                    perLocusFractionPercents[locus] = newValue
-                                }
+                                perLocusFractionPercents = Self.applyingLocusOverride(
+                                    newValue,
+                                    locus: locus,
+                                    globalPercent: locusFractionPercent,
+                                    to: perLocusFractionPercents
+                                )
                             }
                         ),
                         in: 0...10,
-                        step: 0.1
+                        step: 0.1,
+                        suffix: "%",
+                        format: { String(format: "%.1f", $0) },
+                        valueHighlighted: override != nil
                     )
-                    Text(String(format: "%.1f%%", effective))
-                        .monospacedDigit()
-                        .font(contentBodyFont)
-                        .frame(width: 48, alignment: .trailing)
-                        .foregroundStyle(override != nil ? Color.accentColor : Color.secondary)
+                    .font(contentBodyFont)
                     Button(action: { perLocusFractionPercents.removeValue(forKey: locus) }) {
                         Image(systemName: "arrow.uturn.backward.circle")
                             .font(contentBodyFont)
@@ -144,6 +139,25 @@ struct GenotypeDropoutThresholdSection: View {
                 }
             }
         }
+    }
+
+    /// Records a per-locus slider or typed value. Drops the override when the
+    /// analyst returns to the global value (within step granularity).
+    /// Otherwise the override count would creep upward on every drag event
+    /// and the reset button would stay armed on benign motions.
+    static func applyingLocusOverride(
+        _ newValue: Double,
+        locus: String,
+        globalPercent: Double,
+        to overrides: [String: Double]
+    ) -> [String: Double] {
+        var updated = overrides
+        if abs(newValue - globalPercent) < 0.05 {
+            updated.removeValue(forKey: locus)
+        } else {
+            updated[locus] = newValue
+        }
+        return updated
     }
 
     private func currentEvaluator() -> GenotypeDropoutEvaluator {

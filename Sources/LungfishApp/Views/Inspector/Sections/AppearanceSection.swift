@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import SwiftUI
+import LungfishKit
 
 /// View model for the appearance section.
 ///
@@ -71,38 +72,16 @@ public struct AppearanceSection: View {
 
     @ViewBuilder
     private var trackHeightSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Text("Track Height")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-
-                Spacer()
-
-                Text("\(Int(viewModel.trackHeight)) pt")
-                    .font(LungfishInspectorStyle.controlFont)
-                    .foregroundStyle(.secondary)
-                    .monospacedDigit()
-            }
-
-            HStack(spacing: 8) {
-                Image(systemName: "minus")
-                    .font(LungfishInspectorStyle.controlFont)
-                    .foregroundStyle(.secondary)
-
-                Slider(
-                    value: $viewModel.trackHeight,
-                    in: 5...100,
-                    step: 1
-                )
-                .onChange(of: viewModel.trackHeight) { _, _ in
-                    viewModel.onSettingsChanged?()
-                }
-
-                Image(systemName: "plus")
-                    .font(LungfishInspectorStyle.controlFont)
-                    .foregroundStyle(.secondary)
-            }
+        NumericSliderField(
+            "Track Height",
+            value: $viewModel.trackHeight,
+            in: 5...100,
+            step: 1,
+            suffix: "pt",
+            titleFont: .subheadline
+        )
+        .onChange(of: viewModel.trackHeight) { _, _ in
+            viewModel.onSettingsChanged?()
         }
     }
 

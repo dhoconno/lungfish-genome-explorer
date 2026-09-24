@@ -4,6 +4,7 @@
 
 import SwiftUI
 import LungfishCore
+import LungfishKit
 
 // MARK: - SampleSectionViewModel
 
@@ -369,26 +370,18 @@ public struct SampleSection: View {
             .controlSize(.small)
 
             if viewModel.displayState.showGenotypeRows {
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack {
-                        Text("Row Height")
-                            .font(LungfishInspectorStyle.controlFont)
-                            .foregroundStyle(.secondary)
-                        Spacer()
-                        Text("\(Int(viewModel.displayState.rowHeight))px")
-                            .font(LungfishInspectorStyle.controlFont.monospaced())
-                            .foregroundStyle(.secondary)
-                    }
-                    Slider(
-                        value: Binding(
-                            get: { viewModel.displayState.rowHeight },
-                            set: { viewModel.setRowHeight($0) }
-                        ),
-                        in: 2...30,
-                        step: 1
-                    )
-                    .controlSize(.small)
-                }
+                NumericSliderField(
+                    "Row Height",
+                    value: .numericSlider(Binding(
+                        get: { viewModel.displayState.rowHeight },
+                        set: { viewModel.setRowHeight($0) }
+                    )),
+                    in: 2...30,
+                    step: 1,
+                    suffix: "px",
+                    titleFont: LungfishInspectorStyle.controlFont
+                )
+                .controlSize(.small)
             }
 
             Toggle(isOn: Binding(
@@ -401,26 +394,18 @@ public struct SampleSection: View {
             .controlSize(.small)
 
             if viewModel.displayState.showSummaryBar {
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack {
-                        Text("Bar Height")
-                            .font(LungfishInspectorStyle.controlFont)
-                            .foregroundStyle(.secondary)
-                        Spacer()
-                        Text("\(Int(viewModel.displayState.summaryBarHeight))px")
-                            .font(LungfishInspectorStyle.controlFont.monospaced())
-                            .foregroundStyle(.secondary)
-                    }
-                    Slider(
-                        value: Binding(
-                            get: { viewModel.displayState.summaryBarHeight },
-                            set: { viewModel.setSummaryBarHeight($0) }
-                        ),
-                        in: 10...60,
-                        step: 1
-                    )
-                    .controlSize(.small)
-                }
+                NumericSliderField(
+                    "Bar Height",
+                    value: .numericSlider(Binding(
+                        get: { viewModel.displayState.summaryBarHeight },
+                        set: { viewModel.setSummaryBarHeight($0) }
+                    )),
+                    in: 10...60,
+                    step: 1,
+                    suffix: "px",
+                    titleFont: LungfishInspectorStyle.controlFont
+                )
+                .controlSize(.small)
             }
 
             Divider()

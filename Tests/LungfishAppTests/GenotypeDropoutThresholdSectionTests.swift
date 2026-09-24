@@ -8,6 +8,22 @@ import LungfishIO
 
 @MainActor
 final class GenotypeDropoutThresholdSectionTests: XCTestCase {
+    func testPerLocusValueAwayFromGlobalRecordsOverride() {
+        let updated = GenotypeDropoutThresholdSection.applyingLocusOverride(
+            4.2, locus: "MHC-B", globalPercent: 2.0, to: ["MHC-A": 1.5]
+        )
+        XCTAssertEqual(updated, ["MHC-A": 1.5, "MHC-B": 4.2])
+    }
+
+    func testPerLocusValueBackOnGlobalDropsOverride() {
+        // Sliding or typing back onto the global value (within step
+        // granularity) must disarm the override, not store a duplicate.
+        let updated = GenotypeDropoutThresholdSection.applyingLocusOverride(
+            2.0 + 0.01, locus: "MHC-B", globalPercent: 2.0, to: ["MHC-A": 1.5, "MHC-B": 4.2]
+        )
+        XCTAssertEqual(updated, ["MHC-A": 1.5])
+    }
+
     func testRendersWithoutCrash() {
         let bindings = TestBindings()
         let view = GenotypeDropoutThresholdSection(

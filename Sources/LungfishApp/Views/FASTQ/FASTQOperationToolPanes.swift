@@ -417,20 +417,13 @@ private struct FASTQOperationPrimarySettingsSection: View {
 
             case .removeLowComplexityReads:
                 // Entropy is the main control; window and k-mer are advanced.
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack {
-                        Text("Entropy Threshold")
-                        Spacer()
-                        Text(String(format: "%.2f", state.removeLowComplexityEntropy))
-                            .monospacedDigit()
-                            .foregroundStyle(.secondary)
-                    }
-                    Slider(
-                        value: $state.removeLowComplexityEntropy,
-                        in: FASTQEntropyFilterDefaults.minimumEntropy...FASTQEntropyFilterDefaults.maximumEntropy,
-                        step: FASTQEntropyFilterDefaults.entropyStep
-                    )
-                }
+                NumericSliderField(
+                    "Entropy Threshold",
+                    value: $state.removeLowComplexityEntropy,
+                    in: FASTQEntropyFilterDefaults.minimumEntropy...FASTQEntropyFilterDefaults.maximumEntropy,
+                    step: FASTQEntropyFilterDefaults.entropyStep,
+                    format: { String(format: "%.2f", $0) }
+                )
                 .lungfishHelp(LungfishHelpContent.fastqEntropyThreshold)
                 Text("Higher thresholds remove more low-complexity reads. 0.6 removes about 4% of reads and about 89% of tandem-repeat reads on the benchmark dataset.")
                     .font(.caption)
