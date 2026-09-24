@@ -3963,7 +3963,8 @@ public class ViewerViewController: NSViewController {
             }
         }
         statusBar.update(
-            position: "\(frame.chromosome):\(Int(frame.start))-\(Int(frame.end))",
+            // 1-based closed, matching the ruler's position field and the Visible/Selected text.
+            position: "\(frame.chromosome):\(GenomicCoordinateDisplay.displayStart(Int(frame.start)))-\(Int(frame.end))",
             selection: selectionInfo,
             scale: frame.scale
         )

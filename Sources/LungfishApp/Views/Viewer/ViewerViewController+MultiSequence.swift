@@ -28,7 +28,8 @@ extension ViewerViewController {
         let sequenceCount = viewerView.sequenceCount
         let activeIndex = viewerView.activeSequenceIndex
 
-        var statusText = "\(frame.chromosome):\(Int(frame.start))-\(Int(frame.end))"
+        // 1-based closed, matching the ruler's position field and the Visible text.
+        var statusText = "\(frame.chromosome):\(GenomicCoordinateDisplay.displayStart(Int(frame.start)))-\(Int(frame.end))"
 
         if sequenceCount > 1 {
             statusText += " | Track \(activeIndex + 1)/\(sequenceCount)"

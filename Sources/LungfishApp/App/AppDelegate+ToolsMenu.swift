@@ -135,6 +135,30 @@ extension AppDelegate {
                 return
             }
 
+            // The viewer route passes its own record count. The Tools menu
+            // route only knows the selected inputs, so derive the count for the
+            // MAFFT pane's "All sequences (N)" row off the main actor first;
+            // otherwise the pane reads "Aligning all 0 sequences."
+            guard mafftAllSequenceCount == 0,
+                  Self.dialogShowsMAFFTSequenceScope(initialCategory: initialCategory, initialToolID: initialToolID) else {
+                presentResolvedOperationsDialog(
+                    selectedInputURLs: selectedInputURLs,
+                    mafftAllSequenceCount: mafftAllSequenceCount
+                )
+                return
+            }
+            Task { @MainActor in
+                let count = await Task.detached(priority: .userInitiated) {
+                    await MSAInputSequenceCounter.sequenceCount(for: selectedInputURLs)
+                }.value
+                presentResolvedOperationsDialog(
+                    selectedInputURLs: selectedInputURLs,
+                    mafftAllSequenceCount: count
+                )
+            }
+        }
+
+        func presentResolvedOperationsDialog(selectedInputURLs: [URL], mafftAllSequenceCount: Int) {
             FASTQOperationsDialogPresenter.present(
                 from: window,
                 selectedInputURLs: selectedInputURLs,
@@ -300,6 +324,15 @@ extension AppDelegate {
             ),
             nil
         )
+    }
+
+    /// True when the dialog opens on, or can switch to, the MAFFT pane, which is
+    /// the only pane that shows the all-sequence count.
+    static func dialogShowsMAFFTSequenceScope(
+        initialCategory: FASTQOperationCategoryID,
+        initialToolID: FASTQOperationToolID?
+    ) -> Bool {
+        initialToolID == .mafft || initialCategory == FASTQOperationToolID.mafft.categoryID
     }
 
     static func resolveWorkflowOperationReadInputURLs(
