@@ -35,7 +35,10 @@ final class PrimerAnalysisRoutingTests: XCTestCase {
         XCTAssertTrue(node.type.isBundle)
         XCTAssertTrue(node.type.bundleCapabilities.canOpen)
         XCTAssertFalse(node.type.bundleCapabilities.canExportSequences)
-        XCTAssertTrue(node.type.bundleCapabilities.canShowInInspector)
+        // Primer analysis provenance belongs to its own read-only viewer, not the
+        // generic Inspector (SidebarItem.swift's .primerAnalysisBundle case,
+        // deliberately canShowInInspector: false).
+        XCTAssertFalse(node.type.bundleCapabilities.canShowInInspector)
         XCTAssertTrue(ProjectDeletionPlanner.projectObjectDirectoryExtensions.contains("lungfishprimeranalysis"))
     }
 
