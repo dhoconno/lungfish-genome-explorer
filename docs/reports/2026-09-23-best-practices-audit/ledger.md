@@ -17,17 +17,17 @@ Single source of truth for finding status (plan rule 9). Status: `open`, `verifi
 | ARC-02 | P1 | Nine copy-pasted CLI runner actors and about 12 ad-hoc, stringly-typed CLI event schemas | open | | | |
 | ARC-03 | P1 | Operations-panel "CLI command" strings are hand-built and drift from the real CLI (Kraken2 replay cannot run) | open | | | |
 | ARC-04 | P1 | `OperationCenter.start` can return an already-failed operation, and callers are not forced to notice | fixed | P1-A | c656e84c3 | OperationCenter.begin -> started/refused; 11 callers migrated; per-family never-launch tests; ratchet baseline 18 in pre-push |
-| ARC-13 | P1 | TaxTriage view controller runs samtools synchronously on the main actor, with a pipe-ordering hazard | open | | | |
+| ARC-13 | P1 | TaxTriage view controller runs samtools synchronously on the main actor, with a pipe-ordering hazard | fixed | P4-A | 447955d3d | samtools off main, concurrent drain; TaxTriage UI tests 37/37 integrated |
 | FEA-03 | P1 | Annotation edit and delete from the viewer and Inspector are not persisted for reference bundles | open | | | |
 | FEA-04 | P1 | The same BAM or VCF file does different things depending on the entry point, and BAM/VCF have no target choose | open | | | |
 | FEA-05 | P1 | Multi-file BAM or VCF import into an open bundle imports only the first file | open | | | |
 | FEA-06 | P1 | Quit and window close do not warn about running operations, and interrupted outputs become invisible | open | | | |
 | FEA-07 | P1 | `OperationCenter.start` does not enforce the bundle lock, so unchecked callers mutate locked bundles | fixed | P1-A | c656e84c3 | drawer-delete sub-claim was wrong (already pre-checked); others migrated |
 | FEA-08 | P1 | Read sort and colour modes are implemented and tested but unreachable in the alignment viewer | open | | | |
-| PERF-01 | P1 | Alignment scientific actions SHA-256 the whole BAM, index and reference on the main actor, twice per action | open | | | |
+| PERF-01 | P1 | Alignment scientific actions SHA-256 the whole BAM, index and reference on the main actor, twice per action | fixed | P4-A | f02c6cc87 | off-main hashing + stat-keyed digest cache; coordinator tests 20/20 |
 | PERF-02 | P1 | `NativeToolRunner.shared` actor is blocked for the full runtime of `runWithFileOutput` / `runPipeline` childre | open | | | |
-| PERF-03 | P1 | TaxTriage batch unique-read pass runs directory walks, file parsing and `samtools` on the main actor, then an  | open | | | |
-| PERF-05 | P1 | Eight post-import and post-operation call sites run the full recursive project scan synchronously on the main  | open | | | |
+| PERF-03 | P1 | TaxTriage batch unique-read pass runs directory walks, file parsing and `samtools` on the main actor, then an  | fixed | P4-A | 447955d3d | off-main discovery, keyed table sync, 250ms coalesced reload |
+| PERF-05 | P1 | Eight post-import and post-operation call sites run the full recursive project scan synchronously on the main  | fixed | P4-A | bea6e910b | 8/8 reloadFromFilesystem call sites now async |
 | PERF-06 | P1 | "Export annotations" and multi-source sequence export decompress and parse the entire genome into memory | open | | | |
 | REC-01 | P1 | Sibling mutation service deletes backup | fixed | P0-B | 12e6722a6 | VariantMutationPublication recovery path |
 | REC-02 | P1 | MSA/tree --force deletes output before work | partial | P0-B | 6898a985f | MSA extract/mask/trim atomic swap; tree infer --force still removes before work (follow-up) |
