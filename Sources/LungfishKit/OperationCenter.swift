@@ -377,6 +377,11 @@ public final class OperationCenter: ObservableObject {
 
     /// Canonical paths and their active owner/scope share one lock authority.
     private var bundleLocks: [String: BundleLock] = [:]
+    /// Operations that ``cancel(id:)`` forced to `.cancelled` after the grace
+    /// period while their worker was still running (NEW-08), keyed by ID with a
+    /// snapshot of the item. Their bundle locks stay held until the worker
+    /// itself calls a terminal method, because it may still be writing.
+    private var abandonedWorkers: [UUID: Item] = [:]
 
     /// Creates an empty operation center.
     ///
@@ -440,7 +445,8 @@ public final class OperationCenter: ObservableObject {
                 && (requestedComponents.starts(with: existingComponents)
                     || existingComponents.starts(with: requestedComponents)))
             guard conflicts,
-                  let owner = items.first(where: { $0.id == lock.operationID && $0.state.isActive }) else { continue }
+                  let owner = items.first(where: { $0.id == lock.operationID && $0.state.isActive })
+                    ?? abandonedWorkers[lock.operationID] else { continue }
             return owner
         }
         return nil
@@ -865,8 +871,15 @@ public final class OperationCenter: ObservableObject {
         warning: Bool = false,
         errorMessage: String? = nil,
         errorDetail: String? = nil,
-        finishedAt: Date = Date()
+        finishedAt: Date = Date(),
+        retainBundleLock: Bool = false
     ) -> Bool {
+        if abandonedWorkers.removeValue(forKey: id) != nil {
+            // The abandoned worker finally returned: its result is discarded
+            // (the operation is already cancelled) but its lock is released now.
+            unlockBundle(for: id)
+            return false
+        }
         guard let index = items.firstIndex(where: { $0.id == id }),
               items[index].state.isActive else { return false }
         let cancellationWon = items[index].state == .cancelling
@@ -888,7 +901,11 @@ public final class OperationCenter: ObservableObject {
         if state == .failed {
             items[index].failureReportURL = failureReportStore.writeReport(for: items[index])
         }
-        unlockBundle(for: id)
+        if retainBundleLock {
+            abandonedWorkers[id] = items[index]
+        } else {
+            unlockBundle(for: id)
+        }
         _ = trimCompletedItemsIfNeeded()
         publishTerminalChange(id: id, previousOrder: previousOrder)
         if state == .completed, !bundleURLs.isEmpty {
@@ -921,6 +938,13 @@ public final class OperationCenter: ObservableObject {
     /// (`state.isActive`) then makes a late-returning worker's own terminal call a
     /// safe no-op -- it cannot resurrect or double-complete an operation this
     /// already closed out.
+    ///
+    /// The forced path does NOT release the bundle lock: the worker may still be
+    /// running (a tool ignoring SIGTERM, a large copy finishing) and could write
+    /// into a bundle another operation has just locked. The lock stays held,
+    /// through ``abandonedWorkers``, until the worker itself calls a terminal
+    /// method. The operation leaves the active list, so Cancel All, the quit
+    /// warning and the Operations menu no longer wait on it.
     public func cancel(id: UUID) {
         guard let index = items.firstIndex(where: { $0.id == id }),
               items[index].state == .running,
@@ -965,10 +989,10 @@ public final class OperationCenter: ObservableObject {
         items[index].appendLogEntryCapped(
             OperationLogEntry(
                 level: .warning,
-                message: "Worker did not respond to cancellation within \(Int(cancelGracePeriod))s; forcing cancelled state and releasing its bundle lock."
+                message: "Worker did not respond to cancellation within \(Int(cancelGracePeriod))s; marked cancelled. Its bundle stays locked until the worker exits."
             )
         )
-        _ = acknowledgeCancellation(id: id)
+        _ = finishWorker(id: id, state: .cancelled, detail: "Cancelled by user", retainBundleLock: true)
     }
 
     /// Cancels all running operations.

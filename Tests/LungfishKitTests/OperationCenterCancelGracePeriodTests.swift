@@ -82,10 +82,11 @@ final class OperationCenterCancelGracePeriodTests: XCTestCase {
     /// lock. The forced cancellation must release it so a later operation on
     /// the same bundle is not refused forever because of a worker that will
     /// never call a terminal method.
-    func testCancelReleasesBundleLockWhenWorkerNeverReturns() async throws {
-        let neverSignalled = DispatchSemaphore(value: 0)
-        defer { neverSignalled.signal() }
-
+    /// The forced cancel must NOT hand the bundle to another operation while
+    /// the abandoned worker may still be writing into it: the operation leaves
+    /// the active list, but the bundle stays locked until the worker itself
+    /// finally reports, and only then is it released.
+    func testForcedCancelKeepsBundleLockedUntilWorkerActuallyReturns() async throws {
         let bundleURL = URL(fileURLWithPath: "/tmp/OperationCenterCancelGracePeriodTests-\(UUID().uuidString).lungfishfastq")
 
         guard case .started(let id) = center.begin(
@@ -93,29 +94,50 @@ final class OperationCenterCancelGracePeriodTests: XCTestCase {
             detail: "running",
             operationType: .classification,
             targetBundleURL: bundleURL,
-            onCancel: {
-                DispatchQueue.global(qos: .userInitiated).async {
-                    _ = neverSignalled.wait(timeout: .now() + 30)
-                }
-            }
+            onCancel: {}
         ) else {
             XCTFail("expected the first operation on an unlocked bundle to start")
             return
         }
-
         XCTAssertFalse(center.canStartOperation(on: bundleURL), "the bundle must be locked while the operation runs")
 
         center.cancel(id: id)
-
         let deadline = Date().addingTimeInterval(5)
-        while !center.canStartOperation(on: bundleURL), Date() < deadline {
-            let expectation = XCTestExpectation(description: "poll tick")
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.02) { expectation.fulfill() }
-            await fulfillment(of: [expectation], timeout: 1)
+        while center.items.first(where: { $0.id == id })?.state != .cancelled, Date() < deadline {
+            try await Task.sleep(nanoseconds: 20_000_000)
         }
 
-        XCTAssertTrue(center.canStartOperation(on: bundleURL), "a stuck worker must not hold the bundle lock forever")
         XCTAssertEqual(center.items.first(where: { $0.id == id })?.state, .cancelled)
+        XCTAssertFalse(center.activeItems.contains { $0.id == id })
+        XCTAssertFalse(center.canStartOperation(on: bundleURL), "an abandoned worker may still write; its bundle must stay locked")
+        guard case .refused = center.begin(
+            title: "Second op", detail: "", operationType: .classification, targetBundleURL: bundleURL
+        ) else {
+            return XCTFail("begin must refuse a bundle still held by an abandoned worker")
+        }
+
+        // The worker finally returns: its result is discarded, its lock released.
+        XCTAssertFalse(center.complete(id: id, detail: "late"))
+        XCTAssertEqual(center.items.first(where: { $0.id == id })?.state, .cancelled)
+        XCTAssertTrue(center.canStartOperation(on: bundleURL))
+    }
+
+    /// Clearing finished rows must not drop an abandoned worker's lock.
+    func testAbandonedWorkerLockSurvivesClearCompleted() async throws {
+        let bundleURL = URL(fileURLWithPath: "/tmp/OperationCenterCancelGracePeriodTests-\(UUID().uuidString).lungfishfastq")
+        guard case .started(let id) = center.begin(
+            title: "Stuck op", detail: "", operationType: .classification, targetBundleURL: bundleURL, onCancel: {}
+        ) else { return XCTFail("expected start") }
+        center.cancel(id: id)
+        let deadline = Date().addingTimeInterval(5)
+        while center.items.first(where: { $0.id == id })?.state != .cancelled, Date() < deadline {
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+        center.clearCompleted()
+        XCTAssertFalse(center.items.contains { $0.id == id })
+        XCTAssertFalse(center.canStartOperation(on: bundleURL))
+        _ = center.fail(id: id, detail: "late")
+        XCTAssertTrue(center.canStartOperation(on: bundleURL))
     }
 
     /// A worker that does eventually return -- just after the grace period
