@@ -56,6 +56,84 @@ final class ClassificationCLIInvocationRoundTripTests: XCTestCase {
         XCTAssertFalse(parsed.profile)
     }
 
+    // MARK: - Read format parity (interleaved bundles, 2026-09-24)
+
+    private func makeSingleFileConfig(interleavedInput: Bool) -> ClassificationConfig {
+        ClassificationConfig(
+            inputFiles: [URL(fileURLWithPath: "/tmp/sample.lungfishfastq/sample.fastq.gz")],
+            isPairedEnd: false,
+            interleavedInput: interleavedInput,
+            databaseName: "Viral",
+            databasePath: URL(fileURLWithPath: "/opt/lungfish/db/Viral"),
+            outputDirectory: URL(fileURLWithPath: "/tmp/out")
+        )
+    }
+
+    func testInterleavedInvocationRoundTripsThroughClassifyCommand() throws {
+        let invocation = ClassificationCLIInvocationBuilder.build(for: makeSingleFileConfig(interleavedInput: true))
+        let parsed = try ClassifyCommand.parse(Array(invocation.arguments.dropFirst(2)))
+
+        XCTAssertEqual(parsed.readFormat, .interleaved)
+        XCTAssertFalse(parsed.pairedEnd)
+        let resolved = try parsed.resolveReadFormat(inputURLs: parsed.fastqFiles.map { URL(fileURLWithPath: $0) })
+        XCTAssertEqual(resolved.format, .interleaved)
+        XCTAssertNil(resolved.layout, "An explicit --read-format must not rescan the input")
+
+        let config = try parsed.makeConfigForTesting(
+            inputURLs: parsed.fastqFiles.map { URL(fileURLWithPath: $0) },
+            databasePath: URL(fileURLWithPath: "/opt/lungfish/db/Viral"),
+            inputFormat: .fastq,
+            outputDirectory: URL(fileURLWithPath: "/tmp/out")
+        )
+        XCTAssertEqual(config.readFormat, .interleaved)
+        XCTAssertTrue(config.interleavedInput)
+        XCTAssertFalse(config.isPairedEnd)
+    }
+
+    func testUnpairedInvocationIsNotReDetectedAsInterleaved() throws {
+        let invocation = ClassificationCLIInvocationBuilder.build(for: makeSingleFileConfig(interleavedInput: false))
+        let parsed = try ClassifyCommand.parse(Array(invocation.arguments.dropFirst(2)))
+
+        XCTAssertEqual(parsed.readFormat, .unpaired)
+        XCTAssertEqual(try parsed.resolveReadFormat(inputURLs: [URL(fileURLWithPath: "/tmp/x.fastq")]).format, .unpaired)
+    }
+
+    func testPairedFlagConflictsWithOtherReadFormats() throws {
+        let parsed = try ClassifyCommand.parse(["--db", "Viral", "--paired", "--read-format", "interleaved", "/tmp/a.fastq"])
+        XCTAssertThrowsError(try parsed.resolveReadFormat(inputURLs: [URL(fileURLWithPath: "/tmp/a.fastq")]))
+
+        let compatible = try ClassifyCommand.parse(["--db", "Viral", "--paired", "/tmp/a.fastq", "/tmp/b.fastq"])
+        XCTAssertEqual(try compatible.resolveReadFormat(inputURLs: []).format, .paired)
+    }
+
+    func testAutoReadFormatClassifiesASingleInputFile() throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("classify-read-format-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        func fastq(_ name: String, _ headers: [String]) throws -> URL {
+            let url = dir.appendingPathComponent(name)
+            try headers.map { "@\($0)\nACGT\n+\nIIII\n" }.joined().write(to: url, atomically: true, encoding: .utf8)
+            return url
+        }
+        let interleaved = try fastq("interleaved.fastq", ["a/1", "a/2", "b/1", "b/2"])
+        let mixed = try fastq("mixed.fastq", ["a/1", "a/2", "merged", "b/1", "b/2"])
+        let singleEnd = try fastq("single.fastq", ["a", "b", "c"])
+
+        let parsed = try ClassifyCommand.parse(["--db", "Viral", interleaved.path])
+        XCTAssertEqual(parsed.readFormat, .auto)
+        XCTAssertEqual(try parsed.resolveReadFormat(inputURLs: [interleaved]).format, .interleaved)
+        let mixedResolution = try parsed.resolveReadFormat(inputURLs: [mixed])
+        XCTAssertEqual(mixedResolution.format, .unpaired, "Mixed merged reads and pairs run single-end")
+        XCTAssertEqual(mixedResolution.layout?.layout, .mixedInterleaved)
+        XCTAssertEqual(try parsed.resolveReadFormat(inputURLs: [singleEnd]).format, .unpaired)
+        XCTAssertEqual(
+            try parsed.resolveReadFormat(inputURLs: [interleaved, singleEnd]).format,
+            .unpaired,
+            "Several inputs without --paired stay unpaired"
+        )
+    }
+
     func testBuiltInvocationForProfileGoalParsesProfileAndBrackenOptions() throws {
         let invocation = ClassificationCLIInvocationBuilder.build(
             for: makeConfig(goal: .profile, brackenProfileRequest: .automaticDefault)

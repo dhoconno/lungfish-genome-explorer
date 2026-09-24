@@ -202,6 +202,50 @@ final class FASTQPairInterleaverTests: XCTestCase {
         }
     }
 
+    // MARK: - Deinterleave
+
+    private func deinterleave(_ url: URL) throws -> (counts: FASTQPairInterleaver.Counts, r1: Data, r2: Data) {
+        let out1 = root.appendingPathComponent("split-r1-\(UUID().uuidString).fastq")
+        let out2 = root.appendingPathComponent("split-r2-\(UUID().uuidString).fastq")
+        FileManager.default.createFile(atPath: out1.path, contents: nil)
+        FileManager.default.createFile(atPath: out2.path, contents: nil)
+        let h1 = try XCTUnwrap(FileHandle(forWritingAtPath: out1.path))
+        let h2 = try XCTUnwrap(FileHandle(forWritingAtPath: out2.path))
+        defer {
+            try? h1.close()
+            try? h2.close()
+        }
+        let counts = try FASTQPairInterleaver.deinterleave(interleaved: url, r1: h1, r2: h2)
+        try h1.close()
+        try h2.close()
+        return (counts, try Data(contentsOf: out1), try Data(contentsOf: out2))
+    }
+
+    func testDeinterleaveRestoresTheOriginalMateFilesByteForByte() throws {
+        let interleaved = try write(expectedInterleaved, name: "interleaved.fastq")
+
+        let plain = try deinterleave(interleaved)
+        XCTAssertEqual(plain.counts, FASTQPairInterleaver.Counts(r1Records: 2, r2Records: 2, writtenRecords: 4))
+        XCTAssertEqual(plain.r1, Data(r1Text.utf8))
+        XCTAssertEqual(plain.r2, Data(r2Text.utf8))
+
+        let compressed = try deinterleave(try gzipped(interleaved))
+        XCTAssertEqual(compressed.r1, plain.r1)
+        XCTAssertEqual(compressed.r2, plain.r2)
+    }
+
+    func testDeinterleaveRejectsAnOddRecordCount() throws {
+        let odd = try write(expectedInterleaved + "@orphan/1\nACGT\n+\nIIII\n", name: "odd.fastq")
+
+        XCTAssertThrowsError(try deinterleave(odd)) { error in
+            guard case FASTQPairInterleaver.InterleaveError.mateCountMismatch(_, let r1Records, _, let r2Records) = error else {
+                return XCTFail("Expected mateCountMismatch, got \(error)")
+            }
+            XCTAssertEqual(r1Records, 3)
+            XCTAssertEqual(r2Records, 2)
+        }
+    }
+
     func testUnreadableInputThrows() {
         let missing = root.appendingPathComponent("missing.fastq")
         XCTAssertThrowsError(try FASTQPairInterleaver.countRecords(in: missing)) { error in

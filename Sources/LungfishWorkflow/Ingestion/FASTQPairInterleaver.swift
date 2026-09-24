@@ -89,6 +89,43 @@ public enum FASTQPairInterleaver {
         return Counts(r1Records: r1Count, r2Records: r2Count, writtenRecords: written)
     }
 
+    /// Splits a strictly interleaved FASTQ back into R1 and R2 streams.
+    ///
+    /// Records alternate R1, R2, R1, R2 and are copied byte for byte. An odd
+    /// record count means the file is not a whole set of pairs and throws;
+    /// nothing checks read names because the caller has already classified
+    /// the layout with `FASTQReadLayoutClassifier`.
+    public static func deinterleave(interleaved: URL, r1 sink1: FileHandle, r2 sink2: FileHandle) throws -> Counts {
+        let reader = try FASTQRawLineReader(url: interleaved)
+        defer { reader.close() }
+        var output1 = BufferedSink(handle: sink1)
+        var output2 = BufferedSink(handle: sink2)
+        var total = 0
+        let file = interleaved.lastPathComponent
+
+        while let record1 = try readRecord(from: reader, file: file, recordNumber: total + 1) {
+            total += 1
+            if total & 0x3FFF == 0 { try Task.checkCancellation() }
+            guard let record2 = try readRecord(from: reader, file: file, recordNumber: total + 1) else {
+                throw InterleaveError.mateCountMismatch(
+                    r1File: file, r1Records: total / 2 + 1,
+                    r2File: file, r2Records: total / 2
+                )
+            }
+            total += 1
+            try output1.write(record1)
+            try output2.write(record2)
+        }
+        try output1.flush()
+        try output2.flush()
+
+        let written = output1.recordsWritten + output2.recordsWritten
+        guard written == total, output1.recordsWritten == output2.recordsWritten else {
+            throw InterleaveError.recordCountMismatch(expected: total, actual: written)
+        }
+        return Counts(r1Records: output1.recordsWritten, r2Records: output2.recordsWritten, writtenRecords: written)
+    }
+
     /// Counts four-line FASTQ records in a plain or gzip-compressed file.
     ///
     /// Throws when the line count is not a multiple of four, which is the

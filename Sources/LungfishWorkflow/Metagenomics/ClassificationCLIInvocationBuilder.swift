@@ -35,8 +35,14 @@ public enum ClassificationCLIInvocationBuilder {
         arguments += ["--min-hit-groups", String(config.minimumHitGroups)]
         arguments += ["--threads", String(config.threads)]
 
-        if config.isPairedEnd {
+        // The read format is always pinned so a pasted command reproduces
+        // the run instead of re-detecting the layout (NEW-06 parity with
+        // `lungfish esviritu detect --read-format`).
+        switch config.readFormat {
+        case .paired:
             arguments.append("--paired")
+        case .interleaved, .unpaired:
+            arguments += ["--read-format", config.readFormat.rawValue]
         }
         if config.memoryMapping {
             arguments.append("--memory-mapping")
