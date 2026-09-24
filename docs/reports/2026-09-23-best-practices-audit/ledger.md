@@ -172,13 +172,13 @@ Single source of truth for finding status (plan rule 9). Status: `open`, `verifi
 | GEN-04 | P1 | Reads tied across alleles are credited in full to each allele with no ambiguity marker. minimap2 `-N 5` makes  | open | | | |
 | GEN-05 | P1 | "Locus %" uses three different locus groupings (pipeline haplotype filter, matrix "Viewed Locus", evidence pan | open | | | |
 | GEN-06 | P1 | "Minimum percent" means within-sample read fraction for known alleles but fraction of animals for candidate ro | open | | | |
-| GEN-07 | P1 | Illumina sample totals count mates before merging while retained reads count merged fragments, which halves re | open | | | |
-| GEN-08 | P2 | A second haplotype of "-" means both "homozygous" and "second haplotype not identified", and the viewer hides  | open | | | |
+| GEN-07 | P1 | Illumina sample totals count mates before merging while retained reads count merged fragments, which halves re | fixed | G3 | 69c5bb780 | totalFragmentCount uses merge pairCount; threaded into manifest as totalPairs + readCountUnit; 3 tests |
+| GEN-08 | P2 | A second haplotype of "-" means both "homozygous" and "second haplotype not identified", and the viewer hides  | fixed | G4 | ba411539c | new `.unresolvedSecondHaplotype` status + "?" token when residual diagnostic evidence exists; every display/export switch updated; golden test extended |
 | GEN-09 | P2 | The Python demux filter silently resolves duplicate or reverse-complement-colliding barcodes to the first samp | fixed | G1 | 545fcea36 | Python filter rejects colliding barcodes |
 | GEN-10 | P2 | Full-length ONT: a zero-SNP hit is a known call regardless of indel size, with no indel count in the call | open | | | |
-| GEN-11 | P2 | PacBio exact dual-barcode demux assigns multi-matching reads in Swift `Dictionary` iteration order, which vari | open | | | |
+| GEN-11 | P2 | PacBio exact dual-barcode demux assigns multi-matching reads in Swift `Dictionary` iteration order, which vari | fixed | G1 | bcc258e8e | sorted deterministic search, multi-match reads unassigned + ambiguousReadCount; 2 tests incl. 10-repeat determinism check |
 | GEN-12 | P2 | Provenance and QC gaps: bbtools missing from `managedTools`, hard-coded "resolvedDefaults", hard-coded QC cut- | fixed | G2 | aa3cc573d | bbtools recorded, real thresholds, no AI prompt copy |
-| GEN-13 | P2 | Legacy `fastq ont-genotype` maps ONT reads with the short-read preset, ignores `--allow-indels`, and randomly  | open | | | |
+| GEN-13 | P2 | Legacy `fastq ont-genotype` maps ONT reads with the short-read preset, ignores `--allow-indels`, and randomly  | fixed | G5 | ed8ab757e | hidden from --help (shouldDisplay: false), stderr deprecation notice on run, still functional |
 | DS-01 | P1 | Owner-reported: mapping viewport downsample clustered at window start | fixed | DS | 3c44ed94d | fetchReadSketch (count + samtools --subsample) per track; every-decile test; 3M-read BAM 19.8s -> 4.2s |
 | NEW-01 | P2 | CLI import bam -o bundle copied loose files, no track | fixed | Q3 | 6e4cac542 | attaches via PreparedAlignmentAttachmentService |
 | NEW-02 | P2 | Sidebar watcher misses CLI changes in newly created project | not-reproduced-in-tests | Q3 |  | wiring traced; FSEvents deliver in ~3s for brand-new dirs; recheck live via Computer Use (repro project was in TCC-protected ~/Documents) |
