@@ -1019,6 +1019,17 @@ extension AppDelegate {
         runEsVirituBatch(configs: configs, viewerController: viewerController, routeContext: routeContext)
     }
 
+    /// Arguments after `lungfish esviritu detect` recorded for a single-sample run.
+    ///
+    /// NEW-06: the read format the wizard chose is recorded explicitly so the
+    /// copied command runs pairs as pairs and mixed input as single-end.
+    nonisolated static func esVirituDetectCLIArguments(for config: EsVirituConfig) -> [String] {
+        var args = ["--input"] + config.inputFiles.map(\.path)
+        args += ["--sample", config.sampleName]
+        args += ["--read-format", config.readFormat.rawValue]
+        return args
+    }
+
     internal func runEsViritu(
         config: EsVirituConfig,
         viewerController: ViewerViewController,
@@ -1044,11 +1055,7 @@ extension AppDelegate {
             }
         }
 
-        let esCliArgs: [String] = {
-            var args = ["--input"] + config.inputFiles.map(\.path)
-            args += ["--sample", config.sampleName]
-            return args
-        }()
+        let esCliArgs = Self.esVirituDetectCLIArguments(for: config)
         let esCliCmd = OperationCenter.buildCLICommand(subcommand: "esviritu detect", args: esCliArgs)
         let esCliArgv = [CLICommandIdentity.executableName, "esviritu", "detect"] + esCliArgs
         let opID = OperationCenter.shared.start(

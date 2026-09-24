@@ -12,7 +12,7 @@ extension EsVirituConfig {
     /// databasePath) are omitted because they are host-specific and not useful for
     /// reproducibility summaries.
     public func summaryParameters() -> [String: AnalysisParameterValue] {
-        [
+        var parameters: [String: AnalysisParameterValue] = [
             "sampleName": .string(sampleName),
             "qualityFilter": .bool(qualityFilter),
             // WFL-10: "minReadLength" intentionally omitted. EsViritu has no
@@ -24,6 +24,14 @@ extension EsVirituConfig {
             "threads": .int(threads),
             "isPairedEnd": .bool(isPairedEnd),
             "extraArgs": .string(AdvancedCommandLineOptions.join(extraArguments)),
+            "readFormat": .string(readFormat.rawValue),
         ]
+        if let inputLayout {
+            parameters["inputReadLayout"] = .string(inputLayout.layout.rawValue)
+            parameters["inputReadLayoutMatePairs"] = .int(inputLayout.matePairs)
+            parameters["inputReadLayoutUnpairedRecords"] = .int(inputLayout.unpairedRecords)
+            parameters["inputReadLayoutReason"] = .string(inputLayout.reason)
+        }
+        return parameters
     }
 }

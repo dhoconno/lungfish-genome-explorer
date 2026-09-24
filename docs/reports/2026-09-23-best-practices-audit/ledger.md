@@ -186,7 +186,7 @@ Single source of truth for finding status (plan rule 9). Status: `open`, `verifi
 | NEW-04 | P2 | test_releasing_lungfish_skill 26/36 failing at base | open | | | pre-existing |
 | PERF-17 | P1 | (new, measured) Genotype comparison matrix: 955 ms to build 40x96 visible cells, 350 ms full redraw | partial | Q1c,Q1d | d12957bff,abde7d24f | first-paint cell build ~707->~385 ms, redraw ~126->~93 ms; benchmark bypasses reuse queue (worst case); remaining floor = NSTextField per cell (custom-drawn cell deferred) |
 | PERF-18 | P1 | (new) CLIVariantCallingRunner.cancel deadlocked behind in-flight run | fixed | P6-A2 | a84cb151c | struct runner; cancellation tests 3x |
-| NEW-06 | P2 | EsViritu labels interleaved pairs Single-end and runs -p unpaired | open | | | live GUI |
+| NEW-06 | P2 | EsViritu labels interleaved pairs Single-end and runs -p unpaired | fixed | NEW-06 lane | 26237e89c,15c4b352d,848a04320 | D19: strict interleaved -> `-p interleaved`; mixed pairs+merged (VSP2) -> `-p unpaired` labelled "Mixed paired and merged reads (run as single-end)"; runtime re-check on materialized file; CLI `--read-format`; recorded GUI command carries it |
 | NEW-07 | P1 | Selecting an annotation starts Update Annotation ops and rewrites genome.db; one stuck at 0% holds bundle lock | fixed | NEW-07 lane | e24cacfe4 | no-op commit guard + AppDelegate unchanged-annotation guard + reload before complete; 27 tests |
 | DS-02 | P2 | Small contigs: padded fetch window spreads sample over whole contig; in-view share small | open | | | live GUI |
 | TST-15 | P2 | Pre-existing Genotype Excel contract conflict + InvalidTransition flake (5 tests) | quarantined | stabilization | | proven failing at a1f439076; KNOWN_PREEXISTING_FAILURES in gate; decision D8 |

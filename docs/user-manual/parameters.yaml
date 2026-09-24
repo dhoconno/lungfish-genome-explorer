@@ -4343,6 +4343,13 @@ operations:
       - flag: --paired
         default: "false"
         effect: Treats the two input files as read 1 and read 2 of the same fragments.
+      - flag: --read-format
+        default: auto
+        effect: >-
+          Sets how EsViritu reads the input. auto checks a single file. A file whose records
+          strictly alternate read 1 and read 2 runs as interleaved pairs. A file that mixes
+          pairs with merged or unpaired reads, or holds single-end reads, runs as unpaired.
+          The other values are unpaired, paired and interleaved.
       - flag: --recursive
         default: "false"
         effect: When an input is a folder, also picks up eligible FASTQ files inside its subfolders.
