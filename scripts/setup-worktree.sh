@@ -129,7 +129,7 @@ copy_runtime_files() {
     local target_dir="$2"
     shift 2
 
-    [ -d "$source_dir" ] || return
+    [ -d "$source_dir" ] || return 0
 
     local source_path relative_path target_path
     while IFS= read -r -d '' source_path; do
@@ -158,7 +158,7 @@ link_runtime_files() {
     local target_dir="$2"
     shift 2
 
-    [ -d "$source_dir" ] || return
+    [ -d "$source_dir" ] || return 0
 
     local source_path relative_path target_path existing_link
     while IFS= read -r -d '' source_path; do
@@ -185,7 +185,7 @@ link_runtime_files() {
 remove_retired_runtime_files() {
     local target_dir="$1"
 
-    [ -d "$target_dir" ] || return
+    [ -d "$target_dir" ] || return 0
 
     local target_path relative_path
     while IFS= read -r -d '' target_path; do
