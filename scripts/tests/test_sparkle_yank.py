@@ -1,20 +1,18 @@
-"""Tests for scripts/release/sparkle_yank.py and `release.py yank` (REL-04).
+"""Tests for scripts/release/sparkle_yank.py and `release.py yank` (REL-04, D17).
 
-There is no supported way today to pull a bad Sparkle release back once
-published: each publish overwrites the mutable per-channel appcast asset with
-a fresh single-item appcast, and the build-number floor gate refuses to
-republish anything at or below the live build (rejecting the obvious
-"republish the previous commit" fix). This module is a pure plan computation
-against two appcast XML documents; it never calls `gh` or touches network
-state other than the read-only fetch in `release.py yank` itself, which
-these tests avoid by exercising `plan_yank` directly and by stubbing the
-network fetch for the CLI test.
+Every GitHub or network call goes through a fake YankRunner. Nothing here
+contacts GitHub.
 """
 
 from __future__ import annotations
 
+import contextlib
 import importlib
+import io
+import shutil
+import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -25,163 +23,323 @@ if str(RELEASE_SCRIPTS_DIR) not in sys.path:
 
 import sparkle_yank  # noqa: E402
 
+BAD = "2026.9.38"
+GOOD = "2026.9.37"
+BAD_BUILD = 4025
+GOOD_BUILD = 4024
+DMG_LENGTH = 1000
 
-def make_appcast(version: int, short_version: str = "2026.9.1") -> str:
-    return f'''<?xml version="1.0" encoding="utf-8"?>
-<rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
-  <channel>
-    <title>Lungfish Preview Changelog</title>
+
+def item_xml(build: int, version: str, length: int = DMG_LENGTH) -> str:
+    return f"""
     <item>
-      <title>Version {short_version}</title>
-      <sparkle:version>{version}</sparkle:version>
-      <sparkle:shortVersionString>{short_version}</sparkle:shortVersionString>
-      <enclosure url="https://example.invalid/Lungfish.dmg" sparkle:edSignature="abc=" length="1000" type="application/octet-stream"/>
-    </item>
+      <title>Version {version}</title>
+      <sparkle:version>{build}</sparkle:version>
+      <sparkle:shortVersionString>{version}</sparkle:shortVersionString>
+      <enclosure url="https://github.com/example/lge/releases/download/v{version}/Lungfish-{version}.dmg" sparkle:edSignature="abc=" length="{length}" type="application/octet-stream"/>
+    </item>"""
+
+
+def make_appcast(*items: str) -> bytes:
+    return f"""<?xml version="1.0" encoding="utf-8"?>
+<rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" xmlns:dc="http://purl.org/dc/elements/1.1/">
+  <channel>
+    <title>Lungfish Preview Changelog</title>{''.join(items)}
   </channel>
-</rss>'''
+</rss>""".encode()
 
 
-class ParseAppcastItemsTests(unittest.TestCase):
-    def test_parses_single_item_fields(self):
-        items = sparkle_yank.parse_appcast_items(make_appcast(4025, "2026.9.38"))
-        self.assertEqual(len(items), 1)
-        self.assertEqual(items[0].sparkle_version, 4025)
-        self.assertEqual(items[0].short_version, "2026.9.38")
-
-    def test_rejects_appcast_with_no_items(self):
-        empty = '<rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle"><channel></channel></rss>'
-        with self.assertRaises(sparkle_yank.YankError):
-            sparkle_yank.parse_appcast_items(empty)
-
-    def test_rejects_item_missing_sparkle_version(self):
-        malformed = (
-            '<rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">'
-            "<channel><item><title>no version</title></item></channel></rss>"
-        )
-        with self.assertRaises(sparkle_yank.YankError):
-            sparkle_yank.parse_appcast_items(malformed)
+def release(version: str, *, prerelease: bool = True, name: str | None = None, size: int = DMG_LENGTH) -> dict:
+    return {
+        "tagName": f"v{version}",
+        "name": name or f"Lungfish Genome Explorer Preview {version}",
+        "body": f"Notes for {version}.",
+        "isPrerelease": prerelease,
+        "assets": [{"name": f"Lungfish-{version}.dmg", "size": size}],
+    }
 
 
-class PlanYankTests(unittest.TestCase):
-    def test_plan_restores_older_build_and_reports_both_versions(self):
-        plan = sparkle_yank.plan_yank(
-            channel="preview",
-            sparkle_release="sparkle-beta",
-            appcast_filename="appcast-beta.xml",
-            live_appcast_xml=make_appcast(4025, "2026.9.38"),
-            restore_appcast_xml=make_appcast(4024, "2026.9.37"),
-        )
+class FakeRunner:
+    """In-memory GitHub: feeds, releases and a call log."""
 
-        self.assertEqual(plan.bad_item.sparkle_version, 4025)
-        self.assertEqual(plan.restored_item.sparkle_version, 4024)
-        self.assertEqual(plan.channel, "preview")
-        self.assertEqual(plan.sparkle_release, "sparkle-beta")
-        self.assertTrue(len(plan.steps) >= 5)
+    def __init__(self, feeds, releases, latest_full=None, apply_uploads=True):
+        self.feeds = dict(feeds)
+        self.releases = dict(releases)
+        self.latest_full = latest_full
+        self.apply_uploads = apply_uploads
+        self.uploads = []
+        self.edits = []
 
-        rendered = plan.render()
-        self.assertIn("4025", rendered)
-        self.assertIn("4024", rendered)
-        self.assertIn("2026.9.38", rendered)
-        self.assertIn("2026.9.37", rendered)
-        self.assertIn("Withdrawn", rendered)
+    def fetch_appcast(self, release_name, filename):
+        return self.feeds.get((release_name, filename))
 
-    def test_refuses_to_yank_forward(self):
-        # If the "restore" appcast is not actually older than the live one,
-        # this is not a yank -- it would publish forward, which is what the
-        # ordinary publish path already does under the floor gate.
-        with self.assertRaises(sparkle_yank.YankError):
-            sparkle_yank.plan_yank(
-                channel="preview",
-                sparkle_release="sparkle-beta",
-                appcast_filename="appcast-beta.xml",
-                live_appcast_xml=make_appcast(4024),
-                restore_appcast_xml=make_appcast(4025),
-            )
+    def release_info(self, tag):
+        info = self.releases.get(tag)
+        return dict(info) if info is not None else None
 
-    def test_refuses_equal_versions(self):
-        with self.assertRaises(sparkle_yank.YankError):
-            sparkle_yank.plan_yank(
-                channel="preview",
-                sparkle_release="sparkle-beta",
-                appcast_filename="appcast-beta.xml",
-                live_appcast_xml=make_appcast(4025),
-                restore_appcast_xml=make_appcast(4025),
-            )
+    def latest_full_release_tag(self):
+        return self.latest_full
 
-    def test_refuses_multi_item_live_appcast(self):
-        two_items = make_appcast(4025).replace(
-            "</channel>",
-            "<item><sparkle:version>4024</sparkle:version></item></channel>",
-        )
-        with self.assertRaises(sparkle_yank.YankError):
-            sparkle_yank.plan_yank(
-                channel="preview",
-                sparkle_release="sparkle-beta",
-                appcast_filename="appcast-beta.xml",
-                live_appcast_xml=two_items,
-                restore_appcast_xml=make_appcast(4023),
-            )
+    def upload_appcast(self, release_name, filename, content):
+        self.uploads.append((release_name, filename, content))
+        if self.apply_uploads:
+            self.feeds[(release_name, filename)] = content
+
+    def mark_release_yanked(self, tag, title, body):
+        self.edits.append((tag, title, body))
+        info = self.releases[tag]
+        info.update(name=title, body=body, isPrerelease=True)
 
 
-class ExecuteYankTests(unittest.TestCase):
-    def test_execute_is_not_implemented_and_never_mutates_anything(self):
-        plan = sparkle_yank.plan_yank(
-            channel="preview",
-            sparkle_release="sparkle-beta",
-            appcast_filename="appcast-beta.xml",
-            live_appcast_xml=make_appcast(4025),
-            restore_appcast_xml=make_appcast(4024),
-        )
-        with self.assertRaises(NotImplementedError):
-            sparkle_yank.execute_yank(plan)
+def preview_runner(**overrides):
+    feeds = {
+        ("sparkle-beta", "appcast-beta.xml"): make_appcast(item_xml(BAD_BUILD, BAD)),
+        ("sparkle-alpha", "appcast-alpha.xml"): make_appcast(item_xml(BAD_BUILD, BAD)),
+    }
+    releases = {f"v{BAD}": release(BAD), f"v{GOOD}": release(GOOD)}
+    kwargs = {"feeds": feeds, "releases": releases, "latest_full": "v2026.9.28"}
+    kwargs.update(overrides)
+    return FakeRunner(**kwargs)
 
 
-class ReleasePyYankCommandTests(unittest.TestCase):
-    """Exercises `release.py yank` end to end with the network fetch stubbed."""
-
+class ReleaseYankCommandTests(unittest.TestCase):
     def setUp(self):
         self.release = importlib.import_module("release")
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        (self.root / "config").mkdir()
+        shutil.copy(ROOT / "config/release-contract.json", self.root / "config/release-contract.json")
+        self.restore_path = self.root / "restore-appcast-beta.xml"
+        self.restore_path.write_bytes(make_appcast(item_xml(GOOD_BUILD, GOOD)))
 
-    def test_dry_run_prints_plan_and_does_not_execute(self):
-        import tempfile
-        import io
-        import contextlib
-        import urllib.request
+    def yank(self, runner, *, version=BAD, channel="preview", typed=None, **kwargs):
+        prompts = []
 
-        live_xml = make_appcast(4025, "2026.9.38").encode()
-        restore_xml = make_appcast(4024, "2026.9.37")
+        def prompt(text):
+            prompts.append(text)
+            if typed is None:
+                raise EOFError
+            return typed
 
-        class FakeResponse:
-            def __enter__(self):
-                return self
+        buffer = io.StringIO()
+        with contextlib.redirect_stdout(buffer):
+            result = self.release.run_yank(
+                self.root, channel, version, runner=runner, prompt=prompt, **kwargs
+            )
+        return result, buffer.getvalue(), prompts
 
-            def __exit__(self, *exc):
-                return False
+    def feed(self, runner, release_name="sparkle-beta", filename="appcast-beta.xml"):
+        return runner.feeds[(release_name, filename)]
 
-            def read(self):
-                return live_xml
+    # -- dry run ---------------------------------------------------------
 
-        def fake_urlopen(request, timeout=30):
-            return FakeResponse()
-
-        with tempfile.TemporaryDirectory() as temp_dir:
-            restore_path = Path(temp_dir) / "appcast-beta.xml"
-            restore_path.write_text(restore_xml, encoding="utf-8")
-
-            original_urlopen = urllib.request.urlopen
-            urllib.request.urlopen = fake_urlopen
-            try:
-                buffer = io.StringIO()
-                with contextlib.redirect_stdout(buffer):
-                    result = self.release.run_yank(ROOT, "preview", restore_path, execute=False)
-            finally:
-                urllib.request.urlopen = original_urlopen
+    def test_dry_run_prints_plan_and_changes_nothing(self):
+        runner = preview_runner()
+        result, output, prompts = self.yank(runner, restore_appcast_path=self.restore_path)
 
         self.assertEqual(result, 0)
-        output = buffer.getvalue()
-        self.assertIn("4025", output)
-        self.assertIn("4024", output)
-        self.assertIn("dry run", output)
+        self.assertEqual(prompts, [])
+        self.assertEqual(runner.uploads, [])
+        self.assertEqual(runner.edits, [])
+        self.assertIn("Dry run: nothing was changed", output)
+        self.assertIn(f"remove v{BAD} item (build {BAD_BUILD})", output)
+        self.assertIn(f"restore v{GOOD}", output)
+        self.assertIn("Follow-up: Sparkle cannot downgrade", output)
+        self.assertIn(f"must exceed {BAD_BUILD}", output)
+        self.assertFalse((self.root / "build").exists())
+
+    # -- confirmation ----------------------------------------------------
+
+    def test_confirmation_mismatch_changes_nothing(self):
+        for typed in ("2026.9.37", "v2026.9.38", "", None):
+            with self.subTest(typed=typed):
+                runner = preview_runner()
+                with self.assertRaises(self.release.ReleaseError) as ctx:
+                    self.yank(runner, restore_appcast_path=self.restore_path, execute=True, typed=typed)
+                self.assertIn("nothing was changed", str(ctx.exception))
+                self.assertEqual(runner.uploads, [])
+                self.assertEqual(runner.edits, [])
+                self.assertFalse((self.root / "build").exists())
+
+    # -- execution -------------------------------------------------------
+
+    def test_execute_removes_item_restores_good_item_and_marks_release(self):
+        runner = preview_runner()
+        result, output, prompts = self.yank(
+            runner, restore_appcast_path=self.restore_path, execute=True, typed=BAD, reason="crashes on launch."
+        )
+
+        self.assertEqual(result, 0)
+        self.assertEqual(len(prompts), 1)
+        self.assertIn(BAD, prompts[0])
+        for release_name, filename in (("sparkle-beta", "appcast-beta.xml"), ("sparkle-alpha", "appcast-alpha.xml")):
+            after = self.feed(runner, release_name, filename)
+            items = sparkle_yank.parse_appcast_items(after)
+            self.assertEqual([item.short_version for item in items], [GOOD], filename)
+            self.assertEqual(sparkle_yank.yank_markers(after), [(BAD_BUILD, BAD)])
+            self.assertEqual(sparkle_yank.appcast_build_floor(after), BAD_BUILD)
+        self.assertEqual({upload[1] for upload in runner.uploads}, {"appcast-beta.xml", "appcast-alpha.xml"})
+
+        self.assertEqual(len(runner.edits), 1)
+        tag, title, body = runner.edits[0]
+        self.assertEqual(tag, f"v{BAD}")
+        self.assertTrue(title.startswith("Yanked: "))
+        self.assertIn("crashes on launch.", body)
+        self.assertIn(f"Notes for {BAD}.", body)
+        self.assertTrue(runner.releases[f"v{BAD}"]["isPrerelease"])
+
+        evidence = list((self.root / "build/Release/preview" / f"yank-{BAD}").iterdir())
+        self.assertEqual(len(evidence), 1)
+        names = {path.name for path in evidence[0].iterdir()}
+        self.assertIn("sparkle-beta-appcast-beta.xml.before.xml", names)
+        self.assertIn("sparkle-beta-appcast-beta.xml.after.xml", names)
+        self.assertIn("release.before.json", names)
+        self.assertIn("plan.txt", names)
+        self.assertIn("Follow-up", output)
+
+    def test_yanked_feed_still_blocks_republishing_the_yanked_build(self):
+        runner = preview_runner()
+        self.yank(runner, restore_appcast_path=self.restore_path, execute=True, typed=BAD)
+        appcast = self.root / "after.xml"
+        appcast.write_bytes(self.feed(runner))
+        gate = RELEASE_SCRIPTS_DIR / "check-sparkle-build-number.py"
+        for planned, passes in ((GOOD_BUILD + 0, False), (BAD_BUILD, False), (BAD_BUILD + 1, True)):
+            result = subprocess.run(
+                [sys.executable, str(gate), "--planned", str(planned), "--appcast", str(appcast)],
+                capture_output=True, text=True, check=False,
+            )
+            self.assertEqual(result.returncode == 0, passes, (planned, result.stderr))
+
+    def test_rerun_after_success_is_a_no_op(self):
+        runner = preview_runner()
+        self.yank(runner, restore_appcast_path=self.restore_path, execute=True, typed=BAD)
+        uploads, edits = len(runner.uploads), len(runner.edits)
+
+        result, output, _ = self.yank(runner, execute=True, typed=BAD)
+
+        self.assertEqual(result, 0)
+        self.assertEqual(len(runner.uploads), uploads)
+        self.assertEqual(len(runner.edits), edits)
+        self.assertIn("already yanked, no change", output)
+        self.assertIn("already marked yanked", output)
+
+    def test_rerun_finishes_release_edit_after_interrupted_run(self):
+        runner = preview_runner()
+        self.yank(runner, restore_appcast_path=self.restore_path, execute=True, typed=BAD)
+        runner.releases[f"v{BAD}"] = release(BAD)  # simulate the edit never landing
+        runner.edits.clear()
+
+        self.yank(runner, execute=True, typed=BAD)
+
+        self.assertEqual(len(runner.edits), 1)
+
+    def test_execute_fails_loudly_when_live_feed_still_offers_the_build(self):
+        runner = preview_runner(apply_uploads=False)
+        with self.assertRaises(self.release.ReleaseError) as ctx:
+            self.yank(runner, restore_appcast_path=self.restore_path, execute=True, typed=BAD)
+        self.assertIn("Re-run the same yank command", str(ctx.exception))
+        self.assertEqual(runner.edits, [])
+
+    # -- refusals --------------------------------------------------------
+
+    def test_refuses_to_yank_the_only_item_without_restore_or_force(self):
+        runner = preview_runner()
+        with self.assertRaises(self.release.ReleaseError) as ctx:
+            self.yank(runner)
+        self.assertIn("no <item>", str(ctx.exception))
+
+    def test_force_allows_an_empty_feed_that_keeps_the_floor(self):
+        runner = preview_runner()
+        result, output, _ = self.yank(runner, execute=True, typed=BAD, force=True)
+        self.assertEqual(result, 0)
+        after = self.feed(runner)
+        self.assertEqual(sparkle_yank.parse_appcast_items(after), [])
+        self.assertEqual(sparkle_yank.appcast_build_floor(after), BAD_BUILD)
+        self.assertIn("will offer no update at all", output)
+
+    def test_removing_one_of_several_items_needs_no_restore(self):
+        feeds = {
+            ("sparkle-stable", "appcast-stable.xml"): make_appcast(
+                item_xml(BAD_BUILD, BAD), item_xml(GOOD_BUILD, GOOD)
+            ),
+        }
+        runner = FakeRunner(feeds, {f"v{BAD}": release(BAD, prerelease=False)}, latest_full="v2026.9.28")
+        result, _, _ = self.yank(runner, channel="stable", execute=True, typed=BAD)
+        self.assertEqual(result, 0)
+        items = sparkle_yank.parse_appcast_items(self.feed(runner, "sparkle-stable", "appcast-stable.xml"))
+        self.assertEqual([item.sparkle_version for item in items], [GOOD_BUILD])
+        self.assertEqual([upload[0] for upload in runner.uploads], ["sparkle-stable"])
+
+    def test_refuses_the_current_stable_baseline_without_force(self):
+        feeds = {("sparkle-stable", "appcast-stable.xml"): make_appcast(item_xml(BAD_BUILD, BAD))}
+        releases = {f"v{BAD}": release(BAD, prerelease=False), f"v{GOOD}": release(GOOD, prerelease=False)}
+        runner = FakeRunner(feeds, releases, latest_full=f"v{BAD}")
+        with self.assertRaises(self.release.ReleaseError) as ctx:
+            self.yank(runner, channel="stable", restore_appcast_path=self.restore_path)
+        self.assertIn("current Stable baseline", str(ctx.exception))
+
+        result, output, _ = self.yank(
+            runner, channel="stable", restore_appcast_path=self.restore_path, force=True
+        )
+        self.assertEqual(result, 0)
+        self.assertIn("previous full release becomes the baseline", output)
+
+    def test_refuses_a_version_the_feed_does_not_offer(self):
+        runner = preview_runner()
+        runner.releases[f"v{GOOD}"] = release(GOOD)
+        with self.assertRaises(self.release.ReleaseError) as ctx:
+            self.yank(runner, version=GOOD, force=True)
+        self.assertIn("nothing for Sparkle to stop offering", str(ctx.exception))
+
+    def test_refuses_a_missing_github_release(self):
+        runner = preview_runner(releases={})
+        with self.assertRaises(self.release.ReleaseError):
+            self.yank(runner, force=True)
+
+    def test_refuses_restore_item_that_is_not_older(self):
+        self.restore_path.write_bytes(make_appcast(item_xml(BAD_BUILD + 1, "2026.9.39")))
+        runner = preview_runner()
+        runner.releases["v2026.9.39"] = release("2026.9.39")
+        with self.assertRaises(self.release.ReleaseError) as ctx:
+            self.yank(runner, restore_appcast_path=self.restore_path)
+        self.assertIn("not older", str(ctx.exception))
+
+    def test_refuses_restore_item_whose_dmg_is_missing_or_changed(self):
+        cases = {
+            "missing release": {},
+            "missing asset": {f"v{GOOD}": dict(release(GOOD), assets=[])},
+            "size mismatch": {f"v{GOOD}": release(GOOD, size=DMG_LENGTH + 1)},
+            "restore target yanked": {f"v{GOOD}": release(GOOD, name=f"Yanked: {GOOD}")},
+        }
+        for label, restore_releases in cases.items():
+            with self.subTest(label):
+                runner = preview_runner(releases={f"v{BAD}": release(BAD), **restore_releases})
+                with self.assertRaises(self.release.ReleaseError):
+                    self.yank(runner, restore_appcast_path=self.restore_path)
+
+    def test_rejects_malformed_version(self):
+        with self.assertRaises(self.release.ReleaseError):
+            self.yank(preview_runner(), version=f"v{BAD}")
+
+
+class AppcastHelperTests(unittest.TestCase):
+    def test_parses_item_fields(self):
+        items = sparkle_yank.parse_appcast_items(make_appcast(item_xml(BAD_BUILD, BAD)))
+        self.assertEqual(items[0].sparkle_version, BAD_BUILD)
+        self.assertEqual(items[0].short_version, BAD)
+        self.assertEqual(items[0].enclosure_length, DMG_LENGTH)
+
+    def test_rejects_item_missing_sparkle_version(self):
+        with self.assertRaises(sparkle_yank.YankError):
+            sparkle_yank.parse_appcast_items(make_appcast("<item><title>no version</title></item>"))
+
+    def test_floor_counts_markers(self):
+        appcast = make_appcast(item_xml(GOOD_BUILD, GOOD)).replace(
+            b"</channel>",
+            b'<lge:yanked xmlns:lge="urn:lungfish-genome-explorer:release" build="4030" version="x"/></channel>',
+        )
+        self.assertEqual(sparkle_yank.appcast_build_floor(appcast), 4030)
 
 
 if __name__ == "__main__":

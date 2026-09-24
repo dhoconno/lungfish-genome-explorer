@@ -53,6 +53,67 @@ class GenerateNoticesRealRepoTests(unittest.TestCase):
             for identity in excluded_ids:
                 self.assertIn(identity, rendered)
 
+    def _render_real_repo(self, module):
+        overrides = module.load_json(module.OVERRIDES_PATH)
+        overrides = {k: v for k, v in overrides.items() if not k.startswith("_")}
+        tool_lock = module.load_json(module.TOOL_LOCK_PATH)
+        bundled_payloads = module.expand_pin_placeholders(
+            module.load_json(module.BUNDLED_PAYLOADS_PATH), module.load_pinned_revisions()
+        )
+        shipped, excluded = module.resolve_swiftpm_dependencies(overrides)
+        return module.render_notices(tool_lock, bundled_payloads, shipped, excluded)
+
+    def test_generated_and_committed_notices_have_no_moving_branch_urls(self):
+        # REL-03 / D16: a license or source link on main/master/dev can change
+        # after the release ships, so every link must be pinned.
+        module = _load_module()
+        rendered = self._render_real_repo(module)
+        committed = module.NOTICES_PATH.read_text(encoding="utf-8")
+        for label, text in (("generated", rendered), ("committed", committed)):
+            self.assertEqual(module.find_moving_branch_urls(text), [], label)
+            for branch in ("/main/", "/master/", "/dev/", "/tree/main", "/blob/main"):
+                self.assertNotIn(branch, text, f"{label} notices still contain {branch}")
+            self.assertNotIn("{revision}", text)
+            self.assertNotIn("{pin:", text)
+
+    def test_license_urls_are_pinned_to_package_resolved_revisions(self):
+        module = _load_module()
+        rendered = self._render_real_repo(module)
+        revisions = module.load_pinned_revisions()
+        overrides = module.load_json(module.OVERRIDES_PATH)
+        for identity, override in overrides.items():
+            if identity.startswith("_") or "licenseUrl" not in override:
+                continue
+            self.assertIn("{revision}", override["licenseUrl"], identity)
+            expected = override["licenseUrl"].replace("{revision}", revisions[identity])
+            self.assertIn(expected, rendered, identity)
+        # The GPL kernel source offer points at the pinned containerization commit.
+        self.assertIn(
+            f"https://github.com/apple/containerization/tree/{revisions['containerization']}/kernel",
+            rendered,
+        )
+
+    def test_kernel_source_offer_keeps_owner_contact(self):
+        module = _load_module()
+        rendered = self._render_real_repo(module)
+        self.assertIn("Written offer:", rendered)
+        self.assertIn("dhoconno@wisc.edu", rendered)
+
+    def test_zstd_bsd_election_is_stated(self):
+        module = _load_module()
+        rendered = self._render_real_repo(module)
+        committed = module.NOTICES_PATH.read_text(encoding="utf-8")
+        for text in (rendered, committed):
+            zstd_section = text.split("zstd 1.", 1)[1].split("=" * 80 + "\n\n", 1)[1]
+            self.assertIn("License election:", zstd_section)
+            self.assertIn("elects the BSD 3-Clause License", zstd_section)
+            self.assertIn("GNU General Public License version 2", zstd_section)
+            self.assertIn("License: BSD-3-Clause", zstd_section)
+
+    def test_committed_notices_are_current(self):
+        module = _load_module()
+        self.assertEqual(module.NOTICES_PATH.read_text(encoding="utf-8"), self._render_real_repo(module))
+
     def test_all_overrides_correspond_to_a_real_package_resolved_pin(self):
         # Guards against the overrides file accumulating stale entries for
         # dependencies that have since been removed from Package.resolved.
@@ -164,6 +225,55 @@ class GenerateNoticesFailureModeTests(unittest.TestCase):
         self.assertEqual(excluded, [])
         self.assertEqual(shipped[0]["license"], "Apache-2.0")
         self.assertIsNone(shipped[0]["licenseText"])
+
+    def test_revision_placeholder_expands_to_pinned_commit(self):
+        self._write_resolved(["pinned-lib"])
+        overrides = {
+            "pinned-lib": {
+                "license": "MIT",
+                "licenseUrl": "https://raw.githubusercontent.com/example/pinned-lib/{revision}/LICENSE",
+                "licenseElection": "BSD elected.",
+            }
+        }
+
+        shipped, _ = self.module.resolve_swiftpm_dependencies(overrides)
+
+        self.assertEqual(
+            shipped[0]["licenseUrl"], "https://raw.githubusercontent.com/example/pinned-lib/abc123/LICENSE"
+        )
+        self.assertIn("License election: BSD elected.", self.module.render_dependency_section(shipped[0]))
+
+    def test_render_refuses_moving_branch_urls(self):
+        for url in (
+            "https://raw.githubusercontent.com/example/lib/main/LICENSE",
+            "https://raw.githubusercontent.com/example/lib/master/LICENSE",
+            "https://github.com/example/lib/blob/main/LICENSE",
+            "https://github.com/example/lib/tree/dev/kernel",
+            "https://github.com/example/lib/raw/refs/heads/main/LICENSE",
+        ):
+            with self.subTest(url=url):
+                self._write_resolved(["moving-lib"])
+                overrides = {"moving-lib": {"license": "MIT", "licenseUrl": url}}
+                shipped, excluded = self.module.resolve_swiftpm_dependencies(overrides)
+                with self.assertRaises(self.module.NoticesGenerationError):
+                    self.module.render_notices({"tools": [], "packTools": []}, {}, shipped, excluded)
+
+    def test_branch_names_inside_pinned_paths_are_not_flagged(self):
+        pinned = (
+            "https://raw.githubusercontent.com/example/lib/abc123/main/LICENSE "
+            "https://github.com/example/maintenance "
+            "https://github.com/example/lib/tree/v1.2.3/docs/main"
+        )
+        self.assertEqual(self.module.find_moving_branch_urls(pinned), [])
+
+    def test_pin_placeholder_expands_and_unknown_identity_fails(self):
+        payloads = {"containerizationPayloads": [{"sourceUrl": "https://github.com/x/y/tree/{pin:dep}/kernel"}]}
+        expanded = self.module.expand_pin_placeholders(payloads, {"dep": "deadbeef"})
+        self.assertEqual(
+            expanded["containerizationPayloads"][0]["sourceUrl"], "https://github.com/x/y/tree/deadbeef/kernel"
+        )
+        with self.assertRaises(self.module.NoticesGenerationError):
+            self.module.expand_pin_placeholders(payloads, {})
 
     def test_test_only_dependency_is_excluded_not_silently_dropped(self):
         self._write_resolved(["test-only-lib", "shipped-lib"])

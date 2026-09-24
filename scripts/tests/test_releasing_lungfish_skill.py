@@ -73,6 +73,8 @@ fi
             "scripts/release/release_xcode.py",
             "scripts/release/build-notarized-dmg.sh",
             "scripts/release/check-sparkle-build-number.py",
+            "scripts/release/sparkle_yank.py",
+            "scripts/release/swiftpm_build.py",
             "scripts/release/run-nightly-prerelease.sh",
             "scripts/release/nightly_prerelease_release.py",
             "scripts/build-app.sh",

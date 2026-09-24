@@ -91,28 +91,36 @@ class SparkleBuildNumberGateTests(unittest.TestCase):
         for planned in ("0", "beta"):
             self.assertNotEqual(self.run_gate(planned, "4024").returncode, 0)
 
-    def test_yank_mode_accepts_equal_build_number(self):
-        # REL-04: restoring the exact build that was live before the bad
-        # publish is the whole point of a yank; it must not be rejected.
-        result = self.run_gate("4024", "4024", "--yank")
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("4024 >= 4024", result.stdout)
+    def test_yank_marker_keeps_the_floor_at_the_withdrawn_build(self):
+        # REL-04: a yank removes the bad item and restores an older one, but
+        # leaves an lge:yanked marker so the floor never drops below the
+        # withdrawn build.
+        with tempfile.TemporaryDirectory() as temp_dir:
+            appcast = Path(temp_dir) / "appcast.xml"
+            appcast.write_text(
+                '<?xml version="1.0"?>'
+                '<rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" '
+                'xmlns:lge="urn:lungfish-genome-explorer:release"><channel>'
+                "<item><sparkle:version>4024</sparkle:version></item>"
+                '<lge:yanked build="4025" version="2026.9.38" date="2026-09-24"/>'
+                "</channel></rss>\n",
+                encoding="utf-8",
+            )
+            for planned, expected in (("4025", False), ("4024", False), ("4026", True)):
+                result = subprocess.run(
+                    [sys.executable, str(SCRIPT), "--planned", planned, "--appcast", str(appcast)],
+                    text=True, capture_output=True, check=False,
+                )
+                self.assertEqual(result.returncode == 0, expected, (planned, result.stderr))
 
-    def test_yank_mode_still_rejects_a_build_below_live(self):
-        result = self.run_gate("4023", "4024", "--yank")
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn("is below live Sparkle build 4024", result.stderr)
-
-    def test_yank_mode_still_accepts_strictly_greater_build(self):
-        result = self.run_gate("4025", "4024", "--yank")
-        self.assertEqual(result.returncode, 0, result.stderr)
-
-    def test_non_yank_mode_still_rejects_equal_build_number(self):
-        # Guards against --yank's equality allowance leaking into the
-        # default path used by ordinary package/publish runs.
+    def test_equal_build_number_is_rejected(self):
         result = self.run_gate("4024", "4024")
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("must exceed live Sparkle build", result.stderr)
+
+    def test_there_is_no_yank_equality_escape_hatch(self):
+        result = self.run_gate("4024", "4024", "--yank")
+        self.assertNotEqual(result.returncode, 0)
 
     def test_http_not_found_is_rejected_by_default(self):
         result = self.run_url_gate("/missing.xml")

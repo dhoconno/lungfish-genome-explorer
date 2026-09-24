@@ -12,6 +12,7 @@ python3 scripts/release/release.py setup [--profile PATH]
 python3 scripts/release/release.py doctor [--profile PATH]
 python3 scripts/release/release.py package preview|stable
 python3 scripts/release/release.py publish preview|stable [--profile PATH]
+python3 scripts/release/release.py yank preview|stable VERSION [--restore-appcast PATH] [--reason TEXT] [--execute] [--force]
 ```
 
 Run `package` before `publish`. Re-run the identical `publish` command to recover
@@ -254,63 +255,75 @@ The local test-channel drill in `test_corrective_higher_build_test_channel_drill
 
 ## Withdrawing a release from the live feed (yank)
 
-The forward-fix path above (ship a corrected higher build) is always the
-right response once anyone may already have received the bad build. Before
-that correction is ready, `release.py yank` can pull the bad build out of
-what Sparkle currently offers to clients who have not yet updated, so the
-window of exposure is shorter than "however long it takes to prepare and
-verify a full corrected release."
+A yank stops Sparkle offering a bad build to clients that have not installed
+it yet. It does not replace the forward fix above. Sparkle never downgrades,
+so clients that already installed the bad build stay on it until a higher
+build ships.
 
-**What it does and does not do.** A yank restores an OLDER, already-published
-appcast item to the mutable feed asset (`sparkle-beta`/`appcast-beta.xml` or
-`sparkle-stable`/`appcast-stable.xml`). It does not repair a client that has
-already installed the bad build (Sparkle never downgrades) and it does not
-delete or unpublish the bad GitHub release; that release keeps its tag and
-gets a `Withdrawn:` title prefix so it is visible in the release list without
-being reachable as a normal update.
+```text
+python3 scripts/release/release.py yank preview 2026.9.38 --restore-appcast build/Release/preview/<good-commit>/sparkle-appcast/appcast-beta.xml --reason "Crashes on launch."
+```
 
-**This round shipped a plan printer, not an executor.** `scripts/release/sparkle_yank.py`
-computes a `YankPlan` from the live appcast and a retained prior appcast (for
-example the one under `build/Release/<channel>/<commit>/` from the release
-being restored, or one regenerated offline with the same `generate_appcast`
-tool used at publish time). `release.py yank <channel> --restore-appcast <path>`
-fetches the live appcast, computes the plan, and prints it. It refuses to run
-anything: `--execute` is accepted on the command line for forward
-compatibility but currently raises immediately. Performing the withdrawal
-today means running the steps the plan prints by hand, with `gh` and release
-credentials, the same way the pre-existing manual workaround did, but now
-with the exact appcast to restore identified and digest-verified up front
-instead of guessing at an old `build/Release/preview/<old-commit>/` directory.
+Without `--execute` the command only prints the plan and the exact feed XML it
+would upload. Nothing changes. With `--execute` it asks you to type the version
+again and stops if the text differs.
 
-**Runbook (until `--execute` is implemented):**
+### What an executed yank does
 
-1. `python3 scripts/release/release.py yank preview --restore-appcast build/Release/preview/<good-commit>/appcast-beta.xml`
-   and read the printed plan. It names the bad build's `sparkle:version`, the
-   build it will restore, and the exact steps.
-2. Keep a copy of the current live appcast (the plan's first step) before
-   changing anything.
-3. Confirm the restore target's DMG is still present on its GitHub release
-   tag and its digest matches what the retained appcast's `sparkle:edSignature`
-   and enclosure describe.
-4. Upload the restore appcast to the mutable release asset named in the
-   plan (and its legacy bridge copy, if the channel has one), then mark the
-   withdrawn release `Withdrawn: v<bad-version>` and keep its tag.
-5. Record `docs/release-notes/<bad-version>.withdrawn.md` with the reason and
-   the forward-fix version.
-6. **The build-number floor gate needs `--yank` for this to validate.**
-   `check-sparkle-build-number.py --yank` accepts the restored build being
-   equal to (not just greater than) the previously-live build, since a yank
-   is republishing something that was already live, not publishing forward.
-   It still rejects a planned build strictly below the live one. Do not pass
-   `--yank` to the ordinary `package`/`publish` build-number check; that
-   path must keep requiring a strictly greater build.
-7. Once the corrected build is ready, forward-fix normally (see above). The
-   yanked build's `Withdrawn` GitHub release and its `.withdrawn.md` note are
-   the durable record; nothing about the yank needs to be "undone."
+1. It saves the live feeds, the new feeds, the plan and the GitHub release as
+   it was under `build/Release/<channel>/yank-<version>/<timestamp>/`.
+2. It removes the yanked version's `<item>` from the channel feed. For Preview
+   it also removes it from the legacy Alpha bridge.
+3. With `--restore-appcast` it puts back the last good item. Pass the retained
+   single-item appcast from that release. The tool first checks that its DMG
+   is still attached to its GitHub release with the advertised size.
+4. It adds an `<lge:yanked build="N" version="V">` marker to the feed channel.
+   Sparkle ignores it. The build-number floor counts it, so the next publish
+   must still exceed the yanked build.
+5. It uploads each changed feed and reads it back. If the live feed still
+   offers the build, it stops and asks you to run the same command again.
+6. It marks the GitHub release as a prerelease, prefixes the title with
+   `Yanked:` and puts a dated note with your reason above the old notes.
+7. It prints the follow-up, which is to ship a corrected higher build.
 
-`scripts/tests/test_sparkle_yank.py` and the `--yank`-mode cases in
-`scripts/tests/test_sparkle_build_number_gate.py` cover the plan computation
-and the floor-gate equality allowance against fixture appcast XML.
+Running the same command again is safe. Feeds that already carry the marker
+and a release that is already marked are left alone.
+
+### Refusals
+
+The tool refuses to leave a feed with no `<item>` and to yank the current
+Stable baseline, which is the latest full GitHub release. `--force` overrides
+those two. Nothing overrides the other refusals. A yank never lowers the build
+floor. It never restores an item that is not older than the yanked build. It
+never restores an item whose DMG is gone or has changed size.
+
+### Why it works this way
+
+- **Removing the item beats every alternative.** A `sparkle:channel` tag or
+  an impossible minimum macOS version would hide the item from current Sparkle
+  clients only. Old Alpha bridge clients may run Sparkle versions without
+  channel support. Every Sparkle version honors a missing item.
+- **The floor stays where it was.** Restoring the previous feed file would
+  drop the live floor to the older build. A package of the yanked commit would
+  then pass the gate again. The marker keeps the floor, so the build-number
+  gate needs no special yank mode. The earlier `--yank` equality mode is gone.
+- **Assets and tags stay.** Deleting the DMG would break anyone who already
+  downloaded it and still needs to verify or reinstall it. It would also
+  remove evidence from the release history. A prerelease marked `Yanked:` is
+  out of the "latest release" slot and still honest about what shipped.
+- **The Stable baseline is protected.** Stable notes are counted from the
+  latest full release. Marking that release a prerelease silently moves the
+  baseline, so it needs `--force`.
+- **An empty feed needs a decision.** It is safe for clients but leaves users
+  on older builds with no update at all. Supplying the last good item is the
+  better default, so an empty feed also needs `--force`.
+- **Nothing is rewritten.** A yank never moves or deletes a tag. The saved
+  evidence, the `Yanked:` release and the marker are the durable record.
+
+`scripts/tests/test_sparkle_yank.py` covers the dry run, confirmation
+mismatch, item removal and restore, the floor marker, reruns and each
+refusal with a fake GitHub runner. `scripts/tests/test_sparkle_build_number_gate.py`
+checks that the marker keeps the floor.
 
 ## Durable signing recovery
 
