@@ -3,6 +3,40 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import LungfishIO
+
+// MARK: - EsVirituReadFormat
+
+/// The value passed to EsViritu's `-p/--read_format` option.
+///
+/// EsViritu accepts `unpaired`, `paired` (two files) and `interleaved`
+/// (one file whose records strictly alternate R1/R2; passed to fastp with
+/// `--interleaved_in`). There is no mixed mode, so a file holding interleaved
+/// pairs plus merged or orphan reads runs as `unpaired` (decision D19).
+public enum EsVirituReadFormat: String, Codable, Sendable, CaseIterable {
+    case unpaired
+    case paired
+    case interleaved
+
+    /// The EsViritu format for a classified single input file.
+    public static func forSingleFile(_ layout: FASTQReadLayout) -> EsVirituReadFormat {
+        layout == .strictlyInterleaved ? .interleaved : .unpaired
+    }
+
+    /// Wizard and summary label for an input with this format and layout.
+    public static func inputLabel(format: EsVirituReadFormat, layout: FASTQReadLayout?) -> String {
+        switch format {
+        case .paired:
+            return "Paired-end reads"
+        case .interleaved:
+            return "Interleaved paired-end reads"
+        case .unpaired:
+            return layout == .mixedInterleaved
+                ? "Mixed paired and merged reads (run as single-end)"
+                : "Single-end reads"
+        }
+    }
+}
 
 // MARK: - EsVirituConfig
 
@@ -24,8 +58,9 @@ import Foundation
 ///
 /// | Mode      | Files | Description |
 /// |-----------|-------|-------------|
-/// | Unpaired  | 1     | Single-end or interleaved reads |
-/// | Paired    | 2     | Forward (R1) and reverse (R2) reads |
+/// | Unpaired    | 1+    | Single-end reads, or mixed pairs and merged reads |
+/// | Paired      | 2     | Forward (R1) and reverse (R2) reads |
+/// | Interleaved | 1     | Strictly alternating R1/R2 records |
 ///
 /// ## Thread Safety
 ///
@@ -44,8 +79,16 @@ public struct EsVirituConfig: Sendable, Codable, Equatable {
     /// Whether the input is paired-end.
     ///
     /// When `true`, ``inputFiles`` must contain exactly two elements and
-    /// the `-p paired` flag is passed to EsViritu.
+    /// the `-p paired` flag is passed to EsViritu. Always equal to
+    /// `readFormat == .paired`.
     public let isPairedEnd: Bool
+
+    /// The EsViritu `-p` read format.
+    public private(set) var readFormat: EsVirituReadFormat
+
+    /// How LGE classified a single input file (for provenance and labels).
+    /// Nil for separate R1/R2 files or when no classification ran.
+    public var inputLayout: FASTQReadLayoutClassification?
 
     /// Sample name used for output file naming.
     ///
@@ -106,6 +149,9 @@ public struct EsVirituConfig: Sendable, Codable, Equatable {
     ///   - qualityFilter: Run fastp QC (default: true).
     ///   - minReadLength: Minimum read length filter (default: 100).
     ///   - threads: Thread count (default: system processor count).
+    ///   - readFormat: EsViritu read format. Defaults to `paired` or `unpaired`
+    ///     from `isPairedEnd`; when given, it wins over `isPairedEnd`.
+    ///   - inputLayout: Classification of a single input file, for provenance.
     public init(
         inputFiles: [URL],
         isPairedEnd: Bool,
@@ -115,10 +161,15 @@ public struct EsVirituConfig: Sendable, Codable, Equatable {
         qualityFilter: Bool = true,
         minReadLength: Int = 100,
         threads: Int = ProcessInfo.processInfo.activeProcessorCount,
-        extraArguments: [String] = []
+        extraArguments: [String] = [],
+        readFormat: EsVirituReadFormat? = nil,
+        inputLayout: FASTQReadLayoutClassification? = nil
     ) {
+        let format = readFormat ?? (isPairedEnd ? .paired : .unpaired)
         self.inputFiles = inputFiles
-        self.isPairedEnd = isPairedEnd
+        self.isPairedEnd = format == .paired
+        self.readFormat = format
+        self.inputLayout = inputLayout
         self.sampleName = sampleName
         self.outputDirectory = outputDirectory
         self.databasePath = databasePath
@@ -201,8 +252,9 @@ public struct EsVirituConfig: Sendable, Codable, Equatable {
         // Output directory
         args += ["-o", outputDirectory.path]
 
-        // Paired-end mode: "unpaired" (default) or "paired" (requires 2 files after -r)
-        args += ["-p", isPairedEnd ? "paired" : "unpaired"]
+        // Read format: "unpaired", "paired" (2 files after -r) or
+        // "interleaved" (1 strictly alternating file).
+        args += ["-p", readFormat.rawValue]
 
         // Thread count
         args += ["-t", String(threads)]
@@ -246,6 +298,8 @@ extension EsVirituConfig {
         case minReadLength
         case threads
         case extraArguments
+        case readFormat
+        case inputLayout
     }
 
     public init(from decoder: Decoder) throws {
@@ -260,7 +314,9 @@ extension EsVirituConfig {
             minReadLength: try container.decodeIfPresent(Int.self, forKey: .minReadLength) ?? 100,
             threads: try container.decodeIfPresent(Int.self, forKey: .threads)
                 ?? ProcessInfo.processInfo.activeProcessorCount,
-            extraArguments: try container.decodeIfPresent([String].self, forKey: .extraArguments) ?? []
+            extraArguments: try container.decodeIfPresent([String].self, forKey: .extraArguments) ?? [],
+            readFormat: try container.decodeIfPresent(EsVirituReadFormat.self, forKey: .readFormat),
+            inputLayout: try container.decodeIfPresent(FASTQReadLayoutClassification.self, forKey: .inputLayout)
         )
     }
 }
@@ -285,6 +341,9 @@ public enum EsVirituConfigError: Error, LocalizedError, Sendable {
     /// The sample name is empty.
     case emptySampleName
 
+    /// Interleaved mode requires exactly one input file.
+    case interleavedRequiresOneFile(got: Int)
+
     /// The minimum read length is invalid (must be positive).
     case invalidMinReadLength(Int)
 
@@ -300,6 +359,8 @@ public enum EsVirituConfigError: Error, LocalizedError, Sendable {
             return "No input FASTQ files specified"
         case .pairedEndRequiresTwoFiles(let got):
             return "Paired-end mode requires exactly 2 input files, got \(got)"
+        case .interleavedRequiresOneFile(let got):
+            return "Interleaved mode requires exactly 1 input file, got \(got)"
         case .inputFileNotFound(let url):
             return "Input file not found: \(url.lastPathComponent)"
         case .inputPathIsDirectory(let url):
@@ -313,6 +374,43 @@ public enum EsVirituConfigError: Error, LocalizedError, Sendable {
         case .outputDirectoryCreationFailed(let url, let error):
             return "Cannot create output directory at \(url.path): \(error.localizedDescription)"
         }
+    }
+}
+
+// MARK: - Interleaved Input Guard
+
+extension EsVirituConfig {
+
+    /// Re-checks an `interleaved` run against the file EsViritu will actually
+    /// read (after virtual-bundle materialization) and falls back to
+    /// `unpaired` when the records do not strictly alternate R1/R2.
+    ///
+    /// fastp's `--interleaved_in` pairs records blindly by position, so a
+    /// mixed file (VSP2 merged reads plus pairs) would be mis-paired. Running
+    /// such input as `unpaired` is correct for merged reads and acceptable for
+    /// pairs (decision D19). Other formats are returned unchanged.
+    public func verifyingInterleavedInput(
+        recordLimit: Int = FASTQReadLayoutClassifier.defaultRecordLimit
+    ) -> EsVirituConfig {
+        guard readFormat == .interleaved else { return self }
+        var verified = self
+        guard inputFiles.count == 1 else {
+            verified.readFormat = .unpaired
+            return verified
+        }
+        let classification = FASTQReadLayoutClassifier.classify(
+            inputURL: inputFiles[0],
+            limit: recordLimit
+        )
+        if classification.layout == .strictlyInterleaved {
+            if verified.inputLayout == nil {
+                verified.inputLayout = classification
+            }
+            return verified
+        }
+        verified.readFormat = .unpaired
+        verified.inputLayout = classification
+        return verified
     }
 }
 
@@ -331,6 +429,10 @@ extension EsVirituConfig {
 
         if isPairedEnd && inputFiles.count != 2 {
             throw EsVirituConfigError.pairedEndRequiresTwoFiles(got: inputFiles.count)
+        }
+
+        if readFormat == .interleaved && inputFiles.count != 1 {
+            throw EsVirituConfigError.interleavedRequiresOneFile(got: inputFiles.count)
         }
 
         let fm = FileManager.default

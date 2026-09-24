@@ -142,6 +142,7 @@ public struct EsVirituResult: Sendable {
         lines.append("  Viruses detected: \(virusCount)")
         lines.append("  Quality filter: \(config.qualityFilter ? "yes" : "no")")
         lines.append("  Paired-end: \(config.isPairedEnd ? "yes" : "no")")
+        lines.append("  Read format: \(config.readFormat.rawValue) (\(EsVirituReadFormat.inputLabel(format: config.readFormat, layout: config.inputLayout?.layout)))")
 
         let runtimeStr = String(format: "%.1f", runtime)
         lines.append("  Runtime: \(runtimeStr)s")
@@ -353,6 +354,13 @@ public actor EsVirituPipeline {
 
         // Phase 1: Validation (0.00 -- 0.05)
         progress?(0.0, "Validating configuration...")
+        let requestedReadFormat = config.readFormat
+        let config = config.verifyingInterleavedInput()
+        if config.readFormat != requestedReadFormat {
+            let reason = config.inputLayout?.reason ?? "the input is not a single interleaved file"
+            logger.warning("EsViritu input is not strictly interleaved; running as unpaired: \(reason, privacy: .public)")
+            progress?(0.0, "Input is not strictly interleaved; running as single-end (\(reason))")
+        }
         try config.validate()
 
         // Create output directory if needed.
@@ -422,23 +430,37 @@ public actor EsVirituPipeline {
                 qualityFilter: config.qualityFilter,
                 minReadLength: config.minReadLength,
                 threads: config.threads,
-                extraArguments: config.extraArguments
+                extraArguments: config.extraArguments,
+                readFormat: config.readFormat,
+                inputLayout: config.inputLayout
             )
             logger.info("Created symlinks to avoid spaces in paths: \(symlinkPaths.map(\.lastPathComponent))")
         }
 
         // Begin provenance recording.
         let provenanceRecorder = ProvenanceRecorder.shared
+        var provenanceParameters: [String: ParameterValue] = [
+            "sample": .string(config.sampleName),
+            "qualityFilter": .boolean(config.qualityFilter),
+            "threads": .integer(config.threads),
+            "pairedEnd": .boolean(config.isPairedEnd),
+            "readFormat": .string(config.readFormat.rawValue),
+            "github_release_version": .string(Self.esVirituGithubReleaseVersion),
+            "extraArgs": .string(AdvancedCommandLineOptions.join(config.extraArguments)),
+        ]
+        if requestedReadFormat != config.readFormat {
+            provenanceParameters["requestedReadFormat"] = .string(requestedReadFormat.rawValue)
+        }
+        if let layout = config.inputLayout {
+            provenanceParameters["inputReadLayout"] = .string(layout.layout.rawValue)
+            provenanceParameters["inputReadLayoutScannedRecords"] = .integer(layout.scannedRecords)
+            provenanceParameters["inputReadLayoutMatePairs"] = .integer(layout.matePairs)
+            provenanceParameters["inputReadLayoutUnpairedRecords"] = .integer(layout.unpairedRecords)
+            provenanceParameters["inputReadLayoutReason"] = .string(layout.reason)
+        }
         let runID = await provenanceRecorder.beginRun(
             name: "Viral Metagenomics Detection",
-            parameters: [
-                "sample": .string(config.sampleName),
-                "qualityFilter": .boolean(config.qualityFilter),
-                "threads": .integer(config.threads),
-                "pairedEnd": .boolean(config.isPairedEnd),
-                "github_release_version": .string(Self.esVirituGithubReleaseVersion),
-                "extraArgs": .string(AdvancedCommandLineOptions.join(config.extraArguments)),
-            ]
+            parameters: provenanceParameters
         )
 
         // Phase 3: Run EsViritu (0.15 -- 0.85)
