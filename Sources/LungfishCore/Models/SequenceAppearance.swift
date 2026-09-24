@@ -157,15 +157,20 @@ extension SequenceAppearance {
     /// Encodes the appearance settings as JSON and stores them in UserDefaults.
     /// If encoding fails, the operation silently fails (settings are not critical).
     ///
+    /// - Parameter defaults: Storage to save into. Defaults to the app's real
+    ///   preferences domain; tests must inject a suite-specific instance instead
+    ///   (TST-10 — this domain is `UserDefaults.standard` for non-fork builds,
+    ///   which resolves to the app's actual real bundle identity inside xctest).
+    ///
     /// ## Thread Safety
     /// This method is safe to call from any thread, as UserDefaults
     /// handles synchronization internally.
-    public func save() {
+    public func save(to defaults: UserDefaults = LungfishAppIdentity.current.preferences) {
         do {
             let encoder = JSONEncoder()
             encoder.outputFormatting = .prettyPrinted
             let data = try encoder.encode(self)
-            LungfishAppIdentity.current.preferences.set(data, forKey: Self.userDefaultsKey)
+            defaults.set(data, forKey: Self.userDefaultsKey)
         } catch {
             logger.warning("Failed to save settings: \(error)")
         }
@@ -176,13 +181,17 @@ extension SequenceAppearance {
     /// Attempts to decode previously saved settings from UserDefaults.
     /// If no settings are found or decoding fails, returns the default appearance.
     ///
+    /// - Parameter defaults: Storage to load from. Defaults to the app's real
+    ///   preferences domain; tests must inject the same suite-specific instance
+    ///   passed to ``save(to:)`` (see its note on TST-10).
+    ///
     /// ## Thread Safety
     /// This method is safe to call from any thread, as UserDefaults
     /// handles synchronization internally.
     ///
     /// - Returns: The saved SequenceAppearance, or `SequenceAppearance.default` if none exists
-    public static func load() -> SequenceAppearance {
-        guard let data = LungfishAppIdentity.current.preferences.data(forKey: userDefaultsKey) else {
+    public static func load(from defaults: UserDefaults = LungfishAppIdentity.current.preferences) -> SequenceAppearance {
+        guard let data = defaults.data(forKey: userDefaultsKey) else {
             return .default
         }
 
@@ -200,10 +209,13 @@ extension SequenceAppearance {
     /// Removes any saved settings from UserDefaults and returns
     /// the default appearance configuration.
     ///
+    /// - Parameter defaults: Storage to clear. Defaults to the app's real
+    ///   preferences domain; tests must inject the same suite-specific instance
+    ///   passed to ``save(to:)`` (see its note on TST-10).
     /// - Returns: The default SequenceAppearance
     @discardableResult
-    public static func resetToDefaults() -> SequenceAppearance {
-        LungfishAppIdentity.current.preferences.removeObject(forKey: userDefaultsKey)
+    public static func resetToDefaults(in defaults: UserDefaults = LungfishAppIdentity.current.preferences) -> SequenceAppearance {
+        defaults.removeObject(forKey: userDefaultsKey)
         return .default
     }
 }
