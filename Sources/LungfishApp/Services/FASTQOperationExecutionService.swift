@@ -4,7 +4,7 @@ import LungfishKit
 import LungfishIO
 import LungfishWorkflow
 
-struct CLIInvocation: Sendable, Equatable {
+struct FASTQCLIInvocation: Sendable, Equatable {
     let subcommand: String
     let arguments: [String]
 }
@@ -93,7 +93,7 @@ private final class FASTQCLIStderrCapture: @unchecked Sendable {
 
 struct FASTQOperationExecutionResult: Sendable, Equatable {
     let resolvedRequest: FASTQOperationLaunchRequest
-    let executedInvocations: [CLIInvocation]
+    let executedInvocations: [FASTQCLIInvocation]
     let importedURLs: [URL]
     let groupedContainerURL: URL?
 }
@@ -107,7 +107,7 @@ protocol FASTQOperationInputResolving: Sendable {
 
 protocol FASTQOperationCommandRunning: Sendable {
     func run(
-        invocation: CLIInvocation,
+        invocation: FASTQCLIInvocation,
         outputDirectory: URL,
         progress: @escaping FASTQOperationProgressHandler
     ) async throws -> FASTQCLIExecutionResult
@@ -334,7 +334,7 @@ struct FASTQOperationExecutionService {
                 }.filter { !fileManager.fileExists(atPath: $0.path) }
             }
 
-            var invocations: [CLIInvocation] = []
+            var invocations: [FASTQCLIInvocation] = []
             var outputURLs: [URL] = []
 
             // The tool phase occupies the front half of the progress bar
@@ -489,7 +489,7 @@ struct FASTQOperationExecutionService {
         }
     }
 
-    func buildInvocation(for request: FASTQOperationLaunchRequest) throws -> CLIInvocation {
+    func buildInvocation(for request: FASTQOperationLaunchRequest) throws -> FASTQCLIInvocation {
         try invocationBuilder.buildInvocation(for: request)
     }
 
@@ -723,7 +723,7 @@ struct LungfishCLIProcessRunner: FASTQOperationCommandRunning {
     }
 
     func run(
-        invocation: CLIInvocation,
+        invocation: FASTQCLIInvocation,
         outputDirectory: URL,
         progress: @escaping FASTQOperationProgressHandler
     ) async throws -> FASTQCLIExecutionResult {

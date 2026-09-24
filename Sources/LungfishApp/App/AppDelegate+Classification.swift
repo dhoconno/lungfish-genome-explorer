@@ -699,37 +699,8 @@ extension AppDelegate {
         configurations: [ClassificationConfig]
     ) -> [String] {
         let commands = configurations.map { config -> String in
-            var arguments = ["conda", "classify"]
-            arguments += ["--db", config.databaseName]
-            arguments += ["--output-dir", config.outputDirectory.path]
-            arguments += ["--confidence", String(config.confidence)]
-            arguments += ["--min-hit-groups", String(config.minimumHitGroups)]
-            arguments += ["--threads", String(config.threads)]
-
-            if config.isPairedEnd {
-                arguments.append("--paired")
-            }
-            if config.memoryMapping {
-                arguments.append("--memory-mapping")
-            }
-            if config.quickMode {
-                arguments.append("--quick")
-            }
-            if !config.extraArguments.isEmpty {
-                arguments += ["--extra-args", AdvancedCommandLineOptions.join(config.extraArguments)]
-            }
-            if config.goal == .profile {
-                let request = config.brackenProfileRequest ?? .automaticDefault
-                arguments.append("--profile")
-                arguments += ["--bracken-read-length", String(request.readLength)]
-                arguments += ["--bracken-threshold", String(request.threshold)]
-                if case .explicit(let rank) = request.rank {
-                    arguments += ["--bracken-level", rank.code]
-                }
-            }
-
-            arguments += (config.originalInputFiles ?? config.inputFiles).map(\.path)
-            let classificationCommand = ([CLICommandIdentity.executableName] + arguments)
+            let invocation = ClassificationCLIInvocationBuilder.build(for: config)
+            let classificationCommand = ([CLICommandIdentity.executableName] + invocation.arguments)
                 .map(shellEscape)
                 .joined(separator: " ")
             return (classificationDatabaseReplayGuards(for: config) + [classificationCommand])
@@ -858,11 +829,12 @@ extension AppDelegate {
         let operationTitle = "\(goalLabel) \(inputName)"
 
         // Register the operation with OperationCenter so it appears in the Operations Panel.
-        let cliCmd = OperationCenter.buildCLICommand(subcommand: "conda classify", args: {
-            var args = ["--db", config.databasePath.path]
-            args += config.inputFiles.map(\.path)
-            return args
-        }())
+        // Built by the same argv mapping the batch replay path uses
+        // (ClassificationCLIInvocationBuilder), so the displayed command is
+        // actually runnable: `--db` is the registry name (not a filesystem
+        // path), and preset/paired/profile/output-dir are all included
+        // (ARC-03).
+        let cliCmd = ClassificationCLIInvocationBuilder.build(for: config).displayString
         let opID = OperationCenter.shared.start(
             title: operationTitle,
             detail: "Starting Kraken2 with \(config.databaseName)...",
