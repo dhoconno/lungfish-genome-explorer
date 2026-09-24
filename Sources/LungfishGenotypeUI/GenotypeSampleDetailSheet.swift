@@ -266,6 +266,8 @@ struct GenotypeSampleDetailSheet: View {
             case .tooManyHaplotypes:  return ("too many haplotypes", Color(nsColor: .lungfishDanger))
             case .tooManyGenotypes:   return ("too many genotypes", Color(nsColor: .lungfishDanger))
             case .ambiguous:          return ("ambiguous", Color(nsColor: .systemOrange))
+            case .homozygous:         return ("homozygous", Color.secondary)
+            case .unresolvedSecondHaplotype: return ("unresolved 2nd haplotype", Color(nsColor: .systemOrange))
             }
         }()
         Text(label)

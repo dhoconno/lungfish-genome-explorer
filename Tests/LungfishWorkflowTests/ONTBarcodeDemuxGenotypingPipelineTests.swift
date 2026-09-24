@@ -2845,6 +2845,77 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
         XCTAssertEqual(samples.map(\.readCount).reduce(0, +), 3)  // no overwrite: 2 + 1
     }
 
+    // MARK: - GEN-07: fragment-denominated sample totals
+
+    /// Without a merge, `totalFragmentCount` must equal `readCount` (the
+    /// input was already single-end/pre-merged, one record per fragment).
+    func testTotalFragmentCountEqualsReadCountWithoutMerge() {
+        let sample = ONTBarcodeDemuxGenotypingPipeline.IlluminaSampleInput(
+            sampleID: "sampleA",
+            sourceURL: URL(fileURLWithPath: "/tmp/a.fastq"),
+            fastqURL: URL(fileURLWithPath: "/tmp/a.fastq"),
+            prefixedFASTQURL: URL(fileURLWithPath: "/tmp/a.prefixed.fastq"),
+            readCount: 500,
+            readCountSource: "fastq-weighted-record-count"
+        )
+        XCTAssertEqual(sample.totalFragmentCount, 500)
+    }
+
+    /// GEN-07's worked example: 1,000 interleaved pairs (readCount = 2,000
+    /// mates), 900 merged and 100 unmerged mates (50 unmerged fragments).
+    /// The fragment total must be 900 + 50 = 950, not 2,000 -- the defect
+    /// halved retention percentages because `readCount` (pre-merge mates)
+    /// was used as the denominator against a post-merge (fragment) numerator.
+    func testTotalFragmentCountUsesPairCountAfterMerge() {
+        var sample = ONTBarcodeDemuxGenotypingPipeline.IlluminaSampleInput(
+            sampleID: "sampleA",
+            sourceURL: URL(fileURLWithPath: "/tmp/a.fastq"),
+            fastqURL: URL(fileURLWithPath: "/tmp/a.fastq"),
+            prefixedFASTQURL: URL(fileURLWithPath: "/tmp/a.prefixed.fastq"),
+            readCount: 2000,
+            readCountSource: "fastq-weighted-record-count"
+        )
+        sample.mergeOutcome = IlluminaAmpliconPairMerger.Outcome(
+            mappingFASTQURL: URL(fileURLWithPath: "/tmp/a.merged.fastq"),
+            disposition: .merged,
+            pairCount: 900 + (100 / 2),
+            mergedCount: 900,
+            unmergedReadCount: 100,
+            mappingReadCount: 1000,
+            arguments: [],
+            stagingRoot: nil,
+            stderr: ""
+        )
+        XCTAssertEqual(sample.totalFragmentCount, 950, "readCount (2000 mates) must not be used once fragment-accurate pairCount is available")
+        XCTAssertNotEqual(sample.totalFragmentCount, sample.readCount)
+    }
+
+    /// A merge outcome with disposition `.alreadyMerged` (nothing was run)
+    /// must fall back to `readCount`, not `pairCount` (which is 0 in that
+    /// case per `IlluminaAmpliconPairMerger`'s contract).
+    func testTotalFragmentCountFallsBackToReadCountWhenAlreadyMerged() {
+        var sample = ONTBarcodeDemuxGenotypingPipeline.IlluminaSampleInput(
+            sampleID: "sampleA",
+            sourceURL: URL(fileURLWithPath: "/tmp/a.fastq"),
+            fastqURL: URL(fileURLWithPath: "/tmp/a.fastq"),
+            prefixedFASTQURL: URL(fileURLWithPath: "/tmp/a.prefixed.fastq"),
+            readCount: 500,
+            readCountSource: "fastq-weighted-record-count"
+        )
+        sample.mergeOutcome = IlluminaAmpliconPairMerger.Outcome(
+            mappingFASTQURL: URL(fileURLWithPath: "/tmp/a.fastq"),
+            disposition: .alreadyMerged,
+            pairCount: 0,
+            mergedCount: 0,
+            unmergedReadCount: 0,
+            mappingReadCount: 500,
+            arguments: [],
+            stagingRoot: nil,
+            stderr: ""
+        )
+        XCTAssertEqual(sample.totalFragmentCount, 500)
+    }
+
     func testResolveIlluminaSampleInputsDisambiguatesCollidingStagedFilenames() async throws {
         let tmp = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: tmp) }

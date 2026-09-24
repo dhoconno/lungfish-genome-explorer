@@ -295,6 +295,23 @@ public enum GenotypeHaplotypeCallStatus: String, Codable, Equatable, Sendable {
     /// `haplotype2` list the ambiguous candidates joined by "|" rather than
     /// asserting a specific pairing.
     case ambiguous
+    /// GEN-08 (2026-09-23 best-practices audit): only one haplotype's
+    /// diagnostic alleles were observed, AND every diagnostic call at this
+    /// locus is explained by that one haplotype -- no residual, unexplained
+    /// diagnostic evidence remains. This is the confident homozygous case.
+    /// `haplotype1 == haplotype2` (both set to the matched haplotype's
+    /// name), distinct from `.called`'s "-" placeholder, which is now
+    /// reserved for `unresolvedSecondHaplotype` below.
+    case homozygous
+    /// GEN-08 (2026-09-23 best-practices audit): only one haplotype's
+    /// diagnostic alleles were observed, but the sample also carries
+    /// diagnostic genotype calls at this locus that are NOT explained by
+    /// that one matched haplotype (evidence of a second, undefined or
+    /// novel haplotype). Reporting `haplotype2 = "-"` here would be
+    /// indistinguishable from a true homozygote. `haplotype2` is set to
+    /// `"?"` and `status` to this case so the two situations render and
+    /// export distinctly.
+    case unresolvedSecondHaplotype
 }
 
 public enum GenotypeHaplotypeAnalysisSource: String, Codable, Equatable, Sendable {

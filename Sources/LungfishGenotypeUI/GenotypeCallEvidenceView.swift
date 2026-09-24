@@ -1582,6 +1582,8 @@ struct GenotypeCallEvidenceView: View {
             case .tooManyHaplotypes: return ("Too many haplotypes", Color(nsColor: .lungfishDanger))
             case .tooManyGenotypes:  return ("Too many genotypes", Color(nsColor: .lungfishDanger))
             case .ambiguous:         return ("Ambiguous", Color(nsColor: .systemOrange))
+            case .homozygous:        return ("Homozygous", .secondary)
+            case .unresolvedSecondHaplotype: return ("Unresolved 2nd haplotype", Color(nsColor: .systemOrange))
             }
         }()
         return Text(label)

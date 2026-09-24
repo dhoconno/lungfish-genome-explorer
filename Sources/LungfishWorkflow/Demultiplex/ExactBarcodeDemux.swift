@@ -147,6 +147,10 @@ public struct ExactBarcodeDemuxResult: Sendable {
     public let unassignedMinReadLength: Int
     /// Max read length for unassigned.
     public let unassignedMaxReadLength: Int
+    /// Count of reads left unassigned specifically because they matched more
+    /// than one sample's barcode pair (a subset of `unassignedReadCount`).
+    /// These are chimeric or ambiguous reads, not simply barcode-free reads.
+    public let ambiguousReadCount: Int
 }
 
 // MARK: - Engine
@@ -181,7 +185,8 @@ public enum ExactBarcodeDemux {
                 totalReads: 0, assignedReads: 0, sampleResults: [],
                 unassignedReadIDs: [], unassignedPreview: [],
                 unassignedReadCount: 0, unassignedBaseCount: 0,
-                unassignedMinReadLength: 0, unassignedMaxReadLength: 0
+                unassignedMinReadLength: 0, unassignedMaxReadLength: 0,
+                ambiguousReadCount: 0
             )
         }
 
@@ -190,7 +195,11 @@ public enum ExactBarcodeDemux {
         // Estimate total bytes for progress reporting
         let totalInputBytes = config.inputURLs.reduce(Int64(0)) { $0 + $1.fileSizeBytes }
 
-        // Build lookup table: leftBarcode → [(rightBarcode, sampleIndex)]
+        // Build lookup table: leftBarcode → [(rightBarcode, sampleIndex)].
+        // Kept as a dictionary for O(1) left-barcode lookup, but every place
+        // that iterates it below sorts its keys/values first so assignment
+        // is deterministic regardless of Swift's per-process hash seeding
+        // (GEN-11).
         var leftToRight: [String: [(rightBarcode: String, sampleIndex: Int)]] = [:]
 
         // All barcodes should be the same length for PacBio kits.
@@ -215,6 +224,20 @@ public enum ExactBarcodeDemux {
             leftToRight[rcRev, default: []].append((rightBarcode: rcFwd, sampleIndex: index))
         }
 
+        // Sort once, outside the per-read loop: left barcodes lexically, and
+        // each left barcode's targets by (rightBarcode, sampleIndex). This
+        // makes the search order — and therefore which sample a chimeric or
+        // multi-matching read is attributed to before the ambiguity check
+        // below — reproducible across process launches (GEN-11).
+        let sortedLeftToRight: [(leftBarcode: String, targets: [(rightBarcode: String, sampleIndex: Int)])] =
+            leftToRight
+                .map { key, targets in
+                    (leftBarcode: key, targets: targets.sorted {
+                        $0.rightBarcode == $1.rightBarcode ? $0.sampleIndex < $1.sampleIndex : $0.rightBarcode < $1.rightBarcode
+                    })
+                }
+                .sorted { $0.leftBarcode < $1.leftBarcode }
+
         // Per-sample accumulators
         let sampleCount = config.sampleBarcodes.count
         var sampleReadIDs: [[String]] = Array(repeating: [], count: sampleCount)
@@ -235,6 +258,7 @@ public enum ExactBarcodeDemux {
 
         var totalReads = 0
         var assignedReads = 0
+        var ambiguousReads = 0
         let minimumInsert = config.minimumInsert
         let previewLimit = config.previewLimit
 
@@ -294,42 +318,51 @@ public enum ExactBarcodeDemux {
                 continue
             }
 
-            // Search for matching barcode pair
-            var matched = false
-            for (leftBC, targets) in leftToRight {
-                if matched { break }
-
+            // Search for matching barcode pair(s). Collect every distinct
+            // sample this read matches (in deterministic order) instead of
+            // stopping at the first hit, so a read matching two samples'
+            // barcode pairs is recognized as ambiguous rather than being
+            // silently handed to whichever sample happened to be visited
+            // first under Swift's per-process Dictionary iteration order
+            // (GEN-11).
+            var matchedSampleIndices: [Int] = []
+            for (leftBC, targets) in sortedLeftToRight {
                 // Find the left barcode anywhere in the read
                 guard let leftRange = seq.range(of: leftBC) else { continue }
                 let leftEnd = seq.distance(from: seq.startIndex, to: leftRange.upperBound)
 
+                let searchStart = leftEnd + minimumInsert
+                if searchStart >= seqLen { continue }
+
+                // Search for the right barcode after the minimum insert gap
+                let searchStartIndex = seq.index(seq.startIndex, offsetBy: searchStart)
+                let searchSubstring = seq[searchStartIndex...]
+
                 for target in targets {
-                    let searchStart = leftEnd + minimumInsert
-                    if searchStart >= seqLen { continue }
-
-                    // Search for the right barcode after the minimum insert gap
-                    let searchStartIndex = seq.index(seq.startIndex, offsetBy: searchStart)
-                    let searchSubstring = seq[searchStartIndex...]
-
                     if searchSubstring.range(of: target.rightBarcode) != nil {
-                        let idx = target.sampleIndex
-                        sampleReadIDs[idx].append(record.readID)
-                        if samplePreviews[idx].count < previewLimit {
-                            samplePreviews[idx].append(record)
+                        if !matchedSampleIndices.contains(target.sampleIndex) {
+                            matchedSampleIndices.append(target.sampleIndex)
                         }
-                        sampleReadCounts[idx] += 1
-                        sampleBaseCounts[idx] += Int64(record.baseCount)
-                        sampleMinLength[idx] = min(sampleMinLength[idx], seqLen)
-                        sampleMaxLength[idx] = max(sampleMaxLength[idx], seqLen)
-                        sampleLengthHistograms[idx][seqLen, default: 0] += 1
-                        assignedReads += 1
-                        matched = true
-                        break
                     }
                 }
             }
 
-            if !matched {
+            let distinctSamples = Set(matchedSampleIndices)
+            if distinctSamples.count == 1, let idx = matchedSampleIndices.first {
+                sampleReadIDs[idx].append(record.readID)
+                if samplePreviews[idx].count < previewLimit {
+                    samplePreviews[idx].append(record)
+                }
+                sampleReadCounts[idx] += 1
+                sampleBaseCounts[idx] += Int64(record.baseCount)
+                sampleMinLength[idx] = min(sampleMinLength[idx], seqLen)
+                sampleMaxLength[idx] = max(sampleMaxLength[idx], seqLen)
+                sampleLengthHistograms[idx][seqLen, default: 0] += 1
+                assignedReads += 1
+            } else {
+                if distinctSamples.count > 1 {
+                    ambiguousReads += 1
+                }
                 unassignedReadIDs.append(record.readID)
                 if unassignedPreview.count < previewLimit {
                     unassignedPreview.append(record)
@@ -366,7 +399,7 @@ public enum ExactBarcodeDemux {
             ))
         }
 
-        logger.info("Exact barcode demux complete: \(totalReads) total, \(assignedReads) assigned to \(sampleResults.count) sample(s)")
+        logger.info("Exact barcode demux complete: \(totalReads) total, \(assignedReads) assigned to \(sampleResults.count) sample(s), \(ambiguousReads) ambiguous (multi-sample match)")
 
         progress(1.0, "Demultiplexing complete.")
 
@@ -379,7 +412,8 @@ public enum ExactBarcodeDemux {
             unassignedReadCount: unassignedReadCount,
             unassignedBaseCount: unassignedBaseCount,
             unassignedMinReadLength: unassignedReadCount > 0 ? unassignedMinLength : 0,
-            unassignedMaxReadLength: unassignedMaxLength
+            unassignedMaxReadLength: unassignedMaxLength,
+            ambiguousReadCount: ambiguousReads
         )
     }
 

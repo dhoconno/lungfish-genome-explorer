@@ -288,9 +288,9 @@ public enum GenotypeEffectiveCallAuthority {
         guard trimmed != "?",
               !trimmed.hasPrefix("ERR:") else {
             switch baseline {
-            case .noHaplotype, .tooManyHaplotypes, .tooManyGenotypes, .ambiguous:
+            case .noHaplotype, .tooManyHaplotypes, .tooManyGenotypes, .ambiguous, .unresolvedSecondHaplotype:
                 return baseline
-            case .called, .notAssayed, .specialCase:
+            case .called, .notAssayed, .specialCase, .homozygous:
                 return .noHaplotype
             }
         }
@@ -300,6 +300,12 @@ public enum GenotypeEffectiveCallAuthority {
     private static func permitsHomozygousDisplay(
         _ status: GenotypeHaplotypeCallStatus
     ) -> Bool {
+        // GEN-08: `.homozygous` is already an explicit homozygous call
+        // (h1 == h2) and needs no display normalization here.
+        // `.unresolvedSecondHaplotype` must NOT permit the "absent second
+        // haplotype displays as first" normalization: its second slot is
+        // "?" (unresolved), not absent, and collapsing it to look
+        // homozygous would recreate exactly the ambiguity GEN-08 removed.
         status == .called || status == .notAssayed || status == .specialCase
     }
 
@@ -339,9 +345,12 @@ public enum GenotypeEffectiveCallAuthority {
         _ status: GenotypeHaplotypeCallStatus
     ) -> Bool {
         switch status {
-        case .noHaplotype, .tooManyHaplotypes, .tooManyGenotypes, .ambiguous:
+        // GEN-08: `.unresolvedSecondHaplotype` joins the unresolved group --
+        // its second slot is genuinely unknown ("?"), so a locus reduced
+        // from an h1/h2 pair including it must not read as a confident call.
+        case .noHaplotype, .tooManyHaplotypes, .tooManyGenotypes, .ambiguous, .unresolvedSecondHaplotype:
             true
-        case .called, .notAssayed, .specialCase:
+        case .called, .notAssayed, .specialCase, .homozygous:
             false
         }
     }

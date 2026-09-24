@@ -249,7 +249,7 @@ struct GenotypeHaplotypeCallBandSnapshot: Equatable, Sendable {
         case .notAssayed, .noHaplotype, .tooManyHaplotypes,
              .tooManyGenotypes, .ambiguous:
             return "—"
-        case .called, .specialCase:
+        case .called, .specialCase, .homozygous, .unresolvedSecondHaplotype:
             let label = value.value.trimmingCharacters(
                 in: .whitespacesAndNewlines
             )
@@ -283,6 +283,8 @@ struct GenotypeHaplotypeCallBandSnapshot: Equatable, Sendable {
         case .tooManyHaplotypes: return "too many haplotypes"
         case .tooManyGenotypes: return "too many genotypes"
         case .ambiguous: return "ambiguous"
+        case .homozygous: return "homozygous"
+        case .unresolvedSecondHaplotype: return "unresolved second haplotype"
         }
     }
 
