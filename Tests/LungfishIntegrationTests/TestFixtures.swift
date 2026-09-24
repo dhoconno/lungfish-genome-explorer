@@ -208,6 +208,19 @@ public enum TestFixtures {
 
         // Strategy 2: Walk up from this source file to find Tests/Fixtures/
         // Useful when running from Xcode or when Bundle.module isn't set up.
+        if let sourceTree = sourceTreeFixturesURL {
+            return sourceTree
+        }
+
+        fatalError("Cannot locate Tests/Fixtures directory. Ensure test fixtures are present.")
+    }
+
+    /// `Tests/Fixtures/` in the source checkout, found by walking up from this
+    /// file. Symlinked fixtures (the primer schemes) resolve here even when the
+    /// test bundle's copy of the link dangles: the Swift Build engine copies
+    /// relative symlinks verbatim, so `../../LungfishWorkflowTests/...` inside
+    /// the bundle points nowhere.
+    fileprivate static var sourceTreeFixturesURL: URL? {
         var candidate = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
         for _ in 0..<10 {
             let check = candidate.appendingPathComponent("Fixtures/sarscov2")
@@ -216,8 +229,7 @@ public enum TestFixtures {
             }
             candidate = candidate.deletingLastPathComponent()
         }
-
-        fatalError("Cannot locate Tests/Fixtures directory. Ensure test fixtures are present.")
+        return nil
     }
 }
 
@@ -230,7 +242,12 @@ public struct PrimerSchemeFixture: Sendable {
 
     /// Absolute URL of the fixture bundle, validated to exist on disk.
     public var bundleURL: URL {
-        let resolved = TestFixtures.fixturesBaseURL.appendingPathComponent(bundlePath)
+        var resolved = TestFixtures.fixturesBaseURL.appendingPathComponent(bundlePath)
+        if !FileManager.default.fileExists(atPath: resolved.path),
+           let sourceTree = TestFixtures.sourceTreeFixturesURL {
+            // A dangling copied symlink in the test bundle; use the checkout's.
+            resolved = sourceTree.appendingPathComponent(bundlePath)
+        }
         precondition(
             FileManager.default.fileExists(atPath: resolved.path),
             "Test fixture missing: \(bundlePath). Run from a test target with .copy(\"Fixtures\") in Package.swift."
