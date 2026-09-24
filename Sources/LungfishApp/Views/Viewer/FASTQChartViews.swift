@@ -276,6 +276,104 @@ final class FASTQHistogramChartView: NSView {
     }
 }
 
+// MARK: - FASTQBoxplotLayout
+
+/// Maps per-position quality summaries onto a chart width so that every
+/// position is represented and no box is drawn past the chart's right edge.
+///
+/// When there are more positions than the width can hold at
+/// `minimumSlotWidth` per box, consecutive positions are pooled into
+/// equal-sized bins (FastQC style) and each bin's statistics are averaged.
+/// The bin width is derived from the bin count and the chart width, never
+/// the other way round, so the layout can never overflow.
+struct FASTQBoxplotLayout: Equatable {
+
+    struct Bin: Equatable {
+        /// 0-based positions pooled into this bin.
+        let positions: ClosedRange<Int>
+        /// Averaged statistics for the pooled positions.
+        let summary: PositionQualitySummary
+
+        /// 1-based label such as "1" or "101-102".
+        var label: String {
+            positions.count == 1
+                ? "\(positions.lowerBound + 1)"
+                : "\(positions.lowerBound + 1)-\(positions.upperBound + 1)"
+        }
+    }
+
+    /// Smallest slot (box plus gap) that still reads as a boxplot.
+    static let minimumSlotWidth: CGFloat = 3
+    static let boxSpacing: CGFloat = 1
+
+    let chartRect: CGRect
+    let bins: [Bin]
+    let positionsPerBin: Int
+    let slotWidth: CGFloat
+    let boxWidth: CGFloat
+
+    static func layout(summaries: [PositionQualitySummary], chartRect: CGRect) -> FASTQBoxplotLayout {
+        guard !summaries.isEmpty, chartRect.width > 0 else {
+            return FASTQBoxplotLayout(chartRect: chartRect, bins: [], positionsPerBin: 1, slotWidth: 0, boxWidth: 0)
+        }
+
+        let maxBins = max(1, Int(chartRect.width / minimumSlotWidth))
+        let positionsPerBin = max(1, Int((Double(summaries.count) / Double(maxBins)).rounded(.up)))
+
+        var bins: [Bin] = []
+        var start = 0
+        while start < summaries.count {
+            let end = min(start + positionsPerBin, summaries.count) - 1
+            bins.append(Bin(positions: start...end, summary: pooled(summaries[start...end])))
+            start = end + 1
+        }
+
+        let slotWidth = chartRect.width / CGFloat(bins.count)
+        let boxWidth = max(1, slotWidth - boxSpacing)
+        return FASTQBoxplotLayout(
+            chartRect: chartRect,
+            bins: bins,
+            positionsPerBin: positionsPerBin,
+            slotWidth: slotWidth,
+            boxWidth: boxWidth
+        )
+    }
+
+    /// Left edge of the box for the bin at `index`.
+    func boxMinX(at index: Int) -> CGFloat {
+        chartRect.minX + CGFloat(index) * slotWidth + (slotWidth - boxWidth) / 2
+    }
+
+    /// Horizontal centre of the box for the bin at `index`.
+    func boxMidX(at index: Int) -> CGFloat {
+        boxMinX(at: index) + boxWidth / 2
+    }
+
+    /// Bin indices that receive an x-axis label without crowding.
+    func labelledBinIndices(labelWidth: CGFloat) -> [Int] {
+        guard !bins.isEmpty else { return [] }
+        let maxLabels = max(1, Int(chartRect.width / labelWidth))
+        let labelStride = max(1, Int((Double(bins.count) / Double(maxLabels)).rounded(.up)))
+        return Array(stride(from: 0, to: bins.count, by: labelStride))
+    }
+
+    private static func pooled(_ slice: ArraySlice<PositionQualitySummary>) -> PositionQualitySummary {
+        let n = Double(slice.count)
+        func average(_ key: KeyPath<PositionQualitySummary, Double>) -> Double {
+            slice.reduce(0.0) { $0 + $1[keyPath: key] } / n
+        }
+        return PositionQualitySummary(
+            position: slice.first?.position ?? 0,
+            mean: average(\.mean),
+            median: average(\.median),
+            lowerQuartile: average(\.lowerQuartile),
+            upperQuartile: average(\.upperQuartile),
+            percentile10: average(\.percentile10),
+            percentile90: average(\.percentile90)
+        )
+    }
+}
+
 // MARK: - FASTQQualityBoxplotView
 
 /// Per-position quality boxplot chart (FastQC-style).
@@ -358,19 +456,16 @@ final class FASTQQualityBoxplotView: NSView {
             label.draw(at: CGPoint(x: chartRect.minX - labelSize.width - 4, y: y - labelSize.height / 2))
         }
 
-        // Limit displayed positions to avoid overcrowding
-        let maxPositions = min(summaries.count, Int(chartRect.width / 3))
-        let stride = max(1, summaries.count / maxPositions)
-        let displayedPositions = summaries.enumerated()
-            .filter { $0.offset % stride == 0 }
-            .map(\.element)
+        // Bin positions so every position fits the chart width; slot width
+        // derives from the bin count so boxes can never run past chartRect.
+        let layout = FASTQBoxplotLayout.layout(summaries: summaries, chartRect: chartRect)
+        let boxWidth = layout.boxWidth
 
-        let posCount = displayedPositions.count
-        let boxSpacing: CGFloat = 1
-        let boxWidth = max(2, (chartRect.width - boxSpacing * CGFloat(posCount + 1)) / CGFloat(posCount))
-
-        for (i, summary) in displayedPositions.enumerated() {
-            let x = chartRect.minX + boxSpacing + CGFloat(i) * (boxWidth + boxSpacing)
+        ctx.saveGState()
+        ctx.clip(to: chartRect)
+        for (i, bin) in layout.bins.enumerated() {
+            let summary = bin.summary
+            let x = layout.boxMinX(at: i)
 
             func yForQ(_ q: Double) -> CGFloat {
                 chartRect.maxY - CGFloat((q - minQ) / (maxQ - minQ)) * chartRect.height
@@ -427,17 +522,17 @@ final class FASTQQualityBoxplotView: NSView {
             ctx.closePath()
             ctx.fillPath()
         }
+        ctx.restoreGState()
 
-        // X-axis labels (position numbers)
+        // X-axis labels (position numbers, or ranges when positions are binned)
         let xLabelAttrs: [NSAttributedString.Key: Any] = [
             .font: NSFont.monospacedDigitSystemFont(ofSize: 9, weight: .regular),
             .foregroundColor: NSColor.secondaryLabelColor,
         ]
-        let maxXLabels = max(1, Int(chartRect.width / 35))
-        let xLabelStride = max(1, posCount / maxXLabels)
-        for i in Swift.stride(from: 0, to: posCount, by: xLabelStride) {
-            let x = chartRect.minX + boxSpacing + CGFloat(i) * (boxWidth + boxSpacing) + boxWidth / 2
-            let label = NSAttributedString(string: "\(displayedPositions[i].position + 1)", attributes: xLabelAttrs)
+        let labelWidth: CGFloat = layout.positionsPerBin > 1 ? 50 : 35
+        for i in layout.labelledBinIndices(labelWidth: labelWidth) {
+            let x = layout.boxMidX(at: i)
+            let label = NSAttributedString(string: layout.bins[i].label, attributes: xLabelAttrs)
             let labelSize = label.size()
             label.draw(at: CGPoint(x: x - labelSize.width / 2, y: chartRect.maxY + 4))
         }
