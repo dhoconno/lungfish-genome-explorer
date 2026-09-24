@@ -1,6 +1,6 @@
 # Olivar and varVAMP in the optional PCR Primer Design pack
 
-Status: proposed design for review; implementation has not started. The user authorized an isolated installation/coexistence smoke test before feature implementation. Installation and coexistence passed natively. Raw relocation exposed launcher/helper path defects; disposable relative launchers and a relocated MAFFT helper path passed a subsequent move. Product integration is still pending. See `docs/reports/2026-09-24-primer-pack-installation-smoke.md`.
+Status: user-approved design, implemented in `codex/primer-pack-olivar-varvamp`; final review and rebuilt-app acceptance are complete. Native product installation, offline import, relocation and MHC execution have passed their recorded gates. See [MHC validation](../../reports/2026-09-24-primer-pack-mhc-validation.md) for current results and limitations, and [initial smoke](../../reports/2026-09-24-primer-pack-installation-smoke.md) for the historical feasibility gate.
 
 ## Outcome and scope
 
@@ -20,7 +20,7 @@ Keep engine adapters separate from shared normalized result models and UI. Reuse
 
 ## Installation feasibility gate
 
-Before product code changes, install pinned Olivar and varVAMP alongside the current Primer3 and PrimalScheme runtimes under an isolated conda root. Verify native ARM architecture, imports, CLI entry points, and required external executables. Export/relocate the environments using the existing portability conventions and repeat probes after relocation. Preserve source/download/package locks, exact commands, checksums, sizes, status, elapsed time, stdout/stderr and environment identity under `.build/primer-expansion-smoke`.
+Before product code changes, install pinned Olivar and varVAMP alongside the current Primer3 and PrimalScheme runtimes under an isolated conda root. Verify native ARM architecture, imports, CLI entry points, and required external executables. Export/relocate the environments using the existing portability conventions and repeat probes after relocation. Preserve source/download/package locks, exact commands, checksums, sizes, status, elapsed time, stdout/stderr and environment identity outside build scratch under `/Users/dho/Documents/lungfish-validation/primer-pack-2026-09-24`. The historical initial smoke used `.build/primer-expansion-smoke`; its raw files were subsequently lost to a package clean, as disclosed in the validation report. Product acceptance evidence uses the external location.
 
 The tested top-level packages are `bioconda::olivar=1.3.3=pyhdfd78af_3` and `bioconda::varvamp=1.3.2=pyhdfd78af_0`. Preserve the tested complete resolved environments rather than changing Python ABI or installation route without another smoke. Olivar resolved Python 3.12.14/NumPy 1.26.4; varVAMP resolved Python 3.13.15/NumPy 2.5.3. Both include native BLAST; Olivar includes native MAFFT. Do not substitute an untested pip-only environment to save space.
 

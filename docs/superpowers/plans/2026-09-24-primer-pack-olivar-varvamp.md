@@ -158,7 +158,7 @@ public enum PrimerAssayStatus: String, Codable, Sendable { case selected, altern
 - Create `scripts/analysis/validate-primer-pack-mhc.py` as an opt-in validation driver (not part of routine unit tests).
 - Extend `Tests/LungfishAppTests/PrimerAnalysisNativeMHCViewerTests.swift` for explicit engine/mode expectations rather than inferring engine solely from Primer3-versus-other.
 - Update `docs/features/pcr-primer-design.md`; add `docs/reports/2026-09-24-primer-pack-mhc-validation.md` with actual evidence and limitations.
-- Store large fixtures/logs/screenshots only under `.build/primer-expansion-validation/`.
+- Store large fixtures/logs/screenshots outside SwiftPM build storage at `/Users/dho/Documents/lungfish-validation/primer-pack-2026-09-24/`. This execution correction prevents `swift package clean` from removing scientific validation evidence.
 
 **Interfaces:** Driver takes explicit `--cli`, `--project`, `--output`, `--conda-root`, and `--workers`; never defaults output to the source project. It records an input checksum manifest, exact argv/config/runtime identities, result summaries and pass/fail for each case. It invokes public Lungfish CLI workflows; it does not directly synthesize production bundles.
 
