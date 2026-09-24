@@ -14,8 +14,8 @@ Single source of truth for finding status (plan rule 9). Status: `open`, `verifi
 | WFL-01 | P0 | FASTQ-operation outputs are silently quality-binned and, when large, Trim Galore-trimmed during re-ingestion | fixed | P0-B | 7c3fb0fd5,+clumping fix | no re-binning; auto clumping skips instead of Trim Galore; read-count check before source delete |
 | WFL-02 | P0 | `tree infer iqtree` deletes the shared project `.tmp`, deletes pre-existing output on refusal, and can deadloc | fixed | P0-B | 6898a985f | no .tmp deletion, refusal deletes nothing, concurrent pipe drain |
 | ARC-01 | P1 | Two execution models for GUI analyses, chosen per feature, with no shared service layer | open | | | |
-| ARC-02 | P1 | Nine copy-pasted CLI runner actors and about 12 ad-hoc, stringly-typed CLI event schemas | open | | | |
-| ARC-03 | P1 | Operations-panel "CLI command" strings are hand-built and drift from the real CLI (Kraken2 replay cannot run) | open | | | |
+| ARC-02 | P1 | Nine copy-pasted CLI runner actors and about 12 ad-hoc, stringly-typed CLI event schemas | partial | P6-A | 6bc83748f | CLIEvent + CLISubprocessTransport; tree runners migrated; 7 runners remain |
+| ARC-03 | P1 | Operations-panel "CLI command" strings are hand-built and drift from the real CLI (Kraken2 replay cannot run) | open | P6-B |  | Kraken2/FASTQ argv unification pending |
 | ARC-04 | P1 | `OperationCenter.start` can return an already-failed operation, and callers are not forced to notice | fixed | P1-A | c656e84c3 | OperationCenter.begin -> started/refused; 11 callers migrated; per-family never-launch tests; ratchet baseline 18 in pre-push |
 | ARC-13 | P1 | TaxTriage view controller runs samtools synchronously on the main actor, with a pipe-ordering hazard | fixed | P4-A | 447955d3d | samtools off main, concurrent drain; TaxTriage UI tests 37/37 integrated |
 | FEA-03 | P1 | Annotation edit and delete from the viewer and Inspector are not persisted for reference bundles | fixed | P2-A | 55eb87a2c,cb7c10798 | viewer+Inspector delete/rename persist; reopen tests 3/3 |
@@ -31,7 +31,7 @@ Single source of truth for finding status (plan rule 9). Status: `open`, `verifi
 | PERF-06 | P1 | "Export annotations" and multi-source sequence export decompress and parse the entire genome into memory | fixed | Q2 | c338d802d | annotation export never opens genome |
 | REC-01 | P1 | Sibling mutation service deletes backup | fixed | P0-B | 12e6722a6 | VariantMutationPublication recovery path |
 | REC-02 | P1 | MSA/tree --force deletes output before work | fixed | Q3 | dd086b592 | tree infer --force atomic swap; failing-iqtree test |
-| REC-03 | P1 | Kraken2 taxonomy/BLAST exports lack provenance | open | | | |
+| REC-03 | P1 | Kraken2 taxonomy/BLAST exports lack provenance | fixed | P6-B | 5b00ee8fb | taxonomy + BLAST export sidecars; manual haplotype export atomic |
 | REC-04 | P1 | Sidebar VCF/folder drop silently discarded | open | | | |
 | REC-05 | P1 | About Saving text promises persistence FEA-03 disproves | fixed | P2-A | cb7c10798 | About Saving now true |
 | REL-02 | P1 | CI workflow invalid since 2026-09-14, 24 straight failures, 12 previews shipped on red | accepted | P0-A | 53371073b | owner: hosted CI paused; disabled cleanly |
@@ -72,7 +72,7 @@ Single source of truth for finding status (plan rule 9). Status: `open`, `verifi
 | FEA-09 | P2 | Two locus parsers with different grammar, and no gene lookup in the locus field | fixed | Q4 | 74609ce60 | one LocusQueryParser for ruler + Go to Location |
 | FEA-10 | P2 | Settings controls that nothing reads (default zoom window, max undo levels) | fixed | P2-A | 8632b57aa | default zoom wired; max undo control removed |
 | FEA-11 | P2 | Export Image/PDF can export a hidden view or the wrong window; some menu actions ignore the key window | open | | | |
-| FEA-12 | P2 | GUI BAM and VCF imports record a `lungfish-cli` command that the CLI cannot run | open | | | |
+| FEA-12 | P2 | GUI BAM and VCF imports record a `lungfish-cli` command that the CLI cannot run | fixed | P6-B | a1e282448 | BAM import real command; VCF import command removed (no CLI attach path yet) |
 | FEA-13 | P2 | Variant table dead controls: Het Only chip, single-option Match picker, silent preset rewrite | fixed | P7 | 6c6c748a9 | dead Het Only + single-option picker removed; preset normalization banner |
 | FEA-14 | P2 | Output placement differs by entry point (Imports, project root, drop folder, alignment-read-extractions with U | open | | | |
 | PERF-07 | P2 | Result and bundle selection opens SQLite databases and runs scans and JSON decodes on the main thread | fixed | Q1b | a206f4813 | variant track scan off main with generation check; main-actor responsiveness test |
@@ -103,7 +103,7 @@ Single source of truth for finding status (plan rule 9). Status: `open`, `verifi
 | SIMP-01 | P2 | FASTQ operations have three independent CLI encodings; provenance records a command that did not run | open | | | |
 | SIMP-02 | P2 | About 5.9K lines of workbook-transaction recovery outlive their only writer | open | | | |
 | SIMP-03 | P2 | PrimalScheme3 adapter supports 4 fork versions and 2 external-binary-only selectors (about 3.3K lines) | open | | | |
-| SIMP-04 | P2 | Nine copy-pasted CLI subprocess runners (about 3.4K lines) next to an unused kernel runner | open | | | |
+| SIMP-04 | P2 | Nine copy-pasted CLI subprocess runners (about 3.4K lines) next to an unused kernel runner | partial | P6-A | 6bc83748f | 2 of 9 runners consolidated |
 | SIMP-05 | P2 | Verified dead code: about 5.0K production lines plus about 2.5K test lines (ranked list) | open | | | |
 | SIMP-06 | P2 | Same-named public types in two modules (`SequencingPlatform`, `AlignmentFilter*`) | open | | | |
 | SIMP-07 | P2 | Chromosome aliasing implemented at least 5 times; the dedicated resolver is unused | partial | P3-D | ddee0b5fa | variant-track path now uses resolver; other alias copies remain |
