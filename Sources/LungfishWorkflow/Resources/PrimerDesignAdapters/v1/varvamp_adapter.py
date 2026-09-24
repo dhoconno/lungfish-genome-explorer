@@ -478,6 +478,7 @@ def run_varvamp(
         previous_config = os.environ.get("VARVAMP_CONFIG")
         os.environ["VARVAMP_CONFIG"] = str(config_path)
         recorded_environment["VARVAMP_CONFIG"] = str(config_path)
+        recorder.setdefault("environment", {})["VARVAMP_CONFIG"] = str(config_path)
         try:
             # Import only after VARVAMP_CONFIG is set. Each adapter process runs
             # one request, so all independent invocations share identical config.

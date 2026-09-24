@@ -23,6 +23,7 @@ from common import (
     AdapterError,
     adapter_sha256,
     artifact_record,
+    blast_database_candidate_paths,
     blast_database_components,
     inventory_artifacts,
     runtime_identity,
@@ -78,6 +79,41 @@ def _check_input_integrity(
 ) -> dict[str, Any]:
     observed = []
     unchanged = True
+    prefix_checks = []
+    prefixes = sorted({record["prefix"] for record in auxiliary_inputs if record.get("kind") == "blastDatabaseComponent"})
+    for prefix_value in prefixes:
+        prefix = Path(prefix_value)
+        expected = sorted(record["path"] for record in auxiliary_inputs if record.get("prefix") == prefix_value)
+        candidates = blast_database_candidate_paths(prefix)
+        candidate_records = []
+        for candidate in candidates:
+            record: dict[str, Any] = {
+                "path": str(candidate),
+                "isFile": candidate.is_file(),
+                "isSymlink": candidate.is_symlink(),
+            }
+            if record["isFile"] and not record["isSymlink"]:
+                record.update({"sha256": sha256_file(candidate), "byteSize": candidate.stat().st_size})
+            candidate_records.append(record)
+        prefix_check: dict[str, Any] = {
+            "prefix": prefix_value,
+            "expectedComponents": expected,
+            "postExecutionCandidates": [record["path"] for record in candidate_records],
+            "postExecutionCandidateRecords": candidate_records,
+        }
+        try:
+            current = sorted(str(path) for path in blast_database_components(prefix))
+            prefix_check["postExecutionComponents"] = current
+            prefix_check["validationError"] = None
+            prefix_check["unchanged"] = current == expected
+        except AdapterError as error:
+            prefix_check["postExecutionComponents"] = []
+            prefix_check["validationError"] = {
+                "code": error.code, "message": error.message, "details": error.details,
+            }
+            prefix_check["unchanged"] = False
+        unchanged = unchanged and prefix_check["unchanged"]
+        prefix_checks.append(prefix_check)
     for record in [*inputs, *auxiliary_inputs]:
         path = Path(record["path"])
         current: dict[str, Any] = {"path": record["path"]}
@@ -101,6 +137,7 @@ def _check_input_integrity(
         "checkedAfterExecution": True,
         "unchanged": unchanged,
         "postExecution": observed,
+        "blastDatabasePrefixes": prefix_checks,
     }
 
 
@@ -341,7 +378,9 @@ def execute(request_path: Path) -> Path:
     stderr_path = logs / "native-stderr.txt"
     started_at = _utc_now()
     start = time.monotonic()
-    recorder: dict[str, Any] = {"runtime": None, "nativeInvocations": [], "nativeEvents": []}
+    recorder: dict[str, Any] = {
+        "runtime": None, "nativeInvocations": [], "nativeEvents": [], "environment": {},
+    }
     input_integrity: dict[str, Any] | None = None
     execution_working_directory = str(Path.cwd().resolve())
     environment, previous_environment = _controlled_environment(stage)
@@ -360,6 +399,7 @@ def execute(request_path: Path) -> Path:
                     recorder["nativeInvocations"] = native_invocations
                     environment.update(engine_environment)
                     request["options"]["adapterResolution"] = resolution
+        environment.update(recorder["environment"])
         input_integrity = _check_input_integrity(input_snapshots, auxiliary_input_snapshots)
         if not input_integrity["unchanged"]:
             raise AdapterError(
@@ -411,6 +451,7 @@ def execute(request_path: Path) -> Path:
         _restore_environment(previous_environment)
         return output
     except BaseException as raw_error:
+        environment.update(recorder["environment"])
         if input_integrity is None:
             input_integrity = _check_input_integrity(input_snapshots, auxiliary_input_snapshots)
         if not input_integrity["unchanged"] and not (

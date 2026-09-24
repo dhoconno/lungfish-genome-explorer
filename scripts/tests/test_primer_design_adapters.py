@@ -300,6 +300,50 @@ class ProvenanceRetentionTests(unittest.TestCase):
             self.assertEqual(recorded["sha256"], initial_sha)
             self.assertFalse(provenance["inputIntegrity"]["unchanged"])
 
+    def test_added_blast_alias_after_snapshot_fails_prefix_set_integrity(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            request, request_path = self.write_request(root)
+            prefix = root / "synthetic-db"
+            for suffix in (".nhr", ".nin", ".nsq"):
+                Path(str(prefix) + suffix).write_bytes(("before" + suffix).encode())
+            request["options"]["blastDatabasePath"] = str(prefix)
+            request_path.write_text(json.dumps(request), encoding="utf-8")
+
+            def add_alias(request, stage, recorder):
+                recorder["runtime"] = self.fake_runtime()
+                Path(str(prefix) + ".nal").write_text("DBLIST other-db\n", encoding="utf-8")
+                return [], recorder["runtime"], {"test": True}
+
+            with mock.patch("olivar_adapter.run_olivar", side_effect=add_alias):
+                with self.assertRaises(AdapterError) as raised:
+                    adapter_run.execute(request_path)
+            self.assertEqual(raised.exception.code, "input_changed")
+            provenance = json.loads((root / "output/provenance-v1.json").read_text(encoding="utf-8"))
+            prefix_check = provenance["inputIntegrity"]["blastDatabasePrefixes"][0]
+            self.assertFalse(prefix_check["unchanged"])
+            self.assertEqual(prefix_check["validationError"]["code"], "unsupported_blast_alias")
+            self.assertIn(str(prefix) + ".nal", prefix_check["postExecutionCandidates"])
+
+    def test_varvamp_verification_failure_retains_actual_config_environment(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            request = base_request(root, engine="varvamp", mode="single")
+            request_path = root / "request.json"
+            request_path.write_text(json.dumps(request), encoding="utf-8")
+            with mock.patch(
+                "varvamp_adapter.verify_runtime",
+                side_effect=AdapterError("runtime_verification_failed", "synthetic verification failure"),
+            ):
+                with self.assertRaises(AdapterError):
+                    adapter_run.execute(request_path)
+            provenance = json.loads((root / "output/provenance-v1.json").read_text(encoding="utf-8"))
+            config_path = provenance["command"]["environment"]["VARVAMP_CONFIG"]
+            self.assertIn(".adapter-stage-", config_path)
+            self.assertTrue(config_path.endswith("/config/" + INPUT_ID + "/varvamp-config.py"))
+            verify_event = next(event for event in provenance["nativeEvents"] if event["function"] == "verify_runtime")
+            self.assertEqual(verify_event["status"], "failed")
+
     def test_target_contract_rejects_assay_member_missing_reciprocal_assay_id(self):
         assay_one = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
         assay_two = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"

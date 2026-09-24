@@ -201,6 +201,23 @@ _BLAST_NUCLEOTIDE_COMPONENT_SUFFIXES = {
 _BLAST_REQUIRED_COMPONENT_SUFFIXES = {"nhr", "nin", "nsq"}
 
 
+def blast_database_candidate_paths(prefix: Path) -> list[Path]:
+    prefix_marker = prefix.name + "."
+    candidates = []
+    for candidate in sorted(prefix.parent.glob(prefix.name + ".*")):
+        if not candidate.name.startswith(prefix_marker):
+            continue
+        pieces = candidate.name[len(prefix_marker):].split(".")
+        suffix = pieces[-1]
+        volume_parts = pieces[:-1]
+        if suffix not in _BLAST_NUCLEOTIDE_COMPONENT_SUFFIXES | {"nal"}:
+            continue
+        if volume_parts and not all(part.isdigit() for part in volume_parts):
+            continue
+        candidates.append(candidate)
+    return candidates
+
+
 def blast_database_components(prefix: Path) -> list[Path]:
     """Return a safe materialized nucleotide BLAST database component set."""
     if not prefix.is_absolute() or prefix.is_symlink() or prefix.parent.is_symlink() or not prefix.parent.is_dir():
@@ -215,14 +232,12 @@ def blast_database_components(prefix: Path) -> list[Path]:
     components: list[Path] = []
     groups: dict[str, set[str]] = {}
     prefix_marker = prefix.name + "."
-    for candidate in sorted(prefix.parent.glob(prefix.name + ".*")):
-        if not candidate.name.startswith(prefix_marker):
-            continue
+    for candidate in blast_database_candidate_paths(prefix):
         tail = candidate.name[len(prefix_marker):]
         pieces = tail.split(".")
         suffix = pieces[-1]
         volume = ".".join(pieces[:-1])
-        if suffix not in _BLAST_NUCLEOTIDE_COMPONENT_SUFFIXES or (volume and not all(part.isdigit() for part in pieces[:-1])):
+        if suffix == "nal":
             continue
         if candidate.is_symlink() or not candidate.is_file():
             raise AdapterError("invalid_option", "BLAST database components must be non-symlink regular files", {"path": str(candidate)})

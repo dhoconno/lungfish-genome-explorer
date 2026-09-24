@@ -91,6 +91,7 @@
     "historicalExecution": "command argv, replayCommand, workingDirectory, environment, and nativeInvocations retain exact attempted values",
     "durableReplay": "command.pathMappings and command.durableReplay describe output-relative request/config/native references after atomic stage rename",
     "nativeEvents": "typed caller-owned events with engine, kind, module, modulePath, function, complete arguments, durableArguments, status, timing, and exitStatus",
-    "inputIntegrity": "inputs and auxiliaryInputs are checksummed before native execution and rechecked afterward; change fails publication"
+    "inputIntegrity": "inputs and auxiliaryInputs are checksummed before native execution and rechecked afterward; BLAST prefixes are re-enumerated and exact component sets compared; change fails publication",
+    "failureEnvironment": "caller-owned environment entries, including VARVAMP_CONFIG before runtime verification, are retained on failure"
   }
 }
