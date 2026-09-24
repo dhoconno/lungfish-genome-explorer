@@ -3103,6 +3103,21 @@ extension AppDelegate {
     }
 
     /// Reads sequences and annotations from a file or reference bundle for export.
+    /// Loads only a reference bundle's annotations for export, without ever
+    /// touching its genome.
+    ///
+    /// PERF-06: "Export annotations" used to call `loadSequencesForExport`
+    /// and discard the sequences it returned. For a `.lungfishref`, that path
+    /// decompressed the whole genome into a `String`, wrote it to a temp
+    /// file, and parsed every sequence with `FASTAReader.readAll()` -- for a
+    /// human or macaque reference (about 3 Gbp) that is roughly 9-12 GB of
+    /// peak memory spent on data the GFF3 export never uses. This reads only
+    /// the manifest and the annotation databases it points at.
+    nonisolated func loadAnnotationsForExport(bundleURL: URL) throws -> [SequenceAnnotation] {
+        let manifest = try BundleManifest.load(from: bundleURL)
+        return try loadBundleAnnotations(bundleURL: bundleURL, manifest: manifest)
+    }
+
     ///
     /// For reference bundles, reads the FASTA directly and loads annotations from the
     /// annotation database (BigBed tracks) via the bundle's data provider.
@@ -3117,44 +3132,18 @@ extension AppDelegate {
                               userInfo: [NSLocalizedDescriptionKey: "No genome sequence in bundle \(url.lastPathComponent)"])
             }
             let sourceURL = url.appendingPathComponent(genomePath)
-            // Decompress to temp file if needed (FASTAReader doesn't handle gzip internally)
-            let readURL: URL
-            var tempDecompressed: URL?
-            if sourceURL.pathExtension.lowercased() == "gz" {
-                let decompTempDir = try ProjectTempDirectory.createFromContext(
-                    prefix: "export-decomp-", contextURL: url)
-                let tmpURL = decompTempDir.appendingPathComponent("decompressed.fa")
-                let gzStream = try GzipInputStream(url: sourceURL)
-                let content = try await gzStream.readAll()
-                try content.write(to: tmpURL, atomically: true, encoding: .utf8)
-                readURL = tmpURL
-                tempDecompressed = tmpURL
-            } else {
-                readURL = sourceURL
-            }
-            defer { if let tmp = tempDecompressed { try? FileManager.default.removeItem(at: tmp.deletingLastPathComponent()) } }
-
-            let reader = try FASTAReader(url: readURL)
+            // PERF-06: `FASTAReader` already streams a `.gz` source line by
+            // line via `GzipInputStream.forEachLine` (see `isCompressed` and
+            // `forEachLineSync`), so there is no need to decompress the whole
+            // genome into a `String` and write it to a temp file first. For a
+            // human or macaque reference (about 3 Gbp), the old path held the
+            // decompressed `Data`, the `String`, and the parsed `Sequence`s
+            // simultaneously -- roughly 9-12 GB of peak memory just to hand
+            // back sequences a caller may not even use (see
+            // `loadAnnotationsForExport`, which never reaches this branch).
+            let reader = try FASTAReader(url: sourceURL)
             let sequences = try await reader.readAll()
-
-            // Load annotations from annotation tracks in the bundle
-            var annotations: [SequenceAnnotation] = []
-            for track in manifest.annotations {
-                // Prefer SQLite database (has rich metadata) over BigBed
-                if let dbPath = track.databasePath,
-                   let dbURL = try? BundleManifest.validatedBundleMemberURL(
-                       for: dbPath,
-                       in: url,
-                       field: "annotations[\(track.id)].databasePath"
-                   ) {
-                    if FileManager.default.fileExists(atPath: dbURL.path) {
-                        let db = try AnnotationDatabase(url: dbURL)
-                        let records = db.query(limit: Int.max)
-                        annotations.append(contentsOf: records.map { $0.toAnnotation() })
-                        continue
-                    }
-                }
-            }
+            let annotations = try loadBundleAnnotations(bundleURL: url, manifest: manifest)
             return (sequences, annotations)
         }
 
@@ -3255,7 +3244,12 @@ extension AppDelegate {
         Task { [weak self, weak window] in
             guard let self else { return }
             do {
-                let (_, annotations) = try await self.loadSequencesForExport(from: bundleURL)
+                // PERF-06: this source is always a `.referenceBundle` (the
+                // only sidebar kind whose `canExportAnnotations` is true), so
+                // load its annotations directly rather than through
+                // `loadSequencesForExport`, which would also decompress and
+                // parse the whole genome only to discard it.
+                let annotations = try self.loadAnnotationsForExport(bundleURL: bundleURL)
                 guard let window, window.isVisible else { return }
                 guard !annotations.isEmpty else {
                     self.showAnnotationExportMessage("No annotations to export", detail: "\(source.name) has no annotations.", window: window)

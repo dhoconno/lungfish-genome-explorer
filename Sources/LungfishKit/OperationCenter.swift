@@ -45,11 +45,23 @@ public struct OperationLogEntry: Sendable, Identifiable {
     public let timestamp: Date
     public let level: OperationLogLevel
     public let message: String
+    /// True for the single synthetic entry `appendLogEntryCapped` inserts in
+    /// place of the elided middle entries once a log exceeds
+    /// `Item.maxRetainedLogEntries`. Never set by ordinary log calls.
+    public let isElisionMarker: Bool
 
     public init(timestamp: Date = Date(), level: OperationLogLevel, message: String) {
         self.timestamp = timestamp
         self.level = level
         self.message = message
+        self.isElisionMarker = false
+    }
+
+    fileprivate init(elidedCount: Int, timestamp: Date) {
+        self.timestamp = timestamp
+        self.level = .info
+        self.message = "… \(elidedCount) entr\(elidedCount == 1 ? "y" : "ies") omitted"
+        self.isElisionMarker = true
     }
 }
 
@@ -205,7 +217,50 @@ public final class OperationCenter: ObservableObject {
         /// The reconstructed `lungfish [subcommand] [args]` CLI invocation, if applicable.
         public var cliCommand: String?
         /// Step-by-step log entries recorded during this operation.
+        ///
+        /// PERF-15: bounded by ``appendLogEntryCapped(_:)`` to at most
+        /// ``maxRetainedLogEntries`` (the first ``keepFirstLogEntries`` plus
+        /// the most recent entries, joined by one elision-marker entry once
+        /// the cap is exceeded), so a long-running operation with many
+        /// tool-invocation log lines does not grow this array without bound.
         public var logEntries: [OperationLogEntry] = []
+
+        /// The total number of log entries ever recorded for this operation,
+        /// including ones ``appendLogEntryCapped(_:)`` has since elided from
+        /// ``logEntries``. Used only to compute the elision marker's count;
+        /// not itself displayed.
+        fileprivate var totalLogEntryCount = 0
+
+        /// Entries kept from the start of the log when the cap is exceeded.
+        fileprivate static let keepFirstLogEntries = 100
+        /// Total entries retained in ``logEntries`` once capped (first +
+        /// most-recent + one elision marker).
+        public static let maxRetainedLogEntries = 2_000
+
+        /// Appends one log entry, then re-applies the retention cap.
+        ///
+        /// Once ``totalLogEntryCount`` exceeds ``maxRetainedLogEntries``, this
+        /// keeps the first ``keepFirstLogEntries`` entries, drops from the
+        /// middle, and keeps enough of the tail (including the entry just
+        /// appended) to stay at the cap, replacing the dropped span with a
+        /// single "N entries omitted" marker. Each call after that only has
+        /// to drop the marker, the new oldest kept-tail entry, and insert an
+        /// updated marker plus the new entry, so cost stays O(1) amortized
+        /// rather than re-scanning the whole log on every call.
+        fileprivate mutating func appendLogEntryCapped(_ entry: OperationLogEntry) {
+            logEntries.append(entry)
+            totalLogEntryCount += 1
+            guard logEntries.count > Self.maxRetainedLogEntries else { return }
+
+            let keepFirst = Self.keepFirstLogEntries
+            // Reserve one slot for the elision marker itself.
+            let keepLastCount = Self.maxRetainedLogEntries - keepFirst - 1
+            let firstEntries = Array(logEntries.prefix(keepFirst))
+            let lastEntries = Array(logEntries.suffix(keepLastCount))
+            let elidedCount = totalLogEntryCount - firstEntries.count - lastEntries.count
+            let marker = OperationLogEntry(elidedCount: max(0, elidedCount), timestamp: entry.timestamp)
+            logEntries = firstEntries + [marker] + lastEntries
+        }
         /// Retry metadata for rate limits or transient failures.
         public var retryEvents: [OperationRetryMetadata] = []
         /// User-facing error summary shown prominently on failure.
@@ -645,7 +700,7 @@ public final class OperationCenter: ObservableObject {
             return true
         }
         let entry = OperationLogEntry(level: level, message: detail)
-        items[index].logEntries.append(entry)
+        items[index].appendLogEntryCapped(entry)
         changes.send(.updated(id: id, index: index))
         return true
     }
@@ -719,7 +774,7 @@ public final class OperationCenter: ObservableObject {
     public func log(id: UUID, level: OperationLogLevel, message: String) {
         guard let index = items.firstIndex(where: { $0.id == id }) else { return }
         let entry = OperationLogEntry(level: level, message: message)
-        items[index].logEntries.append(entry)
+        items[index].appendLogEntryCapped(entry)
         changes.send(.updated(id: id, index: index))
     }
 
@@ -746,7 +801,7 @@ public final class OperationCenter: ObservableObject {
         if let message, !message.isEmpty {
             logMessage = "\(message): \(logMessage)"
         }
-        items[index].logEntries.append(OperationLogEntry(level: .warning, message: logMessage))
+        items[index].appendLogEntryCapped(OperationLogEntry(level: .warning, message: logMessage))
         changes.send(.updated(id: id, index: index))
     }
 
@@ -827,7 +882,7 @@ public final class OperationCenter: ObservableObject {
         items[index].errorDetail = state == .failed ? errorDetail : nil
         if state == .completed {
             items[index].progress = 1
-            if warning { items[index].logEntries.append(OperationLogEntry(level: .warning, message: detail)) }
+            if warning { items[index].appendLogEntryCapped(OperationLogEntry(level: .warning, message: detail)) }
         }
         finishItem(at: index, finishedAt: finishedAt)
         if state == .failed {

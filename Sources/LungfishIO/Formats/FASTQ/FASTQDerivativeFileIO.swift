@@ -42,28 +42,85 @@ public enum FASTQOrientMapFile {
         return orientations
     }
 
-    /// Returns the set of read IDs that need reverse complementing.
-    public static func loadRCReadIDs(from url: URL) throws -> Set<String> {
-        let content = try String(contentsOf: url, encoding: .utf8)
+    /// Both read-ID sets a materializer needs from an orient map, computed in
+    /// one streaming pass.
+    ///
+    /// PERF-08: every materialization path previously called
+    /// ``loadForwardReadIDs(from:)`` and ``loadRCReadIDs(from:)`` back to
+    /// back, each loading the whole `orient-map.tsv` into a `String` and
+    /// building its own `Set<String>`. For a 20M-read orient derivative (read
+    /// IDs around 50 bytes), that read the file twice and held two ~1 GB
+    /// sets at once. `allReadIDs` is every read named in the map regardless
+    /// of orientation (what callers actually use it for: membership, not
+    /// direction) and `rcReadIDs` is the subset that needs reverse
+    /// complementing; a read present in `allReadIDs` but absent from
+    /// `rcReadIDs` is forward, so no separate forward set is kept.
+    public struct OrientationSets: Sendable {
+        public let allReadIDs: Set<String>
+        public let rcReadIDs: Set<String>
+    }
+
+    /// Streams `orient-map.tsv` once (line by line, not `String(contentsOf:)`)
+    /// and returns both sets a materializer needs.
+    public static func loadOrientationSets(from url: URL) throws -> OrientationSets {
+        var allIDs: Set<String> = []
         var rcIDs: Set<String> = []
-        for line in content.split(separator: "\n", omittingEmptySubsequences: true) {
+        try forEachLine(in: url) { line in
             let fields = line.split(separator: "\t")
-            guard fields.count >= 2, fields[1] == "-" else { continue }
-            rcIDs.insert(String(fields[0]))
+            guard fields.count >= 2 else { return }
+            let orientation = fields[1]
+            guard orientation == "+" || orientation == "-" else { return }
+            let readID = String(fields[0])
+            allIDs.insert(readID)
+            if orientation == "-" {
+                rcIDs.insert(readID)
+            }
         }
-        return rcIDs
+        return OrientationSets(allReadIDs: allIDs, rcReadIDs: rcIDs)
+    }
+
+    /// Returns the set of read IDs that need reverse complementing.
+    @available(*, deprecated, message: "Use loadOrientationSets(from:) to avoid reading the file twice.")
+    public static func loadRCReadIDs(from url: URL) throws -> Set<String> {
+        try loadOrientationSets(from: url).rcReadIDs
     }
 
     /// Returns the set of forward-oriented read IDs ("+").
+    @available(*, deprecated, message: "Use loadOrientationSets(from:) to avoid reading the file twice.")
     public static func loadForwardReadIDs(from url: URL) throws -> Set<String> {
-        let content = try String(contentsOf: url, encoding: .utf8)
-        var fwdIDs: Set<String> = []
-        for line in content.split(separator: "\n", omittingEmptySubsequences: true) {
-            let fields = line.split(separator: "\t")
-            guard fields.count >= 2, fields[1] == "+" else { continue }
-            fwdIDs.insert(String(fields[0]))
+        let sets = try loadOrientationSets(from: url)
+        return sets.allReadIDs.subtracting(sets.rcReadIDs)
+    }
+
+    /// Streams a text file line by line using buffered chunked reads, rather
+    /// than loading it whole with `String(contentsOf:)`.
+    private static func forEachLine(in url: URL, _ body: (Substring) throws -> Void) throws {
+        let handle = try FileHandle(forReadingFrom: url)
+        defer { try? handle.close() }
+
+        let bufferSize = 256 * 1024
+        var remainder = ""
+
+        while true {
+            guard let chunk = try handle.read(upToCount: bufferSize), !chunk.isEmpty else { break }
+            guard let text = String(data: chunk, encoding: .utf8) else {
+                throw CocoaError(.fileReadInapplicableStringEncoding)
+            }
+            let combined = remainder + text
+            var lines = combined.split(separator: "\n", omittingEmptySubsequences: true)
+            if !combined.hasSuffix("\n"), let last = lines.popLast() {
+                remainder = String(last)
+            } else {
+                remainder = ""
+            }
+            for line in lines {
+                try body(line)
+            }
         }
-        return fwdIDs
+
+        if !remainder.isEmpty {
+            try body(Substring(remainder))
+        }
     }
 }
 

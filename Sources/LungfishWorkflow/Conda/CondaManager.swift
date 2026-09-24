@@ -8,6 +8,47 @@ import os.log
 
 private let logger = Logger(subsystem: LogSubsystem.workflow, category: "CondaManager")
 
+// MARK: - PERF-14: EOF-synchronized pipe drain
+
+/// A lock-protected `Data` accumulator fed by a `Pipe`'s `readabilityHandler`.
+///
+/// `readabilityHandler` fires on the pipe's dispatch source queue, which is
+/// not necessarily the queue that reads `data` afterward, so appends and
+/// reads both take the lock.
+private final class CondaPipeDrainBuffer: @unchecked Sendable {
+    private let lock = NSLock()
+    private var buffer = Data()
+    private let eof = DispatchSemaphore(value: 0)
+
+    /// Attaches this buffer to a pipe's readabilityHandler. Signals `eof`
+    /// exactly once, when the handler observes empty data (true EOF), rather
+    /// than after a fixed delay that has no happens-before relationship to
+    /// the last handler invocation.
+    func attach(to pipe: Pipe) {
+        pipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
+            let chunk = handle.availableData
+            guard let self else { return }
+            if chunk.isEmpty {
+                pipe.fileHandleForReading.readabilityHandler = nil
+                self.eof.signal()
+            } else {
+                self.lock.lock()
+                self.buffer.append(chunk)
+                self.lock.unlock()
+            }
+        }
+    }
+
+    /// Blocks (on a background queue only -- never call from an actor) until
+    /// EOF has been observed, then returns the accumulated bytes.
+    func waitForEOFAndTake() -> Data {
+        eof.wait()
+        lock.lock()
+        defer { lock.unlock() }
+        return buffer
+    }
+}
+
 // MARK: - CondaError
 
 /// Errors that can occur during conda operations.
@@ -1084,32 +1125,35 @@ public actor CondaManager {
                 process.standardOutput = stdoutPipe
                 process.standardError = stderrPipe
 
-                // Use nonisolated(unsafe) for mutable buffers accessed from
-                // readabilityHandler callbacks and the termination handler.
-                // These closures are serialized by Process: readabilityHandler
-                // fires on the pipe's dispatch source queue, and the termination
-                // handler fires after the process exits (after all pipe data has
-                // been written). The asyncAfter delay ensures all pending
-                // readabilityHandler calls have drained before we read the buffers.
-                nonisolated(unsafe) let stdoutBuffer = NSMutableData()
-                nonisolated(unsafe) let stderrBuffer = NSMutableData()
+                // PERF-14: drain to true EOF (signaled by the readabilityHandler
+                // itself observing empty data) rather than a fixed delay after
+                // `terminationHandler` fires. A time delay is not a
+                // happens-before edge: a handler invocation still in flight when
+                // the delay expires can append to the buffer while it is being
+                // read (a data race on NSMutableData), and output still sitting
+                // in the pipe past the delay is silently lost. `eof.wait()`
+                // below blocks until this handler has actually seen EOF.
+                let stdoutDrain = CondaPipeDrainBuffer()
                 cancellationHandle.store(process)
 
-                stdoutPipe.fileHandleForReading.readabilityHandler = { handle in
-                    let data = handle.availableData
-                    if data.isEmpty {
-                        stdoutPipe.fileHandleForReading.readabilityHandler = nil
-                    } else {
-                        stdoutBuffer.append(data)
-                    }
-                }
+                stdoutDrain.attach(to: stdoutPipe)
 
+                // stderrHandler needs line-by-line forwarding as data arrives,
+                // which CondaPipeDrainBuffer's generic accumulator does not do,
+                // so this pipe keeps its own handler but the same EOF-semaphore
+                // shape.
+                let stderrEOF = DispatchSemaphore(value: 0)
+                let stderrLock = NSLock()
+                nonisolated(unsafe) var stderrBuffer = Data()
                 stderrPipe.fileHandleForReading.readabilityHandler = { handle in
                     let data = handle.availableData
                     if data.isEmpty {
                         stderrPipe.fileHandleForReading.readabilityHandler = nil
+                        stderrEOF.signal()
                     } else {
+                        stderrLock.lock()
                         stderrBuffer.append(data)
+                        stderrLock.unlock()
                         // Forward lines to the stderrHandler if provided.
                         if let handler = stderrHandler,
                            let text = String(data: data, encoding: .utf8) {
@@ -1139,16 +1183,25 @@ public actor CondaManager {
                     // Cancel the timeout timer since the process finished.
                     timeoutItem.cancel()
 
-                    // Small delay to let any remaining readabilityHandler
-                    // callbacks drain before we read the final buffer contents.
-                    DispatchQueue.global().asyncAfter(deadline: .now() + 0.1) {
+                    // PERF-14: wait for both pipes' real EOF (not a fixed
+                    // delay) before reading the accumulated buffers. This
+                    // dispatches to a background queue, never the actor, so
+                    // the semaphore waits below do not block CondaManager's
+                    // executor for other callers.
+                    DispatchQueue.global().async {
+                        let stdoutData = stdoutDrain.waitForEOFAndTake()
+                        stderrEOF.wait()
+                        stderrLock.lock()
+                        let stderrData = stderrBuffer
+                        stderrLock.unlock()
+
                         cancellationHandle.clear(terminatedProcess)
                         // Nil out handlers to break retain cycles.
                         stdoutPipe.fileHandleForReading.readabilityHandler = nil
                         stderrPipe.fileHandleForReading.readabilityHandler = nil
 
-                        let stdout = String(data: stdoutBuffer as Data, encoding: .utf8) ?? ""
-                        let stderr = String(data: stderrBuffer as Data, encoding: .utf8) ?? ""
+                        let stdout = String(data: stdoutData, encoding: .utf8) ?? ""
+                        let stderr = String(data: stderrData, encoding: .utf8) ?? ""
 
                         runState.resumeOnce { reason in
                             switch reason {
@@ -1471,8 +1524,6 @@ public actor CondaManager {
             process.standardOutput = stdoutPipe
             process.standardError = stderrPipe
 
-            nonisolated(unsafe) let stdoutBuffer = NSMutableData()
-            nonisolated(unsafe) let stderrBuffer = NSMutableData()
             // Lock-protected single-resume guard (R3-R3ML-15), replacing an ad-hoc
             // nonisolated(unsafe) var continuationResumed flag that was mutated from
             // both the terminationHandler's asyncAfter closure and the synchronous
@@ -1484,34 +1535,23 @@ public actor CondaManager {
             // both already use for this exact continuation-double-resume hazard.
             let runState = NativeProcessRunState()
 
-            stdoutPipe.fileHandleForReading.readabilityHandler = { handle in
-                let data = handle.availableData
-                if data.isEmpty {
-                    stdoutPipe.fileHandleForReading.readabilityHandler = nil
-                } else {
-                    stdoutBuffer.append(data)
-                }
-            }
-
-            stderrPipe.fileHandleForReading.readabilityHandler = { handle in
-                let data = handle.availableData
-                if data.isEmpty {
-                    stderrPipe.fileHandleForReading.readabilityHandler = nil
-                } else {
-                    stderrBuffer.append(data)
-                }
-            }
+            // PERF-14: see the comment in `runTool` -- drain to real EOF
+            // instead of a fixed delay after `terminationHandler` fires.
+            let stdoutDrain = CondaPipeDrainBuffer()
+            let stderrDrain = CondaPipeDrainBuffer()
+            stdoutDrain.attach(to: stdoutPipe)
+            stderrDrain.attach(to: stderrPipe)
 
             process.terminationHandler = { terminatedProcess in
-                // Small delay to let any remaining readabilityHandler
-                // callbacks drain before we read the final buffer contents.
-                DispatchQueue.global().asyncAfter(deadline: .now() + 0.1) {
+                DispatchQueue.global().async {
+                    let stdoutData = stdoutDrain.waitForEOFAndTake()
+                    let stderrData = stderrDrain.waitForEOFAndTake()
                     stdoutPipe.fileHandleForReading.readabilityHandler = nil
                     stderrPipe.fileHandleForReading.readabilityHandler = nil
 
                     runState.resumeOnce { _ in
-                        let stdout = String(data: stdoutBuffer as Data, encoding: .utf8) ?? ""
-                        let stderr = String(data: stderrBuffer as Data, encoding: .utf8) ?? ""
+                        let stdout = String(data: stdoutData, encoding: .utf8) ?? ""
+                        let stderr = String(data: stderrData, encoding: .utf8) ?? ""
 
                         if terminatedProcess.terminationStatus != 0 {
                             let message = Self.micromambaFailureMessage(
