@@ -226,6 +226,10 @@ public actor BaseWorkflowRunner {
     /// Home directory provider used for managed workflow engine lookups.
     private let homeDirectoryProvider: @Sendable () -> URL
 
+    /// App identity used to resolve the managed-storage namespace
+    /// (`.lungfish`/`.lungfish-stable`/`.lungfish-debug`) for engine lookups.
+    private let appIdentity: LungfishAppIdentity
+
     /// Active executions indexed by execution ID.
     private var activeExecutions: [UUID: ExecutionContext] = [:]
 
@@ -270,7 +274,8 @@ public actor BaseWorkflowRunner {
         processManager: ProcessManager = .shared,
         homeDirectoryProvider: @escaping @Sendable () -> URL = {
             FileManager.default.homeDirectoryForCurrentUser
-        }
+        },
+        appIdentity: LungfishAppIdentity = .current
     ) {
         self.logger = Logger(
             subsystem: LogSubsystem.workflow,
@@ -278,6 +283,7 @@ public actor BaseWorkflowRunner {
         )
         self.processManager = processManager
         self.homeDirectoryProvider = homeDirectoryProvider
+        self.appIdentity = appIdentity
 
         logger.debug("BaseWorkflowRunner initialized")
     }
@@ -398,7 +404,8 @@ public actor BaseWorkflowRunner {
             let url = CoreToolLocator.executableURL(
                 environment: engine.executableName,
                 executableName: engine.executableName,
-                homeDirectory: homeDirectoryProvider()
+                homeDirectory: homeDirectoryProvider(),
+                appIdentity: appIdentity
             )
             return FileManager.default.isExecutableFile(atPath: url.path) ? url : nil
         case .cwl, .wdl, .shell, .custom:

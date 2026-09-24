@@ -1,5 +1,6 @@
 import Foundation
 import XCTest
+import LungfishCore
 @testable import LungfishWorkflow
 
 final class LocalWorkflowRuntimeEvidenceTests: XCTestCase {
@@ -12,6 +13,7 @@ final class LocalWorkflowRuntimeEvidenceTests: XCTestCase {
         try "old local fixture".write(to: executable, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)
         let launch = WorkflowEngineLaunch.resolve(executableName: "nextflow", homeDirectory: root,
+            appIdentity: .preview,
             baseEnvironment: ["PATH": "/fixture/bin", "PRIVATE_API_TOKEN": "must never be retained", "OTHER_SETTING": "unrelated"])
         let oldHash = ProvenanceRecorder.sha256(of: executable)
         try "repaired local fixture".write(to: executable, atomically: true, encoding: .utf8)
