@@ -1947,7 +1947,7 @@ public struct GenotypeResultDisplaySection: View {
     }
 
     private func valueRow(label: String, value: String) -> some View {
-        GenotypeInspectorValueRow(
+        InspectorKeyValueRow(
             label,
             value: value,
             font: typography.font(for: .body)

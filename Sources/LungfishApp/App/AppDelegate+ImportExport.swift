@@ -243,17 +243,6 @@ extension AppDelegate {
         }
     }
 
-    private func showNotImplementedAlert(_ feature: String) {
-        let alert = NSAlert()
-        alert.messageText = "Feature Not Yet Implemented"
-        alert.informativeText = "\(feature) will be available in a future release."
-        alert.alertStyle = .informational
-        alert.addButton(withTitle: "OK")
-        if let window = mainWindowController?.window ?? NSApp.keyWindow {
-            alert.beginSheetModal(for: window)
-        }
-    }
-
     // MARK: - Import ONT Run
 
     @objc func importONTRun(_ sender: Any?) {

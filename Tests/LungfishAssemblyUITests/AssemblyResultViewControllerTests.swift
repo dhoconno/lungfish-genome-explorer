@@ -501,34 +501,24 @@ final class AssemblyResultViewControllerTests: XCTestCase {
         XCTAssertEqual(pasteboard.lastString, "8 bp")
     }
 
-    func testCommandClickOnVisibleTableCellCopiesScalarValue() async throws {
+    /// UX-17: the old Cmd-click "quick copy" gesture on a table cell's text
+    /// field competed with, and could shadow, standard Cmd-click
+    /// multi-select. It has been removed in favor of `copy:` (UX-04), so a
+    /// Cmd-click on a row now behaves like any other `NSTableView` and
+    /// simply extends the selection.
+    func testCommandClickExtendsSelectionInsteadOfCopyingScalarValue() async throws {
         let pasteboard = RecordingPasteboard()
         let vc = AssemblyResultViewController()
         _ = vc.view
         try await vc.configureForTesting(result: makeAssemblyResult(), scalarPasteboard: pasteboard)
         vc.view.layoutSubtreeIfNeeded()
 
-        guard let cell = vc.testContigTableView.testTableView.view(atColumn: 1, row: 0, makeIfNecessary: true) as? NSTableCellView,
-              let textField = cell.textField else {
-            return XCTFail("Expected visible contig cell")
-        }
+        let tableView = vc.testContigTableView.testTableView
+        tableView.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false)
+        tableView.selectRowIndexes(IndexSet(integer: 1), byExtendingSelection: true)
 
-        let event = try XCTUnwrap(
-            NSEvent.mouseEvent(
-                with: .leftMouseDown,
-                location: .zero,
-                modifierFlags: [.command],
-                timestamp: ProcessInfo.processInfo.systemUptime,
-                windowNumber: 0,
-                context: nil,
-                eventNumber: 0,
-                clickCount: 1,
-                pressure: 1
-            )
-        )
-
-        textField.mouseDown(with: event)
-        XCTAssertEqual(pasteboard.lastString, "contig_7")
+        XCTAssertEqual(tableView.selectedRowIndexes, IndexSet([0, 1]))
+        XCTAssertNil(pasteboard.lastString)
     }
 
     func testAssemblyPrimaryTypographyUpdatesLiveAndPreservesTableAndSplitState() async throws {

@@ -361,7 +361,7 @@ public class WorkflowBuilderViewController: NSSplitViewController, NSMenuItemVal
 
         guard let projectURL = activeProjectURL else {
             let alert = NSAlert()
-            alert.messageText = "No Active Project"
+            alert.messageText = "No Project Open"
             alert.informativeText = "Open a Lungfish project before running a workflow so project-relative inputs and outputs can be resolved."
             alert.alertStyle = .warning
             alert.addButton(withTitle: "OK")
@@ -1163,8 +1163,8 @@ extension WorkflowBuilderViewController: NSToolbarDelegate {
             item.image = NSImage(systemSymbolName: "square.and.arrow.up", accessibilityDescription: "Export")
 
             let menu = NSMenu()
-            menu.addItem(withTitle: "Export to Nextflow...", action: #selector(exportNextflowAction(_:)), keyEquivalent: "")
-            menu.addItem(withTitle: "Export to Snakemake...", action: #selector(exportSnakemakeAction(_:)), keyEquivalent: "")
+            menu.addItem(withTitle: "Export to Nextflow…", action: #selector(exportNextflowAction(_:)), keyEquivalent: "")
+            menu.addItem(withTitle: "Export to Snakemake…", action: #selector(exportSnakemakeAction(_:)), keyEquivalent: "")
 
             item.menu = menu
             item.showsIndicator = true

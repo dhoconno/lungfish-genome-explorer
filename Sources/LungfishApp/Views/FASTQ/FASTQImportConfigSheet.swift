@@ -131,7 +131,7 @@ public final class FASTQImportConfigSheet: NSViewController {
     private let barcodeDefinitionLabel = NSTextField(labelWithString: "Barcode Sheet:")
     private let barcodeDefinitionHelpButton = NSButton(title: "", target: nil, action: nil)
     private let barcodeDefinitionPopup = NSPopUpButton()
-    private let chooseBarcodeDefinitionButton = NSButton(title: "Choose...", target: nil, action: nil)
+    private let chooseBarcodeDefinitionButton = NSButton(title: "Choose…", target: nil, action: nil)
     private let barcodeDefinitionStatusLabel = NSTextField(wrappingLabelWithString: "")
     private let demultiplexFolderLabel = NSTextField(labelWithString: "Demux Folder:")
     private let demultiplexFolderField = NSTextField(string: "")
@@ -890,7 +890,7 @@ public final class FASTQImportConfigSheet: NSViewController {
     private func populateBarcodeDefinitions() {
         barcodeDefinitionPopup.removeAllItems()
         if barcodeDefinitionCandidates.isEmpty {
-            barcodeDefinitionPopup.addItem(withTitle: "Choose a barcode sheet...")
+            barcodeDefinitionPopup.addItem(withTitle: "Choose a barcode sheet…")
             barcodeDefinitionPopup.lastItem?.isEnabled = false
         } else {
             for url in barcodeDefinitionCandidates {

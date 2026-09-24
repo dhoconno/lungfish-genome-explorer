@@ -154,7 +154,7 @@ extension MainSplitViewController {
         guard let projectURL = sidebarController.currentProjectURL ?? DocumentManager.shared.activeProject?.url else {
             mainSplitLogger.error("loadVCFFilesInBackground: No active project; refusing non-project bundle import")
             let alert = NSAlert()
-            alert.messageText = "No Active Project"
+            alert.messageText = "No Project Open"
             alert.informativeText = "Open or create a project first. VCF imports are saved as .lungfishref bundles inside the active project."
             alert.alertStyle = .warning
             alert.addButton(withTitle: "OK")

@@ -28,6 +28,12 @@ struct VariantQueryBuilderView: View {
     @State private var selectedPresetId: UUID?
     @State private var showSaveDialog = false
     @State private var savePresetName = ""
+    /// Set when a loaded preset asked for `.matchAny` and was silently
+    /// normalized to `.matchAll` because OR-group execution isn't
+    /// supported yet (FEA-13). Shown as an inline banner rather than only
+    /// a log line, since normalizing a saved preset can change which rows
+    /// a scientific filter returns.
+    @State private var presetLogicWasNormalized = false
 
     let availableInfoKeys: Set<String>
     let infoKeyDefinitions: [InfoKeyDefinition]
@@ -70,18 +76,16 @@ struct VariantQueryBuilderView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             // Title bar
+            //
+            // FEA-13: the logic picker was removed. OR-group execution isn't
+            // supported yet, so `QueryLogic.allCases` returns only
+            // `.matchAll` — a segmented control with one segment read as
+            // broken UI rather than as "this is the only mode". Rules
+            // continue to combine as Match All until OR groups land.
             HStack {
                 Text("Variant Query Builder")
                     .font(.headline)
                 Spacer()
-                // Logic selector
-                Picker("", selection: $logic) {
-                    ForEach(QueryLogic.allCases, id: \.self) { logic in
-                        Text(logic.displayName).tag(logic)
-                    }
-                }
-                .pickerStyle(.segmented)
-                .frame(width: 200)
             }
             .padding(.horizontal, 16)
             .padding(.top, 12)
@@ -94,7 +98,21 @@ struct VariantQueryBuilderView: View {
                 Spacer()
             }
             .padding(.horizontal, 16)
-            .padding(.bottom, 8)
+            .padding(.bottom, presetLogicWasNormalized ? 4 : 8)
+
+            if presetLogicWasNormalized {
+                HStack(spacing: 6) {
+                    Image(systemName: "info.circle")
+                        .foregroundStyle(.secondary)
+                    Text("This preset's \u{201c}Match Any\u{201d} logic isn\u{2019}t supported yet; applied as \u{201c}Match All\u{201d} instead.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .accessibilityElement(children: .combine)
+                .accessibilityIdentifier("query-builder-logic-normalized-banner")
+                .padding(.horizontal, 16)
+                .padding(.bottom, 8)
+            }
 
             Divider()
 
@@ -111,6 +129,7 @@ struct VariantQueryBuilderView: View {
                         .buttonStyle(.bordered)
                         .controlSize(.small)
                         .tint(selectedPresetId == preset.id ? Color.accentColor : nil)
+                        .accessibilityIdentifier("query-builder-preset-\(preset.name)")
                     }
                 }
                 .padding(.horizontal, 16)
@@ -223,9 +242,21 @@ struct VariantQueryBuilderView: View {
 
     private func loadPreset(_ preset: QueryPreset) {
         rules = preset.rules
-        // OR logic is not yet supported in the backend; normalize imported presets.
-        logic = preset.logic == .matchAny ? .matchAll : preset.logic
+        // FEA-13: this used to silently rewrite Match Any to Match All
+        // (a log line only), which can change which rows a saved preset
+        // returns without the user noticing. `normalizedLogic` is a pure,
+        // directly-testable function of the preset's stored logic; the
+        // banner state mirrors whether it actually normalized anything.
+        presetLogicWasNormalized = preset.logic == .matchAny
+        logic = Self.normalizedLogic(for: preset.logic)
         selectedPresetId = preset.id
+    }
+
+    /// OR-group execution is not implemented yet, so any preset requesting
+    /// `.matchAny` is normalized to `.matchAll` on load (FEA-13). Pure and
+    /// static so it can be tested without hosting the SwiftUI view.
+    static func normalizedLogic(for storedLogic: QueryLogic) -> QueryLogic {
+        storedLogic == .matchAny ? .matchAll : storedLogic
     }
 
     private func removeRule(_ id: UUID) {
