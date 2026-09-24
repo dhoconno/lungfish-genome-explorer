@@ -187,5 +187,5 @@ Single source of truth for finding status (plan rule 9). Status: `open`, `verifi
 | PERF-17 | P1 | (new, measured) Genotype comparison matrix: 955 ms to build 40x96 visible cells, 350 ms full redraw | partial | Q1c,Q1d | d12957bff,abde7d24f | first-paint cell build ~707->~385 ms, redraw ~126->~93 ms; benchmark bypasses reuse queue (worst case); remaining floor = NSTextField per cell (custom-drawn cell deferred) |
 | PERF-18 | P1 | (new) CLIVariantCallingRunner.cancel deadlocked behind in-flight run | fixed | P6-A2 | a84cb151c | struct runner; cancellation tests 3x |
 | NEW-06 | P2 | EsViritu labels interleaved pairs Single-end and runs -p unpaired | open | | | live GUI |
-| NEW-07 | P1 | Selecting an annotation starts Update Annotation ops and rewrites genome.db; one stuck at 0% holds bundle lock | open | fix lane | | live GUI |
+| NEW-07 | P1 | Selecting an annotation starts Update Annotation ops and rewrites genome.db; one stuck at 0% holds bundle lock | fixed | NEW-07 lane | e24cacfe4 | no-op commit guard + AppDelegate unchanged-annotation guard + reload before complete; 27 tests |
 | DS-02 | P2 | Small contigs: padded fetch window spreads sample over whole contig; in-view share small | open | | | live GUI |
