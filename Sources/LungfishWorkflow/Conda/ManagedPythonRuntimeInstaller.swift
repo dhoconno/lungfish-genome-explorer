@@ -169,6 +169,28 @@ public struct ManagedPythonRuntimeReceipt: Sendable, Codable, Hashable {
         }
     }
 
+    func replacingInstalledFiles(_ replacements: [FileRecord]) -> Self {
+        let replacedPaths = Set(replacements.map(\.relativePath))
+        return Self(
+            requested: requested,
+            environmentPath: environmentPath,
+            pythonVersion: pythonVersion,
+            condaPackages: condaPackages,
+            requirements: requirements,
+            downloadedWheels: downloadedWheels,
+            installedDistributions: installedDistributions,
+            installedFiles: installedFiles.filter { !replacedPaths.contains($0.relativePath) } + replacements,
+            commands: commands,
+            versionProbe: versionProbe,
+            helpProbe: helpProbe,
+            startedAt: startedAt,
+            completedAt: completedAt,
+            wallTimeSeconds: wallTimeSeconds,
+            exitStatus: exitStatus,
+            stderr: stderr
+        )
+    }
+
     static func validRelativePath(_ path: String) -> Bool {
         let parts = path.split(separator: "/", omittingEmptySubsequences: false)
         return !path.isEmpty && !path.hasPrefix("/") && !path.contains("\\")
@@ -388,6 +410,9 @@ public struct ManagedPythonRuntimeInstaller: Sendable {
         _ = try await execute(pip + downloadArguments)
         _ = try await execute(pip + ["install", "--require-hashes", "--no-index", "--no-deps", "--force-reinstall", "--find-links", wheelhouse.path, "-r", requirementsURL.path])
         _ = try await execute(pip + ["check"])
+        if PrimerToolPortableLauncher.supports(toolID: executableName) {
+            try PrimerToolPortableLauncher.prepare(toolID: executableName, environmentURL: root)
+        }
         let inventoryResult = try await execute([
             python.path, "-I", "-c", Self.inventoryScript, root.path, requirementsURL.path,
         ])
@@ -422,13 +447,22 @@ public struct ManagedPythonRuntimeInstaller: Sendable {
         }
         let completed = now()
         try Task.checkCancellation()
+        let portableArtifacts = try PrimerToolPortableLauncher.supports(toolID: executableName)
+            ? PrimerToolPortableLauncher.artifacts(toolID: executableName, environmentURL: root).map {
+                ManagedPythonRuntimeReceipt.FileRecord(
+                    relativePath: $0.relativePath, sha256: $0.sha256, sizeBytes: $0.sizeBytes)
+            }
+            : []
         let receipt = ManagedPythonRuntimeReceipt(
             requested: spec, environmentPath: root.path,
             pythonVersion: Self.pythonVersion(from: ManagedPythonRuntimeReceipt.condaRecords(in: root)),
             condaPackages: ManagedPythonRuntimeReceipt.condaRecords(in: root),
             requirements: try ManagedPythonRuntimeReceipt.fileRecord(for: requirementsURL, relativeTo: root),
             downloadedWheels: wheels, installedDistributions: inventory.distributions,
-            installedFiles: inventory.files, commands: records,
+            installedFiles: inventory.files.filter {
+                !Set(portableArtifacts.map(\.relativePath)).contains($0.relativePath)
+            } + portableArtifacts,
+            commands: records,
             versionProbe: .init(argv: versionArgv, exitStatus: version.exitStatus, output: version.stdout + version.stderr),
             helpProbe: .init(argv: helpArgv, exitStatus: help.exitStatus, output: help.stdout + help.stderr),
             startedAt: started, completedAt: completed,

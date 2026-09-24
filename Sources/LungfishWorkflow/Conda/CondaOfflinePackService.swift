@@ -233,6 +233,14 @@ public struct CondaOfflinePackService {
             // destination environment lease. This resolves the targets while
             // avoiding a long-held lock for a malformed bundle.
             try validate(manifest: manifest, in: resolvedPackDirectory)
+            for environment in manifest.environments {
+                try validateImportedPrimerRuntime(
+                    packID: manifest.packID,
+                    environmentName: environment.name,
+                    environmentURL: resolvedPackDirectory.appendingPathComponent(
+                        environment.relativePath, isDirectory: true)
+                )
+            }
         } catch {
             do {
                 try writeFailureProvenanceWhileHoldingRootLock(
@@ -271,6 +279,7 @@ public struct CondaOfflinePackService {
         let destinationEnvsRoot = destinationCondaRoot.appendingPathComponent("envs", isDirectory: true)
         var installedEnvironments: [URL] = []
         var managedSourceReadinessProbes: [ManagedToolSourceRuntimeProbe] = []
+        var portableLauncherImports: [ParameterValue] = []
         var environmentMutations: [OfflineImportEnvironmentMutation] = []
 
         do {
@@ -305,6 +314,19 @@ public struct CondaOfflinePackService {
                 managedSourceReadinessProbes.append(
                     contentsOf: try await validateImportedManagedSourceOverlay(in: destination)
                 )
+                try validateImportedPrimerRuntime(
+                    packID: manifest.packID,
+                    environmentName: environment.name,
+                    environmentURL: destination
+                )
+                if let validation = try portableLauncherImportValidation(
+                    packID: manifest.packID,
+                    environmentName: environment.name,
+                    sourceEnvironmentURL: source,
+                    destinationEnvironmentURL: destination
+                ) {
+                    portableLauncherImports.append(validation)
+                }
                 installedEnvironments.append(destination)
             }
 
@@ -322,7 +344,8 @@ public struct CondaOfflinePackService {
                     destinationCondaRoot: destinationCondaRoot,
                     overwrite: overwrite,
                     probes: managedSourceReadinessProbes,
-                    attemptedProbe: nil
+                    attemptedProbe: nil,
+                    portableLauncherImports: portableLauncherImports
                 ),
                 outputDirectory: destinationCondaRoot,
                 start: start,
@@ -440,7 +463,8 @@ public struct CondaOfflinePackService {
         destinationCondaRoot: URL,
         overwrite: Bool,
         probes: [ManagedToolSourceRuntimeProbe],
-        attemptedProbe: ManagedToolSourceRuntimeProbe?
+        attemptedProbe: ManagedToolSourceRuntimeProbe?,
+        portableLauncherImports: [ParameterValue] = []
     ) -> [String: ParameterValue] {
         var parameters: [String: ParameterValue] = [
             "packID": .string(manifest.packID),
@@ -456,6 +480,7 @@ public struct CondaOfflinePackService {
                 "environmentNames": .array(manifest.environments.map { .string($0.name) }),
             ]),
             "managedSourceReadinessProbes": .array(probes.map(runtimeProbeParameterValue)),
+            "portableLauncherImports": .array(portableLauncherImports),
             "runtimeUser": .string(WorkflowRun.currentUser),
             "runtimeHostName": .string(ProcessInfo.processInfo.hostName),
         ]
@@ -613,6 +638,86 @@ public struct CondaOfflinePackService {
                 "Managed Bracken runtime probe failed after offline import: \(error.localizedDescription)"
             )
         }
+    }
+
+    private func validateImportedPrimerRuntime(
+        packID: String,
+        environmentName: String,
+        environmentURL: URL
+    ) throws {
+        guard let pack = PluginPack.builtInPack(id: packID),
+              let requirement = pack.toolRequirements.first(where: {
+                  $0.environment == environmentName
+              }) else { return }
+        if PrimerToolPortableLauncher.supports(toolID: requirement.id) {
+            do {
+                try PrimerToolPortableLauncher.validate(
+                    toolID: requirement.id, environmentURL: environmentURL)
+            } catch {
+                throw CondaOfflinePackError.invalidPack(
+                    "Imported \(requirement.displayName) portable launcher is not ready: \(error.localizedDescription)")
+            }
+        }
+        if let runtime = requirement.pythonRuntime {
+            let receiptURL = ManagedPythonRuntimeReceipt.receiptURL(
+                for: runtime, environmentURL: environmentURL)
+            guard let receipt = try? ManagedPythonRuntimeReceipt.load(from: receiptURL),
+                  receipt.validates(spec: runtime, environmentURL: environmentURL) else {
+                throw CondaOfflinePackError.invalidPack(
+                    "Imported \(requirement.displayName) managed Python runtime receipt is not ready.")
+            }
+        }
+    }
+
+    private func portableLauncherImportValidation(
+        packID: String,
+        environmentName: String,
+        sourceEnvironmentURL: URL,
+        destinationEnvironmentURL: URL
+    ) throws -> ParameterValue? {
+        guard let pack = PluginPack.builtInPack(id: packID),
+              let requirement = pack.toolRequirements.first(where: {
+                  $0.environment == environmentName
+              }),
+              PrimerToolPortableLauncher.supports(toolID: requirement.id) else { return nil }
+        let sourceArtifacts = try PrimerToolPortableLauncher.artifacts(
+            toolID: requirement.id, environmentURL: sourceEnvironmentURL)
+        let destinationArtifacts = try PrimerToolPortableLauncher.artifacts(
+            toolID: requirement.id, environmentURL: destinationEnvironmentURL)
+        let sourceByPath = Dictionary(
+            uniqueKeysWithValues: sourceArtifacts.map { ($0.relativePath, $0) })
+        let destinationByPath = Dictionary(
+            uniqueKeysWithValues: destinationArtifacts.map { ($0.relativePath, $0) })
+        let artifactRecords = sourceArtifacts.compactMap { source -> ParameterValue? in
+            guard let destination = destinationByPath[source.relativePath] else { return nil }
+            return .dictionary([
+                "relativePath": .string(source.relativePath),
+                "sourceSHA256": .string(source.sha256),
+                "sourceSizeBytes": .integer(Int(source.sizeBytes)),
+                "sourcePosixPermissions": .integer(source.posixPermissions),
+                "destinationSHA256": .string(destination.sha256),
+                "destinationSizeBytes": .integer(Int(destination.sizeBytes)),
+                "destinationPosixPermissions": .integer(destination.posixPermissions),
+                "action": .string(
+                    source.sha256 == destination.sha256 && source.sizeBytes == destination.sizeBytes
+                        ? "validated-copy" : "content-changed")
+            ])
+        }
+        guard sourceByPath.keys == destinationByPath.keys,
+              artifactRecords.count == sourceArtifacts.count,
+              artifactRecords.allSatisfy({ record in
+                  record.dictionaryValue?["action"] == .string("validated-copy")
+              }) else {
+            throw CondaOfflinePackError.invalidPack(
+                "Portable launcher artifacts changed while importing \(requirement.displayName).")
+        }
+        return .dictionary([
+            "toolID": .string(requirement.id),
+            "sourceEnvironmentPath": .string(sourceEnvironmentURL.standardizedFileURL.path),
+            "destinationEnvironmentPath": .string(destinationEnvironmentURL.standardizedFileURL.path),
+            "action": .string("validated-copy-after-archive-permission-normalization"),
+            "artifacts": .array(artifactRecords),
+        ])
     }
 
     private func writeProvenance(

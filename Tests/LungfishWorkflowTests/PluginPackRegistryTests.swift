@@ -403,19 +403,24 @@ final class PluginPackRegistryTests: XCTestCase {
         ])
     }
 
-    func testPCRPrimerDesignPackKeepsPinnedPrimer3BesidePrimalScheme3() throws {
+    func testPCRPrimerDesignPackDefinesFourPinnedToolsInDistinctEnvironments() throws {
         let manifest = try ManagedToolLock.loadFromBundle()
         let pack = try XCTUnwrap(PluginPack.activeOptionalPacks.first { $0.id == "pcr-primer-design" })
 
         XCTAssertEqual(pack.name, "PCR Primer Design")
         XCTAssertEqual(pack.category, "Specialized Workflows")
         XCTAssertTrue(pack.isActive)
-        XCTAssertEqual(pack.packages, ["primer3", "primalscheme3"])
+        XCTAssertEqual(pack.packages, ["primer3", "primalscheme3", "olivar", "varvamp"])
+        XCTAssertEqual(
+            Set(pack.toolRequirements.map(\.id)),
+            Set(["primer3", "primalscheme3", "olivar", "varvamp"])
+        )
+        XCTAssertEqual(Set(pack.toolRequirements.map(\.environment)).count, 4)
         XCTAssertTrue(pack.description.contains("Primer3"))
         XCTAssertTrue(pack.description.contains("PrimalScheme"))
 
         let requirement = try XCTUnwrap(pack.toolRequirements.first { $0.id == "primer3" })
-        XCTAssertEqual(pack.toolRequirements.count, 2)
+        XCTAssertEqual(pack.toolRequirements.count, 4)
         XCTAssertEqual(requirement.id, "primer3")
         XCTAssertEqual(requirement.environment, "primer3")
         XCTAssertEqual(requirement.installPackages, [
@@ -429,6 +434,26 @@ final class PluginPackRegistryTests: XCTestCase {
         XCTAssertEqual(requirement.smokeTest?.arguments, ["--about"])
         XCTAssertEqual(requirement.smokeTest?.acceptedExitCodes, [0])
         XCTAssertEqual(requirement.smokeTest?.requiredOutputSubstring, "libprimer3 release 2.6.1")
+
+        let olivar = try XCTUnwrap(pack.toolRequirements.first { $0.id == "olivar" })
+        XCTAssertEqual(olivar.environment, "olivar")
+        XCTAssertEqual(olivar.installPackages, ["bioconda::olivar=1.3.3=pyhdfd78af_3"])
+        XCTAssertEqual(olivar.version, "1.3.3")
+        XCTAssertEqual(olivar.executables, ["olivar"])
+        XCTAssertEqual(olivar.smokeTest?.arguments, ["--help"])
+        XCTAssertEqual(olivar.smokeTest?.timeoutSeconds, 60)
+        XCTAssertEqual(olivar.explicitLock?.resource, "olivar-osx-arm64-explicit.txt")
+        XCTAssertEqual(olivar.explicitLock?.sha256, "5d6b712936440e761f8366cf35b709db0a5d676efed728577af20f33a5f2510a")
+
+        let varvamp = try XCTUnwrap(pack.toolRequirements.first { $0.id == "varvamp" })
+        XCTAssertEqual(varvamp.environment, "varvamp")
+        XCTAssertEqual(varvamp.installPackages, ["bioconda::varvamp=1.3.2=pyhdfd78af_0"])
+        XCTAssertEqual(varvamp.version, "1.3.2")
+        XCTAssertEqual(varvamp.executables, ["varvamp"])
+        XCTAssertEqual(varvamp.smokeTest?.arguments, ["--help"])
+        XCTAssertEqual(varvamp.smokeTest?.timeoutSeconds, 60)
+        XCTAssertEqual(varvamp.explicitLock?.resource, "varvamp-osx-arm64-explicit.txt")
+        XCTAssertEqual(varvamp.explicitLock?.sha256, "c193411672d8a9a63e45a9431242707d42c23f1b562e89c3abd099aade200afd")
     }
 
     func testPCRPrimerDesignPackDefinesTypedPrimalScheme3PythonRuntime() throws {
@@ -475,6 +500,25 @@ final class PluginPackRegistryTests: XCTestCase {
         XCTAssertEqual(
             requirement.smokeTest?.requiredOutputSubstring,
             "PrimalScheme3-LGE version: 3.3.0+lge.5")
+    }
+
+    func testPrimerExplicitLocksRejectUnsafeURLsAndChecksumMismatch() throws {
+        let manifest = try ManagedToolLock.loadFromBundle()
+        let lock = try XCTUnwrap(manifest.explicitLock(
+            packID: "pcr-primer-design", toolID: "olivar"))
+        XCTAssertNoThrow(try lock.validatedResourceURL())
+        XCTAssertThrowsError(try lock.validateContents(Data("""
+        @EXPLICIT
+        http://conda.anaconda.org/bioconda/noarch/olivar.conda#8c8fd0a48a09f959210ee8024e721256
+        """.utf8)))
+        let mismatch = ManagedCondaExplicitLockSpec(
+            packID: lock.packID,
+            toolID: lock.toolID,
+            platform: lock.platform,
+            resource: lock.resource,
+            sha256: String(repeating: "0", count: 64)
+        )
+        XCTAssertThrowsError(try mismatch.validatedResourceURL())
     }
 
     func testExperimentalOptionalPacksAreExcludedFromReleaseVisiblePacks() {

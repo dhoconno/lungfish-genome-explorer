@@ -164,6 +164,140 @@ final class CondaOfflinePackServiceTests: XCTestCase {
         XCTAssertTrue(step.outputs.allSatisfy { $0.sha256 != nil && $0.sizeBytes != nil })
     }
 
+    func testCorruptPortablePrimerLauncherRollsBackOfflineImport() async throws {
+        let sourceRoot = tempRoot.appendingPathComponent("source-portable", isDirectory: true)
+        let sourceEnvironment = sourceRoot.appendingPathComponent("envs/varvamp", isDirectory: true)
+        let bin = sourceEnvironment.appendingPathComponent("bin", isDirectory: true)
+        try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
+        for name in ["python", "varvamp"] {
+            let executable = bin.appendingPathComponent(name)
+            try "#!/bin/sh\nexit 0\n".write(to: executable, atomically: true, encoding: .utf8)
+            try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
+        }
+        try PrimerToolPortableLauncher.prepare(
+            toolID: "varvamp", environmentURL: sourceEnvironment)
+        try "#!/bin/sh\nexit 0\n".write(
+            to: bin.appendingPathComponent("varvamp"), atomically: true, encoding: .utf8)
+
+        let pack = PluginPack(
+            id: "pcr-primer-design",
+            name: "PCR Primer Design",
+            description: "portable launcher rollback fixture",
+            sfSymbol: "testtube.2",
+            packages: ["varvamp"],
+            category: "Tests",
+            requirements: [
+                PackToolRequirement(
+                    id: "varvamp", displayName: "varVAMP", environment: "varvamp",
+                    installPackages: [], executables: ["varvamp"]),
+            ]
+        )
+        let exported = try await CondaOfflinePackService().exportPack(
+            pack: pack,
+            condaRoot: sourceRoot,
+            outputDirectory: tempRoot.appendingPathComponent("exports", isDirectory: true),
+            commandLine: ["lungfish-cli", "conda", "offline-export", "--pack", pack.id]
+        )
+
+        let destinationRoot = tempRoot.appendingPathComponent("destination-portable", isDirectory: true)
+        let knownGood = destinationRoot.appendingPathComponent("envs/varvamp/known-good")
+        try FileManager.default.createDirectory(
+            at: knownGood.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("known good\n".utf8).write(to: knownGood)
+
+        do {
+            _ = try await CondaOfflinePackService().installPack(
+                from: exported.packDirectory,
+                condaRoot: destinationRoot,
+                overwrite: true,
+                commandLine: ["lungfish-cli", "conda", "offline-install", exported.packDirectory.path]
+            )
+            XCTFail("A corrupt portable launcher must fail before the imported environment commits.")
+        } catch {
+            XCTAssertTrue(error.localizedDescription.contains("portable launcher"))
+        }
+        XCTAssertEqual(try String(contentsOf: knownGood, encoding: .utf8), "known good\n")
+        let provenanceURL = destinationRoot.appendingPathComponent(
+            CondaOfflinePackService.installFailureProvenanceFilename)
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let provenance = try decoder.decode(WorkflowRun.self, from: Data(contentsOf: provenanceURL))
+        XCTAssertEqual(provenance.status, .failed)
+        XCTAssertEqual(provenance.steps.first?.exitCode, 1)
+        XCTAssertTrue(provenance.steps.first?.outputs.allSatisfy {
+            $0.sha256 != nil && $0.sizeBytes != nil
+        } == true)
+    }
+
+    func testArchiveImportAcceptsPermissionNormalizationAndRecordsPortableHashes() async throws {
+        let sourceRoot = tempRoot.appendingPathComponent("source-portable-archive", isDirectory: true)
+        let sourceEnvironment = sourceRoot.appendingPathComponent("envs/varvamp", isDirectory: true)
+        let bin = sourceEnvironment.appendingPathComponent("bin", isDirectory: true)
+        try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
+        for name in ["python", "varvamp"] {
+            let executable = bin.appendingPathComponent(name)
+            try "#!/bin/sh\nexit 0\n".write(
+                to: executable, atomically: true, encoding: .utf8)
+            try FileManager.default.setAttributes(
+                [.posixPermissions: 0o775], ofItemAtPath: executable.path)
+        }
+        try PrimerToolPortableLauncher.prepare(
+            toolID: "varvamp", environmentURL: sourceEnvironment)
+
+        let pack = PluginPack(
+            id: "pcr-primer-design",
+            name: "PCR Primer Design",
+            description: "portable launcher archive fixture",
+            sfSymbol: "testtube.2",
+            packages: ["varvamp"],
+            category: "Tests",
+            requirements: [
+                PackToolRequirement(
+                    id: "varvamp", displayName: "varVAMP", environment: "varvamp",
+                    installPackages: [], executables: ["varvamp"]),
+            ]
+        )
+        let archive = tempRoot.appendingPathComponent("portable-varvamp.tgz")
+        _ = try await CondaOfflinePackService().exportPack(
+            pack: pack,
+            condaRoot: sourceRoot,
+            output: archive,
+            commandLine: ["lungfish-cli", "conda", "export-pack", "--pack", pack.id]
+        )
+
+        let destinationRoot = tempRoot.appendingPathComponent("destination-portable-archive")
+        let installed = try await CondaOfflinePackService().installPack(
+            from: archive,
+            condaRoot: destinationRoot,
+            overwrite: false,
+            commandLine: ["lungfish-cli", "conda", "offline-install", archive.path]
+        )
+        let destinationEnvironment = try XCTUnwrap(installed.installedEnvironments.first)
+        XCTAssertNoThrow(try PrimerToolPortableLauncher.validate(
+            toolID: "varvamp", environmentURL: destinationEnvironment))
+
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let provenance = try decoder.decode(
+            WorkflowRun.self, from: Data(contentsOf: installed.provenanceURL))
+        let records = try XCTUnwrap(
+            provenance.parameters["portableLauncherImports"]?.arrayValue)
+        let record = try XCTUnwrap(records.first?.dictionaryValue)
+        XCTAssertEqual(record["toolID"], .string("varvamp"))
+        XCTAssertEqual(
+            record["action"],
+            .string("validated-copy-after-archive-permission-normalization")
+        )
+        let artifacts = try XCTUnwrap(record["artifacts"]?.arrayValue)
+        XCTAssertEqual(artifacts.count, 3)
+        for artifact in artifacts {
+            let values = try XCTUnwrap(artifact.dictionaryValue)
+            XCTAssertEqual(values["sourceSHA256"], values["destinationSHA256"])
+            XCTAssertEqual(values["sourceSizeBytes"], values["destinationSizeBytes"])
+            XCTAssertEqual(values["action"], .string("validated-copy"))
+        }
+    }
+
     func testInstallWithoutOverwritePreservesExistingEnvironmentAndRecordsFinalState() async throws {
         let sourceCondaRoot = tempRoot.appendingPathComponent("source-no-overwrite", isDirectory: true)
         let sourceEnvironment = sourceCondaRoot.appendingPathComponent("envs/samtools", isDirectory: true)
