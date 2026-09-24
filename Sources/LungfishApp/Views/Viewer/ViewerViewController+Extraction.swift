@@ -98,7 +98,7 @@ extension SequenceViewerView {
 
         let chromLength = chromosomeLengthForAnnotation(annotation)
 
-        let request = ExtractionRequest(source: .annotation(annotation))
+        let request = ExtractionRequest.defaultAnnotationRequest(for: annotation)
 
         do {
             let result = try SequenceExtractor.extract(
@@ -126,7 +126,7 @@ extension SequenceViewerView {
         let records = annotations.compactMap { annotation -> String? in
             guard let provider = makeSequenceProvider(for: annotation) else { return nil }
             let chromLength = chromosomeLengthForAnnotation(annotation)
-            let request = ExtractionRequest(source: .annotation(annotation))
+            let request = ExtractionRequest.defaultAnnotationRequest(for: annotation)
             do {
                 let result = try SequenceExtractor.extract(
                     request: request,
@@ -154,7 +154,7 @@ extension SequenceViewerView {
         }
 
         let chromLength = chromosomeLengthForAnnotation(annotation)
-        let request = ExtractionRequest(source: .annotation(annotation))
+        let request = ExtractionRequest.defaultAnnotationRequest(for: annotation)
 
         do {
             let result = try SequenceExtractor.extract(
@@ -185,7 +185,7 @@ extension SequenceViewerView {
 
         let chromLength = chromosomeLengthForAnnotation(annotation)
 
-        let request = ExtractionRequest(source: .annotation(annotation))
+        let request = ExtractionRequest.defaultAnnotationRequest(for: annotation)
 
         do {
             let result = try SequenceExtractor.extract(
