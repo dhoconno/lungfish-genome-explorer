@@ -26,6 +26,22 @@ public enum MappingSummaryBuilder {
     /// metrics are streamed regardless of compressed BAM size.
     public static let sortedBAMMemoryGuardBytes: UInt64 = 2_147_483_648
 
+    /// samtools filter flags used everywhere LGE counts *mapped* reads rather
+    /// than alignment records: excludes unmapped, secondary and supplementary
+    /// alignments (as well as QC-fail and duplicate records, samtools
+    /// coverage's own defaults) so per-contig mapped-read counts share one
+    /// consistent primary-read numerator with the flagstat-derived
+    /// `mappedReads` (SCI-05).
+    static let primaryMappedReadExclusionFlags = "UNMAP,SECONDARY,SUPPLEMENTARY,QCFAIL,DUP"
+
+    /// samtools filter flags used to count primary *records* regardless of
+    /// mapped status (excludes only secondary and supplementary alignments).
+    /// This is the correct denominator for a mapped-read percentage: it
+    /// should equal flagstat's "primary" count. Previously this denominator
+    /// counted every alignment record, including unmapped, secondary and
+    /// supplementary ones (SCI-05).
+    static let primaryRecordExclusionFlags = "SECONDARY,SUPPLEMENTARY,QCFAIL,DUP"
+
     public static func build(
         sortedBAMURL: URL,
         totalReads: Int,
@@ -39,9 +55,13 @@ public enum MappingSummaryBuilder {
         let coverageOutput: String
         if readGroupIDs.isEmpty {
             effectiveTotalReads = totalReads
+            // Exclude supplementary alignments in addition to samtools coverage's
+            // own default filter (UNMAP, SECONDARY, QCFAIL, DUP), so `numreads`
+            // counts primary reads only and is comparable to `totalReads`
+            // (primary reads from flagstat). See SCI-05.
             let coverageResult = try await runner.run(
                 .samtools,
-                arguments: ["coverage", sortedBAMURL.path],
+                arguments: ["coverage", "--ff", Self.primaryMappedReadExclusionFlags, sortedBAMURL.path],
                 workingDirectory: sortedBAMURL.deletingLastPathComponent(),
                 timeout: timeout
             )
@@ -246,7 +266,10 @@ public enum MappingSummaryBuilder {
 
         let view = Process()
         view.executableURL = samtoolsPath
-        view.arguments = ["view", "-h", "-R", listURL.path, sortedBAMURL.path]
+        // Exclude supplementary alignments here too (SCI-05), matching the
+        // unfiltered path's `coverage --ff` so numreads means primary reads
+        // on both the read-group-filtered and unfiltered paths.
+        view.arguments = ["view", "-h", "-F", Self.primaryMappedReadExclusionFlags, "-R", listURL.path, sortedBAMURL.path]
         view.currentDirectoryURL = sortedBAMURL.deletingLastPathComponent()
         // This is an actual pipeline, not an assignment to a nil default stdin.
         view.standardOutput = input
@@ -309,9 +332,14 @@ public enum MappingSummaryBuilder {
     ) async throws -> Int {
         let samtoolsPath = try await runner.findTool(.samtools)
         return try await withReadGroupList(readGroupIDs) { listURL in
+            // Count primary reads only (exclude unmapped, secondary and
+            // supplementary), so this denominator is consistent with the
+            // unfiltered path's flagstat-derived `totalReads` and with the
+            // numerator produced by `runFilteredCoverageSynchronously` above
+            // (SCI-05). Previously this counted every alignment record.
             let output = try await runProcessCapturingOutput(
                 executableURL: samtoolsPath,
-                arguments: ["view", "-c", "-R", listURL.path, sortedBAMURL.path],
+                arguments: ["view", "-c", "-F", Self.primaryRecordExclusionFlags, "-R", listURL.path, sortedBAMURL.path],
                 workingDirectory: sortedBAMURL.deletingLastPathComponent(),
                 timeout: timeout
             )

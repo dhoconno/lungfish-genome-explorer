@@ -789,6 +789,58 @@ final class ManagedMappingPipelineTests: XCTestCase {
         }
     }
 
+    // MARK: - SCI-05: flagstat parsing reports primary reads, not alignment records
+
+    /// The worked example from the audit: 10 reads (8 mapped primaries, 2
+    /// unmapped), with 4 supplementary and 4 secondary records for the
+    /// mapped reads. `samtools flagstat` reports 18 alignment records total
+    /// (16 "mapped") but only 10 primary reads (8 "primary mapped"). LGE
+    /// must report 8/10 (80%), not 16/18 (88.9%).
+    func testParseFlagstatReportsPrimaryReadsNotAlignmentRecords() {
+        let flagstat = """
+        18 + 0 in total (QC-passed reads + QC-failed reads)
+        10 + 0 primary
+        4 + 0 secondary
+        4 + 0 supplementary
+        0 + 0 duplicates
+        0 + 0 primary duplicates
+        16 + 0 mapped (88.89% : N/A)
+        8 + 0 primary mapped (80.00% : N/A)
+        0 + 0 paired in sequencing
+        0 + 0 read1
+        0 + 0 read2
+        0 + 0 properly paired (N/A : N/A)
+        0 + 0 with itself and mate mapped
+        0 + 0 singletons (N/A : N/A)
+        0 + 0 with mate mapped to a different chr
+        0 + 0 with mate mapped to a different chr (mapQ>=5)
+        """
+
+        let (totalReads, mappedReads) = ManagedMappingPipeline.parseFlagstat(flagstat)
+
+        XCTAssertEqual(totalReads, 10, "Denominator must be primary reads (flagstat \"primary\"), not all 18 alignment records")
+        XCTAssertEqual(mappedReads, 8, "Numerator must be primary mapped reads (flagstat \"primary mapped\"), not all 16 mapped records")
+        XCTAssertEqual(Double(mappedReads) / Double(totalReads) * 100, 80.0, accuracy: 0.001)
+    }
+
+    /// Pre-1.9 samtools flagstat output has no "primary"/"primary mapped"
+    /// lines. Falling back to the record-count lines keeps the function
+    /// usable against that older output instead of reporting 0/0.
+    func testParseFlagstatFallsBackToRecordCountsWithoutPrimaryLines() {
+        let legacyFlagstat = """
+        10 + 0 in total (QC-passed reads + QC-failed reads)
+        0 + 0 secondary
+        0 + 0 supplementary
+        0 + 0 duplicates
+        8 + 0 mapped (80.00% : N/A)
+        """
+
+        let (totalReads, mappedReads) = ManagedMappingPipeline.parseFlagstat(legacyFlagstat)
+
+        XCTAssertEqual(totalReads, 10)
+        XCTAssertEqual(mappedReads, 8)
+    }
+
     private func makeRequest(
         tool: MappingTool,
         modeID: String? = nil,

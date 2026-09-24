@@ -18,7 +18,13 @@ final class MappingSummaryBuilderTests: XCTestCase {
         echo "$*" >> "\(log.path)"
         if [[ "$1 $2" == "view -c" ]]; then echo 4; exit 0; fi
         if [[ "$1" == "view" ]]; then
-          if [[ "$2" == "-R" ]]; then rg_list="$3"; elif [[ "$3" == "-R" ]]; then rg_list="$4"; else exit 91; fi
+          rg_list=""
+          prev=""
+          for arg in "$@"; do
+            if [[ "$prev" == "-R" ]]; then rg_list="$arg"; fi
+            prev="$arg"
+          done
+          [[ -n "$rg_list" ]] || exit 91
           grep -qx 'S1-A' "$rg_list" || exit 94
           grep -qx 'S1-B' "$rg_list" || exit 95
           printf '@HD\\tVN:1.6\\n'
@@ -44,9 +50,11 @@ final class MappingSummaryBuilderTests: XCTestCase {
         )
         XCTAssertEqual(try XCTUnwrap(summaries.first).mappedReadPercent, 25, accuracy: 0.001)
         let invocationLog = try String(contentsOf: log, encoding: .utf8)
-        XCTAssertTrue(invocationLog.contains("view -h -R"))
+        XCTAssertTrue(invocationLog.contains("view -h -F"))
+        XCTAssertTrue(invocationLog.contains("SUPPLEMENTARY"))
+        XCTAssertTrue(invocationLog.contains("-R"))
         XCTAssertTrue(invocationLog.contains("coverage -"))
-        XCTAssertTrue(invocationLog.contains("view -c -R"))
+        XCTAssertTrue(invocationLog.contains("view -c -F"))
     }
 
     func testBuildSummariesCombinesCoverageAndIdentityMetrics() throws {

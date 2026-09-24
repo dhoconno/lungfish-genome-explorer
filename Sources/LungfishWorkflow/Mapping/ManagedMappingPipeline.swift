@@ -1123,20 +1123,41 @@ public final class ManagedMappingPipeline: @unchecked Sendable {
         )
     }
 
-    private static func parseFlagstat(_ output: String) -> (Int, Int) {
-        var totalReads = 0
-        var mappedReads = 0
+    /// Parses `samtools flagstat` text output into primary-read counts.
+    ///
+    /// samtools flagstat reports both alignment-record counts ("in total",
+    /// " mapped (") and primary-read counts ("primary", "primary mapped").
+    /// The record counts include secondary and supplementary alignments,
+    /// which inflates mapping-rate displays for chimeric or multi-mapped
+    /// data (SCI-05). LGE reports the primary-read counts so "reads mapped"
+    /// means reads, not alignment records. Falls back to the record-count
+    /// lines only if a flagstat build predates the "primary" lines
+    /// (samtools < 1.9).
+    static func parseFlagstat(_ output: String) -> (totalReads: Int, mappedReads: Int) {
+        var totalRecords = 0
+        var mappedRecords = 0
+        var primaryReads: Int?
+        var primaryMappedReads: Int?
 
         for line in output.split(separator: "\n") {
             let trimmed = line.trimmingCharacters(in: .whitespaces)
             if trimmed.contains("in total") {
-                totalReads = Int(trimmed.split(separator: " ").first ?? "0") ?? 0
+                totalRecords = Int(trimmed.split(separator: " ").first ?? "0") ?? 0
+            } else if trimmed.contains("primary mapped") {
+                primaryMappedReads = Int(trimmed.split(separator: " ").first ?? "0") ?? 0
+            } else if trimmed.contains("primary") && !trimmed.contains("primary duplicates") {
+                primaryReads = Int(trimmed.split(separator: " ").first ?? "0") ?? 0
             } else if trimmed.contains(" mapped (") && !trimmed.contains("primary mapped") {
-                mappedReads = Int(trimmed.split(separator: " ").first ?? "0") ?? 0
+                mappedRecords = Int(trimmed.split(separator: " ").first ?? "0") ?? 0
             }
         }
 
-        return (totalReads, mappedReads)
+        if let primaryReads, let primaryMappedReads {
+            return (primaryReads, primaryMappedReads)
+        }
+        // Pre-1.9 samtools flagstat has no "primary" lines; record counts
+        // are the best available approximation in that case.
+        return (totalRecords, mappedRecords)
     }
 
     private func fileFormat(for url: URL) -> FileFormat {
