@@ -1,4 +1,4 @@
-# Captured from Lungfish Preview 2026.9.13 with capture-window.sh (2026-09 campaign).
+# Captured from Lungfish Preview 2026.9.40 with capture-window.sh (2026-09-24 manual review).
 # App state: the Inspector View Settings, Reads tab, with chr20 reference bundle selected
 id: view-settings-reads-tab
 chapter: 04-alignments/02-reading-an-alignment
@@ -27,10 +27,10 @@ steps:
 crop:
   mode: region
   region:
-  - 1143
-  - 55
-  - 325
-  - 800
+  - 1112
+  - 455
+  - 288
+  - 425
 post:
   retina: true
   format: png

@@ -16,7 +16,7 @@ shots:
   - id: genotype-call-evidence
     caption: "The selected sample's header metrics in the detail pane beside the Inspector's Selection panel, which lists the sample's allele targets as Read support and Allele field pairs."
   - id: genotype-inspector-display
-    caption: "The Inspector's Genotype Display section with the Alleles and Samples filter fields, the Min reads and Min percent controls, the Percent Basis picker, and the Cell Color choice."
+    caption: "The Inspector's Genotype Display section with the Alleles and Samples filter fields, the Min reads, Min percent, and Seen in ≥ N% of animals controls, the Percent Basis picker set to Source Locus, and the Cell Color choice."
 illustrations: []
 glossary_refs: [alignment, allele, allele-target, bundle, cohort, genotype, genotype-matrix, haplotype, homozygous, inspector, ipd-mhc, locus, mhc, miseq, operations-panel, quality-control, read, retained-read, smart-cohort]
 features_refs: [viewport.genotype-matrix]

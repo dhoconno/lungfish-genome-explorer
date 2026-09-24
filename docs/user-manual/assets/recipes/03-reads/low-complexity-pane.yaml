@@ -1,4 +1,4 @@
-# Captured from Lungfish Preview 2026.9.13 with capture-window.sh (2026-09 campaign).
+# Captured from Lungfish Preview 2026.9.40 with capture-window.sh (2026-09-24 manual review).
 # App state: The Low-Complexity Filter pane with the Advanced disclosure open on Window and K-mer.
 id: low-complexity-pane
 chapter: 03-reads/05-decontamination
@@ -28,10 +28,10 @@ steps:
 crop:
   mode: region
   region:
-  - 242
-  - 102
-  - 982
-  - 696
+  - 211
+  - 100
+  - 974
+  - 699
 post:
   retina: true
   format: png
