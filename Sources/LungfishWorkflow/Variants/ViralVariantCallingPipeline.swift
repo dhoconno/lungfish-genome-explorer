@@ -93,6 +93,7 @@ public enum ViralVariantCallingPipelineError: Error, LocalizedError, Equatable {
     case normalizationFailed(String)
     case compressionFailed(String)
     case indexingFailed(String)
+    case reservedAdvancedArgument(String)
 
     public var errorDescription: String? {
         switch self {
@@ -116,6 +117,8 @@ public enum ViralVariantCallingPipelineError: Error, LocalizedError, Equatable {
             return "Failed to bgzip-compress the normalized VCF: \(detail)"
         case .indexingFailed(let detail):
             return "Failed to create the tabix index: \(detail)"
+        case .reservedAdvancedArgument(let message):
+            return message
         }
     }
 }
@@ -135,6 +138,11 @@ public struct ViralVariantCallingPipeline: Sendable {
         let advancedOptions: String?
         let advancedArguments: [String]?
         let extraArgs: String?
+        /// bcftools only: the `--ploidy` value actually passed to `bcftools call`.
+        let ploidy: Int?
+        /// bcftools only: `"explicit"` when the user chose it, otherwise the
+        /// `VariantCallingPloidyInference.Basis` that derived it.
+        let ploidyBasis: String?
     }
 
     public typealias ProgressHandler = @Sendable (Double, String) -> Void
@@ -173,7 +181,33 @@ public struct ViralVariantCallingPipeline: Sendable {
         self.callerExecutor = callerExecutor
     }
 
+    /// The ploidy handed to `bcftools call`: the request's explicit choice,
+    /// or the manifest-derived default. Meaningless for the other callers.
+    public var resolvedPloidy: VariantCallingPloidy {
+        request.ploidy ?? VariantCallingPloidyDefaults.defaultPloidy(for: preflight.manifest)
+    }
+
+    private var resolvedPloidyBasis: String {
+        if request.ploidy != nil {
+            return "explicit"
+        }
+        return VariantCallingPloidyDefaults.infer(for: preflight.manifest).basis.rawValue
+    }
+
+    /// Rejects a bcftools `--ploidy` smuggled in through Extra arguments.
+    /// Ploidy has a dedicated setting and the two must not compete (see
+    /// `VariantCallingPloidy.reservedExtraArgumentMessage`).
+    private func validateAdvancedArguments() throws {
+        guard request.caller == .bcftools else { return }
+        if VariantCallingPloidy.extraArgumentsSetPloidy(request.advancedArguments) {
+            throw ViralVariantCallingPipelineError.reservedAdvancedArgument(
+                VariantCallingPloidy.reservedExtraArgumentMessage
+            )
+        }
+    }
+
     public func buildExecutionPlan() throws -> ViralVariantCallingExecutionPlan {
+        try validateAdvancedArguments()
         let workspaceURL = stagingRoot.appendingPathComponent("workspace", isDirectory: true)
         let inputsURL = workspaceURL.appendingPathComponent("inputs", isDirectory: true)
         let outputsURL = workspaceURL.appendingPathComponent("outputs", isDirectory: true)
@@ -1524,11 +1558,15 @@ public struct ViralVariantCallingPipeline: Sendable {
         ]
     }
 
+    /// `--ploidy` is haploid for viral and bacterial references (SCI-04) and
+    /// diploid for a human or other eukaryotic reference; see
+    /// `VariantCallingPloidyDefaults` for how the default is derived and
+    /// `validateAdvancedArguments` for why Extra arguments cannot set it.
     private func bcftoolsCallArguments(plan: ViralVariantCallingExecutionPlan) -> [String] {
         ["call"]
             + request.advancedArguments
             + [
-                "--ploidy", "1",
+                "--ploidy", resolvedPloidy.commandLineValue,
                 "-mv",
                 "-Ov",
                 "-o", plan.rawVCFURL.path,
@@ -1540,6 +1578,7 @@ public struct ViralVariantCallingPipeline: Sendable {
         appliedMinimumDepth: Int?
     ) -> String {
         let isIvar = request.caller == .ivar
+        let isBcftools = request.caller == .bcftools
         let payload = CallerParametersPayload(
             caller: request.caller.rawValue,
             threads: request.threads,
@@ -1553,7 +1592,9 @@ public struct ViralVariantCallingPipeline: Sendable {
             medakaModel: request.medakaModel,
             advancedOptions: AdvancedCommandLineOptions.join(request.advancedArguments),
             advancedArguments: request.advancedArguments,
-            extraArgs: AdvancedCommandLineOptions.join(request.advancedArguments)
+            extraArgs: AdvancedCommandLineOptions.join(request.advancedArguments),
+            ploidy: isBcftools ? resolvedPloidy.rawValue : nil,
+            ploidyBasis: isBcftools ? resolvedPloidyBasis : nil
         )
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]

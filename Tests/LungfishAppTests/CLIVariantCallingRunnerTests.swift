@@ -108,6 +108,25 @@ final class CLIVariantCallingRunnerTests: XCTestCase {
         XCTAssertFalse(arguments.contains("--advanced-options"))
     }
 
+    func testBuildCLIArgumentsIncludesBcftoolsPloidyOnlyWhenSet() {
+        let diploid = BundleVariantCallingRequest(
+            bundleURL: URL(fileURLWithPath: "/tmp/Test Bundle.lungfishref"),
+            alignmentTrackID: "aln-1",
+            caller: .bcftools,
+            outputTrackName: "Sample 1 • bcftools",
+            ploidy: .diploid
+        )
+        let derived = BundleVariantCallingRequest(
+            bundleURL: URL(fileURLWithPath: "/tmp/Test Bundle.lungfishref"),
+            alignmentTrackID: "aln-1",
+            caller: .bcftools,
+            outputTrackName: "Sample 1 • bcftools"
+        )
+
+        XCTAssertTrue(CLIVariantCallingRunner.buildCLIArguments(request: diploid).containsSequence(["--ploidy", "2"]))
+        XCTAssertFalse(CLIVariantCallingRunner.buildCLIArguments(request: derived).contains("--ploidy"))
+    }
+
     func testBuildCLIArgumentsIncludesIvarSpecificOptions() {
         let request = BundleVariantCallingRequest(
             bundleURL: URL(fileURLWithPath: "/tmp/Test Bundle.lungfishref"),

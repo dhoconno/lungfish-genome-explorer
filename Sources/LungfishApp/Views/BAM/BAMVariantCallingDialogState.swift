@@ -42,6 +42,16 @@ final class BAMVariantCallingDialogState {
     var ivarIgnoreStrandBias: Bool
     var medakaModel: String
     var advancedOptionsText: String
+
+    /// Genotype ploidy for bcftools, the one caller here that writes
+    /// genotypes. Seeded from the bundle manifest (see `inferredPloidy`) and
+    /// shown only while bcftools is selected.
+    var ploidy: VariantCallingPloidy
+
+    /// What LGE derived for this bundle and why, for the caption under the
+    /// Ploidy control.
+    let inferredPloidy: VariantCallingPloidyInference
+
     private(set) var generatedTrackID: String
     private(set) var pendingRequest: BundleVariantCallingRequest?
     private(set) var pendingGATKRequest: GATKPipelineExecutionRequest?
@@ -86,6 +96,9 @@ final class BAMVariantCallingDialogState {
         self.ivarIgnoreStrandBias = true
         self.medakaModel = ""
         self.advancedOptionsText = ""
+        let inference = VariantCallingPloidyDefaults.infer(for: bundle.manifest)
+        self.inferredPloidy = inference
+        self.ploidy = inference.ploidy
         self.generatedTrackID = Self.makeTrackID()
         self.pendingRequest = nil
         self.pendingGATKRequest = nil
@@ -166,6 +179,10 @@ final class BAMVariantCallingDialogState {
             return advancedOptionsParseError
         }
 
+        if let reservedPloidyArgumentMessage {
+            return reservedPloidyArgumentMessage
+        }
+
         if selectedToolID == BAMVariantCallingToolID.gatkHaplotypeCaller.rawValue {
             return "Ready to run GATK HaplotypeCaller on \(selectedAlignmentTrack?.name ?? "the selected alignment")."
         }
@@ -177,7 +194,7 @@ final class BAMVariantCallingDialogState {
         case .lofreq:
             return "Ready to run LoFreq on \(selectedAlignmentTrack?.name ?? "the selected alignment")."
         case .bcftools:
-            return "Ready to run bcftools mpileup/call on \(selectedAlignmentTrack?.name ?? "the selected alignment")."
+            return "Ready to run bcftools mpileup/call (\(ploidy.displayName.lowercased())) on \(selectedAlignmentTrack?.name ?? "the selected alignment")."
         case .ivar:
             if let validationMessage = ivarThresholdValidationMessage {
                 return validationMessage
@@ -207,6 +224,7 @@ final class BAMVariantCallingDialogState {
         guard trimmedMinimumAlleleFrequency.isEmpty || minimumAlleleFrequency != nil else { return false }
         guard trimmedMinimumDepth.isEmpty || minimumDepth != nil else { return false }
         guard advancedOptionsParseError == nil else { return false }
+        guard reservedPloidyArgumentMessage == nil else { return false }
 
         if selectedToolID == BAMVariantCallingToolID.gatkHaplotypeCaller.rawValue {
             return true
@@ -285,7 +303,8 @@ final class BAMVariantCallingDialogState {
             ivarConsensusAF: ivarConsensusAF,
             ivarMergeAFThreshold: ivarMergeAFThreshold,
             ivarBadQualityThreshold: ivarBadQualityThreshold,
-            ivarIgnoreStrandBias: ivarIgnoreStrandBias
+            ivarIgnoreStrandBias: ivarIgnoreStrandBias,
+            ploidy: selectedCaller == .bcftools ? ploidy : nil
         )
     }
 
@@ -359,6 +378,17 @@ final class BAMVariantCallingDialogState {
         } catch {
             return error.localizedDescription
         }
+    }
+
+    /// bcftools ploidy is set by the Ploidy control, never by Extra
+    /// arguments, so a `--ploidy` typed there is refused rather than
+    /// silently losing to (or overriding) the control.
+    private var reservedPloidyArgumentMessage: String? {
+        guard selectedToolID == ViralVariantCaller.bcftools.rawValue,
+              VariantCallingPloidy.extraArgumentsSetPloidy(parsedAdvancedOptions) else {
+            return nil
+        }
+        return VariantCallingPloidy.reservedExtraArgumentMessage
     }
 
     private var minimumAlleleFrequency: Double? {

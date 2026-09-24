@@ -693,6 +693,14 @@ public enum LungfishHelpContent {
         provenanceRelevant: true
     )
 
+    public static let bamVariantPloidy = HelpItem(
+        id: "workflow.bam.variantCalling.ploidy",
+        summary: "Haploid for a virus or bacterium, Diploid for a human or other eukaryotic reference.",
+        detail: "Passed to bcftools call as --ploidy. Haploid calling on a diploid sample drops most heterozygous sites. The default is derived from the bundle's organism metadata and the value used is written with command provenance.",
+        audience: .analyst,
+        provenanceRelevant: true
+    )
+
     public static let bamVariantIvarPrimerTrim = HelpItem(
         id: "workflow.bam.variantCalling.ivarPrimerTrim",
         summary: "Mark only if primers were removed from this exact BAM.",
@@ -967,6 +975,7 @@ public enum LungfishHelpContent {
         bamVariantAlignmentTrack,
         bamVariantOutputTrack,
         bamVariantThresholds,
+        bamVariantPloidy,
         bamVariantIvarPrimerTrim,
         bamVariantOntModel,
         bamVariantIvarConsensusAF,

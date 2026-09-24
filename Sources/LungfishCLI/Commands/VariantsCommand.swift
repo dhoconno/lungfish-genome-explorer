@@ -841,6 +841,12 @@ extension VariantsCommand {
         var ivarApplyStrandBias: Bool = false
 
         @Option(
+            name: .customLong("ploidy"),
+            help: "bcftools genotype ploidy: 1 (haploid, for viral and bacterial references) or 2 (diploid, for human and other eukaryotic references). Defaults to a value derived from the bundle's organism metadata, falling back to 1."
+        )
+        var ploidy: Int?
+
+        @Option(
             name: [.customLong("extra-args"), .customLong("advanced-options")],
             parsing: .unconditional,
             help: "Additional caller arguments, written exactly as they should be passed to the underlying tool"
@@ -896,6 +902,7 @@ extension VariantsCommand {
             let bundleURL = URL(fileURLWithPath: bundlePath)
             let resolvedCaller = try parseCaller()
             let advancedArguments = try parseAdvancedOptions()
+            let resolvedPloidy = try parsePloidy(caller: resolvedCaller, advancedArguments: advancedArguments)
             let initialTrackName = normalizedOutputTrackName(fallback: resolvedCaller.displayName)
             let initialRequest = BundleVariantCallingRequest(
                 bundleURL: bundleURL,
@@ -911,7 +918,8 @@ extension VariantsCommand {
                 ivarConsensusAF: ivarConsensusAF,
                 ivarMergeAFThreshold: ivarMergeAFThreshold,
                 ivarBadQualityThreshold: ivarBadQualityThreshold,
-                ivarIgnoreStrandBias: !ivarApplyStrandBias
+                ivarIgnoreStrandBias: !ivarApplyStrandBias,
+                ploidy: resolvedPloidy
             )
 
             emitSimpleEvent(event: "runStart", progress: 0.0, message: "Starting \(resolvedCaller.displayName) variant calling", caller: resolvedCaller.rawValue, emit: emitEvent)
@@ -936,7 +944,8 @@ extension VariantsCommand {
                     ivarConsensusAF: ivarConsensusAF,
                     ivarMergeAFThreshold: ivarMergeAFThreshold,
                     ivarBadQualityThreshold: ivarBadQualityThreshold,
-                    ivarIgnoreStrandBias: !ivarApplyStrandBias
+                    ivarIgnoreStrandBias: !ivarApplyStrandBias,
+                    ploidy: resolvedPloidy
                 )
                 emitSimpleEvent(event: "preflightComplete", progress: 0.08, message: "Preflight checks passed", caller: resolvedCaller.rawValue, emit: emitEvent)
 
@@ -1127,6 +1136,26 @@ extension VariantsCommand {
             }
         }
 
+        /// `--ploidy` applies to bcftools alone and must not also arrive
+        /// through `--extra-args`, where it would compete with the dedicated
+        /// flag (the dialog's Ploidy setting reaches here as `--ploidy`).
+        private func parsePloidy(
+            caller: ViralVariantCaller,
+            advancedArguments: [String]
+        ) throws -> VariantCallingPloidy? {
+            if caller == .bcftools, VariantCallingPloidy.extraArgumentsSetPloidy(advancedArguments) {
+                throw ValidationError(VariantCallingPloidy.reservedExtraArgumentMessage)
+            }
+            guard let ploidy else { return nil }
+            guard caller == .bcftools else {
+                throw ValidationError("--ploidy applies only to --caller bcftools; \(caller.displayName) reports allele fractions rather than genotypes.")
+            }
+            guard let value = VariantCallingPloidy(rawValue: ploidy) else {
+                throw ValidationError("--ploidy must be 1 (haploid) or 2 (diploid), not \(ploidy).")
+            }
+            return value
+        }
+
         private func normalizedOutputTrackName(fallback: String) -> String {
             let trimmed = outputTrackName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             return trimmed.isEmpty ? fallback : trimmed
@@ -1162,6 +1191,9 @@ extension VariantsCommand {
             if ivarApplyStrandBias {
                 command.append("--ivar-no-ignore-strand-bias")
             }
+            if let ploidy {
+                command.append(contentsOf: ["--ploidy", String(ploidy)])
+            }
             if !advancedOptions.isEmpty {
                 command.append(contentsOf: ["--extra-args", advancedOptions])
             }
@@ -1192,6 +1224,7 @@ extension VariantsCommand {
                 "ivarMergeAFThreshold": String(ivarMergeAFThreshold),
                 "ivarBadQualityThreshold": String(ivarBadQualityThreshold),
                 "ivarIgnoreStrandBias": String(!ivarApplyStrandBias),
+                "ploidy": caller == .bcftools ? (ploidy.map { String($0) } ?? "derived-from-bundle") : "not-applicable",
                 "outputFormat": globalOptions.outputFormat.rawValue,
                 "quiet": String(globalOptions.quiet),
                 "containerRuntime": "none"
