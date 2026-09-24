@@ -386,7 +386,7 @@ final class DetachedAlignmentViewerTests: XCTestCase {
         )
         let controller = ClassifierAlignmentEvidenceViewportController(validator: validator)
         controller.display(first)
-        for _ in 0..<100 where controller.viewer.viewerView.testDetachedAlignmentSource == nil { await Task.yield() }
+        await waitForDetachedSource(controller)
         XCTAssertEqual(controller.viewer.viewerView.testDetachedAlignmentSource?.identityURL, first.bamURL)
 
         controller.display(second)
@@ -443,9 +443,7 @@ final class DetachedAlignmentViewerTests: XCTestCase {
         )
         let controller = ClassifierAlignmentEvidenceViewportController(validator: validator)
         controller.display(request)
-        for _ in 0..<100 where controller.viewer.viewerView.testDetachedAlignmentSource == nil {
-            await Task.yield()
-        }
+        await waitForDetachedSource(controller)
         guard controller.viewer.viewerView.testDetachedAlignmentSource != nil else {
             return XCTFail("Validated detached source was not installed")
         }
@@ -782,5 +780,18 @@ private final class DetachedEvidenceFiles {
         let index = directory.appendingPathComponent("\(name).bam.bai")
         try Data([1]).write(to: bam); try Data([2]).write(to: index)
         return try .init(workflow: .taxTriage, resultIdentity: .init(stableID: name, finalResultURL: directory, provenanceID: name), bamURL: bam, index: .init(url: index, kind: .bai), sample: .init(canonicalID: name), contig: .init(name: "chr1", expectedLength: 4), referenceCandidate: nil, presentation: .init(workflowLabel: "T", resultLabel: name, sampleLabel: name, contigLabel: "chr1"))
+    }
+}
+
+@MainActor
+private func waitForDetachedSource(
+    _ controller: ClassifierAlignmentEvidenceViewportController,
+    timeout: Duration = .seconds(5)
+) async {
+    // Validation runs off the main actor, so a fixed number of yields is not
+    // enough under parallel load. Poll with a wall-clock bound instead.
+    let deadline = ContinuousClock.now + timeout
+    while controller.viewer.viewerView.testDetachedAlignmentSource == nil, ContinuousClock.now < deadline {
+        try? await Task.sleep(for: .milliseconds(10))
     }
 }

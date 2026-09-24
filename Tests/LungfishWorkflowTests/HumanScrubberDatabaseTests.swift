@@ -241,7 +241,12 @@ final class HumanScrubberDatabaseTests: XCTestCase {
         XCTAssertEqual(run.steps.map(\.toolName), ["URLSession", "URLSession", "CryptoKit"])
         XCTAssertEqual(run.steps.first?.outputs.first?.path, installed.path)
         XCTAssertEqual(run.steps.first?.outputs.first?.sizeBytes, UInt64(payload.count))
-        XCTAssertEqual(UserDefaults.standard.string(forKey: "database.human-scrubber.overrideFilename"), installed.lastPathComponent)
+        // Read the same preferences store DatabaseRegistry writes to (the
+        // identity-scoped suite), not UserDefaults.standard.
+        XCTAssertEqual(
+            LungfishAppIdentity.current.preferences.string(forKey: "database.human-scrubber.overrideFilename"),
+            installed.lastPathComponent
+        )
     }
 
     func testManagedDatabaseInstallWritesCanonicalProvenanceEnvelope() async throws {
