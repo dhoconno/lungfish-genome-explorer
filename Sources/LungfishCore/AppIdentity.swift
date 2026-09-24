@@ -198,9 +198,13 @@ enum RuntimeAppIdentityResolver {
             if let embedded {
                 guard embedded == enclosing else { throw LungfishAppIdentityError.invalidMetadata }
             } else if enclosing.isFork { throw LungfishAppIdentityError.invalidMetadata }
+            // A command-line tool bundled inside an app follows that app: the
+            // Preview app's lungfish-cli sees what the Preview app installed
+            // under ~/.lungfish, and the Debug app's CLI sees ~/.lungfish-debug.
+            return enclosing
         }
-        // Historical upstream command-line processes keep Stable state, including
-        // a CLI run from an upstream Debug/Preview app. Forks never take this path.
+        // A standalone upstream command-line process keeps Stable state.
+        // Forks never take this path.
         return embedded?.isFork == true ? embedded! : .stable
     }
 

@@ -113,8 +113,10 @@ public final class ManagedStorageConfigStore: @unchecked Sendable {
         currentLocation(environment: environmentProvider())
     }
 
-    /// Upstream CLIs may use Stable identity. Every GUI channel passes its
-    /// resolved storage explicitly so child workflows use the same dependencies.
+    /// A standalone upstream CLI uses Stable identity, while a CLI bundled inside
+    /// an app follows that app's channel. Every GUI channel still passes its
+    /// resolved storage explicitly so child workflows use the same dependencies
+    /// even when a custom root or a borrowed Preview root is in effect.
     public func subprocessEnvironment() -> [String: String] {
         subprocessEnvironment(environment: environmentProvider())
     }
