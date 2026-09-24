@@ -88,11 +88,26 @@ extension NaoMgsDatabase {
             sample, hit_count
         ) VALUES (?, ?)
         """
+        // A 'fasta' (real, measured) length always wins over an
+        // 'alignment-extent' (fallback) length from another staged sample,
+        // regardless of which is numerically larger. Only when both sides
+        // share the same source does the larger extent win (SCI-09).
         let mergeReferenceLengthSQL = """
-        INSERT INTO reference_lengths (accession, length)
-        VALUES (?, ?)
+        INSERT INTO reference_lengths (accession, length, source)
+        VALUES (?, ?, ?)
         ON CONFLICT(accession) DO UPDATE
-        SET length = MAX(reference_lengths.length, excluded.length)
+        SET length = CASE
+                WHEN excluded.source = 'fasta' AND reference_lengths.source != 'fasta'
+                    THEN excluded.length
+                WHEN reference_lengths.source = 'fasta' AND excluded.source != 'fasta'
+                    THEN reference_lengths.length
+                ELSE MAX(reference_lengths.length, excluded.length)
+            END,
+            source = CASE
+                WHEN excluded.source = 'fasta' OR reference_lengths.source = 'fasta'
+                    THEN 'fasta'
+                ELSE excluded.source
+            END
         """
 
         var insertTaxonStmt: OpaquePointer?
@@ -263,7 +278,7 @@ extension NaoMgsDatabase {
         into mergedDB: OpaquePointer,
         insertStmt: OpaquePointer?
     ) throws {
-        let selectSQL = "SELECT accession, length FROM reference_lengths"
+        let selectSQL = "SELECT accession, length, source FROM reference_lengths"
         try withReadOnlySQLiteDatabase(at: stageInput.databaseURL) { stageDB in
             var selectStmt: OpaquePointer?
             guard sqlite3_prepare_v2(stageDB, selectSQL, -1, &selectStmt, nil) == SQLITE_OK else {
@@ -277,6 +292,9 @@ extension NaoMgsDatabase {
 
                 naoBindText(insertStmt, 1, String(cString: sqlite3_column_text(selectStmt, 0)))
                 sqlite3_bind_int64(insertStmt, 2, sqlite3_column_int64(selectStmt, 1))
+                let source = sqlite3_column_text(selectStmt, 2).map { String(cString: $0) }
+                    ?? NaoMgsReferenceLengthSource.alignmentExtent.rawValue
+                naoBindText(insertStmt, 3, source)
 
                 guard sqlite3_step(insertStmt) == SQLITE_DONE else {
                     throw NaoMgsDatabaseError.createFailed("Merged reference length insert failed for \(stageInput.databaseURL.lastPathComponent): \(String(cString: sqlite3_errmsg(mergedDB)))")

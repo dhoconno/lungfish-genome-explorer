@@ -1112,7 +1112,20 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
                 from: NSNumber(value: accessionSummary.referenceLength),
                 number: .decimal
             )
-            let coveragePct = String(format: "%.0f%%", accessionSummary.coverageFraction * 100)
+            // SCI-09: coverage_fraction is only a real breadth-of-coverage
+            // measurement when reference_length came from the actual
+            // reference FASTA. When references were never fetched (offline
+            // import, or a withdrawn accession), the stored length is only
+            // the furthest alignment end, which always yields 100% coverage
+            // for the reads that produced it — an inflated, not measured,
+            // number. Show it as unavailable instead of a false precision.
+            let coveragePct: String
+            switch accessionSummary.referenceLengthSource {
+            case .fasta:
+                coveragePct = String(format: "%.0f%%", accessionSummary.coverageFraction * 100)
+            case .alignmentExtent:
+                coveragePct = "coverage unavailable (reference not fetched)"
+            }
 
             // Accession button — clickable link to GenBank, with context menu
             let accessionButton = NaoMgsContentButton(
@@ -1147,8 +1160,15 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
             accessionButton.menu = accMenu
 
             // Stats label (non-selectable, informational)
+            let coverageDetail: String
+            switch accessionSummary.referenceLengthSource {
+            case .fasta:
+                coverageDetail = "\(coveredBP) / \(refLenStr) bp covered (\(coveragePct))"
+            case .alignmentExtent:
+                coverageDetail = "\(coveredBP) bp covered \u{2014} \(coveragePct)"
+            }
             let statsLabel = NSTextField(
-                labelWithString: "\(uniqueReadCount) unique / \(readCount) total  \u{2022}  \(coveredBP) / \(refLenStr) bp covered (\(coveragePct))"
+                labelWithString: "\(uniqueReadCount) unique / \(readCount) total  \u{2022}  \(coverageDetail)"
             )
             statsLabel.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
             statsLabel.textColor = .secondaryLabelColor

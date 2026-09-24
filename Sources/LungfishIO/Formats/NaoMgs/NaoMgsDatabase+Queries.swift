@@ -229,7 +229,7 @@ extension NaoMgsDatabase {
         // Use pre-computed accession_summaries table (fast path)
         let sql = """
         SELECT accession, read_count, unique_read_count, reference_length,
-               covered_base_pairs, coverage_fraction
+               covered_base_pairs, coverage_fraction, reference_length_source
         FROM accession_summaries
         WHERE sample = ? AND tax_id = ?
         ORDER BY read_count DESC
@@ -247,13 +247,16 @@ extension NaoMgsDatabase {
 
         var results: [NaoMgsAccessionSummary] = []
         while sqlite3_step(stmt) == SQLITE_ROW {
+            let sourceRaw = sqlite3_column_text(stmt, 6).map { String(cString: $0) }
             results.append(NaoMgsAccessionSummary(
                 accession: String(cString: sqlite3_column_text(stmt, 0)),
                 readCount: Int(sqlite3_column_int64(stmt, 1)),
                 uniqueReadCount: Int(sqlite3_column_int64(stmt, 2)),
                 referenceLength: Int(sqlite3_column_int64(stmt, 3)),
                 coveredBasePairs: Int(sqlite3_column_int64(stmt, 4)),
-                coverageFraction: sqlite3_column_double(stmt, 5)
+                coverageFraction: sqlite3_column_double(stmt, 5),
+                referenceLengthSource: sourceRaw.flatMap(NaoMgsReferenceLengthSource.init(rawValue:))
+                    ?? .alignmentExtent
             ))
         }
         return results

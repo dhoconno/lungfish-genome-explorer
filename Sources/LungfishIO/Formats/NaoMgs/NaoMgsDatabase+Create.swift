@@ -671,8 +671,9 @@ extension NaoMgsDatabase {
         let sql = """
         INSERT INTO accession_summaries (
             sample, tax_id, accession, read_count, unique_read_count,
-            reference_length, covered_base_pairs, coverage_fraction
-        ) VALUES (?,?,?,?,?,?,?,?)
+            reference_length, covered_base_pairs, coverage_fraction,
+            reference_length_source
+        ) VALUES (?,?,?,?,?,?,?,?,?)
         """
         var stmt: OpaquePointer?
         guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
@@ -705,6 +706,10 @@ extension NaoMgsDatabase {
                     sqlite3_bind_int64(stmt, 6, Int64(maxExtent))
                     sqlite3_bind_int64(stmt, 7, Int64(coveredBP))
                     sqlite3_bind_double(stmt, 8, coverageFraction)
+                    // Rows are always created from alignment extents at this
+                    // point; a later reference fetch upgrades the source via
+                    // refreshAccessionSummaryReferenceLengths (SCI-09).
+                    naoBindText(stmt, 9, NaoMgsReferenceLengthSource.alignmentExtent.rawValue)
 
                     guard sqlite3_step(stmt) == SQLITE_DONE else {
                         let msg = String(cString: sqlite3_errmsg(db))
@@ -742,7 +747,14 @@ extension NaoMgsDatabase {
 
         guard !globalExtents.isEmpty else { return }
 
-        let sql = "INSERT OR IGNORE INTO reference_lengths (accession, length) VALUES (?, ?)"
+        // These are fallback lengths only (furthest alignment end), never a
+        // measured reference length, so they are always stored with source
+        // 'alignment-extent' (SCI-09). `updateReferenceLengths` overwrites
+        // with source 'fasta' once a real reference is fetched.
+        let sql = """
+        INSERT OR IGNORE INTO reference_lengths (accession, length, source)
+        VALUES (?, ?, '\(NaoMgsReferenceLengthSource.alignmentExtent.rawValue)')
+        """
         var stmt: OpaquePointer?
         guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
             let msg = String(cString: sqlite3_errmsg(db))
@@ -815,7 +827,8 @@ extension NaoMgsDatabase {
 
         CREATE TABLE reference_lengths (
             accession TEXT PRIMARY KEY,
-            length INTEGER NOT NULL
+            length INTEGER NOT NULL,
+            source TEXT NOT NULL DEFAULT 'alignment-extent'
         );
 
         CREATE TABLE accession_summaries (
@@ -827,6 +840,7 @@ extension NaoMgsDatabase {
             reference_length INTEGER NOT NULL,
             covered_base_pairs INTEGER NOT NULL,
             coverage_fraction REAL NOT NULL,
+            reference_length_source TEXT NOT NULL DEFAULT 'alignment-extent',
             PRIMARY KEY (sample, tax_id, accession)
         );
 

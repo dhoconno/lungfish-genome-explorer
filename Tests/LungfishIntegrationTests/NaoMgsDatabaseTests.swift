@@ -421,6 +421,82 @@ struct NaoMgsDatabaseTests {
         #expect(acc3.coveredBasePairs == 450, "3 non-overlapping reads of 150bp = 450bp covered")
     }
 
+    // MARK: - SCI-09: coverage-fraction reference-length provenance
+
+    @Test
+    func accessionSummariesDefaultToAlignmentExtentSourceWhenReferencesAreNotFetched() throws {
+        // Without a reference fetch, `reference_length` is only the furthest
+        // alignment end, so the summary must say so rather than presenting
+        // `coverageFraction` as a measured breadth-of-coverage percentage.
+        let hits = makeSyntheticHits()
+        let url = temporaryDatabaseURL()
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let db = try NaoMgsDatabase.create(at: url, hits: hits)
+        let summaries = try db.fetchAccessionSummaries(sample: "sample_A", taxId: 2697049)
+
+        #expect(!summaries.isEmpty)
+        for summary in summaries {
+            #expect(summary.referenceLengthSource == .alignmentExtent)
+        }
+    }
+
+    @Test
+    func accessionSummariesUseFastaSourceAndTrueFractionAfterReferenceFetch() throws {
+        // A 30kb reference with reads covering only the first 3000bp (the
+        // worked example in SCI-09) must report ~10% coverage against the
+        // real length, not 100% against the alignment extent.
+        var hits: [NaoMgsVirusHit] = []
+        for i in 0..<3 {
+            hits.append(NaoMgsVirusHit(
+                sample: "fetch_sample",
+                seqId: "read_\(i)",
+                taxId: 200,
+                bestAlignmentScore: 100.0,
+                cigar: "1000M",
+                queryStart: 0,
+                queryEnd: 1000,
+                refStart: i * 1000,
+                refEnd: i * 1000 + 1000,
+                readSequence: String(repeating: "A", count: 1000),
+                readQuality: String(repeating: "I", count: 1000),
+                subjectSeqId: "NC_TEST01.1",
+                subjectTitle: "Test Coronavirus",
+                bitScore: 200.0,
+                eValue: 1e-40,
+                percentIdentity: 99.0,
+                editDistance: 1,
+                fragmentLength: 2000,
+                isReverseComplement: false,
+                pairStatus: "CP",
+                queryLength: 1000
+            ))
+        }
+
+        let url = temporaryDatabaseURL()
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let db = try NaoMgsDatabase.create(at: url, hits: hits)
+
+        // Before fetch: alignment extent is 3000 (0..1000 + 1000..2000 + 2000..3000), 100% covered.
+        let beforeFetch = try db.fetchAccessionSummaries(sample: "fetch_sample", taxId: 200)
+        let beforeSummary = try #require(beforeFetch.first { $0.accession == "NC_TEST01.1" })
+        #expect(beforeSummary.referenceLengthSource == .alignmentExtent)
+        #expect(beforeSummary.referenceLength == 3000)
+        #expect(abs(beforeSummary.coverageFraction - 1.0) < 0.0001)
+
+        // Simulate a successful reference fetch: the real genome is 30,000bp.
+        let rwDB = try NaoMgsDatabase.openReadWrite(at: url)
+        try rwDB.updateReferenceLengths(["NC_TEST01.1": 30_000])
+        try rwDB.refreshAccessionSummaryReferenceLengths()
+
+        let afterFetch = try rwDB.fetchAccessionSummaries(sample: "fetch_sample", taxId: 200)
+        let afterSummary = try #require(afterFetch.first { $0.accession == "NC_TEST01.1" })
+        #expect(afterSummary.referenceLengthSource == .fasta)
+        #expect(afterSummary.referenceLength == 30_000)
+        #expect(abs(afterSummary.coverageFraction - 0.1) < 0.0001, "3000bp covered / 30000bp genome = 10%, not the 100% the alignment-extent fallback reported")
+    }
+
     @Test
     func accessionSummariesHandleOverlappingReads() throws {
         // Create hits with overlapping positions to test interval merging

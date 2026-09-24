@@ -84,6 +84,24 @@ public struct NaoMgsTaxonSummaryRow: Codable, Sendable {
     }
 }
 
+/// The provenance of a NAO-MGS accession's stored reference length.
+///
+/// `coverage_fraction` is only a meaningful breadth-of-coverage metric when
+/// the reference length came from the real reference FASTA (SCI-09). When
+/// references were never fetched (offline import, or an accession that no
+/// longer resolves), LGE falls back to the furthest alignment end, which
+/// systematically overstates coverage for any read set that does not span
+/// the whole reference.
+public enum NaoMgsReferenceLengthSource: String, Sendable {
+    /// Reference length read from a downloaded reference FASTA's `.fai` index.
+    case fasta
+    /// Reference length was never fetched; length is the largest observed
+    /// `ref_start + query_length` across all alignments to this accession.
+    /// Coverage computed against this value is an upper bound, not a
+    /// measurement, and should be shown as unavailable rather than a number.
+    case alignmentExtent = "alignment-extent"
+}
+
 /// Per-accession summary within a (sample, taxon) pair.
 public struct NaoMgsAccessionSummary: Sendable {
     public let accession: String
@@ -92,6 +110,9 @@ public struct NaoMgsAccessionSummary: Sendable {
     public let referenceLength: Int
     public let coveredBasePairs: Int
     public let coverageFraction: Double
+    /// Provenance of `referenceLength`. Determines whether `coverageFraction`
+    /// may be shown as a real breadth-of-coverage percentage (SCI-09).
+    public let referenceLengthSource: NaoMgsReferenceLengthSource
 }
 
 /// A staged per-sample NAO-MGS database to merge into a final summary database.
@@ -350,7 +371,14 @@ public final class NaoMgsDatabase: @unchecked Sendable {
     /// - Parameter lengths: Dictionary mapping accession string to sequence length in bases.
     public func updateReferenceLengths(_ lengths: [String: Int]) throws {
         guard let db else { throw NaoMgsDatabaseError.queryFailed("Database not open") }
-        let sql = "INSERT OR REPLACE INTO reference_lengths (accession, length) VALUES (?, ?)"
+        // Called only with lengths read from a downloaded reference FASTA's
+        // `.fai` index, so these are always the real, measured length
+        // (SCI-09): mark source 'fasta', overwriting any alignment-extent
+        // fallback previously stored for the accession.
+        let sql = """
+        INSERT OR REPLACE INTO reference_lengths (accession, length, source)
+        VALUES (?, ?, '\(NaoMgsReferenceLengthSource.fasta.rawValue)')
+        """
         var stmt: OpaquePointer?
         guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
             throw NaoMgsDatabaseError.insertFailed(String(cString: sqlite3_errmsg(db)))
@@ -403,6 +431,15 @@ public final class NaoMgsDatabase: @unchecked Sendable {
         }
         // Schema migrations
         sqlite3_exec(instance.db, "CREATE TABLE IF NOT EXISTS reference_lengths (accession TEXT PRIMARY KEY, length INTEGER NOT NULL)", nil, nil, nil)
+        // SCI-09: track whether a stored length came from a real reference
+        // FASTA or is only the furthest observed alignment end. Existing
+        // rows predate this column and default to the historical
+        // (alignment-extent) behaviour.
+        sqlite3_exec(
+            instance.db,
+            "ALTER TABLE reference_lengths ADD COLUMN source TEXT NOT NULL DEFAULT '\(NaoMgsReferenceLengthSource.alignmentExtent.rawValue)'",
+            nil, nil, nil
+        )
         sqlite3_exec(instance.db, "ALTER TABLE taxon_summaries ADD COLUMN bam_path TEXT", nil, nil, nil)
         sqlite3_exec(instance.db, "ALTER TABLE taxon_summaries ADD COLUMN bam_index_path TEXT", nil, nil, nil)
         sqlite3_exec(instance.db, """
@@ -418,6 +455,16 @@ public final class NaoMgsDatabase: @unchecked Sendable {
             PRIMARY KEY (sample, tax_id, accession)
         )
         """, nil, nil, nil)
+        // SCI-09: track whether reference_length came from a real reference
+        // FASTA or is only the furthest alignment end. Existing rows predate
+        // this column and default to the historical (alignment-extent)
+        // behaviour; they are corrected the next time references are fetched
+        // for that accession.
+        sqlite3_exec(
+            instance.db,
+            "ALTER TABLE accession_summaries ADD COLUMN reference_length_source TEXT NOT NULL DEFAULT '\(NaoMgsReferenceLengthSource.alignmentExtent.rawValue)'",
+            nil, nil, nil
+        )
         sqlite3_exec(instance.db, """
         CREATE TABLE IF NOT EXISTS taxon_read_names (
             sample TEXT NOT NULL,

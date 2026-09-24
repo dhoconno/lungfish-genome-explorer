@@ -319,6 +319,12 @@ extension NaoMgsDatabase {
     }
 
     static func refreshAccessionSummaryReferenceLengths(db: OpaquePointer) throws {
+        // Copies both the length and its source from `reference_lengths`
+        // (SCI-09): a row there only becomes source 'fasta' once
+        // `updateReferenceLengths` stores a length read from a downloaded
+        // reference's `.fai` index. Until then it stays 'alignment-extent',
+        // and the UI must not present `coverage_fraction` as a measured
+        // breadth-of-coverage percentage.
         let sql = """
         UPDATE accession_summaries
         SET reference_length = (
@@ -332,7 +338,11 @@ extension NaoMgsDatabase {
                      / (SELECT rl.length FROM reference_lengths rl
                         WHERE rl.accession = accession_summaries.accession))
                 ELSE coverage_fraction
-            END
+            END,
+            reference_length_source = (
+                SELECT rl.source FROM reference_lengths rl
+                WHERE rl.accession = accession_summaries.accession
+            )
         WHERE accession IN (SELECT accession FROM reference_lengths)
         """
         guard sqlite3_exec(db, sql, nil, nil, nil) == SQLITE_OK else {
