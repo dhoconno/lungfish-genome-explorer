@@ -82,7 +82,7 @@
     ],
     "appSmokeAccount": "lungfish-release-qa",
     "dependencyPolicy": "manifest",
-    "appSmokeRequired": false
+    "appSmokeRequired": true
   },
   "identity": {
     "repository": "dhoconno/lungfish-genome-explorer",

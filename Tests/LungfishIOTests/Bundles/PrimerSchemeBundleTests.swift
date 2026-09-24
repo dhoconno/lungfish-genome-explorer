@@ -1,4 +1,5 @@
 import XCTest
+import LungfishTestSupport
 @testable import LungfishIO
 
 final class PrimerSchemeBundleTests: XCTestCase {
@@ -8,10 +9,10 @@ final class PrimerSchemeBundleTests: XCTestCase {
     }
 
     func testLoadValidBundleReturnsManifestWithCanonicalAndEquivalentAccessions() throws {
-        let bundleURL = try XCTUnwrap(Bundle.module.url(
-            forResource: "primerschemes/valid-simple.lungfishprimers",
-            withExtension: nil
-        ))
+        let bundleURL = try fixtureURL(
+            "primerschemes/valid-simple.lungfishprimers",
+            in: .module
+        )
 
         let bundle = try PrimerSchemeBundle.load(from: bundleURL)
 

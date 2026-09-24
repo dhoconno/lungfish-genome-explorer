@@ -1,4 +1,5 @@
 import XCTest
+import LungfishTestSupport
 @testable import LungfishIO
 
 final class PrimerSchemesFolderTests: XCTestCase {
@@ -25,10 +26,10 @@ final class PrimerSchemesFolderTests: XCTestCase {
         // copy's manifest.json so the two bundles have distinct `manifest.name`
         // values. `listBundles` sorts by `manifest.name` (the user-visible
         // identifier), matching `BuiltInPrimerSchemeService`'s sort key.
-        let fixture = Bundle.module.url(
-            forResource: "primerschemes/valid-simple.lungfishprimers",
-            withExtension: nil
-        )!
+        let fixture = try fixtureURL(
+            "primerschemes/valid-simple.lungfishprimers",
+            in: .module
+        )
         let zBundle = folder.appendingPathComponent("ZZZ.lungfishprimers", isDirectory: true)
         let aBundle = folder.appendingPathComponent("AAA.lungfishprimers", isDirectory: true)
         try FileManager.default.copyItem(at: fixture, to: zBundle)

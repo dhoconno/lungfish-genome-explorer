@@ -94,6 +94,24 @@ if [ ! -f "$PORTABILITY_SCANNER" ]; then
     exit 69
 fi
 
+# REL-01: a release packaged under a stray `umask 077` produces an app that
+# is unreadable by any macOS account other than the one that built it. Fail
+# the smoke test if any file lacks other-read or any directory lacks
+# other-read+execute.
+UNREADABLE_FILES=$(/usr/bin/find "$APP_PATH" -type f ! -perm -o=r)
+if [ -n "$UNREADABLE_FILES" ]; then
+    echo "app bundle contains files without other-read permission (o+r):" >&2
+    printf '%s\n' "$UNREADABLE_FILES" >&2
+    exit 66
+fi
+
+UNTRAVERSABLE_DIRS=$(/usr/bin/find "$APP_PATH" -type d ! -perm -o=rx)
+if [ -n "$UNTRAVERSABLE_DIRS" ]; then
+    echo "app bundle contains directories without other-read+execute permission (o+rx):" >&2
+    printf '%s\n' "$UNTRAVERSABLE_DIRS" >&2
+    exit 66
+fi
+
 if [ ! -f "$INFO_PLIST" ]; then
     echo "Info.plist missing: $INFO_PLIST" >&2
     exit 66

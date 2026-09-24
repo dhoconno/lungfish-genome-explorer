@@ -7,10 +7,10 @@ Single source of truth for finding status (plan rule 9). Status: `open`, `verifi
 | FEA-01 | P0 | Manifest rewrites drop alignment tracks and the record store (variant deletion paths) | fixed | P0-B | ca6f0f14d | BundleManifest copy-based mutators; sidebar + drawer + VCF merge migrated; round-trip tests |
 | FEA-02 | P0 | GUI FASTQ import silently replaces same-named bundles, and ignores Keep Both and sample-sheet names | fixed | P0-B | 30883db6a | dup check at Imports/, --force only on Replace, --name added, Replace trashes old bundle |
 | PERF-04 | P0 | Unique-read counts for TaxTriage and EsViritu are capped at 100,000 parsed reads per contig after buffering up | fixed | P0-C | e3efa6f77,b87e84661 | UniqueReadStartCounter 10/10 incl >100k; AlignmentDataProviderTests 55/55; caches renamed .v2 |
-| REL-01 | P0 | Shipped app bundles are owner-only (0700/0600) because of `umask 077` | open | | | |
+| REL-01 | P0 | Shipped app bundles are owner-only (0700/0600) because of `umask 077` | fixed | P0-A | dabbd4b4c | umask 022 before xcodebuild + chmod; smoke mode check; test_smoke_test_fails_when_app_bundle_is_owner_only |
 | SCI-01 | P0 | GFF exported to iVar collapses multi-segment CDS (ORF1ab frameshift, spliced CDS) into one span, which changes | fixed | P0-C | 3af455220 | CDSSegmentPhasesTests 6/6, AnnotationDatabaseGFFExporterTests 5/5; ivar split-vs-merged GFF compared manually |
-| TST-01 | P0 | Pre-push unit tier is red on HEAD: 117 failures plus 1 indefinite hang | open | | | |
-| TST-02 | P0 | No gate runs the broad suite: release selects 186 of about 14.2K tests, the hook is not installed, and 11 rele | open | | | |
+| TST-01 | P0 | Pre-push unit tier is red on HEAD: 117 failures plus 1 indefinite hang | partial | P0-A | 62d9f3a76,7ef2b46eb | runModal + .superpowers drift fixed; tier not yet green |
+| TST-02 | P0 | No gate runs the broad suite: release selects 186 of about 14.2K tests, the hook is not installed, and 11 rele | fixed | P0-A | b35a3c006 | release.py requires green unit-tier result for commit; appSmokeRequired both channels; hook installed by setup-worktree |
 | WFL-01 | P0 | FASTQ-operation outputs are silently quality-binned and, when large, Trim Galore-trimmed during re-ingestion | fixed | P0-B | 7c3fb0fd5,+clumping fix | no re-binning; auto clumping skips instead of Trim Galore; read-count check before source delete |
 | WFL-02 | P0 | `tree infer iqtree` deletes the shared project `.tmp`, deletes pre-existing output on refusal, and can deadloc | fixed | P0-B | 6898a985f | no .tmp deletion, refusal deletes nothing, concurrent pipe drain |
 | ARC-01 | P1 | Two execution models for GUI analyses, chosen per feature, with no shared service layer | open | | | |
@@ -34,7 +34,7 @@ Single source of truth for finding status (plan rule 9). Status: `open`, `verifi
 | REC-03 | P1 | Kraken2 taxonomy/BLAST exports lack provenance | open | | | |
 | REC-04 | P1 | Sidebar VCF/folder drop silently discarded | open | | | |
 | REC-05 | P1 | About Saving text promises persistence FEA-03 disproves | open | | | |
-| REL-02 | P1 | CI workflow invalid since 2026-09-14, 24 straight failures, 12 previews shipped on red | open | | | |
+| REL-02 | P1 | CI workflow invalid since 2026-09-14, 24 straight failures, 12 previews shipped on red | accepted | P0-A | 53371073b | owner: hosted CI paused; disabled cleanly |
 | REL-03 | P1 | GPL-2.0 Linux kernel shipped without notice or source offer; THIRD-PARTY-NOTICES stale and not bundled | open | | | |
 | REL-04 | P1 | No rollback or yank path for a bad Sparkle release; the floor gate blocks the obvious one | open | | | |
 | REL-05 | P1 | Every `gh` call, including the ~167 MB DMG upload, is capped at 180 s | open | | | |
@@ -46,10 +46,10 @@ Single source of truth for finding status (plan rule 9). Status: `open`, `verifi
 | SCI-07 | P1 | Region to bundle extraction with Reverse Complement does not transform variants | open | | | |
 | SCI-08 | P1 | Lossy quality binning on by default (silent on downloads and FASTQ operation outputs), mislabelled schemes, or | fixed | P0-B | 7c3fb0fd5 | binning default none everywhere (D1); scheme-name mislabel not yet addressed |
 | SCI-09 | P1 | NAO-MGS "coverage %" uses the furthest alignment end as reference length when references were not fetched | fixed | P3-A | 6538d8d39 | reference_length_source; UI shows coverage unavailable |
-| TST-03 | P1 | Swift Build migration broke subpath `Bundle.module` fixtures, crashing tests with SIGTRAP | open | | | |
-| TST-04 | P1 | Stable-namespace change broke about 75 tests that hard-code `.lungfish` fake homes, and tests cannot inject an | open | | | |
-| TST-05 | P1 | No per-test or overall timeout: a cancellation test hung for 14+ min and stalls the gate forever | open | | | |
-| TST-06 | P1 | `ci.yml` has been an invalid workflow on every push since 2026-09-14 instead of being disabled cleanly | open | | | |
+| TST-03 | P1 | Swift Build migration broke subpath `Bundle.module` fixtures, crashing tests with SIGTRAP | fixed | P0-A | 18b87a387 | fixtureURL helper, 4 classes |
+| TST-04 | P1 | Stable-namespace change broke about 75 tests that hard-code `.lungfish` fake homes, and tests cannot inject an | partial | P0-A | b6c6cddfb,82133f4a6 | injectable appIdentity; ~50-60 tests still to migrate (follow-up lane) |
+| TST-05 | P1 | No per-test or overall timeout: a cancellation test hung for 14+ min and stalls the gate forever | partial | P0-A | 39f0ef622,76f14b0b5,7d7c3e4e2,651f0928d | gate wall-clock + tree kill; CLIImportRunner cancel hang is a confirmed product bug -> P1-B; test excluded via KNOWN_HANGING_TESTS |
+| TST-06 | P1 | `ci.yml` has been an invalid workflow on every push since 2026-09-14 instead of being disabled cleanly | fixed | P0-A | 53371073b | workflow_dispatch only; valid file |
 | UX-01 | P1 | "Delete Annotation" from the viewer and the Inspector silently does nothing on reference bundles | open | | | |
 | UX-02 | P1 | Export failures are logged but never shown in EsViritu, TaxTriage (3 paths), NAO-MGS and NVD | fixed | P1-C | bfcad3925 | ResultExportCoordinator added to LungfishKit; migrated EsViritu, TaxTriage x3, NAO-MGS, NVD, plus Kraken2 and 12S; ResultExportCoordinatorTests 2/2 |
 | WFL-03 | P1 | "GATK + WhatsHap Phased" is selectable and runnable-looking but always dead-ends | fixed | P1-C | 919af40eb | BAMVariantCallingToolID.catalogCases filters the phased case behind an off flag; BAMVariantCallingDialogRoutingTests 26/26 |

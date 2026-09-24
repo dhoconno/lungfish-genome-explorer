@@ -161,6 +161,50 @@ class ReleaseSmokeTests(unittest.TestCase):
             self.assertIn("Signature=adhoc", signature.stderr)
             self.assertIn("TeamIdentifier=not set", signature.stderr)
 
+    def test_smoke_test_fails_when_app_bundle_is_owner_only(self):
+        # REL-01 regression: a release packaged under a stray `umask 077`
+        # produces a 0700/0600 app that other macOS accounts cannot launch.
+        with tempfile.TemporaryDirectory() as temp_dir:
+            app_path = self._make_minimal_app(Path(temp_dir), include_icon=True)
+            os.chmod(app_path, 0o700)
+
+            try:
+                result = subprocess.run(
+                    ["/bin/bash", str(self.script), str(app_path), "--portability-only"],
+                    env={**os.environ, "PATH": "/usr/bin:/bin:/usr/sbin:/sbin"},
+                    text=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    check=False,
+                    timeout=30,
+                )
+
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("other-read+execute", result.stderr)
+            finally:
+                # Allow TemporaryDirectory cleanup to remove the tree.
+                os.chmod(app_path, 0o755)
+
+    def test_smoke_test_fails_when_app_bundle_contains_owner_only_file(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            app_path = self._make_minimal_app(Path(temp_dir), include_icon=True)
+            secret_file = app_path / "Contents" / "Resources" / "AppIcon.icns"
+            os.chmod(secret_file, 0o600)
+
+            result = subprocess.run(
+                ["/bin/bash", str(self.script), str(app_path), "--portability-only"],
+                env={**os.environ, "PATH": "/usr/bin:/bin:/usr/sbin:/sbin"},
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+                timeout=30,
+            )
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("other-read permission", result.stderr)
+            self.assertIn(str(secret_file), result.stderr)
+
     def test_smoke_test_fails_when_app_icon_resource_is_missing(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             app_path = self._make_minimal_app(Path(temp_dir))

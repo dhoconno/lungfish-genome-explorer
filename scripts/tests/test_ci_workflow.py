@@ -185,7 +185,10 @@ class CIWorkflowTests(unittest.TestCase):
             golden["env"]["LUNGFISH_CONDA_ROOT"],
             "${{ env.LUNGFISH_STORAGE_ROOT }}/conda",
         )
-        self.assertNotIn("LUNGFISH_CONDA_ROOT", job["env"])
+        # LUNGFISH_STORAGE_ROOT itself is resolved from a step (not a
+        # job-level `env:` block), because `runner` is not an available
+        # context there. See TST-06/REL-02.
+        self.assertNotIn("env", job)
 
     def test_toolset_conformance_caches_managed_tools_by_manifest_hash(self):
         wf = yaml_load(ROOT / ".github/workflows/ci.yml")
@@ -211,10 +214,21 @@ class CIWorkflowTests(unittest.TestCase):
     def test_toolset_conformance_uses_one_isolated_storage_root(self):
         wf = yaml_load(ROOT / ".github/workflows/ci.yml")
         job = wf["jobs"]["toolset-conformance"]
-        self.assertEqual(
-            job["env"]["LUNGFISH_STORAGE_ROOT"],
-            "${{ runner.temp }}/lungfish-storage",
+        # `runner` is not an available context for a job-level `env:` block,
+        # so LUNGFISH_STORAGE_ROOT is resolved from a step into $GITHUB_ENV
+        # instead (this was the exact defect behind TST-06/REL-02: the
+        # job-level form made the whole workflow invalid on every push).
+        self.assertNotIn("env", job)
+        storage_root_step = next(
+            step
+            for step in job["steps"]
+            if step.get("name") == "Resolve storage root"
         )
+        self.assertIn(
+            'LUNGFISH_STORAGE_ROOT=${RUNNER_TEMP}/lungfish-storage',
+            storage_root_step["run"],
+        )
+        self.assertIn('>> "$GITHUB_ENV"', storage_root_step["run"])
         serialized = yaml.safe_dump(job)
         self.assertNotIn("~/.lungfish", serialized)
         receipt_step = next(
@@ -307,10 +321,17 @@ class CIWorkflowTests(unittest.TestCase):
         self.assertEqual(upload_steps[0].get("if"), "always()")
         self.assertEqual(upload_steps[0]["with"]["path"], ".build/tool-conformance-evidence")
 
-    def test_main_push_is_fast_and_release_tags_do_not_start_blocking_ci(self):
+    def test_ci_is_dispatch_only_and_release_tags_do_not_start_blocking_ci(self):
+        # Owner decision (2026-09-23, TST-06/REL-02): all gating is local.
+        # No push or pull_request trigger exists, so pushing to this
+        # repository never produces a workflow run. See the `on:` comment
+        # in ci.yml for why (821ca701a made the job-level `runner.temp`
+        # expression invalid, failing every push for 24 releases straight
+        # instead of being cleanly paused).
         wf = yaml_load(ROOT / ".github/workflows/ci.yml")
-        push = wf[True]["push"]
-        self.assertEqual(push, {"branches": ["main"]})
+        self.assertEqual(set(wf[True]), {"workflow_dispatch"})
+        self.assertNotIn("push", wf[True])
+        self.assertNotIn("pull_request", wf[True])
         self.assertNotIn("release", wf[True])
         self.assertNotIn("package-smoke", wf["jobs"])
         self.assertFalse(

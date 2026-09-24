@@ -1,4 +1,5 @@
 import XCTest
+import LungfishCore
 @testable import LungfishWorkflow
 
 final class ManagedWorkflowRunnerPathTests: XCTestCase {
@@ -55,7 +56,8 @@ final class ManagedWorkflowRunnerPathTests: XCTestCase {
         let runner = BaseWorkflowRunner(
             category: "ManagedWorkflowRunnerPathTests",
             processManager: .shared,
-            homeDirectoryProvider: { tempHome }
+            homeDirectoryProvider: { tempHome },
+            appIdentity: .preview
         )
 
         let found = await runner.findEngine(.nextflow)
@@ -107,7 +109,8 @@ final class ManagedWorkflowRunnerPathTests: XCTestCase {
         let runner = BaseWorkflowRunner(
             category: "ManagedWorkflowRunnerPathTests",
             processManager: .shared,
-            homeDirectoryProvider: { tempHome }
+            homeDirectoryProvider: { tempHome },
+            appIdentity: .preview
         )
 
         let found = await runner.findEngine(.snakemake)

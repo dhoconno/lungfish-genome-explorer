@@ -1,10 +1,18 @@
 name: CI
 
+# Intentionally paused by the project owner (2026-09-23, best-practices audit
+# TST-06/REL-02): this repository gates entirely on LOCAL checks (git hooks,
+# scripts/full-suite-gate.sh tiers, and scripts/release/release.py's evidence
+# gates), not on hosted CI. `on: push`/`pull_request` triggers were removed so
+# that pushing to this repository never produces a workflow run at all,
+# rather than reintroducing the red-X-on-every-push state this workflow was
+# stuck in from 2026-09-14 (commit 821ca701a made the job-level
+# `${{ runner.temp }}` expression below invalid, which failed validation
+# before any job could start, on every push for 24 releases straight).
+# This file is kept `workflow_dispatch`-only so a maintainer can still run
+# these jobs by hand from the Actions tab; it is not part of the release
+# gate and `release.py` does not check its status.
 on:
-  push:
-    branches:
-      - main
-  pull_request:
   workflow_dispatch:
     inputs:
       diagnostic:
@@ -31,8 +39,10 @@ permissions:
 
 jobs:
   fast:
-    # Automatic narrow Swift compilation/behavior plus script contracts.
-    # Full app and dependency conformance remain separate release/dispatch gates.
+    # Narrow Swift compilation/behavior plus script contracts. Runs only on a
+    # manual workflow_dispatch (see the `on:` comment above) - it is not the
+    # release gate, which is entirely local. Full app and dependency
+    # conformance remain separate dispatch-only jobs below.
     name: Fast gate
     runs-on: xcode-27
     timeout-minutes: 10
@@ -141,14 +151,20 @@ jobs:
     runs-on: xcode-27
     timeout-minutes: 120
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.diagnostic == 'tool-conformance' }}
-    env:
-      LUNGFISH_STORAGE_ROOT: ${{ runner.temp }}/lungfish-storage
 
     steps:
       - name: Check out repository
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           fetch-depth: 0
+
+      # `runner` is not among the contexts available to `jobs.<id>.env`
+      # (only github/needs/strategy/matrix/vars/secrets/inputs are), so this
+      # must be set from a step into $GITHUB_ENV rather than a job-level env
+      # block. See TST-06/REL-02: the job-level form made the whole workflow
+      # invalid on every push since commit 821ca701a.
+      - name: Resolve storage root
+        run: echo "LUNGFISH_STORAGE_ROOT=${RUNNER_TEMP}/lungfish-storage" >> "$GITHUB_ENV"
 
       - name: Select supported Xcode
         run: python3 scripts/release/release_xcode.py --shell >> "$GITHUB_ENV"

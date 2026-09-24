@@ -1,5 +1,6 @@
 import XCTest
 import LungfishIO
+import LungfishTestSupport
 @testable import LungfishWorkflow
 
 final class BAMPrimerTrimPipelineTests: XCTestCase {
@@ -37,10 +38,10 @@ final class BAMPrimerTrimPipelineTests: XCTestCase {
 
         // Load the integration primer scheme bundle (canonical = MT192765.1,
         // which matches the sarscov2 fixture BAM's @SQ SN).
-        let primerBundleURL = try XCTUnwrap(Bundle.module.url(
-            forResource: "primerschemes/mt192765-integration.lungfishprimers",
-            withExtension: nil
-        ))
+        let primerBundleURL = try fixtureURL(
+            "primerschemes/mt192765-integration.lungfishprimers",
+            in: .module
+        )
         let primerBundle = try PrimerSchemeBundle.load(from: primerBundleURL)
 
         // Locate the sarscov2 BAM fixture (relative to the repo root).
@@ -173,10 +174,10 @@ final class BAMPrimerTrimPipelineTests: XCTestCase {
 
     func testPipelineRemovesBAMAndIndexWhenProvenanceWriteFails() async throws {
         let runner = NativeToolRunner()
-        let primerBundleURL = try XCTUnwrap(Bundle.module.url(
-            forResource: "primerschemes/mt192765-integration.lungfishprimers",
-            withExtension: nil
-        ))
+        let primerBundleURL = try fixtureURL(
+            "primerschemes/mt192765-integration.lungfishprimers",
+            in: .module
+        )
         let primerBundle = try PrimerSchemeBundle.load(from: primerBundleURL)
         let sourceBAMURL = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()

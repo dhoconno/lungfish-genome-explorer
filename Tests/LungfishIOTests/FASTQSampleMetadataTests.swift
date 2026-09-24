@@ -333,7 +333,7 @@ final class MetadataPresetStoreTests: XCTestCase {
 
         XCTAssertEqual(
             MetadataPresetStore.userPresetsDirectory(homeDirectory: home, appIdentity: .stable).path,
-            "/Users/example/.lungfish"
+            "/Users/example/.lungfish-stable"
         )
         XCTAssertEqual(
             MetadataPresetStore.userPresetsDirectory(homeDirectory: home, appIdentity: .preview).path,

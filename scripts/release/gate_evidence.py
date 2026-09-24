@@ -18,6 +18,7 @@ from pathlib import Path
 import platform
 import re
 import shutil
+import signal
 import stat
 import subprocess
 import sys
@@ -99,8 +100,69 @@ def runtime_identity():
             "requireTools": os.environ.get("LUNGFISH_REQUIRE_TOOLS", "0")}
 
 
-def command_record(argv, root, directory, name, *, split=False):
-    """Retain the actual exit, including a watchdog termination; never promote it."""
+def _descendant_pids(root_pid):
+    """All live descendants of root_pid, by a parent/child walk over `ps`.
+
+    Independent of process group membership, so it also finds a child that
+    started its own session (as each `swift test --parallel` xctest worker
+    does) or that was reparented to PID 1 after its immediate parent exited.
+    """
+    try:
+        listing = subprocess.run(["ps", "-Ao", "pid=,ppid="], capture_output=True, text=True, timeout=5)
+    except (OSError, subprocess.TimeoutExpired):
+        return []
+    children_by_parent = {}
+    for line in listing.stdout.splitlines():
+        parts = line.split()
+        if len(parts) != 2:
+            continue
+        try:
+            pid, ppid = int(parts[0]), int(parts[1])
+        except ValueError:
+            continue
+        children_by_parent.setdefault(ppid, []).append(pid)
+    descendants = []
+    queue = [root_pid]
+    seen = {root_pid}
+    while queue:
+        parent = queue.pop()
+        for child in children_by_parent.get(parent, []):
+            if child not in seen:
+                seen.add(child)
+                descendants.append(child)
+                queue.append(child)
+    return descendants
+
+
+def _kill_descendant_tree(root_pid, sig):
+    for pid in _descendant_pids(root_pid):
+        try:
+            os.kill(pid, sig)
+        except ProcessLookupError:
+            pass
+
+
+def command_record(argv, root, directory, name, *, split=False, timeout_seconds=None):
+    """Retain the actual exit, including a watchdog termination; never promote it.
+
+    `timeout_seconds`, when given, is an overall wall-clock budget (TST-05):
+    a hung process (for example a cancellation test whose subject leaves a
+    live child that ignores SIGTERM, so the harness never observes exit)
+    would otherwise stall the gate forever, reading as "still running"
+    rather than as a red result. On expiry the process GROUP is killed
+    (SIGTERM, then SIGKILL if it does not exit promptly), and every
+    descendant PID still alive (by parent/child walk, independent of process
+    group) is also SIGKILLed directly: `swift test --parallel` starts each
+    per-class xctest worker in its OWN new session/process group, so a
+    worker that is itself hung (confirmed live: TST-05's
+    CLIImportRunnerTests/testCancelTerminatesCLIProcessTree leaves a grandchild
+    that traps SIGTERM) is not reachable through the outer process's group
+    alone. The record's ``intervention`` is set to ``"timeout"``. Still
+    best-effort, not a guarantee: a descendant that reparents to PID 1
+    between the walk and the kill could be missed (see PERF-13/WFL-12 for
+    the app-side process-tree cancellation contract this does not attempt
+    to replace).
+    """
     started, tick = now(), time.monotonic()
     intervention = None
     log = directory / (name + ".log")
@@ -109,10 +171,55 @@ def command_record(argv, root, directory, name, *, split=False):
         error = stderr.open("xb") if stderr else None
         try:
             process = subprocess.Popen(argv, cwd=root, stdout=output,
-                                       stderr=error if error else subprocess.STDOUT)
+                                       stderr=error if error else subprocess.STDOUT,
+                                       start_new_session=True)
             next_watchdog = time.monotonic()
             intervention = None
             while process.poll() is None:
+                if timeout_seconds is not None and time.monotonic() - tick >= timeout_seconds:
+                    intervention = "timeout"
+                    # Snapshot descendants before signaling anything: once the
+                    # direct child exits, `ps`'s ppid chain to any
+                    # already-reparented-to-PID-1 grandchild is still intact
+                    # right now, but a second walk after the group is dead
+                    # would need to search the whole process table by PID
+                    # instead. Sending signals to PIDs collected here is safe
+                    # even if some have already exited by then (ESRCH is
+                    # swallowed).
+                    descendants = _descendant_pids(process.pid)
+                    try:
+                        os.killpg(process.pid, signal.SIGTERM)
+                    except ProcessLookupError:
+                        pass
+                    for pid in descendants:
+                        try:
+                            os.kill(pid, signal.SIGTERM)
+                        except ProcessLookupError:
+                            pass
+                    try:
+                        process.wait(timeout=10)
+                    except subprocess.TimeoutExpired:
+                        pass
+                    try:
+                        os.killpg(process.pid, signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
+                    # Re-walk: a worker that started its own session/process
+                    # group (every `swift test --parallel` xctest worker
+                    # does) is not reached by the group kill above, so kill
+                    # every descendant PID directly too, whether or not it
+                    # was already in the first snapshot.
+                    _kill_descendant_tree(process.pid, signal.SIGKILL)
+                    for pid in descendants:
+                        try:
+                            os.kill(pid, signal.SIGKILL)
+                        except ProcessLookupError:
+                            pass
+                    try:
+                        process.wait(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        pass
+                    break
                 # Xcode occasionally fails to reap an XCTest child. Terminate
                 # the stuck parent and preserve intervention even if it traps TERM to exit zero.
                 children = ""
@@ -375,6 +482,24 @@ def analyze_attempt(directory, command, selection, parallel, require_tools):
     return command
 
 
+# Overall wall-clock budget (seconds) for the primary test-runner attempt,
+# by tier (TST-05). A hung test previously stalled the gate indefinitely
+# instead of failing it; these are generous upper bounds meant to comfortably
+# exceed a healthy run, not tuned lower-bound SLAs. The audited unit tier
+# took ~26 min including one hang; under concurrent load on a shared
+# machine (multiple worktrees building/testing at once) a clean run has
+# been observed to take the full 30 min, so the budget has headroom above
+# that. Tiers not listed here (custom filters, profiles) get no default and
+# must pass --timeout-seconds explicitly to be bounded.
+DEFAULT_TIER_TIMEOUT_SECONDS = {
+    "smoke": 5 * 60,
+    "unit": 45 * 60,
+    "integration": 45 * 60,
+    "conformance": 90 * 60,
+    "full": 90 * 60,
+}
+
+
 def run_swift_gate(args):
     root, directory = Path(args.root).resolve(), Path(args.output).resolve()
     profile = getattr(args, "profile", None)
@@ -435,6 +560,7 @@ def run_swift_gate(args):
     discovered = directory / "discovered-swift-testing.jsonl"
     if discovered.exists():
         second["files"].append(file_record(discovered, directory))
+    timeout_seconds = getattr(args, "timeout_seconds", None) or DEFAULT_TIER_TIMEOUT_SECONDS.get(args.tier)
     if not errors:
         def attempt(name, include, exclude, parallel, role, chosen):
             target = directory / name
@@ -448,7 +574,10 @@ def run_swift_gate(args):
                 command += ["--parallel", "--verbose"]
                 if getattr(args, "workers", None):
                     command += ["--num-workers", str(args.workers)]
-            result = analyze_attempt(target, command_record(command, root, target, "runner"), chosen, parallel, args.require_tools)
+            result = analyze_attempt(
+                target,
+                command_record(command, root, target, "runner", timeout_seconds=timeout_seconds),
+                chosen, parallel, args.require_tools)
             result["role"] = role
             for record in result["files"]:
                 record["path"] = name + "/" + record["path"]
@@ -830,6 +959,11 @@ def main():
     swift.add_argument("--skip", default="")
     swift.add_argument("--parallel", action="store_true")
     swift.add_argument("--require-tools", action="store_true")
+    swift.add_argument("--timeout-seconds", type=int, default=None,
+                        help="Overall wall-clock budget for the primary test-runner attempt "
+                             "(TST-05). Overrides the tier default in DEFAULT_TIER_TIMEOUT_SECONDS; "
+                             "a hung test is killed (process group SIGTERM then SIGKILL) and the "
+                             "gate fails with intervention=timeout rather than hanging forever.")
     swift.add_argument("gate_argv", nargs=argparse.REMAINDER)
     python = sub.add_parser("python")
     python.add_argument("tests", nargs="+")

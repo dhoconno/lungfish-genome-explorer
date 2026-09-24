@@ -52,16 +52,18 @@ public struct WorkflowEngineLaunch: Equatable, Sendable {
     public static func resolve(
         executableName: String,
         homeDirectory: URL,
+        appIdentity: LungfishAppIdentity = .current,
         baseEnvironment: [String: String] = ProcessInfo.processInfo.environment
     ) -> WorkflowEngineLaunch {
         let managedExecutable = CoreToolLocator.executableURL(
             environment: executableName,
             executableName: executableName,
-            homeDirectory: homeDirectory
+            homeDirectory: homeDirectory,
+            appIdentity: appIdentity
         ).standardizedFileURL
         let hasManagedExecutable = FileManager.default.isExecutableFile(atPath: managedExecutable.path)
 
-        let condaRoot = CoreToolLocator.condaRoot(homeDirectory: homeDirectory).standardizedFileURL
+        let condaRoot = CoreToolLocator.condaRoot(homeDirectory: homeDirectory, appIdentity: appIdentity).standardizedFileURL
         var toolPaths: [String] = []
         if hasManagedExecutable {
             toolPaths.append(managedExecutable.deletingLastPathComponent().path)
@@ -98,7 +100,7 @@ public struct WorkflowEngineLaunch: Equatable, Sendable {
 
         if executableName == "nextflow" {
             environment["NXF_ANSI_LOG"] = "false"
-            environment["NXF_HOME"] = LungfishAppIdentity.current
+            environment["NXF_HOME"] = appIdentity
                 .nextflowHomeURL(homeDirectory: homeDirectory)
                 .path
         }

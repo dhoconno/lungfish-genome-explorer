@@ -1,10 +1,11 @@
 import XCTest
 import LungfishIO
+import LungfishTestSupport
 @testable import LungfishWorkflow
 
 final class PrimerSchemeResolverTests: XCTestCase {
     func testCanonicalAccessionMatchReturnsOriginalBEDPath() throws {
-        let bundleURL = testBundleURL()
+        let bundleURL = try testBundleURL()
         let bundle = try PrimerSchemeBundle.load(from: bundleURL)
 
         let resolved = try PrimerSchemeResolver.resolve(
@@ -17,7 +18,7 @@ final class PrimerSchemeResolverTests: XCTestCase {
     }
 
     func testEquivalentAccessionMatchRewritesBEDColumnOne() throws {
-        let bundleURL = testBundleURL()
+        let bundleURL = try testBundleURL()
         let bundle = try PrimerSchemeBundle.load(from: bundleURL)
 
         let resolved = try PrimerSchemeResolver.resolve(
@@ -50,7 +51,7 @@ final class PrimerSchemeResolverTests: XCTestCase {
     /// Downloaded `.lungfishref` genome bundles name their sequence without the
     /// version suffix (`NC_045512`), while manifests declare `NC_045512.2`.
     func testUnversionedAccessionMatchesVersionedEquivalent() throws {
-        let bundleURL = testBundleURL()
+        let bundleURL = try testBundleURL()
         let bundle = try PrimerSchemeBundle.load(from: bundleURL)
 
         let resolved = try PrimerSchemeResolver.resolve(
@@ -71,7 +72,7 @@ final class PrimerSchemeResolverTests: XCTestCase {
     }
 
     func testUnversionedAccessionMatchesVersionedCanonical() throws {
-        let bundleURL = testBundleURL()
+        let bundleURL = try testBundleURL()
         let bundle = try PrimerSchemeBundle.load(from: bundleURL)
 
         let resolved = try PrimerSchemeResolver.resolve(
@@ -91,7 +92,7 @@ final class PrimerSchemeResolverTests: XCTestCase {
     }
 
     func testNoMatchThrowsUnknownAccession() throws {
-        let bundleURL = testBundleURL()
+        let bundleURL = try testBundleURL()
         let bundle = try PrimerSchemeBundle.load(from: bundleURL)
 
         XCTAssertThrowsError(
@@ -106,10 +107,7 @@ final class PrimerSchemeResolverTests: XCTestCase {
         }
     }
 
-    private func testBundleURL() -> URL {
-        return Bundle.module.url(
-            forResource: "primerschemes/valid-simple.lungfishprimers",
-            withExtension: nil
-        )!
+    private func testBundleURL() throws -> URL {
+        return try fixtureURL("primerschemes/valid-simple.lungfishprimers", in: .module)
     }
 }

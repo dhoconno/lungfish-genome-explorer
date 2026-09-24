@@ -17,7 +17,8 @@ final class SRAServicePathTests: XCTestCase {
 
         let url = SRAService.managedExecutableURL(
             executableName: "prefetch",
-            homeDirectory: home
+            homeDirectory: home,
+            appIdentity: .preview
         )
 
         XCTAssertEqual(
@@ -26,18 +27,44 @@ final class SRAServicePathTests: XCTestCase {
         )
     }
 
+    func testManagedToolkitExecutableURLUsesIdentityNamespacedLayout() {
+        let home = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "sra-home-\(UUID().uuidString)",
+            isDirectory: true
+        )
+
+        for (identity, expectedDirectoryName) in [
+            (LungfishAppIdentity.debug, ".lungfish-debug"),
+            (LungfishAppIdentity.preview, ".lungfish"),
+            (LungfishAppIdentity.stable, ".lungfish-stable"),
+        ] {
+            let url = SRAService.managedExecutableURL(
+                executableName: "prefetch",
+                homeDirectory: home,
+                appIdentity: identity
+            )
+
+            XCTAssertEqual(
+                url.path,
+                home.appendingPathComponent("\(expectedDirectoryName)/conda/envs/sra-tools/bin/prefetch").path,
+                "identity \(identity.releaseChannel) should resolve its own managed storage namespace"
+            )
+        }
+    }
+
     func testManagedToolkitExecutableURLUsesConfiguredManagedStorageRoot() throws {
         let home = FileManager.default.temporaryDirectory.appendingPathComponent(
             "sra-home-\(UUID().uuidString)",
             isDirectory: true
         )
         let configuredRoot = home.appendingPathComponent("shared-storage", isDirectory: true)
-        let store = ManagedStorageConfigStore(homeDirectory: home)
+        let store = ManagedStorageConfigStore(homeDirectory: home, appIdentity: .preview)
         try store.setActiveRoot(configuredRoot)
 
         let url = SRAService.managedExecutableURL(
             executableName: "prefetch",
-            homeDirectory: home
+            homeDirectory: home,
+            appIdentity: .preview
         )
 
         XCTAssertEqual(
@@ -64,7 +91,7 @@ final class SRAServicePathTests: XCTestCase {
             body: "#!/bin/sh\nexit 0\n"
         )
 
-        let service = SRAService(homeDirectoryProvider: { home })
+        let service = SRAService(homeDirectoryProvider: { home }, appIdentity: .preview)
         let available = await service.isSRAToolkitAvailable
 
         XCTAssertTrue(available)
@@ -76,7 +103,7 @@ final class SRAServicePathTests: XCTestCase {
             isDirectory: true
         )
         let configuredRoot = home.appendingPathComponent("shared-storage", isDirectory: true)
-        let store = ManagedStorageConfigStore(homeDirectory: home)
+        let store = ManagedStorageConfigStore(homeDirectory: home, appIdentity: .preview)
         try store.setActiveRoot(configuredRoot)
 
         let binDir = configuredRoot.appendingPathComponent("conda/envs/sra-tools/bin", isDirectory: true)
@@ -90,7 +117,7 @@ final class SRAServicePathTests: XCTestCase {
             body: "#!/bin/sh\nexit 0\n"
         )
 
-        let service = SRAService(homeDirectoryProvider: { home })
+        let service = SRAService(homeDirectoryProvider: { home }, appIdentity: .preview)
         let available = await service.isSRAToolkitAvailable
 
         XCTAssertTrue(available)
@@ -126,7 +153,7 @@ final class SRAServicePathTests: XCTestCase {
             """
         )
 
-        let service = SRAService(homeDirectoryProvider: { home })
+        let service = SRAService(homeDirectoryProvider: { home }, appIdentity: .preview)
         let files = try await service.downloadFASTQ(
             accession: "SRR000001",
             outputDir: outputDir
@@ -172,7 +199,7 @@ final class SRAServicePathTests: XCTestCase {
             """
         )
 
-        let service = SRAService(homeDirectoryProvider: { home })
+        let service = SRAService(homeDirectoryProvider: { home }, appIdentity: .preview)
         let files = try await service.downloadFASTQ(
             accession: "SRR000002",
             outputDir: outputDir
@@ -222,7 +249,7 @@ final class SRAServicePathTests: XCTestCase {
             """
         )
 
-        let service = SRAService(homeDirectoryProvider: { home })
+        let service = SRAService(homeDirectoryProvider: { home }, appIdentity: .preview)
         _ = try await service.downloadFASTQ(
             accession: "SRR38159018",
             outputDir: outputDir
@@ -270,7 +297,7 @@ final class SRAServicePathTests: XCTestCase {
             body: "#!/bin/sh\nexit 0\n"
         )
 
-        let service = SRAService(homeDirectoryProvider: { home })
+        let service = SRAService(homeDirectoryProvider: { home }, appIdentity: .preview)
         let task = Task {
             try await service.downloadFASTQ(
                 accession: "SRR000003",

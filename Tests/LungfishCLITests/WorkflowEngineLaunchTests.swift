@@ -1,4 +1,5 @@
 import XCTest
+import LungfishCore
 @testable import LungfishCLI
 
 final class WorkflowEngineLaunchTests: XCTestCase {
@@ -18,7 +19,7 @@ final class WorkflowEngineLaunchTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: home) }
         let executable = try installStubExecutable(named: "nextflow",
             in: home.appendingPathComponent(".lungfish/conda/envs/nextflow/bin"))
-        let launch = WorkflowEngineLaunch.resolve(executableName: "nextflow", homeDirectory: home)
+        let launch = WorkflowEngineLaunch.resolve(executableName: "nextflow", homeDirectory: home, appIdentity: .preview)
         XCTAssertEqual(launch.resolvedExecutableURL()?.path, executable.path)
     }
 
@@ -57,6 +58,7 @@ final class WorkflowEngineLaunchTests: XCTestCase {
         let launch = WorkflowEngineLaunch.resolve(
             executableName: "nextflow",
             homeDirectory: home,
+            appIdentity: .preview,
             baseEnvironment: ["PATH": "/usr/bin:/bin", "HOME": "/nonexistent"]
         )
 
@@ -83,6 +85,7 @@ final class WorkflowEngineLaunchTests: XCTestCase {
         let launch = WorkflowEngineLaunch.resolve(
             executableName: "nextflow",
             homeDirectory: home,
+            appIdentity: .preview,
             baseEnvironment: ["PATH": "/usr/bin:/bin"]
         )
 
@@ -105,6 +108,7 @@ final class WorkflowEngineLaunchTests: XCTestCase {
         let launch = WorkflowEngineLaunch.resolve(
             executableName: "nextflow",
             homeDirectory: home,
+            appIdentity: .preview,
             baseEnvironment: ["PATH": "/usr/local/bin:/usr/bin:\(managedBin.standardizedFileURL.path)"]
         )
 
@@ -124,6 +128,7 @@ final class WorkflowEngineLaunchTests: XCTestCase {
         let launch = WorkflowEngineLaunch.resolve(
             executableName: "nextflow",
             homeDirectory: home,
+            appIdentity: .preview,
             baseEnvironment: ["PATH": "/usr/bin:/bin", "JAVA_HOME": "/Library/Java/Elsewhere"]
         )
 
@@ -141,6 +146,7 @@ final class WorkflowEngineLaunchTests: XCTestCase {
         let launch = WorkflowEngineLaunch.resolve(
             executableName: "nextflow",
             homeDirectory: home,
+            appIdentity: .preview,
             baseEnvironment: ["PATH": "/usr/bin:/bin", "JAVA_HOME": "/Library/Java/Elsewhere"]
         )
 
@@ -156,6 +162,7 @@ final class WorkflowEngineLaunchTests: XCTestCase {
         let launch = WorkflowEngineLaunch.resolve(
             executableName: "snakemake",
             homeDirectory: home,
+            appIdentity: .preview,
             baseEnvironment: ["PATH": "/usr/bin:/bin"]
         )
 
