@@ -81,6 +81,15 @@ struct MapCommand: AsyncParsableCommand {
     @Flag(name: .customLong("paired"), help: "Input files are paired-end reads")
     var pairedEnd: Bool = false
 
+    @Option(
+        name: .customLong("read-layout"),
+        help: ArgumentHelp(
+            "How the records of a single input file relate: auto, single-end, interleaved (every record is followed by its mate), or mixed (merged reads and interleaved pairs in one file) (default: auto)",
+            discussion: "auto reads the enclosing .lungfishfastq bundle's metadata, then scans read names (identical names, /1 /2, and Casava descriptions all count as mates). Each mapper then applies its declared handling: bwa-mem2 and minimap2 pair mates in interleaved and mixed files; bowtie2 and BBMap pair mates only in a strictly interleaved file and map a mixed file as single reads."
+        )
+    )
+    var readLayout: MapReadLayoutArgument = .auto
+
     @Flag(name: .customLong("secondary"), help: "Keep secondary alignments in the normalized BAM")
     var secondary: Bool = false
 
@@ -120,6 +129,10 @@ struct MapCommand: AsyncParsableCommand {
 
         if pairedEnd && inputURLs.count != 2 {
             print(formatter.error("Paired-end mode requires exactly 2 input files, got \(inputURLs.count)."))
+            throw CLIExitCode.inputError.exitCode
+        }
+        if readLayout != .auto, pairedEnd || inputURLs.count != 1 {
+            print(formatter.error("--read-layout describes one input file; use --paired for two R1/R2 files."))
             throw CLIExitCode.inputError.exitCode
         }
         if minMapQ < 0 {
@@ -230,6 +243,13 @@ struct MapCommand: AsyncParsableCommand {
             }
         }
 
+        // Resolved here, on the materialized inputs, the same way the GUI
+        // pipeline does it, so the table below and provenance agree.
+        let layoutResolution = FASTQInputLayoutResolver.resolve(
+            inputURLs: executionInputURLs,
+            pairedFiles: pairedEnd,
+            explicit: readLayout.explicitLayout
+        )
         let request = MappingRunRequest(
             tool: selectedTool,
             modeID: selectedMode.id,
@@ -246,8 +266,10 @@ struct MapCommand: AsyncParsableCommand {
             includeSecondary: secondary,
             includeSupplementary: !noSupplementary,
             minimumMappingQuality: minMapQ,
-            advancedArguments: advancedArguments
+            advancedArguments: advancedArguments,
+            inputLayout: layoutResolution.layout
         )
+        let readLayoutPlan = request.readLayoutPlan
 
         print(formatter.header("Read Mapping"))
         print("")
@@ -256,6 +278,8 @@ struct MapCommand: AsyncParsableCommand {
             ("Mode", selectedMode.displayName),
             ("Input files", inputURLs.map(\.lastPathComponent).joined(separator: ", ")),
             ("Paired-end", pairedEnd ? "yes" : "no"),
+            ("Read layout", "\(readLayoutPlan.layout.displayName) (\(layoutResolution.source.rawValue))"),
+            ("Layout handling", readLayoutPlan.handling.displayName),
             ("Reference", referenceURL.lastPathComponent),
             ("Threads", String(threadCount)),
             ("Secondary", secondary ? "yes" : "no"),
@@ -275,7 +299,7 @@ struct MapCommand: AsyncParsableCommand {
         let pipeline = ManagedMappingPipeline()
         let result: MappingResult
         do {
-            result = try await pipeline.run(request: request) { _, message in
+            result = try await pipeline.run(request: request, inputLayoutReason: layoutResolution.reason) { _, message in
                 if !globalOptions.quiet {
                     print("\r\(formatter.info(message))", terminator: "")
                     fflush(stdout)
@@ -303,6 +327,24 @@ struct MapCommand: AsyncParsableCommand {
             ("BAI", result.baiURL.path),
         ]))
         print("")
+    }
+
+    /// The `--read-layout` values, mirroring `FASTQInputLayout` for one file.
+    enum MapReadLayoutArgument: String, ExpressibleByArgument, CaseIterable, Sendable {
+        case auto
+        case singleEnd = "single-end"
+        case interleaved
+        case mixed
+
+        /// The layout the caller stated, or `nil` for auto detection.
+        var explicitLayout: FASTQInputLayout? {
+            switch self {
+            case .auto: return nil
+            case .singleEnd: return .singleEnd
+            case .interleaved: return .strictlyInterleaved
+            case .mixed: return .mixedMergedAndPairs
+            }
+        }
     }
 
     static func parseExtraArgs(_ extraArgs: String, deprecatedAdvancedOptions: String) throws -> [String] {

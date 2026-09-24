@@ -18,6 +18,8 @@ public extension MappingRunRequest {
             "readGroup.pu": .string(readGroup.platformUnit),
             "threads": .int(threads),
             "isPairedEnd": .bool(pairedEnd),
+            "inputLayout": .string(effectiveInputLayout.rawValue),
+            "readLayoutHandling": .string(readLayoutPlan.handling.rawValue),
             "includeSecondary": .bool(includeSecondary),
             "includeSupplementary": .bool(includeSupplementary),
             "minimumMappingQuality": .int(minimumMappingQuality),

@@ -64,6 +64,8 @@ private struct PreparedMappingExecution: Sendable {
     let request: MappingRunRequest
     let referenceLocator: ReferenceLocator
     let cleanupURLs: [URL]
+    /// Why the input resolved to `request.inputLayout`.
+    let inputLayoutReason: String?
 }
 
 struct PreparedMappingExecutionForTesting: Sendable {
@@ -91,12 +93,18 @@ public final class ManagedMappingPipeline: @unchecked Sendable {
         try MappingCommandBuilder.buildCommand(for: request)
     }
 
+    /// - Parameters:
+    ///   - request: the run. When `request.inputLayout` is nil the pipeline
+    ///     resolves it from the materialized inputs (`FASTQInputLayoutResolver`).
+    ///   - inputLayoutReason: why a caller-supplied `inputLayout` was chosen,
+    ///     recorded in provenance. Ignored when the pipeline resolves the layout.
     public func run(
         request: MappingRunRequest,
+        inputLayoutReason: String? = nil,
         progress: ProgressHandler? = nil
     ) async throws -> MappingResult {
         let start = Date()
-        let prepared = try await prepareExecution(for: request)
+        let prepared = try await prepareExecution(for: request, inputLayoutReason: inputLayoutReason)
         defer {
             for url in prepared.cleanupURLs {
                 try? FileManager.default.removeItem(at: url)
@@ -124,6 +132,8 @@ public final class ManagedMappingPipeline: @unchecked Sendable {
         )
 
         let rawAlignmentURL = MappingCommandBuilder.rawAlignmentURL(for: prepared.request)
+        let readLayoutPlan = prepared.request.readLayoutPlan
+        progress?(0.08, "Read layout: \(readLayoutPlan.layout.displayName), mapped \(readLayoutPlan.handling.displayName).")
         progress?(0.1, "Running \(prepared.request.tool.displayName)...")
         let mapperInputRecords = mapperExecutionInputRecords(
             for: prepared.request,
@@ -208,7 +218,8 @@ public final class ManagedMappingPipeline: @unchecked Sendable {
             runtimeIdentity: mappingRuntimeIdentity(for: command),
             steps: steps,
             exitStatus: 0,
-            stderr: combinedStderr(steps.map(\.stderr))
+            stderr: combinedStderr(steps.map(\.stderr)),
+            inputLayoutReason: prepared.inputLayoutReason
         )
         try provenance.save(to: prepared.request.outputDirectory)
         try provenance.saveCanonicalEnvelope(to: prepared.request.outputDirectory)
@@ -468,7 +479,10 @@ public final class ManagedMappingPipeline: @unchecked Sendable {
         }
     }
 
-    private func prepareExecution(for request: MappingRunRequest) async throws -> PreparedMappingExecution {
+    private func prepareExecution(
+        for request: MappingRunRequest,
+        inputLayoutReason callerLayoutReason: String? = nil
+    ) async throws -> PreparedMappingExecution {
         let stagedInputs = try await MappingFASTAInputStager.stageSAMSafeFASTAInputsIfNeeded(
             inputURLs: request.inputFASTQURLs,
             projectURL: request.projectURL
@@ -480,8 +494,21 @@ public final class ManagedMappingPipeline: @unchecked Sendable {
             sourceReferenceBundleURL: sourceReferenceBundleURL,
             projectURL: request.projectURL
         )
-        let effectiveRequest = request
-            .withInputFASTQURLs(stagedInputs.inputURLs)
+        // The layout is resolved once, here, after every caller has
+        // materialized its inputs, so the GUI and `lungfish-cli map` reach
+        // the same answer through FASTQInputLayoutResolver. A caller that
+        // already knows the layout (`--read-layout`) is not second-guessed.
+        var inputLayoutReason = callerLayoutReason
+        var layoutResolvedRequest = request.withInputFASTQURLs(stagedInputs.inputURLs)
+        if request.inputLayout == nil {
+            let resolution = FASTQInputLayoutResolver.resolve(
+                inputURLs: stagedInputs.inputURLs,
+                pairedFiles: request.pairedEnd
+            )
+            inputLayoutReason = resolution.reason
+            layoutResolvedRequest = layoutResolvedRequest.withInputLayout(resolution.layout)
+        }
+        let effectiveRequest = layoutResolvedRequest
             .withSourceReferenceBundleURL(sourceReferenceBundleURL)
         let cleanupURLs = stagedInputs.cleanupURLs + stagedReference.cleanupURLs
 
@@ -498,7 +525,8 @@ public final class ManagedMappingPipeline: @unchecked Sendable {
             return PreparedMappingExecution(
                 request: effectiveRequest,
                 referenceLocator: referenceLocator,
-                cleanupURLs: cleanupURLs + [workspace]
+                cleanupURLs: cleanupURLs + [workspace],
+                inputLayoutReason: inputLayoutReason
             )
         case .minimap2, .bbmap:
             return PreparedMappingExecution(
@@ -507,7 +535,8 @@ public final class ManagedMappingPipeline: @unchecked Sendable {
                     referenceURL: stagedReference.referenceURL,
                     indexPrefixURL: effectiveRequest.outputDirectory.appendingPathComponent(".mapping-index/reference-index")
                 ),
-                cleanupURLs: cleanupURLs
+                cleanupURLs: cleanupURLs,
+                inputLayoutReason: inputLayoutReason
             )
         }
     }

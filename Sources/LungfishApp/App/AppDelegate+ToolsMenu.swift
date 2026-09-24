@@ -1300,9 +1300,16 @@ extension AppDelegate {
             }
         }
 
+        // The copied command names the bundles the user chose and leaves
+        // --read-layout in auto: `lungfish-cli map` resolves the layout with
+        // the same FASTQInputLayoutResolver this run uses below.
         let opID = OperationCenter.shared.start(
             title: "Map Reads (\(request.tool.displayName)): \(request.sampleName)",
             detail: "Mapping \(request.inputFASTQURLs.count) file(s) to \(request.referenceFASTAURL.lastPathComponent)",
+            cliCommand: OperationCenter.buildCLICommand(
+                subcommand: "map",
+                args: MappingCLIInvocationBuilder.arguments(for: request)
+            ),
             routeContext: routeContext
         )
         registerCancel(opID)
@@ -1351,9 +1358,27 @@ extension AppDelegate {
             // F2 fix: pairedEnd is derived from the ACTUALLY-RESOLVED files'
             // R1/R2 roles here, never from the pre-resolve URL count.
             let resolvedPairedEnd = Self.resolvedPairedEnd(for: resolvedFiles)
-            let resolvedRequest = request.withInputFASTQURLs(resolvedFiles, pairedEnd: resolvedPairedEnd)
+            // The read layout (single-end, interleaved pairs, mixed merged
+            // reads and pairs) is resolved from the same files, off the main
+            // actor because the resolver may scan records, and recorded on
+            // the request so the analysis manifest and provenance carry it.
+            let layoutResolution = await Task.detached {
+                FASTQInputLayoutResolver.resolve(inputURLs: resolvedFiles, pairedFiles: resolvedPairedEnd)
+            }.value
+            let resolvedRequest = request
+                .withInputFASTQURLs(resolvedFiles, pairedEnd: resolvedPairedEnd)
+                .withInputLayout(layoutResolution.layout)
+            let readLayoutPlan = resolvedRequest.readLayoutPlan
+            OperationCenter.shared.log(
+                id: opID,
+                level: .info,
+                message: "Read layout: \(readLayoutPlan.layout.displayName), mapped \(readLayoutPlan.handling.displayName) (\(layoutResolution.reason))"
+            )
             let pipeline = ManagedMappingPipeline()
-            let result = try await pipeline.run(request: resolvedRequest) { fraction, message in
+            let result = try await pipeline.run(
+                request: resolvedRequest,
+                inputLayoutReason: layoutResolution.reason
+            ) { fraction, message in
                 DispatchQueue.main.async { MainActor.assumeIsolated {
                     _ = OperationCenter.shared.update(id: opID, progress: fraction, detail: message)
                     OperationCenter.shared.log(id: opID, level: .info, message: message)

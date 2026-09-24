@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import LungfishIO
 
 public struct MappingCommandInvocation: Sendable, Codable, Equatable {
     public let label: String
@@ -62,6 +63,13 @@ public struct MappingProvenance: Sendable, Codable, Equatable {
     public let sampleName: String
     public let readGroup: MappingReadGroup
     public let pairedEnd: Bool
+    /// The resolved layout of the FASTQ input (nil for runs recorded before
+    /// the layout contract; the Inspector then falls back to the sidecar).
+    public let inputLayout: FASTQInputLayout?
+    /// What the mapper did with that layout.
+    public let readLayoutHandling: FASTQReadLayoutHandling?
+    /// Why the input resolved to `inputLayout`.
+    public let inputLayoutReason: String?
     public let threads: Int
     public let minimumMappingQuality: Int
     public let includeSecondary: Bool
@@ -94,6 +102,9 @@ public struct MappingProvenance: Sendable, Codable, Equatable {
         sampleName: String,
         readGroup: MappingReadGroup? = nil,
         pairedEnd: Bool,
+        inputLayout: FASTQInputLayout? = nil,
+        readLayoutHandling: FASTQReadLayoutHandling? = nil,
+        inputLayoutReason: String? = nil,
         threads: Int,
         minimumMappingQuality: Int,
         includeSecondary: Bool,
@@ -129,6 +140,9 @@ public struct MappingProvenance: Sendable, Codable, Equatable {
             defaultPlatform: MappingReadGroup.defaultPlatform(forModeID: modeID)
         )
         self.pairedEnd = pairedEnd
+        self.inputLayout = inputLayout
+        self.readLayoutHandling = readLayoutHandling
+        self.inputLayoutReason = inputLayoutReason
         self.threads = threads
         self.minimumMappingQuality = minimumMappingQuality
         self.includeSecondary = includeSecondary
@@ -172,6 +186,9 @@ public struct MappingProvenance: Sendable, Codable, Equatable {
             sampleName: sampleName,
             readGroup: readGroup,
             pairedEnd: pairedEnd,
+            inputLayout: inputLayout,
+            readLayoutHandling: readLayoutHandling,
+            inputLayoutReason: inputLayoutReason,
             threads: threads,
             minimumMappingQuality: minimumMappingQuality,
             includeSecondary: includeSecondary,
@@ -206,6 +223,9 @@ public struct MappingProvenance: Sendable, Codable, Equatable {
             sampleName: sampleName,
             readGroup: readGroup,
             pairedEnd: pairedEnd,
+            inputLayout: inputLayout,
+            readLayoutHandling: readLayoutHandling,
+            inputLayoutReason: inputLayoutReason,
             threads: threads,
             minimumMappingQuality: minimumMappingQuality,
             includeSecondary: includeSecondary,
@@ -248,6 +268,9 @@ public struct MappingProvenance: Sendable, Codable, Equatable {
                 sampleName: sampleName,
                 readGroup: readGroup,
                 pairedEnd: pairedEnd,
+                inputLayout: inputLayout,
+                readLayoutHandling: readLayoutHandling,
+                inputLayoutReason: inputLayoutReason,
                 threads: threads,
                 minimumMappingQuality: minimumMappingQuality,
                 includeSecondary: includeSecondary,
@@ -310,6 +333,9 @@ public struct MappingProvenance: Sendable, Codable, Equatable {
             sampleName: persisted.sampleName,
             readGroup: persisted.readGroup,
             pairedEnd: persisted.pairedEnd,
+            inputLayout: persisted.inputLayout,
+            readLayoutHandling: persisted.readLayoutHandling,
+            inputLayoutReason: persisted.inputLayoutReason,
             threads: persisted.threads,
             minimumMappingQuality: persisted.minimumMappingQuality,
             includeSecondary: persisted.includeSecondary,
@@ -352,9 +378,13 @@ public struct MappingProvenance: Sendable, Codable, Equatable {
         runtimeIdentity: [String: String] = [:],
         steps: [StepExecution] = [],
         exitStatus: Int32? = nil,
-        stderr: String? = nil
+        stderr: String? = nil,
+        inputLayoutReason: String? = nil
     ) -> MappingProvenance {
-        MappingProvenance(
+        // Only a resolved layout is recorded; a request that skipped
+        // resolution leaves the fields nil so readers fall back honestly.
+        let readLayoutPlan = request.inputLayout.map { _ in request.readLayoutPlan }
+        return MappingProvenance(
             schemaVersion: 3,
             workflowName: "lungfish map",
             mapper: request.tool,
@@ -362,6 +392,9 @@ public struct MappingProvenance: Sendable, Codable, Equatable {
             sampleName: request.sampleName,
             readGroup: request.resolvedReadGroup(),
             pairedEnd: request.pairedEnd,
+            inputLayout: readLayoutPlan?.layout,
+            readLayoutHandling: readLayoutPlan?.handling,
+            inputLayoutReason: inputLayoutReason,
             threads: request.threads,
             minimumMappingQuality: request.minimumMappingQuality,
             includeSecondary: request.includeSecondary,
@@ -843,6 +876,9 @@ private struct PersistedMappingProvenance: Sendable, Codable, Equatable {
     let sampleName: String
     let readGroup: MappingReadGroup?
     let pairedEnd: Bool
+    let inputLayout: FASTQInputLayout?
+    let readLayoutHandling: FASTQReadLayoutHandling?
+    let inputLayoutReason: String?
     let threads: Int
     let minimumMappingQuality: Int
     let includeSecondary: Bool

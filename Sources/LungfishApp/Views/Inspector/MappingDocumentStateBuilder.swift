@@ -4,14 +4,33 @@ import LungfishWorkflow
 
 enum MappingDocumentStateBuilder {
 
-    /// The Run Settings "Paired End" value. `pairedEnd` is the request flag,
-    /// which is only ever true for a split R1/R2 file pair. An interleaved
-    /// single file reaches the mapper as one input, so the flag stays false
-    /// even though minimap2 (`-x sr`) and BBMap (`interleaved=auto`) pair
-    /// consecutive same-name records on their own; the label says so instead
-    /// of reporting "No" for a BAM that is properly paired. bwa-mem2 and
-    /// bowtie2 receive no interleave flag from `MappingCommandBuilder`, so for
-    /// them an interleaved file really is mapped as single-end reads.
+    /// The Run Settings "Paired End" value.
+    ///
+    /// A run recorded under the read-layout contract carries the resolved
+    /// input layout and the handling the mapper applied, which is the whole
+    /// answer (`MappingReadLayoutPlan.pairedEndDescription`). Older runs fall
+    /// back to the request flag and the input's `.lungfish-meta.json`
+    /// pairing mode through the legacy overload.
+    static func pairedEndDescription(for provenance: MappingProvenance) -> String {
+        if let layout = provenance.inputLayout, let handling = provenance.readLayoutHandling {
+            return MappingReadLayoutPlan(layout: layout, handling: handling).pairedEndDescription
+        }
+        return pairedEndDescription(
+            pairedEnd: provenance.pairedEnd,
+            mapper: provenance.mapper,
+            inputPairingMode: inputPairingMode(for: provenance)
+        )
+    }
+
+    /// Legacy label for runs recorded before the read-layout contract.
+    /// `pairedEnd` is the request flag, which is only ever true for a split
+    /// R1/R2 file pair. An interleaved single file reached the mapper as one
+    /// input, so the flag stays false even though minimap2 (`-x sr`) and
+    /// BBMap (`interleaved=auto`) paired consecutive same-name records on
+    /// their own; the label says so instead of reporting "No" for a BAM that
+    /// is properly paired. bwa-mem2 and bowtie2 received no interleave flag
+    /// back then, so for them an interleaved file really was mapped as
+    /// single-end reads.
     static func pairedEndDescription(
         pairedEnd: Bool,
         mapper: MappingTool,
@@ -158,14 +177,10 @@ enum MappingDocumentStateBuilder {
 
         rows.append(("Sample Name", provenance.sampleName))
         rows.append(("Read Class Hints", provenance.readClassHints.isEmpty ? "None recorded" : provenance.readClassHints.joined(separator: ", ")))
-        rows.append((
-            "Paired End",
-            pairedEndDescription(
-                pairedEnd: provenance.pairedEnd,
-                mapper: provenance.mapper,
-                inputPairingMode: inputPairingMode(for: provenance)
-            )
-        ))
+        rows.append(("Paired End", pairedEndDescription(for: provenance)))
+        if let layout = provenance.inputLayout {
+            rows.append(("Read Layout", layout.displayName))
+        }
         rows.append(("Threads", String(provenance.threads)))
         rows.append(("Minimum MAPQ", String(provenance.minimumMappingQuality)))
         rows.append(("Include Secondary", provenance.includeSecondary ? "Yes" : "No"))

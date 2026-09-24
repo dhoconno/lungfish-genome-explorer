@@ -1,4 +1,5 @@
 import XCTest
+import LungfishIO
 @testable import LungfishCLI
 
 final class MapCommandTests: XCTestCase {
@@ -22,5 +23,31 @@ final class MapCommandTests: XCTestCase {
         XCTAssertEqual(command.readGroupLibrary, "lib-1")
         XCTAssertEqual(command.readGroupPlatform, "ILLUMINA")
         XCTAssertEqual(command.readGroupPlatformUnit, "unit-1")
+    }
+
+    func testReadLayoutDefaultsToAutoAndMapsToTheSharedLayout() throws {
+        let auto = try MapCommand.parse(["/tmp/reads.lungfishfastq", "--reference", "/tmp/reference.fa"])
+        XCTAssertEqual(auto.readLayout, .auto)
+        XCTAssertNil(auto.readLayout.explicitLayout)
+
+        let expectations: [(String, MapCommand.MapReadLayoutArgument, FASTQInputLayout)] = [
+            ("single-end", .singleEnd, .singleEnd),
+            ("interleaved", .interleaved, .strictlyInterleaved),
+            ("mixed", .mixed, .mixedMergedAndPairs),
+        ]
+        for (argument, expectedArgument, expectedLayout) in expectations {
+            let command = try MapCommand.parse([
+                "/tmp/reads.lungfishfastq",
+                "--reference", "/tmp/reference.fa",
+                "--read-layout", argument,
+            ])
+            XCTAssertEqual(command.readLayout, expectedArgument, argument)
+            XCTAssertEqual(command.readLayout.explicitLayout, expectedLayout, argument)
+        }
+        XCTAssertThrowsError(try MapCommand.parse([
+            "/tmp/reads.lungfishfastq",
+            "--reference", "/tmp/reference.fa",
+            "--read-layout", "paired",
+        ]))
     }
 }
