@@ -1148,7 +1148,7 @@ final class NativeToolRunnerTests: XCTestCase {
             try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executableURL.path)
         }
 
-        return (NativeToolRunner(toolsDirectory: nil, homeDirectory: root), root)
+        return (NativeToolRunner(toolsDirectory: nil, homeDirectory: root, appIdentity: .preview), root)
     }
 
     private func makeBBToolsJavaTestRunner() throws -> (runner: NativeToolRunner, root: URL) {
@@ -1182,7 +1182,7 @@ final class NativeToolRunnerTests: XCTestCase {
         try script.write(to: scriptURL, atomically: true, encoding: .utf8)
         try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: scriptURL.path)
 
-        return (NativeToolRunner(toolsDirectory: nil, homeDirectory: root), root)
+        return (NativeToolRunner(toolsDirectory: nil, homeDirectory: root, appIdentity: .preview), root)
     }
 
     private func containsTemporaryOutput(for outputURL: URL, in directory: URL) throws -> Bool {
@@ -1249,7 +1249,7 @@ final class NativeToolRunnerTests: XCTestCase {
         try script.write(to: executableURL, atomically: true, encoding: .utf8)
         try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executableURL.path)
 
-        return (NativeToolRunner(toolsDirectory: nil, homeDirectory: root), root)
+        return (NativeToolRunner(toolsDirectory: nil, homeDirectory: root, appIdentity: .preview), root)
     }
 
     private func waitForFile(at url: URL, timeoutNanoseconds: UInt64 = 5_000_000_000) async throws {
