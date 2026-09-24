@@ -173,6 +173,112 @@ final class MarkdupServiceTests: XCTestCase {
         XCTAssertLessThan(nonDup, 5, "Non-duplicate count must be less than total 5 (all duplicates)")
     }
 
+    // MARK: - SCI-17: pipeline robustness
+
+    /// A mid-pipeline failure (the `sort -n` stage) must fail the whole
+    /// pipeline, not be masked by a successful exit from the final stage.
+    /// This requires `set -o pipefail` in the shell pipeline.
+    func testMarkdupFailsWhenFirstPipelineStageFails() throws {
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let bamURL = dir.appendingPathComponent("test.bam")
+        try makeBamWithDuplicates(at: bamURL)
+
+        // Preserve the original bytes so we can prove they are untouched
+        // after the failed run.
+        let originalBytes = try Data(contentsOf: bamURL)
+
+        // A fake "samtools" that fails its `sort -n` invocation (simulating
+        // a corrupt/truncated input) but succeeds at every later stage, so
+        // only `set -o pipefail` can make the overall pipeline fail.
+        let fakeBin = dir.appendingPathComponent("fakebin", isDirectory: true)
+        try FileManager.default.createDirectory(at: fakeBin, withIntermediateDirectories: true)
+        let fakeSamtools = fakeBin.appendingPathComponent("samtools")
+        try """
+        #!/bin/sh
+        if [ "$1" = "sort" ] && [ "$2" = "-n" ]; then
+          echo "fake sort -n failure" 1>&2
+          exit 1
+        fi
+        # Every later stage in the pipe succeeds and passes nothing through,
+        # which would previously exit 0 overall despite the first failure.
+        exit 0
+        """.write(to: fakeSamtools, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fakeSamtools.path)
+
+        XCTAssertThrowsError(
+            try MarkdupService.markdup(bamURL: bamURL, samtoolsPath: fakeSamtools.path)
+        ) { error in
+            guard case MarkdupError.pipelineFailed = error else {
+                XCTFail("Expected pipelineFailed, got \(error)")
+                return
+            }
+        }
+
+        // The original BAM must be untouched: no partial/corrupt swap.
+        let bytesAfterFailure = try Data(contentsOf: bamURL)
+        XCTAssertEqual(bytesAfterFailure, originalBytes, "Original BAM must survive a failed pipeline stage")
+
+        // No leftover temp files.
+        let tempBamURL = URL(fileURLWithPath: bamURL.path + ".markdup.tmp")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: tempBamURL.path))
+    }
+
+    /// Paths containing shell-significant characters (`$`, a space, a
+    /// double quote) must not break or be reinterpreted by the pipeline,
+    /// since the input/output paths are passed as argv, not interpolated
+    /// inside double-quoted shell text.
+    /// The result's `totalReads`/`duplicateReads` must count primary reads,
+    /// not alignment records: secondary and supplementary records for the
+    /// same 5 primary reads must not inflate either count (SCI-17).
+    func testMarkdupResultCountsPrimaryReadsNotAlignmentRecords() throws {
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let bamURL = dir.appendingPathComponent("test.bam")
+
+        let refs = [BamFixtureBuilder.Reference(name: "chr1", length: 1000)]
+        let seq = String(repeating: "A", count: 50)
+        let qual = String(repeating: "I", count: 50)
+        var reads: [BamFixtureBuilder.Read] = (0..<5).map { i in
+            BamFixtureBuilder.Read(
+                qname: "read\(i)", flag: 0, rname: "chr1",
+                pos: 100, mapq: 60, cigar: "50M", seq: seq, qual: qual
+            )
+        }
+        // Add secondary (0x100) and supplementary (0x800) records for two of
+        // the five primary reads. Before the fix these inflated both
+        // `totalReads` (via flag 0x004) and the non-duplicate count.
+        reads.append(BamFixtureBuilder.Read(
+            qname: "read0", flag: 0x100, rname: "chr1",
+            pos: 100, mapq: 0, cigar: "50M", seq: "*", qual: "*"
+        ))
+        reads.append(BamFixtureBuilder.Read(
+            qname: "read1", flag: 0x800, rname: "chr1",
+            pos: 100, mapq: 60, cigar: "50M", seq: seq, qual: qual
+        ))
+        try BamFixtureBuilder.makeBAM(at: bamURL, references: refs, reads: reads, samtoolsPath: samtoolsPath)
+
+        let result = try MarkdupService.markdup(bamURL: bamURL, samtoolsPath: samtoolsPath)
+
+        XCTAssertEqual(result.totalReads, 5, "7 alignment records (5 primary + 1 secondary + 1 supplementary) must count as 5 reads")
+        XCTAssertLessThanOrEqual(result.duplicateReads, 5)
+    }
+
+    func testMarkdupHandlesPathsWithShellSignificantCharacters() throws {
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let weirdDir = dir.appendingPathComponent("weird $dir \"quoted\"", isDirectory: true)
+        try FileManager.default.createDirectory(at: weirdDir, withIntermediateDirectories: true)
+        let bamURL = weirdDir.appendingPathComponent("test.bam")
+        try makeBamWithDuplicates(at: bamURL)
+
+        let result = try MarkdupService.markdup(bamURL: bamURL, samtoolsPath: samtoolsPath)
+
+        XCTAssertFalse(result.wasAlreadyMarkduped)
+        XCTAssertEqual(result.totalReads, 5)
+        XCTAssertTrue(MarkdupService.isAlreadyMarkduped(bamURL: bamURL, samtoolsPath: samtoolsPath))
+    }
+
     // MARK: - Errors
 
     func testMarkdupThrowsOnMissingBAM() {

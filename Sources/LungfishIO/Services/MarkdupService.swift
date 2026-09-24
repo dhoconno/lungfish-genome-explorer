@@ -15,6 +15,20 @@ private let logger = Logger(subsystem: LogSubsystem.io, category: "MarkdupServic
 /// header line that `samtools markdup` adds automatically.
 public enum MarkdupService {
 
+    /// `samtools view -F` flag mask for a duplicate-fraction *denominator*:
+    /// primary reads regardless of mapped status. Excludes unmapped,
+    /// secondary and supplementary records so the denominator is a read
+    /// count, not an alignment-record count (SCI-17). Previously this used
+    /// `0x004` (unmapped only), which double-counted supplementary and
+    /// secondary alignments of the same read.
+    private static let totalReadsFlagFilter = 0x904 // UNMAP | SECONDARY | SUPPLEMENTARY
+
+    /// `samtools view -F` flag mask for a duplicate-fraction *numerator*:
+    /// primary, non-duplicate reads. Previously this used `0x404` (unmapped
+    /// + duplicate only), which also counted secondary and supplementary
+    /// records as non-duplicate reads (SCI-17).
+    private static let nonDuplicateReadsFlagFilter = 0xD04 // UNMAP | DUP | SECONDARY | SUPPLEMENTARY
+
     // MARK: - Public API
 
     /// Runs markdup in-place on a single BAM file.
@@ -38,8 +52,8 @@ public enum MarkdupService {
             // which would confuse samtools region queries downstream.
             try ensureFreshIndex(bamURL: bamURL, samtoolsPath: samtoolsPath)
 
-            let total = (try? countReads(bamURL: bamURL, accession: nil, flagFilter: 0x004, samtoolsPath: samtoolsPath)) ?? 0
-            let nonDup = (try? countReads(bamURL: bamURL, accession: nil, flagFilter: 0x404, samtoolsPath: samtoolsPath)) ?? 0
+            let total = (try? countReads(bamURL: bamURL, accession: nil, flagFilter: totalReadsFlagFilter, samtoolsPath: samtoolsPath)) ?? 0
+            let nonDup = (try? countReads(bamURL: bamURL, accession: nil, flagFilter: nonDuplicateReadsFlagFilter, samtoolsPath: samtoolsPath)) ?? 0
             return MarkdupResult(
                 bamURL: bamURL,
                 wasAlreadyMarkduped: true,
@@ -93,8 +107,8 @@ public enum MarkdupService {
         }
 
         // Count reads post-markdup for the result
-        let total = try countReads(bamURL: bamURL, accession: nil, flagFilter: 0x004, samtoolsPath: samtoolsPath)
-        let nonDup = try countReads(bamURL: bamURL, accession: nil, flagFilter: 0x404, samtoolsPath: samtoolsPath)
+        let total = try countReads(bamURL: bamURL, accession: nil, flagFilter: totalReadsFlagFilter, samtoolsPath: samtoolsPath)
+        let nonDup = try countReads(bamURL: bamURL, accession: nil, flagFilter: nonDuplicateReadsFlagFilter, samtoolsPath: samtoolsPath)
 
         logger.info("Marked duplicates in \(bamURL.lastPathComponent, privacy: .public): \(total - nonDup)/\(total)")
 
@@ -197,6 +211,15 @@ public enum MarkdupService {
     // MARK: - Private Helpers
 
     /// Runs the 4-stage pipeline via /bin/sh -c to use native shell piping.
+    ///
+    /// SCI-17: two robustness fixes over the original implementation.
+    /// - `set -o pipefail` so a failure in `sort`/`fixmate` (not just the
+    ///   final `markdup` stage) fails the whole pipeline instead of being
+    ///   masked by a successful exit from the last stage.
+    /// - Paths are passed as positional shell parameters (`$1`..`$4`)
+    ///   rather than interpolated inside double quotes, so a path containing
+    ///   `$`, a backtick or a `"` cannot break the command or be interpreted
+    ///   as shell syntax.
     private static func runPipeline(
         inputPath: String,
         outputPath: String,
@@ -204,15 +227,16 @@ public enum MarkdupService {
         threads: Int
     ) throws {
         let cmd = """
-        "\(samtoolsPath)" sort -n -@ \(threads) "\(inputPath)" | \
-        "\(samtoolsPath)" fixmate -m - - | \
-        "\(samtoolsPath)" sort -@ \(threads) - | \
-        "\(samtoolsPath)" markdup - "\(outputPath)"
+        set -o pipefail
+        "$1" sort -n -@ "$2" "$3" | \
+        "$1" fixmate -m - - | \
+        "$1" sort -@ "$2" - | \
+        "$1" markdup - "$4"
         """
 
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/sh")
-        process.arguments = ["-c", cmd]
+        process.arguments = ["-c", cmd, "markdup-pipeline", samtoolsPath, String(threads), inputPath, outputPath]
         let errPipe = Pipe()
         process.standardOutput = FileHandle.nullDevice
         process.standardError = errPipe
