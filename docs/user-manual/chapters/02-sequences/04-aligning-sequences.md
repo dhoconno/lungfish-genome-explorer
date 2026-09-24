@@ -41,7 +41,9 @@ Sequences of the same gene are rarely the same length. One lineage gains bases t
 
 Once the rectangle exists, a column is something you can count. A residue is one unit of the sequence, a single base in DNA or a single amino acid in a protein. Take a column of five rows where four read `A` and one reads `G`. Four of the five agree, so that column scores 4 divided by 5, or 0.8. That number is [conservation](../../GLOSSARY.md#conservation), the share of the non-gap rows that carry the column's most common residue. A column where every row reads `A` scores 1 and is fully conserved. The disagreement in the other columns is the signal that later analyses read.
 
-Lungfish Genome Explorer (LGE) aligns with [MAFFT](../../GLOSSARY.md#mafft), a widely used alignment program, and stores the result as a `.lungfishmsa` [bundle](../../GLOSSARY.md#bundle). A bundle is a folder that the Finder shows as one file, so you can copy, move, and back it up like any other file. The alignment bundle holds the aligned sequences, the unaligned input they came from, and a record of how the run was made. So what should you do with this? Build the alignment first, check its columns, and only then hand it to whatever comes next.
+Lungfish Genome Explorer (LGE) aligns with [MAFFT](../../GLOSSARY.md#mafft), a widely used alignment program, and stores the result as a `.lungfishmsa` [bundle](../../GLOSSARY.md#bundle). A bundle is a folder that the Finder shows as one file, so you can copy, move, and back it up like any other file. The alignment bundle holds the aligned sequences, the unaligned input they came from, and a record of how the run was made. In practice, build the alignment first, check its columns, and only then hand it to whatever comes next.
+
+A [consensus sequence](../../GLOSSARY.md#consensus-sequence) is one sequence built from the alignment by writing down each column's most common residue. Where the rows agree too weakly, it writes a mask character such as `N` instead of a base. LGE draws the consensus as a row pinned above the sequences, so you can see at a glance where each row departs from the majority.
 
 ## Why you would do this
 
@@ -75,7 +77,7 @@ Import the FASTA the way [Importing and Viewing a Sequence](01-importing-and-vie
 
 ### Align the five genomes
 
-1. Find the imported bundle in the sidebar under `Reference Sequences/` and click it so its five sequences are listed. Leave them all unselected, or select all five, and the run covers every sequence either way.
+1. Click the imported bundle in the sidebar under `Reference Sequences/`. The viewport opens on a table with one row per sequence and Sequence, Length, and Role columns, so the five primates are listed there. Click the first row and Shift-click the last to select all five, so the run covers every sequence.
 2. Choose **Tools > Multiple Sequence Alignment > MAFFT...**. The FASTQ/FASTA Operations dialog opens on the MAFFT pane. The dialog follows the layout [Operation dialogs](../01-foundations/06-the-lungfish-project.md#operation-dialogs) describes.
 3. Read the line at the top of the pane. Because you are aligning the whole file, it states what will run, either "Aligning all 5 sequences." or "Aligning the 5 sequences you selected." A **Sequences to align** choice takes its place only when you select some but not all of a file's sequences.
 4. Leave **Strategy** on **Automatic**, leave the Advanced Options group collapsed, and click **Run**. MAFFT is the only aligner in LGE, so there is no aligner to pick.
@@ -86,7 +88,7 @@ Import the FASTA the way [Importing and Viewing a Sequence](01-importing-and-vie
 
 The bundle is named after the input, so this run writes `Analyses/Multiple Sequence Alignments/primate-mito.lungfishmsa`. Run it again and LGE adds a counter, giving `primate-mito-2.lungfishmsa`, so the first result is never overwritten. The dialog has no Output Strategy choice, because MAFFT always writes one alignment. LGE writes a [provenance](../../GLOSSARY.md#provenance) record beside every result, holding the command, the tool version, and a [checksum](../../GLOSSARY.md#checksum) of each file, and [Provenance and Reproducibility](../01-foundations/08-provenance-and-reproducibility.md#reading-the-results) shows how to read it.
 
-Right-clicking a FASTA selection and choosing **Align with MAFFT...** opens the same dialog with that selection already chosen. The alignment viewport does not offer that item, because realigning sequences that already carry gaps is a different job from aligning raw sequences. When a run's input already contains gaps, LGE records a warning that the result is unreliable and that the gaps should be removed first.
+A multi-sequence FASTA file opened from the sidebar also lists its sequences as table rows. Select some of those rows, right-click them, and choose **Align with MAFFT...** to open the same dialog with those sequences already chosen. The alignment viewport does not offer that item, because realigning sequences that already carry gaps is a different job from aligning raw sequences. When a run's input already contains gaps, LGE records a warning that the result is unreliable and that the gaps should be removed first.
 
 ### Import an alignment built elsewhere
 
@@ -168,7 +170,7 @@ The toolbar holds the working controls. The `Find sequence or column` field matc
 
 ### The numbers on this alignment
 
-The primate alignment is 5 rows by 17,247 columns. Every row is now 17,247 characters wide, so a row's own length tells you how many gaps it received. The cynomolgus macaque, at 16,575 bases, received 672 gaps, and the gorilla, at 16,412, received 835. A column count close to the longest input is what related sequences should give. A column count several times the longest input means the aligner found little shared structure, and the usual cause is an input that is not what you thought it was.
+The primate alignment is 5 rows by 17,247 columns. Every row is now 17,247 characters wide, so a row's own length tells you how many gaps it received. The cynomolgus macaque, at 16,575 bases, received 672 gaps, and the gorilla, at 16,412, received 835. A column count close to the longest input is what related sequences should give. As a rough rule, up to about 10 percent above the longest input is normal for sequences this closely related, and 17,247 is about 4 percent above 16,575. A column count several times the longest input means the aligner found little shared structure, and the usual cause is an input that is not what you thought it was.
 
 Of those 17,247 columns, 5,053 are variable, meaning they hold more than one distinct non-gap residue. That is 5,053 divided by 17,247, or about 29 percent, which is what species separated by tens of millions of years look like in mitochondrial DNA. Under a few percent means the sequences are nearly identical and the alignment will struggle to tell them apart. Over about half means they may be too distantly related for column-by-column comparison to mean much.
 
@@ -178,9 +180,9 @@ The consensus row is 17,247 characters long with 479 of them masked as `N` at th
 
 The clearest single check is a pairwise identity matrix, which reports for every pair of rows the fraction of compared positions at which they agree. It is the same arithmetic as [percent identity](../../GLOSSARY.md#percent-identity), taken across the whole alignment. No window in LGE draws this matrix. It comes from the command `lungfish-cli msa distance`, shown at the end of this chapter, and the numbers below are its output on the primate bundle.
 
-The two macaques come out at 0.926, or 92.6 percent identical, the highest pair in the matrix. Human and chimpanzee come out at 0.913. Human against either macaque falls to about 0.789.
+The two macaques come out at 0.926, or 92.6 percent identical, the highest pair in the matrix. Human and chimpanzee come out at 0.913, and human and gorilla at 0.894. Human against either macaque falls to about 0.789.
 
-Those three numbers are the finding. The pair within one genus is most alike, the two great apes come next, and the ape-to-monkey pairs are lowest. That ordering is the known primate relationship recovered from the alignment alone, which tells you the run worked. A matrix where the two macaques were not the closest pair would point to a mislabelled input, not a discovery.
+Those numbers are the finding. The pair within one genus is most alike, human and chimpanzee come next, gorilla sits a little further from both, and the ape-to-monkey pairs are lowest. That ordering is the known primate relationship recovered from the alignment alone, which tells you the run worked. A matrix where the two macaques were not the closest pair would point to a mislabelled input, not a discovery.
 
 ### Acting on a selection
 
@@ -202,9 +204,9 @@ Four checks are worth running before you trust an alignment.
 
 Confirm the row count matches your input. Five sequences in should give five rows out, with the names unchanged. A missing row means an input was excluded, and the run's row in the Operations Panel holds the reason.
 
-Confirm the column count sits near the longest input, as 17,247 does against 16,575 here. A count far above that means the aligner found little shared structure.
+Confirm the column count sits within about 10 percent of the longest input, as 17,247 does against 16,575 here. A count far above that means the aligner found little shared structure.
 
-Confirm the conservation overview strip looks like the one in the screenshot. On related sequences it reads as runs of tall bars broken by shorter stretches. An even wash of low bars across the whole width means the rows are not meaningfully aligned.
+Confirm the conservation overview strip is mostly tall bars. Every column that is not variable, 12,194 of the 17,247 here or about 70 percent, has a conservation of 1, so most of the strip should sit at or near full height, broken by shorter stretches. The strip packs many columns into each bar at full width, so expect a mostly tall strip rather than an exact count. An even wash of low bars across the whole width means the rows are not meaningfully aligned.
 
 Confirm the pairwise identities put the pairs in the order biology predicts, as the two macaques lead this matrix at 0.926. When they do not, suspect the inputs before the aligner.
 

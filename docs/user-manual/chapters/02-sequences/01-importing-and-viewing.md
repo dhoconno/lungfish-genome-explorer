@@ -50,9 +50,9 @@ Opening a bundle loads it into the [sequence viewport](../../GLOSSARY.md#sequenc
 
 ## Why you would do this
 
-The practice record is `NG_000007.3`, a [RefSeqGene](../../GLOSSARY.md#refseqgene) record from NCBI covering the human beta-globin cluster on chromosome 11. A cluster is a run of related genes that sit side by side, so this record holds the whole beta-globin family and not only HBB. It is 81,706 bases long and carries 102 features. Eight are genes, five are mRNAs, five are coding sequences, and thirteen are [exons](../../GLOSSARY.md#exon), the pieces of a gene that stay in the mRNA after splicing. Many of the rest are `misc_feature` entries, a catch-all type for any labelled stretch.
+The practice record is `NG_000007.3`, a [RefSeqGene](../../GLOSSARY.md#refseqgene) record, meaning a curated slice of a chromosome that covers one gene or gene cluster. It comes from the National Center for Biotechnology Information ([NCBI](../../GLOSSARY.md#ncbi)), the United States public sequence database, and covers the human beta-globin cluster on chromosome 11. A cluster is a run of related genes that sit side by side, so this record holds the whole beta-globin family and not only HBB. It is 81,706 bases long and carries 102 features. Eight are genes, five are mRNAs, five are coding sequences, and thirteen are [exons](../../GLOSSARY.md#exon), the pieces of a gene that stay in the mRNA after splicing. Many of the rest are `misc_feature` entries, a catch-all type for any labelled stretch.
 
-HBB encodes the beta chain of adult hemoglobin. A single-base change in the seventh codon of its coding sequence causes sickle cell disease, and [What Is a Genome](../01-foundations/01-what-is-a-genome.md#finding-the-sickle-cell-codon-on-paper) works out on paper that this codon sits at `NG_000007:70613-70615`. This chapter finds the same three bases in the app, reads the protein they encode, and marks a stretch of the record by hand. Those are the everyday uses of a genome browser, a program that draws a genome with its features, such as finding which gene sits at a position, where its coding sequence starts, and what protein its bases spell.
+HBB encodes the beta chain of adult hemoglobin. A single-base change in the seventh codon of its coding sequence causes sickle cell disease. It is codon 7 when you count the `ATG` start codon as codon 1, and amino acid 6 in the finished protein, because the cell removes the first amino acid, a methionine, so the change is written Glu6Val. [What Is a Genome](../01-foundations/01-what-is-a-genome.md#finding-the-sickle-cell-codon-on-paper) works out on paper that this codon sits at `NG_000007:70613-70615`. This chapter finds the same three bases in the app, reads the protein they encode, and marks a stretch of the record by hand. Those are the everyday uses of a genome browser, a program that draws a genome with its features, such as finding which gene sits at a position, where its coding sequence starts, and what protein its bases spell.
 
 ## Before you start
 
@@ -96,7 +96,7 @@ If you choose several files at once, the alert still appears, but only its Refer
 
 ### The Reference Sequences card
 
-The Reference Sequences card has no settings. It opens a file panel and imports whatever sequence file you give it, FASTA, GenBank, or EMBL, compressed or not. The command line adds two options, `--name` and `--output-dir`, which the block in On the command line uses.
+The Reference Sequences card has no settings. It opens a file panel and imports whatever sequence file you give it, FASTA, GenBank, or [EMBL](../../GLOSSARY.md#embl), the European counterpart of the GenBank format, compressed or not. The command line adds two options, `--name` and `--output-dir`, which the block in On the command line uses.
 
 ### The Annotation Track card
 
@@ -104,7 +104,7 @@ The Reference Sequences card has no settings. It opens a file panel and imports 
 
 **Track Name.** Sets the label the track shows in the viewport and in the table drawer. The default is taken from the annotation filename, so the track stays traceable to the file it came from. Change it when the filename is opaque, so the track reads as something like RefSeq genes rather than a bare accession. This setting has no command-line flag.
 
-**Track ID.** Sets the fixed identifier the bundle stores for this track, which other files inside the bundle use to refer to it, so it must be unique within the bundle. The default is taken from the annotation filename for the same reason as the name. Change it only when that identifier matches a track the bundle already holds. This setting has no command-line flag.
+**Track ID.** Sets the fixed identifier the bundle stores for this track, which other files inside the bundle use to refer to it, so it must be unique within the bundle. The default is taken from the annotation filename for the same reason as the name. Change it only if another track in the bundle already uses this ID. This setting has no command-line flag.
 
 ### The translation tool
 
@@ -140,7 +140,7 @@ A quick check on any record is its feature density, the number of features divid
 
 The [table drawer](../../GLOSSARY.md#table-drawer) is a panel along the bottom of the viewport that lists the features as rows. Click **Drawer** in the window toolbar to open it. Each row has Name, Track Name, Track ID, Type, Chromosome, Start, End, Size, and Strand columns.
 
-The Start column counts from 0, while the record, the ruler, and Go to Location count from 1. So the HBB gene, which the record places at 70545 to 72152, shows a Start of 70,544 and an End of 72,152. End matches the record, and Size, which is End minus Start, gives the true length of 1,608 bases. BED counts from 0 and GFF3 counts from 1, as [Standard annotation formats](../appendices/file-formats.md#standard-annotation-formats) explains. When you copy a start from the drawer into Go to Location, add one.
+The Start column counts from 0, meaning the record's first base is numbered 0 rather than 1, while the record, the ruler, and Go to Location count from 1. So the HBB gene, which the record places at 70545 to 72152, shows a Start of 70,544 and an End of 72,152. End matches the record, and Size, which is End minus Start, gives the true length of 1,608 bases. BED counts from 0 and GFF3 counts from 1, as [Standard annotation formats](../appendices/file-formats.md#standard-annotation-formats) explains. When you copy a start from the drawer into Go to Location, add one.
 
 ### Moving to a position
 
@@ -152,7 +152,7 @@ A [coordinate](../../GLOSSARY.md#coordinate) names one base as a sequence name a
 
     <!-- SHOT: go-to-location-hbb-codon -->
 
-3. Read the three bases the viewport now frames. They read `GAG`, the codon for glutamate. This is the normal sequence, and the sickle cell change would turn the middle `A` into a `T`.
+3. Read the three bases the viewport now frames. They read `GAG`, the codon for glutamate, which is another name for glutamic acid. This is the normal sequence, and the sickle cell change would turn the middle `A` into a `T`.
 
 The dialog also takes a single position, which centres a window on that base, and a range written with two dots, as in `NG_000007:70613..70615`. On a bundle with only one contig, the bare range `70613-70615` reaches the same place. The editable field at the left end of the ruler takes the same text and shows the placeholder `chr:start-end`.
 
@@ -206,11 +206,11 @@ To mark every [open reading frame](../../GLOSSARY.md#open-reading-frame), a stre
 
 1. Click **Drawer** in the window toolbar to open the table drawer.
 
-2. Click **Tracks** in the drawer's search bar, point to the track's name, and choose **Delete Track...**.
+2. Click the **Tracks** button in the bar along the top of the drawer, beside its search field. A menu opens with one row per track. Point to the track's name to open that track's submenu, which holds **Visible**, **Move Up**, **Move Down**, and **Delete Track...**, and choose **Delete Track...**.
 
 3. Click **Delete Track** in the confirmation alert. The track and its stored features leave the bundle for good.
 
-To hide a track without deleting it, choose **Visible** in the same submenu to clear its check mark.
+To hide a track without deleting it, choose **Visible** in the same track submenu to clear its check mark.
 
 ## Getting data back out
 

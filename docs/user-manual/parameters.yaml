@@ -1984,9 +1984,9 @@ operations:
         control: checkbox
         default: "on"
         allowed: on, off
-        effect: Downloads the record's gene and feature annotations alongside its sequence and attaches them to the bundle as a track.
-        when_to_change: Turn it off when you only need the raw sequence, which makes the download smaller and faster.
-        cli_flag: --fasta-only
+        effect: Downloads the record's GFF3 gene and feature annotations and attaches them to the bundle as a track. Unticked, or when the GFF3 download fails, LGE builds the track from the GenBank record's own feature table instead.
+        when_to_change: Turn it off when the GFF3 file for a record is missing or wrong and the GenBank feature table is the better source.
+        cli_flag: null
       - label: (search scope)
         control: popup
         default: All Fields
@@ -2126,6 +2126,8 @@ operations:
       primary button reads Search until you tick a result, then reads Download
       Selected. Selecting more than fifty records prompts you to confirm first. A
       downloaded record becomes an indexed .lungfishref bundle in the project.
+      RefSeq Only and Include GFF3 Annotations are shown in Nucleotide and Virus
+      modes and hidden in Genome mode.
 
   fetch.sra:
     title: Search SRA
@@ -6900,14 +6902,14 @@ operations:
         cli_flag: --min-length
       - label: Track name
         control: text
-        default: "<sequence name> ORFs"
+        default: "<sequence name> ORFs in the dialog, ORFs on the command line"
         allowed: any text
         effect: Names the new annotation track that the found ORFs are written into.
         when_to_change: Change it when the default name would collide with a track you already have, or to describe the search more specifically.
         cli_flag: --track-name
       - label: Track ID
         control: text
-        default: a generated ID such as orfs-<chromosome>
+        default: orfs_ followed by the sequence name in lower case in the dialog, orfs on the command line
         allowed: letters, numbers, underscores, and hyphens, or blank to accept the generated ID
         effect: Sets the internal identifier for the new track, separate from its display name.
         when_to_change: Rarely, only when scripting against a specific track ID elsewhere.

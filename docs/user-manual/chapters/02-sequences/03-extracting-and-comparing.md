@@ -47,7 +47,7 @@ In practice, right-click a feature when your piece already has a block drawn for
 
 The HBB gene record, `NG_000007`, is a downloaded stretch of human chromosome 11 that holds the whole beta-globin gene cluster, eight genes across 81,706 bases. Most questions you would ask of it concern one gene. HBB itself, the gene for the beta chain of adult hemoglobin, spans positions 70545 to 72152 of the record. That is 1,608 bases, about two percent of the file.
 
-You might want HBB alone as a bundle so you can map reads against one gene rather than the whole cluster. You might want it as clipboard text to check a primer against it in an outside design tool. You might want only its coding sequence, the [CDS](../../GLOSSARY.md#cds), which is the part of a gene translated into protein, because the sickle cell change sits there. That change swaps one base in the sixth codon, `GAG` to `GTG`, so the glutamic acid at position 6 becomes a valine and the protein clumps when oxygen runs low.
+You might want HBB alone as a bundle so you can map reads against one gene rather than the whole cluster. You might want it as clipboard text to check a primer against it in an outside design tool. You might want only its coding sequence, the [CDS](../../GLOSSARY.md#cds), which is the part of a gene translated into protein, because the sickle cell change sits there. That change swaps one base in codon 7, `GAG` to `GTG`, counting the `ATG` start codon as codon 1. The cell removes the first amino acid, a methionine, from the finished protein, so the same position is amino acid 6 and the change is written Glu6Val. The glutamic acid there becomes a valine, and the protein clumps when oxygen runs low.
 
 Find ORFs answers a different question. On a sequence nobody has annotated, it shows where protein-coding stretches could be. On this record, which already carries curated genes, it shows how far a simple scan falls short of a real gene model.
 
@@ -65,7 +65,7 @@ The `samtools` program that indexes a new bundle arrives with the [Required Setu
 
 1. Type `70545-72152` into the location field at the left end of the ruler, the numbered strip across the top of the viewport, and press Return. The grey text `chr:start-end` in the empty field is a hint about the format. On a bundle holding one sequence you can leave the sequence name off, and **Sequence > Go to Location...** (Cmd-L) accepts the same text.
 
-2. Read the numbers the ruler settled on. This route cuts exactly what the viewport shows, and the viewport can frame a little more than you typed. A mouse selection does not narrow it.
+2. Read the numbers the ruler settled on. This route cuts exactly what the viewport shows, and the viewport can frame a little more than you typed. A mouse selection does not narrow it. When you need exactly `70545-72152`, mark that range as a feature with **Sequence > Add Annotation...**, as [Adding one annotation by hand](01-importing-and-viewing.md#adding-one-annotation-by-hand) shows, and extract the new feature through the right-click route below, which cuts a feature's recorded span exactly.
 
 3. Choose **Sequence > Extract Visible Region...** (Cmd-Shift-E). A sheet titled Extract Sequence opens with a scissors icon and a Source group naming the region.
 
@@ -95,7 +95,7 @@ Save as Bundle on this route builds the new reference bundle the way an imported
 
 The bases come from the feature's recorded coordinates rather than from the screen, and they come out in the feature's own reading direction. A feature on the minus [strand](../../GLOSSARY.md#strand), the second of the two paired DNA chains, comes out reverse-complemented. A spliced CDS, mRNA, or transcript comes out with its [exons](../../GLOSSARY.md#exon), the pieces kept in the mature message, joined end to end and its [introns](../../GLOSSARY.md#intron), the pieces spliced out, left behind. Right-clicking the HBB CDS block therefore gives the spliced coding sequence, not the genomic span.
 
-The same menu's **Copy** submenu skips the sheet and puts the name, the coordinates, the bases, or FASTA text straight on the clipboard. On a CDS feature it adds Copy Translation as FASTA, because only a CDS records where its reading frame starts.
+The same menu's **Copy** submenu skips the sheet and puts text straight on the clipboard, as [Right-click actions](01-importing-and-viewing.md#right-click-actions) lists.
 
 ### Copy the visible region without a sheet
 
@@ -104,6 +104,8 @@ The same menu's **Copy** submenu skips the sheet and puts the name, the coordina
 ## Procedure, marking open reading frames
 
 A [reading frame](../../GLOSSARY.md#reading-frame) is the offset from which triplets are counted. Six exist. Frames +1, +2, and +3 start 0, 1, and 2 bases into the scanned range and read forward, and frames -1, -2, and -3 do the same on the [reverse complement](../../GLOSSARY.md#reverse-complement), the other strand read in its own direction.
+
+Human genes almost always start with `ATG`, the codon for methionine. The codon tables also list a few other start codons, which Settings names, because a small number of genes open with them, so treat an ORF that starts with one of those as a rare case.
 
 1. Decide what to scan. With no selection, Find ORFs scans the whole sequence. To scan only the HBB gene, frame `70545-72152` as before and drag across the bases from the left edge of the viewport to the right edge. A single stray click in the bases leaves a one-base selection behind, so press Escape first to clear any selection you did not mean to make.
 
@@ -179,7 +181,14 @@ A visible-region extraction carries only the name, the coordinate token, and the
 
 A right-click extraction adds the feature's type, such as `gene` or `CDS`, and its strand. A minus-strand feature adds `[reverse complement]`, a spliced feature adds `[exons concatenated]`, and either one adds `[feature orientation]`, the sign that the bases read in the gene's own direction rather than along the plus strand.
 
-The coordinate token gives the span actually cut, flanks included. BED counts from 0 and GFF3 counts from 1, as [Standard annotation formats](../appendices/file-formats.md#standard-annotation-formats) explains. The header's start follows the BED habit and its end reads the same either way, which is why a gene starting at 70545 prints as 70544. Add one to a printed start before you compare it with a position you typed, and trust the length token for how much sequence you got. Here 1608 is 72152 minus 70545 plus 1.
+The coordinate token gives the span actually cut, flanks included. Positions are written in two ways in this chapter, and the table shows the first three bases of a sequence written each way.
+
+| Counting habit | Where you meet it | First three bases |
+|---|---|---|
+| From 1, both ends included | The record, the ruler, Go to Location, GFF3, `extract sequence` | `1-3` |
+| From 0, end left out | BED, the header's start, the drawer's Start, `annotate-orfs` | `0-3` |
+
+[Standard annotation formats](../appendices/file-formats.md#standard-annotation-formats) covers the two habits in more detail. The header's start follows the count-from-0 habit and its end reads the same either way, which is why a gene starting at 70545 prints as 70544. Add one to a printed start before you compare it with a position you typed, and trust the length token for how much sequence you got. Here 1608 is 72152 minus 70545 plus 1.
 
 Flanks change only the coordinate token. The sickle cell codon, 70613 to 70615, cut with 100 bases on each side, keeps its own name in front and reports the padded span in brackets.
 
@@ -222,11 +231,11 @@ The HBB line matches the record's gene span exactly. `OR51AB1P` and `HBBP1` are 
 
 ## What good looks like
 
-Read the length token in the header and confirm it is what you meant to cut, 1608 for the HBB gene span. A visible-region extraction that is more than a few bases longer means the viewport framed a wider view than the range you typed, so reframe and extract again.
+Read the length token in the header and confirm it is what you meant to cut, 1608 for the HBB gene span. A visible-region extraction that is more than a few bases longer means the viewport framed a wider view than the range you typed, so mark the exact range as a feature and extract that instead, as step 2 of the first procedure describes.
 
 Confirm the new bundle landed where its route puts it, in `Extractions/` for the visible-region route and in `Reference Sequences/` for the right-click route.
 
-Confirm the first bases are the ones you expect. The HBB gene span opens `ACATTTGCTTCTGACACAACT`. The HBB CDS opens `ATG GTG CAT CTG ACT CCT GAG GAG` when split into triplets, which reads start (methionine), valine, histidine, leucine, threonine, proline, glutamic acid, glutamic acid. The seventh triplet is the `GAG` at codon 6, counted after the start codon, that the sickle cell change turns into `GTG`.
+Confirm the first bases are the ones you expect. The HBB gene span opens `ACATTTGCTTCTGACACAACT`. The HBB CDS opens `ATG GTG CAT CTG ACT CCT GAG GAG` when split into triplets, which reads start (methionine), valine, histidine, leucine, threonine, proline, glutamic acid, glutamic acid. The seventh triplet, codon 7, is the `GAG` that the sickle cell change turns into `GTG`, and it is amino acid 6 once the first methionine is removed.
 
 Confirm the provenance record names the source bundle you meant, because header coordinates mean nothing against the wrong reference.
 
@@ -238,6 +247,8 @@ This section is optional, and nothing later in this manual needs it. The `lungfi
 
 ```bash
 # Replace ~/Documents/hbb-example.lungfish with your own project folder.
+# If you imported the record through the window, the bundle is named
+# NG_000007.3.lungfishref, so use that wherever HBB.lungfishref appears.
 # Cut the HBB gene span out of the imported bundle's sequence.
 # extract sequence reads FASTA only, so point it at the FASTA inside the bundle.
 # The double quotes hold the folder name "Reference Sequences" together.

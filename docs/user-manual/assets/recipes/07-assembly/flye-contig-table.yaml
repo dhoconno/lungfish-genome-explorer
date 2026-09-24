@@ -2,8 +2,7 @@
 # App state: Ran Tools > Assembly > Flye... from the window on Imports/HG002.chrM.ont (950 reads) with all defaults (Nano HQ, 8 threads) in Preview 2026.9.40, then clicked Analyses/flye-2026-09-24T12-34-59: four contigs (9,841, 5,800, 5,202 and 1,294 bp; 22,137 bp total), Flye 2.9.6, wall time 54.6 s.
 id: flye-contig-table
 chapter: 07-assembly/03-running-flye-or-hifiasm
-caption: The HG002-chrM-flye result with one 32,652 bp contig at 43.0% GC in the table, and the Inspector
-  showing the HG002.chrM.ont.fastq.gz source, Flye 2.9.6, and a wall time of 46.6 seconds.
+caption: "The flye-2026-09-24T12-34-59 result from a window run with default settings, with four contigs totalling 22,137 bp in the table and the Inspector showing the HG002.chrM.ont.fastq.gz source, Flye 2.9.6, and a wall time of 54.6 seconds."
 viewport_class: none
 app_state:
   fixture: '{demo_project}'

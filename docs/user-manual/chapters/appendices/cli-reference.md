@@ -192,6 +192,8 @@ Downloads one or more records from NCBI by accession into one file.
 lungfish-cli fetch ncbi [<options>] <accessions> ...
 ```
 
+Without `--api-key`, the command uses the key in the `NCBI_API_KEY` [environment variable](../../GLOSSARY.md#environment-variable) when one is set.
+
 | Argument or flag | What it does |
 |---|---|
 | `<accessions>` | Accession number(s). |
@@ -313,6 +315,8 @@ It fetches the bases only, with no annotation.
 ### `fetch genome`
 
 Downloads a genome with its GFF3 annotation and wraps both in an indexed `.lungfishref` bundle. An assembly accession beginning `GCF_` or `GCA_` goes through NCBI's assembly database. Any other accession, such as `MN908947.3`, is fetched from the nucleotide database and comes back as exactly the record you named.
+
+For a nucleotide accession, `--no-bundle` writes only `<name>.fna`, with no GFF3 annotation file.
 
 ```text
 lungfish-cli fetch genome [<options>] <accession>
@@ -816,7 +820,7 @@ Finds [open reading frames](../../GLOSSARY.md#open-reading-frame) in a bundle's 
 lungfish-cli sequence annotate-orfs [<options>] <bundle>
 ```
 
-`--track-name` defaults to the sequence name followed by " ORFs". `--table 2` is the vertebrate mitochondrial code and `--table 11` the bacterial one. `--allow-alternative-starts` adds GTG, TTG, and CTG as starts.
+Left out, `--track-name` is `ORFs` and `--track-id` is `orfs`, while the Find ORFs dialog fills in the sequence name followed by " ORFs" and `orfs_` followed by the sequence name in lower case. `--table 2` is the vertebrate mitochondrial code and `--table 11` the bacterial one. `--allow-alternative-starts` adds GTG, TTG, and CTG as starts.
 
 | Argument or flag | What it does |
 |---|---|
@@ -1234,7 +1238,7 @@ It runs bbduk with a k-mer length equal to `--min-overlap` and an edit distance 
 | `--min-overlap <min-overlap>` | Minimum overlap length. The default is `8`. |
 | `--error-rate <error-rate>` | Allowed error rate as fraction. The default is `0.1`. |
 | `--keep-matched` | Keep matched reads instead of discarding them. |
-| `--search-rc` | Also search the reverse complement of the sequence. |
+| `--search-rc` | Also search the reverse complement of the sequence. It changes nothing, because bbduk searches both strands whether or not the flag is given. |
 
 ### `fastq error-correct`
 
@@ -1517,7 +1521,7 @@ Splits pooled reads into one bundle per barcode, using cutadapt or an exact matc
 lungfish-cli fastq demultiplex <input> --kit <kit> --output <output> [--location <location>] [--max-distance-5prime <max-distance-5prime>] [--max-distance-3prime <max-distance-3prime>] [--error-rate <error-rate>] [--overlap <overlap>] [--engine <engine>] [--no-trim] [--discard-unassigned] [--threads <threads>]
 ```
 
-The built-in kits are `truseq-single-a`, `truseq-single-b`, `truseq-ht-dual`, `nextera-xt-v2`, `idt-ud-indexes`, `fluidigm-access-array`, `pacbio-sequel-16-v3`, `pacbio-sequel-96-v2`, `pacbio-sequel-384-v1`, `m13-universal-primers`, `ont-nbd104`, `ont-nbd114`, `ont-nbd104-114`, `ont-nbd114-96`, `ont-pbc096`, `ont-rbk004`, `ont-rbk114-24`, `ont-rbk114-96`, `ont-16s114-24`, and `ont-rab204-214`. `--kit` also takes the path of your own barcode file, a CSV, TSV, or whitespace-separated text file with the columns `id,sequence`, optionally followed by `secondary_sequence` and `sample_name`. The `exact-bare` engine matches plain A, C, G, and T barcodes exactly anywhere in a read and on both strands, and never trims. Its own `--threads` flag has no effect, because the global `--threads` takes the value first.
+The built-in kits are `truseq-single-a`, `truseq-single-b`, `truseq-ht-dual`, `nextera-xt-v2`, `idt-ud-indexes`, `fluidigm-access-array`, `pacbio-sequel-16-v3`, `pacbio-sequel-96-v2`, `pacbio-sequel-384-v1`, `m13-universal-primers`, `ont-nbd104`, `ont-nbd114`, `ont-nbd104-114`, `ont-nbd114-96`, `ont-pbc096`, `ont-rbk004`, `ont-rbk114-24`, `ont-rbk114-96`, `ont-16s114-24`, and `ont-rab204-214`. `--kit` also takes the path of your own barcode file, a CSV, TSV, or whitespace-separated text file with the columns `id,sequence`, optionally followed by `secondary_sequence` and `sample_name`. The `exact-bare` engine matches plain A, C, G, and T barcodes exactly anywhere in a read and on both strands, and never trims. Its own `--threads` flag has no effect, because the global `--threads` takes the value first. The command runs only inside a project, so run it from within your `.lungfish` project folder, and pass the FASTQ file rather than a `.lungfishfastq` bundle, which fails with a provenance error that is a [known defect](troubleshooting.md#known-defects-in-this-release).
 
 | Argument or flag | What it does |
 |---|---|
@@ -1537,6 +1541,8 @@ The built-in kits are `truseq-single-a`, `truseq-single-b`, `truseq-ht-dual`, `n
 ### `fastq scout`
 
 Scans a subset of reads against a barcode kit and writes a `scout-result.json` with hit counts and a suggested accept or reject for each barcode.
+
+Like `fastq demultiplex`, it runs only inside a project, so run it from within your `.lungfish` project folder, and pass the FASTQ file rather than a `.lungfishfastq` bundle, which fails with a provenance error that is a [known defect](troubleshooting.md#known-defects-in-this-release).
 
 ```text
 lungfish-cli fastq scout [<options>] <input> --kit <kit> --output <output>

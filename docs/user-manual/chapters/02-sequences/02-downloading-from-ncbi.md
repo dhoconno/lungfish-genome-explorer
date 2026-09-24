@@ -42,7 +42,7 @@ A public sequence database holds sequences that other people have already read, 
 
 The record you want is often a [reference genome](../../GLOSSARY.md#reference-genome), the fixed sequence that every sample of a species is compared against. LGE reaches NCBI through a database search dialog. You type an accession, tick the record that comes back, and download it. What arrives is a [reference bundle](../../GLOSSARY.md#reference-bundle), a folder ending in `.lungfishref` that holds the sequence, its index, and its annotations together. An index is a small lookup file that lets LGE jump straight to any position without reading everything before it.
 
-An annotation is a labelled feature on a sequence, such as a gene or a stretch that codes for a protein. NCBI serves a record's annotations as [GFF](../../GLOSSARY.md#gff), a plain-text table with one feature per line, and GFF3 is the third version of that format. LGE turns the table into an annotation track inside the bundle, so the genes draw above the bases. Annotations matter later on, because a variant caller, the program that lists where a sample differs from the reference, can name the protein a change falls in only when it knows where the proteins are.
+An annotation is a labelled feature on a sequence, such as a gene or a stretch that codes for a protein. NCBI serves a record's annotations as [GFF](../../GLOSSARY.md#gff), a plain-text table with one feature per line, and GFF3 is the third version of that format. LGE turns the table into an annotation track inside the bundle, so the genes draw below the bases. Annotations matter later on, because a variant caller, the program that lists where a sample differs from the reference, can name the protein a change falls in only when it knows where the proteins are.
 
 The same dialog also searches two other collections. The Sequence Read Archive holds raw reads, the short stretches a sequencing machine produces, and [Pathoplexus](../../GLOSSARY.md#pathoplexus) holds pathogen genomes that may never have reached NCBI.
 
@@ -82,7 +82,7 @@ One habit is worth forming now. Type the version suffix, the `.1` in `NC_012920.
 
 4. Click **Download Selected**. The dialog closes and the download carries on in the background. Watch the run in the [Operations Panel](../01-foundations/06-the-lungfish-project.md#the-operations-panel), which opens with **Operations > Show Operations Panel** (Cmd-Shift-P).
 
-5. When the row finishes, LGE selects the new bundle in the sidebar under `Downloads/`, a folder inside your project and not the Mac's own Downloads folder. The sequence fills the viewport and the annotation features draw above the bases.
+5. When the row finishes, LGE selects the new bundle in the sidebar under `Downloads/`, a folder inside your project and not the Mac's own Downloads folder. The sequence fills the viewport and the annotation features draw below the bases.
 
     <!-- SHOT: ncbi-bundle-in-sidebar -->
 
@@ -156,9 +156,9 @@ The next five filters replace the ones above when **Mode** is set to Virus.
 
 ## Reading the results
 
-The new bundle is named `NC_012920`, without the `.1`. LGE names a downloaded bundle from the accession line of the GenBank record, and that line carries no version. The version is still kept inside the bundle, where the Inspector shows it. Download the same record a second time and the new copy is named `NC_012920_1`, so the first is never overwritten.
+The new bundle is named `NC_012920`, without the `.1`. LGE names a downloaded bundle from the accession line of the GenBank record, and that line carries no version. The version is still kept inside the bundle, where the Inspector shows it. Download the same record a second time and the new copy is named `NC_012920_1`, so the first is never overwritten. That `_1` is a copy counter LGE adds to keep the two names apart, not a version number, and the copy's Version row still reads `NC_012920.1`.
 
-The viewport shows the sequence with its annotation track above the bases. The track is named NCBI GFF3 Annotations when LGE built it from NCBI's GFF3 table. If that fetch fails, or comes back with no features, LGE falls back to the feature table inside the GenBank record and names the track NCBI GenBank Annotations instead. Nothing warns you when that happens. Both tracks work everywhere a track is used, but the two sources can label the same feature differently, so the track name tells you which one you are reading.
+The viewport shows the sequence with its annotation track below the bases. The track is named NCBI GFF3 Annotations when LGE built it from NCBI's GFF3 table. If that fetch fails, or comes back with no features, LGE falls back to the feature table inside the GenBank record and names the track NCBI GenBank Annotations instead. Nothing warns you when that happens. Both tracks work everywhere a track is used, but the two sources can label the same feature differently, so the track name tells you which one you are reading.
 
 Select the bundle and look at the Inspector's **Document** tab, which LGE brings forward by itself after a download. Open the [Inspector](../../GLOSSARY.md#inspector) with **View > Show Inspector** (Cmd-Opt-I) if it is hidden. The rows worth reading for this record are these.
 
@@ -168,7 +168,7 @@ Select the bundle and look at the Inspector's **Document** tab, which LGE brings
 | Source | Accession | The accession the bundle is named from | `NC_012920` |
 | Source | Downloaded | The date of the download | the day you ran it |
 | Genome | Total Length | The sequence length, rounded to one decimal place | 16.6 Kb, which is 16,569 bases rounded |
-| Genome | Chromosomes | How many separate sequences the bundle holds | 1 |
+| Genome | Chromosomes | How many separate sequences the bundle holds, of any kind, so a mitochondrial genome counts here too | 1 |
 | Genome | Annotations | How many tracks, and how many features across them | 1 track, with its feature count |
 | Record | Version | The accession with its version, as NCBI served it | `NC_012920.1` |
 | Record | Topology | Whether the molecule is a line or a circle | circular |
@@ -183,7 +183,7 @@ Confirm the version. The Record group's Version should read `NC_012920.1`, the a
 
 Confirm the length and shape. Total Length should read 16.6 Kb and Topology should read circular. A Total Length clearly below 16.6 Kb means you ticked a partial record rather than the complete genome, so delete the bundle and download again with a Min of 16000 in **Sequence Length**.
 
-Confirm the annotations. Features should draw above the bases, the Annotations row should read 1 track, and the track should be named NCBI GFF3 Annotations. A track named NCBI GenBank Annotations means the fallback ran, probably because NCBI's server was briefly unavailable. If you want the GFF3 track, delete the bundle and download the record again.
+Confirm the annotations. Features should draw below the bases, the Annotations row should read 1 track, and the track should be named NCBI GFF3 Annotations. A track named NCBI GenBank Annotations means the fallback ran, probably because NCBI's server was briefly unavailable. If you want the GFF3 track, delete the bundle and download the record again.
 
 Confirm the folder. The bundle should sit under the project's `Downloads/` folder, which keeps records fetched from the internet apart from files you brought in from your own disk. If it is missing, look at the download's row in the Operations Panel. A failed run turns its row red, and [Start here, at the failed row](../appendices/troubleshooting.md#start-here-at-the-failed-row) explains what to copy from it.
 
@@ -191,7 +191,7 @@ Confirm the folder. The bundle should sit under the project's `Downloads/` folde
 
 NCBI keeps two collections that matter here. The nucleotide collection holds one record per molecule, such as `NC_012920.1`. The assembly collection holds whole genomes, and its accessions begin with `GCF_` for RefSeq assemblies or `GCA_` for GenBank ones. The assembly collection has no record for a single nucleotide accession. Ask it for one anyway and it returns the assembly that contains that sequence, which may name the sequence differently.
 
-The best-known case is the first published SARS-CoV-2 genome. Asking the assembly collection for its GenBank accession, `MN908947.3`, returns the RefSeq copy, `NC_045512.2`. The bases are the same, but the name is not. Anything that finds a sequence by its name, such as a primer scheme that lists where each primer binds, then fails against a bundle that looks entirely healthy.
+The bases then match, but the name does not, and anything that finds a sequence by its name fails against a bundle that looks entirely healthy. The best-known case is a SARS-CoV-2 genome that comes back under its RefSeq accession, which [Primer Scheme Bundles](../appendices/primer-schemes.md) covers.
 
 ![How an NCBI accession decomposes into prefix, number, and version](../../assets/illustrations-imagegen/02-sequences/02-downloading-from-ncbi/ncbi-accession-anatomy.png)
 

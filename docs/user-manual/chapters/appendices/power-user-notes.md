@@ -10,7 +10,7 @@ tools: [samtools, bcftools, ivar, lofreq, minimap2, bwa-mem2, bowtie2, kraken2, 
 entry_points: []
 shots: []
 illustrations: []
-glossary_refs: [allele-frequency, alternate-read, amplicon, argument, baq, bed, bracken, bundle, codon, command-line-flag, conda, contig, dependency-set, determinism, gvcf, haplotype, hg002, indel, ivar, kraken2, linkage, lofreq, mapping-quality, oci-layout, phase, phred-score, pileup, pivot-workbook, plugin-pack, primer-trim, provenance, provenance-sidecar, read-group, ref-alt, reference-bundle, secondary-alignment, sliding-window-trimming, strand-bias, thread, vcf, wrapper]
+glossary_refs: [allele-frequency, alternate-read, amplicon, argument, baq, bed, bracken, bundle, codon, command-line-flag, conda, contig, dependency-set, determinism, environment-variable, gvcf, haplotype, hg002, indel, ivar, kraken2, linkage, lofreq, mapping-quality, oci-layout, phase, phred-score, pileup, pivot-workbook, plugin-pack, primer-trim, provenance, provenance-sidecar, read-group, ref-alt, reference-bundle, secondary-alignment, sliding-window-trimming, strand-bias, thread, vcf, wrapper]
 features_refs: []
 fixtures_refs: []
 brand_reviewed: false
@@ -250,6 +250,14 @@ Reproducing a run months later means installing the same tools at the same versi
 `lungfish-cli conda lock --pack <name> --output <file>` writes the requested environment specification, meaning what was asked for, not what was installed, so it does not guarantee an identical rebuild. Its companion `conda install --from-lockfile` refuses by design, as its own help says, because exact reconstruction is not supported.
 
 `lungfish-cli bundle export --format container` is meant to write a bundle as an [OCI layout](../../GLOSSARY.md#oci-layout) container image, but the command cannot be run. This is a known defect, listed with its workaround in [Known defects in this release](troubleshooting.md#known-defects-in-this-release).
+
+## Shared workstations
+
+Skip this section unless you look after a Mac that several people share. Nothing in it is needed to use LGE on your own Mac.
+
+On a shared Mac, an administrator can put the packs and databases on a larger shared drive so every user draws on one installation. LGE reads the `LUNGFISH_CONDA_ROOT` [environment variable](../../GLOSSARY.md#environment-variable), a named setting the system passes to every program it starts. Set it, and every LGE process, window and command line alike, installs to and reads from that location. To move the whole shared storage folder, databases included, set `LUNGFISH_STORAGE_ROOT` instead. When both are set, `LUNGFISH_CONDA_ROOT` still decides where the tools go.
+
+The pattern that works is to set the variable in a shell startup file the other accounts share, install the packs and databases once from the Plugin Manager as the administrator, then leave the folder readable by everyone but writable only by the administrator. Other users then see the packs and databases as installed and can run analyses with them. An install attempt by another user stops with `conda root is read-only; reinstall as the admin user`, and only the administrator can fix that.
 
 ## Next
 

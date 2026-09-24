@@ -918,7 +918,7 @@ Terms appear in alphabetical order. Each entry is a one-sentence definition, fol
 
 **Viewport**{#viewport}. The main display area in the middle of the Lungfish Genome Explorer window, which shows whatever bundle is selected in the sidebar and takes a different form for each kind of result, among them the sequence, taxonomy, alignment, assembly, and variant shapes. See also Inspector, bundle.
 
-**Virtual bundle**{#virtual-bundle}. A read bundle that stores a short manifest naming its parent bundle and the operation to apply rather than a second copy of the reads, keeping only a preview of about a thousand reads on disk, so that many subsets of one sample cost about as much storage as one. See also materialization, bundle, subsampling.
+**Virtual bundle**{#virtual-bundle}. A read bundle that stores a short manifest naming its parent bundle and the operation to apply rather than a second copy of the reads, keeping only a preview of about a thousand reads on disk, so that many subsets of one sample cost about as much storage as one. Demultiplexing and the FASTQ viewport's Operations tab write virtual bundles, while a result from the Tools menu holds its reads outright. See also materialization, bundle, subsampling.
 
 **vsearch**{#vsearch}. An open-source toolkit for comparing and clustering nucleotide sequences, used by Lungfish Genome Explorer to screen a 12S run's unmatched sequence clusters for chimeras and to turn reads to a common orientation against a reference. See also chimera, read orientation, 12S.
 

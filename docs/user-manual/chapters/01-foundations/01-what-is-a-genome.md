@@ -32,7 +32,7 @@ No two people have exactly the same genome, so there is no single human sequence
 
 A reference is a set of named sequences. In a human assembly each chromosome is one named sequence. Tools call each named sequence a [contig](../../GLOSSARY.md#contig-reference), short for contiguous sequence, and the name matters because every later file points back to it.
 
-A [coordinate](../../GLOSSARY.md#coordinate) is a position on one of those named sequences, written as the name, a colon, and a number, such as `chr11:5227002`. Positions here are 1-based, meaning the first base is position 1 rather than 0. A range such as `NG_000007:70613-70615` is inclusive, so it holds both end positions and everything between. That is three bases, the end minus the start plus one. Some file formats count from 0 instead. BED counts from 0 and GFF3 counts from 1, as [Standard annotation formats](../appendices/file-formats.md#standard-annotation-formats) explains. If a start position in a table ever looks one lower than the record says, a count from 0 is the likeliest reason.
+A [coordinate](../../GLOSSARY.md#coordinate) is a position on one of those named sequences, written as the name, a colon, and a number, such as `chr11:5227002`. Positions here are 1-based, meaning the first base is position 1 rather than 0. A range such as `NG_000007.3:70613-70615` is inclusive, so it holds both end positions and everything between. That is three bases, the end minus the start plus one. A few file formats count from 0 instead, and [Amplicon sequencing](03-amplicon-vs-shotgun.md#amplicon-sequencing) names the one you will meet first. If a start position in a table ever looks one lower than the record says, a count from 0 is the likeliest reason.
 
 In practice, read every position as a sequence name and a number together, and never as a number alone.
 
@@ -86,14 +86,14 @@ Changing the reference changes the coordinate system. The sickle cell base is on
 
 | Counted along | Coordinate of the sickle cell base | Base read there |
 |---|---|---|
-| RefSeqGene record `NG_000007.3` | `NG_000007:70614` | A |
+| RefSeqGene record `NG_000007.3` | `NG_000007.3:70614` | A |
 | The HBB coding sequence, from its first base | `c.20` | A |
 | GRCh38 chromosome 11 | `chr11:5227002` | T |
 | GRCh37 chromosome 11 | `chr11:5248232` | T |
 
-The coding-sequence position is 70614 minus 70595, plus 1, which is 20. Clinical reports write the change as `c.20A>T`, meaning coding position 20 changed from A to T. The protein change is often written Glu6Val, counting from the mature chain, or `p.Glu7Val` in the clinical notation that counts the removed methionine. The two chromosome rows come from this variant's entry, rs334, in dbSNP, NCBI's public catalogue of known variants.
+The coding-sequence position is 70614 minus 70595, plus 1, which is 20. Clinical reports write the change as `c.20A>T`, meaning coding position 20 changed from A to T. The protein change is often written Glu6Val, counting from the mature chain as the codon table above does. Clinical notation writes it `p.Glu7Val`, because it also counts the methionine the cell removes. The two chromosome rows come from this variant's entry, rs334, in dbSNP, NCBI's public catalogue of known variants.
 
-The chromosome rows read T where the record reads A. DNA has two paired strands, and an A on one strand always faces a T on the other. Chromosome 11 is numbered along one strand, and HBB is read from the opposite one. The RefSeqGene record was deliberately laid out so HBB reads left to right, so it shows the A.
+The chromosome rows read T where the record reads A, because they spell the two partner bases of one base pair. DNA has two paired strands, and an A on one strand always faces a T on the other. GRCh38 writes chromosome 11 along the strand that carries the T, while HBB is read from the partner strand. The RefSeqGene record is written along HBB's own strand, so it shows the A of the codon `GAG`.
 
 The two chromosome numbers differ by 21,230 because GRCh37 and GRCh38 differ in sequence and in gaps earlier on chromosome 11. Any extra or missing stretch before a position moves every later position along with it. Even a one-base insertion near the start shifts everything after it by one. The same logic applies to versions of a record, since a coordinate measured on one version of an accession need not land on the same base in the next.
 
@@ -108,7 +108,7 @@ Before you trust a coordinate, check that it passes these four tests:
 - The reference is named with its version, such as `NG_000007.3` or GRCh38, and not only by a gene or chromosome.
 - The sequence name matches the spelling the reference uses, with no mix of `chr11` and `11` across files.
 - The length matches. The HBB record is 81,706 bases, and LGE shows the length beside the sequence name, rounded to 81.7 Kb.
-- The bases at the position are the ones you expect. At `NG_000007:70613-70615` the record reads `GAG`.
+- The bases at the position are the ones you expect. At `NG_000007.3:70613-70615` the record reads `GAG`.
 
 If a check fails, suspect the input before the app. The usual cause is a file with the right name but a different record, version, or assembly, which moves the same coordinate onto different bases.
 

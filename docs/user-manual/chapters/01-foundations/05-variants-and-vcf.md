@@ -38,7 +38,7 @@ The chapter covers the eight standard VCF columns and the per-sample columns tha
 
 Most questions you ask of sequencing data are about difference. Where does this sample depart from the reference, and can that departure be trusted? A VCF is the file that answers them, and the steps that follow read a VCF rather than the reads. Those include building a consensus, one corrected sequence for the sample, and clinical interpretation of a change.
 
-This chapter works from the HG002 chromosome 20 slice. HG002 is a human reference sample whose true variants the Genome in a Bottle project has already worked out from many sequencing runs, so an answer key exists. The fixture's reads are Illumina paired-end reads 250 bases long, and its reference is a 500,001-base slice of human chromosome 20.
+This chapter works from the HG002 chromosome 20 slice. HG002 is the human reference sample that [Sequencing Reads](02-sequencing-reads.md#why-you-would-do-this) introduces, and its true variants are already known, so an answer key exists. The fixture's reads are Illumina [paired-end](02-sequencing-reads.md#paired-end-reads) reads 250 bases long, and its reference is a 500,001-base slice of human chromosome 20.
 
 The fixture carries three VCFs, and the contrast between them is the point. Two hold calls made from the fixture's own reads, one by bcftools and one by LoFreq, two widely used variant callers. The third is the Genome in a Bottle [benchmark VCF](../../GLOSSARY.md#benchmark-vcf) for HG002, produced independently by the US National Institute of Standards and Technology (NIST) and used here only as the answer key.
 
@@ -76,7 +76,7 @@ The first five columns place the variant.
 | `REF` | The [reference base](../../GLOSSARY.md#ref-alt) or bases at this position | `C` |
 | `ALT` | The [alternate base](../../GLOSSARY.md#ref-alt) or bases the reads support | `T` |
 
-The other three carry the caller's verdict and its supporting numbers. `QUAL` is a [Phred-scaled](../../GLOSSARY.md#phred-score) confidence that the variant is real, so 20 means a 1 percent chance the call is wrong and 30 means 0.1 percent. A `QUAL` of `.` means the caller did not score the row. `FILTER` holds `PASS`, or a semicolon-separated list of the named filters the row failed, or `.` when no filter was applied. [`INFO`](../../GLOSSARY.md#info) holds semicolon-separated `KEY=VALUE` pairs of facts about the row, and every key is declared in the header.
+The other three carry the caller's verdict and its supporting numbers. `QUAL` is a [Phred-scaled](02-sequencing-reads.md#phred-quality-scores) confidence that the variant is real, so 20 means a 1 percent chance the call is wrong and 30 means 0.1 percent. A `QUAL` of `.` means the caller did not score the row. `FILTER` holds `PASS`, or a semicolon-separated list of the named filters the row failed, or `.` when no filter was applied. [`INFO`](../../GLOSSARY.md#info) holds semicolon-separated `KEY=VALUE` pairs of facts about the row, and every key is declared in the header.
 
 One detail about insertions and deletions repays attention. For those, `POS` names the base just before the change, and that anchor base appears at the front of both `REF` and `ALT`. A real row from the bcftools VCF shows the shape. At position 5,839, `REF` reads `CTTTTT` and `ALT` reads `CTTTTTT`. The leading `C` is the anchor, and after it `REF` holds five `T` bases while `ALT` holds six. The change is one extra `T`.
 
@@ -98,7 +98,7 @@ GT:PL:AD	0/1:255,0,255:20,33
 
 Read it left to right. `CHROM` is the fixture's slice of chromosome 20, `POS` is `250527`, and `ID` is `.`, so no public identifier is attached. `REF` is `C` and `ALT` is `T`. `QUAL` is `222.235`, far above any doubt. `FILTER` is `.`, and the next section explains why.
 
-The `INFO` field packs a dozen keys, and three matter here. The rest are bcftools' own statistics, and you can ignore them. `DP=63` is the raw [depth](../../GLOSSARY.md#depth), the number of reads over the position. `DP4=8,12,16,17` splits the high-quality bases into four counts, reference forward, reference reverse, alternate forward, and alternate reverse. The near-even split of the 16 and 17 alternate reads across the two strands is what a real difference looks like. `MQ=59` is the average mapping quality of those reads, close to the maximum of 60.
+The `INFO` field packs a dozen keys, and three matter here. The rest are bcftools' own statistics, and you can ignore them. `DP=63` is the raw [depth](04-alignment-files.md#coverage-and-the-coverage-track), the number of reads over the position. `DP4=8,12,16,17` splits the high-quality bases into four counts, reference forward, reference reverse, alternate forward, and alternate reverse. The near-even split of the 16 and 17 alternate reads across the two strands is what a real difference looks like. `MQ=59` is the average mapping quality of those reads, close to the maximum of 60.
 
 The sample column reads `0/1:255,0,255:20,33`. The genotype `0/1` says HG002 carries one copy of `C` and one copy of `T`. `PL` holds a penalty for each of the three possible genotypes, in the order `0/0`, `0/1`, `1/1`. The smallest number marks the best explanation, so the `0` in the middle picks `0/1`, and the `255` on either side says the other two are very unlikely. `AD` gives the per-allele counts, 20 reference and 33 alternate. Those add to 53 rather than the 63 of `DP`, because `AD` counts only bases that passed the caller's base-quality check.
 
@@ -131,9 +131,9 @@ Flag names belong to each caller and are declared in each file's header. The LoF
 | `min_dp_10` | Fewer than ten reads covered the position |
 | `sb_fdr` | The alternate reads were lopsided across the two strands, past a threshold raised to allow for testing many positions at once |
 
-iVar, the caller the viral chapters use, declares two of its own. `ft` marks a row that failed its Fisher's exact test, a statistical test of whether the change could be sequencing error alone. `bq` marks a row whose alternate bases had an average quality below 20.
+Other callers declare flags of their own, and iVar, the caller for viral amplicon data, is covered in [Calling Variants](../05-variants/01-calling-variants-from-amplicons.md).
 
-A flagged row is not automatically wrong. An [amplicon](../../GLOSSARY.md#amplicon) protocol copies the target in overlapping PCR pieces, and its primer scheme lists where each primer binds, as [Amplicons and Shotgun Sequencing](03-amplicon-vs-shotgun.md#amplicon-sequencing) explains. Reads from such a protocol pile up on one strand near every primer, so a strand-bias flag on amplicon data often reflects the protocol rather than an error. When a flagged row matters to your question, look at the position in the alignment before you accept or dismiss it.
+A flagged row is not automatically wrong. Reads from an [amplicon](../../GLOSSARY.md#amplicon) protocol, which copies the target in PCR pieces as [Amplicon sequencing](03-amplicon-vs-shotgun.md#amplicon-sequencing) explains, pile up on one strand near every primer. A strand-bias flag on amplicon data therefore often reflects the protocol rather than an error. When a flagged row matters to your question, look at the position in the alignment before you accept or dismiss it.
 
 ## Where a VCF comes from
 
@@ -151,13 +151,13 @@ Four checks settle whether a VCF is worth building on.
 
 First, read the `FILTER` column before you filter on it. A file of all `PASS` and a file of all `.` need different treatment, and only the first has been judged by anything.
 
-Second, check depth at any position you care about. Across this fixture the mean depth is about 45, and position 250,527 sits at 63. Human whole-genome sequencing normally aims for a mean of about 30, so the fixture is comfortably above that. A position under about 10 reads is too thin for a confident call, which is what LoFreq's `min_dp_10` flag says.
+Second, check depth at any position you care about. Across this fixture the mean depth is about 45, and position 250,527 sits at 63. Human whole-genome sequencing usually aims for a mean depth of about 30, which means about 30 times the genome size in sequenced bases, so the fixture is comfortably above that. A position under about 10 reads is too thin for a confident call, which is what LoFreq's `min_dp_10` flag says.
 
 Third, look at the strand split in `DP4` for a call that matters. The 16 and 17 alternate reads at 250,527 are the balance a real change produces. All the alternate support on one strand and none on the other is a question to answer, not a call to accept.
 
-Fourth, know which alignment and which caller produced the file. LGE writes a [provenance](../../GLOSSARY.md#provenance) record beside every result, holding the command, the tool version, and a [checksum](../../GLOSSARY.md#checksum) of each file, and [Provenance and Reproducibility](08-provenance-and-reproducibility.md#reading-the-results) shows how to read it. A VCF separated from that record is a list of numbers with no way to check them.
+Fourth, know which alignment and which caller produced the file. LGE keeps a [provenance](../../GLOSSARY.md#provenance) record of how each result was made, which [Provenance and Reproducibility](08-provenance-and-reproducibility.md#reading-the-results) shows how to read. A VCF separated from that record is a list of numbers with no way to check them.
 
-If the first check fails, sort the rows by `QUAL` and look at the spread before anything else. A healthy file has most rows well above 30 and a short tail of low scores. A file that is mostly low scores says the alignment or the depth is the real problem.
+The first check fails when the `FILTER` column tells you nothing, for example when every row reads `.` as in the bcftools file. Then sort the rows by `QUAL` and look at the spread before anything else. A healthy file has most rows well above 30 and a short tail of low scores. A file that is mostly low scores says the alignment or the depth is the real problem.
 
 ## Next
 

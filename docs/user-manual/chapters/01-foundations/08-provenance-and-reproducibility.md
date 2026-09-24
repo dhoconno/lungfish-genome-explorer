@@ -51,7 +51,7 @@ Six months after a run, nobody remembers which version of bcftools called those 
 
 The record helps in everyday moments too. A run fails and you want to see which step broke. A paper needs a methods paragraph naming every tool. LGE writes a record for every analysis it runs, with no way to turn it off, so the material is already on disk before you go looking for it.
 
-This chapter uses three linked results in the demo project. They are the chr20 reference bundle, the HG002 minimap2 mapping built on it, and the HG002 bcftools variant track built on the mapping. HG002 is a widely shared human reference sample, and minimap2 is the program that places sequencing reads onto a reference genome. Because each result was made from the one before, each record reaches back through the one before it.
+This chapter uses three linked results in the demo project. They are the chr20 reference bundle, the HG002 minimap2 mapping built on it, and the HG002 bcftools variant track built on the mapping. HG002 is the human reference sample that [Sequencing Reads](02-sequencing-reads.md#why-you-would-do-this) introduces, and minimap2 is the program that places sequencing reads onto a reference genome. Because each result was made from the one before, each record reaches back through the one before it.
 
 ## Before you start
 
@@ -61,13 +61,13 @@ Nothing in this chapter needs a plugin pack, because it only reads records that 
 
 ## Procedure
 
-1. Select the `chr20_10.0-10.5Mb` reference bundle under `Reference Sequences/` in the sidebar. Open the [Inspector](../../GLOSSARY.md#inspector) with **View > Show Inspector** (Cmd-Opt-I) if it is hidden.
+1. Select the `chr20_10.0-10.5Mb` reference bundle under `Reference Sequences/` in the sidebar. Open the [Inspector](../../GLOSSARY.md#inspector) if it is hidden, as [The Inspector](06-the-lungfish-project.md#the-inspector) shows.
 
 2. Click the **Provenance** tab at the top of the Inspector. Its content, which this chapter calls the Provenance section, fills the Inspector.
 
     <!-- SHOT: inspector-provenance-section -->
 
-3. Read **Run Summary** at the top. For this bundle it names the workflow `lungfish import fasta`, the tool and its version, when the run was created, an exit status of 0, the wall time, and counts of steps, inputs, and outputs. The last row gives the path of the sidecar file itself.
+3. Read **Run Summary** at the top. For this bundle it names the workflow `lungfish import fasta`, the tool and its version, and when the run was created. It then gives the exit status, the number a tool reports when it stops, where 0 means success and any other number means failure. The wall time is how long the run took by an ordinary clock. Counts of steps, inputs, and outputs follow, and the last row gives the path of the sidecar file itself.
 
 4. Choose `HG002 bcftools` from the **Source** picker at the top of the Provenance section, then open the **Lineage** block and expand one step. The picker offers **Bundle** and each named variant track attached to the reference bundle, and choosing a track loads that track's own record. That track's chain runs eleven steps, from staging the alignment and the reference, through `samtools faidx`, four `bcftools` calls, `bgzip`, `tabix`, and the import of the rows into the bundle's search database, to the `lungfish-cli variants call` command that ran them all. These are bookkeeping steps LGE ran for you, so read them as a list of what happened rather than as tools to learn.
 
@@ -100,11 +100,11 @@ Four checks tell you a record is worth trusting. The exit status in Run Summary 
 
 An empty Provenance section usually has an ordinary explanation. A file you copied into the project folder by hand has no run record, and the section's status line says so, reading "Missing provenance" for an item that should have a record and "No provenance required" for one that should not. If a result LGE itself produced shows an empty Provenance section, that is a bug, and **Help > Report an Issue…** is the place to say so.
 
-Three things a record cannot promise are worth keeping in mind. A public database can revise an entry after you fetched it, so an accession and a date may not return the same bytes next year. A run on a different Mac or macOS version can shift a tool's output slightly, usually a handful of borderline variant calls out of thousands, and the thread count is the first value to match when you chase such a difference. And the [methods export](../../GLOSSARY.md#methods-export) is a first draft, so add the accession numbers, access dates, and database citations it cannot know. LGE writes down what ran, not what you meant to run.
+Three things a record cannot promise are worth keeping in mind. A public database can revise an entry after you fetched it, so an accession and a date may not return the same bytes next year. A run on a different Mac or macOS version can shift a tool's output slightly, usually a handful of borderline variant calls out of thousands, and the thread count is the first value to match when you chase such a difference. And the [methods export](../../GLOSSARY.md#methods-export), the methods paragraph LGE writes when you choose **File > Export > Provenance > Methods Section...** as [Exporting as Nextflow or Snakemake](../08-workflows/02-exporting-as-nextflow-or-snakemake.md#procedure) shows, is only a first draft. Add the accession numbers, access dates, and database citations it cannot know. LGE writes down what ran, not what you meant to run.
 
 ## Signing a record
 
-Most readers leave signing off and can skip this section. For audit work that needs a tamper-evident record, one that shows whether anyone changed it after it was written, **Settings...** (Cmd-,), in the application menu at the left of the menu bar, has a Provenance Signing section on its **General** tab. Its Provider control offers Off, Local, and Cosign Plan, where Cosign is an outside signing service used in software supply-chain work. The default is Off, which is right for most research. Below the provider sit a local signing key field, a public key path field, and **Save Signing Key** and **Clear Signing Key** buttons, with a status line beneath them. A signature only matters if someone checks it later, which the command line below does.
+This section is optional, and most readers leave signing off and skip it. For audit work that needs a tamper-evident record, one that shows whether anyone changed it after it was written, **Settings...** (Cmd-,), in the application menu at the left of the menu bar, has a Provenance Signing section on its **General** tab. Signing uses a key pair, two linked codes where the private signing key stamps a record and the matching public key lets anyone check the stamp without being able to make one. The section's Provider control offers Off, Local, and Cosign Plan, where Cosign is an outside signing service used to check that software was not altered between its maker and its user. The default is Off, which is right for most research. Below the provider sit a local signing key field, a public key path field, and **Save Signing Key** and **Clear Signing Key** buttons, with a status line beneath them. A signature only matters if someone checks it later, which the command line below does.
 
 <!-- SHOT: provenance-signing-settings -->
 

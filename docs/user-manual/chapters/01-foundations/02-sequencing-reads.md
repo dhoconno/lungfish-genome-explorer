@@ -34,7 +34,7 @@ Reads arrive in a [FASTQ](../../GLOSSARY.md#fastq) file, the plain-text format t
 
 Three facts about a read set shape everything downstream. They are how many reads there are, how long they are, and how far you can trust each base. This chapter takes them in turn, using two [fixtures](../../GLOSSARY.md#fixture), the small practice data sets that ship with this manual. The HG002 chromosome 20 slice supplies short Illumina reads from a 500,001-base region of human chromosome 20. The HG002 long reads supply Oxford Nanopore and PacBio HiFi reads from the same person's mitochondrial DNA.
 
-So what should you do with this? Learn to read one FASTQ record by eye, because every quality number LGE shows you is a summary of those four lines.
+The practical step is to learn to read one FASTQ record by eye, because every quality number LGE shows you is a summary of those four lines.
 
 ## Why you would do this
 
@@ -198,7 +198,7 @@ Importing reads, which [Importing Sequencing Reads](../03-reads/01-importing-fas
 
 Judge a read set on four numbers before trusting anything built from it. The first three come straight from the FASTQ.
 
-Read count is how many records the file holds. This fixture holds 45,574 pairs, enough for a 500,001-base slice but far too few for a whole genome. A useful check is that the total bases sequenced should be roughly thirty to fifty times the size of the genome you sequenced. A human genome is about 3 billion bases, so a whole-genome run needs hundreds of millions of 150-base pairs. Too few reads and no later step rescues the result.
+Read count is how many records the file holds. This fixture holds 45,574 pairs, enough for a 500,001-base slice but far too few for a whole genome. Human whole-genome sequencing usually aims for a mean depth of about 30, which means about 30 times the genome size in sequenced bases. Depth, the number of reads covering one position, is the fourth number below. A human genome is about 3.1 billion bases, so a whole-genome run needs about 93 billion bases, roughly 310 million pairs of 150-base reads. Too few reads and no later step rescues the result.
 
 Read length should match the platform. Illumina reads are close to uniform, and this fixture's read 1 file averages 248.6 bases with 90.8% of reads at 249 or 250. A handful of much shorter reads were trimmed hard, which is expected. Lengths reaching thousands of bases mean nanopore or PacBio. A length pattern that disagrees with the kit you ran suggests the wrong files were imported.
 

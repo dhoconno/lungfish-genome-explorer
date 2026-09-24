@@ -125,7 +125,7 @@ A few kinds of result have a fixed home of their own. A multiple sequence alignm
 
 ### What "bundle" means
 
-Every time this manual says [bundle](../../GLOSSARY.md#bundle), it means a folder with an extension that LGE treats as one item. A reference bundle ends in `.lungfishref`, a read bundle ends in `.lungfishfastq`, and a tree bundle ends in `.lungfishtree`. Finder shows a reference, alignment, or tree bundle as a single icon, while a read bundle and the project itself appear as ordinary folders. Each holds its data files together with the small index files and records that belong to them.
+Every time this manual says [bundle](../../GLOSSARY.md#bundle), it means a folder with an extension that LGE treats as one item. A reference bundle ends in `.lungfishref`, a read bundle ends in `.lungfishfastq`, a multiple sequence alignment ends in `.lungfishmsa`, and a tree bundle ends in `.lungfishtree`. Reads mapped to a reference are not a bundle of their own, and they are stored inside the reference bundle. Finder shows a reference, multiple alignment, or tree bundle as a single icon, while a read bundle and the project itself appear as ordinary folders. Each holds its data files together with the small index files and records that belong to them.
 
 Bundles travel as a unit. Copy a `.lungfishref` into another project and the sequence, its index, its annotations, and its provenance all move together, so an index can never be separated from the file it belongs to. The files inside each kind of bundle are listed in [The reference bundle](../appendices/file-formats.md#the-reference-bundle) and the sections after it.
 
