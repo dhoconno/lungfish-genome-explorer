@@ -247,7 +247,7 @@ struct GenotypeHaplotypeCallBandSnapshot: Equatable, Sendable {
         guard let value else { return "—" }
         switch value.status {
         case .notAssayed, .noHaplotype, .tooManyHaplotypes,
-             .tooManyGenotypes:
+             .tooManyGenotypes, .ambiguous:
             return "—"
         case .called, .specialCase:
             let label = value.value.trimmingCharacters(
@@ -282,6 +282,7 @@ struct GenotypeHaplotypeCallBandSnapshot: Equatable, Sendable {
         case .noHaplotype: return "no haplotype"
         case .tooManyHaplotypes: return "too many haplotypes"
         case .tooManyGenotypes: return "too many genotypes"
+        case .ambiguous: return "ambiguous"
         }
     }
 

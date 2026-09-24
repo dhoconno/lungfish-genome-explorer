@@ -49,7 +49,7 @@ struct FastqGenotypingSubcommand: AsyncParsableCommand {
     @Option(name: .customLong("sort-threads"), help: "Threads for samtools sort")
     var sortThreads: Int = 4
 
-    @Option(name: .customLong("min-support"), help: "Minimum retained unique-read support required for a genotype row in the report and workbook")
+    @Option(name: .customLong("min-support"), help: "Minimum retained unique-read support required for a genotype to count as haplotype evidence. Does NOT remove rows from the report CSV or workbook, which always list every retained genotype so raw evidence stays inspectable; see --haplotype-min-sample-percent to hide low-support rows from the matrix/workbook views")
     var minSupport: Int = 1
 
     @Flag(name: .customLong("keep-intermediates"), help: "Keep regenerable workflow intermediates for troubleshooting")
@@ -418,7 +418,7 @@ struct FastqGenotypingCohortSubcommand: AsyncParsableCommand {
     @Option(name: .customLong("sort-threads"), help: "Threads for samtools sort")
     var sortThreads: Int = 4
 
-    @Option(name: .customLong("min-support"), help: "Minimum retained unique-read support required for a genotype row in the report and workbook")
+    @Option(name: .customLong("min-support"), help: "Minimum retained unique-read support required for a genotype to count as haplotype evidence. Does NOT remove rows from the report CSV or workbook, which always list every retained genotype so raw evidence stays inspectable; see --haplotype-min-sample-percent to hide low-support rows from the matrix/workbook views")
     var minSupport: Int = 1
 
     @Flag(name: .customLong("keep-intermediates"), help: "Keep regenerable workflow intermediates for troubleshooting")

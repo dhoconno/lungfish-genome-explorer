@@ -3709,6 +3709,9 @@ public final class GenotypeResultViewController: NSViewController {
         case .tooManyGenotypes:
             let extras = max(0, locusCall.observedGenotypeCount - 2)
             return "Too many genotypes observed at \(locusCall.locus) (\(locusCall.observedGenotypeCount)). For diploid Class II loci, each raw DPA/DPB or DQA/DQB sub-locus should contribute at most two genotypes to the combined DP or DQ haplotype call. The extra \(extras) genotype\(extras == 1 ? "" : "s") suggests cross-well contamination, a barcoding error, or low-support spurious calls. If the automatic 10x dominance rule cannot resolve the call, this locus requires human curation."
+        case .ambiguous:
+            let names = locusCall.matchedHaplotypes.map(\.name).joined(separator: ", ")
+            return "The matched haplotype definitions (\(names)) cannot be distinguished from the observed diagnostic alleles alone -- either the definitions are identical, or the weaker match's evidence is fully explained by the stronger one. Reporting a specific heterozygous pair here would risk misreporting a homozygote. Review the haplotype definition set or confirm manually."
         }
     }
 
@@ -7839,12 +7842,14 @@ public final class GenotypeResultViewController: NSViewController {
         var tmh = 0
         var noHap = 0
         var tmg = 0
+        var ambiguous = 0
         for sample in analysis.samples {
             for call in sample.calls {
                 switch call.status {
                 case .tooManyHaplotypes: tmh += 1
                 case .noHaplotype: noHap += 1
                 case .tooManyGenotypes: tmg += 1
+                case .ambiguous: ambiguous += 1
                 case .called, .notAssayed, .specialCase: break
                 }
             }
@@ -7853,6 +7858,7 @@ public final class GenotypeResultViewController: NSViewController {
             ("TMH", tmh),
             ("NO HAP", noHap),
             ("TMG", tmg),
+            ("AMBIGUOUS", ambiguous),
         ]
     }
 
@@ -9647,6 +9653,8 @@ public final class GenotypeResultViewController: NSViewController {
             return "too many matching haplotypes"
         case .tooManyGenotypes:
             return "too many genotype labels"
+        case .ambiguous:
+            return "ambiguous (indistinguishable haplotype definitions)"
         }
     }
 

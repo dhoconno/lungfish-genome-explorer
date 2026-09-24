@@ -288,7 +288,7 @@ public enum GenotypeEffectiveCallAuthority {
         guard trimmed != "?",
               !trimmed.hasPrefix("ERR:") else {
             switch baseline {
-            case .noHaplotype, .tooManyHaplotypes, .tooManyGenotypes:
+            case .noHaplotype, .tooManyHaplotypes, .tooManyGenotypes, .ambiguous:
                 return baseline
             case .called, .notAssayed, .specialCase:
                 return .noHaplotype
@@ -339,7 +339,7 @@ public enum GenotypeEffectiveCallAuthority {
         _ status: GenotypeHaplotypeCallStatus
     ) -> Bool {
         switch status {
-        case .noHaplotype, .tooManyHaplotypes, .tooManyGenotypes:
+        case .noHaplotype, .tooManyHaplotypes, .tooManyGenotypes, .ambiguous:
             true
         case .called, .notAssayed, .specialCase:
             false
