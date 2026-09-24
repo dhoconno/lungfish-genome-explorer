@@ -16,6 +16,14 @@
     {
       "id": "primalscheme3",
       "note": "LGE uses a separately maintained custom fork of upstream PrimalScheme3 v3.3.0, not an upstream release (https://github.com/dhoconno/primalscheme3-lge). The exact custom version, release artifact checksum, and fork/upstream revisions are pinned in third-party-tools-lock.json (packTools[primalscheme3].pythonRuntime). The fork adds a selectable terminal-missing-data policy; its Python observed-only discovery path differs from the upstream Rust legacy path. Upstream source: https://github.com/artic-network/primalscheme3, licensed GPL-3.0. Upstream authors retain their copyrights; modified source, attribution and the complete license are available in the public fork. This tool is installed into a separate managed environment on demand and is not included in the app executable. LGE's MIT license does not replace this tool's GPL license."
+    },
+    {
+      "id": "olivar",
+      "note": "OliVar 1.3.3 is installed on demand into its own managed environment from a checksum-bound osx-arm64 explicit conda lock. Source: https://github.com/treangenlab/Olivar, licensed GPL-3.0-or-later. It is not included in the app executable; LGE's MIT license does not replace the tool's GPL license."
+    },
+    {
+      "id": "varvamp",
+      "note": "varVAMP 1.3.2 is installed on demand into its own managed environment from a checksum-bound osx-arm64 explicit conda lock. Source: https://github.com/jonas-fuchs/varVAMP, licensed GPL-3.0-or-later. It is not included in the app executable; LGE's MIT license does not replace the tool's GPL license."
     }
   ],
   "containerizationPayloads": [

@@ -110,7 +110,9 @@ final class PrimerAnalysisNativeMHCViewerTests: XCTestCase {
     var rendered: Set<String> = []
     for url in urls.sorted(by: { $0.path < $1.path }) {
       let snapshot = try PrimerAnalysisViewerSnapshot.load(from: url)
-      let engine = snapshot.primer3Results == nil ? "primalscheme3" : "primer3"
+      let engine = snapshot.primerSchemeResultsDocument?.engine.rawValue
+        ?? (snapshot.primer3Results == nil ? "primalscheme3" : "primer3")
+      let mode = snapshot.primerSchemeResultsDocument?.mode.rawValue ?? "default"
       if engine == "primalscheme3" {
         XCTAssertFalse(snapshot.primalSchemeResults.isEmpty, url.path)
         for scheme in snapshot.primalSchemeResults {
@@ -129,9 +131,29 @@ final class PrimerAnalysisNativeMHCViewerTests: XCTestCase {
           let known = Set(snapshot.designReview.flatMap(\.primers).map(\.id))
           XCTAssertTrue(context.primers.allSatisfy { known.contains($0.reviewPrimerID) }, url.path)
         }
+      } else if let document = snapshot.primerSchemeResultsDocument {
+        XCTAssertEqual(snapshot.primalSchemeResults.count, document.results.count, url.path)
+        XCTAssertEqual(Set(snapshot.primalSchemeResults.flatMap { $0.primers.map(\.stableID) }),
+          Set(document.results.flatMap { $0.targets.flatMap { $0.oligos.map { $0.id.uuidString.lowercased() } } }))
+        XCTAssertTrue(snapshot.designReview.flatMap(\.primers).allSatisfy { !$0.sequence.isEmpty })
+        let projected = Set(snapshot.bindingContexts.flatMap { $0.primers.map(\.reviewPrimerID) })
+        let unavailable = Set(snapshot.bindingContexts.flatMap { context in
+          context.primers.filter { $0.unavailableReason != nil }.map(\.reviewPrimerID)
+        })
+        XCTAssertTrue(projected.union(unavailable).isSubset(of:
+          Set(snapshot.designReview.flatMap(\.primers).map(\.id))))
+        let referenceIDs = Set(document.results.flatMap { $0.targets.map(\.referenceID) })
+        let referencePaths = Set(document.results.flatMap { $0.targets.map {
+          url.appendingPathComponent($0.referencePath).standardizedFileURL.path
+        } })
+        for annotation in snapshot.bindingContexts.flatMap(\.annotations) {
+          XCTAssertTrue(referenceIDs.contains(annotation.sourceSequenceName), annotation.sourceSequenceName)
+          XCTAssertTrue(referencePaths.contains(annotation.sourceFilePath), annotation.sourceFilePath)
+          XCTAssertTrue(annotation.sourceIntervals.allSatisfy { $0.start >= 0 && $0.end > $0.start })
+        }
       }
       guard let outputPath = ProcessInfo.processInfo.environment["LUNGFISH_PRIMER_VIEWER_SNAPSHOT_DIR"],
-        rendered.insert(engine).inserted else { continue }
+        rendered.insert("\(engine)-\(mode)").inserted else { continue }
       let model = PrimerAnalysisViewerModel()
       await model.load(from: url)
       let selectedTarget = snapshot.designReview.first { !$0.primers.isEmpty }
@@ -155,7 +177,7 @@ final class PrimerAnalysisNativeMHCViewerTests: XCTestCase {
       let png = try XCTUnwrap(bitmap.representation(using: .png, properties: [:]))
       let output = URL(fileURLWithPath: outputPath, isDirectory: true)
       try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
-      try png.write(to: output.appendingPathComponent("native-mhc-\(engine)-results.png"))
+      try png.write(to: output.appendingPathComponent("native-mhc-\(engine)-\(mode)-results.png"))
     }
   }
 

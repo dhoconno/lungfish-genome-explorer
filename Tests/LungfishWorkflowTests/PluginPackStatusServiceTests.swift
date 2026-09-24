@@ -60,7 +60,19 @@ final class PluginPackStatusServiceTests: XCTestCase {
                 try FileManager.default.createDirectory(
                     at: fixture.primalEnvironment, withIntermediateDirectories: true)
             },
-            pythonRuntimeInstallAction: { _, _, _ in })
+            pythonRuntimeInstallAction: { _, environment, _ in
+                let python = environment.appendingPathComponent("bin/python")
+                let executable = environment.appendingPathComponent("bin/primalscheme3")
+                try FileManager.default.createDirectory(
+                    at: python.deletingLastPathComponent(), withIntermediateDirectories: true)
+                try Data("#!/bin/sh\nexec /usr/bin/python3 \"$@\"\n".utf8).write(to: python)
+                try Data("#!/bin/sh\necho 'PrimalScheme3-LGE version: invalid'\n".utf8)
+                    .write(to: executable)
+                try FileManager.default.setAttributes(
+                    [.posixPermissions: 0o755], ofItemAtPath: python.path)
+                try FileManager.default.setAttributes(
+                    [.posixPermissions: 0o755], ofItemAtPath: executable.path)
+            })
 
         do {
             try await service.install(
@@ -2672,13 +2684,16 @@ final class PluginPackStatusServiceTests: XCTestCase {
 
     private static func writeSelectedPrimerRuntime(spec: ManagedPythonRuntimeSpec, environment: URL) throws {
         let fm = FileManager.default
+        let python = environment.appendingPathComponent("bin/python")
         let executable = environment.appendingPathComponent("bin/primalscheme3")
         let metadata = environment.appendingPathComponent("conda-meta/python.json")
         let requirements = environment.appendingPathComponent("share/lungfish/requirements.txt")
         let wheel = environment.appendingPathComponent("share/lungfish/wheels/primalscheme3.whl")
-        for file in [executable, metadata, requirements, wheel] {
+        for file in [python, executable, metadata, requirements, wheel] {
             try fm.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
         }
+        try Data("#!/bin/sh\nexec /usr/bin/python3 \"$@\"\n".utf8).write(to: python)
+        try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: python.path)
         try Data("#!/bin/sh\necho 'PrimalScheme3-LGE version: \(spec.version)'\n".utf8).write(to: executable)
         try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
         try Data(#"{"name":"python","version":"3.12.11","build":"fixture","subdir":"osx-arm64"}"#.utf8)

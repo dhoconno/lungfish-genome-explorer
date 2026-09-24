@@ -136,6 +136,7 @@ public struct PackToolRequirement: Sendable, Codable, Hashable, Identifiable {
     public let sourceURL: String?
     public let sourceOverlay: PackToolSourceOverlay?
     public let pythonRuntime: ManagedPythonRuntimeSpec?
+    public let explicitLock: ManagedCondaExplicitLockSpec?
 
     public init(
         id: String,
@@ -150,7 +151,8 @@ public struct PackToolRequirement: Sendable, Codable, Hashable, Identifiable {
         license: String? = nil,
         sourceURL: String? = nil,
         sourceOverlay: PackToolSourceOverlay? = nil,
-        pythonRuntime: ManagedPythonRuntimeSpec? = nil
+        pythonRuntime: ManagedPythonRuntimeSpec? = nil,
+        explicitLock: ManagedCondaExplicitLockSpec? = nil
     ) {
         self.id = id
         self.displayName = displayName
@@ -165,6 +167,7 @@ public struct PackToolRequirement: Sendable, Codable, Hashable, Identifiable {
         self.sourceURL = sourceURL
         self.sourceOverlay = sourceOverlay
         self.pythonRuntime = pythonRuntime
+        self.explicitLock = explicitLock
     }
 
     public static func package(
@@ -285,7 +288,8 @@ public extension PackToolRequirement {
             license: spec.license,
             sourceURL: spec.sourceUrl,
             sourceOverlay: overlay,
-            pythonRuntime: spec.pythonRuntime
+            pythonRuntime: spec.pythonRuntime,
+            explicitLock: manifest.explicitLock(packID: packID, toolID: id)
         )
     }
 }
@@ -575,9 +579,9 @@ public extension PluginPack {
         PluginPack(
             id: "pcr-primer-design",
             name: "PCR Primer Design",
-            description: "Independent Primer3 design and managed PrimalScheme tiled-amplicon runtime.",
+            description: "Independent Primer3, PrimalScheme, OliVar, and varVAMP primer design runtimes.",
             sfSymbol: "lines.measurement.horizontal",
-            packages: ["primer3", "primalscheme3"],
+            packages: ["primer3", "primalscheme3", "olivar", "varvamp"],
             category: "Specialized Workflows",
             isActive: true,
             requirements: [
@@ -609,8 +613,34 @@ public extension PluginPack {
                         requiredOutputSubstring: "PrimalScheme3-LGE version: \(ManagedToolLock.bundled.packTool(packID: "pcr-primer-design", id: "primalscheme3")?.version ?? "")"
                     )
                 ),
+                PackToolRequirement.fromManifest(
+                    ManagedToolLock.bundled,
+                    packID: "pcr-primer-design",
+                    id: "olivar",
+                    displayName: "OliVar",
+                    executables: ["olivar"],
+                    smokeTest: .command(
+                        executable: "olivar",
+                        arguments: ["--help"],
+                        timeoutSeconds: 60,
+                        acceptedExitCodes: [0]
+                    )
+                ),
+                PackToolRequirement.fromManifest(
+                    ManagedToolLock.bundled,
+                    packID: "pcr-primer-design",
+                    id: "varvamp",
+                    displayName: "varVAMP",
+                    executables: ["varvamp"],
+                    smokeTest: .command(
+                        executable: "varvamp",
+                        arguments: ["--help"],
+                        timeoutSeconds: 60,
+                        acceptedExitCodes: [0]
+                    )
+                ),
             ],
-            estimatedSizeMB: 350
+            estimatedSizeMB: 2_800
         ),
         PluginPack(
             id: "variant-calling",

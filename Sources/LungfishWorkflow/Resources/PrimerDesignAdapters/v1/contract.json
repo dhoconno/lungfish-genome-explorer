@@ -1,0 +1,97 @@
+{
+  "schemaVersion": 1,
+  "adapterVersion": "1.0.0",
+  "coordinateConvention": "zeroBasedHalfOpen",
+  "entryPoint": "run.py",
+  "invocation": ["<managed-environment>/bin/python", "<run-owned>/adapter/run.py", "--request", "<absolute-request.json>"],
+  "resultFile": "adapter-result-v1.json",
+  "errorFile": "adapter-error-v1.json",
+  "provenanceFile": "provenance-v1.json",
+  "adapterDigest": {
+    "algorithm": "sha256",
+    "scope": "complete adapter directory excluding __pycache__",
+    "ordering": "POSIX relative path ascending",
+    "recordEncoding": "uint64be(pathByteCount) || utf8(path) || uint64be(contentByteCount) || content"
+  },
+  "artifactDigest": {
+    "algorithm": "sha256",
+    "byteSizeField": "byteSize",
+    "pathField": "path",
+    "paths": "output-directory-relative POSIX paths"
+  },
+  "engines": {
+    "olivar": {
+      "distribution": "bioconda::olivar=1.3.3=pyhdfd78af_3",
+      "distributionVersion": "1.3.3",
+      "upstreamTag": "v1.3.3",
+      "upstreamCommit": "73973900196d91c1b707ef2ad4cd08a3b94d77fb",
+      "license": "GPL-3.0-only",
+      "supportedModes": ["tiled"],
+      "supportedGrouping": ["perInput", "combined"],
+      "sourceFiles": {
+        "main.py": "32fe3a1fe007538210cbafe34cc2c37f0881ff47aee822a0767d639c3cf0c269",
+        "msa_tools.py": "d65777654e086cb71d9ab98ac8bb3f8ed8b52fc01676fa97ee256b5542562153",
+        "tiling_helper.py": "2de15defe24df35b7d3eb1af7b83a621dcbc023d97a58d9a7ebd9403a0d31f74",
+        "save_helper.py": "3b95a2bc6f6e598c6236ad90afb3626236b414eb0d37e889cbd64423aa60d758"
+      },
+      "nativeCoordinates": {
+        "csv": "oneBasedClosed",
+        "bed": "zeroBasedHalfOpen"
+      },
+      "lengthSemantics": {
+        "nativePDRBounds": ["minimumAmpliconLength", "maximumAmpliconLength"],
+        "finalPairGuard": "inclusive before SADDLE",
+        "nominalAmpliconLength": "displayAndProvenanceOnly"
+      }
+    },
+    "varvamp": {
+      "distribution": "bioconda::varvamp=1.3.2=pyhdfd78af_0",
+      "distributionVersion": "1.3.2",
+      "upstreamTag": "v.1.3.2",
+      "upstreamCommit": "85d870b53288b637ab7749186c2c4284cab1bd2d",
+      "license": "GPL-3.0-only",
+      "supportedModes": ["single", "tiled", "qpcr"],
+      "supportedGrouping": ["perInput"],
+      "sourceFiles": {
+        "command.py": "7f08581c29effbdf09cfe52fb80bbd09a34ebd567e957a315bf94f2f62f687a",
+        "scripts/alignment.py": "8d95252c460eb190dc6a23e7f3edabad48bd2608fc5bc888a990dff9d1e4ae6d",
+        "scripts/consensus.py": "06be0430adb536835b917753f2dd20d133d991afb4989aadb0819ac6fc3dd4dc",
+        "scripts/reporting.py": "dcc0095c0f362a928c4713b9cc2001a800f9a7ca868cadb339cdf94ce9a20718",
+        "scripts/scheme.py": "ad7fc1d98aa98af272ace6ede3d0b1709e871b272800ee4f9b85a891c6e5b27d",
+        "scripts/qpcr.py": "bd4c6184a60a10077c7f192f8ad33c1d04b080ebcb1b0e8c93ed86334a510590",
+        "scripts/default_config.py": "ca577086f31ccdb5f75220bb2bbc1c0d821ee03cb3536d1dbf72b1d9d0f38c1d",
+        "scripts/get_config.py": "2af837621b6d51b0de4718ca85fc4b8c8e4948aa4fa222d2118a9c13aad3e179"
+      },
+      "nativeCoordinates": {
+        "tsv": "oneBasedClosed",
+        "bed": "zeroBasedHalfOpen"
+      },
+      "lengthSemantics": {
+        "singleAndTiledMinimum": "optLength",
+        "singleAndTiledMaximum": "maxLength",
+        "qpcrBounds": "QAMPLICON_LENGTH",
+        "nominalAmpliconLength": "displayAndProvenanceOnly"
+      },
+      "consensusThresholdSemantics": "native cumulative allele frequency threshold; never complemented"
+    }
+  },
+  "bindingProjection": {
+    "blockKinds": ["mapped", "collapsed", "synthetic"],
+    "mapped": "one-to-one source/generated interval",
+    "collapsed": "many-to-zero, many-to-one, or many-to-two; no per-column bijection",
+    "synthetic": "generated bases without source-column identity"
+  },
+  "blastDatabasePrefix": {
+    "supportedComponents": ["ndb", "nhr", "nin", "njs", "nog", "nos", "not", "nsq", "ntf", "nto"],
+    "requiredCorePerMaterializedVolume": ["nhr", "nin", "nsq"],
+    "aliases": "nal aliases are rejected; callers must supply a materialized nucleotide database prefix",
+    "provenance": "each component is inventoried in auxiliaryInputs and rechecked after execution"
+  },
+  "provenance": {
+    "historicalExecution": "command argv, replayCommand, workingDirectory, environment, and nativeInvocations retain exact attempted values",
+    "durableReplay": "command.pathMappings and command.durableReplay describe output-relative request/config/native references after atomic stage rename",
+    "nativeEvents": "typed caller-owned events with engine, kind, module, modulePath, function, complete arguments, durableArguments, status, timing, and exitStatus",
+    "inputIntegrity": "inputs and auxiliaryInputs are checksummed before native execution and rechecked afterward; BLAST prefixes are re-enumerated and exact component sets compared; change fails publication",
+    "failureEnvironment": "caller-owned environment entries, including VARVAMP_CONFIG before runtime verification, are retained on failure"
+  }
+}

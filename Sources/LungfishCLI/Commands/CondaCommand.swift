@@ -49,6 +49,7 @@ struct CondaCommand: AsyncParsableCommand {
 extension CondaCommand {
     nonisolated(unsafe) static var storageRootOverride: URL?
     nonisolated(unsafe) static var packStatusServiceOverride: (any PluginPackStatusProviding)?
+    nonisolated(unsafe) static var processEnvironmentOverride: [String: String]?
 
     static func visiblePacksForTesting() -> [PluginPack] {
         PluginPack.visibleForCLI
@@ -56,6 +57,27 @@ extension CondaCommand {
 
     static func storageUnavailableValidationError(for root: URL) -> ArgumentParser.ValidationError {
         ArgumentParser.ValidationError("Storage location unavailable: \(root.path)")
+    }
+
+    static func validateExplicitStorageOverrides(explicitCondaRoot: String? = nil) throws {
+        if let explicitCondaRoot = explicitCondaRoot?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !explicitCondaRoot.isEmpty {
+            try validateStorageOverride(value: explicitCondaRoot, label: "--conda-root")
+            return
+        }
+        let environment = processEnvironmentOverride ?? ProcessInfo.processInfo.environment
+        for key in ["LUNGFISH_CONDA_ROOT", "LUNGFISH_STORAGE_ROOT"] {
+            guard let value = environment[key]?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !value.isEmpty else { continue }
+            try validateStorageOverride(value: value, label: key)
+        }
+    }
+
+    private static func validateStorageOverride(value: String, label: String) throws {
+        let url = URL(fileURLWithPath: value, isDirectory: true).standardizedFileURL
+        guard case .invalid(let error) = ManagedStorageLocation.validateSelection(url) else { return }
+        throw ArgumentParser.ValidationError(
+            "Invalid \(label) override at \(url.path): \(error.localizedDescription)")
     }
 
     private static func managedStorageRootDescription() -> String {
@@ -102,6 +124,7 @@ extension CondaCommand {
         @OptionGroup var globalOptions: GlobalOptions
 
         func run() async throws {
+            try CondaCommand.validateExplicitStorageOverrides(explicitCondaRoot: condaRoot)
             let formatter = TerminalFormatter(useColors: globalOptions.useColors)
             let manager = CondaManager.shared
             let packStatusService = CondaCommand.packStatusServiceOverride ?? PluginPackStatusService.shared
@@ -631,6 +654,7 @@ extension CondaCommand {
         overwrite: Bool,
         globalOptions: GlobalOptions
     ) async throws {
+        try validateExplicitStorageOverrides(explicitCondaRoot: condaRoot)
         let formatter = TerminalFormatter(useColors: globalOptions.useColors)
         let root = condaRoot.map { URL(fileURLWithPath: $0, isDirectory: true) }
             ?? CondaManager.shared.rootPrefix

@@ -65,6 +65,44 @@ final class StorageLocationCommandTests: XCTestCase {
         }
     }
 
+    func testCondaPackInstallRejectsInvalidExplicitRootBeforeCallingInstaller() async throws {
+        let service = CountingPackStatusService()
+        let originalService = CondaCommand.packStatusServiceOverride
+        let originalEnvironment = CondaCommand.processEnvironmentOverride
+        CondaCommand.packStatusServiceOverride = service
+        CondaCommand.processEnvironmentOverride = [
+            "LUNGFISH_CONDA_ROOT": "/tmp/lungfish root/conda"
+        ]
+        defer {
+            CondaCommand.packStatusServiceOverride = originalService
+            CondaCommand.processEnvironmentOverride = originalEnvironment
+        }
+        let packID = try XCTUnwrap(CondaCommand.visiblePacksForTesting().first?.id)
+        let command = try CondaCommand.InstallSubcommand.parse(["--pack", packID])
+
+        do {
+            try await command.run()
+            XCTFail("Expected invalid explicit storage override")
+        } catch let error as ArgumentParser.ValidationError {
+            XCTAssertTrue(error.description.contains("LUNGFISH_CONDA_ROOT"))
+            XCTAssertTrue(error.description.contains("spaces"))
+        }
+        let installCallCount = await service.installCallCount()
+        XCTAssertEqual(installCallCount, 0)
+    }
+
+    func testValidCommandLineCondaRootOverridesStaleInvalidEnvironmentRoot() throws {
+        let originalEnvironment = CondaCommand.processEnvironmentOverride
+        CondaCommand.processEnvironmentOverride = [
+            "LUNGFISH_CONDA_ROOT": "/tmp/stale lungfish root/conda"
+        ]
+        defer { CondaCommand.processEnvironmentOverride = originalEnvironment }
+
+        XCTAssertNoThrow(try CondaCommand.validateExplicitStorageOverrides(
+            explicitCondaRoot: "/tmp/lungfish-explicit-conda-root"
+        ))
+    }
+
     private func captureStandardOutput(_ operation: () async throws -> Void) async throws -> String {
         let pipe = Pipe()
         let originalStdout = dup(STDOUT_FILENO)
@@ -87,6 +125,28 @@ final class StorageLocationCommandTests: XCTestCase {
         let data = pipe.fileHandleForReading.readDataToEndOfFile()
         return String(data: data, encoding: .utf8) ?? ""
     }
+}
+
+private actor CountingPackStatusService: PluginPackStatusProviding {
+    private var calls = 0
+
+    func visibleStatuses() async -> [PluginPackStatus] { [] }
+
+    func status(for pack: PluginPack) async -> PluginPackStatus {
+        PluginPackStatus(pack: pack, state: .needsInstall, toolStatuses: [], failureMessage: nil)
+    }
+
+    func invalidateVisibleStatusesCache() async {}
+
+    func install(
+        pack: PluginPack,
+        reinstall: Bool,
+        progress: (@Sendable (PluginPackInstallProgress) -> Void)?
+    ) async throws {
+        calls += 1
+    }
+
+    func installCallCount() -> Int { calls }
 }
 
 private actor StorageUnavailablePackStatusService: PluginPackStatusProviding {

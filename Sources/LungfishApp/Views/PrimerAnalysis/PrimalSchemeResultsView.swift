@@ -6,6 +6,7 @@ struct PrimalSchemeResultsView: View {
   @Environment(\.primerAnalysisVisibility) private var visibility
   let results: [PrimalSchemeDisplayResult]
   var engineDescription: String = "PrimalScheme3"
+  var presentsReportedAssays = false
   var reviewTargets: [PrimerTargetDesignReview] = []
   var selection: Binding<PrimerReviewSelection?> = .constant(nil)
   var onInspectSelection: () -> Void = {}
@@ -27,8 +28,9 @@ struct PrimalSchemeResultsView: View {
 
   var body: some View {
     VStack(alignment: .leading, spacing: 18) {
-      Text("Selected scheme oligos").font(.title2.weight(.semibold))
-      Picker("Selected scheme", selection: Binding(get: { result?.id }, set: { id in
+      Text(presentsReportedAssays ? "Reported assay oligos" : "Selected scheme oligos")
+        .font(.title2.weight(.semibold))
+      Picker(presentsReportedAssays ? "Reported result" : "Selected scheme", selection: Binding(get: { result?.id }, set: { id in
         selectedResultID = id
         if let chosen = results.first(where: { $0.id == id }), let primer = chosen.primers.first {
           select(primer, in: chosen)
@@ -44,13 +46,13 @@ struct PrimalSchemeResultsView: View {
     let pools = Set(result.primers.map(\.pool)).sorted()
     let visible = result.primers.filter { primer in
       let review = target(for: primer, in: result)
-      guard let record = review.primers.first(where: { $0.id == "\(result.id)-primer-\(primer.id)" }) else { return false }
+      guard let record = review.primers.first(where: { $0.id == reviewID(for: primer, in: result) }) else { return false }
       return visibility.isVisible(record, in: review)
     }
-    let selected = result.primers.first { "\(result.id)-primer-\($0.id)" == activeSelection.wrappedValue?.primerID }
+    let selected = result.primers.first { reviewID(for: $0, in: result) == activeSelection.wrappedValue?.primerID }
       ?? result.primers.first { $0.reference == selectedTarget?.referenceID } ?? visible.first
     return VStack(alignment: .leading, spacing: 16) {
-      Text("\(result.primers.count) selected oligos · \(pools.count) pools · \(Set(result.primers.map(\.reference)).count) references")
+      Text("\(result.primers.count) oligos · \(pools.count) assay/display groups · \(Set(result.primers.map(\.reference)).count) references")
         .font(.caption).foregroundStyle(.secondary)
       if let orderSheetURL = result.orderSheetURL {
         Button("Show saved order sheet…") { NSWorkspace.shared.activateFileViewerSelecting([orderSheetURL]) }
@@ -68,7 +70,7 @@ struct PrimalSchemeResultsView: View {
           PrimerTargetReviewCard(target: target, selection: activeSelection)
         }
       }.id(PrimerReviewSelection.selectedDesignAnchor)
-      Text("\(visible.count) of \(result.primers.count) selected oligos displayed")
+      Text("\(visible.count) of \(result.primers.count) \(presentsReportedAssays ? "reported" : "selected") oligos displayed")
         .font(.caption).foregroundStyle(.secondary)
         .help("Inspector → View controls visible pools and variants. Select a primer to inspect its saved amplicon, reference span, pool and sequence.")
       if visible.isEmpty { Text(result.primers.isEmpty ? "No primer records were returned." : "All oligos are hidden by display filters. Use Show all in Inspector → View to restore them.").foregroundStyle(.secondary) }
@@ -76,7 +78,7 @@ struct PrimalSchemeResultsView: View {
         let members = visible.filter { $0.pool == pool }
         VStack(alignment: .leading, spacing: 8) {
           HStack {
-            Text("Pool \(pool)").font(.headline)
+            Text(members.first?.poolLabel ?? "Display group \(pool)").font(.headline)
             Spacer()
             Text("\(members.count) oligos · \(members.reduce(0) { $0 + $1.sequence.count }) nt total")
               .font(.caption).foregroundStyle(.secondary)
@@ -88,21 +90,24 @@ struct PrimalSchemeResultsView: View {
                   Text(primer.name).fontWeight(.medium).frame(maxWidth: .infinity, alignment: .leading)
                   Text("\(primer.sequence.count) nt · \(primer.gcLabel)").font(.caption)
                 }
+                Text("\(primer.role.rawValue.capitalized) · \(primer.candidateStatus.rawValue.capitalized) candidate"
+                  + (primer.candidateRank.map { " · Rank \($0)" } ?? ""))
+                  .font(.caption).foregroundStyle(.secondary)
                 Text(primer.sequence.uppercased()).font(.system(.caption, design: .monospaced))
                 Text("\(primer.referenceLabel) · \(primer.start + 1)–\(primer.end) (\(primer.strand))")
                   .font(.caption).foregroundStyle(.secondary)
-                compatibility(for: "\(result.id)-primer-\(primer.id)")
+                compatibility(for: reviewID(for: primer, in: result))
                 if primer.ambiguousBaseCount > 0 {
                   Text("\(primer.ambiguousBaseCount) ambiguous bases — review synthesis representation")
                     .font(.caption).foregroundStyle(.orange)
                 }
               }.padding(10).frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
-                .background(activeSelection.wrappedValue?.primerID == "\(result.id)-primer-\(primer.id)" ? Color.accentColor.opacity(0.12) : .clear,
+                .background(activeSelection.wrappedValue?.primerID == reviewID(for: primer, in: result) ? Color.accentColor.opacity(0.12) : .clear,
                             in: RoundedRectangle(cornerRadius: 5))
             }.buttonStyle(.plain)
               .contextMenu {
                 let review = target(for: primer, in: result)
-                if let record = review.primers.first(where: { $0.id == "\(result.id)-primer-\(primer.id)" }) {
+                if let record = review.primers.first(where: { $0.id == reviewID(for: primer, in: result) }) {
                   PrimerReviewContextMenu(target: review, item: .primer(record), selection: activeSelection)
                 }
               }
@@ -127,7 +132,7 @@ struct PrimalSchemeResultsView: View {
 
   private func select(_ primer: PrimalSchemeDisplayPrimer, in result: PrimalSchemeDisplayResult) {
     let target = target(for: primer, in: result)
-    guard let reviewPrimer = target.primers.first(where: { $0.id == "\(result.id)-primer-\(primer.id)" }) else { return }
+    guard let reviewPrimer = target.primers.first(where: { $0.id == reviewID(for: primer, in: result) }) else { return }
     activeSelection.wrappedValue = .selecting(primer: reviewPrimer, in: target)
   }
 
@@ -136,7 +141,15 @@ struct PrimalSchemeResultsView: View {
       ?? PrimerTargetDesignReview(id: "\(result.id)-\(primer.reference)", label: "\(result.title) · \(primer.referenceLabel)",
         referenceLength: primer.referenceLength, coverageLabel: "Reference spanned by amplicons", coveredBases: nil, intervals: [],
         primers: result.primers.filter { $0.reference == primer.reference }.map {
-          PrimerReviewPrimer(id: "\(result.id)-primer-\($0.id)", name: $0.name, start: $0.start, end: $0.end, strand: $0.strand, pool: $0.pool, sequence: $0.sequence)
+          PrimerReviewPrimer(id: reviewID(for: $0, in: result), name: $0.name, start: $0.start,
+            end: $0.end, strand: $0.strand, pool: $0.pool, poolLabel: $0.poolLabel,
+            role: $0.role, candidateStatus: $0.candidateStatus, nativePool: $0.nativePool,
+            sequence: $0.sequence, ampliconIDs: $0.assayIDs)
         }, notes: [], sourceResultID: result.id, referenceID: primer.reference)
+  }
+
+  private func reviewID(for primer: PrimalSchemeDisplayPrimer,
+                        in result: PrimalSchemeDisplayResult) -> String {
+    primer.stableID.isEmpty ? "\(result.id)-primer-\(primer.id)" : primer.stableID
   }
 }

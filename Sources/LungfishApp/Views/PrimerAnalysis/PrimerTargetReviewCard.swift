@@ -50,7 +50,7 @@ struct PrimerTargetReviewCard: View {
         legend("Amplicon", color: .accentColor.opacity(0.45))
         legend("Forward primer", color: .blue)
         legend("Reverse primer", color: .orange)
-        if target.primers.contains(where: { $0.name == "Internal probe" }) {
+        if target.primers.contains(where: { $0.role == .probe }) {
           legend("Probe", color: .purple)
         }
       }.font(.caption2)
@@ -74,6 +74,10 @@ struct PrimerReferenceCoverageTrack: View {
   let target: PrimerTargetDesignReview
   var selection: Binding<PrimerReviewSelection?> = .constant(nil)
 
+  nonisolated static func laneHeight(for target: PrimerTargetDesignReview) -> CGFloat {
+    target.primers.contains(where: { $0.role == .probe }) ? 102 : 82
+  }
+
   private var pools: [Int?] {
     let values = Set(target.intervals.compactMap(\.pool) + target.primers.compactMap(\.pool)).sorted()
     return (values.isEmpty ? [nil] : values.map(Optional.some)).filter {
@@ -85,7 +89,7 @@ struct PrimerReferenceCoverageTrack: View {
     VStack(alignment: .leading, spacing: 6) {
       ForEach(Array(pools.enumerated()), id: \.offset) { _, pool in
         HStack(spacing: 8) {
-          Text(pool.map { "Pool \($0)" } ?? "Not pooled")
+          Text(groupLabel(pool))
             .font(.caption2).foregroundStyle(.secondary).frame(width: 62, alignment: .leading)
           lane(pool: pool)
         }
@@ -111,14 +115,15 @@ struct PrimerReferenceCoverageTrack: View {
           primerMark(primer, width: width, scale: scale)
         }
       }
-    }.frame(height: target.primers.contains(where: { $0.name == "Internal probe" }) ? 102 : 82)
+    }.frame(height: Self.laneHeight(for: target))
   }
 
   private func intervalMark(_ interval: PrimerReviewInterval, width: CGFloat, scale: CGFloat) -> some View {
     let markWidth = max(3, CGFloat(interval.end - interval.start) * scale)
     let position = min(max(0, width - markWidth), CGFloat(interval.start) * scale)
     let isSelected = selection.wrappedValue?.targetID == target.id && selection.wrappedValue?.ampliconID == interval.id
-    let poolLabel = interval.pool.map { " · Pool \($0)" } ?? ""
+    let poolLabel = interval.poolLabel.map { " · \($0)" }
+      ?? interval.pool.map { " · Pool \($0)" } ?? ""
     let label = "Amplicon \(interval.start + 1)–\(interval.end) · \(interval.end - interval.start) bp" + poolLabel
     return Button {
       selection.wrappedValue = .init(targetID: target.id, primerID: nil, ampliconID: interval.id)
@@ -137,7 +142,7 @@ struct PrimerReferenceCoverageTrack: View {
 
   private func primerMark(_ primer: PrimerReviewPrimer, width: CGFloat, scale: CGFloat) -> some View {
     let isForward = primer.strand == "+"
-    let isProbe = primer.name == "Internal probe"
+    let isProbe = primer.role == .probe
     let color: Color = isProbe ? .purple : (isForward ? .blue : .orange)
     let markWidth = max(3, CGFloat(primer.end - primer.start) * scale)
     let hitWidth = max(12, markWidth)
@@ -155,7 +160,7 @@ struct PrimerReferenceCoverageTrack: View {
     .contextMenu { PrimerReviewContextMenu(target: target, item: .primer(primer), selection: selection) }
     .offset(x: x, y: y)
     .help(primerHelp(primer))
-    .accessibilityLabel("\(primer.name), binding site \(primer.start + 1)–\(primer.end), \(primer.pool.map { "pool \($0)" } ?? "candidate pair")")
+    .accessibilityLabel("\(primer.name), binding site \(primer.start + 1)–\(primer.end), \(primer.poolLabel ?? primer.pool.map { "pool \($0)" } ?? "candidate pair")")
     .accessibilityIdentifier("primerReview.primer.\(primer.id)")
   }
 
@@ -165,5 +170,11 @@ struct PrimerReferenceCoverageTrack: View {
       return site + (visibility.isComputingCompatibility ? "\nCalculating MSA matches…" : "\nMSA matches: unavailable")
     }
     return site + "\n" + summary.label + "\n" + summary.help
+  }
+
+  private func groupLabel(_ pool: Int?) -> String {
+    target.primers.first(where: { $0.pool == pool })?.poolLabel
+      ?? target.intervals.first(where: { $0.pool == pool })?.poolLabel
+      ?? pool.map { "Pool \($0)" } ?? "Not pooled"
   }
 }

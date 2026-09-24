@@ -62,6 +62,7 @@ final class Primer3ResultsPresentationTests: XCTestCase {
     XCTAssertNoThrow(try inspected.find(text: "Forward primer →"))
     XCTAssertNoThrow(try inspected.find(text: "Reverse primer ←"))
     XCTAssertNoThrow(try inspected.find(text: "Internal probe →"))
+    XCTAssertEqual(target.primers.first(where: { $0.name == "Internal probe" })?.role, .probe)
     for coordinates in ["1–2", "7–8", "4–5"] {
       XCTAssertNoThrow(try inspected.find(text: coordinates))
     }

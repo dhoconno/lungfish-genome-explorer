@@ -18,6 +18,7 @@ struct PrimerAnalysisViewerSnapshot: Sendable {
   let primer3Results: Primer3NormalizedResults?
   let toolProvenance: [ProvenanceEnvelope]
   let primalSchemeResults: [PrimalSchemeDisplayResult]
+  var primerSchemeResultsDocument: PrimerSchemeResultsDocument? = nil
   var derivedProvenance: [ProvenanceEnvelope] = []
   var workflowProvenance: [ProvenanceEnvelope] = []
   var designReview: [PrimerTargetDesignReview] = []
@@ -54,6 +55,42 @@ struct PrimerAnalysisViewerSnapshot: Sendable {
       try validateNormalizedResults(decoded, in: bundle)
       normalized = decoded
     } else { normalized = nil }
+    let schemePath = PrimerSchemeResultsDocument.storedRelativePath
+    let schemeDocument: PrimerSchemeResultsDocument?
+    var schemeProjections: [String: PrimerBindingProjection] = [:]
+    if let artifact = bundle.manifest.artifacts.first(where: { $0.relativePath == schemePath }) {
+      guard normalized == nil else {
+        throw PrimerAnalysisBundleError.invalidArtifact(
+          "A primer analysis cannot contain both Primer3 and normalized scheme payloads.")
+      }
+      let document = try JSONDecoder().decode(
+        PrimerSchemeResultsDocument.self, from: verifiedBytes(artifact, in: bundle))
+      guard document.analysisID == bundle.manifest.analysisID,
+            document.runID == bundle.manifest.runID else {
+        throw PrimerAnalysisBundleError.invalidArtifact(
+          "Normalized primer-scheme analysis or run identity disagrees with the bundle.")
+      }
+      let expectedResults = Set(bundle.manifest.results.filter {
+        $0.artifactPaths.contains(schemePath)
+      }.map(\.id))
+      guard Set(document.results.map(\.id)) == expectedResults else {
+        throw PrimerAnalysisBundleError.invalidArtifact(
+          "Normalized primer-scheme results disagree with bundle membership.")
+      }
+      for path in Set(document.results.flatMap {
+        $0.targets.map(\.bindingProjectionPath)
+      }) {
+        guard let mapArtifact = bundle.manifest.artifacts.first(where: { $0.relativePath == path }) else {
+          throw PrimerAnalysisBundleError.invalidArtifact(
+            "A normalized primer-scheme binding projection is missing.")
+        }
+        schemeProjections[path] = try JSONDecoder().decode(
+          PrimerBindingProjection.self, from: verifiedBytes(mapArtifact, in: bundle))
+      }
+      try document.validateStored(
+        knownInputIDs: Set(bundle.manifest.inputs.map(\.id)), projections: schemeProjections)
+      schemeDocument = document
+    } else { schemeDocument = nil }
     let toolProvenance = try bundle.manifest.artifacts.filter { $0.role == "toolProvenance" }.map {
       try ProvenanceEnvelopeReader.decodeCanonical(verifiedBytes($0, in: bundle))
     }
@@ -118,10 +155,22 @@ struct PrimerAnalysisViewerSnapshot: Sendable {
 
       }
     }
+    let legacySchemes = schemes
+    var normalizedBindingContexts: [PrimerBindingInspectionContext] = []
+    if let schemeDocument {
+      let presentation = try PrimerSchemeViewerAdapter.adapt(document: schemeDocument)
+      schemes += presentation.results
+      reviews += presentation.reviews
+      normalizedBindingContexts = try PrimerBindingInspectionContext.loadNormalized(
+        bundle: bundle, document: schemeDocument, projections: schemeProjections)
+    }
     return Self(bundle: bundle, provenance: provenance, provenanceJSON: provenanceJSON,
                 primer3Results: normalized, toolProvenance: toolProvenance, primalSchemeResults: schemes,
+                primerSchemeResultsDocument: schemeDocument,
                 derivedProvenance: derivedProvenance, workflowProvenance: workflowProvenance,
-                designReview: reviews, bindingContexts: try PrimerBindingInspectionContext.load(bundle: bundle, schemes: schemes))
+                designReview: reviews,
+                bindingContexts: try PrimerBindingInspectionContext.load(
+                  bundle: bundle, schemes: legacySchemes) + normalizedBindingContexts)
   }
 
   private nonisolated static func verifiedBytes(_ artifact: PrimerAnalysisArtifact, in bundle: PrimerAnalysisBundle) throws -> Data {
@@ -178,6 +227,13 @@ struct PrimerAnalysisViewerSnapshot: Sendable {
 
   var groupingLabel: String {
     if primer3Results != nil { return "Independent primer design per selected template" }
+    if let primerSchemeResultsDocument {
+      if primerSchemeResultsDocument.engine == .varvamp {
+        return "Independent varVAMP \(primerSchemeResultsDocument.mode.rawValue) design per input"
+      }
+      return bundle.manifest.grouping == .combined
+        ? "Combined Olivar tiled scheme" : "One Olivar tiled scheme per input"
+    }
     switch bundle.manifest.grouping {
     case .independent: return "One scheme per alignment"
     case .combined: return "Combined scheme"

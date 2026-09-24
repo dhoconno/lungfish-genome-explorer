@@ -37,7 +37,8 @@ struct PrimerAmpliconDetailView: View {
           HStack(alignment: .firstTextBaseline) {
             Text(interval.name).font(.headline).textSelection(.enabled)
             Spacer()
-            Text(interval.pool.map { "Pool \($0)" } ?? (target.presentation == .primer3Template ? "Candidate pair" : "Not pooled"))
+            Text(interval.poolLabel ?? interval.pool.map { "Pool \($0)" }
+              ?? (target.presentation == .primer3Template ? "Candidate pair" : "Not pooled"))
               .font(.subheadline.weight(.medium))
           }
           .contextMenu { PrimerReviewContextMenu(target: target, item: .amplicon(interval), selection: selection) }
@@ -106,7 +107,7 @@ struct PrimerAmpliconDetailView: View {
 
   private func oligo(_ primer: PrimerReviewPrimer) -> some View {
     let selected = primer.id == selectedPrimer?.id
-    let isProbe = primer.name == "Internal probe" || (target.presentation == .schemeReference && variantSide(primer) == .probe)
+    let isProbe = primer.role == .probe
     let color: Color = isProbe ? .purple : (primer.strand == "+" ? .blue : .orange)
     return VStack(alignment: .leading, spacing: 4) {
       Button {
@@ -116,7 +117,9 @@ struct PrimerAmpliconDetailView: View {
           Image(systemName: primer.strand == "+" ? "arrow.right" : "arrow.left").foregroundStyle(color)
           Text(primer.name).fontWeight(selected ? .semibold : .regular)
           Spacer()
-          Text(primer.pool.map { "Pool \($0)" } ?? (target.presentation == .primer3Template ? "Candidate pair" : "Not pooled")).font(.caption).foregroundStyle(.secondary)
+          Text(primer.poolLabel ?? primer.pool.map { "Pool \($0)" }
+            ?? (target.presentation == .primer3Template ? "Candidate pair" : "Not pooled"))
+            .font(.caption).foregroundStyle(.secondary)
         }
         .padding(.vertical, 3).contentShape(Rectangle())
       }.buttonStyle(.plain)

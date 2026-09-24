@@ -1,4 +1,5 @@
 import AppKit
+import LungfishWorkflow
 import SwiftUI
 
 struct PrimerReviewContextActions {
@@ -46,9 +47,11 @@ struct PrimerReviewContextMenu: View {
     let associated = target.intervals.first { $0.id == clicked.ampliconID }
     return Group {
       summary(primer.name)
-      summary("\(primer.sequence.count) nt · \(primer.name == "Internal probe" ? "Probe" : primer.strand == "+" ? "Forward (+)" : "Reverse (−)") · \(poolLabel(primer.pool))")
+      summary("\(primer.sequence.count) nt · \(primer.role == .probe ? "Probe" : primer.strand == "+" ? "Forward (+)" : "Reverse (−)") · \(primer.poolLabel ?? poolLabel(primer.pool))")
       summary("Binding site \(primer.start + 1)–\(primer.end) · 1-based inclusive")
-      if target.presentation == .schemeReference { summary("Selected scheme oligo") }
+      if target.presentation == .schemeReference {
+        summary(candidateLabel(primer.candidateStatus, rank: primer.rank, noun: "assay oligo"))
+      }
       Divider()
       Button("Inspect Primer") { inspect(clicked) }
       if target.presentation != .primer3Template {
@@ -67,13 +70,13 @@ struct PrimerReviewContextMenu: View {
             copy(PrimerReviewClipboard.ampliconFASTA(associated, in: target), clicked: clicked)
           }.disabled(PrimerReviewClipboard.ampliconFASTA(associated, in: target) == nil)
         }
-        poolCopy(primer.pool, clicked: clicked)
+        if let pool = primer.nativePool { poolCopy(pool, clicked: clicked) }
       }
       Divider()
       Button("Save Primer FASTA Bundle in Project") {
         export(.primer(targetID: target.id, primerID: primer.id), kind: .primerFASTA, clicked: clicked)
       }.disabled(actions.onExportRequested == nil || fasta == nil)
-      poolSave(primer.pool, clicked: clicked)
+      if let pool = primer.nativePool { poolSave(pool, clicked: clicked) }
       if let associated {
         Button("Extract Reference Amplicon Bundle in Project") {
           export(.amplicon(targetID: target.id, ampliconID: associated.id), kind: .referenceAmplicon, clicked: clicked)
@@ -88,10 +91,11 @@ struct PrimerReviewContextMenu: View {
     let fasta = PrimerReviewClipboard.ampliconFASTA(interval, in: target)
     return Group {
       summary(interval.name)
-      summary("\(interval.length) bp · \(poolLabel(interval.pool))")
+      summary("\(interval.length) bp · \(interval.poolLabel ?? poolLabel(interval.pool))")
       summary("\(interval.sizeLabel) · \(interval.start + 1)–\(interval.end)")
       summary(members.map { target.presentation == .schemeReference
-        ? "\($0.count) oligos in the selected primer set" : "\($0.count) associated oligos" } ?? "Primer correspondence unavailable")
+        ? candidateMembershipLabel(count: $0.count, status: interval.candidateStatus, rank: interval.rank)
+        : "\($0.count) associated oligos" } ?? "Primer correspondence unavailable")
       Divider()
       Button("Inspect Amplicon") { inspect(clicked) }
       if target.presentation != .primer3Template, let members {
@@ -109,13 +113,13 @@ struct PrimerReviewContextMenu: View {
         Button("Copy Coordinates") { copy(PrimerReviewClipboard.coordinates(interval, in: target), clicked: clicked) }
         Divider()
         Button("Copy Associated Oligos as FASTA") { copy(fasta, clicked: clicked) }.disabled(fasta == nil)
-        poolCopy(interval.pool, clicked: clicked)
+        if let pool = interval.nativePool { poolCopy(pool, clicked: clicked) }
       }
       Divider()
       Button("Save Associated Primer FASTA Bundle in Project") {
         export(.amplicon(targetID: target.id, ampliconID: interval.id), kind: .primerFASTA, clicked: clicked)
       }.disabled(actions.onExportRequested == nil || fasta == nil)
-      poolSave(interval.pool, clicked: clicked)
+      if let pool = interval.nativePool { poolSave(pool, clicked: clicked) }
       Button("Extract Reference Amplicon Bundle in Project") {
         export(.amplicon(targetID: target.id, ampliconID: interval.id), kind: .referenceAmplicon, clicked: clicked)
       }.disabled(actions.onExportRequested == nil)
@@ -123,21 +127,28 @@ struct PrimerReviewContextMenu: View {
   }
 
   @ViewBuilder
-  private func poolSave(_ pool: Int?, clicked: PrimerReviewSelection) -> some View {
-    if let pool {
-      let fasta = PrimerReviewClipboard.poolFASTA(sourceResultID: target.sourceResultID, pool: pool, targets: actions.targets)
-      Button("Save Pool \(pool) Primer FASTA Bundle in Project") {
-        export(.pool(sourceResultID: target.sourceResultID, pool: pool), kind: .primerFASTA, clicked: clicked)
-      }.disabled(actions.onExportRequested == nil || fasta == nil)
-    }
+  private func poolSave(_ pool: String, clicked: PrimerReviewSelection) -> some View {
+    let fasta = PrimerReviewClipboard.poolFASTA(sourceResultID: target.sourceResultID, nativePool: pool, targets: actions.targets)
+    Button("Save Pool \(pool) Primer FASTA Bundle in Project") {
+      export(.nativePool(sourceResultID: target.sourceResultID, pool: pool), kind: .primerFASTA, clicked: clicked)
+    }.disabled(actions.onExportRequested == nil || fasta == nil)
   }
 
   @ViewBuilder
-  private func poolCopy(_ pool: Int?, clicked: PrimerReviewSelection) -> some View {
-    if let pool {
-      let fasta = PrimerReviewClipboard.poolFASTA(sourceResultID: target.sourceResultID, pool: pool, targets: actions.targets)
-      Button("Copy All Pool \(pool) Oligos as FASTA") { copy(fasta, clicked: clicked) }.disabled(fasta == nil)
-    }
+  private func poolCopy(_ pool: String, clicked: PrimerReviewSelection) -> some View {
+    let fasta = PrimerReviewClipboard.poolFASTA(sourceResultID: target.sourceResultID, nativePool: pool, targets: actions.targets)
+    Button("Copy All Pool \(pool) Oligos as FASTA") { copy(fasta, clicked: clicked) }.disabled(fasta == nil)
+  }
+
+  private func candidateLabel(_ status: PrimerAssayStatus, rank: Int?, noun: String) -> String {
+    let label = status == .selected ? "Selected \(noun)" : "Alternative \(noun)"
+    return label + (status == .alternative ? rank.map { " · rank \($0)" } ?? "" : "")
+  }
+
+  private func candidateMembershipLabel(count: Int, status: PrimerAssayStatus, rank: Int?) -> String {
+    let assay = status == .selected ? "selected assay" : "alternative assay"
+    let suffix = status == .alternative ? rank.map { " · rank \($0)" } ?? "" : ""
+    return "\(count) \(count == 1 ? "oligo" : "oligos") in \(assay)\(suffix)"
   }
 
   private func summary(_ title: String) -> some View { Button(title) {}.disabled(true) }

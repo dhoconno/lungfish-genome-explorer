@@ -1,16 +1,28 @@
 import Foundation
+import LungfishWorkflow
 
 struct PrimalSchemeDisplayPrimer: Identifiable, Sendable {
   let id: Int
+  var stableID: String = ""
   let reference: String
   let referenceLabel: String
   let start: Int
   let end: Int
   let name: String
   let pool: Int
+  var nativePool: String? = nil
+  var displayGroupLabel: String? = nil
+  var poolLabel: String { displayGroupLabel ?? nativePool.map { "Pool \($0)" }
+    ?? (stableID.isEmpty ? "Pool \(pool)" : "Unpooled") }
   let strand: String
   let sequence: String
   let referenceLength: Int
+  var role: PrimerOligoRole = .forward
+  var assayIDs: [String] = []
+  var candidateStatus: PrimerAssayStatus = .selected
+  var candidateRank: Int? = nil
+
+  var reviewID: String { stableID.isEmpty ? String(id) : stableID }
 
   var ambiguousBaseCount: Int { sequence.uppercased().filter { !"ACGT".contains($0) }.count }
   var gcLabel: String {
@@ -64,9 +76,9 @@ struct PrimalSchemeDisplayResult: Identifiable, Sendable {
         !fields[6].isEmpty,
         fields[6].utf8.allSatisfy({ "ACGTRYSWKMBDHVNacgtryswkmbdhvn".utf8.contains($0) }) else { throw invalid("primer BED coordinates, pool or reference do not agree") }
       primers.append(.init(id: primers.count, reference: fields[0], referenceLabel: referenceLabels[fields[0]] ?? fields[0], start: start, end: end,
-        name: fields[3], pool: pool, strand: fields[5], sequence: fields[6], referenceLength: length))
+        name: fields[3], pool: pool, nativePool: String(pool), strand: fields[5], sequence: fields[6],
+        referenceLength: length, role: fields[5] == "+" ? .forward : .reverse))
     }
     return .init(id: id, title: title, primers: primers, orderSheetURL: orderSheetURL)
   }
 }
-

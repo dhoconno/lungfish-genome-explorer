@@ -17,6 +17,9 @@ struct PrimerOrderExportService: Sendable {
       snapshot.bundle.manifest == selection.manifest, snapshot.primer3Results == nil else {
       throw PrimerOrderExportError.invalid("The source analysis changed. Reopen it and capture a new order.")
     }
+    if let document = snapshot.primerSchemeResultsDocument {
+      return try prepareNormalized(document: document, snapshot: snapshot, selection: selection)
+    }
     guard !selection.settings.filterByCompatibility || selection.compatibilityReady else {
       throw PrimerOrderExportError.invalid("Complete the MSA comparison before exporting the filtered order.")
     }
@@ -49,6 +52,71 @@ struct PrimerOrderExportService: Sendable {
         pool: pool, referenceID: target.referenceID, name: primer.name, sequence: primer.sequence,
         start: primer.start, end: primer.end, strand: primer.strand, ampliconIDs: primer.ampliconIDs,
         compatibility: selection.compatibilityReady ? selection.compatibilitySummaries[primer.id] : nil)
+    }
+  }
+
+  private static func prepareNormalized(
+    document: PrimerSchemeResultsDocument, snapshot: PrimerAnalysisViewerSnapshot,
+    selection: PrimerOrderSelection
+  ) throws -> [PrimerOrderOligo] {
+    guard let storedIDs = selection.selectedAssayIDs, !storedIDs.isEmpty else {
+      throw PrimerOrderExportError.invalid("Choose at least one explicit saved assay for this order.")
+    }
+    let assayIDs = try Set(storedIDs.map { value -> UUID in
+      guard let id = UUID(uuidString: value) else {
+        throw PrimerOrderExportError.invalid("A captured assay identifier is invalid.")
+      }
+      return id
+    })
+    guard assayIDs.count == storedIDs.count else {
+      throw PrimerOrderExportError.invalid("The captured assay selection contains duplicates.")
+    }
+    let allAssayIDs = Set(document.results.flatMap { $0.targets.flatMap { $0.assays.map(\.id) } })
+    if selection.includesAllReportedAssays == true, assayIDs != allAssayIDs {
+      throw PrimerOrderExportError.invalid("The all-reported-assays selection is incomplete.")
+    }
+    let rows = try PrimerSchemeOrderSheet.rows(from: document, selection: .selectedAssays(assayIDs))
+    guard rows.map(\.id) == selection.selectedPrimerIDs,
+          Set(selection.selectedPrimerIDs).count == selection.selectedPrimerIDs.count else {
+      throw PrimerOrderExportError.invalid("The order does not match the captured saved assays.")
+    }
+    let reviewsByOligo = Dictionary(uniqueKeysWithValues: snapshot.designReview
+      .flatMap { target in target.primers.map { ($0.id.lowercased(), (target, $0)) } })
+    let resultOrdinals = Dictionary(uniqueKeysWithValues: document.results.enumerated().map { ($0.element.id, $0.offset + 1) })
+    var assayOrdinals: [UUID: Int] = [:]
+    for result in document.results {
+      var ordinal = 1
+      for target in result.targets {
+        for assay in target.assays { assayOrdinals[assay.id] = ordinal; ordinal += 1 }
+      }
+    }
+    return try rows.map { row in
+      guard let manifestResult = snapshot.bundle.manifest.results.first(where: { $0.id == row.resultID }),
+            let resultOrdinal = resultOrdinals[row.resultID],
+            let assayOrdinal = assayOrdinals[row.assayID],
+            let (target, primer) = reviewsByOligo[row.oligoID.uuidString.lowercased()],
+            ["+", "-"].contains(row.strand.rawValue), !row.sequence.isEmpty,
+            row.sequence.utf8.allSatisfy({ "ACGTRYSWKMBDHVNacgtryswkmbdhvn".utf8.contains($0) }),
+            row.start >= 0, row.end > row.start, row.end <= target.referenceLength else {
+        throw PrimerOrderExportError.invalid(
+          "A saved assay oligo has no verified result, sequence, coordinates or viewer identity.")
+      }
+      let nativePool = row.nativePool?.trimmingCharacters(in: .whitespacesAndNewlines)
+      let status = row.status == .selected ? "Selected" : "Alternative"
+      let rank = row.rank.map { "_Rank_\($0)" } ?? ""
+      let poolName = nativePool.map { "Scheme_\(resultOrdinal)_Pool_\($0)" }
+        ?? "Scheme_\(resultOrdinal)_Unpooled_\(status)\(rank)_Assay_\(assayOrdinal)"
+      return .init(primerID: row.id, targetID: row.targetID.uuidString.lowercased(),
+        sourceResultID: row.resultID.uuidString.lowercased(),
+        schemeLabel: manifestResult.label ?? "Scheme \(resultOrdinal)",
+        poolName: poolName,
+        pool: nativePool.flatMap(Int.init), referenceID: target.referenceID,
+        name: row.name, sequence: row.sequence, start: row.start, end: row.end,
+        strand: row.strand.rawValue, ampliconIDs: [row.assayID.uuidString.lowercased()],
+        compatibility: selection.compatibilityReady ? selection.compatibilitySummaries[primer.id] : nil,
+        sourceOligoID: row.oligoID.uuidString.lowercased(), oligoRole: row.role,
+        candidateStatus: row.status, assayIDs: [row.assayID.uuidString.lowercased()],
+        nativePool: nativePool)
     }
   }
 
@@ -105,17 +173,22 @@ struct PrimerOrderExportService: Sendable {
       try fm.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
       try data.write(to: target)
     }
-    progress?(0.35, "Creating the IDT workbook and detailed CSV…")
+    progress?(0.35, "Creating the order workbook and detailed CSV…")
     let receipt = try await PrimerOrderSheetWriter.write(oligos: oligos, metadata: metadata, selection: selection, to: staged)
+    let normalizedSelection = selection.selectedAssayIDs != nil
+    let sequenceSemantics = normalizedSelection
+      ? "Exact saved oligos in 5prime-to-3prime orientation from the explicit saved assay selection; no new design optimization, pooling or assay validation."
+      : "Exact saved oligos in 5prime-to-3prime orientation from the captured displayed subset; no new design optimization or assay validation."
     let document = PrimerOrderDocument(schemaVersion: 1, metadata: metadata, selection: selection, oligos: oligos,
       outputDirectoryPath: destination.path, templateSHA256: receipt.templateSHA256,
-      sequenceSemantics: "Exact saved oligos in 5prime-to-3prime orientation. User-filtered subset; no new design optimization or assay validation.")
+      sequenceSemantics: sequenceSemantics)
     let encoder = JSONEncoder()
     encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
     try encoder.encode(document).write(to: staged.appendingPathComponent(PrimerOrderDocument.filename))
     try AnalysesFolder.writeAnalysisMetadata(.init(tool: PrimerOrderDocument.toolID, isBatch: false), to: staged)
+    let idtOPoolsWorkbook = oligos.allSatisfy { $0.sourceOligoID == nil || $0.nativePool != nil }
     let options = try resolvedOptions(selection: selection, metadata: metadata, templateHash: receipt.templateSHA256,
-      manifestHash: sha256(manifestData), final: destination)
+      manifestHash: sha256(manifestData), final: destination, idtOPoolsWorkbook: idtOPoolsWorkbook)
     let runtime = ProvenanceRuntimeIdentity()
     let files = try regularFiles(staged)
     func descriptor(_ url: URL, role: FileRole) throws -> ProvenanceFileDescriptor {
@@ -131,7 +204,8 @@ struct PrimerOrderExportService: Sendable {
     let inputs = try files.filter { $0.path.hasPrefix(source.path + "/") || $0.lastPathComponent == "template.xlsx" }
       .map { try descriptor($0, role: .input) }
     let outputs = try files.map { try descriptor($0, role: .output) }
-    var builder = ProvenanceRunBuilder(workflowName: "Export displayed primer order", workflowVersion: WorkflowRun.currentAppVersion,
+    var builder = ProvenanceRunBuilder(workflowName: normalizedSelection
+      ? "Export saved primer assays" : "Export displayed primer order", workflowVersion: WorkflowRun.currentAppVersion,
       toolName: "LGE primer ordering", toolVersion: WorkflowRun.currentAppVersion)
       .argv(argv).options(explicit: options, defaults: ["sequenceOrientation": .string("saved-5prime-to-3prime"),
         "deduplicate": .boolean(false), "publication": .string("exclusive-atomic")], resolved: options).runtime(runtime)
@@ -198,15 +272,20 @@ struct PrimerOrderExportService: Sendable {
         throw PrimerOrderExportError.invalid("The saved primer order changed: \(path)")
       }
     }
-    guard [PrimerOrderDocument.filename, "primer-order.xlsx", "IDT-oPools.xlsx", "ordering.csv", "template.xlsx"]
+    var required = [PrimerOrderDocument.filename, "primer-order.xlsx", "ordering.csv", "template.xlsx"]
+    if document.oligos.allSatisfy({ $0.sourceOligoID == nil || $0.nativePool != nil }) {
+      required.append("IDT-oPools.xlsx")
+    }
+    guard required
       .allSatisfy(checked.contains) else { throw PrimerOrderExportError.invalid("The primer order is missing verified outputs.") }
     return .init(document: document, provenance: envelope)
   }
 
   private static func resolvedOptions(selection: PrimerOrderSelection, metadata: PrimerOrderMetadata,
-    templateHash: String, manifestHash: String, final: URL) throws -> [String: ParameterValue] {
+    templateHash: String, manifestHash: String, final: URL,
+    idtOPoolsWorkbook: Bool) throws -> [String: ParameterValue] {
     let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
-    return ["sourceAnalysisID": .string(selection.manifest.analysisID.uuidString),
+    var options: [String: ParameterValue] = ["sourceAnalysisID": .string(selection.manifest.analysisID.uuidString),
       "sourceRunID": .string(selection.manifest.runID.uuidString), "sourceManifestSHA256": .string(manifestHash),
       "selectionDocument": .string(final.appendingPathComponent(PrimerOrderDocument.filename).path),
       "selectedPrimerIDs": .array(selection.selectedPrimerIDs.map(ParameterValue.string)),
@@ -216,6 +295,21 @@ struct PrimerOrderExportService: Sendable {
       "selectedCount": .integer(selection.selectedPrimerIDs.count), "deduplicate": .boolean(false),
       "sequenceOrientation": .string("saved-5prime-to-3prime"), "publication": .string("exclusive-atomic"),
       "scope": .string("displayed-oligos-across-all-schemes-and-references")]
+    if let assayIDs = selection.selectedAssayIDs {
+      options["scope"] = .string(selection.includesAllReportedAssays == true
+        ? "all-reported-assays" : "selected-assays")
+      options["selectedAssayIDs"] = .array(assayIDs.map(ParameterValue.string))
+      options["includesAllReportedAssays"] = .boolean(selection.includesAllReportedAssays == true)
+      options["unpooledRowsRemainUnpooled"] = .boolean(true)
+      options["alternativeCandidatesPreserved"] = .boolean(true)
+      options["genericOrderSchemaVersion"] = .integer(PrimerSchemeOrderSheet.schemaVersion)
+      options["orderRowCount"] = .integer(selection.selectedPrimerIDs.count)
+      options["nativePoolsPreserved"] = .boolean(true)
+      options["idtOPoolsWorkbook"] = .boolean(idtOPoolsWorkbook)
+      options["sourceNormalizedResult"] = .string(
+        final.appendingPathComponent("source-analysis/" + PrimerSchemeResultsDocument.storedRelativePath).path)
+    }
+    return options
   }
 
   private static func checkedData(relativePath: String, root: URL) throws -> Data {

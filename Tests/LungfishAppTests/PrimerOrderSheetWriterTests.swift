@@ -98,6 +98,52 @@ final class PrimerOrderSheetWriterTests: XCTestCase {
     XCTAssertEqual(try sheet.nodes(forXPath: "//*[local-name()='dimension']/@ref").first?.stringValue, "A1:G61")
   }
 
+  func testUnpooledNormalizedRowsOmitIDTPoolWorkbookAndRetainGenericProvenance() async throws {
+    let directory = try temporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let assayID = UUID().uuidString.lowercased()
+    let oligoID = UUID().uuidString.lowercased()
+    let row = PrimerOrderOligo(primerID: "\(oligoID):\(assayID)", targetID: UUID().uuidString.lowercased(),
+      sourceResultID: UUID().uuidString.lowercased(), schemeLabel: "varVAMP qPCR",
+      poolName: "Scheme_1_Unpooled_Alternative_Rank_2_Assay_2", pool: nil, referenceID: "generated-target",
+      name: "probe alternative", sequence: "ACGTRYSW", start: 25, end: 33, strand: "+",
+      ampliconIDs: [assayID], compatibility: nil, sourceOligoID: oligoID, oligoRole: .probe,
+      candidateStatus: .alternative, assayIDs: [assayID], nativePool: nil)
+    var explicitSelection = selection([row])
+    explicitSelection.selectedAssayIDs = [assayID]
+    explicitSelection.includesAllReportedAssays = false
+    let receipt = try await PrimerOrderSheetWriter.write(oligos: [row], metadata: .init(),
+      selection: explicitSelection, to: directory)
+
+    XCTAssertEqual(receipt.commands.count, 2, "Only unzip and the generic workbook ZIP are replayable")
+    XCTAssertFalse(FileManager.default.fileExists(atPath: directory.appendingPathComponent("IDT-oPools.xlsx").path))
+    XCTAssertFalse(FileManager.default.fileExists(atPath: directory.appendingPathComponent("upload-parts").path))
+    XCTAssertTrue(FileManager.default.fileExists(atPath: directory.appendingPathComponent("primer-order.xlsx").path))
+    let workbook = directory.appendingPathComponent("primer-order.xlsx")
+    let workbookXML = try await xml("xl/workbook.xml", in: workbook)
+    XCTAssertEqual(try workbookXML.nodes(forXPath: "//*[local-name()='sheet']/@name").compactMap(\.stringValue),
+      ["Assay review", "Order metadata"])
+    let review = try await xml("xl/worksheets/sheet1.xml", in: workbook)
+    XCTAssertEqual(try value("A1", in: review), "Order group")
+    XCTAssertEqual(try value("D2", in: review), "probe")
+    XCTAssertEqual(try value("E2", in: review), "alternative")
+    XCTAssertEqual(try value("G2", in: review), "", "Native pool stays absent")
+    let metadataSheet = try await xml("xl/worksheets/sheet2.xml", in: workbook)
+    let metadataText = metadataSheet.rootElement()?.stringValue ?? ""
+    XCTAssertTrue(metadataText.contains("Explicit saved assay selection"))
+    XCTAssertTrue(metadataText.contains("Order groups"))
+    XCTAssertFalse(metadataText.contains("Named pools"))
+    let csv = try String(contentsOf: directory.appendingPathComponent("ordering.csv"), encoding: .utf8)
+    XCTAssertTrue(csv.contains("Source oligo ID"))
+    XCTAssertTrue(csv.contains("Oligo role"))
+    XCTAssertTrue(csv.contains("Candidate status"))
+    XCTAssertTrue(csv.contains("Native pool"))
+    XCTAssertTrue(csv.contains(oligoID))
+    XCTAssertTrue(csv.contains("probe"))
+    XCTAssertTrue(csv.contains("alternative"))
+    XCTAssertTrue(csv.contains("\"\""), "Absent native pool must remain blank in the generic order")
+  }
+
   func testMetadataLayoutFitsWrappedIdentifiersAndMultilineNotes() async throws {
     let directory = try temporaryDirectory()
     defer { try? FileManager.default.removeItem(at: directory) }

@@ -103,6 +103,141 @@ final class PrimerOrderExportServiceTests: XCTestCase {
     XCTAssertThrowsError(try session.makeOrderDraft())
   }
 
+  func testNormalizedQPCROrdersKeepProbesAlternativesAndUnpooledIdentity() throws {
+    let fixture = try makeFixture()
+    defer { try? FileManager.default.removeItem(at: fixture.root) }
+    let loaded = try PrimerAnalysisViewerSnapshot.load(from: fixture.bundle)
+    let resultID = try XCTUnwrap(loaded.bundle.manifest.results.first?.id)
+    let inputID = try XCTUnwrap(loaded.bundle.manifest.inputs.first?.id)
+    let targetID = UUID(), selectedID = UUID(), alternativeID = UUID()
+    func oligo(_ role: PrimerOligoRole, _ assayID: UUID, _ start: Int) -> PrimerSchemeOligo {
+      .init(id: UUID(), name: role.rawValue, role: role,
+        sequence: role == .probe ? "AACCGG" : role == .forward ? "AACCAA" : "TTGGTT",
+        start: start, end: start + 6, strand: role == .reverse ? .reverse : .forward,
+        assayIDs: [assayID], pool: nil, nativeMetadata: [:])
+    }
+    let selectedOligos = [oligo(.forward, selectedID, 10), oligo(.probe, selectedID, 30),
+      oligo(.reverse, selectedID, 50)]
+    let alternativeOligos = [oligo(.forward, alternativeID, 12), oligo(.probe, alternativeID, 32),
+      oligo(.reverse, alternativeID, 52)]
+    let target = PrimerSchemeTarget(id: targetID, label: "qPCR target", referencePath: "generated.fasta",
+      referenceID: "reference", referenceLength: 100, sourceInputID: inputID,
+      bindingProjectionPath: "projection.json",
+      assays: [
+        .init(id: selectedID, start: 10, end: 56, memberIDs: selectedOligos.map(\.id),
+          pool: nil, status: .selected, rank: 1, nativeMetadata: [:]),
+        .init(id: alternativeID, start: 12, end: 58, memberIDs: alternativeOligos.map(\.id),
+          pool: nil, status: .alternative, rank: 2, nativeMetadata: [:]),
+      ], oligos: selectedOligos + alternativeOligos)
+    let document = PrimerSchemeResultsDocument(analysisID: loaded.bundle.manifest.analysisID,
+      runID: loaded.bundle.manifest.runID, resultID: UUID(), engine: .varvamp,
+      engineVersion: "1.3.2", adapterVersion: "1.0.0", mode: .qpcr,
+      resolvedOptions: [:], results: [.init(id: resultID, inputIDs: [inputID], targets: [target])],
+      artifacts: [], provenancePath: "native/provenance.json")
+    let presentation = try PrimerSchemeViewerAdapter.adapt(document: document)
+    let snapshot = PrimerAnalysisViewerSnapshot(bundle: loaded.bundle, provenance: loaded.provenance,
+      provenanceJSON: loaded.provenanceJSON, primer3Results: nil, toolProvenance: loaded.toolProvenance,
+      primalSchemeResults: presentation.results, primerSchemeResultsDocument: document,
+      derivedProvenance: loaded.derivedProvenance, workflowProvenance: loaded.workflowProvenance,
+      designReview: presentation.reviews, bindingContexts: [])
+    let session = PrimerAnalysisDisplaySession()
+    session.configure(snapshot); session.onOrderExportRequested = { _, _ in }
+
+    session.settings.filterByCompatibility = true
+    session.settings.hiddenPrimerIDs = Set(snapshot.designReview.flatMap { $0.primers.map(\.id) })
+    XCTAssertNil(session.orderExportUnavailableReason)
+
+    let selected = try session.makeOrderDraft()
+    XCTAssertEqual(selected.oligos.count, 3)
+    XCTAssertEqual(Set(selected.oligos.compactMap(\.oligoRole)), [.forward, .probe, .reverse])
+    XCTAssertTrue(selected.oligos.allSatisfy { $0.pool == nil && $0.nativePool == nil })
+    XCTAssertTrue(selected.oligos.allSatisfy { $0.poolName.contains("Unpooled_Selected_Rank_1") })
+
+    let all = try session.makeOrderDraft(allReportedAssays: true)
+    XCTAssertEqual(all.oligos.count, 6)
+    XCTAssertEqual(Set(all.oligos.compactMap(\.candidateStatus)), [.selected, .alternative])
+    XCTAssertEqual(Set(all.selection.selectedAssayIDs ?? []),
+      [selectedID.uuidString.lowercased(), alternativeID.uuidString.lowercased()])
+    XCTAssertTrue(all.oligos.filter { $0.candidateStatus == .alternative }
+      .allSatisfy { $0.poolName.contains("Unpooled_Alternative_Rank_2") })
+  }
+
+  func testNormalizedPooledAssaysShareNativePoolWithinResultAndStayIsolatedAcrossResults() async throws {
+    let fixture = try makeFixture()
+    defer { try? FileManager.default.removeItem(at: fixture.root) }
+    let loaded = try PrimerAnalysisViewerSnapshot.load(from: fixture.bundle)
+    let inputID = try XCTUnwrap(loaded.bundle.manifest.inputs.first?.id)
+    let resultIDs = loaded.bundle.manifest.results.map(\.id)
+    XCTAssertEqual(resultIDs.count, 2)
+
+    func result(_ resultID: UUID, index: Int) -> PrimerSchemeResult {
+      let targetID = UUID()
+      var assays: [PrimerSchemeAssay] = []
+      var oligos: [PrimerSchemeOligo] = []
+      for assayIndex in 0..<2 {
+        let assayID = UUID()
+        let start = 10 + assayIndex * 30
+        let members = [
+          PrimerSchemeOligo(id: UUID(), name: "result\(index)-assay\(assayIndex)-forward",
+            role: .forward, sequence: "AACCAA", start: start, end: start + 6,
+            strand: .forward, assayIDs: [assayID], pool: "1", nativeMetadata: [:]),
+          PrimerSchemeOligo(id: UUID(), name: "result\(index)-assay\(assayIndex)-reverse",
+            role: .reverse, sequence: "TTGGTT", start: start + 14, end: start + 20,
+            strand: .reverse, assayIDs: [assayID], pool: "1", nativeMetadata: [:]),
+        ]
+        oligos += members
+        assays.append(.init(id: assayID, start: start, end: start + 20,
+          memberIDs: members.map(\.id), pool: "1", status: .selected, rank: assayIndex + 1,
+          nativeMetadata: [:]))
+      }
+      let target = PrimerSchemeTarget(id: targetID, label: "pooled target \(index)",
+        referencePath: "generated-\(index).fasta", referenceID: "reference-\(index)",
+        referenceLength: 100, sourceInputID: inputID,
+        bindingProjectionPath: "projection-\(index).json", assays: assays, oligos: oligos)
+      return .init(id: resultID, inputIDs: [inputID], targets: [target])
+    }
+
+    let document = PrimerSchemeResultsDocument(analysisID: loaded.bundle.manifest.analysisID,
+      runID: loaded.bundle.manifest.runID, resultID: UUID(), engine: .olivar,
+      engineVersion: "1.3.3", adapterVersion: "1.0.0", mode: .tiled,
+      resolvedOptions: [:], results: [result(resultIDs[0], index: 1), result(resultIDs[1], index: 2)],
+      artifacts: [], provenancePath: "native/provenance.json")
+    let presentation = try PrimerSchemeViewerAdapter.adapt(document: document)
+    let snapshot = PrimerAnalysisViewerSnapshot(bundle: loaded.bundle, provenance: loaded.provenance,
+      provenanceJSON: loaded.provenanceJSON, primer3Results: nil, toolProvenance: loaded.toolProvenance,
+      primalSchemeResults: presentation.results, primerSchemeResultsDocument: document,
+      derivedProvenance: loaded.derivedProvenance, workflowProvenance: loaded.workflowProvenance,
+      designReview: presentation.reviews, bindingContexts: [])
+    let session = PrimerAnalysisDisplaySession()
+    session.configure(snapshot); session.onOrderExportRequested = { _, _ in }
+    let draft = try session.makeOrderDraft(allReportedAssays: true)
+
+    XCTAssertEqual(draft.oligos.count, 8)
+    XCTAssertEqual(Set(draft.oligos.map(\.poolName)), ["Scheme_1_Pool_1", "Scheme_2_Pool_1"])
+    for resultID in resultIDs {
+      let rows = draft.oligos.filter { $0.sourceResultID == resultID.uuidString.lowercased() }
+      XCTAssertEqual(rows.count, 4)
+      XCTAssertEqual(Set(rows.map(\.poolName)).count, 1)
+      XCTAssertTrue(rows.allSatisfy { $0.nativePool == "1" })
+      XCTAssertEqual(Set(rows.flatMap { $0.assayIDs ?? [] }).count, 2,
+        "Distinct assays sharing a physical pool retain their assay provenance.")
+    }
+
+    let output = fixture.root.appendingPathComponent("pooled-workbook", isDirectory: true)
+    try FileManager.default.createDirectory(at: output, withIntermediateDirectories: false)
+    _ = try await PrimerOrderSheetWriter.write(oligos: draft.oligos, metadata: .init(),
+      selection: draft.selection, to: output)
+    let workbook = output.appendingPathComponent("IDT-oPools.xlsx")
+    let sheet = try await NativeToolRunner.shared.runProcess(
+      executableURL: URL(fileURLWithPath: "/usr/bin/unzip"),
+      arguments: ["-p", workbook.path, "xl/worksheets/sheet1.xml"], timeout: 30)
+    XCTAssertEqual(sheet.exitCode, 0, sheet.stderr)
+    XCTAssertEqual(sheet.stdout.components(separatedBy: ">Scheme_1_Pool_1<").count - 1, 4)
+    XCTAssertEqual(sheet.stdout.components(separatedBy: ">Scheme_2_Pool_1<").count - 1, 4)
+    XCTAssertFalse(sheet.stdout.contains("_Selected_Rank_"))
+    XCTAssertFalse(sheet.stdout.contains("_Assay_"))
+  }
+
   func testRejectsStaleSourceAndContradictorySelection() throws {
     let fixture = try makeFixture()
     defer { try? FileManager.default.removeItem(at: fixture.root) }

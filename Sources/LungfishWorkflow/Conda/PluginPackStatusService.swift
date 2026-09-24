@@ -501,7 +501,7 @@ public actor PluginPackStatusService: PluginPackStatusProviding {
         let readyMessage = requirementIDs.map { ids in
             pack.toolRequirements.filter { ids.contains($0.id) }.map(\.displayName).joined(separator: ", ") + " ready"
         } ?? "\(pack.name) ready"
-        let installTargets = await plannedInstallTargets(
+        var installTargets = await plannedInstallTargets(
             for: pack, requestedReinstall: reinstall, requirementIDs: requirementIDs)
         guard !installTargets.isEmpty else {
             progress?(PluginPackInstallProgress(
@@ -514,12 +514,36 @@ public actor PluginPackStatusService: PluginPackStatusProviding {
             return
         }
 
+        // Validate all bundled bytes and captured package URLs before an existing
+        // environment can be moved aside by the replacement transaction.
+        for target in installTargets {
+            _ = try target.requirement.explicitLock?.validatedResourceURL()
+        }
+
         try Task.checkCancellation()
         let environmentMutationTransaction = try await acquireEnvironmentMutationTransaction(
             for: installTargets
         )
         defer { environmentMutationTransaction?.release() }
         try Task.checkCancellation()
+
+        if !reinstall {
+            installTargets = try await repairingLegacyPortableLaunchers(
+                in: installTargets,
+                mutationTransaction: environmentMutationTransaction
+            )
+            if installTargets.isEmpty {
+                await invalidateVisibleStatusesCache()
+                progress?(PluginPackInstallProgress(
+                    requirementID: nil,
+                    requirementDisplayName: nil,
+                    overallFraction: 1.0,
+                    itemFraction: 1.0,
+                    message: readyMessage
+                ))
+                return
+            }
+        }
 
         let preexistingEnvironmentNames = await existingCondaEnvironmentNames(for: installTargets)
         var attemptedCondaTargets: [PlannedInstallTarget] = []
@@ -620,6 +644,13 @@ public actor PluginPackStatusService: PluginPackStatusProviding {
                         ))
                     }
                 }
+                if PrimerToolPortableLauncher.supports(toolID: requirement.id) {
+                    let environmentURL = await condaManager.environmentURL(named: requirement.environment)
+                    try PrimerToolPortableLauncher.prepare(
+                        toolID: requirement.id, environmentURL: environmentURL)
+                    try refreshPythonRuntimeReceiptIfNeeded(
+                        for: requirement, environmentURL: environmentURL)
+                }
             }
             try Task.checkCancellation()
             await runPostInstallHooks(
@@ -700,16 +731,23 @@ public actor PluginPackStatusService: PluginPackStatusProviding {
         progress: (@Sendable (Double, String) -> Void)?,
         mutationTransaction: CondaEnvironmentMutationTransaction?
     ) async throws {
+        let packages: [String]
+        if let explicitLock = requirement.explicitLock {
+            let lockURL = try explicitLock.validatedResourceURL()
+            packages = ["--file", lockURL.path]
+        } else {
+            packages = requirement.installPackages
+        }
         if reinstall {
             try await condaManager.reinstall(
-                packages: requirement.installPackages,
+                packages: packages,
                 environment: requirement.environment,
                 progress: progress,
                 mutationTransaction: mutationTransaction
             )
         } else {
             try await condaManager.install(
-                packages: requirement.installPackages,
+                packages: packages,
                 environment: requirement.environment,
                 progress: progress,
                 mutationTransaction: mutationTransaction
@@ -728,6 +766,45 @@ public actor PluginPackStatusService: PluginPackStatusProviding {
             }
         }
         return environmentNames
+    }
+
+    private func repairingLegacyPortableLaunchers(
+        in targets: [PlannedInstallTarget],
+        mutationTransaction: CondaEnvironmentMutationTransaction?
+    ) async throws -> [PlannedInstallTarget] {
+        guard mutationTransaction != nil else { return targets }
+        var remaining: [PlannedInstallTarget] = []
+        for target in targets {
+            let requirement = target.requirement
+            guard target.reinstall,
+                  let runtime = requirement.pythonRuntime,
+                  PrimerToolPortableLauncher.supports(toolID: requirement.id) else {
+                remaining.append(target)
+                continue
+            }
+            let environmentURL = await condaManager.environmentURL(named: requirement.environment)
+            if (try? PrimerToolPortableLauncher.validate(
+                toolID: requirement.id, environmentURL: environmentURL)) != nil {
+                remaining.append(target)
+                continue
+            }
+            let receiptURL = ManagedPythonRuntimeReceipt.receiptURL(
+                for: runtime, environmentURL: environmentURL)
+            guard let receipt = try? ManagedPythonRuntimeReceipt.load(from: receiptURL),
+                  receipt.validates(spec: runtime, environmentURL: environmentURL) else {
+                remaining.append(target)
+                continue
+            }
+            try Task.checkCancellation()
+            try PrimerToolPortableLauncher.repairManagedRuntime(
+                toolID: requirement.id,
+                environmentURL: environmentURL,
+                runtimeSpec: runtime
+            )
+            try PrimerToolPortableLauncher.validate(
+                toolID: requirement.id, environmentURL: environmentURL)
+        }
+        return remaining
     }
 
     private func backupKnownGoodEnvironments(
@@ -1242,8 +1319,12 @@ public actor PluginPackStatusService: PluginPackStatusProviding {
         let pythonRuntimeFailure = missingExecutables.isEmpty && sourceOverlayFailure == nil
             ? pythonRuntimeFailure(for: requirement, envURL: envURL)
             : nil
-        let packageMetadataFailure = missingExecutables.isEmpty && sourceOverlayFailure == nil
+        let portableLauncherFailure = missingExecutables.isEmpty && sourceOverlayFailure == nil
             && pythonRuntimeFailure == nil
+            ? portableLauncherFailure(for: requirement, envURL: envURL)
+            : nil
+        let packageMetadataFailure = missingExecutables.isEmpty && sourceOverlayFailure == nil
+            && pythonRuntimeFailure == nil && portableLauncherFailure == nil
             ? packageMetadataFailure(for: requirement, envURL: envURL)
             : nil
 
@@ -1252,6 +1333,8 @@ public actor PluginPackStatusService: PluginPackStatusProviding {
             smokeTestFailure = sourceOverlayFailure
         } else if let pythonRuntimeFailure {
             smokeTestFailure = pythonRuntimeFailure
+        } else if let portableLauncherFailure {
+            smokeTestFailure = portableLauncherFailure
         } else if let packageMetadataFailure {
             smokeTestFailure = packageMetadataFailure
         } else if missingExecutables.isEmpty && bootstrapReady, let smokeTest = requirement.smokeTest {
@@ -1316,6 +1399,36 @@ public actor PluginPackStatusService: PluginPackStatusProviding {
             return "Managed \(requirement.displayName) Python runtime receipt is missing or does not match version \(runtime.version)"
         }
         return nil
+    }
+
+    private func portableLauncherFailure(
+        for requirement: PackToolRequirement,
+        envURL: URL
+    ) -> String? {
+        guard PrimerToolPortableLauncher.supports(toolID: requirement.id) else { return nil }
+        do {
+            try PrimerToolPortableLauncher.validate(toolID: requirement.id, environmentURL: envURL)
+            return nil
+        } catch {
+            return error.localizedDescription
+        }
+    }
+
+    private func refreshPythonRuntimeReceiptIfNeeded(
+        for requirement: PackToolRequirement,
+        environmentURL: URL
+    ) throws {
+        guard let runtime = requirement.pythonRuntime,
+              PrimerToolPortableLauncher.supports(toolID: requirement.id) else { return }
+        let receiptURL = ManagedPythonRuntimeReceipt.receiptURL(for: runtime, environmentURL: environmentURL)
+        guard let receipt = try? ManagedPythonRuntimeReceipt.load(from: receiptURL) else { return }
+        let replacements = try PrimerToolPortableLauncher.artifacts(
+            toolID: requirement.id, environmentURL: environmentURL).map {
+                ManagedPythonRuntimeReceipt.FileRecord(
+                    relativePath: $0.relativePath, sha256: $0.sha256, sizeBytes: $0.sizeBytes)
+            }
+        try receipt.replacingInstalledFiles(
+            replacements, environmentURL: environmentURL).write(to: receiptURL)
     }
 
     private func sourceOverlayFailure(

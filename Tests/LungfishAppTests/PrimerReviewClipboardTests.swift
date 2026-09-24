@@ -15,6 +15,23 @@ final class PrimerReviewClipboardTests: XCTestCase {
     XCTAssertFalse(fasta.contains("ATGG"))
   }
 
+  func testUnpooledDisplayGroupIsNeverSerializedAsScientificPool() throws {
+    let unpooled = PrimerReviewPrimer(id: "unpooled", name: "qPCR probe", start: 7, end: 11,
+      strand: "-", pool: 9, role: .probe, candidateStatus: .alternative, nativePool: nil,
+      sequence: "ACGT", ampliconIDs: ["assay"])
+    let fasta = try XCTUnwrap(PrimerReviewClipboard.primerFASTA(unpooled, in: target(primers: [unpooled])))
+    XCTAssertFalse(fasta.contains("pool="), fasta)
+    XCTAssertNil(PrimerReviewClipboard.poolFASTA(sourceResultID: "scheme", nativePool: "9",
+      targets: [target(primers: [unpooled])]))
+
+    var native = unpooled
+    native.nativePool = "native-A"
+    let nativeFASTA = try XCTUnwrap(PrimerReviewClipboard.primerFASTA(native, in: target(primers: [native])))
+    XCTAssertTrue(nativeFASTA.contains("pool=native-A"), nativeFASTA)
+    XCTAssertNotNil(PrimerReviewClipboard.poolFASTA(sourceResultID: "scheme", nativePool: "native-A",
+      targets: [target(primers: [native])]))
+  }
+
   func testAmpliconCopiesEveryReciprocalAlternativeWithoutInventingPairs() throws {
     let primers = [primer(id: "left1", sequence: "AAGT"), primer(id: "left2", sequence: "ARGT"),
       primer(id: "right", sequence: "CCAT", strand: "-")]
@@ -38,7 +55,7 @@ final class PrimerReviewClipboardTests: XCTestCase {
     let first = target(id: "a", primers: [primer(id: "a1", sequence: "AAGT")])
     let second = target(id: "b", primers: [primer(id: "b1", sequence: "CCAT")])
     let other = target(id: "c", source: "other-scheme", primers: [primer(id: "c1", sequence: "GGGG")])
-    let fasta = try XCTUnwrap(PrimerReviewClipboard.poolFASTA(sourceResultID: "scheme", pool: 2, targets: [first, second, other]))
+    let fasta = try XCTUnwrap(PrimerReviewClipboard.poolFASTA(sourceResultID: "scheme", nativePool: "2", targets: [first, second, other]))
     XCTAssertTrue(fasta.contains("AAGT"))
     XCTAssertTrue(fasta.contains("CCAT"))
     XCTAssertFalse(fasta.contains("GGGG"))
@@ -59,7 +76,7 @@ final class PrimerReviewClipboardTests: XCTestCase {
   func testPoolFASTAHasUniqueIdentifiersForDuplicateNamesAcrossReferences() throws {
     let first = target(id: "a", primers: [primer(id: "first", name: "shared_LEFT_1", sequence: "AAGT")])
     let second = target(id: "b", primers: [primer(id: "second", name: "shared_LEFT_1", sequence: "CCAT")])
-    let fasta = try XCTUnwrap(PrimerReviewClipboard.poolFASTA(sourceResultID: "scheme", pool: 2, targets: [first, second]))
+    let fasta = try XCTUnwrap(PrimerReviewClipboard.poolFASTA(sourceResultID: "scheme", nativePool: "2", targets: [first, second]))
     let headers = fasta.split(whereSeparator: \.isNewline).filter { $0.hasPrefix(">") }
     let identifiers = headers.compactMap { $0.split(separator: " ").first.map(String.init) }
     XCTAssertEqual(Set(identifiers).count, 2)
@@ -70,7 +87,7 @@ final class PrimerReviewClipboardTests: XCTestCase {
 
   private func primer(id: String, name: String? = nil, sequence: String, strand: String = "+", amplicons: [String] = ["span"]) -> PrimerReviewPrimer {
     .init(id: id, name: name ?? id, start: strand == "+" ? 2 : 14, end: strand == "+" ? 6 : 18,
-      strand: strand, pool: 2, sequence: sequence, ampliconIDs: amplicons)
+      strand: strand, pool: 2, nativePool: "2", sequence: sequence, ampliconIDs: amplicons)
   }
 
   private func target(id: String = "target", source: String = "scheme", primers: [PrimerReviewPrimer], intervals: [PrimerReviewInterval] = []) -> PrimerTargetDesignReview {

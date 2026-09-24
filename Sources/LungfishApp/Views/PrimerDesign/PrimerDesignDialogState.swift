@@ -6,7 +6,17 @@ import LungfishWorkflow
 enum PrimerDesignEngine: String, CaseIterable, Identifiable {
   case primer3 = "Primer3"
   case primalScheme = "PrimalScheme"
+  case olivar = "Olivar"
+  case varVAMP = "varVAMP"
   var id: String { rawValue }
+
+  var schemeEngine: PrimerSchemeEngine? {
+    switch self {
+    case .olivar: .olivar
+    case .varVAMP: .varvamp
+    default: nil
+    }
+  }
 }
 
 enum PrimerDesignChemistry: String, CaseIterable, Identifiable {
@@ -23,7 +33,9 @@ struct PrimerDesignValidationError: LocalizedError {
 
 @MainActor @Observable
 final class PrimerDesignDialogState {
-  var engine: PrimerDesignEngine = .primer3
+  var engine: PrimerDesignEngine = .primer3 {
+    didSet { updateEngine(from: oldValue) }
+  }
   var chemistry: PrimerDesignChemistry = .pcr
   var inputURLs: [URL] = []
   var inputSummaries: [URL: Primer3DesignInputSummary] = [:]
@@ -53,6 +65,9 @@ final class PrimerDesignDialogState {
   var primerMinGC = "20"
   var primerMaxGC = "80"
   var advancedExpanded = false
+  var schemeMode: PrimerSchemeMode = .tiled {
+    didSet { updateVarVAMPMode(from: oldValue) }
+  }
   var ampliconSize = "400" {
     didSet { updateDefaultAmpliconBounds() }
   }
@@ -70,6 +85,89 @@ final class PrimerDesignDialogState {
   private var maximumAmpliconSizeWasCustomized = false
   private var isUpdatingAmpliconBounds = false
   var poolCount = "2"
+  var minimumBaseFrequency = "0"
+  var schemeWorkers = String(PrimerSchemeDesignOptions.defaultWorkers)
+
+  // Olivar 1.3.3 adapter controls. Defaults mirror the typed workflow model.
+  var olivarMinimumVariantFrequency = "0.01"
+  var olivarDegenerate = false
+  var olivarCheckVariants = false
+  var olivarTemperatureC = "60"
+  var olivarSalinityM = "0.18"
+  var olivarMaximumDimerDeltaG = "-11.8"
+  var olivarMinimumGC = "0.2"
+  var olivarMaximumGC = "0.75"
+  var olivarMinimumComplexity = "0.4"
+  var olivarMaximumPrimerLength = "36"
+  var olivarSeed = "10"
+  var olivarEffort = "1"
+  var olivarBlastDatabasePath = ""
+  var olivarRiskExtremeGC = "1"
+  var olivarRiskLowComplexity = "1"
+  var olivarRiskNonSpecificity = "1"
+  var olivarRiskVariation = "1"
+  var olivarRiskSensitivity = "1"
+  var olivarRiskCombination = "1"
+
+  // varVAMP 1.3.2 controls. qPCR deliberately starts without a threshold.
+  var varVAMPConsensusThreshold = ""
+  var varVAMPMaximumPrimerAmbiguities = "2"
+  var varVAMPMaximumProbeAmbiguities = ""
+  var varVAMPTiledOverlap = "25"
+  var varVAMPReportCount = ""
+  var varVAMPQPCRTestCount = "50"
+  var varVAMPQPCRDeltaG = "-3"
+  var varVAMPSchemeName = "varVAMP"
+  var varVAMPCompatiblePrimersPath = ""
+  var varVAMPBlastDatabasePath = ""
+  var varVAMPTerminalMaskingThreshold = "0.5"
+  var varVAMPPrimerTmMinimum = "56"
+  var varVAMPPrimerTmOptimum = "60"
+  var varVAMPPrimerTmMaximum = "63"
+  var varVAMPPrimerGCMinimum = "35"
+  var varVAMPPrimerGCOptimum = "50"
+  var varVAMPPrimerGCMaximum = "65"
+  var varVAMPPrimerSizeMinimum = "18"
+  var varVAMPPrimerSizeOptimum = "21"
+  var varVAMPPrimerSizeMaximum = "24"
+  var varVAMPPrimerMaximumPolyX = "4"
+  var varVAMPPrimerMaximumDinucleotideRepeats = "4"
+  var varVAMPPrimerHairpin = "47"
+  var varVAMPPrimerGCEndMinimum = "1"
+  var varVAMPPrimerGCEndMaximum = "3"
+  var varVAMPPrimerMinimum3PrimeWithoutAmbiguity = "3"
+  var varVAMPPrimerMaximumDimerTemperature = "35"
+  var varVAMPPrimerMaximumDimerDeltaG = "-9000"
+  var varVAMPEndOverlap = "5"
+  var varVAMPProbeTmMinimum = "64"
+  var varVAMPProbeTmOptimum = "67"
+  var varVAMPProbeTmMaximum = "70"
+  var varVAMPProbeSizeMinimum = "20"
+  var varVAMPProbeSizeOptimum = "25"
+  var varVAMPProbeSizeMaximum = "30"
+  var varVAMPProbeGCMinimum = "40"
+  var varVAMPProbeGCOptimum = "60"
+  var varVAMPProbeGCMaximum = "80"
+  var varVAMPProbeGCEndMinimum = "0"
+  var varVAMPProbeGCEndMaximum = "4"
+  var varVAMPQPrimerDifference = "2"
+  var varVAMPProbeTemperatureDifferenceMinimum = "5"
+  var varVAMPProbeTemperatureDifferenceMaximum = "10"
+  var varVAMPProbeDistanceMinimum = "4"
+  var varVAMPProbeDistanceMaximum = "15"
+  var varVAMPAmpliconGCMinimum = "40"
+  var varVAMPAmpliconGCMaximum = "60"
+  var varVAMPAmpliconDeletionCutoff = "4"
+  var varVAMPMonovalentCationConcentration = "100"
+  var varVAMPDivalentCationConcentration = "2"
+  var varVAMPDNTPConcentration = "0.8"
+  var varVAMPDNAConcentration = "15"
+  private var varVAMPSizingByMode: [PrimerSchemeMode: [String]] = [:]
+  private var varVAMPBoundCustomizations: [PrimerSchemeMode: (minimum: Bool, maximum: Bool)] = [:]
+  private var sizingByEngine: [PrimerDesignEngine: [String]] = [:]
+  private var boundCustomizationsByEngine: [PrimerDesignEngine: (minimum: Bool, maximum: Bool)] = [:]
+  private var lastVarVAMPMode: PrimerSchemeMode = .tiled
+  private var isUpdatingEngine = false
   /// Required for non-legacy PrimalScheme contracts. Legacy designs continue
   /// using the managed runtime when this is empty.
   var primalschemeExecutablePath = ""
@@ -233,9 +331,10 @@ final class PrimerDesignDialogState {
     if inputURLs.isEmpty { return "Select sequence or alignment bundles in the project sidebar." }
     do {
       _ = try validatedDestinationURL()
-      if engine == .primer3 { _ = try primer3Options() }
-      else {
-        _ = try primalSchemeOptions()
+      switch engine {
+      case .primer3: _ = try primer3Options()
+      case .primalScheme: _ = try primalSchemeOptions()
+      case .olivar, .varVAMP: _ = try primerSchemeOptions()
       }
     } catch { return error.localizedDescription }
     return nil
@@ -250,7 +349,7 @@ final class PrimerDesignDialogState {
     if gapCompletionParentURL != nil && legacySalvageEnabled {
       throw invalid("Choose either bounded salvage or a gap-completion follow-up parent, not both.")
     }
-    let sizes = try validatedAmpliconSizes()
+    let sizes = try validatedAmpliconSizes(for: .primalScheme)
     let overlap: Int
     if grouping == .independent {
       guard let value = Int(minOverlap.trimmingCharacters(in: .whitespacesAndNewlines)), value >= 0 else {
@@ -260,7 +359,7 @@ final class PrimerDesignDialogState {
     } else { overlap = 10 }
     let options = PrimalScheme3DesignOptions(
       ampliconSize: sizes.target, poolCount: try positiveInteger(poolCount, "Pool count"),
-      minOverlap: overlap, minimumBaseFrequency: 0, highGC: highGC,
+      minOverlap: overlap, minimumBaseFrequency: try unitInterval(minimumBaseFrequency, "Minimum base frequency"), highGC: highGC,
       coreCount: try positiveInteger(coreCount, "CPU cores"),
       terminalGapPolicy: gapCompletionParentURL != nil ? .legacy : (excludeUncoveredEnds ? .observedOnly : .legacy),
       dimerScore: try finiteNumber(dimerScore, "Dimer score threshold"), useMatchDB: useMatchDB,
@@ -281,6 +380,137 @@ final class PrimerDesignDialogState {
         throw invalid("Recovery requires uniform position weighting and blank amplicon limits.")
       }
     }
+    return options
+  }
+
+  func primerSchemeOptions() throws -> PrimerSchemeDesignOptions {
+    guard let schemeEngine = engine.schemeEngine else {
+      throw invalid("Choose Olivar or varVAMP to create primer-scheme options.")
+    }
+    let sizes = try validatedAmpliconSizes()
+    let workers = try positiveInteger(schemeWorkers, "CPU workers")
+    let resolvedGrouping = schemeEngine == .varvamp ? PrimerAnalysisGrouping.independent : grouping
+    var suppliedCommonOptions: Set<String> = [
+      "engine", "mode", "grouping", "nominalAmpliconLength", "minimumAmpliconLength",
+      "maximumAmpliconLength", "workers",
+    ]
+    if minimumAmpliconSizeWasCustomized { suppliedCommonOptions.insert("requestedMinimumAmpliconLength") }
+    if maximumAmpliconSizeWasCustomized { suppliedCommonOptions.insert("requestedMaximumAmpliconLength") }
+    let options: PrimerSchemeDesignOptions
+    switch schemeEngine {
+    case .olivar:
+      let riskWeights = OlivarRiskWeights(
+        extremeGC: try nonnegativeNumber(olivarRiskExtremeGC, "Extreme-GC risk weight"),
+        lowComplexity: try nonnegativeNumber(olivarRiskLowComplexity, "Low-complexity risk weight"),
+        nonSpecificity: try nonnegativeNumber(olivarRiskNonSpecificity, "Non-specificity risk weight"),
+        variation: try nonnegativeNumber(olivarRiskVariation, "Variation risk weight"),
+        sensitivity: try nonnegativeNumber(olivarRiskSensitivity, "Sensitivity risk weight"),
+        combination: try nonnegativeNumber(olivarRiskCombination, "Combination risk weight"))
+      let native = OlivarDesignOptions(
+        minimumVariantFrequency: try unitInterval(olivarMinimumVariantFrequency, "Olivar minimum variant frequency"),
+        degenerate: olivarDegenerate, align: false,
+        temperatureC: try finiteNumber(olivarTemperatureC, "Temperature"),
+        salinityM: try nonnegativeNumber(olivarSalinityM, "Salinity"),
+        maximumDimerDeltaG: try finiteNumber(olivarMaximumDimerDeltaG, "Maximum dimer ΔG"),
+        minimumGC: try unitInterval(olivarMinimumGC, "Minimum GC fraction"),
+        maximumGC: try unitInterval(olivarMaximumGC, "Maximum GC fraction"),
+        minimumComplexity: try unitInterval(olivarMinimumComplexity, "Minimum complexity"),
+        maximumPrimerLength: try positiveInteger(olivarMaximumPrimerLength, "Maximum primer length"),
+        checkVariants: olivarCheckVariants, seed: try integer(olivarSeed, "Random seed"),
+        effort: try positiveInteger(olivarEffort, "Search effort"),
+        blastDatabasePath: optionalPath(olivarBlastDatabasePath), riskWeights: riskWeights,
+        suppliedOptionNames: Set([
+          "minimumVariantFrequency", "degenerate", "align", "temperatureC", "salinityM",
+          "maximumDimerDeltaG", "minimumGC", "maximumGC", "minimumComplexity",
+          "maximumPrimerLength", "checkVariants", "seed", "effort", "blastDatabasePath", "riskWeights",
+        ]))
+      options = .init(engine: .olivar, mode: .tiled, grouping: resolvedGrouping,
+        nominalAmpliconLength: sizes.target, minimumAmpliconLength: sizes.minimum,
+        maximumAmpliconLength: sizes.maximum,
+        requestedMinimumAmpliconLength: minimumAmpliconSizeWasCustomized ? sizes.minimum : nil,
+        requestedMaximumAmpliconLength: maximumAmpliconSizeWasCustomized ? sizes.maximum : nil,
+        workers: workers, suppliedOptionNames: suppliedCommonOptions, olivar: native)
+    case .varvamp:
+      let threshold: Double?
+      if varVAMPConsensusThreshold.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        threshold = nil
+      } else {
+        threshold = try positiveUnitInterval(varVAMPConsensusThreshold, "varVAMP cumulative consensus threshold")
+      }
+      let qPCR = schemeMode == .qpcr
+      let overrides = VarVAMPConfigOverrides(
+        terminalMaskingThreshold: try finiteNumber(varVAMPTerminalMaskingThreshold, "Terminal masking threshold"),
+        primerTemperature: try doubleTriplet(varVAMPPrimerTmMinimum, varVAMPPrimerTmOptimum,
+          varVAMPPrimerTmMaximum, "Primer temperature"),
+        primerGCRange: try doubleTriplet(varVAMPPrimerGCMinimum, varVAMPPrimerGCOptimum,
+          varVAMPPrimerGCMaximum, "Primer GC"),
+        primerSizes: try intTriplet(varVAMPPrimerSizeMinimum, varVAMPPrimerSizeOptimum,
+          varVAMPPrimerSizeMaximum, "Primer size"),
+        primerMaximumPolyX: try nonnegativeInteger(varVAMPPrimerMaximumPolyX, "Maximum primer homopolymer"),
+        primerMaximumDinucleotideRepeats: try nonnegativeInteger(varVAMPPrimerMaximumDinucleotideRepeats,
+          "Maximum primer dinucleotide repeats"),
+        primerHairpin: try finiteNumber(varVAMPPrimerHairpin, "Primer hairpin threshold"),
+        primerGCEnd: try intRange(varVAMPPrimerGCEndMinimum, varVAMPPrimerGCEndMaximum, "Primer GC end"),
+        primerMinimum3PrimeWithoutAmbiguity: try nonnegativeInteger(varVAMPPrimerMinimum3PrimeWithoutAmbiguity,
+          "Minimum unambiguous 3-prime bases"),
+        primerMaximumDimerTemperature: try finiteNumber(varVAMPPrimerMaximumDimerTemperature,
+          "Maximum primer dimer temperature"),
+        primerMaximumDimerDeltaG: try finiteNumber(varVAMPPrimerMaximumDimerDeltaG, "Maximum primer dimer ΔG"),
+        endOverlap: try nonnegativeInteger(varVAMPEndOverlap, "End overlap"),
+        probeTemperature: qPCR ? try doubleTriplet(varVAMPProbeTmMinimum, varVAMPProbeTmOptimum,
+          varVAMPProbeTmMaximum, "Probe temperature") : nil,
+        probeSizes: qPCR ? try intTriplet(varVAMPProbeSizeMinimum, varVAMPProbeSizeOptimum,
+          varVAMPProbeSizeMaximum, "Probe size") : nil,
+        probeGCRange: qPCR ? try doubleTriplet(varVAMPProbeGCMinimum, varVAMPProbeGCOptimum,
+          varVAMPProbeGCMaximum, "Probe GC") : nil,
+        probeGCEnd: qPCR ? try intRange(varVAMPProbeGCEndMinimum, varVAMPProbeGCEndMaximum, "Probe GC end") : nil,
+        qprimerDifference: qPCR ? try finiteNumber(varVAMPQPrimerDifference, "qPCR primer difference") : nil,
+        probeTemperatureDifference: qPCR ? try doubleRange(varVAMPProbeTemperatureDifferenceMinimum,
+          varVAMPProbeTemperatureDifferenceMaximum, "Probe temperature difference") : nil,
+        probeDistance: qPCR ? try intRange(varVAMPProbeDistanceMinimum, varVAMPProbeDistanceMaximum,
+          "Probe distance") : nil,
+        ampliconGCRange: qPCR ? try doubleRange(varVAMPAmpliconGCMinimum, varVAMPAmpliconGCMaximum,
+          "Amplicon GC") : nil,
+        ampliconDeletionCutoff: qPCR ? try nonnegativeInteger(varVAMPAmpliconDeletionCutoff,
+          "Amplicon deletion cutoff") : nil,
+        monovalentCationConcentration: try nonnegativeNumber(varVAMPMonovalentCationConcentration,
+          "Monovalent cation concentration"),
+        divalentCationConcentration: try nonnegativeNumber(varVAMPDivalentCationConcentration,
+          "Divalent cation concentration"),
+        dNTPConcentration: try nonnegativeNumber(varVAMPDNTPConcentration, "dNTP concentration"),
+        DNAConcentration: try nonnegativeNumber(varVAMPDNAConcentration, "DNA concentration"))
+      let native = VarVAMPDesignOptions(
+        cumulativeConsensusThreshold: threshold,
+        maximumPrimerAmbiguities: try nonnegativeInteger(varVAMPMaximumPrimerAmbiguities,
+          "Maximum primer ambiguities"),
+        maximumProbeAmbiguities: qPCR ? try optionalNonnegativeInteger(varVAMPMaximumProbeAmbiguities,
+          "Maximum probe ambiguities") : nil,
+        tiledOverlap: schemeMode == .tiled
+          ? try nonnegativeInteger(varVAMPTiledOverlap, "Tiled overlap") : 25,
+        reportCount: schemeMode == .single ? try optionalPositiveInteger(varVAMPReportCount,
+          "Reported assay count") : nil,
+        qpcrTestCount: qPCR ? try positiveInteger(varVAMPQPCRTestCount, "qPCR test count") : 50,
+        qpcrDeltaG: qPCR ? try integer(varVAMPQPCRDeltaG, "qPCR ΔG threshold") : -3,
+        schemeName: varVAMPSchemeName, compatiblePrimersPath: optionalPath(varVAMPCompatiblePrimersPath),
+        blastDatabasePath: optionalPath(varVAMPBlastDatabasePath), configOverrides: overrides,
+        suppliedOptionNames: Set(Set([
+          "cumulativeConsensusThreshold", "maximumPrimerAmbiguities", "maximumProbeAmbiguities",
+          "tiledOverlap", "reportCount", "qpcrTestCount", "qpcrDeltaG", "schemeName",
+          "compatiblePrimersPath", "blastDatabasePath", "configOverrides",
+        ]).filter { name in
+          if name == "reportCount" { return schemeMode == .single }
+          if name == "tiledOverlap" { return schemeMode == .tiled }
+          if ["maximumProbeAmbiguities", "qpcrTestCount", "qpcrDeltaG"].contains(name) { return qPCR }
+          return true
+        }))
+      options = .init(engine: .varvamp, mode: schemeMode, grouping: .independent,
+        nominalAmpliconLength: sizes.target, minimumAmpliconLength: sizes.minimum,
+        maximumAmpliconLength: sizes.maximum,
+        requestedMinimumAmpliconLength: minimumAmpliconSizeWasCustomized ? sizes.minimum : nil,
+        requestedMaximumAmpliconLength: maximumAmpliconSizeWasCustomized ? sizes.maximum : nil,
+        workers: workers, suppliedOptionNames: suppliedCommonOptions, varvamp: native)
+    }
+    try options.validate()
     return options
   }
 
@@ -316,7 +546,8 @@ final class PrimerDesignDialogState {
   }
 
   private func updateDefaultAmpliconBounds() {
-    guard let target = Int(ampliconSize.trimmingCharacters(in: .whitespacesAndNewlines)),
+    guard !isUpdatingAmpliconBounds,
+      let target = Int(ampliconSize.trimmingCharacters(in: .whitespacesAndNewlines)),
       (100...2000).contains(target) else { return }
     isUpdatingAmpliconBounds = true
     defer { isUpdatingAmpliconBounds = false }
@@ -324,9 +555,67 @@ final class PrimerDesignDialogState {
     if !maximumAmpliconSizeWasCustomized { ampliconSizeMaximum = String(Int(Double(target) * 1.1)) }
   }
 
-  private func validatedAmpliconSizes() throws -> (minimum: Int, target: Int, maximum: Int) {
+  private func updateEngine(from oldEngine: PrimerDesignEngine) {
+    guard oldEngine != engine else { return }
+    let currentSizing = [ampliconSizeMinimum, ampliconSize, ampliconSizeMaximum]
+    let currentCustomizations = (minimumAmpliconSizeWasCustomized, maximumAmpliconSizeWasCustomized)
+    sizingByEngine[oldEngine] = currentSizing
+    boundCustomizationsByEngine[oldEngine] = currentCustomizations
+    if oldEngine == .varVAMP {
+      lastVarVAMPMode = schemeMode
+      varVAMPSizingByMode[schemeMode] = currentSizing
+      varVAMPBoundCustomizations[schemeMode] = currentCustomizations
+    }
+
+    isUpdatingEngine = true
+    defer { isUpdatingEngine = false }
+    if engine == .olivar { schemeMode = .tiled }
+    if engine == .varVAMP {
+      grouping = .independent
+      schemeMode = lastVarVAMPMode
+    }
+    let restored: [String]
+    let restoredCustomizations: (minimum: Bool, maximum: Bool)
+    if engine == .varVAMP {
+      restored = varVAMPSizingByMode[schemeMode] ?? (schemeMode == .qpcr
+        ? ["70", "135", "200"] : ["360", "400", "440"])
+      restoredCustomizations = varVAMPBoundCustomizations[schemeMode] ?? (false, false)
+    } else {
+      restored = sizingByEngine[engine] ?? ["360", "400", "440"]
+      restoredCustomizations = boundCustomizationsByEngine[engine] ?? (false, false)
+    }
+    applyAmpliconSizing(restored, customizations: restoredCustomizations)
+  }
+
+  private func applyAmpliconSizing(
+    _ values: [String], customizations: (minimum: Bool, maximum: Bool)
+  ) {
+    precondition(values.count == 3)
+    isUpdatingAmpliconBounds = true
+    ampliconSizeMinimum = values[0]
+    ampliconSize = values[1]
+    ampliconSizeMaximum = values[2]
+    isUpdatingAmpliconBounds = false
+    minimumAmpliconSizeWasCustomized = customizations.minimum
+    maximumAmpliconSizeWasCustomized = customizations.maximum
+  }
+
+  private func updateVarVAMPMode(from oldMode: PrimerSchemeMode) {
+    guard engine == .varVAMP, !isUpdatingEngine, oldMode != schemeMode else { return }
+    lastVarVAMPMode = schemeMode
+    varVAMPSizingByMode[oldMode] = [ampliconSizeMinimum, ampliconSize, ampliconSizeMaximum]
+    varVAMPBoundCustomizations[oldMode] = (minimumAmpliconSizeWasCustomized, maximumAmpliconSizeWasCustomized)
+    let restored = varVAMPSizingByMode[schemeMode] ?? (schemeMode == .qpcr
+      ? ["70", "135", "200"] : ["360", "400", "440"])
+    let restoredCustomizations = varVAMPBoundCustomizations[schemeMode] ?? (false, false)
+    applyAmpliconSizing(restored, customizations: restoredCustomizations)
+  }
+
+  private func validatedAmpliconSizes(
+    for requestedEngine: PrimerDesignEngine? = nil
+  ) throws -> (minimum: Int, target: Int, maximum: Int) {
     let target = try positiveInteger(ampliconSize, "Target amplicon size")
-    guard (100...2000).contains(target) else {
+    if (requestedEngine ?? engine) == .primalScheme, !(100...2000).contains(target) {
       throw invalid("PrimalScheme3 target amplicon size must be between 100 and 2000 bp.")
     }
     let minimum = try positiveInteger(ampliconSizeMinimum, "Minimum amplicon size")
@@ -375,6 +664,18 @@ final class PrimerDesignDialogState {
     return try positiveInteger(text, title)
   }
 
+  private func optionalNonnegativeInteger(_ text: String, _ title: String) throws -> Int? {
+    if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return nil }
+    return try nonnegativeInteger(text, title)
+  }
+
+  private func integer(_ text: String, _ title: String) throws -> Int {
+    guard let value = Int(text.trimmingCharacters(in: .whitespacesAndNewlines)) else {
+      throw invalid("\(title) must be a whole number.")
+    }
+    return value
+  }
+
   func positiveInteger(_ text: String, _ title: String) throws -> Int {
     guard let value = Int(text.trimmingCharacters(in: .whitespacesAndNewlines)), value > 0 else {
       throw invalid("\(title) must be a positive whole number.")
@@ -394,6 +695,55 @@ final class PrimerDesignDialogState {
       throw invalid("\(title) must be a finite number.")
     }
     return value
+  }
+
+  private func nonnegativeNumber(_ text: String, _ title: String) throws -> Double {
+    let value = try finiteNumber(text, title)
+    guard value >= 0 else { throw invalid("\(title) must be nonnegative.") }
+    return value
+  }
+
+  private func unitInterval(_ text: String, _ title: String) throws -> Double {
+    let value = try finiteNumber(text, title)
+    guard (0...1).contains(value) else { throw invalid("\(title) must be between 0 and 1.") }
+    return value
+  }
+
+  private func positiveUnitInterval(_ text: String, _ title: String) throws -> Double {
+    let value = try unitInterval(text, title)
+    guard value > 0 else { throw invalid("\(title) must be greater than 0 and at most 1.") }
+    return value
+  }
+
+  private func doubleTriplet(_ minimum: String, _ optimum: String, _ maximum: String,
+                             _ title: String) throws -> PrimerSchemeDoubleTriplet {
+    .init(minimum: try finiteNumber(minimum, "\(title) minimum"),
+      maximum: try finiteNumber(maximum, "\(title) maximum"),
+      optimum: try finiteNumber(optimum, "\(title) optimum"))
+  }
+
+  private func intTriplet(_ minimum: String, _ optimum: String, _ maximum: String,
+                          _ title: String) throws -> PrimerSchemeIntTriplet {
+    .init(minimum: try nonnegativeInteger(minimum, "\(title) minimum"),
+      maximum: try nonnegativeInteger(maximum, "\(title) maximum"),
+      optimum: try nonnegativeInteger(optimum, "\(title) optimum"))
+  }
+
+  private func doubleRange(_ minimum: String, _ maximum: String,
+                           _ title: String) throws -> PrimerSchemeDoubleRange {
+    .init(minimum: try finiteNumber(minimum, "\(title) minimum"),
+      maximum: try finiteNumber(maximum, "\(title) maximum"))
+  }
+
+  private func intRange(_ minimum: String, _ maximum: String,
+                        _ title: String) throws -> PrimerSchemeIntRange {
+    .init(minimum: try nonnegativeInteger(minimum, "\(title) minimum"),
+      maximum: try nonnegativeInteger(maximum, "\(title) maximum"))
+  }
+
+  private func optionalPath(_ text: String) -> String? {
+    let value = text.trimmingCharacters(in: .whitespacesAndNewlines)
+    return value.isEmpty ? nil : value
   }
 
   private func invalid(_ message: String) -> PrimerDesignValidationError { .init(message: message) }

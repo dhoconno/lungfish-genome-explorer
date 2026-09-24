@@ -47,6 +47,26 @@ final class PrimerBindingInspectionTests: XCTestCase {
         XCTAssertTrue(result.status.contains("reference mapping"))
     }
 
+    func testUnavailableProjectionExposesReasonWithoutFabricatedColumnsOrTrack() throws {
+        let reason = "The oligo crosses a collapsed source interval; original-row mismatch statistics are unavailable."
+        let primer = PrimerBindingInspectionPrimer(id: "collapsed", name: "probe", sequence: "ACGT", strand: "-",
+            alignedStart: 0, alignedEnd: 4, contiguousReference: false, unavailableReason: reason)
+        let context = PrimerBindingInspectionContext(id: "context", title: "collapsed", alignedFASTA: ">row\nACGT\n",
+            annotations: [], primers: [primer], unavailableReason: nil,
+            rows: [.init(name: "row", sequence: Array("ACGT"))])
+        let presentation = PrimerBindingInspectionView.presentation(for: primer, in: context,
+            showIdentityDots: true)
+        XCTAssertEqual(presentation.unavailableReason, reason)
+        XCTAssertNil(presentation.track)
+        XCTAssertNil(presentation.columnLabel)
+        XCTAssertFalse(presentation.shouldFocusAnnotation)
+        XCTAssertNil(PrimerBindingInspectionView.fallbackMessage(in: context,
+            originalContextHasPrimers: true, explicitUnavailableReason: reason))
+        XCTAssertThrowsError(try context.displayTrack(for: primer, showIdentityDots: true)) {
+            XCTAssertEqual(($0 as NSError).localizedDescription, reason)
+        }
+    }
+
     func testSelectedPrimerComparisonPreservesEveryRowWithoutStoredCrossProduct() throws {
         let first = PrimerBindingInspectionPrimer(id: "first", name: "first", sequence: "AC", strand: "+",
             alignedStart: 0, alignedEnd: 2, contiguousReference: true)

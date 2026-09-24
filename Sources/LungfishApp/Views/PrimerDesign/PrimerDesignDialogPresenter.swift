@@ -76,16 +76,25 @@ final class PrimerDesignDialogPresenter {
         "interface": .string("Lungfish PCR Primer Design"),
         "projectPath": .string(state.projectURL!.path),
       ]
-      if state.engine == .primer3 { visibleOptions["assay"] = .string(state.chemistry.rawValue) }
-      else {
+      if state.engine == .primer3 {
+        visibleOptions["assay"] = .string(state.chemistry.rawValue)
+      } else if state.engine == .primalScheme {
         visibleOptions["minimumBaseFrequency"] = .number(try state.primalSchemeOptions().minimumBaseFrequency)
-        visibleOptions["minimumBaseFrequencySource"] = .string("resolved GUI default")
+        visibleOptions["minimumBaseFrequencySource"] = .string("visible GUI control")
         visibleOptions["selectionAlgorithm"] = .string(try state.primalSchemeOptions().selectionAlgorithm.rawValue)
         visibleOptions["nativeExecutablePath"] = state.primalschemeExecutableURL.map { .string($0.path) } ?? .null
         visibleOptions["nativeExecutableSource"] = .string(state.primalschemeExecutableURL == nil ? "managed-runtime" : "user-selected-local-executable")
         visibleOptions["legacySalvage"] = .boolean(state.legacySalvageEnabled)
         visibleOptions["gapCompletionParent"] = state.gapCompletionParentURL.map { .string($0.path) } ?? .null
         visibleOptions["gapExpansion"] = .boolean(state.gapExpansionEnabled)
+      } else {
+        let options = try state.primerSchemeOptions()
+        visibleOptions.merge(options.provenanceOptions) { _, resolved in resolved }
+        visibleOptions["sizingSemantics"] = .string(
+          "full saved-reference span including primer sites; nominal target is not a closeness objective")
+        visibleOptions["poolSemantics"] = .string(
+          state.engine == .varVAMP && state.schemeMode != .tiled
+            ? "unpooled unless native output assigns a pool" : "native fixed two-pool tiled workflow")
       }
       let invocation = PrimerAnalysisWrapperInvocation(
         argv: CommandLine.arguments, callerVersion: runtime.appVersion,
@@ -93,19 +102,28 @@ final class PrimerDesignDialogPresenter {
       let checksums = state.inputSummaries.mapValues(\.checksumSHA256)
       let executable: URL? = state.engine == .primalScheme ? state.primalschemeExecutableURL : nil
       let operation: @Sendable (@escaping @Sendable (Double, String) -> Void) async throws -> URL
-      if state.engine == .primer3 {
+      switch state.engine {
+      case .primer3:
         let request = Primer3DesignRequest(
           inputURLs: state.inputURLs, selections: try state.primer3Selections(), destinationURL: destination,
           options: try state.primer3Options(), invocation: invocation, executableURL: executable,
           expectedInputChecksums: checksums)
         operation = { progress in try await Primer3DesignPipeline().run(request: request, progress: progress) }
-      } else {
+      case .primalScheme:
         let request = PrimalScheme3DesignRequest(
           inputURLs: state.inputURLs, destinationURL: destination,
           options: try state.primalSchemeOptions(),
           grouping: state.grouping, invocation: invocation, executableURL: executable,
           expectedInputChecksums: checksums)
         operation = { progress in try await PrimalScheme3DesignPipeline().run(request: request, progress: progress) }
+      case .olivar, .varVAMP:
+        let request = PrimerSchemeDesignRequest(
+          inputURLs: state.inputURLs, destinationURL: destination,
+          options: try state.primerSchemeOptions(), invocation: invocation,
+          expectedInputChecksums: checksums)
+        operation = { progress in
+          try await PrimerSchemeDesignPipeline().run(request: request, progress: progress)
+        }
       }
       let saved = resultSaved
       let showPanel = showOperations

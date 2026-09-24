@@ -1,0 +1,19 @@
+Lungfish Primer Design Adapter v1
+
+This adapter interoperates with, but is not part of, the upstream Olivar and
+varVAMP projects. It preserves their original native outputs and records their
+separate versions and source hashes. Lungfish's Olivar final-pair guard is an
+app-owned, version-locked adaptation applied in memory to the verified Olivar
+1.3.3 pair-list construction before SADDLE optimization.
+
+Olivar 1.3.3
+Copyright and attribution remain with the Olivar contributors.
+https://github.com/treangenlab/Olivar
+Pinned tag v1.3.3, commit 73973900196d91c1b707ef2ad4cd08a3b94d77fb.
+Licensed under GPL-3.0-only; see LICENSES/Olivar-GPL-3.0.txt.
+
+varVAMP 1.3.2
+Copyright and attribution remain with the varVAMP contributors.
+https://github.com/jonas-fuchs/varVAMP
+Pinned tag v.1.3.2, commit 85d870b53288b637ab7749186c2c4284cab1bd2d.
+Licensed under GPL-3.0-only; see LICENSES/varVAMP-GPL-3.0.txt.

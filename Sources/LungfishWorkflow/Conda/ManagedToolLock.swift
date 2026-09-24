@@ -1,5 +1,102 @@
 @preconcurrency import Foundation
+import CryptoKit
 import LungfishCore
+
+public struct ManagedCondaExplicitLockSpec: Sendable, Codable, Hashable, Identifiable {
+    public var id: String { "\(packID)/\(toolID)" }
+    public let packID: String
+    public let toolID: String
+    public let platform: String
+    public let resource: String
+    public let sha256: String
+
+    enum CodingKeys: String, CodingKey {
+        case packID, toolID = "id", platform, resource, sha256
+    }
+
+    public init(packID: String, toolID: String, platform: String, resource: String, sha256: String) {
+        self.packID = packID
+        self.toolID = toolID
+        self.platform = platform
+        self.resource = resource
+        self.sha256 = sha256.lowercased()
+    }
+
+    func validateIdentity() throws {
+        let safe = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-")
+        guard !packID.isEmpty, !toolID.isEmpty, platform == "osx-arm64",
+              resource == URL(fileURLWithPath: resource).lastPathComponent,
+              resource.hasSuffix("-osx-arm64-explicit.txt"),
+              resource.unicodeScalars.allSatisfy(safe.contains),
+              sha256.count == 64, sha256.allSatisfy({ $0.isASCII && $0.isHexDigit }) else {
+            throw CondaLockfileError.invalidSpecification(
+                "Explicit conda lock requires a safe bundled osx-arm64 resource and SHA-256.")
+        }
+    }
+
+    func validatedResourceURL() throws -> URL {
+        try validateIdentity()
+        let url: URL
+        if let bundled = RuntimeResourceLocator.path("ManagedTools/\(resource)", in: .workflow) {
+            url = bundled
+        } else {
+            #if DEBUG
+            let source = URL(fileURLWithPath: #filePath)
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+                .appendingPathComponent("Resources/ManagedTools/\(resource)")
+            guard FileManager.default.fileExists(atPath: source.path) else {
+                throw CondaLockfileError.invalidSpecification(
+                    "Bundled explicit conda lock is missing: \(resource)")
+            }
+            url = source
+            #else
+            throw CondaLockfileError.invalidSpecification(
+                "Bundled explicit conda lock is missing: \(resource)")
+            #endif
+        }
+        let data = try Data(contentsOf: url)
+        let actual = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+        guard actual == sha256 else {
+            throw CondaLockfileError.invalidSpecification(
+                "Explicit conda lock \(resource) checksum is \(actual), expected \(sha256).")
+        }
+        try validateContents(data)
+        return url
+    }
+
+    func validateContents(_ data: Data) throws {
+        guard let text = String(data: data, encoding: .utf8) else {
+            throw CondaLockfileError.invalidSpecification(
+                "Explicit conda lock \(resource) is not UTF-8 text.")
+        }
+        let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+        guard lines.contains("@EXPLICIT") else {
+            throw CondaLockfileError.invalidSpecification(
+                "Explicit conda lock \(resource) is missing @EXPLICIT.")
+        }
+        let packageLines = lines.filter { !$0.isEmpty && !$0.hasPrefix("#") && $0 != "@EXPLICIT" }
+        guard !packageLines.isEmpty else {
+            throw CondaLockfileError.invalidSpecification(
+                "Explicit conda lock \(resource) has no captured package URLs.")
+        }
+        for line in packageLines {
+            guard !line.localizedCaseInsensitiveContains("%2e"),
+                  let url = URL(string: line),
+                  url.scheme == "https", url.host == "conda.anaconda.org", url.port == nil,
+                  url.user == nil, url.password == nil, url.query == nil,
+                  !url.pathComponents.contains(".."),
+                  url.path.hasSuffix(".conda") || url.path.hasSuffix(".tar.bz2"),
+                  let digest = url.fragment,
+                  [32, 64].contains(digest.count),
+                  digest.allSatisfy({ $0.isASCII && $0.isHexDigit }) else {
+                throw CondaLockfileError.invalidSpecification(
+                    "Explicit conda lock \(resource) contains an unsafe or unhashed package URL.")
+            }
+        }
+    }
+}
 
 public struct ManagedToolLock: Sendable, Codable, Hashable {
     public struct ToolSpec: Sendable, Codable, Hashable, Identifiable {
@@ -154,6 +251,7 @@ public struct ManagedToolLock: Sendable, Codable, Hashable {
     public let pipelines: [PipelineSpec]
     public let databases: [DatabaseSpec]
     public let bootstrap: BootstrapSpec?
+    public let explicitLocks: [ManagedCondaExplicitLockSpec]
     /// Environment names this manifest has explicitly dropped, so reconciliation may remove them.
     ///
     /// Absence from `tools`/`packTools` is NOT enough to retire an environment: the user's conda
@@ -173,6 +271,7 @@ public struct ManagedToolLock: Sendable, Codable, Hashable {
         pipelines: [PipelineSpec] = [],
         databases: [DatabaseSpec] = [],
         bootstrap: BootstrapSpec? = nil,
+        explicitLocks: [ManagedCondaExplicitLockSpec] = [],
         retiredEnvironments: [String] = []
     ) {
         self.packID = packID
@@ -186,12 +285,13 @@ public struct ManagedToolLock: Sendable, Codable, Hashable {
         self.pipelines = pipelines
         self.databases = databases
         self.bootstrap = bootstrap
+        self.explicitLocks = explicitLocks
         self.retiredEnvironments = retiredEnvironments
     }
 
     enum CodingKeys: String, CodingKey {
         case packID, displayName, version, tools, managedData
-        case dependencySet, dependencySetDate, packTools, pipelines, databases, bootstrap
+        case dependencySet, dependencySetDate, packTools, pipelines, databases, bootstrap, explicitLocks
         case retiredEnvironments
     }
 
@@ -208,6 +308,7 @@ public struct ManagedToolLock: Sendable, Codable, Hashable {
         pipelines = try c.decodeIfPresent([PipelineSpec].self, forKey: .pipelines) ?? []
         databases = try c.decodeIfPresent([DatabaseSpec].self, forKey: .databases) ?? []
         bootstrap = try c.decodeIfPresent(BootstrapSpec.self, forKey: .bootstrap)
+        explicitLocks = try c.decodeIfPresent([ManagedCondaExplicitLockSpec].self, forKey: .explicitLocks) ?? []
         retiredEnvironments = try c.decodeIfPresent([String].self, forKey: .retiredEnvironments) ?? []
         for tool in packTools {
             let sourceOverlay = try tool.requestedSourceOverlay()
@@ -219,6 +320,16 @@ public struct ManagedToolLock: Sendable, Codable, Hashable {
             try tool.pythonRuntime?.validateRequestedIdentity()
         }
         for database in databases { try database.validateSourceIdentity() }
+        guard Set(explicitLocks.map(\.id)).count == explicitLocks.count else {
+            throw CondaLockfileError.invalidSpecification("Explicit conda lock identities must be unique.")
+        }
+        for lock in explicitLocks {
+            try lock.validateIdentity()
+            guard packTools.contains(where: { $0.packID == lock.packID && $0.toolID == lock.toolID }) else {
+                throw CondaLockfileError.invalidSpecification(
+                    "Explicit conda lock '\(lock.id)' has no matching pack tool.")
+            }
+        }
     }
 
     public func tool(named id: String) -> ToolSpec? {
@@ -227,6 +338,10 @@ public struct ManagedToolLock: Sendable, Codable, Hashable {
 
     public func managedData(named id: String) -> ManagedDataSpec? {
         managedData.first(where: { $0.id == id })
+    }
+
+    public func explicitLock(packID: String, toolID: String) -> ManagedCondaExplicitLockSpec? {
+        explicitLocks.first { $0.packID == packID && $0.toolID == toolID }
     }
 
     public static func loadFromBundle() throws -> ManagedToolLock {

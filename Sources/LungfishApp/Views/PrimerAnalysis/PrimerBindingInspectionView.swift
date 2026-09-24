@@ -2,6 +2,12 @@ import AppKit
 import SwiftUI
 
 struct PrimerBindingInspectionView: View {
+    struct PrimerPresentation {
+        let track: MSAReadOnlyPrimerTrack?
+        let columnLabel: String?
+        let unavailableReason: String?
+        let shouldFocusAnnotation: Bool
+    }
     let contexts: [PrimerBindingInspectionContext]
     var selectedReviewPrimerID: String? = nil
     var visibility = PrimerAnalysisVisibility()
@@ -32,7 +38,9 @@ struct PrimerBindingInspectionView: View {
                     Text(reason).foregroundStyle(.secondary)
                 }
                 let primer = Self.resolvePrimer(in: context, selectedID: selectedPrimerID)
-                let track = primer.flatMap { try? context.displayTrack(for: $0, showIdentityDots: showIdentityDots) }
+                let presentation = primer.map { Self.presentation(for: $0, in: context,
+                    showIdentityDots: showIdentityDots) }
+                let track = presentation?.track
                 if !context.primers.isEmpty {
                     Picker("Compare primer", selection: Binding(get: { primer?.id ?? "" }, set: { selectedPrimerID = $0 })) {
                         Text("Choose a visible primer").tag("")
@@ -40,27 +48,33 @@ struct PrimerBindingInspectionView: View {
                     }
                 }
                 if primer != nil {
-                    if identityDots == nil {
+                    if let reason = presentation?.unavailableReason {
+                        Text("Binding projection unavailable: \(reason)")
+                            .font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
+                    } else if identityDots == nil {
                         Toggle("Show matching observed bases as dots", isOn: dots).disabled(track == nil)
                     }
-                    Text(track?.label ?? "Primer sequence track unavailable: sequence length and mapped columns do not agree.")
-                        .font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
+                    if presentation?.unavailableReason == nil {
+                        Text(track?.label ?? "Primer sequence track unavailable: sequence length and mapped columns do not agree.")
+                            .font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
+                    }
                 }
-                PrimerBindingAlignmentCanvas(context: context, selectedPrimerID: primer?.id, track: track)
+                PrimerBindingAlignmentCanvas(context: context,
+                    selectedPrimerID: presentation?.shouldFocusAnnotation == true ? primer?.id : nil, track: track)
                     .frame(minHeight: 200, idealHeight: 320, maxHeight: 400)
                     .border(Color.secondary.opacity(0.25))
                     .help(Self.legend(hasTrack: track != nil, showIdentityDots: showIdentityDots))
                     .accessibilityIdentifier("primerAnalysisViewer.bindingAlignment")
-                if let primer {
-                    Text("5′ \(primer.sequence) 3′ · strand \(primer.strand) · alignment columns \(primer.alignedStart + 1)–\(primer.alignedEnd)")
-                        .font(.system(.caption, design: .monospaced)).textSelection(.enabled)
+                if let primer, presentation?.unavailableReason == nil {
+                    if let label = presentation?.columnLabel {
+                        Text(label).font(.system(.caption, design: .monospaced)).textSelection(.enabled)
+                    }
                     PrimerBindingComparisonTable(context: context, primer: primer)
-                        .frame(minHeight: 100, idealHeight: 180, maxHeight: .infinity, alignment: .topLeading)
-                } else if context.unavailableReason == nil {
-                    Text(!context.primers.isEmpty ? "The selected primer is hidden or unavailable. Choose a visible primer above or adjust Inspector → View."
-                         : contexts.first(where: { $0.id == context.id })?.primers.isEmpty == false
-                         ? "All primer sites for this alignment are hidden. Use Show all in Inspector → View to restore them."
-                         : "No primer sites were returned for this alignment.").foregroundStyle(.secondary)
+                      .frame(minHeight: 100, idealHeight: 180, maxHeight: .infinity, alignment: .topLeading)
+                } else if let fallback = Self.fallbackMessage(in: context,
+                    originalContextHasPrimers: contexts.first(where: { $0.id == context.id })?.primers.isEmpty == false,
+                    explicitUnavailableReason: presentation?.unavailableReason) {
+                    Text(fallback).foregroundStyle(.secondary)
                 }
             } else {
                 Text("Alignment binding inspection is available for stored PrimalScheme results with a verified input alignment and reference mapping.")
@@ -77,6 +91,29 @@ struct PrimerBindingInspectionView: View {
                                           selectedID: String?) -> PrimerBindingInspectionPrimer? {
         guard let selectedID else { return context.primers.first }
         return context.primers.first { $0.id == selectedID }
+    }
+
+    nonisolated static func presentation(for primer: PrimerBindingInspectionPrimer,
+      in context: PrimerBindingInspectionContext, showIdentityDots: Bool) -> PrimerPresentation {
+        if let reason = primer.unavailableReason {
+            return .init(track: nil, columnLabel: nil, unavailableReason: reason,
+                shouldFocusAnnotation: false)
+        }
+        let track = try? context.displayTrack(for: primer, showIdentityDots: showIdentityDots)
+        return .init(track: track,
+            columnLabel: "5′ \(primer.sequence) 3′ · strand \(primer.strand) · alignment columns \(primer.alignedStart + 1)–\(primer.alignedEnd)",
+            unavailableReason: nil, shouldFocusAnnotation: true)
+    }
+
+    nonisolated static func fallbackMessage(in context: PrimerBindingInspectionContext,
+      originalContextHasPrimers: Bool, explicitUnavailableReason: String?) -> String? {
+        guard context.unavailableReason == nil, explicitUnavailableReason == nil else { return nil }
+        if !context.primers.isEmpty {
+            return "The selected primer is hidden or unavailable. Choose a visible primer above or adjust Inspector → View."
+        }
+        return originalContextHasPrimers
+            ? "All primer sites for this alignment are hidden. Use Show all in Inspector → View to restore them."
+            : "No primer sites were returned for this alignment."
     }
 
     nonisolated static func legend(hasTrack: Bool, showIdentityDots: Bool) -> String {

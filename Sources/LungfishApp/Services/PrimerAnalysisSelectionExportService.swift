@@ -9,6 +9,7 @@ enum PrimerAnalysisExportSelection: Sendable, Equatable, Codable {
   case primer(targetID: String, primerID: String)
   case amplicon(targetID: String, ampliconID: String)
   case pool(sourceResultID: String, pool: Int)
+  case nativePool(sourceResultID: String, pool: String)
 }
 
 enum PrimerAnalysisExportKind: String, Sendable, Equatable, Codable {
@@ -91,7 +92,17 @@ struct PrimerAnalysisSelectionExportService: Sendable {
     case .pool(let sourceResultID, let pool):
       guard pool > 0 else { throw unavailable("Choose a saved primer pool.") }
       targets = snapshot.designReview.filter { $0.sourceResultID == sourceResultID }
-      selectedPrimers = targets.flatMap { target in target.primers.filter { $0.pool == pool }.map { (target, $0) } }
+      selectedPrimers = targets.flatMap { target in
+        target.primers.filter { $0.nativePool == String(pool) }.map { (target, $0) }
+      }
+    case .nativePool(let sourceResultID, let pool):
+      guard !pool.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+        throw unavailable("Choose a saved primer pool.")
+      }
+      targets = snapshot.designReview.filter { $0.sourceResultID == sourceResultID }
+      selectedPrimers = targets.flatMap { target in
+        target.primers.filter { $0.nativePool == pool }.map { (target, $0) }
+      }
     }
     guard !targets.isEmpty else { throw unavailable("This target is no longer present in the saved analysis.") }
     let internalOligoIDs = Set(snapshot.primer3Results?.results.flatMap { result in
@@ -103,6 +114,21 @@ struct PrimerAnalysisSelectionExportService: Sendable {
       if snapshot.primer3Results != nil {
         result = snapshot.bundle.manifest.results.first { $0.id.uuidString == target.sourceResultID }
         paths.insert("results/primer3-normalized-v1.json")
+      } else if let document = snapshot.primerSchemeResultsDocument {
+        guard let sourceID = UUID(uuidString: target.sourceResultID),
+          let normalizedResult = document.results.first(where: { $0.id == sourceID }),
+          let normalizedTarget = normalizedResult.targets.first(where: {
+            $0.id.uuidString.lowercased() == target.id.lowercased()
+          }) else {
+          throw unavailable("The normalized selection has no saved result or target membership.")
+        }
+        result = snapshot.bundle.manifest.results.first { $0.id == normalizedResult.id }
+        paths.insert(PrimerSchemeResultsDocument.storedRelativePath)
+        paths.insert(document.provenancePath)
+        paths.insert(normalizedTarget.referencePath)
+        paths.insert(normalizedTarget.bindingProjectionPath)
+        paths.formUnion(document.artifacts.map(\.path))
+        if let result { paths.formUnion(result.artifactPaths) }
       } else {
         result = snapshot.bundle.manifest.results.first { $0.artifactPaths.contains(target.sourceResultID) }
         let prefix = String(target.sourceResultID.dropLast("primer.bed".count))
@@ -126,22 +152,32 @@ struct PrimerAnalysisSelectionExportService: Sendable {
       "sourceResultIDs": .array(Array(Set(targets.map(\.sourceResultID))).sorted().map(ParameterValue.string)),
       "coordinateConvention": .string("zero-based-half-open"),
       "kind": .string(kind.rawValue),
-      "primers": .array(selectedPrimers.map { target, primer in .dictionary([
-        "targetID": .string(target.id), "referenceID": .string(target.referenceID),
-        "primerID": .string(primer.id), "name": .string(primer.name),
-        "start": .integer(primer.start), "end": .integer(primer.end),
-        "strand": .string(primer.strand), "pool": primer.pool.map(ParameterValue.integer) ?? .string("unpooled"),
-        "oligoType": .string(internalOligoIDs.contains(primer.id) ? "internal_oligo" : "primer_bind"),
-        "sequence5primeTo3prime": .string(primer.sequence),
-      ]) }),
+      "primers": .array(selectedPrimers.map { target, primer in
+        var values: [String: ParameterValue] = [
+          "targetID": .string(target.id), "referenceID": .string(target.referenceID),
+          "primerID": .string(primer.id), "name": .string(primer.name),
+          "start": .integer(primer.start), "end": .integer(primer.end),
+          "strand": .string(primer.strand), "oligoRole": .string(primer.role.rawValue),
+          "candidateStatus": .string(primer.candidateStatus.rawValue),
+          "assayIDs": .array(primer.ampliconIDs.map(ParameterValue.string)),
+          "oligoType": .string(internalOligoIDs.contains(primer.id) || primer.role == .probe
+            ? "internal_oligo" : "primer_bind"),
+          "sequence5primeTo3prime": .string(primer.sequence),
+        ]
+        if let rank = primer.rank { values["candidateRank"] = .integer(rank) }
+        if let pool = primer.nativePool { values["nativePool"] = .string(pool) }
+        return .dictionary(values)
+      }),
     ]
     if case .pool(_, let pool) = selection { options["pool"] = .integer(pool) }
+    if case .nativePool(_, let pool) = selection { options["nativePool"] = .string(pool) }
     if let amplicon = selectedAmplicon {
       options["ampliconID"] = .string(amplicon.id)
       options["ampliconName"] = .string(amplicon.name)
       options["sourceStart"] = .integer(amplicon.start)
       options["sourceEnd"] = .integer(amplicon.end)
-      if let pool = amplicon.pool { options["pool"] = .integer(pool) }
+      if let rank = amplicon.rank { options["candidateRank"] = .integer(rank) }
+      if let pool = amplicon.nativePool { options["nativePool"] = .string(pool) }
     }
     if kind == .primerFASTA {
       guard !selectedPrimers.isEmpty else {
@@ -152,8 +188,9 @@ struct PrimerAnalysisSelectionExportService: Sendable {
         guard !primer.sequence.isEmpty, primer.sequence.utf8.allSatisfy({ "ACGTRYSWKMBDHVNacgtryswkmbdhvn".utf8.contains($0) }) else {
           throw unavailable("The saved primer sequence is unavailable or invalid.")
         }
+        let pool = primer.nativePool.map { " pool=\(safeHeader($0))" } ?? ""
         return Record(name: "primer_\(ordinal + 1)_\(safeToken(primer.name))",
-          description: "name=\(safeHeader(primer.name)) target=\(safeHeader(target.referenceID)) pool=\(primer.pool.map(String.init) ?? "unpooled") strand=\(primer.strand) orientation=5prime-to-3prime",
+          description: "name=\(safeHeader(primer.name)) target=\(safeHeader(target.referenceID))\(pool) strand=\(primer.strand) orientation=5prime-to-3prime",
           sequence: primer.sequence)
       }
       options["sequenceSemantics"] = .string("stored-oligos-5prime-to-3prime")
@@ -167,6 +204,13 @@ struct PrimerAnalysisSelectionExportService: Sendable {
     if let normalized = snapshot.primer3Results,
       let result = normalized.results.first(where: { $0.resultID.uuidString == target.sourceResultID }) {
       sequence = result.templateSequence
+    } else if let document = snapshot.primerSchemeResultsDocument,
+      let sourceID = UUID(uuidString: target.sourceResultID),
+      let normalizedTarget = document.results.first(where: { $0.id == sourceID })?.targets.first(where: {
+        $0.id.uuidString.lowercased() == target.id.lowercased()
+      }) {
+      sequence = try referenceSequence(
+        verifiedSource(normalizedTarget.referencePath, bundle: snapshot.bundle), id: normalizedTarget.referenceID)
     } else {
       let path = String(target.sourceResultID.dropLast("primer.bed".count)) + "reference.fasta"
       let bytes = try verifiedSource(path, bundle: snapshot.bundle)
@@ -177,23 +221,27 @@ struct PrimerAnalysisSelectionExportService: Sendable {
       throw unavailable("The saved amplicon exceeds the reference sequence.")
     }
     let recordName = "amplicon_" + safeToken(amplicon.name)
+    let ampliconPool = amplicon.nativePool.map { " pool=\(safeHeader($0))" } ?? ""
     let record = Record(name: recordName,
-      description: "reference=\(safeHeader(target.referenceID)) start0=\(amplicon.start) end=\(amplicon.end) orientation=forward-reference pool=\(amplicon.pool.map(String.init) ?? "unpooled")",
+      description: "reference=\(safeHeader(target.referenceID)) start0=\(amplicon.start) end=\(amplicon.end) orientation=forward-reference\(ampliconPool)",
       sequence: String(decoding: bytes[amplicon.start..<amplicon.end], as: UTF8.self))
     let bed = try selectedPrimers.map { _, primer in
       guard primer.start >= amplicon.start, primer.end <= amplicon.end else {
         throw unavailable("A linked primer extends beyond this saved amplicon.")
       }
       let start = primer.start - amplicon.start, end = primer.end - amplicon.start
-      let qualifiers = ["source_primer_id=\(safeQualifier(primer.id))",
+      var qualifierValues = ["source_primer_id=\(safeQualifier(primer.id))",
         "source_analysis_id=\(snapshot.bundle.manifest.analysisID.uuidString)",
         "source_amplicon_id=\(safeQualifier(amplicon.id))", "source_reference=\(safeQualifier(target.referenceID))",
         "source_start=\(primer.start)", "source_end=\(primer.end)",
-        "pool=\(primer.pool.map(String.init) ?? "unpooled")",
-        "sequence_5prime_to_3prime=\(safeQualifier(primer.sequence))"].joined(separator: ";")
+        "oligo_role=\(primer.role.rawValue)", "candidate_status=\(primer.candidateStatus.rawValue)",
+        "assay_ids=\(safeQualifier(primer.ampliconIDs.joined(separator: ",")))",
+        "sequence_5prime_to_3prime=\(safeQualifier(primer.sequence))"]
+      if let pool = primer.nativePool { qualifierValues.append("native_pool=\(safeQualifier(pool))") }
+      let qualifiers = qualifierValues.joined(separator: ";")
       return [recordName, String(start), String(end), safeHeader(primer.name), "0", primer.strand,
         String(start), String(end), "0,102,204", "1", String(end - start), "0",
-        internalOligoIDs.contains(primer.id) ? "internal_oligo" : "primer_bind", qualifiers].joined(separator: "\t")
+        internalOligoIDs.contains(primer.id) || primer.role == .probe ? "internal_oligo" : "primer_bind", qualifiers].joined(separator: "\t")
     }.joined(separator: "\n")
     options["referenceID"] = .string(target.referenceID)
     options["sequenceSemantics"] = .string(snapshot.primer3Results == nil
