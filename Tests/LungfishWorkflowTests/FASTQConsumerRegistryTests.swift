@@ -32,14 +32,12 @@ final class FASTQConsumerRegistryTests: XCTestCase {
         "genotype.illumina-mhc", "genotype.ont-mhc", "twelve-s.amplicon-matching", "viralrecon.illumina",
     ]
 
-    /// Consumers whose mixed handling pairs records by position today.
-    /// Fixing one means removing it here; adding one is a deliberate act.
-    private static let knownUngracefulMixedConsumerIDs: Set<String> = [
-        "fastq.subsample", "fastq.contaminant-filter", "fastq.entropy-filter", "fastq.deduplicate",
-        "fastq.sequence-filter", "fastq.scrub-human", "fastq.deacon-ribo", "fastq.deinterleave",
-        "gui.fastq-derivative", "recipe.convert-interleaved-to-paired", "workflow-builder.native-runner",
-        "genotype.illumina-mhc",
-    ]
+    /// Consumers whose mixed handling pairs records by position. Every
+    /// consumer now resolves its layout through FASTQInputLayoutResolver and
+    /// either pairs mixed input by name or runs it as single reads, so the
+    /// set is empty; adding an ID here is a deliberate act that needs its
+    /// own fix scheduled.
+    private static let knownUngracefulMixedConsumerIDs: Set<String> = []
 
     func testEveryRequiredConsumerIsDeclared() {
         let declaredIDs = Set(FASTQConsumerRegistry.declarations.map(\.consumerID))

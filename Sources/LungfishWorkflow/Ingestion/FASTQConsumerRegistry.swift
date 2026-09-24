@@ -6,10 +6,12 @@
 // that consumes FASTQ to say what it does with single-end, strictly
 // interleaved, mixed (merged reads plus pairs), and R1/R2 input. The
 // mappers declare next to their builder (MappingTool+ReadLayout). The rest
-// are declared here, as they behave TODAY, with the source that decides the
-// behaviour named in the rationale. `mixedHandlingIsGraceful == false` marks
-// a consumer whose mixed handling pairs records by position and is recorded
-// pending its own fix; FASTQConsumerRegistryTests pins that list so a new
+// are declared here, with the source that decides the behaviour named in
+// the rationale. Every consumer now resolves its layout through
+// FASTQInputLayoutResolver (metadata, then a record scan) and either pairs
+// mixed input by NAME or runs it as single reads; `mixedHandlingIsGraceful
+// == false` is reserved for a consumer that still pairs mixed input by
+// position, and FASTQConsumerRegistryTests pins that list (empty) so a new
 // unsafe consumer cannot slip in unnoticed.
 
 import Foundation
@@ -117,10 +119,11 @@ public enum FASTQConsumerRegistry {
     // MARK: - lungfish-cli fastq subcommands
 
     private static var fastqSubcommandDeclarations: [FASTQConsumerDeclaration] {
-        // Subcommands that ask FASTQPairingModeResolver (bundle pairingMode,
-        // then a 400-record name probe) and pair records by position when it
-        // says interleaved. The resolver has no mixed case, so a mixed bundle
-        // recorded as interleaved is paired by position today.
+        // Subcommands whose pair-aware tool pairs records by POSITION. Their
+        // --pairing option resolves the layout through FASTQPairingModeResolver
+        // (FASTQInputLayoutResolver underneath) and turns the tool's pair mode
+        // on only for a strictly interleaved file; mixed input runs as single
+        // reads, and the provenance records readLayout and readLayoutReason.
         let positionalWhenInterleaved: [(id: String, name: String, tool: String, pairedFiles: FASTQReadLayoutHandling)] = [
             ("fastq.subsample", "fastq subsample", "reformat interleaved=t", .asSingle),
             ("fastq.contaminant-filter", "fastq contaminant-filter", "bbduk interleaved=t", .asSingle),
@@ -137,11 +140,10 @@ public enum FASTQConsumerRegistry {
                 handling: [
                     .singleEnd: .asSingle,
                     .strictlyInterleaved: .asPairs,
-                    .mixedMergedAndPairs: .asPairs,
+                    .mixedMergedAndPairs: .asSingle,
                     .pairedFiles: entry.pairedFiles,
                 ],
-                mixedRationale: "FASTQPairingOptions resolves interleaved from bundle metadata or a name probe, then runs \(entry.tool), which pairs by position and mis-pairs a mixed file.",
-                mixedHandlingIsGraceful: false
+                mixedRationale: "\(entry.tool) pairs by position, so FASTQPairingOptions.resolvePairing turns it on only for a strictly interleaved file; a mixed file runs as single reads with a warning, and --pairing interleaved is verified against the records."
             )
         }
 
@@ -193,22 +195,21 @@ public enum FASTQConsumerRegistry {
             handling: [
                 .singleEnd: .asSingle,
                 .strictlyInterleaved: .asPairs,
-                .mixedMergedAndPairs: .asSingle,
+                .mixedMergedAndPairs: .asPairs,
                 .pairedFiles: .asSingle,
             ],
-            mixedRationale: "bbmerge runs without an interleaved flag, so BBTools' name auto-detection pairs /1 /2 and Casava names in a strictly interleaved file and treats a mixed file as single reads."
+            mixedRationale: "FastqMergeSubcommand resolves the layout first: a strictly interleaved file runs bbmerge interleaved=t (identical names included); a mixed file is partitioned by NAME, bbmerge merges the strict pairs, and the merged reads pass through into the output untouched; a single-end file is refused."
         )
         let deinterleave = FASTQConsumerDeclaration(
             consumerID: "fastq.deinterleave",
             displayName: "fastq deinterleave",
             handling: [
-                .singleEnd: .splitToR1R2,
+                .singleEnd: .asSingle,
                 .strictlyInterleaved: .splitToR1R2,
                 .mixedMergedAndPairs: .splitToR1R2,
                 .pairedFiles: .asSingle,
             ],
-            mixedRationale: "reformat interleaved=t splits by position whatever the file holds; a mixed file yields misaligned R1/R2.",
-            mixedHandlingIsGraceful: false
+            mixedRationale: "A strictly interleaved file is split by position with reformat interleaved=t. A mixed file is split by NAME in process (FASTQPairInterleaver.partitionMixed): pairs go to --out1/--out2 and reads without a mate to --unpaired, which the command requires for such a file. A single-end file is refused."
         )
         let interleave = FASTQConsumerDeclaration(
             consumerID: "fastq.interleave",
@@ -234,11 +235,10 @@ public enum FASTQConsumerRegistry {
                 handling: [
                     .singleEnd: .asSingle,
                     .strictlyInterleaved: .asPairs,
-                    .mixedMergedAndPairs: .asPairs,
+                    .mixedMergedAndPairs: .asSingle,
                     .pairedFiles: .asSingle,
                 ],
-                mixedRationale: "FASTQDerivativeService.isInterleavedBundle reads bundle metadata only and drives fastp --interleaved_in, cutadapt --interleaved, BBTools interleaved=t and the deacon split by position.",
-                mixedHandlingIsGraceful: false
+                mixedRationale: "FASTQDerivativeService.resolvedReadLayout scans the materialized reads with the bundle metadata as hints; fastp --interleaved_in, cutadapt --interleaved, BBTools interleaved=t and the deacon split (all positional) run only for a strictly interleaved file. Deinterleave and PE merge refuse a mixed file with a message; PE repair (by name) accepts it."
             ),
             FASTQConsumerDeclaration(
                 consumerID: "ingest.clumpify",
@@ -255,13 +255,12 @@ public enum FASTQConsumerRegistry {
                 consumerID: "recipe.convert-interleaved-to-paired",
                 displayName: "Recipe engine interleaved-to-paired step",
                 handling: [
-                    .singleEnd: .splitToR1R2,
+                    .singleEnd: .asSingle,
                     .strictlyInterleaved: .splitToR1R2,
-                    .mixedMergedAndPairs: .splitToR1R2,
+                    .mixedMergedAndPairs: .asSingle,
                     .pairedFiles: .asPairs,
                 ],
-                mixedRationale: "RecipeEngine.convertInterleavedToPaired runs reformat out= out2= and splits by position.",
-                mixedHandlingIsGraceful: false
+                mixedRationale: "RecipeEngine.convertInterleavedToPaired resolves the layout first and runs reformat interleaved=t out= out2= only for a strictly interleaved file; a mixed or single-end file continues as .single and a later paired step reports the format mismatch."
             ),
             FASTQConsumerDeclaration(
                 consumerID: "workflow-builder.native-runner",
@@ -269,11 +268,10 @@ public enum FASTQConsumerRegistry {
                 handling: [
                     .singleEnd: .asSingle,
                     .strictlyInterleaved: .splitToR1R2,
-                    .mixedMergedAndPairs: .splitToR1R2,
+                    .mixedMergedAndPairs: .asSingle,
                     .pairedFiles: .asPairs,
                 ],
-                mixedRationale: "WorkflowBuilderNativeRunner labels a file interleaved from the sidecar pairingMode alone and converts it to R1/R2 by position.",
-                mixedHandlingIsGraceful: false
+                mixedRationale: "WorkflowBuilderNativeRunner.resolveStepInput resolves the layout through FASTQInputLayoutResolver: only a strictly interleaved file enters the recipe as .interleaved (converted to R1/R2 by position); a mixed file enters as .single."
             ),
         ]
     }
@@ -291,8 +289,7 @@ public enum FASTQConsumerRegistry {
                     .mixedMergedAndPairs: .asPairs,
                     .pairedFiles: .asSingle,
                 ],
-                mixedRationale: "IlluminaAmpliconPairMerger probes 400 records (identical names not accepted) and runs bbmerge interleaved=t when most steps look paired, which pairs by position.",
-                mixedHandlingIsGraceful: false
+                mixedRationale: "IlluminaAmpliconPairMerger resolves the layout through FASTQInputLayoutResolver; a mixed file is first partitioned by NAME (FASTQPairInterleaver.partitionMixed), bbmerge interleaved=t runs on the strict pairs only, and the merged reads bypass it into the mapping FASTQ untouched."
             ),
             FASTQConsumerDeclaration(
                 consumerID: "genotype.ont-mhc",
