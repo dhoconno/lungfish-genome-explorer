@@ -69,7 +69,7 @@ final class GenotypeAIHaplotypingExecutionService {
                 detail: "Preparing \(displayName(for: mode))"
             )
         } else {
-            operationID = operationCenter.start(
+            let startResult = operationCenter.begin(
                 title: "AI Haplotyping",
                 detail: "Preparing \(displayName(for: mode))",
                 operationType: .fastqOperation,
@@ -77,6 +77,10 @@ final class GenotypeAIHaplotypingExecutionService {
                 cliCommand: nil,
                 routeContext: routeContext
             )
+            guard case .started(let startedID) = startResult else {
+                throw AIHaplotypingExecutionError.bundleBusy
+            }
+            operationID = startedID
         }
 
         do {
@@ -425,11 +429,14 @@ private struct ResolvedProvider {
 
 private enum AIHaplotypingExecutionError: Error, LocalizedError {
     case refinementRequiresCurrentAnalysis
+    case bundleBusy
 
     var errorDescription: String? {
         switch self {
         case .refinementRequiresCurrentAnalysis:
             return "AI refinement requires an existing deterministic, manual, or AI haplotype analysis in the bundle."
+        case .bundleBusy:
+            return "The genotype bundle is busy. Wait for its current operation to finish."
         }
     }
 }

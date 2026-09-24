@@ -601,7 +601,7 @@ extension AppDelegate {
             windowStateScope: routeContext?.windowStateScopeID.map(WindowStateScope.init(id:)),
             workflowName: "Annotation import"
         ) else { return }
-        let opID = OperationCenter.shared.start(
+        let startResult = OperationCenter.shared.begin(
             title: "Annotation Import",
             detail: "Importing \(annotationURL.lastPathComponent)...",
             operationType: .bundleBuild,
@@ -609,6 +609,11 @@ extension AppDelegate {
             cliCommand: nil,
             routeContext: routeContext
         )
+        guard case .started(let opID) = startResult else {
+            // The bundle is locked by another operation. The visible
+            // "Bundle is busy" row is already inserted; do not import.
+            return
+        }
 
         do {
             let result = try await ReferenceBundleAnnotationImportService()

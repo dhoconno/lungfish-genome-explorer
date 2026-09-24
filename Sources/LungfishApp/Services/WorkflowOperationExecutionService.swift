@@ -197,7 +197,7 @@ final class WorkflowOperationExecutionService {
             executableName: CLICommandIdentity.executableName,
             arguments: arguments
         )
-        let operationID = operationCenter.start(
+        let startResult = operationCenter.begin(
             title: "12S Reference Bundle",
             detail: "Creating 12S reference bundle",
             operationType: .workflow,
@@ -205,6 +205,9 @@ final class WorkflowOperationExecutionService {
             cliCommand: cliCommand,
             routeContext: routeContext
         )
+        guard case .started(let operationID) = startResult else {
+            throw LocalWorkflowExecutionError.bundleBusy("The output bundle is busy. Wait for its current operation to finish.")
+        }
         operationCenter.log(id: operationID, level: .info, message: cliCommand)
         _ = operationCenter.updateWithLog(
             id: operationID,
@@ -277,7 +280,7 @@ final class WorkflowOperationExecutionService {
             arguments: arguments
         )
         let bundleURL = twelveSAmpliconMatchingBundleURL(for: configuration)
-        let operationID = operationCenter.start(
+        let startResult = operationCenter.begin(
             title: "12S Amplicon Matching",
             detail: "Running 12S amplicon matching workflow",
             operationType: .workflow,
@@ -285,6 +288,9 @@ final class WorkflowOperationExecutionService {
             cliCommand: cliCommand,
             routeContext: routeContext
         )
+        guard case .started(let operationID) = startResult else {
+            throw LocalWorkflowExecutionError.bundleBusy("The output bundle is busy. Wait for its current operation to finish.")
+        }
         operationCenter.log(id: operationID, level: .info, message: cliCommand)
         _ = operationCenter.updateWithLog(
             id: operationID,
@@ -356,7 +362,7 @@ final class WorkflowOperationExecutionService {
             executableName: CLICommandIdentity.executableName,
             arguments: arguments
         )
-        let operationID = operationCenter.start(
+        let startResult = operationCenter.begin(
             title: "miSeq amplicon MHC genotyping",
             detail: "Running miSeq amplicon MHC genotyping workflow",
             operationType: .workflow,
@@ -364,6 +370,9 @@ final class WorkflowOperationExecutionService {
             cliCommand: cliCommand,
             routeContext: routeContext
         )
+        guard case .started(let operationID) = startResult else {
+            throw LocalWorkflowExecutionError.bundleBusy("The output directory is busy. Wait for its current operation to finish.")
+        }
         operationCenter.log(id: operationID, level: .info, message: cliCommand)
         _ = operationCenter.updateWithLog(
             id: operationID,
@@ -482,7 +491,7 @@ final class WorkflowOperationExecutionService {
             executableName: CLICommandIdentity.executableName,
             arguments: arguments
         )
-        let operationID = operationCenter.start(
+        let startResult = operationCenter.begin(
             title: "Full-length ONT MHC genotyping",
             detail: "Running full-length ONT MHC genotyping workflow",
             operationType: .workflow,
@@ -490,6 +499,9 @@ final class WorkflowOperationExecutionService {
             cliCommand: cliCommand,
             routeContext: routeContext
         )
+        guard case .started(let operationID) = startResult else {
+            throw LocalWorkflowExecutionError.bundleBusy("The output directory is busy. Wait for its current operation to finish.")
+        }
         operationCenter.log(id: operationID, level: .info, message: cliCommand)
         _ = operationCenter.updateWithLog(
             id: operationID,
