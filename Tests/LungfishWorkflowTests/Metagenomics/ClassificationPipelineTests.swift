@@ -374,7 +374,11 @@ final class ClassificationConfigTests: XCTestCase {
         XCTAssertTrue(args.contains("--quick"))
     }
 
-    func testFASTAInputAddsKraken2FastaFlag() throws {
+    /// SCI-19: `--fasta-input` is not a real Kraken2 option (it is a Kraken 1
+    /// flag; Kraken2 auto-detects FASTA vs FASTQ and its GetOptions parser
+    /// silently ignores unknown options after printing a warning). LGE must
+    /// never emit it, for FASTA input or otherwise.
+    func testFASTAInputDoesNotAddNonexistentKraken2FastaFlag() throws {
         let dbDir = try makeFakeDatabaseDirectory()
         let fasta = try makeFakeFastaFile()
         let outputDir = try makeOutputDirectory()
@@ -389,7 +393,7 @@ final class ClassificationConfigTests: XCTestCase {
         )
 
         let args = config.kraken2Arguments()
-        XCTAssertTrue(args.contains("--fasta-input"))
+        XCTAssertFalse(args.contains("--fasta-input"), "--fasta-input is a Kraken 1 flag; Kraken2 has no such option")
     }
 
     func testThreadsArgument() throws {

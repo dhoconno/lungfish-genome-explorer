@@ -394,9 +394,12 @@ public struct ClassificationConfig: Sendable, Codable, Equatable {
             args.append("--paired")
         }
 
-        if inputFormat == .fasta {
-            args.append("--fasta-input")
-        }
+        // SCI-19: `--fasta-input` is a Kraken 1 flag; Kraken2 has no such
+        // option (its GetOptions parser reports "Unknown option" and
+        // ignores it, since Kraken2 auto-detects FASTA vs FASTQ). Passing it
+        // only produced a harmless stderr warning and a bogus line in
+        // provenance and the "CLI equivalent" display, previously appended
+        // here for `inputFormat == .fasta`.
 
         // Use report minimizer data for bracken compatibility
         args.append("--report-minimizer-data")
