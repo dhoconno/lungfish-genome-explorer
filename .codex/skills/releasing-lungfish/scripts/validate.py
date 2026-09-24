@@ -31,7 +31,8 @@ REQUIRED_FILES = (
     "scripts/tests/test_release_smoke.py",
 )
 
-PUBLIC_COMMANDS = ("debug", "configure-fork", "configure-machine", "setup", "doctor", "package", "publish")
+# yank (REL-04) is an incident command documented in docs/release/sparkle-updates.md.
+PUBLIC_COMMANDS = ("debug", "configure-fork", "configure-machine", "setup", "doctor", "package", "publish", "yank")
 PUBLIC_COMMAND_LINES = (
     "python3 scripts/release/release.py debug [--portable] [--jobs N]",
     "python3 scripts/release/release.py configure-fork",
@@ -363,6 +364,8 @@ def validate_frontdoor(repo_root: Path, errors: list[str]) -> None:
         errors.append("Package front door must accept only preview|stable plus --repo and remain profile-free")
     if "{preview,stable}" not in helps["publish"] or "--profile" not in helps["publish"]:
         errors.append("Publish front door must accept preview|stable and optional --profile")
+    if "{preview,stable}" not in helps["yank"] or "--execute" not in helps["yank"]:
+        errors.append("Yank front door must accept preview|stable and be plan-only unless --execute")
     if "--profile" not in helps["doctor"]:
         errors.append("Doctor front door must expose optional --profile")
     for option in ("--portable", "--jobs"):
