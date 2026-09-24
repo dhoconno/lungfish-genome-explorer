@@ -182,6 +182,14 @@ public class SequenceViewerView: NSView {
             // changes need to be tracked.
             cachedReadSetGeneration += 1
             cachedPackKey = nil
+            // PERF-09: maxReadSpan used to be recomputed by scanning up to 50,000 reads on
+            // every draw() call, including every ~55ms loading-badge animation tick. The scan
+            // result only depends on the read set itself, so compute it once here (keyed
+            // implicitly by cachedReadSetGeneration, which just advanced) instead of per frame.
+            cachedMaxReadSpan = cachedAlignedReads.isEmpty ? nil : max(
+                1,
+                cachedAlignedReads.lazy.prefix(50_000).map { max(1, $0.alignmentEnd - $0.position) }.max() ?? 500
+            )
             if cachedAlignedReads.isEmpty {
                 cachedReadMismatchCache = ReadMismatchCache()
             } else if let pending = pendingReadMismatchCache {
@@ -193,6 +201,10 @@ public class SequenceViewerView: NSView {
             }
         }
     }
+
+    /// Cached result of the `maxReadSpan` scan over `cachedAlignedReads`, recomputed only when
+    /// the read set itself changes (see the `didSet` above). Nil when there are no reads.
+    var cachedMaxReadSpan: Int?
 
     /// Mismatch cache computed off the main thread by a read fetch, consumed by
     /// the `cachedAlignedReads` `didSet` on commit so the expensive MD parse
@@ -293,6 +305,41 @@ public class SequenceViewerView: NSView {
 
     /// Current spinner phase in radians.
     var trackLoadingAnimationPhase: CGFloat = 0
+
+    /// Badge rects (view coordinates) drawn by `drawTrackLoadingBadge` during the most recent
+    /// `draw(_:)` pass. Cleared at the top of every full draw and repopulated as each badge is
+    /// drawn. The spinner-animation timer invalidates only the union of these rects instead of
+    /// the whole view (PERF-09), so a spinner tick during a fetch does not force a full re-run
+    /// of ruler/annotation/variant/coverage/read-track drawing every ~55ms.
+    var lastDrawnLoadingBadgeRects: [CGRect] = []
+
+    /// Test seam: rects passed to `setNeedsDisplay` by `advanceLoadingAnimationTick`, most
+    /// recent last. A rect equal to `bounds` denotes a full-view invalidation.
+    var testLoadingAnimationInvalidatedRects: [CGRect] = []
+
+    /// One tick of the loading-badge spinner: advances the phase and invalidates only the
+    /// badge rect(s) drawn on the last full pass, instead of the whole view (PERF-09). Factored
+    /// out of the timer closure so it is directly callable from tests without a live RunLoop timer.
+    func advanceLoadingAnimationTick() {
+        trackLoadingAnimationPhase += 0.34
+        if trackLoadingAnimationPhase > .pi * 2 {
+            trackLoadingAnimationPhase -= .pi * 2
+        }
+        if lastDrawnLoadingBadgeRects.isEmpty {
+            // Fall back to a full invalidate if no badge rect was recorded yet (e.g. the very
+            // first tick before any draw pass has run).
+            testLoadingAnimationInvalidatedRects.append(bounds)
+            setNeedsDisplay(bounds)
+        } else {
+            // Outset slightly: the stroked badge border and spinner arc extend a hair beyond
+            // the rect passed to drawTrackLoadingBadge.
+            for rect in lastDrawnLoadingBadgeRects {
+                let outset = rect.insetBy(dx: -2, dy: -2)
+                testLoadingAnimationInvalidatedRects.append(outset)
+                setNeedsDisplay(outset)
+            }
+        }
+    }
 
     /// Whether we're currently fetching consensus sequence data.
     var isFetchingConsensus: Bool = false
@@ -1309,12 +1356,7 @@ public class SequenceViewerView: NSView {
                 // Use MainActor.assumeIsolated instead of Task { @MainActor in } to avoid
                 // cooperative executor scheduling delays during AppKit layout-draw cycles.
                 MainActor.assumeIsolated {
-                    guard let self else { return }
-                    self.trackLoadingAnimationPhase += 0.34
-                    if self.trackLoadingAnimationPhase > .pi * 2 {
-                        self.trackLoadingAnimationPhase -= .pi * 2
-                    }
-                    self.setNeedsDisplay(self.bounds)
+                    self?.advanceLoadingAnimationTick()
                 }
             }
             trackLoadingAnimationTimer = timer

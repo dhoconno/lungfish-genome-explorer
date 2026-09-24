@@ -877,6 +877,8 @@ extension SequenceViewerView {
             _ = addToolTip(badgeRect, owner: tooltip as NSString, userData: nil)
         }
 
+        lastDrawnLoadingBadgeRects.append(badgeRect)
+
         context.saveGState()
         context.setFillColor(NSColor.windowBackgroundColor.withAlphaComponent(0.92).cgColor)
         context.setStrokeColor(NSColor.separatorColor.withAlphaComponent(0.7).cgColor)

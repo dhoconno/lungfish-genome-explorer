@@ -24,6 +24,10 @@ extension SequenceViewerView {
         // draw pass; clear stale rects first so they don't accumulate as content scrolls/redraws.
         removeAllToolTips()
 
+        // Reset the loading-badge rect accumulator; drawTrackLoadingBadge repopulates it below
+        // as each badge is drawn, so the animation timer knows exactly what to invalidate later.
+        lastDrawnLoadingBadgeRects.removeAll(keepingCapacity: true)
+
         guard let context = NSGraphicsContext.current?.cgContext else {
             sequenceViewerLogger.warning("SequenceViewerView.draw: No graphics context available")
             return
@@ -449,10 +453,9 @@ extension SequenceViewerView {
                     // every pixel of pan.
                     let viewportSpan = max(1, visibleRegion.end - visibleRegion.start)
                     let panQuantum = max(1, viewportSpan / 4)
-                    let maxReadSpan = max(
-                        1,
-                        cachedAlignedReads.lazy.prefix(50_000).map { max(1, $0.alignmentEnd - $0.position) }.max() ?? 500
-                    )
+                    // PERF-09: cached on the cachedAlignedReads didSet instead of rescanning up
+                    // to 50,000 reads every draw() call (including every loading-badge tick).
+                    let maxReadSpan = cachedMaxReadSpan ?? 500
                     let packPadding = max(maxReadSpan, min(10_000, max(500, viewportSpan)))
                     let quantizedStart = (visibleRegion.start / panQuantum) * panQuantum
                     let packStart = max(0, quantizedStart - packPadding)
