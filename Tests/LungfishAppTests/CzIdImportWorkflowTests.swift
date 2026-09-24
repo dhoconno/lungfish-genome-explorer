@@ -196,6 +196,56 @@ final class CzIdImportWorkflowTests: XCTestCase {
         XCTAssertNotNil(controller.taxonomyViewControllerForTesting)
     }
 
+    // UX-08 (2026-09-23 best-practices audit): the action bar already
+    // disables Extract for CZ-ID (no per-read source IDs), but the embedded
+    // Kraken2 table's own context menu still offered "Extract Reads..." and
+    // "BLAST Matching Reads..." regardless, leading the user into a dialog
+    // that could not succeed. Both surfaces must now agree.
+    @MainActor
+    func testCzIdTableContextMenuHonoursSameCapabilityFlagAsActionBar() throws {
+        let tempDir = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let reportURL = tempDir.appendingPathComponent("taxon_report.tsv")
+        try czIdReportText().write(to: reportURL, atomically: true, encoding: .utf8)
+        let outputDirectory = tempDir.appendingPathComponent("cz-id-imported", isDirectory: true)
+        let converted = try CzIdDataConverter.convertTaxonReport(
+            at: reportURL,
+            outputDirectory: outputDirectory
+        )
+
+        let controller = CzIdResultViewController()
+        controller.configure(
+            result: converted.result,
+            manifest: try XCTUnwrap(converted.manifest),
+            bundleURL: outputDirectory
+        )
+        _ = controller.view
+
+        let taxonomyViewController = try XCTUnwrap(controller.taxonomyViewControllerForTesting)
+
+        // The action bar already disables Extract (unchanged behavior).
+        XCTAssertFalse(taxonomyViewController.actionBar.extractButton.isEnabled)
+
+        // The table's context menu must now agree: both Extract Reads... and
+        // BLAST Matching Reads... are disabled by validateMenuItem,
+        // regardless of selection.
+        let tableView = taxonomyViewController.testTableView
+        XCTAssertFalse(tableView.readLevelActionsAvailable)
+
+        // `contextExtractReads(_:)` / `contextBlastReads(_:)` are private to
+        // `TaxonomyTableView`; build the selectors by name (as
+        // `validateMenuItem` only compares `Selector`s, never invokes them
+        // here) so this test does not need to poke at private API.
+        let extractItem = NSMenuItem(title: "Extract Reads\u{2026}", action: nil, keyEquivalent: "")
+        extractItem.action = NSSelectorFromString("contextExtractReads:")
+        let blastItem = NSMenuItem(title: "BLAST Matching Reads\u{2026}", action: nil, keyEquivalent: "")
+        blastItem.action = NSSelectorFromString("contextBlastReads:")
+
+        XCTAssertFalse(tableView.validateMenuItem(extractItem))
+        XCTAssertFalse(tableView.validateMenuItem(blastItem))
+    }
+
     private func czIdReportText() -> String {
         """
         sample_name\tproject_id\tpipeline_version\tnt_db_version\tnr_db_version\ttax_id\ttaxon_name\trank\tnt_read_count\tnt_rpm\tnr_read_count\tnr_rpm

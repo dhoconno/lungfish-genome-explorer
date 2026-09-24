@@ -102,6 +102,19 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
     /// shown via a sheet-modal NSAlert.
     var warningPresenter: ((String, String) -> Void)?
 
+    /// UX-08 (2026-09-23 best-practices audit): whether read-level actions
+    /// (Extract Reads…, BLAST Matching Reads…/Verify) are meaningful for the
+    /// classification result this controller is showing. CZ-ID imports have
+    /// no per-read source IDs — it sets this to `false` so the action bar
+    /// and the table's own context menu agree, instead of the action bar
+    /// disabling Extract while the context menu still offers both actions.
+    public var readLevelActionsAvailable = true {
+        didSet {
+            taxonomyTableView.readLevelActionsAvailable = readLevelActionsAvailable
+            updateActionBarSelection(selectedTaxonNode)
+        }
+    }
+
     /// The taxonomy tree extracted from the result.
     var tree: TaxonTree?
 
@@ -585,7 +598,7 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
             breadcrumbBar.update(zoomNode: nil)
             totalReadsForActionBar = displayTree.totalReads
             updateActionBarSelection(nil)
-            actionBar.setExtractEnabled(true)
+            actionBar.setExtractEnabled(readLevelActionsAvailable)
         } catch {
             logger.error("Failed to fetch Kraken2 tree for sample \(sample, privacy: .public): \(error.localizedDescription, privacy: .public)")
             currentBatchSampleId = nil
@@ -948,7 +961,7 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
             self.hideMultiSelectionPlaceholder()
             self.actionBar.updateInfoText("\(count) items selected")
             self.actionBar.setBlastEnabled(false, reason: "Select a single row to use BLAST Verify")
-            self.actionBar.setExtractEnabled(true)
+            self.actionBar.setExtractEnabled(self.readLevelActionsAvailable)
             self.suppressSelectionSync = false
         }
 
@@ -1220,8 +1233,13 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
             let pctStr = String(format: "%.1f%%", pct)
 
             actionBar.updateInfoText("\(node.name) \u{2014} \(readStr) reads (\(pctStr))")
-            actionBar.setBlastEnabled(true)
-            actionBar.setExtractEnabled(true)
+            if readLevelActionsAvailable {
+                actionBar.setBlastEnabled(true)
+                actionBar.setExtractEnabled(true)
+            } else {
+                actionBar.setBlastEnabled(false, reason: "Read-level actions are unavailable for this result")
+                actionBar.setExtractEnabled(false)
+            }
         } else {
             actionBar.updateInfoText("Select a taxon to view details")
             actionBar.setBlastEnabled(false, reason: "Select a row to use BLAST Verify")

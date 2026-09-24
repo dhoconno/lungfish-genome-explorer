@@ -46,6 +46,16 @@ import LungfishKit
 @MainActor
 public class TaxonomyTableView: NSView, NSOutlineViewDataSource, NSOutlineViewDelegate, NSMenuItemValidation {
 
+    /// UX-08 (2026-09-23 best-practices audit): whether read-level actions
+    /// (Extract Reads…, BLAST Matching Reads…) are meaningful for the
+    /// classification result currently shown. CZ-ID imports have no
+    /// per-read source IDs, so `CzIdResultViewController` already disables
+    /// Extract on the shared `ClassifierActionBar` — but the table's own
+    /// context menu offered the same actions regardless, leading the user
+    /// into a dialog that could not succeed. This flag lets both surfaces
+    /// agree.
+    public var readLevelActionsAvailable = true
+
     // MARK: - Metadata Columns
 
     /// Controller for dynamic sample metadata columns (from imported CSV/TSV).
@@ -773,6 +783,7 @@ public class TaxonomyTableView: NSView, NSOutlineViewDataSource, NSOutlineViewDe
 
         if menuItem.action == #selector(contextBlastReads(_:)) {
             // BLAST requires exactly one selected row
+            guard readLevelActionsAvailable else { return false }
             return clickedNode != nil && selectedActionableNodesByIdentity().count <= 1
         }
         if menuItem.action == #selector(contextOpenNCBITaxonomy(_:))
@@ -783,6 +794,7 @@ public class TaxonomyTableView: NSView, NSOutlineViewDataSource, NSOutlineViewDe
             return clickedNode != nil
         }
         if menuItem.action == #selector(contextExtractReads(_:)) {
+            guard readLevelActionsAvailable else { return false }
             return !selectedActionableNodesByIdentity().isEmpty || clickedNode != nil
         }
         return true

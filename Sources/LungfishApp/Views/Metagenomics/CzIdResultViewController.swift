@@ -44,9 +44,14 @@ public final class CzIdResultViewController: NSViewController, NSPopoverDelegate
         taxonomyViewController.actionBar.onProvenance = { [weak self] sender in
             self?.showProvenance(relativeTo: sender)
         }
-        taxonomyViewController.actionBar.setExtractEnabled(false)
+        // UX-08: gate both the action bar and the table's own context menu
+        // (Extract Reads…, BLAST Matching Reads…) on the same capability
+        // flag, since CZ-ID imports have no per-read source IDs for either.
+        taxonomyViewController.readLevelActionsAvailable = false
         taxonomyViewController.actionBar.extractButton.toolTip =
             "CZ-ID imports do not include per-read source IDs for FASTQ extraction."
+        taxonomyViewController.actionBar.blastButton.toolTip =
+            "CZ-ID imports do not include per-read source IDs for BLAST verification."
     }
 
     private func embedTaxonomyIfNeeded() {
