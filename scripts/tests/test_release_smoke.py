@@ -224,7 +224,9 @@ class ReleaseSmokeTests(unittest.TestCase):
 
     def test_smoke_test_accepts_app_icon_resource_and_metadata(self):
         with tempfile.TemporaryDirectory() as temp_dir:
-            app_path = self._make_minimal_app(Path(temp_dir), include_icon=True)
+            app_path = self._make_minimal_app(
+                Path(temp_dir), include_icon=True, notices=self._sample_notices()
+            )
 
             result = subprocess.run(
                 ["/bin/bash", str(self.script), str(app_path), "--portability-only"],
@@ -239,10 +241,69 @@ class ReleaseSmokeTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn("PASS portability", result.stdout)
 
+    def test_smoke_test_fails_when_third_party_notices_missing(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            app_path = self._make_minimal_app(Path(temp_dir), include_icon=True)
+
+            result = subprocess.run(
+                ["/bin/bash", str(self.script), str(app_path), "--portability-only"],
+                env={**os.environ, "PATH": "/usr/bin:/bin:/usr/sbin:/sbin"},
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+                timeout=30,
+            )
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("THIRD-PARTY-NOTICES missing", result.stderr)
+
+    def test_smoke_test_fails_when_third_party_notices_omits_gpl_kernel_notice(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            app_path = self._make_minimal_app(
+                Path(temp_dir), include_icon=True, notices="Lungfish Third-Party Notices\nMIT licensed.\n"
+            )
+
+            result = subprocess.run(
+                ["/bin/bash", str(self.script), str(app_path), "--portability-only"],
+                env={**os.environ, "PATH": "/usr/bin:/bin:/usr/sbin:/sbin"},
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+                timeout=30,
+            )
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("does not mention the bundled GPL-2.0 kernel", result.stderr)
+
+    def test_smoke_test_accepts_third_party_notices_with_gpl_kernel_notice(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            app_path = self._make_minimal_app(
+                Path(temp_dir),
+                include_icon=True,
+                notices="Lungfish Third-Party Notices\nLinux kernel, GPL-2.0, source offer included.\n",
+            )
+
+            result = subprocess.run(
+                ["/bin/bash", str(self.script), str(app_path), "--portability-only"],
+                env={**os.environ, "PATH": "/usr/bin:/bin:/usr/sbin:/sbin"},
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+                timeout=30,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_smoke_test_runs_embedded_cli_and_provenance_command(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             app_path = self._make_minimal_app(
-                Path(temp_dir), include_icon=True, include_cli=True
+                Path(temp_dir),
+                include_icon=True,
+                include_cli=True,
+                notices=self._sample_notices(),
             )
 
             result = subprocess.run(
@@ -272,7 +333,9 @@ class ReleaseSmokeTests(unittest.TestCase):
         for marker, label in leak_markers:
             with self.subTest(marker=marker):
                 with tempfile.TemporaryDirectory() as temp_dir:
-                    app_path = self._make_minimal_app(Path(temp_dir), include_icon=True)
+                    app_path = self._make_minimal_app(
+                        Path(temp_dir), include_icon=True, notices=self._sample_notices()
+                    )
                     leak_file = app_path / "Contents" / "Resources" / "leak.txt"
                     leak_file.write_text(f"debug path: {marker}\n", encoding="utf-8")
 
@@ -295,7 +358,9 @@ class ReleaseSmokeTests(unittest.TestCase):
 
     def test_smoke_test_allows_private_tmp_root_runtime_constant(self):
         with tempfile.TemporaryDirectory() as temp_dir:
-            app_path = self._make_minimal_app(Path(temp_dir), include_icon=True)
+            app_path = self._make_minimal_app(
+                Path(temp_dir), include_icon=True, notices=self._sample_notices()
+            )
             runtime_constant = app_path / "Contents" / "Resources" / "runtime-root.txt"
             runtime_constant.write_text("/private/tmp\n", encoding="utf-8")
 
@@ -314,7 +379,9 @@ class ReleaseSmokeTests(unittest.TestCase):
         build_root = self.root / "build"
         build_root.mkdir(exist_ok=True)
         with tempfile.TemporaryDirectory(dir=build_root) as temp_dir:
-            app_path = self._make_minimal_app(Path(temp_dir), include_icon=True)
+            app_path = self._make_minimal_app(
+                Path(temp_dir), include_icon=True, notices=self._sample_notices()
+            )
             leak_file = app_path / "Contents" / "Resources" / ".leak.txt"
             leak_file.write_text(
                 "debug path: /Users/runner/project\n", encoding="utf-8"
@@ -336,7 +403,10 @@ class ReleaseSmokeTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_root = Path(temp_dir)
             app_path = self._make_minimal_app(
-                temp_root, include_icon=True, include_cli=True
+                temp_root,
+                include_icon=True,
+                include_cli=True,
+                notices=self._sample_notices(),
             )
             scratch = Path("/private/var/tmp/lungfish-release-swiftpm/repo/commit")
             fallback = (
@@ -447,7 +517,10 @@ class ReleaseSmokeTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn("PASS Package.resolved consistency", result.stdout)
 
-    def _make_minimal_app(self, root, include_icon=False, include_cli=False):
+    def _sample_notices(self):
+        return "Lungfish Third-Party Notices\nLinux kernel, GPL-2.0, source offer included.\n"
+
+    def _make_minimal_app(self, root, include_icon=False, include_cli=False, notices=None):
         app_path = root / "Lungfish.app"
         macos = app_path / "Contents" / "MacOS"
         resources = app_path / "Contents" / "Resources"
@@ -488,6 +561,9 @@ class ReleaseSmokeTests(unittest.TestCase):
 
         if include_icon:
             (resources / "AppIcon.icns").write_bytes(b"icns")
+
+        if notices is not None:
+            (resources / "THIRD-PARTY-NOTICES").write_text(notices, encoding="utf-8")
 
         if include_cli:
             macos.mkdir(parents=True, exist_ok=True)

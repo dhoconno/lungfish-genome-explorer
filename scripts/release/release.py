@@ -31,6 +31,7 @@ from release_identity import prepare_identity_plist, identity_plist, fork_contra
 from bounded_process import run_bounded
 from release_profiles import ReleaseProfile, ProfileError, load_release_profile as _load_profile, write_release_profile
 from release_contract import load_contract  # noqa: E402
+from sparkle_yank import YankError, load_appcast_bytes, plan_yank, execute_yank  # noqa: E402
 from gate_evidence import (EvidenceError, create_manifest, read_json,  # noqa: E402
                            source_identity, validate_result, verify_manifest)
 from release_cache_fingerprint import (  # noqa: E402
@@ -680,6 +681,57 @@ def run_doctor(root: Path, profile_path: Path | None) -> int:
         print("Publish readiness: NOT READY (credential readiness checks failed)")
         return 1
     print("Publish readiness: READY")
+    return 0
+
+
+def run_yank(root: Path, channel_name: str, restore_appcast_path: Path, execute: bool) -> int:
+    """REL-04: print (and, in a future round, perform) a Sparkle yank plan.
+
+    Reads the currently published mutable appcast for ``channel_name`` from
+    its live URL, computes a plan to restore ``restore_appcast_path`` (a
+    retained prior appcast, e.g. from ``build/Release/<channel>/<commit>/``),
+    and prints the plan. Never mutates anything: --execute is accepted on
+    the CLI but rejected here with a clear message, matching this round's
+    "dry-run-by-default plan printer plus --execute; do NOT execute it"
+    instruction.
+    """
+    contract = load_contract(root / "config/release-contract.json")
+    channel = contract.channel(channel_name)
+    live_url = (
+        f"https://github.com/{contract.identity.repository}/releases/download/"
+        f"{channel.sparkleRelease}/{channel.appcastFilename}"
+    )
+    import urllib.request
+
+    request = urllib.request.Request(live_url, headers={"User-Agent": "Lungfish release yank"})
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            live_appcast_xml = response.read()
+    except OSError as error:
+        raise ReleaseError(f"could not fetch live appcast at {live_url}: {error}") from error
+
+    restore_appcast_xml = load_appcast_bytes(restore_appcast_path)
+
+    try:
+        plan = plan_yank(
+            channel=channel_name,
+            sparkle_release=channel.sparkleRelease,
+            appcast_filename=channel.appcastFilename,
+            live_appcast_xml=live_appcast_xml,
+            restore_appcast_xml=restore_appcast_xml,
+        )
+    except YankError as error:
+        raise ReleaseError(str(error)) from error
+
+    print(plan.render())
+
+    if execute:
+        try:
+            execute_yank(plan)
+        except NotImplementedError as error:
+            raise ReleaseError(str(error)) from error
+    else:
+        print("\n(dry run: pass --execute to perform this yank once it is implemented)")
     return 0
 
 
@@ -2047,6 +2099,23 @@ def _parser() -> argparse.ArgumentParser:
     )
     doctor.add_argument("--profile", type=Path)
     doctor.add_argument("--repo", type=Path, default=PROJECT_ROOT)
+    yank = commands.add_parser(
+        "yank",
+        help="print a plan to withdraw the live Sparkle release for a channel (REL-04)",
+    )
+    yank.add_argument("channel", choices=("preview", "stable"))
+    yank.add_argument(
+        "--restore-appcast",
+        type=Path,
+        required=True,
+        help="path to a retained prior appcast (e.g. build/Release/<channel>/<commit>/...) to restore",
+    )
+    yank.add_argument(
+        "--execute",
+        action="store_true",
+        help="perform the withdrawal instead of only printing the plan (not implemented this round)",
+    )
+    yank.add_argument("--repo", type=Path, default=PROJECT_ROOT)
     setup = commands.add_parser("setup", help="explicit one-time credential probes; macOS may request authorization")
     setup.add_argument("--profile", type=Path)
     setup.add_argument("--repo", type=Path, default=PROJECT_ROOT)
@@ -2098,6 +2167,9 @@ def main(argv: list[str] | None = None) -> int:
             return result_status
         if args.command == "doctor":
             result_status = run_doctor(root, args.profile)
+            return result_status
+        if args.command == "yank":
+            result_status = run_yank(root, args.channel, args.restore_appcast, args.execute)
             return result_status
         raise ReleaseError(f"unknown command: {args.command}")
     except (OSError, ReleaseError, ValueError) as error:

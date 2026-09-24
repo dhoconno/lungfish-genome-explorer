@@ -36,7 +36,7 @@ class AppcastHTTPHandler(BaseHTTPRequestHandler):
 
 
 class SparkleBuildNumberGateTests(unittest.TestCase):
-    def run_gate(self, planned: str, current: str):
+    def run_gate(self, planned: str, current: str, *extra_args: str):
         with tempfile.TemporaryDirectory() as temp_dir:
             appcast = Path(temp_dir) / "appcast.xml"
             appcast.write_text(
@@ -47,7 +47,7 @@ class SparkleBuildNumberGateTests(unittest.TestCase):
                 encoding="utf-8",
             )
             return subprocess.run(
-                [sys.executable, str(SCRIPT), "--planned", planned, "--appcast", str(appcast)],
+                [sys.executable, str(SCRIPT), "--planned", planned, "--appcast", str(appcast), *extra_args],
                 text=True,
                 capture_output=True,
                 check=False,
@@ -90,6 +90,29 @@ class SparkleBuildNumberGateTests(unittest.TestCase):
     def test_rejects_non_positive_or_non_numeric_build_number(self):
         for planned in ("0", "beta"):
             self.assertNotEqual(self.run_gate(planned, "4024").returncode, 0)
+
+    def test_yank_mode_accepts_equal_build_number(self):
+        # REL-04: restoring the exact build that was live before the bad
+        # publish is the whole point of a yank; it must not be rejected.
+        result = self.run_gate("4024", "4024", "--yank")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("4024 >= 4024", result.stdout)
+
+    def test_yank_mode_still_rejects_a_build_below_live(self):
+        result = self.run_gate("4023", "4024", "--yank")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("is below live Sparkle build 4024", result.stderr)
+
+    def test_yank_mode_still_accepts_strictly_greater_build(self):
+        result = self.run_gate("4025", "4024", "--yank")
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_non_yank_mode_still_rejects_equal_build_number(self):
+        # Guards against --yank's equality allowance leaking into the
+        # default path used by ordinary package/publish runs.
+        result = self.run_gate("4024", "4024")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("must exceed live Sparkle build", result.stderr)
 
     def test_http_not_found_is_rejected_by_default(self):
         result = self.run_url_gate("/missing.xml")

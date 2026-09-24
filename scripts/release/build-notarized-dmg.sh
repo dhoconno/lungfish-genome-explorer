@@ -659,6 +659,26 @@ github_cli() {
         --timeout 180 --phase github --public-stdout -- gh --repo "$GH_REPO" "$@"
 }
 
+# REL-05: metadata calls (release view/edit/create without an asset) are
+# fast and stay on the 180s budget above. An asset upload's duration scales
+# with file size and the operator's network, not with GitHub API latency, so
+# it needs its own budget; see upload-timeout.sh.
+# shellcheck source=./upload-timeout.sh
+source "$PROJECT_ROOT/scripts/release/upload-timeout.sh"
+
+github_cli_upload_asset() {
+    # $1: release tag, remaining args: `gh release upload`/`create` arguments
+    # that include exactly one local asset path as the LAST argument.
+    local release_tag="$1"
+    shift
+    local asset_path="${*: -1}"
+    local timeout_seconds
+    timeout_seconds=$(github_cli_asset_upload_timeout_seconds "$asset_path")
+    "$RELEASE_PYTHON" "$PROJECT_ROOT/scripts/release/bounded_process.py" \
+        --timeout "$timeout_seconds" --phase github-upload --public-stdout -- \
+        gh --repo "$GH_REPO" release upload "$release_tag" "$@"
+}
+
 verify_versioned_release_identity() {
     if [ -z "$GITHUB_RELEASE_TAG" ] || [ "$DEFER_REMOTE_PUBLISH" -eq 1 ]; then
         return
@@ -863,6 +883,30 @@ install_app_icon() {
         || /usr/libexec/PlistBuddy -c "Add :CFBundleIconName string AppIcon" "$info_plist"
 }
 
+install_third_party_notices() {
+    # REL-03: THIRD-PARTY-NOTICES is not part of the Xcode project's resource
+    # phase (the app is built from the local SwiftPM package graph, not a
+    # hand-maintained pbxproj file list), so it is never in the archived app
+    # unless a build step copies it in, same as the app icon above. Regenerate
+    # it from the manifests first so the shipped copy can never silently drift
+    # from Package.resolved / bundled-payloads.json / third-party-tools-lock.json.
+    local notices_source="${PROJECT_ROOT}/THIRD-PARTY-NOTICES"
+    local notices_dest="${APP_PATH}/Contents/Resources/THIRD-PARTY-NOTICES"
+
+    "$RELEASE_PYTHON" "$PROJECT_ROOT/scripts/release/generate-notices.py" --check >/dev/null 2>&1 || {
+        echo "THIRD-PARTY-NOTICES is stale relative to its manifests; regenerating before packaging" >&2
+        "$RELEASE_PYTHON" "$PROJECT_ROOT/scripts/release/generate-notices.py"
+    }
+
+    if [ ! -f "$notices_source" ]; then
+        echo "THIRD-PARTY-NOTICES not found after generation: $notices_source" >&2
+        exit 72
+    fi
+
+    /usr/bin/install -d "$(dirname "$notices_dest")"
+    /usr/bin/install -m 644 "$notices_source" "$notices_dest"
+}
+
 configure_sparkle_info_plist() {
     local info_plist="$1"
     if [ ! -f "$info_plist" ]; then
@@ -930,6 +974,7 @@ publish_github_release_dmg() {
     if github_cli release view "$GITHUB_RELEASE_TAG" >/dev/null 2>&1; then
         local existing_digest
         local local_digest
+        local existing_is_draft
         existing_digest=$(github_cli release view "$GITHUB_RELEASE_TAG" --json assets \
             --jq ".assets[] | select(.name == \"$(basename "$DMG_PATH")\") | .digest")
         if [ -n "$existing_digest" ]; then
@@ -938,28 +983,72 @@ publish_github_release_dmg() {
                 echo "existing release DMG digest differs; refusing recovery overwrite: $GITHUB_RELEASE_TAG" >&2
                 exit 64
             fi
+            # REL-05: the asset is already present and verified. If the
+            # release is still a draft (an earlier run uploaded the asset but
+            # the process died before undrafting), finish that step now.
+            existing_is_draft=$(github_cli release view "$GITHUB_RELEASE_TAG" --json isDraft --jq .isDraft)
+            if [ "$existing_is_draft" = true ]; then
+                undraft_versioned_release
+            fi
             printf 'Existing release DMG already matches local artifact; keeping it: %s\n' "$DMG_PATH"
             return
         fi
-        github_cli release upload "$GITHUB_RELEASE_TAG" "$DMG_PATH"
+        # REL-05: give this recovery upload its own size-scaled budget instead
+        # of the 180s metadata timeout, which a ~167 MB DMG cannot meet at
+        # typical operator upload speeds.
+        github_cli_upload_asset "$GITHUB_RELEASE_TAG" "$DMG_PATH"
+        verify_uploaded_asset_digest "$GITHUB_RELEASE_TAG" "$DMG_PATH"
         return
     fi
 
+    # REL-05 draft-then-publish: create the release as a draft with no asset,
+    # upload the DMG on its own size-scaled budget, verify the uploaded
+    # digest, and only then flip the release out of draft. A timeout or crash
+    # between these steps leaves a draft (invisible to Sparkle and to a
+    # normal release listing) rather than a public prerelease with no DMG.
     local create_args=(
         release create "$GITHUB_RELEASE_TAG"
-        "$DMG_PATH"
         --title "$GITHUB_RELEASE_TAG"
         --target "$target_commit"
+        --draft
     )
     if [ "$GITHUB_PRERELEASE" = "true" ]; then
         create_args+=(--prerelease)
-    else
-        # A full release fires the 'released' event, which runs CI's heavy
-        # board (build smoke + toolset conformance) on this tag.
-        create_args+=(--latest)
     fi
     create_args+=(--notes-file "$notes_source")
     github_cli "${create_args[@]}"
+
+    github_cli_upload_asset "$GITHUB_RELEASE_TAG" "$DMG_PATH"
+    verify_uploaded_asset_digest "$GITHUB_RELEASE_TAG" "$DMG_PATH"
+    undraft_versioned_release
+}
+
+verify_uploaded_asset_digest() {
+    local release_tag="$1"
+    local local_path="$2"
+    local asset_name
+    local remote_digest
+    local local_digest
+    asset_name=$(basename "$local_path")
+    remote_digest=$(github_cli release view "$release_tag" --json assets \
+        --jq ".assets[] | select(.name == \"${asset_name}\") | .digest")
+    local_digest="sha256:$(/usr/bin/shasum -a 256 "$local_path" | awk '{print $1}')"
+    if [ "$remote_digest" != "$local_digest" ]; then
+        echo "uploaded asset digest mismatch for $asset_name on $release_tag (expected $local_digest, got $remote_digest)" >&2
+        exit 64
+    fi
+}
+
+undraft_versioned_release() {
+    # A full (non-prerelease) publish additionally marks --latest here,
+    # matching the previous single-step `release create --latest` behavior.
+    # This fires GitHub's 'released' event, but nothing in ci.yml listens for
+    # it (REL-14): there is no automatic post-release conformance run.
+    local edit_args=(release edit "$GITHUB_RELEASE_TAG" --draft=false)
+    if [ "$GITHUB_PRERELEASE" != "true" ]; then
+        edit_args+=(--latest)
+    fi
+    github_cli "${edit_args[@]}"
 }
 
 ensure_mutable_release() {
@@ -1355,6 +1444,7 @@ IDENTITY_PY
     fi
 
     install_app_icon
+    install_third_party_notices
     configure_sparkle_info_plist "$APP_PATH/Contents/Info.plist"
     "$RELEASE_PYTHON" - "$PROJECT_ROOT" "$APP_PATH" "$RELEASE_CHANNEL" <<'IDENTITY_PY'
 import sys

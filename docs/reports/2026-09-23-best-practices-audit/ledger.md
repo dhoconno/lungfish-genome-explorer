@@ -35,9 +35,9 @@ Single source of truth for finding status (plan rule 9). Status: `open`, `verifi
 | REC-04 | P1 | Sidebar VCF/folder drop silently discarded | open | | | |
 | REC-05 | P1 | About Saving text promises persistence FEA-03 disproves | open | | | |
 | REL-02 | P1 | CI workflow invalid since 2026-09-14, 24 straight failures, 12 previews shipped on red | accepted | P0-A | 53371073b | owner: hosted CI paused; disabled cleanly |
-| REL-03 | P1 | GPL-2.0 Linux kernel shipped without notice or source offer; THIRD-PARTY-NOTICES stale and not bundled | open | | | |
-| REL-04 | P1 | No rollback or yank path for a bad Sparkle release; the floor gate blocks the obvious one | open | | | |
-| REL-05 | P1 | Every `gh` call, including the ~167 MB DMG upload, is capped at 180 s | open | | | |
+| REL-03 | P1 | GPL-2.0 Linux kernel shipped without notice or source offer; THIRD-PARTY-NOTICES stale and not bundled | fixed-needs-legal-review | P8-A | a9f982c67 | generated notices + bundled + smoke gate; OWNER: review kernel source-offer wording (uses owner email), zstd BSD election, pin override license URLs |
+| REL-04 | P1 | No rollback or yank path for a bad Sparkle release; the floor gate blocks the obvious one | partial | P8-A | 267e82746 | yank plan (dry-run) + floor --yank; execute_yank not implemented this round |
+| REL-05 | P1 | Every `gh` call, including the ~167 MB DMG upload, is capped at 180 s | fixed | P8-A | b1e84001b | size-scaled upload timeout; draft->upload->verify->publish |
 | SCI-02 | P1 | iVar TSV to VCF converter emits duplicate records for overlapping CDS (ORF1a/ORF1ab) | fixed | P0-C | e3eac6bc0 | IVarTSVToVCFConverterTests 10/10 (overlapping-cds fixture) |
 | SCI-03 | P1 | Minimum AF and depth thresholds silently ignored for LoFreq, bcftools, Medaka and Clair3, yet recorded in prov | fixed | P0-C | ffd76587a | bcftools view -i post-filter; provenance records applied thresholds only; ViralVariantCallingPipelineTests (4 env failures: samtools path, TST-04) |
 | SCI-04 | P1 | bcftools caller runs with diploid ploidy and max-depth 250 on viral data | fixed | P0-C | ffd76587a | --ploidy 1, mpileup -d 0; managed bcftools 1.24 synthetic 2000x: DP=2000 haploid |
@@ -90,7 +90,7 @@ Single source of truth for finding status (plan rule 9). Status: `open`, `verifi
 | REL-11 | P2 | Conda transitive dependencies are unpinned, so a "dependency set" is not reproducible | open | | | |
 | REL-12 | P2 | Database archives and one pipeline are not integrity-pinned; one catalog ID/URL mismatch | open | | | |
 | REL-13 | P2 | Pages deploy job (pages:write, id-token:write) uses tag-pinned third-party actions | open | | | |
-| REL-14 | P2 | Code claims a Stable release triggers CI conformance; no workflow listens for it | open | | | |
+| REL-14 | P2 | Code claims a Stable release triggers CI conformance; no workflow listens for it | fixed | P8-A | 267e82746 | stale claim removed |
 | SCI-10 | P2 | CDS translation ignores `/codon_start`, GFF phase and `/transl_table`, and reverse-strand phase comes from the | open | | | |
 | SCI-11 | P2 | GFF3 export writes phase 0 on every CDS segment, splits one CDS into distinct IDs, and leaves a dangling `Pare | open | | | |
 | SCI-12 | P2 | Bgzip FASTA reader returns `\r` and drops bases for CRLF FASTA | fixed | P3-D | f7da65c56 | CRLF bgzip fixture fail-then-pass |

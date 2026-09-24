@@ -11,15 +11,30 @@ final class ManualMetadataConsistencyTests: XCTestCase {
             .deletingLastPathComponent()
     }
 
-    func testViralReconManualEntryPointNamesMappingDialog() throws {
-        let chapter = try readManualFile("chapters/05-variants/05-consensus-and-lineage.md")
-        let mappingPath = "Tools > Mapping > Mapping\u{2026}"
+    func testViralReconManualEntryPointMatchesToolsMappingMenu() throws {
+        _ = NSApplication.shared
+        let mainMenu = MainMenu.createMainMenu()
+        let toolsMenu = try XCTUnwrap(mainMenu.items.first { $0.title == "Tools" }?.submenu)
+        let mappingMenu = try XCTUnwrap(toolsMenu.items.first { $0.title == "Mapping" }?.submenu)
+        // Enabled workflows read "Viral Recon…"; disabled ones read
+        // "Viral Recon (not enabled)" and prompt for enablement.
+        XCTAssertNotNil(
+            mappingMenu.items.first { $0.title.hasPrefix("Viral Recon") },
+            "Tools > Mapping should list Viral Recon as its own item"
+        )
 
-        XCTAssertTrue(chapter.contains("\"\(mappingPath) > Viral Recon tool row\""))
-        XCTAssertTrue(chapter.contains("Choose `\(mappingPath)`, then select the `Viral Recon` tool row in the Mapping category."))
-        XCTAssertFalse(chapter.contains("Tools > FASTQ/FASTA Operations > Viral Recon"))
-        XCTAssertFalse(chapter.contains("Tools > FASTQ/FASTA Operations > Mapping"))
-        XCTAssertFalse(chapter.contains("then select `Viral Recon` in the tool sidebar"))
+        // The launch procedure lives in the Viral Recon wizard chapter. The
+        // consensus chapter only cross-references it.
+        let wizard = try readManualFile("chapters/04-alignments/05-viral-recon-wizard.md")
+        XCTAssertTrue(wizard.contains("Tools > Mapping > Viral Recon"))
+        let consensus = try readManualFile("chapters/05-variants/05-consensus-and-lineage.md")
+        XCTAssertTrue(consensus.contains("(../04-alignments/05-viral-recon-wizard.md)"))
+
+        for chapter in [wizard, consensus] {
+            XCTAssertFalse(chapter.contains("Tools > FASTQ/FASTA Operations > Viral Recon"))
+            XCTAssertFalse(chapter.contains("Tools > FASTQ/FASTA Operations > Mapping"))
+            XCTAssertFalse(chapter.contains("Mapping\u{2026} > Viral Recon tool row"))
+        }
     }
 
     func testGoToGeneHelpMetadataMatchesMainMenuShortcut() throws {
