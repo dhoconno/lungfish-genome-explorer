@@ -12,10 +12,19 @@ public final class WorkflowLibraryWindowController: NSWindowController {
     private let viewModel = WorkflowLibraryViewModel()
 
     public static func show() {
+        show(revealingPackageID: nil)
+    }
+
+    /// Shows the library and, when `manifestID` names a linked package, scrolls to
+    /// and briefly highlights that package's card so the user can enable it.
+    static func show(revealingPackageID manifestID: String?) {
         if shared == nil {
             shared = WorkflowLibraryWindowController()
         }
         shared?.showWindow(nil)
+        if let manifestID, !manifestID.isEmpty {
+            shared?.viewModel.reveal(packageID: manifestID)
+        }
     }
 
     private init() {

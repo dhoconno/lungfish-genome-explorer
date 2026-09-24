@@ -211,8 +211,14 @@ enum MainMenuAccessibilityID {
     static let callVariants = "tools-menu-call-variants"
     static let freyjaDemix = "tools-menu-freyja-demix"
     static let haplotypeDefinitions = "tools-menu-haplotype-definitions"
+    static let workflows = "tools-menu-workflows"
     static let workflowLibrary = "tools-menu-workflow-library"
     static let workflowBuilder = "tools-menu-workflow-builder"
+
+    /// Tools > Workflows item for one linked workflow package, keyed by its manifest ID.
+    static func workflowPackage(_ manifestID: String) -> String {
+        "tools-menu-workflow-package-\(manifestID)"
+    }
     static let pluginManager = "tools-menu-plugin-manager"
     static let showOperationsPanel = "operations-menu-show-panel"
     static let newWindowForCurrentProject = "window-menu-new-window-current-project"

@@ -1707,6 +1707,21 @@ extension AppDelegate {
         }
     }
 
+    @objc func launchLinkedWorkflowPackageFromMenu(_ sender: NSMenuItem) {
+        guard let manifestID = sender.representedObject as? String, !manifestID.isEmpty else { return }
+        showWorkflowOperations(sender, preselectedWorkflowID: Self.workflowOperationToolID(forPackageManifestID: manifestID))
+    }
+
+    @objc func revealLinkedWorkflowPackageInLibrary(_ sender: NSMenuItem) {
+        let manifestID = sender.representedObject as? String
+        WorkflowLibraryWindowController.show(revealingPackageID: manifestID)
+    }
+
+    /// The Workflow Operations tool ID for a linked package, matching the dialog state's naming.
+    static func workflowOperationToolID(forPackageManifestID manifestID: String) -> String {
+        ToolsMenuModel.LinkedPackageEntry(manifestID: manifestID, title: "", isEnabled: true).workflowOperationToolID
+    }
+
     private func workflowOperationID(from representedObject: Any?) -> String? {
         if let toolID = representedObject as? FASTQOperationToolID {
             switch toolID {

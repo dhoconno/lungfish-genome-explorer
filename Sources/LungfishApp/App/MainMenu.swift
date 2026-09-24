@@ -36,6 +36,7 @@ public final class MainMenu {
             experimentalFeaturesEnabled: experimentalFeaturesEnabled,
             workflowFeatureAvailability: workflowFeatureAvailability,
             workflowLibraryEnablementStore: .shared,
+            workflowPackageStore: .shared,
             appIdentity: .current
         )
     }
@@ -44,6 +45,7 @@ public final class MainMenu {
         experimentalFeaturesEnabled: Bool = AppSettings.shared.experimentalFeaturesEnabled,
         workflowFeatureAvailability: WorkflowFeatureAvailability? = nil,
         workflowLibraryEnablementStore: WorkflowLibraryEnablementStore = .shared,
+        workflowPackageStore: WorkflowLibraryImportedPackageStore = .shared,
         appIdentity: LungfishAppIdentity = .current
     ) -> NSMenu {
         let mainMenu = NSMenu()
@@ -69,7 +71,8 @@ public final class MainMenu {
             createToolsMenu(
                 experimentalFeaturesEnabled: experimentalFeaturesEnabled,
                 workflowFeatureAvailability: workflowFeatureAvailability,
-                workflowLibraryEnablementStore: workflowLibraryEnablementStore
+                workflowLibraryEnablementStore: workflowLibraryEnablementStore,
+                workflowPackageStore: workflowPackageStore
             )
         )
 
@@ -725,13 +728,18 @@ public final class MainMenu {
     private static func createToolsMenu(
         experimentalFeaturesEnabled: Bool,
         workflowFeatureAvailability: WorkflowFeatureAvailability,
-        workflowLibraryEnablementStore: WorkflowLibraryEnablementStore
+        workflowLibraryEnablementStore: WorkflowLibraryEnablementStore,
+        workflowPackageStore: WorkflowLibraryImportedPackageStore
     ) -> NSMenuItem {
         let toolsMenuItem = NSMenuItem(title: "Tools", action: nil, keyEquivalent: "")
         toolsMenuItem.identifier = NSUserInterfaceItemIdentifier(MainMenuAccessibilityID.toolsMenu)
         let toolsMenu = NSMenu(title: "Tools")
 
-        let model = ToolsMenuModel.build(isEnabled: { workflowLibraryEnablementStore.isWorkflowEnabled($0) })
+        let model = ToolsMenuModel.build(
+            isEnabled: { workflowLibraryEnablementStore.isWorkflowEnabled($0) },
+            linkedPackages: workflowPackageStore.validatedPackages(),
+            isPackageEnabled: { workflowLibraryEnablementStore.isUserWorkflowEnabled($0) }
+        )
         let primerDesignItem = NSMenuItem(title: "PCR Primer Design", action: nil, keyEquivalent: "")
         primerDesignItem.identifier = NSUserInterfaceItemIdentifier("tools-pcr-primer-design")
         let primerDesignMenu = NSMenu(title: primerDesignItem.title)
@@ -807,12 +815,7 @@ public final class MainMenu {
 
         toolsMenu.addItem(.separator())
 
-        let workflowLibraryItem = toolsMenu.addItem(
-            withTitle: "Workflow Library\u{2026}",
-            action: #selector(ToolsMenuActions.showWorkflowLibrary(_:)),
-            keyEquivalent: ""
-        )
-        workflowLibraryItem.identifier = NSUserInterfaceItemIdentifier(MainMenuAccessibilityID.workflowLibrary)
+        toolsMenu.addItem(workflowsMenuItem(for: model.linkedPackages))
 
         // Plugin Manager (Cmd-Shift-B for "Bioconda")
         let pluginItem = toolsMenu.addItem(
@@ -860,6 +863,60 @@ public final class MainMenu {
                 item.representedObject = toolID
                 return item
             }
+    }
+
+    /// Tools > Workflows: one item per linked workflow package, then the Workflow Library.
+    ///
+    /// With no linked packages the submenu holds only "Workflow Library…".
+    static func workflowsMenuItem(for packages: [ToolsMenuModel.LinkedPackageEntry]) -> NSMenuItem {
+        let workflowsItem = NSMenuItem(title: "Workflows", action: nil, keyEquivalent: "")
+        workflowsItem.identifier = NSUserInterfaceItemIdentifier(MainMenuAccessibilityID.workflows)
+        let workflowsMenu = NSMenu(title: "Workflows")
+
+        for package in packages {
+            workflowsMenu.addItem(linkedPackageMenuItem(for: package))
+        }
+        if !packages.isEmpty {
+            workflowsMenu.addItem(.separator())
+        }
+
+        let workflowLibraryItem = workflowsMenu.addItem(
+            withTitle: "Workflow Library\u{2026}",
+            action: #selector(ToolsMenuActions.showWorkflowLibrary(_:)),
+            keyEquivalent: ""
+        )
+        workflowLibraryItem.identifier = NSUserInterfaceItemIdentifier(MainMenuAccessibilityID.workflowLibrary)
+
+        workflowsItem.submenu = workflowsMenu
+        return workflowsItem
+    }
+
+    private static func linkedPackageMenuItem(for package: ToolsMenuModel.LinkedPackageEntry) -> NSMenuItem {
+        let title = package.menuTitle
+        if package.isEnabled {
+            let item = NSMenuItem(
+                title: title,
+                action: #selector(ToolsMenuActions.launchLinkedWorkflowPackageFromMenu(_:)),
+                keyEquivalent: ""
+            )
+            item.representedObject = package.manifestID
+            item.identifier = NSUserInterfaceItemIdentifier(MainMenuAccessibilityID.workflowPackage(package.manifestID))
+            return item
+        }
+
+        let item = NSMenuItem(
+            title: title,
+            action: #selector(ToolsMenuActions.revealLinkedWorkflowPackageInLibrary(_:)),
+            keyEquivalent: ""
+        )
+        item.representedObject = package.manifestID
+        item.identifier = NSUserInterfaceItemIdentifier(MainMenuAccessibilityID.workflowPackage(package.manifestID))
+        // Disabled NSMenuItems cannot invoke actions, so this remains enabled and is styled as unavailable.
+        item.attributedTitle = NSAttributedString(
+            string: title,
+            attributes: [.foregroundColor: NSColor.disabledControlTextColor]
+        )
+        return item
     }
 
     private static func workflowMenuItem(for workflow: ToolsMenuModel.WorkflowEntry) -> NSMenuItem {
@@ -1212,6 +1269,10 @@ enum ProvenanceExportMenuModel {
     func launchWorkflowFromMenu(_ sender: NSMenuItem)
     /// Prompts the user to enable an installable workflow from the Workflow Library.
     func promptEnableWorkflowFromMenu(_ sender: NSMenuItem)
+    /// Opens the Workflow Operations window with the linked package from Tools > Workflows selected.
+    func launchLinkedWorkflowPackageFromMenu(_ sender: NSMenuItem)
+    /// Opens the Workflow Library at the card of a linked package that is not yet enabled.
+    func revealLinkedWorkflowPackageInLibrary(_ sender: NSMenuItem)
     /// Opens the CLI-backed haplotype definition manager for ONT genotyping workflows.
     func showHaplotypeDefinitions(_ sender: Any?)
     /// Opens the Workflow Library window for enabling specialized workflow surfaces.

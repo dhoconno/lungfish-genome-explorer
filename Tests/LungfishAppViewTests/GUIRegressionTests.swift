@@ -77,9 +77,12 @@ final class GUIRegressionTests: XCTestCase {
             "Call Variants…",
             "Workflow Builder (Experimental)…",
             "Search Online Databases",
-            "Workflow Library…",
+            "Workflows",
             "Plugin Manager…",
         ])
+
+        let workflowsMenu = try XCTUnwrap(toolsMenu.items.first { $0.title == "Workflows" }?.submenu)
+        XCTAssertNotNil(workflowsMenu.items.last { $0.title == "Workflow Library…" })
     }
 
     func testFASTQDatasetViewUsesCategoryOnlyLaunchers() throws {

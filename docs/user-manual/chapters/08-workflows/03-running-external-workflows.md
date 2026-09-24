@@ -9,14 +9,15 @@ tags: [workflows, nextflow, snakemake, runner, workflow-package]
 tools: [nextflow, snakemake]
 parameters_refs: [workflow.library-run]
 entry_points:
-  - "Tools > Workflow Library..."
+  - "Tools > Workflows > Workflow Library..."
+  - "Tools > Workflows > <package name>..."
   - "Tools > <category> > <workflow name>..."
   - "CLI: lungfish-cli workflow run"
 shots:
   - id: workflow-library-linked-package
     caption: "The Workflow Library window's User Workflows heading with its Link Workflow... button, showing a linked Hello World Nextflow card whose Execution row reads Runnable."
   - id: workflow-operations-runner
-    caption: "The Workflow Operations window opened from a Tools category submenu, with the enabled workflows listed down the left, a linked package marked Enable in Library, and the Overview, Inputs, and Primary Settings sections on the right."
+    caption: "The Workflow Operations window opened from Tools > Workflows, with the enabled workflows listed down the left, the linked Hello World Nextflow package selected, and the Overview, Inputs, and Primary Settings sections on the right."
 illustrations: []
 glossary_refs: [checksum, nextflow, plugin-pack, provenance, provenance-sidecar, required-setup-pack, run-bundle, snakemake, workflow-engine, workflow-library, workflow-package]
 features_refs: []
@@ -33,7 +34,7 @@ A [workflow engine](../../GLOSSARY.md#workflow-engine) is a program that reads a
 
 A [workflow package](../../GLOSSARY.md#workflow-package) is a folder ending in `.lungfishflowpkg` that holds a pipeline file and a `manifest.json` describing it. The manifest names the pipeline, gives its version, and declares which engine runs it, what it needs as input, and what it produces. LGE builds the run window from those declarations, so a package that declares a reference bundle and a read bundle gets a reference picker and a reads picker without anyone writing a dialog. A reference bundle, `.lungfishref`, holds a genome sequence, and a read bundle, `.lungfishfastq`, holds one sample's sequencing reads.
 
-Two windows matter. **Tools > Workflow Library...** is where a package is linked and switched on, and it runs nothing. The **Workflow Operations** window is where a run is set up and started. A linked package gets no Tools menu item of its own. It appears in the list of workflows down the side of the Workflow Operations window, which opens from a specialized workflow in **Tools > Genotyping**. The command line reaches the same engines with `lungfish-cli workflow run`, which takes a bare pipeline file instead of a package.
+Two windows matter, and both sit under **Tools > Workflows**. **Tools > Workflows > Workflow Library...** is where a package is linked and switched on, and it runs nothing. The **Workflow Operations** window is where a run is set up and started. Every linked package gets its own item in **Tools > Workflows**, named after the package. An enabled package's item opens the Workflow Operations window with that package selected. A package that is not yet enabled is listed as "<name> (not enabled)", and choosing it opens the Workflow Library at that package's card. With nothing linked, the submenu holds only the Workflow Library item. The command line reaches the same engines with `lungfish-cli workflow run`, which takes a bare pipeline file instead of a package.
 
 ## Why you would do this
 
@@ -53,13 +54,11 @@ Each package runs one step and does not use its inputs to compute anything, to p
 
 Select one reference bundle from `Reference Sequences/` and one read bundle from `Imports/` in the sidebar, Cmd-clicking the second, before you open the run window, because the window fills its pickers from the selection. Any of each will do. A new project has neither, so import a reference as [Importing and Viewing a Sequence](../02-sequences/01-importing-and-viewing.md) describes and reads as [Importing Sequencing Reads](../03-reads/01-importing-fastq.md) describes.
 
-The Workflow Operations window opens only from a specialized workflow in **Tools > Genotyping**. If none of those is on yet, turn on **12S Amplicon Matching** in the Workflow Library the same way step 2 turns on a package. It needs only the Required Setup pack.
-
 ## Procedure
 
 ### 1. Link the package into the Workflow Library
 
-Choose **Tools > Workflow Library...**. Find the **User Workflows** heading and click **Link Workflow...** beside it. A chooser titled Link Workflow Package opens, noting that the package stays at its location and that linking a package whose identity is already in the library replaces its earlier source and version. The identity is the `id` in its `manifest.json`, and relinking keeps whatever enablement you had set.
+Choose **Tools > Workflows > Workflow Library...**. Find the **User Workflows** heading and click **Link Workflow...** beside it. A chooser titled Link Workflow Package opens, noting that the package stays at its location and that linking a package whose identity is already in the library replaces its earlier source and version. The identity is the `id` in its `manifest.json`, and relinking keeps whatever enablement you had set.
 
 Select `hello-world-nextflow.lungfishflowpkg` and click **Link Workflow**. A card appears under User Workflows in the category its manifest declares, **Templates** for both examples. The card lists the declared inputs and output, the runtime, the [plugin packs](../../GLOSSARY.md#plugin-pack) the package needs, and an **Execution** row.
 
@@ -69,13 +68,13 @@ The Execution row reads **Runnable** or **Catalog only**. A package is Runnable 
 
 ### 2. Enable the workflow
 
-Turn the card's **Enabled** switch on. Until you do, the package is listed in the Workflow Operations window marked "Enable in Library" and cannot be chosen.
+Turn the card's **Enabled** switch on. Until you do, the package appears in **Tools > Workflows** greyed out as "Hello World Nextflow (not enabled)", and choosing that item brings you back to this card rather than opening a run window. The Workflow Operations window likewise lists it marked "Enable in Library" and will not let you choose it.
 
 Nextflow and Snakemake arrive with the [Required Setup pack](../../GLOSSARY.md#required-setup-pack), the one pack LGE installs by itself, so there is nothing to install. If a card's dependency row names a missing pack, install it from **Tools > Plugin Manager...** before enabling that workflow.
 
 ### 3. Open the workflow and set its inputs
 
-With the two bundles selected, choose **Tools > Genotyping > 12S Amplicon Matching...**, or any other enabled item there. The **Workflow Operations** window opens. In its list of workflows, click **Hello World Nextflow**. The window shows six sections, Overview, Inputs, Primary Settings, Advanced Settings, Output, and Readiness. The dialog follows the layout [Operation dialogs](../01-foundations/06-the-lungfish-project.md#operation-dialogs) describes.
+With the two bundles selected, choose **Tools > Workflows > Hello World Nextflow...**. The **Workflow Operations** window opens with **Hello World Nextflow** already selected in its list of workflows. Any enabled specialized workflow in **Tools > Genotyping** opens the same window, and you can switch packages in its list at any time. The window shows six sections, Overview, Inputs, Primary Settings, Advanced Settings, Output, and Readiness. The dialog follows the layout [Operation dialogs](../01-foundations/06-the-lungfish-project.md#operation-dialogs) describes.
 
 Inputs holds the pickers the manifest asked for, here a **Reference** picker and a **FASTQ Bundles** list. A linked package accepts exactly one read bundle, and with more selected the Readiness line reads "Imported workflow packages currently accept one FASTQ bundle. Select one bundle, or choose a built-in workflow for folder batches."
 
@@ -93,7 +92,7 @@ Click **Run** and watch the run in the [Operations Panel](../01-foundations/06-t
 
 The window builds its form from the package's manifest, so another package may show other pickers. These are the settings the two examples produce.
 
-**Enabled.** Turns a linked package into a runnable item in its Tools submenu. The default is off, so a new link is listed greyed out until you choose otherwise. Turn it on once for each package you intend to run, and off to hide one without unlinking it. A package whose card reads Catalog only cannot be enabled. This setting has no command-line flag.
+**Enabled.** Turns a linked package into a runnable item in **Tools > Workflows**. The default is off, so a new link is listed there greyed out until you choose otherwise. Turn it on once for each package you intend to run, and off to hide one without unlinking it. A package whose card reads Catalog only cannot be enabled. This setting has no command-line flag.
 
 **Reference.** Supplies the reference bundle the manifest declares as a required input, from a menu of reference bundles in the project or with **Choose…** for any other location. There is no default, so the picker starts empty. Change it when the run should use a different genome. On the command line this is `--input`, repeated once per input.
 

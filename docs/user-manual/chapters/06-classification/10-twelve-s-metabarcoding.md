@@ -9,7 +9,7 @@ tags: [classification, metabarcoding, twelve-s, amplicon, blast, export]
 tools: [blast, vsearch]
 parameters_refs: [classify.twelve-s-match]
 entry_points:
-  - "Tools > Workflow Library..."
+  - "Tools > Workflows > Workflow Library..."
   - "Tools > Genotyping > 12S Amplicon Matching..."
   - "CLI: lungfish-cli fastq 12s-match"
 shots:
@@ -61,7 +61,7 @@ Import `HG002-12S-oriented.fastq` into the project as a read bundle, following [
 
 The matcher reads one strand only and does not merge read pairs. A [paired-end](../../GLOSSARY.md#paired-end) run reads each fragment from both ends, and LGE stores the two mates of a sample together in one bundle. Orienting flips every read so that all of them run in the same direction along the gene. So orient your own reads with Orient Reads and merge their overlapping pairs first, as [Merging the overlapping pairs](../03-reads/08-read-processing.md#merging-the-overlapping-pairs) shows. The fixture's reads are already oriented, and they are single reads from the first end of each fragment, known as R1, so there is nothing to merge.
 
-12S Amplicon Matching is a specialized workflow, so the Tools menu shows it as "12S Amplicon Matching (not enabled)" until you turn it on. Turn the workflow on once in the [Workflow Library](../../GLOSSARY.md#workflow-library), as [Running External Workflows](../08-workflows/03-running-external-workflows.md#procedure) shows. The Workflow Library opens from **Tools > Workflow Library...**. Its chimera check uses [vsearch](../../GLOSSARY.md#vsearch), a sequence-comparison program, and vsearch arrives with the [Required Setup pack](../../GLOSSARY.md#required-setup-pack), the one pack LGE installs by itself, so there is nothing to install.
+12S Amplicon Matching is a specialized workflow, so the Tools menu shows it as "12S Amplicon Matching (not enabled)" until you turn it on. Turn the workflow on once in the [Workflow Library](../../GLOSSARY.md#workflow-library), as [Running External Workflows](../08-workflows/03-running-external-workflows.md#procedure) shows. The Workflow Library opens from **Tools > Workflows > Workflow Library...**. Its chimera check uses [vsearch](../../GLOSSARY.md#vsearch), a sequence-comparison program, and vsearch arrives with the [Required Setup pack](../../GLOSSARY.md#required-setup-pack), the one pack LGE installs by itself, so there is nothing to install.
 
 <!-- SHOT: twelve-s-workflow-library -->
 

@@ -99,6 +99,9 @@ final class WorkflowOperationDialogState {
     @ObservationIgnored private var projectDiscoveryGeneration: UInt64 = 0
     @ObservationIgnored private var workflowPackageRefreshTask: Task<Void, Never>?
     @ObservationIgnored private var workflowPackageRefreshGeneration: UInt64 = 0
+    /// A tool requested (for example from Tools > Workflows) before the linked-package
+    /// refresh had listed it. Honoured once the refresh makes that tool available.
+    @ObservationIgnored private(set) var pendingToolID: String?
     #if DEBUG
     @ObservationIgnored static var testingProjectDiscoveryDelay: Duration?
     #endif
@@ -226,6 +229,11 @@ final class WorkflowOperationDialogState {
             ?? initialTools.first?.id
             ?? Self.ontGenotypingID
         self.selectedToolID = initialToolID
+        // A linked package the cache has not listed yet is remembered until the refresh lists it.
+        if let requestedInitialToolID, requestedInitialToolID != initialToolID,
+           !initialTools.contains(where: { $0.id == requestedInitialToolID }) {
+            self.pendingToolID = requestedInitialToolID
+        }
         self.outputDirectoryURL = Self.defaultOutputDirectory(
             projectURL: self.projectURL,
             toolKind: initialTools.first { $0.id == initialToolID }?.kind
@@ -568,7 +576,13 @@ final class WorkflowOperationDialogState {
 
     func selectTool(_ id: String) {
         if replayConfiguration != nil, id == selectedToolID { return }
-        guard tools.first(where: { $0.id == id })?.availability == .available else { return }
+        guard let requested = tools.first(where: { $0.id == id }) else {
+            // Not listed yet (linked packages arrive from a background validation pass).
+            pendingToolID = id
+            return
+        }
+        pendingToolID = nil
+        guard requested.availability == .available else { return }
         if let replayConfiguration, id != "package.\(replayConfiguration.identity.packageManifest.id)" { clearReplayConfiguration() }
         let previousToolKind = selectedTool?.kind
         let previousDefaultOutputDirectory = Self.defaultOutputDirectory(
@@ -889,12 +903,15 @@ final class WorkflowOperationDialogState {
                 enablementStore: self.enablementStore,
                 packages: packages
             )
-            if self.replayConfiguration == nil,
+            self.workflowAvailabilityRevision &+= 1
+            if self.replayConfiguration == nil, let pending = self.pendingToolID,
+               self.cachedTools.first(where: { $0.id == pending })?.availability == .available {
+                self.selectTool(pending)
+            } else if self.replayConfiguration == nil,
                self.cachedTools.first(where: { $0.id == self.selectedToolID })?.availability != .available,
                let firstAvailable = self.cachedTools.first(where: { $0.availability == .available }) {
                 self.selectTool(firstAvailable.id)
             }
-            self.workflowAvailabilityRevision &+= 1
         }
     }
 

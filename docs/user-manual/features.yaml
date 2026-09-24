@@ -1046,7 +1046,8 @@ features:
   workflow.nextflow:
     title: Run Nextflow and nf-core pipelines
     entry_points:
-      - "Tools > Workflow Library…"
+      - "Tools > Workflows > <package name>…"
+      - "Tools > Workflows > Workflow Library…"
       - "CLI: lungfish workflow run"
     inputs: [nextflow-pipeline, nf-core-pipeline]
     outputs: [workflow-run-bundle, project-datasets]
@@ -1062,7 +1063,8 @@ features:
   workflow.snakemake:
     title: Run Snakemake workflows
     entry_points:
-      - "Tools > Workflow Library…"
+      - "Tools > Workflows > <package name>…"
+      - "Tools > Workflows > Workflow Library…"
       - "CLI: lungfish workflow run"
     inputs: [snakemake-workflow]
     outputs: [workflow-run-bundle, project-datasets]
