@@ -1,6 +1,6 @@
 # Implementation status: 2026-09-23 audit remediation
 
-**2026-09-24 · branch `claude/lge-best-practices-audit-0a1b8f` (pushed, not merged to main, no release cut)**
+**2026-09-24 · merged to `main` and shipped as Preview v2026.9.40**
 
 This report covers the round of work the owner authorized after reviewing the audit. An Opus 5.5 orchestrator split the work into lanes. Sonnet agents implemented each lane in its own worktree. The orchestrator reviewed every diff, fixed problems before merging, merged, built, ran the affected tests, and recorded the result in the [ledger](ledger.md). The finding-by-finding status lives there. This page is the summary.
 
@@ -12,9 +12,9 @@ This report covers the round of work the owner authorized after reviewing the au
 | Fixed | 110+ |
 | Partial | ~20 |
 | Open | ~50, mostly P2/P3 and large structural items |
-| P0 findings fixed | 10 of 11 |
+| P0 findings fixed | 11 of 11 |
 
-One P0 is not fully closed. **GEN-02, homozygotes called heterozygous,** is mitigated. Affected calls are now marked `ambiguous` instead of wrongly `called`. The calling rule itself is the owner's decision.
+All P0 findings are closed. GEN-02 (homozygotes called heterozygous) was fixed in the second round under the owner's decision D11. Affected calls are now marked `ambiguous` instead of wrongly `called`. The calling rule itself is the owner's decision.
 
 The branch has about 240 commits over the pre-audit base `a1f439076`: roughly 26.7k lines added and 13.4k removed across Sources, Tests and scripts. The checkout itself shrank from 489 MB to 189 MB (docs work).
 
@@ -95,20 +95,34 @@ The branch has about 240 commits over the pre-audit base `a1f439076`: roughly 26
     - NEW-09: "Cancel Operations and Quit" never quit. Confirmed live: the app now exits in about 2 seconds.
     - FEA-03 follow-up: an Inspector delete of an annotation picked in the drawer did nothing. Confirmed live: the row count went from 23 to 22.
     - NEW-08: a cancelled operation whose worker never returns now becomes Cancelled after 10 seconds. Its bundle stays locked until the worker actually exits, so nothing can write over it. Version probes no longer swallow cancellation.
-  - **Found and still open:** NEW-02, NEW-06, NEW-10 (caused by NEW-11), NEW-11 and DS-02.
+  - **Found and later fixed:** NEW-02, NEW-06, NEW-10 and NEW-11, plus DS-02, which the depth cap replaced. NEW-10 and NEW-11 were confirmed live on the Desktop scratch project.
+
+## Second round (owner decisions D8 to D21, 2026-09-24)
+
+The owner answered the open questions, and a second round of lanes implemented every answer:
+
+| Decision | Result |
+|---|---|
+| D8 Excel comments | Comments hold the exact user note. Evidence moved to its own column. The five quarantined tests pass, so the quarantine list is empty |
+| D9 depth cap | The read view caps displayed depth (default 500x) instead of loading 50,000 reads. Shallow regions show every read. Verified live: 65,424 of ~671,705 reads shown at a 5,000x block, and typing 100 in the Inspector refetches |
+| D10 sliders | All sliders use `NumericSliderField` with typed entry, enforced by a pre-push ratchet |
+| D11, D12, D15 calling | Homozygotes call correctly (DQ and DR 28 of 28 in the golden test). Identical definitions are reported as ambiguities. Identical references collapse with an `ambiguous_with` list. Long-read calls keep indels with an `indel_bases` column and review flag |
+| D13, D14 denominators and filters | One per-source-locus denominator everywhere. "Min %" is a per-sample read fraction for all alleles, plus a separate "Seen in ≥ N% of animals" control |
+| D16, D17 release | Licence links pinned, zstd BSD election stated, `release.py yank` executes with typed confirmation and a build-floor marker |
+| D18, D20 | The no-follow walk starts at the project or bundle, and the sidebar rescans when the app activates |
+| D19 EsViritu | Strictly interleaved files run paired. Files that mix pairs and merged reads run single-end with a clear label |
+| D6a, D21 (team) | The real-app smoke gate stays off until the owner creates the QA account. An idle session's finished fix was carried into the release |
+
+The release-script test suite went from 67 failures to green (927 passed, 2 documented expected failures, REL-06 and REL-07). The integrated unit tier passed on `955075173` with 14,018 XCTest and 0 failures.
 
 ## Needs the owner
 
 | Item | Why it needs you |
 |---|---|
-| **D8**: Genotype Excel comment contract | Two existing tests require opposite comment formats for the Filtered sheet. Five tests are quarantined in the gate until you choose (TST-15) |
-| **GEN-02**: haplotype calling rule | The shipped definitions use `minimumMatches: 1`, so shared alleles can support a second haplotype. Calls are now flagged `ambiguous`; you decide the rule |
-| GEN-04, 05, 06, 10 | Tie handling, locus-% denominator unification, "min %" semantics for novel rows, and an indel guard all change how numbers are interpreted |
-| **REL-03**: legal review | The kernel source offer names your email address. The zstd BSD election and the `main`-branch license URLs also need a check |
-| REL-04 | `release.py yank` prints a plan only. Executing it against the live Sparkle feed needs your go-ahead |
-| NEW-02: sidebar watcher | Reproduced live 3 times (backgrounded signed app, 4–5 windows). Not reproduced headless. Leading hypothesis: App Nap throttling while backgrounded |
-| NEW-06: EsViritu interleaved input | Runs as unpaired and is labelled "Single-end reads". Deinterleave and run paired? |
-| **NEW-11**: folder permissions | Hardened file writes open every folder from `/` down. For a project in Desktop, Documents or Downloads they need that folder's macOS permission, not just the project. Without it, provenance writes, temp folders and the file watcher hang with no message. A live process sample showed it behind the stuck EsViritu run (NEW-08) and the stuck annotation-delete operation (NEW-10). Should the no-follow walk start at the project root instead? |
+| **REL-03**: legal read | The kernel source offer and the zstd election sentence are compliance text and would benefit from a lawyer's read |
+| **D6a**: QA account | Create the `lungfish-release-qa` macOS account to re-enable the real-app smoke gate. Fix REL-06 in the same change |
+| REL-04 drill | Try `release.py yank --execute` once on a disposable fork before relying on it |
+| Screenshot | `view-settings-reads-tab` and `esviritu-advanced-settings` need recapturing into the media repo |
 
 ## Known gaps and next steps
 
@@ -120,12 +134,11 @@ The branch has about 240 commits over the pre-audit base `a1f439076`: roughly 26
   - Import routing is not yet unified (FEA-04).
 - PERF-12: two cancellation-sensitive blocking waits remain.
 - PERF-17: custom-drawn genotype matrix cells would get under 100 ms.
-- DS-02: fetch the visible range in full and sample only the padding.
 - UX: column-state persistence (UX-06), the rest of the label unification (UX-07), and VoiceOver in the core viewer (UX-11).
-- Recapture the `esviritu-advanced-settings` manual screenshot into the media repo. A capture from the new build is in the session scratchpad.
 
-## Testing the debug build
+## Testing
 
-`/Applications/Lungfish Debug.app` is built from `26744cec9`, the gated head. The previous debug app is in the Trash. Launch it by path. Another debug build in your primary checkout (`~/Documents/lungfish-genome-explorer/build/Debug/`) shares its bundle ID, and LaunchServices may pick that one otherwise. The Computer Use scratch data is at `~/Desktop/LGE-audit-verify.lungfish`, `~/Documents/audit-LGE-audit-scratch.lungfish` and `~/Documents/LGE-audit-inputs`. Delete them when you are done.
-
-Each rebuild of the ad-hoc-signed debug app invalidates its macOS Desktop permission. The first time it touches the Desktop scratch project, macOS may ask for Desktop access again. Until you answer, some operations sit at 0% (NEW-11).
+- **Preview v2026.9.40** is the build to test. An installed Lungfish Preview offers it through the normal update check, or download it from the GitHub release.
+- `/Applications/Lungfish Debug.app` is also built from the release commit. Launch it by path, because an older debug build in the primary checkout shares its bundle ID.
+- A rebuilt debug app loses its macOS Desktop permission, so macOS may ask again. Since NEW-11, saving steps no longer hang while that request is pending.
+- Scratch data from the Computer Use checks is at `~/Desktop/LGE-audit-verify.lungfish`, `~/Documents/audit-LGE-audit-scratch.lungfish` and `~/Documents/LGE-audit-inputs`. The Desktop project includes `DeepMixed`, a 60 kb reference with a 5,000x block for trying the depth cap. Delete them when you are done.
