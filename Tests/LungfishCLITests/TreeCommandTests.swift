@@ -16,7 +16,8 @@ final class TreeCommandTests: XCTestCase {
         let resolved = try TreeCommand.InferIQTreeSubcommand.resolveIQTreeExecutableForTesting(
             iqtreePath: nil,
             environment: ["PATH": "/usr/bin:/bin"],
-            managedHomeDirectory: homeDirectory
+            managedHomeDirectory: homeDirectory,
+            appIdentity: .preview
         )
 
         XCTAssertEqual(resolved.path, managedIQTree.standardizedFileURL.path)

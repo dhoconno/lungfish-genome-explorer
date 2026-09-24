@@ -549,7 +549,8 @@ extension ImportCommand {
 
         static func detectPlatformFromPairs(
             _ pairs: [SamplePair],
-            homeDirectory: URL = currentHomeDirectory()
+            homeDirectory: URL = currentHomeDirectory(),
+            appIdentity: LungfishAppIdentity = .current
         ) throws -> WorkflowPlatform? {
             guard let first = pairs.first else { return nil }
 
@@ -561,7 +562,7 @@ extension ImportCommand {
 
             let header: String
             if isGzipped {
-                guard let pigzURL = Self.managedPigzExecutableURL(homeDirectory: homeDirectory) else {
+                guard let pigzURL = Self.managedPigzExecutableURL(homeDirectory: homeDirectory, appIdentity: appIdentity) else {
                     throw PlatformDetectionError.managedPigzUnavailable(r1)
                 }
                 // Use managed pigz -dc and read only the first 1 KB to avoid blocking.
@@ -601,12 +602,14 @@ extension ImportCommand {
         }
 
         static func managedPigzExecutableURL(
-            homeDirectory: URL = currentHomeDirectory()
+            homeDirectory: URL = currentHomeDirectory(),
+            appIdentity: LungfishAppIdentity = .current
         ) -> URL? {
             let pigzURL = CoreToolLocator.managedExecutableURL(
                 environment: "pigz",
                 executableName: "pigz",
-                homeDirectory: homeDirectory
+                homeDirectory: homeDirectory,
+                appIdentity: appIdentity
             )
             guard FileManager.default.isExecutableFile(atPath: pigzURL.path) else {
                 return nil

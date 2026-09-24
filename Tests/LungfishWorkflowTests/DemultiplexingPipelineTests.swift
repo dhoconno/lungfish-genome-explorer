@@ -1056,7 +1056,7 @@ final class DemultiplexingPipelineTests: XCTestCase {
 
         do {
             _ = try await DemultiplexingPipeline(
-                runner: NativeToolRunner(toolsDirectory: nil, homeDirectory: runnerRoot)
+                runner: NativeToolRunner(toolsDirectory: nil, homeDirectory: runnerRoot, appIdentity: .preview)
             ).run(
                 config: DemultiplexConfig(
                     inputURL: inputFASTQ,
@@ -1171,7 +1171,7 @@ final class DemultiplexingPipelineTests: XCTestCase {
         )
 
         let result = try await DemultiplexingPipeline(
-            runner: NativeToolRunner(toolsDirectory: nil, homeDirectory: runnerRoot),
+            runner: NativeToolRunner(toolsDirectory: nil, homeDirectory: runnerRoot, appIdentity: .preview),
             cutadaptVersionOverride: "5.2"
         ).run(
             config: DemultiplexConfig(

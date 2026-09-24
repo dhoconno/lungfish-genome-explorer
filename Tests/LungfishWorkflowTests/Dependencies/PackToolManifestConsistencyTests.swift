@@ -16,7 +16,17 @@ final class PackToolManifestConsistencyTests: XCTestCase {
                     )
                     continue
                 }
-                if let build = spec.sourceBuild {
+                if let runtime = spec.pythonRuntime {
+                    // A typed Python-runtime tool installs the manifest's base
+                    // interpreter/package pins; the wheel itself is fetched separately.
+                    XCTAssertEqual(
+                        req.installPackages,
+                        runtime.basePackageSpecs,
+                        "\(pack.id)/\(req.id) must install the manifest pythonRuntime base packages"
+                    )
+                    XCTAssertEqual(req.version, spec.version, "\(pack.id)/\(req.id) version must match the manifest")
+                    XCTAssertNil(req.sourceOverlay, "\(pack.id)/\(req.id) has an overlay with no manifest sourceBuild")
+                } else if let build = spec.sourceBuild {
                     // A source-built tool installs the manifest's toolchain pins and
                     // applies the manifest's overlay; its version is the build's.
                     XCTAssertEqual(

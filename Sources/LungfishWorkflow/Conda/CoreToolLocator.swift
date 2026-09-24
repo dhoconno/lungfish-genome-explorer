@@ -145,12 +145,13 @@ public enum CoreToolLocator {
 
     public static func bbToolsEnvironment(
         homeDirectory: URL,
-        existingPath: String
+        existingPath: String,
+        appIdentity: LungfishAppIdentity = .current
     ) -> [String: String] {
-        let envRoot = environmentURL(named: "bbtools", homeDirectory: homeDirectory)
+        let envRoot = environmentURL(named: "bbtools", homeDirectory: homeDirectory, appIdentity: appIdentity)
         let binDir = envRoot.appendingPathComponent("bin", isDirectory: true)
         let javaHome = envRoot.appendingPathComponent("lib/jvm", isDirectory: true)
-        let java = bbToolsJavaURL(homeDirectory: homeDirectory)
+        let java = bbToolsJavaURL(homeDirectory: homeDirectory, appIdentity: appIdentity)
         let javaBinDir = java.deletingLastPathComponent()
 
         return [

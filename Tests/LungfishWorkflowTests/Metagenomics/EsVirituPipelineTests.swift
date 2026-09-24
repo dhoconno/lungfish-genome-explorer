@@ -682,7 +682,7 @@ final class EsVirituDatabaseManagerTests: XCTestCase {
         let home = FileManager.default.temporaryDirectory
             .appendingPathComponent("esviritu-default-home-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: home) }
-        let store = ManagedStorageConfigStore(homeDirectory: home, environmentProvider: { [:] })
+        let store = ManagedStorageConfigStore(homeDirectory: home, appIdentity: .preview, environmentProvider: { [:] })
         try store.setActiveRoot(store.defaultLocation.rootURL)
         let manager = EsVirituDatabaseManager(storageConfigStore: store)
         let dbURL = await manager.databaseURL
@@ -786,7 +786,7 @@ final class EsVirituDatabaseManagerTests: XCTestCase {
             .appendingPathComponent("esviritu-home-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: home) }
         let configuredRoot = home.appendingPathComponent("managed-storage", isDirectory: true)
-        let store = ManagedStorageConfigStore(homeDirectory: home, environmentProvider: { [:] })
+        let store = ManagedStorageConfigStore(homeDirectory: home, appIdentity: .preview, environmentProvider: { [:] })
         try store.setActiveRoot(configuredRoot)
 
         let manager = EsVirituDatabaseManager(storageConfigStore: store)
@@ -807,7 +807,7 @@ final class EsVirituDatabaseManagerTests: XCTestCase {
         try fm.createDirectory(at: home, withIntermediateDirectories: true)
         defer { try? fm.removeItem(at: home) }
 
-        let store = ManagedStorageConfigStore(homeDirectory: home, environmentProvider: { [:] })
+        let store = ManagedStorageConfigStore(homeDirectory: home, appIdentity: .preview, environmentProvider: { [:] })
         let manager = EsVirituDatabaseManager(storageConfigStore: store)
 
         try store.setActiveRoot(store.defaultLocation.rootURL)

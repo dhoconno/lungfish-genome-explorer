@@ -394,7 +394,7 @@ private struct VsearchFixture {
             try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: scriptURL.path)
         }
 
-        runner = NativeToolRunner(toolsDirectory: nil, homeDirectory: homeDirectory)
+        runner = NativeToolRunner(toolsDirectory: nil, homeDirectory: homeDirectory, appIdentity: .preview)
     }
 
     func cleanup() {

@@ -410,7 +410,7 @@ final class ImportFastqCommandTests: XCTestCase {
     func testManagedPigzExecutableURLUsesManagedEnvironmentLayout() throws {
         let (home, pigzURL) = try makeManagedPigzHome(script: "#!/bin/sh\nexit 0\n")
 
-        let resolved = ImportCommand.FastqSubcommand.managedPigzExecutableURL(homeDirectory: home)
+        let resolved = ImportCommand.FastqSubcommand.managedPigzExecutableURL(homeDirectory: home, appIdentity: .preview)
 
         XCTAssertEqual(resolved, pigzURL)
     }
@@ -471,7 +471,7 @@ final class ImportFastqCommandTests: XCTestCase {
         )
 
         XCTAssertThrowsError(
-            try ImportCommand.FastqSubcommand.detectPlatformFromPairs([pair], homeDirectory: home)
+            try ImportCommand.FastqSubcommand.detectPlatformFromPairs([pair], homeDirectory: home, appIdentity: .preview)
         ) { error in
             XCTAssertTrue(
                 error.localizedDescription.contains("Managed pigz failed"),

@@ -51,6 +51,7 @@ final class SamtoolsLocatorTests: XCTestCase {
 
         let resolved = SamtoolsLocator.locate(
             homeDirectory: home,
+            appIdentity: .preview,
             searchPath: pathDir.path
         )
 
@@ -61,7 +62,7 @@ final class SamtoolsLocatorTests: XCTestCase {
         let fm = FileManager.default
         let home = fm.temporaryDirectory.appendingPathComponent("samtools-home-\(UUID().uuidString)", isDirectory: true)
         let configuredRoot = home.appendingPathComponent("managed-storage", isDirectory: true)
-        let store = ManagedStorageConfigStore(homeDirectory: home)
+        let store = ManagedStorageConfigStore(homeDirectory: home, appIdentity: .preview)
         try store.setActiveRoot(configuredRoot)
 
         let managedSamtools = configuredRoot
@@ -83,6 +84,7 @@ final class SamtoolsLocatorTests: XCTestCase {
 
         let resolved = SamtoolsLocator.locate(
             homeDirectory: home,
+            appIdentity: .preview,
             searchPath: pathDir.path
         )
 

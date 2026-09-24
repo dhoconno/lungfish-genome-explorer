@@ -406,8 +406,9 @@ extension BundleBuildHelpers {
     /// matches the managed-tool resolution introduced for workflow execution.
     static func managedToolExecutablePath(
         _ tool: NativeTool,
-        homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser
+        homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser,
+        appIdentity: LungfishAppIdentity = .current
     ) -> String? {
-        ManagedToolLocator.managedToolExecutablePath(tool, homeDirectory: homeDirectory)
+        ManagedToolLocator.managedToolExecutablePath(tool, homeDirectory: homeDirectory, appIdentity: appIdentity)
     }
 }

@@ -480,7 +480,7 @@ struct MetagenomicsImportServiceTests {
         try "#!/bin/sh\nexit 0\n".write(to: samtoolsURL, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: samtoolsURL.path)
 
-        let resolved = MetagenomicsImportService.managedSamtoolsExecutableURL(homeDirectory: home)
+        let resolved = MetagenomicsImportService.managedSamtoolsExecutableURL(homeDirectory: home, appIdentity: .preview)
 
         #expect(resolved?.path == samtoolsURL.path)
     }

@@ -454,7 +454,7 @@ final class PluginPackRegistryTests: XCTestCase {
         let wheel = try XCTUnwrap(runtime.releaseWheelSource)
         XCTAssertEqual(
             wheel.url.absoluteString,
-            "https://github.com/dhoconno/primalscheme3-lge/releases/download/v3.3.0-lge.5/primalscheme3-3.3.0%2Blge.5-py3-none-any.whl")
+            "https://github.com/dhoconno/primalscheme3-lge/releases/download/v3.3.0-lge.5/primalscheme3-3.3.0+lge.5-py3-none-any.whl")
         XCTAssertEqual(wheel.sha256, "ab8453c4a4b19cbd96794b1e4997fad4538f714eacdea77528c46df59f7b4066")
         XCTAssertEqual(wheel.sourceRevision, "858a341ab7435fa54a9f1c0b1f10e525f8b3ef2a")
         XCTAssertEqual(wheel.upstreamRevision, "dd13ec5cb1cf375f052640355c73101c0c4bf839")

@@ -523,7 +523,7 @@ private struct Minimap2PipelineFixture {
             try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: samtoolsExecutable.path)
         }
 
-        runner = NativeToolRunner(toolsDirectory: nil, homeDirectory: homeDirectory)
+        runner = NativeToolRunner(toolsDirectory: nil, homeDirectory: homeDirectory, appIdentity: .preview)
     }
 
     private static func micromambaScript(minimap2ExitCode: Int32) -> String {

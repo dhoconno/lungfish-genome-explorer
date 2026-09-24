@@ -150,13 +150,14 @@ final class DocumentTypeReferenceBundleTests: XCTestCase {
 
     func testOnlyNativeBundlesAreDirectoryFormats() {
         let directoryTypes = AppDocumentType.allCases.filter { $0.isDirectoryFormat }
-        XCTAssertEqual(directoryTypes.count, 5,
-                       "Exactly five types should be directory formats: project, reference, MHC reference, MSA, and tree bundles")
+        XCTAssertEqual(directoryTypes.count, 6,
+                       "Exactly six types should be directory formats: project, reference, MHC reference, MSA, tree, and primer analysis bundles")
         XCTAssertTrue(directoryTypes.contains(.lungfishProject))
         XCTAssertTrue(directoryTypes.contains(.lungfishReferenceBundle))
         XCTAssertTrue(directoryTypes.contains(.lungfishMHCReferenceBundle))
         XCTAssertTrue(directoryTypes.contains(.lungfishMultipleSequenceAlignmentBundle))
         XCTAssertTrue(directoryTypes.contains(.lungfishPhylogeneticTreeBundle))
+        XCTAssertTrue(directoryTypes.contains(.lungfishPrimerAnalysisBundle))
     }
 
     // MARK: - Raw Value Tests

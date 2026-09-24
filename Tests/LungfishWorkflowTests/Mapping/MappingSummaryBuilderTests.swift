@@ -46,7 +46,7 @@ final class MappingSummaryBuilderTests: XCTestCase {
         try Data().write(to: bam)
         let summaries = try await MappingSummaryBuilder.build(
             sortedBAMURL: bam, totalReads: 99, readGroupIDs: ["S1-A", "S1-B"],
-            runner: NativeToolRunner(toolsDirectory: nil, homeDirectory: root), timeout: 2
+            runner: NativeToolRunner(toolsDirectory: nil, homeDirectory: root, appIdentity: .preview), timeout: 2
         )
         XCTAssertEqual(try XCTUnwrap(summaries.first).mappedReadPercent, 25, accuracy: 0.001)
         let invocationLog = try String(contentsOf: log, encoding: .utf8)
@@ -271,7 +271,7 @@ final class MappingSummaryBuilderTests: XCTestCase {
                 sortedBAMURL: bam,
                 totalReads: 1,
                 readGroupIDs: ["S1-RG"],
-                runner: NativeToolRunner(toolsDirectory: nil, homeDirectory: root),
+                runner: NativeToolRunner(toolsDirectory: nil, homeDirectory: root, appIdentity: .preview),
                 timeout: 300
             )
         }
@@ -348,7 +348,7 @@ final class MappingSummaryBuilderTests: XCTestCase {
         let contigs = try await MappingSummaryBuilder.build(
             sortedBAMURL: oversizedBAM,
             totalReads: 10,
-            runner: NativeToolRunner(toolsDirectory: nil, homeDirectory: root)
+            runner: NativeToolRunner(toolsDirectory: nil, homeDirectory: root, appIdentity: .preview)
         )
 
         XCTAssertEqual(contigs.map(\.contigName), ["chr1"])
@@ -385,7 +385,7 @@ final class MappingSummaryBuilderTests: XCTestCase {
         let summaries = try await MappingSummaryBuilder.build(
             sortedBAMURL: bam,
             totalReads: 200_000,
-            runner: NativeToolRunner(toolsDirectory: nil, homeDirectory: root),
+            runner: NativeToolRunner(toolsDirectory: nil, homeDirectory: root, appIdentity: .preview),
             timeout: 30
         )
         let summary = try XCTUnwrap(summaries.first)

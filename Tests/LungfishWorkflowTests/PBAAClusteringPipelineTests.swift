@@ -86,7 +86,7 @@ final class PBAAClusteringPipelineTests: XCTestCase {
             }
         }
 
-        let runner = ProcessPBAANextflowRunner(homeDirectoryProvider: { home })
+        let runner = ProcessPBAANextflowRunner(homeDirectoryProvider: { home }, appIdentity: .preview)
         let result = try await PBAAClusteringPipeline(nextflowRunner: runner).run(request)
 
         XCTAssertEqual(try String(contentsOf: result.passedConsensusFASTAURL, encoding: .utf8), ">cluster1_ReadCount-4\nACGT\n")
@@ -150,7 +150,7 @@ final class PBAAClusteringPipelineTests: XCTestCase {
             }
         }
 
-        let runner = ProcessPBAANextflowRunner(homeDirectoryProvider: { home })
+        let runner = ProcessPBAANextflowRunner(homeDirectoryProvider: { home }, appIdentity: .preview)
 
         let task = Task {
             try await runner.run(request: request, workflowDirectory: workflowDirectory)

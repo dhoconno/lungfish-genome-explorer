@@ -366,7 +366,7 @@ private struct ManagedToolFixture {
         try Self.install(script: Self.seqkitScript(), tool: "seqkit", environment: "seqkit", homeDirectory: homeDirectory)
         try Self.install(script: Self.vsearchScript(), tool: "vsearch", environment: "vsearch", homeDirectory: homeDirectory)
 
-        runner = NativeToolRunner(toolsDirectory: nil, homeDirectory: homeDirectory)
+        runner = NativeToolRunner(toolsDirectory: nil, homeDirectory: homeDirectory, appIdentity: .preview)
     }
 
     func cleanup() {

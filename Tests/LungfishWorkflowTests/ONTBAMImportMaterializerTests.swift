@@ -84,7 +84,7 @@ final class ONTBAMImportMaterializerTests: XCTestCase {
             platform: .ont,
             workspace: workspace,
             threads: 3,
-            runner: NativeToolRunner(toolsDirectory: nil, homeDirectory: root)
+            runner: NativeToolRunner(toolsDirectory: nil, homeDirectory: root, appIdentity: .preview)
         )
 
         XCTAssertEqual(result.processingPair.r1.lastPathComponent, "reads-from-bam.fastq.gz")

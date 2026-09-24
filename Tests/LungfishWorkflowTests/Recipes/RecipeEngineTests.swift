@@ -477,7 +477,7 @@ final class RecipeEngineTests: XCTestCase {
         """
         try script.write(to: executable, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
-        return NativeToolRunner(toolsDirectory: nil, homeDirectory: homeDirectory)
+        return NativeToolRunner(toolsDirectory: nil, homeDirectory: homeDirectory, appIdentity: .preview)
     }
 
     private func assertGeneratedFastpFilesWereCleaned(
