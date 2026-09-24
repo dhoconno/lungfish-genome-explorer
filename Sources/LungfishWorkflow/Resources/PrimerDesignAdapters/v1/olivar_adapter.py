@@ -225,8 +225,12 @@ def _build_reference(
     variant file is the native representation of the same empty variant set.
     """
     main = modules["main"]
+    # Olivar carries msa_filename into the generated FASTA record ID, then uses
+    # that ID as the key for each target's amplicons.  A combined design may
+    # contain MSAs with the same basename, so use our unique reference title to
+    # prevent one target's amplicons from replacing another's.
     preprocess_arguments = {
-        "msa_path": str(msa_path), "msa_filename": msa_path.stem, "prefix": str(out_path),
+        "msa_path": str(msa_path), "msa_filename": title, "prefix": str(out_path),
         "n_cpu": workers, "min_var": minimum_variant_frequency, "deg": degenerate,
     }
     with native_event(
@@ -235,7 +239,7 @@ def _build_reference(
         module_path=str(Path(main.__file__).resolve()),
     ) as event:
         fasta_path, variant_path = main.run_preprocess(
-            str(msa_path), msa_path.stem, str(out_path), workers,
+            str(msa_path), title, str(out_path), workers,
             minimum_variant_frequency, degenerate,
         )
         event["result"] = {"fasta_path": fasta_path, "variant_path": variant_path}

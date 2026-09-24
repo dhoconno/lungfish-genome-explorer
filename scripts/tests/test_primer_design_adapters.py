@@ -31,6 +31,7 @@ from common import (  # noqa: E402
     validate_target_contract,
 )
 from olivar_adapter import (  # noqa: E402
+    _build_reference,
     build_msa_projection,
     install_pair_guard,
     normalize_olivar_outputs,
@@ -513,6 +514,50 @@ class VarVAMPConfigTests(unittest.TestCase):
 
 
 class NativeNormalizationTests(unittest.TestCase):
+    def test_olivar_preprocess_uses_unique_reference_title_for_same_named_msas(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            observed_names = []
+
+            def run_preprocess(msa_path, msa_filename, prefix, n_cpu, min_var, deg):
+                observed_names.append(msa_filename)
+                fasta_path = Path(prefix) / f"{msa_filename}_consensus.fasta"
+                variant_path = Path(prefix) / f"{msa_filename}_var.csv"
+                fasta_path.write_text(f">{msa_filename}\n" + "A" * 500 + "\n", encoding="utf-8")
+                variant_path.write_text("position,reference,alternative,frequency\n", encoding="utf-8")
+                return str(fasta_path), str(variant_path)
+
+            fake_main = types.SimpleNamespace(
+                __file__=__file__,
+                run_preprocess=run_preprocess,
+                run_build=lambda *args, **kwargs: None,
+            )
+            recorder = {"nativeEvents": []}
+            for directory, title in (("first", "input-one"), ("second", "input-two")):
+                msa_path = root / directory / "primary.aligned.fasta"
+                msa_path.parent.mkdir()
+                fasta(msa_path, ("A" * 500, "A" * 500))
+                out_path = root / f"out-{directory}"
+                out_path.mkdir()
+                _build_reference(
+                    {"main": fake_main},
+                    msa_path=msa_path,
+                    out_path=out_path,
+                    title=title,
+                    workers=1,
+                    minimum_variant_frequency=0.01,
+                    degenerate=False,
+                    blast_database=None,
+                    recorder=recorder,
+                )
+
+            self.assertEqual(observed_names, ["input-one", "input-two"])
+            preprocess_events = [event for event in recorder["nativeEvents"] if event["function"] == "run_preprocess"]
+            self.assertEqual(
+                [event["arguments"]["msa_filename"] for event in preprocess_events],
+                ["input-one", "input-two"],
+            )
+
     def test_olivar_csv_bed_coordinate_agreement_and_membership(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
