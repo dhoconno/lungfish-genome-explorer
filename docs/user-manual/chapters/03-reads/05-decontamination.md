@@ -230,7 +230,7 @@ lungfish-cli fastq deduplicate "$READS" \
   --subs 0 --output dedup.fastq
 ```
 
-Each command reads the pairing the bundle records, so given the file inside a paired bundle it keeps the mates together as the window does. `--pairing` overrides that choice. It takes `interleaved`, `single`, or `auto`, the default, which reads the bundle's record first and then the read names. `deacon-ribo` also accepts the two downloaded mate files, R1 then R2, and writes a filtered file for each into the directory you name.
+Each command reads the pairing the bundle records, so given the file inside a paired bundle it keeps the mates together as the window does. `--pairing` overrides that choice. It takes `interleaved`, `single`, or `auto`, the default, which reads the bundle's record first and then the read names. A bundle written by a merge recipe holds merged single reads between the pairs that did not merge, and no tool can pair such a file by position. Every command checks the records before it pairs anything, so on a mixed file it treats each record as a single read, says so on standard error, and records the layout it found in provenance. `deacon-ribo` also accepts the two downloaded mate files, R1 then R2, and writes a filtered file for each into the directory you name.
 
 ## Next
 
