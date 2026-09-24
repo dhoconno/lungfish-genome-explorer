@@ -65,7 +65,7 @@ final class MSAViewportInteractionTests: XCTestCase {
     /// observed insufficient even though the scroll itself completed correctly
     /// once the runloop caught up (TST-10 -- wall-clock budgets under load).
     private func waitUntilScrolled(
-        timeout: TimeInterval = 5,
+        timeout: TimeInterval = 20,
         _ condition: () -> Bool
     ) async {
         let deadline = Date().addingTimeInterval(timeout)
