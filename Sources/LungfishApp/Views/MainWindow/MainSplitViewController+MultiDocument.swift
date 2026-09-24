@@ -382,6 +382,7 @@ extension MainSplitViewController {
 
     public func applyProjectSessionState(restoring snapshot: ProjectWindowSnapshot? = nil) {
         invalidateDisplayRequest()
+        resetInspectorForProjectChange()
         guard let project = projectSession.project else {
             sidebarController.closeProject()
             viewerController?.showNoSequenceSelected()
@@ -404,6 +405,17 @@ extension MainSplitViewController {
         onProjectOpenWarningStateChanged?(projectSession.openWarningState)
 
         if let snapshot { applyProjectWindowSnapshot(snapshot) }
+    }
+
+    /// Drops everything the Inspector shows about the previous project.
+    ///
+    /// Opening another project into this window replaces the sidebar and the
+    /// viewport; without this the Inspector kept the old project's selection
+    /// (a FASTQ's statistics, a genotype Run Summary) next to the new project.
+    func resetInspectorForProjectChange() {
+        clearClassifierMetadataPresentation()
+        clearBAMMetadataPresentation()
+        inspectorController?.clearSelection()
     }
 
     /// One restoration authority for accepted native and filesystem-backed roots.
