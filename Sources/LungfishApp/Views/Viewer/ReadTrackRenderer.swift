@@ -924,8 +924,12 @@ public enum ReadTrackRenderer {
         // Pre-compute CGColor cache for (strand, mapqBin) combinations to avoid per-read allocs.
         // mapqAlpha returns 5 distinct values × 2 strands × 2 (fill/stroke) = 20 cached colors.
         let useStrandColors = settings.showStrandColors
-        let neutralFillPacked = NSColor(red: 0.78, green: 0.78, blue: 0.78, alpha: 1.0).cgColor
-        let neutralStrokePacked = NSColor(red: 0.62, green: 0.62, blue: 0.62, alpha: 1.0).cgColor
+        // UX-16: fixed light-gray RGB values (0.78/0.62) read as washed-out, low-contrast glyphs
+        // in Dark Aqua. systemGray/tertiaryLabelColor are dynamic colors that resolve per
+        // appearance. Both feed `.copy(alpha:)` below (mapqAlpha overrides alpha entirely), so
+        // only hue/lightness matter here, not the alpha passed to withAlphaComponent.
+        let neutralFillPacked = NSColor.systemGray.cgColor
+        let neutralStrokePacked = NSColor.tertiaryLabelColor.cgColor
         var colorCache: [UInt16: (fill: CGColor, stroke: CGColor)] = [:]
         func cachedColors(isReverse: Bool, mapq: UInt8) -> (fill: CGColor, stroke: CGColor) {
             let key = UInt16(isReverse ? 1 : 0) << 8 | UInt16(mapq)
@@ -2066,8 +2070,9 @@ public enum ReadTrackRenderer {
         let barHeight: CGFloat = 16
         let barRect = CGRect(x: rect.minX, y: rect.maxY - barHeight, width: rect.width, height: barHeight)
 
-        // Gradient background
-        context.setFillColor(NSColor(white: 0.88, alpha: 0.9).cgColor)
+        // UX-16: a fixed near-white fill (NSColor(white: 0.88, ...)) put light secondaryLabelColor
+        // text on a light bar in Dark Aqua. quaternarySystemFill/labelColor track dark mode.
+        context.setFillColor(NSColor.quaternarySystemFill.cgColor)
         context.fill(barRect)
 
         // Text
@@ -2079,7 +2084,7 @@ public enum ReadTrackRenderer {
         }
         let attrs: [NSAttributedString.Key: Any] = [
             .font: NSFont.systemFont(ofSize: 9),
-            .foregroundColor: NSColor.secondaryLabelColor
+            .foregroundColor: NSColor.labelColor
         ]
         let size = text.size(withAttributes: attrs)
         text.draw(
