@@ -2087,12 +2087,19 @@ public class SequenceViewerView: NSView {
         }
 
         guard !aminoAcidPositions.isEmpty else { return nil }
+        // The 5'-most segment in transcription order carries the phase: ascending
+        // genomic order for '+', descending for '-' (SCI-10). `annotation.intervals`
+        // may not be genomic-ascending (SCI-15 origin-spanning features), so anchor
+        // explicitly rather than relying on array order.
+        let fivePrimeInterval = annotation.strand == .reverse
+            ? annotation.intervals.max(by: { $0.start < $1.start })
+            : annotation.intervals.min(by: { $0.start < $1.start })
         return TranslationResult(
             protein: protein,
             codingSequence: String(repeating: "N", count: min(codingCoordinates.count, protein.count * 3)),
             aminoAcidPositions: aminoAcidPositions,
             codonTable: codonTable,
-            phaseOffset: annotation.intervals.first?.phase ?? 0
+            phaseOffset: fivePrimeInterval?.phase ?? 0
         )
     }
 

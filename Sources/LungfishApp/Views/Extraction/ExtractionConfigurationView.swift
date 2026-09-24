@@ -219,6 +219,11 @@ struct ExtractionConfigurationView: View {
         .frame(minHeight: 400)
         .onAppear {
             bundleName = defaultBundleName
+            // SCI-06: default to feature (5'->3') orientation for a
+            // minus-strand feature, matching every other genome tool (UCSC,
+            // gffread, SnapGene, Geneious). The toggle stays available for the
+            // explicit "genomic span as-is" case.
+            reverseComplement = strand == .reverse
         }
     }
 }

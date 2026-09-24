@@ -147,3 +147,42 @@ extension GenomicRegion {
         self.init(chromosome: chromosome, start: range.lowerBound, end: range.upperBound)
     }
 }
+
+// MARK: - Display String (SCI-13)
+
+extension GenomicRegion {
+    /// The single, canonical way to show or copy a region as text:
+    /// 1-based, closed (`chrom:start-end`), with thousands separators on each
+    /// number (matching how the coordinate ruler already displays a range).
+    ///
+    /// Internal storage is 0-based half-open `[start, end)`. The equivalent
+    /// 1-based closed range is `[start+1, end]`. Every user-visible
+    /// `chr:start-end` string in the app (ruler display, Copy Coordinates,
+    /// FASTA headers, CLI region echoes) should be built from this property
+    /// instead of ad hoc interpolation of the raw 0-based fields, so the
+    /// displayed convention is always the same one `LocusQueryParser` accepts
+    /// back in.
+    ///
+    /// A single-base region (`length == 1`) displays as `chrom:pos` rather
+    /// than `chrom:pos-pos`, matching common usage (e.g. a SNP position).
+    public var displayString: String {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .decimal
+        formatter.groupingSeparator = ","
+
+        func formatted(_ value: Int) -> String {
+            formatter.string(from: NSNumber(value: value)) ?? "\(value)"
+        }
+
+        let displayStart = start + 1
+        if isEmpty {
+            // A zero-length region has no 1-based closed representation;
+            // show the boundary position it sits before.
+            return "\(chromosome):\(formatted(displayStart))"
+        }
+        if end == displayStart {
+            return "\(chromosome):\(formatted(displayStart))"
+        }
+        return "\(chromosome):\(formatted(displayStart))-\(formatted(end))"
+    }
+}

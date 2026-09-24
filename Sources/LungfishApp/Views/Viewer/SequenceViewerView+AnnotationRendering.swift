@@ -1269,7 +1269,7 @@ extension SequenceViewerView {
 
         for annotation in displayAnnotations {
             // Get the first interval (simplified - could handle discontinuous features)
-            guard let interval = annotation.intervals.first else { continue }
+            guard let interval = annotation.intervals.min(by: { $0.start < $1.start }) else { continue }
 
             // Check if annotation is visible
             if interval.end < visibleStart || interval.start > visibleEnd {

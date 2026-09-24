@@ -459,7 +459,7 @@ extension SequenceViewerView {
 
         for annotation in sequenceAnnotations {
             // Get the first interval (simplified - could handle discontinuous features)
-            guard let interval = annotation.intervals.first else { continue }
+            guard let interval = annotation.intervals.min(by: { $0.start < $1.start }) else { continue }
 
             // Check if annotation is visible
             if interval.end < visibleStart || interval.start > visibleEnd {
@@ -1046,7 +1046,7 @@ extension SequenceViewerView {
 
             if annotation.overlaps(start: clickedPosition, end: clickedPosition + 1) {
                 // Calculate the annotation rect based on its genomic coordinates
-                guard let interval = annotation.intervals.first else { continue }
+                guard let interval = annotation.intervals.min(by: { $0.start < $1.start }) else { continue }
 
                 let startX = CGFloat(Double(interval.start) - frame.start) * CGFloat(pixelsPerBase)
                 let endX = CGFloat(Double(interval.end) - frame.start) * CGFloat(pixelsPerBase)

@@ -330,7 +330,8 @@ public final class SequenceExtractionPipeline: @unchecked Sendable {
                         end: result.effectiveEnd,
                         outputURL: dbURL,
                         newChromosome: newChromName,
-                        sampleFilter: sampleFilter
+                        sampleFilter: sampleFilter,
+                        isReverseComplement: result.isReverseComplement
                     )
 
                     guard variantCount > 0 else {

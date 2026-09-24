@@ -88,25 +88,44 @@ public enum TranslationEngine {
     /// - Parameters:
     ///   - annotation: The annotation to translate (should be a CDS or gene with exon intervals).
     ///   - sequenceProvider: A closure that extracts nucleotides for a given genomic range (0-based, half-open).
-    ///   - table: Codon table to use.
+    ///   - table: Codon table to use. When `nil` (the default), the table is
+    ///     derived from the annotation's `/transl_table` qualifier if present
+    ///     (SCI-10), falling back to the standard genetic code (table 1). Pass
+    ///     an explicit table to override per-annotation qualifiers, for example
+    ///     a user-selected genetic code in the viewer.
     /// - Returns: A `TranslationResult` with the protein, coding sequence, and coordinate mapping,
     ///            or `nil` if the annotation has no intervals or the sequence is empty.
     public static func translateCDS(
         annotation: SequenceAnnotation,
         sequenceProvider: (Int, Int) -> String?,
-        table: CodonTable = .standard
+        table: CodonTable? = nil
     ) -> TranslationResult? {
         guard !annotation.intervals.isEmpty else { return nil }
 
-        // Always sort intervals ascending by genomic position.
-        // For reverse strand, the concatenated sequence is then reverse-complemented
-        // as a whole: rc(exon1+exon2+...+exonN) = rc(exonN)+...+rc(exon1), which
-        // gives the correct 5'→3' mRNA order (highest genomic coord first).
-        let sortedIntervals = annotation.intervals.sorted { $0.start < $1.start }
+        let table = table ?? resolvedCodonTable(for: annotation)
 
-        // Extract nucleotides from each interval
+        // Transcription order. For an ordinary linear feature this is
+        // ascending genomic order on '+' and descending on '-', matching the
+        // app-level rendering convention (`SequenceViewerView.
+        // codingCoordinateOrder`). `SequenceAnnotation.intervals` is no longer
+        // force-sorted ascending by `SequenceAnnotation.init` (SCI-15), so for
+        // an origin-spanning feature on a circular molecule (GenBank
+        // `join(4000..4200,1..100)`) the stored order already IS the correct
+        // transcription order and sorting it — in either direction — would
+        // scramble it, since no single genomic direction recovers order across
+        // an origin wrap. `annotation.isOriginSpanning` distinguishes the two
+        // cases from the interval coordinates alone.
+        let transcriptionOrderIntervals: [AnnotationInterval]
+        if annotation.isOriginSpanning {
+            transcriptionOrderIntervals = annotation.intervals
+        } else {
+            let ascending = annotation.intervals.sorted { $0.start < $1.start }
+            transcriptionOrderIntervals = annotation.strand == .reverse ? ascending.reversed() : ascending
+        }
+
+        // Extract nucleotides from each interval, in transcription order.
         var exonSequences: [(sequence: String, interval: AnnotationInterval)] = []
-        for interval in sortedIntervals {
+        for interval in transcriptionOrderIntervals {
             guard let seq = sequenceProvider(interval.start, interval.end), !seq.isEmpty else {
                 continue
             }
@@ -115,16 +134,24 @@ public enum TranslationEngine {
 
         guard !exonSequences.isEmpty else { return nil }
 
-        // Concatenate all exon sequences
+        // Concatenate exon sequences in transcription order. For the reverse
+        // strand each exon's raw (plus-strand) sequence is reverse-complemented
+        // individually and then joined in transcription order, which is
+        // equivalent to rc(exonN)+...+rc(exon1) for a genomic-ascending '-'
+        // feature but also correct for an origin-spanning feature whose stored
+        // order already reflects 5'->3' transcription rather than genomic
+        // ascent.
         let codingSequence: String
         if annotation.strand == .reverse {
-            let concatenated = exonSequences.map(\.sequence).joined()
-            codingSequence = reverseComplement(concatenated)
+            codingSequence = exonSequences.map { reverseComplement($0.sequence) }.joined()
         } else {
             codingSequence = exonSequences.map(\.sequence).joined()
         }
 
-        // Determine phase offset from first interval that yielded sequence.
+        // Determine phase offset from the 5'-most segment in transcription order,
+        // i.e. the first element of `exonSequences` (SCI-10: previously this used
+        // `exonSequences.first` after an ascending sort, which for the reverse
+        // strand picked the 3'-most segment instead of the 5'-most one).
         let phaseOffset = exonSequences.first?.interval.phase ?? 0
 
         // Build the genomic coordinate map for each nucleotide position in the coding sequence
@@ -201,9 +228,30 @@ public enum TranslationEngine {
         }
     }
 
+    /// Resolves the codon table for an annotation from its `/transl_table`
+    /// qualifier (GenBank) or `transl_table`/`genetic_code` GFF3 attribute,
+    /// falling back to the standard genetic code (SCI-10). This matters most
+    /// for mitochondrial genes: without it, vertebrate mitochondrial CDS
+    /// (`/transl_table=2`) translate AGA/AGG as Arg instead of a stop, and TGA
+    /// as a stop instead of Trp.
+    public static func resolvedCodonTable(for annotation: SequenceAnnotation) -> CodonTable {
+        let rawID = annotation.qualifier("transl_table") ?? annotation.qualifier("genetic_code")
+        guard let rawID, let tableID = Int(rawID.trimmingCharacters(in: .whitespaces)) else {
+            return .standard
+        }
+        return CodonTable.table(id: tableID) ?? .standard
+    }
+
     // MARK: - Private Helpers
 
     /// Builds a map from coding-sequence nucleotide index to genomic coordinate.
+    ///
+    /// `exonSequences` is in transcription order and, for the reverse strand, each
+    /// exon's sequence has already been individually reverse-complemented before
+    /// this is called (see `translateCDS`). So per exon, coding position 0 maps to
+    /// that exon's highest genomic coordinate and counts down, and exons are
+    /// concatenated in transcription order (not necessarily genomic-ascending, for
+    /// an origin-spanning circular feature).
     private static func buildGenomicPositionMap(
         exonSequences: [(sequence: String, interval: AnnotationInterval)],
         strand: Strand
@@ -211,18 +259,17 @@ public enum TranslationEngine {
         var positions: [Int] = []
 
         for (seq, interval) in exonSequences {
-            for i in 0..<seq.count {
-                // Always map forward: position j in the concatenated sequence
-                // corresponds to genomic coordinate interval.start + j.
-                positions.append(interval.start + i)
+            if strand == .reverse {
+                // This exon's own sequence was individually reverse-complemented,
+                // so its first base corresponds to the exon's last genomic base.
+                for i in 0..<seq.count {
+                    positions.append(interval.end - 1 - i)
+                }
+            } else {
+                for i in 0..<seq.count {
+                    positions.append(interval.start + i)
+                }
             }
-        }
-
-        if strand == .reverse {
-            // rc() reverses the concatenated sequence, so coding position 0
-            // maps to the last genomic position we collected, position 1 to
-            // second-to-last, etc. Reversing the positions array achieves this.
-            positions.reverse()
         }
 
         return positions

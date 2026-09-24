@@ -753,12 +753,36 @@ public final class GenBankReader: Sendable {
             // Map feature type string to AnnotationType
             let annotationType = mapFeatureType(featureType)
 
+            // Carry `/codon_start` onto the 5'-most interval's phase (SCI-10),
+            // so translation honors a partial CDS instead of always assuming
+            // phase 0. `/codon_start` is 1-based (1, 2, or 3); GFF3/internal
+            // phase is 0-based bases-to-skip, so subtract 1. The 5'-most
+            // segment is the one with the lowest genomic start on '+' and the
+            // highest on '-' (`intervals` here is in the location string's
+            // parse order, which GenBank always writes genomic-ascending).
+            let intervalsWithPhase: [AnnotationInterval]
+            if annotationType == .cds,
+               let codonStartRaw = qualifierDict["codon_start"]?.firstValue,
+               let codonStart = Int(codonStartRaw.trimmingCharacters(in: .whitespaces)),
+               (1...3).contains(codonStart),
+               !intervals.isEmpty {
+                let phase = codonStart - 1
+                let fivePrimeIndex = strand == .reverse
+                    ? intervals.indices.max(by: { intervals[$0].start < intervals[$1].start })!
+                    : intervals.indices.min(by: { intervals[$0].start < intervals[$1].start })!
+                var updated = intervals
+                updated[fivePrimeIndex].phase = phase
+                intervalsWithPhase = updated
+            } else {
+                intervalsWithPhase = intervals
+            }
+
             // Create annotation with chromosome set to locus name for per-sequence filtering
             let annotation = SequenceAnnotation(
                 type: annotationType,
                 name: name,
                 chromosome: locusName,
-                intervals: intervals,
+                intervals: intervalsWithPhase,
                 strand: strand,
                 qualifiers: qualifierDict,
                 note: qualifierDict["note"]?.firstValue

@@ -428,7 +428,12 @@ private extension FullLengthONTMHCCandidateGenBankArtifactBuilder {
                projection.longInsertionCount(inside: sourceCDS) == cds.intervals.count - 1,
                cds.intervals.count > 1,
                !lifted.hadSourceExons {
-                annotations.append(contentsOf: cds.intervals.enumerated().map { index, interval in
+                // Exon/intron numbering here is genomic left-to-right (gap inference
+                // from alignment), not transcription order, so sort ascending
+                // explicitly rather than relying on `cds.intervals`' stored order
+                // (SCI-15: SequenceAnnotation preserves parser/caller order).
+                let genomicOrderIntervals = cds.intervals.sorted { $0.start < $1.start }
+                annotations.append(contentsOf: genomicOrderIntervals.enumerated().map { index, interval in
                     SequenceAnnotation(
                         type: .exon,
                         name: "inferred exon \(index + 1)",
@@ -440,7 +445,7 @@ private extension FullLengthONTMHCCandidateGenBankArtifactBuilder {
                         ]
                     )
                 })
-                annotations.append(contentsOf: zip(cds.intervals, cds.intervals.dropFirst()).enumerated().compactMap {
+                annotations.append(contentsOf: zip(genomicOrderIntervals, genomicOrderIntervals.dropFirst()).enumerated().compactMap {
                     index, pair in
                     let (left, right) = pair
                     guard left.end < right.start else { return nil }

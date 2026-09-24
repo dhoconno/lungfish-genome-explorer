@@ -2742,11 +2742,16 @@ public class ViewerViewController: NSViewController {
         let lines = annotationsByRecord.keys.sorted().flatMap { recordName -> [String] in
             annotationsByRecord[recordName, default: []].compactMap { annotation in
                 guard !annotation.intervals.isEmpty else { return nil }
-                let start = annotation.intervals.map(\.start).min() ?? 0
-                let end = annotation.intervals.map(\.end).max() ?? start
+                // BED12 requires blockStarts strictly ascending relative to chromStart,
+                // regardless of the feature's transcription-order interval storage
+                // (SCI-15: SequenceAnnotation preserves parser order, which for an
+                // origin-spanning circular feature is not genomic-ascending).
+                let genomicOrder = annotation.intervals.sorted { $0.start < $1.start }
+                let start = genomicOrder.first?.start ?? 0
+                let end = genomicOrder.map(\.end).max() ?? start
                 guard end > start else { return nil }
-                let blockSizes = annotation.intervals.map { "\($0.length)" }.joined(separator: ",") + ","
-                let blockStarts = annotation.intervals.map { "\($0.start - start)" }.joined(separator: ",") + ","
+                let blockSizes = genomicOrder.map { "\($0.length)" }.joined(separator: ",") + ","
+                let blockStarts = genomicOrder.map { "\($0.start - start)" }.joined(separator: ",") + ","
                 let attributes = annotation.qualifiers
                     .map { key, qualifier in
                         "\(escapeBEDAttribute(key))=\(qualifier.values.map(escapeBEDAttribute).joined(separator: ","))"
