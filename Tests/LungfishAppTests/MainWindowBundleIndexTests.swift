@@ -19,6 +19,12 @@ final class MainWindowBundleIndexTests: XCTestCase {
         let manifest = try BundleManifest.load(from: bundleURL)
         let bundle = ReferenceBundle(url: bundleURL, manifest: manifest)
         embeddedViewer.viewerView.setReferenceBundle(bundle)
+        // MainWindowController's bundleDidLoad handler (since 2026.9.36) only accepts
+        // the built index if `currentBundleURL` still matches the bundle that was
+        // loading, to reject results from a since-superseded load. The real load path
+        // (ViewerViewController+BundleDisplay.display(context:)) sets this before
+        // building the index; mirror that here so the fixture matches production.
+        embeddedViewer.currentBundleURL = bundleURL
 
         NotificationCenter.default.post(
             name: .bundleDidLoad,

@@ -48,6 +48,12 @@ final class DocumentationFixtureThresholdTests: XCTestCase {
         XCTAssertFalse(vcf.contains("\t28882\t.\tG\tA\t"))
         XCTAssertTrue(vcf.contains("\t28883\t.\tG\tC\t"))
 
+        // "Rewrite Calling Variants for the 2026-09 fidelity campaign" (cb5505d11)
+        // replaced this chapter's SARS-CoV-2/iVar worked example with an HG002
+        // bcftools+LoFreq one; the amplicon-specific wording and coordinates this
+        // test previously pinned no longer exist anywhere in the manual. The facts
+        // that used to be asserted via that wording are still true, just phrased
+        // differently, so assert those instead of the retired strings (TST-01 group 3).
         let chapter = try String(
             contentsOf: repositoryRoot
                 .appendingPathComponent("docs/user-manual/chapters/05-variants/01-calling-variants-from-amplicons.md"),
@@ -55,15 +61,8 @@ final class DocumentationFixtureThresholdTests: XCTestCase {
         )
         XCTAssertFalse(chapter.contains("default 0.03"))
         XCTAssertFalse(chapter.contains("default of 3%"))
-        XCTAssertFalse(chapter.contains("position 23700"))
-        XCTAssertFalse(chapter.contains("position 26060"))
-        XCTAssertFalse(chapter.contains("FILTER `sb`"))
-        XCTAssertTrue(chapter.contains("Include GFF3 Annotations"))
-        XCTAssertTrue(chapter.contains("`Minimum Allele Frequency` (default `0.05`)"))
-        XCTAssertTrue(chapter.contains("With the GFF3 attached"))
-        XCTAssertTrue(chapter.contains("position `28881`"))
-        XCTAssertTrue(chapter.contains("REF GG"))
-        XCTAssertTrue(chapter.contains("ALT AA"))
-        XCTAssertTrue(chapter.contains("`REF GG` and `ALT AA`"))
+        XCTAssertTrue(chapter.contains("The default is 0.05, and it becomes iVar's own `-t` value"))
+        XCTAssertTrue(chapter.contains("--min-af 0.05"))
+        XCTAssertTrue(chapter.contains("Minimum Allele Frequency"))
     }
 }

@@ -44,14 +44,18 @@ final class FASTQClumpingToolTests: XCTestCase {
         XCTAssertEqual(resolution.thresholdBytes, (22 * Self.gib) / 2)
     }
 
-    func testAutoChoosesTrimGaloreWhenEstimatedInputMayPressureBBToolsHeap() {
+    func testAutoSkipsClumpingWhenEstimatedInputMayPressureBBToolsHeap() {
+        // Decision D1 (audit WFL-01): auto never silently substitutes Trim
+        // Galore, which also filters/trims reads, for a memory reason alone.
+        // Above the BBTools clumpify budget, auto now skips clumping entirely
+        // rather than picking a tool with side effects the user did not request.
         let resolution = ClumpingTool.auto.resolve(
             estimatedInputBytes: 20 * Self.gib,
             physicalMemoryBytes: 64 * Self.gib
         )
 
-        XCTAssertEqual(resolution.resolved, .trimGalore)
-        XCTAssertTrue(resolution.reason.contains("memory pressure"))
+        XCTAssertEqual(resolution.resolved, .none)
+        XCTAssertTrue(resolution.reason.contains("exceeds the BBTools clumpify memory budget"))
     }
 
     func testExplicitChoicesBypassAutoHeuristic() {

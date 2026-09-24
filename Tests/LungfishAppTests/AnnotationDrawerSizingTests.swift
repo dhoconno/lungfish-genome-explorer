@@ -86,19 +86,21 @@ final class AnnotationDrawerSizingTests: XCTestCase {
     }
 
     func testOpeningOversizedPersistedDrawerKeepsItsBottomEdgeVisible() throws {
-        let defaults = UserDefaults.standard
+        // UserDefaults.standard resolves to the app's real bundle identity
+        // (com.lungfish.browser) inside `xctest`, so a test must never write
+        // through it (TST-10). Use a suite-specific instance instead, injected
+        // via ViewerViewController.annotationDrawerDefaults, and remove that
+        // suite's persistent domain in teardown rather than mutating a saved
+        // real-world value.
+        let suiteName = "lungfish-test-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { UserDefaults().removePersistentDomain(forName: suiteName) }
         let key = "annotationDrawerHeight"
-        let previousValue = defaults.object(forKey: key)
-        defer {
-            if let previousValue {
-                defaults.set(previousValue, forKey: key)
-            } else {
-                defaults.removeObject(forKey: key)
-            }
-        }
         defaults.set(10_000.0, forKey: key)
+        XCTAssertEqual(defaults.double(forKey: key), 10_000.0)
 
         let viewer = ViewerViewController()
+        viewer.annotationDrawerDefaults = defaults
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 800, height: 300),
             styleMask: [],
