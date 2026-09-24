@@ -671,7 +671,7 @@ public struct CondaMSAToolRunner: MSAToolRunning {
             timeout: timeout,
             stderrHandler: stderrHandler
         )
-        let version = await detectToolVersion(
+        let version = try await detectToolVersion(
             toolName: name,
             environment: environment,
             condaManager: condaManager,

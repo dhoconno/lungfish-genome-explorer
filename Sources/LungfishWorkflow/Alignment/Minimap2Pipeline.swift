@@ -455,7 +455,7 @@ public final class Minimap2Pipeline: @unchecked Sendable {
         guard let minimap2Env = await condaManager.environmentContaining(tool: "minimap2") else {
             throw Minimap2PipelineError.minimap2NotInstalled
         }
-        let mapperVersion = await detectToolVersion(
+        let mapperVersion = try await detectToolVersion(
             toolName: "minimap2",
             environment: minimap2Env,
             condaManager: condaManager

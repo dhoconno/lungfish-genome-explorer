@@ -126,13 +126,27 @@ public enum AdvancedCommandLineOptions {
 ///   - flags: Version flags to try in order (default: `["--version", "-v"]`).
 ///   - timeout: Timeout per attempt in seconds (default: 30).
 /// - Returns: The version string, or `"unknown"` if detection fails.
+/// - Throws: `CancellationError` if the enclosing task is cancelled while a
+///   probe is in flight (NEW-08). `condaManager.runTool` kills the probe
+///   process and throws `CancellationError` on cancellation, but this
+///   function used to catch every error indiscriminately and move on to the
+///   next flag, silently absorbing the cancellation and returning
+///   `"unknown"` as if detection had merely failed. The caller (a pipeline's
+///   `detect`/`classify`/`profile`) would then keep running past the point
+///   where the user cancelled, and no later step in that pipeline checks
+///   `Task.isCancelled` either — so the operation ran to completion or
+///   failure instead of ever reaching `OperationCenter`'s cancelled state.
+///   Rethrowing here lets the pipeline's own `catch` clause (which every
+///   caller already has) reach `OperationCenter.fail`/`.acknowledgeCancellation`
+///   promptly, the same terminal-state guarantee `CLIImportRunner` gives
+///   CLI-driven imports.
 func detectToolVersion(
     toolName: String,
     environment: String,
     condaManager: CondaManager,
     flags: [String] = ["--version", "-v"],
     timeout: TimeInterval = 30
-) async -> String {
+) async throws -> String {
     for flag in flags {
         do {
             let result = try await condaManager.runTool(
@@ -152,9 +166,13 @@ func detectToolVersion(
             if !trimmed.isEmpty {
                 return trimmed.components(separatedBy: .newlines).first ?? trimmed
             }
+        } catch is CancellationError {
+            throw CancellationError()
         } catch {
+            if Task.isCancelled { throw CancellationError() }
             continue
         }
     }
+    if Task.isCancelled { throw CancellationError() }
     return "unknown"
 }

@@ -149,7 +149,7 @@ public struct ManagedAssemblyPipeline: Sendable {
             )
         }
 
-        let version = await detectToolVersion(
+        let version = try await detectToolVersion(
             toolName: command.executable,
             environment: command.environment,
             condaManager: condaManager,

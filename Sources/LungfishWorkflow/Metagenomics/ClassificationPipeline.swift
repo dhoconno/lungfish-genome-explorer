@@ -479,7 +479,7 @@ public actor ClassificationPipeline {
 
         // Phase 2: Kraken2 version detection (0.10 -- 0.30). Bracken is probed
         // only after report/database preflight succeeds.
-        let toolVersion = await detectToolVersion(
+        let toolVersion = try await detectToolVersion(
             toolName: "kraken2",
             environment: Self.kraken2Environment,
             condaManager: condaManager,
@@ -1554,7 +1554,7 @@ public actor ClassificationPipeline {
         let brackenVersion: String
         switch dialect {
         case .database:
-            brackenVersion = await detectToolVersion(
+            brackenVersion = try await detectToolVersion(
                 toolName: "bracken",
                 environment: Self.brackenEnvironment,
                 condaManager: condaManager,

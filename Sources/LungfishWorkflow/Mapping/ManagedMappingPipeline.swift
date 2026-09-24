@@ -110,7 +110,7 @@ public final class ManagedMappingPipeline: @unchecked Sendable {
 
         try await validateInputs(for: prepared.request)
         try FileManager.default.createDirectory(at: prepared.request.outputDirectory, withIntermediateDirectories: true)
-        let mapperVersion = await detectToolVersion(
+        let mapperVersion = try await detectToolVersion(
             toolName: command.executable,
             environment: prepared.request.tool.environmentName,
             condaManager: condaManager

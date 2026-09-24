@@ -376,7 +376,7 @@ public actor EsVirituPipeline {
         progress?(0.05, "Detecting EsViritu version...")
 
         // Phase 2: Version detection (0.05 -- 0.15)
-        let toolVersion = await detectToolVersion(toolName: "EsViritu", environment: Self.esVirituEnvironment, condaManager: condaManager)
+        let toolVersion = try await detectToolVersion(toolName: "EsViritu", environment: Self.esVirituEnvironment, condaManager: condaManager)
         logger.info("Detected EsViritu version: \(toolVersion)")
 
         progress?(0.15, "Running EsViritu...")
