@@ -922,8 +922,11 @@ extension MainWindowController: NSWindowDelegate {
         dontCloseButton.keyEquivalent = "\r"
         alert.applyLungfishBranding()
 
+        // No window means there is nothing to close and nothing to attach a
+        // sheet to. The project rules forbid app-modal runModal, so let the
+        // close proceed; the caller cancels this project's operations.
         guard let window else {
-            return alert.runModal() == .alertFirstButtonReturn
+            return true
         }
         let response = await alert.beginSheetModal(for: window)
         return response == .alertFirstButtonReturn

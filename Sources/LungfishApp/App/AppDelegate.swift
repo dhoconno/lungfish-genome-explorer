@@ -941,9 +941,14 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         dontQuitButton.keyEquivalent = "\r"
         alert.applyLungfishBranding()
 
-        let window = mainWindowController?.window ?? NSApp.keyWindow
+        let window = mainWindowController?.window
+            ?? NSApp.keyWindow
+            ?? NSApp.windows.first { $0.isVisible && $0.canBecomeKey }
+        // With no visible window there is nothing to present a sheet on, and the
+        // project rules forbid app-modal runModal. Let the quit proceed; the
+        // termination path cancels running operations and awaits them.
         guard let window else {
-            return alert.runModal() == .alertFirstButtonReturn
+            return true
         }
         let response = await alert.beginSheetModal(for: window)
         return response == .alertFirstButtonReturn
@@ -1377,13 +1382,16 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             return
         }
 
-        Task { @MainActor [weak self] in
+        // This @objc handler already runs on the main actor, so a plain Task
+        // inherits that isolation.
+        let routeContext = routeContext(for: notification)
+        Task { [weak self] in
             await self?.persistReferenceBundleAnnotationUpdate(
                 annotation,
                 location: location,
                 bundleURL: bundleURL,
                 viewerController: viewerController,
-                routeContext: self?.routeContext(for: notification)
+                routeContext: routeContext
             )
         }
     }
@@ -1416,12 +1424,13 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             return
         }
 
-        Task { @MainActor [weak self] in
+        let routeContext = routeContext(for: notification)
+        Task { [weak self] in
             await self?.persistReferenceBundleAnnotationDeletion(
                 location: location,
                 bundleURL: bundleURL,
                 viewerController: viewerController,
-                routeContext: self?.routeContext(for: notification)
+                routeContext: routeContext
             )
         }
     }
