@@ -20,36 +20,6 @@ final class GenotypeAIHaplotypingExecutionService {
         self.keychain = keychain
     }
 
-    static func hasConfiguredProvider(
-        settings: AppSettings = .shared,
-        keychain: KeychainSecretStorage = .shared
-    ) async -> Bool {
-        let preferred = AIProviderIdentifier(rawValue: settings.preferredAIProvider) ?? .openAI
-        let providerOrder = supportedProviderOrder(preferred: preferred)
-        for providerID in providerOrder {
-            do {
-                switch providerID {
-                case .anthropic:
-                    if let apiKey = try await keychain.retrieve(forKey: KeychainSecretStorage.anthropicAPIKey),
-                       !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                        return true
-                    }
-                case .openAI:
-                    if let apiKey = try await keychain.retrieve(forKey: KeychainSecretStorage.openAIAPIKey),
-                       !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-                       (try? settings.openAIEndpointConfiguration()) != nil {
-                        return true
-                    }
-                case .gemini:
-                    continue
-                }
-            } catch {
-                continue
-            }
-        }
-        return false
-    }
-
     @discardableResult
     func run(
         bundleURL: URL,

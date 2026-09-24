@@ -262,16 +262,6 @@ extension Notification.Name {
     /// - `"summary"`: The `VCFSummary` object.
     public static let vcfDatasetLoaded = Notification.Name("vcfDatasetLoaded")
 
-    /// Posted when the user requests orienting FASTQ reads against a reference.
-    ///
-    /// The `userInfo` dictionary contains:
-    /// - `"fastqURL"`: The FASTQ file URL.
-    /// - `"referenceURL"`: The reference FASTA URL.
-    /// - `"wordLength"`: `Int` word length for k-mer matching.
-    /// - `"dbMask"`: `String` masking mode ("dust" or "none").
-    /// - `"saveUnoriented"`: `Bool` whether to save unoriented reads.
-    public static let fastqOrientRequested = Notification.Name("fastqOrientRequested")
-
     /// Posted when the user changes the database storage location in Settings
     /// or the Plugin Manager.
     ///

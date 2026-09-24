@@ -82,69 +82,9 @@ actor MappingBatchTaskHandle {
 extension AppDelegate {
     // MARK: - ToolsMenuActions
 
-    @objc func showFASTQQCReportingOperations(_ sender: Any?) {
-        showFASTQOperationsDialog(sender, initialCategory: .qcReporting)
-    }
-
-    @objc func showFASTQDemultiplexingOperations(_ sender: Any?) {
-        showFASTQOperationsDialog(sender, initialCategory: .demultiplexing)
-    }
-
-    @objc func showFASTQTrimmingFilteringOperations(_ sender: Any?) {
-        showFASTQOperationsDialog(sender, initialCategory: .trimmingFiltering)
-    }
-
-    @objc func showFASTQDecontaminationOperations(_ sender: Any?) {
-        showFASTQOperationsDialog(sender, initialCategory: .decontamination)
-    }
-
-    @objc func showFASTQReadProcessingOperations(_ sender: Any?) {
-        showFASTQOperationsDialog(sender, initialCategory: .readProcessing)
-    }
-
-    @objc func showFASTQSearchSubsettingOperations(_ sender: Any?) {
-        showFASTQOperationsDialog(sender, initialCategory: .searchSubsetting)
-    }
-
-    @objc func showFASTQAlignmentOperations(_ sender: Any?) {
-        showFASTQOperationsDialog(sender, initialCategory: .alignment)
-    }
-
-    @objc func showFASTQMappingOperations(_ sender: Any?) {
-        showFASTQOperationsDialog(sender, initialCategory: .mapping)
-    }
-
-    @objc func showFASTQAssemblyOperations(_ sender: Any?) {
-        showFASTQOperationsDialog(sender, initialCategory: .assembly)
-    }
-
-    @objc func showFASTQClusteringOperations(_ sender: Any?) {
-        showFASTQOperationsDialog(sender, initialCategory: .clustering)
-    }
-
-    @objc func showFASTQClassificationOperations(_ sender: Any?) {
-        showFASTQOperationsDialog(sender, initialCategory: .classification)
-    }
-
-    @objc func showFASTQGenotypingOperations(_ sender: Any?) {
-        showFASTQOperationsDialog(sender, initialCategory: .genotyping)
-    }
-
-    @objc func showFASTQReverseComplementOperation(_ sender: Any?) {
-        showFASTQOperationsDialog(sender, initialCategory: .readProcessing, initialToolID: .reverseComplement)
-    }
-
-    @objc func showFASTQTranslateOperation(_ sender: Any?) {
-        showFASTQOperationsDialog(sender, initialCategory: .readProcessing, initialToolID: .translate)
-    }
-
     @objc func launchFASTQOperationToolFromMenu(_ sender: NSMenuItem) {
         guard let toolID = sender.representedObject as? FASTQOperationToolID else { return }
         showFASTQOperationsDialog(sender, initialCategory: toolID.categoryID, initialToolID: toolID)
-    }
-
-    @objc func showFreyjaDemix(_ sender: Any?) {
-        PluginManagerWindowController.show(packID: "wastewater-surveillance")
     }
 
     func canShowBAMVariantCalling(bundle: ReferenceBundle?) -> Bool {

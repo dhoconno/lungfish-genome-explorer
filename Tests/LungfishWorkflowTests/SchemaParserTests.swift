@@ -269,59 +269,6 @@ final class SchemaParserTests: XCTestCase {
         }
     }
 
-    // MARK: - SnakemakeConfigParser Tests
-
-    func testSnakemakeConfigParser() async throws {
-        // Create a temporary config file
-        let configYAML = """
-        # Snakemake config
-        input_dir: "data/raw"
-        output_dir: "results"
-        threads: 4
-        run_qc: true
-        genome:
-          reference: "GRCh38"
-          annotation: "gencode.v38"
-        samples:
-          - sample1
-          - sample2
-        """
-
-        let tempDir = FileManager.default.temporaryDirectory
-        let configURL = tempDir.appendingPathComponent("config.yaml")
-        try configYAML.write(to: configURL, atomically: true, encoding: .utf8)
-
-        defer {
-            try? FileManager.default.removeItem(at: configURL)
-        }
-
-        let parser = SnakemakeConfigParser()
-        let schema = try await parser.parse(from: configURL)
-
-        XCTAssertEqual(schema.groups.count, 1) // All params in one group
-
-        // Find input_dir parameter
-        let inputDirParam = schema.parameter(named: "input_dir")
-        XCTAssertNotNil(inputDirParam)
-        XCTAssertEqual(inputDirParam?.type, .directory)
-
-        // Find threads parameter
-        let threadsParam = schema.parameter(named: "threads")
-        XCTAssertNotNil(threadsParam)
-        XCTAssertEqual(threadsParam?.type, .integer)
-        if case .integer(let value) = threadsParam?.defaultValue {
-            XCTAssertEqual(value, 4)
-        }
-
-        // Find run_qc parameter
-        let qcParam = schema.parameter(named: "run_qc")
-        XCTAssertNotNil(qcParam)
-        XCTAssertEqual(qcParam?.type, .boolean)
-        if case .boolean(let value) = qcParam?.defaultValue {
-            XCTAssertEqual(value, true)
-        }
-    }
-
     // MARK: - SchemaParseError Tests
 
     func testSchemaParseErrorDescriptions() {

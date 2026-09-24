@@ -650,11 +650,7 @@ public final class AssemblyResultViewController: NSViewController {
     }
 }
 
-extension AssemblyResultViewController: ResultViewportController {
-    public typealias ResultType = AssemblyResult
-
-    public static var resultTypeName: String { "Assembly Results" }
-
+extension AssemblyResultViewController {
     public func configure(result: AssemblyResult) {
         loadTask?.cancel()
         loadGeneration += 1
@@ -663,19 +659,7 @@ extension AssemblyResultViewController: ResultViewportController {
             try? await self?.load(result: result, generation: generation)
         }
     }
-
-    public var summaryBarView: NSView { summaryStrip }
-
-    public func exportResults(to url: URL, format: ResultExportFormat) throws {
-        throw NSError(
-            domain: "Lungfish",
-            code: -1,
-            userInfo: [NSLocalizedDescriptionKey: "Assembly export is handled from the viewport action bar."]
-        )
-    }
 }
-
-extension AssemblyResultViewController: BlastVerifiable {}
 
 extension AssemblyResultViewController: NSSplitViewDelegate {
     public func splitView(_ splitView: NSSplitView, resizeSubviewsWithOldSize oldSize: NSSize) {

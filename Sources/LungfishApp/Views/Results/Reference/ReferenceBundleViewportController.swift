@@ -1801,11 +1801,7 @@ private enum MappingResultExportBuilder {
     }
 }
 
-extension ReferenceBundleViewportController: ResultViewportController {
-    public typealias ResultType = MappingResult
-
-    public static var resultTypeName: String { "Mapping Results" }
-
+extension ReferenceBundleViewportController {
     public func configure(result: MappingResult) {
         configure(result: result, resultDirectoryURL: nil)
     }

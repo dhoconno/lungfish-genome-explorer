@@ -50,9 +50,8 @@ private final class AlignmentTypographyObservation {
 
 /// Viewport controller for BAM alignment results.
 ///
-/// Implements ``ResultViewportController`` for the Alignment Viewer viewport
-/// class (Track A3). Displays output from read-mapping tools that produce
-/// sorted, indexed BAM files.
+/// The Alignment Viewer viewport class (Track A3). Displays output from
+/// read-mapping tools that produce sorted, indexed BAM files.
 ///
 /// ## Current state
 /// This implementation stores the result and shows a summary bar plus the BAM
@@ -68,7 +67,7 @@ private final class AlignmentTypographyObservation {
 @MainActor
 public final class AlignmentResultViewController: NSViewController {
 
-    // MARK: - ResultViewportController storage
+    // MARK: - Result storage
 
     /// The most recently configured alignment result.
     private(set) var currentResult: Minimap2Result?
@@ -247,14 +246,9 @@ public final class AlignmentResultViewController: NSViewController {
     }
 }
 
-// MARK: - ResultViewportController
+// MARK: - Result configuration
 
-extension AlignmentResultViewController: ResultViewportController {
-
-    public typealias ResultType = Minimap2Result
-
-    /// Display name used in menus, window titles, and export dialogs.
-    public static var resultTypeName: String { "Alignment Results" }
+extension AlignmentResultViewController {
 
     /// Configure the viewport with a minimap2 (or compatible) alignment result.
     ///
@@ -264,21 +258,6 @@ extension AlignmentResultViewController: ResultViewportController {
         currentResult = result
         updateSummaryBar()
         updatePlaceholder()
-    }
-
-    /// The summary bar view shown at the top of the viewport.
-    public var summaryBarView: NSView { summaryBar }
-
-    /// Export alignment results.
-    ///
-    /// - Note: The alignment result viewport is a summary surface; export the
-    ///   BAM/index payloads or derived coverage data from the project track.
-    public func exportResults(to url: URL, format: ResultExportFormat) throws {
-        throw NSError(
-            domain: "Lungfish",
-            code: -1,
-            userInfo: [NSLocalizedDescriptionKey: "Alignment summary export is not available from this viewport"]
-        )
     }
 }
 

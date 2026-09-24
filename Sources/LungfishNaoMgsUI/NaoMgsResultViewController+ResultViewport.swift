@@ -1,18 +1,13 @@
-// NaoMgsResultViewController+ResultViewport.swift - ResultViewportController conformance for NAO-MGS
+// NaoMgsResultViewController+ResultViewport.swift - configure/export helpers for NAO-MGS
 // Copyright (c) 2024 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
-// This file adds the `ResultViewportController` protocol conformance to
+// This file adds the shared configure/export surface to
 // ``NaoMgsResultViewController`` via an extension, keeping the large
 // implementation file untouched.
 //
-// ## Conformance notes
-//
-// ### NaoMgsResultViewController
-//   - ResultType = NaoMgsResult
-//   - configure(result:) adapts parser output into cached viewport rows
-//   - summaryBarView returns the NaoMgsSummaryBar subview
-//   - exportResults(to:format:) supports .tsv only; other formats throw
+// - configure(result:) adapts parser output into cached viewport rows
+// - exportResults(to:format:) supports .tsv only; other formats throw
 
 import AppKit
 import Foundation
@@ -33,31 +28,18 @@ private enum NaoMgsExportError: LocalizedError {
     }
 }
 
-// MARK: - NaoMgsResultViewController: ResultViewportController
+// MARK: - NaoMgsResultViewController: configure/export
 
-/// Adds `ResultViewportController` conformance to ``NaoMgsResultViewController``.
+/// Adds the shared configure/export surface to ``NaoMgsResultViewController``.
 ///
 /// Parser-backed ``NaoMgsResult`` values are displayed from cached rows. Imported
 /// bundles should still use `configure(database:manifest:bundleURL:)` so detail
 /// panes can query the SQLite database.
-extension NaoMgsResultViewController: ResultViewportController {
+extension NaoMgsResultViewController {
 
-    public typealias ResultType = NaoMgsResult
-
-    // MARK: ResultViewportController
-
-    /// Satisfies the `ResultViewportController` protocol requirement.
-    ///
     /// Delegates to `configure(result:bundleURL:)` with `nil` bundle URL.
     public func configure(result: NaoMgsResult) {
         configure(result: result, bundleURL: nil)
-    }
-
-    /// Returns the NAO-MGS summary bar at the top of the view.
-    ///
-    /// The `NaoMgsSummaryBar` is always the first subview added in `loadView`.
-    public var summaryBarView: NSView {
-        view.subviews.first { $0 is NaoMgsSummaryBar } ?? view
     }
 
     /// Exports NAO-MGS results to `url` in the requested format.
@@ -79,7 +61,4 @@ extension NaoMgsResultViewController: ResultViewportController {
             throw NaoMgsExportError.unsupportedFormat(format)
         }
     }
-
-    /// The human-readable name shown in menus and export dialogs.
-    public static var resultTypeName: String { "NAO-MGS Results" }
 }

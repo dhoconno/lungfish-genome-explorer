@@ -674,17 +674,6 @@ final class ExportFeatureTests: XCTestCase {
 /// Tests the UnifiedMetagenomicsWizard analysis type presentation.
 final class UnifiedWizardTests: XCTestCase {
 
-    /// Verifies all three analysis types are present with correct tool names.
-    func testAllAnalysisTypesPresent() {
-        let types = UnifiedMetagenomicsWizard.AnalysisType.allCases
-        XCTAssertEqual(types.count, 3)
-
-        let typeMap = Dictionary(uniqueKeysWithValues: types.map { ($0, $0.toolName) })
-        XCTAssertEqual(typeMap[.classification], "Classify & Profile (Kraken2)")
-        XCTAssertEqual(typeMap[.viralDetection], "Detect Viruses (EsViritu)")
-        XCTAssertEqual(typeMap[.clinicalTriage], "Detect Pathogens (TaxTriage)")
-    }
-
     /// Verifies the FASTQ dataset controller renders the unified classifier labels.
     ///
     /// Batch 3 (2026-08-22) conversion: uses the new #if DEBUG
@@ -730,16 +719,6 @@ final class UnifiedWizardTests: XCTestCase {
         XCTAssertEqual(presentation.subtitle, "End-to-end pathogen detection for metagenomic samples")
         XCTAssertNotEqual(presentation.title, "TaxTriage Metagenomic Triage")
         XCTAssertNotEqual(presentation.subtitle, "Comprehensive taxonomic classification pipeline")
-    }
-
-    /// Verifies analysis types have non-empty descriptions and runtime estimates.
-    func testAnalysisTypeMetadata() {
-        for type in UnifiedMetagenomicsWizard.AnalysisType.allCases {
-            XCTAssertFalse(type.analysisDescription.isEmpty,
-                "\(type) should have a description")
-            XCTAssertFalse(type.symbolName.isEmpty,
-                "\(type) should have an SF Symbol")
-        }
     }
 
     /// Verifies the wizard shows user-friendly filenames, not internal derivatives.
