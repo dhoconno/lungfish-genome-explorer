@@ -507,6 +507,20 @@ public enum ProvenanceRehydrator {
             return descriptor
         }
         let finalURL = URL(fileURLWithPath: finalPath)
+        // A bundle-level envelope names the bundle directory itself as its
+        // primary output. Directories carry no checksum or size, and opening
+        // one as a file fails, so relocate the descriptor without hashing it.
+        if isDirectory(atPath: finalURL.path) || isDirectory(atPath: descriptor.path) {
+            return ProvenanceFileDescriptor(
+                path: finalURL.path,
+                checksumSHA256: nil,
+                fileSize: nil,
+                format: descriptor.format,
+                role: descriptor.role,
+                originPath: preserveOriginMetadata ? descriptor.path : nil,
+                sourceProvenancePath: preserveOriginMetadata ? sourceProvenancePath : nil
+            )
+        }
         return try ProvenanceFileDescriptor.file(
             url: finalURL,
             format: descriptor.format,
@@ -514,6 +528,12 @@ public enum ProvenanceRehydrator {
             originPath: preserveOriginMetadata ? descriptor.path : nil,
             sourceProvenancePath: preserveOriginMetadata ? sourceProvenancePath : nil
         )
+    }
+
+    private static func isDirectory(atPath path: String) -> Bool {
+        var isDirectory: ObjCBool = false
+        return FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory)
+            && isDirectory.boolValue
     }
 
     private static func mappedPath(for path: String, in pathMap: [String: String]) -> String? {
