@@ -22,7 +22,6 @@ enum SmartToken: String, CaseIterable, Sendable {
     case qualityGE30
     case depthGE10
     case clinvarPathogenic
-    case heterozygous
     case bookmarked
     // Within-sample frequency tokens (viral/bacterial)
     case minorVariant       // Within-sample AF <= 20% (minor variant in population)
@@ -58,7 +57,6 @@ enum SmartToken: String, CaseIterable, Sendable {
         case .qualityGE30:        return "Qual \u{2265} 30"
         case .depthGE10:          return "DP \u{2265} 10"
         case .clinvarPathogenic:  return "ClinVar Path."
-        case .heterozygous:       return "Het Only"
         case .bookmarked:         return "Bookmarked"
         case .minorVariant:       return "Minor (\u{2264}20%)"
         case .mixedInfection:     return "Mixed (20-80%)"
@@ -71,7 +69,6 @@ enum SmartToken: String, CaseIterable, Sendable {
         switch self {
         case .passOnly:          return "checkmark.shield"
         case .clinvarPathogenic: return "exclamationmark.triangle"
-        case .heterozygous:      return "person.2"
         case .bookmarked:        return "star.fill"
         case .minorVariant:      return "chart.bar.fill"
         case .mixedInfection:    return "arrow.triangle.branch"
@@ -89,7 +86,7 @@ enum SmartToken: String, CaseIterable, Sendable {
             return .qualityAndQC
         case .rareVariant, .minorVariant, .mixedInfection, .dominantMutation:
             return .populationAndFrequency
-        case .heterozygous, .bookmarked:
+        case .bookmarked:
             return .sampleAndGenotype
         }
     }
@@ -136,8 +133,6 @@ enum SmartToken: String, CaseIterable, Sendable {
             return infoKeys.contains("DP")
         case .clinvarPathogenic:
             return !infoKeys.isDisjoint(with: Self.clinvarKeys)
-        case .heterozygous:
-            return false
         case .bookmarked:
             return hasBookmarks
         // Within-sample AF tokens: only shown for haploid organisms with genotype data
@@ -172,8 +167,6 @@ enum SmartToken: String, CaseIterable, Sendable {
             return "Requires DP field in INFO"
         case .clinvarPathogenic:
             return "Requires ClinVar annotation (CLNSIG field not found)"
-        case .heterozygous:
-            return "Genotype filtering not yet supported"
         case .bookmarked:
             return "No bookmarked variants"
         case .minorVariant, .mixedInfection, .dominantMutation:
@@ -222,7 +215,6 @@ enum SmartToken: String, CaseIterable, Sendable {
     }
 
     enum PostFilterKind: Sendable {
-        case heterozygousOnly
         case bookmarkedOnly
         case moderateOrHigherImpact
         /// Within-sample AF from AD field: alt reads / total reads
@@ -277,9 +269,6 @@ enum SmartToken: String, CaseIterable, Sendable {
                 ])]
             }
             return []
-
-        case .heterozygous:
-            return [.postFilter(.heterozygousOnly)]
 
         case .bookmarked:
             return [.postFilter(.bookmarkedOnly)]

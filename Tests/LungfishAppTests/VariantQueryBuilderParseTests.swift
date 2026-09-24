@@ -125,4 +125,17 @@ final class VariantQueryBuilderParseTests: XCTestCase {
         let roundTripped = rules.compactMap { $0.toFilterClause() }.joined(separator: "; ")
         XCTAssertEqual(roundTripped, original)
     }
+
+    // MARK: - FEA-13: preset logic normalization
+
+    func testMatchAnyPresetLogicNormalizesToMatchAll() {
+        // OR-group execution isn't implemented yet, so a preset saved with
+        // Match Any must load as Match All rather than fail or silently
+        // apply OR semantics the backend doesn't support.
+        XCTAssertEqual(VariantQueryBuilderView.normalizedLogic(for: .matchAny), .matchAll)
+    }
+
+    func testMatchAllPresetLogicIsUnchanged() {
+        XCTAssertEqual(VariantQueryBuilderView.normalizedLogic(for: .matchAll), .matchAll)
+    }
 }
