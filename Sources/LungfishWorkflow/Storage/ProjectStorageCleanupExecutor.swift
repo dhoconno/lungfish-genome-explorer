@@ -2328,6 +2328,17 @@ public struct ProjectStorageCleanupExecutor: Sendable {
                 // cross-process mutation authority.
             case .workbookArchive:
                 workbookParents.insert(source.deletingLastPathComponent())
+            case .interruptedOutput:
+                // FEA-06's scanInterruptedOperationOutputs(projectURL:) pass
+                // produces entries with .reviewRequired disposition (never
+                // .isSelectedByDefault) specifically so they never reach a
+                // cleanup journal built from selected/removable entries.
+                // Reaching this case would mean that invariant broke.
+                throw OwnedRunLockError.unsafeLockFile(
+                    "Interrupted-operation-output entries are not eligible "
+                        + "for automatic cleanup: "
+                        + item.sourceRelativePath
+                )
             }
         }
 
