@@ -171,8 +171,11 @@ final class GenotypePivotFilteredCopyTests: XCTestCase {
         )
         XCTAssertEqual(inspection["rowLabel"] as? String, "Duplicate candidate")
         XCTAssertEqual(inspection["rowValue"] as? Int, 12)
-        XCTAssertTrue((inspection["cellNote"] as? String ?? "").contains("exact stable note"))
-        XCTAssertTrue((inspection["cellNote"] as? String ?? "").contains("false-positive"))
+        // Decision D8: the note is the user's text verbatim; the review is
+        // carried only by formatting (bracketed number, grey italic).
+        XCTAssertEqual(inspection["cellNote"] as? String, "exact stable note")
+        XCTAssertEqual(inspection["cellNumberFormat"] as? String, "\"[\"0\"]\"")
+        XCTAssertEqual(inspection["cellItalic"] as? Bool, true)
         XCTAssertEqual(inspection["haplotypeFill"] as? String, expectedHaplotypeFill)
     }
 
@@ -543,6 +546,8 @@ print(json.dumps({
   'rowLabel': s.cell(row, 3).value,
   'rowValue': s.cell(row, 4).value,
   'cellNote': s.cell(row, 4).comment.text if s.cell(row, 4).comment else '',
+  'cellNumberFormat': s.cell(row, 4).number_format,
+  'cellItalic': bool(s.cell(row, 4).font.italic),
   'haplotypeFill': fill[-6:].upper(),
 }))
 """#.utf8).write(to: script)

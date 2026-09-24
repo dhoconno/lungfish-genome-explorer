@@ -223,11 +223,14 @@ struct GenotypeExportSubcommand: AsyncParsableCommand {
     @Option(name: .customLong("min-reads"), help: "Drop calls below this unique-read count.")
     var minReads: Int?
 
-    @Option(name: .customLong("min-percent"), help: "Drop calls below this support percent in the Filtered XLSX matrix.")
+    @Option(name: .customLong("min-percent"), help: "Hide Filtered XLSX cells whose per-sample read fraction is below this percent (known and candidate alleles alike).")
     var minPercent: Double?
 
-    @Option(name: .customLong("percent-basis"), help: "Known-call denominator for --min-percent: viewed-locus or sample-retained.")
+    @Option(name: .customLong("percent-basis"), help: "Denominator for --min-percent: viewed-locus (the sample's unique reads at the allele's source locus) or sample-retained.")
     var percentBasis: GenotypeExportPivotXlsxSubcommand.PercentBasis = .viewedLocus
+
+    @Option(name: .customLong("min-prevalence-percent"), help: "Seen in at least N% of animals: hide Filtered XLSX rows visible in fewer than this percent of samples; 0 disables the filter.")
+    var minPrevalencePercent: Double?
 
     @Option(name: .long, help: "Named filter applied to the view (recorded in provenance).")
     var filter: String?
@@ -268,6 +271,9 @@ struct GenotypeExportSubcommand: AsyncParsableCommand {
         }
         if let minPercent, minPercent < 0 || minPercent > 100 {
             throw ValidationError("--min-percent must be between 0 and 100.")
+        }
+        if let minPrevalencePercent, minPrevalencePercent < 0 || minPrevalencePercent > 100 {
+            throw ValidationError("--min-prevalence-percent must be between 0 and 100.")
         }
     }
 
@@ -416,10 +422,12 @@ struct GenotypeExportSubcommand: AsyncParsableCommand {
         }
         let reads = minReads ?? 0
         let percent = minPercent ?? 0
+        let prevalence = minPrevalencePercent ?? 0
         let scientificFilter = GenotypeMatrixBaseProjection.Filter(
             matrixMinimumReads: reads,
             matrixMinimumPercent: percent,
-            matrixDenominator: percentBasis.denominator
+            matrixDenominator: percentBasis.denominator,
+            minimumPrevalencePercent: prevalence
         )
         var argv = [
             CLICommandIdentity.executableName, "genotype", "export",
@@ -434,6 +442,9 @@ struct GenotypeExportSubcommand: AsyncParsableCommand {
                 "--min-percent", String(minPercent),
                 "--percent-basis", percentBasis.rawValue,
             ]
+        }
+        if let minPrevalencePercent {
+            argv += ["--min-prevalence-percent", String(minPrevalencePercent)]
         }
         if let filter { argv += ["--filter", filter] }
         for sample in samples { argv += ["--sample", sample] }
@@ -463,6 +474,7 @@ struct GenotypeExportSubcommand: AsyncParsableCommand {
                     "minReads": String(reads),
                     "minPercent": String(percent),
                     "percentBasis": percentBasis.rawValue,
+                    "minPrevalencePercent": String(prevalence),
                     "namedFilter": filter ?? "none",
                     "sampleScope": samples.isEmpty ? "all" : samples.joined(separator: ","),
                     "activeHaplotypeDefinition": activeHaplotypeDefinition ?? "captured bundle authority",
@@ -477,6 +489,7 @@ struct GenotypeExportSubcommand: AsyncParsableCommand {
                     "minReads": "0",
                     "minPercent": "0",
                     "percentBasis": GenotypeExportPivotXlsxSubcommand.PercentBasis.viewedLocus.rawValue,
+                    "minPrevalencePercent": "0",
                     "namedFilter": "none",
                     "sampleScope": "all",
                     "activeHaplotypeDefinition": "captured bundle authority",
@@ -485,8 +498,12 @@ struct GenotypeExportSubcommand: AsyncParsableCommand {
                     "force": "false",
                 ],
                 runtimeContext: [
-                    "candidatePercentBasis": "positive supporting samples / full logical sample roster",
+                    // GEN-05/GEN-06 (D13/D14): one read-fraction basis for
+                    // known and candidate rows; prevalence is its own control.
+                    "percentBasis": GenotypeExcelSnapshotBuilder.percentBasisDescription,
                     "knownPercentBasis": percentBasis.denominator.rawValue,
+                    "candidatePercentBasis": percentBasis.denominator.rawValue,
+                    "prevalenceBasis": GenotypeExcelSnapshotBuilder.prevalenceBasisDescription,
                     "namedFilterSemantics": "descriptive captured viewport label; numeric filters are authoritative",
                 ],
                 replacingExisting: force

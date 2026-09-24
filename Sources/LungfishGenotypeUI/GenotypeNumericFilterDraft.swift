@@ -130,6 +130,22 @@ struct GenotypeNumericFilterConfiguration: Equatable {
         incrementActionDescription: "Increase Min percent by 0.5 percent.",
         decrementActionDescription: "Decrease Min percent by 0.5 percent."
     )
+
+    /// "Seen in at least N% of animals" (GEN-06, decision D14): a prevalence
+    /// filter over the sample roster, separate from Min percent.
+    static let matrixMinimumPrevalencePercent = GenotypeNumericFilterConfiguration(
+        label: "Seen in ≥ N% of animals",
+        fieldAccessibilityIdentifier: "genotype-view-minimum-prevalence-field",
+        stepperAccessibilityIdentifier: "genotype-view-minimum-prevalence-stepper",
+        bounds: 0 ... 100,
+        step: 1,
+        kind: .decimal(minimumFractionDigits: 0, maximumFractionDigits: 1),
+        valueSuffix: "percent of animals",
+        boundsDescription: "Minimum 0, maximum 100 percent of animals. 0 turns the filter off.",
+        validationDescription: "Seen in percent of animals must be a number from 0 through 100.",
+        incrementActionDescription: "Increase Seen in percent of animals by 1 percent.",
+        decrementActionDescription: "Decrease Seen in percent of animals by 1 percent."
+    )
 }
 
 struct GenotypeNumericFilterAccessibilityState: Equatable {

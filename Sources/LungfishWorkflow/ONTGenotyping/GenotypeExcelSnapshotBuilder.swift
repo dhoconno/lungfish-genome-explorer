@@ -6,6 +6,17 @@ import LungfishIO
 /// Captures scientific authority once. No workbook participates in this operation.
 public enum GenotypeExcelSnapshotBuilder {
     public static let filteredEvidenceRowPolicy = "positive-displayed-count-in-visible-samples"
+    /// Filters-sheet and provenance statement of what "Min percent" means
+    /// (GEN-05/GEN-06, decisions D13/D14).
+    public static let percentBasisDescription =
+        "Per-sample read fraction for known and candidate rows alike. viewedLocus is "
+        + GenotypeLocusDenominator.basisLabel + ": "
+        + GenotypeLocusDenominator.basisDescription
+        + ". sampleRetained: unique retained reads of the whole sample."
+    /// The separate prevalence control (decision D14).
+    public static let prevalenceMetadataLabel = "Seen in at least N% of animals"
+    public static let prevalenceBasisDescription =
+        "Samples where the row is visible with positive reads / full logical sample roster; 0 is off"
 
     private struct CaptureContext: Codable {
         let authority: CapturedAuthority
@@ -185,25 +196,66 @@ public enum GenotypeExcelSnapshotBuilder {
             }
         }
 
-        func catalogCandidatePassesSupplementalPercent(
+        // Catalog-only candidate evidence follows the native matrix rules:
+        // Min percent is the cell's per-sample read fraction over the shared
+        // source-locus denominator (GEN-05/GEN-06, D13/D14), and prevalence
+        // is the separate "Seen in at least N% of animals" control.
+        let locusDenominator = GenotypeLocusDenominator(result: result)
+        let retainedBySample = Dictionary(
+            result.samples.map { ($0.sample, $0.passedUniqueReads) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        func catalogCellAdmitted(locus: String, sample: String, reads: Int) -> Bool {
+            guard reads >= filter.matrixMinimumReads else { return false }
+            return filter.admitsReadFraction { basis in
+                switch basis {
+                case .viewedLocus:
+                    return locusDenominator.fraction(reads: reads, sample: sample, sourceLocus: locus)
+                case .sampleRetained:
+                    guard let retained = retainedBySample[sample], retained > 0 else { return nil }
+                    return Double(reads) / Double(retained)
+                }
+            }
+        }
+        // A catalog-only reference row (no stable ID) has no per-occurrence
+        // denominator, so only the read minimum and prevalence apply to it.
+        func catalogCellPasses(locus: String, stableClusterID: String?, sample: String, reads: Int) -> Bool {
+            stableClusterID == nil
+                ? reads >= filter.matrixMinimumReads
+                : catalogCellAdmitted(locus: locus, sample: sample, reads: reads)
+        }
+        func catalogRowPassesPrevalence(
             locus: String,
             genotype: String,
-            stableClusterID: String
+            stableClusterID: String?
         ) -> Bool {
-            let positiveSamples = Set(sampleNames.filter { sample in
-                (raw[.cell(
+            guard filter.minimumPrevalencePercent > 0 else { return true }
+            let admittedSamples = Set(sampleNames.filter { sample in
+                guard let reads = raw[.cell(
                     locus: locus,
                     genotype: genotype,
                     sample: sample,
                     stableClusterID: stableClusterID
-                )] ?? 0) > 0
+                )], reads > 0 else { return false }
+                return catalogCellPasses(locus: locus, stableClusterID: stableClusterID, sample: sample, reads: reads)
             })
-            let fraction = GenotypeMatrixBaseProjection.candidatePopulationFraction(
-                supportingSamples: positiveSamples,
+            return filter.admitsPrevalence(
+                supportingSamples: admittedSamples,
                 logicalSamples: Set(sampleNames)
-            ) ?? 0
-            return fraction >= filter.globalMinimumPercent / 100
-                && fraction >= filter.matrixMinimumPercent / 100
+            )
+        }
+        func catalogCellValue(
+            locus: String,
+            genotype: String,
+            stableClusterID: String?,
+            sample: String,
+            reads: Int
+        ) -> Int? {
+            guard catalogCellPasses(locus: locus, stableClusterID: stableClusterID, sample: sample, reads: reads),
+                  catalogRowPassesPrevalence(locus: locus, genotype: genotype, stableClusterID: stableClusterID) else {
+                return nil
+            }
+            return reads
         }
 
         func matrix(_ projection: GenotypeViewProjection?, full: Bool) throws -> P.Matrix {
@@ -241,14 +293,9 @@ public enum GenotypeExcelSnapshotBuilder {
                     let hasCatalogOnlyEvidence = allNativeValues[key] == nil
                     if !full && native == nil && !hasCatalogOnlyEvidence { return nil }
                     var passesSupplementalPercent = true
-                    if !full && hasCatalogOnlyEvidence && (filter.globalMinimumPercent > 0 || filter.matrixMinimumPercent > 0) {
-                        if let stableClusterID = row.stable {
-                            passesSupplementalPercent = catalogCandidatePassesSupplementalPercent(
-                                locus: row.locus,
-                                genotype: row.genotype,
-                                stableClusterID: stableClusterID
-                            )
-                        } else {
+                    if !full && hasCatalogOnlyEvidence && (filter.globalMinimumPercent > 0 || filter.matrixMinimumPercent > 0),
+                       row.stable == nil {
+                        do {
                             let positiveSamples = Set(sampleNames.filter { sample in
                                 (raw[.cell(locus: row.locus, genotype: row.genotype, sample: sample, stableClusterID: nil)] ?? 0) > 0
                             })
@@ -261,7 +308,11 @@ public enum GenotypeExcelSnapshotBuilder {
                     let cells = names.map { sample in
                             let target = T.cell(locus: row.locus, genotype: row.genotype, sample: sample, stableClusterID: row.stable)
                             if full { return (allNativeValues[rowKey(row.locus, row.genotype, row.stable)]?.support(for: sample)?.passedUniqueReads ?? raw[target]).map(String.init) ?? "" }
-                            if hasCatalogOnlyEvidence { return passesSupplementalPercent ? (raw[target].flatMap { $0 >= filter.matrixMinimumReads ? String($0) : nil } ?? "") : "" }
+                            if hasCatalogOnlyEvidence {
+                                guard passesSupplementalPercent, let reads = raw[target] else { return "" }
+                                return catalogCellValue(locus: row.locus, genotype: row.genotype,
+                                    stableClusterID: row.stable, sample: sample, reads: reads).map(String.init) ?? ""
+                            }
                             return native?.support(for: sample).map { String($0.passedUniqueReads) }
                                 ?? (filter == .unfiltered ? raw[target].map(String.init) : nil) ?? ""
                     }
@@ -307,22 +358,18 @@ public enum GenotypeExcelSnapshotBuilder {
                                 ? projectedValue
                                 : nil
                         } else {
-                            let passesReads = projectedValue >= filter.matrixMinimumReads
                             // A stable ID identifies candidate evidence, whose
-                            // percent basis is supporting samples over the full
-                            // logical roster. A catalog-only reference row has
-                            // no per-occurrence denominator; keep its captured
-                            // value rather than inventing one.
-                            let passesPercent = scientific.stable.map {
-                                catalogCandidatePassesSupplementalPercent(
-                                    locus: scientific.locus,
-                                    genotype: scientific.genotype,
-                                    stableClusterID: $0
-                                )
-                            } ?? true
-                            value = passesReads && passesPercent
-                                ? projectedValue
-                                : nil
+                            // percent is the cell's own read fraction over the
+                            // shared source-locus denominator. A catalog-only
+                            // reference row has no per-occurrence denominator;
+                            // keep its captured value rather than inventing one.
+                            value = catalogCellValue(
+                                locus: scientific.locus,
+                                genotype: scientific.genotype,
+                                stableClusterID: scientific.stable,
+                                sample: sample,
+                                reads: projectedValue
+                            )
                         }
                     } else {
                         // An attested zero is evidence, not an empty cell. The
@@ -338,19 +385,13 @@ public enum GenotypeExcelSnapshotBuilder {
                         comment: comments[cellTarget]?.body, review: reviews[cellTarget].map { $0.disposition == .falsePositive ? "false-positive" : "false-negative" }, style: style)
                 }
                 let native = full ? allNativeValues[key] : nativeValues[key]
-                let supplementalPassesPercent: Bool = {
-                    guard !full, native == nil, let stable = scientific.stable else { return true }
-                    return catalogCandidatePassesSupplementalPercent(
-                        locus: scientific.locus, genotype: scientific.genotype,
-                        stableClusterID: stable
-                    )
-                }()
                 let supplementalSupports = sampleNames.compactMap { sample -> Int? in
                     let value = raw[.cell(locus: scientific.locus, genotype: scientific.genotype,
                         sample: sample, stableClusterID: scientific.stable)]
                     guard let value else { return nil }
                     if full { return value }
-                    return supplementalPassesPercent && value >= filter.matrixMinimumReads ? value : nil
+                    return catalogCellValue(locus: scientific.locus, genotype: scientific.genotype,
+                        stableClusterID: scientific.stable, sample: sample, reads: value)
                 }
                 let expectedColumnValues = matrixColumns?.map { column -> P.MatrixColumnValue in
                     switch column.kind {
@@ -412,8 +453,11 @@ public enum GenotypeExcelSnapshotBuilder {
             ["Editing", "Point-in-time report; make edits in LGE"],
             ["Minimum reads", String(filter.matrixMinimumReads)], ["Minimum percent", String(filter.matrixMinimumPercent)],
             ["Percent denominator", filter.matrixDenominator.rawValue], ["Global minimum percent", String(filter.globalMinimumPercent)],
-            ["Global percent denominator", filter.globalDenominator.rawValue], ["Filtered evidence row policy", filteredEvidenceRowPolicy],
-            ["Candidate percent basis", "Positive supporting samples / full logical sample roster"]]
+            ["Global percent denominator", filter.globalDenominator.rawValue],
+            ["Percent basis", percentBasisDescription],
+            [prevalenceMetadataLabel, String(filter.minimumPrevalencePercent)],
+            ["Prevalence basis", prevalenceBasisDescription],
+            ["Filtered evidence row policy", filteredEvidenceRowPolicy]]
             + (filteredProjection?.filterContext ?? [:]).sorted(by: { $0.key < $1.key }).map { [$0.key, $0.value] }
         return .init(generatedAt: generatedAt, sourceRevision: revision, allMatrix: all, filteredMatrix: filtered,
             calls: callCapture.calls, colors: callCapture.colors, hasHaplotypeContent: !callCapture.calls.isEmpty,

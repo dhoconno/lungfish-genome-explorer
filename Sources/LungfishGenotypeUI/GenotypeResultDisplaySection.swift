@@ -107,6 +107,7 @@ public final class GenotypeResultDisplaySectionViewModel {
     private let contentTextSizeAnnouncementPoster: any AccessibilityAnnouncementPosting
     let matrixMinimumReadsDraft: GenotypeNumericFilterDraft
     let matrixMinimumPercentDraft: GenotypeNumericFilterDraft
+    let matrixMinimumPrevalencePercentDraft: GenotypeNumericFilterDraft
     @ObservationIgnored
     private let numericFilterCommitCoalescer:
         GenotypeNumericFilterCommitCoalescer
@@ -154,6 +155,13 @@ public final class GenotypeResultDisplaySectionViewModel {
         )
         matrixMinimumPercentDraft = GenotypeNumericFilterDraft(
             configuration: .matrixMinimumPercent,
+            committedValue: 0,
+            locale: numericFilterLocale,
+            validationAnnouncementPoster:
+                numericFilterValidationAnnouncementPoster
+        )
+        matrixMinimumPrevalencePercentDraft = GenotypeNumericFilterDraft(
+            configuration: .matrixMinimumPrevalencePercent,
             committedValue: 0,
             locale: numericFilterLocale,
             validationAnnouncementPoster:
@@ -469,6 +477,35 @@ public final class GenotypeResultDisplaySectionViewModel {
         scheduleNumericFilterCommit()
     }
 
+    func setMatrixMinimumPrevalencePercent(_ value: Double) {
+        cancelPendingNumericFilterCommit()
+        let value = max(0, min(100, value))
+        displayState.matrixMinimumPrevalencePercent = value
+        matrixMinimumPrevalencePercentDraft.applyCommittedValue(value)
+        notifyStateChanged()
+    }
+
+    func updateMatrixMinimumPrevalencePercentDraft(_ value: String) {
+        matrixMinimumPrevalencePercentDraft.updateDraftText(value)
+        dirtyNumericFilterFields.insert(.minimumPrevalencePercent)
+        scheduleNumericFilterCommit()
+    }
+
+    func commitMatrixMinimumPrevalencePercentDraft() {
+        commitNumericFilterDrafts(explicitField: .minimumPrevalencePercent)
+    }
+
+    func restoreMatrixMinimumPrevalencePercentDraft() {
+        restoreNumericFilterDraft(.minimumPrevalencePercent)
+    }
+
+    func setMatrixMinimumPrevalencePercentFromStepper(_ value: Double) {
+        commitNumericFilterStepperValue(
+            value,
+            for: .minimumPrevalencePercent
+        )
+    }
+
     func commitMatrixMinimumReadsDraft() {
         commitNumericFilterDrafts(explicitField: .minimumReads)
     }
@@ -517,6 +554,9 @@ public final class GenotypeResultDisplaySectionViewModel {
             case .minimumPercent:
                 changed = changed || displayState.matrixMinimumPercent != value
                 displayState.matrixMinimumPercent = value
+            case .minimumPrevalencePercent:
+                changed = changed || displayState.matrixMinimumPrevalencePercent != value
+                displayState.matrixMinimumPrevalencePercent = value
             }
         }
         dirtyNumericFilterFields.removeAll()
@@ -1043,6 +1083,7 @@ public final class GenotypeResultDisplaySectionViewModel {
     private enum NumericFilterField: Hashable {
         case minimumReads
         case minimumPercent
+        case minimumPrevalencePercent
     }
 
     private func scheduleNumericFilterCommit() {
@@ -1090,6 +1131,11 @@ public final class GenotypeResultDisplaySectionViewModel {
                     displayState.matrixMinimumPercent = value
                     changed = true
                 }
+            case .minimumPrevalencePercent:
+                if displayState.matrixMinimumPrevalencePercent != value {
+                    displayState.matrixMinimumPrevalencePercent = value
+                    changed = true
+                }
             }
             dirtyNumericFilterFields.remove(field)
         }
@@ -1124,6 +1170,11 @@ public final class GenotypeResultDisplaySectionViewModel {
         case .minimumPercent:
             if displayState.matrixMinimumPercent != draft.committedValue {
                 displayState.matrixMinimumPercent = draft.committedValue
+                changed = true
+            }
+        case .minimumPrevalencePercent:
+            if displayState.matrixMinimumPrevalencePercent != draft.committedValue {
+                displayState.matrixMinimumPrevalencePercent = draft.committedValue
                 changed = true
             }
         }
@@ -1167,6 +1218,8 @@ public final class GenotypeResultDisplaySectionViewModel {
             matrixMinimumReadsDraft
         case .minimumPercent:
             matrixMinimumPercentDraft
+        case .minimumPrevalencePercent:
+            matrixMinimumPrevalencePercentDraft
         }
     }
 
@@ -1188,6 +1241,9 @@ public final class GenotypeResultDisplaySectionViewModel {
         )
         matrixMinimumPercentDraft.applyCommittedValue(
             displayState.matrixMinimumPercent
+        )
+        matrixMinimumPrevalencePercentDraft.applyCommittedValue(
+            displayState.matrixMinimumPrevalencePercent
         )
     }
 
@@ -1312,6 +1368,7 @@ public struct GenotypeResultDisplaySection: View {
     private enum NumericFilterFocus: Hashable {
         case minimumReads
         case minimumPercent
+        case minimumPrevalencePercent
     }
 
     public init(viewModel: GenotypeResultDisplaySectionViewModel) {
@@ -1381,6 +1438,8 @@ public struct GenotypeResultDisplaySection: View {
                     viewModel.commitMatrixMinimumReadsDraft()
                 case .minimumPercent:
                     viewModel.commitMatrixMinimumPercentDraft()
+                case .minimumPrevalencePercent:
+                    viewModel.commitMatrixMinimumPrevalencePercentDraft()
                 case nil:
                     break
                 }
@@ -1728,6 +1787,69 @@ public struct GenotypeResultDisplaySection: View {
                 .controlSize(.regular)
                 }
             }
+            // GEN-06 (D14): prevalence is its own control, never folded into
+            // Min percent, which is always a per-sample read fraction.
+            VStack(alignment: .leading, spacing: 4) {
+                Text(
+                    viewModel.matrixMinimumPrevalencePercentDraft.configuration.label
+                )
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: true, vertical: false)
+                HStack(spacing: 6) {
+                    TextField(
+                    viewModel.matrixMinimumPrevalencePercentDraft.configuration.label,
+                    text: Binding(
+                        get: {
+                            viewModel.matrixMinimumPrevalencePercentDraft.draftText
+                        },
+                        set: {
+                            viewModel.updateMatrixMinimumPrevalencePercentDraft($0)
+                        }
+                    )
+                )
+                .multilineTextAlignment(.trailing)
+                .textFieldStyle(.roundedBorder)
+                .controlSize(.regular)
+                .frame(minWidth: 88, idealWidth: 112)
+                .focused($focusedNumericFilter, equals: .minimumPrevalencePercent)
+                .onSubmit {
+                    viewModel.commitMatrixMinimumPrevalencePercentDraft()
+                }
+                .onExitCommand {
+                    viewModel.restoreMatrixMinimumPrevalencePercentDraft()
+                }
+                .accessibilityIdentifier(
+                    viewModel.matrixMinimumPrevalencePercentDraft.configuration
+                        .fieldAccessibilityIdentifier
+                )
+                .accessibilityLabel(
+                    viewModel.matrixMinimumPrevalencePercentDraft.accessibility.label
+                )
+                .accessibilityValue(
+                    viewModel.matrixMinimumPrevalencePercentDraft.accessibility.value
+                )
+                .accessibilityHint(
+                    viewModel.matrixMinimumPrevalencePercentDraft.accessibility
+                        .validationDescription
+                        ?? viewModel.matrixMinimumPrevalencePercentDraft.accessibility
+                            .bounds
+                )
+                Text("%")
+                    .foregroundStyle(.secondary)
+                GenotypeNumericFilterStepper(
+                    value: viewModel.matrixMinimumPrevalencePercentDraft.stepperValue,
+                    configuration:
+                        viewModel.matrixMinimumPrevalencePercentDraft.configuration,
+                    accessibility:
+                        viewModel.matrixMinimumPrevalencePercentDraft.accessibility,
+                    onChange: {
+                        viewModel.setMatrixMinimumPrevalencePercentFromStepper($0)
+                    }
+                )
+                .labelsHidden()
+                .controlSize(.regular)
+                }
+            }
             VStack(alignment: .leading, spacing: 4) {
                 Text("Percent Basis")
                     .foregroundStyle(.secondary)
@@ -1746,7 +1868,7 @@ public struct GenotypeResultDisplaySection: View {
                 .font(typography.font(for: .body))
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .accessibilityLabel("Percent Basis")
-                .accessibilityHint("Choose the denominator used by the minimum percent display filter.")
+                .accessibilityHint("Choose the denominator used by the minimum percent display filter. Source Locus divides by the sample's unique reads at the allele's own source locus.")
                 .accessibilityIdentifier("genotype-view-percent-basis")
             }
         }
@@ -1963,7 +2085,9 @@ public struct GenotypeResultDisplaySection: View {
     }
 
     private var matrixFilterHelp: String {
-        "Search and support filters affect only the visible matrix. Zero disables a numeric filter; genotype calls are unchanged."
+        "Search and support filters affect only the visible matrix. Zero disables a numeric filter; genotype calls are unchanged. "
+            + "Min percent is each cell's share of that sample's reads, for known and candidate alleles alike. "
+            + "Seen in at least N% of animals is a separate filter on how many samples show the allele."
     }
 
     private var filterAndThresholdHelp: String {

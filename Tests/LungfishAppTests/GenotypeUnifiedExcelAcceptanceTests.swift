@@ -168,7 +168,7 @@ final class GenotypeUnifiedExcelAcceptanceTests: XCTestCase {
         try verifyMiSeqArtifact(exported.outputURL, snapshotURL: exported.snapshotURL)
         try verifyReceipt(exported.receiptURL, output: exported.outputURL, expectedMinimumReads: "5")
         print("TASK6_FOUR_SHEET=\(output.path)")
-        print("TASK6_FOUR_RANGES=Haplotype Calls!A1:L4;Genotype Matrix - All!A1:F12;Genotype Matrix - Filtered!A1:E7;Export Metadata!A1:B30")
+        print("TASK6_FOUR_RANGES=Haplotype Calls!A1:L4;Genotype Matrix - All!A1:F12;Genotype Matrix - Filtered!A1:F6;Export Metadata!A1:B30")
     }
 
     func testGenotypeOnlyExportHasThreeSheetsAndReplaysWithoutSourcePaths() async throws {
@@ -328,7 +328,9 @@ assert mixed['cells'][1]['review']=='false-negative' and mixed['cells'][1]['comm
 positive=next(r for r in snapshot['filteredMatrix']['rows'] if r['target']['genotype']=='Mafa-A*001')['cells'][0]
 assert positive['review']=='false-positive' and positive['comment']=='positive FP note'
 filtered=w['Genotype Matrix - Filtered']
-assert (filtered.max_row,filtered.max_column)==(6,5)
+assert (filtered.max_row,filtered.max_column)==(6,6)
+assert filtered.cell(4,6).value=='Evidence (display / raw support)'
+assert [filtered.cell(row,6).value for row in [5,6]]==['Visible-A: 9 / 9','Visible-A: 8 / 8; Visible-B: 0 / 0']
 assert [filtered.cell(4,column).value for column in range(4,6)]==['Visible-A','Visible-B']
 assert [[filtered.cell(row,column).value for column in range(1,4)] for row in [5,6]]==[
  [_filtered_stable_id({'locus':'MHC-A','genotype':'Mafa-A*001'}),'MHC-A','Mafa-A*001'],
@@ -336,12 +338,12 @@ assert [[filtered.cell(row,column).value for column in range(1,4)] for row in [5
 fp=filtered.cell(5,4); fn=filtered.cell(6,5)
 assert fp.value==9 and type(fp.value) is int and fp.number_format=='"["0"]"'
 assert fp.font.italic and fp.font.color.rgb[-6:]=='767676'
-assert fp.comment.text=='Evidence: display=9, raw support=9\nCurrent comment: "positive FP note"\nCurrent review: "false-positive"'
+assert fp.comment.text=='positive FP note'
 assert fn.value==0 and type(fn.value) is int and fn.number_format=='0;-0;"FN"'
 assert fn.font.bold and fn.fill.fgColor.rgb[-6:]=='FFF2CC'
 assert all(side.style=='mediumDashed' and side.color.rgb[-6:]=='C65911'
            for side in [fn.border.left,fn.border.right,fn.border.top,fn.border.bottom])
-assert fn.comment.text=='Evidence: display=0, raw support=0\nCurrent comment: "attested zero FN note"\nCurrent review: "false-negative"'
+assert fn.comment.text=='attested zero FN note'
 assert not any(c.data_type=='f' for s in w for row in s for c in row)
 for matrix in ['Genotype Matrix - All','Genotype Matrix - Filtered']:
     sheet=w[matrix]

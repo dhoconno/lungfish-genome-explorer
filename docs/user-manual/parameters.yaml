@@ -6247,15 +6247,22 @@ operations:
         control: number
         default: "0"
         allowed: 0 through 100, in steps of 0.5, where 0 turns the filter off
-        effect: Hides allele values that make up less than this share of a sample's reads. Percent Basis decides what that share is measured against.
+        effect: Hides allele values that make up less than this share of a sample's reads, for known alleles and candidate alleles alike. Percent Basis decides what that share is measured against.
         when_to_change: Use it instead of Min reads when samples were sequenced to very different depths, so one threshold suits them all.
         cli_flag: --min-percent
+      - label: Seen in ≥ N% of animals
+        control: number
+        default: "0"
+        allowed: 0 through 100, where 0 turns the filter off
+        effect: Hides an allele row unless it is visible, with reads, in at least this share of the samples in the result. It counts animals, not reads, and is separate from Min percent.
+        when_to_change: Raise it to focus on alleles common in the cohort. Leave it at 0 to keep private alleles found in a single animal.
+        cli_flag: --min-prevalence-percent
       - label: Percent Basis
         control: radio
-        default: Viewed Locus
-        allowed: "Viewed Locus, Sample Retained"
-        effect: Chooses the denominator for Min percent. Viewed Locus compares an allele against that sample's reads at the same locus, while Sample Retained compares it against all reads kept for the sample.
-        when_to_change: Use Viewed Locus when loci were amplified to different depths, which is the usual case.
+        default: Source Locus
+        allowed: "Source Locus, Sample Retained"
+        effect: Chooses the denominator for Min percent. Source Locus compares an allele against that sample's reads at the allele's own source locus, while Sample Retained compares it against all reads kept for the sample.
+        when_to_change: Use Source Locus when loci were amplified to different depths, which is the usual case.
         cli_flag: --percent-basis
       - label: Alleles
         control: text

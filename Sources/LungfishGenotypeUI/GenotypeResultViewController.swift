@@ -478,6 +478,9 @@ public final class GenotypeResultViewController: NSViewController {
     ] = [:]
     private var callIndexBySample: [String: CallIndex] = [:]
     private var sampleResultsByName: [String: ONTGenotypeSampleResult] = [:]
+    /// GEN-05 (D13): the one per-source-locus denominator shared with the
+    /// matrix, the haplotype caller and the Excel filter.
+    private var locusDenominator = GenotypeLocusDenominator(calls: [])
     private var diagnosticDisplayGenotypeByIdentifier: [String: String] = [:]
     private var activeHaplotypeSamplesByName: [String: GenotypeHaplotypeSampleAnalysis] = [:]
     private var activeHaplotypeSampleNames: [String] = []
@@ -1424,6 +1427,7 @@ public final class GenotypeResultViewController: NSViewController {
         }
         callIndexBySample = callsBySample.mapValues { callIndex(for: $0) }
         sampleResultsByName = Dictionary(uniqueKeysWithValues: result.samples.map { ($0.sample, $0) })
+        locusDenominator = GenotypeLocusDenominator(result: result)
         if let document = validatedMHCCandidateDocument(from: result),
            let artifacts = result.manifest.mhcCandidateArtifacts {
             candidatePresentationsByStableClusterID = GenotypeCandidateEvidenceProjection.indexedPresentations(
@@ -3201,10 +3205,18 @@ public final class GenotypeResultViewController: NSViewController {
             if let locusDefinition {
                 return GenotypeHaplotypeLocusResolver.diagnosticCall(call, belongsTo: locusDefinition)
             }
+            // Reference metadata wins over the allele-name heuristic.
+            if let groupLocus = GenotypeHaplotypeLocusResolver.metadataHaplotypeGroupLocus(for: call.genotype) {
+                return GenotypeHaplotypeLocusResolver.canonicalLocusName(groupLocus)
+                    == GenotypeHaplotypeLocusResolver.canonicalLocusName(locusCall.locus)
+            }
             let group = GenotypeHaplotypeLocusResolver.canonicalLocusName(call.locusGroup)
             return group == locusCall.locus
                 || group == GenotypeHaplotypeLocusResolver.canonicalLocusName(locusCall.sourceLocus)
         }
+        // Haplotype-locus pool, kept only for the evidence summary. Every
+        // per-allele percentage below uses the allele's own source-locus
+        // denominator (GEN-05, D13), exactly as the matrix and caller do.
         let locusTotal = locusCalls.reduce(0) { $0 + max(0, $1.passedUniqueReads) }
         let sampleTotal = sampleCalls.reduce(0) { $0 + max(0, $1.passedUniqueReads) }
         let observedSet = Set(locusCall.observedGenotypes)
@@ -3222,7 +3234,6 @@ public final class GenotypeResultViewController: NSViewController {
             locusDefinition: locusDefinition,
             observedSet: observedSet,
             sampleTotal: sampleTotal,
-            locusTotal: locusTotal,
             locus: locusCall.locus,
             evaluator: runEvaluator
         )
@@ -3253,11 +3264,12 @@ public final class GenotypeResultViewController: NSViewController {
             .sorted { $0.passedUniqueReads > $1.passedUniqueReads }
             .prefix(8)
             .map { call -> GenotypeCallEvidenceView.DiagnosticAllele in
-                let pct = locusTotal > 0 ? Double(call.passedUniqueReads) / Double(locusTotal) : 0
+                let sourceLocusTotal = locusDenominator.total(for: call)
+                let pct = locusDenominator.fraction(for: call) ?? 0
                 let isLow = evaluator.isLowSupport(
                     reads: call.passedUniqueReads,
                     sampleTotal: sampleTotal,
-                    locusTotal: locusTotal,
+                    locusTotal: sourceLocusTotal,
                     locus: locusCall.locus
                 )
                 return GenotypeCallEvidenceView.DiagnosticAllele(
@@ -3293,10 +3305,10 @@ public final class GenotypeResultViewController: NSViewController {
         let availableHaplotypeNames = availableHaplotypeNames(for: locusDefinition)
         let perHaplotype = perHaplotypeSupport(
             for: locusCall,
+            sample: sampleId,
             sampleCalls: sampleCalls,
             sampleCallIndex: sampleCallIndex,
             locusDefinition: locusDefinition,
-            locusTotal: locusTotal,
             evaluator: evaluator
         )
         let animalGenotypes = cachedAnimalGenotypes(
@@ -3364,7 +3376,6 @@ public final class GenotypeResultViewController: NSViewController {
         locusDefinition: GenotypeHaplotypeLocusDefinition?,
         observedSet: Set<String>,
         sampleTotal: Int,
-        locusTotal: Int,
         locus: String,
         evaluator: GenotypeDropoutEvaluator?
     ) -> [GenotypeCallEvidenceView.OmittedHaplotypeGenotype] {
@@ -3379,7 +3390,7 @@ public final class GenotypeResultViewController: NSViewController {
                     && (!reviewedGenotypes.contains(call.genotype) || evaluator?.isLowSupport(
                         reads: call.passedUniqueReads,
                         sampleTotal: sampleTotal,
-                        locusTotal: locusTotal,
+                        locusTotal: locusDenominator.total(for: call),
                         locus: locus
                     ) == true)
             }
@@ -3393,13 +3404,13 @@ public final class GenotypeResultViewController: NSViewController {
                 GenotypeCallEvidenceView.OmittedHaplotypeGenotype(
                     genotype: call.genotype,
                     reads: call.passedUniqueReads,
-                    percentOfLocus: locusTotal > 0 ? Double(call.passedUniqueReads) / Double(locusTotal) : 0,
+                    percentOfLocus: locusDenominator.fraction(for: call) ?? 0,
                     reason: !reviewedGenotypes.contains(call.genotype)
                         ? "marked false positive"
                         : evaluator.map { haplotypeOmissionReason(
                         reads: call.passedUniqueReads,
                         sampleTotal: sampleTotal,
-                        locusTotal: locusTotal,
+                        locusTotal: locusDenominator.total(for: call),
                         locus: locus,
                         evaluator: $0
                     ) } ?? "excluded from haplotype inference"
@@ -3460,10 +3471,10 @@ public final class GenotypeResultViewController: NSViewController {
     /// calls because the matched-haplotypes list itself is empty.
     private func perHaplotypeSupport(
         for locusCall: GenotypeHaplotypeLocusCall,
+        sample: String,
         sampleCalls: [ONTGenotypeCall],
         sampleCallIndex: CallIndex,
         locusDefinition: GenotypeHaplotypeLocusDefinition?,
-        locusTotal: Int,
         evaluator: GenotypeDropoutEvaluator
     ) -> [GenotypeCallEvidenceView.PerHaplotypeSupport] {
         guard !locusCall.matchedHaplotypes.isEmpty else { return [] }
@@ -3476,6 +3487,12 @@ public final class GenotypeResultViewController: NSViewController {
                     in: sampleCalls,
                     locusDefinition: locusDefinition
                 )
+                // Same source-locus denominator as the matrix and caller.
+                let sourceLocus = sampleCallIndex.sourceLocusByIdentifier[identifier]
+                    ?? diagnosticSourceLocus(for: allele, in: sampleCalls, locusDefinition: locusDefinition)
+                let locusTotal = sourceLocus.map {
+                    locusDenominator.total(sample: sample, sourceLocus: $0)
+                } ?? 0
                 let pct = locusTotal > 0 ? Double(reads) / Double(locusTotal) : 0
                 let isLow = evaluator.isLowSupport(
                     reads: reads,
@@ -3613,6 +3630,7 @@ public final class GenotypeResultViewController: NSViewController {
     private struct CallIndex {
         let displayGenotypeByIdentifier: [String: String]
         let readsByIdentifier: [String: Int]
+        let sourceLocusByIdentifier: [String: String]
     }
 
     private func callIndex(for calls: [ONTGenotypeCall]) -> CallIndex {
@@ -3638,7 +3656,8 @@ public final class GenotypeResultViewController: NSViewController {
         }
         return CallIndex(
             displayGenotypeByIdentifier: displayByIdentifier.mapValues(\.genotype),
-            readsByIdentifier: readsByIdentifier
+            readsByIdentifier: readsByIdentifier,
+            sourceLocusByIdentifier: displayByIdentifier.mapValues(\.locusGroup)
         )
     }
 
@@ -5872,6 +5891,10 @@ public final class GenotypeResultViewController: NSViewController {
         if !overrides.isEmpty {
             parts.append("overrides: \(overrides.joined(separator: ", "))")
         }
+        if evaluator.locusFraction != nil || !overrides.isEmpty {
+            // GEN-05 (D13): name the active denominator next to the threshold.
+            parts.append("locus basis: \(GenotypeLocusDenominator.basisLabel)")
+        }
         return parts.isEmpty ? "No haplotype filtering thresholds recorded." : parts.joined(separator: " · ")
     }
 
@@ -5902,7 +5925,8 @@ public final class GenotypeResultViewController: NSViewController {
             definitionSet: definitionSet,
             generatedAt: nil,
             dropoutFilter: evaluator,
-            matrixReviews: annotationStore?.sidecar.matrixReviews ?? []
+            matrixReviews: annotationStore?.sidecar.matrixReviews ?? [],
+            locusDenominator: locusDenominator
         )
         rebuildActiveHaplotypeAnalysisIndexes()
     }
@@ -7252,6 +7276,25 @@ public final class GenotypeResultViewController: NSViewController {
             }
             return total
         }
+    }
+
+    /// Source locus of the highest-read call matching a diagnostic allele.
+    private func diagnosticSourceLocus(
+        for allele: String,
+        in calls: [ONTGenotypeCall],
+        locusDefinition: GenotypeHaplotypeLocusDefinition?
+    ) -> String? {
+        calls
+            .filter { call in
+                if let locusDefinition,
+                   !GenotypeHaplotypeLocusResolver.rawCall(call, belongsTo: locusDefinition),
+                   !GenotypeHaplotypeLocusResolver.allowsCrossFamilyDiagnostics(for: locusDefinition) {
+                    return false
+                }
+                return GenotypeHaplotypeDiagnosticMatcher.matches(genotype: call.genotype, diagnosticAllele: allele)
+            }
+            .max { $0.passedUniqueReads < $1.passedUniqueReads }?
+            .locusGroup
     }
 
     private func diagnosticDisplayGenotype(
@@ -9394,7 +9437,8 @@ public final class GenotypeResultViewController: NSViewController {
                 globalDenominator: displayState.supportDenominator,
                 matrixMinimumReads: displayState.matrixMinimumReads,
                 matrixMinimumPercent: displayState.matrixMinimumPercent,
-                matrixDenominator: displayState.matrixPercentDenominator))
+                matrixDenominator: displayState.matrixPercentDenominator,
+                minimumPrevalencePercent: displayState.matrixMinimumPrevalencePercent))
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
         return GenotypeViewportExportSnapshot(bundleURL: filtered.bundleURL, analysisName: filtered.analysisName,
@@ -9907,7 +9951,7 @@ public final class GenotypeResultViewController: NSViewController {
     private var supportMetricLabel: String {
         switch displayState.supportDenominator {
         case .viewedLocus:
-            return "Unique reads / viewed-locus unique reads"
+            return "Unique reads / unique reads at the same source locus"
         case .sampleRetained:
             return "Unique reads / sample retained unique reads"
         }

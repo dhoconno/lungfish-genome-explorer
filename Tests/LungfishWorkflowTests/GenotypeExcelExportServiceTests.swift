@@ -93,8 +93,15 @@ final class GenotypeExcelExportServiceTests: XCTestCase {
         for title in ["Genotype Matrix - All", "Genotype Matrix - Filtered"] {
             XCTAssertEqual(annotatedInspection[title]?["comments"] as? [String], expectedComments)
             XCTAssertEqual(annotatedInspection[title]?["formats"] as? [String], ["\"[\"0\"]\"", "0;-0;\"FN\""])
-            XCTAssertEqual(annotatedInspection[title]?["headers"] as? [String], ["Genotype", "Total Reads", "S1", "S2"])
+            // Decision D8: evidence moves out of the comments into its own
+            // Filtered-sheet column, so the notes above stay verbatim.
+            let evidenceHeader = title == "Genotype Matrix - Filtered" ? ["Evidence (display / raw support)"] : []
+            XCTAssertEqual(annotatedInspection[title]?["headers"] as? [String], ["Genotype", "Total Reads", "S1", "S2"] + evidenceHeader)
             XCTAssertEqual(annotatedInspection[title]?["presentationValues"] as? [AnyHashable], [genotype, 9])
+            XCTAssertEqual(
+                annotatedInspection[title]?["evidence"] as? String,
+                title == "Genotype Matrix - Filtered" ? "S1: 9 / 9; S2: 0 / 0" : nil
+            )
         }
 
         let plainSnapshot = try GenotypeExcelSnapshotBuilder.capture(
@@ -484,6 +491,7 @@ for title in ('Genotype Matrix - All', 'Genotype Matrix - Filtered'):
         formats=[data[s1 - 1].number_format, data[s2 - 1].number_format],
         headers=[cell.value for cell in header[1:]],
         presentationValues=[cell.value for cell in data[1:s1 - 1]],
+        evidence=next((data[cell.column - 1].value for cell in header if cell.value == 'Evidence (display / raw support)'), None),
     )
 print(json.dumps(result))
 """#, output.path]
@@ -826,7 +834,7 @@ print(json.dumps(result))
             generatedAt: timestamp, authority: .init(analysis: analysis)))
     }
 
-    func testProjectionLegacyColorAndCandidatePopulationThresholdsArePreserved() throws {
+    func testProjectionLegacyColorAndCandidateReadFractionThresholdsArePreserved() throws {
         let observations: [ONTMHCCandidateObservation] = [
             .init(stableClusterID: "A", sampleID: "S1", readGroupID: "a", sourceClusterIDs: ["a"], sourceClusterReadCounts: ["a": 2], aggregatedSampleReadCount: 2, evidence: []),
             .init(stableClusterID: "A", sampleID: "S1", readGroupID: "b", sourceClusterIDs: ["b"], sourceClusterReadCounts: ["b": 2], aggregatedSampleReadCount: 2, evidence: []),
@@ -854,7 +862,9 @@ print(json.dumps(result))
             provisionalExon2SequencesByGenotype: [:], provisionalExon2ArtifactURLs: .empty, reviewableRowCatalog: nil)
         let snapshot = try GenotypeExcelSnapshotBuilder.capture(result: result, sidecar: .empty(generatedAt: timestamp),
             allProjection: nil, filteredProjection: nil, generatedAt: timestamp, authority: .init(analysis: nil),
-            filter: .init(matrixMinimumReads: 8, matrixMinimumPercent: 30, matrixDenominator: .sampleRetained))
+            // GEN-06 (D14): candidate cells use their own read fraction over
+            // the source-locus denominator (100% here) plus the read minimum.
+            filter: .init(matrixMinimumReads: 8, matrixMinimumPercent: 30, matrixDenominator: .viewedLocus))
         XCTAssertEqual(snapshot.allMatrix.rows.filter { $0.target.stableClusterID != nil }.count, 2)
         XCTAssertEqual(snapshot.filteredMatrix.rows.count, 1)
         let row = try XCTUnwrap(snapshot.filteredMatrix.rows.first)

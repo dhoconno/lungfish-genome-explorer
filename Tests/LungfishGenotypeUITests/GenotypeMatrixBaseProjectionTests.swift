@@ -129,26 +129,36 @@ final class GenotypeMatrixBaseProjectionTests: XCTestCase {
         XCTAssertEqual(derived.hiddenCellCount, 2)
     }
 
-    func testDerivedProjectionAppliesPopulationAndReadThresholdsToKnownAndCandidateRows() {
+    func testDerivedProjectionAppliesReadFractionAndReadThresholdsToKnownAndCandidateRows() {
         let document = makeCandidateDocument()
         let projection = GenotypeMatrixBaseProjection(
             calls: [
                 makeCall(sample: "S1", genotype: "Mafa-A1*001:01", reads: 60, retainedReads: 100),
             ],
-            samples: [],
+            samples: [
+                makeSample("S1", retainedReads: 100),
+                makeSample("S2", retainedReads: 20),
+                makeSample("S3", retainedReads: 100),
+            ],
             candidateDocument: document,
             logicalSampleNames: ["S1", "S2", "S3", "S4"],
             candidateSettings: .default
         )
 
-        let populationFiltered = projection.derive(.init(
+        // GEN-06 (D14): Min percent is each cell's read fraction. Shared
+        // candidate: S1 4/100 (hidden), S2 9/20 (kept). Singleton: S3 7/100.
+        let fractionFiltered = projection.derive(.init(
             matrixMinimumPercent: 30,
             matrixDenominator: .sampleRetained
         ))
-        XCTAssertEqual(Set(populationFiltered.rows.map(\.genotype)), [
+        XCTAssertEqual(Set(fractionFiltered.rows.map(\.genotype)), [
             "Mafa-A1*001:01",
             "Mafa-A1*900:01_nov",
         ])
+        XCTAssertEqual(
+            fractionFiltered.rows.first { $0.stableClusterID == "shared" }?.sampleSupport.map(\.sample),
+            ["S2"]
+        )
 
         let readFiltered = projection.derive(.init(matrixMinimumReads: 8))
         let sharedCandidate = readFiltered.rows.first { $0.stableClusterID == "shared" }
@@ -360,9 +370,7 @@ final class GenotypeMatrixBaseProjectionTests: XCTestCase {
         let retainedBySample = Dictionary(
             uniqueKeysWithValues: samples.map { ($0.sample, $0.passedUniqueReads) }
         )
-        let viewedDenominators = Dictionary(grouping: calls) {
-            "\($0.sample)\u{0}\($0.locusGroup)"
-        }.mapValues { $0.reduce(0) { $0 + $1.passedUniqueReads } }
+        let viewedDenominators = sourceLocusDenominators(calls: calls, candidateDocument: candidateDocument)
         func fraction(
             _ call: ONTGenotypeCall,
             denominator: ONTGenotypeSupportDenominator
@@ -415,30 +423,44 @@ final class GenotypeMatrixBaseProjectionTests: XCTestCase {
             settings: settings,
             usesBiologicalAlleleOrder: false
         )
-        let eligibleSamples = Set(logicalSampleNames)
+        // GEN-06 (D14): candidate cells use their own per-sample read
+        // fraction, exactly like known occurrences.
+        func candidateFraction(
+            _ row: GenotypeCandidateMatrixRow,
+            _ support: ONTGenotypeSampleSupport,
+            denominator: ONTGenotypeSupportDenominator
+        ) -> Double? {
+            let value: Int?
+            switch denominator {
+            case .viewedLocus:
+                value = viewedDenominators[
+                    "\(support.sample)\u{0}\(GenotypeHaplotypeLocusResolver.canonicalLocusName(row.locus))"
+                ]
+            case .sampleRetained:
+                value = retainedBySample[support.sample]
+            }
+            guard let value, value > 0 else { return nil }
+            return Double(support.passedUniqueReads) / Double(value)
+        }
         if globalThreshold > 0
             || matrixThreshold > 0
             || filter.matrixMinimumReads > 0 {
             rows = rows.compactMap { row in
                 guard row.population != .known else { return row }
-                let supportingSamples = Set(row.sampleSupport.map(\.sample))
-                    .intersection(eligibleSamples)
-                let populationFraction = eligibleSamples.isEmpty
-                    ? nil
-                    : Double(supportingSamples.count) / Double(eligibleSamples.count)
-                if globalThreshold > 0,
-                   (populationFraction ?? -.infinity) < globalThreshold {
-                    return nil
-                }
-                if matrixThreshold > 0,
-                   (populationFraction ?? -.infinity) < matrixThreshold {
-                    return nil
-                }
-                let support = filter.matrixMinimumReads > 0
-                    ? row.sampleSupport.filter {
-                        $0.passedUniqueReads >= filter.matrixMinimumReads
+                let support = row.sampleSupport.filter { cell in
+                    if globalThreshold > 0,
+                       (candidateFraction(row, cell, denominator: filter.globalDenominator) ?? -.infinity)
+                        < globalThreshold {
+                        return false
                     }
-                    : row.sampleSupport
+                    if matrixThreshold > 0,
+                       (candidateFraction(row, cell, denominator: filter.matrixDenominator) ?? -.infinity)
+                        < matrixThreshold {
+                        return false
+                    }
+                    return filter.matrixMinimumReads == 0
+                        || cell.passedUniqueReads >= filter.matrixMinimumReads
+                }
                 guard !support.isEmpty else { return nil }
                 return GenotypeCandidateMatrixRow(
                     id: row.id,
@@ -494,9 +516,7 @@ final class GenotypeMatrixBaseProjectionTests: XCTestCase {
         let retainedBySample = Dictionary(
             uniqueKeysWithValues: samples.map { ($0.sample, $0.passedUniqueReads) }
         )
-        let viewedDenominators = Dictionary(grouping: calls) {
-            "\($0.sample)\u{0}\($0.locusGroup)"
-        }.mapValues { $0.reduce(0) { $0 + $1.passedUniqueReads } }
+        let viewedDenominators = sourceLocusDenominators(calls: calls, candidateDocument: candidateDocument)
         var fractions: [GenotypeMatrixBaseProjection.CellIdentity: Double] = [:]
         for call in calls {
             let denominatorValue: Int?
@@ -521,30 +541,57 @@ final class GenotypeMatrixBaseProjectionTests: XCTestCase {
                     Double(call.passedUniqueReads) / Double(denominatorValue)
             }
         }
-        let eligibleSampleCount = Set(logicalSampleNames).count
-        if eligibleSampleCount > 0, let candidateDocument {
-            let observationsByCluster = Dictionary(
-                grouping: candidateDocument.observations,
-                by: \.stableClusterID
-            )
+        if let candidateDocument {
             for candidate in candidateDocument.candidates {
-                let supportingSamples = Set(
-                    (observationsByCluster[candidate.stableClusterID] ?? [])
-                        .map(\.sampleID)
-                )
-                let populationFraction =
-                    Double(supportingSamples.count) / Double(eligibleSampleCount)
-                for sample in supportingSamples {
+                var readsBySample: [String: Int] = [:]
+                for observation in candidateDocument.observations
+                    where observation.stableClusterID == candidate.stableClusterID {
+                    readsBySample[observation.sampleID, default: 0] += observation.aggregatedSampleReadCount
+                }
+                for (sample, reads) in readsBySample {
+                    let value: Int?
+                    switch denominator {
+                    case .viewedLocus:
+                        value = viewedDenominators[
+                            "\(sample)\u{0}\(GenotypeHaplotypeLocusResolver.canonicalLocusName(candidate.locus))"
+                        ]
+                    case .sampleRetained:
+                        value = retainedBySample[sample]
+                    }
+                    guard let value, value > 0 else { continue }
                     fractions[.init(
                         locus: candidate.locus,
                         genotype: candidate.provisionalName,
                         sample: sample,
                         stableClusterID: candidate.stableClusterID
-                    )] = populationFraction
+                    )] = Double(reads) / Double(value)
                 }
             }
         }
         return fractions
+    }
+
+    /// Independent restatement of the GEN-05 (D13) denominator for this
+    /// fixture: unique reads per sample per source locus, known calls plus
+    /// candidate observations (all fixture loci are MHC-A1 / MHC-A).
+    private func sourceLocusDenominators(
+        calls: [ONTGenotypeCall],
+        candidateDocument: ONTMHCCandidateAllelesDocument?
+    ) -> [String: Int] {
+        var totals: [String: Int] = [:]
+        for call in calls {
+            totals["\(call.sample)\u{0}\(call.locusGroup)", default: 0] += call.passedUniqueReads
+        }
+        if let candidateDocument {
+            let locusByCluster = Dictionary(uniqueKeysWithValues: candidateDocument.candidates.map {
+                ($0.stableClusterID, GenotypeHaplotypeLocusResolver.canonicalLocusName($0.locus))
+            })
+            for observation in candidateDocument.observations {
+                guard let locus = locusByCluster[observation.stableClusterID] else { continue }
+                totals["\(observation.sampleID)\u{0}\(locus)", default: 0] += observation.aggregatedSampleReadCount
+            }
+        }
+        return totals
     }
 
     private func makeCall(

@@ -280,7 +280,9 @@ final class GenotypeExportSubcommandTests: XCTestCase {
         XCTAssertEqual(inspection["filteredSamples"] as? [String], ["S1"])
         XCTAssertEqual(inspection["filteredLabel"] as? String, "Concise A1")
         XCTAssertEqual(inspection["filteredValue"] as? Int, call.passedUniqueReads)
-        XCTAssertTrue((inspection["filteredComment"] as? String ?? "").contains("captured note"))
+        // Decision D8: verbatim note in the comment; evidence in its own column.
+        XCTAssertEqual(inspection["filteredComment"] as? String, "captured note")
+        XCTAssertEqual(inspection["filteredEvidenceHeader"] as? String, "Evidence (display / raw support)")
     }
 
     func testMalformedProjectionIsRejectedBeforeExistingReportIsReplaced() async throws {
@@ -1030,7 +1032,8 @@ header = next(r for r in range(1, s.max_row + 1) if s.cell(r, 3).value == 'Allel
 row = header + 1
 print(json.dumps({
   'sheets': w.sheetnames,
-  'filteredSamples': [s.cell(header, c).value for c in range(4, s.max_column + 1)],
+  'filteredSamples': [s.cell(header, c).value for c in range(4, s.max_column)],
+  'filteredEvidenceHeader': s.cell(header, s.max_column).value,
   'filteredLabel': s.cell(row, 3).value,
   'filteredValue': s.cell(row, 4).value,
   'filteredComment': s.cell(row, 4).comment.text if s.cell(row, 4).comment else '',

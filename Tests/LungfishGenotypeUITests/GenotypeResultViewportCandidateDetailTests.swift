@@ -812,9 +812,14 @@ final class GenotypeResultViewportCandidateDetailTests: GenotypeResultViewportTe
     }
 
 
-    func testCandidateRowsUseDistinctSamplePopulationFractionForGlobalThresholds() {
+    /// GEN-06 (D14): a candidate cell's percent is its read fraction in that
+    /// sample over the same source-locus denominator as known alleles.
+    func testCandidateRowsUsePerSampleReadFractionForGlobalThresholds() {
         let result = makeCandidateResult(
             calls: [
+                makeCall(sample: "AnimalA", genotype: "01_Mafa_A1_KnownHigh", reads: 3),
+                makeCall(sample: "AnimalB", genotype: "01_Mafa_A1_KnownHigh", reads: 9),
+                makeCall(sample: "AnimalC", genotype: "01_Mafa_A1_KnownHigh", reads: 1),
                 makeCall(sample: "AnimalD", genotype: "01_Mafa_A1_KnownHigh", reads: 9),
                 makeCall(sample: "AnimalD", genotype: "01_Mafa_A1_KnownLow", reads: 1),
             ],
@@ -831,34 +836,49 @@ final class GenotypeResultViewportCandidateDetailTests: GenotypeResultViewportTe
         let matrix = GenotypeComparisonMatrixView()
         matrix.configure(result: result)
 
+        // Source-locus denominators: A 3+3, B 9+3, C 1+3, D 9+1.
         XCTAssertEqual(matrix.testingSupportFraction(rowID: .candidate(stableClusterID: "shared"), sample: "AnimalA"), 0.5)
-        XCTAssertEqual(matrix.testingSupportFraction(rowID: .candidate(stableClusterID: "singleton"), sample: "AnimalC"), 0.25)
+        XCTAssertEqual(matrix.testingSupportFraction(rowID: .candidate(stableClusterID: "shared"), sample: "AnimalB"), 0.25)
+        XCTAssertEqual(matrix.testingSupportFraction(rowID: .candidate(stableClusterID: "singleton"), sample: "AnimalC"), 0.75)
 
         matrix.applyDisplayState(.init(hideLowSupport: true, minimumSupportPercent: 25))
         XCTAssertEqual(Set(matrix.testingVisibleRows.map(\.id)), Set([
             .known(locus: "MHC-A", genotype: "01_Mafa_A1_KnownHigh"),
             .candidate(stableClusterID: "shared"),
             .candidate(stableClusterID: "singleton"),
-        ]), "The singleton is exactly 1/4 of the eligible sample union and remains visible at threshold")
+        ]), "A cell exactly at the threshold stays visible")
+        XCTAssertEqual(
+            matrix.testingVisibleRows.first { $0.id == .candidate(stableClusterID: "shared") }?.sampleSupport.map(\.sample).sorted(),
+            ["AnimalA", "AnimalB"]
+        )
 
         matrix.applyDisplayState(.init(hideLowSupport: true, minimumSupportPercent: 25.1))
-        XCTAssertEqual(Set(matrix.testingVisibleRows.map(\.id)), Set([
-            .known(locus: "MHC-A", genotype: "01_Mafa_A1_KnownHigh"),
-            .candidate(stableClusterID: "shared"),
-        ]), "Stable cluster IDs must keep same-named candidates from sharing threshold state")
-
-        matrix.applyDisplayState(.init(hideLowSupport: true, minimumSupportPercent: 50))
-        XCTAssertTrue(matrix.testingVisibleRows.contains { $0.id == .candidate(stableClusterID: "shared") })
+        XCTAssertEqual(
+            matrix.testingVisibleRows.first { $0.id == .candidate(stableClusterID: "shared") }?.sampleSupport.map(\.sample),
+            ["AnimalA"],
+            "Each cell is thresholded on its own read fraction"
+        )
 
         matrix.applyDisplayState(.init(hideLowSupport: true, minimumSupportPercent: 50.1))
+        XCTAssertEqual(Set(matrix.testingVisibleRows.map(\.id)), Set([
+            .known(locus: "MHC-A", genotype: "01_Mafa_A1_KnownHigh"),
+            .candidate(stableClusterID: "singleton"),
+        ]), "Stable cluster IDs keep same-named candidates from sharing threshold state")
+
+        matrix.applyDisplayState(.init(hideLowSupport: true, minimumSupportPercent: 75.1))
         XCTAssertFalse(matrix.testingVisibleRows.contains { $0.population != .known })
-        XCTAssertEqual(matrix.testingVisibleRows.map(\.genotype), ["01_Mafa_A1_KnownHigh"], "Candidate-only samples must not alter known read-share semantics")
+        XCTAssertEqual(matrix.testingVisibleRows.map(\.genotype), ["01_Mafa_A1_KnownHigh"])
     }
 
 
-    func testCandidateRowsUsePopulationFractionForMatrixThresholdAndVisibilityDoesNotChangeDenominator() {
+    func testCandidateRowsUseReadFractionForMatrixThresholdAndVisibilityDoesNotChangeDenominator() {
         let result = makeCandidateResult(
-            calls: [makeCall(sample: "AnimalD", genotype: "01_Mafa_A1_Known", reads: 10)],
+            calls: [
+                makeCall(sample: "AnimalA", genotype: "01_Mafa_A1_Known", reads: 3),
+                makeCall(sample: "AnimalB", genotype: "01_Mafa_A1_Known", reads: 3),
+                makeCall(sample: "AnimalC", genotype: "01_Mafa_A1_Known", reads: 9),
+                makeCall(sample: "AnimalD", genotype: "01_Mafa_A1_Known", reads: 10),
+            ],
             candidates: [
                 makeCandidate(id: "shared", name: "Shared_ext", classification: .extension, support: .shared, samples: ["AnimalA", "AnimalB"]),
                 makeCandidate(id: "singleton", name: "Singleton_ext", classification: .extension, support: .singleton, samples: ["AnimalC"]),
@@ -872,16 +892,19 @@ final class GenotypeResultViewportCandidateDetailTests: GenotypeResultViewportTe
         let matrix = GenotypeComparisonMatrixView()
         matrix.configure(result: result)
 
+        // Singleton: 3 of AnimalC's 12 source-locus reads (25%).
         matrix.applyDisplayState(.init(matrixMinimumPercent: 25))
         XCTAssertTrue(matrix.testingVisibleRows.contains { $0.id == .candidate(stableClusterID: "singleton") })
 
+        // Hiding the singleton rows does not change the shared candidate's
+        // denominator (3 of 6 reads in each animal, 50%).
         var settings = ONTMHCCandidateDisplaySettings.default
         settings.showSingletonCandidates = false
         matrix.applyDisplayState(.init(matrixMinimumPercent: 50, mhcCandidateDisplaySettings: settings))
         XCTAssertTrue(matrix.testingVisibleRows.contains { $0.id == .candidate(stableClusterID: "shared") })
 
         matrix.applyDisplayState(.init(matrixMinimumPercent: 50.1, mhcCandidateDisplaySettings: settings))
-        XCTAssertFalse(matrix.testingVisibleRows.contains { $0.population != .known }, "Hidden singleton samples remain in the eligible matrix sample union")
+        XCTAssertFalse(matrix.testingVisibleRows.contains { $0.population != .known })
         XCTAssertTrue(matrix.testingVisibleRows.contains { $0.id == .known(locus: "MHC-A", genotype: "01_Mafa_A1_Known") })
     }
 

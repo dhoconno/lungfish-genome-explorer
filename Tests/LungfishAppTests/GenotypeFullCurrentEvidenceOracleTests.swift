@@ -215,10 +215,18 @@ def verify_filtered_current_view(oracle, native, snapshot, workbook):
 
     sheet=workbook['Genotype Matrix - Filtered']
     header=2+2*len(matrix['loci']) if snapshot['hasHaplotypeContent'] and matrix['loci'] else 1
-    assert (sheet.max_row,sheet.max_column)==(header+len(native_rows),3+len(native_samples)), (
-        'XLSX Filtered dimensions',(sheet.max_row,sheet.max_column),(header+len(native_rows),3+len(native_samples)))
-    assert [sheet.cell(header,column).value for column in range(4,4+len(native_samples))]==[
+    # Presentation columns sit between the hidden stable ID and the samples:
+    # the legacy layout is Locus + Allele, an explicit layout is whatever the
+    # native matrix showed. Decision D8 adds one trailing evidence column.
+    presentation=matrix.get('columns') or [{'kind':'locus'},{'kind':'legacy-display'}]
+    first_sample=2+len(presentation)
+    evidence_column=first_sample+len(native_samples)
+    assert (sheet.max_row,sheet.max_column)==(header+len(native_rows),evidence_column), (
+        'XLSX Filtered dimensions',(sheet.max_row,sheet.max_column),(header+len(native_rows),evidence_column))
+    assert [sheet.cell(header,column).value for column in range(first_sample,evidence_column)]==[
         sample['name'] for sample in native_samples], 'XLSX Filtered sample order'
+    assert sheet.cell(header,evidence_column).value=='Evidence (display / raw support)', (
+        'XLSX Filtered evidence header',sheet.cell(header,evidence_column).value)
 
     def rgb(value):
         return value[-6:].upper() if isinstance(value,str) else None
@@ -227,18 +235,34 @@ def verify_filtered_current_view(oracle, native, snapshot, workbook):
     def border(cell):
         return [(side.style if side else None,rgb(side.color.rgb) if side and side.color and side.color.type=='rgb' else None)
                 for side in [cell.border.left,cell.border.right,cell.border.top,cell.border.bottom]]
-    def expected_comment(display,raw,comment,review):
-        value='Evidence: display='+json.dumps(display)+', raw support='+json.dumps(raw)
-        if comment is not None: value+='\nCurrent comment: '+json.dumps(comment,ensure_ascii=False)
-        if review is not None: value+='\nCurrent review: '+json.dumps(review,ensure_ascii=False)
-        return value
+    def expected_evidence(native_row,key):
+        # Independent restatement of the D8 evidence column: every sample with
+        # a displayed or known raw value, as 'Sample: display / raw'.
+        parts=[]
+        for sample,native_cell in zip(native_samples,native_row['cells']):
+            raw=raw_rows[key]['support'].get(native_cell['sampleID'])
+            display=native_cell.get('displayValue')
+            if display is None and raw is None: continue
+            parts.append(sample['name']+': '+('hidden' if display is None else str(display))
+                         +' / '+('unknown' if raw is None else str(raw)))
+        return '; '.join(parts) if parts else None
 
     for row_number,native_row in enumerate(native_rows,header+1):
         key=_filtered_identity(native_row)
-        assert [sheet.cell(row_number,column).value for column in [1,2,3]]==[
-            _filtered_stable_id(native_row),native_row['locus'],native_row['displayName']], (
-                'XLSX Filtered row identity/order',row_number,key)
-        for column,native_cell in enumerate(native_row['cells'],4):
+        assert sheet.cell(row_number,1).value==_filtered_stable_id(native_row), (
+            'XLSX Filtered row identity/order',row_number,key)
+        for offset,column in enumerate(presentation,2):
+            value=sheet.cell(row_number,offset).value
+            if column['kind']=='locus':
+                assert value==native_row['locus'], ('XLSX Filtered row locus',row_number,key,value)
+            elif column['kind']=='legacy-display':
+                assert value==native_row['displayName'], ('XLSX Filtered row label',row_number,key,value)
+            elif column['kind']=='genotype':
+                assert value==native_row['genotype'], ('XLSX Filtered row genotype',row_number,key,value)
+        evidence=sheet.cell(row_number,evidence_column).value
+        assert evidence==expected_evidence(native_row,key), (
+            'XLSX Filtered evidence column',row_number,key,evidence)
+        for column,native_cell in enumerate(native_row['cells'],first_sample):
             raw=raw_rows[key]['support'].get(native_cell['sampleID'])
             display=native_cell.get('displayValue')
             review=native_cell.get('review')
@@ -246,8 +270,9 @@ def verify_filtered_current_view(oracle, native, snapshot, workbook):
             assert cell.value==display and (display is None or type(cell.value) is int), (
                 'XLSX Filtered literal evidence',key,native_cell['sampleID'],display,cell.value,type(cell.value).__name__)
             assert cell.data_type!='f', ('XLSX Filtered formula',key,native_cell['sampleID'])
+            # D8: the cell comment is the user's note verbatim, nothing more.
             annotation=cell.comment.text if cell.comment else None
-            assert annotation==expected_comment(display,raw,native_cell.get('comment'),review), (
+            assert annotation==native_cell.get('comment'), (
                 'XLSX Filtered annotation',key,native_cell['sampleID'],annotation)
             style=native_cell['style']
             wanted_fill=rgb(style.get('fillHex'))
@@ -319,7 +344,7 @@ baseline={'schemaVersion':2,'role':'editable-current','sourceRevision':{},
               {'sampleID':'S2','rawSupport':9,'displayValue':9,'reviewEligible':True},{'sampleID':'CallOnly','reviewEligible':False}]}]}
 accepted=[]
 for mutation in ['baseline','drop-row','drop-sample','coherent-count','unknown-to-zero','retarget-stable-id','diverge-h2','diverge-palette',
-                 'filtered-value','filtered-order','filtered-annotation']:
+                 'filtered-value','filtered-order','filtered-annotation','filtered-evidence']:
     p=copy_module.deepcopy(baseline)
     if mutation=='drop-row': p['rows'].pop()
     if mutation=='drop-sample':
@@ -351,6 +376,7 @@ for mutation in ['baseline','drop-row','drop-sample','coherent-count','unknown-t
         for column in range(1,filtered.max_column+1):
             filtered.cell(5,column).value,filtered.cell(6,column).value=filtered.cell(6,column).value,filtered.cell(5,column).value
     if mutation=='filtered-annotation': filtered.cell(5,4).comment=None
+    if mutation=='filtered-evidence': filtered.cell(5,7).value='S1: 7 / 700'
     # Confirm the malformed artifact really agrees with its own payload before
     # applying the independent oracle. All XLSX authoring is shipping renderer.
     for ri,row in enumerate(p['rows'],5):
@@ -374,6 +400,6 @@ for mutation in ['baseline','drop-row','drop-sample','coherent-count','unknown-t
     else:
         accepted.append(mutation)
 assert accepted==['baseline'], ('independent oracle accepted coherent corruption',accepted)
-print('Accepted exact zero/sparse/call-only baseline; rejected all ten coherent mutations')
+print('Accepted exact zero/sparse/call-only baseline; rejected all eleven coherent mutations')
 """#
 }

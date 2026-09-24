@@ -231,7 +231,8 @@ extension FullLengthONTMHCGenotypingPipeline {
             calls: result.calls,
             definitionSet: definitionSet,
             generatedAt: ISO8601DateFormatter().string(from: generatedAt),
-            dropoutFilter: request.haplotypeDropoutEvaluator
+            dropoutFilter: request.haplotypeDropoutEvaluator,
+            locusDenominator: GenotypeLocusDenominator(result: result)
         )
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]

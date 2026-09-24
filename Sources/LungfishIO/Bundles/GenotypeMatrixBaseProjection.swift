@@ -22,12 +22,23 @@ public struct GenotypeMatrixBaseProjection: Sendable {
         }
     }
 
+    /// Matrix visibility thresholds.
+    ///
+    /// Every percent threshold is a per-sample READ FRACTION, applied cell by
+    /// cell to known and candidate rows alike (GEN-06, decision D14). With the
+    /// `.viewedLocus` basis the denominator is `GenotypeLocusDenominator`, the
+    /// sample's unique retained reads at the allele's source locus (GEN-05,
+    /// D13). Prevalence across animals is a separate control,
+    /// `minimumPrevalencePercent` ("Seen in at least N% of animals").
     public struct Filter: Codable, Equatable, Sendable {
         public var globalMinimumPercent: Double
         public var globalDenominator: ONTGenotypeSupportDenominator
         public var matrixMinimumReads: Int
         public var matrixMinimumPercent: Double
         public var matrixDenominator: ONTGenotypeSupportDenominator
+        /// Hide a row unless its visible, positive cells cover at least this
+        /// percent of the logical sample roster. 0 turns the control off.
+        public var minimumPrevalencePercent: Double
 
         public static let unfiltered = Self()
 
@@ -35,6 +46,7 @@ public struct GenotypeMatrixBaseProjection: Sendable {
             globalMinimumPercent > 0
                 || matrixMinimumReads > 0
                 || matrixMinimumPercent > 0
+                || minimumPrevalencePercent > 0
         }
 
         public init(
@@ -42,13 +54,76 @@ public struct GenotypeMatrixBaseProjection: Sendable {
             globalDenominator: ONTGenotypeSupportDenominator = .viewedLocus,
             matrixMinimumReads: Int = 0,
             matrixMinimumPercent: Double = 0,
-            matrixDenominator: ONTGenotypeSupportDenominator = .viewedLocus
+            matrixDenominator: ONTGenotypeSupportDenominator = .viewedLocus,
+            minimumPrevalencePercent: Double = 0
         ) {
             self.globalMinimumPercent = max(0, globalMinimumPercent)
             self.globalDenominator = globalDenominator
             self.matrixMinimumReads = max(0, matrixMinimumReads)
             self.matrixMinimumPercent = max(0, matrixMinimumPercent)
             self.matrixDenominator = matrixDenominator
+            self.minimumPrevalencePercent = max(0, min(100, minimumPrevalencePercent))
+        }
+
+        private enum CodingKeys: String, CodingKey {
+            case globalMinimumPercent, globalDenominator, matrixMinimumReads
+            case matrixMinimumPercent, matrixDenominator, minimumPrevalencePercent
+        }
+
+        public init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            self.init(
+                globalMinimumPercent: try container.decode(Double.self, forKey: .globalMinimumPercent),
+                globalDenominator: try container.decode(ONTGenotypeSupportDenominator.self, forKey: .globalDenominator),
+                matrixMinimumReads: try container.decode(Int.self, forKey: .matrixMinimumReads),
+                matrixMinimumPercent: try container.decode(Double.self, forKey: .matrixMinimumPercent),
+                matrixDenominator: try container.decode(ONTGenotypeSupportDenominator.self, forKey: .matrixDenominator),
+                minimumPrevalencePercent: try container.decodeIfPresent(
+                    Double.self, forKey: .minimumPrevalencePercent
+                ) ?? 0
+            )
+        }
+
+        public func encode(to encoder: Encoder) throws {
+            var container = encoder.container(keyedBy: CodingKeys.self)
+            try container.encode(globalMinimumPercent, forKey: .globalMinimumPercent)
+            try container.encode(globalDenominator, forKey: .globalDenominator)
+            try container.encode(matrixMinimumReads, forKey: .matrixMinimumReads)
+            try container.encode(matrixMinimumPercent, forKey: .matrixMinimumPercent)
+            try container.encode(matrixDenominator, forKey: .matrixDenominator)
+            // Omitted when off so captures made before the control existed
+            // re-encode byte for byte.
+            if minimumPrevalencePercent > 0 {
+                try container.encode(minimumPrevalencePercent, forKey: .minimumPrevalencePercent)
+            }
+        }
+
+        /// Whether one cell's read fraction passes both percent thresholds.
+        public func admitsReadFraction(
+            _ fraction: (ONTGenotypeSupportDenominator) -> Double?
+        ) -> Bool {
+            if globalMinimumPercent > 0 {
+                guard let value = fraction(globalDenominator), value >= globalMinimumPercent / 100 else {
+                    return false
+                }
+            }
+            if matrixMinimumPercent > 0 {
+                guard let value = fraction(matrixDenominator), value >= matrixMinimumPercent / 100 else {
+                    return false
+                }
+            }
+            return true
+        }
+
+        /// Whether a row seen (positive and visible) in `supportingSamples`
+        /// passes the prevalence control over the logical roster.
+        public func admitsPrevalence(supportingSamples: Set<String>, logicalSamples: Set<String>) -> Bool {
+            guard minimumPrevalencePercent > 0 else { return true }
+            guard let prevalence = GenotypeMatrixBaseProjection.prevalenceFraction(
+                supportingSamples: supportingSamples,
+                logicalSamples: logicalSamples
+            ) else { return false }
+            return prevalence >= minimumPrevalencePercent / 100
         }
     }
 
@@ -86,6 +161,8 @@ public struct GenotypeMatrixBaseProjection: Sendable {
     public let scientificIdentity: ScientificIdentity
 
     private let candidateRows: [GenotypeCandidateMatrixRow]
+    private let candidateCellFractions:
+        [ONTGenotypeSupportDenominator: [CandidateCell: Double]]
     private let supportFractionsByDenominator:
         [ONTGenotypeSupportDenominator: [CellIdentity: Double]]
     private let logicalSampleNames: Set<String>
@@ -107,14 +184,13 @@ public struct GenotypeMatrixBaseProjection: Sendable {
         locusDisplayOrder: [String]? = nil,
         usesNumericReferenceOrder: Bool = false
     ) {
-        var viewedLocusDenominators: [SupportBucket: Int] = [:]
-        viewedLocusDenominators.reserveCapacity(calls.count)
-        for call in calls {
-            viewedLocusDenominators[
-                SupportBucket(sample: call.sample, locus: call.locusGroup),
-                default: 0
-            ] += call.passedUniqueReads
-        }
+        // GEN-05 (D13): one per-source-locus denominator, shared with the
+        // haplotype caller, the evidence pane and the Excel filter.
+        let locusDenominator = GenotypeLocusDenominator(
+            calls: calls,
+            candidateDocument: candidateDocument,
+            unnameableDocument: unnameableDocument
+        )
 
         var retainedBySample: [String: Int] = [:]
         retainedBySample.reserveCapacity(samples.count)
@@ -131,10 +207,7 @@ public struct GenotypeMatrixBaseProjection: Sendable {
                     passedUniqueReads: call.passedUniqueReads,
                     sampleUniqueRetainedReads: call.sampleUniqueRetainedReads
                 ),
-                viewedLocusDenominator: viewedLocusDenominators[
-                    SupportBucket(sample: call.sample, locus: call.locusGroup),
-                    default: 0
-                ],
+                viewedLocusDenominator: locusDenominator.total(for: call),
                 sampleRetainedDenominator: call.sampleUniqueRetainedReads
                     ?? retainedBySample[call.sample]
             )
@@ -186,55 +259,74 @@ public struct GenotypeMatrixBaseProjection: Sendable {
                 retainedFractions[identity] = fraction
             }
         }
-        let eligibleSampleCount = Set(logicalSampleNames).count
-        if eligibleSampleCount > 0, let candidateDocument {
+        // GEN-06 (D14): a candidate cell's percent is its read fraction in
+        // that sample, with the same denominators as known alleles.
+        var candidateViewed: [CandidateCell: Double] = [:]
+        var candidateRetained: [CandidateCell: Double] = [:]
+        func recordCandidate(
+            stableClusterID: String,
+            locus: String,
+            genotype: String,
+            observations: [(sample: String, reads: Int)]
+        ) {
+            var readsBySample: [String: Int] = [:]
+            for observation in observations {
+                readsBySample[observation.sample, default: 0] += max(0, observation.reads)
+            }
+            for (sample, reads) in readsBySample {
+                let cell = CandidateCell(stableClusterID: stableClusterID, sample: sample)
+                let identity = CellIdentity(
+                    locus: locus,
+                    genotype: genotype,
+                    sample: sample,
+                    stableClusterID: stableClusterID
+                )
+                if let fraction = locusDenominator.fraction(reads: reads, sample: sample, sourceLocus: locus) {
+                    candidateViewed[cell] = fraction
+                    viewedFractions[identity] = fraction
+                }
+                if let retained = retainedBySample[sample], retained > 0 {
+                    let fraction = Double(reads) / Double(retained)
+                    candidateRetained[cell] = fraction
+                    retainedFractions[identity] = fraction
+                }
+            }
+        }
+        if let candidateDocument {
             let observationsByCluster = Dictionary(
                 grouping: candidateDocument.observations,
                 by: \.stableClusterID
             )
             for candidate in candidateDocument.candidates {
-                let supportingSamples = Set(
-                    (observationsByCluster[candidate.stableClusterID] ?? [])
-                        .map(\.sampleID)
+                recordCandidate(
+                    stableClusterID: candidate.stableClusterID,
+                    locus: candidate.locus,
+                    genotype: candidate.provisionalName,
+                    observations: (observationsByCluster[candidate.stableClusterID] ?? [])
+                        .map { ($0.sampleID, $0.aggregatedSampleReadCount) }
                 )
-                let populationFraction =
-                    Double(supportingSamples.count) / Double(eligibleSampleCount)
-                for sample in supportingSamples {
-                    let identity = CellIdentity(
-                        locus: candidate.locus,
-                        genotype: candidate.provisionalName,
-                        sample: sample,
-                        stableClusterID: candidate.stableClusterID
-                    )
-                    viewedFractions[identity] = populationFraction
-                    retainedFractions[identity] = populationFraction
-                }
             }
         }
-        if eligibleSampleCount > 0, let unnameableDocument {
+        if let unnameableDocument {
             let observationsByCluster = Dictionary(
                 grouping: unnameableDocument.observations,
                 by: \.stableClusterID
             )
             for record in unnameableDocument.clusters {
                 guard let interpretation = record.candidateInterpretation else { continue }
-                let supportingSamples = Set(
-                    (observationsByCluster[record.stableClusterID] ?? []).map(\.sampleID)
+                recordCandidate(
+                    stableClusterID: record.stableClusterID,
+                    locus: interpretation.locus,
+                    genotype: interpretation.provisionalName,
+                    observations: (observationsByCluster[record.stableClusterID] ?? [])
+                        .map { ($0.sampleID, $0.aggregatedSampleReadCount) }
                 )
-                let populationFraction =
-                    Double(supportingSamples.count) / Double(eligibleSampleCount)
-                for sample in supportingSamples {
-                    let identity = CellIdentity(
-                        locus: interpretation.locus,
-                        genotype: interpretation.provisionalName,
-                        sample: sample,
-                        stableClusterID: record.stableClusterID
-                    )
-                    viewedFractions[identity] = populationFraction
-                    retainedFractions[identity] = populationFraction
-                }
             }
         }
+        candidateCellFractions = [
+            .viewedLocus: candidateViewed,
+            .sampleRetained: candidateRetained,
+        ]
         supportFractionsByDenominator = [
             .viewedLocus: viewedFractions,
             .sampleRetained: retainedFractions,
@@ -259,20 +351,9 @@ public struct GenotypeMatrixBaseProjection: Sendable {
     }
 
     public func derive(_ filter: Filter) -> Derived {
-        let globalThreshold = filter.globalMinimumPercent / 100
-        let matrixThreshold = filter.matrixMinimumPercent / 100
         let filteredOccurrences = knownOccurrences.filter { occurrence in
-            if globalThreshold > 0 {
-                guard let fraction = occurrence.supportFraction(for: filter.globalDenominator),
-                      fraction >= globalThreshold else {
-                    return false
-                }
-            }
-            if matrixThreshold > 0 {
-                guard let fraction = occurrence.supportFraction(for: filter.matrixDenominator),
-                      fraction >= matrixThreshold else {
-                    return false
-                }
+            guard filter.admitsReadFraction({ occurrence.supportFraction(for: $0) }) else {
+                return false
             }
             return filter.matrixMinimumReads == 0
                 || occurrence.call.passedUniqueReads >= filter.matrixMinimumReads
@@ -283,8 +364,14 @@ public struct GenotypeMatrixBaseProjection: Sendable {
             let grouped = Dictionary(grouping: filteredOccurrences) {
                 KnownRow(locus: $0.call.locusGroup, genotype: $0.call.genotype)
             }
-            knownRows = grouped.map { identity, occurrences in
-                ONTGenotypeSharedCall(
+            knownRows = grouped.compactMap { identity, occurrences in
+                guard filter.admitsPrevalence(
+                    supportingSamples: Set(occurrences.filter { $0.call.passedUniqueReads > 0 }.map(\.call.sample)),
+                    logicalSamples: logicalSampleNames
+                ) else {
+                    return nil
+                }
+                return ONTGenotypeSharedCall(
                     locus: identity.locus,
                     genotype: identity.genotype,
                     sampleSupport: occurrences.map(\.support)
@@ -295,26 +382,23 @@ public struct GenotypeMatrixBaseProjection: Sendable {
         }
 
         var candidateRows = self.candidateRows
-        if globalThreshold > 0 || matrixThreshold > 0 || filter.matrixMinimumReads > 0 {
+        if filter.hasActiveNumericThresholds {
             candidateRows = candidateRows.compactMap { row in
-                if globalThreshold > 0 {
-                    guard let fraction = candidatePopulationFraction(for: row),
-                          fraction >= globalThreshold else {
-                        return nil
+                let support = row.sampleSupport.filter { cell in
+                    if filter.matrixMinimumReads > 0, cell.passedUniqueReads < filter.matrixMinimumReads {
+                        return false
                     }
+                    guard let stableClusterID = row.stableClusterID else { return true }
+                    let key = CandidateCell(stableClusterID: stableClusterID, sample: cell.sample)
+                    return filter.admitsReadFraction { candidateCellFractions[$0]?[key] }
                 }
-                if matrixThreshold > 0 {
-                    guard let fraction = candidatePopulationFraction(for: row),
-                          fraction >= matrixThreshold else {
-                        return nil
-                    }
+                guard !support.isEmpty,
+                      filter.admitsPrevalence(
+                        supportingSamples: Set(support.filter { $0.passedUniqueReads > 0 }.map(\.sample)),
+                        logicalSamples: logicalSampleNames
+                      ) else {
+                    return nil
                 }
-                let support = filter.matrixMinimumReads > 0
-                    ? row.sampleSupport.filter {
-                        $0.passedUniqueReads >= filter.matrixMinimumReads
-                    }
-                    : row.sampleSupport
-                guard !support.isEmpty else { return nil }
                 return GenotypeCandidateMatrixRow(
                     id: row.id,
                     alleleName: row.alleleName,
@@ -350,13 +434,10 @@ public struct GenotypeMatrixBaseProjection: Sendable {
         )
     }
 
-    private func candidatePopulationFraction(for row: GenotypeCandidateMatrixRow) -> Double? {
-        Self.candidatePopulationFraction(supportingSamples: Set(row.sampleSupport.map(\.sample)), logicalSamples: logicalSampleNames)
-    }
-
-    /// The candidate percent basis is supporting-sample population, regardless
-    /// of the known-call read-denominator selection.
-    public static func candidatePopulationFraction(supportingSamples: Set<String>, logicalSamples: Set<String>) -> Double? {
+    /// Prevalence ("Seen in at least N% of animals"): positive supporting
+    /// samples over the full logical sample roster. Only the separate
+    /// prevalence control uses it; it is never a percent-of-reads basis.
+    public static func prevalenceFraction(supportingSamples: Set<String>, logicalSamples: Set<String>) -> Double? {
         guard !logicalSamples.isEmpty else { return nil }
         return Double(supportingSamples.intersection(logicalSamples).count) / Double(logicalSamples.count)
     }
@@ -393,11 +474,6 @@ public struct GenotypeMatrixBaseProjection: Sendable {
 }
 
 private extension GenotypeMatrixBaseProjection {
-    struct SupportBucket: Hashable {
-        let sample: String
-        let locus: String
-    }
-
     struct KnownRow: Hashable {
         let locus: String
         let genotype: String
