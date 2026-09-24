@@ -252,6 +252,66 @@ A feed restored to an older build cannot repair clients that already installed a
 
 The local test-channel drill in `test_corrective_higher_build_test_channel_drill_recovers_each_mutable_stage` uses disposable repositories and fake signing/network tools. It preserves a bad-build-42 evidence fixture, rejects an equal build, accepts correction 43, and interrupts primary feed, notes and legacy bridge uploads separately before resuming the exact candidate. It verifies retained receipts/DMG identity and matching primary/bridge assets. These fixtures prove publication control behavior only. Actual installed-client channel migration, representative schema compatibility and the real graphical smoke must still have retained runtime evidence before declaring the full corrective release ready.
 
+## Withdrawing a release from the live feed (yank)
+
+The forward-fix path above (ship a corrected higher build) is always the
+right response once anyone may already have received the bad build. Before
+that correction is ready, `release.py yank` can pull the bad build out of
+what Sparkle currently offers to clients who have not yet updated, so the
+window of exposure is shorter than "however long it takes to prepare and
+verify a full corrected release."
+
+**What it does and does not do.** A yank restores an OLDER, already-published
+appcast item to the mutable feed asset (`sparkle-beta`/`appcast-beta.xml` or
+`sparkle-stable`/`appcast-stable.xml`). It does not repair a client that has
+already installed the bad build (Sparkle never downgrades) and it does not
+delete or unpublish the bad GitHub release; that release keeps its tag and
+gets a `Withdrawn:` title prefix so it is visible in the release list without
+being reachable as a normal update.
+
+**This round shipped a plan printer, not an executor.** `scripts/release/sparkle_yank.py`
+computes a `YankPlan` from the live appcast and a retained prior appcast (for
+example the one under `build/Release/<channel>/<commit>/` from the release
+being restored, or one regenerated offline with the same `generate_appcast`
+tool used at publish time). `release.py yank <channel> --restore-appcast <path>`
+fetches the live appcast, computes the plan, and prints it. It refuses to run
+anything: `--execute` is accepted on the command line for forward
+compatibility but currently raises immediately. Performing the withdrawal
+today means running the steps the plan prints by hand, with `gh` and release
+credentials, the same way the pre-existing manual workaround did, but now
+with the exact appcast to restore identified and digest-verified up front
+instead of guessing at an old `build/Release/preview/<old-commit>/` directory.
+
+**Runbook (until `--execute` is implemented):**
+
+1. `python3 scripts/release/release.py yank preview --restore-appcast build/Release/preview/<good-commit>/appcast-beta.xml`
+   and read the printed plan. It names the bad build's `sparkle:version`, the
+   build it will restore, and the exact steps.
+2. Keep a copy of the current live appcast (the plan's first step) before
+   changing anything.
+3. Confirm the restore target's DMG is still present on its GitHub release
+   tag and its digest matches what the retained appcast's `sparkle:edSignature`
+   and enclosure describe.
+4. Upload the restore appcast to the mutable release asset named in the
+   plan (and its legacy bridge copy, if the channel has one), then mark the
+   withdrawn release `Withdrawn: v<bad-version>` and keep its tag.
+5. Record `docs/release-notes/<bad-version>.withdrawn.md` with the reason and
+   the forward-fix version.
+6. **The build-number floor gate needs `--yank` for this to validate.**
+   `check-sparkle-build-number.py --yank` accepts the restored build being
+   equal to (not just greater than) the previously-live build, since a yank
+   is republishing something that was already live, not publishing forward.
+   It still rejects a planned build strictly below the live one. Do not pass
+   `--yank` to the ordinary `package`/`publish` build-number check; that
+   path must keep requiring a strictly greater build.
+7. Once the corrected build is ready, forward-fix normally (see above). The
+   yanked build's `Withdrawn` GitHub release and its `.withdrawn.md` note are
+   the durable record; nothing about the yank needs to be "undone."
+
+`scripts/tests/test_sparkle_yank.py` and the `--yank`-mode cases in
+`scripts/tests/test_sparkle_build_number_gate.py` cover the plan computation
+and the floor-gate equality allowance against fixture appcast XML.
+
 ## Durable signing recovery
 
 Keep `signing-transaction` and the exact candidate when publication stops. Signed
