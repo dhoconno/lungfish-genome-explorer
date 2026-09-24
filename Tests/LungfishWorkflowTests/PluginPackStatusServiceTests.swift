@@ -403,6 +403,20 @@ final class PluginPackStatusServiceTests: XCTestCase {
             }
 
             func recordedCallCount() -> Int { lock.withLock { callCount } }
+
+            /// Polls (rather than sleeping a fixed budget) until at least
+            /// `target` calls have been recorded, or `timeout` elapses.
+            /// A fixed `Task.sleep` here raced the actor's own scheduling
+            /// under load (this suite runs alongside many other processes in
+            /// the full gate), so this waits for the actual condition instead
+            /// of a wall-clock guess.
+            func waitUntilCallCount(atLeast target: Int, timeout: Duration = .seconds(5)) async -> Int {
+                let deadline = ContinuousClock.now + timeout
+                while recordedCallCount() < target, ContinuousClock.now < deadline {
+                    try? await Task.sleep(for: .milliseconds(5))
+                }
+                return recordedCallCount()
+            }
         }
 
         let gate = DatabaseGate()
@@ -423,8 +437,7 @@ final class PluginPackStatusServiceTests: XCTestCase {
 
         async let firstStatuses = service.visibleStatuses()
 
-        try? await Task.sleep(for: .milliseconds(50))
-        let initialCallCount = gate.recordedCallCount()
+        let initialCallCount = await gate.waitUntilCallCount(atLeast: 1)
         XCTAssertEqual(initialCallCount, 1)
 
         gate.release()
@@ -849,6 +862,20 @@ final class PluginPackStatusServiceTests: XCTestCase {
             }
 
             func recordedCallCount() -> Int { lock.withLock { callCount } }
+
+            /// Polls (rather than sleeping a fixed budget) until at least
+            /// `target` calls have been recorded, or `timeout` elapses.
+            /// A fixed `Task.sleep` here raced the actor's own scheduling
+            /// under load (this suite runs alongside many other processes in
+            /// the full gate), so this waits for the actual condition instead
+            /// of a wall-clock guess.
+            func waitUntilCallCount(atLeast target: Int, timeout: Duration = .seconds(5)) async -> Int {
+                let deadline = ContinuousClock.now + timeout
+                while recordedCallCount() < target, ContinuousClock.now < deadline {
+                    try? await Task.sleep(for: .milliseconds(5))
+                }
+                return recordedCallCount()
+            }
         }
 
         let gate = DatabaseGate()
@@ -870,8 +897,7 @@ final class PluginPackStatusServiceTests: XCTestCase {
         async let firstStatuses = service.visibleStatuses()
         async let secondStatuses = service.visibleStatuses()
 
-        try? await Task.sleep(for: .milliseconds(50))
-        let initialCallCount = gate.recordedCallCount()
+        let initialCallCount = await gate.waitUntilCallCount(atLeast: 1)
         XCTAssertEqual(initialCallCount, 1)
 
         gate.release()
