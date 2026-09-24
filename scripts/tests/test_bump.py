@@ -211,15 +211,20 @@ class ManifestIOTests(unittest.TestCase):
             reloaded = json.loads(text)["packTools"]
             self.assertEqual(reloaded, manifest["packTools"])
 
-    def test_preserve_existing_install_is_a_bracken_only_exception(self):
-        """Loosening provenance checks is opt-in per tool, never a fleet-wide policy."""
+    def test_preserve_existing_install_is_an_explicit_per_tool_exception(self):
+        """Loosening provenance checks is opt-in per tool, never a fleet-wide policy.
+
+        The allowlist is exact: bracken (source-built, 32abbbb02) and primalscheme3
+        (mixed conda + pip runtime that the conda-only reconciler must not clobber,
+        302c30d16). Adding a tool here must be a deliberate, reviewed decision.
+        """
         manifest = manifest_io.load(MANIFEST)
         opted = [
             entry["id"]
             for entry in manifest["tools"] + manifest["packTools"]
             if entry.get("preserveExistingInstall")
         ]
-        self.assertEqual(opted, ["bracken"])
+        self.assertEqual(sorted(opted), ["bracken", "primalscheme3"])
 
 
 class ApplyBumpsTests(unittest.TestCase):

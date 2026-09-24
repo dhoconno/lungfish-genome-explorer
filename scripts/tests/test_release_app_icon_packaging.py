@@ -26,20 +26,21 @@ class ReleaseAppIconPackagingTests(unittest.TestCase):
         self.assertIn("Set :CFBundleIconFile AppIcon", self.script)
         self.assertIn("Set :CFBundleIconName AppIcon", self.script)
 
-        install_index = self._line_index(
-            '/usr/bin/install -m 644 "$APP_ICON_SOURCE" "$APP_ICON_DEST"'
+        # Since 34548a699 signing and DMG staging happen in signing_pipeline.py,
+        # which receives the unsigned candidate copied from the archived app.
+        # The icon must be installed into the archived app before that copy.
+        install_call_index = self._line_index("install_app_icon", exact=True)
+        candidate_copy_index = self._line_index(
+            '/usr/bin/ditto "$APP_PATH" "$RELEASE_APP_PATH"'
         )
-        codesign_index = self._line_index('codesign --force --sign "$SIGNING_IDENTITY"')
-        dmg_stage_index = self._line_index(
-            'ditto "$APP_PATH" "${DMG_STAGING_DIR}/${APP_BUNDLE_FILENAME}"'
-        )
+        signing_input_index = self._line_index('--source-app "$RELEASE_APP_PATH"')
 
-        self.assertLess(install_index, codesign_index)
-        self.assertLess(install_index, dmg_stage_index)
+        self.assertLess(install_call_index, candidate_copy_index)
+        self.assertLess(candidate_copy_index, signing_input_index)
 
-    def _line_index(self, marker):
+    def _line_index(self, marker, exact=False):
         for index, line in enumerate(self.lines):
-            if marker in line:
+            if (line.strip() == marker) if exact else (marker in line):
                 return index
         self.fail(f"missing line containing {marker!r}")
 

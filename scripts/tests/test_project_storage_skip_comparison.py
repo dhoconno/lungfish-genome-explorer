@@ -963,18 +963,10 @@ class RunnerAndCITests(unittest.TestCase):
         self.runner = (
             self.root / "scripts/verification/run_project_storage_skip_comparison.sh"
         ).read_text(encoding="utf-8")
-        self.workflow = (self.root / ".github/workflows/ci.yml").read_text(
-            encoding="utf-8"
-        )
-
-    def workflow_job(self, name):
-        match = re.search(
-            rf"^  {re.escape(name)}:\n(?P<body>.*?)(?=^  [a-zA-Z0-9_-]+:\n|\Z)",
-            self.workflow,
-            flags=re.MULTILINE | re.DOTALL,
-        )
-        self.assertIsNotNone(match, f"missing workflow job: {name}")
-        return match.group("body")
+        # The project-storage skip-comparison job was removed from
+        # .github/workflows/ci.yml in 34548a699 (release-workflow rebuild), and
+        # hosted CI is now paused (2026-09-23 audit TST-06/REL-02). The runner
+        # script remains the supported local entry point, so only it is checked.
 
     def test_runner_has_exact_suites_pipe_statuses_and_same_worktree(self):
         self.assertIn("ci-focused)", self.runner)
@@ -998,65 +990,6 @@ class RunnerAndCITests(unittest.TestCase):
         self.assertIn(
             'task9_worktree="$task9_temporary_root/worktree"',
             self.runner,
-        )
-
-    def test_ci_uses_full_history_exact_block_and_always_uploads(self):
-        checkout_count = self.workflow.count("uses: actions/checkout@")
-        full_history_checkout_count = len(
-            re.findall(
-                r"uses: actions/checkout@[^\n]+\n"
-                r"\s+with:\n"
-                r"\s+fetch-depth: 0(?:\n|$)",
-                self.workflow,
-            )
-        )
-        self.assertGreater(checkout_count, 0)
-        self.assertEqual(full_history_checkout_count, checkout_count)
-        self.assertIn(
-            'task9_implementation_sha="$(git log --diff-filter=A '
-            "--format=%H -1 -- scripts/verification/"
-            'project-storage-task9-skip-policy.json)"',
-            self.workflow,
-        )
-        self.assertIn("--suite ci-focused", self.workflow)
-        self.assertIn("if: always()", self.workflow)
-        for suffix in [
-            "base.log",
-            "base-status.json",
-            "implementation.log",
-            "implementation-status.json",
-            "report.json",
-        ]:
-            self.assertIn(f"ci-focused-{suffix}", self.workflow)
-
-    def test_ci_runs_current_head_ci_focused_storage_gate_separately(self):
-        current_head_filter = (
-            "'ProjectStorageScannerLargeTreeTests|ProjectStorageScannerTests|"
-            "ProjectStorageCleanupPreparationLargeTreeTests|"
-            "ProjectStorageCleanupProvenanceTests|"
-            "ProjectStoragePublishedCleanupOutcomeReaderTests|"
-            "ProjectStorageAutomaticCleanupServiceTests|"
-            "ProjectStoragePerformanceTests|ProjectTempCleanupTests'"
-        )
-        self.assertIn(
-            "- name: Test current HEAD project-storage implementation",
-            self.workflow,
-        )
-        self.assertIn(
-            'task9_current_head_sha="$(git rev-parse HEAD)"',
-            self.workflow,
-        )
-        self.assertIn(
-            'test "$(git rev-parse HEAD)" = "$task9_current_head_sha"',
-            self.workflow,
-        )
-        self.assertIn("swift test --no-parallel --filter", self.workflow)
-        self.assertIn(current_head_filter, self.workflow)
-        self.assertLess(
-            self.workflow.index("- name: Compare deterministic project-storage skips"),
-            self.workflow.index(
-                "- name: Test current HEAD project-storage implementation"
-            ),
         )
 
     def test_runner_preflight_failure_still_writes_all_artifacts(self):

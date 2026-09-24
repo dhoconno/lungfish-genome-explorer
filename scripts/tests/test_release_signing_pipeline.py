@@ -176,6 +176,29 @@ class SigningPipelineTests(unittest.TestCase):
         self.assertEqual(self.calls, before)
         self.assertEqual(json.loads((self.tx / 'transaction.json').read_text())['status'], 'Blocked')
 
+    def test_sparkle_nested_code_is_signed_inside_out_before_outer_app(self):
+        sparkle = self.source / 'Contents/Frameworks/Sparkle.framework/Versions/B'
+        for relative in ('Updater.app', 'XPCServices/Downloader.xpc', 'XPCServices/Installer.xpc'):
+            (sparkle / relative).mkdir(parents=True)
+        (sparkle / 'Autoupdate').write_bytes(b'fake autoupdate')
+        (sparkle / 'Sparkle').write_bytes(b'fake sparkle')
+        self.pipeline(lambda *a, **kw: {'status': 'In Progress'})
+        signed = [Path(c[-1]) for c in self.calls if Path(c[0]).name == 'codesign' and '--sign' in c]
+        names = [str(p) for p in signed]
+        def position(suffix):
+            matches = [i for i, name in enumerate(names) if name.endswith(suffix)]
+            self.assertEqual(len(matches), 1, suffix)
+            return matches[0]
+        framework = position('Contents/Frameworks/Sparkle.framework')
+        outer = [i for i, name in enumerate(names) if name.endswith('.app') and 'Sparkle.framework' not in name]
+        self.assertEqual(len(outer), 1, names)
+        outer = outer[0]
+        for nested in ('Versions/B/Updater.app', 'Versions/B/XPCServices/Downloader.xpc',
+                       'Versions/B/XPCServices/Installer.xpc', 'Versions/B/Autoupdate', 'Versions/B/Sparkle'):
+            with self.subTest(nested=nested):
+                self.assertLess(position(nested), framework)
+        self.assertLess(framework, outer)
+
     def test_actual_signed_app_team_must_match_selected_profile(self):
         original = self.run_tool
         def wrong_team(argv, **kwargs):
