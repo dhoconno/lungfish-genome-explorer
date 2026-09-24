@@ -13,6 +13,33 @@ public struct ReferenceBundleManualAnnotationResult: Sendable, Equatable {
     public let featureCount: Int
 }
 
+/// Identifies a single annotation row stored in a reference bundle's SQLite
+/// annotation database, resolved from the qualifiers `AnnotationDatabaseRecord.toAnnotation()`
+/// and `SequenceViewerView+Rendering.fetchAnnotationsAsync` stamp onto every
+/// bundle-backed `SequenceAnnotation` (`annotation_db_track_id`, `annotation_db_row_id`).
+public struct ReferenceBundleAnnotationRowLocation: Sendable, Equatable {
+    public let trackID: String
+    public let rowID: Int64
+
+    public init(trackID: String, rowID: Int64) {
+        self.trackID = trackID
+        self.rowID = rowID
+    }
+
+    /// Resolves a row location from an annotation's qualifiers, or `nil` when the
+    /// annotation did not come from a bundle's SQLite-backed annotation track (for
+    /// example, a document-mode annotation, or one still being drafted in memory).
+    public init?(annotation: SequenceAnnotation) {
+        guard let trackID = annotation.qualifier("annotation_db_track_id"),
+              let rowIDString = annotation.qualifier("annotation_db_row_id"),
+              let rowID = Int64(rowIDString) else {
+            return nil
+        }
+        self.trackID = trackID
+        self.rowID = rowID
+    }
+}
+
 public final class ReferenceBundleManualAnnotationService {
     private let trackID = "manual_annotations"
     private let trackName = "Manual Annotations"
@@ -86,6 +113,97 @@ public final class ReferenceBundleManualAnnotationService {
             track: updatedTrack,
             featureCount: featureCount
         )
+    }
+
+    /// Persists a rename/retype/note edit to a single annotation row already stored in a
+    /// reference bundle's SQLite annotation database (FEA-03/UX-01). Coordinates and gene
+    /// name are left untouched -- the Inspector and viewer editors only expose name, type,
+    /// strand and note.
+    public func updateAnnotation(
+        _ location: ReferenceBundleAnnotationRowLocation,
+        name: String,
+        type: String,
+        strand: String,
+        note: String?,
+        bundleURL: URL
+    ) async throws -> SequenceAnnotationTrackWorkflow.UpdateAnnotationResult {
+        let standardizedBundleURL = bundleURL.standardizedFileURL
+        let command = [
+            "Lungfish.app",
+            "manual-annotation-update",
+            "--bundle", standardizedBundleURL.path,
+            "--track-id", location.trackID,
+            "--row-id", String(location.rowID),
+            "--name", name,
+            "--type", type,
+            "--strand", strand,
+        ]
+        let request = SequenceAnnotationTrackWorkflow.UpdateAnnotationRequest(
+            bundleURL: standardizedBundleURL,
+            trackID: location.trackID,
+            rowID: location.rowID,
+            name: name,
+            type: type,
+            strand: strand,
+            note: note,
+            command: command,
+            explicitOptions: [
+                "operation": .string("update-annotation"),
+                "track_id": .string(location.trackID),
+                "row_id": .integer(Int(location.rowID)),
+            ],
+            defaultOptions: [:],
+            resolvedOptions: [
+                "operation": .string("update-annotation"),
+                "bundle": .file(standardizedBundleURL),
+                "track_id": .string(location.trackID),
+                "row_id": .integer(Int(location.rowID)),
+                "name": .string(name),
+                "type": .string(type),
+                "strand": .string(strand),
+            ],
+            toolVersion: appVersionString()
+        )
+        return try await SequenceAnnotationTrackWorkflow.updateAnnotation(request)
+    }
+
+    /// Persists deletion of one or more annotation rows from a reference bundle's SQLite
+    /// annotation database (FEA-03/UX-01). Mirrors the annotation drawer's persistent
+    /// delete path (`ViewerViewController+AnnotationDrawer.runAnnotationRowDeletion`), so
+    /// the viewer context-menu and Inspector delete entry points behave the same as the
+    /// drawer's.
+    public func deleteAnnotation(
+        _ location: ReferenceBundleAnnotationRowLocation,
+        bundleURL: URL
+    ) async throws -> SequenceAnnotationTrackWorkflow.DeleteAnnotationsResult {
+        let standardizedBundleURL = bundleURL.standardizedFileURL
+        let command = [
+            "Lungfish.app",
+            "manual-annotation-delete",
+            "--bundle", standardizedBundleURL.path,
+            "--track-id", location.trackID,
+            "--row-id", String(location.rowID),
+        ]
+        let request = SequenceAnnotationTrackWorkflow.DeleteAnnotationsRequest(
+            bundleURL: standardizedBundleURL,
+            trackID: location.trackID,
+            rowIDs: [location.rowID],
+            command: command,
+            explicitOptions: [
+                "operation": .string("delete-annotations"),
+                "track_id": .string(location.trackID),
+                "row_ids": .array([.integer(Int(location.rowID))]),
+            ],
+            defaultOptions: [:],
+            resolvedOptions: [
+                "operation": .string("delete-annotations"),
+                "bundle": .file(standardizedBundleURL),
+                "track_id": .string(location.trackID),
+                "row_ids": .array([.integer(Int(location.rowID))]),
+            ],
+            toolVersion: appVersionString()
+        )
+        return try await SequenceAnnotationTrackWorkflow.deleteAnnotations(request)
     }
 
     private func createManualTrackDatabase(

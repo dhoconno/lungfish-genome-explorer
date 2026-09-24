@@ -1251,6 +1251,26 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
 
     // MARK: - Private Methods
 
+    /// Registers only the annotation update/delete observers, without the rest of
+    /// `registerNotifications()`'s window and AI-registry side effects. Exists so tests can
+    /// exercise the real `handleAnnotationUpdated`/`handleAnnotationDeleted` selectors
+    /// (which are private, so `#selector` cannot name them from outside this file) without
+    /// driving the full `applicationDidFinishLaunching` lifecycle.
+    internal func registerAnnotationNotificationObserversForTesting() {
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleAnnotationUpdated(_:)),
+            name: .annotationUpdated,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleAnnotationDeleted(_:)),
+            name: .annotationDeleted,
+            object: nil
+        )
+    }
+
     private func registerNotifications() {
         // Register for relevant system notifications
         NotificationCenter.default.addObserver(
@@ -1326,7 +1346,12 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
 
     }
 
-    /// Handles annotation updates from the inspector.
+    /// Handles annotation updates from the viewer context menu and the Inspector.
+    ///
+    /// For a loose document, the edit is applied in-memory (the document is what gets
+    /// saved). For a reference bundle -- where `currentDocument` is `nil` -- the edit
+    /// must be written to the bundle's SQLite annotation database directly, or it is
+    /// lost on the next redraw/reload (FEA-03/UX-01).
     @objc private func handleAnnotationUpdated(_ notification: Notification) {
         guard let annotation = notification.userInfo?[NotificationUserInfoKey.annotation] as? SequenceAnnotation else {
             return
@@ -1334,31 +1359,192 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
 
         let viewerController = viewerController(for: notification)
 
-        // Update in-memory document annotations if available
         if let document = viewerController?.currentDocument,
            let index = document.annotations.firstIndex(where: { $0.id == annotation.id }) {
             document.annotations[index] = annotation
+            // Update the viewer (handles both document and bundle mode)
+            viewerController?.viewerView.updateAnnotation(annotation)
+            return
         }
 
-        // Update the viewer (handles both document and bundle mode)
-        viewerController?.viewerView.updateAnnotation(annotation)
+        guard let viewerController,
+              let bundleURL = currentReferenceBundleURL(for: viewerController),
+              let location = ReferenceBundleAnnotationRowLocation(annotation: annotation) else {
+            // Not a bundle-backed row (e.g. a still-in-flight draft): fall back to the
+            // previous in-memory-only behaviour so the viewer at least reflects the edit
+            // for the remainder of the session.
+            viewerController?.viewerView.updateAnnotation(annotation)
+            return
+        }
+
+        Task { @MainActor [weak self] in
+            await self?.persistReferenceBundleAnnotationUpdate(
+                annotation,
+                location: location,
+                bundleURL: bundleURL,
+                viewerController: viewerController,
+                routeContext: self?.routeContext(for: notification)
+            )
+        }
     }
 
-    /// Handles annotation deletions from the inspector.
+    /// Handles annotation deletions from the viewer context menu and the Inspector.
+    ///
+    /// Mirrors `handleAnnotationUpdated`: a loose document's deletion is in-memory only,
+    /// but a reference bundle's annotation must be deleted from its SQLite annotation
+    /// database through the same persistent path the annotation drawer already uses
+    /// (`ReferenceBundleManualAnnotationService.deleteAnnotation`), or the confirmation's
+    /// "cannot be undone" is a lie and the annotation reappears on the next redraw
+    /// (FEA-03/UX-01).
     @objc private func handleAnnotationDeleted(_ notification: Notification) {
         guard let annotation = notification.userInfo?[NotificationUserInfoKey.annotation] as? SequenceAnnotation else {
             return
         }
 
-        // Remove the annotation from the current document
         let viewerController = viewerController(for: notification)
-        guard let document = viewerController?.currentDocument else { return }
 
-        // Remove the annotation
-        document.annotations.removeAll { $0.id == annotation.id }
-        // Refresh the viewer
-        viewerController?.viewerView.setAnnotations(document.annotations)
-        viewerController?.viewerView.needsDisplay = true
+        if let document = viewerController?.currentDocument {
+            document.annotations.removeAll { $0.id == annotation.id }
+            viewerController?.viewerView.setAnnotations(document.annotations)
+            viewerController?.viewerView.needsDisplay = true
+            return
+        }
+
+        guard let viewerController,
+              let bundleURL = currentReferenceBundleURL(for: viewerController),
+              let location = ReferenceBundleAnnotationRowLocation(annotation: annotation) else {
+            return
+        }
+
+        Task { @MainActor [weak self] in
+            await self?.persistReferenceBundleAnnotationDeletion(
+                location: location,
+                bundleURL: bundleURL,
+                viewerController: viewerController,
+                routeContext: self?.routeContext(for: notification)
+            )
+        }
+    }
+
+    private func routeContext(for notification: Notification) -> OperationRouteContext? {
+        if let scope = notification.userInfo?[NotificationUserInfoKey.windowStateScope] as? WindowStateScope {
+            return currentOperationRouteContext(for: controller(forWindowStateScopeID: scope.id))
+        }
+        return currentOperationRouteContext()
+    }
+
+    /// Resolves the on-disk `.lungfishref` bundle a viewer is currently displaying,
+    /// regardless of which of the two bundle display routes is active
+    /// (`ViewerDisplayRouteFactory.referenceBundleDisplayRoute`): `.browse` mode routes
+    /// through `referenceBundleViewportController` and never sets `currentBundleURL`, while
+    /// `.sequence` mode sets `currentBundleURL`/`currentReferenceBundle` directly. Every
+    /// production `displayBundle(at:)` call site other than tests uses `.browse`, so the
+    /// viewport fallback is the common case, not a corner case.
+    private func currentReferenceBundleURL(for viewerController: ViewerViewController) -> URL? {
+        viewerController.currentReferenceBundle?.url
+            ?? viewerController.currentBundleURL
+            ?? viewerController.referenceBundleViewportController?.currentInput?.renderedBundleURL
+    }
+
+    /// Persists an Inspector or viewer-menu annotation edit to a reference bundle's
+    /// SQLite annotation database, then reloads the bundle so the viewer, Inspector and
+    /// annotation drawer all see the committed row (not just the in-memory copy).
+    private func persistReferenceBundleAnnotationUpdate(
+        _ annotation: SequenceAnnotation,
+        location: ReferenceBundleAnnotationRowLocation,
+        bundleURL: URL,
+        viewerController: ViewerViewController,
+        routeContext: OperationRouteContext?
+    ) async {
+        let opID: UUID
+        switch OperationCenter.shared.begin(
+            title: "Update Annotation",
+            detail: "Updating \(annotation.name)...",
+            operationType: .bundleBuild,
+            targetBundleURL: bundleURL,
+            routeContext: routeContext
+        ) {
+        case .started(let id):
+            opID = id
+        case .refused:
+            showAlert(
+                title: "Bundle Busy",
+                message: "Another operation is already modifying this reference bundle. Wait for it to finish before editing annotations.",
+                presentingWindow: viewerController.view.window
+            )
+            return
+        }
+        do {
+            _ = try await ReferenceBundleManualAnnotationService().updateAnnotation(
+                location,
+                name: annotation.name,
+                type: annotation.type.rawValue,
+                strand: annotation.strand.rawValue,
+                note: annotation.note,
+                bundleURL: bundleURL
+            )
+            guard OperationCenter.shared.complete(id: opID, detail: "Updated \(annotation.name)") else { return }
+            try reloadReferenceBundleAfterAnnotationEdit(bundleURL: bundleURL, viewerController: viewerController)
+        } catch {
+            guard OperationCenter.shared.fail(id: opID, detail: error.localizedDescription) else { return }
+            showAlert(
+                title: "Update Annotation Failed",
+                message: error.localizedDescription,
+                presentingWindow: viewerController.view.window
+            )
+        }
+    }
+
+    /// Persists an Inspector or viewer-menu annotation delete to a reference bundle's
+    /// SQLite annotation database. See `persistReferenceBundleAnnotationUpdate`.
+    private func persistReferenceBundleAnnotationDeletion(
+        location: ReferenceBundleAnnotationRowLocation,
+        bundleURL: URL,
+        viewerController: ViewerViewController,
+        routeContext: OperationRouteContext?
+    ) async {
+        let opID: UUID
+        switch OperationCenter.shared.begin(
+            title: "Delete Annotation",
+            detail: "Deleting annotation...",
+            operationType: .bundleBuild,
+            targetBundleURL: bundleURL,
+            routeContext: routeContext
+        ) {
+        case .started(let id):
+            opID = id
+        case .refused:
+            showAlert(
+                title: "Bundle Busy",
+                message: "Another operation is already modifying this reference bundle. Wait for it to finish before deleting annotations.",
+                presentingWindow: viewerController.view.window
+            )
+            return
+        }
+        do {
+            _ = try await ReferenceBundleManualAnnotationService().deleteAnnotation(location, bundleURL: bundleURL)
+            guard OperationCenter.shared.complete(id: opID, detail: "Deleted annotation") else { return }
+            try reloadReferenceBundleAfterAnnotationEdit(bundleURL: bundleURL, viewerController: viewerController)
+        } catch {
+            guard OperationCenter.shared.fail(id: opID, detail: error.localizedDescription) else { return }
+            showAlert(
+                title: "Delete Annotation Failed",
+                message: error.localizedDescription,
+                presentingWindow: viewerController.view.window
+            )
+        }
+    }
+
+    private func reloadReferenceBundleAfterAnnotationEdit(
+        bundleURL: URL,
+        viewerController: ViewerViewController
+    ) throws {
+        if let referenceViewport = viewerController.referenceBundleViewportController,
+           referenceViewport.currentInput?.renderedBundleURL?.standardizedFileURL == bundleURL.standardizedFileURL {
+            try referenceViewport.reloadViewerBundleForInspectorChanges()
+        } else {
+            try viewerController.reloadReferenceBundleAfterAnnotationTrackMutation(bundleURL: bundleURL)
+        }
     }
 
     /// Handles applying a color to all annotations of a specific type.

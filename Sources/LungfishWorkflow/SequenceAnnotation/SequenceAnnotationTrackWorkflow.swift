@@ -175,6 +175,57 @@ public enum SequenceAnnotationTrackWorkflow {
         public let provenanceURL: URL
     }
 
+    public struct UpdateAnnotationRequest: Sendable {
+        public let bundleURL: URL
+        public let trackID: String
+        public let rowID: Int64
+        public let name: String
+        public let type: String
+        public let strand: String
+        public let note: String?
+        public let command: [String]
+        public let explicitOptions: [String: ParameterValue]
+        public let defaultOptions: [String: ParameterValue]
+        public let resolvedOptions: [String: ParameterValue]
+        public let toolVersion: String
+
+        public init(
+            bundleURL: URL,
+            trackID: String,
+            rowID: Int64,
+            name: String,
+            type: String,
+            strand: String,
+            note: String?,
+            command: [String],
+            explicitOptions: [String: ParameterValue],
+            defaultOptions: [String: ParameterValue],
+            resolvedOptions: [String: ParameterValue],
+            toolVersion: String
+        ) {
+            self.bundleURL = bundleURL
+            self.trackID = trackID
+            self.rowID = rowID
+            self.name = name
+            self.type = type
+            self.strand = strand
+            self.note = note
+            self.command = command
+            self.explicitOptions = explicitOptions
+            self.defaultOptions = defaultOptions
+            self.resolvedOptions = resolvedOptions
+            self.toolVersion = toolVersion
+        }
+    }
+
+    public struct UpdateAnnotationResult: Sendable {
+        public let trackID: String
+        public let trackName: String
+        public let rowID: Int64
+        public let manifestURL: URL
+        public let provenanceURL: URL
+    }
+
     private struct BEDFeature {
         let chromosome: String
         let start: Int
@@ -559,6 +610,156 @@ public enum SequenceAnnotationTrackWorkflow {
                 backupRootSafeToDelete = true
             }
         }
+    }
+
+    public static func updateAnnotation(_ request: UpdateAnnotationRequest) async throws -> UpdateAnnotationResult {
+        let startedAt = Date()
+        let trackID = try validatedTrackID(request.trackID)
+
+        let manifest = try BundleManifest.load(from: request.bundleURL)
+        guard let track = manifest.annotations.first(where: { $0.id == trackID }) else {
+            throw SequenceAnnotationWorkflowError.trackNotFound(trackID)
+        }
+        guard track.databasePath != nil else {
+            throw SequenceAnnotationWorkflowError.missingAnnotationDatabase(trackID)
+        }
+
+        let payloadURLs = try validatedTrackPayloadURLs(track: track, bundleURL: request.bundleURL)
+        guard let databaseURL = payloadURLs.databaseURL else {
+            throw SequenceAnnotationWorkflowError.missingAnnotationDatabase(trackID)
+        }
+
+        let database = try AnnotationDatabase(url: databaseURL, readWrite: true)
+        let existingRecords = database.queryForTable(limit: Int.max)
+        guard let existing = existingRecords.first(where: { $0.rowID == request.rowID }) else {
+            throw SequenceAnnotationWorkflowError.annotationRowNotFound(request.rowID)
+        }
+
+        let trackPayloadURLs = uniqueURLs([databaseURL])
+        let payloadsToBackup = uniqueURLs(trackPayloadURLs + provenanceSidecars(for: trackPayloadURLs, bundleURL: request.bundleURL))
+            .filter { FileManager.default.fileExists(atPath: $0.path) }
+        let backupRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("lungfish-update-annotation-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: backupRoot, withIntermediateDirectories: true)
+        var backupRootSafeToDelete = true
+        defer { if backupRootSafeToDelete { try? FileManager.default.removeItem(at: backupRoot) } }
+        let payloadBackups = try backupFiles(payloadsToBackup, backupRoot: backupRoot)
+        let provenanceSnapshot = try ProvenanceSnapshot.capture(bundleURL: request.bundleURL, backupRoot: backupRoot)
+        let inputDescriptors = try provenanceInputDescriptors(for: uniqueURLs([databaseURL]))
+
+        do {
+            let updatedAttributes = encodedAttributes(
+                from: existing.attributes,
+                note: request.note
+            )
+            let updated = try database.updateAnnotation(
+                rowID: request.rowID,
+                name: request.name,
+                type: request.type,
+                chromosome: existing.chromosome,
+                start: existing.start,
+                end: existing.end,
+                strand: request.strand,
+                attributes: updatedAttributes,
+                geneName: existing.geneName
+            )
+            guard updated else {
+                throw SequenceAnnotationWorkflowError.annotationRowNotFound(request.rowID)
+            }
+            let completedAt = Date()
+            let provenanceURL = try writeUpdateAnnotationProvenance(
+                request: request,
+                track: track,
+                inputs: inputDescriptors,
+                outputs: [databaseURL],
+                startedAt: startedAt,
+                completedAt: completedAt
+            )
+            return UpdateAnnotationResult(
+                trackID: trackID,
+                trackName: track.name,
+                rowID: request.rowID,
+                manifestURL: request.bundleURL.appendingPathComponent(BundleManifest.filename),
+                provenanceURL: provenanceURL
+            )
+        } catch {
+            backupRootSafeToDelete = false
+            try throwAfterProvenancePublicationFailure(error) {
+                try restoreFiles(payloadBackups)
+                try provenanceSnapshot.restore()
+                backupRootSafeToDelete = true
+            }
+        }
+    }
+
+    /// Rebuilds a GFF3-style attributes string, replacing any existing `Note=` pair with
+    /// `request.note` (or removing it when `nil`) while preserving every other key.
+    private static func encodedAttributes(from existing: String?, note: String?) -> String? {
+        var pairs: [(String, String)] = []
+        if let existing {
+            for pair in existing.split(separator: ";") {
+                let kv = pair.split(separator: "=", maxSplits: 1)
+                guard kv.count == 2 else { continue }
+                let key = String(kv[0])
+                guard key != "Note" else { continue }
+                pairs.append((key, String(kv[1])))
+            }
+        }
+        if let note, !note.isEmpty {
+            pairs.append(("Note", encodeAttributeValue(note)))
+        }
+        guard !pairs.isEmpty else { return nil }
+        return pairs.map { "\($0.0)=\($0.1)" }.joined(separator: ";")
+    }
+
+    private static func writeUpdateAnnotationProvenance(
+        request: UpdateAnnotationRequest,
+        track: AnnotationTrackInfo,
+        inputs: [ProvenanceFileDescriptor],
+        outputs: [URL],
+        startedAt: Date,
+        completedAt: Date
+    ) throws -> URL {
+        let outputDescriptors = try outputs.map {
+            try ProvenanceFileDescriptor.file(url: $0, format: provenanceFormat(for: $0), role: .output)
+        }
+        var resolved = request.resolvedOptions
+        resolved["track_id"] = .string(track.id)
+        resolved["track_name"] = .string(track.name)
+        resolved["row_id"] = .integer(Int(request.rowID))
+        resolved["name"] = .string(request.name)
+        resolved["type"] = .string(request.type)
+        resolved["strand"] = .string(request.strand)
+
+        let step = ProvenanceStep(
+            toolName: "lungfish sequence update-annotation",
+            toolVersion: request.toolVersion,
+            argv: request.command,
+            inputs: inputs,
+            outputs: outputDescriptors,
+            exitStatus: 0,
+            wallTimeSeconds: completedAt.timeIntervalSince(startedAt),
+            stderr: nil,
+            startedAt: startedAt,
+            completedAt: completedAt
+        )
+        let envelope = try ProvenanceRunBuilder(
+            workflowName: "lungfish sequence update-annotation",
+            workflowVersion: WorkflowRun.currentAppVersion,
+            toolName: "lungfish sequence update-annotation",
+            toolVersion: request.toolVersion
+        )
+        .argv(request.command)
+        .options(
+            explicit: request.explicitOptions,
+            defaults: request.defaultOptions,
+            resolved: resolved
+        )
+        .runtime(ProvenanceRuntimeIdentity())
+        .step(step)
+        .complete(exitStatus: 0, stderr: nil, startedAt: startedAt, endedAt: completedAt)
+
+        return try ProvenanceWriter(signingProvider: nil).write(envelope, to: request.bundleURL)
     }
 
     private static func resolvedChromosome(
@@ -1054,6 +1255,7 @@ public enum SequenceAnnotationWorkflowError: Error, LocalizedError, Sendable, Eq
     case missingAnnotationDatabase(String)
     case noAnnotationRowsRequested
     case annotationRowsNotFound([Int64])
+    case annotationRowNotFound(Int64)
 
     public var errorDescription: String? {
         switch self {
@@ -1083,6 +1285,8 @@ public enum SequenceAnnotationWorkflowError: Error, LocalizedError, Sendable, Eq
             return "At least one annotation row ID must be provided."
         case .annotationRowsNotFound(let rowIDs):
             return "Annotation row ID(s) not found: \(rowIDs.map(String.init).joined(separator: ", "))"
+        case .annotationRowNotFound(let rowID):
+            return "Annotation row ID not found: \(rowID)"
         }
     }
 }

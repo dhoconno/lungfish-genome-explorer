@@ -1008,11 +1008,11 @@ extension ViewerViewController: EnhancedCoordinateRulerDelegate {
     }
 
     public func rulerDidRequestZoomReset(_ ruler: EnhancedCoordinateRulerView) {
-        // Reset to 100% zoom (show ~10,000 bp window centered on current view)
+        // Reset to 100% zoom (show the user's default zoom window, AppSettings.defaultZoomWindow, centered on current view)
         guard let frame = referenceFrame else { return }
 
         let center = (frame.start + frame.end) / 2
-        let defaultWindow: Double = 10000
+        let defaultWindow = Double(AppSettings.shared.defaultZoomWindow)
 
         var newStart = center - defaultWindow / 2
         var newEnd = center + defaultWindow / 2
@@ -1086,7 +1086,7 @@ extension ViewerViewController: EnhancedCoordinateRulerDelegate {
         if let chrom = chromosome,
            let provider = currentBundleDataProvider,
            let chromInfo = provider.chromosomeInfo(named: chrom) {
-            let end = zeroBasedEnd ?? min(zeroBasedStart + 10000, Int(chromInfo.length))
+            let end = zeroBasedEnd ?? min(zeroBasedStart + AppSettings.shared.defaultZoomWindow, Int(chromInfo.length))
             navigateToChromosomeAndPosition(
                 chromosome: chrom,
                 chromosomeLength: Int(chromInfo.length),

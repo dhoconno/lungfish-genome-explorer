@@ -16,7 +16,8 @@ struct SequenceCommand: AsyncParsableCommand {
         subcommands: [
             AnnotateORFs.self,
             DeleteAnnotations.self,
-            DeleteAnnotationTrack.self
+            DeleteAnnotationTrack.self,
+            UpdateAnnotation.self
         ]
     )
 
@@ -253,6 +254,87 @@ struct SequenceCommand: AsyncParsableCommand {
         }
     }
 
+    struct UpdateAnnotation: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(
+            commandName: "update-annotation",
+            abstract: "Update an annotation row's name, type, strand and note in a reference bundle annotation track"
+        )
+
+        @Argument(help: "Reference bundle to update")
+        var bundle: String
+
+        @Option(name: .customLong("track-id"), help: "Annotation track ID containing the row.")
+        var trackID: String
+
+        @Option(name: .customLong("row-id"), help: "Annotation database row ID to update.")
+        var rowID: Int64
+
+        @Option(help: "New feature name.")
+        var name: String
+
+        @Option(help: "New feature type (GenBank/GFF3-style, e.g. gene, CDS).")
+        var type: String
+
+        @Option(help: "New strand: +, -, or . for unknown.")
+        var strand: String = "."
+
+        @Option(help: "New note/description. Omit to clear.")
+        var note: String?
+
+        @OptionGroup var globalOptions: GlobalOptions
+
+        func run() async throws {
+            let bundleURL = URL(fileURLWithPath: bundle, isDirectory: true).standardizedFileURL
+            let manifest = try BundleManifest.load(from: bundleURL)
+            let trackName = manifest.annotations.first { $0.id == trackID }?.name ?? trackID
+            let command = updateAnnotationCommandArguments(
+                bundle: bundle,
+                trackID: trackID,
+                rowID: rowID,
+                name: name,
+                type: type,
+                strand: strand,
+                note: note,
+                quiet: globalOptions.quiet
+            )
+            let request = SequenceAnnotationTrackWorkflow.UpdateAnnotationRequest(
+                bundleURL: bundleURL,
+                trackID: trackID,
+                rowID: rowID,
+                name: name,
+                type: type,
+                strand: strand,
+                note: note,
+                command: command,
+                explicitOptions: [
+                    "operation": .string("update-annotation"),
+                    "track_id": .string(trackID),
+                    "row_id": .integer(Int(rowID)),
+                    "name": .string(name),
+                    "type": .string(type),
+                    "strand": .string(strand),
+                ],
+                defaultOptions: [:],
+                resolvedOptions: [
+                    "operation": .string("update-annotation"),
+                    "bundle": .file(bundleURL),
+                    "track_id": .string(trackID),
+                    "track_name": .string(trackName),
+                    "row_id": .integer(Int(rowID)),
+                    "name": .string(name),
+                    "type": .string(type),
+                    "strand": .string(strand),
+                ],
+                toolVersion: cliVersion
+            )
+
+            let result = try await SequenceAnnotationTrackWorkflow.updateAnnotation(request)
+            if !globalOptions.quiet {
+                print("Updated annotation row \(result.rowID) in \(result.trackID).")
+            }
+        }
+    }
+
 }
 
 private let cliVersion = LungfishAppVersion.short
@@ -359,6 +441,45 @@ private func deleteAnnotationsCommandArguments(
     for rowID in rowIDs {
         arguments.append("--row-id")
         arguments.append(String(rowID))
+    }
+    if quiet {
+        arguments.append("--quiet")
+    }
+    return arguments
+}
+
+private func updateAnnotationCommandArguments(
+    bundle: String,
+    trackID: String,
+    rowID: Int64,
+    name: String,
+    type: String,
+    strand: String,
+    note: String?,
+    quiet: Bool
+) -> [String] {
+    if let observed = observedProcessSequenceCommandArguments(subcommand: "update-annotation") {
+        return observed
+    }
+    var arguments = [
+        CLICommandIdentity.executableName,
+        "sequence",
+        "update-annotation",
+        bundle,
+        "--track-id",
+        trackID,
+        "--row-id",
+        String(rowID),
+        "--name",
+        name,
+        "--type",
+        type,
+        "--strand",
+        strand,
+    ]
+    if let note {
+        arguments.append("--note")
+        arguments.append(note)
     }
     if quiet {
         arguments.append("--quiet")

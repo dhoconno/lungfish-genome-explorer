@@ -39,15 +39,6 @@ struct GeneralSettingsTab: View {
                 )
             }
 
-            Section("Editing") {
-                Stepper(
-                    "Max undo levels: \(settings.maxUndoLevels)",
-                    value: $settings.maxUndoLevels,
-                    in: 10...1_000,
-                    step: 10
-                )
-            }
-
             Section("Analyst Identity") {
                 TextField("Analyst identity:", text: $settings.analystIdentityOverride)
                     .textFieldStyle(.roundedBorder)
