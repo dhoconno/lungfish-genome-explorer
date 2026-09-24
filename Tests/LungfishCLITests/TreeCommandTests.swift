@@ -167,6 +167,97 @@ final class TreeCommandTests: XCTestCase {
         XCTAssertTrue(recorder.joined().contains("simulated IQ-TREE failure"))
     }
 
+    // REC-02 remainder: `--force` must not delete the existing output tree
+    // before inference starts. Build into staging and only atomically
+    // replace the existing bundle once IQ-TREE succeeds. On failure the
+    // previous tree must remain exactly as it was.
+    func testInferIQTreeForceFailurePreservesExistingOutputBundle() async throws {
+        let tempDir = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+            .appendingPathComponent(".build/test-artifacts/TreeCommandForceFailureTests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        let projectURL = tempDir.appendingPathComponent("Project.lungfish", isDirectory: true)
+        try FileManager.default.createDirectory(at: projectURL, withIntermediateDirectories: true)
+
+        let msaSourceURL = tempDir.appendingPathComponent("input.aligned.fasta")
+        try """
+        >A
+        ACGT
+        >B
+        ACGA
+
+        """.write(to: msaSourceURL, atomically: true, encoding: .utf8)
+        let msaBundleURL = projectURL.appendingPathComponent("Input.lungfishmsa", isDirectory: true)
+        _ = try MultipleSequenceAlignmentBundle.importAlignment(
+            from: msaSourceURL,
+            to: msaBundleURL,
+            options: .init(name: "Input")
+        )
+
+        let outputURL = projectURL.appendingPathComponent("Phylogenetic Trees/Existing Tree.lungfishtree", isDirectory: true)
+
+        // First, successfully create an existing output bundle to protect.
+        let workingIQTreeURL = try writeFakeIQTreeExecutable(in: tempDir)
+        let firstCommand = try TreeCommand.InferIQTreeSubcommand.parse([
+            msaBundleURL.path,
+            "--project", projectURL.path,
+            "--output", outputURL.path,
+            "--name", "Existing Tree",
+            "--iqtree-path", workingIQTreeURL.path,
+            "--format", "json",
+        ])
+        try await firstCommand.executeForTesting { _ in }
+        XCTAssertTrue(FileManager.default.fileExists(atPath: outputURL.path))
+        let existingProvenance = try String(
+            contentsOf: outputURL.appendingPathComponent(".lungfish-provenance.json"),
+            encoding: .utf8
+        )
+        let existingTreefile = try String(
+            contentsOf: outputURL.appendingPathComponent("tree/primary.nwk"),
+            encoding: .utf8
+        )
+
+        // Now re-run with --force against a failing iqtree. The previous
+        // bundle must survive completely untouched.
+        let failingIQTreeURL = try writeFailingIQTreeExecutable(in: tempDir)
+        let secondCommand = try TreeCommand.InferIQTreeSubcommand.parse([
+            msaBundleURL.path,
+            "--project", projectURL.path,
+            "--output", outputURL.path,
+            "--name", "Existing Tree",
+            "--iqtree-path", failingIQTreeURL.path,
+            "--force",
+            "--format", "json",
+        ])
+        let recorder = TreeLineRecorder()
+        do {
+            try await secondCommand.executeForTesting { recorder.append($0) }
+            XCTFail("Expected IQ-TREE failure")
+        } catch {
+            XCTAssertTrue(error.localizedDescription.contains("simulated IQ-TREE failure"), error.localizedDescription)
+        }
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: outputURL.path), "Existing output bundle must survive a failed --force run")
+        let provenanceAfterFailure = try String(
+            contentsOf: outputURL.appendingPathComponent(".lungfish-provenance.json"),
+            encoding: .utf8
+        )
+        XCTAssertEqual(provenanceAfterFailure, existingProvenance)
+        let treefileAfterFailure = try String(
+            contentsOf: outputURL.appendingPathComponent("tree/primary.nwk"),
+            encoding: .utf8
+        )
+        XCTAssertEqual(treefileAfterFailure, existingTreefile)
+
+        if FileManager.default.fileExists(atPath: projectURL.appendingPathComponent(".tmp").path) {
+            let remainingStagingDirs = try FileManager.default.contentsOfDirectory(
+                at: projectURL.appendingPathComponent(".tmp"),
+                includingPropertiesForKeys: nil
+            )
+            XCTAssertTrue(remainingStagingDirs.isEmpty, "This run's own staging directory must be cleaned up even on failure")
+        }
+    }
+
     func testInferIQTreeSupportsRowColumnSelectionAndRecordsFinalPayloadProvenance() async throws {
         let tempDir = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
             .appendingPathComponent(".build/test-artifacts/TreeCommandSelectionTests-\(UUID().uuidString)", isDirectory: true)
