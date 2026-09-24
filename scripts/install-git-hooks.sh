@@ -67,6 +67,12 @@ if ! python3 "$REPO_ROOT/scripts/ratchets/unchecked-operation-start.sh"; then
     exit 1
 fi
 
+echo "pre-push: checking the shared-slider-control ratchet (use --no-verify to skip)..."
+if ! python3 "$REPO_ROOT/scripts/ratchets/shared-slider-control.sh"; then
+    echo "pre-push: shared-slider-control ratchet FAILED — push aborted. Use NumericSliderField (LungfishKit) instead of a raw Slider, or use --no-verify." >&2
+    exit 1
+fi
+
 echo "pre-push: checking features.yaml menu entry points (use --no-verify to skip)..."
 if ! python3 "$REPO_ROOT/scripts/checks/features-yaml-entry-points.py"; then
     echo "pre-push: features.yaml entry-point check FAILED — push aborted. Fix docs/user-manual/features.yaml or MainMenu.swift, or use --no-verify." >&2
@@ -89,7 +95,7 @@ fi
 HOOK_EOF
 chmod +x "$PRE_PUSH_HOOK"
 echo "Installed pre-push hook at $PRE_PUSH_HOOK"
-echo "It runs the unchecked-operation-start ratchet, the features.yaml entry-point check, the embedded-Python compile check, then scripts/full-suite-gate.sh --tier unit, before each push (bypass with: git push --no-verify)."
+echo "It runs the unchecked-operation-start and shared-slider-control ratchets, the features.yaml entry-point check, the embedded-Python compile check, then scripts/full-suite-gate.sh --tier unit, before each push (bypass with: git push --no-verify)."
 
 cat > "$PRE_COMMIT_HOOK" << 'HOOK_EOF'
 #!/bin/bash
