@@ -774,7 +774,11 @@ extension MainSplitViewController {
         // For bundles, use the bundle path as the representative input.
         let displayInputPath = sourceBundleURLs.first?.path ?? sourceURL.path
         let displayOutputPath = "<derived>"
-        let cliCmd = request.cliCommand(inputPath: displayInputPath, outputPath: displayOutputPath)
+        let cliCmd = request.cliCommand(
+            inputPath: displayInputPath,
+            outputPath: displayOutputPath,
+            pairingMode: FASTQPairingModeResolver.bundlePairingMode(for: sourceBundleURLs.first ?? sourceURL)
+        )
 
         // Register with OperationCenter for visibility in the Operations panel
         let opTitle = "FASTQ: \(request.operationLabel)"

@@ -355,9 +355,14 @@ struct FASTQOperationExecutionService {
                 }
                 try fileManager.createDirectory(at: executionDirectory, withIntermediateDirectories: true)
 
+                // Pairing comes from the ORIGINAL input: a derived bundle is
+                // materialized to a scratch file that carries no metadata,
+                // and the CLI must not guess from read names.
                 let invocation = try invocationBuilder.buildInvocation(
                     for: executionPlan.resolvedRequest,
-                    outputTargetPath: executionPlan.outputTarget.path
+                    outputTargetPath: executionPlan.outputTarget.path,
+                    pairingMode: executionPlan.originalRequest.inputURLs.first
+                        .flatMap(FASTQPairingModeResolver.bundlePairingMode(for:))
                 )
                 invocations.append(invocation)
 

@@ -390,18 +390,25 @@ extension FASTQDerivativeRequest {
     /// - Parameters:
     ///   - inputPath: Path to the input FASTQ file.
     ///   - outputPath: Path to the output FASTQ file.
+    ///   - pairingMode: the pairing recorded by the input bundle, so the
+    ///     shown command carries the same `--pairing` the GUI run used.
     /// - Returns: A shell-quoted CLI command string.
-    func cliCommand(inputPath: String, outputPath: String) -> String {
+    func cliCommand(
+        inputPath: String,
+        outputPath: String,
+        pairingMode: IngestionMetadata.PairingMode? = nil
+    ) -> String {
+        let pairingArgs = FASTQOperationCLIInvocationBuilder.pairingArguments(for: pairingMode)
         switch self {
         case .subsampleProportion(let proportion):
             return buildLungfishCommand(subcommand: "fastq subsample", args: [
-                "--proportion", String(proportion), inputPath, "-o", outputPath,
-            ])
+                "--proportion", String(proportion),
+            ] + pairingArgs + [inputPath, "-o", outputPath])
 
         case .subsampleCount(let count):
             return buildLungfishCommand(subcommand: "fastq subsample", args: [
-                "--count", String(count), inputPath, "-o", outputPath,
-            ])
+                "--count", String(count),
+            ] + pairingArgs + [inputPath, "-o", outputPath])
 
         case .lengthFilter(let min, let max):
             var args: [String] = []
@@ -416,6 +423,7 @@ extension FASTQDerivativeRequest {
             // search-text` (FASTQOperationCLIInvocationBuilder.fastqArguments).
             var args = [inputPath, "--query", query, "--field", field.rawValue]
             if regex { args.append("--regex") }
+            args += pairingArgs
             args += ["-o", outputPath]
             return buildLungfishCommand(subcommand: "fastq search-text", args: args)
 
@@ -425,11 +433,12 @@ extension FASTQDerivativeRequest {
             // search-motif` (FASTQOperationCLIInvocationBuilder.fastqArguments).
             var args = [inputPath, "--pattern", pattern]
             if regex { args.append("--regex") }
+            args += pairingArgs
             args += ["-o", outputPath]
             return buildLungfishCommand(subcommand: "fastq search-motif", args: args)
 
         case .deduplicate(_, let substitutions, let optical, let opticalDistance):
-            var args = [inputPath, "--subs", String(substitutions), "-o", outputPath]
+            var args = [inputPath, "--subs", String(substitutions)] + pairingArgs + ["-o", outputPath]
             if optical {
                 args += ["--optical", "--dupedist", String(opticalDistance)]
             }
@@ -493,6 +502,7 @@ extension FASTQDerivativeRequest {
                 args += ["--mode", "custom"]
                 if let ref = referenceFasta { args += ["--ref", ref] }
             }
+            args += pairingArgs
             return buildLungfishCommand(subcommand: "fastq contaminant-filter", args: args)
 
         case .lowComplexityFilter(let entropy, let window, let kmer):
@@ -501,8 +511,7 @@ extension FASTQDerivativeRequest {
                 "--entropy", FASTQDerivativeRequest.entropyArgument(entropy),
                 "--window", String(window),
                 "--kmer", String(kmer),
-                "-o", outputPath,
-            ])
+            ] + pairingArgs + ["-o", outputPath])
 
         case .pairedEndMerge(let strictness, let minOverlap):
             var args = [inputPath, "-o", outputPath, "--min-overlap", String(minOverlap)]
@@ -597,8 +606,7 @@ extension FASTQDerivativeRequest {
                 inputPath,
                 "--database-id", DeaconRibokmersDatabaseInstaller.databaseID,
                 "--retain", retention.rawValue,
-                "-o", outputPath,
-            ])
+            ] + pairingArgs + ["-o", outputPath])
         }
     }
 }
