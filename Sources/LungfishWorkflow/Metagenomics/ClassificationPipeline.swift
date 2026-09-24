@@ -1700,7 +1700,25 @@ public actor ClassificationPipeline {
         logger.info("Detected bracken version: \(brackenVersion, privacy: .public)")
         try Task.checkCancellation()
 
+        // The conda launcher expands its paths unquoted, so Bracken runs in a
+        // whitespace-free scratch directory and the outputs move back after.
+        let staging = BrackenScratchStaging.plan(config: config, distributionURL: distributionURL)
+        defer { staging.cleanUp() }
         let brackenArgs = BrackenInvocation.arguments(
+            dialect: dialect,
+            databasePath: staging.stagedDatabasePath,
+            distributionURL: staging.stagedDistributionURL,
+            reportURL: staging.stagedReportURL,
+            outputURL: staging.stagedOutputURL,
+            reportOutputURL: staging.stagedReportOutputURL,
+            readLength: resolution.readLength,
+            levelCode: levelCode,
+            threshold: resolution.threshold
+        )
+        let brackenCommand = ["bracken"] + brackenArgs
+        // The same invocation against the modelled paths, for a reader who
+        // wants to replay the step outside the scratch directory.
+        let durableBrackenCommand = ["bracken"] + BrackenInvocation.arguments(
             dialect: dialect,
             databasePath: config.databasePath,
             distributionURL: distributionURL,
@@ -1711,7 +1729,6 @@ public actor ClassificationPipeline {
             levelCode: levelCode,
             threshold: resolution.threshold
         )
-        let brackenCommand = ["bracken"] + brackenArgs
         let brackenInputs = [
             ProvenanceRecorder.fileRecord(url: config.reportURL, format: .text, role: .input),
             ProvenanceRecorder.fileRecord(url: distributionURL, format: .unknown, role: .reference),
@@ -1721,6 +1738,8 @@ public actor ClassificationPipeline {
             distributionURL: distributionURL,
             dialect: dialect,
             effectiveArgv: brackenCommand,
+            durableArgv: durableBrackenCommand,
+            scratchDirectory: staging.scratchDirectory,
             substitutionNote: substitutionNote
         )
         let runtimeIdentity = managedRuntimeIdentity(
@@ -1761,6 +1780,37 @@ public actor ClassificationPipeline {
             }
         }
 
+        do {
+            try staging.prepare()
+        } catch {
+            let message = "Could not stage the Kraken report for Bracken: \(error.localizedDescription)"
+            let stepID = await provenanceRecorder.recordStep(
+                runID: runID,
+                toolName: "Lungfish Bracken Input Staging",
+                toolVersion: WorkflowRun.currentAppVersion,
+                command: ["LungfishWorkflow", "stage-bracken-inputs", staging.scratchDirectory.path],
+                resolvedOptions: resolvedOptions,
+                runtimeIdentity: ProvenanceRuntimeIdentity(),
+                inputs: brackenInputs,
+                outputs: [],
+                exitCode: 1,
+                wallTime: 0,
+                stderr: message,
+                dependsOn: dependsOn
+            )
+            return BrackenExecutionResult(
+                tree: tree,
+                outputURL: nil,
+                outcome: .degraded(
+                    resolution: resolution,
+                    reason: .toolFailed,
+                    message: message,
+                    toolVersion: brackenVersion
+                ),
+                terminalStepID: stepID
+            )
+        }
+
         logger.info("Running: bracken \(brackenArgs.joined(separator: " "), privacy: .public)")
         try Task.checkCancellation()
         let startedAt = Date()
@@ -1770,6 +1820,7 @@ public actor ClassificationPipeline {
                 name: "bracken",
                 arguments: brackenArgs,
                 environment: Self.brackenEnvironment,
+                workingDirectory: staging.scratchDirectory,
                 timeout: 3600
             )
         } catch is CancellationError {
@@ -1854,6 +1905,14 @@ public actor ClassificationPipeline {
         }
 
         let processWallTime = Date().timeIntervalSince(startedAt)
+        // Whatever Bracken wrote moves to the modelled paths now, so every
+        // check below sees the real output location. A failed move leaves
+        // the outputs missing, which the validation below reports.
+        do {
+            try staging.collectOutputs()
+        } catch {
+            logger.error("Could not move Bracken outputs out of scratch: \(error.localizedDescription, privacy: .public)")
+        }
         if Task.isCancelled {
             try? fm.removeItem(at: config.brackenURL)
             let brackenStepID = await provenanceRecorder.recordStep(
@@ -2301,6 +2360,8 @@ public actor ClassificationPipeline {
         distributionURL: URL,
         dialect: BrackenCLIDialect? = nil,
         effectiveArgv: [String]? = nil,
+        durableArgv: [String]? = nil,
+        scratchDirectory: URL? = nil,
         substitutionNote: String? = nil
     ) -> [String: ParameterValue] {
         var options: [String: ParameterValue] = [
@@ -2319,6 +2380,14 @@ public actor ClassificationPipeline {
         }
         if let effectiveArgv {
             options["effectiveArgv"] = .string(Self.shellQuotedArgv(effectiveArgv))
+        }
+        // The effective argv names scratch paths that are gone once the run
+        // ends; the durable argv is the same invocation on the modelled paths.
+        if let durableArgv {
+            options["durableArgv"] = .string(Self.shellQuotedArgv(durableArgv))
+        }
+        if let scratchDirectory {
+            options["scratchDirectory"] = .string(scratchDirectory.path)
         }
         // Present only when a substitution happened, so its absence is not evidence of one.
         if let substitutionNote {
