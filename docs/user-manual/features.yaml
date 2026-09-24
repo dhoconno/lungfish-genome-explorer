@@ -15,7 +15,6 @@ features:
   import.vcf:
     title: Import VCF
     entry_points:
-      - "File > Open (filter: VCF)"
       - "Import Center > Variants"
       - "CLI: lungfish import vcf"
     inputs: [vcf, vcf.gz]
@@ -92,7 +91,7 @@ features:
   map:
     title: Map reads to a reference
     entry_points:
-      - "Tools > FASTQ/FASTA Operations > Mapping…"
+      - "Tools > Mapping…"
       - "CLI: lungfish map"
       - "CLI: lungfish bam adopt-mapping"
     inputs: [fastq, fasta, reference-bundle]
@@ -181,7 +180,6 @@ features:
   import.sequence:
     title: Import a reference sequence
     entry_points:
-      - "File > Open (filter: FASTA, GenBank, 2bit)"
       - "Import Center > Reference"
       - "CLI: lungfish import reference"
     inputs: [fasta, genbank, 2bit, gff3, gtf, bed]
@@ -293,7 +291,6 @@ features:
   import.fastq:
     title: Import FASTQ reads
     entry_points:
-      - "File > Open (filter: FASTQ)"
       - "Import Center > Reads"
       - "CLI: lungfish import-fastq"
     inputs: [fastq, fastq.gz]
@@ -325,7 +322,7 @@ features:
   fastq.qc-summary:
     title: FASTQ quality control and reporting
     entry_points:
-      - "Tools > FASTQ/FASTA Operations > QC & Reporting"
+      - "Tools > QC & Reporting…"
       - "CLI: lungfish fastq qc-summary"
     inputs: [fastq, fastq.gz]
     outputs: [json, qc-report]
@@ -340,7 +337,7 @@ features:
   fastq.trim-filter:
     title: Trim and filter reads
     entry_points:
-      - "Tools > FASTQ/FASTA Operations > Trimming & Filtering"
+      - "Tools > Trimming & Filtering…"
       - "CLI: lungfish fastq adapter-trim"
       - "CLI: lungfish fastq sequence-filter"
     inputs: [fastq, fastq.gz]
@@ -357,7 +354,7 @@ features:
   fastq.decontaminate:
     title: Decontaminate reads
     entry_points:
-      - "Tools > FASTQ/FASTA Operations > Decontamination"
+      - "Tools > Decontamination…"
       - "CLI: lungfish fastq scrub-human"
       - "CLI: lungfish fastq deacon-ribo"
       - "CLI: lungfish fastq contaminant-filter"
@@ -379,7 +376,7 @@ features:
   fastq.read-processing:
     title: Read processing operations
     entry_points:
-      - "Tools > FASTQ/FASTA Operations > Read Processing"
+      - "Tools > Read Processing…"
       - "CLI: lungfish fastq deduplicate"
       - "CLI: lungfish fastq error-correct"
     inputs: [fastq, fastq.gz]
@@ -395,7 +392,7 @@ features:
   fastq.search-subset:
     title: Search and subset reads
     entry_points:
-      - "Tools > FASTQ/FASTA Operations > Search & Subsetting"
+      - "Tools > Search & Subsetting…"
       - "CLI: lungfish fastq search-motif"
       - "CLI: lungfish extract-reads"
     inputs: [fastq, fastq.gz]
@@ -411,7 +408,7 @@ features:
   fastq.demultiplex:
     title: Demultiplex reads by barcode
     entry_points:
-      - "Tools > FASTQ/FASTA Operations > Demultiplexing"
+      - "Tools > Demultiplexing…"
       - "CLI: lungfish fastq demultiplex"
     inputs: [fastq, fastq.gz, barcode-kit]
     outputs: [fastq, demux-manifest]
@@ -419,7 +416,6 @@ features:
     sources:
       - Sources/LungfishApp/Views/Metagenomics/SampleGroupSheet.swift
       - Sources/LungfishWorkflow/Demultiplex/DemultiplexingPipeline.swift
-      - Sources/LungfishWorkflow/Demultiplex/DemultiplexingPipeline+MultiStep.swift
       - Sources/LungfishCLI/Commands/FastqCommand.swift
     notes: >-
       Demultiplexes reads by internal barcode kit with multi-step support,
@@ -427,14 +423,13 @@ features:
   fastq.orient:
     title: Orient reads against a reference
     entry_points:
-      - "Tools > FASTQ/FASTA Operations > Read Processing"
+      - "Tools > Read Processing…"
       - "CLI: lungfish orient"
       - "CLI: lungfish fastq orient"
     inputs: [fastq, fastq.gz, reference-sequence]
     outputs: [fastq, fastq.gz]
     viewport_class: none
     sources:
-      - Sources/LungfishApp/Views/Metagenomics/OrientWizardSheet.swift
       - Sources/LungfishCLI/Commands/OrientCommand.swift
       - Sources/LungfishCLI/Commands/FastqOrientSubcommand.swift
       - Sources/LungfishWorkflow/Orient
@@ -516,7 +511,7 @@ features:
   import.bam:
     title: Import BAM or CRAM alignments
     entry_points:
-      - "File > Open (filter: BAM, CRAM, SAM)"
+      - "Import Center > Alignment"
       - "CLI: lungfish import bam"
     inputs: [bam, cram, sam]
     outputs: [alignment-track, bai]
@@ -577,7 +572,7 @@ features:
   align.viral-recon:
     title: Viral consensus and reconstruction wizard
     entry_points:
-      - "Tools > FASTQ/FASTA Operations > Alignment"
+      - "Tools > Multiple Sequence Alignment…"
     inputs: [fastq, reference-bundle, primer-scheme]
     outputs: [bam, vcf.gz, consensus-fasta]
     viewport_class: variant
@@ -592,7 +587,7 @@ features:
   variants.freyja-demix:
     title: Freyja wastewater lineage demixing
     entry_points:
-      - "Tools > Freyja Demix"
+      - "Tools > Plugin Manager… > wastewater-surveillance"
       - "CLI: lungfish freyja demix"
     inputs: [variant-table, depth-table]
     outputs: [freyja-demix-report]
@@ -654,7 +649,7 @@ features:
   classify.kraken2:
     title: Kraken2 and Bracken classification
     entry_points:
-      - "Tools > FASTQ/FASTA Operations > Classification"
+      - "Tools > Classification…"
       - "CLI: lungfish classify"
     inputs: [fastq, fasta, kraken2-database]
     outputs: [kraken2-kreport, taxonomy-dataset]
@@ -669,7 +664,7 @@ features:
   classify.esviritu:
     title: EsViritu viral detection
     entry_points:
-      - "Tools > FASTQ/FASTA Operations > Classification"
+      - "Tools > Classification…"
       - "CLI: lungfish esviritu"
     inputs: [fastq, esviritu-database]
     outputs: [esviritu-report, taxonomy-dataset]
@@ -684,7 +679,7 @@ features:
   classify.taxtriage:
     title: TaxTriage taxonomic triage
     entry_points:
-      - "Tools > FASTQ/FASTA Operations > Classification"
+      - "Tools > Classification…"
       - "CLI: lungfish taxtriage"
     inputs: [fastq, taxtriage-database]
     outputs: [taxtriage-report, taxonomy-dataset]
@@ -811,7 +806,7 @@ features:
   assemble:
     title: De novo genome assembly
     entry_points:
-      - "Tools > FASTQ/FASTA Operations > Assembly"
+      - "Tools > Assembly…"
       - "CLI: lungfish assemble"
     inputs: [fastq, fastq.gz]
     outputs: [assembly-fasta, assembly-result]
@@ -1031,7 +1026,7 @@ features:
   workflow.builder:
     title: Native Workflow Builder
     entry_points:
-      - "Tools > Operations > Workflow Builder"
+      - "Tools > Workflow Builder (Experimental)…"
       - "CLI: lungfish workflow builder-run"
     inputs: [workflow-graph, project-datasets]
     outputs: [workflow-run-bundle, project-datasets]
@@ -1047,13 +1042,14 @@ features:
   workflow.nextflow:
     title: Run Nextflow and nf-core pipelines
     entry_points:
-      - "Tools > Operations > Workflows"
+      - "Tools > Workflow Library…"
       - "CLI: lungfish workflow run"
     inputs: [nextflow-pipeline, nf-core-pipeline]
     outputs: [workflow-run-bundle, project-datasets]
     viewport_class: none
     sources:
-      - Sources/LungfishWorkflow/Nextflow/WorkflowSchema.swift
+      - Sources/LungfishWorkflow/WorkflowParameters.swift
+      - Sources/LungfishWorkflow/WorkflowDefinition.swift
       - Sources/LungfishWorkflow/nf-core/NFCoreSupportedWorkflowCatalog.swift
       - Sources/LungfishCLI/Commands/WorkflowCommand.swift
     notes: >-
@@ -1062,7 +1058,7 @@ features:
   workflow.snakemake:
     title: Run Snakemake workflows
     entry_points:
-      - "Tools > Operations > Workflows"
+      - "Tools > Workflow Library…"
       - "CLI: lungfish workflow run"
     inputs: [snakemake-workflow]
     outputs: [workflow-run-bundle, project-datasets]
@@ -1077,8 +1073,8 @@ features:
   workflow.export:
     title: Export as Nextflow or Snakemake
     entry_points:
-      - "File > Export > Nextflow Pipeline"
-      - "File > Export > Snakemake Workflow"
+      - "File > Export > Provenance > Nextflow Pipeline…"
+      - "File > Export > Provenance > Snakemake Workflow…"
     inputs: [workflow-graph, project-history]
     outputs: [nextflow-pipeline, snakemake-workflow]
     viewport_class: none
@@ -1111,7 +1107,7 @@ features:
   project.manage:
     title: Manage projects and shared locks
     entry_points:
-      - "File > Open Project Folder"
+      - "File > Open Project Folder…"
       - "CLI: lungfish project"
     inputs: [lungfish-project]
     outputs: [project-lock, bundle-migration]
