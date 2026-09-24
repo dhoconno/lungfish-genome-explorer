@@ -3,30 +3,30 @@ import LungfishIO
 import LungfishWorkflow
 
 struct FASTQOperationCLIInvocationBuilder: Sendable {
-    func buildInvocation(for request: FASTQOperationLaunchRequest) throws -> CLIInvocation {
+    func buildInvocation(for request: FASTQOperationLaunchRequest) throws -> FASTQCLIInvocation {
         try buildInvocation(for: request, outputTargetPath: "<derived>")
     }
 
     func buildInvocation(
         for request: FASTQOperationLaunchRequest,
         outputTargetPath: String
-    ) throws -> CLIInvocation {
+    ) throws -> FASTQCLIInvocation {
         try legacyBuildInvocation(for: request, outputTargetPath: outputTargetPath)
     }
 
     private func legacyBuildInvocation(
         for request: FASTQOperationLaunchRequest,
         outputTargetPath: String
-    ) throws -> CLIInvocation {
+    ) throws -> FASTQCLIInvocation {
         switch request {
         case .refreshQCSummary(let inputURLs):
-            return CLIInvocation(
+            return FASTQCLIInvocation(
                 subcommand: "fastq",
                 arguments: ["qc-summary"] + inputURLs.map(\.path) + ["--output", outputTargetPath]
             )
 
         case .derivative(let request, let inputURLs, _):
-            return CLIInvocation(
+            return FASTQCLIInvocation(
                 subcommand: "fastq",
                 arguments: try fastqArguments(
                     for: request,
@@ -36,7 +36,7 @@ struct FASTQOperationCLIInvocationBuilder: Sendable {
             )
 
         case .ontFluidigmSampleSplit(let inputFASTQURL, let barcodeDefinitionsURL, let threads):
-            return CLIInvocation(
+            return FASTQCLIInvocation(
                 subcommand: "fastq",
                 arguments: [
                     "ont-fluidigm-samples",
@@ -55,7 +55,7 @@ struct FASTQOperationCLIInvocationBuilder: Sendable {
             let maxReadsPerSlice,
             let maxBytesPerCutadapt
         ):
-            return CLIInvocation(
+            return FASTQCLIInvocation(
                 subcommand: "fastq",
                 arguments: [
                     "ont-pacbio-barcode-demux",
@@ -75,7 +75,7 @@ struct FASTQOperationCLIInvocationBuilder: Sendable {
             if inputURLs.count == 2 {
                 arguments.append("--paired")
             }
-            return CLIInvocation(subcommand: "map", arguments: arguments)
+            return FASTQCLIInvocation(subcommand: "map", arguments: arguments)
 
         case .assemble(let request, _):
             let executionRequest = request.normalizedForExecution()
@@ -102,7 +102,7 @@ struct FASTQOperationCLIInvocationBuilder: Sendable {
             if !executionRequest.extraArguments.isEmpty {
                 arguments += ["--extra-args", AdvancedCommandLineOptions.join(executionRequest.extraArguments)]
             }
-            return CLIInvocation(subcommand: "assemble", arguments: arguments)
+            return FASTQCLIInvocation(subcommand: "assemble", arguments: arguments)
 
         case .classify(let tool, let inputURLs, let databaseName, let extraArguments):
             var arguments = inputURLs.map(\.path) + ["--db", databaseName]
@@ -111,13 +111,13 @@ struct FASTQOperationCLIInvocationBuilder: Sendable {
             }
             switch tool {
             case .kraken2:
-                return CLIInvocation(subcommand: "conda classify", arguments: arguments)
+                return FASTQCLIInvocation(subcommand: "conda classify", arguments: arguments)
             case .esViritu:
-                return CLIInvocation(subcommand: "esviritu", arguments: ["detect"] + arguments)
+                return FASTQCLIInvocation(subcommand: "esviritu", arguments: ["detect"] + arguments)
             case .taxTriage:
-                return CLIInvocation(subcommand: "taxtriage", arguments: ["run"] + arguments)
+                return FASTQCLIInvocation(subcommand: "taxtriage", arguments: ["run"] + arguments)
             default:
-                return CLIInvocation(subcommand: "conda classify", arguments: arguments)
+                return FASTQCLIInvocation(subcommand: "conda classify", arguments: arguments)
             }
 
         case .pbaa(let request):
@@ -136,7 +136,7 @@ struct FASTQOperationCLIInvocationBuilder: Sendable {
             if !request.extraArgumentsText.isEmpty {
                 arguments += ["--extra-args", request.extraArgumentsText]
             }
-            return CLIInvocation(subcommand: "fastq", arguments: arguments)
+            return FASTQCLIInvocation(subcommand: "fastq", arguments: arguments)
 
         case .savont(let request):
             guard let inputURL = request.inputURLs.first else {
@@ -160,7 +160,7 @@ struct FASTQOperationCLIInvocationBuilder: Sendable {
             if request.singleStrand {
                 arguments.append("--single-strand")
             }
-            return CLIInvocation(subcommand: "fastq", arguments: arguments)
+            return FASTQCLIInvocation(subcommand: "fastq", arguments: arguments)
 
         case .ontGenotyping(let request):
             let outputDirectoryPath = outputTargetPath == "<derived>"
@@ -203,7 +203,7 @@ struct FASTQOperationCLIInvocationBuilder: Sendable {
             if !request.extraArguments.isEmpty {
                 arguments += ["--extra-args", AdvancedCommandLineOptions.join(request.extraArguments)]
             }
-            return CLIInvocation(subcommand: "fastq", arguments: arguments)
+            return FASTQCLIInvocation(subcommand: "fastq", arguments: arguments)
         }
     }
 

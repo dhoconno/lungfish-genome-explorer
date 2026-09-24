@@ -98,8 +98,8 @@ final class MSACommandTests: XCTestCase {
         )
 
         let events = recorder.joined()
-        XCTAssertTrue(events.contains(#""event":"msaActionStart""#))
-        XCTAssertTrue(events.contains(#""event":"msaActionComplete""#))
+        XCTAssertTrue(events.contains(#""event":"start""#))
+        XCTAssertTrue(events.contains(#""event":"complete""#))
         XCTAssertTrue(events.contains(outputURL.path.replacingOccurrences(of: "/", with: "\\/")))
     }
 
@@ -227,13 +227,10 @@ final class MSACommandTests: XCTestCase {
             let data = try XCTUnwrap(line.data(using: .utf8))
             return try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
         }
-        XCTAssertTrue(events.contains { ($0["event"] as? String) == "msaActionStart" })
-        XCTAssertTrue(events.contains { ($0["event"] as? String) == "msaActionProgress" })
-        XCTAssertTrue(events.contains { ($0["event"] as? String) == "msaActionComplete" })
-        let operationIDs = Set(events.compactMap { $0["operationID"] as? String })
-        XCTAssertEqual(operationIDs.count, 1)
-        XCTAssertFalse(operationIDs.first?.isEmpty ?? true)
-        let completion = try XCTUnwrap(events.first { ($0["event"] as? String) == "msaActionComplete" })
+        XCTAssertTrue(events.contains { ($0["event"] as? String) == "start" })
+        XCTAssertTrue(events.contains { ($0["event"] as? String) == "progress" })
+        XCTAssertTrue(events.contains { ($0["event"] as? String) == "complete" })
+        let completion = try XCTUnwrap(events.first { ($0["event"] as? String) == "complete" })
         XCTAssertEqual(completion["output"] as? String, outputURL.path)
     }
 
@@ -322,9 +319,8 @@ final class MSACommandTests: XCTestCase {
         try exportCommand.executeForTesting { recorder.append($0) }
 
         let events = recorder.joined()
-        XCTAssertTrue(events.contains(#""event":"msaActionWarning""#))
+        XCTAssertTrue(events.contains(#""event":"log""#))
         XCTAssertTrue(events.contains("does not preserve MSA annotations"))
-        XCTAssertTrue(events.contains(#""warningCount":1"#))
 
         let provenance = try String(
             contentsOf: outputURL.appendingPathExtension("lungfish-provenance.json"),
@@ -376,7 +372,7 @@ final class MSACommandTests: XCTestCase {
         XCTAssertTrue(provenance.contains(#""threshold" : 0.6"#))
         XCTAssertTrue(provenance.contains(#""gapPolicy" : "omit""#))
         XCTAssertFalse(provenance.contains("/tmp/"))
-        XCTAssertTrue(recorder.joined().contains(#""event":"msaActionComplete""#))
+        XCTAssertTrue(recorder.joined().contains(#""event":"complete""#))
     }
 
     func testConsensusSubcommandRemovesFastaWhenProvenanceSidecarCannotBeWritten() throws {
@@ -496,7 +492,7 @@ final class MSACommandTests: XCTestCase {
         )
         XCTAssertFalse(provenanceText.contains("/tmp/"))
         XCTAssertFalse(provenanceText.contains("/.tmp/"))
-        XCTAssertTrue(recorder.joined().contains(#""event":"msaActionComplete""#))
+        XCTAssertTrue(recorder.joined().contains(#""event":"complete""#))
     }
 
     func testExtractSubcommandWritesDerivedMSABundleWithSelectionProvenance() throws {
@@ -550,7 +546,7 @@ final class MSACommandTests: XCTestCase {
         XCTAssertTrue(sourceRowMap.contains(bundleURL.appendingPathComponent("alignment/primary.aligned.fasta").path))
         XCTAssertFalse(sourceRowMap.contains("/tmp/"))
         XCTAssertFalse(sourceRowMap.contains("/.tmp/"))
-        XCTAssertTrue(recorder.joined().contains(#""event":"msaActionComplete""#))
+        XCTAssertTrue(recorder.joined().contains(#""event":"complete""#))
     }
 
     func testExtractSubcommandFastaOutputWritesUngappedSequencesAndProvenanceLayout() throws {
@@ -731,7 +727,7 @@ final class MSACommandTests: XCTestCase {
         XCTAssertTrue(provenanceText.contains(outputURL.path))
         XCTAssertFalse(provenanceText.contains("/tmp/"))
         XCTAssertFalse(provenanceText.contains("/.tmp/"))
-        XCTAssertTrue(recorder.joined().contains(#""event":"msaActionComplete""#))
+        XCTAssertTrue(recorder.joined().contains(#""event":"complete""#))
     }
 
     func testExtractReferenceBundlePropagatesMSAAnnotationsIntoReferenceSQLiteTrack() throws {
@@ -800,7 +796,7 @@ final class MSACommandTests: XCTestCase {
         XCTAssertTrue(provenance.contains("msa_lifted_annotations.db"))
         XCTAssertTrue(provenance.contains(#""propagatedAnnotationCount" : 1"#))
         XCTAssertFalse(provenance.contains("/tmp/"))
-        XCTAssertTrue(recorder.joined().contains(#""event":"msaActionComplete""#))
+        XCTAssertTrue(recorder.joined().contains(#""event":"complete""#))
     }
 
     func testMaskColumnsSubcommandWritesDerivedBundleWithMaskMetadataAndProvenance() throws {
@@ -864,7 +860,7 @@ final class MSACommandTests: XCTestCase {
         XCTAssertTrue(sourceRowMap.contains(bundleURL.appendingPathComponent("alignment/primary.aligned.fasta").path))
         XCTAssertFalse(sourceRowMap.contains("/tmp/"))
         XCTAssertFalse(sourceRowMap.contains("/.tmp/"))
-        XCTAssertTrue(recorder.joined().contains(#""event":"msaActionComplete""#))
+        XCTAssertTrue(recorder.joined().contains(#""event":"complete""#))
     }
 
     /// WFL-02/REC-02 regression: `--force` must never delete the existing
@@ -991,7 +987,7 @@ final class MSACommandTests: XCTestCase {
         XCTAssertTrue(provenance.contains(#""gapThreshold" : 0.5"#))
         XCTAssertFalse(provenance.contains("/tmp/"))
         XCTAssertFalse(provenance.contains("/.tmp/"))
-        XCTAssertTrue(recorder.joined().contains(#""event":"msaActionComplete""#))
+        XCTAssertTrue(recorder.joined().contains(#""event":"complete""#))
     }
 
     func testMaskColumnsSubcommandSupportsAnnotationSelectorWithProvenance() throws {
@@ -1048,7 +1044,7 @@ final class MSACommandTests: XCTestCase {
         XCTAssertTrue(provenance.contains(annotation.id))
         XCTAssertFalse(provenance.contains("/tmp/"))
         XCTAssertFalse(provenance.contains("/.tmp/"))
-        XCTAssertTrue(recorder.joined().contains(#""event":"msaActionComplete""#))
+        XCTAssertTrue(recorder.joined().contains(#""event":"complete""#))
     }
 
     func testMaskColumnsSubcommandSupportsCodonPositionSelectorWithProvenance() throws {
@@ -1108,7 +1104,7 @@ final class MSACommandTests: XCTestCase {
         XCTAssertTrue(provenance.contains(annotation.id))
         XCTAssertFalse(provenance.contains("/tmp/"))
         XCTAssertFalse(provenance.contains("/.tmp/"))
-        XCTAssertTrue(recorder.joined().contains(#""event":"msaActionComplete""#))
+        XCTAssertTrue(recorder.joined().contains(#""event":"complete""#))
     }
 
     func testMaskColumnsSubcommandSupportsConservationAndParsimonySelectorsWithProvenance() throws {
@@ -1223,7 +1219,7 @@ final class MSACommandTests: XCTestCase {
         XCTAssertTrue(gapOnlyMetadata.contains(#""mode" : "gap-only""#))
         XCTAssertTrue(gapOnlyMetadata.contains(#""removedColumnCount" : 1"#))
         XCTAssertTrue(gapOnlyMetadata.contains(#""startColumn" : 2"#))
-        XCTAssertTrue(gapOnlyRecorder.joined().contains(#""event":"msaActionComplete""#))
+        XCTAssertTrue(gapOnlyRecorder.joined().contains(#""event":"complete""#))
 
         let thresholdURL = tempDir.appendingPathComponent("gap-threshold.lungfishmsa", isDirectory: true)
         let threshold = try MSACommand.TrimColumnsSubcommand.parse([
@@ -1259,7 +1255,7 @@ final class MSACommandTests: XCTestCase {
         XCTAssertTrue(sourceRowMap.contains(bundleURL.appendingPathComponent("alignment/primary.aligned.fasta").path))
         XCTAssertFalse(sourceRowMap.contains("/tmp/"))
         XCTAssertFalse(sourceRowMap.contains("/.tmp/"))
-        XCTAssertTrue(thresholdRecorder.joined().contains(#""event":"msaActionComplete""#))
+        XCTAssertTrue(thresholdRecorder.joined().contains(#""event":"complete""#))
     }
 
     func testDistanceSubcommandWritesIdentityAndPDistanceMatricesWithProvenance() throws {
@@ -1306,7 +1302,7 @@ final class MSACommandTests: XCTestCase {
         XCTAssertTrue(provenance.contains(#""distanceModel" : "identity""#))
         XCTAssertFalse(provenance.contains("/tmp/"))
         XCTAssertFalse(provenance.contains("/.tmp/"))
-        XCTAssertTrue(identityRecorder.joined().contains(#""event":"msaActionComplete""#))
+        XCTAssertTrue(identityRecorder.joined().contains(#""event":"complete""#))
 
         let pDistanceURL = tempDir.appendingPathComponent("p-distance.tsv")
         let pDistance = try MSACommand.DistanceSubcommand.parse([
@@ -1333,7 +1329,7 @@ final class MSACommandTests: XCTestCase {
         XCTAssertTrue(provenance.contains(#""columns" : "3-4""#))
         XCTAssertFalse(provenance.contains("/tmp/"))
         XCTAssertFalse(provenance.contains("/.tmp/"))
-        XCTAssertTrue(pDistanceRecorder.joined().contains(#""event":"msaActionComplete""#))
+        XCTAssertTrue(pDistanceRecorder.joined().contains(#""event":"complete""#))
     }
 
     func testDistanceSubcommandRemovesMatrixWhenProvenanceSidecarCannotBeWritten() throws {
@@ -1439,9 +1435,8 @@ final class MSACommandTests: XCTestCase {
         XCTAssertFalse(provenance.contains("/tmp/"))
 
         let events = recorder.joined()
-        XCTAssertTrue(events.contains(#""event":"msaActionStart""#))
-        XCTAssertTrue(events.contains(#""event":"msaActionComplete""#))
-        XCTAssertTrue(events.contains(#""actionID":"msa.annotation.add""#))
+        XCTAssertTrue(events.contains(#""event":"start""#))
+        XCTAssertTrue(events.contains(#""event":"complete""#))
     }
 
     func testAnnotateProjectSubcommandProjectsAnnotationAcrossRowsWithProvenance() throws {
@@ -1519,9 +1514,8 @@ final class MSACommandTests: XCTestCase {
         XCTAssertFalse(provenance.contains("/tmp/"))
 
         let events = recorder.joined()
-        XCTAssertTrue(events.contains(#""event":"msaActionStart""#))
-        XCTAssertTrue(events.contains(#""event":"msaActionComplete""#))
-        XCTAssertTrue(events.contains(#""actionID":"msa.annotation.project""#))
+        XCTAssertTrue(events.contains(#""event":"start""#))
+        XCTAssertTrue(events.contains(#""event":"complete""#))
     }
 
     func testAnnotateEditAndDeleteSubcommandsMutateSQLiteStoreWithProvenance() throws {
@@ -1587,8 +1581,7 @@ final class MSACommandTests: XCTestCase {
         XCTAssertTrue(provenance.contains(#""toolName" : "lungfish msa annotate edit""#))
         XCTAssertTrue(provenance.contains(original.id))
         XCTAssertFalse(provenance.contains("/tmp/"))
-        XCTAssertTrue(editRecorder.joined().contains(#""actionID":"msa.annotation.edit""#))
-        XCTAssertTrue(editRecorder.joined().contains(#""event":"msaActionComplete""#))
+        XCTAssertTrue(editRecorder.joined().contains(#""event":"complete""#))
 
         let deleteCommand = try MSACommand.DeleteSubcommand.parse([
             bundleURL.path,
@@ -1609,8 +1602,7 @@ final class MSACommandTests: XCTestCase {
         XCTAssertTrue(provenance.contains(#""toolName" : "lungfish msa annotate delete""#))
         XCTAssertTrue(provenance.contains(original.id))
         XCTAssertFalse(provenance.contains("/tmp/"))
-        XCTAssertTrue(deleteRecorder.joined().contains(#""actionID":"msa.annotation.delete""#))
-        XCTAssertTrue(deleteRecorder.joined().contains(#""event":"msaActionComplete""#))
+        XCTAssertTrue(deleteRecorder.joined().contains(#""event":"complete""#))
     }
 }
 

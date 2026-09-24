@@ -46,7 +46,7 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
         let task = Task { () -> Result<FASTQCLIExecutionResult, Error> in
             do {
                 let result = try await runner.run(
-                    invocation: CLIInvocation(subcommand: "fastq", arguments: ["noop"]),
+                    invocation: FASTQCLIInvocation(subcommand: "fastq", arguments: ["noop"]),
                     outputDirectory: tempDir,
                     progress: { _, _ in }
                 )
@@ -3408,7 +3408,7 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
 
         XCTAssertEqual(
             invocation,
-            CLIInvocation(
+            FASTQCLIInvocation(
                 subcommand: "assemble",
                 arguments: [
                     "/tmp/sample.fastq.gz",
@@ -4966,7 +4966,7 @@ private struct EmptyFallbackSavontFixtureProcessRunner: SavontProcessRunning {
 
 private struct PipelineBackedSavontCommandRunner: FASTQOperationCommandRunning {
     func run(
-        invocation: CLIInvocation,
+        invocation: FASTQCLIInvocation,
         outputDirectory: URL,
         progress: @escaping FASTQOperationProgressHandler
     ) async throws -> FASTQCLIExecutionResult {
@@ -5007,7 +5007,7 @@ private struct ContaminatedSavontDiscoveryCommandRunner: FASTQOperationCommandRu
     let unrelatedOutputs: [URL]
 
     func run(
-        invocation: CLIInvocation,
+        invocation: FASTQCLIInvocation,
         outputDirectory: URL,
         progress: @escaping FASTQOperationProgressHandler
     ) async throws -> FASTQCLIExecutionResult {
@@ -5049,7 +5049,7 @@ private final class FailSecondSavontCommandRunner: @unchecked Sendable, FASTQOpe
     private var callCount = 0
 
     func run(
-        invocation: CLIInvocation,
+        invocation: FASTQCLIInvocation,
         outputDirectory: URL,
         progress: @escaping FASTQOperationProgressHandler
     ) async throws -> FASTQCLIExecutionResult {
@@ -5069,7 +5069,7 @@ private final class InvalidSecondProvenanceSavontCommandRunner: @unchecked Senda
     private var callCount = 0
 
     func run(
-        invocation: CLIInvocation,
+        invocation: FASTQCLIInvocation,
         outputDirectory: URL,
         progress: @escaping FASTQOperationProgressHandler
     ) async throws -> FASTQCLIExecutionResult {
@@ -5469,11 +5469,11 @@ private final class SpyDirectImporter: @unchecked Sendable, FASTQOperationDirect
 }
 
 private final class SpyCommandRunner: @unchecked Sendable, FASTQOperationCommandRunning {
-    private(set) var invocations: [CLIInvocation] = []
-    private let handler: @Sendable (CLIInvocation, URL, FASTQOperationProgressHandler) throws -> FASTQCLIExecutionResult
+    private(set) var invocations: [FASTQCLIInvocation] = []
+    private let handler: @Sendable (FASTQCLIInvocation, URL, FASTQOperationProgressHandler) throws -> FASTQCLIExecutionResult
 
     init(
-        handler: @escaping @Sendable (CLIInvocation, URL) throws -> FASTQCLIExecutionResult = { _, _ in
+        handler: @escaping @Sendable (FASTQCLIInvocation, URL) throws -> FASTQCLIExecutionResult = { _, _ in
             FASTQCLIExecutionResult(outputURLs: [])
         }
     ) {
@@ -5483,13 +5483,13 @@ private final class SpyCommandRunner: @unchecked Sendable, FASTQOperationCommand
     }
 
     init(
-        progressHandler: @escaping @Sendable (CLIInvocation, URL, FASTQOperationProgressHandler) throws -> FASTQCLIExecutionResult
+        progressHandler: @escaping @Sendable (FASTQCLIInvocation, URL, FASTQOperationProgressHandler) throws -> FASTQCLIExecutionResult
     ) {
         self.handler = progressHandler
     }
 
     func run(
-        invocation: CLIInvocation,
+        invocation: FASTQCLIInvocation,
         outputDirectory: URL,
         progress: @escaping FASTQOperationProgressHandler
     ) async throws -> FASTQCLIExecutionResult {

@@ -1222,12 +1222,50 @@ extension VariantsCommand {
             )
         }
 
+        /// Encodes over the shared `CLIEvent` wire schema (ARC-02, SIMP-04)
+        /// instead of `VariantCallingEvent`'s own ad hoc JSON shape. The rich
+        /// completion fields (`variantTrackID`, `vcfPath`, `tbiPath`,
+        /// `databasePath`) that GUI callers never read are folded into
+        /// `complete`'s `outputs` (in the fixed order `[databasePath, vcfPath,
+        /// tbiPath]`) and a `"trackID=… trackName=…"` message,
+        /// matching the pattern `AlignCommand` uses for MAFFT's row/column
+        /// counts.
         private func encode(event: VariantsCommand.VariantCallingEvent) -> String? {
-            let encoder = JSONEncoder()
-            guard let data = try? encoder.encode(event) else {
+            guard let data = try? JSONEncoder().encode(Self.cliEvent(from: event)) else {
                 return nil
             }
             return String(data: data, encoding: .utf8)
+        }
+
+        private static func cliEvent(from event: VariantsCommand.VariantCallingEvent) -> CLIEvent {
+            switch event.event {
+            case "runStart":
+                return .start(message: event.message)
+            case "stageProgress":
+                return .progress(fraction: event.progress ?? 0, message: event.message)
+            case "importComplete":
+                return .log(level: .info, message: event.message)
+            case "attachComplete":
+                let trackID = event.variantTrackID ?? ""
+                let trackName = event.variantTrackName ?? ""
+                return .log(level: .info, message: "trackID=\(trackID) trackName=\(trackName): \(event.message)")
+            case "runComplete":
+                let outputs = [
+                    event.databasePath,
+                    event.vcfPath,
+                    event.tbiPath,
+                ].compactMap { $0 }
+                let trackID = event.variantTrackID ?? ""
+                let trackName = event.variantTrackName ?? ""
+                return .complete(outputs: outputs, message: "trackID=\(trackID) trackName=\(trackName)")
+            case "runFailed":
+                return .failed(message: event.message, detail: nil)
+            default:
+                // runStart handled above; every other named step (preflightStart,
+                // preflightComplete, stageStart, stageComplete, importStart,
+                // attachStart) is a plain progress narration line.
+                return .log(level: .info, message: event.message)
+            }
         }
     }
 }

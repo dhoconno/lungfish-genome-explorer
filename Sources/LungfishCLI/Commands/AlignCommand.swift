@@ -11,17 +11,6 @@ struct AlignCommand: AsyncParsableCommand {
         defaultSubcommand: MAFFTSubcommand.self
     )
 
-    struct MAFFTEvent: Codable, Sendable {
-        let event: String
-        let progress: Double?
-        let message: String?
-        let tool: String?
-        let sourceCount: Int?
-        let bundle: String?
-        let rowCount: Int?
-        let alignedLength: Int?
-        let warningCount: Int?
-    }
 }
 
 extension AlignCommand {
@@ -156,21 +145,9 @@ extension AlignCommand {
             let request = try makeRequest()
             let outputFormat = globalOptions.outputFormat
             let quiet = globalOptions.quiet
+            let emitter = CLIEventEmitter(enabled: outputFormat == .json, emit: emit)
             if outputFormat == .json {
-                emitJSON(
-                    AlignCommand.MAFFTEvent(
-                        event: "msaAlignmentStart",
-                        progress: 0.0,
-                        message: "Starting MAFFT alignment.",
-                        tool: "mafft",
-                        sourceCount: request.inputSequenceURLs.count,
-                        bundle: nil,
-                        rowCount: nil,
-                        alignedLength: nil,
-                        warningCount: nil
-                    ),
-                    emit: emit
-                )
+                emitter.emitStart(message: "Starting MAFFT alignment for \(request.inputSequenceURLs.count) input file(s).")
             } else if !quiet {
                 emit("Running MAFFT alignment for \(request.inputSequenceURLs.count) input file(s).")
             }
@@ -178,58 +155,22 @@ extension AlignCommand {
             do {
                 let result = try await runtime.runMAFFT(request) { progress, message in
                     if outputFormat == .json {
-                        emitJSON(
-                            AlignCommand.MAFFTEvent(
-                                event: "msaAlignmentProgress",
-                                progress: progress,
-                                message: message,
-                                tool: "mafft",
-                                sourceCount: nil,
-                                bundle: nil,
-                                rowCount: nil,
-                                alignedLength: nil,
-                                warningCount: nil
-                            ),
-                            emit: emit
-                        )
+                        emitter.emitProgress(progress, message: message)
                     } else if !quiet {
                         emit(message)
                     }
                 }
                 for warning in result.warnings {
                     if outputFormat == .json {
-                        emitJSON(
-                            AlignCommand.MAFFTEvent(
-                                event: "msaAlignmentWarning",
-                                progress: nil,
-                                message: warning,
-                                tool: "mafft",
-                                sourceCount: nil,
-                                bundle: nil,
-                                rowCount: nil,
-                                alignedLength: nil,
-                                warningCount: nil
-                            ),
-                            emit: emit
-                        )
+                        emitter.emitLog(.warning, warning)
                     } else if !quiet {
                         emit("Warning: \(warning)")
                     }
                 }
                 if outputFormat == .json {
-                    emitJSON(
-                        AlignCommand.MAFFTEvent(
-                            event: "msaAlignmentComplete",
-                            progress: 1.0,
-                            message: "MAFFT alignment complete.",
-                            tool: "mafft",
-                            sourceCount: nil,
-                            bundle: result.bundleURL.path,
-                            rowCount: result.rowCount,
-                            alignedLength: result.alignedLength,
-                            warningCount: result.warnings.count
-                        ),
-                        emit: emit
+                    emitter.emitComplete(
+                        output: result.bundleURL.path,
+                        message: "rows=\(result.rowCount) alignedLength=\(result.alignedLength)"
                     )
                 } else if !quiet {
                     emit("Created \(result.bundleURL.path)")
@@ -239,20 +180,7 @@ extension AlignCommand {
                 return result
             } catch {
                 if outputFormat == .json {
-                    emitJSON(
-                        AlignCommand.MAFFTEvent(
-                            event: "msaAlignmentFailed",
-                            progress: nil,
-                            message: error.localizedDescription,
-                            tool: "mafft",
-                            sourceCount: nil,
-                            bundle: nil,
-                            rowCount: nil,
-                            alignedLength: nil,
-                            warningCount: nil
-                        ),
-                        emit: emit
-                    )
+                    emitter.emitFailed(error.localizedDescription)
                 }
                 throw error
             }
@@ -372,15 +300,6 @@ extension AlignCommand {
                 argv += ["--format", "json"]
             }
             return argv
-        }
-
-        private func emitJSON(_ event: AlignCommand.MAFFTEvent, emit: @Sendable (String) -> Void) {
-            let encoder = JSONEncoder()
-            encoder.outputFormatting = [.sortedKeys]
-            if let data = try? encoder.encode(event),
-               let line = String(data: data, encoding: .utf8) {
-                emit(line)
-            }
         }
 
         private func combinedExtraOptions() -> String {

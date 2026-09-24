@@ -5,43 +5,31 @@
 import Foundation
 import LungfishCore
 import LungfishIO
+import LungfishKit
 import LungfishWorkflow
-import os.log
 
-private let primerTrimRunnerLogger = Logger(
-    subsystem: LogSubsystem.app,
-    category: "CLIPrimerTrimRunner"
-)
-
-enum CLIPrimerTrimEvent: Sendable, Equatable {
-    case runStart(message: String)
-    case preflightStart(message: String)
-    case preflightComplete(message: String)
-    case stageStart(message: String)
-    case stageProgress(progress: Double, message: String)
-    case stageComplete(message: String)
-    case attachStart(message: String)
-    case attachComplete(
-        trackID: String?,
-        trackName: String?,
-        bamPath: String?,
-        baiPath: String?,
-        provenanceSidecarPath: String?
-    )
-    case runComplete(
-        trackID: String,
-        trackName: String,
-        bamPath: String,
-        baiPath: String,
-        provenanceSidecarPath: String
-    )
-    case runFailed(message: String)
+/// Result of a successful `lungfish-cli bam primer-trim` run, decoded from
+/// the shared `CLIEvent` schema instead of the private `runStart`/
+/// `stageProgress`/`runComplete`/… JSON shape this runner used to hand-parse
+/// (ARC-02, SIMP-04). `BAMPrimerTrimSubcommand` folds its rich completion
+/// fields (`outputAlignmentTrackID`/`Name`, `bamPath`, `baiPath`,
+/// `provenanceSidecarPath`) into `CLIEvent.complete`'s `outputs`
+/// (`[bamPath, baiPath, provenanceSidecarPath]`) and a
+/// `"trackID=… trackName=…"` message; this type parses them back out.
+struct CLIPrimerTrimResult: Sendable, Equatable {
+    let trackID: String?
+    let trackName: String?
+    let bamPath: String?
+    let baiPath: String?
+    let provenanceSidecarPath: String?
 }
 
 enum CLIPrimerTrimRunnerError: Error, LocalizedError, Equatable {
     case cliBinaryNotFound
     case processLaunchFailed(String)
     case processExited(status: Int32, stderr: String)
+    case runFailed(message: String)
+    case missingCompletion
 
     var errorDescription: String? {
         switch self {
@@ -54,110 +42,34 @@ enum CLIPrimerTrimRunnerError: Error, LocalizedError, Equatable {
                 return "lungfish-cli exited with status \(status)"
             }
             return "lungfish-cli exited with status \(status): \(stderr)"
+        case .runFailed(let message):
+            return message
+        case .missingCompletion:
+            return "lungfish-cli finished without reporting primer-trim completion."
         }
     }
 }
 
-private final class CLIPrimerTrimStreamState: @unchecked Sendable {
-    private struct Buffers {
-        var stdoutBuffer = Data()
-        var stderrBuffer = Data()
+/// A plain struct, not an actor: `CLISubprocessTransport` is itself an actor
+/// owning all the concurrency here, so a wrapping actor would only add a
+/// second isolation domain with nothing to protect. That second domain was a
+/// real bug on the sibling `CLIVariantCallingRunner` (caught by the P6-A/B
+/// integration gate): an actor-isolated `cancel()` queues behind an in-flight
+/// `run()` call on the same actor instance and never executes until `run()`
+/// returns -- but `run()` awaits the subprocess exiting, which only
+/// `cancel()` was supposed to trigger. This type's `cancel()` only ever
+/// forwarded to `transport.cancel()` (already `nonisolated` and thread-safe),
+/// so it never actually reproduced that deadlock, but keeping it as an actor
+/// left the same trap for the next person who adds actor-isolated state here.
+struct CLIPrimerTrimRunner {
+    private let transport: CLISubprocessTransport
 
-        mutating func drainStdoutLines() -> [String] {
-            var lines: [String] = []
-            while let newlineRange = stdoutBuffer.range(of: Data("\n".utf8)) {
-                let lineData = stdoutBuffer.subdata(
-                    in: stdoutBuffer.startIndex..<newlineRange.lowerBound
-                )
-                stdoutBuffer.removeSubrange(
-                    stdoutBuffer.startIndex..<newlineRange.upperBound
-                )
-                if let line = String(data: lineData, encoding: .utf8), !line.isEmpty {
-                    lines.append(line)
-                }
-            }
-            return lines
-        }
-
-        mutating func drainRemainingStdoutLine() -> [String] {
-            guard !stdoutBuffer.isEmpty else { return [] }
-            let lineData = stdoutBuffer
-            stdoutBuffer.removeAll(keepingCapacity: false)
-            guard let line = String(data: lineData, encoding: .utf8), !line.isEmpty else {
-                return []
-            }
-            return [line]
-        }
+    init(cliURLOverride: URL? = nil) {
+        self.transport = CLISubprocessTransport(cliURLOverride: cliURLOverride)
     }
-
-    private let lock = OSAllocatedUnfairLock(initialState: Buffers())
-
-    func appendStderr(_ chunk: Data) {
-        lock.withLock { buffers in
-            buffers.stderrBuffer.append(chunk)
-        }
-    }
-
-    func appendStdout(_ chunk: Data) -> [String] {
-        lock.withLock { buffers in
-            buffers.stdoutBuffer.append(chunk)
-            return buffers.drainStdoutLines()
-        }
-    }
-
-    func finishStdout() -> [String] {
-        lock.withLock { buffers in
-            buffers.drainRemainingStdoutLine()
-        }
-    }
-
-    func stderrText() -> String {
-        lock.withLock { buffers in
-            String(data: buffers.stderrBuffer, encoding: .utf8)?
-                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        }
-    }
-}
-
-private final class CLIPrimerTrimProcessTermination: @unchecked Sendable {
-    private struct State {
-        var status: Int32?
-        var continuation: CheckedContinuation<Int32, Never>?
-    }
-
-    private let lock = OSAllocatedUnfairLock(initialState: State())
-
-    func markTerminated(status: Int32) {
-        let continuation = lock.withLock { state -> CheckedContinuation<Int32, Never>? in
-            guard state.status == nil else { return nil }
-            state.status = status
-            defer { state.continuation = nil }
-            return state.continuation
-        }
-        continuation?.resume(returning: status)
-    }
-
-    func wait() async -> Int32 {
-        await withCheckedContinuation { continuation in
-            let status = lock.withLock { state -> Int32? in
-                if let status = state.status {
-                    return status
-                }
-                state.continuation = continuation
-                return nil
-            }
-            if let status {
-                continuation.resume(returning: status)
-            }
-        }
-    }
-}
-
-actor CLIPrimerTrimRunner {
-    private let cancellationHandle = NativeProcessCancellationHandle()
 
     static func cliBinaryPath() -> URL? {
-        CLIImportRunner.cliBinaryPath()
+        CLIBinaryLocator.cliBinaryPath()
     }
 
     static func buildCLIArguments(
@@ -199,163 +111,79 @@ actor CLIPrimerTrimRunner {
         return arguments
     }
 
-    static func parseEvent(from line: String) throws -> CLIPrimerTrimEvent? {
-        let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard trimmed.hasPrefix("{") else { return nil }
-
-        guard let data = trimmed.data(using: .utf8),
-              let dict = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let event = dict["event"] as? String else {
-            return nil
-        }
-
-        let message = dict["message"] as? String ?? ""
-        let progress = dict["progress"] as? Double
-        let outputTrackID = dict["outputAlignmentTrackID"] as? String
-        let outputTrackName = dict["outputAlignmentTrackName"] as? String
-        let bamPath = dict["bamPath"] as? String
-        let baiPath = dict["baiPath"] as? String
-        let provenanceSidecarPath = dict["provenanceSidecarPath"] as? String
-
-        switch event {
-        case "runStart":
-            return .runStart(message: message)
-        case "preflightStart":
-            return .preflightStart(message: message)
-        case "preflightComplete":
-            return .preflightComplete(message: message)
-        case "stageStart":
-            return .stageStart(message: message)
-        case "stageProgress":
-            return .stageProgress(progress: progress ?? 0, message: message)
-        case "stageComplete":
-            return .stageComplete(message: message)
-        case "attachStart":
-            return .attachStart(message: message)
-        case "attachComplete":
-            return .attachComplete(
-                trackID: outputTrackID,
-                trackName: outputTrackName,
-                bamPath: bamPath,
-                baiPath: baiPath,
-                provenanceSidecarPath: provenanceSidecarPath
+    func run(
+        arguments: [String],
+        onEvent: @escaping @Sendable (CLIEvent) -> Void = { _ in }
+    ) async throws -> CLIPrimerTrimResult {
+        do {
+            let result = try await transport.run(
+                arguments: arguments,
+                isCancelled: { false },
+                onEvent: onEvent
             )
-        case "runComplete":
-            guard let outputTrackID,
-                  let outputTrackName,
-                  let bamPath,
-                  let baiPath,
-                  let provenanceSidecarPath else { return nil }
-            return .runComplete(
-                trackID: outputTrackID,
-                trackName: outputTrackName,
-                bamPath: bamPath,
-                baiPath: baiPath,
-                provenanceSidecarPath: provenanceSidecarPath
-            )
-        case "runFailed":
-            return .runFailed(message: message)
-        default:
-            primerTrimRunnerLogger.debug("Unknown CLI primer-trim event type: \(event)")
-            return nil
-        }
-    }
-
-    private static func emitEvents(
-        from lines: [String],
-        onEvent: @escaping @Sendable (CLIPrimerTrimEvent) -> Void
-    ) {
-        for line in lines {
-            do {
-                if let event = try parseEvent(from: line) {
-                    onEvent(event)
-                }
-            } catch {
-                primerTrimRunnerLogger.warning(
-                    "Failed to parse primer-trim CLI event: \(error.localizedDescription)"
-                )
+            return Self.parseCompletion(outputs: result.outputs, message: result.message)
+        } catch let error as CLISubprocessTransport.RunError {
+            switch error {
+            case .nonZeroExit(let status, let stderr):
+                throw CLIPrimerTrimRunnerError.processExited(status: status, stderr: stderr)
+            case .launchFailed(let message):
+                throw CLIPrimerTrimRunnerError.processLaunchFailed(message)
+            case .cliNotFound:
+                throw CLIPrimerTrimRunnerError.cliBinaryNotFound
+            case .missingCompletion:
+                throw CLIPrimerTrimRunnerError.missingCompletion
+            case .failedEvent(let message, _):
+                throw CLIPrimerTrimRunnerError.runFailed(message: message)
             }
         }
     }
 
-    func run(
-        arguments: [String],
-        onEvent: @escaping @Sendable (CLIPrimerTrimEvent) -> Void
-    ) async throws {
-        guard let binaryURL = Self.cliBinaryPath() else {
-            throw CLIPrimerTrimRunnerError.cliBinaryNotFound
-        }
-
-        let process = Process()
-        process.environment = ManagedStorageConfigStore().subprocessEnvironment()
-        process.executableURL = binaryURL
-        process.arguments = arguments
-
-        let stdoutPipe = Pipe()
-        let stderrPipe = Pipe()
-        process.standardOutput = stdoutPipe
-        process.standardError = stderrPipe
-
-        let termination = CLIPrimerTrimProcessTermination()
-        process.terminationHandler = { terminatedProcess in
-            termination.markTerminated(status: terminatedProcess.terminationStatus)
-        }
-
-        cancellationHandle.store(process)
-
-        do {
-            try process.run()
-        } catch {
-            process.terminationHandler = nil
-            cancellationHandle.clear(process)
-            throw CLIPrimerTrimRunnerError.processLaunchFailed(error.localizedDescription)
-        }
-
-        let state = CLIPrimerTrimStreamState()
-
-        let stdoutHandle = stdoutPipe.fileHandleForReading
-        let stderrHandle = stderrPipe.fileHandleForReading
-
-        stderrHandle.readabilityHandler = { handle in
-            let chunk = handle.availableData
-            guard !chunk.isEmpty else { return }
-            state.appendStderr(chunk)
-        }
-
-        stdoutHandle.readabilityHandler = { handle in
-            let chunk = handle.availableData
-            guard !chunk.isEmpty else { return }
-            Self.emitEvents(from: state.appendStdout(chunk), onEvent: onEvent)
-        }
-
-        let status = await termination.wait()
-        stdoutHandle.readabilityHandler = nil
-        stderrHandle.readabilityHandler = nil
-        process.terminationHandler = nil
-
-        let remainingStdout = stdoutHandle.readDataToEndOfFile()
-        if !remainingStdout.isEmpty {
-            Self.emitEvents(from: state.appendStdout(remainingStdout), onEvent: onEvent)
-        }
-        Self.emitEvents(from: state.finishStdout(), onEvent: onEvent)
-
-        let remainingStderr = stderrHandle.readDataToEndOfFile()
-        if !remainingStderr.isEmpty {
-            state.appendStderr(remainingStderr)
-        }
-
-        cancellationHandle.clear(process)
-
-        if Task.isCancelled {
-            throw CancellationError()
-        }
-
-        guard status == 0 else {
-            throw CLIPrimerTrimRunnerError.processExited(status: status, stderr: state.stderrText())
-        }
+    func cancel() {
+        transport.cancel()
     }
 
-    func cancel() {
-        cancellationHandle.terminateProcessTree(gracePeriod: 0)
+    /// Parses the `"trackID=… trackName=…"` message and `[bamPath, baiPath,
+    /// provenanceSidecarPath]` outputs `BAMPrimerTrimSubcommand` encodes into
+    /// `CLIEvent.complete` for a successful run.
+    private static func parseCompletion(outputs: [String], message: String?) -> CLIPrimerTrimResult {
+        var trackID: String?
+        var trackName: String?
+        if let message {
+            for token in Self.tokenize(message) {
+                let parts = token.split(separator: "=", maxSplits: 1)
+                guard parts.count == 2 else { continue }
+                let value = String(parts[1])
+                switch parts[0] {
+                case "trackID": trackID = value.isEmpty ? nil : value
+                case "trackName": trackName = value.isEmpty ? nil : value
+                default: break
+                }
+            }
+        }
+        return CLIPrimerTrimResult(
+            trackID: trackID,
+            trackName: trackName,
+            bamPath: outputs.indices.contains(0) ? outputs[0] : nil,
+            baiPath: outputs.indices.contains(1) ? outputs[1] : nil,
+            provenanceSidecarPath: outputs.indices.contains(2) ? outputs[2] : nil
+        )
+    }
+
+    /// Splits `"trackID=a trackName=Sample 1 • Primer Trim"` back into
+    /// `["trackID=a", "trackName=Sample 1 • Primer Trim"]`: `trackName`'s
+    /// value can itself contain spaces, so this only splits at the boundary
+    /// before a recognized key, not on every space.
+    private static func tokenize(_ message: String) -> [String] {
+        let keys = ["trackID=", "trackName="]
+        var results: [String] = []
+        var remaining = Substring(message)
+        while let keyRange = keys.compactMap({ remaining.range(of: $0) }).min(by: { $0.lowerBound < $1.lowerBound }) {
+            let afterKey = remaining[keyRange.upperBound...]
+            let nextKeyStart = keys.compactMap { afterKey.range(of: $0)?.lowerBound }.min()
+            let valueEnd = nextKeyStart ?? afterKey.endIndex
+            results.append(String(remaining[keyRange.lowerBound..<valueEnd]).trimmingCharacters(in: .whitespaces))
+            remaining = remaining[valueEnd...]
+        }
+        return results
     }
 }

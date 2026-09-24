@@ -1,366 +1,99 @@
+// CLIMSAActionRunner.swift — Runs `lungfish-cli msa <action>` through CLISubprocessTransport.
+// Copyright (c) 2024 Lungfish Contributors
+// SPDX-License-Identifier: MIT
+
 import Foundation
 import LungfishCore
 import LungfishKit
 import LungfishWorkflow
-import os.log
 
-private let msaActionRunnerLogger = Logger(
-    subsystem: LogSubsystem.app,
-    category: "CLIMSAActionRunner"
-)
-
-enum CLIMSAActionEvent: Sendable, Equatable {
-    case start(actionID: String, operationID: String?, progress: Double, message: String)
-    case progress(actionID: String, operationID: String?, progress: Double, message: String)
-    case warning(actionID: String, operationID: String?, message: String, warningCount: Int)
-    case complete(actionID: String, operationID: String?, output: String, warningCount: Int)
-    case failed(actionID: String?, operationID: String?, error: String)
-}
-
-struct CLIMSAActionResult: Sendable, Equatable {
-    let outputURL: URL
-    let warningCount: Int
-    let actionID: String?
-}
-
-actor CLIMSAActionRunner {
-    enum RunError: Error, LocalizedError {
-        case cliNotFound
-        case launchFailed(String)
-        case nonZeroExit(status: Int32, stderr: String)
-        case missingCompletion
-        case failedEvent(String)
+/// Runs any `lungfish-cli msa` action subcommand (annotate/export/consensus/
+/// extract/mask/trim/distance/…) as a subprocess, decoding the shared
+/// `CLIEvent` schema instead of the private `msaAction*` JSON shape this
+/// runner used to hand-parse (ARC-02, SIMP-04). All call sites only ever
+/// cared whether the run succeeded and, on success, its output path; none
+/// read `warningCount` or `actionID` from the old `CLIMSAActionResult`, so
+/// those fields are no longer round-tripped over the wire.
+struct CLIMSAActionRunner {
+    enum RunError: Error, LocalizedError, Equatable {
+        case underlying(String)
 
         var errorDescription: String? {
             switch self {
-            case .cliNotFound:
-                return "The `lungfish-cli` binary could not be found in the app bundle or build products."
-            case .launchFailed(let message):
-                return "Failed to launch lungfish-cli: \(message)"
-            case .nonZeroExit(let status, let stderr):
-                let trimmed = stderr.trimmingCharacters(in: .whitespacesAndNewlines)
-                return trimmed.isEmpty
-                    ? "lungfish-cli exited with status \(status)"
-                    : "lungfish-cli exited with status \(status): \(trimmed)"
-            case .missingCompletion:
-                return "lungfish-cli finished without reporting an MSA action output."
-            case .failedEvent(let message):
-                return message
+            case let .underlying(message): return message
             }
         }
     }
 
-    private let cliURLOverride: URL?
-    private let cancellationHandle = NativeProcessCancellationHandle()
+    struct Result: Sendable, Equatable {
+        let outputURL: URL
+    }
+
+    private let transport: CLISubprocessTransport
 
     init(cliURLOverride: URL? = nil) {
-        self.cliURLOverride = cliURLOverride
+        self.transport = CLISubprocessTransport(cliURLOverride: cliURLOverride)
     }
 
-    static func parseEvent(from line: String) throws -> CLIMSAActionEvent? {
-        let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard trimmed.hasPrefix("{") else { return nil }
-        guard let data = trimmed.data(using: .utf8),
-              let dict = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let event = dict["event"] as? String else {
-            return nil
-        }
-
-        let actionID = dict["actionID"] as? String
-        let operationID = dict["operationID"] as? String
-
-        switch event {
-        case "msaActionStart":
-            return .start(
-                actionID: actionID ?? "msa.action",
-                operationID: operationID,
-                progress: (dict["progress"] as? NSNumber)?.doubleValue ?? 0,
-                message: dict["message"] as? String ?? "Starting MSA action..."
-            )
-        case "msaActionProgress":
-            return .progress(
-                actionID: actionID ?? "msa.action",
-                operationID: operationID,
-                progress: (dict["progress"] as? NSNumber)?.doubleValue ?? 0,
-                message: dict["message"] as? String ?? "Running MSA action..."
-            )
-        case "msaActionWarning":
-            return .warning(
-                actionID: actionID ?? "msa.action",
-                operationID: operationID,
-                message: dict["message"] as? String ?? "MSA action warning",
-                warningCount: (dict["warningCount"] as? NSNumber)?.intValue ?? 1
-            )
-        case "msaActionComplete":
-            return .complete(
-                actionID: actionID ?? "msa.action",
-                operationID: operationID,
-                output: dict["output"] as? String ?? "",
-                warningCount: (dict["warningCount"] as? NSNumber)?.intValue ?? 0
-            )
-        case "msaActionFailed":
-            return .failed(
-                actionID: actionID,
-                operationID: operationID,
-                error: dict["error"] as? String ?? dict["message"] as? String ?? "MSA action failed"
-            )
-        default:
-            return nil
-        }
-    }
-
-    func run(arguments: [String], operationID: UUID, ownsOperationLifecycle: Bool = true) async throws -> CLIMSAActionResult {
-        if await isOperationCancelled(operationID) {
-            if ownsOperationLifecycle {
-                await performCLIOperationCenterUpdate {
-                    OperationCenter.shared.acknowledgeCancellation(id: operationID)
-                }
-            }
-            throw CancellationError()
-        }
-        guard let binaryURL = cliURLOverride ?? CLIImportRunner.cliBinaryPath() else {
-            if ownsOperationLifecycle { await failOperation(operationID, detail: RunError.cliNotFound.localizedDescription) }
-            throw RunError.cliNotFound
-        }
-
-        let proc = Process()
-        proc.environment = ManagedStorageConfigStore().subprocessEnvironment()
-        proc.executableURL = binaryURL
-        proc.arguments = arguments
-        let stdoutPipe = Pipe()
-        let stderrPipe = Pipe()
-        proc.standardOutput = stdoutPipe
-        proc.standardError = stderrPipe
-        cancellationHandle.store(proc)
-
-        final class StreamState: @unchecked Sendable {
-            var stdoutBuffer = Data()
-            var stderrBuffer = Data()
-            var actionID: String?
-            var outputPath: String?
-            var warningCount = 0
-            var failedMessage: String?
-        }
-
-        let state = OSAllocatedUnfairLock(initialState: StreamState())
-        let stdoutHandle = stdoutPipe.fileHandleForReading
-        let stderrHandle = stderrPipe.fileHandleForReading
-        let stdoutHandlerGroup = DispatchGroup()
-        let stderrHandlerGroup = DispatchGroup()
-        let opID = operationID
-
-        @Sendable func handleLine(_ data: Data) {
-            guard let line = String(data: data, encoding: .utf8),
-                  !line.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-                return
-            }
-            do {
-                guard let event = try Self.parseEvent(from: line) else { return }
-                switch event {
-                case let .start(actionID, _, _, message):
-                    state.withLock { $0.actionID = actionID }
-                    DispatchQueue.main.async {
-                        MainActor.assumeIsolated {
-                            OperationCenter.shared.log(
-                                id: opID,
-                                level: .info,
-                                message: "\(message) (\(actionID))"
-                            )
-                        }
-                    }
-                case let .progress(actionID, _, progress, message):
-                    state.withLock { $0.actionID = actionID }
-                    let clamped = max(0, min(1, progress))
-                    DispatchQueue.main.async {
-                        MainActor.assumeIsolated {
-                            _ = OperationCenter.shared.update(id: opID, progress: clamped, detail: message)
-                        }
-                    }
-                case let .warning(actionID, _, message, warningCount):
-                    state.withLock {
-                        $0.actionID = actionID
-                        $0.warningCount = max($0.warningCount + 1, warningCount)
-                    }
-                    DispatchQueue.main.async {
-                        MainActor.assumeIsolated {
-                            OperationCenter.shared.log(id: opID, level: .warning, message: message)
-                        }
-                    }
-                case let .complete(actionID, _, output, warningCount):
-                    state.withLock {
-                        $0.actionID = actionID
-                        $0.outputPath = output
-                        $0.warningCount = max($0.warningCount, warningCount)
-                    }
-                case let .failed(actionID, _, error):
-                    state.withLock {
-                        $0.actionID = actionID
-                        $0.failedMessage = error
-                    }
-                    DispatchQueue.main.async {
-                        MainActor.assumeIsolated {
-                            OperationCenter.shared.log(id: opID, level: .error, message: error)
-                        }
-                    }
-                }
-            } catch {
-                msaActionRunnerLogger.warning("Failed to parse MSA action CLI event")
-            }
-        }
-
-        @Sendable func consumeStdout(_ data: Data) {
-            guard !data.isEmpty else { return }
-            let lines = state.withLock { current -> [Data] in
-                current.stdoutBuffer.append(data)
-                var parsed: [Data] = []
-                while let newlineIndex = current.stdoutBuffer.firstIndex(of: 0x0A) {
-                    let line = Data(current.stdoutBuffer.prefix(upTo: newlineIndex))
-                    current.stdoutBuffer.removeSubrange(...newlineIndex)
-                    parsed.append(line)
-                }
-                return parsed
-            }
-            for line in lines {
-                handleLine(line)
-            }
-        }
-
-        @Sendable func consumeStderr(_ data: Data) {
-            guard !data.isEmpty else { return }
-            state.withLock { $0.stderrBuffer.append(data) }
-        }
-
-        func drainStreamHandlers() {
-            stdoutHandlerGroup.wait()
-            stderrHandlerGroup.wait()
-        }
-
-        stdoutHandle.readabilityHandler = { handle in
-            stdoutHandlerGroup.enter()
-            defer { stdoutHandlerGroup.leave() }
-            let chunk = handle.availableData
-            guard !chunk.isEmpty else { return }
-            consumeStdout(chunk)
-        }
-        stderrHandle.readabilityHandler = { handle in
-            stderrHandlerGroup.enter()
-            defer { stderrHandlerGroup.leave() }
-            let chunk = handle.availableData
-            guard !chunk.isEmpty else { return }
-            consumeStderr(chunk)
-        }
-
-        await performCLIOperationCenterUpdate {
-            _ = OperationCenter.shared.update(id: opID, progress: 0.01, detail: "Launching lungfish-cli...")
-        }
-
+    /// - Parameter ownsOperationLifecycle: When `false` (the clipboard export
+    ///   leg), the caller records `OperationCenter` completion itself after
+    ///   further work (clipboard availability check, publish), so this method
+    ///   must not call `complete`/`fail` on success or cancellation — only on
+    ///   a genuine launch/process failure, matching the previous runner's
+    ///   contract.
+    func run(arguments: [String], operationID: UUID, ownsOperationLifecycle: Bool = true) async throws -> Result {
         do {
-            try proc.run()
-            cancellationHandle.terminateIfRequested()
-        } catch {
-            stdoutHandle.readabilityHandler = nil
-            stderrHandle.readabilityHandler = nil
-            drainStreamHandlers()
-            cancellationHandle.clear(proc)
-            if ownsOperationLifecycle { await failOperation(opID, detail: error.localizedDescription) }
-            throw RunError.launchFailed(error.localizedDescription)
-        }
-
-        proc.waitUntilExit()
-        stdoutHandle.readabilityHandler = nil
-        stderrHandle.readabilityHandler = nil
-        drainStreamHandlers()
-        consumeStdout(stdoutHandle.readDataToEndOfFile())
-        consumeStderr(stderrHandle.readDataToEndOfFile())
-        drainStreamHandlers()
-        if let trailing = state.withLock({ current -> Data? in
-            guard !current.stdoutBuffer.isEmpty else { return nil }
-            defer { current.stdoutBuffer.removeAll(keepingCapacity: false) }
-            return current.stdoutBuffer
-        }) {
-            handleLine(trailing)
-        }
-        let processWasCancelled = cancellationHandle.isTerminationRequested
-        cancellationHandle.clear(proc)
-
-        let snapshot = state.withLock { current in
-            (
-                stderr: String(data: current.stderrBuffer, encoding: .utf8) ?? "",
-                actionID: current.actionID,
-                outputPath: current.outputPath,
-                warningCount: current.warningCount,
-                failedMessage: current.failedMessage
+            let result = try await transport.run(
+                arguments: arguments,
+                isCancelled: { await OperationCenterCLIBridge.isOperationCancelled(operationID) },
+                onEvent: OperationCenterCLIBridge.onEvent(operationID: operationID)
             )
-        }
-
-        let operationWasCancelled = await isOperationCancelled(opID)
-        if processWasCancelled || operationWasCancelled {
-            if ownsOperationLifecycle {
-                await performCLIOperationCenterUpdate {
-                    OperationCenter.shared.acknowledgeCancellation(id: opID)
+            guard let outputPath = result.outputs.first,
+                  !outputPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                let message = "lungfish-cli finished without reporting an MSA action output."
+                if ownsOperationLifecycle {
+                    await OperationCenterCLIBridge.failOperation(operationID, detail: message, fallbackMessage: message)
                 }
+                throw RunError.underlying(message)
+            }
+            let outputURL = URL(fileURLWithPath: outputPath, isDirectory: Self.isNativeBundlePath(outputPath))
+            if ownsOperationLifecycle {
+                await MainActor.run {
+                    if Self.isNativeBundleURL(outputURL) {
+                        _ = OperationCenter.shared.complete(
+                            id: operationID,
+                            detail: "MSA action complete",
+                            bundleURLs: [outputURL]
+                        )
+                    } else {
+                        _ = OperationCenter.shared.complete(
+                            id: operationID,
+                            detail: "MSA action complete",
+                            outputURLs: [outputURL]
+                        )
+                    }
+                }
+                if await OperationCenterCLIBridge.isOperationCancelled(operationID) {
+                    throw CancellationError()
+                }
+            }
+            return Result(outputURL: outputURL)
+        } catch is CancellationError {
+            if ownsOperationLifecycle {
+                await OperationCenterCLIBridge.acknowledgeCancellation(operationID)
             }
             throw CancellationError()
-        }
-        if let failedMessage = snapshot.failedMessage {
-            if ownsOperationLifecycle { await failOperation(opID, detail: failedMessage) }
-            throw RunError.failedEvent(failedMessage)
-        }
-        if proc.terminationStatus != 0 {
-            let error = RunError.nonZeroExit(status: proc.terminationStatus, stderr: snapshot.stderr)
-            if ownsOperationLifecycle { await failOperation(opID, detail: error.localizedDescription) }
-            throw error
-        }
-        guard let outputPath = snapshot.outputPath,
-              !outputPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            if ownsOperationLifecycle { await failOperation(opID, detail: RunError.missingCompletion.localizedDescription) }
-            throw RunError.missingCompletion
-        }
-
-        let outputURL = URL(fileURLWithPath: outputPath, isDirectory: Self.isNativeBundlePath(outputPath))
-        if ownsOperationLifecycle {
-            await performCLIOperationCenterUpdate {
-                if Self.isNativeBundleURL(outputURL) {
-                    _ = OperationCenter.shared.complete(
-                        id: opID,
-                        detail: "MSA action complete",
-                        bundleURLs: [outputURL]
-                    )
-                } else {
-                    _ = OperationCenter.shared.complete(
-                        id: opID,
-                        detail: "MSA action complete",
-                        outputURLs: [outputURL]
-                    )
-                }
+        } catch let error as CLISubprocessTransport.RunError {
+            let message = error.errorDescription ?? "MSA action failed"
+            if ownsOperationLifecycle {
+                await OperationCenterCLIBridge.failOperation(operationID, detail: message, fallbackMessage: message)
             }
-            if await isOperationCancelled(opID) { throw CancellationError() }
+            throw RunError.underlying(message)
         }
-
-        return CLIMSAActionResult(
-            outputURL: outputURL,
-            warningCount: snapshot.warningCount,
-            actionID: snapshot.actionID
-        )
     }
 
-    nonisolated func cancel() {
-        cancellationHandle.requestProcessTreeTermination(gracePeriod: 0)
-    }
-
-    @MainActor
-    private func isOperationCancelled(_ id: UUID) -> Bool {
-        let state = OperationCenter.shared.items.first { $0.id == id }?.state
-        return cancellationHandle.isTerminationRequested || state == .cancelling || state == .cancelled
-    }
-
-    @MainActor
-    private func failOperation(_ id: UUID, detail: String?) {
-        let message = detail ?? "MSA action failed"
-        guard OperationCenter.shared.items.first(where: { $0.id == id })?.state != .cancelled else {
-            return
-        }
-        _ = OperationCenter.shared.fail(id: id, detail: message, errorMessage: message)
+    func cancel() {
+        transport.cancel()
     }
 
     private static func isNativeBundlePath(_ path: String) -> Bool {

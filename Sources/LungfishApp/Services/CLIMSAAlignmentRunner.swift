@@ -2,60 +2,36 @@ import Foundation
 import LungfishCore
 import LungfishWorkflow
 import LungfishKit
-import os.log
 
-private let msaAlignmentRunnerLogger = Logger(
-    subsystem: LogSubsystem.app,
-    category: "CLIMSAAlignmentRunner"
-)
-
-enum CLIMSAAlignmentEvent: Sendable, Equatable {
-    case start(tool: String, sourceCount: Int)
-    case progress(progress: Double, message: String)
-    case warning(message: String)
-    case complete(bundle: String, rowCount: Int, alignedLength: Int, warningCount: Int)
-    case failed(error: String)
-}
-
-struct CLIMSAAlignmentResult: Sendable, Equatable {
-    let bundleURL: URL
-    let rowCount: Int
-    let alignedLength: Int
-    let warningCount: Int
-}
-
-actor CLIMSAAlignmentRunner {
-    enum RunError: Error, LocalizedError {
-        case cliNotFound
-        case launchFailed(String)
-        case nonZeroExit(status: Int32, stderr: String)
-        case missingCompletion
-        case failedEvent(String)
+/// Runs `lungfish-cli align mafft` through `CLISubprocessTransport`, decoding
+/// the shared `CLIEvent` schema instead of the private `msaAlignment*` JSON
+/// shape this runner used to hand-parse (ARC-02, SIMP-04). The only fields a
+/// caller reads from a successful run are the bundle URL, row count and
+/// aligned length, none of which fit `CLIEvent.complete`'s plain
+/// `outputs`/`message` shape, so `AlignCommand` encodes them into the
+/// completion message as `"rows=<n> alignedLength=<n>"` and this runner
+/// parses them back out.
+struct CLIMSAAlignmentRunner {
+    enum RunError: Error, LocalizedError, Equatable {
+        case underlying(String)
 
         var errorDescription: String? {
             switch self {
-            case .cliNotFound:
-                return "The `lungfish-cli` binary could not be found in the app bundle or build products."
-            case .launchFailed(let message):
-                return "Failed to launch lungfish-cli: \(message)"
-            case .nonZeroExit(let status, let stderr):
-                let trimmed = stderr.trimmingCharacters(in: .whitespacesAndNewlines)
-                return trimmed.isEmpty
-                    ? "lungfish-cli exited with status \(status)"
-                    : "lungfish-cli exited with status \(status): \(trimmed)"
-            case .missingCompletion:
-                return "lungfish-cli finished without reporting an alignment bundle."
-            case .failedEvent(let message):
-                return message
+            case let .underlying(message): return message
             }
         }
     }
 
-    private let cliURLOverride: URL?
-    private let cancellationHandle = NativeProcessCancellationHandle()
+    struct Result: Sendable, Equatable {
+        let bundleURL: URL
+        let rowCount: Int
+        let alignedLength: Int
+    }
+
+    private let transport: CLISubprocessTransport
 
     init(cliURLOverride: URL? = nil) {
-        self.cliURLOverride = cliURLOverride
+        self.transport = CLISubprocessTransport(cliURLOverride: cliURLOverride)
     }
 
     static func buildArguments(
@@ -112,238 +88,45 @@ actor CLIMSAAlignmentRunner {
         return args
     }
 
-    static func parseEvent(from line: String) throws -> CLIMSAAlignmentEvent? {
-        let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard trimmed.hasPrefix("{") else { return nil }
-        guard let data = trimmed.data(using: .utf8),
-              let dict = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let event = dict["event"] as? String else {
-            return nil
-        }
-
-        switch event {
-        case "msaAlignmentStart":
-            return .start(
-                tool: dict["tool"] as? String ?? "mafft",
-                sourceCount: (dict["sourceCount"] as? NSNumber)?.intValue ?? 0
-            )
-        case "msaAlignmentProgress":
-            return .progress(
-                progress: (dict["progress"] as? NSNumber)?.doubleValue ?? 0,
-                message: dict["message"] as? String ?? "Running MAFFT..."
-            )
-        case "msaAlignmentWarning":
-            return .warning(message: dict["message"] as? String ?? "MAFFT warning")
-        case "msaAlignmentComplete":
-            return .complete(
-                bundle: dict["bundle"] as? String ?? "",
-                rowCount: (dict["rowCount"] as? NSNumber)?.intValue ?? 0,
-                alignedLength: (dict["alignedLength"] as? NSNumber)?.intValue ?? 0,
-                warningCount: (dict["warningCount"] as? NSNumber)?.intValue ?? 0
-            )
-        case "msaAlignmentFailed":
-            return .failed(error: dict["message"] as? String ?? "MAFFT alignment failed")
-        default:
-            return nil
-        }
-    }
-
-    func run(arguments: [String], operationID: UUID) async throws -> CLIMSAAlignmentResult {
-        guard let binaryURL = cliURLOverride ?? CLIImportRunner.cliBinaryPath() else {
-            await failOperation(operationID, detail: RunError.cliNotFound.localizedDescription)
-            throw RunError.cliNotFound
-        }
-
-        let proc = Process()
-        proc.environment = ManagedStorageConfigStore().subprocessEnvironment()
-        proc.executableURL = binaryURL
-        proc.arguments = arguments
-        let stdoutPipe = Pipe()
-        let stderrPipe = Pipe()
-        proc.standardOutput = stdoutPipe
-        proc.standardError = stderrPipe
-        cancellationHandle.store(proc)
-
-        final class StreamState: @unchecked Sendable {
-            var stdoutBuffer = Data()
-            var stderrBuffer = Data()
-            var bundlePath: String?
-            var rowCount = 0
-            var alignedLength = 0
-            var warningCount = 0
-            var failedMessage: String?
-        }
-
-        let state = OSAllocatedUnfairLock(initialState: StreamState())
-        let stdoutHandle = stdoutPipe.fileHandleForReading
-        let stderrHandle = stderrPipe.fileHandleForReading
-        let stdoutHandlerGroup = DispatchGroup()
-        let stderrHandlerGroup = DispatchGroup()
-        let opID = operationID
-
-        @Sendable func handleLine(_ data: Data) {
-            guard let line = String(data: data, encoding: .utf8),
-                  !line.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-                return
-            }
-            do {
-                guard let event = try Self.parseEvent(from: line) else { return }
-                switch event {
-                case let .start(tool, sourceCount):
-                    DispatchQueue.main.async {
-                        MainActor.assumeIsolated {
-                            OperationCenter.shared.log(
-                                id: opID,
-                                level: .info,
-                                message: "Started \(tool) alignment for \(sourceCount) source file(s) via lungfish-cli"
-                            )
-                        }
-                    }
-                case let .progress(progress, message):
-                    let clamped = max(0, min(1, progress))
-                    DispatchQueue.main.async {
-                        MainActor.assumeIsolated {
-                            _ = OperationCenter.shared.update(id: opID, progress: clamped, detail: message)
-                        }
-                    }
-                case let .warning(message):
-                    state.withLock { $0.warningCount += 1 }
-                    DispatchQueue.main.async {
-                        MainActor.assumeIsolated {
-                            OperationCenter.shared.log(id: opID, level: .warning, message: message)
-                        }
-                    }
-                case let .complete(bundle, rowCount, alignedLength, warningCount):
-                    state.withLock {
-                        $0.bundlePath = bundle
-                        $0.rowCount = rowCount
-                        $0.alignedLength = alignedLength
-                        $0.warningCount = max($0.warningCount, warningCount)
-                    }
-                case let .failed(error):
-                    state.withLock { $0.failedMessage = error }
-                    DispatchQueue.main.async {
-                        MainActor.assumeIsolated {
-                            OperationCenter.shared.log(id: opID, level: .error, message: error)
-                        }
-                    }
-                }
-            } catch {
-                msaAlignmentRunnerLogger.warning("Failed to parse MAFFT CLI event")
-            }
-        }
-
-        @Sendable func consumeStdout(_ data: Data) {
-            guard !data.isEmpty else { return }
-            let lines = state.withLock { current -> [Data] in
-                current.stdoutBuffer.append(data)
-                var parsed: [Data] = []
-                while let newlineIndex = current.stdoutBuffer.firstIndex(of: 0x0A) {
-                    let line = Data(current.stdoutBuffer.prefix(upTo: newlineIndex))
-                    current.stdoutBuffer.removeSubrange(...newlineIndex)
-                    parsed.append(line)
-                }
-                return parsed
-            }
-            for line in lines {
-                handleLine(line)
-            }
-        }
-
-        @Sendable func consumeStderr(_ data: Data) {
-            guard !data.isEmpty else { return }
-            state.withLock { $0.stderrBuffer.append(data) }
-        }
-
-        func drainStreamHandlers() {
-            stdoutHandlerGroup.wait()
-            stderrHandlerGroup.wait()
-        }
-
-        stdoutHandle.readabilityHandler = { handle in
-            stdoutHandlerGroup.enter()
-            defer { stdoutHandlerGroup.leave() }
-            let chunk = handle.availableData
-            guard !chunk.isEmpty else { return }
-            consumeStdout(chunk)
-        }
-        stderrHandle.readabilityHandler = { handle in
-            stderrHandlerGroup.enter()
-            defer { stderrHandlerGroup.leave() }
-            let chunk = handle.availableData
-            guard !chunk.isEmpty else { return }
-            consumeStderr(chunk)
-        }
-
-        await performCLIOperationCenterUpdate {
-            _ = OperationCenter.shared.update(id: opID, progress: 0.01, detail: "Launching lungfish-cli...")
-        }
-
+    func run(arguments: [String], operationID: UUID) async throws -> Result {
         do {
-            try proc.run()
-            cancellationHandle.terminateIfRequested()
-        } catch {
-            stdoutHandle.readabilityHandler = nil
-            stderrHandle.readabilityHandler = nil
-            drainStreamHandlers()
-            cancellationHandle.clear(proc)
-            await failOperation(opID, detail: error.localizedDescription)
-            throw RunError.launchFailed(error.localizedDescription)
-        }
-
-        proc.waitUntilExit()
-        stdoutHandle.readabilityHandler = nil
-        stderrHandle.readabilityHandler = nil
-        drainStreamHandlers()
-        consumeStdout(stdoutHandle.readDataToEndOfFile())
-        consumeStderr(stderrHandle.readDataToEndOfFile())
-        drainStreamHandlers()
-        if let trailing = state.withLock({ current -> Data? in
-            guard !current.stdoutBuffer.isEmpty else { return nil }
-            defer { current.stdoutBuffer.removeAll(keepingCapacity: false) }
-            return current.stdoutBuffer
-        }) {
-            handleLine(trailing)
-        }
-        cancellationHandle.clear(proc)
-
-        let snapshot = state.withLock { current in
-            (
-                stderr: String(data: current.stderrBuffer, encoding: .utf8) ?? "",
-                bundlePath: current.bundlePath,
-                rowCount: current.rowCount,
-                alignedLength: current.alignedLength,
-                warningCount: current.warningCount,
-                failedMessage: current.failedMessage
+            let result = try await transport.run(
+                arguments: arguments,
+                isCancelled: { await OperationCenterCLIBridge.isOperationCancelled(operationID) },
+                onEvent: OperationCenterCLIBridge.onEvent(operationID: operationID)
             )
+            guard let bundlePath = result.outputs.first,
+                  !bundlePath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                throw RunError.underlying("lungfish-cli finished without reporting an alignment bundle.")
+            }
+            let (rowCount, alignedLength) = Self.parseCounts(from: result.message)
+            return Result(
+                bundleURL: URL(fileURLWithPath: bundlePath, isDirectory: true),
+                rowCount: rowCount,
+                alignedLength: alignedLength
+            )
+        } catch let error as CLISubprocessTransport.RunError {
+            throw RunError.underlying(error.errorDescription ?? "MAFFT alignment failed")
         }
-
-        if let failedMessage = snapshot.failedMessage {
-            throw RunError.failedEvent(failedMessage)
-        }
-        if proc.terminationStatus != 0 {
-            throw RunError.nonZeroExit(status: proc.terminationStatus, stderr: snapshot.stderr)
-        }
-        guard let bundlePath = snapshot.bundlePath,
-              !bundlePath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            throw RunError.missingCompletion
-        }
-
-        return CLIMSAAlignmentResult(
-            bundleURL: URL(fileURLWithPath: bundlePath, isDirectory: true),
-            rowCount: snapshot.rowCount,
-            alignedLength: snapshot.alignedLength,
-            warningCount: snapshot.warningCount
-        )
     }
 
-    nonisolated func cancel() {
-        cancellationHandle.terminateProcessTree(gracePeriod: 0)
+    func cancel() {
+        transport.cancel()
     }
 
-    @MainActor
-    private func failOperation(_ id: UUID, detail: String?) {
-        let message = detail ?? "MAFFT alignment failed"
-        _ = OperationCenter.shared.fail(id: id, detail: message, errorMessage: message)
+    private static func parseCounts(from message: String?) -> (rowCount: Int, alignedLength: Int) {
+        guard let message else { return (0, 0) }
+        var rowCount = 0
+        var alignedLength = 0
+        for token in message.split(separator: " ") {
+            let parts = token.split(separator: "=", maxSplits: 1)
+            guard parts.count == 2, let value = Int(parts[1]) else { continue }
+            switch parts[0] {
+            case "rows": rowCount = value
+            case "alignedLength": alignedLength = value
+            default: break
+            }
+        }
+        return (rowCount, alignedLength)
     }
 }

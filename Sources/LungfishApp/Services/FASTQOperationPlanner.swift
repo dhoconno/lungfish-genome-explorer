@@ -213,7 +213,7 @@ func isDemultiplexRequest(_ request: FASTQOperationLaunchRequest) -> Bool {
     func ensureGroupedResultProvenance(
         originalRequest: FASTQOperationLaunchRequest,
         resolvedRequest: FASTQOperationLaunchRequest,
-        invocations: [CLIInvocation],
+        invocations: [FASTQCLIInvocation],
         outputURLs: [URL],
         outputDirectory: URL
     ) throws {

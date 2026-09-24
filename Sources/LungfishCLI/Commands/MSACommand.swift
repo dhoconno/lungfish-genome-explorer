@@ -2292,22 +2292,16 @@ private struct MSATrimMetadata: Codable, Equatable {
     }
 }
 
+/// Thin adapter over the shared `CLIEventEmitter` (LungfishWorkflow) matching
+/// the call-site shape every MSA action subcommand already uses
+/// (`emitStart(actionID:message:)`, `emitProgress`, `emitWarning`,
+/// `emitComplete`, `emitFailed`). Replaces the private per-command
+/// `msaActionStart`/`msaActionProgress`/… JSON schema (ARC-02, SIMP-04) with
+/// the shared `CLIEvent` wire format. `actionID`/`warningCount` are accepted
+/// for source compatibility but not part of the wire schema: no GUI caller
+/// ever read them (`CLIMSAActionRunner`'s callers all discard its result).
 private final class MSAActionCLIEventEmitter: @unchecked Sendable {
-    private struct Event: Encodable {
-        let event: String
-        let actionID: String
-        let operationID: String
-        let progress: Double?
-        let message: String?
-        let output: String?
-        let warningCount: Int?
-        let error: String?
-    }
-
-    private let enabled: Bool
-    private let emitLine: (String) -> Void
-    private let lock = NSLock()
-    private let operationID: String
+    private let emitter: CLIEventEmitter
 
     init(
         enabled: Bool,
@@ -2316,42 +2310,27 @@ private final class MSAActionCLIEventEmitter: @unchecked Sendable {
         print(line)
         fflush(stdout)
     }) {
-        self.enabled = enabled
-        self.operationID = operationID
-        self.emitLine = emit
+        self.emitter = CLIEventEmitter(enabled: enabled, emit: emit)
     }
 
     func emitStart(actionID: String, message: String) {
-        emit(Event(event: "msaActionStart", actionID: actionID, operationID: operationID, progress: 0, message: message, output: nil, warningCount: nil, error: nil))
+        emitter.emitStart(message)
     }
 
     func emitProgress(actionID: String, progress: Double, message: String) {
-        emit(Event(event: "msaActionProgress", actionID: actionID, operationID: operationID, progress: max(0, min(1, progress)), message: message, output: nil, warningCount: nil, error: nil))
+        emitter.emitProgress(progress, message: message)
     }
 
     func emitWarning(actionID: String, message: String, warningCount: Int? = nil) {
-        emit(Event(event: "msaActionWarning", actionID: actionID, operationID: operationID, progress: nil, message: message, output: nil, warningCount: warningCount, error: nil))
+        emitter.emitLog(.warning, message)
     }
 
     func emitComplete(actionID: String, output: String, warningCount: Int) {
-        emit(Event(event: "msaActionComplete", actionID: actionID, operationID: operationID, progress: 1, message: nil, output: output, warningCount: warningCount, error: nil))
+        emitter.emitComplete(output: output)
     }
 
     func emitFailed(actionID: String, message: String) {
-        emit(Event(event: "msaActionFailed", actionID: actionID, operationID: operationID, progress: nil, message: nil, output: nil, warningCount: nil, error: message))
-    }
-
-    private func emit(_ event: Event) {
-        guard enabled else { return }
-        lock.lock()
-        defer { lock.unlock() }
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.sortedKeys]
-        guard let data = try? encoder.encode(event),
-              let line = String(data: data, encoding: .utf8) else {
-            return
-        }
-        emitLine(line)
+        emitter.emitFailed(message)
     }
 }
 

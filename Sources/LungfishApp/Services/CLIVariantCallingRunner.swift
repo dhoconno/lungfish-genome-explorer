@@ -1,44 +1,33 @@
+// CLIVariantCallingRunner.swift — Runs `lungfish-cli variants call` through CLISubprocessTransport.
+// Copyright (c) 2024 Lungfish Contributors
+// SPDX-License-Identifier: MIT
+
 import Foundation
 import LungfishCore
+import LungfishKit
 import LungfishWorkflow
-import os.log
 
-private let variantCallingRunnerLogger = Logger(
-    subsystem: LogSubsystem.app,
-    category: "CLIVariantCallingRunner"
-)
-
-enum CLIVariantCallingEvent: Sendable, Equatable {
-    case runStart(message: String)
-    case preflightStart(message: String)
-    case preflightComplete(message: String)
-    case stageStart(message: String)
-    case stageProgress(progress: Double, message: String)
-    case stageComplete(message: String)
-    case importStart(message: String)
-    case importComplete(message: String, importedVariantCount: Int?)
-    case attachStart(message: String)
-    case attachComplete(
-        trackID: String?,
-        trackName: String?,
-        databasePath: String?,
-        vcfPath: String?,
-        tbiPath: String?
-    )
-    case runComplete(
-        trackID: String,
-        trackName: String,
-        databasePath: String,
-        vcfPath: String,
-        tbiPath: String
-    )
-    case runFailed(message: String)
+/// Result of a successful `lungfish-cli variants call` run, decoded from the
+/// shared `CLIEvent` schema instead of the private `runStart`/`stageProgress`/
+/// `runComplete`/… JSON shape this runner used to hand-parse (ARC-02,
+/// SIMP-04). `VariantsCommand` folds its rich completion fields
+/// (`variantTrackID`, `vcfPath`, `tbiPath`, `databasePath`) into
+/// `CLIEvent.complete`'s `outputs` (`[databasePath, vcfPath, tbiPath]`) and a
+/// `"trackID=… trackName=…"` message; this type parses them back out.
+struct CLIVariantCallingResult: Sendable, Equatable {
+    let trackID: String?
+    let trackName: String?
+    let databasePath: String?
+    let vcfPath: String?
+    let tbiPath: String?
 }
 
 enum CLIVariantCallingRunnerError: Error, LocalizedError, Equatable {
     case cliBinaryNotFound
     case processLaunchFailed(String)
     case processExited(status: Int32, stderr: String)
+    case runFailed(message: String)
+    case missingCompletion
 
     var errorDescription: String? {
         switch self {
@@ -51,160 +40,37 @@ enum CLIVariantCallingRunnerError: Error, LocalizedError, Equatable {
                 return "lungfish-cli exited with status \(status)"
             }
             return "lungfish-cli exited with status \(status): \(stderr)"
+        case .runFailed(let message):
+            return message
+        case .missingCompletion:
+            return "lungfish-cli finished without reporting variant-calling completion."
         }
     }
 }
 
-private final class CLIVariantCallingProcessBox: @unchecked Sendable {
-    let process: Process
+/// A plain struct, not an actor: `CLISubprocessTransport` (its only mutable
+/// state) is itself an actor that owns all the concurrency here, so wrapping
+/// it in another actor would only add a second isolation domain with nothing
+/// to protect. That second domain was a real bug (caught by the P6-A/B
+/// integration gate): `cancel()` used to be an actor-isolated method, so a
+/// caller's `runner.cancel()` queued behind the in-flight `run()` call on the
+/// same actor instance and never executed until `run()` returned -- but
+/// `run()` awaits the subprocess exiting, which only `cancel()` was
+/// supposed to trigger. `transport.cancel()` is already `nonisolated` and
+/// thread-safe (`NativeProcessCancellationHandle`), so this wrapper just
+/// forwards to it directly, matching `CLITreeRunner`'s struct-based pattern.
+struct CLIVariantCallingRunner {
+    private let transport: CLISubprocessTransport
+    private let cancellationRequested = LockedBool()
 
-    init(_ process: Process) {
-        self.process = process
+    init(cliURLOverride: URL? = nil) {
+        self.transport = CLISubprocessTransport(cliURLOverride: cliURLOverride)
     }
 
-    func terminateTree() {
-        ProcessTreeTerminator.terminate(rootProcess: process)
-    }
-}
-
-private final class CLIVariantCallingStreamState: @unchecked Sendable {
-    private let lock = NSLock()
-    private var stdoutBuffer = Data()
-    private var stderrBuffer = Data()
-
-    func appendStdout(_ chunk: Data) -> [String] {
-        lock.lock()
-        stdoutBuffer.append(chunk)
-        let lines = drainStdoutLines()
-        lock.unlock()
-        return lines
-    }
-
-    func finishStdout() -> [String] {
-        lock.lock()
-        defer { lock.unlock() }
-        guard !stdoutBuffer.isEmpty else { return [] }
-        let line = decode(stdoutBuffer)
-        stdoutBuffer.removeAll(keepingCapacity: false)
-        return line.isEmpty ? [] : [line]
-    }
-
-    func appendStderr(_ chunk: Data) {
-        lock.lock()
-        stderrBuffer.append(chunk)
-        lock.unlock()
-    }
-
-    func stderrText() -> String {
-        lock.lock()
-        let data = stderrBuffer
-        lock.unlock()
-        return String(data: data, encoding: .utf8)?
-            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-    }
-
-    private func drainStdoutLines() -> [String] {
-        var lines: [String] = []
-        while let newlineIndex = stdoutBuffer.firstIndex(where: { $0 == 0x0A || $0 == 0x0D }) {
-            let lineData = stdoutBuffer[..<newlineIndex]
-            let line = decode(Data(lineData))
-            if !line.isEmpty {
-                lines.append(line)
-            }
-
-            var removalEnd = stdoutBuffer.index(after: newlineIndex)
-            if stdoutBuffer[newlineIndex] == 0x0D,
-               removalEnd < stdoutBuffer.endIndex,
-               stdoutBuffer[removalEnd] == 0x0A {
-                removalEnd = stdoutBuffer.index(after: removalEnd)
-            }
-            stdoutBuffer.removeSubrange(stdoutBuffer.startIndex..<removalEnd)
-        }
-        return lines
-    }
-
-    private func decode(_ data: Data) -> String {
-        String(data: data, encoding: .utf8) ?? String(decoding: data, as: UTF8.self)
-    }
-}
-
-private final class CLIVariantCallingVoidCompletion: @unchecked Sendable {
-    private let lock = NSLock()
-    private var continuation: CheckedContinuation<Void, Never>?
-    private var completed = false
-
-    func wait() async {
-        await withCheckedContinuation { continuation in
-            lock.lock()
-            if completed {
-                lock.unlock()
-                continuation.resume()
-            } else {
-                self.continuation = continuation
-                lock.unlock()
-            }
-        }
-    }
-
-    func complete() {
-        let continuationToResume: CheckedContinuation<Void, Never>?
-        lock.lock()
-        if completed {
-            continuationToResume = nil
-        } else {
-            completed = true
-            continuationToResume = continuation
-            continuation = nil
-        }
-        lock.unlock()
-        continuationToResume?.resume()
-    }
-}
-
-private final class CLIVariantCallingExitCompletion: @unchecked Sendable {
-    private let lock = NSLock()
-    private var continuation: CheckedContinuation<Int32, Never>?
-    private var exitStatus: Int32?
-
-    func wait() async -> Int32 {
-        await withCheckedContinuation { continuation in
-            lock.lock()
-            if let exitStatus {
-                lock.unlock()
-                continuation.resume(returning: exitStatus)
-            } else {
-                self.continuation = continuation
-                lock.unlock()
-            }
-        }
-    }
-
-    func complete(exitStatus: Int32) {
-        let continuationToResume: CheckedContinuation<Int32, Never>?
-        lock.lock()
-        if self.exitStatus != nil {
-            continuationToResume = nil
-        } else {
-            self.exitStatus = exitStatus
-            continuationToResume = continuation
-            continuation = nil
-        }
-        lock.unlock()
-        continuationToResume?.resume(returning: exitStatus)
-    }
-}
-
-actor CLIVariantCallingRunner {
-    private var process: Process?
-    private var cancellationRequested = false
-    private let cliBinaryPathProvider: @Sendable () -> URL?
-
-    init(cliBinaryPathProvider: @escaping @Sendable () -> URL? = CLIVariantCallingRunner.cliBinaryPath) {
-        self.cliBinaryPathProvider = cliBinaryPathProvider
-    }
-
-    static func cliBinaryPath() -> URL? {
-        CLIImportRunner.cliBinaryPath()
+    /// Retained for source compatibility with call sites that supply a custom
+    /// binary lookup rather than a fixed override URL.
+    init(cliBinaryPathProvider: @escaping @Sendable () -> URL?) {
+        self.transport = CLISubprocessTransport(cliURLOverride: cliBinaryPathProvider())
     }
 
     static func buildCLIArguments(request: BundleVariantCallingRequest) -> [String] {
@@ -253,184 +119,108 @@ actor CLIVariantCallingRunner {
         return arguments
     }
 
-    static func parseEvent(from line: String) throws -> CLIVariantCallingEvent? {
-        let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard trimmed.hasPrefix("{") else { return nil }
-
-        guard let data = trimmed.data(using: .utf8),
-              let dict = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let event = dict["event"] as? String else {
-            return nil
-        }
-
-        let message = dict["message"] as? String ?? ""
-        let importedVariantCount = dict["importedVariantCount"] as? Int
-        let variantTrackID = dict["variantTrackID"] as? String
-        let variantTrackName = dict["variantTrackName"] as? String
-        let databasePath = dict["databasePath"] as? String
-        let vcfPath = dict["vcfPath"] as? String
-        let tbiPath = dict["tbiPath"] as? String
-
-        switch event {
-        case "runStart":
-            return .runStart(message: message)
-        case "preflightStart":
-            return .preflightStart(message: message)
-        case "preflightComplete":
-            return .preflightComplete(message: message)
-        case "stageStart":
-            return .stageStart(message: message)
-        case "stageProgress":
-            return .stageProgress(
-                progress: dict["progress"] as? Double ?? 0,
-                message: message
+    /// Runs `arguments`, invoking `onEvent` for every progress/log line and
+    /// returning the parsed completion fields on success.
+    func run(
+        arguments: [String],
+        onEvent: @escaping @Sendable (CLIEvent) -> Void = { _ in }
+    ) async throws -> CLIVariantCallingResult {
+        do {
+            let result = try await transport.run(
+                arguments: arguments,
+                isCancelled: { [cancellationRequested] in cancellationRequested.value },
+                onEvent: onEvent
             )
-        case "stageComplete":
-            return .stageComplete(message: message)
-        case "importStart":
-            return .importStart(message: message)
-        case "importComplete":
-            return .importComplete(message: message, importedVariantCount: importedVariantCount)
-        case "attachStart":
-            return .attachStart(message: message)
-        case "attachComplete":
-            return .attachComplete(
-                trackID: variantTrackID,
-                trackName: variantTrackName,
-                databasePath: databasePath,
-                vcfPath: vcfPath,
-                tbiPath: tbiPath
-            )
-        case "runComplete":
-            guard let variantTrackID,
-                  let variantTrackName,
-                  let databasePath,
-                  let vcfPath,
-                  let tbiPath else {
-                return nil
+            return Self.parseCompletion(outputs: result.outputs, message: result.message)
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch let error as CLISubprocessTransport.RunError {
+            switch error {
+            case .nonZeroExit(let status, let stderr):
+                throw CLIVariantCallingRunnerError.processExited(status: status, stderr: stderr)
+            case .launchFailed(let message):
+                throw CLIVariantCallingRunnerError.processLaunchFailed(message)
+            case .cliNotFound:
+                throw CLIVariantCallingRunnerError.cliBinaryNotFound
+            case .missingCompletion:
+                throw CLIVariantCallingRunnerError.missingCompletion
+            case .failedEvent(let message, _):
+                throw CLIVariantCallingRunnerError.runFailed(message: message)
             }
-            return .runComplete(
-                trackID: variantTrackID,
-                trackName: variantTrackName,
-                databasePath: databasePath,
-                vcfPath: vcfPath,
-                tbiPath: tbiPath
-            )
-        case "runFailed":
-            return .runFailed(message: message)
-        default:
-            variantCallingRunnerLogger.debug("Unknown CLI variant event type: \(event)")
-            return nil
         }
     }
 
-    func run(
-        arguments: [String],
-        onEvent: @escaping @Sendable (CLIVariantCallingEvent) -> Void
-    ) async throws {
-        guard let binaryURL = cliBinaryPathProvider() else {
-            throw CLIVariantCallingRunnerError.cliBinaryNotFound
-        }
-        try Task.checkCancellation()
+    /// A plain struct method, not actor-isolated: returns immediately, never
+    /// queuing behind an in-flight `run()` call (see the type's doc comment).
+    func cancel() {
+        cancellationRequested.value = true
+        transport.cancel()
+    }
 
-        let process = Process()
-        process.environment = ManagedStorageConfigStore().subprocessEnvironment()
-        process.executableURL = binaryURL
-        process.arguments = arguments
-        let processBox = CLIVariantCallingProcessBox(process)
-
-        let stdoutPipe = Pipe()
-        let stderrPipe = Pipe()
-        process.standardOutput = stdoutPipe
-        process.standardError = stderrPipe
-
-        self.process = process
-        cancellationRequested = false
-
-        let state = CLIVariantCallingStreamState()
-        let stdoutComplete = CLIVariantCallingVoidCompletion()
-        let stderrComplete = CLIVariantCallingVoidCompletion()
-        let exitComplete = CLIVariantCallingExitCompletion()
-        let stdoutHandle = stdoutPipe.fileHandleForReading
-        let stderrHandle = stderrPipe.fileHandleForReading
-
-        let emitStdoutLines: @Sendable ([String]) -> Void = { lines in
-            for line in lines {
-                do {
-                    if let event = try Self.parseEvent(from: line) {
-                        onEvent(event)
-                    }
-                } catch {
-                    variantCallingRunnerLogger.warning(
-                        "Failed to parse variant-calling CLI event: \(error.localizedDescription)"
-                    )
+    /// Parses the `"trackID=… trackName=…"` message and `[databasePath,
+    /// vcfPath, tbiPath]` outputs `VariantsCommand` encodes into
+    /// `CLIEvent.complete` for a successful run.
+    private static func parseCompletion(outputs: [String], message: String?) -> CLIVariantCallingResult {
+        var trackID: String?
+        var trackName: String?
+        if let message {
+            for token in Self.tokenize(message) {
+                let parts = token.split(separator: "=", maxSplits: 1)
+                guard parts.count == 2 else { continue }
+                let value = String(parts[1])
+                switch parts[0] {
+                case "trackID": trackID = value.isEmpty ? nil : value
+                case "trackName": trackName = value.isEmpty ? nil : value
+                default: break
                 }
             }
         }
-
-        stdoutHandle.readabilityHandler = { handle in
-            let chunk = handle.availableData
-            guard !chunk.isEmpty else {
-                stdoutHandle.readabilityHandler = nil
-                emitStdoutLines(state.finishStdout())
-                stdoutComplete.complete()
-                return
-            }
-            emitStdoutLines(state.appendStdout(chunk))
-        }
-
-        stderrHandle.readabilityHandler = { handle in
-            let chunk = handle.availableData
-            guard !chunk.isEmpty else {
-                stderrHandle.readabilityHandler = nil
-                stderrComplete.complete()
-                return
-            }
-            state.appendStderr(chunk)
-        }
-
-        process.terminationHandler = { terminatedProcess in
-            exitComplete.complete(exitStatus: terminatedProcess.terminationStatus)
-        }
-
-        defer {
-            stdoutHandle.readabilityHandler = nil
-            stderrHandle.readabilityHandler = nil
-            process.terminationHandler = nil
-            self.process = nil
-        }
-
-        do {
-            try process.run()
-        } catch {
-            self.process = nil
-            throw CLIVariantCallingRunnerError.processLaunchFailed(error.localizedDescription)
-        }
-
-        let status = await withTaskCancellationHandler {
-            async let exitStatus = exitComplete.wait()
-            async let stdoutEOF: Void = stdoutComplete.wait()
-            async let stderrEOF: Void = stderrComplete.wait()
-            let status = await exitStatus
-            _ = await (stdoutEOF, stderrEOF)
-            return status
-        } onCancel: {
-            processBox.terminateTree()
-        }
-
-        if Task.isCancelled || cancellationRequested {
-            throw CancellationError()
-        }
-
-        guard status == 0 else {
-            let stderr = state.stderrText()
-            throw CLIVariantCallingRunnerError.processExited(status: status, stderr: stderr)
-        }
+        return CLIVariantCallingResult(
+            trackID: trackID,
+            trackName: trackName,
+            databasePath: outputs.indices.contains(0) ? outputs[0] : nil,
+            vcfPath: outputs.indices.contains(1) ? outputs[1] : nil,
+            tbiPath: outputs.indices.contains(2) ? outputs[2] : nil
+        )
     }
 
-    func cancel() {
-        guard let process, process.isRunning else { return }
-        cancellationRequested = true
-        ProcessTreeTerminator.terminate(rootProcess: process)
+    /// Splits `"trackID=a trackName=Sample 1 • LoFreq"` back into
+    /// `["trackID=a", "trackName=Sample 1 • LoFreq"]`: `trackName`'s value can
+    /// itself contain spaces, so this only splits at the boundary before a
+    /// recognized key, not on every space.
+    private static func tokenize(_ message: String) -> [String] {
+        let keys = ["trackID=", "trackName="]
+        var results: [String] = []
+        var remaining = Substring(message)
+        while let keyRange = keys.compactMap({ remaining.range(of: $0) }).min(by: { $0.lowerBound < $1.lowerBound }) {
+            let afterKey = remaining[keyRange.upperBound...]
+            let nextKeyStart = keys.compactMap { afterKey.range(of: $0)?.lowerBound }.min()
+            let valueEnd = nextKeyStart ?? afterKey.endIndex
+            results.append(String(remaining[keyRange.lowerBound..<valueEnd]).trimmingCharacters(in: .whitespaces))
+            remaining = remaining[valueEnd...]
+        }
+        return results
+    }
+}
+
+/// A thread-safe boolean flag, cheaper than an actor when the only operation
+/// needed is "set from any thread, read from any thread" -- exactly
+/// `CLIVariantCallingRunner.cancel()`'s requirement, mirroring
+/// `NativeProcessCancellationHandle`'s own locking.
+private final class LockedBool: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storage = false
+
+    var value: Bool {
+        get {
+            lock.lock()
+            defer { lock.unlock() }
+            return storage
+        }
+        set {
+            lock.lock()
+            storage = newValue
+            lock.unlock()
+        }
     }
 }

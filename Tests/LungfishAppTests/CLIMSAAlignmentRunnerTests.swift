@@ -96,32 +96,16 @@ final class CLIMSAAlignmentRunnerTests: XCTestCase {
         XCTAssertEqual(args.suffix(2), ["--format", "json"])
     }
 
-    func testParseCompleteEvent() throws {
-        let json = """
-        {"event":"msaAlignmentComplete","bundle":"/project/Project.lungfish/Aligned.lungfishmsa","rowCount":3,"alignedLength":19,"warningCount":1}
-        """
-
-        let event = try XCTUnwrap(CLIMSAAlignmentRunner.parseEvent(from: json))
-
-        guard case let .complete(bundle, rowCount, alignedLength, warningCount) = event else {
-            return XCTFail("Expected complete event, got \(event)")
-        }
-        XCTAssertEqual(bundle, "/project/Project.lungfish/Aligned.lungfishmsa")
-        XCTAssertEqual(rowCount, 3)
-        XCTAssertEqual(alignedLength, 19)
-        XCTAssertEqual(warningCount, 1)
-    }
-
     func testRunStreamsProgressEventsIntoOperationCenter() async throws {
         let tempDir = try makeTemporaryDirectory()
         let bundle = tempDir.appendingPathComponent("aligned.lungfishmsa", isDirectory: true)
         let fakeCLI = tempDir.appendingPathComponent("lungfish-cli")
         let script = """
         #!/bin/sh
-        printf '%s\\n' '{"event":"msaAlignmentStart","tool":"mafft","sourceCount":1}'
-        printf '%s\\n' '{"event":"msaAlignmentProgress","progress":0.5,"message":"Running MAFFT..."}'
-        printf '%s\\n' '{"event":"msaAlignmentWarning","message":"Duplicate row names were rewritten."}'
-        printf '%s\\n' '{"event":"msaAlignmentComplete","bundle":"\(bundle.path)","rowCount":2,"alignedLength":6,"warningCount":1}'
+        printf '%s\\n' '{"event":"start","message":"Starting MAFFT alignment for 1 input file(s).","progress":0}'
+        printf '%s\\n' '{"event":"progress","progress":0.5,"message":"Running MAFFT..."}'
+        printf '%s\\n' '{"event":"log","level":"warning","message":"Duplicate row names were rewritten."}'
+        printf '%s\\n' '{"event":"complete","output":"\(bundle.path)","outputs":["\(bundle.path)"],"message":"rows=2 alignedLength=6"}'
         """
         try script.write(to: fakeCLI, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fakeCLI.path)
@@ -145,7 +129,6 @@ final class CLIMSAAlignmentRunnerTests: XCTestCase {
         XCTAssertEqual(result.bundleURL.path, bundle.path)
         XCTAssertEqual(result.rowCount, 2)
         XCTAssertEqual(result.alignedLength, 6)
-        XCTAssertEqual(result.warningCount, 1)
         XCTAssertEqual(item?.progress, 0.5)
         XCTAssertEqual(item?.detail, "Running MAFFT...")
         XCTAssertTrue(item?.logEntries.contains { $0.level == .warning && $0.message == "Duplicate row names were rewritten." } == true)
@@ -167,7 +150,7 @@ final class CLIMSAAlignmentRunnerTests: XCTestCase {
         /bin/sh -c 'trap "" TERM HUP; sleep \(Int(childNaturalCompletionSeconds)) & wait' &
         child=$!
         echo "$child" > '\(childPIDURL.path)'
-        printf '%s\\n' '{"event":"msaAlignmentStart","tool":"mafft","sourceCount":1}'
+        printf '%s\\n' '{"event":"start","message":"Starting MAFFT alignment.","progress":0}'
         touch '\(readyURL.path)'
         wait "$child"
         """

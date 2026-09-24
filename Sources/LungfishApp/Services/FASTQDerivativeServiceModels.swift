@@ -411,19 +411,22 @@ extension FASTQDerivativeRequest {
             return buildLungfishCommand(subcommand: "fastq length-filter", args: args)
 
         case .searchText(let query, let field, let regex):
-            // No direct lungfish CLI subcommand — show the seqkit grep invocation.
-            var parts = ["seqkit", "grep"]
-            if field == .description { parts.append("-n") }
-            if regex { parts.append("-r") }
-            parts += ["-p", query, inputPath, "-o", outputPath]
-            return buildToolCommand(parts: parts)
+            // SIMP-01: this used to show `seqkit grep ...`, a command that
+            // never ran -- the actual executed command is `lungfish fastq
+            // search-text` (FASTQOperationCLIInvocationBuilder.fastqArguments).
+            var args = [inputPath, "--query", query, "--field", field.rawValue]
+            if regex { args.append("--regex") }
+            args += ["-o", outputPath]
+            return buildLungfishCommand(subcommand: "fastq search-text", args: args)
 
         case .searchMotif(let pattern, let regex):
-            // No direct lungfish CLI subcommand — show the seqkit grep invocation.
-            var parts = ["seqkit", "grep", "-s"]
-            if regex { parts.append("-r") }
-            parts += ["-p", pattern, inputPath, "-o", outputPath]
-            return buildToolCommand(parts: parts)
+            // SIMP-01: this used to show `seqkit grep ...`, a command that
+            // never ran -- the actual executed command is `lungfish fastq
+            // search-motif` (FASTQOperationCLIInvocationBuilder.fastqArguments).
+            var args = [inputPath, "--pattern", pattern]
+            if regex { args.append("--regex") }
+            args += ["-o", outputPath]
+            return buildLungfishCommand(subcommand: "fastq search-motif", args: args)
 
         case .deduplicate(_, let substitutions, let optical, let opticalDistance):
             var args = [inputPath, "--subs", String(substitutions), "-o", outputPath]
@@ -609,18 +612,29 @@ extension FASTQDerivativeRequest {
         case .subsampleCount(let count):
             return ["--count", String(count)]
         case .lengthFilter(let min, let max):
-            return optionalFlag("--min-length", min) + optionalFlag("--max-length", max)
+            // SIMP-01: the executed command (FASTQOperationCLIInvocationBuilder
+            // .fastqArguments) spells these `--min`/`--max`; this provenance
+            // encoding used to spell them `--min-length`/`--max-length`, which
+            // is not valid CLI syntax and would not reproduce the run.
+            return optionalFlag("--min", min) + optionalFlag("--max", max)
         case .searchText(let query, let field, let regex):
-            return ["--query", query, "--field", field.rawValue, "--regex", String(regex)]
+            // SIMP-01: the executed command passes bare `--regex` as a flag,
+            // not `--regex true`/`--regex false`.
+            var args = ["--query", query, "--field", field.rawValue]
+            if regex { args.append("--regex") }
+            return args
         case .searchMotif(let pattern, let regex):
-            return ["--pattern", pattern, "--regex", String(regex)]
-        case .deduplicate(let preset, let substitutions, let optical, let opticalDistance):
-            return [
-                "--preset", preset.rawValue,
-                "--substitutions", String(substitutions),
-                "--optical", String(optical),
-                "--optical-distance", String(opticalDistance),
-            ]
+            var args = ["--pattern", pattern]
+            if regex { args.append("--regex") }
+            return args
+        case .deduplicate(_, let substitutions, let optical, let opticalDistance):
+            // SIMP-01: the executed command spells these `--subs` and bare
+            // `--optical --dupedist <n>` (FASTQOperationCLIInvocationBuilder
+            // .fastqArguments); `preset` is not passed to the CLI at all
+            // (silently dropped there too), so it is not recorded here either.
+            var args = ["--subs", String(substitutions)]
+            if optical { args += ["--optical", "--dupedist", String(opticalDistance)] }
+            return args
         case .fastpTrim(let threshold, let windowSize, let mode, let adapterMode, let adapterSequence):
             return [
                 "--threshold", String(threshold),
