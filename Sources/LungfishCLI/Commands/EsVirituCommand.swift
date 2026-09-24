@@ -105,12 +105,6 @@ extension EsVirituCommand {
         var noQC: Bool = false
 
         @Option(
-            name: .customLong("min-read-length"),
-            help: "Minimum read length after filtering (default: 100)"
-        )
-        var minReadLength: Int = 100
-
-        @Option(
             name: .customLong("extra-args"),
             parsing: .unconditional,
             help: "Additional EsViritu arguments passed verbatim"
@@ -191,7 +185,11 @@ extension EsVirituCommand {
                 outputDirectory: outputDirectory,
                 databasePath: dbURL,
                 qualityFilter: !noQC,
-                minReadLength: minReadLength,
+                // WFL-10: no CLI flag feeds this any more -- see the removed
+                // `--min-read-length` option above. EsViritu itself has no
+                // minimum-read-length option and its fastp invocation is not
+                // parameterized with one either, so the flag never reached
+                // the tool; `EsVirituConfig` keeps its documented default.
                 threads: effectiveThreads,
                 extraArguments: try AdvancedCommandLineOptions.parse(extraArgs)
             )
@@ -205,7 +203,6 @@ extension EsVirituCommand {
                 ("Sample name", sampleName),
                 ("Database", dbURL.path),
                 ("Quality filter", config.qualityFilter ? "yes" : "no"),
-                ("Min read length", String(config.minReadLength)),
                 ("Threads", String(config.threads)),
                 ("Output", outputDirectory.path),
             ]))
@@ -261,7 +258,6 @@ extension EsVirituCommand {
                 outputDirectory: outputDirectory,
                 databasePath: databaseURL,
                 qualityFilter: !noQC,
-                minReadLength: minReadLength,
                 threads: globalOptions.threads ?? ProcessInfo.processInfo.activeProcessorCount,
                 extraArguments: try AdvancedCommandLineOptions.parse(extraArgs)
             )

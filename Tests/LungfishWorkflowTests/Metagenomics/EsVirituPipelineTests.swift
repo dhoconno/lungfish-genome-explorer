@@ -250,6 +250,41 @@ final class EsVirituConfigTests: XCTestCase {
         XCTAssertTrue(args.contains("--db"))
     }
 
+    /// WFL-10: `EsVirituConfig.minReadLength` has no corresponding flag in
+    /// the real EsViritu tool (verified against upstream cmmr/EsViritu's
+    /// argparse definitions: no `-l`/`--min-read-length`/length option
+    /// exists, and its fastp invocation is not parameterized with one
+    /// either), so `esVirituArguments()` must never emit anything derived
+    /// from it -- varying the field must not change the argv at all. The
+    /// wizard's "Min read length" stepper and the CLI's `--min-read-length`
+    /// flag were removed for the same reason; this is the config-level
+    /// regression guard for the underlying non-functional field.
+    func testMinReadLengthNeverAppearsInArguments() throws {
+        let dbDir = try makeFakeDatabaseDirectory()
+        let fastq = try makeFakeFastqFile()
+        let outputDir = try makeOutputDirectory()
+
+        func args(minReadLength: Int) -> [String] {
+            EsVirituConfig(
+                inputFiles: [fastq],
+                isPairedEnd: false,
+                sampleName: "TestSample",
+                outputDirectory: outputDir,
+                databasePath: dbDir,
+                minReadLength: minReadLength,
+                threads: 4
+            ).esVirituArguments()
+        }
+
+        let defaultArgs = args(minReadLength: 100)
+        let differentArgs = args(minReadLength: 250)
+
+        XCTAssertEqual(defaultArgs, differentArgs, "Changing minReadLength must not change the argv at all")
+        for flag in ["-l", "--min-read-length", "--min-length", "--minlen"] {
+            XCTAssertFalse(defaultArgs.contains(flag), "esVirituArguments() must never emit \(flag)")
+        }
+    }
+
     func testPairedEndArguments() throws {
         let dbDir = try makeFakeDatabaseDirectory()
         let r1 = try makeFakeFastqFile(name: "R1.fastq")

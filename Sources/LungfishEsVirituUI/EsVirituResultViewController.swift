@@ -2248,7 +2248,10 @@ struct EsVirituProvenanceView: View {
                 Divider()
                 provenanceRow("Paired-End", value: config.isPairedEnd ? "Yes" : "No")
                 provenanceRow("Quality Filter", value: config.qualityFilter ? "Enabled" : "Disabled")
-                provenanceRow("Min Read Length", value: "\(config.minReadLength) bp")
+                // WFL-10: "Min Read Length" intentionally removed --
+                // EsViritu has no such option, so this value was never
+                // applied and echoing it here contradicted the actual
+                // computation.
                 provenanceRow("Threads", value: "\(config.threads)")
             }
         }

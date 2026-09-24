@@ -4321,13 +4321,6 @@ operations:
         effect: Trims sequencing adapters and drops poor-quality bases before detection. Turning it off feeds the raw reads straight to EsViritu.
         when_to_change: Turn it off when the reads were already trimmed and filtered by an earlier step, so they are not cleaned twice.
         cli_flag: --no-qc
-      - label: "Min read length:"
-        control: number
-        default: 100 bp
-        allowed: 50 to 500 bp in steps of 10
-        effect: Discards reads shorter than this after filtering. Very short reads match many viruses by chance and inflate the detection list.
-        when_to_change: Lower it for degraded or heavily trimmed libraries where most reads fall under 100 bases.
-        cli_flag: --min-read-length
       - label: "Threads:"
         control: number
         default: the number of processor cores currently available on your Mac
