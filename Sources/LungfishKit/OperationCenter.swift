@@ -906,6 +906,21 @@ public final class OperationCenter: ObservableObject {
     /// Requests cancellation. Callback return never releases the worker's bundle lock.
     /// Running operations without a cancel callback are left unchanged because the
     /// center has no mechanism to stop their underlying work.
+    ///
+    /// NEW-08: `onCancel` only *signals* the worker (e.g. `task.cancel()`, killing a
+    /// subprocess tree); it does not, by itself, guarantee the worker's `Task` ever
+    /// returns to call a terminal method (`complete`/`fail`/`acknowledgeCancellation`).
+    /// A worker blocked in an uninterruptible pre-tool stage -- a synchronous
+    /// filesystem call stuck waiting on something outside the process, for
+    /// example -- never observes `Task.isCancelled` and never returns, so without a
+    /// fallback the operation stays `.cancelling` (shown as active, bundle still
+    /// locked) forever, exactly as NEW-08 was found live: tool processes gone, but
+    /// the row never left the active list. After ``cancelGracePeriod``, if the
+    /// operation is still `.cancelling`, this forces it to a terminal `.cancelled`
+    /// state and releases its bundle lock itself. `finishWorker`'s own guard
+    /// (`state.isActive`) then makes a late-returning worker's own terminal call a
+    /// safe no-op -- it cannot resurrect or double-complete an operation this
+    /// already closed out.
     public func cancel(id: UUID) {
         guard let index = items.firstIndex(where: { $0.id == id }),
               items[index].state == .running,
@@ -919,6 +934,41 @@ public final class OperationCenter: ObservableObject {
         DispatchQueue.global(qos: .userInitiated).async {
             onCancel()
         }
+
+        let gracePeriod = cancelGracePeriod
+        Task { [weak self] in
+            try? await Task.sleep(for: .seconds(gracePeriod))
+            guard let self else { return }
+            self.forceAcknowledgeCancellationIfStillCancelling(id: id)
+        }
+    }
+
+    /// How long ``cancel(id:)`` waits for a worker to return on its own after
+    /// being signalled before forcing the operation to `.cancelled`. Overridable
+    /// only for tests, so a grace-period test does not need to wait the
+    /// production duration.
+    var cancelGracePeriod: TimeInterval = 10
+
+    /// Forces a still-`.cancelling` operation to `.cancelled` and releases its
+    /// bundle lock. A no-op if the operation already reached any terminal state
+    /// (including a worker that returned in time and completed/failed normally,
+    /// which already raced `finishWorker`'s cancellation-wins rule) or if it is
+    /// no longer `.cancelling` for any other reason.
+    private func forceAcknowledgeCancellationIfStillCancelling(id: UUID) {
+        guard let index = items.firstIndex(where: { $0.id == id }),
+              items[index].state == .cancelling else { return }
+        // `finishWorker` always writes the plain "Cancelled by user" detail
+        // once cancellation wins, so the diagnostic that this was a *forced*
+        // cancellation (the worker never came back on its own) is recorded
+        // as a log entry instead, where the Operations Panel's expanded row
+        // history can still surface it.
+        items[index].appendLogEntryCapped(
+            OperationLogEntry(
+                level: .warning,
+                message: "Worker did not respond to cancellation within \(Int(cancelGracePeriod))s; forcing cancelled state and releasing its bundle lock."
+            )
+        )
+        _ = acknowledgeCancellation(id: id)
     }
 
     /// Cancels all running operations.
