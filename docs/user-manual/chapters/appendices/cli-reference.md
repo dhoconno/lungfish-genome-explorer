@@ -60,7 +60,7 @@ Output:
 2026.9.40
 ```
 
-The command line keeps its own copy of the managed tools under `~/.lungfish-stable/conda`, separate from the Preview app's `~/.lungfish/conda`, so install a pack for it with `lungfish-cli conda install --pack <pack-id>` even if the app already has it. `lungfish-cli conda --help` prints the folder the command line uses.
+The command line follows the app it ships inside. Run from the Preview app bundle, `lungfish-cli` uses the Preview app's storage folder, `~/.lungfish`, and sees every pack and database the Preview app installed. Run from the stable app bundle it uses `~/.lungfish-stable`. A copy of `lungfish-cli` moved out of its app bundle keeps the older rule and uses `~/.lungfish-stable`. Setting `LUNGFISH_STORAGE_ROOT` overrides all of these. `lungfish-cli storage info` prints the folders the command line resolved, and `lungfish-cli conda --help` prints the tool folder.
 
 `lungfish-cli <command> --help` prints the subcommands of a command, and `lungfish-cli <command> <subcommand> --help` prints one subcommand's flags. If this page and the program ever disagree, believe the program. The example lines inside some help screens spell the program `lungfish`, and you type `lungfish-cli` in their place.
 
@@ -125,7 +125,7 @@ For a run you intend to reproduce exactly, pin `--threads` to a fixed number. Se
 
 ## Command index
 
-The program has 44 top-level commands. Each row names the section that lists its subcommands and flags, and each section links the chapter that explains the tools it names.
+The program has 45 top-level commands. Each row names the section that lists its subcommands and flags, and each section links the chapter that explains the tools it names.
 
 | Command | What it is for | Section |
 |---|---|---|
@@ -165,6 +165,7 @@ The program has 44 top-level commands. Each row names the section that lists its
 | `run-headless` | Run a workflow quietly. | [Workflows](#workflows) |
 | `search` | Find a pattern in a FASTA and write BED. | [Sequence utilities](#sequence-utilities) |
 | `sequence` | Find ORFs and edit annotation tracks in a bundle. | [Reference bundles](#reference-bundles) |
+| `storage` | Print the storage folders and reclaim duplicate space across them. | [Tool packs, databases, and managed tools](#tool-packs-databases-and-managed-tools) |
 | `taxtriage` | Run the TaxTriage pipeline. | [Classification](#classification) |
 | `tools` | Update managed tools to the pinned set. | [Tool packs, databases, and managed tools](#tool-packs-databases-and-managed-tools) |
 | `translate` | Translate a nucleotide FASTA to protein. | [Sequence utilities](#sequence-utilities) |
@@ -3982,6 +3983,34 @@ lungfish-cli tools update <options>
 | `--required-only` | Only work the user cannot defer. |
 | `--include-databases` | Include advisory database updates (no effect with `--required-only`). |
 | `--storage-root <storage-root>` | Managed storage root. The default is the configured location. |
+
+### `storage info`
+
+Prints the release channel the command line resolved and the storage, conda, and database folders it will use, plus the shared package cache and every channel folder known on this Mac.
+
+```text
+lungfish-cli storage info [--format <format>]
+```
+
+It takes no arguments beyond the global flags. `--format json` prints the same fields as a JSON object.
+
+### `storage dedupe`
+
+Finds identical files across the storage folders of every channel and replaces each duplicate with an APFS clone of one kept copy, so the file is stored once. A dry run is the default and changes nothing.
+
+```text
+lungfish-cli storage dedupe [--roots <roots> ...] [--dry-run] [--apply] [--skip-envs] [--format <format>]
+```
+
+The scan covers `databases/`, `conda/pkgs/`, and `conda/envs/` under each folder. Files are grouped by size and then by SHA-256, and only sizes that occur more than once are hashed. Each clone is checked for size and SHA-256 before it replaces the duplicate, keeps the duplicate's permissions, extended attributes, and dates, and is renamed over it so a program reading the old file keeps reading it. Files that already share blocks, files another process holds open, and files with hard links outside the scanned folders are left alone. With `--apply`, the command appends a record to `storage-dedupe-log.jsonl` under each folder, and it refuses to run while a pack or database install holds a folder busy. Run the dry run first and read the reclaimable figure before applying.
+
+| Argument or flag | What it does |
+|---|---|
+| `--roots <roots> ...` | Storage folders to scan, as absolute paths. The default is every channel folder that exists plus `~/.lungfish-shared`. |
+| `--dry-run` | Report duplicates without changing anything. This is the default. |
+| `--apply` | Replace duplicates with verified clones and reclaim space. |
+| `--skip-envs` | Leave `conda/envs/` out of the scan. Hard-linked package files then stay unshared. |
+| `--format <format>` | Output format, `text` or `json`. The default is `text`. |
 
 ### `provision-tools`
 
