@@ -1198,7 +1198,16 @@ final class WorkflowOperationDialogState {
                     extraArguments: parsedExtraArguments,
                     mode: launchMode,
                     readType: readType,
-                    resultWorkflowKind: .miSeqAmpliconMHCGenotype
+                    // WFL-13: do not hard-code the MiSeq workflow kind here.
+                    // `ONTBarcodeDemuxGenotypingPipeline.resolvedResultWorkflowKind`
+                    // already derives the correct kind from the resolved
+                    // input mode (`.miSeqAmpliconMHCGenotype` only for
+                    // `.illuminaPaired`; ONT amplicon runs get no typed
+                    // MiSeq kind, so they no longer inherit MiSeq-only
+                    // viewport presentation rules such as
+                    // `appliesToHaplotypedMiSeq`). Passing `nil` here lets
+                    // that mode-aware fallback run instead of overriding it.
+                    resultWorkflowKind: nil
                 )
             case .genotypeOnly:
                 request = ONTBarcodeDemuxGenotypingRunRequest(
@@ -1215,7 +1224,8 @@ final class WorkflowOperationDialogState {
                     extraArguments: parsedExtraArguments,
                     mode: launchMode,
                     readType: readType,
-                    resultWorkflowKind: .miSeqAmpliconMHCGenotype
+                    // WFL-13: see the deterministic-haplotyping branch above.
+                    resultWorkflowKind: nil
                 )
             }
             return .ontGenotyping(request)

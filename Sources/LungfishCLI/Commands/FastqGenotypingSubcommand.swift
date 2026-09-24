@@ -174,7 +174,16 @@ struct FastqGenotypingSubcommand: AsyncParsableCommand {
             extraArguments: parsedExtraArguments,
             mode: parsedMode,
             readType: parsedReadType,
-            resultWorkflowKind: .miSeqAmpliconMHCGenotype
+            // WFL-13: `genotype` defaults to `--mode auto` and accepts ONT
+            // amplicon input, so it must not hard-code the MiSeq/Illumina
+            // workflow kind -- that mislabels an ONT run as "MiSeq" in the
+            // bundle manifest and makes the viewport apply MiSeq-only
+            // presentation rules (`appliesToHaplotypedMiSeq`) to ONT data.
+            // Passing `nil` lets `ONTBarcodeDemuxGenotypingPipeline
+            // .resolvedResultWorkflowKind` derive the kind from the actually
+            // resolved mode (MiSeq only when it resolves to
+            // `.illuminaPaired`).
+            resultWorkflowKind: nil
         )
 
         let result = try await ONTBarcodeDemuxGenotypingPipeline().run(
