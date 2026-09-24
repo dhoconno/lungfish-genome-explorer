@@ -602,6 +602,11 @@ public struct ONTGenotypeCall: Codable, Equatable, Sendable {
     public let overallInputReads: Int?
     public let overallUniqueRetainedReads: Int?
     public let overallUniqueRetainedPercent: Double?
+    /// GEN-04 (D12): when the reference held identical sequences (including
+    /// reverse complements), they were collapsed onto this row's genotype
+    /// before mapping. Lists every member of that ambiguity group, this
+    /// genotype first. Nil for ordinary rows and for older bundles.
+    public let ambiguousWith: [String]?
 
     public init(
         sample: String,
@@ -613,7 +618,8 @@ public struct ONTGenotypeCall: Codable, Equatable, Sendable {
         sampleUniqueRetainedPercent: Double?,
         overallInputReads: Int?,
         overallUniqueRetainedReads: Int?,
-        overallUniqueRetainedPercent: Double?
+        overallUniqueRetainedPercent: Double?,
+        ambiguousWith: [String]? = nil
     ) {
         self.sample = sample
         self.genotype = genotype
@@ -625,6 +631,7 @@ public struct ONTGenotypeCall: Codable, Equatable, Sendable {
         self.overallInputReads = overallInputReads
         self.overallUniqueRetainedReads = overallUniqueRetainedReads
         self.overallUniqueRetainedPercent = overallUniqueRetainedPercent
+        self.ambiguousWith = ambiguousWith
     }
 
     public var haplotypeTokens: [String] {
@@ -3791,7 +3798,7 @@ public enum ONTGenotypeResultBundle {
         return Double(text)
     }
 
-    private static func makeCall(row: [String: String]) -> ONTGenotypeCall? {
+    static func makeCall(row: [String: String]) -> ONTGenotypeCall? {
         let sample = (row["sample"] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         let genotype = (row["genotype"] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         guard !sample.isEmpty, !genotype.isEmpty else { return nil }
@@ -3805,8 +3812,19 @@ public enum ONTGenotypeResultBundle {
             sampleUniqueRetainedPercent: parseDouble(row["sample_unique_retained_percent"]),
             overallInputReads: parseInt(row["overall_input_reads"]),
             overallUniqueRetainedReads: parseInt(row["overall_unique_retained_reads"]),
-            overallUniqueRetainedPercent: parseDouble(row["overall_unique_retained_percent"])
+            overallUniqueRetainedPercent: parseDouble(row["overall_unique_retained_percent"]),
+            ambiguousWith: parseAmbiguityGroup(row["ambiguous_with"])
         )
+    }
+
+    /// GEN-04: `ambiguous_with` is a ";"-separated member list. Absent or
+    /// empty (older bundles, rows without duplicates) means no group.
+    static func parseAmbiguityGroup(_ value: String?) -> [String]? {
+        let members = (value ?? "")
+            .split(separator: ";")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        return members.count > 1 ? members : nil
     }
 
     private static func isAssignedSample(_ sample: String) -> Bool {

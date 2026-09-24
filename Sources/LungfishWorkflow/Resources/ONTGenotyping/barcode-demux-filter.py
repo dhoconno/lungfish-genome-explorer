@@ -41,6 +41,11 @@ def parse_args():
     parser.add_argument("--haplotype-min-locus-percent", type=float, default=0.0)
     parser.add_argument("--haplotype-min-locus-percent-override", action="append", default=[])
     parser.add_argument("--provenance-command", default=None)
+    # GEN-04 (D12): JSON {representative: [members...]} written by the Swift
+    # pipeline after collapsing identical reference sequences (including
+    # reverse complements). Rows for a representative gain an
+    # ambiguous_with column listing the whole group.
+    parser.add_argument("--reference-ambiguity-groups", default=None)
     return parser.parse_args()
 
 
@@ -482,6 +487,10 @@ def main():
     min_locus_fraction = fraction_from_percent(args.haplotype_min_locus_percent)
     locus_fraction_overrides = parse_locus_fraction_overrides(args.haplotype_min_locus_percent_override)
     reference_records = load_reference_records(args.reference_fasta)
+    reference_ambiguity_groups = {}
+    if args.reference_ambiguity_groups:
+        with open(args.reference_ambiguity_groups, "rt") as handle:
+            reference_ambiguity_groups = json.load(handle)
     reference_lengths = {name: record["length"] for name, record in reference_records.items()}
     manifest = load_demux_manifest(args.sample_manifest or args.demux_manifest)
     if args.assignment_mode == "barcode":
@@ -616,7 +625,12 @@ def main():
             "overall_unique_retained_reads": retained_unique_count,
             "overall_unique_retained_percent": f"{retained_percent:.6f}" if retained_percent is not None else "",
         })
-    write_csv(summary_csv, genotype_rows, ["sample", "genotype", "passed_alignments", "passed_unique_reads", "sample_total_reads", "sample_unique_retained_reads", "sample_unique_retained_percent", "overall_input_reads", "overall_unique_retained_reads", "overall_unique_retained_percent"])
+        if args.reference_ambiguity_groups:
+            genotype_rows[-1]["ambiguous_with"] = ";".join(reference_ambiguity_groups.get(genotype, []))
+    genotype_fieldnames = ["sample", "genotype", "passed_alignments", "passed_unique_reads", "sample_total_reads", "sample_unique_retained_reads", "sample_unique_retained_percent", "overall_input_reads", "overall_unique_retained_reads", "overall_unique_retained_percent"]
+    if args.reference_ambiguity_groups:
+        genotype_fieldnames.append("ambiguous_with")
+    write_csv(summary_csv, genotype_rows, genotype_fieldnames)
 
     sample_rows = []
     all_samples = sorted(set(sample_alignment_counts) | set(manifest["sampleTotals"]))
@@ -647,6 +661,7 @@ def main():
         "wallClockSeconds": time.time() - start_time,
         "inputBAM": args.input_bam,
         "referenceFasta": args.reference_fasta,
+        "referenceAmbiguityGroups": reference_ambiguity_groups,
         "barcodes": args.barcodes,
         "demuxManifest": args.demux_manifest,
         "sampleManifest": args.sample_manifest,
