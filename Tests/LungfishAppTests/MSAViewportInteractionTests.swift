@@ -59,6 +59,21 @@ final class MSAViewportInteractionTests: XCTestCase {
         return try XCTUnwrap(NSEvent.mouseEvent(with: type, location: point, modifierFlags: modifiers, timestamp: 0, windowNumber: 0, context: nil, eventNumber: 0, clickCount: 1, pressure: 1))
     }
 
+    /// Polls until `condition` is true or the deadline passes. The scroll-wheel
+    /// tests below used to poll for a fixed 30 iterations at 10ms (300ms total);
+    /// under the full parallel unit tier's CPU contention that budget was
+    /// observed insufficient even though the scroll itself completed correctly
+    /// once the runloop caught up (TST-10 -- wall-clock budgets under load).
+    private func waitUntilScrolled(
+        timeout: TimeInterval = 5,
+        _ condition: () -> Bool
+    ) async {
+        let deadline = Date().addingTimeInterval(timeout)
+        while !condition(), Date() < deadline {
+            try? await Task.sleep(nanoseconds: 10_000_000)
+        }
+    }
+
     func testUseConsensusRestoresBaselineWithoutChangingAlignmentOrSelection() async throws {
         let controller = try await controller()
         let before = controller.bundle?.manifest.referenceRowID
@@ -123,18 +138,14 @@ final class MSAViewportInteractionTests: XCTestCase {
             scroll.contentView.scroll(to: .zero)
             let cgEvent = try XCTUnwrap(CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 2, wheel1: -80, wheel2: 0, wheel3: 0))
             surface.scrollWheel(with: try XCTUnwrap(NSEvent(cgEvent: cgEvent)))
-            for _ in 0..<30 where scroll.contentView.bounds.minY == 0 {
-                try await Task.sleep(nanoseconds: 10_000_000)
-            }
+            await waitUntilScrolled { scroll.contentView.bounds.minY != 0 }
             XCTAssertGreaterThan(scroll.contentView.bounds.minY, 0, "Wheel over \(surface.accessibilityIdentifier() ?? "surface") must scroll")
         }
         XCTAssertGreaterThanOrEqual(matrix.frame.width, scroll.contentView.bounds.width)
         // Native predominant-axis scrolling intentionally ignores X on vertical gestures.
         let horizontal = try XCTUnwrap(CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 2, wheel1: 0, wheel2: -80, wheel3: 0))
         gutter.scrollWheel(with: try XCTUnwrap(NSEvent(cgEvent: horizontal)))
-        for _ in 0..<30 where scroll.contentView.bounds.minX == 0 {
-            try await Task.sleep(nanoseconds: 10_000_000)
-        }
+        await waitUntilScrolled { scroll.contentView.bounds.minX != 0 }
         XCTAssertGreaterThan(scroll.contentView.bounds.minX, 0)
         let pinned = try descendant(controller.view, "msaComparisonHeader")
         XCTAssertEqual(pinned.bounds.minX, scroll.contentView.bounds.minX, accuracy: 0.01)
@@ -156,9 +167,7 @@ final class MSAViewportInteractionTests: XCTestCase {
         XCTAssertTrue(hit === matrix)
         let wheel = try XCTUnwrap(CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 1, wheel1: -80, wheel2: 0, wheel3: 0))
         hit.scrollWheel(with: try XCTUnwrap(NSEvent(cgEvent: wheel)))
-        for _ in 0..<30 where scroll.contentView.bounds.minY == 0 {
-            try await Task.sleep(nanoseconds: 10_000_000)
-        }
+        await waitUntilScrolled { scroll.contentView.bounds.minY != 0 }
         XCTAssertGreaterThan(scroll.contentView.bounds.minY, 0)
     }
 
