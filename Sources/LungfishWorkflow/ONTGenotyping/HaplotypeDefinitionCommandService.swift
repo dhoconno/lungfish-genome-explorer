@@ -104,6 +104,35 @@ public struct HaplotypeDefinitionCommandService: Sendable {
         }
     }
 
+    /// GEN-02 (D11) definition lint. Non-fatal: returns one warning per
+    /// group of haplotypes at a locus whose required (full-weight)
+    /// diagnostic allele sets are identical. The deterministic caller can
+    /// never tell such haplotypes apart and reports them as an ambiguity
+    /// token (for example "M4|M7") that needs review.
+    public func definitionWarnings(_ definition: GenotypeHaplotypeDefinitionSet) -> [String] {
+        var warnings: [String] = []
+        for locus in definition.locusDefinitions {
+            var groups: [(required: Set<String>, names: [String])] = []
+            for haplotype in locus.haplotypes {
+                let required = Set(haplotype.diagnosticAlleles.filter { allele in
+                    (haplotype.evidenceWeights?[allele] ?? 1.0) >= 1.0
+                })
+                guard !required.isEmpty else { continue }
+                if let index = groups.firstIndex(where: { $0.required == required }) {
+                    groups[index].names.append(haplotype.name)
+                } else {
+                    groups.append((required, [haplotype.name]))
+                }
+            }
+            for group in groups where group.names.count > 1 {
+                warnings.append(
+                    "\(locus.locus): haplotypes \(group.names.joined(separator: ", ")) have identical required diagnostic alleles and cannot be distinguished; calls will be reported as the ambiguity \(group.names.joined(separator: "|"))."
+                )
+            }
+        }
+        return warnings
+    }
+
     @discardableResult
     public func importDefinition(
         from inputURL: URL,

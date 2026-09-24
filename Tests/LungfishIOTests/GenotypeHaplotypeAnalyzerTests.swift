@@ -1618,48 +1618,36 @@ final class GenotypeHaplotypeAnalyzerTests: XCTestCase {
         return try JSONDecoder().decode(GenotypeHaplotypeDefinitionSet.self, from: data)
     }
 
-    /// GEN-02: for every homozygous and heterozygous pair of haplotypes at
-    /// each MHC class II locus (DP, DQ, DR) in the shipped MCM definition
-    /// set, synthesize the calls a real sample carrying exactly that pair
-    /// would produce (100 reads per diagnostic allele of each haplotype
-    /// copy, exactly as the audit's Python port did) and run them through
-    /// the real Swift `GenotypeHaplotypeAnalyzer`.
-    ///
-    /// Before GEN-02, several homozygotes were reported as confident
-    /// heterozygous calls because a haplotype needs only one full-weight
-    /// (`minimumMatches: 1`) diagnostic allele to match, and some
-    /// definitions share a full-weight allele with another (DQ M2/M6 share
-    /// 0178; DR M4/M5 share 0020/0027/0182; DP M4 and M7 are identical).
-    /// After the fix, no genotype may be reported `called` with a
-    /// haplotype pair that isn't the truth: it is either exactly right, an
-    /// explicit `.ambiguous` (never a specific wrong pairing), or the
-    /// existing loud `ERR: TMH` / `ERR: NO HAP` outcomes this suite already
-    /// expects for class I under full expression.
-    func testMCMShippedDefinitionClassIIHaplotypePairsNeverMiscallHomozygotes() throws {
-        let definitionSet = try Self.shippedMCMDefinitionSet()
+    // MARK: - GEN-02 golden table (all 28 genotypes per MCM locus)
 
-        for locusDefinition in definitionSet.locusDefinitions where ["MHC-DP", "MHC-DQ", "MHC-DR"].contains(locusDefinition.locus) {
+    /// One outcome per synthetic genotype: "status h1 / h2".
+    static func shippedMCMGoldenOutcomes(
+        loci: [String] = ["MHC-A", "MHC-B", "MHC-DP", "MHC-DQ", "MHC-DR"]
+    ) throws -> [(key: String, outcome: String)] {
+        let definitionSet = try shippedMCMDefinitionSet()
+        let headers = try shippedMCMReferenceHeadersByID()
+        var rows: [(key: String, outcome: String)] = []
+        for locusDefinition in definitionSet.locusDefinitions where loci.contains(locusDefinition.locus) {
             let haplotypes = locusDefinition.haplotypes
             for i in 0..<haplotypes.count {
                 for j in i..<haplotypes.count {
                     let first = haplotypes[i]
                     let second = haplotypes[j]
-                    let truth = Set([first.name, second.name])
-
                     var observedAlleles: [String] = []
                     for haplotype in [first, second] {
                         for allele in haplotype.diagnosticAlleles where !observedAlleles.contains(allele) {
                             observedAlleles.append(allele)
                         }
                     }
-                    let calls = observedAlleles.map { allele in
-                        Self.call(
+                    // 100 reads per diagnostic allele per haplotype copy.
+                    let calls = observedAlleles.map { allele -> ONTGenotypeCall in
+                        let copies = [first, second].filter { $0.diagnosticAlleles.contains(allele) }.count
+                        return call(
                             sample: "LF0001",
-                            genotype: "\(allele)|haplotype_groups=\(locusDefinition.sourceLocus)",
-                            reads: 100
+                            genotype: headers[allele] ?? "\(allele)|haplotype_groups=\(locusDefinition.sourceLocus)",
+                            reads: 100 * copies
                         )
                     }
-
                     let analysis = GenotypeHaplotypeAnalyzer.analyze(
                         calls: calls,
                         definitionSet: GenotypeHaplotypeDefinitionSet(
@@ -1672,58 +1660,198 @@ final class GenotypeHaplotypeAnalyzerTests: XCTestCase {
                             locusDefinitions: [locusDefinition]
                         )
                     )
-
-                    let sample = try XCTUnwrap(
-                        analysis.samples.first,
-                        "\(locusDefinition.locus) \(first.name)/\(second.name): expected one sample in the analysis"
-                    )
-                    let call = try XCTUnwrap(
-                        sample.calls.first { $0.locus == locusDefinition.locus },
-                        "\(locusDefinition.locus) \(first.name)/\(second.name): expected a locus call"
-                    )
-
-                    switch call.status {
-                    case .called:
-                        let called = Set(call.matchedHaplotypes.map(\.name))
-                        XCTAssertEqual(
-                            called,
-                            truth,
-                            "\(locusDefinition.locus) \(first.name)/\(second.name): called \(call.haplotype1) / \(call.haplotype2), truth was \(first.name)/\(second.name)"
-                        )
-                    case .unresolvedSecondHaplotype:
-                        // GEN-08: only one haplotype matched, but this pair's
-                        // observed alleles also include diagnostic evidence
-                        // for a haplotype outside the synthesized pair (a
-                        // known cross-definition overlap), so the analyzer
-                        // correctly declines to call it homozygous.
-                        XCTAssertEqual(call.haplotype2, "?")
-                    case .ambiguous:
-                        // GEN-02's whole point: an indistinguishable pair is
-                        // reported as ambiguous, never as a specific wrong
-                        // heterozygous pairing. Confirm it names only
-                        // haplotypes that are actually indistinguishable
-                        // from the true pair (never an unrelated haplotype).
-                        XCTAssertTrue(
-                            call.haplotype1.contains(first.name) || call.haplotype1.contains(second.name),
-                            "\(locusDefinition.locus) \(first.name)/\(second.name): ambiguous token '\(call.haplotype1)' does not reference either true haplotype"
-                        )
-                    case .tooManyHaplotypes, .noHaplotype, .tooManyGenotypes:
-                        // Loud failure modes the audit's report already
-                        // expects and explicitly asks not to be "fixed away"
-                        // (class I under full expression, and shared-allele
-                        // cascades at DP/DQ/DR beyond a single pair, where a
-                        // third definition's diagnostic allele overlaps the
-                        // synthetic pair's evidence). What GEN-02 forbids is
-                        // a wrong *specific* pairing reported as `.called`,
-                        // not a loud review-needed status.
-                        break
-                    case .notAssayed, .specialCase, .homozygous:
-                        XCTFail(
-                            "\(locusDefinition.locus) \(first.name)/\(second.name): unexpected status \(call.status)"
-                        )
-                    }
+                    let locusCall = analysis.samples.first?.calls.first { $0.locus == locusDefinition.locus }
+                    let outcome = locusCall.map { "\($0.status.rawValue) \($0.haplotype1) / \($0.haplotype2)" } ?? "missing"
+                    rows.append((key: "\(locusDefinition.locus) \(first.name)/\(second.name)", outcome: outcome))
                 }
             }
         }
+        return rows
+    }
+
+    /// Maps each shipped MCM reference ID to its full FASTA header (the
+    /// genotype label the pipeline reports), so synthetic calls carry the
+    /// real `source_loci` metadata the class II TMG rule groups by.
+    static func shippedMCMReferenceHeadersByID() throws -> [String: String] {
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent(
+                "Sources/LungfishWorkflow/Resources/MCMHaplotyping/MCM-MHC-miSeq-20260617.lungfishmhcref/mcm_mhc_miseq_reference.trimmed.unique.fasta"
+            )
+        let text = try String(contentsOf: url, encoding: .utf8)
+        var headers: [String: String] = [:]
+        for line in text.split(separator: "\n") where line.hasPrefix(">") {
+            let header = String(line.dropFirst()).trimmingCharacters(in: .whitespacesAndNewlines)
+            let id = header.split(separator: "|", maxSplits: 1).first.map(String.init) ?? header
+            headers[id] = header
+        }
+        return headers
+    }
+
+    /// GEN-02 (D11) golden: every homozygous and heterozygous genotype
+    /// (28 per locus) at MCM MHC-DP, DQ and DR, synthesized from the
+    /// shipped definition and reference headers (100 reads per diagnostic
+    /// allele per haplotype copy) and run through the real analyzer.
+    ///
+    /// Before the D11 rule (pre-audit): DQ M2/M2 and M6/M6 were called
+    /// "M2 / M6", DR M4/M4 and M5/M5 "M4 / M5", DP M4/M4 and M7/M7
+    /// "M4 / M7". The interim mitigation turned those six into
+    /// `ambiguous`. Now DQ and DR are 28/28 correct (homozygotes carry the
+    /// "-" second-haplotype placeholder that displays as "M2 / M2"), and
+    /// every DP genotype involving the identical definitions M4/M7 or
+    /// M5/M6 is an explicit ambiguity token.
+    func testMCMShippedDefinitionClassIIGoldenGenotypeTable() throws {
+        let expected: [String: String] = [
+            "MHC-DP M1/M1": "called M1 / -",
+            "MHC-DP M1/M2": "called M1 / M2",
+            "MHC-DP M1/M3": "called M1 / M3",
+            "MHC-DP M1/M4": "ambiguous M1 / M4|M7",
+            "MHC-DP M1/M5": "ambiguous M1 / M5|M6",
+            "MHC-DP M1/M6": "ambiguous M1 / M5|M6",
+            "MHC-DP M1/M7": "ambiguous M1 / M4|M7",
+            "MHC-DP M2/M2": "called M2 / -",
+            "MHC-DP M2/M3": "called M2 / M3",
+            "MHC-DP M2/M4": "ambiguous M2 / M4|M7",
+            "MHC-DP M2/M5": "ambiguous M2 / M5|M6",
+            "MHC-DP M2/M6": "ambiguous M2 / M5|M6",
+            "MHC-DP M2/M7": "ambiguous M2 / M4|M7",
+            "MHC-DP M3/M3": "called M3 / -",
+            "MHC-DP M3/M4": "ambiguous M3 / M4|M7",
+            "MHC-DP M3/M5": "ambiguous M3 / M5|M6",
+            "MHC-DP M3/M6": "ambiguous M3 / M5|M6",
+            "MHC-DP M3/M7": "ambiguous M3 / M4|M7",
+            "MHC-DP M4/M4": "ambiguous M4|M7 / M4|M7",
+            "MHC-DP M4/M5": "ambiguous M4|M7 / M5|M6",
+            "MHC-DP M4/M6": "ambiguous M4|M7 / M5|M6",
+            "MHC-DP M4/M7": "ambiguous M4|M7 / M4|M7",
+            "MHC-DP M5/M5": "ambiguous M5|M6 / M5|M6",
+            "MHC-DP M5/M6": "ambiguous M5|M6 / M5|M6",
+            "MHC-DP M5/M7": "ambiguous M4|M7 / M5|M6",
+            "MHC-DP M6/M6": "ambiguous M5|M6 / M5|M6",
+            "MHC-DP M6/M7": "ambiguous M4|M7 / M5|M6",
+            "MHC-DP M7/M7": "ambiguous M4|M7 / M4|M7",
+            "MHC-DQ M1/M1": "called M1 / -",
+            "MHC-DQ M1/M2": "called M1 / M2",
+            "MHC-DQ M1/M3": "called M1 / M3",
+            "MHC-DQ M1/M4": "called M1 / M4",
+            "MHC-DQ M1/M5": "called M1 / M5",
+            "MHC-DQ M1/M6": "called M1 / M6",
+            "MHC-DQ M1/M7": "called M1 / M7",
+            "MHC-DQ M2/M2": "called M2 / -",
+            "MHC-DQ M2/M3": "called M2 / M3",
+            "MHC-DQ M2/M4": "called M2 / M4",
+            "MHC-DQ M2/M5": "called M2 / M5",
+            "MHC-DQ M2/M6": "called M2 / M6",
+            "MHC-DQ M2/M7": "called M2 / M7",
+            "MHC-DQ M3/M3": "called M3 / -",
+            "MHC-DQ M3/M4": "called M3 / M4",
+            "MHC-DQ M3/M5": "called M3 / M5",
+            "MHC-DQ M3/M6": "called M3 / M6",
+            "MHC-DQ M3/M7": "called M3 / M7",
+            "MHC-DQ M4/M4": "called M4 / -",
+            "MHC-DQ M4/M5": "called M4 / M5",
+            "MHC-DQ M4/M6": "called M4 / M6",
+            "MHC-DQ M4/M7": "called M4 / M7",
+            "MHC-DQ M5/M5": "called M5 / -",
+            "MHC-DQ M5/M6": "called M5 / M6",
+            "MHC-DQ M5/M7": "called M5 / M7",
+            "MHC-DQ M6/M6": "called M6 / -",
+            "MHC-DQ M6/M7": "called M6 / M7",
+            "MHC-DQ M7/M7": "called M7 / -",
+            "MHC-DR M1/M1": "called M1 / -",
+            "MHC-DR M1/M2": "called M1 / M2",
+            "MHC-DR M1/M3": "called M1 / M3",
+            "MHC-DR M1/M4": "called M1 / M4",
+            "MHC-DR M1/M5": "called M1 / M5",
+            "MHC-DR M1/M6": "called M1 / M6",
+            "MHC-DR M1/M7": "called M1 / M7",
+            "MHC-DR M2/M2": "called M2 / -",
+            "MHC-DR M2/M3": "called M2 / M3",
+            "MHC-DR M2/M4": "called M2 / M4",
+            "MHC-DR M2/M5": "called M2 / M5",
+            "MHC-DR M2/M6": "called M2 / M6",
+            "MHC-DR M2/M7": "called M2 / M7",
+            "MHC-DR M3/M3": "called M3 / -",
+            "MHC-DR M3/M4": "called M3 / M4",
+            "MHC-DR M3/M5": "called M3 / M5",
+            "MHC-DR M3/M6": "called M3 / M6",
+            "MHC-DR M3/M7": "called M3 / M7",
+            "MHC-DR M4/M4": "called M4 / -",
+            "MHC-DR M4/M5": "called M4 / M5",
+            "MHC-DR M4/M6": "called M4 / M6",
+            "MHC-DR M4/M7": "called M4 / M7",
+            "MHC-DR M5/M5": "called M5 / -",
+            "MHC-DR M5/M6": "called M5 / M6",
+            "MHC-DR M5/M7": "called M5 / M7",
+            "MHC-DR M6/M6": "called M6 / -",
+            "MHC-DR M6/M7": "called M6 / M7",
+            "MHC-DR M7/M7": "called M7 / -"
+        ]
+        let actual = try Self.shippedMCMGoldenOutcomes(loci: ["MHC-DP", "MHC-DQ", "MHC-DR"])
+        XCTAssertEqual(actual.count, 84)
+        for row in actual {
+            XCTAssertEqual(row.outcome, expected[row.key], row.key)
+        }
+    }
+
+    /// GEN-02 (D11): no genotype at any MCM locus, class I included, may be
+    /// `called` with a haplotype pair other than the truth, and every
+    /// `ambiguous` call must be compatible with the truth.
+    func testMCMShippedDefinitionNeverCallsWrongPairAtAnyLocus() throws {
+        for row in try Self.shippedMCMGoldenOutcomes() {
+            let pair = row.key.split(separator: " ")[1].split(separator: "/").map(String.init)
+            let parts = row.outcome.split(separator: " ", maxSplits: 1).map(String.init)
+            let slots = parts[1].components(separatedBy: " / ")
+            switch parts[0] {
+            case GenotypeHaplotypeCallStatus.called.rawValue:
+                let second = slots[1] == "-" ? slots[0] : slots[1]
+                XCTAssertEqual(Set([slots[0], second]), Set(pair), row.key)
+                XCTAssertEqual([slots[0], second].sorted(), pair.sorted(), row.key)
+            case GenotypeHaplotypeCallStatus.ambiguous.rawValue:
+                let first = Set(slots[0].split(separator: "|").map(String.init))
+                let second = Set(slots[1].split(separator: "|").map(String.init))
+                XCTAssertTrue(
+                    (first.contains(pair[0]) && second.contains(pair[1]))
+                        || (first.contains(pair[1]) && second.contains(pair[0])),
+                    "\(row.key): \(row.outcome)"
+                )
+            case GenotypeHaplotypeCallStatus.tooManyHaplotypes.rawValue,
+                 GenotypeHaplotypeCallStatus.tooManyGenotypes.rawValue:
+                break
+            default:
+                XCTFail("\(row.key): unexpected outcome \(row.outcome)")
+            }
+        }
+    }
+
+    /// GEN-02 (D11): a dropped candidate is explained in the call notes, and
+    /// a true heterozygote sharing an allele is still called.
+    func testSharedAlleleHomozygoteIsCalledHomozygousWithNote() throws {
+        let definitionSet = try Self.shippedMCMDefinitionSet()
+        let dq = try XCTUnwrap(definitionSet.locusDefinitions.first { $0.locus == "MHC-DQ" })
+        let set = GenotypeHaplotypeDefinitionSet(
+            id: definitionSet.id,
+            assayID: definitionSet.assayID,
+            displayName: definitionSet.displayName,
+            speciesName: definitionSet.speciesName,
+            speciesCode: definitionSet.speciesCode,
+            prefix: definitionSet.prefix,
+            locusDefinitions: [dq]
+        )
+        let homozygous = GenotypeHaplotypeAnalyzer.analyze(
+            calls: [
+                Self.call(sample: "S1", genotype: "MCM_MHC_MiSeq_0025|haplotype_groups=MHC-DQ", reads: 200),
+                Self.call(sample: "S1", genotype: "MCM_MHC_MiSeq_0178|haplotype_groups=MHC-DQ", reads: 200),
+            ],
+            definitionSet: set
+        )
+        let homozygousCall = try XCTUnwrap(homozygous.samples.first?.calls.first)
+        XCTAssertEqual(homozygousCall.status, .called)
+        XCTAssertEqual(homozygousCall.haplotype1, "M2")
+        XCTAssertEqual(homozygousCall.haplotype2, "-")
+        XCTAssertEqual(homozygousCall.matchedHaplotypes.map(\.name), ["M2"])
+        XCTAssertTrue(homozygousCall.notes.contains("M6 (explained by M2)"), homozygousCall.notes)
     }
 }

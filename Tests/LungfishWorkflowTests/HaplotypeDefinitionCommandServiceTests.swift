@@ -3,6 +3,21 @@ import LungfishIO
 import XCTest
 
 final class HaplotypeDefinitionCommandServiceTests: XCTestCase {
+    /// GEN-02 (D11): the lint names exactly the shipped MCM haplotypes whose
+    /// required diagnostic alleles are identical (DP M4/M7 and M5/M6), and
+    /// the shipped set still validates (warnings are non-fatal).
+    func testDefinitionWarningsFlagIdenticalRequiredSetsInShippedMCMDefinition() throws {
+        let bundleURL = try MCMHaplotypingPreset.mcmMHCmiseq.bundledReferenceBundleURL()
+        let definition = try XCTUnwrap(MHCAmpliconReferenceBundle.defaultHaplotypeDefinition(in: bundleURL))
+        let service = HaplotypeDefinitionCommandService(projectRoot: nil)
+
+        XCTAssertNoThrow(try service.validateDefinition(definition))
+        let warnings = service.definitionWarnings(definition)
+        XCTAssertEqual(warnings.count, 2, warnings.joined(separator: "\n"))
+        XCTAssertTrue(warnings.contains { $0.hasPrefix("MHC-DP: haplotypes M4, M7 ") && $0.contains("M4|M7") })
+        XCTAssertTrue(warnings.contains { $0.hasPrefix("MHC-DP: haplotypes M5, M6 ") && $0.contains("M5|M6") })
+    }
+
     func testImportDefinitionWritesProjectDefinitionAndCLIProvenance() throws {
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
