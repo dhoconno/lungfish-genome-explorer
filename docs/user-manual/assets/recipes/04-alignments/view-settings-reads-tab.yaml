@@ -2,8 +2,8 @@
 # App state: the Inspector View Settings, Reads tab, with chr20 reference bundle selected
 id: view-settings-reads-tab
 chapter: 04-alignments/02-reading-an-alignment
-caption: The Reads tab of the Inspector's View Settings, showing the row controls, the Read display budget
-  slider, and the base and strand toggles beneath them.
+caption: The Reads tab of the Inspector's View Settings, showing the row controls, the Maximum displayed
+  depth control, and the base and strand toggles beneath them.
 viewport_class: alignment
 app_state:
   fixture: '{demo_project}'
