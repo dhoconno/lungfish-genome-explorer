@@ -47,6 +47,22 @@ final class WorkflowLibraryViewModel {
     var enabledWorkflowIDs: Set<String>
     var enabledUserWorkflowIDs: Set<String>
 
+    /// The linked package whose card the panel should scroll to and highlight, if any.
+    /// Set by ``reveal(packageID:)`` (for example from Tools > Workflows) and cleared by the panel.
+    private(set) var revealedPackageID: String?
+    /// Increments on every reveal request so revealing the same card twice still scrolls.
+    private(set) var revealRequestOrdinal: UInt64 = 0
+
+    func reveal(packageID manifestID: String) {
+        revealedPackageID = manifestID
+        revealRequestOrdinal &+= 1
+    }
+
+    func clearReveal(packageID manifestID: String) {
+        guard revealedPackageID == manifestID else { return }
+        revealedPackageID = nil
+    }
+
     var builtInSections: [WorkflowLibrarySection] {
         WorkflowLibraryCatalog.builtInSections
     }

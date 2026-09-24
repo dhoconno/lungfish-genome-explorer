@@ -113,7 +113,11 @@ final class ImportCenterMenuTests: XCTestCase {
         XCTAssertEqual(fileMenu.items.first(where: { $0.title == "Import Center…" })?.identifier?.rawValue, MainMenuAccessibilityID.importCenter)
         XCTAssertNil(toolsMenu.items.first(where: { $0.title == "Workflow Operations…" }))
         XCTAssertNotNil(toolsMenu.items.first(where: { $0.title == "Genotyping" })?.submenu)
-        XCTAssertEqual(toolsMenu.items.first(where: { $0.title == "Workflow Library…" })?.identifier?.rawValue, MainMenuAccessibilityID.workflowLibrary)
+        let workflowsItem = try XCTUnwrap(toolsMenu.items.first(where: { $0.title == "Workflows" }))
+        XCTAssertEqual(workflowsItem.identifier?.rawValue, MainMenuAccessibilityID.workflows)
+        let workflowsMenu = try XCTUnwrap(workflowsItem.submenu)
+        XCTAssertEqual(workflowsMenu.items.first(where: { $0.title == "Workflow Library…" })?.identifier?.rawValue, MainMenuAccessibilityID.workflowLibrary)
+        XCTAssertNil(toolsMenu.items.first(where: { $0.title == "Workflow Library…" }))
         XCTAssertEqual(toolsMenu.items.first(where: { $0.title == "Workflow Builder (Experimental)…" })?.identifier?.rawValue, MainMenuAccessibilityID.workflowBuilder)
         XCTAssertEqual(toolsMenu.items.first(where: { $0.title == "Plugin Manager…" })?.identifier?.rawValue, MainMenuAccessibilityID.pluginManager)
         XCTAssertEqual(operationsMenu.items.first(where: { $0.title == "Show Operations Panel" })?.identifier?.rawValue, MainMenuAccessibilityID.showOperationsPanel)
@@ -186,7 +190,8 @@ final class ImportCenterMenuTests: XCTestCase {
         let _ = NSApplication.shared
         let mainMenu = MainMenu.createMainMenu(experimentalFeaturesEnabled: false)
         let toolsMenu = try XCTUnwrap(mainMenu.items.first(where: { $0.title == "Tools" })?.submenu)
-        let workflowLibraryItem = try XCTUnwrap(toolsMenu.items.first(where: { $0.title == "Workflow Library…" }))
+        let workflowsMenu = try XCTUnwrap(toolsMenu.items.first(where: { $0.title == "Workflows" })?.submenu)
+        let workflowLibraryItem = try XCTUnwrap(workflowsMenu.items.first(where: { $0.title == "Workflow Library…" }))
         let selector = NSSelectorFromString("showWorkflowLibrary:")
         let protocolMethod = protocol_getMethodDescription(ToolsMenuActions.self, selector, true, true)
         let recorder = WorkflowBuilderMenuActionRecorder()
@@ -526,6 +531,8 @@ private final class WorkflowBuilderMenuActionRecorder: NSObject, ToolsMenuAction
         launchWorkflowInvocationCount += 1
     }
     @objc func promptEnableWorkflowFromMenu(_ sender: NSMenuItem) {}
+    @objc func launchLinkedWorkflowPackageFromMenu(_ sender: NSMenuItem) {}
+    @objc func revealLinkedWorkflowPackageInLibrary(_ sender: NSMenuItem) {}
     @objc func showBAMVariantCalling(_ sender: Any?) {}
     @objc func searchNCBI(_ sender: Any?) {}
     @objc func searchSRA(_ sender: Any?) {}

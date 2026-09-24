@@ -334,6 +334,9 @@ extension WorkflowPackageValidationResult {
 
 extension Notification.Name {
     static let workflowLibraryEnablementDidChange = Notification.Name("workflowLibraryEnablementDidChange")
+    /// Posted by ``WorkflowLibraryImportedPackageStore`` whenever its registrations change
+    /// (link, unlink, relocate, or a validation pass that changed a package's status).
+    static let workflowLibraryPackagesChanged = Notification.Name("com.lungfish.workflowLibraryPackagesChanged")
 }
 
 @MainActor
@@ -584,6 +587,7 @@ final class WorkflowLibraryImportedPackageStore {
             // One encoded value replaces the registry; no intermediate duplicate identity.
             do { userDefaults.set(try JSONEncoder().encode(registrations), forKey: Self.registrationsKey) }
             catch { preconditionFailure("Unable to encode workflow registrations: \(error)") }
+            NotificationCenter.default.post(name: .workflowLibraryPackagesChanged, object: self)
         }
     }
 

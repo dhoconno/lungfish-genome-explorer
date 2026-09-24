@@ -932,7 +932,7 @@ Terms appear in alphabetical order. Each entry is a one-sentence definition, fol
 
 **Workflow engine**{#workflow-engine}. A program that reads a description of an analysis, works out which step must happen before which other step, and then runs them in that order, of which Lungfish Genome Explorer drives two, Nextflow pinned at version 26.04.6 and Snakemake pinned at version 9.25.2. See also Nextflow, Snakemake, workflow package.
 
-**Workflow Library**{#workflow-library}. The window opened with **Tools > Workflow Library...** that lists every specialized workflow and every linked workflow package as a card with an Enabled switch, and which is the only place a specialized workflow can be turned on before its Tools menu item stops reading `(not enabled)`. See also workflow package, plugin pack.
+**Workflow Library**{#workflow-library}. The window opened with **Tools > Workflows > Workflow Library...** that lists every specialized workflow and every linked workflow package as a card with an Enabled switch, and which is the only place a specialized workflow can be turned on before its Tools menu item stops reading `(not enabled)`. See also workflow package, plugin pack.
 
 **Workflow lineage**{#workflow-lineage}. The ordered chain of tool invocations an LGE run record holds, shown as the Lineage block of the Inspector's Provenance section, where each numbered step expands to its own command, inputs, outputs, exit status, and wall time. Distinct from a viral lineage, which names a subgroup of a virus species. See also run record, provenance sidecar.
 

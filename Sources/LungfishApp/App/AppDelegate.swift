@@ -91,6 +91,10 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
     private var lastAppliedExperimentalFeaturesEnabled = AppSettings.defaultExperimentalFeaturesEnabled
 
     private var workflowLibraryEnablementObserver: AppDelegateNotificationObserver?
+    private var workflowLibraryPackagesObserver: AppDelegateNotificationObserver?
+    /// Coalesces Tools menu rebuilds requested by linked-package changes, since a
+    /// validation pass inside one rebuild can itself post another change.
+    private var isToolsMenuRebuildScheduled = false
 
     /// Repeating timer that requests conservative project storage cleanup.
     private var projectTempCleanupTimers: [URL: Timer] = [:]
@@ -317,6 +321,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
 
     deinit {
         workflowLibraryEnablementObserver = nil
+        workflowLibraryPackagesObserver = nil
         NotificationCenter.default.removeObserver(self)
     }
 
@@ -1371,6 +1376,17 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         }
         workflowLibraryEnablementObserver = AppDelegateNotificationObserver(token: workflowLibraryToken)
 
+        let workflowPackagesToken = NotificationCenter.default.addObserver(
+            forName: .workflowLibraryPackagesChanged,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.scheduleToolsMenuRebuildForWorkflowPackages()
+            }
+        }
+        workflowLibraryPackagesObserver = AppDelegateNotificationObserver(token: workflowPackagesToken)
+
         // Register for AI assistant show request
         NotificationCenter.default.addObserver(
             self,
@@ -1692,6 +1708,19 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             experimentalFeaturesEnabled: AppSettings.shared.experimentalFeaturesEnabled,
             workflowFeatureAvailability: .current()
         )
+    }
+
+    /// Linked packages were added, removed, relocated, or revalidated. Rebuilding the
+    /// menu validates packages again, which can post the same notification once more,
+    /// so the rebuild is deferred and coalesced instead of run inline.
+    private func scheduleToolsMenuRebuildForWorkflowPackages() {
+        guard !isToolsMenuRebuildScheduled else { return }
+        isToolsMenuRebuildScheduled = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.isToolsMenuRebuildScheduled = false
+            self.handleWorkflowLibraryEnablementChanged()
+        }
     }
 
     // MARK: - Project Temp Cleanup

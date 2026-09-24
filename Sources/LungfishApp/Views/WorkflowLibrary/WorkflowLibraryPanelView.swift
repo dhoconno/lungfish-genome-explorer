@@ -59,36 +59,46 @@ struct WorkflowLibraryPanelView: View {
     }
 
     private var libraryView: some View {
-        ScrollView {
-            LazyVStack(alignment: .leading, spacing: 18) {
-                ForEach(viewModel.builtInSections) { section in
-                    builtInSection(section)
-                }
-
-                userWorkflowHeader
-
-                ForEach(viewModel.userWorkflowSections) { section in
-                    userSection(section)
-                }
-
-                ForEach(viewModel.registrations.filter { $0.status != .available }) { registration in
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text(registration.title).font(.headline)
-                        Text(registration.diagnostic ?? "Checking linked package...")
-                            .font(.callout).foregroundStyle(.secondary)
-                        registrationControls(registration)
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 18) {
+                    ForEach(viewModel.builtInSections) { section in
+                        builtInSection(section)
                     }
-                    .padding(14)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(Color.lungfishCardBackground)
-                    .clipShape(RoundedRectangle(cornerRadius: 10))
-                }
 
-                if viewModel.registrations.isEmpty {
-                    emptyUserWorkflowCard
+                    userWorkflowHeader
+
+                    ForEach(viewModel.userWorkflowSections) { section in
+                        userSection(section)
+                    }
+
+                    ForEach(viewModel.registrations.filter { $0.status != .available }) { registration in
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text(registration.title).font(.headline)
+                            Text(registration.diagnostic ?? "Checking linked package...")
+                                .font(.callout).foregroundStyle(.secondary)
+                            registrationControls(registration)
+                        }
+                        .padding(14)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(Color.lungfishCardBackground)
+                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                    }
+
+                    if viewModel.registrations.isEmpty {
+                        emptyUserWorkflowCard
+                    }
                 }
+                .padding(16)
             }
-            .padding(16)
+            .onChange(of: viewModel.revealRequestOrdinal, initial: true) { _, _ in
+                scrollToRevealedPackage(using: proxy)
+            }
+            // Packages load asynchronously, so a reveal requested before the card
+            // exists is honoured once the card appears.
+            .onChange(of: viewModel.userWorkflowPackages) { _, _ in
+                scrollToRevealedPackage(using: proxy)
+            }
         }
         .overlay(alignment: .topTrailing) {
             if viewModel.isRefreshing {
@@ -155,6 +165,7 @@ struct WorkflowLibraryPanelView: View {
 
                     ForEach(group.packages, id: \.manifest.id) { package in
                         UserWorkflowPackageCard(package: package, viewModel: viewModel)
+                            .id(WorkflowLibraryAccessibilityID.workflowCard(package.manifest.id))
                             .accessibilityIdentifier(WorkflowLibraryAccessibilityID.workflowCard(package.manifest.id))
                         if let registration = viewModel.registration(for: package) {
                             registrationControls(registration)
@@ -189,6 +200,14 @@ struct WorkflowLibraryPanelView: View {
             RoundedRectangle(cornerRadius: 10)
                 .strokeBorder(Color.lungfishStroke, lineWidth: 1)
         )
+    }
+
+    private func scrollToRevealedPackage(using proxy: ScrollViewProxy) {
+        guard let manifestID = viewModel.revealedPackageID,
+              viewModel.userWorkflowPackages.contains(where: { $0.manifest.id == manifestID }) else { return }
+        withAnimation {
+            proxy.scrollTo(WorkflowLibraryAccessibilityID.workflowCard(manifestID), anchor: .center)
+        }
     }
 
     private func addWorkflowPackage() {
@@ -441,8 +460,27 @@ private struct UserWorkflowPackageCard: View {
         .clipShape(RoundedRectangle(cornerRadius: 10))
         .overlay(
             RoundedRectangle(cornerRadius: 10)
-                .strokeBorder(Color.lungfishStroke, lineWidth: 1)
+                .strokeBorder(
+                    isRevealed ? Color.lungfishCreamsicleFallback : Color.lungfishStroke,
+                    lineWidth: isRevealed ? 2 : 1
+                )
         )
+        .animation(.easeInOut(duration: 0.2), value: isRevealed)
+        // The highlight is a pointer, not a state: it fades after a moment.
+        .task(id: revealTaskKey) {
+            guard isRevealed else { return }
+            try? await Task.sleep(for: .seconds(2.5))
+            guard !Task.isCancelled else { return }
+            viewModel.clearReveal(packageID: manifest.id)
+        }
+    }
+
+    private var isRevealed: Bool {
+        viewModel.revealedPackageID == manifest.id
+    }
+
+    private var revealTaskKey: String {
+        isRevealed ? "\(manifest.id)-\(viewModel.revealRequestOrdinal)" : ""
     }
 
     @ViewBuilder

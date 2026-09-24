@@ -1,4 +1,5 @@
 import AppKit
+import LungfishWorkflow
 import XCTest
 @testable import LungfishApp
 
@@ -100,4 +101,198 @@ final class ToolsMenuStructureTests: XCTestCase {
         XCTAssertTrue(installable.isEnabled)
     }
 
+    // MARK: - Tools > Workflows (linked packages)
+
+    func testToolsMenuModelWithNoLinkedPackagesHasNoPackageEntries() {
+        let model = ToolsMenuModel.build(catalog: [], isEnabled: { _ in false })
+        XCTAssertTrue(model.linkedPackages.isEmpty)
+    }
+
+    func testToolsMenuModelListsEnabledPackagesFirstAndMarksDisabledOnes() throws {
+        let root = try makeTemporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let alpha = try makeLinkedPackage(id: "org.test.alpha", name: "Alpha Flow", in: root)
+        let zulu = try makeLinkedPackage(id: "org.test.zulu", name: "Zulu Flow", in: root)
+        let commandOnly = try makeLinkedPackage(id: "org.test.cmd", name: "Command Only", in: root, runnerKind: .command)
+
+        let model = ToolsMenuModel.build(
+            catalog: [],
+            isEnabled: { _ in false },
+            linkedPackages: [alpha, zulu, commandOnly],
+            isPackageEnabled: { $0.manifest.id != "org.test.alpha" }
+        )
+
+        XCTAssertEqual(model.linkedPackages.map(\.title), ["Zulu Flow", "Alpha Flow", "Command Only"])
+        XCTAssertEqual(model.linkedPackages.map(\.isEnabled), [true, false, false])
+        XCTAssertEqual(model.linkedPackages.map(\.menuTitle), [
+            "Zulu Flow\u{2026}",
+            "Alpha Flow (not enabled)",
+            "Command Only (not enabled)",
+        ])
+        XCTAssertEqual(model.linkedPackages.first?.workflowOperationToolID, "package.org.test.zulu")
+    }
+
+    func testWorkflowsSubmenuHoldsOnlyLibraryWhenNothingIsLinked() throws {
+        _ = NSApplication.shared
+        let item = MainMenu.workflowsMenuItem(for: [])
+        XCTAssertEqual(item.title, "Workflows")
+        XCTAssertEqual(item.identifier?.rawValue, MainMenuAccessibilityID.workflows)
+        let submenu = try XCTUnwrap(item.submenu)
+        XCTAssertEqual(submenu.items.map(\.title), ["Workflow Library\u{2026}"])
+        XCTAssertFalse(submenu.items.contains { $0.isSeparatorItem })
+        XCTAssertEqual(submenu.items.first?.action, #selector(ToolsMenuActions.showWorkflowLibrary(_:)))
+        XCTAssertEqual(submenu.items.first?.identifier?.rawValue, MainMenuAccessibilityID.workflowLibrary)
+    }
+
+    func testWorkflowsSubmenuRoutesEnabledPackagesToOperationsAndDisabledOnesToLibrary() throws {
+        _ = NSApplication.shared
+        let item = MainMenu.workflowsMenuItem(for: [
+            ToolsMenuModel.LinkedPackageEntry(manifestID: "org.test.on", title: "Switched On", isEnabled: true),
+            ToolsMenuModel.LinkedPackageEntry(manifestID: "org.test.off", title: "Switched Off", isEnabled: false),
+        ])
+        let submenu = try XCTUnwrap(item.submenu)
+        XCTAssertEqual(submenu.items.map(\.title), [
+            "Switched On\u{2026}",
+            "Switched Off (not enabled)",
+            "",
+            "Workflow Library\u{2026}",
+        ])
+        XCTAssertTrue(submenu.items[2].isSeparatorItem)
+
+        let enabled = submenu.items[0]
+        XCTAssertEqual(enabled.action, #selector(ToolsMenuActions.launchLinkedWorkflowPackageFromMenu(_:)))
+        XCTAssertEqual(enabled.representedObject as? String, "org.test.on")
+        XCTAssertEqual(enabled.identifier?.rawValue, MainMenuAccessibilityID.workflowPackage("org.test.on"))
+        XCTAssertNil(enabled.attributedTitle)
+
+        let disabled = submenu.items[1]
+        XCTAssertEqual(disabled.action, #selector(ToolsMenuActions.revealLinkedWorkflowPackageInLibrary(_:)))
+        XCTAssertEqual(disabled.representedObject as? String, "org.test.off")
+        XCTAssertNotNil(disabled.attributedTitle)
+        XCTAssertTrue(disabled.isEnabled, "the item must stay enabled so its action can open the Library")
+
+        XCTAssertEqual(
+            AppDelegate.workflowOperationToolID(forPackageManifestID: "org.test.on"),
+            "package.org.test.on"
+        )
+    }
+
+    func testToolsMenuRebuildsWorkflowsSubmenuWhenPackageIsLinkedEnabledDisabledAndUnlinked() throws {
+        _ = NSApplication.shared
+        let suiteName = "ToolsMenuWorkflows-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let enablementStore = WorkflowLibraryEnablementStore(userDefaults: defaults)
+        let packageStore = WorkflowLibraryImportedPackageStore(userDefaults: defaults)
+        let root = try makeTemporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let package = try makeLinkedPackage(id: "org.test.hello", name: "Hello Linked", in: root)
+
+        func workflowsTitles() throws -> [String] {
+            let mainMenu = MainMenu.createMainMenu(
+                workflowFeatureAvailability: .init(hasWorkflowOperations: true, hasHaplotypeDefinitions: false),
+                workflowLibraryEnablementStore: enablementStore,
+                workflowPackageStore: packageStore
+            )
+            let toolsMenu = try XCTUnwrap(mainMenu.items.first { $0.title == "Tools" }?.submenu)
+            let workflows = try XCTUnwrap(toolsMenu.items.first { $0.title == "Workflows" }?.submenu)
+            return workflows.items.map { $0.isSeparatorItem ? "-" : $0.title }
+        }
+
+        XCTAssertEqual(try workflowsTitles(), ["Workflow Library\u{2026}"])
+
+        // Link: the store announces the change and the rebuilt menu lists the package as not enabled.
+        let linkExpectation = expectation(forNotification: .workflowLibraryPackagesChanged, object: packageStore)
+        packageStore.addValidatedPackage(package)
+        wait(for: [linkExpectation], timeout: 1)
+        XCTAssertEqual(try workflowsTitles(), ["Hello Linked (not enabled)", "-", "Workflow Library\u{2026}"])
+
+        // Enable: the enablement store posts the notification AppDelegate already rebuilds on.
+        let enableExpectation = expectation(forNotification: .workflowLibraryEnablementChanged, object: enablementStore)
+        enablementStore.setUserWorkflow(package, enabled: true)
+        wait(for: [enableExpectation], timeout: 1)
+        XCTAssertEqual(try workflowsTitles(), ["Hello Linked\u{2026}", "-", "Workflow Library\u{2026}"])
+
+        // Disable.
+        enablementStore.setUserWorkflow(package, enabled: false)
+        XCTAssertEqual(try workflowsTitles(), ["Hello Linked (not enabled)", "-", "Workflow Library\u{2026}"])
+
+        // Unlink.
+        let unlinkExpectation = expectation(forNotification: .workflowLibraryPackagesChanged, object: packageStore)
+        packageStore.removePackage(withManifestID: package.manifest.id)
+        wait(for: [unlinkExpectation], timeout: 1)
+        XCTAssertEqual(try workflowsTitles(), ["Workflow Library\u{2026}"])
+    }
+
+    func testWorkflowOperationsSelectsMenuRequestedPackageOnceRefreshListsIt() async throws {
+        let suiteName = "ToolsMenuWorkflowsDialog-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let enablementStore = WorkflowLibraryEnablementStore(userDefaults: defaults)
+        let root = try makeTemporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let package = try makeLinkedPackage(id: "org.test.pending", name: "Pending Flow", in: root)
+        // Register the path only, so the store's validation cache is cold, as it is right
+        // after launch, and the dialog must wait for the background refresh to list it.
+        let packageStore = WorkflowLibraryImportedPackageStore(userDefaults: defaults)
+        packageStore.addPackage(at: package.packageURL)
+        enablementStore.setUserWorkflow(package, enabled: true)
+        let toolID = AppDelegate.workflowOperationToolID(forPackageManifestID: package.manifest.id)
+
+        let state = WorkflowOperationDialogState(
+            projectURL: nil,
+            initialToolID: toolID,
+            enablementStore: enablementStore,
+            packageStore: packageStore
+        )
+        XCTAssertEqual(state.pendingToolID, toolID)
+        XCTAssertNotEqual(state.selectedToolID, toolID)
+
+        for _ in 0..<200 where state.selectedToolID != toolID {
+            try await Task.sleep(for: .milliseconds(25))
+        }
+        XCTAssertEqual(state.selectedToolID, toolID)
+        XCTAssertNil(state.pendingToolID)
+        XCTAssertEqual(state.selectedTool?.title, "Pending Flow")
+    }
+
+    // MARK: - Fixtures
+
+    private func makeTemporaryRoot() throws -> URL {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("tools-menu-workflows-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        return root
+    }
+
+    private func makeLinkedPackage(
+        id: String,
+        name: String,
+        in root: URL,
+        runnerKind: WorkflowPackageRunnerKind = .nextflow
+    ) throws -> WorkflowPackageValidationResult {
+        let packageURL = root.appendingPathComponent("\(name).lungfishflowpkg", isDirectory: true)
+        try FileManager.default.createDirectory(at: packageURL, withIntermediateDirectories: true)
+        let entrypoint = runnerKind == .command ? "run.sh" : "main.nf"
+        try "// invented fixture; never executed"
+            .write(to: packageURL.appendingPathComponent(entrypoint), atomically: true, encoding: .utf8)
+        let manifest = WorkflowPackageManifest(
+            id: id, name: name, version: "1", category: "Templates",
+            runner: WorkflowPackageRunner(
+                kind: runnerKind,
+                entrypoint: entrypoint,
+                commandTemplate: runnerKind == .command ? ["sh", entrypoint] : nil
+            ),
+            inputs: [
+                WorkflowPackageInput(id: "reference", name: "Reference", bundleTypes: [.lungfishref]),
+                WorkflowPackageInput(id: "reads", name: "Reads", bundleTypes: [.lungfishfastq]),
+            ],
+            outputs: [
+                WorkflowPackageOutput(id: "result", name: "Result", bundleType: .lungfishref, pathTemplate: "{outputName}.lungfishref"),
+            ]
+        )
+        let manifestURL = packageURL.appendingPathComponent("manifest.json")
+        try JSONEncoder().encode(manifest).write(to: manifestURL)
+        return try WorkflowPackageValidator.validatePackage(at: packageURL)
+    }
 }
