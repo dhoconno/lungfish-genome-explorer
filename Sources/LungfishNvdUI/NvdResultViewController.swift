@@ -241,11 +241,28 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
         sampleMetadataStore = store
     }
 
+#if DEBUG
+    /// Test-only override for the `UserDefaults` backing `metadataColumnController`'s
+    /// persisted column layout. Column-visibility state is normally shared
+    /// (correctly) across every NVD result view via `.standard`, keyed by
+    /// bundle path; tests that reuse a fixed bundle path must not read or
+    /// write the real `.standard` domain, or a run's leftover visibility
+    /// state leaks into later runs of the same test in the full suite.
+    static var testMetadataUserDefaultsOverride: UserDefaults?
+#endif
+
     /// Controller for dynamic sample metadata columns (from imported CSV/TSV).
     /// This viewport owns the typography observation for standard and metadata
     /// cells, so the embedded metadata controller must not observe separately.
     private let metadataColumnController = MetadataColumnController(
-        contentTypographyOwnership: .embedded
+        contentTypographyOwnership: .embedded,
+        userDefaults: {
+            #if DEBUG
+            return NvdResultViewController.testMetadataUserDefaultsOverride ?? .standard
+            #else
+            return .standard
+            #endif
+        }()
     )
 
     // MARK: - Content Typography

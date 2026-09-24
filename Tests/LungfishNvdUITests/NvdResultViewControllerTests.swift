@@ -21,6 +21,21 @@ private final class NvdRecordingEvidenceViewer: NSObject, ClassifierAlignmentVie
 @MainActor
 final class NvdResultViewControllerTests: XCTestCase {
     func testImportedMetadataImmediatelyUpdatesActualResultTableChooserAndCells() throws {
+        // Isolate the metadata-column persistence layer: the fixed
+        // "/tmp/nvd-metadata" bundle path below is keyed straight into
+        // UserDefaults.standard by production code, so without an injected
+        // ephemeral suite this test's column-visibility assertions depend on
+        // whatever an earlier run in the same test process (or an earlier
+        // full-suite run on this machine) left behind under that key.
+        let suiteName = "NvdResultViewControllerTests.\(UUID().uuidString)"
+        let isolatedDefaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        isolatedDefaults.removePersistentDomain(forName: suiteName)
+        NvdResultViewController.testMetadataUserDefaultsOverride = isolatedDefaults
+        addTeardownBlock {
+            isolatedDefaults.removePersistentDomain(forName: suiteName)
+            NvdResultViewController.testMetadataUserDefaultsOverride = nil
+        }
+
         let vc = NvdResultViewController()
         _ = vc.view
         vc.configureWithCachedRows(

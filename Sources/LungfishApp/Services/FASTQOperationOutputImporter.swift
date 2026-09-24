@@ -120,7 +120,7 @@ struct AppFASTQOutputBundleWriter: FASTQOutputBundleWriting {
                     // output — see ClumpingTool.resolve).
                     qualityBinning: .none,
                     skipClumpify: false,
-                    clumpingTool: .auto
+                    clumpingTool: .bbtools
                 ),
                 progress: { _, _ in }
             )

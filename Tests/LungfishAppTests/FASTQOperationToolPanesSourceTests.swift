@@ -484,7 +484,7 @@ final class FASTQOperationToolPanesSourceTests: XCTestCase {
         // all wire fastqImportBarcodeSheet: prove chooseBarcodeDefinitionButton
         // specifically (identifiable by its title), then prove the item's help
         // text is applied to at least one control overall.
-        let chooseBarcodeButton = try XCTUnwrap(sheet.view.firstButtonMatching(title: "Choose..."))
+        let chooseBarcodeButton = try XCTUnwrap(sheet.view.firstButtonMatching(title: "Choose…"))
         XCTAssertEqual(chooseBarcodeButton.toolTip, LungfishHelpContent.fastqImportBarcodeSheet.summary)
 
         XCTAssertNotNil(

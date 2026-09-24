@@ -1251,22 +1251,38 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
         )
     }
 
+    // WFL-05: pbAA results used to land in a sidebar-hidden `cli-output-pbaa-*`
+    // staging subfolder. The caller now creates a dedicated, visible
+    // `Analyses/pbaa-<timestamp>/` directory up front and passes it in as
+    // `workingDirectory`, and the planner writes CLI output directly into it
+    // rather than nesting another staging directory underneath. Scoping is
+    // still real: `discoverOutputs` only looks inside that execution
+    // directory, so a reference bundle left over from a previous pbAA run in
+    // a sibling `Analyses/` entry is never picked up.
     func testPlannerScopesPBAADiscoveryToCurrentExecutionDirectory() throws {
         let tempDir = try FASTQOperationTestHelper.makeTempDir(prefix: "FASTQExecPBAAScopedRefs")
         defer { try? FileManager.default.removeItem(at: tempDir) }
 
         let analysesDirectory = tempDir.appendingPathComponent("Analyses", isDirectory: true)
-        let oldReferenceBundle = analysesDirectory.appendingPathComponent("old.lungfishref", isDirectory: true)
+        let oldPbaaRunDirectory = analysesDirectory.appendingPathComponent("pbaa-old-run", isDirectory: true)
+        let oldReferenceBundle = oldPbaaRunDirectory.appendingPathComponent("old.lungfishref", isDirectory: true)
         try FileManager.default.createDirectory(at: oldReferenceBundle, withIntermediateDirectories: true)
+
+        let currentPbaaRunDirectory = analysesDirectory.appendingPathComponent("pbaa-current-run", isDirectory: true)
+        try FileManager.default.createDirectory(at: currentPbaaRunDirectory, withIntermediateDirectories: true)
 
         let request = try FASTQOperationLaunchRequest.pbaa(request: PBAAClusteringRunRequest(
             inputFASTQURL: URL(fileURLWithPath: "/tmp/reads.fastq"),
             guideSourceURL: URL(fileURLWithPath: "/tmp/guide.fasta"),
-            outputDirectory: analysesDirectory,
+            outputDirectory: currentPbaaRunDirectory,
             outputName: "sample"
         ))
         let planner = FASTQOperationPlanner()
-        let executionDirectory = planner.executionOutputDirectory(for: request, workingDirectory: tempDir)
+        // pbAA's own dedicated Analyses/pbaa-* directory IS the execution
+        // directory -- there is no additional cli-output-pbaa-* nesting.
+        let executionDirectory = planner.executionOutputDirectory(for: request, workingDirectory: currentPbaaRunDirectory)
+        XCTAssertEqual(executionDirectory.standardizedFileURL, currentPbaaRunDirectory.standardizedFileURL)
+
         let currentReferenceBundle = executionDirectory.appendingPathComponent("sample.lungfishref", isDirectory: true)
         try FileManager.default.createDirectory(at: currentReferenceBundle, withIntermediateDirectories: true)
 
@@ -1276,8 +1292,6 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
             baseOutputDirectory: executionDirectory
         ).first)
 
-        XCTAssertNotEqual(executionDirectory.standardizedFileURL, analysesDirectory.standardizedFileURL)
-        XCTAssertTrue(executionDirectory.lastPathComponent.hasPrefix("cli-output-pbaa-"))
         XCTAssertEqual(plan.outputTarget.standardizedFileURL, executionDirectory.standardizedFileURL)
         XCTAssertEqual(
             planner.discoverOutputs(for: plan, in: executionDirectory).map { $0.resolvingSymlinksInPath() },

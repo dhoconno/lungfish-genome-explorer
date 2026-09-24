@@ -60,13 +60,11 @@ struct CLITreeRunner {
                 throw RunError.underlying(message)
             }
             let bundleURL = URL(fileURLWithPath: outputPath, isDirectory: true)
-            await MainActor.run {
-                _ = OperationCenter.shared.complete(
-                    id: operationID,
-                    detail: "\(label.capitalizedFirstLetter) complete",
-                    bundleURLs: [bundleURL]
-                )
-            }
+            await OperationCenterCLIBridge.completeOperation(
+                operationID,
+                detail: "\(label.capitalizedFirstLetter) complete",
+                bundleURLs: [bundleURL]
+            )
             return Result(bundleURL: bundleURL)
         } catch is CancellationError {
             await OperationCenterCLIBridge.acknowledgeCancellation(operationID)
