@@ -116,25 +116,11 @@ extension InspectorViewController {
             routeContext: operationRouteContext(for: bundleURL)
         )
 
-        final class ResultTracker: @unchecked Sendable {
-            var completedTrackName: String?
-            var failureMessage: String?
-        }
-        let tracker = ResultTracker()
         let runner = CLIVariantCallingRunner()
 
         let task = Task(priority: .userInitiated) { [weak self] in
             do {
-                try await runner.run(arguments: cliArguments) { event in
-                    switch event {
-                    case .runComplete(_, let trackName, _, _, _):
-                        tracker.completedTrackName = trackName
-                    case .runFailed(let message):
-                        tracker.failureMessage = message
-                    default:
-                        break
-                    }
-
+                let result = try await runner.run(arguments: cliArguments) { event in
                     DispatchQueue.main.async {
                         MainActor.assumeIsolated {
                             Self.applyVariantCallingEvent(event, operationID: opID)
@@ -144,7 +130,7 @@ extension InspectorViewController {
 
                 DispatchQueue.main.async { [weak self] in
                     MainActor.assumeIsolated {
-                        let detail = tracker.completedTrackName.map { "Created variant track \($0)" }
+                        let detail = result.trackName.map { "Created variant track \($0)" }
                             ?? "Variant calling complete"
                         guard OperationCenter.shared.complete(id: opID, detail: detail) else { return }
                         if let self, let split = self.parent as? MainSplitViewController {
@@ -171,7 +157,7 @@ extension InspectorViewController {
                     }
                 }
             } catch {
-                let message = tracker.failureMessage ?? error.localizedDescription
+                let message = error.localizedDescription
                 DispatchQueue.main.async { [weak self] in
                     MainActor.assumeIsolated {
                         guard OperationCenter.shared.fail(
@@ -311,39 +297,40 @@ extension InspectorViewController {
     }
 
     @MainActor
-    private static func applyVariantCallingEvent(_ event: CLIVariantCallingEvent, operationID: UUID) {
-        let (progress, detail, level): (Double, String, OperationLogLevel) = {
+    private static func applyVariantCallingEvent(_ event: CLIEvent, operationID: UUID) {
+        let (progress, detail, level): (Double?, String, OperationLogLevel) = {
             switch event {
-            case .runStart(let message):
+            case let .start(message):
                 return (0.01, message, .info)
-            case .preflightStart(let message):
-                return (0.02, message, .info)
-            case .preflightComplete(let message):
-                return (0.08, message, .info)
-            case .stageStart(let message):
-                return (0.10, message, .info)
-            case .stageProgress(let progress, let message):
-                return (max(0.10, min(0.88, progress)), message, .info)
-            case .stageComplete(let message):
-                return (0.70, message, .info)
-            case .importStart(let message):
-                return (0.74, message, .info)
-            case .importComplete(let message, _):
-                return (0.88, message, .info)
-            case .attachStart(let message):
-                return (0.90, message, .info)
-            case .attachComplete(_, let trackName, _, _, _):
-                let detail = trackName.map { "Attached variant track \($0)" } ?? "Attached variant track"
-                return (0.97, detail, .info)
-            case .runComplete(_, let trackName, _, _, _):
-                return (0.99, "Reloading bundle with \(trackName)...", .info)
-            case .runFailed(let message):
+            case let .progress(fraction, message):
+                return (max(0.10, min(0.88, fraction)), message, .info)
+            case let .log(cliLevel, message):
+                return (nil, message, cliLevel.operationLogLevel)
+            case .output:
+                return (nil, "", .info)
+            case .complete:
+                return (0.99, "Reloading bundle...", .info)
+            case let .failed(message, _):
                 return (0.99, message, .error)
             }
         }()
 
-        _ = OperationCenter.shared.update(id: operationID, progress: progress, detail: detail)
+        if let progress {
+            _ = OperationCenter.shared.update(id: operationID, progress: progress, detail: detail)
+        }
+        guard !detail.isEmpty else { return }
         OperationCenter.shared.log(id: operationID, level: level, message: detail)
     }
 
+}
+
+private extension CLIEventLogLevel {
+    var operationLogLevel: OperationLogLevel {
+        switch self {
+        case .debug: return .debug
+        case .info: return .info
+        case .warning: return .warning
+        case .error: return .error
+        }
+    }
 }

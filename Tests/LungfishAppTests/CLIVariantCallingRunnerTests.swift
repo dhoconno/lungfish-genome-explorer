@@ -20,12 +20,9 @@ final class CLIVariantCallingRunnerTests: XCTestCase {
         try script.write(to: scriptURL, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: scriptURL.path)
 
-        let runner = CLIVariantCallingRunner(cliBinaryPathProvider: { scriptURL })
+        let runner = CLIVariantCallingRunner(cliURLOverride: scriptURL)
         let task = Task {
-            try await runner.run(
-                arguments: [],
-                onEvent: { _ in }
-            )
+            try await runner.run(arguments: [])
         }
 
         let rootPID = try await waitForPIDFile(rootPIDFile)
@@ -55,34 +52,42 @@ final class CLIVariantCallingRunnerTests: XCTestCase {
         }
     }
 
-    func testRunnerParsesRunCompleteEvent() throws {
-        let json = """
-        {"event":"runComplete","message":"done","variantTrackID":"vc-1","variantTrackName":"Sample 1 • LoFreq","databasePath":"/tmp/variants.db","vcfPath":"/tmp/variants.vcf.gz","tbiPath":"/tmp/variants.vcf.gz.tbi"}
+    func testRunParsesRunCompleteEvent() async throws {
+        let tempDir = try makeTemporaryDirectory()
+        let fakeCLI = tempDir.appendingPathComponent("lungfish-cli")
+        let script = """
+        #!/bin/sh
+        printf '%s\\n' '{"event":"complete","output":"/tmp/variants.db","outputs":["/tmp/variants.db","/tmp/variants.vcf.gz","/tmp/variants.vcf.gz.tbi"],"message":"trackID=vc-1 trackName=Sample 1 \u{2022} LoFreq"}'
         """
+        try script.write(to: fakeCLI, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fakeCLI.path)
 
-        let event = try XCTUnwrap(CLIVariantCallingRunner.parseEvent(from: json))
-        guard case let .runComplete(trackID, trackName, databasePath, vcfPath, tbiPath) = event else {
-            return XCTFail("Expected runComplete, got \(event)")
-        }
+        let result = try await CLIVariantCallingRunner(cliURLOverride: fakeCLI).run(arguments: [])
 
-        XCTAssertEqual(trackID, "vc-1")
-        XCTAssertEqual(trackName, "Sample 1 • LoFreq")
-        XCTAssertEqual(databasePath, "/tmp/variants.db")
-        XCTAssertEqual(vcfPath, "/tmp/variants.vcf.gz")
-        XCTAssertEqual(tbiPath, "/tmp/variants.vcf.gz.tbi")
+        XCTAssertEqual(result.trackID, "vc-1")
+        XCTAssertEqual(result.trackName, "Sample 1 \u{2022} LoFreq")
+        XCTAssertEqual(result.databasePath, "/tmp/variants.db")
+        XCTAssertEqual(result.vcfPath, "/tmp/variants.vcf.gz")
+        XCTAssertEqual(result.tbiPath, "/tmp/variants.vcf.gz.tbi")
     }
 
-    func testRunnerParsesRunFailedEvent() throws {
-        let json = """
-        {"event":"runFailed","message":"Medaka requires ONT model metadata"}
+    func testRunThrowsRunFailedMessage() async throws {
+        let tempDir = try makeTemporaryDirectory()
+        let fakeCLI = tempDir.appendingPathComponent("lungfish-cli")
+        let script = """
+        #!/bin/sh
+        printf '%s\\n' '{"event":"failed","error":"Medaka requires ONT model metadata"}'
+        exit 1
         """
+        try script.write(to: fakeCLI, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fakeCLI.path)
 
-        let event = try XCTUnwrap(CLIVariantCallingRunner.parseEvent(from: json))
-        guard case let .runFailed(message) = event else {
-            return XCTFail("Expected runFailed, got \(event)")
+        do {
+            _ = try await CLIVariantCallingRunner(cliURLOverride: fakeCLI).run(arguments: [])
+            XCTFail("Expected runFailed error")
+        } catch let error as CLIVariantCallingRunnerError {
+            XCTAssertEqual(error.errorDescription, "Medaka requires ONT model metadata")
         }
-
-        XCTAssertEqual(message, "Medaka requires ONT model metadata")
     }
 
     func testBuildCLIArgumentsIncludesExtraArgsAsSingleValue() {

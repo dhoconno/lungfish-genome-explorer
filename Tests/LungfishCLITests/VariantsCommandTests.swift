@@ -343,8 +343,8 @@ final class VariantsCommandTests: XCTestCase {
 
         _ = try await command.executeForTesting(runtime: runtime) { lines.append($0) }
 
-        XCTAssertTrue(lines.contains { $0.contains(#""event":"runComplete""#) })
-        XCTAssertTrue(lines.contains { $0.contains(#""variantTrackID":"vc-1""#) })
+        XCTAssertTrue(lines.contains { $0.contains(#""event":"complete""#) })
+        XCTAssertTrue(lines.contains { $0.contains("trackID=vc-1") })
     }
 
     func testImportCompleteJSONOmitsTransientDatabasePath() async throws {
@@ -360,19 +360,23 @@ final class VariantsCommandTests: XCTestCase {
 
         _ = try await command.executeForTesting(runtime: runtime) { lines.append($0) }
 
-        let importEvent = try XCTUnwrap(
-            lines
-                .compactMap(decodeEvent)
-                .first(where: { $0.event == "importComplete" })
-        )
-        XCTAssertNil(importEvent.databasePath)
+        let events = lines.compactMap(decodeCLIEvent)
 
-        let runCompleteEvent = try XCTUnwrap(
-            lines
-                .compactMap(decodeEvent)
-                .first(where: { $0.event == "runComplete" })
-        )
-        XCTAssertNotNil(runCompleteEvent.databasePath)
+        // The "importComplete" step (staging SQLite import) becomes a plain
+        // `.log` line: its transient staging database path must never appear
+        // anywhere on the wire, only the final attached database path in the
+        // terminal `.complete` event's outputs.
+        for event in events {
+            if case let .log(_, message) = event {
+                XCTAssertFalse(message.contains(".sqlite"), "Transient staging database path leaked into a log line: \(message)")
+            }
+        }
+
+        guard case let .complete(outputs, message)? = events.last else {
+            return XCTFail("Expected a terminal complete event")
+        }
+        XCTAssertFalse(outputs.isEmpty, "runComplete must report the final database/VCF/tabix paths")
+        XCTAssertTrue(message?.contains("trackID=") == true)
     }
 
     func testCallSubcommandUsesSystemTempStagingForBundlePathsWithSpaces() async throws {
@@ -399,7 +403,7 @@ final class VariantsCommandTests: XCTestCase {
         let stagingRoot = try XCTUnwrap(capture.root)
         XCTAssertFalse(stagingRoot.path.contains("Project With Spaces.lungfish"))
         XCTAssertEqual(capture.marker?.policy, .systemOnly)
-        XCTAssertTrue(lines.contains { $0.contains(#""event":"runComplete""#) })
+        XCTAssertTrue(lines.contains { $0.contains(#""event":"complete""#) })
     }
 
     func testCallSubcommandEmitsRunFailedJSON() async throws {
@@ -433,7 +437,7 @@ final class VariantsCommandTests: XCTestCase {
             try await command.executeForTesting(runtime: runtime) { lines.append($0) }
         )
 
-        XCTAssertTrue(lines.contains { $0.contains(#""event":"runFailed""#) })
+        XCTAssertTrue(lines.contains { $0.contains(#""event":"failed""#) })
         XCTAssertTrue(lines.contains { $0.contains("Medaka requires ONT model metadata") })
     }
 
@@ -599,11 +603,11 @@ private final class CapturedVariantRequest: @unchecked Sendable {
     var request: BundleVariantCallingRequest?
 }
 
-private func decodeEvent(_ line: String) -> VariantsCommand.VariantCallingEvent? {
+private func decodeCLIEvent(_ line: String) -> CLIEvent? {
     guard let data = line.data(using: .utf8) else {
         return nil
     }
-    return try? JSONDecoder().decode(VariantsCommand.VariantCallingEvent.self, from: data)
+    return try? JSONDecoder().decode(CLIEvent.self, from: data)
 }
 
 private func write(_ name: String, contents: String, in directory: URL) throws -> URL {
