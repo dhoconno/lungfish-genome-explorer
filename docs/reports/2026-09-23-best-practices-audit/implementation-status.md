@@ -93,7 +93,8 @@ The branch has about 240 commits over the pre-audit base `a1f439076`: roughly 26
     - NEW-07: selecting an annotation started stuck operations.
     - NEW-09: "Cancel Operations and Quit" never quit. Confirmed live: the app now exits in about 2 seconds.
     - FEA-03 follow-up: an Inspector delete of an annotation picked in the drawer did nothing. Confirmed live: the row count went from 23 to 22.
-  - **Found and still open:** NEW-02, NEW-06, NEW-10, NEW-11 and DS-02.
+    - NEW-08: a cancelled operation whose worker never returns now becomes Cancelled after 10 seconds. Its bundle stays locked until the worker actually exits, so nothing can write over it. Version probes no longer swallow cancellation.
+  - **Found and still open:** NEW-02, NEW-06, NEW-10 (caused by NEW-11), NEW-11 and DS-02.
 
 ## Needs the owner
 
@@ -106,7 +107,7 @@ The branch has about 240 commits over the pre-audit base `a1f439076`: roughly 26
 | REL-04 | `release.py yank` prints a plan only. Executing it against the live Sparkle feed needs your go-ahead |
 | NEW-02: sidebar watcher | Reproduced live 3 times (backgrounded signed app, 4–5 windows). Not reproduced headless. Leading hypothesis: App Nap throttling while backgrounded |
 | NEW-06: EsViritu interleaved input | Runs as unpaired and is labelled "Single-end reads". Deinterleave and run paired? |
-| **NEW-11**: folder permissions | Hardened file writes open every folder from `/` down. For a project in Desktop, Documents or Downloads they need that folder's macOS permission, not just the project. Without it, provenance writes, temp folders and the file watcher hang with no message. Likely also causes NEW-08 and NEW-10. Should the no-follow walk start at the project root instead? |
+| **NEW-11**: folder permissions | Hardened file writes open every folder from `/` down. For a project in Desktop, Documents or Downloads they need that folder's macOS permission, not just the project. Without it, provenance writes, temp folders and the file watcher hang with no message. A live process sample showed it behind the stuck EsViritu run (NEW-08) and the stuck annotation-delete operation (NEW-10). Should the no-follow walk start at the project root instead? |
 
 ## Known gaps and next steps
 
