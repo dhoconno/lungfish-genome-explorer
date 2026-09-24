@@ -9,7 +9,7 @@ Single source of truth for finding status (plan rule 9). Status: `open`, `verifi
 | PERF-04 | P0 | Unique-read counts for TaxTriage and EsViritu are capped at 100,000 parsed reads per contig after buffering up | fixed | P0-C | e3efa6f77,b87e84661 | UniqueReadStartCounter 10/10 incl >100k; AlignmentDataProviderTests 55/55; caches renamed .v2 |
 | REL-01 | P0 | Shipped app bundles are owner-only (0700/0600) because of `umask 077` | fixed | P0-A | dabbd4b4c | umask 022 before xcodebuild + chmod; smoke mode check; test_smoke_test_fails_when_app_bundle_is_owner_only |
 | SCI-01 | P0 | GFF exported to iVar collapses multi-segment CDS (ORF1ab frameshift, spliced CDS) into one span, which changes | fixed | P0-C | 3af455220 | CDSSegmentPhasesTests 6/6, AnnotationDatabaseGFFExporterTests 5/5; ivar split-vs-merged GFF compared manually |
-| TST-01 | P0 | Pre-push unit tier is red on HEAD: 117 failures plus 1 indefinite hang | partial | P0-A | 62d9f3a76,7ef2b46eb | runModal + .superpowers drift fixed; tier not yet green |
+| TST-01 | P0 | Pre-push unit tier is red on HEAD: 117 failures plus 1 indefinite hang | fixed | P0-A..final | 9535e6da7 | GATE PASS unit tier: 13,825 XCTest + 590 swift-testing, 0 failures (5 pre-existing D8 tests quarantined, TST-15); was 117 failures + hang |
 | TST-02 | P0 | No gate runs the broad suite: release selects 186 of about 14.2K tests, the hook is not installed, and 11 rele | fixed | P0-A | b35a3c006 | release.py requires green unit-tier result for commit; appSmokeRequired both channels; hook installed by setup-worktree |
 | WFL-01 | P0 | FASTQ-operation outputs are silently quality-binned and, when large, Trim Galore-trimmed during re-ingestion | fixed | P0-B | 7c3fb0fd5,+clumping fix | no re-binning; auto clumping skips instead of Trim Galore; read-count check before source delete |
 | WFL-02 | P0 | `tree infer iqtree` deletes the shared project `.tmp`, deletes pre-existing output on refusal, and can deadloc | fixed | P0-B | 6898a985f | no .tmp deletion, refusal deletes nothing, concurrent pipe drain |
@@ -47,7 +47,7 @@ Single source of truth for finding status (plan rule 9). Status: `open`, `verifi
 | SCI-08 | P1 | Lossy quality binning on by default (silent on downloads and FASTQ operation outputs), mislabelled schemes, or | fixed | P0-B,Q3 | 7c3fb0fd5,b90f9a337 | default none; labels corrected (illumina4=7 levels) |
 | SCI-09 | P1 | NAO-MGS "coverage %" uses the furthest alignment end as reference length when references were not fetched | fixed | P3-A | 6538d8d39 | reference_length_source; UI shows coverage unavailable |
 | TST-03 | P1 | Swift Build migration broke subpath `Bundle.module` fixtures, crashing tests with SIGTRAP | fixed | P0-A | 18b87a387 | fixtureURL helper, 4 classes |
-| TST-04 | P1 | Stable-namespace change broke about 75 tests that hard-code `.lungfish` fake homes, and tests cannot inject an | partial | P0-A2 | 270f5feaa | 117->18 unit-tier failures; appIdentity threaded through remaining resolvers |
+| TST-04 | P1 | Stable-namespace change broke about 75 tests that hard-code `.lungfish` fake homes, and tests cannot inject an | fixed | P0-A2/A3 | 270f5feaa.. | appIdentity injectable; all identity-dependent tests pinned |
 | TST-05 | P1 | No per-test or overall timeout: a cancellation test hung for 14+ min and stalls the gate forever | fixed | P0-A,P1-B | 88afe5580 | root cause: actor blocked on waitUntilExit; cancel nonisolated; 5/5 runs <1s; KNOWN_HANGING_TESTS removed; gate timeouts kept |
 | TST-06 | P1 | `ci.yml` has been an invalid workflow on every push since 2026-09-14 instead of being disabled cleanly | fixed | P0-A | 53371073b | workflow_dispatch only; valid file |
 | UX-01 | P1 | "Delete Annotation" from the viewer and the Inspector silently does nothing on reference bundles | fixed | P2-A | cb7c10798 | same as FEA-03 |
@@ -111,7 +111,7 @@ Single source of truth for finding status (plan rule 9). Status: `open`, `verifi
 | TST-07 | P2 | About 300 source-text-inspection tests, 591 assertions over production source strings | open | | | |
 | TST-08 | P2 | Low-value tests: tautologies, ArgumentParser echoes, constant re-assertions, vacuous conditionals (about 20% o | open | | | |
 | TST-09 | P2 | White-box over-testing: 1,440 test hooks shipped in production code, Genotype area 109K test lines | open | | | |
-| TST-10 | P2 | Flakiness sources: wall-clock budgets as tight as 0.1 s, global singletons and defaults, process-wide `setenv` | open | | | |
+| TST-10 | P2 | Flakiness sources: wall-clock budgets as tight as 0.1 s, global singletons and defaults, process-wide `setenv` | partial | P0-A3,final | 29edb2099,2fab641eb,9535e6da7 | setenv + UserDefaults leaks fixed; yield/fixed-sleep waits replaced where they flaked |
 | TST-11 | P2 | Silent skips: tool-gated app tests ignore `LUNGFISH_REQUIRE_TOOLS`, in-repo fixture misses skip, the conforman | open | | | |
 | TST-12 | P2 | XCUITests (40) run nowhere automatically, `appSmokeRequired: false`, core scientific journeys uncovered | open | | | |
 | UX-03 | P2 | Keyboard shortcuts implemented in `NSViewController.performKeyEquivalent` are probably never reached, and ⌘0 c | fixed | P7,P7b | 0d42f3f8a + P7b | TaxTriage shortcuts as View menu items; Cmd-0 collision resolved (Opt-Cmd-0) |
