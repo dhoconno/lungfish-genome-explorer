@@ -177,6 +177,12 @@ extension MainSplitViewController {
                 displayViralReconAnalysisFromSidebar(at: url)
             case .primerOrder:
                 displayPrimerOrderFromSidebar(at: url, identity: displayIdentity, token: displayToken)
+            case .fastaFile:
+                // WFL-05: Savont's per-sample output is a loose FASTA file,
+                // not a typed bundle -- route through the existing generic
+                // sequence-file display path instead of "Unsupported
+                // analysis: savont".
+                displayGenomicsFile(url: url)
             case .unknown:
                 mainSplitLogger.warning("displayContent: Unknown analysis type for '\(dirName, privacy: .public)'")
                 inspectorController.clearSelection()

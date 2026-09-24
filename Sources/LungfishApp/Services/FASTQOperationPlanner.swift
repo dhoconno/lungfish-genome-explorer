@@ -34,10 +34,13 @@ struct FASTQOperationPlanner: Sendable {
         }
 
         if case .pbaa = request {
-            return workingDirectory.appendingPathComponent(
-                "cli-output-pbaa-\(UUID().uuidString)",
-                isDirectory: true
-            )
+            // WFL-05: `workingDirectory` is now the dedicated, visible
+            // `Analyses/pbaa-<timestamp>/` directory created by the caller
+            // (see `runFASTQOperationLaunchRequestValidated`), not the
+            // generic `Analyses/` root -- so pbAA's CLI output can be
+            // written directly into it instead of a `cli-output-pbaa-*`
+            // staging subfolder the sidebar scanner hides.
+            return workingDirectory
         }
 
         return workingDirectory.appendingPathComponent(

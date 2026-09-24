@@ -24,7 +24,7 @@ public enum AnalysesFolder {
     public static let knownTools: Set<String> = [
         "esviritu", "kraken2", "taxtriage", "minimap2", "bwa-mem2", "bowtie2", "bbmap",
         "spades", "megahit", "skesa", "flye", "hifiasm", "naomgs", "nvd", "cz-id",
-        "mafft", "ont-genotyping", "viralrecon", "primer-order",
+        "mafft", "ont-genotyping", "viralrecon", "primer-order", "pbaa", "savont",
     ]
 
     /// Tools whose imported results use `{tool}-{sampleName}` naming
@@ -98,6 +98,8 @@ public enum AnalysesFolder {
         case "mafft": return "MAFFT"
         case "viralrecon": return "Viral Recon"
         case "primer-order": return "Primer Order"
+        case "pbaa": return "pbAA"
+        case "savont": return "Savont"
         default: return tool.capitalized
         }
     }

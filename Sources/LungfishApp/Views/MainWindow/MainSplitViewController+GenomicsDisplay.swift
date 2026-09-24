@@ -1223,6 +1223,28 @@ extension MainSplitViewController {
                 in: destinationRoot,
                 request: request
             )
+        } else if case .pbaa = request, let currentProjectURL {
+            // WFL-05: pbAA previously fell into the generic `else` branch
+            // below, which left `workingDirectory` at `destinationRoot`
+            // (`Analyses/`) and let the planner nest its real output inside
+            // a `cli-output-pbaa-<uuid>` staging folder there -- a name the
+            // sidebar scanner treats as internal scratch and hides
+            // unconditionally (see `SidebarProjectScanner`'s
+            // `cli-output-` prefix check), so a completed pbAA run was
+            // invisible in the sidebar and unreachable after restart. Every
+            // sibling clustering/mapping tool gets a real, visible
+            // `Analyses/<tool>-<timestamp>/` directory with an
+            // `analysis-metadata.json` sidecar via this same helper; pbAA
+            // now does too.
+            do {
+                workingDirectory = try AnalysesFolder.createAnalysisDirectory(
+                    tool: "pbaa",
+                    in: currentProjectURL
+                )
+            } catch {
+                mainSplitLogger.error("runFASTQOperationLaunchRequest: Failed to create analysis directory: \(error.localizedDescription, privacy: .public)")
+                return nil
+            }
         } else {
             workingDirectory = destinationRoot
         }
