@@ -329,11 +329,24 @@ extension MainSplitViewController {
         case .primerOrder:
             displayPrimerOrderFromSidebar(at: batchURL)
             return
+        case .fastaFile:
+            // WFL-05: a Savont batch group has no aggregated viewer of its
+            // own -- its children are independent per-sample FASTA files.
+            // Open the first child rather than falling through to
+            // "Unrecognized batch prefix" and doing nothing.
+            if let firstChild = Self.firstSavontBatchChildURL(in: batchURL) {
+                displayGenomicsFile(url: firstChild)
+            } else {
+                mainSplitLogger.warning("displayBatchGroup: Savont batch '\(dirName, privacy: .public)' has no sample outputs yet")
+                viewerController.clearViewport(statusMessage: "This Savont batch has no results yet.")
+            }
+            return
         case .naoMgs, .nvd, .czId, .unknown:
             break
         }
 
-        if dirName.hasPrefix("kraken2") || dirName.hasPrefix("classification") {
+        if toolId.hasPrefix("kraken2") || toolId.hasPrefix("classification")
+            || dirName.hasPrefix("kraken2") || dirName.hasPrefix("classification") {
             // Check for SQLite database first -- faster than parsing per-sample kreport files.
             let dbURL = batchURL.appendingPathComponent("kraken2.sqlite")
             if FileManager.default.fileExists(atPath: dbURL.path),
@@ -390,7 +403,7 @@ extension MainSplitViewController {
             // aggregated manifest is built, so this status is not applicable.
             self.inspectorController?.viewModel.documentSectionViewModel.batchManifestStatus = .notCached
 
-        } else if dirName.hasPrefix("esviritu") {
+        } else if toolId.hasPrefix("esviritu") || dirName.hasPrefix("esviritu") {
             // Check for SQLite database first — faster than parsing per-sample files.
             let dbURL = batchURL.appendingPathComponent("esviritu.sqlite")
             if FileManager.default.fileExists(atPath: dbURL.path),
@@ -422,7 +435,10 @@ extension MainSplitViewController {
                     }
                     esVirituParams["Threads"] = "\(cfg.threads)"
                     esVirituParams["Quality Filter"] = cfg.qualityFilter ? "Yes" : "No"
-                    esVirituParams["Min Read Length"] = "\(cfg.minReadLength)"
+                    // WFL-10: "Min Read Length" intentionally removed from
+                    // this summary -- EsViritu has no such option, so
+                    // `cfg.minReadLength` was never applied and echoing it
+                    // here contradicted the actual computation.
                     esVirituParams["Paired-End"] = cfg.isPairedEnd ? "Yes" : "No"
                     let runtimeStr = formatInspectorRuntime(sampleResult.runtime)
                     if !runtimeStr.isEmpty { esVirituParams["Runtime (first sample)"] = runtimeStr }
@@ -442,7 +458,7 @@ extension MainSplitViewController {
                     esVirituVC.didLoadFromManifestCache ? .cached : .building
             }
 
-        } else if dirName.hasPrefix("taxtriage") {
+        } else if toolId.hasPrefix("taxtriage") || dirName.hasPrefix("taxtriage") {
             // Check for SQLite database first — faster than parsing per-sample files.
             let dbURL = batchURL.appendingPathComponent("taxtriage.sqlite")
             if FileManager.default.fileExists(atPath: dbURL.path),
@@ -522,11 +538,11 @@ extension MainSplitViewController {
                     taxTriageVC.didLoadFromManifestCache ? .cached : .building
             }
 
-        } else if dirName.hasPrefix("naomgs") || AnalysesFolder.readAnalysisMetadata(from: batchURL)?.tool == "naomgs" {
+        } else if toolId == "naomgs" || dirName.hasPrefix("naomgs") {
             displayNaoMgsResultFromSidebar(at: batchURL)
             self.inspectorController?.clearBatchOperationDetails()
 
-        } else if dirName.hasPrefix("nvd") || AnalysesFolder.readAnalysisMetadata(from: batchURL)?.tool == "nvd" {
+        } else if toolId == "nvd" || dirName.hasPrefix("nvd") {
             displayNvdResultFromSidebar(at: batchURL)
             self.inspectorController?.clearBatchOperationDetails()
 
@@ -539,25 +555,25 @@ extension MainSplitViewController {
         forMetagenomicsToolId toolId: String,
         directoryName: String
     ) -> SidebarItemType {
-        if directoryName.hasPrefix("kraken2")
-            || directoryName.hasPrefix("classification")
-            || toolId.hasPrefix("kraken2")
-            || toolId.hasPrefix("classification") {
+        if toolId.hasPrefix("kraken2")
+            || toolId.hasPrefix("classification")
+            || directoryName.hasPrefix("kraken2")
+            || directoryName.hasPrefix("classification") {
             return .classificationResult
         }
-        if directoryName.hasPrefix("esviritu") || toolId.hasPrefix("esviritu") {
+        if toolId.hasPrefix("esviritu") || directoryName.hasPrefix("esviritu") {
             return .esvirituResult
         }
-        if directoryName.hasPrefix("taxtriage") || toolId.hasPrefix("taxtriage") {
+        if toolId.hasPrefix("taxtriage") || directoryName.hasPrefix("taxtriage") {
             return .taxTriageResult
         }
-        if directoryName.hasPrefix("naomgs") || toolId == "naomgs" {
+        if toolId == "naomgs" || directoryName.hasPrefix("naomgs") {
             return .naoMgsResult
         }
-        if directoryName.hasPrefix("nvd") || toolId == "nvd" {
+        if toolId == "nvd" || directoryName.hasPrefix("nvd") {
             return .nvdResult
         }
-        if directoryName.hasPrefix("cz-id") || toolId.hasPrefix("cz-id") {
+        if toolId.hasPrefix("cz-id") || directoryName.hasPrefix("cz-id") {
             return .czIdResult
         }
         return .analysisResult
@@ -710,6 +726,19 @@ extension MainSplitViewController {
                 }
             }
         }
+    }
+
+    /// Returns the first per-sample FASTA output inside a Savont batch
+    /// directory, sorted by filename for a stable, deterministic pick.
+    /// `analysis-metadata.json` is skipped (it is not a sample output).
+    nonisolated static func firstSavontBatchChildURL(in batchDirectory: URL) -> URL? {
+        let entries = (try? FileManager.default.contentsOfDirectory(
+            at: batchDirectory, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]
+        )) ?? []
+        return entries
+            .filter { $0.lastPathComponent != AnalysesFolder.metadataFilename }
+            .sorted { $0.lastPathComponent < $1.lastPathComponent }
+            .first
     }
 
     nonisolated static func classifierDatabaseBuildSampleDirectories(tool: String, resultURL: URL) throws -> [URL] {

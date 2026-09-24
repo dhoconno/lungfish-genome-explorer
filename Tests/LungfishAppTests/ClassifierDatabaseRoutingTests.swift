@@ -1,6 +1,7 @@
 // Tests/LungfishAppTests/ClassifierDatabaseRoutingTests.swift
 import XCTest
 @testable import LungfishApp
+@testable import LungfishIO
 
 final class ClassifierDatabaseRoutingTests: XCTestCase {
     private func makeTempDir() throws -> URL {
@@ -170,5 +171,74 @@ final class ClassifierDatabaseRoutingTests: XCTestCase {
         XCTAssertNotNil(route)
         XCTAssertNil(route?.sampleId, "top-level route should not carry a sampleId")
         XCTAssertEqual(route?.resultURL.path, batchDir.path)
+    }
+
+    // MARK: - WFL-06: renamed directories must route via analysis-metadata.json
+
+    func testRoute_renamedTaxTriageDirectoryRoutesByMetadata() throws {
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        // A user-chosen name that does not start with any known tool prefix.
+        let resultDir = dir.appendingPathComponent("Clinical Batch 7")
+        try FileManager.default.createDirectory(at: resultDir, withIntermediateDirectories: true)
+        FileManager.default.createFile(
+            atPath: resultDir.appendingPathComponent("taxtriage.sqlite").path,
+            contents: Data())
+        try AnalysesFolder.writeAnalysisMetadata(
+            AnalysesFolder.AnalysisMetadata(tool: "taxtriage", isBatch: true), to: resultDir)
+
+        let route = ClassifierDatabaseRouter.route(for: resultDir)
+        XCTAssertNotNil(route, "A renamed directory with analysis-metadata.json must still route")
+        XCTAssertEqual(route?.tool, "taxtriage")
+        XCTAssertNotNil(route?.databaseURL)
+    }
+
+    func testRoute_renamedEsVirituDirectoryRoutesByMetadata() throws {
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let resultDir = dir.appendingPathComponent("Weekly Surveillance")
+        try FileManager.default.createDirectory(at: resultDir, withIntermediateDirectories: true)
+        FileManager.default.createFile(
+            atPath: resultDir.appendingPathComponent("esviritu.sqlite").path,
+            contents: Data())
+        try AnalysesFolder.writeAnalysisMetadata(
+            AnalysesFolder.AnalysisMetadata(tool: "esviritu", isBatch: true), to: resultDir)
+
+        let route = ClassifierDatabaseRouter.route(for: resultDir)
+        XCTAssertNotNil(route, "A renamed directory with analysis-metadata.json must still route")
+        XCTAssertEqual(route?.tool, "esviritu")
+        XCTAssertNotNil(route?.databaseURL)
+    }
+
+    func testRoute_renamedKraken2DirectoryRoutesByMetadata() throws {
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let resultDir = dir.appendingPathComponent("Project Alpha Results")
+        try FileManager.default.createDirectory(at: resultDir, withIntermediateDirectories: true)
+        FileManager.default.createFile(
+            atPath: resultDir.appendingPathComponent("kraken2.sqlite").path,
+            contents: Data())
+        try AnalysesFolder.writeAnalysisMetadata(
+            AnalysesFolder.AnalysisMetadata(tool: "kraken2", isBatch: true), to: resultDir)
+
+        let route = ClassifierDatabaseRouter.route(for: resultDir)
+        XCTAssertNotNil(route, "A renamed directory with analysis-metadata.json must still route")
+        XCTAssertEqual(route?.tool, "kraken2")
+        XCTAssertNotNil(route?.databaseURL)
+    }
+
+    func testRoute_renamedDirectoryWithoutMetadataDoesNotRoute() throws {
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        // No metadata sidecar and no recognizable prefix: legacy behaviour
+        // (cannot be identified) must be preserved, not silently misrouted.
+        let resultDir = dir.appendingPathComponent("Some Random Folder")
+        try FileManager.default.createDirectory(at: resultDir, withIntermediateDirectories: true)
+        FileManager.default.createFile(
+            atPath: resultDir.appendingPathComponent("kraken2.sqlite").path,
+            contents: Data())
+
+        let route = ClassifierDatabaseRouter.route(for: resultDir)
+        XCTAssertNil(route)
     }
 }

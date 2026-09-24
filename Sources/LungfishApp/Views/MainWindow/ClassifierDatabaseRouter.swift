@@ -1,4 +1,5 @@
 import Foundation
+import LungfishIO
 
 /// Centralized routing logic for classifier result directories.
 ///
@@ -56,10 +57,13 @@ enum ClassifierDatabaseRouter {
         return nil
     }
 
-    /// Direct match: `url.lastPathComponent` has a known tool prefix.
+    /// Direct match: prefer the authoritative `analysis-metadata.json` tool id
+    /// (survives renames); fall back to the directory-name prefix only when no
+    /// metadata sidecar is present (legacy directories predating the sidecar).
     private static func routeDirect(for url: URL) -> Route? {
         let dirName = url.lastPathComponent
-        for def in toolDefinitions where dirName.hasPrefix(def.prefix) {
+        let resolvedTool = AnalysesFolder.readAnalysisMetadata(from: url)?.tool ?? dirName
+        for def in toolDefinitions where resolvedTool.hasPrefix(def.prefix) || dirName.hasPrefix(def.prefix) {
             let dbURL = url.appendingPathComponent(def.dbName)
             let exists = FileManager.default.fileExists(atPath: dbURL.path)
             return Route(
