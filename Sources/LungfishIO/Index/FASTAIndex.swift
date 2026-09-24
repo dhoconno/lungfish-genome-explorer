@@ -283,7 +283,15 @@ public final class IndexedFASTAReader: Sendable {
         return String(sequence.prefix(clampedLength))
     }
 
-    private static func sequenceText(fromIndexedWindow rawSequence: String) -> String {
+    /// Strips FASTA line-wrapping newlines (LF and CR) from a raw indexed
+    /// window of file bytes, leaving only sequence characters.
+    ///
+    /// Both LF and CR must be stripped, not just LF: a CRLF-terminated FASTA
+    /// (common from Windows-edited references) otherwise leaves a stray `\r`
+    /// in the sequence, shifting every base after it (SCI-12). Shared with
+    /// ``BgzipIndexedFASTAReader``, which reads the same on-disk byte layout
+    /// for bgzip-compressed FASTA.
+    static func sequenceText(fromIndexedWindow rawSequence: String) -> String {
         String(String.UnicodeScalarView(rawSequence.unicodeScalars.filter { $0.value != 10 && $0.value != 13 }))
     }
 }
