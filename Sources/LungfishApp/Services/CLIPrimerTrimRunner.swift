@@ -50,7 +50,18 @@ enum CLIPrimerTrimRunnerError: Error, LocalizedError, Equatable {
     }
 }
 
-actor CLIPrimerTrimRunner {
+/// A plain struct, not an actor: `CLISubprocessTransport` is itself an actor
+/// owning all the concurrency here, so a wrapping actor would only add a
+/// second isolation domain with nothing to protect. That second domain was a
+/// real bug on the sibling `CLIVariantCallingRunner` (caught by the P6-A/B
+/// integration gate): an actor-isolated `cancel()` queues behind an in-flight
+/// `run()` call on the same actor instance and never executes until `run()`
+/// returns -- but `run()` awaits the subprocess exiting, which only
+/// `cancel()` was supposed to trigger. This type's `cancel()` only ever
+/// forwarded to `transport.cancel()` (already `nonisolated` and thread-safe),
+/// so it never actually reproduced that deadlock, but keeping it as an actor
+/// left the same trap for the next person who adds actor-isolated state here.
+struct CLIPrimerTrimRunner {
     private let transport: CLISubprocessTransport
 
     init(cliURLOverride: URL? = nil) {

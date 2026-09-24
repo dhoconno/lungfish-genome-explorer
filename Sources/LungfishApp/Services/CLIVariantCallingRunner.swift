@@ -48,9 +48,20 @@ enum CLIVariantCallingRunnerError: Error, LocalizedError, Equatable {
     }
 }
 
-actor CLIVariantCallingRunner {
+/// A plain struct, not an actor: `CLISubprocessTransport` (its only mutable
+/// state) is itself an actor that owns all the concurrency here, so wrapping
+/// it in another actor would only add a second isolation domain with nothing
+/// to protect. That second domain was a real bug (caught by the P6-A/B
+/// integration gate): `cancel()` used to be an actor-isolated method, so a
+/// caller's `runner.cancel()` queued behind the in-flight `run()` call on the
+/// same actor instance and never executed until `run()` returned -- but
+/// `run()` awaits the subprocess exiting, which only `cancel()` was
+/// supposed to trigger. `transport.cancel()` is already `nonisolated` and
+/// thread-safe (`NativeProcessCancellationHandle`), so this wrapper just
+/// forwards to it directly, matching `CLITreeRunner`'s struct-based pattern.
+struct CLIVariantCallingRunner {
     private let transport: CLISubprocessTransport
-    private var cancellationRequested = false
+    private let cancellationRequested = LockedBool()
 
     init(cliURLOverride: URL? = nil) {
         self.transport = CLISubprocessTransport(cliURLOverride: cliURLOverride)
@@ -117,7 +128,7 @@ actor CLIVariantCallingRunner {
         do {
             let result = try await transport.run(
                 arguments: arguments,
-                isCancelled: { [cancellationRequested] in cancellationRequested },
+                isCancelled: { [cancellationRequested] in cancellationRequested.value },
                 onEvent: onEvent
             )
             return Self.parseCompletion(outputs: result.outputs, message: result.message)
@@ -139,8 +150,10 @@ actor CLIVariantCallingRunner {
         }
     }
 
+    /// A plain struct method, not actor-isolated: returns immediately, never
+    /// queuing behind an in-flight `run()` call (see the type's doc comment).
     func cancel() {
-        cancellationRequested = true
+        cancellationRequested.value = true
         transport.cancel()
     }
 
@@ -187,5 +200,27 @@ actor CLIVariantCallingRunner {
             remaining = remaining[valueEnd...]
         }
         return results
+    }
+}
+
+/// A thread-safe boolean flag, cheaper than an actor when the only operation
+/// needed is "set from any thread, read from any thread" -- exactly
+/// `CLIVariantCallingRunner.cancel()`'s requirement, mirroring
+/// `NativeProcessCancellationHandle`'s own locking.
+private final class LockedBool: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storage = false
+
+    var value: Bool {
+        get {
+            lock.lock()
+            defer { lock.unlock() }
+            return storage
+        }
+        set {
+            lock.lock()
+            storage = newValue
+            lock.unlock()
+        }
     }
 }
