@@ -398,18 +398,11 @@ extension AppDelegate {
                 rangeStart = start
                 rangeEnd = end
             } else {
-                let defaultWindow = min(1000, chromosomeLength)
-                let halfWindow = defaultWindow / 2
-                var windowStart = max(0, start - halfWindow)
-                var windowEnd = min(chromosomeLength, start + halfWindow)
-                if windowStart == 0 {
-                    windowEnd = min(chromosomeLength, defaultWindow)
-                }
-                if windowEnd == chromosomeLength {
-                    windowStart = max(0, chromosomeLength - defaultWindow)
-                }
-                rangeStart = windowStart
-                rangeEnd = max(windowStart + 1, windowEnd)
+                (rangeStart, rangeEnd) = Self.singlePositionWindow(
+                    centeredOn: start,
+                    chromosomeLength: chromosomeLength,
+                    defaultWindow: AppSettings.shared.defaultZoomWindow
+                )
             }
 
             viewerController.navigateToChromosomeAndPosition(
@@ -426,6 +419,30 @@ extension AppDelegate {
             start: start,
             end: end
         )
+    }
+
+    /// Computes the 0-based `[start, end)` window shown when the user navigates to a
+    /// single position with no explicit end (e.g. "Go to Location" with just "1000", or
+    /// the ruler's locus field). Centers `defaultWindow` (`AppSettings.defaultZoomWindow`,
+    /// FEA-10) on `centeredOn`, clamped to the chromosome so the window never runs off
+    /// either end. A pure function -- no `AppSettings` or `ViewerViewController` access --
+    /// so `AppDelegateSequenceMenuTests` can assert the wiring without a bundle fixture.
+    static func singlePositionWindow(
+        centeredOn position: Int,
+        chromosomeLength: Int,
+        defaultWindow: Int
+    ) -> (start: Int, end: Int) {
+        let window = min(defaultWindow, chromosomeLength)
+        let halfWindow = window / 2
+        var windowStart = max(0, position - halfWindow)
+        var windowEnd = min(chromosomeLength, position + halfWindow)
+        if windowStart == 0 {
+            windowEnd = min(chromosomeLength, window)
+        }
+        if windowEnd == chromosomeLength {
+            windowStart = max(0, chromosomeLength - window)
+        }
+        return (windowStart, max(windowStart + 1, windowEnd))
     }
 
     @objc func copySelectionFASTA(_ sender: Any?) {
