@@ -5,7 +5,16 @@ import LungfishWorkflow
 struct FastqONTGenotypingSubcommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "ont-genotype",
-        abstract: "Genotype ONT amplicon FASTQ bundles by short-read mapping and pysam filtering"
+        abstract: "Deprecated. Genotype ONT amplicon FASTQ bundles by short-read mapping and pysam filtering",
+        discussion: """
+            DEPRECATED: this legacy pipeline maps ONT reads with the short-read preset,
+            ignores --allow-indels (indels are always allowed), and splits tied reads
+            non-deterministically across identical alleles. Use `fastq genotype
+            --mode ont-sample-bundles` instead, which maps with the ONT preset and
+            reports ties explicitly. This command is hidden from `fastq --help` but
+            remains runnable for existing scripts.
+            """,
+        shouldDisplay: false
     )
 
     @Argument(help: "Input FASTQ files or .lungfishfastq bundles. Multiple demultiplexed bundles are supported.")
@@ -41,7 +50,14 @@ struct FastqONTGenotypingSubcommand: AsyncParsableCommand {
     )
     var extraArgs: String = ""
 
+    static let deprecationMessage = """
+        WARNING: 'lungfish fastq ont-genotype' is deprecated and hidden from --help. It maps ONT reads with the short-read preset, ignores --allow-indels (indels are always allowed), and splits tied reads across identical alleles non-deterministically. Use 'lungfish fastq genotype --mode ont-sample-bundles' instead.
+
+        """
+
     func run() async throws {
+        FileHandle.standardError.write(Data(Self.deprecationMessage.utf8))
+
         guard !inputs.isEmpty else {
             throw ValidationError("Provide at least one FASTQ file or .lungfishfastq bundle.")
         }
