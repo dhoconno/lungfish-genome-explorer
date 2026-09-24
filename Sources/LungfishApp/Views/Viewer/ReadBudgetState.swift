@@ -29,6 +29,16 @@ struct ReadBudgetState: Equatable {
     /// offering an action it has already performed.
     var loadedAll: Bool
 
+    /// True when the sample was drawn evenly across the whole fetch window
+    /// (via `samtools --subsample`) rather than being an in-order prefix.
+    /// Defaults to false for callers (and older call sites/tests) that don't
+    /// pass it, which keeps the conservative "in view" wording for those.
+    var isSpreadAcrossWindow: Bool = false
+
+    /// True when the fetch hit its transport safety cap before finishing the
+    /// window, so even the sample may be incomplete.
+    var isTransportTruncated: Bool = false
+
     /// Whether the sample is smaller than the window's contents.
     var isSampled: Bool { !loadedAll && totalReads > displayedReads }
 
@@ -41,12 +51,22 @@ struct ReadBudgetState: Equatable {
     /// The second clause is not decoration: depth, coverage, and consensus come
     /// from separate whole-BAM queries that never see the budget, and a user
     /// looking at a sampled pileup needs to know the coverage curve under it is
-    /// still complete.
+    /// still complete. When the sample was drawn with `--subsample` it is
+    /// spread across the whole window rather than merely "in view", which is
+    /// worth saying explicitly since a stride sample over a clustered fetch
+    /// used to look identical to this message.
     var bannerMessage: String? {
         guard isSampled else { return nil }
         let total = isEstimated ? "~\(totalReads.formatted())" : totalReads.formatted()
-        return "Showing \(displayedReads.formatted()) of \(total) reads in view "
+        let scope = isSpreadAcrossWindow
+            ? "sampled evenly across the view"
+            : "in view"
+        var message = "Showing \(displayedReads.formatted()) of \(total) reads, \(scope) "
             + "\u{00B7} depth, coverage and consensus use all reads"
+        if isTransportTruncated {
+            message += " \u{00B7} sample may be incomplete"
+        }
+        return message
     }
 
     /// Title for the banner's escape hatch.

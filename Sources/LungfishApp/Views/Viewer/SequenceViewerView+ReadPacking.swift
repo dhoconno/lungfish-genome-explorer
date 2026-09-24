@@ -18,25 +18,33 @@ extension SequenceViewerView {
     /// Applies the display budget to a freshly fetched read set, returning the
     /// reads to keep plus the budget bookkeeping for the banner.
     ///
-    /// The fetch asks for `budget + 1` reads precisely so that "did this window
-    /// overflow?" is answerable without a second query: `reads.count > budget`
-    /// is the overflow test. When an exact count is available from the provider
-    /// it is preferred over the fetched size, since the fetch itself was capped.
+    /// When the fetch already spread its sample across the window
+    /// (`wasSpreadAcrossWindow`, set when the provider used
+    /// `samtools --subsample` via `fetchReadSketch`), `exactTotal` is trusted as
+    /// the true window count and the trim to `budget` is just tidying up a
+    /// multi-track merge. When it is false (the legacy in-order-prefix fetch,
+    /// still used for "Load all"), `reads.count > budget` is the overflow test,
+    /// since the fetch itself asked for `budget + 1`: an exact count from the
+    /// provider is preferred over the fetched size when available.
     nonisolated static func applyReadBudget(
         reads: [AlignedRead],
         budget: Int,
         exactTotal: Int?,
         estimatedTotal: Int?,
-        loadedAll: Bool
+        loadedAll: Bool,
+        wasSpreadAcrossWindow: Bool = false,
+        transportTruncated: Bool = false
     ) -> (reads: [AlignedRead], state: ReadBudgetState) {
-        guard !loadedAll, reads.count > budget else {
+        guard !loadedAll, reads.count > budget || (wasSpreadAcrossWindow && (exactTotal ?? reads.count) > reads.count) else {
             return (
                 reads,
                 ReadBudgetState(
                     displayedReads: reads.count,
                     totalReads: exactTotal ?? reads.count,
                     isEstimated: false,
-                    loadedAll: loadedAll
+                    loadedAll: loadedAll,
+                    isSpreadAcrossWindow: wasSpreadAcrossWindow,
+                    isTransportTruncated: transportTruncated
                 )
             )
         }
@@ -62,7 +70,9 @@ extension SequenceViewerView {
                 displayedReads: sampled.count,
                 totalReads: total,
                 isEstimated: isEstimated,
-                loadedAll: false
+                loadedAll: false,
+                isSpreadAcrossWindow: wasSpreadAcrossWindow,
+                isTransportTruncated: transportTruncated
             )
         )
     }
