@@ -1591,9 +1591,19 @@ extension FASTQDerivativeService {
 
         switch request {
         case .pairedEndMerge(let strictness, let minOverlap):
-            guard isInterleavedBundle(sourceBundleURL) else {
+            // bbmerge runs without interleaved=t and its unmerged stream is
+            // split by position, so only strictly interleaved pairs may enter.
+            let readLayout = resolvedReadLayout(of: sourceFASTQ, in: sourceBundleURL)
+            switch readLayout.layout {
+            case .strictlyInterleaved:
+                break
+            case .mixedMergedAndPairs:
                 throw FASTQDerivativeError.invalidOperation(
-                    "PE merge requires interleaved paired-end input."
+                    "PE merge takes strictly interleaved pairs, and this dataset already mixes merged reads with pairs (\(readLayout.reason))"
+                )
+            case .singleEnd, .pairedFiles:
+                throw FASTQDerivativeError.invalidOperation(
+                    "PE merge requires interleaved paired-end input (\(readLayout.reason))"
                 )
             }
             progress?("Merging overlapping pairs...")
@@ -1615,9 +1625,13 @@ extension FASTQDerivativeService {
             )
 
         case .pairedEndRepair:
-            guard isInterleavedBundle(sourceBundleURL) else {
+            // repair.sh matches mates by NAME, so a file that mixes merged
+            // reads with pairs is a valid input: its merged reads come out
+            // as singletons.
+            let readLayout = resolvedReadLayout(of: sourceFASTQ, in: sourceBundleURL)
+            guard readLayout.layout.holdsPairs else {
                 throw FASTQDerivativeError.invalidOperation(
-                    "PE repair requires interleaved paired-end input."
+                    "PE repair requires interleaved paired-end input (\(readLayout.reason))"
                 )
             }
             progress?("Repairing paired-end reads...")

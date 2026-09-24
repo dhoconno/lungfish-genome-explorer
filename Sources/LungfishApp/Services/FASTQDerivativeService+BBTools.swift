@@ -54,9 +54,10 @@ extension FASTQDerivativeService {
             "k=\(kmerSize)",
             "hdist=\(hammingDistance)",
         ]
-        if isInterleaved {
-            args.append("interleaved=t")
-        }
+        // State the layout either way: left to its own auto-detection,
+        // BBTools pairs /1 /2 and Casava names by position and aborts (or
+        // mis-pairs) on a file that mixes merged reads with pairs.
+        args.append(isInterleaved ? "interleaved=t" : "interleaved=f")
 
         switch mode {
         case .phix:
@@ -143,9 +144,10 @@ extension FASTQDerivativeService {
             "entropyk=\(kmer)",
             "ow=t",
         ]
-        if isInterleaved {
-            args.append("interleaved=t")
-        }
+        // State the layout either way: left to its own auto-detection,
+        // BBTools pairs /1 /2 and Casava names by position and aborts (or
+        // mis-pairs) on a file that mixes merged reads with pairs.
+        args.append(isInterleaved ? "interleaved=t" : "interleaved=f")
 
         let env = await bbToolsEnvironment()
         let result = try await runNativeTool(
@@ -540,9 +542,10 @@ extension FASTQDerivativeService {
             "rcomp=\(configuration.searchReverseComplement ? "t" : "f")",
         ]
 
-        if isInterleaved {
-            args.append("interleaved=t")
-        }
+        // State the layout either way: left to its own auto-detection,
+        // BBTools pairs /1 /2 and Casava names by position and aborts (or
+        // mis-pairs) on a file that mixes merged reads with pairs.
+        args.append(isInterleaved ? "interleaved=t" : "interleaved=f")
 
         let env = await bbToolsEnvironment()
         let result = try await runNativeTool(
@@ -651,9 +654,10 @@ extension FASTQDerivativeService {
             "ecc=t",
             "k=\(kmerSize)",
         ]
-        if isInterleaved {
-            args.append("interleaved=t")
-        }
+        // State the layout either way: left to its own auto-detection,
+        // BBTools pairs /1 /2 and Casava names by position and aborts (or
+        // mis-pairs) on a file that mixes merged reads with pairs.
+        args.append(isInterleaved ? "interleaved=t" : "interleaved=f")
 
         let env = await bbToolsEnvironment()
         let result = try await runNativeTool(
@@ -697,9 +701,18 @@ extension FASTQDerivativeService {
             ]
 
         case .deinterleave:
-            guard isInterleavedBundle(sourceBundleURL) else {
+            let readLayout = resolvedReadLayout(of: sourceFASTQ, in: sourceBundleURL)
+            switch readLayout.layout {
+            case .strictlyInterleaved:
+                break
+            case .mixedMergedAndPairs:
                 throw FASTQDerivativeError.invalidOperation(
-                    "Deinterleave requires interleaved paired-end input. This dataset is not interleaved."
+                    "Deinterleave splits pairs by position, and this dataset mixes merged reads with pairs "
+                        + "(\(readLayout.reason)) Run lungfish-cli fastq deinterleave with --unpaired to split it by read name."
+                )
+            case .singleEnd, .pairedFiles:
+                throw FASTQDerivativeError.invalidOperation(
+                    "Deinterleave requires interleaved paired-end input. This dataset is not interleaved (\(readLayout.reason))"
                 )
             }
             // Deinterleave into the output file (will be split into R1/R2 in createDerivative)

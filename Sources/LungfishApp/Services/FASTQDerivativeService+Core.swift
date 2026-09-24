@@ -319,8 +319,11 @@ extension FASTQDerivativeService {
             // Subset: extract read IDs (deduplicate for PE data to avoid doubled reads)
             progress?("Extracting read pointers...")
             let readIDListURL = tempDir.appendingPathComponent("read-ids.txt")
-            let isInterleaved = isInterleavedBundle(sourceBundleURL)
-            let readCount = try await writeReadIDs(fromFASTQ: transformedFASTQ, to: readIDListURL, deduplicate: isInterleaved)
+            // Mates of a pair may share one read ID (identical names), in a
+            // strictly interleaved file and in one that mixes merged reads
+            // with pairs alike, so the ID list is deduplicated for both.
+            let holdsPairs = resolvedReadLayout(of: transformedFASTQ, in: sourceBundleURL).layout.holdsPairs
+            let readCount = try await writeReadIDs(fromFASTQ: transformedFASTQ, to: readIDListURL, deduplicate: holdsPairs)
             guard readCount > 0 else {
                 throw FASTQDerivativeError.emptyResult
             }

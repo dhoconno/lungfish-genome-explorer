@@ -14,12 +14,21 @@ struct FASTQOperationCLIInvocationBuilder: Sendable {
     ///   from the ORIGINAL input, because a derived bundle is materialized
     ///   to a scratch file that carries no metadata). When `nil`, the
     ///   builder looks next to the input path itself.
+    /// - Parameter pairingMetadataURL: the ORIGINAL input (bundle or the file
+    ///   inside it) whose metadata describes the reads, used as hints when a
+    ///   recorded `interleaved` pairing is verified against the records.
     func buildInvocation(
         for request: FASTQOperationLaunchRequest,
         outputTargetPath: String,
-        pairingMode: IngestionMetadata.PairingMode? = nil
+        pairingMode: IngestionMetadata.PairingMode? = nil,
+        pairingMetadataURL: URL? = nil
     ) throws -> FASTQCLIInvocation {
-        try legacyBuildInvocation(for: request, outputTargetPath: outputTargetPath, pairingMode: pairingMode)
+        try legacyBuildInvocation(
+            for: request,
+            outputTargetPath: outputTargetPath,
+            pairingMode: pairingMode,
+            pairingMetadataURL: pairingMetadataURL
+        )
     }
 
     /// The `--pairing` arguments that make a `fastq` subcommand treat its
@@ -36,10 +45,32 @@ struct FASTQOperationCLIInvocationBuilder: Sendable {
         }
     }
 
+    /// ``pairingArguments(for:)`` with a recorded `interleaved` pairing
+    /// verified against the records of `inputURL` (metadata of
+    /// `metadataURL` as hints): a VSP2 bundle records `interleaved` while
+    /// holding merged reads, and only a strictly interleaved file may ask
+    /// the CLI to pair by position. Mixed input is passed as `single`.
+    static func pairingArguments(
+        for pairingMode: IngestionMetadata.PairingMode?,
+        verifiedAgainst inputURL: URL?,
+        metadataFrom metadataURL: URL?
+    ) -> [String] {
+        guard pairingMode == .interleaved, let inputURL else {
+            return pairingArguments(for: pairingMode)
+        }
+        let layout = FASTQInputLayoutResolver.resolve(fastqURL: inputURL, metadataFrom: metadataURL).layout
+        switch layout {
+        case .strictlyInterleaved: return ["--pairing", "interleaved"]
+        case .mixedMergedAndPairs, .singleEnd: return ["--pairing", "single"]
+        case .pairedFiles: return []
+        }
+    }
+
     private func legacyBuildInvocation(
         for request: FASTQOperationLaunchRequest,
         outputTargetPath: String,
-        pairingMode: IngestionMetadata.PairingMode?
+        pairingMode: IngestionMetadata.PairingMode?,
+        pairingMetadataURL: URL?
     ) throws -> FASTQCLIInvocation {
         switch request {
         case .refreshQCSummary(let inputURLs):
@@ -57,7 +88,11 @@ struct FASTQOperationCLIInvocationBuilder: Sendable {
                     for: request,
                     inputURLs: inputURLs,
                     outputTarget: outputTargetPath,
-                    pairingArguments: Self.pairingArguments(for: resolvedPairingMode)
+                    pairingArguments: Self.pairingArguments(
+                        for: resolvedPairingMode,
+                        verifiedAgainst: inputURLs.first,
+                        metadataFrom: pairingMetadataURL ?? inputURLs.first
+                    )
                 )
             )
 

@@ -108,14 +108,24 @@ extension FASTQDerivativeService {
         relativePath(from: fromBundle, to: targetBundle)
     }
 
-    func isInterleavedBundle(_ bundleURL: URL) -> Bool {
-        if let manifest = FASTQBundle.loadDerivedManifest(in: bundleURL) {
-            return manifest.pairingMode == .interleaved
-        }
-        if let fastqURL = FASTQBundle.resolvePrimaryFASTQURL(for: bundleURL) {
-            return FASTQMetadataStore.load(for: fastqURL)?.ingestion?.pairingMode == .interleaved
-        }
-        return false
+    /// The resolved read layout of the reads an operation is about to
+    /// process: the materialized `sourceFASTQ`, read with the metadata of
+    /// `bundleURL` as hints (merge evidence in a recipe lineage demotes a
+    /// strict scan to mixed).
+    ///
+    /// Bundle metadata alone is not enough: a VSP2 bundle records
+    /// `pairingMode: interleaved` while holding merged reads, and every
+    /// positional pair tool (`interleaved=t`, `--interleaved_in`) would
+    /// mis-pair it. Only ``FASTQInputLayout/strictlyInterleaved`` turns those
+    /// flags on.
+    nonisolated func resolvedReadLayout(of sourceFASTQ: URL, in bundleURL: URL) -> FASTQInputLayoutResolution {
+        FASTQInputLayoutResolver.resolve(fastqURL: sourceFASTQ, metadataFrom: bundleURL)
+    }
+
+    /// Whether the bundle's reads are strictly interleaved pairs, by the same
+    /// resolver every FASTQ consumer uses (metadata, then a record scan).
+    nonisolated func isInterleavedBundle(_ bundleURL: URL) -> Bool {
+        FASTQInputLayoutResolver.resolve(inputURLs: [bundleURL]).layout == .strictlyInterleaved
     }
 
     func normalizedIdentifier(_ identifier: String) -> String {
