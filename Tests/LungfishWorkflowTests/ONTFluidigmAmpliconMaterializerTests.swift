@@ -303,6 +303,114 @@ final class ONTFluidigmAmpliconMaterializerTests: XCTestCase {
         XCTAssertEqual(result.outputBundleURLs, [])
     }
 
+    /// GEN-01 (2026-09-23 best-practices audit): the reviewer's reproduction.
+    /// A read carrying the FLD0001 sample's true amplicon and barcode also
+    /// happens to contain the FLD0026 barcode sequence embedded inside its
+    /// insert (this occurs for real with several MCM DRB alleles). Before
+    /// the anchored fix, the leftmost-anywhere search found the embedded
+    /// FLD0026 k-mer inside the insert (which sorts before the true,
+    /// anchored barcode) and silently misattributed the read to FLD0026.
+    /// The anchored search must only look in the window after rc(CS2), so
+    /// the read is correctly assigned to FLD0001 regardless of what
+    /// sequence its insert happens to contain.
+    func testAmpliconBarcodeAssignmentUsesAnchorNotEmbeddedKmerElsewhereInRead() async throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let inputFASTQ = root.appendingPathComponent("barcode11.fastq")
+        let barcodesCSV = root.appendingPathComponent("ONT09_NB11_samples.csv")
+        let outputDirectory = root.appendingPathComponent("ont-fluidigm-amplicons", isDirectory: true)
+
+        let cs1 = ONTFluidigmAmpliconMaterializer.defaultForwardPrimer
+        let cs2rc = Self.reverseComplement(ONTFluidigmAmpliconMaterializer.defaultReversePrimer)
+        let fld0001Barcode = "AAAACCCCGG"
+        let fld0026Barcode = "GAGTGTCACT"
+        // The insert embeds the *other* sample's barcode as a substring,
+        // exactly the MCM DRB-allele shape the audit found (GAGTGTCACT at
+        // position 16 of five real DRB records).
+        let insertEmbeddingOtherBarcode = "ACGTACGTACGTACGT" + fld0026Barcode + "TTTTGGGGCCCCAAAA"
+        let sequence = "\(cs1)\(insertEmbeddingOtherBarcode)\(cs2rc)\(fld0001Barcode)"
+        try """
+        @read-1
+        \(sequence)
+        +
+        \(String(repeating: "I", count: sequence.count))
+        """.write(to: inputFASTQ, atomically: true, encoding: .utf8)
+        try """
+        sample,barcode
+        FLD0001,\(fld0001Barcode)
+        FLD0026,\(fld0026Barcode)
+        """.write(to: barcodesCSV, atomically: true, encoding: .utf8)
+
+        let result = try await ONTFluidigmAmpliconMaterializer().run(
+            ONTFluidigmAmpliconMaterializationRequest(
+                inputURL: inputFASTQ,
+                barcodeDefinitionsURL: barcodesCSV,
+                outputDirectory: outputDirectory,
+                primerMismatches: 0,
+                minimumInsertLength: 8,
+                force: true
+            )
+        )
+
+        XCTAssertEqual(result.inputReadCount, 1)
+        XCTAssertEqual(result.assignedReadCount, 1)
+        XCTAssertEqual(result.outputBundleURLs.map(\.lastPathComponent), ["FLD0001.lungfishfastq"])
+        XCTAssertFalse(result.outputBundleURLs.contains { $0.lastPathComponent == "FLD0026.lungfishfastq" })
+    }
+
+    /// GEN-01: when the anchored window contains a 1-mismatch version of the
+    /// read's true barcode, plus an unrelated sample's exact barcode
+    /// elsewhere in the read (outside the window), the read must be
+    /// unassigned -- never assigned to the k-mer match found outside the
+    /// anchor.
+    func testAmpliconBarcodeAssignmentLeavesMismatchedAnchorUnassignedRatherThanUsingDistantExactMatch() async throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let inputFASTQ = root.appendingPathComponent("barcode11.fastq")
+        let barcodesCSV = root.appendingPathComponent("ONT09_NB11_samples.csv")
+        let outputDirectory = root.appendingPathComponent("ont-fluidigm-amplicons", isDirectory: true)
+
+        let cs1 = ONTFluidigmAmpliconMaterializer.defaultForwardPrimer
+        let cs2rc = Self.reverseComplement(ONTFluidigmAmpliconMaterializer.defaultReversePrimer)
+        let fld0001Barcode = "AAAACCCCGG"
+        let fld0026Barcode = "GAGTGTCACT"
+        // A sequencing error corrupts the true (anchored) barcode by one
+        // base, while the insert coincidentally contains another sample's
+        // exact barcode k-mer far from the anchor.
+        let corruptedFLD0001Barcode = "AAAAGCCCGG"
+        XCTAssertNotEqual(corruptedFLD0001Barcode, fld0001Barcode)
+        let insertEmbeddingOtherBarcode = "ACGTACGTACGTACGT" + fld0026Barcode + "TTTTGGGGCCCCAAAA"
+        let sequence = "\(cs1)\(insertEmbeddingOtherBarcode)\(cs2rc)\(corruptedFLD0001Barcode)"
+        try """
+        @read-1
+        \(sequence)
+        +
+        \(String(repeating: "I", count: sequence.count))
+        """.write(to: inputFASTQ, atomically: true, encoding: .utf8)
+        try """
+        sample,barcode
+        FLD0001,\(fld0001Barcode)
+        FLD0026,\(fld0026Barcode)
+        """.write(to: barcodesCSV, atomically: true, encoding: .utf8)
+
+        let result = try await ONTFluidigmAmpliconMaterializer().run(
+            ONTFluidigmAmpliconMaterializationRequest(
+                inputURL: inputFASTQ,
+                barcodeDefinitionsURL: barcodesCSV,
+                outputDirectory: outputDirectory,
+                primerMismatches: 0,
+                minimumInsertLength: 8,
+                force: true
+            )
+        )
+
+        XCTAssertEqual(result.inputReadCount, 1)
+        XCTAssertEqual(result.assignedReadCount, 0, "a mismatched anchor barcode must not fall back to a distant exact k-mer match")
+        XCTAssertEqual(result.outputBundleURLs, [])
+    }
+
     /// R3-R3H-5: two barcode-sheet rows sharing the identical barcode string
     /// must be rejected at load time, not silently resolved to whichever
     /// sample happened to load first via BarcodeMatcher's `map[code]?.first`.

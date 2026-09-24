@@ -6,16 +6,29 @@ public struct ONTFluidigmSampleMaterializationRequest: Sendable {
     public let barcodeDefinitionsURL: URL
     public let outputDirectory: URL
     public let force: Bool
+    /// GEN-01 (2026-09-23 best-practices audit): the CS1 Fluidigm adapter
+    /// that precedes the amplicon insert in the sequenced read. Used to
+    /// anchor barcode assignment to the short window after rc(reversePrimer)
+    /// so the barcode can never match inside the amplicon itself. Defaults
+    /// to the same CS1 sequence as `ONTFluidigmAmpliconMaterializer`.
+    public let forwardPrimer: String
+    /// GEN-01: the CS2 Fluidigm adapter. Its reverse complement appears
+    /// immediately before the barcode in the sequenced (CS1-first) read.
+    public let reversePrimer: String
 
     public init(
         inputURL: URL,
         barcodeDefinitionsURL: URL,
         outputDirectory: URL,
+        forwardPrimer: String = ONTFluidigmAmpliconMaterializer.defaultForwardPrimer,
+        reversePrimer: String = ONTFluidigmAmpliconMaterializer.defaultReversePrimer,
         force: Bool = false
     ) {
         self.inputURL = inputURL.standardizedFileURL
         self.barcodeDefinitionsURL = barcodeDefinitionsURL.standardizedFileURL
         self.outputDirectory = outputDirectory.standardizedFileURL
+        self.forwardPrimer = ONTFluidigmSampleMaterializer.normalizedDNA(forwardPrimer)
+        self.reversePrimer = ONTFluidigmSampleMaterializer.normalizedDNA(reversePrimer)
         self.force = force
     }
 }
@@ -111,12 +124,16 @@ public final class ONTFluidigmSampleMaterializer: Sendable {
                     description: record.description
                 )
                 inputReadCount += weight
-                guard let entry = matcher.assign(sequence: record.sequence) else {
+                guard let sampleID = matcher.assignAnchored(
+                    sequence: record.sequence,
+                    forwardPrimer: request.forwardPrimer,
+                    reversePrimer: request.reversePrimer
+                ) else {
                     unassignedReadCount += weight
                     continue
                 }
                 assignedReadCount += weight
-                accumulators[entry.sampleID]?.record(sequence: record.sequence, count: weight)
+                accumulators[sampleID]?.record(sequence: record.sequence, count: weight)
             }
         }
 
@@ -254,91 +271,53 @@ public final class ONTFluidigmSampleMaterializer: Sendable {
         }
     }
 
+    /// GEN-01 (2026-09-23 best-practices audit): previously a free two-bit
+    /// leftmost k-mer scan over the whole read with no CS1/CS2 awareness at
+    /// all, so it matched barcode-length substrings inside the amplicon
+    /// insert itself. Replaced with `ONTFluidigmAnchoredBarcodeAssigner`,
+    /// which only looks in the short window immediately after the CS1/
+    /// rc(CS2) anchor and refuses to guess when zero or multiple samples
+    /// match there.
     private struct BarcodeMatcher: Sendable {
-        private struct Candidate: Sendable {
-            let entry: BarcodeEntry
-        }
-
-        private let mapsByLength: [Int: [UInt64: [Candidate]]]
-        private let lengths: [Int]
+        private let barcodesBySample: [(sampleID: String, barcode: [UInt8])]
 
         init?(entries: [BarcodeEntry]) {
-            var mapsByLength: [Int: [UInt64: [Candidate]]] = [:]
-            for entry in entries {
-                for barcode in [entry.barcode, entry.reverseComplementBarcode] where !barcode.isEmpty {
-                    guard let code = Self.twoBitCode(barcode) else { return nil }
-                    mapsByLength[barcode.utf8.count, default: [:]][code, default: []]
-                        .append(Candidate(entry: entry))
-                }
-            }
-            guard !mapsByLength.isEmpty else { return nil }
-            self.mapsByLength = mapsByLength
-            self.lengths = mapsByLength.keys.sorted()
+            guard !entries.isEmpty else { return nil }
+            self.barcodesBySample = entries.map { ($0.sampleID, Array($0.barcode.utf8)) }
         }
 
-        func assign(sequence: String) -> BarcodeEntry? {
-            let bytes = Array(sequence.utf8)
-            var bestStart: Int?
-            var bestEntry: BarcodeEntry?
-            for length in lengths {
-                guard length <= bytes.count,
-                      let map = mapsByLength[length],
-                      let match = findFirst(in: bytes, length: length, map: map) else {
-                    continue
-                }
-                if bestStart == nil || match.start < bestStart! {
-                    bestStart = match.start
-                    bestEntry = match.entry
-                }
+        /// Assigns `sequence` (already normalized to uppercase ACGTN) to the
+        /// unique sample whose barcode is found in the anchored window.
+        /// Tries the as-sequenced orientation first, then the reverse
+        /// complement of the whole read.
+        func assignAnchored(
+            sequence: String,
+            forwardPrimer: String,
+            reversePrimer: String
+        ) -> String? {
+            let bases = Array(sequence.utf8)
+            let forward = Array(forwardPrimer.utf8)
+            let reverse = Array(reversePrimer.utf8)
+
+            if case .success(let assignment) = ONTFluidigmAnchoredBarcodeAssigner.assign(
+                bases: bases,
+                forwardPrimer: forward,
+                reversePrimer: reverse,
+                barcodes: barcodesBySample
+            ) {
+                return assignment.sampleID
             }
-            return bestEntry
-        }
 
-        private func findFirst(
-            in bytes: [UInt8],
-            length: Int,
-            map: [UInt64: [Candidate]]
-        ) -> (start: Int, entry: BarcodeEntry)? {
-            guard length > 0, length <= 31 else { return nil }
-            var code: UInt64 = 0
-            var validBases = 0
-            let mask = length == 31 ? UInt64.max >> 2 : (UInt64(1) << UInt64(length * 2)) - 1
-
-            for (index, byte) in bytes.enumerated() {
-                guard let bits = Self.baseBits(byte) else {
-                    code = 0
-                    validBases = 0
-                    continue
-                }
-                code = ((code << 2) | UInt64(bits)) & mask
-                validBases += 1
-                guard validBases >= length else { continue }
-
-                let start = index - length + 1
-                guard let candidate = map[code]?.first else { continue }
-                return (start, candidate.entry)
+            let rc = ONTFluidigmAnchoredBarcodeAssigner.reverseComplementBytes(bases)
+            if case .success(let assignment) = ONTFluidigmAnchoredBarcodeAssigner.assign(
+                bases: rc,
+                forwardPrimer: forward,
+                reversePrimer: reverse,
+                barcodes: barcodesBySample
+            ) {
+                return assignment.sampleID
             }
             return nil
-        }
-
-        private static func twoBitCode(_ sequence: String) -> UInt64? {
-            guard !sequence.isEmpty, sequence.utf8.count <= 31 else { return nil }
-            var code: UInt64 = 0
-            for byte in sequence.utf8 {
-                guard let bits = baseBits(byte) else { return nil }
-                code = (code << 2) | UInt64(bits)
-            }
-            return code
-        }
-
-        private static func baseBits(_ byte: UInt8) -> UInt8? {
-            switch byte {
-            case UInt8(ascii: "A"), UInt8(ascii: "a"): return 0
-            case UInt8(ascii: "C"), UInt8(ascii: "c"): return 1
-            case UInt8(ascii: "G"), UInt8(ascii: "g"): return 2
-            case UInt8(ascii: "T"), UInt8(ascii: "t"): return 3
-            default: return nil
-            }
         }
     }
 
