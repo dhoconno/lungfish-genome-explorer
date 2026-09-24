@@ -120,6 +120,16 @@ public final class ReadStyleSectionViewModel {
     /// Reverse strand display color.
     public var reverseReadColor: Color = Color(red: 0.87, green: 0.69, blue: 0.69)
 
+    /// How reads are ordered before packing into rows (FEA-08).
+    public var readSortMode: ReadSortMode = .position
+
+    /// Reference position `readSortMode == .baseAtPosition` sorts by, set from
+    /// the alignment context menu's "Sort by Base Here".
+    public var readSortPosition: Int?
+
+    /// How reads are colored (FEA-08).
+    public var readColorMode: ReadColorMode = .strand
+
     /// Whether the active viewport is a native multiple sequence alignment bundle.
     var hasMultipleSequenceAlignmentBundle: Bool = false
 
@@ -1990,6 +2000,47 @@ public struct ReadStyleSection: View {
                         viewModel.onSettingsChanged?()
                     }
                     .help("When on, forward reads are blue-tinted and reverse reads are pink-tinted. When off, all reads have a neutral gray background.")
+
+                // FEA-08: ReadTrackRenderer implements every ReadSortMode and
+                // ReadColorMode, but until now there was no UI control that
+                // reached them — every production call site hard-coded
+                // .position/.strand. These two pickers are that control.
+                HStack {
+                    Text("Sort reads by")
+                    Spacer()
+                    Picker("", selection: $viewModel.readSortMode) {
+                        ForEach(ReadSortMode.allCases, id: \.self) { mode in
+                            Text(mode.displayName).tag(mode)
+                        }
+                    }
+                    .labelsHidden()
+                    .frame(maxWidth: 160)
+                    .onChange(of: viewModel.readSortMode) { _, _ in
+                        viewModel.onSettingsChanged?()
+                    }
+                }
+                .accessibilityIdentifier("read-sort-mode-picker")
+                .help("Position matches samtools order. Base at Position surfaces minority/variant alleles at the clicked column first.")
+
+                HStack {
+                    Text("Color reads by")
+                    Spacer()
+                    Picker("", selection: $viewModel.readColorMode) {
+                        ForEach(ReadColorMode.allCases, id: \.self) { mode in
+                            Text(mode.displayName).tag(mode)
+                        }
+                    }
+                    .labelsHidden()
+                    .frame(maxWidth: 160)
+                    .onChange(of: viewModel.readColorMode) { _, _ in
+                        viewModel.onSettingsChanged?()
+                    }
+                }
+                .accessibilityIdentifier("read-color-mode-picker")
+                .disabled(!viewModel.showStrandColors)
+                .help(viewModel.showStrandColors
+                    ? "Insert Size, Mapping Quality, Read Group, First/Second in Pair and Base Quality are alternatives to strand coloring."
+                    : "Enable \"Color reads by strand\" above to choose a color mode.")
 
                 HStack {
                     Text("Forward strand color")

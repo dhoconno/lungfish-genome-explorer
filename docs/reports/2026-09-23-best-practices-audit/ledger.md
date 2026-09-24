@@ -23,7 +23,7 @@ Single source of truth for finding status (plan rule 9). Status: `open`, `verifi
 | FEA-05 | P1 | Multi-file BAM or VCF import into an open bundle imports only the first file | fixed | P2-A | 7e33703ef | sequential per-bundle import queue |
 | FEA-06 | P1 | Quit and window close do not warn about running operations, and interrupted outputs become invisible | fixed | P1-B | b732ea628 | quit/close warning sheets; interrupted outputs surfaced in storage scan |
 | FEA-07 | P1 | `OperationCenter.start` does not enforce the bundle lock, so unchecked callers mutate locked bundles | fixed | P1-A | c656e84c3 | drawer-delete sub-claim was wrong (already pre-checked); others migrated |
-| FEA-08 | P1 | Read sort and colour modes are implemented and tested but unreachable in the alignment viewer | open | | | |
+| FEA-08 | P1 | Read sort and colour modes are implemented and tested but unreachable in the alignment viewer | fixed | P7b | ac3a34837 | sort/color mode threaded from Inspector pickers through ViewerViewController/SequenceViewerView into packReads and DisplaySettings.colorMode; ReadTrackRendererTests 118/118 + new ReadSortAndColorModeSettingsTests 4/4; "Sort by Base Here" context-menu shortcut not added |
 | PERF-01 | P1 | Alignment scientific actions SHA-256 the whole BAM, index and reference on the main actor, twice per action | fixed | P4-A | f02c6cc87 | off-main hashing + stat-keyed digest cache; coordinator tests 20/20 |
 | PERF-02 | P1 | `NativeToolRunner.shared` actor is blocked for the full runtime of `runWithFileOutput` / `runPipeline` childre | fixed | Q2 | eb48026d1 | actor no longer blocked (work in detached task); concurrency test blocked by TST-04 tool lookup in test env |
 | PERF-03 | P1 | TaxTriage batch unique-read pass runs directory walks, file parsing and `samtools` on the main actor, then an  | fixed | P4-A | 447955d3d | off-main discovery, keyed table sync, 250ms coalesced reload |
@@ -114,14 +114,14 @@ Single source of truth for finding status (plan rule 9). Status: `open`, `verifi
 | TST-10 | P2 | Flakiness sources: wall-clock budgets as tight as 0.1 s, global singletons and defaults, process-wide `setenv` | open | | | |
 | TST-11 | P2 | Silent skips: tool-gated app tests ignore `LUNGFISH_REQUIRE_TOOLS`, in-repo fixture misses skip, the conforman | open | | | |
 | TST-12 | P2 | XCUITests (40) run nowhere automatically, `appSmokeRequired: false`, core scientific journeys uncovered | open | | | |
-| UX-03 | P2 | Keyboard shortcuts implemented in `NSViewController.performKeyEquivalent` are probably never reached, and ⌘0 c | partial | P7 | 0d42f3f8a | confirmed unreachable via real dispatch; latent segmented-control crash fixed; shortcut->menu migration pending |
+| UX-03 | P2 | Keyboard shortcuts implemented in `NSViewController.performKeyEquivalent` are probably never reached, and ⌘0 c | fixed | P7b | 1e743f0ee | ⌘]/⌘[/⌥⌘0 moved to real nil-target View menu items dispatched via responder chain; ⌘0 collision resolved; dispatch test rewritten to drive the real path |
 | UX-04 | P2 | Edit > Copy and Edit > Find are dead in data views | fixed | P7 | 287aaaa03 | copy TSV + find in BatchTableView tables |
-| UX-05 | P2 | Table search and column-filter UI copied four times and drifting. NAO-MGS has no search. TaxTriage hides searc | open | | | |
-| UX-06 | P2 | No table column state is persisted. Four ad-hoc `UserDefaults` schemes exist elsewhere | open | | | |
-| UX-07 | P2 | Same action, different names: BLAST, NCBI lookup, Copy TaxID, Extract labels drift across viewers | open | | | |
+| UX-05 | P2 | Table search and column-filter UI copied four times and drifting. NAO-MGS has no search. TaxTriage hides searc | partial | P7b | d76174eac,0c5144e0d | ColumnHeaderFilterMenu extracted to Kit, adopted by BatchTableView/TaxonomyTableView/ViralDetectionTableView; NAO-MGS given a search field (not moved to BatchTableView, see commit note); TaxTriage search decoupled from sample control |
+| UX-06 | P2 | No table column state is persisted. Four ad-hoc `UserDefaults` schemes exist elsewhere | open | | | not attempted this pass |
+| UX-07 | P2 | Same action, different names: BLAST, NCBI lookup, Copy TaxID, Extract labels drift across viewers | partial | P7b | c2d2127a7 | LungfishUIStrings.Classifier added; Copy Taxon ID unified across TaxTriage/NAO-MGS; full row-action builder + BLAST/NCBI label sweep deferred |
 | UX-08 | P2 | CZ-ID disables Extract on the action bar but the table menu still offers Kraken2 Extract and BLAST | fixed | P1-C | af7a09e1d | TaxonomyViewController.readLevelActionsAvailable threaded into TaxonomyTableView.validateMenuItem; CzIdImportWorkflowTests 7/7 |
 | UX-09 | P2 | Result load failures are shown three different ways, one of them silent | fixed | P1-C | bfcad3925,7d800e94f | 12S load failure now routes through clearViewport(statusMessage:) like Assembly/Mapping; TwelveSResultLoadFailureTests 1/1 |
-| UX-10 | P2 | Content Text Size is ignored by the Kraken2 table and most sequence-viewer chrome | open | | | |
+| UX-10 | P2 | Content Text Size is ignored by the Kraken2 table and most sequence-viewer chrome | fixed | P7b | d76174eac | TaxonomyTableView (Kraken2) adopts ContentTypographyViewApplicator/Observation, matching ViralDetectionTableView's existing pattern |
 | UX-11 | P2 | Core sequence viewer and track headers are opaque to VoiceOver and keyboard | open | | | |
 | UX-12 | P2 | Inspector key/value rows reimplemented about 10 times with different layout and accessibility | fixed | P7 | 1bf0c1400 | InspectorKeyValueRow in Kit |
 | UX-13 | P2 | The "viewport interface class" contract and dialog conventions are ceremonial or stale | open | | | |
@@ -140,7 +140,7 @@ Single source of truth for finding status (plan rule 9). Status: `open`, `verifi
 | ARC-16 | P3 | Misplaced vocabulary: UI event names in Core, test harness in Kit, CGPoint graph model in Workflow, dead notif | open | | | |
 | FEA-15 | P3 | About 27 orphaned action handlers, stale validation branches and invisible import history | open | | | |
 | FEA-16 | P3 | `features.yaml` GUI entry-point claims that do not exist in the menus | open | | | |
-| FEA-17 | P3 | Edit > Find (Cmd-F) is dead in the main window | partial | P7 | 287aaaa03 | Find in result tables; main-window sidebar Find pending |
+| FEA-17 | P3 | Edit > Find (Cmd-F) is dead in the main window | fixed | P7b | c8454351c | SidebarViewController.performFindPanelAction focuses the project search field as the responder-chain fallback when no data view claims ⌘F |
 | PERF-14 | P3 | Racy output-drain idioms (CondaManager 100 ms "drain delay", `readerGroup.enter` inside `readabilityHandler`) | fixed | Q2 | f31335bc0 | drain to EOF |
 | PERF-15 | P3 | Operation log entries are unbounded per operation | fixed | Q2 | a13f9b83b | 2000-entry cap with elision marker |
 | PERF-16 | P3 | Remaining `runModal`, redundant timer-to-main hops, and test probes as `nonisolated(unsafe)` statics in produc | open | | | |
@@ -164,7 +164,7 @@ Single source of truth for finding status (plan rule 9). Status: `open`, `verifi
 | UX-15 | P3 | Alert and menu wording drift, success modals, dead "Not Yet Implemented" helper, ASCII ellipses | partial | P7 | 519e21ac3 | ellipsis/wording sweep |
 | UX-16 | P3 | Hard-coded light fills in the read track reduce dark-mode contrast | fixed | Q1 | a6d26ce62 | dynamic colors; WCAG contrast test |
 | UX-17 | P3 | `BatchTableView` ⌘-click quick-copy competes with standard ⌘-click multi-select | fixed | P7 | 287aaaa03 | cmd-click quick-copy removed |
-| UX-18 | P3 | Sample-scope control differs per viewer. TaxTriage's segmented control does not scale | open | | | |
+| UX-18 | P3 | Sample-scope control differs per viewer. TaxTriage's segmented control does not scale | accepted | P7b | 1e743f0ee | reproducing this found `sampleFilterControl` is unreachable in production (configureFromDatabase always forces batch-group mode, whose only sample UI is the already-shared, already-scalable Inspector ClassifierSamplePickerState); a popup alternative was still added for completeness but is inert; see TaxTriageSampleScopeTests |
 | WFL-21 | P3 | Dead dialogs, launchers and engines kept alive only by tests | open | | | |
 | GEN-01 | P0 | ONT barcode assignment takes the leftmost exact barcode match anywhere in the read, including inside the ampli | fixed | G1 | 545fcea36 | anchored window after rc(CS2), both orientations, multi-match unassigned; 20-read DRB1 case all FLD0001 |
 | GEN-02 | P0 | `minimumMatches: 1` plus a count-only match rule reports homozygotes as heterozygotes (DQ M2/M2 as "M2 / M6",  | mitigated | G2 | 6dd8eb44f | 28-genotype golden test; 6 wrong-but-called now 'ambiguous'; calling rule itself pending owner decision |

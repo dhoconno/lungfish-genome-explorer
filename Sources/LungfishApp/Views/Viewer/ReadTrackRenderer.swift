@@ -608,6 +608,10 @@ public enum ReadTrackRenderer {
         /// When true, forward reads have blue-tinted backgrounds and reverse reads
         /// have pink-tinted backgrounds. When false, all reads share a neutral background.
         public var showStrandColors: Bool = true
+        /// How packed reads are colored (FEA-08). Only consulted when
+        /// `showStrandColors` is true; `.strand` reproduces the exact
+        /// pre-existing behavior, so this is additive.
+        public var colorMode: ReadColorMode = .strand
 
         public init(
             showMismatches: Bool = true,
@@ -616,7 +620,8 @@ public enum ReadTrackRenderer {
             consensusMaskingEnabled: Bool = false,
             consensusGapThreshold: Double = 0.9,
             consensusMaskingMinDepth: Int = 8,
-            showStrandColors: Bool = true
+            showStrandColors: Bool = true,
+            colorMode: ReadColorMode = .strand
         ) {
             self.showMismatches = showMismatches
             self.showSoftClips = showSoftClips
@@ -625,6 +630,7 @@ public enum ReadTrackRenderer {
             self.consensusGapThreshold = consensusGapThreshold
             self.consensusMaskingMinDepth = consensusMaskingMinDepth
             self.showStrandColors = showStrandColors
+            self.colorMode = colorMode
         }
     }
 
@@ -923,7 +929,12 @@ public enum ReadTrackRenderer {
 
         // Pre-compute CGColor cache for (strand, mapqBin) combinations to avoid per-read allocs.
         // mapqAlpha returns 5 distinct values × 2 strands × 2 (fill/stroke) = 20 cached colors.
+        // Only used for the `.strand` color mode and the neutral (colors off) case, both of
+        // which are fully determined by (isReverse, mapq); every other FEA-08 color mode
+        // (insert size, MAPQ heatmap, read group, pair, base quality) varies per read beyond
+        // that, so it goes through `ReadTrackRenderer.readColors(for:colorMode:)` uncached below.
         let useStrandColors = settings.showStrandColors
+        let colorMode = settings.colorMode
         // UX-16: fixed light-gray RGB values (0.78/0.62) read as washed-out, low-contrast glyphs
         // in Dark Aqua. systemGray/tertiaryLabelColor are dynamic colors that resolve per
         // appearance. Both feed `.copy(alpha:)` below (mapqAlpha overrides alpha entirely), so
@@ -947,6 +958,13 @@ public enum ReadTrackRenderer {
             colorCache[key] = (fill, stroke)
             return (fill, stroke)
         }
+        func colorsForRead(_ read: AlignedRead) -> (fill: CGColor, stroke: CGColor) {
+            guard useStrandColors, colorMode != .strand else {
+                return cachedColors(isReverse: read.isReverse, mapq: read.mapq)
+            }
+            let alpha = mapqAlpha(read.mapq)
+            return readColors(for: read, colorMode: colorMode, alpha: alpha)
+        }
 
         forEachVisiblePackedRead(
             packedReads: packedReads,
@@ -964,7 +982,7 @@ public enum ReadTrackRenderer {
             guard readWidth >= minReadPixels else { return }
 
             let alpha = mapqAlpha(read.mapq)
-            let colors = cachedColors(isReverse: read.isReverse, mapq: read.mapq)
+            let colors = colorsForRead(read)
 
             // Draw soft-clip extensions (semi-transparent bars extending from read ends)
             if settings.showSoftClips {
@@ -1090,6 +1108,7 @@ public enum ReadTrackRenderer {
         let neutralBgTemplate = NSColor(red: 0.90, green: 0.90, blue: 0.90, alpha: 1.0).cgColor
         let neutralStroke = NSColor(red: 0.72, green: 0.72, blue: 0.72, alpha: 1.0).cgColor
         let useStrandColors = settings.showStrandColors
+        let colorMode = settings.colorMode
 
         forEachVisiblePackedRead(
             packedReads: packedReads,
@@ -1114,7 +1133,11 @@ public enum ReadTrackRenderer {
             let bgAlpha = max(0.35, alpha * 0.72)
             let bgColor: CGColor
             let borderColor: CGColor
-            if useStrandColors {
+            if useStrandColors, colorMode != .strand {
+                let modeColors = readColors(for: read, colorMode: colorMode, alpha: bgAlpha)
+                bgColor = modeColors.fill
+                borderColor = modeColors.stroke.copy(alpha: max(0.45, alpha * 0.7)) ?? modeColors.stroke
+            } else if useStrandColors {
                 bgColor = (read.isReverse ? revBgTemplate : fwdBgTemplate).copy(alpha: bgAlpha)!
                 borderColor = (read.isReverse ? reverseReadStroke : forwardReadStroke).copy(alpha: max(0.45, alpha * 0.7))!
             } else {

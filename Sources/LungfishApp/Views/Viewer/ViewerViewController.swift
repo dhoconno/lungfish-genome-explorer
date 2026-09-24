@@ -1173,6 +1173,17 @@ public class ViewerViewController: NSViewController {
         if let show = userInfo[NotificationUserInfoKey.showStrandColors] as? Bool {
             viewerView.showStrandColorsSetting = show
         }
+        if let sortModeRaw = userInfo[NotificationUserInfoKey.readSortMode] as? String,
+           let sortMode = ReadSortMode(rawValue: sortModeRaw) {
+            viewerView.readSortModeSetting = sortMode
+        }
+        if let sortPosition = userInfo[NotificationUserInfoKey.readSortPosition] as? Int {
+            viewerView.readSortPositionSetting = sortPosition
+        }
+        if let colorModeRaw = userInfo[NotificationUserInfoKey.readColorMode] as? String,
+           let colorMode = ReadColorMode(rawValue: colorModeRaw) {
+            viewerView.readColorModeSetting = colorMode
+        }
         if let enabled = userInfo[NotificationUserInfoKey.consensusMaskingEnabled] as? Bool {
             viewerView.consensusMaskingEnabledSetting = enabled
         }

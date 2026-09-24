@@ -445,6 +445,20 @@ public class SequenceViewerView: NSView {
     /// Whether to tint read backgrounds by strand direction.
     var showStrandColorsSetting: Bool = true
 
+    /// How reads are ordered before packing into rows (FEA-08: the renderer
+    /// implements every `ReadSortMode`, but every production call site used
+    /// to hard-code `.position` — there was no way to reach the others).
+    var readSortModeSetting: ReadSortMode = .position
+
+    /// Reference position `readSortModeSetting == .baseAtPosition` sorts by.
+    /// Set from the alignment context menu's "Sort by Base Here".
+    var readSortPositionSetting: Int?
+
+    /// How reads are colored (FEA-08: `ReadTrackRenderer.readColors(for:colorMode:)`
+    /// implements every `ReadColorMode`, but it was previously called only from
+    /// tests — the packed-read draw path only ever branched on a strand boolean).
+    var readColorModeSetting: ReadColorMode = .strand
+
     /// Whether to mask columns that are mostly gaps (consensus-style filtering).
     var consensusMaskingEnabledSetting: Bool = false
 

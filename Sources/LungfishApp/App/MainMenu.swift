@@ -9,6 +9,7 @@ import AppKit
 import LungfishCore
 import LungfishWorkflow
 import LungfishKit
+import LungfishTaxTriageUI
 import UniformTypeIdentifiers
 
 /// Builds the application's main menu bar programmatically.
@@ -581,6 +582,36 @@ public final class MainMenu {
             keyEquivalent: String(Character(UnicodeScalar(NSLeftArrowFunctionKey)!))
         )
         collapseAllItem.keyEquivalentModifierMask = [.command, .shift]
+
+        viewMenu.addItem(.separator())
+
+        // TaxTriage sample stepping (UX-03: previously implemented only as
+        // NSViewController.performKeyEquivalent overrides, which AppKit never
+        // reaches — key equivalents are dispatched down the view hierarchy,
+        // not to view controllers. These use nil target (responder chain) so
+        // they auto-disable when no TaxTriageResultViewController is active,
+        // matching the Taxonomy Expand/Collapse pattern above. ⌘0 is already
+        // Zoom to Fit, so "All Samples" uses ⌥⌘0 instead.
+        let nextSampleItem = viewMenu.addItem(
+            withTitle: "Next Sample",
+            action: #selector(TaxTriageResultViewController.selectNextSample(_:)),
+            keyEquivalent: "]"
+        )
+        nextSampleItem.keyEquivalentModifierMask = [.command]
+
+        let previousSampleItem = viewMenu.addItem(
+            withTitle: "Previous Sample",
+            action: #selector(TaxTriageResultViewController.selectPreviousSample(_:)),
+            keyEquivalent: "["
+        )
+        previousSampleItem.keyEquivalentModifierMask = [.command]
+
+        let allSamplesItem = viewMenu.addItem(
+            withTitle: "All Samples",
+            action: #selector(TaxTriageResultViewController.selectAllSamplesOverview(_:)),
+            keyEquivalent: "0"
+        )
+        allSamplesItem.keyEquivalentModifierMask = [.command, .option]
 
         viewMenu.addItem(.separator())
 
