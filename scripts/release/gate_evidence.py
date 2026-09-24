@@ -100,6 +100,48 @@ def runtime_identity():
             "requireTools": os.environ.get("LUNGFISH_REQUIRE_TOOLS", "0")}
 
 
+def _descendant_pids(root_pid):
+    """All live descendants of root_pid, by a parent/child walk over `ps`.
+
+    Independent of process group membership, so it also finds a child that
+    started its own session (as each `swift test --parallel` xctest worker
+    does) or that was reparented to PID 1 after its immediate parent exited.
+    """
+    try:
+        listing = subprocess.run(["ps", "-Ao", "pid=,ppid="], capture_output=True, text=True, timeout=5)
+    except (OSError, subprocess.TimeoutExpired):
+        return []
+    children_by_parent = {}
+    for line in listing.stdout.splitlines():
+        parts = line.split()
+        if len(parts) != 2:
+            continue
+        try:
+            pid, ppid = int(parts[0]), int(parts[1])
+        except ValueError:
+            continue
+        children_by_parent.setdefault(ppid, []).append(pid)
+    descendants = []
+    queue = [root_pid]
+    seen = {root_pid}
+    while queue:
+        parent = queue.pop()
+        for child in children_by_parent.get(parent, []):
+            if child not in seen:
+                seen.add(child)
+                descendants.append(child)
+                queue.append(child)
+    return descendants
+
+
+def _kill_descendant_tree(root_pid, sig):
+    for pid in _descendant_pids(root_pid):
+        try:
+            os.kill(pid, sig)
+        except ProcessLookupError:
+            pass
+
+
 def command_record(argv, root, directory, name, *, split=False, timeout_seconds=None):
     """Retain the actual exit, including a watchdog termination; never promote it.
 
@@ -108,12 +150,18 @@ def command_record(argv, root, directory, name, *, split=False, timeout_seconds=
     live child that ignores SIGTERM, so the harness never observes exit)
     would otherwise stall the gate forever, reading as "still running"
     rather than as a red result. On expiry the process GROUP is killed
-    (SIGTERM, then SIGKILL if it does not exit promptly) so children the
-    direct child spawned do not survive it, and the record's
-    ``intervention`` is set to ``"timeout"``. This is best-effort, not a
-    guarantee: a child that reparents to PID 1 or double-forks out of the
-    group is not caught here (see PERF-13/WFL-12 for the app-side
-    process-tree cancellation contract this does not attempt to replace).
+    (SIGTERM, then SIGKILL if it does not exit promptly), and every
+    descendant PID still alive (by parent/child walk, independent of process
+    group) is also SIGKILLed directly: `swift test --parallel` starts each
+    per-class xctest worker in its OWN new session/process group, so a
+    worker that is itself hung (confirmed live: TST-05's
+    CLIImportRunnerTests/testCancelTerminatesCLIProcessTree leaves a grandchild
+    that traps SIGTERM) is not reachable through the outer process's group
+    alone. The record's ``intervention`` is set to ``"timeout"``. Still
+    best-effort, not a guarantee: a descendant that reparents to PID 1
+    between the walk and the kill could be missed (see PERF-13/WFL-12 for
+    the app-side process-tree cancellation contract this does not attempt
+    to replace).
     """
     started, tick = now(), time.monotonic()
     intervention = None
@@ -130,21 +178,47 @@ def command_record(argv, root, directory, name, *, split=False, timeout_seconds=
             while process.poll() is None:
                 if timeout_seconds is not None and time.monotonic() - tick >= timeout_seconds:
                     intervention = "timeout"
+                    # Snapshot descendants before signaling anything: once the
+                    # direct child exits, `ps`'s ppid chain to any
+                    # already-reparented-to-PID-1 grandchild is still intact
+                    # right now, but a second walk after the group is dead
+                    # would need to search the whole process table by PID
+                    # instead. Sending signals to PIDs collected here is safe
+                    # even if some have already exited by then (ESRCH is
+                    # swallowed).
+                    descendants = _descendant_pids(process.pid)
                     try:
                         os.killpg(process.pid, signal.SIGTERM)
                     except ProcessLookupError:
                         pass
+                    for pid in descendants:
+                        try:
+                            os.kill(pid, signal.SIGTERM)
+                        except ProcessLookupError:
+                            pass
                     try:
                         process.wait(timeout=10)
                     except subprocess.TimeoutExpired:
+                        pass
+                    try:
+                        os.killpg(process.pid, signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
+                    # Re-walk: a worker that started its own session/process
+                    # group (every `swift test --parallel` xctest worker
+                    # does) is not reached by the group kill above, so kill
+                    # every descendant PID directly too, whether or not it
+                    # was already in the first snapshot.
+                    _kill_descendant_tree(process.pid, signal.SIGKILL)
+                    for pid in descendants:
                         try:
-                            os.killpg(process.pid, signal.SIGKILL)
+                            os.kill(pid, signal.SIGKILL)
                         except ProcessLookupError:
                             pass
-                        try:
-                            process.wait(timeout=5)
-                        except subprocess.TimeoutExpired:
-                            pass
+                    try:
+                        process.wait(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        pass
                     break
                 # Xcode occasionally fails to reap an XCTest child. Terminate
                 # the stuck parent and preserve intervention even if it traps TERM to exit zero.

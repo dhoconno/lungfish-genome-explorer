@@ -262,6 +262,58 @@ else:
             with self.assertRaises(ProcessLookupError):
                 os.kill(child_pid, 0)
 
+    def test_command_record_timeout_also_kills_a_child_in_its_own_process_group(self):
+        # Live-observed TST-05 gap: `swift test --parallel` starts each
+        # per-class xctest worker in its OWN new session/process group (not
+        # the outer swift-test process's group), so a hung worker was not
+        # reached by os.killpg(outer_pid, ...) alone. Reproduce that shape
+        # directly: the parent double-forks a grandchild with setsid (its
+        # own new session and process group) that ignores SIGTERM, then the
+        # parent itself also ignores SIGTERM.
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            child_pid_file = root / 'child.pid'
+            child_pgid_file = root / 'child.pgid'
+            script = f"""import os, signal, sys, time
+signal.signal(signal.SIGTERM, lambda *_: None)
+pid = os.fork()
+if pid == 0:
+    os.setsid()
+    signal.signal(signal.SIGTERM, lambda *_: None)
+    with open({str(child_pid_file)!r}, "w") as f:
+        f.write(str(os.getpid()))
+    with open({str(child_pgid_file)!r}, "w") as f:
+        f.write(str(os.getpgid(0)))
+    while True:
+        time.sleep(0.01)
+else:
+    while True:
+        time.sleep(0.01)
+"""
+            command = gate.command_record(
+                [sys.executable, '-c', script], root, root, 'runner',
+                timeout_seconds=1,
+            )
+            self.assertEqual(command['intervention'], 'timeout')
+            self.assertNotEqual(command['exitStatus'], 0)
+            deadline = time.monotonic() + 5
+            child_pid = None
+            child_pgid = None
+            while time.monotonic() < deadline:
+                if child_pid_file.exists() and child_pgid_file.exists():
+                    child_pid = int(child_pid_file.read_text().strip())
+                    child_pgid = int(child_pgid_file.read_text().strip())
+                    break
+                time.sleep(0.05)
+            self.assertIsNotNone(child_pid, "grandchild never started")
+            self.assertEqual(
+                child_pgid, child_pid,
+                "test setup did not actually give the grandchild its own process group",
+            )
+            time.sleep(0.2)
+            with self.assertRaises(ProcessLookupError):
+                os.kill(child_pid, 0)
+
     def test_replayed_authoritative_and_discovery_interventions_are_rejected(self):
         with tempfile.TemporaryDirectory() as temp:
             source = dict(clean=True, commit='fixture')
