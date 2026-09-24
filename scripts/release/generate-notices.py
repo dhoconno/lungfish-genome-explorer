@@ -187,23 +187,22 @@ def resolve_swiftpm_dependencies(overrides: dict) -> tuple[list[dict], list[dict
         copyright_line = None
         license_election = override.get("licenseElection") if override else None
 
-        if license_text is not None:
-            if override is not None:
-                license_id = override.get("license")
-            copyright_line = override.get("copyright") if override else None
-        elif override is not None:
+        if license_text is None and override is None:
+            missing.append(identity)
+            continue
+        if override is not None:
             license_id = override.get("license")
-            license_url = override.get("licenseUrl")
             copyright_line = override.get("copyright")
+            # The pinned URL is emitted whether or not the full text was found in
+            # .build/checkouts, so the committed file carries the same provenance
+            # line in every environment (a release build always has checkouts).
+            license_url = override.get("licenseUrl")
             if license_url and "{revision}" in license_url:
                 if not revision:
                     raise NoticesGenerationError(
                         f"{identity}: licenseUrl uses {{revision}} but Package.resolved has no pinned revision"
                     )
                 license_url = license_url.replace("{revision}", revision)
-        else:
-            missing.append(identity)
-            continue
 
         shipped.append(
             {
@@ -241,6 +240,12 @@ def render_dependency_section(entry: dict) -> str:
         lines.append(f"License election: {entry['licenseElection']}")
         lines.append("")
     if entry.get("licenseText"):
+        if entry.get("license") and entry["license"] != "see license text":
+            lines.append(f"License: {entry['license']}")
+        if entry.get("licenseUrl"):
+            lines.append(f"License source: {entry['licenseUrl']}")
+        if entry.get("license") != "see license text" or entry.get("licenseUrl"):
+            lines.append("")
         lines.append(entry["licenseText"].strip())
     else:
         lines.append(f"License: {entry['license']}")
