@@ -117,6 +117,10 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
     /// (or there was nothing running to warn about), so the re-entrant
     /// `terminate()` call this triggers does not show the sheet again.
     private var hasConfirmedQuitWithRunningOperations = false
+    #if DEBUG
+    /// Test seam: answers the quit-with-running-operations alert without UI.
+    var testingQuitWithRunningOperationsAnswer: (@MainActor ([OperationCenter.Item]) async -> Bool)?
+    #endif
     private var quitOperationsWarningTask: Task<Void, Never>?
 
     /// Temporary storage for download URL while sheet is dismissing
@@ -870,9 +874,20 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                 }
                 quitOperationsWarningTask = Task { [weak self] in
                     guard let self else { return }
-                    let shouldQuit = await self.presentQuitWithRunningOperationsAlert(
+                    let shouldQuit: Bool
+                    #if DEBUG
+                    if let override = self.testingQuitWithRunningOperationsAnswer {
+                        shouldQuit = await override(runningOperations)
+                    } else {
+                        shouldQuit = await self.presentQuitWithRunningOperationsAlert(
+                            operations: runningOperations
+                        )
+                    }
+                    #else
+                    shouldQuit = await self.presentQuitWithRunningOperationsAlert(
                         operations: runningOperations
                     )
+                    #endif
                     self.quitOperationsWarningTask = nil
                     guard shouldQuit else {
                         reply(false)
@@ -884,7 +899,21 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                     // pending project tasks) rather than replying true
                     // directly — cancelling operations does not by itself
                     // make it safe to tear down the process.
-                    _ = self.applicationShouldTerminate(reply: reply)
+                    // AppKit was already told `.terminateLater`, so the outcome
+                    // of the re-run must always reach `reply`: a `.terminateNow`
+                    // result was previously discarded and the app never quit
+                    // (NEW-09). `.terminateLater` means the inner path owns the
+                    // reply itself.
+                    switch self.applicationShouldTerminate(reply: reply) {
+                    case .terminateNow:
+                        reply(true)
+                    case .terminateCancel:
+                        reply(false)
+                    case .terminateLater:
+                        break
+                    @unknown default:
+                        reply(true)
+                    }
                 }
                 return .terminateLater
             }
