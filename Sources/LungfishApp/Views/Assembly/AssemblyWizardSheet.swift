@@ -80,6 +80,10 @@ struct AssemblyWizardSheet: View {
     @State private var flyeMetagenomeMode = false
     @State private var hifiasmPrimaryOnly = false
     @State private var packStatus: PluginPackStatus?
+    /// Flye's read-quality preselection for the input, measured once off the
+    /// main actor when the sheet opens on ONT reads. Drives the Profile
+    /// picker's seed, the caption beneath it, and the provenance basis.
+    @State private var flyeProfileSelection: FlyeProfileSelection?
 
     /// Called with the built request and the multi-bundle run mode the user
     /// selected (or `.perBundle` when the picker wasn't shown, e.g. a single
@@ -336,6 +340,19 @@ struct AssemblyWizardSheet: View {
                 projectName = "assembly"
             }
 
+            if let first = inputFiles.first,
+               Self.shouldSeedFlyeProfile(
+                   inputCount: inputFiles.count,
+                   initialTool: initialTool,
+                   detectedReadType: Self.detectedReadType(from: inputFiles)
+               ) {
+                let selection = await FlyeProfileSelector.select(forInputURL: first)
+                flyeProfileSelection = selection
+                if selectedTool == .flye {
+                    selectedProfileID = selection.profileID
+                }
+            }
+
             if let stubbed = AssemblyWizardSheet.uiTestStubbedAssemblyPackStatus() {
                 packStatus = stubbed
             } else {
@@ -358,7 +375,7 @@ struct AssemblyWizardSheet: View {
         }
         .onChange(of: selectedTool) { _, newValue in
             resetToolSpecificOptions()
-            let nextProfileID = Self.defaultProfileID(for: newValue) ?? ""
+            let nextProfileID = Self.seededProfileID(for: newValue, flyeSelection: flyeProfileSelection) ?? ""
             if !profileOptions.map(\.id).contains(selectedProfileID) {
                 selectedProfileID = nextProfileID
             } else if profileOptions.isEmpty {
@@ -536,6 +553,12 @@ struct AssemblyWizardSheet: View {
                 Text(profileOptions.first(where: { $0.id == selectedProfileID })?.detail ?? "")
                     .font(.caption)
                     .foregroundStyle(Color.lungfishSecondaryText)
+                if selectedTool == .flye, let flyeProfileSelection {
+                    Text(flyeProfileSelection.caption)
+                        .font(.caption)
+                        .foregroundStyle(Color.lungfishSecondaryText)
+                        .accessibilityIdentifier("assembly-profile-selection-caption")
+                }
                 optionSummary("profile")
             }
 
@@ -780,7 +803,12 @@ struct AssemblyWizardSheet: View {
             memoryGB: supportsMemoryLimit ? Int(memoryGB) : nil,
             minContigLength: supportsMinContigLength ? minContigLength : nil,
             selectedProfileID: selectedProfileID.isEmpty ? nil : selectedProfileID,
-            extraArguments: curatedAdvancedArguments + parsedAdvancedOptions
+            extraArguments: curatedAdvancedArguments + parsedAdvancedOptions,
+            profileSelectionBasis: Self.profileSelectionBasis(
+                for: selectedTool,
+                selectedProfileID: selectedProfileID,
+                flyeSelection: flyeProfileSelection
+            )
         )
     }
 
@@ -942,10 +970,42 @@ struct AssemblyWizardSheet: View {
         case .skesa:
             return nil
         case .flye:
-            return "nano-hq"
+            return FlyeProfileSelector.fallbackProfileID
         case .hifiasm:
             return "diploid"
         }
+    }
+
+    /// The profile the picker opens on. Flye takes the read-quality
+    /// preselection when one was measured; every other tool keeps its
+    /// catalog default.
+    static func seededProfileID(for tool: AssemblyTool, flyeSelection: FlyeProfileSelection?) -> String? {
+        if tool == .flye, let flyeSelection {
+            return flyeSelection.profileID
+        }
+        return defaultProfileID(for: tool)
+    }
+
+    /// Read quality is measured only when Flye could plausibly run: one input
+    /// that is ONT or that the sheet was opened for Flye on. Illumina or
+    /// multi-bundle selections never touch the FASTQ.
+    static func shouldSeedFlyeProfile(
+        inputCount: Int,
+        initialTool: AssemblyTool,
+        detectedReadType: AssemblyReadType?
+    ) -> Bool {
+        inputCount == 1 && (initialTool == .flye || detectedReadType == .ontReads)
+    }
+
+    /// Provenance text for the profile the run will use, or nil when the
+    /// profile did not come from the read-quality rule.
+    static func profileSelectionBasis(
+        for tool: AssemblyTool,
+        selectedProfileID: String,
+        flyeSelection: FlyeProfileSelection?
+    ) -> String? {
+        guard tool == .flye, let flyeSelection else { return nil }
+        return flyeSelection.provenanceBasis(appliedProfileID: selectedProfileID.isEmpty ? nil : selectedProfileID)
     }
 
     private static func defaultReadType(for tool: AssemblyTool) -> AssemblyReadType {

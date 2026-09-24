@@ -231,6 +231,12 @@ struct AssembleCommand: AsyncParsableCommand {
             throw CLIExitCode.workflowError.exitCode
         }
 
+        let resolvedProfile = await Self.resolveProfile(
+            tool: tool,
+            explicitProfile: profile,
+            inputURL: inputURLs.first
+        )
+
         let request = AssemblyRunRequest(
             tool: tool,
             readType: resolvedReadType,
@@ -241,8 +247,9 @@ struct AssembleCommand: AsyncParsableCommand {
             threads: globalOptions.effectiveThreads,
             memoryGB: memoryGB,
             minContigLength: minContigLength,
-            selectedProfileID: profile,
-            extraArguments: advancedArguments
+            selectedProfileID: resolvedProfile.profileID,
+            extraArguments: advancedArguments,
+            profileSelectionBasis: resolvedProfile.basis
         )
         let executionRequest = request.normalizedForExecution()
 
@@ -255,7 +262,8 @@ struct AssembleCommand: AsyncParsableCommand {
             ("Paired-end", pairedEnd ? "yes" : "no"),
             ("Threads", "\(executionRequest.threads)"),
             ("Memory", memoryGB.map { "\($0) GB" } ?? "default"),
-            ("Profile", profile ?? "default"),
+            ("Profile", resolvedProfile.profileID ?? "default"),
+            ("Profile basis", resolvedProfile.basis ?? (profile == nil ? "tool default" : "explicit --profile")),
             ("Extra arguments", advancedArguments.isEmpty ? "none" : AdvancedCommandLineOptions.join(advancedArguments)),
             ("Output", outputDirectory.path),
         ]))
@@ -315,6 +323,28 @@ struct AssembleCommand: AsyncParsableCommand {
         } else {
             print(formatter.success("Assembly completed in \(String(format: "%.1f", result.wallTimeSeconds))s"))
         }
+    }
+
+    /// The profile the run uses and, when the CLI chose it, why.
+    ///
+    /// An explicit `--profile` always wins and carries no basis. Without one,
+    /// Flye takes the same read-quality preselection the app's sheet makes
+    /// (Nano Raw under Q10, Nano HQ otherwise), measured on the ORIGINAL
+    /// input so an imported bundle's persisted statistics are used before
+    /// any reads are sampled. Other assemblers keep their pipeline defaults.
+    static func resolveProfile(
+        tool: AssemblyTool,
+        explicitProfile: String?,
+        inputURL: URL?
+    ) async -> (profileID: String?, basis: String?) {
+        if let explicitProfile {
+            return (explicitProfile, nil)
+        }
+        guard tool == .flye, let inputURL else {
+            return (nil, nil)
+        }
+        let selection = await FlyeProfileSelector.select(forInputURL: inputURL)
+        return (selection.profileID, selection.provenanceBasis(appliedProfileID: nil))
     }
 
     static func parseExtraArgs(_ extraArgs: String, deprecatedAdvancedOptions: String) throws -> [String] {
@@ -694,6 +724,7 @@ struct AssembleCommand: AsyncParsableCommand {
             "memoryGB": .null,
             "minContigLength": .null,
             "profile": .string("default"),
+            "profileBasis": .null,
             "extraArguments": .array([]),
         ]
     }
@@ -725,6 +756,7 @@ struct AssembleCommand: AsyncParsableCommand {
             "memoryGB": request.memoryGB.map(ParameterValue.integer) ?? .null,
             "minContigLength": request.effectiveMinContigLength.map(ParameterValue.integer) ?? .null,
             "profile": request.selectedProfileID.map(ParameterValue.string) ?? .string("default"),
+            "profileBasis": request.profileSelectionBasis.map(ParameterValue.string) ?? .null,
             "extraArguments": .array(request.extraArguments.map(ParameterValue.string)),
             "originalInputs": .array(originalInputURLs.map { .file($0.standardizedFileURL) }),
             "executionInputs": .array(executionInputURLs.map { .file($0.standardizedFileURL) }),
