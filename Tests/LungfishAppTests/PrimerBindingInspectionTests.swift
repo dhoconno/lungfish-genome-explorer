@@ -60,6 +60,8 @@ final class PrimerBindingInspectionTests: XCTestCase {
         XCTAssertNil(presentation.track)
         XCTAssertNil(presentation.columnLabel)
         XCTAssertFalse(presentation.shouldFocusAnnotation)
+        XCTAssertNil(PrimerBindingInspectionView.fallbackMessage(in: context,
+            originalContextHasPrimers: true, explicitUnavailableReason: reason))
         XCTAssertThrowsError(try context.displayTrack(for: primer, showIdentityDots: true)) {
             XCTAssertEqual(($0 as NSError).localizedDescription, reason)
         }

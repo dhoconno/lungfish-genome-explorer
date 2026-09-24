@@ -71,11 +71,10 @@ struct PrimerBindingInspectionView: View {
                     }
                     PrimerBindingComparisonTable(context: context, primer: primer)
                       .frame(minHeight: 100, idealHeight: 180, maxHeight: .infinity, alignment: .topLeading)
-                } else if context.unavailableReason == nil {
-                    Text(!context.primers.isEmpty ? "The selected primer is hidden or unavailable. Choose a visible primer above or adjust Inspector → View."
-                         : contexts.first(where: { $0.id == context.id })?.primers.isEmpty == false
-                         ? "All primer sites for this alignment are hidden. Use Show all in Inspector → View to restore them."
-                         : "No primer sites were returned for this alignment.").foregroundStyle(.secondary)
+                } else if let fallback = Self.fallbackMessage(in: context,
+                    originalContextHasPrimers: contexts.first(where: { $0.id == context.id })?.primers.isEmpty == false,
+                    explicitUnavailableReason: presentation?.unavailableReason) {
+                    Text(fallback).foregroundStyle(.secondary)
                 }
             } else {
                 Text("Alignment binding inspection is available for stored PrimalScheme results with a verified input alignment and reference mapping.")
@@ -104,6 +103,17 @@ struct PrimerBindingInspectionView: View {
         return .init(track: track,
             columnLabel: "5′ \(primer.sequence) 3′ · strand \(primer.strand) · alignment columns \(primer.alignedStart + 1)–\(primer.alignedEnd)",
             unavailableReason: nil, shouldFocusAnnotation: true)
+    }
+
+    nonisolated static func fallbackMessage(in context: PrimerBindingInspectionContext,
+      originalContextHasPrimers: Bool, explicitUnavailableReason: String?) -> String? {
+        guard context.unavailableReason == nil, explicitUnavailableReason == nil else { return nil }
+        if !context.primers.isEmpty {
+            return "The selected primer is hidden or unavailable. Choose a visible primer above or adjust Inspector → View."
+        }
+        return originalContextHasPrimers
+            ? "All primer sites for this alignment are hidden. Use Show all in Inspector → View to restore them."
+            : "No primer sites were returned for this alignment."
     }
 
     nonisolated static func legend(hasTrack: Bool, showIdentityDots: Bool) -> String {

@@ -104,11 +104,12 @@ struct PrimerOrderExportService: Sendable {
       let nativePool = row.nativePool?.trimmingCharacters(in: .whitespacesAndNewlines)
       let status = row.status == .selected ? "Selected" : "Alternative"
       let rank = row.rank.map { "_Rank_\($0)" } ?? ""
-      let group = nativePool.map { "Pool_\($0)" } ?? "Unpooled"
+      let poolName = nativePool.map { "Scheme_\(resultOrdinal)_Pool_\($0)" }
+        ?? "Scheme_\(resultOrdinal)_Unpooled_\(status)\(rank)_Assay_\(assayOrdinal)"
       return .init(primerID: row.id, targetID: row.targetID.uuidString.lowercased(),
         sourceResultID: row.resultID.uuidString.lowercased(),
         schemeLabel: manifestResult.label ?? "Scheme \(resultOrdinal)",
-        poolName: "Scheme_\(resultOrdinal)_\(group)_\(status)\(rank)_Assay_\(assayOrdinal)",
+        poolName: poolName,
         pool: nativePool.flatMap(Int.init), referenceID: target.referenceID,
         name: row.name, sequence: row.sequence, start: row.start, end: row.end,
         strand: row.strand.rawValue, ampliconIDs: [row.assayID.uuidString.lowercased()],
