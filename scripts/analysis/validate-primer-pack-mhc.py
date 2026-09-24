@@ -18,7 +18,7 @@ import subprocess
 import sys
 import time
 
-VERSION = "1.1.0"
+VERSION = "1.2.0"
 
 
 def digest(path):
@@ -65,7 +65,7 @@ def cases(advanced):
     return result
 
 
-def command(cli, msa, output, case, workers):
+def command(cli, msa, output, case, workers, installed_python_root=None):
     inputs = [msa] if isinstance(msa, Path) else msa
     argv = [str(cli), "primers", "design", case["engine"]]
     for path in inputs:
@@ -77,6 +77,8 @@ def command(cli, msa, output, case, workers):
             "--core-count" if case["engine"] == "primalscheme3" else "--workers", str(workers)]
     if case["engine"] == "varvamp":
         argv += ["--mode", case["mode"]]
+    if installed_python_root is not None and case["engine"] in ("olivar", "varvamp"):
+        argv += ["--python-path", str(installed_python_root / "envs" / case["engine"] / "bin/python")]
     return argv + case["arguments"]
 
 
@@ -183,6 +185,8 @@ def main():
     parser.add_argument("--case", action="append", default=[], help="Run only the exact named case(s)")
     parser.add_argument("--input-name", action="append", default=[], help="Run only the exact MSA stem(s)")
     parser.add_argument("--batch", action="store_true", help="Submit all selected inputs together in each case")
+    parser.add_argument("--installed-python-override", action="store_true",
+                        help="Use the same installed interpreter directly for additional acceptance; bypass managed readiness locking only")
     parser.add_argument("--run", action="store_true", help="Execute; otherwise print the planned matrix")
     args = parser.parse_args()
     args.cli, args.project, args.output, args.conda_root = [p.resolve() for p in
@@ -205,8 +209,14 @@ def main():
     planned = [(c, group, args.output / c["id"] /
                 (("batch" if args.batch else group[0].stem) + ".lungfishprimeranalysis"))
                for c in selected_cases for group in groups]
+    python_root = args.conda_root if args.installed_python_override else None
+    if python_root is not None:
+        for engine in {c["engine"] for c in selected_cases} & {"olivar", "varvamp"}:
+            interpreter = python_root / "envs" / engine / "bin/python"
+            if not interpreter.is_file() or not os.access(interpreter, os.X_OK):
+                parser.error(f"Missing installed executable interpreter: {interpreter}")
     if not args.run:
-        print(json.dumps([command(args.cli, msa, out, c, args.workers) for c, msa, out in planned], indent=2))
+        print(json.dumps([command(args.cli, msa, out, c, args.workers, python_root) for c, msa, out in planned], indent=2))
         return 0
     args.output.mkdir(parents=True, exist_ok=False)
     before = inventory(args.project)
@@ -220,7 +230,7 @@ def main():
     environment = {**os.environ, "LUNGFISH_CONDA_ROOT": str(args.conda_root)}
     for c, group, out in planned:
         out.parent.mkdir(parents=True, exist_ok=True)
-        argv = command(args.cli, group, out, c, args.workers)
+        argv = command(args.cli, group, out, c, args.workers, python_root)
         log = out.with_suffix(".log")
         started = time.time()
         label = ", ".join(p.stem for p in group)

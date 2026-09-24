@@ -66,6 +66,16 @@ class AcceptanceHarnessTests(unittest.TestCase):
         self.assertEqual(argv[argv.index("--amplicon-size-min") + 1], "360")
         self.assertEqual(argv[argv.index("--amplicon-size-max") + 1], "440")
 
+    def test_installed_python_override_uses_exact_engine_environment(self):
+        for case in validation.cases(False):
+            argv = validation.command(Path("/cli"), Path("/msa"), Path("/out"), case, 2,
+                                      installed_python_root=Path("/verified/runtime"))
+            if case["engine"] == "primalscheme3":
+                self.assertNotIn("--python-path", argv)
+            else:
+                self.assertEqual(argv[argv.index("--python-path") + 1],
+                    f"/verified/runtime/envs/{case['engine']}/bin/python")
+
     def test_batch_preserves_two_explicit_msa_arguments_and_combined_grouping(self):
         case = next(c for c in validation.cases(True) if c["id"] == "olivar-tiled-combined")
         argv = validation.command(Path("/cli"), [Path("/one.msa"), Path("/two.msa")],
