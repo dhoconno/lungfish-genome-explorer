@@ -386,7 +386,8 @@ extension SequenceViewerView {
                 consensusMaskingEnabled: consensusMaskingEnabledSetting,
                 consensusGapThreshold: Double(consensusGapThresholdPercentSetting) / 100.0,
                 consensusMaskingMinDepth: consensusMaskingMinDepthSetting,
-                showStrandColors: showStrandColorsSetting
+                showStrandColors: showStrandColorsSetting,
+                colorMode: readColorModeSetting
             )
 
             // Coverage strip is always visible.
@@ -489,8 +490,8 @@ extension SequenceViewerView {
                         readGeneration: cachedReadSetGeneration,
                         chromosome: visibleRegion.chromosome,
                         scaleTier: ReadPackCacheKey.quantizeScale(scale),
-                        sortMode: "position",
-                        sortPosition: nil,
+                        sortMode: readSortModeSetting.rawValue,
+                        sortPosition: readSortModeSetting == .baseAtPosition ? readSortPositionSetting : nil,
                         maxRows: maxRowsLimit,
                         verticalCompress: verticallyCompressContigSetting,
                         prioritizedRegion: maxRowsLimit == nil ? nil : quantizedStart..<(quantizedStart + viewportSpan),
@@ -534,8 +535,8 @@ extension SequenceViewerView {
                             reads: readsForPacking,
                             frame: ReadPackFrame(frame),
                             maxRows: maxRowsLimit,
-                            sortMode: .position,
-                            sortPosition: nil,
+                            sortMode: readSortModeSetting,
+                            sortPosition: readSortModeSetting == .baseAtPosition ? readSortPositionSetting : nil,
                             prioritizedRegion: visibleRegion.start..<visibleRegion.end
                         )
                         cachedPackScale = scale
@@ -816,7 +817,8 @@ extension SequenceViewerView {
             consensusMaskingEnabled: consensusMaskingEnabledSetting,
             consensusGapThreshold: Double(consensusGapThresholdPercentSetting) / 100,
             consensusMaskingMinDepth: consensusMaskingMinDepthSetting,
-            showStrandColors: showStrandColorsSetting
+            showStrandColors: showStrandColorsSetting,
+            colorMode: readColorModeSetting
         )
         if tier == .packed {
             ReadTrackRenderer.drawPackedReads(packedReads: packed, overflow: overflow, frame: frame, referenceSequence: source.referenceSequence, referenceStart: 0, settings: settings, verticalCompress: verticallyCompressContigSetting, maxRowsLimit: maxRows, maskedPositions: [], layout: cachedPackedReadLayout, clipRect: rect, mismatchCache: cachedReadMismatchCache, context: context, rect: rect)
@@ -848,8 +850,8 @@ extension SequenceViewerView {
             readGeneration: cachedReadSetGeneration,
             chromosome: region.chromosome,
             scaleTier: ReadPackCacheKey.quantizeScale(frame.scale),
-            sortMode: "position",
-            sortPosition: nil,
+            sortMode: readSortModeSetting.rawValue,
+            sortPosition: readSortModeSetting == .baseAtPosition ? readSortPositionSetting : nil,
             maxRows: maxRows,
             verticalCompress: verticallyCompressContigSetting,
             prioritizedRegion: maxRows == nil ? nil : region.start..<region.end,
@@ -868,8 +870,8 @@ extension SequenceViewerView {
                 reads: cachedAlignedReads.filter { $0.chromosome == region.chromosome },
                 frame: ReadPackFrame(frame),
                 maxRows: maxRows,
-                sortMode: .position,
-                sortPosition: nil,
+                sortMode: readSortModeSetting,
+                sortPosition: readSortModeSetting == .baseAtPosition ? readSortPositionSetting : nil,
                 prioritizedRegion: region.start..<region.end
             )
             return ([], 0, maxRows)

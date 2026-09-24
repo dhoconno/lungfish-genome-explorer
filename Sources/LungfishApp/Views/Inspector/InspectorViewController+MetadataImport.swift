@@ -580,6 +580,8 @@ extension InspectorViewController {
             NotificationUserInfoKey.showSoftClips: vm.showSoftClips,
             NotificationUserInfoKey.showIndels: vm.showIndels,
             NotificationUserInfoKey.showStrandColors: vm.showStrandColors,
+            NotificationUserInfoKey.readSortMode: vm.readSortMode.rawValue,
+            NotificationUserInfoKey.readColorMode: vm.readColorMode.rawValue,
             NotificationUserInfoKey.consensusMaskingEnabled: vm.consensusMaskingEnabled,
             NotificationUserInfoKey.consensusGapThresholdPercent: Int(vm.consensusGapThresholdPercent),
             NotificationUserInfoKey.consensusMinDepth: Int(vm.consensusMinDepth),
