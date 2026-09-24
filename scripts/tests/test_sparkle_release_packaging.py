@@ -21,6 +21,9 @@ class SparkleReleasePackagingTests(unittest.TestCase):
         self.release_script_path = (
             self.root / "scripts" / "release" / "build-notarized-dmg.sh"
         )
+        self.signing_pipeline = (
+            self.root / "scripts" / "release" / "signing_pipeline.py"
+        ).read_text()
         self.release_contract = json.loads(
             (self.root / "config" / "release-contract.json").read_text()
         )
@@ -174,10 +177,11 @@ class SparkleReleasePackagingTests(unittest.TestCase):
                 self.root / "scripts" / "release" / "release_contract.py",
                 script.parent / "release_contract.py",
             )
-            shutil.copy2(
-                self.root / "scripts" / "release" / "release_xcode.py",
-                script.parent / "release_xcode.py",
-            )
+            for helper in ("release_xcode.py", "release_identity.py"):
+                shutil.copy2(
+                    self.root / "scripts" / "release" / helper,
+                    script.parent / helper,
+                )
             contract = root / "config" / "release-contract.json"
             contract.parent.mkdir(parents=True)
             shutil.copy2(self.root / "config" / "release-contract.json", contract)
@@ -333,15 +337,18 @@ class SparkleReleasePackagingTests(unittest.TestCase):
         ):
             self.assertIn(expected, self.release_script)
 
+        # Since 34548a699 the builder stamps the archived app, copies it to the
+        # unsigned candidate, and hands that candidate to signing_pipeline.py,
+        # which signs it and stages the DMG. Stamping must precede both.
         configure_index = self._line_index(
             'configure_sparkle_info_plist "$APP_PATH/Contents/Info.plist"'
         )
-        outer_sign_index = self._line_index("# Outer app signing seals the bundle.")
-        dmg_staging_index = self._line_index(
-            '"${DMG_STAGING_DIR}/${APP_BUNDLE_FILENAME}"'
+        candidate_copy_index = self._line_index(
+            '/usr/bin/ditto "$APP_PATH" "$RELEASE_APP_PATH"'
         )
-        self.assertLess(configure_index, outer_sign_index)
-        self.assertLess(configure_index, dmg_staging_index)
+        signing_input_index = self._line_index('--source-app "$RELEASE_APP_PATH"')
+        self.assertLess(configure_index, candidate_copy_index)
+        self.assertLess(candidate_copy_index, signing_input_index)
 
         self.assertIn(
             'APP_PATH="${ARCHIVE_PATH}/Products/Applications/Lungfish.app"',
@@ -351,10 +358,8 @@ class SparkleReleasePackagingTests(unittest.TestCase):
             'RELEASE_APP_PATH="${RELEASE_DIR}/${APP_BUNDLE_FILENAME}"',
             self.release_script,
         )
-        self.assertIn(
-            '"${DMG_STAGING_DIR}/${APP_BUNDLE_FILENAME}"', self.release_script
-        )
-        self.assertIn('-volname "$DMG_VOLUME_NAME"', self.release_script)
+        self.assertIn('--volume-name "$DMG_VOLUME_NAME"', self.release_script)
+        self.assertIn("'-volname', volume_name", self.signing_pipeline)
 
         for channel in ("preview", "stable"):
             with self.subTest(channel=channel):
@@ -376,27 +381,17 @@ class SparkleReleasePackagingTests(unittest.TestCase):
     def test_release_script_sets_incrementing_bundle_version_for_sparkle(self):
         self.assertIn("SPARKLE_BUILD_NUMBER", self.release_script)
         self.assertIn("git rev-list --count HEAD", self.release_script)
+        # The build number is stamped into the archived Info.plist rather than
+        # passed to xcodebuild as CURRENT_PROJECT_VERSION (34548a699).
         self.assertIn(
-            'CURRENT_PROJECT_VERSION="$SPARKLE_BUILD_NUMBER"', self.release_script
-        )
-
-    def test_release_script_re_signs_sparkle_nested_code_before_outer_app(self):
-        self.assertIn("sign_sparkle_framework", self.release_script)
-        self.assertIn("Updater.app", self.release_script)
-        self.assertIn("Downloader.xpc", self.release_script)
-        self.assertIn("Installer.xpc", self.release_script)
-        self.assertIn(
-            'sign_sparkle_framework "$APP_PATH/Contents/Frameworks/Sparkle.framework"',
+            '/usr/bin/plutil -replace CFBundleVersion -string "$SPARKLE_BUILD_NUMBER"',
             self.release_script,
         )
 
-        lines = self.release_script.splitlines()
-        sparkle_sign_index = self._line_index(
-            'sign_sparkle_framework "$APP_PATH/Contents/Frameworks/Sparkle.framework"'
-        )
-        outer_app_sign_index = self._line_index("# Outer app signing seals the bundle.")
-
-        self.assertLess(sparkle_sign_index, outer_app_sign_index)
+    # Nested Sparkle signing moved from build-notarized-dmg.sh into
+    # signing_pipeline.py (34548a699). Its ordering is now checked behaviorally
+    # by test_release_signing_pipeline.SigningPipelineTests
+    # .test_sparkle_nested_code_is_signed_inside_out_before_outer_app.
 
     def _line_index(self, marker):
         for index, line in enumerate(self.release_script.splitlines()):
