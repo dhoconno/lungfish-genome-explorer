@@ -79,7 +79,7 @@ public final class BatchTaxTriageTableView: BatchTableView<TaxTriageMetric> {
         menu.addItem(copyOrganismItem)
 
         let copyTaxIdItem = NSMenuItem(
-            title: "Copy TaxID",
+            title: LungfishUIStrings.Classifier.copyTaxonID,
             action: #selector(contextCopyTaxId(_:)),
             keyEquivalent: ""
         )
