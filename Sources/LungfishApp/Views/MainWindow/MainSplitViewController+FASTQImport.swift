@@ -961,9 +961,10 @@ extension MainSplitViewController {
                             self?.postSidebarFileDropCompleted(requestID: requestID, sourceURL: sourceURL, success: false, error: "Cancelled by user")
                             return
                         }
-                        self?.refreshSidebarAndSelectDerivedURL(completionTarget)
-                        self?.postSidebarFileDropCompleted(requestID: requestID, sourceURL: sourceURL, success: true, error: nil)
-                        self?.requestInspectorDocumentModeAfterDownload()
+                        self?.refreshSidebarAndSelectDerivedURL(completionTarget) { [weak self] in
+                            self?.postSidebarFileDropCompleted(requestID: requestID, sourceURL: sourceURL, success: true, error: nil)
+                            self?.requestInspectorDocumentModeAfterDownload()
+                        }
                     }
                 }
             } catch {
@@ -1094,9 +1095,10 @@ extension MainSplitViewController {
                             self?.postSidebarFileDropCompleted(requestID: requestID, sourceURL: sourceURL, success: false, error: "Cancelled by user")
                             return
                         }
-                        self?.refreshSidebarAndSelectDerivedURL(completionTarget)
-                        self?.postSidebarFileDropCompleted(requestID: requestID, sourceURL: sourceURL, success: true, error: nil)
-                        self?.requestInspectorDocumentModeAfterDownload()
+                        self?.refreshSidebarAndSelectDerivedURL(completionTarget) { [weak self] in
+                            self?.postSidebarFileDropCompleted(requestID: requestID, sourceURL: sourceURL, success: true, error: nil)
+                            self?.requestInspectorDocumentModeAfterDownload()
+                        }
                     }
                 }
             } catch {

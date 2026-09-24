@@ -585,7 +585,7 @@ extension AppDelegate {
             let targetController = targetMainWindowController(routeContext: routeContext)
             let targetViewerController = targetController?.mainSplitViewController?.viewerController ?? viewerController
             if let sidebarController = targetController?.mainSplitViewController?.sidebarController {
-                sidebarController.reloadFromFilesystem()
+                await sidebarController.reloadFromFilesystemAsync(notifyUnchangedSelectionRefresh: true)?.value
                 _ = sidebarController.selectItem(forURL: bundleURL)
             }
 
@@ -821,9 +821,17 @@ extension AppDelegate {
     ) {
         let targetController = targetMainWindowController(routeContext: routeContext)
         let targetViewerController = targetController?.mainSplitViewController?.viewerController ?? viewerController
+        // The recursive project scan runs off the main actor; the selection
+        // is applied once it returns rather than blocking this synchronous
+        // refresh (which callers invoke from a non-async MainActor.assumeIsolated
+        // context and cannot await).
         if let sidebarController = targetController?.mainSplitViewController?.sidebarController {
-            sidebarController.reloadFromFilesystem()
-            _ = sidebarController.selectItem(forURL: bundleURL)
+            // Plain `Task`: this method is already running on the main actor
+            // (AppDelegate is @MainActor), so the task inherits that isolation.
+            Task { [weak sidebarController] in
+                await sidebarController?.reloadFromFilesystemAsync(notifyUnchangedSelectionRefresh: true)?.value
+                _ = sidebarController?.selectItem(forURL: bundleURL)
+            }
         }
 
         do {
