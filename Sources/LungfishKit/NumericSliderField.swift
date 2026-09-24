@@ -44,6 +44,44 @@ public enum NumericSliderFieldParser {
         guard let parsed = Double(trimmed), parsed.isFinite else { return nil }
         return snap(parsed, bounds: bounds, step: step)
     }
+
+    /// The spoken value for the slider: the same text the field shows, plus
+    /// the unit suffix, so VoiceOver reads "12 px" rather than a bare
+    /// slider fraction.
+    public static func accessibilityValue(
+        _ value: Double,
+        format: (Double) -> String,
+        suffix: String
+    ) -> String {
+        let formatted = format(value)
+        return suffix.isEmpty ? formatted : "\(formatted) \(suffix)"
+    }
+}
+
+extension Binding where Value == Double {
+    /// Adapts a floating-point binding of another width (`CGFloat`, `Float`)
+    /// to the `Double` the shared slider controls take, so call sites keep
+    /// their model types.
+    public static func numericSlider<Source: BinaryFloatingPoint>(
+        _ source: Binding<Source>
+    ) -> Binding<Double> {
+        Binding(
+            get: { Double(source.wrappedValue) },
+            set: { source.wrappedValue = Source($0) }
+        )
+    }
+
+    /// Adapts an integer binding to the shared slider controls. Writes round
+    /// to the nearest integer so a typed "7.6" lands on 8 rather than
+    /// truncating to 7.
+    public static func numericSlider<Source: BinaryInteger>(
+        _ source: Binding<Source>
+    ) -> Binding<Double> {
+        Binding(
+            get: { Double(source.wrappedValue) },
+            set: { source.wrappedValue = Source($0.rounded()) }
+        )
+    }
 }
 
 /// A labelled slider whose current value is also a text field, so a precise
@@ -60,11 +98,17 @@ public struct NumericSliderField: View {
     private let format: (Double) -> String
     private let onEditingChanged: (Bool) -> Void
     private let titleFont: Font?
+    private let accessibilityTitle: String?
+    private let sliderIdentifier: String?
     @Binding private var value: Double
 
     @State private var text: String = ""
     @FocusState private var isFocused: Bool
 
+    /// - Parameters:
+    ///   - accessibilityTitle: spoken name for the slider and field when it
+    ///     should differ from the visible title (for example to name a unit).
+    ///   - sliderIdentifier: accessibility identifier for UI tests.
     public init(
         _ title: String,
         value: Binding<Double>,
@@ -73,9 +117,13 @@ public struct NumericSliderField: View {
         suffix: String = "",
         format: @escaping (Double) -> String = { String(Int($0)) },
         titleFont: Font? = nil,
+        accessibilityTitle: String? = nil,
+        sliderIdentifier: String? = nil,
         onEditingChanged: @escaping (Bool) -> Void = { _ in }
     ) {
         self.title = title
+        self.accessibilityTitle = accessibilityTitle
+        self.sliderIdentifier = sliderIdentifier
         self._value = value
         self.bounds = bounds
         self.step = step
@@ -98,7 +146,7 @@ public struct NumericSliderField: View {
                     .frame(width: fieldWidth)
                     .focused($isFocused)
                     .onSubmit(commit)
-                    .accessibilityLabel(title)
+                    .accessibilityLabel(spokenTitle)
                 if !suffix.isEmpty {
                     Text(suffix)
                         .font(titleFont)
@@ -106,7 +154,11 @@ public struct NumericSliderField: View {
                 }
             }
             Slider(value: $value, in: bounds, step: step, onEditingChanged: onEditingChanged)
-                .accessibilityLabel(title)
+                .accessibilityLabel(spokenTitle)
+                .accessibilityValue(
+                    NumericSliderFieldParser.accessibilityValue(value, format: format, suffix: suffix)
+                )
+                .accessibilityIdentifier(sliderIdentifier ?? "")
         }
         .onAppear { text = format(value) }
         // The binding is also written by the slider and by evidence reloads;
@@ -119,6 +171,8 @@ public struct NumericSliderField: View {
             if !focused { commit() }
         }
     }
+
+    private var spokenTitle: String { accessibilityTitle ?? title }
 
     /// Wider fields for larger ranges so six-figure values stay readable.
     private var fieldWidth: CGFloat {
@@ -156,11 +210,14 @@ public struct InlineNumericSliderField: View {
     private let labelWidth: CGFloat?
     private let sliderMaxWidth: CGFloat?
     private let labelFont: Font?
+    private let valueHighlighted: Bool
     @Binding private var value: Double
 
     @State private var text: String = ""
     @FocusState private var isFocused: Bool
 
+    /// - Parameter valueHighlighted: draws the field's number in the accent
+    ///   colour, for rows whose value departs from an inherited default.
     public init(
         label: String? = nil,
         accessibilityTitle: String,
@@ -172,8 +229,10 @@ public struct InlineNumericSliderField: View {
         sliderIdentifier: String? = nil,
         labelWidth: CGFloat? = nil,
         sliderMaxWidth: CGFloat? = nil,
-        labelFont: Font? = nil
+        labelFont: Font? = nil,
+        valueHighlighted: Bool = false
     ) {
+        self.valueHighlighted = valueHighlighted
         self.label = label
         self.accessibilityTitle = accessibilityTitle
         self.sliderIdentifier = sliderIdentifier
@@ -197,11 +256,15 @@ public struct InlineNumericSliderField: View {
             Slider(value: $value, in: bounds, step: step)
                 .frame(maxWidth: sliderMaxWidth ?? .infinity)
                 .accessibilityLabel(accessibilityTitle)
+                .accessibilityValue(
+                    NumericSliderFieldParser.accessibilityValue(value, format: format, suffix: suffix)
+                )
                 .accessibilityIdentifier(sliderIdentifier ?? "")
             TextField("", text: $text)
                 .textFieldStyle(.roundedBorder)
                 .multilineTextAlignment(.trailing)
                 .monospacedDigit()
+                .foregroundStyle(valueHighlighted ? Color.accentColor : Color.primary)
                 .frame(width: 64)
                 .focused($isFocused)
                 .onSubmit(commit)

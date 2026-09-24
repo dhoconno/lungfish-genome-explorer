@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import XCTest
+import SwiftUI
 @testable import LungfishKit
 
 final class NumericSliderFieldTests: XCTestCase {
@@ -64,5 +65,63 @@ final class NumericSliderFieldTests: XCTestCase {
 
     func testZeroStepFallsBackToPlainClamping() {
         XCTAssertEqual(NumericSliderFieldParser.snap(33.3, bounds: 0...60, step: 0), 33.3)
+    }
+
+    func testFractionalStepSnapsTypedValueOntoStop() throws {
+        // FASTQ entropy threshold: 0.3...0.9 in 0.05 steps, shown as "%.2f".
+        let resolved = try XCTUnwrap(NumericSliderFieldParser.parse("0.62", bounds: 0.3...0.9, step: 0.05))
+        XCTAssertEqual(resolved, 0.6, accuracy: 1e-9)
+        XCTAssertEqual(String(format: "%.2f", resolved), "0.60")
+    }
+
+    func testPercentFieldKeepsPercentUnitsWhenTyped() throws {
+        // Percent sliders (Primer MSA matches, per-locus dropout) bind the
+        // percent value itself, so a typed "7.34%" stays in percent units.
+        let resolved = try XCTUnwrap(NumericSliderFieldParser.parse("7.34%", bounds: 0...10, step: 0.1))
+        XCTAssertEqual(resolved, 7.3, accuracy: 1e-9)
+    }
+
+    // MARK: - Accessibility value
+
+    func testAccessibilityValueAppendsSuffix() {
+        XCTAssertEqual(
+            NumericSliderFieldParser.accessibilityValue(12, format: { String(Int($0)) }, suffix: "px"),
+            "12 px"
+        )
+        XCTAssertEqual(
+            NumericSliderFieldParser.accessibilityValue(0.6, format: { String(format: "%.2f", $0) }, suffix: ""),
+            "0.60"
+        )
+    }
+
+    // MARK: - Binding adapters
+
+    func testCGFloatBindingRoundTrips() {
+        var stored: CGFloat = 12
+        let source = Binding<CGFloat>(get: { stored }, set: { stored = $0 })
+        let adapted = Binding<Double>.numericSlider(source)
+        XCTAssertEqual(adapted.wrappedValue, 12)
+        adapted.wrappedValue = 27
+        XCTAssertEqual(stored, 27)
+    }
+
+    func testFloatBindingRoundTrips() {
+        var stored: Float = 0.25
+        let source = Binding<Float>(get: { stored }, set: { stored = $0 })
+        let adapted = Binding<Double>.numericSlider(source)
+        XCTAssertEqual(adapted.wrappedValue, 0.25)
+        adapted.wrappedValue = 0.75
+        XCTAssertEqual(stored, 0.75)
+    }
+
+    func testIntBindingRoundsInsteadOfTruncating() {
+        var stored = 5
+        let source = Binding<Int>(get: { stored }, set: { stored = $0 })
+        let adapted = Binding<Double>.numericSlider(source)
+        XCTAssertEqual(adapted.wrappedValue, 5)
+        adapted.wrappedValue = 7.6
+        XCTAssertEqual(stored, 8)
+        adapted.wrappedValue = 7.4
+        XCTAssertEqual(stored, 7)
     }
 }
