@@ -66,6 +66,14 @@ class AcceptanceHarnessTests(unittest.TestCase):
         self.assertEqual(argv[argv.index("--amplicon-size-min") + 1], "360")
         self.assertEqual(argv[argv.index("--amplicon-size-max") + 1], "440")
 
+    def test_batch_preserves_two_explicit_msa_arguments_and_combined_grouping(self):
+        case = next(c for c in validation.cases(True) if c["id"] == "olivar-tiled-combined")
+        argv = validation.command(Path("/cli"), [Path("/one.msa"), Path("/two.msa")],
+                                  Path("/output"), case, 2)
+        self.assertEqual([argv[i + 1] for i, x in enumerate(argv) if x == "--msa"],
+                         ["/one.msa", "/two.msa"])
+        self.assertEqual(argv[argv.index("--grouping") + 1], "combined")
+
     def test_safe_file_rejects_escape_and_symlink_outside_bundle(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp) / "bundle"

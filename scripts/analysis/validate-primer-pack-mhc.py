@@ -18,7 +18,7 @@ import subprocess
 import sys
 import time
 
-VERSION = "1.0.0"
+VERSION = "1.1.0"
 
 
 def digest(path):
@@ -60,12 +60,17 @@ def cases(advanced):
                 result.append({**base, "id": base["id"] + "-" + suffix,
                                "minimum": low, "maximum": high,
                                "expectRejection": suffix == "invalid-bounds"})
+        olivar = next(c for c in result if c["id"] == "olivar-tiled")
+        result.append({**olivar, "id": "olivar-tiled-combined", "grouping": "combined"})
     return result
 
 
 def command(cli, msa, output, case, workers):
-    argv = [str(cli), "primers", "design", case["engine"], "--msa", str(msa),
-            "--output", str(output), "--grouping", "independent",
+    inputs = [msa] if isinstance(msa, Path) else msa
+    argv = [str(cli), "primers", "design", case["engine"]]
+    for path in inputs:
+        argv += ["--msa", str(path)]
+    argv += ["--output", str(output), "--grouping", case.get("grouping", "independent"),
             "--amplicon-size", str(case["nominal"]),
             "--amplicon-size-min", str(case["minimum"]),
             "--amplicon-size-max", str(case["maximum"]),
@@ -119,8 +124,10 @@ def read_json(path):
     return json.loads(path.read_text())
 
 
-def audit_bundle(root, case):
+def audit_bundle(root, case, expected_input_count=1):
     manifest = read_json(root / "manifest.json")
+    if len(manifest["inputs"]) != expected_input_count:
+        raise ValueError("Saved input count differs from the exact submitted batch")
     for artifact in manifest["artifacts"] + [manifest["provenance"]]:
         verify_artifact(root, artifact)
     provenance = read_json(safe_file(root, manifest["provenance"]["relativePath"]))
@@ -147,6 +154,8 @@ def audit_bundle(root, case):
     targets = [target for result in doc["results"] for target in result["targets"]]
     if not targets:
         raise ValueError("No normalized targets")
+    if {t["sourceInputID"].lower() for t in targets} != {i["id"].lower() for i in manifest["inputs"]}:
+        raise ValueError("Normalized targets do not cover the exact input batch")
     collapsed = 0
     for target in targets:
         verify_target(target, case["mode"], case["minimum"], case["maximum"])
@@ -173,6 +182,7 @@ def main():
     parser.add_argument("--advanced", action="store_true")
     parser.add_argument("--case", action="append", default=[], help="Run only the exact named case(s)")
     parser.add_argument("--input-name", action="append", default=[], help="Run only the exact MSA stem(s)")
+    parser.add_argument("--batch", action="store_true", help="Submit all selected inputs together in each case")
     parser.add_argument("--run", action="store_true", help="Execute; otherwise print the planned matrix")
     args = parser.parse_args()
     args.cli, args.project, args.output, args.conda_root = [p.resolve() for p in
@@ -191,8 +201,10 @@ def main():
         parser.error("Unknown --case (advanced cases require --advanced)")
     selected_cases = [c for c in selected_cases if not args.case or c["id"] in args.case]
     inputs = [p for p in all_inputs if not args.input_name or p.stem in args.input_name]
-    planned = [(c, msa, args.output / c["id"] / (msa.stem + ".lungfishprimeranalysis"))
-               for c in selected_cases for msa in inputs]
+    groups = [inputs] if args.batch else [[p] for p in inputs]
+    planned = [(c, group, args.output / c["id"] /
+                (("batch" if args.batch else group[0].stem) + ".lungfishprimeranalysis"))
+               for c in selected_cases for group in groups]
     if not args.run:
         print(json.dumps([command(args.cli, msa, out, c, args.workers) for c, msa, out in planned], indent=2))
         return 0
@@ -206,13 +218,15 @@ def main():
               "options": {k: str(v) if isinstance(v, Path) else v for k, v in vars(args).items()},
               "inputRoot": str(args.project), "inputs": before, "runs": []}
     environment = {**os.environ, "LUNGFISH_CONDA_ROOT": str(args.conda_root)}
-    for c, msa, out in planned:
+    for c, group, out in planned:
         out.parent.mkdir(parents=True, exist_ok=True)
-        argv = command(args.cli, msa, out, c, args.workers)
+        argv = command(args.cli, group, out, c, args.workers)
         log = out.with_suffix(".log")
         started = time.time()
-        record = {"case": c, "input": str(msa), "output": str(out), "argv": argv, "log": str(log)}
-        print(f"START {c['id']} / {msa.stem}", flush=True)
+        label = ", ".join(p.stem for p in group)
+        before_failures = set(out.parent.glob(".primer-scheme-failure-*"))
+        record = {"case": c, "inputs": [str(p) for p in group], "output": str(out), "argv": argv, "log": str(log)}
+        print(f"START {c['id']} / {label}", flush=True)
         with log.open("w") as handle:
             process = subprocess.Popen(argv, stdout=handle, stderr=subprocess.STDOUT,
                                        env=environment, start_new_session=True)
@@ -233,18 +247,19 @@ def main():
             record["status"] = "expected-rejection" if code != 0 and not out.exists() and not record.get("timedOut") else "unexpected-result"
         elif code == 0:
             try:
-                record["audit"] = audit_bundle(out, c)
+                record["audit"] = audit_bundle(out, c, len(group))
                 record["status"] = "passed"
             except (ValueError, KeyError, OSError) as error:
                 record.update(status="audit-failed", error=str(error))
         else:
             record["status"] = "native-failed"
-            record["failureEvidence"] = [str(p) for p in out.parent.glob(".primer-scheme-failure-*")]
+            record["failureEvidence"] = [str(p) for p in sorted(
+                set(out.parent.glob(".primer-scheme-failure-*")) - before_failures)]
             record["publishedOnFailure"] = out.exists()
         report["runs"].append(record)
         report["wallTimeSeconds"] = time.time() - start
         (args.output / "report.json").write_text(json.dumps(report, indent=2) + "\n")
-        print(f"{record['status'].upper()} {c['id']} / {msa.stem} ({record['wallTimeSeconds']:.1f}s)", flush=True)
+        print(f"{record['status'].upper()} {c['id']} / {label} ({record['wallTimeSeconds']:.1f}s)", flush=True)
     report["inputsUnchanged"] = before == inventory(args.project)
     report["outputs"] = inventory(args.output)
     report["exitStatus"] = int(not report["inputsUnchanged"] or any(
