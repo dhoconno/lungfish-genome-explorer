@@ -1,4 +1,4 @@
-// ReadBudgetState.swift - Visible-read budget bookkeeping and its banner text
+// ReadBudgetState.swift - Displayed-depth cap bookkeeping and its banner text
 // Copyright (c) 2024 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 
@@ -6,20 +6,18 @@ import Foundation
 
 /// What the viewport is actually showing versus what the window contains.
 ///
-/// The read track has a display budget (`ReadViewportPolicy.defaultVisibleReadBudget`)
-/// because an extreme-depth window — a microsatellite every ATC-repeat read maps
-/// to, at ~600,000x — returns more reads than can be packed or perceived. When
-/// the budget bites, the viewport draws a uniform sample and this state carries
-/// the numbers the banner needs so the display never silently lies about how
-/// much data is on screen.
+/// The read track caps displayed depth (`ReadViewportPolicy.defaultMaxDisplayedDepth`,
+/// owner decision D9): regions deeper than the cap are subsampled to about the
+/// cap and every other region shows every read. This state carries what the
+/// banner needs so a thinned pileup never passes for a complete one.
 struct ReadBudgetState: Equatable {
 
-    /// Reads actually held for display after sampling.
+    /// Reads actually held for display.
     var displayedReads: Int
 
-    /// Reads believed to be in the fetch window. Exact when the provider
-    /// reported a count; otherwise derived from the depth track, in which case
-    /// `isEstimated` is true and the banner prefixes it with "~".
+    /// Reads believed to be in the fetch window. Exact when nothing was
+    /// sampled. Otherwise it is an estimate, `isEstimated` is true, and the
+    /// banner prefixes it with "~".
     var totalReads: Int
 
     /// Whether `totalReads` is a derived estimate rather than a counted value.
@@ -29,18 +27,21 @@ struct ReadBudgetState: Equatable {
     /// offering an action it has already performed.
     var loadedAll: Bool
 
-    /// True when the sample was drawn evenly across the whole fetch window
-    /// (via `samtools --subsample`) rather than being an in-order prefix.
-    /// Defaults to false for callers (and older call sites/tests) that don't
-    /// pass it, which keeps the conservative "in view" wording for those.
-    var isSpreadAcrossWindow: Bool = false
+    /// The displayed-depth cap actually applied when some region was thinned,
+    /// or nil when every region is shown in full. It can sit below the
+    /// configured cap when the transport budget forced it lower.
+    var cappedDepth: Int? = nil
+
+    /// Number of alignment tracks merged into the view. Each track is capped
+    /// on its own, so with several tracks the banner says "per track".
+    var trackCount: Int = 1
 
     /// True when the fetch hit its transport safety cap before finishing the
     /// window, so even the sample may be incomplete.
     var isTransportTruncated: Bool = false
 
-    /// Whether the sample is smaller than the window's contents.
-    var isSampled: Bool { !loadedAll && totalReads > displayedReads }
+    /// Whether the view shows fewer reads than the window holds.
+    var isSampled: Bool { !loadedAll && (cappedDepth != nil || isTransportTruncated) }
 
     static let none = ReadBudgetState(
         displayedReads: 0, totalReads: 0, isEstimated: false, loadedAll: false
@@ -48,45 +49,28 @@ struct ReadBudgetState: Equatable {
 
     /// Banner text stating exactly what is and is not sampled.
     ///
-    /// The second clause is not decoration: depth, coverage, and consensus come
-    /// from separate whole-BAM queries that never see the budget, and a user
-    /// looking at a sampled pileup needs to know the coverage curve under it is
-    /// still complete. When the sample was drawn with `--subsample` it is
-    /// spread across the whole window rather than merely "in view", which is
-    /// worth saying explicitly since a stride sample over a clustered fetch
-    /// used to look identical to this message.
+    /// The depth clause is the honesty contract of the cap: only regions above
+    /// it are thinned, so the reader is told the rest is complete. The last
+    /// clause matters as much, since depth, coverage and consensus come from
+    /// separate queries that never see the cap.
     var bannerMessage: String? {
         guard isSampled else { return nil }
         let total = isEstimated ? "~\(totalReads.formatted())" : totalReads.formatted()
-        let scope = isSpreadAcrossWindow
-            ? "sampled evenly across the view"
-            : "in view"
-        var message = "Showing \(displayedReads.formatted()) of \(total) reads, \(scope) "
-            + "\u{00B7} depth, coverage and consensus use all reads"
-        if isTransportTruncated {
-            message += " \u{00B7} sample may be incomplete"
+        var parts = ["Showing \(displayedReads.formatted()) of \(total) reads"]
+        if let cappedDepth {
+            let cap = "\(cappedDepth.formatted())x"
+            let scope = trackCount > 1 ? " per track" : ""
+            parts.append("regions above \(cap) are sampled to about \(cap)\(scope), all other regions show every read")
         }
-        return message
+        if isTransportTruncated {
+            parts.append("read safety limit reached, window may be incomplete")
+        }
+        parts.append("depth, coverage and consensus use all reads")
+        return parts.joined(separator: " \u{00B7} ")
     }
 
     /// Title for the banner's escape hatch.
     static let loadAllActionTitle = "Load all"
-
-    /// Estimates the read count in a window from the depth track, used when no
-    /// exact count is available.
-    ///
-    /// `mean depth x window span / mean read length` is the standard identity;
-    /// it is only ever shown with a "~" prefix.
-    static func estimateReadCount(
-        meanDepth: Double,
-        windowSpan: Int,
-        meanReadLength: Double
-    ) -> Int? {
-        guard meanDepth > 0, windowSpan > 0, meanReadLength >= 1 else { return nil }
-        let estimate = meanDepth * Double(windowSpan) / meanReadLength
-        guard estimate.isFinite, estimate >= 0 else { return nil }
-        return Int(estimate.rounded())
-    }
 }
 
 /// Progress reported by an in-flight read fetch/pack, shown in the loading

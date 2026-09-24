@@ -225,9 +225,9 @@ public class SequenceViewerView: NSView {
     /// `setReadBudgetState(_:)` so the redraw is never forgotten.
     var readBudgetStateStorage: ReadBudgetState = .none
 
-    /// Read budget for one fetch window. Overridable from the Inspector's read
-    /// display settings; defaults to `ReadViewportPolicy.defaultVisibleReadBudget`.
-    var visibleReadBudgetSetting: Int = ReadViewportPolicy.defaultVisibleReadBudget
+    /// Maximum displayed read depth for one fetch window. Overridable from the
+    /// Inspector; defaults to `ReadViewportPolicy.defaultMaxDisplayedDepth`.
+    var maxDisplayedDepthSetting: Int = ReadViewportPolicy.defaultMaxDisplayedDepth
 
     /// Set by the banner's "Load all" action: suppresses the budget for the
     /// *current* window only, and is cleared whenever the window changes.

@@ -3230,12 +3230,12 @@ operations:
         effect: Caps how many rows of stacked reads are drawn. The help text notes that leaving it off "keeps all mapped reads in the active view and enables stable vertical scrolling".
         when_to_change: Turn it on when a very deep pile makes scrolling sluggish.
         cli_flag: null
-      - label: Read display budget
-        control: slider
-        default: "50000"
-        allowed: 5,000 to 500,000 in steps of 5,000
-        effect: Sets how many individual reads the viewport will draw for one window before it switches to an even sample and posts a banner saying so. Depth, coverage, and the consensus always use every read.
-        when_to_change: Lower it on an older machine when very deep windows feel slow to redraw.
+      - label: Maximum displayed depth
+        control: slider with number field
+        default: "500"
+        allowed: 50 to 5,000 in steps of 50 (shown as a depth, such as 500x)
+        effect: Regions of the window deeper than this are sampled down to about this depth, and every other region shows every read. A banner says so whenever sampling happens. Depth, coverage, and the consensus always use every read.
+        when_to_change: Lower it on an older machine when very deep windows feel slow to redraw. Raise it to see more of a deep amplicon's reads at once.
         cli_flag: null
       - label: Use compact row height
         control: checkbox
@@ -3288,12 +3288,12 @@ operations:
         cli_flag: null
     cli_only: []
     notes: >-
-      These are viewer settings and change nothing on disk. When a window holds more
-      reads than the display budget, a banner reads "Showing 50,000 of 620,000 reads in
-      view, depth, coverage and consensus use all reads" with a Load all button beside
-      it, and Load all lifts the budget to a two-million-read ceiling. The sample is a
-      fixed even stride rather than a random draw, so the same reads appear on every
-      redraw. Above roughly 2 bp per pixel the viewport stops drawing individual reads
+      These are viewer settings and change nothing on disk. When part of a window is
+      deeper than the maximum displayed depth, a banner reads "Showing 72,087 of
+      ~2,050,000 reads, regions above 500x are sampled to about 500x, all other regions
+      show every read, depth, coverage and consensus use all reads" with a Load all
+      button beside it, and Load all shows every read up to a two-million-read ceiling.
+      Sampling uses a fixed seed, so the same reads appear on every redraw. Above roughly 2 bp per pixel the viewport stops drawing individual reads
       and shows only the coverage curve. A read-group panel appears below these
       controls when the alignment carries more than one read group.
 

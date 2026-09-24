@@ -1,4 +1,4 @@
-// SequenceViewerView+ReadPacking.swift - Off-main read packing and the visible-read budget
+// SequenceViewerView+ReadPacking.swift - Off-main read packing and the displayed-depth cap
 // Copyright (c) 2024 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 
@@ -7,91 +7,37 @@ import LungfishCore
 
 extension SequenceViewerView {
 
-    // MARK: - Budget
+    // MARK: - Displayed-depth cap
 
-    /// Effective read budget for the current window: unlimited once the user
-    /// has asked to load all, otherwise the configured budget.
-    var effectiveReadBudget: Int {
-        loadAllReadsRequested ? ReadViewportPolicy.loadAllReadCeiling : max(1, visibleReadBudgetSetting)
+    /// The configured displayed-depth cap, clamped to the Inspector's range.
+    var effectiveMaxDisplayedDepth: Int {
+        ReadViewportPolicy.clampMaxDisplayedDepth(maxDisplayedDepthSetting)
     }
 
-    /// Applies the display budget to a freshly fetched read set, returning the
-    /// reads to keep plus the budget bookkeeping for the banner.
+    /// Builds the banner bookkeeping for one fetch window from its per-track
+    /// outcomes.
     ///
-    /// When the fetch already spread its sample across the window
-    /// (`wasSpreadAcrossWindow`, set when the provider used
-    /// `samtools --subsample` via `fetchReadSketch`), `exactTotal` is trusted as
-    /// the true window count and the trim to `budget` is just tidying up a
-    /// multi-track merge. When it is false (the legacy in-order-prefix fetch,
-    /// still used for "Load all"), `reads.count > budget` is the overflow test,
-    /// since the fetch itself asked for `budget + 1`: an exact count from the
-    /// provider is preferred over the fetched size when available.
-    nonisolated static func applyReadBudget(
-        reads: [AlignedRead],
-        budget: Int,
-        exactTotal: Int?,
-        estimatedTotal: Int?,
-        loadedAll: Bool,
-        wasSpreadAcrossWindow: Bool = false,
-        transportTruncated: Bool = false
-    ) -> (reads: [AlignedRead], state: ReadBudgetState) {
-        guard !loadedAll, reads.count > budget || (wasSpreadAcrossWindow && (exactTotal ?? reads.count) > reads.count) else {
-            return (
-                reads,
-                ReadBudgetState(
-                    displayedReads: reads.count,
-                    totalReads: exactTotal ?? reads.count,
-                    isEstimated: false,
-                    loadedAll: loadedAll,
-                    isSpreadAcrossWindow: wasSpreadAcrossWindow,
-                    isTransportTruncated: transportTruncated
-                )
-            )
-        }
-        let sampled = ReadViewportPolicy.sampleReads(reads, budget: budget)
-        let total: Int
-        let isEstimated: Bool
-        if let exactTotal, exactTotal >= sampled.count {
-            total = exactTotal
-            isEstimated = false
-        } else if let estimatedTotal, estimatedTotal > sampled.count {
-            total = estimatedTotal
-            isEstimated = true
-        } else {
-            // The fetch was capped at budget + 1, so all we honestly know is
-            // "more than the budget". Say so as an estimate rather than
-            // reporting the cap as if it were the truth.
-            total = reads.count
-            isEstimated = true
-        }
-        return (
-            sampled,
-            ReadBudgetState(
-                displayedReads: sampled.count,
-                totalReads: total,
-                isEstimated: isEstimated,
-                loadedAll: false,
-                isSpreadAcrossWindow: wasSpreadAcrossWindow,
-                isTransportTruncated: transportTruncated
-            )
-        )
-    }
-
-    /// Estimate of the reads in `region`, derived from the cached depth track.
-    /// Used only when the provider gave no exact count.
-    func estimatedReadCount(in region: GenomicRegion) -> Int? {
-        guard let stats = cachedCoverageStats else { return nil }
-        let meanReadLength = cachedAlignedReads.isEmpty
-            ? 150.0
-            : Double(
-                cachedAlignedReads.lazy.prefix(2_000)
-                    .map { max(1, $0.alignmentEnd - $0.position) }
-                    .reduce(0, +)
-            ) / Double(min(2_000, cachedAlignedReads.count))
-        return ReadBudgetState.estimateReadCount(
-            meanDepth: stats.meanDepth,
-            windowSpan: max(1, region.end - region.start),
-            meanReadLength: meanReadLength
+    /// Each track is depth-capped by the provider, so nothing is trimmed here:
+    /// a second read-count trim would thin the shallow regions the cap exists
+    /// to keep whole. The total is exact when every track was fetched in full.
+    nonisolated static func readBudgetState(
+        outcomes: [TrackReadFetchOutcome],
+        loadedAll: Bool
+    ) -> ReadBudgetState {
+        let displayed = outcomes.reduce(0) { $0 + $1.reads.count }
+        let total = outcomes.reduce(0) { $0 + max($1.estimatedTotal, $1.reads.count) }
+        let caps = outcomes.compactMap(\.cappedDepth)
+        return ReadBudgetState(
+            displayedReads: displayed,
+            totalReads: total,
+            isEstimated: outcomes.contains { $0.isEstimated },
+            loadedAll: loadedAll,
+            // Tracks can end up with different caps when one hits the
+            // transport budget; the banner quotes the lowest so "about Nx"
+            // never overstates what any track shows.
+            cappedDepth: caps.min(),
+            trackCount: max(1, outcomes.count),
+            isTransportTruncated: outcomes.contains { $0.transportTruncated }
         )
     }
 
@@ -123,9 +69,9 @@ extension SequenceViewerView {
         guard readBudgetState.isSampled else { return false }
         loadAllReadsRequested = true
         // Scope the override to the window it was asked for, so the next fetch
-        // for a different region drops back to the budget.
+        // for a different region drops back to the depth cap.
         loadAllReadsRegion = cachedReadRegion
-        // Force a refetch of the current window without the budget by dropping
+        // Force a refetch of the current window without the depth cap by dropping
         // the coverage claim; the draw path refetches when reads are uncovered.
         cachedReadRegion = nil
         needsDisplay = true
@@ -252,7 +198,7 @@ extension SequenceViewerView {
 
     /// Draws the sampling banner plus its "Load all" hit target.
     ///
-    /// The banner is the honesty contract for the read budget: without it a
+    /// The banner is the honesty contract for the depth cap: without it a
     /// sampled pileup is indistinguishable from a complete one.
     func drawReadBudgetBanner(context: CGContext, yOffset: CGFloat) {
         guard let message = readBudgetState.bannerMessage else {
@@ -312,7 +258,7 @@ extension SequenceViewerView {
         loadAllButtonRect = actionRect.insetBy(dx: -4, dy: -4)
         _ = addToolTip(
             loadAllButtonRect,
-            owner: "Refetch this window without the display budget." as NSString,
+            owner: "Refetch this window without the displayed-depth cap." as NSString,
             userData: nil
         )
     }

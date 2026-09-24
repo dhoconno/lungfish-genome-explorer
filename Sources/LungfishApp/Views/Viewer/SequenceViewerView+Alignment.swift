@@ -697,25 +697,20 @@ extension SequenceViewerView {
         let excludeFlags = excludeFlagsSetting
         let readGroupFilter = selectedReadGroupsSetting
         resetLoadAllOverrideIfWindowChanged(to: expandedRegion)
-        // `readBudget` reads are fetched per track. When the window overflows the
-        // budget we no longer take a `samtools view` prefix in coordinate order
-        // (that pulls only the leftmost slice of a dense window) — we ask
-        // `fetchReadSketch` for a `--subsample`d sample instead, which is spread
-        // across the whole queried region and stays stable across redraws
-        // because the fraction and seed are fixed. "Load all" still bypasses
-        // sampling entirely via `fetchReads` up to the load-all ceiling.
-        let readBudget = effectiveReadBudget
+        // Each track is fetched with a displayed-depth cap (owner decision
+        // D9): bins deeper than the cap are `--subsample`d to about the cap and
+        // every other bin keeps every read, so shallow flanks are never
+        // hollowed out to afford a deep amplicon. The fraction per bin and the
+        // seed are fixed, so the sample is stable across redraws. "Load all"
+        // bypasses the cap via `fetchReads` up to the load-all ceiling.
+        let maxDisplayedDepth = effectiveMaxDisplayedDepth
         let loadedAll = loadAllReadsRequested
-        let estimatedTotal = estimatedReadCount(in: expandedRegion)
         readLoadPhase = .fetching(readsSoFar: nil)
 
-        sequenceViewerLogger.info("fetchReadsAsync: gen=\(tokenGeneration), Fetching reads for \(expandedRegion.description) (BAM chrom: \(bamChromosome), tier: \(String(describing: tier)), minMAPQ: \(mapQFilter), budget: \(readBudget), flags: 0x\(String(excludeFlags, radix: 16)))")
+        sequenceViewerLogger.info("fetchReadsAsync: gen=\(tokenGeneration), Fetching reads for \(expandedRegion.description) (BAM chrom: \(bamChromosome), tier: \(String(describing: tier)), minMAPQ: \(mapQFilter), depth cap: \(maxDisplayedDepth)x, loadAll: \(loadedAll), flags: 0x\(String(excludeFlags, radix: 16)))")
 
         Task.detached { [weak self] in
-            var allReads: [AlignedRead] = []
-            var exactTotal: Int?
-            var anySubsampled = false
-            var anyTransportTruncated = false
+            var outcomes: [TrackReadFetchOutcome] = []
 
             for (_, provider) in providers {
                 do {
@@ -728,37 +723,17 @@ extension SequenceViewerView {
                         excludeFlags: excludeFlags,
                         minMapQ: mapQFilter,
                         readGroups: readGroupFilter,
-                        budget: readBudget,
+                        maxDisplayedDepth: maxDisplayedDepth,
                         loadedAll: loadedAll
                     )
-                    allReads.append(contentsOf: outcome.reads)
-                    if let total = outcome.exactTotal {
-                        exactTotal = (exactTotal ?? 0) + total
-                    }
-                    anySubsampled = anySubsampled || outcome.isSubsampled
-                    anyTransportTruncated = anyTransportTruncated || outcome.transportTruncated
+                    outcomes.append(outcome)
                 } catch {
                     sequenceViewerLogger.error("fetchReadsAsync: Failed to fetch reads: \(error)")
                 }
             }
 
-            // Apply the display budget on the fetch thread: trimming an
-            // over-quota multi-track merge down to the budget must not cost the
-            // main actor anything, and the MD-tag parse below then only runs
-            // over the reads kept. When a provider already subsampled its
-            // fetch, `allReads` is already at-or-near budget per track, so this
-            // is a cheap final trim rather than a re-sample of a clustered set.
-            let budgeted = SequenceViewerView.applyReadBudget(
-                reads: allReads,
-                budget: readBudget,
-                exactTotal: exactTotal,
-                estimatedTotal: estimatedTotal,
-                loadedAll: loadedAll,
-                wasSpreadAcrossWindow: anySubsampled,
-                transportTruncated: anyTransportTruncated
-            )
-            let displayReads = budgeted.reads
-            let budgetState = budgeted.state
+            let displayReads = outcomes.flatMap(\.reads)
+            let budgetState = SequenceViewerView.readBudgetState(outcomes: outcomes, loadedAll: loadedAll)
             let count = displayReads.count
             // Parse every read's MD tag here, on the fetch thread, so the draw
             // path never re-parses it per frame.
@@ -782,28 +757,26 @@ extension SequenceViewerView {
         }
     }
 
-    /// Result of fetching one track's reads for the display budget: the reads
-    /// to show, the exact read count when known, and whether the fetch already
-    /// spread its sample across the window (`--subsample`) rather than
-    /// returning an in-order prefix.
-    struct TrackReadFetchOutcome {
+    /// Result of fetching one track's reads under the displayed-depth cap.
+    struct TrackReadFetchOutcome: Sendable {
         let reads: [AlignedRead]
-        let exactTotal: Int?
-        let isSubsampled: Bool
+        /// Reads believed to be in the window for this track.
+        let estimatedTotal: Int
+        /// True when `estimatedTotal` is an estimate rather than a count.
+        let isEstimated: Bool
+        /// Cap actually applied when some region was thinned, else nil.
+        let cappedDepth: Int?
         let transportTruncated: Bool
     }
 
     /// Fetches one track's reads for a fetch window, honouring the "Load all"
     /// escape hatch and falling back to `fallbackChromosome` when the primary
-    /// alias returns nothing.
+    /// alias returns nothing or is not in the BAM header.
     ///
-    /// When not loading all, this uses `AlignmentDataProvider.fetchReadSketch`,
-    /// which counts the region first (`samtools view -c`, index-only) and, when
-    /// the count exceeds the budget, fetches with `samtools --subsample` so the
-    /// kept reads are spread across the whole region rather than being the
-    /// first `budget` reads in coordinate order. A dense window still costs one
-    /// index-only count query plus a subsampled scan of the window, which is
-    /// far cheaper than materializing every read only to discard most of them.
+    /// When not loading all, this uses
+    /// `AlignmentDataProvider.fetchDepthCappedReads`: one depth query with the
+    /// same filters, then one `samtools view -M` per distinct per-bin keep
+    /// fraction. Regions at or under `maxDisplayedDepth` show every read.
     static func fetchTrackReads(
         provider: AlignmentDataProvider,
         primaryChromosome: String,
@@ -813,45 +786,59 @@ extension SequenceViewerView {
         excludeFlags: UInt16,
         minMapQ: Int,
         readGroups: Set<String>,
-        budget: Int,
+        maxDisplayedDepth: Int,
         loadedAll: Bool
     ) async throws -> TrackReadFetchOutcome {
         if loadedAll {
+            let ceiling = ReadViewportPolicy.loadAllReadCeiling
             var reads = try await provider.fetchReads(
                 chromosome: primaryChromosome, start: start, end: end,
-                excludeFlags: excludeFlags, minMapQ: minMapQ, maxReads: budget, readGroups: readGroups
+                excludeFlags: excludeFlags, minMapQ: minMapQ, maxReads: ceiling, readGroups: readGroups
             )
             if reads.isEmpty, primaryChromosome != fallbackChromosome {
                 let fallbackReads = try await provider.fetchReads(
                     chromosome: fallbackChromosome, start: start, end: end,
-                    excludeFlags: excludeFlags, minMapQ: minMapQ, maxReads: budget, readGroups: readGroups
+                    excludeFlags: excludeFlags, minMapQ: minMapQ, maxReads: ceiling, readGroups: readGroups
                 )
                 if !fallbackReads.isEmpty {
                     sequenceViewerLogger.info("fetchReadsAsync: Fallback chromosome lookup succeeded for '\(fallbackChromosome, privacy: .public)' after empty alias query '\(primaryChromosome, privacy: .public)'")
                     reads = fallbackReads
                 }
             }
-            return TrackReadFetchOutcome(reads: reads, exactTotal: nil, isSubsampled: false, transportTruncated: false)
+            return TrackReadFetchOutcome(
+                reads: reads, estimatedTotal: reads.count, isEstimated: false,
+                cappedDepth: nil, transportTruncated: reads.count >= ceiling
+            )
         }
 
-        var sketch = try await provider.fetchReadSketch(
-            chromosome: primaryChromosome, start: start, end: end,
-            excludeFlags: excludeFlags, minMapQ: minMapQ, targetReads: budget, readGroups: readGroups
-        )
-        if sketch.reads.isEmpty, sketch.estimatedTotalReads == 0, primaryChromosome != fallbackChromosome {
-            let fallbackSketch = try await provider.fetchReadSketch(
-                chromosome: fallbackChromosome, start: start, end: end,
-                excludeFlags: excludeFlags, minMapQ: minMapQ, targetReads: budget, readGroups: readGroups
+        func fetch(_ chromosome: String) async throws -> DepthCappedReadSketch {
+            try await provider.fetchDepthCappedReads(
+                chromosome: chromosome, start: start, end: end,
+                excludeFlags: excludeFlags, minMapQ: minMapQ, readGroups: readGroups,
+                maxDisplayedDepth: maxDisplayedDepth
             )
-            if !fallbackSketch.reads.isEmpty || fallbackSketch.estimatedTotalReads > 0 {
-                sequenceViewerLogger.info("fetchReadsAsync: Fallback chromosome lookup succeeded for '\(fallbackChromosome, privacy: .public)' after empty alias query '\(primaryChromosome, privacy: .public)'")
-                sketch = fallbackSketch
-            }
+        }
+        var sketch: DepthCappedReadSketch
+        do {
+            sketch = try await fetch(primaryChromosome)
+        } catch {
+            // `samtools depth` rejects a contig missing from the header, so an
+            // alias mismatch surfaces as an error rather than an empty result.
+            guard primaryChromosome != fallbackChromosome,
+                  let fallback = try? await fetch(fallbackChromosome) else { throw error }
+            sequenceViewerLogger.info("fetchReadsAsync: Fallback chromosome lookup succeeded for '\(fallbackChromosome, privacy: .public)' after failed alias query '\(primaryChromosome, privacy: .public)'")
+            sketch = fallback
+        }
+        if sketch.reads.isEmpty, sketch.estimatedTotalReads == 0, primaryChromosome != fallbackChromosome,
+           let fallback = try? await fetch(fallbackChromosome), !fallback.reads.isEmpty {
+            sequenceViewerLogger.info("fetchReadsAsync: Fallback chromosome lookup succeeded for '\(fallbackChromosome, privacy: .public)' after empty alias query '\(primaryChromosome, privacy: .public)'")
+            sketch = fallback
         }
         return TrackReadFetchOutcome(
             reads: sketch.reads,
-            exactTotal: sketch.estimatedTotalReads,
-            isSubsampled: sketch.isSubsampled,
+            estimatedTotal: sketch.estimatedTotalReads,
+            isEstimated: sketch.isEstimated,
+            cappedDepth: sketch.isDepthCapped ? sketch.maxDisplayedDepth : nil,
             transportTruncated: sketch.transportTruncated
         )
     }
