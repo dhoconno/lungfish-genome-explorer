@@ -322,6 +322,25 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         let isBold: Bool
         let isItalic: Bool
     }
+    /// `tableView(_:viewFor:row:)` resolves a background/border/text NSColor
+    /// per visible cell, every scroll frame. `NSColor(calibratedRed:...)` and
+    /// `.withAlphaComponent(_:)` both allocate a new NSColor instance on
+    /// every call — neither is memoized by AppKit — so a support-colored
+    /// matrix (the default `cellColorMode`) was allocating thousands of
+    /// short-lived NSColor objects per redraw for a handful of distinct
+    /// colors. Cache by the resolved (color, alpha) pair, keyed on the
+    /// `AnnotationColor` value itself rather than object identity
+    /// (2026-09-24 best-practices audit, PERF-17 follow-up).
+    private var cachedMatrixCellColors: [MatrixCellColorKey: NSColor] = [:]
+    private struct MatrixCellColorKey: Hashable {
+        let color: AnnotationColor
+        let alpha: Double?
+    }
+    /// See `cachedSystemBlue(alpha:)`. The support-heatmap alpha is a
+    /// continuous value (`0.05 + fraction * 0.22`), but in practice only as
+    /// many distinct values occur as there are distinct support fractions on
+    /// screen, so this stays small.
+    private var cachedSystemBlueColors: [Double: NSColor] = [:]
     private var filterHeightConstraint: NSLayoutConstraint?
     private var reviewLegendHeightConstraint: NSLayoutConstraint?
     private var isApplyingContentTypography = false
@@ -476,6 +495,19 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
     private var testingAccessibilityLayoutChangedCount = 0
     private var testingAccessibilityFocusChangedCount = 0
     private var testingDidFallBackAccessibilityFocusToMatrix = false
+    // 2026-09-24 best-practices audit (PERF-17 follow-up): fine-grained
+    // per-phase timing for `tableView(_:viewFor:row:)`, so a benchmark run
+    // can attribute the ~500ms visible-cell build cost to view lookup vs.
+    // value/tooltip string building vs. style/color resolution rather than
+    // guessing. Populated only when `testingCellBuildProfilingEnabled` is
+    // set, so normal test runs pay zero overhead.
+    var testingCellBuildProfilingEnabled = false
+    private var testingCellBuildViewLookupSeconds: TimeInterval = 0
+    private var testingCellBuildValueSeconds: TimeInterval = 0
+    private var testingCellBuildStyleSeconds: TimeInterval = 0
+    private var testingCellBuildCallCount = 0
+    private var testingCellBuildViewReuseHitCount = 0
+    private var testingCellBuildViewReuseMissCount = 0
 #endif
 
     override init(frame frameRect: NSRect) {
@@ -3093,6 +3125,37 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
             cell.setAccessibilityElement(false)
             return cell
         }
+#if DEBUG
+        if testingCellBuildProfilingEnabled {
+            let lookupStart = ContinuousClock.now
+            let dequeued = tableView.makeView(withIdentifier: identifier, owner: self) as? NSTableCellView
+            if dequeued != nil {
+                testingCellBuildViewReuseHitCount += 1
+            } else {
+                testingCellBuildViewReuseMissCount += 1
+            }
+            let cell = dequeued ?? makeCellView(identifier: identifier)
+            testingCellBuildViewLookupSeconds += Self.seconds(ContinuousClock.now - lookupStart)
+
+            let valueStart = ContinuousClock.now
+            let value = cellValue(for: identifier, row: sharedCall)
+            cell.textField?.stringValue = value.text
+            cell.textField?.alignment = value.alignment
+            cell.textField?.toolTip = value.toolTip
+            cell.textField?.isSelectable = identifier == ColumnID.stableClusterID
+            if identifier == ColumnID.stableClusterID {
+                cell.textField?.setAccessibilityLabel(value.toolTip ?? "Stable cluster ID: None")
+            }
+            testingCellBuildValueSeconds += Self.seconds(ContinuousClock.now - valueStart)
+
+            let styleStart = ContinuousClock.now
+            applyCellStyle(cell, identifier: identifier, row: sharedCall)
+            testingCellBuildStyleSeconds += Self.seconds(ContinuousClock.now - styleStart)
+
+            testingCellBuildCallCount += 1
+            return cell
+        }
+#endif
         let cell = tableView.makeView(withIdentifier: identifier, owner: self) as? NSTableCellView
             ?? makeCellView(identifier: identifier)
         let value = cellValue(for: identifier, row: sharedCall)
@@ -3256,7 +3319,18 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         let cell = GenotypeMatrixStyledCellView()
         cell.identifier = identifier
         let field = NSTextField(labelWithString: "")
-        field.translatesAutoresizingMaskIntoConstraints = false
+        // Frame-based layout instead of Auto Layout constraints: this view is built fresh for
+        // every distinct (row, column) reuse-identifier pair the first time it's displayed
+        // (~3,800 times for a 96-sample x 200-allele matrix's initial paint — see
+        // PerfBenchGenotypeMatrixTests.testCellBuildCostAttributionByPhase), and profiling
+        // attributed most of that cost to exactly this constructor. `NSLayoutConstraint.activate`
+        // registers the cell with Auto Layout's constraint solver for the rest of its lifetime;
+        // for a fixed-size table cell whose only job is "inset 4pt, centered vertically", a plain
+        // frame plus an autoresizing mask reaches the same layout without ever invoking the
+        // solver. `GenotypeMatrixStyledCellView.layout()` keeps the frame correct across column
+        // resizes (2026-09-24 best-practices audit, PERF-17 follow-up).
+        field.translatesAutoresizingMaskIntoConstraints = true
+        field.autoresizingMask = [.width, .height]
         field.font = .monospacedDigitSystemFont(ofSize: 11, weight: .regular)
         field.lineBreakMode = .byTruncatingMiddle
         field.usesSingleLineMode = true
@@ -3264,11 +3338,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         field.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         cell.addSubview(field)
         cell.textField = field
-        NSLayoutConstraint.activate([
-            field.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 4),
-            field.trailingAnchor.constraint(equalTo: cell.trailingAnchor, constant: -4),
-            field.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
-        ])
+        cell.layoutTextFieldFrame()
         return cell
     }
 
@@ -5171,12 +5241,18 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
 
         cell.alphaValue = 1.0
         if semantic?.text.colorRole == .secondary {
-            let fpFont = NSFontManager.shared.convert(font(for: renderedStyle), toHaveTrait: .italicFontMask)
+            // Route through the same per-style font cache as the primary
+            // path (see `font(for:)`) instead of calling
+            // NSFontManager.shared.convert directly: that call walks the
+            // whole font-manager trait-conversion machinery on every visible
+            // cell and was never memoized, unlike every other font lookup
+            // here (2026-09-24 best-practices audit, PERF-17 follow-up).
+            let fpFont = forcedItalicFont(for: renderedStyle)
             cell.textField?.font = fpFont
             cell.textField?.textColor = .secondaryLabelColor
         } else {
             cell.textField?.font = font(for: renderedStyle)
-            cell.textField?.textColor = renderedStyle.textColor.map(Self.color(from:)) ?? .labelColor
+            cell.textField?.textColor = renderedStyle.textColor.map { cachedColor(from: $0) } ?? .labelColor
         }
         if let semantic {
             cell.textField?.setAccessibilityLabel(semantic.accessibilityLabel)
@@ -5397,6 +5473,24 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         let font = style.isItalic
             ? NSFontManager.shared.convert(base, toHaveTrait: .italicFontMask)
             : base
+        cachedMatrixCellFonts[key] = font
+        return font
+    }
+
+    /// Same cache as `font(for:)`, but always italic regardless of
+    /// `style.isItalic` — used for the false-positive "secondary" text
+    /// role, which forces italics independently of the row/cell style.
+    private func forcedItalicFont(for style: GenotypeMatrixRenderedStyle) -> NSFont {
+        let key = MatrixCellFontKey(isBold: style.isBold, isItalic: true)
+        if let cached = cachedMatrixCellFonts[key] {
+            return cached
+        }
+        let resolved = resolvedContentTypography().font(for: .monospaced)
+        let base = NSFont.monospacedDigitSystemFont(
+            ofSize: resolved.pointSize,
+            weight: style.isBold ? .semibold : .regular
+        )
+        let font = NSFontManager.shared.convert(base, toHaveTrait: .italicFontMask)
         cachedMatrixCellFonts[key] = font
         return font
     }
@@ -6174,17 +6268,17 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
 
         if displayState.cellColorMode != .none,
            let color = renderedStyle.fillColor {
-            return Self.color(from: color)
+            return cachedColor(from: color)
         }
 
         if isAlleleIdentityColumn(identifier), isProvisionalExon2(row) {
-            return Self.color(from: provisionalExon2Tint)
+            return cachedColor(from: provisionalExon2Tint)
         }
 
         if isAlleleIdentityColumn(identifier),
            let category = row.tintCategory,
            let tint = effectiveCandidateDisplaySettings.tints[category] {
-            return Self.color(from: tint)
+            return cachedColor(from: tint)
         }
 
         guard displayState.cellColorMode == .support,
@@ -6197,7 +6291,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
                   support.passedUniqueReads > 0 else {
                 return nil
             }
-            return NSColor.systemBlue.withAlphaComponent(0.20)
+            return cachedSystemBlue(alpha: 0.20)
         }
 
         // Authoritative haplotyped results keep their established known-call
@@ -6214,7 +6308,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
             return nil
         }
         let alpha = min(0.20, max(0.06, 0.05 + fraction * 0.22))
-        return NSColor.systemBlue.withAlphaComponent(alpha)
+        return cachedSystemBlue(alpha: alpha)
     }
 
     private func borderColor(
@@ -6229,7 +6323,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         guard displayState.cellColorMode != .none else { return nil }
         if let color = renderedStyle.borderColor {
             let alpha = sampleColumnLookup[identifier] == nil ? 0.80 : 0.95
-            return Self.color(from: color).withAlphaComponent(alpha)
+            return cachedColor(from: color, alpha: alpha)
         }
         return nil
     }
@@ -6517,6 +6611,41 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
             alpha: annotationColor.alpha
         )
     }
+
+    /// Cached equivalent of `Self.color(from:)`, optionally followed by
+    /// `.withAlphaComponent(alpha)`. Use this instead of `Self.color(from:)`
+    /// in any per-cell path (`tableView(_:viewFor:row:)` and its helpers);
+    /// the two remain separate because the static form is also used from
+    /// export/attributed-string paths that run far less often and don't
+    /// warrant an instance cache.
+    private func cachedColor(from annotationColor: AnnotationColor, alpha: Double? = nil) -> NSColor {
+        let key = MatrixCellColorKey(color: annotationColor, alpha: alpha)
+        if let cached = cachedMatrixCellColors[key] {
+            return cached
+        }
+        let base = Self.color(from: annotationColor)
+        let resolved: NSColor
+        if let alpha {
+            resolved = base.withAlphaComponent(alpha)
+        } else {
+            resolved = base
+        }
+        cachedMatrixCellColors[key] = resolved
+        return resolved
+    }
+
+    /// Cached `NSColor.systemBlue.withAlphaComponent(alpha)` for the
+    /// support-heatmap fill. A separate dictionary from `cachedMatrixCellColors`
+    /// (rather than a sentinel `AnnotationColor` key) so it can't collide with
+    /// a real annotation color that happens to clamp to the same value.
+    private func cachedSystemBlue(alpha: Double) -> NSColor {
+        if let cached = cachedSystemBlueColors[alpha] {
+            return cached
+        }
+        let resolved = NSColor.systemBlue.withAlphaComponent(alpha)
+        cachedSystemBlueColors[alpha] = resolved
+        return resolved
+    }
 }
 
 private final class GenotypeMatrixTableView: NSTableView {
@@ -6602,6 +6731,31 @@ private final class GenotypeMatrixStyledCellView: NSTableCellView {
         chromeBackgroundColor
     }
 #endif
+
+    /// Positions `textField` by frame (inset 4pt on each side, vertically centered) instead of
+    /// Auto Layout constraints — see the comment in `makeCellView(identifier:)` for why. Called
+    /// once at construction and again from `layout()` on every subsequent resize (column resize,
+    /// row height change), so it must stay cheap: no constraint solving, just arithmetic on the
+    /// already-known bounds.
+    func layoutTextFieldFrame() {
+        guard let field = textField else { return }
+        let inset: CGFloat = 4
+        let fieldHeight = min(bounds.height, field.intrinsicContentSize.height.isFinite
+            ? max(field.intrinsicContentSize.height, 1)
+            : bounds.height)
+        let originY = ((bounds.height - fieldHeight) / 2).rounded()
+        field.frame = NSRect(
+            x: inset,
+            y: originY,
+            width: max(0, bounds.width - inset * 2),
+            height: fieldHeight
+        )
+    }
+
+    override func layout() {
+        super.layout()
+        layoutTextFieldFrame()
+    }
 
     func configureChrome(
         backgroundColor: NSColor?,
@@ -8761,6 +8915,35 @@ extension GenotypeComparisonMatrixView {
             columnRebuildCount: testingColumnRebuildCount,
             pinnedFullReloadCount: pinnedTableView.testingFullReloadCount,
             sampleFullReloadCount: tableView.testingFullReloadCount
+        )
+    }
+
+    struct CellBuildProfile {
+        let viewLookupSeconds: TimeInterval
+        let valueSeconds: TimeInterval
+        let styleSeconds: TimeInterval
+        let callCount: Int
+        let viewReuseHitCount: Int
+        let viewReuseMissCount: Int
+    }
+
+    func testingResetCellBuildProfile() {
+        testingCellBuildViewLookupSeconds = 0
+        testingCellBuildValueSeconds = 0
+        testingCellBuildStyleSeconds = 0
+        testingCellBuildCallCount = 0
+        testingCellBuildViewReuseHitCount = 0
+        testingCellBuildViewReuseMissCount = 0
+    }
+
+    var testingCellBuildProfile: CellBuildProfile {
+        CellBuildProfile(
+            viewLookupSeconds: testingCellBuildViewLookupSeconds,
+            valueSeconds: testingCellBuildValueSeconds,
+            styleSeconds: testingCellBuildStyleSeconds,
+            callCount: testingCellBuildCallCount,
+            viewReuseHitCount: testingCellBuildViewReuseHitCount,
+            viewReuseMissCount: testingCellBuildViewReuseMissCount
         )
     }
 
