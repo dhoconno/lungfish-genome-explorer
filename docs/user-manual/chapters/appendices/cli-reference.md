@@ -429,7 +429,7 @@ Imports FASTQ files, folders of them, or unmapped Oxford Nanopore BAM files, one
 lungfish-cli import fastq [<options>] [<input> ...] --project <project>
 ```
 
-`--recipe` takes `none`, `vsp2` (short for `vsp2-target-enrichment`), `wastewater-metagenomics`, `illumina-amplicon-merge`, `wgs`, `hifi`, or the id of a recipe you saved. Quality binning is off by default. Binning rounds each base's quality score to a few values so the file compresses smaller, and it cannot be undone once the original files are removed, so turn it on only on purpose. `--clumping-tool auto` skips clumping when the input is too large for the memory budget and never picks Trim Galore by itself. `--dry-run` prints each sample as `[paired]` or `[single-end]` with its file names, then stops. The global `--threads` defaults to the Mac's active core count.
+`--recipe` takes `none`, `vsp2` (short for `vsp2-target-enrichment`), `wastewater-metagenomics`, `illumina-amplicon-merge`, `wgs`, `hifi`, or the id of a recipe you saved. Quality binning is off by default. Binning rounds each base's quality score to a few values so the file compresses smaller, and it cannot be undone once the original files are removed, so turn it on only on purpose. `--clumping-tool auto` skips clumping when the input is too large for the memory budget and never picks Trim Galore by itself. `--pairing` takes `auto`, `single`, `paired`, or `interleaved`. `auto` and `paired` match R1 and R2 files by name, `single` imports every file as its own single-end sample even when a mate is detected, and `interleaved` imports every file on its own and records it as holding alternating mates. `--dry-run` prints each sample as `[paired]` or `[single-end]` with its file names, then stops. The global `--threads` defaults to the Mac's active core count.
 
 | Argument or flag | What it does |
 |---|---|
@@ -441,6 +441,7 @@ lungfish-cli import fastq [<options>] [<input> ...] --project <project>
 | `--log-dir <log-dir>` | Directory for per-sample log files. |
 | `--dry-run` | List detected pairs without importing. |
 | `--platform <platform>` | Sequencing platform, one of `illumina`, `ont`, `pacbio`, or `ultima`. The default is `auto-detect`. |
+| `--pairing <pairing>` | Read pairing, one of `auto`, `single`, `paired`, or `interleaved`. The default is `auto`. |
 | `--no-optimize-storage` | Skip read reordering for storage optimization. |
 | `--clumping-tool <clumping-tool>` | Storage optimization tool, one of `auto`, `bbtools`, `trim-galore`, or `none`. The default is `platform-specific`. |
 | `--compression <compression>` | Compression level, one of `fast`, `balanced`, or `maximum`. The default is `balanced`. |
@@ -1026,6 +1027,8 @@ lungfish-cli universal-search [<options>] <project-path>
 
 The window runs these operations from the FASTQ Operations sheet, which [Trimming and Filtering Reads](../03-reads/04-trimming-and-filtering.md), [Decontamination](../03-reads/05-decontamination.md), [Subsetting and Extraction](../03-reads/06-subsetting-and-extraction.md), and [Read Processing](../03-reads/08-read-processing.md) work through. [FASTQ](../../GLOSSARY.md#fastq) stores each read as four lines, a name, the bases, a separator, and one quality character per base. The flags below also use [Phred scores](../../GLOSSARY.md#phred-score), [k-mers](../../GLOSSARY.md#k-mer), [interleaved](../../GLOSSARY.md#interleaved-fastq) files that hold both [mates](../../GLOSSARY.md#paired-end) of each pair, [Shannon entropy](../../GLOSSARY.md#shannon-entropy), and [optical duplicates](../../GLOSSARY.md#optical-duplicate), each defined in the Glossary. Most of these commands read one FASTQ and write another. They share `-o` or `--output` for the output path, `--force` to overwrite an existing output, and `--compress` to gzip it, so those three are not repeated in every table below.
 
+Nine of them, `subsample`, `contaminant-filter`, `entropy-filter`, `scrub-human`, `deacon-ribo`, `sequence-filter`, `deduplicate`, `search-text`, and `search-motif`, also take `--pairing`. With `interleaved`, adjacent records are mates and are kept or dropped together, and with `single` every record stands alone. The default, `auto`, reads the pairing recorded by the `.lungfishfastq` bundle the input sits in, then inspects read names, recognising mates with identical names, `/1` and `/2` suffixes, or Casava descriptions. The window passes the bundle's own pairing, so a command run on the file inside a paired bundle keeps its mates together as the window does.
+
 Run this from the folder holding the hg002-chr20 practice data. It trims adapters and low-quality ends from the first read file with fastp and writes a gzipped result.
 
 ```bash
@@ -1038,15 +1041,16 @@ lungfish-cli fastq trim HG002.chr20.10.0-10.5Mb_R1.fastq.gz \
 Keeps a random share or a fixed number of reads. Give `--proportion` or `--count`.
 
 ```text
-lungfish-cli fastq subsample <input> [--proportion <proportion>] [--count <count>] [--seed <seed>] --output <output> [--force] [--compress]
+lungfish-cli fastq subsample <input> [--proportion <proportion>] [--count <count>] [--seed <seed>] [--pairing <pairing>] --output <output> [--force] [--compress]
 ```
 
 | Argument or flag | What it does |
 |---|---|
 | `<input>` | Input FASTQ file. |
 | `--proportion <proportion>` | Fraction of reads to keep (0-1). |
-| `--count <count>` | Number of reads to keep. |
+| `--count <count>` | Number of reads to keep. On interleaved input whole pairs are kept, so the count is rounded down to an even number, and at least one pair is kept. |
 | `--seed <seed>` | Random seed for reproducible subsampling. Omit for a randomly generated seed, which is still recorded in provenance so the run can be replayed exactly. |
+| `--pairing <pairing>` | How to treat the input's records, one of `interleaved`, `single`, or `auto`. The default is `auto`. |
 
 ### `fastq length-filter`
 
@@ -1154,7 +1158,7 @@ lungfish-cli fastq primer-remove <input> [--literal <literal>] [--ref <ref>] [--
 Removes reads matching the PhiX control genome or a FASTA you supply, using bbduk.
 
 ```text
-lungfish-cli fastq contaminant-filter <input> [--mode <mode>] [--ref <ref>] [--kmer <kmer>] [--hdist <hdist>] --output <output> [--force] [--compress]
+lungfish-cli fastq contaminant-filter <input> [--mode <mode>] [--ref <ref>] [--kmer <kmer>] [--hdist <hdist>] [--pairing <pairing>] --output <output> [--force] [--compress]
 ```
 
 The `phix` mode uses the PhiX reference that ships with BBTools.
@@ -1166,13 +1170,14 @@ The `phix` mode uses the PhiX reference that ships with BBTools.
 | `--ref <ref>` | Reference FASTA for custom mode. |
 | `--kmer <kmer>` | K-mer size. The default is `31`. |
 | `--hdist <hdist>` | Hamming distance tolerance. The default is `1`. |
+| `--pairing <pairing>` | How to treat the input's records, one of `interleaved`, `single`, or `auto`. The default is `auto`. |
 
 ### `fastq entropy-filter`
 
 Removes low-complexity reads, such as long single-base runs or short repeats, whose sequence entropy falls below a threshold.
 
 ```text
-lungfish-cli fastq entropy-filter <input> [--entropy <entropy>] [--window <window>] [--kmer <kmer>] [--threads <threads>] --output <output> [--force] [--compress]
+lungfish-cli fastq entropy-filter <input> [--entropy <entropy>] [--window <window>] [--kmer <kmer>] [--threads <threads>] [--pairing <pairing>] --output <output> [--force] [--compress]
 ```
 
 Its own `--threads` flag has no effect, because the global `--threads` takes the value first, so bbduk runs with the default of 4.
@@ -1184,22 +1189,24 @@ Its own `--threads` flag has no effect, because the global `--threads` takes the
 | `--window <window>` | Entropy sliding window in bases. The default is `50`. |
 | `--kmer <kmer>` | K-mer length for entropy estimation. The default is `5`. |
 | `--threads <threads>` | bbduk thread count. It has no effect, as the note above explains. The default is `4`. |
+| `--pairing <pairing>` | How to treat the input's records, one of `interleaved`, `single`, or `auto`. The default is `auto`. |
 
 ### `fastq scrub-human`
 
 Removes human reads with Deacon, using a managed human database.
 
 ```text
-lungfish-cli fastq scrub-human <input> --output <output> [--force] [--compress] --database-id <database-id> [--remove-reads]
+lungfish-cli fastq scrub-human <input> --output <output> [--force] [--compress] --database-id <database-id> [--remove-reads] [--pairing <pairing>]
 ```
 
-`--database-id` is required, and the managed human index is `deacon-panhuman`. An output name ending `.gz` is gzipped like `--compress`, and a `.gz` input is decompressed first. It runs Deacon in paired mode only when the first two records' names end in `/1` and `/2` or carry ` 1:` and ` 2:` after a space, and uses all active cores.
+`--database-id` is required, and the managed human index is `deacon-panhuman`. An output name ending `.gz` is gzipped like `--compress`, and a `.gz` input is decompressed first. On paired input it splits the mates into two files, runs Deacon in paired mode so a pair is kept or removed together, and interleaves the result again. It uses all active cores.
 
 | Argument or flag | What it does |
 |---|---|
 | `<input>` | Input FASTQ file path. |
 | `--database-id <database-id>` | Human read removal database identifier. |
 | `--remove-reads` | Deprecated compatibility flag. Ignored because Deacon always removes matched reads. |
+| `--pairing <pairing>` | How to treat the input's records, one of `interleaved`, `single`, or `auto`. The default is `auto`. |
 
 ### `fastq deacon-ribo`
 
@@ -1218,13 +1225,14 @@ It takes one FASTA or FASTQ file, or an R1 and R2 pair. `--output` is a folder, 
 | `--database-id <database-id>` | Managed Deacon database ID. The default is `deacon-ribokmers`. |
 | `--absolute-threshold <absolute-threshold>` | Minimum absolute minimizer hits for an rRNA match. The default is `1`. |
 | `--relative-threshold <relative-threshold>` | Minimum relative minimizer-hit proportion for an rRNA match. The default is `0.0`. |
+| `--pairing <pairing>` | How to treat the input's records, one of `interleaved`, `single`, or `auto`. The default is `auto`. |
 
 ### `fastq sequence-filter`
 
 Removes reads containing a given sequence, or keeps only those reads with `--keep-matched`.
 
 ```text
-lungfish-cli fastq sequence-filter <input> --output <output> [--force] [--compress] [--sequence <sequence>] [--fasta-path <fasta-path>] [--search-end <search-end>] [--min-overlap <min-overlap>] [--error-rate <error-rate>] [--keep-matched] [--search-rc]
+lungfish-cli fastq sequence-filter <input> --output <output> [--force] [--compress] [--sequence <sequence>] [--fasta-path <fasta-path>] [--search-end <search-end>] [--min-overlap <min-overlap>] [--error-rate <error-rate>] [--keep-matched] [--search-rc] [--pairing <pairing>]
 ```
 
 It runs bbduk with a k-mer length equal to `--min-overlap` and an edit distance of `--error-rate` times `--min-overlap`, rounded, from 1 to 2. `left` and `right` search only the first or last three times `--min-overlap` bases.
@@ -1239,6 +1247,7 @@ It runs bbduk with a k-mer length equal to `--min-overlap` and an edit distance 
 | `--error-rate <error-rate>` | Allowed error rate as fraction. The default is `0.1`. |
 | `--keep-matched` | Keep matched reads instead of discarding them. |
 | `--search-rc` | Also search the reverse complement of the sequence. It changes nothing, because bbduk searches both strands whether or not the flag is given. |
+| `--pairing <pairing>` | How to treat the input's records, one of `interleaved`, `single`, or `auto`. The default is `auto`. |
 
 ### `fastq error-correct`
 
@@ -1260,7 +1269,7 @@ lungfish-cli fastq error-correct <input> [--kmer <kmer>] --output <output> [--fo
 Removes duplicate reads with clumpify.
 
 ```text
-lungfish-cli fastq deduplicate <input> [--subs <subs>] [--optical] [--dupedist <dupedist>] --output <output> [--force] [--compress]
+lungfish-cli fastq deduplicate <input> [--subs <subs>] [--optical] [--dupedist <dupedist>] [--pairing <pairing>] --output <output> [--force] [--compress]
 ```
 
 `--dupedist` applies only with `--optical`. The table maps the window's presets to these flags.
@@ -1373,7 +1382,7 @@ Frames 4 to 6 are the reverse-complement frames and print as `_frame-1`, `_frame
 Keeps reads whose name or description matches a query.
 
 ```text
-lungfish-cli fastq search-text <input> --output <output> [--force] [--compress] --query <query> [--field <field>] [--regex]
+lungfish-cli fastq search-text <input> --output <output> [--force] [--compress] --query <query> [--field <field>] [--regex] [--pairing <pairing>]
 ```
 
 | Argument or flag | What it does |
@@ -1382,13 +1391,14 @@ lungfish-cli fastq search-text <input> --output <output> [--force] [--compress] 
 | `--query <query>` | Search query string. |
 | `--field <field>` | Field to search, one of `id` or `description`. The default is `id`. |
 | `--regex` | Treat query as a regular expression. |
+| `--pairing <pairing>` | How to treat the input's records, one of `interleaved`, `single`, or `auto`. The default is `auto`. |
 
 ### `fastq search-motif`
 
 Keeps reads containing a sequence motif.
 
 ```text
-lungfish-cli fastq search-motif <input> --output <output> [--force] [--compress] --pattern <pattern> [--regex]
+lungfish-cli fastq search-motif <input> --output <output> [--force] [--compress] --pattern <pattern> [--regex] [--pairing <pairing>]
 ```
 
 | Argument or flag | What it does |
@@ -1396,6 +1406,7 @@ lungfish-cli fastq search-motif <input> --output <output> [--force] [--compress]
 | `<input>` | Input FASTQ file path. |
 | `--pattern <pattern>` | Sequence motif pattern to search for. |
 | `--regex` | Treat pattern as a regular expression. |
+| `--pairing <pairing>` | How to treat the input's records, one of `interleaved`, `single`, or `auto`. The default is `auto`. |
 
 ### `fastq orient`
 
@@ -1846,7 +1857,7 @@ Runs a variant caller on one alignment track and attaches the calls as a variant
 lungfish-cli variants call [<options>] --bundle <bundle> --alignment-track <alignment-track> --caller <caller>
 ```
 
-Calling always works on a track inside a bundle, never on a loose BAM. The command has no default thresholds. Leave out `--min-af` and `--min-depth` and iVar uses 0.05 and 10, while the other callers run with no threshold filter. Given either flag, LGE removes rows below it after LoFreq, bcftools, Medaka, or Clair3 finish, with a `bcftools view -i` step, and iVar applies it natively. The window always sends 0.05 and 10, so pass `--min-af 0.05 --min-depth 10` to reproduce a window run. bcftools always runs with `--ploidy 1`, added after `--extra-args`, so `--extra-args "--ploidy 2"` does not change it. The `--ivar-*` flags reach iVar only, and iVar's strand-bias filter is off by default because amplicon reads at one site all start from the same primer.
+Calling always works on a track inside a bundle, never on a loose BAM. The command has no default thresholds. Leave out `--min-af` and `--min-depth` and iVar uses 0.05 and 10, while the other callers run with no threshold filter. Given either flag, LGE removes rows below it after LoFreq, bcftools, Medaka, or Clair3 finish, with a `bcftools view -i` step, and iVar applies it natively. The window always sends 0.05 and 10, so pass `--min-af 0.05 --min-depth 10` to reproduce a window run. `--ploidy` applies to bcftools alone and takes `1` or `2`. Leave it out and LGE derives the value from the bundle's organism metadata as the dialog does, falling back to `1`. A `--ploidy` inside `--extra-args` for bcftools is refused. The `--ivar-*` flags reach iVar only, and iVar's strand-bias filter is off by default because amplicon reads at one site all start from the same primer.
 
 | Argument or flag | What it does |
 |---|---|
@@ -1862,6 +1873,7 @@ Calling always works on a track inside a bundle, never on a loose BAM. The comma
 | `--ivar-merge-af-threshold <ivar-merge-af-threshold>` | Maximum allele frequency distance for merging adjacent iVar SNPs. The default is `0.25`. |
 | `--ivar-bad-quality-threshold <ivar-bad-quality-threshold>` | iVar ALT_QUAL below this fails the bq filter. The default is `20`. |
 | `--ivar-no-ignore-strand-bias` | Apply iVar strand-bias filter (off by default for amplicon data). |
+| `--ploidy <ploidy>` | bcftools genotype ploidy, `1` for viral and bacterial references or `2` for human and other eukaryotic references. The default is derived from the bundle's organism metadata, falling back to `1`. |
 | `--extra-args, --advanced-options <extra-args>` | Additional caller arguments, written exactly as they should be passed to the underlying tool. |
 
 ### `variants phase`
@@ -2138,7 +2150,7 @@ Classifies reads or assembled sequences with Kraken 2 against an installed datab
 lungfish-cli conda classify [<options>] <fastq-files> ... --db <db>
 ```
 
-The output folder holds `classification.kreport`, the per-read `classification.kraken`, `classification.bracken` when `--profile` is given, and the provenance record. The kreport has eight columns because LGE always asks Kraken 2 for minimizer data. To extract the reads of one taxon afterwards, run `extract reads --by-classifier --tool kraken2 --result <folder> --taxon <taxid> --output <file>`, which finds the source FASTQ from the result's own record.
+The output folder holds `classification.kreport`, the per-read `classification.kraken`, `classification.bracken` when `--profile` is given, and the provenance record. The kreport has eight columns because LGE always asks Kraken 2 for minimizer data. `--read-format auto` scans a single input, and a file or bundle whose records strictly alternate read 1 and read 2 runs as pairs, split into two temporary mate files for Kraken 2's paired mode. Pairs mixed with merged reads, and true single-end input, run unpaired. Two separate files still need `--paired`, which conflicts with any other explicit `--read-format`. To extract the reads of one taxon afterwards, run `extract reads --by-classifier --tool kraken2 --result <folder> --taxon <taxid> --output <file>`, which finds the source FASTQ from the result's own record.
 
 | Argument or flag | What it does |
 |---|---|
@@ -2147,6 +2159,7 @@ The output folder holds `classification.kreport`, the per-read `classification.k
 | `--preset <preset>` | Sensitivity preset, one of `sensitive`, `balanced`, or `precise`. The default is `balanced`. |
 | `-o, --output-dir <output-dir>` | Output directory. The default is the current folder. |
 | `--paired` | Input files are paired-end reads. |
+| `--read-format <read-format>` | Read layout, one of `auto`, `unpaired`, `paired`, or `interleaved`. The default is `auto`. |
 | `--recursive` | When an input is a directory, include eligible FASTQ/FASTA files in subfolders. |
 | `--profile` | Run Bracken abundance profiling after classification. |
 | `--confidence <confidence>` | Override confidence threshold (0.0-1.0). |

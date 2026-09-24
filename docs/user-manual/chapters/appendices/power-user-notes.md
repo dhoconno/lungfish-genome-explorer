@@ -122,10 +122,10 @@ bcftools runs as `bcftools mpileup` piped into `bcftools call`.
 
 ```bash
 bcftools mpileup -Ou -A -d 0 -a FORMAT/AD,FORMAT/DP,INFO/AD -f reference.fasta alignment.bam
-bcftools call --ploidy 1 -mv -Ov -o variants.raw.vcf
+bcftools call --ploidy 2 -mv -Ov -o variants.raw.vcf
 ```
 
-`-d 0` removes the per-position read cap. `-a` asks for per-sample allele depths and total depth, which the threshold step above reads. `--ploidy 1` calls every position as haploid, one copy per genome, which suits viral data. Your extra arguments go straight after `call`, before LGE's own, so LGE's values win and a `--ploidy 2` of your own has no effect on a diploid human sample. For diploid human genotypes, use [HaplotypeCaller](../06-human-germline-variants/01-haplotype-caller.md) instead. This is a known defect, listed with its workaround in [Known defects in this release](troubleshooting.md#known-defects-in-this-release).
+`-d 0` removes the per-position read cap. `-a` asks for per-sample allele depths and total depth, which the threshold step above reads. `--ploidy` carries the dialog's **Ploidy** setting, `1` for a haploid genome such as a virus and `2` for a diploid one such as a human. The block shows `2`, the value LGE picks for the HG002 fixture. Your extra arguments go straight after `call`, before LGE's own, and a `--ploidy` among them is refused so that the setting has one source.
 
 ## Primer trimming
 

@@ -126,7 +126,7 @@ Two of these settings work on k-mers. A [k-mer](../../GLOSSARY.md#k-mer) is a st
 
 ### Low-Complexity Filter
 
-**Entropy Threshold.** Sets the score below which a read is discarded as repetitive. [Shannon entropy](../../GLOSSARY.md#shannon-entropy) measures how varied a stretch of sequence is, from 0 when the window repeats one short word to 1 when every 5-base word in it is different, and the default of 0.60 is the value the pane reports as removing about 4 percent of reads and about 89 percent of tandem-repeat reads on a benchmark set of reads the pane does not name. A clean human library loses far less, 10 reads of 45,574 on this fixture. Raise it when repeats still inflate depth after filtering, and lower it when the removal rate looks too aggressive for the sample. On the command line this is `--entropy`.
+**Entropy Threshold.** Sets the score below which a read is discarded as repetitive. [Shannon entropy](../../GLOSSARY.md#shannon-entropy) measures how varied a stretch of sequence is, from 0 when the window repeats one short word to 1 when every 5-base word in it is different, and the default of 0.60 is the value the pane reports as removing about 4 percent of reads and about 89 percent of tandem-repeat reads on a benchmark set of reads the pane does not name. A clean human library loses far less, 68 reads of 91,148 on this fixture. Raise it when repeats still inflate depth after filtering, and lower it when the removal rate looks too aggressive for the sample. On the command line this is `--entropy`.
 
 **Window.** Sets the length in bases of the sliding stretch over which entropy is measured, which lets the filter catch a repeat that fills only part of a read. The default is 50, short enough that several windows fit inside a typical Illumina read. Shorten it when your reads are under about 100 bases, so a full window fits inside each read. On the command line this is `--window`.
 
@@ -162,30 +162,27 @@ Deacon reports what it kept, never what it dropped. Its log line starts with `Re
 
 On the SRR36291587 reads, expect Deacon to keep nearly every read and call only a small share human. An [amplicon](../../GLOSSARY.md#amplicon) protocol copies the target in overlapping PCR pieces, and its [primer scheme](../../GLOSSARY.md#primer-scheme) lists where each primer binds, as [Amplicons and Shotgun Sequencing](../01-foundations/03-amplicon-vs-shotgun.md#amplicon-sequencing) explains. A [shotgun](../../GLOSSARY.md#shotgun) library is made from DNA broken at random, so reads land anywhere on the genome. SRR36291587 is an amplicon run, so it reads almost only the virus, and that is why the human share is small. A shotgun library from the same swab often comes back anywhere from half to nearly all human.
 
-Run on the R1 file of the HG002 reads instead, Deacon printed `Retained 72/45574 sequences (0.158%)`. The printed 0.158 percent is what was kept, so 45,502 of the 45,574 reads, or 99.84 percent, were called human, on reads that are human. One operation on two samples spans almost the whole possible range, which is why a removal rate means something only once you know what the sample was.
+Run on the HG002 bundle instead, Deacon printed `Retained 6/91148 sequences (0.007%)`. The printed 0.007 percent is what was kept, so 91,142 of the 91,148 reads, or 99.99 percent, were called human, on reads that are human. One operation on two samples spans almost the whole possible range, which is why a removal rate means something only once you know what the sample was.
 
 ### The other four operations
 
-The table below comes from running each operation on the R1 file of the HG002 pair alone, 45,574 reads, from the command line. A run from the Tools menu on the imported pair scores both mates, 91,148 reads, so expect roughly twice these counts.
-
-<!-- FIXED-IN-2026.9.41: 10 -->
-On a paired bundle these five operations do not keep the two mates of a pair together in this release, so a mate can be removed while its partner stays. This is a known defect, listed with its workaround in [Known defects in this release](../appendices/troubleshooting.md#known-defects-in-this-release).
+The table below comes from running each operation on the HG002 bundle, 91,148 reads in 45,574 pairs, the input a run from the Tools menu gets. On a paired bundle every operation keeps or removes the two mates of a pair together, so each count is even.
 
 | Operation and setting | Reads kept | Removed |
 |---|---|---|
-| Remove ribosomal RNA sequences, non-rRNA | 45,500 | 74 (0.16%) |
-| Remove Contaminants, PhiX | 45,574 | 0 (0.00%) |
-| Remove Contaminants, the fixture's chr20 FASTA as a custom reference (a deliberate mistake) | 14 | 45,560 (99.97%) |
-| Low-Complexity Filter, threshold 0.60 | 45,564 | 10 (0.02%) |
-| Remove Duplicates, Exact PCR | 45,076 | 498 (1.09%) |
+| Remove ribosomal RNA sequences, non-rRNA | 90,912 | 236 (0.26%) |
+| Remove Contaminants, PhiX | 91,148 | 0 (0.00%) |
+| Remove Contaminants, the fixture's chr20 FASTA as a custom reference (a deliberate mistake) | 0 | 91,148 (100%) |
+| Low-Complexity Filter, threshold 0.60 | 91,080 | 68 (0.07%) |
+| Remove Duplicates, Exact PCR | 91,148 | 0 (0.00%) |
 
-Every row but the third is what a clean human library looks like. A little ribosomal sequence turns up in any whole-genome library, since the ribosomal genes are part of the genome. No PhiX is expected when the sequencing centre did not spike the run, and ten low-complexity reads says this slice carries little repeat content.
+Every row but the third is what a clean human library looks like. A little ribosomal sequence turns up in any whole-genome library, since the ribosomal genes are part of the genome. No PhiX is expected when the sequencing centre did not spike the run, and 68 low-complexity reads, 34 pairs, says this slice carries little repeat content.
 
-The third row is there on purpose. Supplying the chromosome 20 reference as the contaminant removes 99.97 percent of the reads, because the reads did come from chromosome 20. Custom Reference mode does exactly what you tell it, mistakes included.
+The third row is there on purpose. Supplying the chromosome 20 reference as the contaminant removes every read, because the reads did come from chromosome 20. Custom Reference mode does exactly what you tell it, mistakes included.
 
-The last row holds the one number worth remembering as a threshold. The HG002 library was built without PCR, and about one to two percent exact duplicates is normal for such a PCR-free library. A library here is the set of prepared DNA fragments that went onto the sequencer. A duplicate rate above roughly 20 percent is a common alarm line and usually means the library was amplified from too little starting material. Removing duplicates cannot fix that, because it leaves the same small number of original fragments, so treat such a rate as a reason to prepare the library again from more input.
+The last row holds the one number worth remembering as a threshold. The HG002 library was built without PCR, and on this slice no pair repeats another base for base, so Exact PCR removes nothing. A rate of one or two percent would still be normal for such a PCR-free library. A library here is the set of prepared DNA fragments that went onto the sequencer. A duplicate rate above roughly 20 percent is a common alarm line and usually means the library was amplified from too little starting material. Removing duplicates cannot fix that, because it leaves the same small number of original fragments, so treat such a rate as a reason to prepare the library again from more input.
 
-Across its range on the same reads, the Entropy Threshold removed 0 reads at 0.3, 10 at the default 0.60, and 774, or 1.70 percent, at 0.9.
+Across its range on the same reads, the Entropy Threshold removed 16 reads at 0.3, 68 at the default 0.60, and 2,806, or 3.08 percent, at 0.9.
 
 ### Provenance
 
@@ -197,7 +194,7 @@ A ribosomal run's sidecar and log name Deacon's thresholds differently, and noth
 
 Check the removal rate against what the sample is. A rate near zero on a sample you expected to be mostly host, or near total on one you expected to be mostly target, points to the wrong database or a mislabelled sample.
 
-Check that the output is not nearly empty. A run that kept a handful of reads, like the 72-read HG002 result, has told you the sample was almost entirely human, so account for it before mapping what is left.
+Check that the output is not nearly empty. A run that kept a handful of reads, like the 6-read HG002 result, has told you the sample was almost entirely human, so account for it before mapping what is left.
 
 Check that the reference fits the sample. A ribosomal index applied to a DNA library does very little and still looks like a successful run. A human index applied to a macaque sample is the quieter trap, because the two genomes are similar enough that some reads match, so the run reports a plausible removal rate rather than an obvious zero.
 
@@ -207,32 +204,33 @@ Check that you want the operation at all. In an amplicon run every fragment star
 
 This section is optional. [Finding the program](../appendices/cli-reference.md#finding-the-program) shows how to run `lungfish-cli`.
 
-The block runs all five operations. `reads.fastq.gz` stands for the FASTQ file of the SRR36291587 run, and the other commands use the HG002 files you downloaded. A backslash at the end of a line continues the command on the next line.
+The block runs all five operations. `reads.fastq.gz` stands for the FASTQ file of the SRR36291587 run. The other commands read the FASTQ file inside the HG002 bundle, so they reproduce the table above, and the first line stores its path in a shortcut name. Replace the path with your own, keeping the double quotes. A backslash at the end of a line continues the command on the next line.
 
 ```bash
+READS="MyProject.lungfish/Imports/HG002.chr20.10.0-10.5Mb.lungfishfastq/HG002.chr20.10.0-10.5Mb.fastq.gz"
+
 # Remove human reads with the managed Deacon index.
 lungfish-cli fastq scrub-human reads.fastq.gz \
   --database-id deacon-panhuman --output reads.scrubbed.fastq
 
-# Remove ribosomal reads from a pair, writing into a directory.
-lungfish-cli fastq deacon-ribo \
-  HG002.chr20.10.0-10.5Mb_R1.fastq.gz HG002.chr20.10.0-10.5Mb_R2.fastq.gz \
+# Remove ribosomal reads, writing into a directory.
+lungfish-cli fastq deacon-ribo "$READS" \
   --retain norrna --output ribo-filtered/
 
 # Remove PhiX.
-lungfish-cli fastq contaminant-filter HG002.chr20.10.0-10.5Mb_R1.fastq.gz \
-  --mode phix --kmer 31 --hdist 1 --output R1.nophix.fastq
+lungfish-cli fastq contaminant-filter "$READS" \
+  --mode phix --kmer 31 --hdist 1 --output nophix.fastq
 
 # Drop low-complexity reads at the default threshold.
-lungfish-cli fastq entropy-filter HG002.chr20.10.0-10.5Mb_R1.fastq.gz \
-  --entropy 0.6 --window 50 --kmer 5 --output R1.entropy.fastq
+lungfish-cli fastq entropy-filter "$READS" \
+  --entropy 0.6 --window 50 --kmer 5 --output entropy.fastq
 
 # Collapse exact duplicates.
-lungfish-cli fastq deduplicate HG002.chr20.10.0-10.5Mb_R1.fastq.gz \
-  --subs 0 --output R1.dedup.fastq
+lungfish-cli fastq deduplicate "$READS" \
+  --subs 0 --output dedup.fastq
 ```
 
-One difference changes results. Given an R1 and an R2 file together, `deacon-ribo` hands Deacon both files at once and writes a filtered file for each into the directory you name, while the Tools menu hands it the bundle's single file, which holds both mates one after the other. The counts therefore come out per file on the command line and for the pair together in the window.
+Each command reads the pairing the bundle records, so given the file inside a paired bundle it keeps the mates together as the window does. `--pairing` overrides that choice. It takes `interleaved`, `single`, or `auto`, the default, which reads the bundle's record first and then the read names. `deacon-ribo` also accepts the two downloaded mate files, R1 then R2, and writes a filtered file for each into the directory you name.
 
 ## Next
 

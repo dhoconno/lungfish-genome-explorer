@@ -185,6 +185,8 @@ Run Settings lists the mapper, the preset, the main settings you chose, the mapp
 
 Total Reads matches the 91,148 reads you imported, which is the first thing to check after any run. Mapped Reads sits 55 below the Alignment Summary's Total Mapped, and the Flag Statistics list shows why.
 
+The Paired End row reads `Yes (interleaved)` for this run, because the bundle keeps both mates in one file and minimap2 pairs them as it reads. BBMap reports the same. BWA-MEM2 and Bowtie2 receive that file as unpaired reads, and on them the row reads `No (interleaved input mapped as single-end)`.
+
 ### Flag Statistics
 
 Expand the collapsed **Flag Statistics** list for the raw [flagstat](../../GLOSSARY.md#flagstat) counts. `samtools flagstat` makes them by tallying the flags on every record, where a flag is a set of yes-or-no markers such as mapped, paired, or supplementary. Five rows tell the story. The last column gives the exact figure behind each rounded one.

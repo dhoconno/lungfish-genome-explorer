@@ -185,8 +185,8 @@ The coordinate token gives the span actually cut, flanks included. Positions are
 
 | Counting habit | Where you meet it | First three bases |
 |---|---|---|
-| From 1, both ends included | The record, the ruler, Go to Location, GFF3, `extract sequence` | `1-3` |
-| From 0, end left out | BED, the header's start, the drawer's Start, `annotate-orfs` | `0-3` |
+| From 1, both ends included | The record, the ruler, Go to Location, the drawer, GFF3, `extract sequence` | `1-3` |
+| From 0, end left out | BED, the header's start, `annotate-orfs` | `0-3` |
 
 [Standard annotation formats](../appendices/file-formats.md#standard-annotation-formats) covers the two habits in more detail. The header's start follows the count-from-0 habit and its end reads the same either way, which is why a gene starting at 70545 prints as 70544. Add one to a printed start before you compare it with a position you typed, and trust the length token for how much sequence you got. Here 1608 is 72152 minus 70545 plus 1.
 

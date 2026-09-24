@@ -261,7 +261,7 @@ lungfish-cli extract reads --by-classifier --tool kraken2 \
   --output sars-cov-2.fastq --bundle-name "SARS-CoV-2 reads"
 ```
 
-The dialog always runs Bracken and the command line does not, so a command without `--profile` gives a classification with no Bracken column. `--taxon` takes the numeric taxonomy ID rather than a name, and right-clicking a row and choosing **Look Up on NCBI > NCBI Taxonomy** opens the taxon's NCBI page, which shows it.
+The dialog always runs Bracken and the command line does not, so a command without `--profile` gives a classification with no Bracken column. Given the single FASTQ file inside a paired bundle instead of the two downloaded files, leave out `--paired`. The default `--read-format auto` finds the alternating mates and classifies them as pairs, as the dialog does. `--taxon` takes the numeric taxonomy ID rather than a name, and right-clicking a row and choosing **Look Up on NCBI > NCBI Taxonomy** opens the taxon's NCBI page, which shows it.
 
 ## Next
 

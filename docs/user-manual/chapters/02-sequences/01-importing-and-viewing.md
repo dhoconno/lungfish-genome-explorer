@@ -140,7 +140,7 @@ A quick check on any record is its feature density, the number of features divid
 
 The [table drawer](../../GLOSSARY.md#table-drawer) is a panel along the bottom of the viewport that lists the features as rows. Click **Drawer** in the window toolbar to open it. Each row has Name, Track Name, Track ID, Type, Chromosome, Start, End, Size, and Strand columns.
 
-The Start column counts from 0, meaning the record's first base is numbered 0 rather than 1, while the record, the ruler, and Go to Location count from 1. So the HBB gene, which the record places at 70545 to 72152, shows a Start of 70,544 and an End of 72,152. End matches the record, and Size, which is End minus Start, gives the true length of 1,608 bases. BED counts from 0 and GFF3 counts from 1, as [Standard annotation formats](../appendices/file-formats.md#standard-annotation-formats) explains. When you copy a start from the drawer into Go to Location, add one.
+The Start and End columns count from 1, as the record, the ruler, and Go to Location do, so the first base of a sequence is base 1. The HBB gene, which the record places at 70545 to 72152, shows a Start of 70,545 and an End of 72,152, and Size gives its length of 1,608 bases. A start copied from the drawer goes straight into Go to Location. Files you export keep their own format's habit, and BED counts from 0 where GFF3 counts from 1, as [Standard annotation formats](../appendices/file-formats.md#standard-annotation-formats) explains.
 
 ### Moving to a position
 
@@ -223,7 +223,7 @@ Run these checks before you trust an imported bundle:
 - The Inspector's Total Length reads 81.7 Kb. A truncated download shows up here first.
 - Features appear in the annotation lane. A bundle built from a bare FASTA shows none.
 - `NG_000007:70613-70615` reads `GAG`. The wrong record or the wrong version puts different bases at that coordinate.
-- The drawer's Start for the HBB gene reads 70,544, one lower than the record, because that column counts from 0.
+- The drawer's Start for the HBB gene reads 70,545, the same as the record.
 
 LGE writes a [provenance](../../GLOSSARY.md#provenance) record beside every result, holding the command, the tool version, and a [checksum](../../GLOSSARY.md#checksum) of each file, and [Provenance and Reproducibility](../01-foundations/08-provenance-and-reproducibility.md#reading-the-results) shows how to read it. For an import, it should name the file you actually dropped.
 

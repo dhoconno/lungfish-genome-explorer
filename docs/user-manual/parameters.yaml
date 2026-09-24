@@ -537,6 +537,9 @@ operations:
         when_to_change: Choose Grouped Result when several files belong to one library.
         cli_flag: null
     cli_only:
+      - flag: --pairing
+        default: auto
+        effect: Says how to treat the input's records. interleaved keeps or drops adjacent mates together, single treats every record on its own, and auto reads the pairing the enclosing .lungfishfastq bundle records, then the read names. The window passes the bundle's own pairing, so a paired bundle keeps its mates together.
       - flag: --remove-reads
         default: "false"
         effect: A deprecated compatibility flag that is ignored, because Deacon always removes matched reads.
@@ -571,6 +574,9 @@ operations:
         when_to_change: Choose rRNA when you want to inspect what was removed, and Both when you want two bundles from one pass.
         cli_flag: --retain
     cli_only:
+      - flag: --pairing
+        default: auto
+        effect: Says how to treat the input's records. interleaved keeps or drops adjacent mates together, single treats every record on its own, and auto reads the pairing the enclosing .lungfishfastq bundle records, then the read names. The window passes the bundle's own pairing, so a paired bundle keeps its mates together.
       - flag: --database-id
         default: "deacon-ribokmers"
         effect: Names the managed Deacon database of ribosomal k-mers used for matching.
@@ -632,6 +638,9 @@ operations:
         when_to_change: Choose Grouped Result when several files belong to one library.
         cli_flag: null
     cli_only:
+      - flag: --pairing
+        default: auto
+        effect: Says how to treat the input's records. interleaved keeps or drops adjacent mates together, single treats every record on its own, and auto reads the pairing the enclosing .lungfishfastq bundle records, then the read names. The window passes the bundle's own pairing, so a paired bundle keeps its mates together.
       - flag: --force
         default: "false"
         effect: Overwrites an existing output file.
@@ -683,6 +692,9 @@ operations:
         when_to_change: Choose Grouped Result when several files belong to one library.
         cli_flag: null
     cli_only:
+      - flag: --pairing
+        default: auto
+        effect: Says how to treat the input's records. interleaved keeps or drops adjacent mates together, single treats every record on its own, and auto reads the pairing the enclosing .lungfishfastq bundle records, then the read names. The window passes the bundle's own pairing, so a paired bundle keeps its mates together.
       - flag: --threads
         default: "4"
         effect: Sets how many bbduk worker threads run at once.
@@ -745,6 +757,9 @@ operations:
         when_to_change: Choose Grouped Result when several files belong to one library.
         cli_flag: null
     cli_only:
+      - flag: --pairing
+        default: auto
+        effect: Says how to treat the input's records. interleaved keeps or drops adjacent mates together, single treats every record on its own, and auto reads the pairing the enclosing .lungfishfastq bundle records, then the read names. The window passes the bundle's own pairing, so a paired bundle keeps its mates together.
       - flag: --force
         default: "false"
         effect: Overwrites an existing output file.
@@ -1009,6 +1024,9 @@ operations:
         when_to_change: Choose Grouped Result when several files belong to one library.
         cli_flag: null
     cli_only:
+      - flag: --pairing
+        default: auto
+        effect: Says how to treat the input's records. interleaved keeps or drops adjacent mates together, single treats every record on its own, and auto reads the pairing the enclosing .lungfishfastq bundle records, then the read names. The window passes the bundle's own pairing, so a paired bundle keeps its mates together.
       - flag: --count
         default: "unset"
         effect: Keeps a fixed number of reads instead of a fraction, which the dialog exposes as the separate Subsample by Count operation.
@@ -1037,7 +1055,7 @@ operations:
         control: number
         default: empty
         allowed: integers above 0
-        effect: The exact number of reads kept. Every selected library is cut to the same depth.
+        effect: The exact number of reads kept. Every selected library is cut to the same depth. On a paired bundle whole pairs are kept, so an odd count is rounded down to an even number.
         when_to_change: Set it when you want libraries of different sizes compared at equal depth.
         cli_flag: --count
       - label: Output Strategy
@@ -1048,6 +1066,9 @@ operations:
         when_to_change: Choose Grouped Result when several files belong to one library.
         cli_flag: null
     cli_only:
+      - flag: --pairing
+        default: auto
+        effect: Says how to treat the input's records. interleaved keeps or drops adjacent mates together, single treats every record on its own, and auto reads the pairing the enclosing .lungfishfastq bundle records, then the read names. The window passes the bundle's own pairing, so a paired bundle keeps its mates together.
       - flag: --proportion
         default: "unset"
         effect: Keeps a fraction of reads instead of a fixed count, which the dialog exposes as the separate Subsample by Proportion operation.
@@ -1101,6 +1122,9 @@ operations:
         when_to_change: Choose Grouped Result when several files belong to one library.
         cli_flag: null
     cli_only:
+      - flag: --pairing
+        default: auto
+        effect: Says how to treat the input's records. interleaved keeps or drops adjacent mates together, single treats every record on its own, and auto reads the pairing the enclosing .lungfishfastq bundle records, then the read names. The window passes the bundle's own pairing, so a paired bundle keeps its mates together.
       - flag: --force
         default: "false"
         effect: Overwrites an existing output file.
@@ -1144,6 +1168,9 @@ operations:
         when_to_change: Choose Grouped Result when several files belong to one library.
         cli_flag: null
     cli_only:
+      - flag: --pairing
+        default: auto
+        effect: Says how to treat the input's records. interleaved keeps or drops adjacent mates together, single treats every record on its own, and auto reads the pairing the enclosing .lungfishfastq bundle records, then the read names. The window passes the bundle's own pairing, so a paired bundle keeps its mates together.
       - flag: --force
         default: "false"
         effect: Overwrites an existing output file.
@@ -1153,8 +1180,10 @@ operations:
     notes: >-
       Both surfaces run seqkit grep --by-seq, which searches the read and its
       reverse complement by default, so a read matching on either strand is
-      written out (measured 2026-09-07 on the HG002 chr20 R1 file, 260 forward
-      plus 261 reverse-complement hits for 521 returned).
+      written out. On a paired bundle a matching read keeps its mate (measured
+      2026-09-24 on the HG002 chr20 bundle, 1,780 reads returned, of which 528
+      carry the motif forward, 539 carry its reverse complement, and the rest
+      are their mates).
 
   fastq.select-reads-by-sequence:
     title: Select Reads by Sequence
@@ -1218,6 +1247,9 @@ operations:
         when_to_change: Choose Grouped Result when several files belong to one library.
         cli_flag: null
     cli_only:
+      - flag: --pairing
+        default: auto
+        effect: Says how to treat the input's records. interleaved keeps or drops adjacent mates together, single treats every record on its own, and auto reads the pairing the enclosing .lungfishfastq bundle records, then the read names. The window passes the bundle's own pairing, so a paired bundle keeps its mates together.
       - flag: --force
         default: "false"
         effect: Overwrites an existing output file.
@@ -1388,9 +1420,9 @@ operations:
         control: popup
         default: Paired-end when any R1 and R2 mate was matched, otherwise Single-end
         allowed: Single-end, Paired-end, Interleaved
-        effect: Tells the importer whether each sample is one file, two mate files, or one file whose mates alternate. Choosing Oxford Nanopore hides this control and treats the reads as single-end.
-        when_to_change: Set it to Interleaved when a single file holds both mates, which mate-suffix matching cannot detect.
-        cli_flag: null
+        effect: Tells the importer whether each sample is one file, two mate files, or one file whose mates alternate. Single-end imports every file as its own sample even when a mate was matched, naming each bundle after its file. Interleaved imports each file whole and records it as holding alternating mates. Choosing Oxford Nanopore hides this control and treats the reads as single-end. The choice is recorded in the import provenance.
+        when_to_change: Set it to Interleaved when a single file holds both mates, which mate-suffix matching cannot detect, and to Single-end to import matched mate files as separate samples.
+        cli_flag: --pairing
       - label: Quality Binning
         control: popup
         default: None (preserve original) for every platform
@@ -3636,12 +3668,19 @@ operations:
         effect: Removes calls with fewer reads than this after bcftools finishes, using a bcftools view filter. The filter is skipped, and the skip recorded in provenance, when the VCF carries no depth tag.
         when_to_change: Raise it to drop calls at thinly covered positions. The window sends 10 by default.
         cli_flag: --min-depth
+      - label: Ploidy
+        control: segmented (Haploid, Diploid)
+        default: derived from the bundle's organism metadata, and Haploid when nothing identifies the organism
+        allowed: Haploid or Diploid
+        effect: Passes --ploidy 1 or --ploidy 2 to bcftools call, which decides whether heterozygous genotypes such as 0/1 can be written. The caption under the control names the evidence the default came from, and the value used is recorded in provenance.
+        when_to_change: Choose Diploid for a human, macaque, or other eukaryotic reference whose bundle the app could not identify, such as a FASTA slice with no organism recorded. Choose Haploid for a virus or bacterium the app took for something else.
+        cli_flag: --ploidy
       - label: Extra arguments
         control: text
         default: empty
-        allowed: any bcftools call flags, written exactly as bcftools expects them
-        effect: Inserts your own text into the bcftools call command line, right after the word call and ahead of the flags the app builds.
-        when_to_change: Use it to set ploidy on a viral or bacterial genome, for example --ploidy 1.
+        allowed: any bcftools call flags except --ploidy, written exactly as bcftools expects them
+        effect: Inserts your own text into the bcftools call command line, right after the word call and ahead of the flags the app builds. A --ploidy typed here is refused with a message pointing at the Ploidy control.
+        when_to_change: Use it for a bcftools call setting the dialog does not expose, such as a prior with -P.
         cli_flag: --extra-args
     cli_only:
       - flag: --format
@@ -3654,11 +3693,14 @@ operations:
       bcftools is the one caller in this dialog gated on the lungfish-tools pack, the
       Required Setup pack, rather than on the Variant Calling pack, so it is usually
       installed already and the gating list above is left empty to say so. Its
-      section reads only "bcftools will run mpileup and call as an orthogonal
-      cross-check on the selected BAM." The pipeline runs "bcftools mpileup -Ou -f
-      <reference> <bam>" piped into "bcftools call -mv -Ov -o <output>". That pileup has
-      no depth cap and no base-quality floor, where the iVar pileup sets both, which is
-      one reason the two callers disagree on the same alignment.
+      section reads "bcftools will run mpileup and call as an orthogonal
+      cross-check on the selected BAM." followed by the Ploidy control. The pipeline
+      runs "bcftools mpileup -Ou -A -d 0 -a FORMAT/AD,FORMAT/DP,INFO/AD -f <reference>
+      <bam>" piped into "bcftools call --ploidy <1 or 2> -mv -Ov -o <output>". That
+      pileup has no depth cap and no base-quality floor, where the iVar pileup sets
+      both, which is one reason the two callers disagree on the same alignment. On the
+      HG002 chr20 fixture the derived default is Diploid, and a window run writes 1,040
+      rows (measured 2026-09-24).
 
   variants.call-clair3:
     title: Call Variants (Clair3)
@@ -4318,6 +4360,9 @@ operations:
       - flag: --paired
         default: "false"
         effect: Treats the two input files as read 1 and read 2 of the same fragments.
+      - flag: --read-format
+        default: auto
+        effect: Sets the read layout, one of auto, unpaired, paired, or interleaved. auto scans a single input, and a file or bundle whose records strictly alternate read 1 and read 2 runs as pairs, split into two temporary mate files for Kraken2's --paired mode. Pairs mixed with merged reads, and true single-end input, run unpaired. Two separate files still need --paired. The wizard makes the same choice for each sample.
       - flag: --recursive
         default: "false"
         effect: When an input is a folder, also picks up eligible FASTQ or FASTA files inside its subfolders.
@@ -4341,7 +4386,9 @@ operations:
       and threshold 10, and it exposes none of those three as controls. Results land in
       Analyses/kraken2-<timestamp>/ inside the project, never beside the source FASTQ. When
       the selected database needs more memory than the Mac has, a banner names the required
-      and available gigabytes and the memory mapping box is checked for you.
+      and available gigabytes and the memory mapping box is checked for you. Bracken runs
+      from a scratch folder whose path holds no spaces, so a project folder or database
+      path with a space in its name works.
 
   classify.esviritu:
     title: EsViritu
@@ -5922,7 +5969,9 @@ operations:
     notes: >-
       There is no dialog. The command runs on the node you right-clicked and
       writes a new bundle beside the original, so the number after -rerooted
-      grows if you re-root more than once. Related items in the same context
+      grows if you re-root more than once. The new bundle keeps exactly the
+      source tree's tips and is marked rooted (measured 2026-09-24 on the
+      five-tip primate tree, which stays at 5 tips and 3 internal nodes). Related items in the same context
       menu are Collapse Clade, Copy Subtree as Newick, Copy Node Label, Center
       Node, and Reveal Provenance.
 
@@ -5975,7 +6024,9 @@ operations:
       Extract Subtree as New Bundle writes a .lungfishtree bundle into the
       project with provenance, while Export Subtree writes a plain .nwk file
       through a save panel. Neither shows a settings dialog, so the node comes
-      from the right-click and the names come from the node label.
+      from the right-click and the names come from the node label. The new
+      bundle keeps the source tree's rootedness, so a clade taken from an
+      unrooted tree is marked unrooted.
 
   genotype.miseq-amplicon:
     title: miSeq amplicon MHC genotyping

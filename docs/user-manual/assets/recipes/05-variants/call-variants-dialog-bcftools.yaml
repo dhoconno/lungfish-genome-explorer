@@ -3,7 +3,8 @@
 id: call-variants-dialog-bcftools
 chapter: 05-variants/01-calling-variants-from-amplicons
 caption: The Call Variants dialog with bcftools selected, showing the tool sidebar on the left and the
-  Overview, Thresholds, and bcftools Settings sections on the right.
+  Overview, Thresholds, and bcftools Settings sections on the right, with the Ploidy control set to
+  Diploid.
 viewport_class: variant
 app_state:
   fixture: '{demo_project}'

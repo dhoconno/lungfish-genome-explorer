@@ -85,10 +85,9 @@ The dialog has no outgroup field. Rooting is a separate step you take on the fin
 
 ### Root the tree on the macaques
 
-<!-- FIXED-IN-2026.9.41: 8 -->
-Skip this step for now. Re-rooting currently copies some tips more than once, so a re-rooted bundle reports more than the original's 5 tips and cannot support a claim about ancestry. This is a known defect, listed with its workaround in [Known defects in this release](../appendices/troubleshooting.md#known-defects-in-this-release). You lose nothing by skipping it here, because the unrooted tree already answers every check this chapter sets once you read it as splits, as [The numbers on this tree](#the-numbers-on-this-tree) shows.
+Click the internal node where the rhesus macaque and cynomolgus macaque branches join, so the detail line below the tree names it, then right-click the node and choose **Re-root Here**. No dialog opens, and a new bundle named `primate-mito-rerooted` appears under `Phylogenetic Trees/`, leaving the original tree as it was.
 
-For reference, the step itself is short. Click the internal node where the rhesus macaque and cynomolgus macaque branches join, so the detail line below the tree names it, then right-click the node and choose **Re-root Here**. No dialog opens, and a new bundle named `primate-mito-rerooted` appears under `Phylogenetic Trees/`.
+Click the new bundle and read its summary line. It should report the same 5 tips and 3 internal nodes as the original and end in `rooted`. The root now sits at the node where the two macaques join, so the canvas draws the three apes as one group on a single branch, with the human and the chimpanzee paired inside it.
 
 ### Extract the macaque clade
 
@@ -184,7 +183,7 @@ If the `Support` column is empty from top to bottom, the bootstrap box was left 
 
 ### Rooted and unrooted
 
-The summary line's last word says whether the tree has a root. IQ-TREE produces unrooted trees, so `unrooted` on a freshly built tree is the expected outcome, not a failure. The apparent root at the left edge of the canvas is a drawing convention with no biological meaning. Only a tree rooted on an outgroup can say which lineage branched off first. LGE marks every bundle it derives from another tree as rooted, including extracted and relabelled bundles, so ignore the word rooted on any derived bundle. It repeats a label rather than reporting a root you chose.
+The summary line's last word says whether the tree has a root. IQ-TREE produces unrooted trees, so `unrooted` on a freshly built tree is the expected outcome, not a failure. The apparent root at the left edge of the canvas is a drawing convention with no biological meaning. Only a tree rooted on an outgroup can say which lineage branched off first. A bundle made by extracting a clade or relabelling tips keeps the word its source tree had, so a clade taken from the unrooted tree reads `unrooted` and one taken from the re-rooted tree reads `rooted`. Only **Re-root Here** gives an unrooted tree a root.
 
 ### Acting on a node
 
@@ -248,7 +247,7 @@ lungfish-cli tree infer iqtree "$MSA" \
 # parentID, which is the ID of the node where the two macaques join.
 MACAQUE_NODE=node-xxxxxxxxxxxxxxxx
 
-# Re-root on the macaque clade. Read the Procedure note before using the result.
+# Re-root on the macaque clade. The new bundle keeps all 5 tips.
 lungfish-cli tree reroot \
   --bundle "$TREES/primate-mito.lungfishtree" \
   --on "$MACAQUE_NODE" \

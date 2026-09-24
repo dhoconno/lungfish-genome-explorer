@@ -81,7 +81,7 @@ You need a working internet connection. The SRA Toolkit arrives with the [Requir
 
 <!-- SHOT: sra-results-download-selected -->
 
-6. Click Download Selected. LGE reads the run's archive record, then opens the Import FASTQ configuration sheet with Platform set to Illumina and Pairing set to Paired-end, both taken from that record. The sheet is the same one [Importing Sequencing Reads](01-importing-fastq.md#settings) documents, and its Quality Binning popup starts at None (preserve original), which keeps every quality score exactly as the archive holds it. <!-- FIXED-IN-2026.9.41: 9 --> The Pairing and Compression Tool popups have no effect on a download, because LGE pairs the reads by the files the archive delivers and chooses the compression tool itself. This is a known defect, listed with its workaround in [Known defects in this release](../appendices/troubleshooting.md#known-defects-in-this-release).
+6. Click Download Selected. LGE reads the run's archive record, then opens the Import FASTQ configuration sheet with Platform set to Illumina and Pairing set to Paired-end, both taken from that record. The sheet is the same one [Importing Sequencing Reads](01-importing-fastq.md#settings) documents, and its Quality Binning popup starts at None (preserve original), which keeps every quality score exactly as the archive holds it. A run that arrives as two mate files always imports as a pair, and the Compression Tool you pick applies to the download as it does to a local import.
 
 7. Click Import.
 

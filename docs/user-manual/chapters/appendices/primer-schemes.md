@@ -147,8 +147,7 @@ The sheet writes no description, organism, source link, or version into the mani
 
 <!-- SHOT: primer-scheme-inspector -->
 
-<!-- FIXED-IN-2026.9.41: 1 -->
-The new scheme appears in the sidebar under **Primer Schemes**, without its `.lungfishprimers` extension. Clicking it shows the scheme in the Inspector, with the display name at the top, the description when there is one, the primer and amplicon counts side by side, the reference accession and any equivalents, the organism, source, and version when the manifest has them, and a list of attachments at the foot. If clicking it raises "Failed to Open File" instead, that is a known defect, listed with its workaround in [Known defects in this release](troubleshooting.md#known-defects-in-this-release).
+The new scheme appears in the sidebar under **Primer Schemes**, without its `.lungfishprimers` extension. Clicking it shows the scheme in the Inspector, with the display name at the top, the description when there is one, the primer and amplicon counts side by side, the reference accession and any equivalents, the organism, source, and version when the manifest has them, and a list of attachments at the foot.
 
 The Inspector only displays a scheme. To change a field, import the scheme again under a new name, or open the bundle with **Show Package Contents** and edit `manifest.json` in a text editor.
 

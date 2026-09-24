@@ -42,9 +42,9 @@ Everything the table does is display. Sorting, filtering, and hiding columns cha
 
 ## Why you would do this
 
-The worked example is human. HG002 is a consenting research participant whose DNA is distributed as a cell line, so laboratories everywhere sequence the same genome. The HG002 chromosome 20 slice holds Illumina reads mapped to a 500 kilobase stretch of chromosome 20. [Calling Variants](01-calling-variants-from-amplicons.md) called variants on that alignment twice, once with [bcftools](../../GLOSSARY.md#bcftools) and once with [LoFreq](../../GLOSSARY.md#lofreq), and produced 514 rows and 862 rows. Nobody reads thirteen hundred rows one at a time. Filtering is how a call set becomes an answer to a question, such as which changes might alter a protein, or which calls rest on too few reads.
+The worked example is human. HG002 is a consenting research participant whose DNA is distributed as a cell line, so laboratories everywhere sequence the same genome. The HG002 chromosome 20 slice holds Illumina reads mapped to a 500 kilobase stretch of chromosome 20. [Calling Variants](01-calling-variants-from-amplicons.md) called variants on that alignment twice, once with [bcftools](../../GLOSSARY.md#bcftools) and once with [LoFreq](../../GLOSSARY.md#lofreq), and produced 1,040 rows and 862 rows. Nobody reads nineteen hundred rows one at a time. Filtering is how a call set becomes an answer to a question, such as which changes might alter a protein, or which calls rest on too few reads.
 
-There is a second reason. Two callers reading the same alignment disagree, and the way they disagree tells you something neither file tells you alone. On this fixture the two call sets share 374 positions, bcftools reports 140 that LoFreq does not, and LoFreq reports 487 that bcftools does not. Those figures count distinct coordinates, and each track keeps its own row where both callers reported one. Reading the two tracks in one table is the cheapest calibration you will run.
+There is a second reason. Two callers reading the same alignment disagree, and the way they disagree tells you something neither file tells you alone. On this fixture the two call sets share 851 positions, bcftools reports 187 that LoFreq does not, and LoFreq reports 10 that bcftools does not. Those figures count distinct coordinates, and each track keeps its own row where both callers reported one. Reading the two tracks in one table is the cheapest calibration you will run.
 
 ## Before you start
 
@@ -119,7 +119,7 @@ The three within-sample frequency chips, `Minor`, `Mixed`, and `Dominant`, appea
 
 Click a chip to apply it and click it again to remove it. Chips from different sections combine, so `PASS` and `DP ≥ 10` together keep only rows satisfying both. Inside three sets, picking one chip clears the others in that set. `SNV` and `Indel` form one set, `High Impact` and `Moderate+` another, and the three frequency chips the third.
 
-Now the lesson this fixture exists to teach. The [FILTER](../../GLOSSARY.md#filter) column reads `PASS` when a row cleared the caller's filters and a bare `.` when no filter was applied, as [FILTER, and the flags callers actually write](../01-foundations/05-variants-and-vcf.md#filter-and-the-flags-callers-actually-write) explains. Click `PASS` while the bcftools rows are on screen and those rows vanish. Not one of the 514 bcftools rows says `PASS`, because bcftools as LGE runs it applies no filter of its own and writes `.` in that column. The chip is doing what it says, hiding every row whose filter value is anything but `PASS`, and on this track that is every row. The 862 LoFreq rows all say `PASS`, so the chip keeps all of them, and with both tracks loaded the table drops from 1,376 rows to 862. Read a bare `.` as unjudged rather than failed, and look at the column before you filter on it. Click **Clear** to bring the rows back.
+Now the lesson this fixture exists to teach. The [FILTER](../../GLOSSARY.md#filter) column reads `PASS` when a row cleared the caller's filters and a bare `.` when no filter was applied, as [FILTER, and the flags callers actually write](../01-foundations/05-variants-and-vcf.md#filter-and-the-flags-callers-actually-write) explains. Click `PASS` while the bcftools rows are on screen and those rows vanish. Not one of the 1,040 bcftools rows says `PASS`, because bcftools as LGE runs it applies no filter of its own and writes `.` in that column. The chip is doing what it says, hiding every row whose filter value is anything but `PASS`, and on this track that is every row. The 862 LoFreq rows all say `PASS`, so the chip keeps all of them, and with both tracks loaded the table drops from 1,902 rows to 862. Read a bare `.` as unjudged rather than failed, and look at the column before you filter on it. Click **Clear** to bring the rows back.
 
 <!-- SHOT: variants-preset-chips -->
 
@@ -145,7 +145,7 @@ The operators depend on the field. A Location rule takes only `=`, meaning "insi
 
 A Region value must name the reference sequence as well as the range, in the form `chrom:start-end`. A bare range with no sequence name applies no restriction, and the table comes back unfiltered. Coordinates count from the start of the 500 kilobase slice, so the slice runs from 1 to 500001 even though its name carries 10.0 Mb.
 
-Try a pair of rules. Set the scope control to **Genome** first, since the counts are for the whole slice. Set the first rule to Location, Region, `=`, `chr20_10.0-10.5Mb:1-250000`, which keeps the first half of the slice. Set the second to INFO Field, `DP`, `>=`, `30`. Click Apply. On the bcftools track that keeps 300 of the 335 rows in that window, so most calls in the first half rest on at least thirty reads.
+Try a pair of rules. Set the scope control to **Genome** first, since the counts are for the whole slice. Set the first rule to Location, Region, `=`, `chr20_10.0-10.5Mb:1-250000`, which keeps the first half of the slice. Set the second to INFO Field, `DP`, `>=`, `30`. Click Apply. On the bcftools track that keeps 514 of the 558 rows in that window, so most calls in the first half rest on at least thirty reads.
 
 The sheet also offers built-in query presets, including `High-Confidence Coding`, `Rare Pathogenic`, `Quality Review`, `PASS + High Quality`, `Rare Variants`, and `Indels Only`. A preset whose rules name a missing annotation or `INFO` field is hidden. `Save Preset...` stores a query of your own in the same list.
 
@@ -161,11 +161,11 @@ Sort by `Position` ascending. Where both callers reported a coordinate, two rows
 
 <!-- SHOT: variants-source-column -->
 
-Coordinate 2078 shows a shared call. Use **Sequence > Go to Location...** (Cmd-L), type `chr20_10.0-10.5Mb:2078`, and click Go, with the scope control on **Region** so the table trims to what is on screen. Both callers report a reference `G` read as `A`. The bcftools row carries the genotype `1`, a haploid call meaning the one copy it modelled carries the change, with [allele depths](../../GLOSSARY.md#allele-depth) of 0 reference reads and 52 alternate reads, which the Inspector lists as `AD=0,52`. A diploid caller would write `1/1` here, both copies carrying the change. The LoFreq row carries no genotype and reports `AF` 1 instead. Every read carries the `A`, so this person has the change on both copies of chromosome 20, a [homozygous](../../GLOSSARY.md#homozygous) position, and the two callers agree in different notations.
+Coordinate 2078 shows a shared call. Use **Sequence > Go to Location...** (Cmd-L), type `chr20_10.0-10.5Mb:2078`, and click Go, with the scope control on **Region** so the table trims to what is on screen. Both callers report a reference `G` read as `A`. The bcftools row carries the genotype `1/1`, meaning both copies carry the change, with [allele depths](../../GLOSSARY.md#allele-depth) of 0 reference reads and 52 alternate reads, which the Inspector lists as `AD=0,52`. The LoFreq row carries no genotype and reports `AF` 1 instead. Every read carries the `A`, so this person has the change on both copies of chromosome 20, a [homozygous](../../GLOSSARY.md#homozygous) position, and the two callers agree in different notations.
 
-Coordinate 250527 shows the commonest disagreement. LoFreq reports a reference `C` read as `T` with `AF` 0.571 at a depth of 63, so a little over half the reads carry the change. That is what a heterozygous position in a human sample looks like. The bcftools track has no row there. LGE runs bcftools as a haploid caller, because its Call Variants dialog is built for viruses, and a haploid caller asks which single base each position carries, and a site where the reads split roughly in half often fails that question. Most of LoFreq's 487 positions that bcftools lacks are sites like this one. For diploid genotypes on a human sample, use [HaplotypeCaller](../06-human-germline-variants/01-haplotype-caller.md).
+Coordinate 250527 shows the other common kind of call. LoFreq reports a reference `C` read as `T` with `AF` 0.571 at a depth of 63, so a little over half the reads carry the change. That is what a heterozygous position in a human sample looks like. The bcftools row there carries the genotype `0/1`, one copy changed and one not, with allele depths of 20 reference reads and 33 alternate reads. Again the two callers agree, one as a fraction and one as a genotype.
 
-The disagreement in the other direction has a mundane cause. Of the 514 bcftools rows, 141 are [indels](../../GLOSSARY.md#indel), and LoFreq called none, because LoFreq skips indels unless asked. The Call Variants dialog's Extra arguments field shows `--call-indels` as its placeholder, which is the flag LoFreq wants. Before concluding that one caller is wrong, check whether a difference in what each caller was looking for explains the gap.
+Where the callers disagree, the cause is mundane. Of the 1,040 bcftools rows, 181 are [indels](../../GLOSSARY.md#indel), and LoFreq called none, because LoFreq skips indels unless asked. That accounts for 180 of the 187 positions only bcftools reported. None of the 10 positions only LoFreq reported appears in the benchmark. The Call Variants dialog's Extra arguments field shows `--call-indels` as its placeholder, which is the flag LoFreq wants. Before concluding that one caller is wrong, check whether a difference in what each caller was looking for explains the gap.
 
 ## Settings
 
@@ -187,29 +187,29 @@ Seven controls sit in the drawer toolbar on the Variants tab, and the column-hea
 
 ## Reading the results
 
-Set the scope control to **Genome** and read the table with no filter applied. It holds 1,376 rows, the 514 bcftools rows plus the 862 LoFreq rows. The tracks are stacked rather than merged, so a coordinate both callers reported contributes two rows.
+Set the scope control to **Genome** and read the table with no filter applied. It holds 1,902 rows, the 1,040 bcftools rows plus the 862 LoFreq rows. The tracks are stacked rather than merged, so a coordinate both callers reported contributes two rows.
 
 Take the `Filter` column first, because it decides whether later filters behave as you expect. Sort by it and the table splits in two. Every bcftools row reads `.` and every LoFreq row reads `PASS`. That is a difference in what each caller writes, not in quality. bcftools leaves the judgement to you, and LoFreq applies its filters while calling and writes only the survivors.
 
-Take `Quality` next. A [Phred score](../../GLOSSARY.md#phred-score) is a per-base quality on a logarithmic scale, where 20 means one wrong base in a hundred and 30 means one in a thousand, and a caller's `Quality` uses the same scale for the whole call. The two callers put their scores on scales that cannot be compared with each other, so read each track on its own. The bcftools rows run from 6.0 to 228.4, most sit at 225.4, and 33 of the 514 fall below 30. The LoFreq rows run from 73 to 2,478 and none fall below 30. The `Qual ≥ 30` chip applies the same threshold to both tracks, which is useful for finding a track's weakest rows and misleading for ranking one caller against the other. A healthy call set has most rows far above the threshold and a short tail near the bottom. A table that is mostly low scores says the alignment or the depth is the problem.
+Take `Quality` next. A [Phred score](../../GLOSSARY.md#phred-score) is a per-base quality on a logarithmic scale, where 20 means one wrong base in a hundred and 30 means one in a thousand, and a caller's `Quality` uses the same scale for the whole call. The two callers put their scores on scales that cannot be compared with each other, so read each track on its own. The bcftools rows run from 3.2 to 228.4, the commonest score is 225.4, and 12 of the 1,040 fall below 30. The LoFreq rows run from 73 to 2,478 and none fall below 30. The `Qual ≥ 30` chip applies the same threshold to both tracks, which is useful for finding a track's weakest rows and misleading for ranking one caller against the other. A healthy call set has most rows far above the threshold and a short tail near the bottom. A table that is mostly low scores says the alignment or the depth is the problem.
 
-Take depth third. [Depth](../../GLOSSARY.md#depth), also called coverage, is the number of reads covering one position, and [coverage breadth](../../GLOSSARY.md#coverage-breadth) is the share of positions with at least one read. Every bcftools row sits at a depth of 10 or more, because the Call Variants dialog's Minimum Depth of 10 removed shallower rows before the track was written. The bcftools rows average about 41 reads. Depth matters because an allele fraction means different things at different depths. Half the reads at a depth of 4 is two reads of evidence. Half the reads at a depth of 63 is more than thirty.
+Take depth third. [Depth](../../GLOSSARY.md#depth), also called coverage, is the number of reads covering one position, and [coverage breadth](../../GLOSSARY.md#coverage-breadth) is the share of positions with at least one read. Every bcftools row sits at a depth of 10 or more, because the Call Variants dialog's Minimum Depth of 10 removed shallower rows before the track was written. The bcftools rows average about 43 reads. Depth matters because an allele fraction means different things at different depths. Half the reads at a depth of 4 is two reads of evidence. Half the reads at a depth of 63 is more than thirty.
 
-Take [allele frequency](../../GLOSSARY.md#allele-frequency) last, which is where the tracks differ most in shape. Sort the LoFreq rows by the `AF` column and they split into 339 at or above 0.8, 517 between 0.2 and 0.8, and 6 below 0.2. That two-humped shape is what a diploid human sample should produce, with a heterozygous group near one half and a homozygous group near one. The bcftools track has no `AF` key and writes the genotype `1` on every row, so it cannot show that shape. Its allele depths still carry the evidence, and in 397 of its 514 rows at least 80 percent of the reads carry the alternate, which is why its calls lean so heavily toward homozygous sites.
+Take [allele frequency](../../GLOSSARY.md#allele-frequency) last, which is where the tracks differ most in shape. Sort the LoFreq rows by the `AF` column and they split into 339 at or above 0.8, 517 between 0.2 and 0.8, and 6 below 0.2. That two-humped shape is what a diploid human sample should produce, with a heterozygous group near one half and a homozygous group near one. The bcftools track has no `AF` key, but its genotypes show the same two groups, 617 heterozygous `0/1` rows and 405 homozygous `1/1` rows, plus 18 `1/2` rows where the two copies carry different changes.
 
-The `Type` column adds the last piece. Of the 514 bcftools rows, 373 are substitutions and 141 are insertions or deletions. All 862 LoFreq rows are substitutions. The `Indel` chip therefore hides every LoFreq row and keeps 141 bcftools rows, another case where an empty result describes the file rather than the filter.
+The `Type` column adds the last piece. Of the 1,040 bcftools rows, 859 are substitutions and 181 are insertions or deletions. All 862 LoFreq rows are substitutions. The `Indel` chip therefore hides every LoFreq row and keeps 181 bcftools rows, another case where an empty result describes the file rather than the filter.
 
 ## What good looks like
 
 Five checks are worth making on any variants table before you build on it.
 
-First, read the row count against the region and the caller. LoFreq's 862 rows across 500 kilobases is about one difference every 580 bases, close to the one in a thousand that separates any two people, and 808 of its 861 positions, 862 rows because one position has two alternates, match the fixture's benchmark, the curated answer key of true HG002 variants [Importing Existing VCFs](06-importing-existing-vcfs.md) loads. The haploid bcftools track holds fewer rows because it drops most heterozygous sites. A count in single digits would mean the alignment failed or the reference is wrong. Tens of thousands would mean sequencing error is being reported as signal.
+First, read the row count against the region and the caller. LoFreq's 862 rows across 500 kilobases is about one difference every 580 bases, close to the one in a thousand that separates any two people, and 808 of its 861 positions, 862 rows because one position has two alternates, match the fixture's benchmark, the curated answer key of true HG002 variants [Importing Existing VCFs](06-importing-existing-vcfs.md) loads. The bcftools track holds more rows, mostly because it also calls indels. A count in single digits would mean the alignment failed or the reference is wrong. Tens of thousands would mean sequencing error is being reported as signal.
 
 Second, look at the `Filter` column itself before you filter on it. An empty table after a chip click means either that no row passed or that no row was ever judged, and only the column tells you which.
 
 Third, check that quality and depth have the shape described above, most rows well clear of the thresholds and a short tail near the bottom. Sort by `Quality` ascending and read the first twenty rows. If the whole table looks like that tail, go back to the alignment.
 
-Fourth, when two tracks are loaded, look for a mundane explanation of their disagreement before an interesting one. Here the haploid bcftools model explains most of LoFreq's extra positions, and LoFreq's indel default explains bcftools' extra ones. A disagreement no difference in caller behaviour explains is worth investigating.
+Fourth, when two tracks are loaded, look for a mundane explanation of their disagreement before an interesting one. Here LoFreq's indel default explains nearly all of bcftools' extra positions. A disagreement no difference in caller behaviour explains is worth investigating.
 
 Fifth, know where each row came from. LGE writes a [provenance](../../GLOSSARY.md#provenance) record beside every result, holding the command, the tool version, and a [checksum](../../GLOSSARY.md#checksum) of each file, and [Provenance and Reproducibility](../01-foundations/08-provenance-and-reproducibility.md#reading-the-results) shows how to read it. The `Variant Track` column is not a link, so select the track in the project sidebar to read its record.
 
@@ -226,12 +226,12 @@ The first line below stores the bundle's path in a shortcut name. Replace the pa
 ```bash
 BUNDLE="MyProject.lungfish/Reference Sequences/GRCh38.chr20.10.0-10.5Mb.lungfishref"
 
-# Every call in the first track, whose haploid genotype is 1. 514 rows here.
+# Heterozygous calls in the first track. 617 rows here.
 lungfish-cli variants query "$BUNDLE" \
-    --filter 'Sample[HG002].GT=1' \
-    --output all-calls.vcf
+    --filter 'Sample[HG002].GT=0/1' \
+    --output heterozygous.vcf
 
-# Calls where at least half the reads carry the alternate. 489 rows here.
+# Calls where at least half the reads carry the alternate. 755 rows here.
 lungfish-cli variants query "$BUNDLE" \
     --filter 'Sample[HG002].AF>=0.5' \
     --output majority.vcf
@@ -240,7 +240,7 @@ lungfish-cli variants query "$BUNDLE" \
 bcftools view -H majority.vcf | wc -l
 ```
 
-A diploid clause such as `Sample[HG002].GT=0/1` returns no rows on this bundle, because the track it reads holds only haploid genotypes. `--limit` caps the export and defaults to 5000 rows, so raise it for a larger track.
+A haploid clause such as `Sample[HG002].GT=1` returns no rows on this bundle, because the track it reads holds diploid genotypes. `--limit` caps the export and defaults to 5000 rows, so raise it for a larger track.
 
 ## Next
 
