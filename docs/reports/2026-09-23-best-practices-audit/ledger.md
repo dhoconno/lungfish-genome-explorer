@@ -189,3 +189,4 @@ Single source of truth for finding status (plan rule 9). Status: `open`, `verifi
 | NEW-06 | P2 | EsViritu labels interleaved pairs Single-end and runs -p unpaired | open | | | live GUI |
 | NEW-07 | P1 | Selecting an annotation starts Update Annotation ops and rewrites genome.db; one stuck at 0% holds bundle lock | fixed | NEW-07 lane | e24cacfe4 | no-op commit guard + AppDelegate unchanged-annotation guard + reload before complete; 27 tests |
 | DS-02 | P2 | Small contigs: padded fetch window spreads sample over whole contig; in-view share small | open | | | live GUI |
+| TST-15 | P2 | Pre-existing Genotype Excel contract conflict + InvalidTransition flake (5 tests) | quarantined | stabilization | | proven failing at a1f439076; KNOWN_PREEXISTING_FAILURES in gate; decision D8 |

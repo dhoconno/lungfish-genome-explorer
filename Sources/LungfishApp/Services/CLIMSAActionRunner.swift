@@ -58,20 +58,18 @@ struct CLIMSAActionRunner {
             }
             let outputURL = URL(fileURLWithPath: outputPath, isDirectory: Self.isNativeBundlePath(outputPath))
             if ownsOperationLifecycle {
-                await MainActor.run {
-                    if Self.isNativeBundleURL(outputURL) {
-                        _ = OperationCenter.shared.complete(
-                            id: operationID,
-                            detail: "MSA action complete",
-                            bundleURLs: [outputURL]
-                        )
-                    } else {
-                        _ = OperationCenter.shared.complete(
-                            id: operationID,
-                            detail: "MSA action complete",
-                            outputURLs: [outputURL]
-                        )
-                    }
+                if Self.isNativeBundleURL(outputURL) {
+                    await OperationCenterCLIBridge.completeOperation(
+                        operationID,
+                        detail: "MSA action complete",
+                        bundleURLs: [outputURL]
+                    )
+                } else {
+                    await OperationCenterCLIBridge.completeOperation(
+                        operationID,
+                        detail: "MSA action complete",
+                        outputURLs: [outputURL]
+                    )
                 }
                 if await OperationCenterCLIBridge.isOperationCancelled(operationID) {
                     throw CancellationError()

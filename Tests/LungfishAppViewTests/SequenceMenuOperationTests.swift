@@ -450,8 +450,9 @@ final class SequenceMenuOperationTests: XCTestCase {
         XCTAssertTrue(appDelegateSource.contains("menuItem.action == #selector(translate(_:))"))
         XCTAssertTrue(sequenceViewerSource.contains("func canRunSelectedSequenceFASTAOperation() -> Bool"))
         XCTAssertTrue(sequenceViewerSource.contains("viewController?.contentMode == .genomics, !isHidden"))
-        XCTAssertTrue(appDelegateSource.contains("showFASTQOperationsDialog(sender, initialCategory: .readProcessing, initialToolID: .reverseComplement)"))
-        XCTAssertTrue(appDelegateSource.contains("showFASTQOperationsDialog(sender, initialCategory: .readProcessing, initialToolID: .translate)"))
+        // Dataset-level Reverse Complement and Translate launch through the
+        // generic Tools menu tool launcher; the per-tool AppDelegate handlers
+        // were orphaned and removed (audit P5-A, WFL-21).
         XCTAssertTrue(mainMenuSource.contains("#selector(ToolsMenuActions.launchFASTQOperationToolFromMenu(_:))"))
         XCTAssertTrue(sequenceViewerSource.contains("presentFASTAOperationDialog("))
     }

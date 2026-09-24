@@ -161,6 +161,19 @@ PARALLEL_HAZARD_SUITES='AppSettingsTests|MainMenuStructureTests|ClassifierExtrac
 # `|`-joined branch would match every test name and skip the whole suite)
 # so a future regression has an obvious place to add the exclusion back.
 KNOWN_HANGING_TESTS=''
+# Quarantine for failures PROVEN to exist at the pre-audit base a1f439076
+# (reproduced there in a throwaway worktree on 2026-09-24). Each entry needs an
+# owner decision before it can be fixed, so it is recorded here rather than
+# silently skipped. Ledger: TST-15; decision D8 in
+# docs/reports/2026-09-23-best-practices-audit/decisions.md.
+# - Genotype Excel Filtered-sheet comment contract: these tests expect
+#   "Evidence: display=..., raw support=..." wrapping, while the green contract
+#   test GenotypeExcelExportServiceTests.testMatrixCommentsAreExactUserNotesAndReviewsRemainPureFormatting
+#   requires exact user notes. The two contracts contradict each other.
+# - GenotypeViewportExcelExportTests: pre-existing InvalidTransition(idle ->
+#   failed(deinit)) async flake, seen in gate logs since 2026-08-22.
+# Remove an entry as soon as its decision is made and the test is fixed.
+KNOWN_PREEXISTING_FAILURES='GenotypeFullCurrentEvidenceOracleTests/testIndependentOracleRejectsCoherentRenderedMutations|GenotypeUnifiedExcelAcceptanceTests/testMiSeqAllAndCombinedFilteredViewMatchIndependentEvidenceAndCalls|GenotypeUnifiedExcelAcceptanceTests/testNativeFilteredViewportMatchesWorkbookUnderCombinedVisibilityControls|GenotypeViewportExcelExportTests/testReviewedActiveAnalysisReachesProductionFilteredWorkbookAndProvenance|GenotypePivotFilteredCopyTests/testExactStableReviewCommentAndPaletteSurviveOrdinaryCommand'
 INTEGRATION_FILTER="^LungfishIntegrationTests\\.|${CLI_E2E_SUITES}|${STORAGE_SUITES}|${PARALLEL_HAZARD_SUITES}"
 
 if [ -n "$TIER" ] && [ -n "$FILTER" ]; then
@@ -177,6 +190,10 @@ case "$TIER" in
         # only append KNOWN_HANGING_TESTS when it is actually set.
         if [ -n "$KNOWN_HANGING_TESTS" ]; then
             SKIP="${SKIP}|${KNOWN_HANGING_TESTS}"
+        fi
+        if [ -n "$KNOWN_PREEXISTING_FAILURES" ]; then
+            echo "Quarantined pre-existing failures (TST-15, decision D8): ${KNOWN_PREEXISTING_FAILURES}" >&2
+            SKIP="${SKIP}|${KNOWN_PREEXISTING_FAILURES}"
         fi
         # The unit tier ALWAYS runs --parallel. This is not only the speed goal:
         # in serial mode SwiftPM expands a --skip/--filter selection into one

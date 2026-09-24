@@ -72,6 +72,12 @@ enum OperationCenterCLIBridge {
     static func completeOperation(_ id: UUID, detail: String, bundleURLs: [URL]) {
         _ = OperationCenter.shared.complete(id: id, detail: detail, bundleURLs: bundleURLs)
     }
+
+    /// Marks an operation complete with loose (non-bundle) output files.
+    @MainActor
+    static func completeOperation(_ id: UUID, detail: String, outputURLs: [URL]) {
+        _ = OperationCenter.shared.complete(id: id, detail: detail, outputURLs: outputURLs)
+    }
 }
 
 private extension CLIEventLogLevel {

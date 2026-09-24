@@ -78,11 +78,15 @@ class FullSuiteGateTierTests(unittest.TestCase):
             "parallel-hazard variables",
         )
         self.assertIn(
-            'SKIP="${INTEGRATION_FILTER}|${CONFORMANCE_FILTER}|${KNOWN_HANGING_TESTS}"',
+            'SKIP="${INTEGRATION_FILTER}|${CONFORMANCE_FILTER}"',
             gate,
-            "unit tier must skip the integration + conformance selections plus "
-            "any confirmed-hanging test carved out under KNOWN_HANGING_TESTS (TST-05)",
+            "unit tier must skip the integration + conformance selections",
         )
+        # Optional carve-outs are appended only when non-empty, so an empty
+        # list can never add a bare `|` that would match (skip) every test.
+        self.assertIn('SKIP="${SKIP}|${KNOWN_HANGING_TESTS}"', gate)
+        self.assertIn('SKIP="${SKIP}|${KNOWN_PREEXISTING_FAILURES}"', gate)
+        self.assertIn('if [ -n "$KNOWN_PREEXISTING_FAILURES" ]; then', gate)
 
     def test_measured_parallel_hazards_move_to_serial_integration_without_losing_coverage(self):
         def selection(tier):
