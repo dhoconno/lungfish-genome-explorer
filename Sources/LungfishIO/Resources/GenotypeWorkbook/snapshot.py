@@ -337,7 +337,29 @@ def _row_comment(row):
     return row.get('comment')
 
 def _cell_comment(cell):
+    # Decision D8: a cell comment carries the user's note verbatim. Evidence
+    # and review state are never wrapped into it; review is pure formatting
+    # and evidence has its own Filtered-sheet column.
     return cell.get('comment')
+
+EVIDENCE_COLUMN_TITLE = 'Evidence (display / raw support)'
+
+def _evidence_summary(row, samples):
+    """One exportable text value per Filtered row: for every sample with a
+    displayed or known raw value, 'Sample: display / raw'. A display of None
+    is 'hidden' (masked by the view); a raw of None is 'unknown'."""
+    by_sample = {cell['sampleID']: cell for cell in row['cells']}
+    parts = []
+    for sample in samples:
+        cell = by_sample[sample['id']]
+        display = cell.get('displayValue')
+        raw = cell.get('rawSupport')
+        if display is None and raw is None:
+            continue
+        parts.append(sample['name'] + ': '
+                     + ('hidden' if display is None else str(display)) + ' / '
+                     + ('unknown' if raw is None else str(raw)))
+    return '; '.join(parts) if parts else None
 
 def _finish_sheet(sheet, header_rows):
     for row_number in header_rows:
@@ -385,7 +407,7 @@ def _render_calls(workbook, payload, colors):
         sheet.row_dimensions[row_number].height = 30
     _finish_sheet(sheet, [1])
 
-def _render_matrix(workbook, title, matrix, payload, colors):
+def _render_matrix(workbook, title, matrix, payload, colors, evidence_column=False):
     sheet = workbook.create_sheet(title)
     calls = {(call['sampleID'], call['locus']): call for call in payload['calls']}
     has_bands = payload['hasHaplotypeContent'] and bool(matrix['loci'])
@@ -454,6 +476,9 @@ def _render_matrix(workbook, title, matrix, payload, colors):
         generated = _sample_comment(sample)
         if generated is not None and not has_bands:
             sheet.cell(header_row, column).comment = Comment(generated, 'LGE')
+    evidence_column_index = sample_start + len(matrix['samples']) if evidence_column else None
+    if evidence_column_index is not None:
+        _literal(sheet.cell(header_row, evidence_column_index), EVIDENCE_COLUMN_TITLE)
     for row_number, row in enumerate(matrix['rows'], header_row + 1):
         _literal(sheet.cell(row_number, 1), row['id'])
         for index, presentation in enumerate(columns):
@@ -473,6 +498,8 @@ def _render_matrix(workbook, title, matrix, payload, colors):
             generated = _cell_comment(captured)
             if generated is not None:
                 cell.comment = Comment(generated, 'LGE')
+        if evidence_column_index is not None:
+            _literal(sheet.cell(row_number, evidence_column_index), _evidence_summary(row, matrix['samples']))
 
     sheet.column_dimensions['A'].hidden = True
     widths = {
@@ -483,9 +510,12 @@ def _render_matrix(workbook, title, matrix, payload, colors):
         sheet.column_dimensions[get_column_letter(index)].width = widths[presentation['kind']]
     for column in range(sample_start, sample_start + len(matrix['samples'])):
         sheet.column_dimensions[get_column_letter(column)].width = 18
+    if evidence_column_index is not None:
+        sheet.column_dimensions[get_column_letter(evidence_column_index)].width = 48
     sheet.freeze_panes = get_column_letter(sample_start) + str(header_row)
     first_filter_column = 2 if columns or matrix['samples'] else 1
-    last_filter_column = max(1, 1 + len(columns) + len(matrix['samples']))
+    last_filter_column = max(1, 1 + len(columns) + len(matrix['samples'])
+                             + (1 if evidence_column_index is not None else 0))
     sheet.auto_filter.ref = '%s%d:%s%d' % (
         get_column_letter(first_filter_column),
         header_row,
@@ -537,7 +567,7 @@ def render_genotype_snapshot(payload, output_path):
     if payload['hasHaplotypeContent']:
         _render_calls(workbook, payload, colors)
     _render_matrix(workbook, 'Genotype Matrix - All', payload['allMatrix'], payload, colors)
-    _render_matrix(workbook, 'Genotype Matrix - Filtered', payload['filteredMatrix'], payload, colors)
+    _render_matrix(workbook, 'Genotype Matrix - Filtered', payload['filteredMatrix'], payload, colors, evidence_column=True)
     _render_metadata(workbook, payload)
     result = _summary(workbook)
     workbook.save(output_path)

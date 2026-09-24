@@ -58,8 +58,9 @@ final class GenotypeWorkbookSnapshotTests: XCTestCase {
         XCTAssertEqual(sparse.sparseFilteredValues, ["S2", "M4A", "5"])
 
         let empty = try render(snapshot: fixture(), mutation: "empty-filtered")
-        XCTAssertEqual(empty.filteredShape, [1, 3])
-        XCTAssertEqual(empty.filteredHeaderValues, ["Stable ID", "Locus", "Allele"])
+        // Decision D8: the Filtered sheet always ends with its evidence column.
+        XCTAssertEqual(empty.filteredShape, [1, 4])
+        XCTAssertEqual(empty.filteredHeaderValues, ["Stable ID", "Locus", "Allele", "Evidence (display / raw support)"])
     }
 
     func testExplicitEmptyPresentationUsesInternalRowAnchorWithoutShiftingSamples() throws {
@@ -298,7 +299,8 @@ else:
 result={
     'sheetNames':wb.sheetnames,
     'allEvidence':([all_ws['E5'].value,all_ws['F5'].value] if primary_anchor else [all_ws['D5'].value,all_ws['E5'].value]),
-    'filteredEvidence':([filtered_ws['E5'].value,filtered_ws['F5'].value] if primary_anchor else [filtered_ws['D5'].value,filtered_ws['E5'].value]),
+    'filteredEvidence':([filtered_ws['E5'].value,filtered_ws['F5'].value] if primary_anchor else
+        [filtered_ws['B5'].value,filtered_ws['C5'].value] if explicit_empty else [filtered_ws['D5'].value,filtered_ws['E5'].value]),
     'allCalls':[all_ws['D2'].value,all_ws['D3'].value,all_ws['E2'].value,all_ws['E3'].value] if p['hasHaplotypeContent'] and p['allMatrix']['loci'] and sys.argv[4] not in ('analyzed-unresolved','manual-explicit-absence','explicit-empty-columns') else [],
     'filteredCalls':[filtered_ws['D2'].value,filtered_ws['D3'].value,filtered_ws['E2'].value,filtered_ws['E3'].value] if p['hasHaplotypeContent'] and p['filteredMatrix']['loci'] and sys.argv[4] not in ('analyzed-unresolved','manual-explicit-absence','explicit-empty-columns') else [],
     'callValues':[calls['D2'].value,calls['E2'].value,calls['D3'].value,calls['E3'].value] if calls and sys.argv[4] not in ('analyzed-unresolved','manual-explicit-absence') else [],
@@ -320,7 +322,7 @@ result={
     'callStatuses':[calls['F2'].value,calls['G2'].value] if calls else [],
     'sparseFilteredValues':[str(filtered_ws['D1'].value),str(filtered_ws['C2'].value),str(filtered_ws['D2'].value)] if sys.argv[4]=='sparse-filtered' else [],
     'filteredShape':filtered_shape,
-    'filteredHeaderValues':[filtered_ws.cell(1,c).value for c in range(1,4)] if sys.argv[4]=='empty-filtered' else [],
+    'filteredHeaderValues':[filtered_ws.cell(1,c).value for c in range(1,5)] if sys.argv[4]=='empty-filtered' else [],
     'reviewStyles':review_styles,
     'invalidReviewsWithheld':invalid_reviews_withheld,
     'explicitStyleClearing':explicit_style_clearing,

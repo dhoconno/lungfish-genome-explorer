@@ -186,6 +186,7 @@ final class GenotypeViewportExcelExportTests: XCTestCase {
         XCTAssertEqual(payload["sheets"] as? [String], ["Haplotype Calls", "Genotype Matrix - All", "Genotype Matrix - Filtered", "Export Metadata"])
         XCTAssertEqual(payload["call"] as? [String], ["AnimalA", "MHC-A", "M1A", "M1A", "called", "called", "pipeline", "pipeline", "M1A", "-"])
         XCTAssertEqual(payload["matrixRows"] as? [[String]], [[retained.genotype, "MHC-A", "", "100"]])
+        XCTAssertEqual(payload["evidenceColumn"] as? [String], ["AnimalA: 100 / 100"])
         XCTAssertEqual(payload["allRows"] as? Int, 2)
         XCTAssertEqual(payload["bands"] as? [[String]], [["M1A", "M1A"], ["M1A", "M1A"]])
         let metadata = try XCTUnwrap(payload["metadata"] as? [String: String])
@@ -658,13 +659,26 @@ calls=wb['Haplotype Calls']
 matrix=wb['Genotype Matrix - Filtered']
 headers={c.value:c.column for c in calls[1]}
 fields=['Sample','Locus','Effective H1','Effective H2','H1 status','H2 status','H1 source','H2 source','Pipeline H1','Pipeline H2']
-evidence={r[0].value:r for r in matrix if r[0].value in {x['id'] for x in p['filteredMatrix']['rows']}}
+# Locate columns by the table header (the last 'Stable ID' row), never by a
+# fixed position: the native matrix decides which presentation columns exist.
+def table_header(sheet):
+    return [r for r in sheet.iter_rows() if r[0].value=='Stable ID'][-1]
+header=table_header(matrix)
+columns={c.value:c.column-1 for c in header}
+sample=p['filteredMatrix']['samples'][0]['name']
+evidence={r[0].value:r for r in matrix.iter_rows(min_row=header[0].row+1) if r[0].value in {x['id'] for x in p['filteredMatrix']['rows']}}
 assert len(evidence)==len(p['filteredMatrix']['rows'])
-for r in p['filteredMatrix']['rows']: assert evidence[r['id']][2].value==r['displayName']
-bands=[[r[3].value for r in wb[n] if r[2].value in ('H1','H2')] for n in ['Genotype Matrix - All','Genotype Matrix - Filtered']]
+for r in p['filteredMatrix']['rows']: assert evidence[r['id']][columns['Genotype']].value==r['target']['genotype']
+def band_values(sheet):
+    top=table_header(sheet)
+    first=[c.column-1 for c in top if c.value==sample][0]
+    return [r[first].value for r in sheet.iter_rows(max_row=top[0].row-1)
+            if isinstance(r[1].value,str) and r[1].value.split(' ')[-1] in ('H1','H2')]
+bands=[band_values(wb[n]) for n in ['Genotype Matrix - All','Genotype Matrix - Filtered']]
 all_ids={r['id'] for r in p['allMatrix']['rows']}
 out=dict(sheets=wb.sheetnames,call=[str(calls.cell(2,headers[f]).value or '') for f in fields],
- matrixRows=[[r['target']['genotype'],evidence[r['id']][1].value,r['target'].get('stableClusterID') or '',str(evidence[r['id']][3].value)] for r in p['filteredMatrix']['rows']],
+ matrixRows=[[r['target']['genotype'],r['target']['locus'],r['target'].get('stableClusterID') or '',str(evidence[r['id']][columns[sample]].value)] for r in p['filteredMatrix']['rows']],
+ evidenceColumn=[str(evidence[r['id']][columns['Evidence (display / raw support)']].value) for r in p['filteredMatrix']['rows']],
  allRows=sum(r[0].value in all_ids for r in wb['Genotype Matrix - All']),bands=bands,
  metadata={str(r[0].value or ''):str(r[1].value or '') for r in wb['Export Metadata']},
  formulaCount=sum(c.data_type=='f' for s in wb for row in s for c in row))
