@@ -5,6 +5,7 @@
 import AppKit
 import LungfishCore
 import LungfishIO
+import LungfishWorkflow
 import os.log
 
 private let blastLogger = Logger(subsystem: LogSubsystem.app, category: "BlastResultsDrawer")
@@ -1483,7 +1484,11 @@ public final class BlastResultsDrawerTab: NSView, NSMenuItemValidation {
     /// Organism, TaxId, Identity%, Coverage%, E-value, Bit Score, Alignment Length.
     ///
     /// One row per hit (a read with 5 hits produces 5 output rows).
-    private func writeExportFile(
+    ///
+    /// `internal` (not `private`) so the write-and-sidecar behaviour is
+    /// directly testable, matching the seam `TaxonomyViewController.writeDelimitedExport`
+    /// uses for the same purpose (REC-03).
+    func writeExportFile(
         result: BlastVerificationResult,
         to url: URL,
         separator: String
@@ -1540,8 +1545,38 @@ public final class BlastResultsDrawerTab: NSView, NSMenuItemValidation {
         }
 
         let content = lines.joined(separator: "\n") + "\n"
+        // REC-03: this export previously wrote only the CSV/TSV payload, with
+        // no provenance sidecar recording which BLAST verification produced
+        // it. Writes atomically through `ScientificFileExportProvenance`, the
+        // same helper used by sequence and taxonomy table exports.
+        let separatorName = separator == "\t" ? "tsv" : "csv"
         do {
-            try content.write(to: url, atomically: true, encoding: .utf8)
+            try ScientificFileExportProvenance.writeAtomically(.init(
+                workflowName: "lungfish app blast verification table export",
+                sourceURLs: [],
+                outputURL: url,
+                outputFormat: .text,
+                argv: [
+                    CLICommandIdentity.executableName,
+                    "export", "blast-verification-table",
+                    "--separator", separatorName,
+                    "--output", url.path,
+                ],
+                explicitOptions: [
+                    "outputPath": .file(url),
+                    "separator": .string(separatorName),
+                    "taxonName": .string(result.taxonName),
+                    "taxId": .integer(result.taxId),
+                ],
+                resolved: [
+                    "totalReads": .integer(result.totalReads),
+                    "outputByteCount": .integer(content.utf8.count),
+                ],
+                startedAt: Date(),
+                completedAt: Date()
+            )) { staged in
+                try content.write(to: staged, atomically: true, encoding: .utf8)
+            }
             blastLogger.info("Exported BLAST results to \(url.path, privacy: .public)")
         } catch {
             blastLogger.error("Failed to export BLAST results: \(error.localizedDescription, privacy: .public)")
