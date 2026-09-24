@@ -218,6 +218,12 @@ extension InspectorViewController {
     /// The bundle (`.lungfishmhcref`) is metadata-only: it has no viewport, so this
     /// loads its manifest plus any embedded haplotype definitions and surfaces them
     /// in the Bundle inspector tab.
+    /// Shows a `.lungfishprimers` bundle's manifest in the Document tab.
+    func updatePrimerSchemeDocument(_ bundle: PrimerSchemeBundle) {
+        viewModel.readStyleSectionViewModel.clear()
+        viewModel.documentSectionViewModel.updatePrimerSchemeDocument(bundle)
+    }
+
     func updateMHCReferenceBundleDocument(_ bundleURL: URL) {
         viewModel.readStyleSectionViewModel.clear()
 
