@@ -1,4 +1,5 @@
 import XCTest
+import ArgumentParser
 @testable import LungfishCLI
 @testable import LungfishWorkflow
 @testable import LungfishCore
@@ -180,7 +181,7 @@ final class VariantsCommandTests: XCTestCase {
             "--bundle", tempDir.path,
             "--alignment-track", "aln-1",
             "--caller", "bcftools",
-            "--extra-args", "--ploidy 1",
+            "--extra-args", "-P 0.001",
             "--format", "json",
         ])
         let runtime = try makeRuntime(onPreflight: { request in
@@ -190,7 +191,72 @@ final class VariantsCommandTests: XCTestCase {
         _ = try await command.executeForTesting(runtime: runtime) { _ in }
 
         XCTAssertEqual(capture.request?.caller.rawValue, "bcftools")
-        XCTAssertEqual(capture.request?.advancedArguments, ["--ploidy", "1"])
+        XCTAssertEqual(capture.request?.advancedArguments, ["-P", "0.001"])
+        XCTAssertNil(capture.request?.ploidy, "Omitting --ploidy leaves the pipeline to derive it from the bundle")
+    }
+
+    func testCallSubcommandPassesExplicitPloidyToRuntime() async throws {
+        let capture = CapturedVariantRequest()
+        let command = try VariantsCommand.CallSubcommand.parse([
+            "call",
+            "--bundle", tempDir.path,
+            "--alignment-track", "aln-1",
+            "--caller", "bcftools",
+            "--ploidy", "2",
+            "--format", "json",
+        ])
+        let runtime = try makeRuntime(onPreflight: { request in
+            capture.request = request
+        })
+
+        _ = try await command.executeForTesting(runtime: runtime) { _ in }
+
+        XCTAssertEqual(capture.request?.ploidy, .diploid)
+    }
+
+    func testCallSubcommandRejectsPloidyInExtraArgsForBcftools() async throws {
+        let command = try VariantsCommand.CallSubcommand.parse([
+            "call",
+            "--bundle", tempDir.path,
+            "--alignment-track", "aln-1",
+            "--caller", "bcftools",
+            "--extra-args", "--ploidy 1",
+            "--format", "json",
+        ])
+        let runtime = try makeRuntime(onPreflight: { _ in })
+
+        do {
+            _ = try await command.executeForTesting(runtime: runtime) { _ in }
+            XCTFail("Expected --ploidy in --extra-args to be rejected")
+        } catch let error as ValidationError {
+            XCTAssertEqual(error.message, VariantCallingPloidy.reservedExtraArgumentMessage)
+        }
+    }
+
+    func testCallSubcommandRejectsPloidyOutsideOneOrTwoAndForOtherCallers() async throws {
+        let runtime = try makeRuntime(onPreflight: { _ in })
+
+        let badValue = try VariantsCommand.CallSubcommand.parse([
+            "call", "--bundle", tempDir.path, "--alignment-track", "aln-1",
+            "--caller", "bcftools", "--ploidy", "3", "--format", "json",
+        ])
+        do {
+            _ = try await badValue.executeForTesting(runtime: runtime) { _ in }
+            XCTFail("Expected --ploidy 3 to be rejected")
+        } catch let error as ValidationError {
+            XCTAssertTrue(error.message.contains("1 (haploid) or 2 (diploid)"), error.message)
+        }
+
+        let wrongCaller = try VariantsCommand.CallSubcommand.parse([
+            "call", "--bundle", tempDir.path, "--alignment-track", "aln-1",
+            "--caller", "lofreq", "--ploidy", "2", "--format", "json",
+        ])
+        do {
+            _ = try await wrongCaller.executeForTesting(runtime: runtime) { _ in }
+            XCTFail("Expected --ploidy to be rejected for LoFreq")
+        } catch let error as ValidationError {
+            XCTAssertTrue(error.message.contains("applies only to --caller bcftools"), error.message)
+        }
     }
 
     func testCallSubcommandAcceptsClair3CallerAndModel() async throws {

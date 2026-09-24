@@ -1,6 +1,7 @@
 import SwiftUI
 import Observation
 import LungfishKit
+import LungfishWorkflow
 
 struct BAMVariantCallingToolPanes: View {
     @Bindable var state: BAMVariantCallingDialogState
@@ -91,6 +92,19 @@ struct BAMVariantCallingToolPanes: View {
             case .bcftools:
                 Text("bcftools will run mpileup and call as an orthogonal cross-check on the selected BAM.")
                     .foregroundStyle(.secondary)
+
+                VStack(alignment: .leading, spacing: 6) {
+                    Picker("Ploidy", selection: $state.ploidy) {
+                        ForEach(VariantCallingPloidy.allCases, id: \.self) { ploidy in
+                            Text(ploidy.displayName).tag(ploidy)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .lungfishHelp(LungfishHelpContent.bamVariantPloidy)
+                    Text(state.inferredPloidy.summary)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
 
             case .ivar:
                 if let auto = state.autoConfirmedPrimerTrim {

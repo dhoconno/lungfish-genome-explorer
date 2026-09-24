@@ -229,6 +229,76 @@ final class BAMVariantCallingDialogRoutingTests: XCTestCase {
         XCTAssertTrue(state.readinessText.contains("bcftools"))
     }
 
+    @MainActor
+    func testDialogStateSeedsBcftoolsPloidyFromBundleOrganism() throws {
+        // The fixture bundle's organism is "Virus", so the SCI-04 haploid
+        // default holds; a human bundle must come up diploid.
+        let viral = BAMVariantCallingDialogState(bundle: try makeBundleFixture())
+        let human = BAMVariantCallingDialogState(bundle: try makeBundleFixture(organism: "Homo sapiens"))
+
+        XCTAssertEqual(viral.ploidy, .haploid)
+        XCTAssertEqual(viral.inferredPloidy.basis, .organismName)
+        XCTAssertEqual(human.ploidy, .diploid)
+        XCTAssertEqual(human.inferredPloidy.basis, .organismName)
+        XCTAssertTrue(human.inferredPloidy.summary.contains("Diploid"))
+    }
+
+    @MainActor
+    func testDialogStateCarriesPloidyIntoBcftoolsRequestOnly() throws {
+        let state = BAMVariantCallingDialogState(bundle: try makeBundleFixture(organism: "Homo sapiens"))
+
+        state.selectCaller(.bcftools)
+        state.prepareForRun()
+        let bcftoolsRequest = try XCTUnwrap(state.pendingRequest)
+        XCTAssertEqual(bcftoolsRequest.ploidy, .diploid)
+        XCTAssertTrue(state.readinessText.contains("diploid"))
+
+        state.ploidy = .haploid
+        state.prepareForRun()
+        XCTAssertEqual(state.pendingRequest?.ploidy, .haploid)
+        XCTAssertArgumentPair(CLIVariantCallingRunner.buildCLIArguments(request: try XCTUnwrap(state.pendingRequest)), "--ploidy", "1")
+
+        state.selectCaller(.lofreq)
+        state.prepareForRun()
+        XCTAssertNil(state.pendingRequest?.ploidy, "Ploidy only reaches bcftools")
+    }
+
+    @MainActor
+    func testDialogStateRefusesPloidyInExtraArgumentsForBcftools() throws {
+        let state = BAMVariantCallingDialogState(bundle: try makeBundleFixture())
+        state.selectCaller(.bcftools)
+        state.advancedOptionsText = "--ploidy 2"
+
+        XCTAssertFalse(state.isRunEnabled)
+        XCTAssertEqual(state.readinessText, VariantCallingPloidy.reservedExtraArgumentMessage)
+        state.prepareForRun()
+        XCTAssertNil(state.pendingRequest)
+
+        state.selectCaller(.lofreq)
+        XCTAssertTrue(state.isRunEnabled, "The reservation is bcftools-specific")
+    }
+
+    @MainActor
+    func testVariantCallingDialogShowsPloidyPickerOnlyForBcftools() throws {
+        let state = BAMVariantCallingDialogState(bundle: try makeBundleFixture(organism: "Homo sapiens"))
+
+        let lofreqTexts = try BAMVariantCallingToolPanes(state: state).inspect()
+            .findAll(ViewType.Text.self).compactMap { try? $0.string() }
+        XCTAssertFalse(lofreqTexts.contains("Haploid"))
+
+        state.selectCaller(.bcftools)
+        let inspected = try BAMVariantCallingToolPanes(state: state).inspect()
+        let texts = try inspected.findAll(ViewType.Text.self).compactMap { try? $0.string() }
+        XCTAssertTrue(texts.contains("Haploid"))
+        XCTAssertTrue(texts.contains("Diploid"))
+        XCTAssertTrue(texts.contains(state.inferredPloidy.summary))
+
+        let ploidyPicker = try inspected.find(ViewType.Picker.self, where: { picker in
+            (try? picker.labelView().text().string()) == "Ploidy"
+        })
+        XCTAssertEqual(try ploidyPicker.help().string(), LungfishHelpContent.bamVariantPloidy.summary)
+    }
+
     func testCatalogIncludesBcftoolsFromRequiredSetupPack() {
         let item = BAMVariantCallingCatalog.availableSidebarItems().first { $0.id == "bcftools" }
 
@@ -676,7 +746,8 @@ final class BAMVariantCallingDialogRoutingTests: XCTestCase {
     private func makeBundleFixture(
         alignments: [AlignmentTrackInfo]? = nil,
         existingFiles: [String]? = nil,
-        existingVariantTrackNames: [String] = []
+        existingVariantTrackNames: [String] = [],
+        organism: String = "Virus"
     ) throws -> ReferenceBundle {
         let resolvedAlignments = alignments ?? [
             AlignmentTrackInfo(
@@ -705,7 +776,7 @@ final class BAMVariantCallingDialogRoutingTests: XCTestCase {
         let manifest = BundleManifest(
             name: "Bundle",
             identifier: "bundle.test",
-            source: SourceInfo(organism: "Virus", assembly: "TestAssembly", database: "Test"),
+            source: SourceInfo(organism: organism, assembly: "TestAssembly", database: "Test"),
             genome: GenomeInfo(
                 path: "genome/reference.fa.gz",
                 indexPath: "genome/reference.fa.gz.fai",

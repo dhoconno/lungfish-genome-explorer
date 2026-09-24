@@ -44,6 +44,10 @@ public struct BundleVariantCallingRequest: Sendable, Equatable {
     public let ivarMergeAFThreshold: Double
     public let ivarBadQualityThreshold: Int
     public let ivarIgnoreStrandBias: Bool
+    /// Genotype ploidy for bcftools. `nil` means "derive from the bundle
+    /// manifest" via `VariantCallingPloidyDefaults`; ignored by every other
+    /// caller, none of which emits genotypes.
+    public let ploidy: VariantCallingPloidy?
 
     public init(
         bundleURL: URL,
@@ -59,7 +63,8 @@ public struct BundleVariantCallingRequest: Sendable, Equatable {
         ivarConsensusAF: Double = 0.75,
         ivarMergeAFThreshold: Double = 0.25,
         ivarBadQualityThreshold: Int = 20,
-        ivarIgnoreStrandBias: Bool = true
+        ivarIgnoreStrandBias: Bool = true,
+        ploidy: VariantCallingPloidy? = nil
     ) {
         self.bundleURL = bundleURL
         self.alignmentTrackID = alignmentTrackID
@@ -75,6 +80,7 @@ public struct BundleVariantCallingRequest: Sendable, Equatable {
         self.ivarMergeAFThreshold = ivarMergeAFThreshold
         self.ivarBadQualityThreshold = ivarBadQualityThreshold
         self.ivarIgnoreStrandBias = ivarIgnoreStrandBias
+        self.ploidy = ploidy
     }
 }
 
