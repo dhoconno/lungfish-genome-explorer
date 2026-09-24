@@ -52,6 +52,16 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Treat an HTTP 404 as an appcast that has not been initialized yet",
     )
+    parser.add_argument(
+        "--yank",
+        action="store_true",
+        help=(
+            "REL-04: allow the planned build to equal a known prior published build "
+            "(rather than requiring strictly greater), for restoring a withdrawn "
+            "release's appcast via 'release.py yank'. Still rejects a planned build "
+            "below the live one."
+        ),
+    )
     source = parser.add_mutually_exclusive_group(required=True)
     source.add_argument("--appcast", type=Path)
     source.add_argument("--appcast-url")
@@ -73,14 +83,26 @@ def main() -> int:
                 return 0
             raise
         current = live_build_number(appcast)
-        if planned <= current:
+        if args.yank:
+            # A yank restores a specific prior published build. Equality
+            # with the live (bad) build is never valid -- that build IS the
+            # live one -- but equality with an OLDER retained build the
+            # operator is restoring is exactly the yank case, so only reject
+            # strictly-below-current, not equal-to-current.
+            if planned < current:
+                raise BuildNumberError(
+                    f"planned Sparkle build {planned} is below live Sparkle build {current}; "
+                    "a yank can only restore a build that was already published"
+                )
+        elif planned <= current:
             raise BuildNumberError(
                 f"planned Sparkle build {planned} must exceed live Sparkle build {current}"
             )
     except (BuildNumberError, ET.ParseError, OSError) as exc:
         print(f"Sparkle build-number gate failed: {exc}", file=sys.stderr)
         return 64
-    print(f"Sparkle build-number gate passed: {planned} > {current}")
+    comparison = ">=" if args.yank else ">"
+    print(f"Sparkle build-number gate passed: {planned} {comparison} {current}")
     return 0
 
 

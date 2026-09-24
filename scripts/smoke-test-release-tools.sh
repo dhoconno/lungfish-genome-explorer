@@ -63,6 +63,7 @@ MANAGED_TOOLS_DIR="$WORKFLOW_BUNDLE_DIR/ManagedTools"
 LEGACY_MANAGED_TOOLS_DIR="$WORKFLOW_BUNDLE_DIR/Contents/Resources/ManagedTools"
 INFO_PLIST="$APP_PATH/Contents/Info.plist"
 APP_ICON_PATH="$APP_PATH/Contents/Resources/AppIcon.icns"
+THIRD_PARTY_NOTICES_PATH="$APP_PATH/Contents/Resources/THIRD-PARTY-NOTICES"
 CLI_BIN="$APP_PATH/Contents/MacOS/lungfish-cli"
 GREP_BIN="/usr/bin/grep"
 
@@ -119,6 +120,18 @@ fi
 
 if [ ! -f "$APP_ICON_PATH" ]; then
     echo "app icon missing: $APP_ICON_PATH" >&2
+    exit 66
+fi
+
+# REL-03: THIRD-PARTY-NOTICES must be bundled (it ships the GPL-2.0 kernel
+# notice/source offer and every compiled-in SwiftPM dependency's license).
+if [ ! -f "$THIRD_PARTY_NOTICES_PATH" ]; then
+    echo "THIRD-PARTY-NOTICES missing from app bundle: $THIRD_PARTY_NOTICES_PATH" >&2
+    exit 66
+fi
+
+if ! "$GREP_BIN" -q "GPL-2.0" "$THIRD_PARTY_NOTICES_PATH"; then
+    echo "THIRD-PARTY-NOTICES does not mention the bundled GPL-2.0 kernel: $THIRD_PARTY_NOTICES_PATH" >&2
     exit 66
 fi
 
