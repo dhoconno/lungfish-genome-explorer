@@ -1,5 +1,6 @@
 import XCTest
 @testable import LungfishApp
+import LungfishCore
 import LungfishWorkflow
 
 final class FASTQStatisticsServiceTests: XCTestCase {
@@ -54,7 +55,12 @@ private final class FASTQStatisticsToolFixture {
         let seqkitURL = binURL.appendingPathComponent("seqkit")
         try Self.seqkitScript.write(to: seqkitURL, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: seqkitURL.path)
-        runner = NativeToolRunner(toolsDirectory: nil, homeDirectory: homeDirectory)
+        // TST-04: the fake home above is built under `.lungfish` (the Preview
+        // namespace); pin the runner's identity to `.preview` explicitly so this
+        // test does not depend on which channel the xctest process itself
+        // resolves to (it currently reports Stable, which would look for
+        // `.lungfish-stable` and never find the fixture's fake seqkit).
+        runner = NativeToolRunner(toolsDirectory: nil, homeDirectory: homeDirectory, appIdentity: .preview)
     }
 
     func cleanup() {

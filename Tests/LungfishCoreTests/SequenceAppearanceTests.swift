@@ -6,14 +6,25 @@ import XCTest
 @testable import LungfishCore
 
 final class SequenceAppearanceTests: XCTestCase {
+    // SequenceAppearance.save/load/resetToDefaults default to the app's real
+    // preferences domain, which for non-fork builds is UserDefaults.standard --
+    // the app's own real bundle identity inside xctest (TST-10). Never read or
+    // write that domain from a test; use a suite-specific instance instead,
+    // torn down via removePersistentDomain rather than left mutated.
+    private var suiteName = ""
+    private var defaults: UserDefaults!
 
     override func setUp() {
         super.setUp()
-        _ = SequenceAppearance.resetToDefaults()
+        suiteName = "lungfish-test-\(UUID().uuidString)"
+        defaults = UserDefaults(suiteName: suiteName)
+        _ = SequenceAppearance.resetToDefaults(in: defaults)
     }
 
     override func tearDown() {
-        _ = SequenceAppearance.resetToDefaults()
+        _ = SequenceAppearance.resetToDefaults(in: defaults)
+        UserDefaults().removePersistentDomain(forName: suiteName)
+        defaults = nil
         super.tearDown()
     }
 
@@ -87,8 +98,8 @@ final class SequenceAppearanceTests: XCTestCase {
         appearance.showQualityOverlay = true
         appearance.setColor(HexColor(red: 0.9, green: 0.1, blue: 0.1), forBase: "A")
 
-        appearance.save()
-        let loaded = SequenceAppearance.load()
+        appearance.save(to: defaults)
+        let loaded = SequenceAppearance.load(from: defaults)
 
         XCTAssertEqual(loaded.trackHeight, 75.0)
         XCTAssertTrue(loaded.showQualityOverlay)
@@ -97,9 +108,9 @@ final class SequenceAppearanceTests: XCTestCase {
     }
 
     func testLoadReturnsDefaultWhenNoSavedData() {
-        _ = SequenceAppearance.resetToDefaults()
+        _ = SequenceAppearance.resetToDefaults(in: defaults)
 
-        let loaded = SequenceAppearance.load()
+        let loaded = SequenceAppearance.load(from: defaults)
 
         XCTAssertEqual(loaded.trackHeight, 20.0)
         XCTAssertFalse(loaded.showQualityOverlay)
@@ -110,10 +121,10 @@ final class SequenceAppearanceTests: XCTestCase {
         var appearance = SequenceAppearance.default
         appearance.trackHeight = 100.0
         appearance.showQualityOverlay = true
-        appearance.save()
+        appearance.save(to: defaults)
 
-        let resetAppearance = SequenceAppearance.resetToDefaults()
-        let loadedAfterReset = SequenceAppearance.load()
+        let resetAppearance = SequenceAppearance.resetToDefaults(in: defaults)
+        let loadedAfterReset = SequenceAppearance.load(from: defaults)
 
         XCTAssertEqual(resetAppearance, .default)
         XCTAssertEqual(loadedAfterReset, .default)

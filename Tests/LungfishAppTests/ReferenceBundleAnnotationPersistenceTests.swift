@@ -258,7 +258,12 @@ final class ReferenceBundleAnnotationPersistenceTests: XCTestCase {
     /// the CLI-backed workflow's file I/O). Poll briefly for the on-disk effect instead of
     /// assuming synchronous completion.
     private func waitFor(
-        timeout: TimeInterval = 5,
+        // A CLI subprocess spawn plus real file I/O under the full parallel
+        // unit tier's 13,000+ concurrent xctest processes can starve this
+        // unstructured Task of scheduling time well past a short budget
+        // (TST-10); 5s was observed to time out under that load even though
+        // the mutation completes correctly once it runs.
+        timeout: TimeInterval = 20,
         _ predicate: () throws -> Bool
     ) async throws {
         let deadline = Date().addingTimeInterval(timeout)

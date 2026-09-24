@@ -10,21 +10,23 @@ import LungfishIO
 @MainActor
 final class MSAViewportInteractionTests: XCTestCase {
     private var temporaryDirectory: URL!
-    private var savedGutterWidth: Any?
+    // UserDefaults.standard resolves to the app's real bundle identity inside
+    // xctest (TST-10), so tests must never read or write through it. Use a
+    // suite-specific instance per test, injected into each controller before
+    // its view loads, and remove that suite's persistent domain in teardown.
+    private var gutterWidthSuiteName = ""
+    private var gutterWidthDefaults: UserDefaults!
 
     override func setUpWithError() throws {
-        savedGutterWidth = UserDefaults.standard.object(forKey: MultipleSequenceAlignmentViewController.gutterWidthDefaultsKey)
-        UserDefaults.standard.removeObject(forKey: MultipleSequenceAlignmentViewController.gutterWidthDefaultsKey)
+        gutterWidthSuiteName = "lungfish-test-\(UUID().uuidString)"
+        gutterWidthDefaults = UserDefaults(suiteName: gutterWidthSuiteName)
         temporaryDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
     }
 
     override func tearDownWithError() throws {
-        if let savedGutterWidth {
-            UserDefaults.standard.set(savedGutterWidth, forKey: MultipleSequenceAlignmentViewController.gutterWidthDefaultsKey)
-        } else {
-            UserDefaults.standard.removeObject(forKey: MultipleSequenceAlignmentViewController.gutterWidthDefaultsKey)
-        }
+        UserDefaults().removePersistentDomain(forName: gutterWidthSuiteName)
+        gutterWidthDefaults = nil
         try? FileManager.default.removeItem(at: temporaryDirectory)
     }
 
@@ -37,6 +39,7 @@ final class MSAViewportInteractionTests: XCTestCase {
         let bundle = temporaryDirectory.appendingPathComponent("test.lungfishmsa")
         _ = try MultipleSequenceAlignmentBundle.importAlignment(from: source, to: bundle)
         let controller = MultipleSequenceAlignmentViewController()
+        controller.gutterWidthDefaults = gutterWidthDefaults
         controller.view.frame = NSRect(x: 0, y: 0, width: 600, height: 600)
         try await controller.displayBundle(at: bundle)
         controller.view.layoutSubtreeIfNeeded()
@@ -54,6 +57,21 @@ final class MSAViewportInteractionTests: XCTestCase {
     private func event(in view: NSView, x: CGFloat, row: Int, modifiers: NSEvent.ModifierFlags = [], type: NSEvent.EventType = .leftMouseDown) throws -> NSEvent {
         let point = view.convert(NSPoint(x: x, y: CGFloat(row) * 24 + 10), to: nil)
         return try XCTUnwrap(NSEvent.mouseEvent(with: type, location: point, modifierFlags: modifiers, timestamp: 0, windowNumber: 0, context: nil, eventNumber: 0, clickCount: 1, pressure: 1))
+    }
+
+    /// Polls until `condition` is true or the deadline passes. The scroll-wheel
+    /// tests below used to poll for a fixed 30 iterations at 10ms (300ms total);
+    /// under the full parallel unit tier's CPU contention that budget was
+    /// observed insufficient even though the scroll itself completed correctly
+    /// once the runloop caught up (TST-10 -- wall-clock budgets under load).
+    private func waitUntilScrolled(
+        timeout: TimeInterval = 20,
+        _ condition: () -> Bool
+    ) async {
+        let deadline = Date().addingTimeInterval(timeout)
+        while !condition(), Date() < deadline {
+            try? await Task.sleep(nanoseconds: 10_000_000)
+        }
     }
 
     func testUseConsensusRestoresBaselineWithoutChangingAlignmentOrSelection() async throws {
@@ -102,6 +120,15 @@ final class MSAViewportInteractionTests: XCTestCase {
     }
 
     func testWheelScrollsEveryRowSurfaceAndSynchronizesHorizontalComparison() async throws {
+        // Under the gate's one-process-per-test parallel mode, this test can be the
+        // first (and only) AppKit activity in its process. NSApplication.shared is
+        // lazily bootstrapped by AppKit, and a synthetic scrollWheel event dispatched
+        // before that bootstrap has settled is silently dropped by NSScrollView --
+        // observed as a deterministic failure in isolation that does not reproduce
+        // when this test runs after any other AppKit-touching test in the same
+        // process. Force the same warm state explicitly instead of depending on
+        // another test's side effect.
+        _ = NSApplication.shared
         let controller = try await controller(columns: 100, rowCount: 90)
         controller.resetZoom()
         let selectedBefore = controller.testingSelectedFASTARecords
@@ -113,6 +140,7 @@ final class MSAViewportInteractionTests: XCTestCase {
         defer { window.contentView = nil }
         window.layoutIfNeeded()
         controller.view.layoutSubtreeIfNeeded()
+        try await Task.sleep(nanoseconds: 50_000_000)
         // Control target establishes that the synthetic event drives native AppKit scrolling.
         for surface in [scroll as NSView, gutter, matrix, controller.testingGutterResizeHandle,
                         try descendant(controller.view, "msaComparisonLabel"),
@@ -120,18 +148,14 @@ final class MSAViewportInteractionTests: XCTestCase {
             scroll.contentView.scroll(to: .zero)
             let cgEvent = try XCTUnwrap(CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 2, wheel1: -80, wheel2: 0, wheel3: 0))
             surface.scrollWheel(with: try XCTUnwrap(NSEvent(cgEvent: cgEvent)))
-            for _ in 0..<30 where scroll.contentView.bounds.minY == 0 {
-                try await Task.sleep(nanoseconds: 10_000_000)
-            }
+            await waitUntilScrolled { scroll.contentView.bounds.minY != 0 }
             XCTAssertGreaterThan(scroll.contentView.bounds.minY, 0, "Wheel over \(surface.accessibilityIdentifier() ?? "surface") must scroll")
         }
         XCTAssertGreaterThanOrEqual(matrix.frame.width, scroll.contentView.bounds.width)
         // Native predominant-axis scrolling intentionally ignores X on vertical gestures.
         let horizontal = try XCTUnwrap(CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 2, wheel1: 0, wheel2: -80, wheel3: 0))
         gutter.scrollWheel(with: try XCTUnwrap(NSEvent(cgEvent: horizontal)))
-        for _ in 0..<30 where scroll.contentView.bounds.minX == 0 {
-            try await Task.sleep(nanoseconds: 10_000_000)
-        }
+        await waitUntilScrolled { scroll.contentView.bounds.minX != 0 }
         XCTAssertGreaterThan(scroll.contentView.bounds.minX, 0)
         let pinned = try descendant(controller.view, "msaComparisonHeader")
         XCTAssertEqual(pinned.bounds.minX, scroll.contentView.bounds.minX, accuracy: 0.01)
@@ -139,6 +163,10 @@ final class MSAViewportInteractionTests: XCTestCase {
     }
 
     func testWheelOverTrailingBlankRowWidthUsesTheNativeMatrixScrollPath() async throws {
+        // See the comment in testWheelScrollsEveryRowSurfaceAndSynchronizesHorizontal
+        // Comparison: a synthetic scrollWheel dispatched before NSApplication.shared
+        // has been touched anywhere in this process is silently dropped.
+        _ = NSApplication.shared
         let controller = try await controller(rowCount: 90)
         let matrix = try descendant(controller.view, "multiple-sequence-alignment-matrix-view")
         let scroll = try XCTUnwrap(matrix.enclosingScrollView)
@@ -147,15 +175,14 @@ final class MSAViewportInteractionTests: XCTestCase {
         defer { window.contentView = nil }
         window.layoutIfNeeded()
         controller.view.layoutSubtreeIfNeeded()
+        try await Task.sleep(nanoseconds: 50_000_000)
         let blankX = matrix.bounds.maxX - 16
         XCTAssertGreaterThan(blankX, controller.testingAlignmentColumnWidth * 6)
         let hit = try XCTUnwrap(matrix.hitTest(matrix.convert(NSPoint(x: blankX, y: 12), to: matrix.superview)))
         XCTAssertTrue(hit === matrix)
         let wheel = try XCTUnwrap(CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 1, wheel1: -80, wheel2: 0, wheel3: 0))
         hit.scrollWheel(with: try XCTUnwrap(NSEvent(cgEvent: wheel)))
-        for _ in 0..<30 where scroll.contentView.bounds.minY == 0 {
-            try await Task.sleep(nanoseconds: 10_000_000)
-        }
+        await waitUntilScrolled { scroll.contentView.bounds.minY != 0 }
         XCTAssertGreaterThan(scroll.contentView.bounds.minY, 0)
     }
 

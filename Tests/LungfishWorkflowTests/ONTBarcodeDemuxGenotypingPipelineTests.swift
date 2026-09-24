@@ -2492,10 +2492,10 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: root) }
 
         let condaRoot = root.appendingPathComponent("conda", isDirectory: true)
-        let bundledMicromamba = try makeFakeONTGenotypingCondaRoot(at: condaRoot)
         let referenceFASTA = root.appendingPathComponent("reference.fa")
         let outputDirectory = root.appendingPathComponent("miseq-cohort.lungfishgenotype", isDirectory: true)
         let minimap2Log = root.appendingPathComponent("minimap2-invocations.log")
+        let bundledMicromamba = try makeFakeONTGenotypingCondaRoot(at: condaRoot, minimap2LogPath: minimap2Log.path)
         try """
         >A1_063_01
         ACGTACGT
@@ -2513,8 +2513,6 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
         let samples = try ["DW001", "DW002", "DW003"].map { name in
             try makeMergedFASTQBundle(root: root, name: name, sequence: "ACGTACGT")
         }
-        setenv("LUNGFISH_FAKE_MINIMAP2_LOG", minimap2Log.path, 1)
-        defer { unsetenv("LUNGFISH_FAKE_MINIMAP2_LOG") }
 
         let request = ONTBarcodeDemuxGenotypingRunRequest(
             inputFASTQURLs: samples.map(\.bundleURL),
@@ -2558,19 +2556,19 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: root) }
 
         let condaRoot = root.appendingPathComponent("conda", isDirectory: true)
-        let bundledMicromamba = try makeFakeONTGenotypingCondaRoot(at: condaRoot)
-        let referenceFASTA = root.appendingPathComponent("reference.fa")
         let outputDirectory = root.appendingPathComponent("blocked-stream.lungfishgenotype", isDirectory: true)
         let noReadMarker = root.appendingPathComponent("minimap2-not-reading.marker")
+        let bundledMicromamba = try makeFakeONTGenotypingCondaRoot(
+            at: condaRoot,
+            minimap2NoReadMarkerPath: noReadMarker.path
+        )
+        let referenceFASTA = root.appendingPathComponent("reference.fa")
         try ">allele1\nACGTACGT\n".write(to: referenceFASTA, atomically: true, encoding: .utf8)
         let sample = try makeMergedFASTQBundle(
             root: root,
             name: "blocked",
             sequence: String(repeating: "A", count: 512_000)
         )
-
-        setenv("LUNGFISH_FAKE_MINIMAP2_NO_READ_MARKER", noReadMarker.path, 1)
-        defer { unsetenv("LUNGFISH_FAKE_MINIMAP2_NO_READ_MARKER") }
 
         let request = ONTBarcodeDemuxGenotypingRunRequest(
             inputFASTQURLs: [sample.bundleURL],
@@ -2619,7 +2617,7 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: root) }
 
         let condaRoot = root.appendingPathComponent("conda", isDirectory: true)
-        let bundledMicromamba = try makeFakeONTGenotypingCondaRoot(at: condaRoot)
+        let bundledMicromamba = try makeFakeONTGenotypingCondaRoot(at: condaRoot, minimap2FailBeforeRead: true)
         let referenceFASTA = root.appendingPathComponent("reference.fa")
         let outputDirectory = root.appendingPathComponent("failed-stream.lungfishgenotype", isDirectory: true)
         try ">allele1\nACGTACGT\n".write(to: referenceFASTA, atomically: true, encoding: .utf8)
@@ -2628,9 +2626,6 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
             name: "failed",
             sequence: String(repeating: "A", count: 512_000)
         )
-
-        setenv("LUNGFISH_FAKE_MINIMAP2_FAIL_BEFORE_READ", "1", 1)
-        defer { unsetenv("LUNGFISH_FAKE_MINIMAP2_FAIL_BEFORE_READ") }
 
         let request = ONTBarcodeDemuxGenotypingRunRequest(
             inputFASTQURLs: [sample.bundleURL],
@@ -2670,7 +2665,11 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: root) }
 
         let condaRoot = root.appendingPathComponent("conda", isDirectory: true)
-        let bundledMicromamba = try makeFakeONTGenotypingCondaRoot(at: condaRoot)
+        let bundledMicromamba = try makeFakeONTGenotypingCondaRoot(
+            at: condaRoot,
+            minimap2ProduceForever: true,
+            samtoolsFailSort: true
+        )
         let referenceFASTA = root.appendingPathComponent("reference.fa")
         let outputDirectory = root.appendingPathComponent("failed-sort.lungfishgenotype", isDirectory: true)
         try ">allele1\nACGTACGT\n".write(to: referenceFASTA, atomically: true, encoding: .utf8)
@@ -2679,13 +2678,6 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
             name: "failed-sort",
             sequence: String(repeating: "A", count: 512_000)
         )
-
-        setenv("LUNGFISH_FAKE_MINIMAP2_PRODUCE_FOREVER", "1", 1)
-        setenv("LUNGFISH_FAKE_SAMTOOLS_FAIL_SORT", "1", 1)
-        defer {
-            unsetenv("LUNGFISH_FAKE_MINIMAP2_PRODUCE_FOREVER")
-            unsetenv("LUNGFISH_FAKE_SAMTOOLS_FAIL_SORT")
-        }
 
         let request = ONTBarcodeDemuxGenotypingRunRequest(
             inputFASTQURLs: [sample.bundleURL],
@@ -2726,10 +2718,10 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: root) }
 
         let condaRoot = root.appendingPathComponent("conda", isDirectory: true)
-        let bundledMicromamba = try makeFakeONTGenotypingCondaRoot(at: condaRoot)
         let referenceFASTA = root.appendingPathComponent("reference.fa")
         let outputDirectory = root.appendingPathComponent("ont-cohort.lungfishgenotype", isDirectory: true)
         let minimap2Log = root.appendingPathComponent("minimap2-invocations.log")
+        let bundledMicromamba = try makeFakeONTGenotypingCondaRoot(at: condaRoot, minimap2LogPath: minimap2Log.path)
         try ">allele1\nACGTACGT\n".write(to: referenceFASTA, atomically: true, encoding: .utf8)
 
         let sampleA = try makeCountedFASTQBundle(
@@ -2742,8 +2734,6 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
             name: "LF2872",
             records: [("u000001;size=3", "ACGTACGT")]
         )
-        setenv("LUNGFISH_FAKE_MINIMAP2_LOG", minimap2Log.path, 1)
-        defer { unsetenv("LUNGFISH_FAKE_MINIMAP2_LOG") }
 
         let request = ONTBarcodeDemuxGenotypingRunRequest(
             inputFASTQURLs: [sampleA.bundleURL, sampleB.bundleURL],
@@ -4394,7 +4384,21 @@ print(json.dumps(payload))
             "DW472,14_M2M6_DQB1_06g:14_M_DQB1_06_01_01,4,4",
             "DW472,14_M4_DQB1_06_08,4,4",
         ],
-        failWorkbookReport: Bool = false
+        failWorkbookReport: Bool = false,
+        // The five parameters below used to be process-wide environment variables
+        // (setenv/unsetenv around the test body). Under the gate's parallel unit
+        // tier, an unrelated test sharing the same xctest process could shell out
+        // to this same fake minimap2/samtools during the window those variables
+        // were set, inheriting them -- observed as orphaned `exec yes ...`
+        // processes pinned at ~90% CPU for 90+ minutes after the owning test
+        // finished (TST-10). Baking these into the generated script text at
+        // creation time instead makes each test's fake tools behave only for
+        // that test's own private `root`, with no process-wide state.
+        minimap2LogPath: String? = nil,
+        minimap2NoReadMarkerPath: String? = nil,
+        minimap2FailBeforeRead: Bool = false,
+        minimap2ProduceForever: Bool = false,
+        samtoolsFailSort: Bool = false
     ) throws -> URL {
         let bin = root.appendingPathComponent("bin", isDirectory: true)
         try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
@@ -4426,13 +4430,15 @@ print(json.dumps(payload))
 
         let minimap2Bin = root.appendingPathComponent("envs/minimap2/bin", isDirectory: true)
         try FileManager.default.createDirectory(at: minimap2Bin, withIntermediateDirectories: true)
+        let minimap2LogLine = minimap2LogPath.map { "printf '%s\\n' \"$*\" >> \(shellQuoted($0))" } ?? ":"
+        let minimap2NoReadMarkerLine = minimap2NoReadMarkerPath.map {
+            "printf '%s\\n' \"$$\" > \(shellQuoted($0)); sleep 10; exit 0"
+        } ?? ":"
         try writeExecutable(
             #"""
             #!/bin/sh
             set -eu
-            if [ -n "${LUNGFISH_FAKE_MINIMAP2_LOG:-}" ]; then
-              printf '%s\n' "$*" >> "$LUNGFISH_FAKE_MINIMAP2_LOG"
-            fi
+            \#(minimap2LogLine)
             preset=""
             query_count=0
             seen_reference=0
@@ -4474,18 +4480,9 @@ print(json.dumps(payload))
               echo "fake minimap2 refuses multiple short-read query files: $query_count" >&2
               exit 42
             fi
-            if [ -n "${LUNGFISH_FAKE_MINIMAP2_FAIL_BEFORE_READ:-}" ]; then
-              echo "intentional minimap2 failure" >&2
-              exit 37
-            fi
-            if [ -n "${LUNGFISH_FAKE_MINIMAP2_PRODUCE_FOREVER:-}" ]; then
-              exec yes '@HD	VN:1.6'
-            fi
-            if [ -n "${LUNGFISH_FAKE_MINIMAP2_NO_READ_MARKER:-}" ]; then
-              printf '%s\n' "$$" > "$LUNGFISH_FAKE_MINIMAP2_NO_READ_MARKER"
-              sleep 10
-              exit 0
-            fi
+            \#(minimap2FailBeforeRead ? "echo \"intentional minimap2 failure\" >&2; exit 37" : ":")
+            \#(minimap2ProduceForever ? "exec yes '@HD\tVN:1.6'" : ":")
+            \#(minimap2NoReadMarkerLine)
             if [ "$uses_stdin" -eq 1 ]; then
               cat >/dev/null
             fi
@@ -4530,10 +4527,7 @@ print(json.dumps(payload))
             command="$1"
             shift
             if [ "$command" = "sort" ]; then
-              if [ -n "${LUNGFISH_FAKE_SAMTOOLS_FAIL_SORT:-}" ]; then
-                echo "intentional samtools sort failure" >&2
-                exit 29
-              fi
+              \#(samtoolsFailSort ? "echo \"intentional samtools sort failure\" >&2; exit 29" : ":")
               output=""
               while [ "$#" -gt 0 ]; do
                 case "$1" in
@@ -4670,6 +4664,13 @@ print(json.dumps(payload))
     private func writeExecutable(_ text: String, to url: URL) throws {
         try text.write(to: url, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
+    }
+
+    /// Wraps a literal path (baked into a generated fake-tool script at
+    /// creation time, never read from the environment) in single quotes for
+    /// safe interpolation into `/bin/sh` source.
+    private func shellQuoted(_ path: String) -> String {
+        "'" + path.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 
     private func temporaryDirectory() throws -> URL {

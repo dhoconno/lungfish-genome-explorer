@@ -403,6 +403,12 @@ public class ViewerViewController: NSViewController {
 
     // MARK: - Annotation Drawer State (moved from associated objects)
 
+    /// Storage for the persisted annotation drawer height. Defaults to
+    /// `.standard`; tests must inject a suite-specific instance instead of
+    /// writing the real app's preferences (TST-10 — `UserDefaults.standard`
+    /// inside `xctest` resolves to the app's own real bundle identity).
+    var annotationDrawerDefaults: UserDefaults = .standard
+
     /// The annotation table drawer view.
     var annotationDrawerView: AnnotationTableDrawerView?
 

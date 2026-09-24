@@ -307,7 +307,7 @@ final class NativeToolRunnerTests: XCTestCase {
             try await withThrowingTaskGroup(of: NativeToolResult.self) { group in
                 for _ in 0..<jobCount {
                     group.addTask {
-                        let runner = NativeToolRunner(toolsDirectory: nil, homeDirectory: root)
+                        let runner = NativeToolRunner(toolsDirectory: nil, homeDirectory: root, appIdentity: .preview)
                         return try await runner.run(.seqkit, arguments: ["large-output"], timeout: 30)
                     }
                 }
@@ -337,7 +337,7 @@ final class NativeToolRunnerTests: XCTestCase {
             try await withThrowingTaskGroup(of: Void.self) { group in
                 for index in 0..<runCount {
                     group.addTask {
-                        let runner = NativeToolRunner(toolsDirectory: nil, homeDirectory: root)
+                        let runner = NativeToolRunner(toolsDirectory: nil, homeDirectory: root, appIdentity: .preview)
                         let result = try await runner.run(
                             .seqkit,
                             arguments: ["short-output", "\(index)"],
@@ -438,7 +438,7 @@ final class NativeToolRunnerTests: XCTestCase {
         try seqkitScript.write(to: seqkitURL, atomically: true, encoding: .utf8)
         try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: seqkitURL.path)
 
-        return NativeToolRunner(toolsDirectory: nil, homeDirectory: root)
+        return NativeToolRunner(toolsDirectory: nil, homeDirectory: root, appIdentity: .preview)
     }
 
     func testIvarVersionProbeUsesVersionSubcommand() {
@@ -953,7 +953,7 @@ final class NativeToolRunnerTests: XCTestCase {
         try script.write(to: scriptURL, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: scriptURL.path)
 
-        let runner = NativeToolRunner(toolsDirectory: nil, homeDirectory: root)
+        let runner = NativeToolRunner(toolsDirectory: nil, homeDirectory: root, appIdentity: .preview)
         let result = try await runner.run(
             .clumpify,
             arguments: [

@@ -86,19 +86,21 @@ final class AnnotationDrawerSizingTests: XCTestCase {
     }
 
     func testOpeningOversizedPersistedDrawerKeepsItsBottomEdgeVisible() throws {
-        let defaults = UserDefaults.standard
+        // UserDefaults.standard resolves to the app's real bundle identity
+        // (com.lungfish.browser) inside `xctest`, so a test must never write
+        // through it (TST-10). Use a suite-specific instance instead, injected
+        // via ViewerViewController.annotationDrawerDefaults, and remove that
+        // suite's persistent domain in teardown rather than mutating a saved
+        // real-world value.
+        let suiteName = "lungfish-test-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { UserDefaults().removePersistentDomain(forName: suiteName) }
         let key = "annotationDrawerHeight"
-        let previousValue = defaults.object(forKey: key)
-        defer {
-            if let previousValue {
-                defaults.set(previousValue, forKey: key)
-            } else {
-                defaults.removeObject(forKey: key)
-            }
-        }
         defaults.set(10_000.0, forKey: key)
+        XCTAssertEqual(defaults.double(forKey: key), 10_000.0)
 
         let viewer = ViewerViewController()
+        viewer.annotationDrawerDefaults = defaults
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 800, height: 300),
             styleMask: [],
@@ -110,11 +112,21 @@ final class AnnotationDrawerSizingTests: XCTestCase {
         window.contentView?.layoutSubtreeIfNeeded()
 
         viewer.toggleAnnotationDrawer()
-        RunLoop.main.run(until: Date().addingTimeInterval(0.35))
-        viewer.view.layoutSubtreeIfNeeded()
+        // The bottom-constraint's animator sets its model value to the target
+        // immediately; only the visual layer interpolates. But under heavy
+        // parallel-test CPU contention the runloop pump backing the 0.25s
+        // NSAnimationContext can itself stall well past a short fixed sleep
+        // (TST-10: wall-clock budgets under load), so poll for the settled
+        // value instead of trusting a single fixed-duration wait.
+        let bottomConstraint = try XCTUnwrap(viewer.annotationDrawerBottomConstraint)
+        let deadline = Date().addingTimeInterval(10)
+        while bottomConstraint.constant != 0, Date() < deadline {
+            RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+            viewer.view.layoutSubtreeIfNeeded()
+        }
 
         XCTAssertTrue(viewer.isAnnotationDrawerOpen)
-        XCTAssertEqual(try XCTUnwrap(viewer.annotationDrawerBottomConstraint).constant, 0)
+        XCTAssertEqual(bottomConstraint.constant, 0)
         XCTAssertLessThan(try XCTUnwrap(viewer.annotationDrawerHeightConstraint).constant, 10_000)
     }
 }

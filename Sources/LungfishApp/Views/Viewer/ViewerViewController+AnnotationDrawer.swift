@@ -146,7 +146,7 @@ extension ViewerViewController: AnnotationTableDrawerDelegate {
         // The drawer sits between the viewer content area and the status bar.
         // We constrain its bottom to be just above the status bar, and use
         // a height constraint. The bottom offset starts at drawerHeight (hidden below view).
-        let persistedHeight = UserDefaults.standard.double(forKey: "annotationDrawerHeight")
+        let persistedHeight = annotationDrawerDefaults.double(forKey: "annotationDrawerHeight")
         let drawerHeight = persistedHeight > 0 ? CGFloat(persistedHeight) : annotationDrawerHeight
         let bottomConstraint = drawer.bottomAnchor.constraint(equalTo: statusBar.topAnchor, constant: drawerHeight)
         let heightConstraint = drawer.heightAnchor.constraint(equalToConstant: drawerHeight)
@@ -733,7 +733,7 @@ extension ViewerViewController: AnnotationTableDrawerDelegate {
             MainActor.assumeIsolated {
                 guard let self else { return }
                 let height = self.annotationDrawerHeightConstraint?.constant ?? 250
-                UserDefaults.standard.set(Double(height), forKey: "annotationDrawerHeight")
+                self.annotationDrawerDefaults.set(Double(height), forKey: "annotationDrawerHeight")
             }
         }
         _drawerHeightSaveWorkItem = item
@@ -745,7 +745,7 @@ extension ViewerViewController: AnnotationTableDrawerDelegate {
         _drawerHeightSaveWorkItem?.cancel()
         _drawerHeightSaveWorkItem = nil
         if let height = annotationDrawerHeightConstraint?.constant {
-            UserDefaults.standard.set(Double(height), forKey: "annotationDrawerHeight")
+            annotationDrawerDefaults.set(Double(height), forKey: "annotationDrawerHeight")
         }
     }
 

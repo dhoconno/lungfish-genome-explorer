@@ -58,15 +58,34 @@ final class MainSplitSidebarDropRoutingTests: XCTestCase {
         }
 
         controller.testingDisplayImportedProjectFile(csvURL)
-        RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+        // Reaching the fully-displayed state takes two hops: the sidebar's own
+        // async filesystem scan sets `selectedFileURL`, and outline-view
+        // selection then fires `sidebarDidSelectItem`, which debounces its
+        // `displayContent(for:)` call by 0.1s (MainSplitViewController+
+        // SidebarSelection.swift) before `testQuickLookURL` is set. The
+        // original fixed 0.1s wait raced that debounce and was observed
+        // insufficient under the full unit tier's parallel CPU load (TST-10);
+        // poll for the fully-routed state instead, up to a generous deadline.
+        let deadline = Date().addingTimeInterval(10)
+        while controller.viewerController.testQuickLookURL == nil, Date() < deadline {
+            RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        }
 
+        // The sidebar's filesystem scan resolves symlinks (FileManager directory
+        // enumeration returns realpath'd URLs), turning macOS's /var ->
+        // /private/var temp-directory symlink into /private/var in the routed
+        // selection. `csvURL` above is built from
+        // FileManager.default.temporaryDirectory, which is NOT resolved, so
+        // `.standardizedFileURL` alone (which does not follow symlinks) never
+        // matches; compare fully-resolved paths on both sides instead.
+        let expectedCSVURL = csvURL.resolvingSymlinksInPath()
         XCTAssertEqual(
-            controller.sidebarController.selectedFileURL?.standardizedFileURL,
-            csvURL.standardizedFileURL
+            controller.sidebarController.selectedFileURL?.resolvingSymlinksInPath(),
+            expectedCSVURL
         )
         XCTAssertEqual(
-            controller.viewerController.testQuickLookURL?.standardizedFileURL,
-            csvURL.standardizedFileURL
+            controller.viewerController.testQuickLookURL?.resolvingSymlinksInPath(),
+            expectedCSVURL
         )
         XCTAssertFalse(
             controller.viewerController.testHasQuickLookView,

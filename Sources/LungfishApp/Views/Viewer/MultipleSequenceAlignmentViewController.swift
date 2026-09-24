@@ -413,13 +413,19 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
     private static let minimumGutterWidth: CGFloat = 160
     private static let maximumGutterWidth: CGFloat = 640
 
-    private var gutterWidth = MultipleSequenceAlignmentViewController.restoredGutterWidth()
+    /// Storage for the persisted gutter width. Defaults to `.standard`; tests
+    /// must inject a suite-specific instance instead (TST-10 -- `UserDefaults
+    /// .standard` inside `xctest` resolves to the app's own real bundle
+    /// identity). Set this before `gutterWidth` is first read (i.e. before the
+    /// view loads) for it to take effect.
+    var gutterWidthDefaults: UserDefaults = .standard
+    private lazy var gutterWidth = restoredGutterWidth()
 
     /// Reads the persisted gutter width, falling back to the shipped default.
-    private static func restoredGutterWidth() -> CGFloat {
-        let stored = UserDefaults.standard.double(forKey: gutterWidthDefaultsKey)
+    private func restoredGutterWidth() -> CGFloat {
+        let stored = gutterWidthDefaults.double(forKey: Self.gutterWidthDefaultsKey)
         guard stored > 0 else { return MSAAlignmentCanvasMetrics.rowGutterWidth }
-        return min(max(CGFloat(stored), minimumGutterWidth), maximumGutterWidth)
+        return min(max(CGFloat(stored), Self.minimumGutterWidth), Self.maximumGutterWidth)
     }
     private var cornerHeaderWidthConstraint: NSLayoutConstraint?
     private var rowGutterWidthConstraint: NSLayoutConstraint?
@@ -1009,7 +1015,7 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
         gutterWidth = clamped
         cornerHeaderWidthConstraint?.constant = clamped
         rowGutterWidthConstraint?.constant = clamped
-        UserDefaults.standard.set(Double(clamped), forKey: Self.gutterWidthDefaultsKey)
+        gutterWidthDefaults.set(Double(clamped), forKey: Self.gutterWidthDefaultsKey)
         rowGutterView.needsDisplay = true
         cornerHeaderView.needsDisplay = true
     }
