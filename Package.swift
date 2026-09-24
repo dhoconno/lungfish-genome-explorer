@@ -189,7 +189,8 @@ let package = Package(
                 .copy("Resources/AIHaplotyping"),
                 .copy("Resources/MCMHaplotyping"),
                 .copy("Resources/Recipes"),
-                .copy("Resources/ONTGenotyping")
+                .copy("Resources/ONTGenotyping"),
+                .copy("Resources/PrimerDesignAdapters")
             ]
         ),
         .testTarget(
