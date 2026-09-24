@@ -63,7 +63,7 @@ Single source of truth for finding status (plan rule 9). Status: `open`, `verifi
 | ARC-05 | P2 | Per-window state leaks through globals (`mainWindowController`, `DocumentManager.shared` mirror, `NSApp.keyWin | open | | | |
 | ARC-06 | P2 | Window scoping of notifications is a fail-open convention reimplemented in three controllers | open | | | |
 | ARC-07 | P2 | GUI and CLI write different provenance for the same Kraken2 analysis | open | | | |
-| ARC-08 | P2 | Dead parallel FASTQ materializer (~1,100 lines) kept alive only by tests | open | | | |
+| ARC-08 | P2 | Dead parallel FASTQ materializer (~1,100 lines) kept alive only by tests | fixed | P5-A | 45ec1f040 | materializeVirtualFASTQSubset/FASTASubset + dead helper chain + MaterializationPipeline.swift and its test deleted; live path already used FASTQCLIMaterializer |
 | ARC-09 | P2 | FASTQ derivative operations have two GUI code paths and two CLI-command builders | open | | | |
 | ARC-10 | P2 | `AppDelegate` extensions are the business-logic layer for import, export, downloads and classification | open | | | |
 | ARC-11 | P2 | About 1,290 test hooks in production types, a symptom of logic trapped in view controllers | open | | | |
@@ -104,7 +104,7 @@ Single source of truth for finding status (plan rule 9). Status: `open`, `verifi
 | SIMP-02 | P2 | About 5.9K lines of workbook-transaction recovery outlive their only writer | open | | | |
 | SIMP-03 | P2 | PrimalScheme3 adapter supports 4 fork versions and 2 external-binary-only selectors (about 3.3K lines) | open | | | |
 | SIMP-04 | P2 | Nine copy-pasted CLI subprocess runners (about 3.4K lines) next to an unused kernel runner | open | | | |
-| SIMP-05 | P2 | Verified dead code: about 5.0K production lines plus about 2.5K test lines (ranked list) | open | | | |
+| SIMP-05 | P2 | Verified dead code: about 5.0K production lines plus about 2.5K test lines (ranked list) | partial | P5-A | 45ec1f040,99d98b216 | rows 1-5,7,9,11,12 done + BatchProcessingEngine (WFL-21); rows 6,8,10,13-17 deferred (owner confirmation, or entangled with UX-18/other lanes) |
 | SIMP-06 | P2 | Same-named public types in two modules (`SequencingPlatform`, `AlignmentFilter*`) | open | | | |
 | SIMP-07 | P2 | Chromosome aliasing implemented at least 5 times; the dedicated resolver is unused | partial | P3-D | ddee0b5fa | variant-track path now uses resolver; other alias copies remain |
 | SIMP-08 | P2 | Docs and review artifacts dominate the checkout and the churn | open | | | |
@@ -136,36 +136,36 @@ Single source of truth for finding status (plan rule 9). Status: `open`, `verifi
 | WFL-18 | P2 | Two execution paths for the same operation with different defaults (orient, assembly Reassemble, genotyping) | open | | | |
 | WFL-19 | P2 | Failure-path quality: raw enum text, silent no-ops, cleanup errors failing successful runs | fixed | P1-C,Q3 | b3dcd7dc3,d47e79f1d | remaining raw errors + orient silent no-op |
 | WFL-20 | P2 | Inconsistent result layouts across sibling tools (single vs batch, import destinations, warning states) | open | | | |
-| ARC-14 | P3 | `ResultViewportController` / `BlastVerifiable` are premature abstractions with no polymorphic consumer | open | | | |
-| ARC-16 | P3 | Misplaced vocabulary: UI event names in Core, test harness in Kit, CGPoint graph model in Workflow, dead notif | open | | | |
-| FEA-15 | P3 | About 27 orphaned action handlers, stale validation branches and invisible import history | open | | | |
-| FEA-16 | P3 | `features.yaml` GUI entry-point claims that do not exist in the menus | open | | | |
+| ARC-14 | P3 | `ResultViewportController` / `BlastVerifiable` are premature abstractions with no polymorphic consumer | fixed | P5-A | 45ec1f040 | both protocols deleted; concrete configure/export/summaryBarView members kept where tests call them directly as ordinary methods |
+| ARC-16 | P3 | Misplaced vocabulary: UI event names in Core, test harness in Kit, CGPoint graph model in Workflow, dead notif | partial | P5-A | 45ec1f040 | dead `fastqOrientRequested` notification removed; `activeDocumentChangedNotification` (posted-but-unobserved) kept, it is directly tested; the larger "move UI intent names to Kit" recommendation is P6 scope |
+| FEA-15 | P3 | About 27 orphaned action handlers, stale validation branches and invisible import history | partial | P5-A | 45ec1f040 | 15 orphaned showFASTQ*Operations/showFreyjaDemix @objc handlers deleted from ToolsMenuActions + AppDelegate+ToolsMenu + test mock; remaining items (import history display, other stale validateMenuItem branches) deferred |
+| FEA-16 | P3 | `features.yaml` GUI entry-point claims that do not exist in the menus | fixed | P5-A | 384a88726 | corrected 14 stale entry-point strings + 3 stale source refs; added scripts/checks/features-yaml-entry-points.py (146/146 entries now resolve), wired into pre-push hook |
 | FEA-17 | P3 | Edit > Find (Cmd-F) is dead in the main window | fixed | P7,P7b | a13bc763 lane | sidebar find fallback |
 | PERF-14 | P3 | Racy output-drain idioms (CondaManager 100 ms "drain delay", `readerGroup.enter` inside `readabilityHandler`) | fixed | Q2 | f31335bc0 | drain to EOF |
 | PERF-15 | P3 | Operation log entries are unbounded per operation | fixed | Q2 | a13f9b83b | 2000-entry cap with elision marker |
 | PERF-16 | P3 | Remaining `runModal`, redundant timer-to-main hops, and test probes as `nonisolated(unsafe)` statics in produc | open | | | |
-| REL-15 | P3 | Nightly coordinator auto-commits agent worktrees into main inside the release tool, and is effectively unused | open | | | |
-| REL-16 | P3 | Dead or stale release/dependency artifacts (`containers/`, nonexistent smoke script reference) | open | | | |
+| REL-15 | P3 | Nightly coordinator auto-commits agent worktrees into main inside the release tool, and is effectively unused | deferred | | | out of P5-A scope: deleting nightly_prerelease_release.py requires rewriting .codex/skills/releasing-lungfish/scripts/validate.py's validate_ci_and_nightly, a release-safety validator; left for the release/dependency reviewer |
+| REL-16 | P3 | Dead or stale release/dependency artifacts (`containers/`, nonexistent smoke script reference) | deferred | | | same reason as REL-15; `containers/` deletion and the release/dependency package should land together |
 | REL-17 | P3 | Double notarization and no delta updates, so a full 167 MB download for each of about 38 releases a month | open | | | |
 | SCI-19 | P3 | `kraken2 --fasta-input` is not a Kraken2 option (warning only) but is recorded in provenance | fixed | P3-D | 7af100247 | --fasta-input removed |
 | SCI-20 | P3 | Assembly statistics drop IUPAC codes from contig length and count N in the GC denominator | fixed | P3-D | 01b7b995d | IUPAC in length, GC over ACGT |
 | SCI-21 | P3 | Variant extraction keeps the full REF for records straddling the region start | fixed | Q4 | 8c68a3ba1 | straddling records excluded |
 | SIMP-09 | P3 | Process-doc sprawl and stale process pointers to dead code | open | | | |
-| SIMP-10 | P3 | 49 SHA-256 helpers and 15 CSV/TSV escapers with inconsistent rules | open | | | |
+| SIMP-10 | P3 | 49 SHA-256 helpers and 15 CSV/TSV escapers with inconsistent rules | partial | P5-D | 590476e82 | added LungfishCore.FileDigest + DelimitedText; migrated 5 representative call sites (ProvenanceFileHasher now wraps FileDigest; SampleMetadataResolver, TaxTriageBatchExporter, UniversalSearchCommand, TwelveSAmpliconMatchingWorkflow escapers migrated, fixing 2 real \r-handling gaps); remaining ~44 SHA-256 + ~11 escapers need individual semantics review before migrating |
 | SIMP-11 | P3 | About 5.4K lines of test hooks in production types, and 109 source-text test files | open | | | |
-| SIMP-12 | P3 | Two container-runtime factories plus a Docker fallback | open | | | |
+| SIMP-12 | P3 | Two container-runtime factories plus a Docker fallback | partial | P5-D | 590476e82 | removed NewContainerRuntimeFactory's confirmed-dead createRuntimeWithError/checkAvailability/recommendedPreference/environmentDescription + RuntimeAvailability struct; the two-factory merge and the Docker-fallback policy decision are left, each a larger explicit-decision change |
 | SIMP-13 | P3 | Copy-paste pairs: classifier VCs, genotype replay commands and payloads, tree runners | open | | | |
 | SIMP-14 | P3 | Small hygiene items: drifted agent copies, diverged prompt copy, unused fixture, `.gitignore` contradictions | open | | | |
 | SIMP-15 | P3 | `scripts/`: 45K Python lines, including one-off research labs and 23.5K lines of script tests | open | | | |
-| SIMP-16 | P3 | About 1.4K lines of Python embedded in Swift string literals | open | | | |
+| SIMP-16 | P3 | About 1.4K lines of Python embedded in Swift string literals | fixed | P5-D | bf345e215 | all 3 scripts (GenotypeWorkbookPresentation.snapshotPythonScript, ONTBarcodeDemuxGenotypingPipeline's and ONTGenotypingPysamFilterRunner's filterScript) moved to Resources/*.py, byte-identical, loaded via Bundle.module; scripts/checks/compile-embedded-python.py added and wired into pre-push |
 | SIMP-17 | P3 | Project-storage cleanup is 9.3K source lines plus 15.7K test lines for a move-to-Trash | open | | | |
 | TST-13 | P3 | Build health: 251 unique warnings, including concurrency-isolation warnings in tests and use of deprecated cle | open | | | |
 | TST-14 | P3 | Test effort is skewed toward release tooling and policy text over app behaviour | open | | | |
 | UX-15 | P3 | Alert and menu wording drift, success modals, dead "Not Yet Implemented" helper, ASCII ellipses | partial | P7 | 519e21ac3 | ellipsis/wording sweep |
 | UX-16 | P3 | Hard-coded light fills in the read track reduce dark-mode contrast | fixed | Q1 | a6d26ce62 | dynamic colors; WCAG contrast test |
 | UX-17 | P3 | `BatchTableView` ⌘-click quick-copy competes with standard ⌘-click multi-select | fixed | P7 | 287aaaa03 | cmd-click quick-copy removed |
-| UX-18 | P3 | Sample-scope control differs per viewer. TaxTriage's segmented control does not scale | accepted | P7b | a13bc763 lane | control unreachable in production (batch mode uses Inspector picker); inert popup added should be DELETED in P5-A |
-| WFL-21 | P3 | Dead dialogs, launchers and engines kept alive only by tests | open | | | |
+| UX-18 | P3 | Sample-scope control differs per viewer. TaxTriage's segmented control does not scale | deferred | | | re-verified still unreachable in production; deletion is heavily entangled with live `selectNextSample`/`selectPreviousSample`/`selectAllSamplesOverview` menu-wired selectors, layout constraints, and `rebuildSampleFilterSegments`'s dual role (also sets `selectedSampleIndex` used by the live filter path) in TaxTriageResultViewController.swift - a surgical removal needs its own reviewed change, not folded into P5-A's batch dead-code pass |
+| WFL-21 | P3 | Dead dialogs, launchers and engines kept alive only by tests | fixed | P5-A | 45ec1f040,99d98b216 | OrientWizardSheet, UnifiedMetagenomicsWizard (dead paths), BatchProcessingEngine, 15 dead show*Operations/showFreyjaDemix handlers, hasConfiguredProvider, ontGenotypingSubcommand(for:), AssemblyConfigurationViewModel's run(config:)/spadesConfig(from:)/runAssemblyOperation all deleted with their pinning tests |
 | GEN-01 | P0 | ONT barcode assignment takes the leftmost exact barcode match anywhere in the read, including inside the ampli | fixed | G1 | 545fcea36 | anchored window after rc(CS2), both orientations, multi-match unassigned; 20-read DRB1 case all FLD0001 |
 | GEN-02 | P0 | `minimumMatches: 1` plus a count-only match rule reports homozygotes as heterozygotes (DQ M2/M2 as "M2 / M6",  | mitigated | G2 | 6dd8eb44f | 28-genotype golden test; 6 wrong-but-called now 'ambiguous'; calling rule itself pending owner decision |
 | GEN-03 | P1 | `--min-support` does not filter the report CSV or pipeline workbook, contrary to its help text | fixed | G2 | 4af5150a9 | help text corrected (report/workbook intentionally unfiltered) |
