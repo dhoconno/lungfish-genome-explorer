@@ -308,6 +308,20 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
     private var contentTypographyObservation: ContentTypographyViewObservation?
     private var contentPreferredFontProvider: any ContentPreferredFontProviding =
         AppKitContentPreferredFontProvider()
+    /// Cache of the four monospaced cell fonts (regular/semibold x upright/italic).
+    /// `tableView(_:viewFor:row:)` calls `font(for:)` once per visible cell, and
+    /// resolving a font from `resolvedContentTypography()` involves an AppKit font
+    /// lookup plus (for italics) `NSFontManager.shared.convert`, both of which are
+    /// too costly to repeat per cell on every scroll frame. This cache holds the
+    /// resolution for the lifetime of the current typography and is cleared in
+    /// `applyContentTypography()`, the single place typography-affecting state
+    /// (font-size preference, accessibility settings, preferred-font changes) is
+    /// re-applied.
+    private var cachedMatrixCellFonts: [MatrixCellFontKey: NSFont] = [:]
+    private struct MatrixCellFontKey: Hashable {
+        let isBold: Bool
+        let isItalic: Bool
+    }
     private var filterHeightConstraint: NSLayoutConstraint?
     private var reviewLegendHeightConstraint: NSLayoutConstraint?
     private var isApplyingContentTypography = false
@@ -5371,15 +5385,20 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
     }
 
     private func font(for style: GenotypeMatrixRenderedStyle) -> NSFont {
+        let key = MatrixCellFontKey(isBold: style.isBold, isItalic: style.isItalic)
+        if let cached = cachedMatrixCellFonts[key] {
+            return cached
+        }
         let resolved = resolvedContentTypography().font(for: .monospaced)
         let base = NSFont.monospacedDigitSystemFont(
             ofSize: resolved.pointSize,
             weight: style.isBold ? .semibold : .regular
         )
-        guard style.isItalic else {
-            return base
-        }
-        return NSFontManager.shared.convert(base, toHaveTrait: .italicFontMask)
+        let font = style.isItalic
+            ? NSFontManager.shared.convert(base, toHaveTrait: .italicFontMask)
+            : base
+        cachedMatrixCellFonts[key] = font
+        return font
     }
 
     private func resolvedContentTypography() -> ContentTypography {
@@ -5831,6 +5850,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
     }
 
     private func applyContentTypography() {
+        cachedMatrixCellFonts.removeAll(keepingCapacity: true)
         let pinnedScrollAnchor = captureTypographyScrollAnchor(
             scrollView: pinnedScrollView,
             tableView: pinnedTableView

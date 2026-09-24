@@ -22,6 +22,14 @@ import LungfishIO
 @MainActor
 final class PerfBenchSequenceViewerTests: XCTestCase {
     private var tempDirectory: URL!
+    // `SequenceViewerView.viewController` is `weak` (production code has the owning
+    // split-view controller hold the strong reference). The fixture's local
+    // `ViewerViewController` was previously only referenced by that weak property, so it
+    // was deallocated the moment `makeReadHeavyViewer` returned — every subsequent
+    // `draw(_:)` then saw `viewController == nil`, hit the placeholder branch, and
+    // `drawBundleContent` never ran. That is what made the benchmark implausibly fast
+    // (it was timing a no-op draw). Retaining it here for the test's lifetime is the fix.
+    private var retainedViewController: ViewerViewController?
 
     override func setUpWithError() throws {
         try XCTSkipUnless(
@@ -38,6 +46,7 @@ final class PerfBenchSequenceViewerTests: XCTestCase {
             try? FileManager.default.removeItem(at: tempDirectory)
         }
         tempDirectory = nil
+        retainedViewController = nil
     }
 
     // MARK: - Benchmark
@@ -109,13 +118,23 @@ final class PerfBenchSequenceViewerTests: XCTestCase {
 
         let viewController = ViewerViewController()
         viewController.loadView()
+        // See `retainedViewController`'s doc comment: `SequenceViewerView.viewController`
+        // is `weak`, so the fixture must keep a strong reference alive for the whole test.
+        retainedViewController = viewController
 
         let viewer = SequenceViewerView(frame: NSRect(x: 0, y: 0, width: 1600, height: 900))
         viewer.viewController = viewController
         viewer.setReferenceBundle(bundle)
 
+        // The visible span must keep `scale = span / pixelWidth` at or below
+        // `ReadViewportPolicy.coverageThresholdBpPerPx` (2.0 bp/px) so `applyReadViewportPolicy`
+        // resolves to `.packed` rather than `.coverage` — at `.coverage` zoom the read track
+        // draws only a hint and never packs or paints individual reads at all, which is the
+        // harness bug this benchmark exists to avoid repeating. 2,000 bp over a 1,600 px
+        // viewport is 1.25 bp/px, comfortably under the threshold and still above the 0.6
+        // bp/px base-letter threshold, so the packed (not base) tier renders.
         let visibleStart = 100_000
-        let visibleEnd = 110_000
+        let visibleEnd = 102_000
         let referenceFrame = ReferenceFrame(
             chromosome: chromosome,
             start: Double(visibleStart),
@@ -152,33 +171,68 @@ final class PerfBenchSequenceViewerTests: XCTestCase {
             windowEnd: visibleEnd + 5_000
         )
         viewer.cachedAlignedReads = reads
-
-        // Pack synchronously (this is exactly what the background pack task would produce)
-        // and install it directly, bypassing `requestBackgroundPack`'s async hop so the
-        // benchmark measures draw(_:) alone, not the packer.
-        let (packed, overflow) = ReadTrackRenderer.packReads(
-            reads,
-            frame: referenceFrame,
-            maxRows: 75,
-            sortMode: .position,
-            sortPosition: nil,
-            prioritizedRegion: visibleStart..<visibleEnd
-        )
-        let key = ReadPackCacheKey(
-            readGeneration: viewer.cachedReadSetGeneration,
-            chromosome: chromosome,
-            scaleTier: ReadPackCacheKey.quantizeScale(referenceFrame.scale),
-            sortMode: "position",
-            sortPosition: nil,
-            maxRows: 75,
-            verticalCompress: false,
-            prioritizedRegion: nil,
-            filterWindow: (visibleStart - 5_000)..<(visibleEnd + 5_000)
-        )
-        viewer.installPackedLayout(key: key, packed: packed, overflow: overflow)
-
         viewer.layoutSubtreeIfNeeded()
+
+        // `draw(_:)` computes its own `ReadPackCacheKey` from the viewport, scale, row-limit
+        // and sort settings (SequenceViewerView+Rendering.swift), and only paints reads when
+        // `cachedPackKey` already equals that key. Hand-rolling an equivalent key here
+        // previously drifted from the production formula (padding window and row-limit
+        // defaults did not match), so `layoutIsCurrent` was always false and every benchmark
+        // pass measured an early return that painted zero reads — the implausible ~0.6ms.
+        //
+        // Instead, drive a real (headless) draw so `requestBackgroundPack` computes and
+        // records the exact key it wants under `inFlightPackKey`, pack synchronously with
+        // that key's own parameters, and commit it exactly as the real background task would.
+        // A second draw pass then finds `cachedPackKey == key` and takes the normal paint path.
+        try triggerBackgroundPackKey(for: viewer)
+        guard let key = viewer.inFlightPackKey else {
+            throw XCTSkip("draw(_:) did not queue a background pack; nothing to benchmark")
+        }
+        let readsForPacking = reads.filter { read in
+            guard let window = key.filterWindow else { return true }
+            return read.chromosome == chromosome
+                && read.alignmentEnd > window.lowerBound
+                && read.position < window.upperBound
+        }
+        let (packed, overflow) = ReadTrackRenderer.packReads(
+            readsForPacking,
+            frame: referenceFrame,
+            maxRows: key.maxRows,
+            sortMode: .position,
+            sortPosition: key.sortPosition,
+            prioritizedRegion: key.prioritizedRegion
+        )
+        _ = viewer.commitPackedLayout(
+            generation: viewer.packRequestGeneration,
+            key: key,
+            packed: packed,
+            overflow: overflow
+        )
+        guard viewer.testCachedPackedReadLayout != nil, !viewer.cachedPackedReads.isEmpty else {
+            throw XCTSkip("Packed layout did not commit; nothing to benchmark")
+        }
+
         return (viewer, referenceFrame)
+    }
+
+    /// Renders one headless pass so `drawBundleContent` reaches its read-track block and calls
+    /// `requestBackgroundPack`, which records the key it wants in `inFlightPackKey` without
+    /// actually running the packer (that happens on `Task.detached`, which this synchronous
+    /// helper does not await). The caller packs that same key synchronously instead.
+    private func triggerBackgroundPackKey(for viewer: SequenceViewerView) throws {
+        guard let rep = viewer.bitmapImageRepForCachingDisplay(in: viewer.bounds) else {
+            throw XCTSkip("No offscreen bitmap rep available")
+        }
+        NSGraphicsContext.saveGraphicsState()
+        defer { NSGraphicsContext.restoreGraphicsState() }
+        guard let context = NSGraphicsContext(bitmapImageRep: rep) else {
+            throw XCTSkip("No offscreen graphics context available")
+        }
+        NSGraphicsContext.current = context
+        viewer.draw(viewer.bounds)
+        context.flushGraphics()
+        viewer.backgroundPackTask?.cancel()
+        viewer.backgroundPackTask = nil
     }
 
     private func syntheticReads(count: Int, chromosome: String, windowStart: Int, windowEnd: Int) -> [AlignedRead] {
