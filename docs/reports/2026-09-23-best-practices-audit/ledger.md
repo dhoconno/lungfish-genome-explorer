@@ -72,7 +72,7 @@ Single source of truth for finding status (plan rule 9). Status: `open`, `verifi
 | FEA-09 | P2 | Two locus parsers with different grammar, and no gene lookup in the locus field | fixed | Q4 | 74609ce60 | one LocusQueryParser for ruler + Go to Location |
 | FEA-10 | P2 | Settings controls that nothing reads (default zoom window, max undo levels) | fixed | P2-A | 8632b57aa | default zoom wired; max undo control removed |
 | FEA-11 | P2 | Export Image/PDF can export a hidden view or the wrong window; some menu actions ignore the key window | open | | | |
-| FEA-12 | P2 | GUI BAM and VCF imports record a `lungfish-cli` command that the CLI cannot run | fixed | P6-B | a1e282448 | BAM import real command; VCF import command removed (no CLI attach path yet) |
+| FEA-12 | P2 | GUI BAM and VCF imports record a `lungfish-cli` command that the CLI cannot run | fixed | P6-B+lane | a1e282448,b7511a73f | BAM and VCF record runnable lungfish-cli commands; VCF attach mode shares VCFBundleVariantImport with the GUI helper; parse round-trip + CLI attach parity tests |
 | FEA-13 | P2 | Variant table dead controls: Het Only chip, single-option Match picker, silent preset rewrite | fixed | P7 | 6c6c748a9 | dead Het Only + single-option picker removed; preset normalization banner |
 | FEA-14 | P2 | Output placement differs by entry point (Imports, project root, drop folder, alignment-read-extractions with U | open | | | |
 | PERF-07 | P2 | Result and bundle selection opens SQLite databases and runs scans and JSON decodes on the main thread | fixed | Q1b | a206f4813 | variant track scan off main with generation check; main-actor responsiveness test |
