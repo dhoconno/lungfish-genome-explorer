@@ -53,14 +53,14 @@ final class AlignCommandTests: XCTestCase {
         _ = try await command.executeForTesting(runtime: runtime) { recorder.append($0) }
         let lines = recorder.lines()
 
-        XCTAssertTrue(lines.contains { $0.contains(#""event":"msaAlignmentStart""#) })
-        XCTAssertTrue(lines.contains { $0.contains(#""event":"msaAlignmentProgress""#) && $0.contains("Running MAFFT") })
-        XCTAssertTrue(lines.contains { $0.contains(#""event":"msaAlignmentWarning""#) })
-        let complete = try XCTUnwrap(lines.first { $0.contains(#""event":"msaAlignmentComplete""#) })
+        XCTAssertTrue(lines.contains { $0.contains(#""event":"start""#) })
+        XCTAssertTrue(lines.contains { $0.contains(#""event":"progress""#) && $0.contains("Running MAFFT") })
+        XCTAssertTrue(lines.contains { $0.contains(#""event":"log""#) && $0.contains("Duplicate row names were rewritten.") })
+        let complete = try XCTUnwrap(lines.first { $0.contains(#""event":"complete""#) })
             .replacingOccurrences(of: "\\/", with: "/")
         XCTAssertTrue(complete.contains(output.path))
-        XCTAssertTrue(complete.contains(#""rowCount":2"#))
-        XCTAssertTrue(complete.contains(#""alignedLength":6"#))
+        XCTAssertTrue(complete.contains("rows=2"))
+        XCTAssertTrue(complete.contains("alignedLength=6"))
     }
 
     func testMAFFTCommandUsesAutoStrategyByDefault() throws {
