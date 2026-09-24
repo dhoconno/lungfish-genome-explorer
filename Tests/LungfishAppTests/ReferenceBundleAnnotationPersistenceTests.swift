@@ -46,12 +46,20 @@ final class ReferenceBundleAnnotationPersistenceTests: XCTestCase {
 
         let annotation = try annotationFromDatabase(bundleURL: bundleURL, trackID: "imported", name: "geneA")
 
-        // This is exactly what `SequenceViewerView.deleteAnnotationAction` posts, minus the
-        // confirmation sheet (already covered by the alert wiring added alongside this fix).
+        // This is exactly what `SequenceViewerView.deleteAnnotationAction` posts (including
+        // the window-state scope every real notification carries, per
+        // `windowScopedUserInfo`), minus the confirmation sheet (already covered by the
+        // alert wiring added alongside this fix). The scope is included explicitly --
+        // rather than relying on `AppDelegate.activeMainWindowController()`'s
+        // `NSApp.keyWindow` fallback -- so this test resolves the intended window
+        // regardless of what other tests running in the same process left key.
         NotificationCenter.default.post(
             name: .annotationDeleted,
             object: windowController.mainSplitViewController.viewerController.viewerView,
-            userInfo: [NotificationUserInfoKey.annotation: annotation]
+            userInfo: [
+                NotificationUserInfoKey.annotation: annotation,
+                NotificationUserInfoKey.windowStateScope: windowController.projectSession.windowStateScope,
+            ]
         )
 
         try await waitForAnnotationRowCount(bundleURL: bundleURL, trackID: "imported", expected: 0)
@@ -78,13 +86,16 @@ final class ReferenceBundleAnnotationPersistenceTests: XCTestCase {
         let annotation = try annotationFromDatabase(bundleURL: bundleURL, trackID: "imported", name: "geneA")
 
         // This is exactly what `InspectorViewController+Editing.handleAnnotationDeletedFromInspector`
-        // posts after the SwiftUI "cannot be undone" confirmationDialog is accepted.
+        // posts after the SwiftUI "cannot be undone" confirmationDialog is accepted
+        // (`InspectorViewController.windowScopedUserInfo` adds the same window-state scope
+        // key real production notifications carry).
         NotificationCenter.default.post(
             name: .annotationDeleted,
             object: nil,
             userInfo: [
                 NotificationUserInfoKey.annotation: annotation,
                 NotificationUserInfoKey.changeSource: "inspector",
+                NotificationUserInfoKey.windowStateScope: windowController.projectSession.windowStateScope,
             ]
         )
 
@@ -111,6 +122,7 @@ final class ReferenceBundleAnnotationPersistenceTests: XCTestCase {
             userInfo: [
                 NotificationUserInfoKey.annotation: annotation,
                 NotificationUserInfoKey.changeSource: "inspector",
+                NotificationUserInfoKey.windowStateScope: windowController.projectSession.windowStateScope,
             ]
         )
 
@@ -135,9 +147,17 @@ final class ReferenceBundleAnnotationPersistenceTests: XCTestCase {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         delegate.projectWindowStateStore = ProjectWindowStateStore(stateURL: directory.appendingPathComponent("windows.json"))
 
-        let windowController = MainWindowController()
+        // `createAndShowMainWindow` (not a bare `MainWindowController()` + manually
+        // assigning `delegate.mainWindowController`) registers the controller in
+        // `AppDelegate.mainWindowControllers`, not just the singular
+        // `mainWindowController` property. That registration is required for
+        // `AppDelegate.controller(forWindowStateScopeID:)` -- and so for
+        // `viewerController(for:)` -- to resolve a notification carrying an explicit
+        // `windowStateScope` (as every real annotation-edit notification does) to THIS
+        // window rather than falling through to `NSApp.keyWindow`, which is unreliable
+        // when other test files in the same process leave windows behind.
+        let windowController = delegate.createAndShowMainWindow()
         _ = windowController.window
-        delegate.mainWindowController = windowController
 
         // `handleAnnotationDeleted`/`handleAnnotationUpdated` are private `@objc` methods
         // normally wired by `AppDelegate.registerNotifications()` from
@@ -145,7 +165,10 @@ final class ReferenceBundleAnnotationPersistenceTests: XCTestCase {
         // observers, so the test exercises the real production selectors without driving
         // the full NSApplication launch sequence (menu install, tool management, etc).
         delegate.registerAnnotationNotificationObserversForTesting()
-        addTeardownBlock { NotificationCenter.default.removeObserver(delegate) }
+        addTeardownBlock {
+            NotificationCenter.default.removeObserver(delegate)
+            windowController.close()
+        }
 
         return (windowController, delegate)
     }
