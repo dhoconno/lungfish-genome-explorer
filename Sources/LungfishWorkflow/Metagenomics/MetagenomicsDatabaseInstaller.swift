@@ -666,7 +666,7 @@ public struct MetagenomicsDatabaseInstaller: MetagenomicsDatabaseInstalling, Sen
     private func failureRecord(for error: Error) -> MetagenomicsDatabaseInstallFailure { if error is CancellationError { return .cancelled(message: "Installation cancelled", stderr: "") }; if case .toolFailed(_, let status, let stderr) = error as? MetagenomicsDatabaseInstallerError { return .failed(exitStatus: status, message: error.localizedDescription, stderr: stderr) }; return .failed(exitStatus: 1, message: error.localizedDescription, stderr: "") }
     private static func bounded(_ text: String) -> String { String(text.prefix(16_384)) }
     private static func recipeSource(_ recipe: MetagenomicsDatabaseInstallationRecipe) -> String { switch recipe { case .archive(let url): return url.absoluteString; case .kraken2Special(let type): return type.rawValue } }
-    private static func installationURL(for database: MetagenomicsDatabaseInfo, databasesBaseURL: URL) -> URL {
+    static func installationURL(for database: MetagenomicsDatabaseInfo, databasesBaseURL: URL) -> URL {
         let base = databasesBaseURL.standardizedFileURL
         if database.tool == MetagenomicsTool.esviritu.rawValue {
             return base.appendingPathComponent("esviritu/esviritu-viral-db", isDirectory: true)

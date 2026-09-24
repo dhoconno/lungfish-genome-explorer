@@ -173,6 +173,9 @@ public actor MetagenomicsDatabaseRegistry {
     private let securityScopedAccessStarter: @Sendable (URL) -> Bool
     private let securityScopedAccessStopper: @Sendable (URL) -> Void
     private let databaseInstaller: any MetagenomicsDatabaseInstalling
+    /// Clones an identical copy from another channel's root before any download.
+    /// `nil` in isolated test registries that do not opt in.
+    private let siblingCloneInstaller: MetagenomicsSiblingRootCloneInstaller?
     private let manifestWriter: @Sendable (Data, URL) throws -> Void
     private var activeSecurityScopedURLs: [String: URL] = [:]
 
@@ -228,6 +231,9 @@ public actor MetagenomicsDatabaseRegistry {
         self.securityScopedAccessStarter = { $0.startAccessingSecurityScopedResource() }
         self.securityScopedAccessStopper = { $0.stopAccessingSecurityScopedResource() }
         self.databaseInstaller = Self.productionDatabaseInstaller()
+        self.siblingCloneInstaller = MetagenomicsSiblingRootCloneInstaller(
+            siblingDatabaseRoots: MetagenomicsSiblingRootCloneInstaller.channelSiblingDatabaseRoots()
+        )
         self.manifestWriter = Self.defaultManifestWriter
         self.archiveInstaller = Self.liveArchiveInstaller
         self.expectedChecksum = Self.manifestChecksum
@@ -247,6 +253,9 @@ public actor MetagenomicsDatabaseRegistry {
         self.securityScopedAccessStarter = { $0.startAccessingSecurityScopedResource() }
         self.securityScopedAccessStopper = { $0.stopAccessingSecurityScopedResource() }
         self.databaseInstaller = Self.productionDatabaseInstaller()
+        self.siblingCloneInstaller = MetagenomicsSiblingRootCloneInstaller(
+            siblingDatabaseRoots: MetagenomicsSiblingRootCloneInstaller.channelSiblingDatabaseRoots()
+        )
         self.manifestWriter = Self.defaultManifestWriter
         self.archiveInstaller = Self.liveArchiveInstaller
         self.expectedChecksum = Self.manifestChecksum
@@ -270,6 +279,7 @@ public actor MetagenomicsDatabaseRegistry {
         self.securityScopedAccessStarter = { $0.startAccessingSecurityScopedResource() }
         self.securityScopedAccessStopper = { $0.stopAccessingSecurityScopedResource() }
         self.databaseInstaller = Self.productionDatabaseInstaller()
+        self.siblingCloneInstaller = nil
         self.manifestWriter = Self.defaultManifestWriter
         self.archiveInstaller = Self.liveArchiveInstaller
         self.expectedChecksum = Self.manifestChecksum
@@ -286,7 +296,8 @@ public actor MetagenomicsDatabaseRegistry {
         securityScopedAccessStarter: @escaping @Sendable (URL) -> Bool = { $0.startAccessingSecurityScopedResource() },
         securityScopedAccessStopper: @escaping @Sendable (URL) -> Void = { $0.stopAccessingSecurityScopedResource() },
         databaseInstaller: (any MetagenomicsDatabaseInstalling)? = nil,
-        manifestWriter: @escaping @Sendable (Data, URL) throws -> Void = MetagenomicsDatabaseRegistry.defaultManifestWriter
+        manifestWriter: @escaping @Sendable (Data, URL) throws -> Void = MetagenomicsDatabaseRegistry.defaultManifestWriter,
+        siblingCloneInstaller: MetagenomicsSiblingRootCloneInstaller? = nil
     ) {
         self.storageConfigStore = nil
         self.databasesBaseURL = baseDirectory
@@ -298,6 +309,7 @@ public actor MetagenomicsDatabaseRegistry {
         self.securityScopedAccessStarter = securityScopedAccessStarter
         self.securityScopedAccessStopper = securityScopedAccessStopper
         self.databaseInstaller = databaseInstaller ?? Self.productionDatabaseInstaller()
+        self.siblingCloneInstaller = siblingCloneInstaller
         self.manifestWriter = manifestWriter
         self.archiveInstaller = Self.liveArchiveInstaller
         self.expectedChecksum = Self.manifestChecksum
@@ -1098,12 +1110,16 @@ public actor MetagenomicsDatabaseRegistry {
 
         let prepared: PreparedMetagenomicsDatabaseInstallation
         do {
-            prepared = try await databaseInstaller.prepareInstallation(
-                database: preparationDatabase,
-                databasesBaseURL: databasesBaseURL,
-                threads: 4,
-                progress: progress
-            )
+            if let cloned = try cloneFromSiblingRoot(preparationDatabase, progress: progress) {
+                prepared = cloned
+            } else {
+                prepared = try await databaseInstaller.prepareInstallation(
+                    database: preparationDatabase,
+                    databasesBaseURL: databasesBaseURL,
+                    threads: 4,
+                    progress: progress
+                )
+            }
         } catch {
             databases[name] = prior
             try? saveManifest()
@@ -1172,6 +1188,28 @@ public actor MetagenomicsDatabaseRegistry {
         logger.info("Installed database '\(name, privacy: .public)' at \(prepared.result.finalURL.path, privacy: .public)")
 
         return prepared.result.finalURL
+    }
+
+    /// Clones an identical, verified copy from a sibling channel root instead of
+    /// downloading. Any verification failure falls back to the download path;
+    /// only cancellation propagates.
+    private func cloneFromSiblingRoot(
+        _ database: MetagenomicsDatabaseInfo,
+        progress: @Sendable @escaping (Double, String) -> Void
+    ) throws -> PreparedMetagenomicsDatabaseInstallation? {
+        guard let siblingCloneInstaller else { return nil }
+        do {
+            return try siblingCloneInstaller.prepareClone(
+                database: database, databasesBaseURL: databasesBaseURL, progress: progress
+            )
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            logger.info(
+                "Sibling-root clone of '\(database.name, privacy: .public)' not used; downloading instead: \(error.localizedDescription, privacy: .public)"
+            )
+            return nil
+        }
     }
 
     // MARK: - Update Support

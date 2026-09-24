@@ -259,6 +259,12 @@ On a shared Mac, an administrator can put the packs and databases on a larger sh
 
 The pattern that works is to set the variable in a shell startup file the other accounts share, install the packs and databases once from the Plugin Manager as the administrator, then leave the folder readable by everyone but writable only by the administrator. Other users then see the packs and databases as installed and can run analyses with them. An install attempt by another user stops with `conda root is read-only; reinstall as the admin user`, and only the administrator can fix that.
 
+### One Mac, two copies of LGE
+
+A Mac that runs both the Preview and the stable copy of LGE keeps a storage folder for each, `~/.lungfish` and `~/.lungfish-stable`, so a Preview experiment can never disturb the stable copy. The two folders do not cost double. Tool packages land once in `~/.lungfish-shared/conda/pkgs`, a cache both copies list first, and each copy's environments link to it. A database one copy has already installed and verified is cloned into the other copy's folder with an APFS clone, a copy that shares its blocks with the original until one side changes. Cloning only happens on the same APFS volume. If you moved one storage folder to another drive, that copy downloads its own files as before.
+
+Folders that were filled before this sharing existed still hold two full copies. `lungfish-cli storage dedupe` finds identical files across the storage folders and replaces each duplicate with a clone of one kept copy. It reports first and changes nothing until you add `--apply`, and it refuses to apply while a pack or database install is running. Set `LUNGFISH_CONDA_SHARED_PKGS=0` to switch the shared package cache off, or set it to an absolute path to put the cache somewhere else.
+
 ## Next
 
 See [CLI Reference](cli-reference.md) for every flag of the commands named here, [Provenance and Reproducibility](../01-foundations/08-provenance-and-reproducibility.md) for reading a run record, and [Running in CI](06-running-in-ci.md) for repeating runs on a fresh machine.

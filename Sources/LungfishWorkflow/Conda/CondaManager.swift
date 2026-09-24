@@ -231,6 +231,10 @@ public actor CondaManager {
     private let rootPrefixProvider: RootPrefixProvider
     private let bundledMicromambaProvider: BundledMicromambaProvider
     private let bundledMicromambaVersionProvider: BundledMicromambaVersionProvider
+    /// Points this root's micromamba at the cross-channel package cache. Test
+    /// and CLI-override instances leave it unset so a temporary root never
+    /// writes outside itself.
+    private let sharedPackageCache: CondaSharedPackageCache?
 
     private init() {
         let storageConfigStore = ManagedStorageConfigStore()
@@ -239,17 +243,20 @@ public actor CondaManager {
         }
         self.bundledMicromambaProvider = Self.defaultBundledMicromambaURL
         self.bundledMicromambaVersionProvider = Self.defaultBundledMicromambaVersion
+        self.sharedPackageCache = CondaSharedPackageCache()
     }
 
     init(
         rootPrefix: URL,
         bundledMicromambaProvider: @escaping BundledMicromambaProvider,
-        bundledMicromambaVersionProvider: @escaping BundledMicromambaVersionProvider
+        bundledMicromambaVersionProvider: @escaping BundledMicromambaVersionProvider,
+        sharedPackageCache: CondaSharedPackageCache? = nil
     ) {
         let resolvedRootPrefix = rootPrefix.standardizedFileURL
         self.rootPrefixProvider = { resolvedRootPrefix }
         self.bundledMicromambaProvider = bundledMicromambaProvider
         self.bundledMicromambaVersionProvider = bundledMicromambaVersionProvider
+        self.sharedPackageCache = sharedPackageCache
     }
 
     init(rootPrefix: URL) {
@@ -270,6 +277,7 @@ public actor CondaManager {
         }
         self.bundledMicromambaProvider = bundledMicromambaProvider
         self.bundledMicromambaVersionProvider = bundledMicromambaVersionProvider
+        self.sharedPackageCache = nil
     }
 
     static func defaultRootPrefix(
@@ -337,6 +345,7 @@ public actor CondaManager {
         // spaces like ~/Library/Application Support/...), replace it with a real
         // directory. Spaces in conda prefix paths break bioinformatics tools.
         migrateSymlinkToRealDirectory()
+        configureSharedPackageCache()
 
         guard let bundledMicromambaPath = bundledMicromambaProvider(),
               FileManager.default.fileExists(atPath: bundledMicromambaPath.path) else {
@@ -502,6 +511,19 @@ public actor CondaManager {
 
     private static func defaultBundledMicromambaVersion() -> String? {
         ManagedToolLock.bundled.bootstrap?.micromamba.version ?? NativeToolRunner.bundledVersions["micromamba"]
+    }
+
+    /// Writes `<root>/.mambarc` so micromamba caches packages once for every
+    /// channel. Failure is logged, never fatal: the root's own cache still works.
+    private func configureSharedPackageCache() {
+        guard let sharedPackageCache else { return }
+        do {
+            if let shared = try sharedPackageCache.configure(rootPrefix: rootPrefix) {
+                logger.info("micromamba package cache shared at \(shared.path, privacy: .public)")
+            }
+        } catch {
+            logger.error("Could not configure the shared package cache: \(error.localizedDescription, privacy: .public)")
+        }
     }
 
     private func ensureMicromambaExecutable(at path: URL) throws {

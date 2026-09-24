@@ -19,6 +19,8 @@ enum SettingsAccessibilityID {
     static let storageRevealButton = "settings-storage-reveal-button"
     static let storageUseDefaultButton = "settings-storage-use-default-button"
     static let storageCleanupButton = "settings-storage-cleanup-button"
+    static let storageDedupeButton = "settings-storage-dedupe-button"
+    static let storageDedupeStatus = "settings-storage-dedupe-status"
 
     static let aiSearchToggle = "settings-ai-search-toggle"
     static let aiPreferredProviderPicker = "settings-ai-preferred-provider-picker"

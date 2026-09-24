@@ -235,20 +235,44 @@ extension AppIdentityTests {
         }
     }
 
-    @Test("Historical upstream command line state remains Stable")
-    func historicalCLIResolution() throws {
+    @Test("A standalone upstream command line keeps Stable state")
+    func standaloneCLIResolution() throws {
         #expect(try RuntimeAppIdentityResolver.resolve() == .stable)
-        let debug: [String: Any] = [
-            "CFBundleDisplayName": LungfishAppIdentity.debug.fullName,
-            "CFBundleName": LungfishAppIdentity.debug.shortName,
-            "CFBundleIdentifier": LungfishAppIdentity.debug.bundleIdentifier,
-            "LungfishReleaseChannel": "debug",
-        ]
-        #expect(try RuntimeAppIdentityResolver.resolve(enclosingAppInfo: debug) == .stable)
-        #expect(try RuntimeAppIdentityResolver.resolve(embeddedExecutableInfo: debug, enclosingAppInfo: debug) == .stable)
+        // A CLI copied out of its app bundle carries the app's metadata but
+        // runs standalone, so it keeps the historical Stable default.
+        #expect(try RuntimeAppIdentityResolver.resolve(embeddedExecutableInfo: upstreamInfo(.preview)) == .stable)
+        #expect(try RuntimeAppIdentityResolver.resolve(embeddedExecutableInfo: upstreamInfo(.debug)) == .stable)
         #expect(throws: LungfishAppIdentityError.self) {
-            try RuntimeAppIdentityResolver.resolve(embeddedExecutableInfo: debug, enclosingAppInfo: forkInfo())
+            try RuntimeAppIdentityResolver.resolve(embeddedExecutableInfo: upstreamInfo(.debug), enclosingAppInfo: forkInfo())
         }
+    }
+
+    @Test("A command line bundled inside an upstream app follows that app's channel")
+    func bundledCLIFollowsEnclosingApp() throws {
+        for identity in [LungfishAppIdentity.preview, .debug, .stable] {
+            let info = upstreamInfo(identity)
+            #expect(try RuntimeAppIdentityResolver.resolve(enclosingAppInfo: info) == identity)
+            #expect(try RuntimeAppIdentityResolver.resolve(embeddedExecutableInfo: info, enclosingAppInfo: info) == identity)
+        }
+        // Mismatched embedded and enclosing metadata is still rejected.
+        #expect(throws: LungfishAppIdentityError.self) {
+            try RuntimeAppIdentityResolver.resolve(
+                embeddedExecutableInfo: upstreamInfo(.stable), enclosingAppInfo: upstreamInfo(.preview)
+            )
+        }
+        let preview = try RuntimeAppIdentityResolver.resolve(enclosingAppInfo: upstreamInfo(.preview))
+        #expect(preview.managedStorageDirectoryName == ".lungfish")
+        let debug = try RuntimeAppIdentityResolver.resolve(enclosingAppInfo: upstreamInfo(.debug))
+        #expect(debug.managedStorageDirectoryName == ".lungfish-debug")
+    }
+
+    private func upstreamInfo(_ identity: LungfishAppIdentity) -> [String: Any] {
+        [
+            "CFBundleDisplayName": identity.fullName,
+            "CFBundleName": identity.shortName,
+            "CFBundleIdentifier": identity.bundleIdentifier,
+            "LungfishReleaseChannel": identity.releaseChannel.rawValue,
+        ]
     }
 
     @Test("Canonical CLI symlinks resolve only their owning app metadata")

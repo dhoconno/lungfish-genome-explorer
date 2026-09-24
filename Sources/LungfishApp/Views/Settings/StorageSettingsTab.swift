@@ -33,6 +33,8 @@ struct StorageSettingsTab: View {
     @State private var errorMessage: String = ""
     @State private var isWorking: Bool = false
     @State private var canRevealCurrentLocation: Bool = false
+    @State private var dedupeReport: ManagedStorageDedupeReport?
+    @State private var showingDedupeConfirmation: Bool = false
 
     private let storageCoordinator: ManagedStorageCoordinator
 
@@ -214,6 +216,27 @@ struct StorageSettingsTab: View {
                 }
             }
 
+            Section("Shared Space") {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Preview, stable, and Debug keep separate storage roots, and identical databases and tool packages are stored once as APFS clones. Roots filled before sharing existed may still hold full duplicate copies.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+
+                    if let dedupeReport {
+                        Text(Self.dedupeSummary(dedupeReport))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .accessibilityIdentifier(SettingsAccessibilityID.storageDedupeStatus)
+                    }
+
+                    Button("Reclaim Duplicate Space...") {
+                        scanForDuplicateSpace()
+                    }
+                    .disabled(isWorking)
+                    .accessibilityIdentifier(SettingsAccessibilityID.storageDedupeButton)
+                }
+            }
+
             Section("About Managed Storage") {
                 VStack(alignment: .leading, spacing: 6) {
                     Label("Managed tools and downloaded databases share one storage root", systemImage: "folder.badge.gearshape")
@@ -246,10 +269,83 @@ struct StorageSettingsTab: View {
                 Text("This will delete migrated tool and database files from \(previousRootPath).")
             }
         }
+        .confirmationDialog(
+            "Reclaim duplicate space?",
+            isPresented: $showingDedupeConfirmation
+        ) {
+            Button("Reclaim \(Self.formatBytes(dedupeReport?.bytesReclaimable ?? 0))") {
+                applyDuplicateSpaceReclaim()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            if let dedupeReport {
+                Text("\(dedupeReport.duplicateFiles) duplicate file(s) across \(dedupeReport.roots.count) root(s) will be replaced by verified clones of one kept copy. Open files and files linked outside the roots are left alone.")
+            }
+        }
         .alert("Storage Error", isPresented: $showingErrorAlert) {
             Button("OK", role: .cancel) {}
         } message: {
             Text(errorMessage)
+        }
+    }
+
+    static func formatBytes(_ bytes: Int64) -> String {
+        ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
+    }
+
+    static func dedupeSummary(_ report: ManagedStorageDedupeReport) -> String {
+        switch report.mode {
+        case .dryRun where !report.blockers.isEmpty:
+            return "A managed install is in progress. Try again when it finishes."
+        case .dryRun where report.bytesReclaimable == 0:
+            return "No duplicate space to reclaim across \(report.roots.count) root(s). \(formatBytes(report.bytesAlreadyShared)) already shared."
+        case .dryRun:
+            return "\(formatBytes(report.bytesReclaimable)) reclaimable in \(report.duplicateFiles) duplicate file(s)."
+        case .apply:
+            let failures = report.failures.isEmpty ? "" : " \(report.failures.count) file(s) could not be replaced."
+            return "Reclaimed \(formatBytes(report.bytesReclaimed)) by replacing \(report.replacements.count) file(s).\(failures)"
+        }
+    }
+
+    @MainActor
+    private func scanForDuplicateSpace() {
+        let roots = ManagedStorageChannelRoots.existingRoots()
+        isWorking = true
+        currentOperationMessage = "Scanning storage roots for duplicate files..."
+        Task {
+            do {
+                let report = try await Task.detached(priority: .utility) {
+                    try ManagedStorageDeduplicator().dryRun(ManagedStorageDedupeOptions(roots: roots))
+                }.value
+                dedupeReport = report
+                if report.bytesReclaimable > 0, report.blockers.isEmpty {
+                    showingDedupeConfirmation = true
+                }
+            } catch {
+                errorMessage = error.localizedDescription
+                showingErrorAlert = true
+            }
+            isWorking = false
+            currentOperationMessage = nil
+        }
+    }
+
+    @MainActor
+    private func applyDuplicateSpaceReclaim() {
+        let roots = ManagedStorageChannelRoots.existingRoots()
+        isWorking = true
+        currentOperationMessage = "Replacing duplicate files with clones..."
+        Task {
+            do {
+                dedupeReport = try await Task.detached(priority: .utility) {
+                    try ManagedStorageDeduplicator().apply(ManagedStorageDedupeOptions(roots: roots))
+                }.value
+            } catch {
+                errorMessage = error.localizedDescription
+                showingErrorAlert = true
+            }
+            isWorking = false
+            currentOperationMessage = nil
         }
     }
 
