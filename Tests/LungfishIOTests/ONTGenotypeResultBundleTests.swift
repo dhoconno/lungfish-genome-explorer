@@ -386,6 +386,15 @@ final class ONTGenotypeResultBundleTests: XCTestCase {
         XCTAssertNil(ONTGenotypeResultBundle.makeCall(row: empty)?.ambiguousWith)
         XCTAssertNil(ONTGenotypeResultBundle.makeCall(row: base)?.ambiguousWith)
         XCTAssertEqual(ONTGenotypeResultBundle.makeCall(row: base)?.passedUniqueReads, 20)
+
+        // GEN-10 (D15): full-length rows carry indel_bases; older CSVs do not.
+        var indel = base
+        indel["indel_bases"] = "9"
+        indel["review_flag"] = "indel"
+        XCTAssertEqual(ONTGenotypeResultBundle.makeCall(row: indel)?.indelBases, 9)
+        XCTAssertEqual(ONTGenotypeResultBundle.makeCall(row: indel)?.needsIndelReview, true)
+        XCTAssertNil(ONTGenotypeResultBundle.makeCall(row: base)?.indelBases)
+        XCTAssertEqual(ONTGenotypeResultBundle.makeCall(row: base)?.needsIndelReview, false)
     }
 
     func testManifestRoundTripsReviewableRowCatalogDescriptor() throws {

@@ -607,6 +607,16 @@ public struct ONTGenotypeCall: Codable, Equatable, Sendable {
     /// before mapping. Lists every member of that ambiguity group, this
     /// genotype first. Nil for ordinary rows and for older bundles.
     public let ambiguousWith: [String]?
+    /// GEN-10 (D15): full-length ONT only. Indel bases in the zero-SNP hit
+    /// behind this known call (largest over its clusters). Nil for amplicon
+    /// calls and for older bundles.
+    public let indelBases: Int?
+
+    /// GEN-10 (D15): a known full-length call whose hit carries indels.
+    /// It stays a known call, but needs review.
+    public var needsIndelReview: Bool {
+        (indelBases ?? 0) > 0
+    }
 
     public init(
         sample: String,
@@ -619,7 +629,8 @@ public struct ONTGenotypeCall: Codable, Equatable, Sendable {
         overallInputReads: Int?,
         overallUniqueRetainedReads: Int?,
         overallUniqueRetainedPercent: Double?,
-        ambiguousWith: [String]? = nil
+        ambiguousWith: [String]? = nil,
+        indelBases: Int? = nil
     ) {
         self.sample = sample
         self.genotype = genotype
@@ -632,6 +643,7 @@ public struct ONTGenotypeCall: Codable, Equatable, Sendable {
         self.overallUniqueRetainedReads = overallUniqueRetainedReads
         self.overallUniqueRetainedPercent = overallUniqueRetainedPercent
         self.ambiguousWith = ambiguousWith
+        self.indelBases = indelBases
     }
 
     public var haplotypeTokens: [String] {
@@ -3813,7 +3825,8 @@ public enum ONTGenotypeResultBundle {
             overallInputReads: parseInt(row["overall_input_reads"]),
             overallUniqueRetainedReads: parseInt(row["overall_unique_retained_reads"]),
             overallUniqueRetainedPercent: parseDouble(row["overall_unique_retained_percent"]),
-            ambiguousWith: parseAmbiguityGroup(row["ambiguous_with"])
+            ambiguousWith: parseAmbiguityGroup(row["ambiguous_with"]),
+            indelBases: parseInt(row["indel_bases"])
         )
     }
 

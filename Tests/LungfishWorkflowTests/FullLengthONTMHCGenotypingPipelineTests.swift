@@ -4689,7 +4689,8 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
                 allele: "Mamu-A1*001",
                 alleleLength: 4,
                 alignedBases: 4,
-                score: 4
+                score: 4,
+                indelBases: 0
             ),
         ])
         XCTAssertEqual(summary.unmatchedClusters.map(\.name), ["Cluster2_ReadCount-6"])
@@ -4946,7 +4947,8 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
                 allele: "Mamu-A1*001",
                 alleleLength: 8,
                 alignedBases: 8,
-                score: -12
+                score: -12,
+                indelBases: 2
             ),
         ])
         XCTAssertEqual(summary.unmatchedClusters, [])
@@ -4955,6 +4957,115 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
         XCTAssertFalse(summary.rows.map(\.allele).contains { allele in
             allele.contains("_extension") || allele.contains("_ext") || allele.contains("_0nt_nov")
         })
+
+        // GEN-10 (D15): the zero-SNP indel hit stays a known call, but the
+        // report row carries the indel count and a review flag.
+        let reportRows = FullLengthONTMHCClusterReportBuilder.reportRows(
+            genotypeRows: summary.rows,
+            sampleReadCounts: ["DL48": 20]
+        )
+        XCTAssertEqual(reportRows.map(\.genotype), ["Mamu-A1*001"])
+        XCTAssertEqual(reportRows.map(\.indelBases), [2])
+        XCTAssertEqual(reportRows.map(\.reviewFlag), ["indel"])
+        XCTAssertEqual(reportRows.map(\.ambiguousWith), [nil])
+    }
+
+    /// GEN-10 (D15): a genomic cluster equal to a known allele except for a
+    /// 9 bp deletion is still called as that allele (the owner keeps indels
+    /// tolerant because stochastic ONT indels would otherwise cause false
+    /// negatives), but the call now records indelBases = 9 and is flagged
+    /// for review. An indel-free call is not flagged.
+    func testStreamingClusterGenotyperKeepsIndelKnownCallWithIndelCountAndReviewFlag() throws {
+        let deleted = FullLengthONTMHCClusterFASTARecord(
+            name: "DRB-del9_ReadCount-15",
+            sequence: String(repeating: "A", count: 1_191),
+            readCount: 15
+        )
+        let exact = FullLengthONTMHCClusterFASTARecord(
+            name: "DRB-exact_ReadCount-10",
+            sequence: String(repeating: "C", count: 1_200),
+            readCount: 10
+        )
+        var accumulator = FullLengthONTMHCClusterGenotyper.StreamingAccumulator(
+            sampleID: "CN30",
+            clusterRecords: [deleted, exact],
+            referenceLengths: ["genomicX": 1_200, "genomicY": 1_200],
+            referenceMoleculeClasses: ["genomicX": .genomicDNA, "genomicY": .genomicDNA],
+            referenceAlleleNames: ["genomicX": "Mamu-DRB*X01", "genomicY": "Mamu-DRB*Y01"],
+            minUnmatchedReads: 5
+        )
+        try accumulator.consume(
+            allele: "genomicX",
+            cluster: deleted.name,
+            flag: 0,
+            position: 1,
+            metrics: FullLengthONTMHCSAMMetrics(cigar: "600=9I591=", nm: nil)
+        )
+        try accumulator.consume(
+            allele: "genomicY",
+            cluster: exact.name,
+            flag: 0,
+            position: 1,
+            metrics: FullLengthONTMHCSAMMetrics(cigar: "1200=", nm: nil)
+        )
+
+        let summary = accumulator.summary()
+        XCTAssertEqual(summary.rows.map(\.allele), ["Mamu-DRB*X01", "Mamu-DRB*Y01"])
+        XCTAssertEqual(summary.rows.map(\.indelBases), [9, 0])
+
+        let reportRows = FullLengthONTMHCClusterReportBuilder.reportRows(
+            genotypeRows: summary.rows,
+            sampleReadCounts: ["CN30": 25]
+        )
+        XCTAssertEqual(reportRows.map(\.genotype), ["genomicX", "genomicY"])
+        XCTAssertEqual(reportRows.map(\.passedUniqueReads), [15, 10])
+        XCTAssertEqual(reportRows.map(\.indelBases), [9, 0])
+        XCTAssertEqual(reportRows.map(\.reviewFlag), ["indel", ""])
+    }
+
+    /// GEN-04 (D12), full-length path: identical references tie for a
+    /// cluster's best known hit. Every tied call keeps the full cluster
+    /// reads (no arbitrary split, the path keeps every secondary) and
+    /// carries the same ambiguity group; the sample denominator counts the
+    /// cluster once.
+    func testReportRowsMarkTiedIdenticalReferencesAsOneAmbiguityGroup() throws {
+        let rows = ["refA", "refB", "refC"].map { reference in
+            FullLengthONTMHCClusterGenotypeRow(
+                sample: "S1",
+                cluster: "Cluster1_ReadCount-20",
+                clusterReads: 20,
+                allele: "Mamu-A1*001",
+                alleleLength: 1_000,
+                alignedBases: 1_000,
+                score: 1_000,
+                referenceSequenceID: reference,
+                indelBases: 0
+            )
+        } + [
+            FullLengthONTMHCClusterGenotypeRow(
+                sample: "S1",
+                cluster: "Cluster2_ReadCount-7",
+                clusterReads: 7,
+                allele: "Mamu-B*001",
+                alleleLength: 1_000,
+                alignedBases: 1_000,
+                score: 1_000,
+                referenceSequenceID: "refD",
+                indelBases: 0
+            ),
+        ]
+
+        let reportRows = FullLengthONTMHCClusterReportBuilder.reportRows(
+            genotypeRows: rows,
+            sampleReadCounts: ["S1": 27]
+        )
+
+        XCTAssertEqual(reportRows.map(\.genotype), ["refA", "refB", "refC", "refD"])
+        XCTAssertEqual(reportRows.map(\.passedUniqueReads), [20, 20, 20, 7])
+        XCTAssertEqual(reportRows.map(\.ambiguousWith), [
+            ["refA", "refB", "refC"], ["refA", "refB", "refC"], ["refA", "refB", "refC"], nil,
+        ])
+        XCTAssertEqual(Set(reportRows.map(\.sampleUniqueRetainedReads)), [27])
     }
 
     func testClusterGenotyperLeavesZeroSNPIndelOnlyCDNAHitUnmatched() throws {

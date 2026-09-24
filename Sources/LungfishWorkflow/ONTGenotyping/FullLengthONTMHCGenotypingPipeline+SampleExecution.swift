@@ -252,7 +252,8 @@ extension FullLengthONTMHCGenotypingPipeline {
                             referenceSequenceID: call.reference.sequenceID,
                             mappingQuality: call.mappingQuality,
                             cigar: call.cigar,
-                            evidence: call.evidence
+                            evidence: call.evidence,
+                            indelBases: call.nonIntronIndelBases
                         )
                     }
                 }
