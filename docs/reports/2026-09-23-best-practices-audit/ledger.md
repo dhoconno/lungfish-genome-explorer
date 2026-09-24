@@ -42,8 +42,8 @@ Single source of truth for finding status (plan rule 9). Status: `open`, `verifi
 | SCI-03 | P1 | Minimum AF and depth thresholds silently ignored for LoFreq, bcftools, Medaka and Clair3, yet recorded in prov | fixed | P0-C | ffd76587a | bcftools view -i post-filter; provenance records applied thresholds only; ViralVariantCallingPipelineTests (4 env failures: samtools path, TST-04) |
 | SCI-04 | P1 | bcftools caller runs with diploid ploidy and max-depth 250 on viral data | fixed | P0-C | ffd76587a | --ploidy 1, mpileup -d 0; managed bcftools 1.24 synthetic 2000x: DP=2000 haploid |
 | SCI-05 | P1 | Mapping "reads mapped / total" and per-contig % count alignment records (secondary and supplementary), not rea | fixed | P3-A | c734597fb | primary/primary mapped; 18-record fixture 80% |
-| SCI-06 | P1 | Annotation extraction ignores strand and splicing, and the core API applies 5'/3' flanks by coordinate | open | | | |
-| SCI-07 | P1 | Region to bundle extraction with Reverse Complement does not transform variants | open | | | |
+| SCI-06 | P1 | Annotation extraction ignores strand and splicing, and the core API applies 5'/3' flanks by coordinate | fixed | Q4 | 8260be365 | strand/splice-aware extraction; orientation-aware flanks |
+| SCI-07 | P1 | Region to bundle extraction with Reverse Complement does not transform variants | fixed | Q4 | 8c68a3ba1 | RC variants mirrored + REF/ALT RC |
 | SCI-08 | P1 | Lossy quality binning on by default (silent on downloads and FASTQ operation outputs), mislabelled schemes, or | fixed | P0-B,Q3 | 7c3fb0fd5,b90f9a337 | default none; labels corrected (illumina4=7 levels) |
 | SCI-09 | P1 | NAO-MGS "coverage %" uses the furthest alignment end as reference length when references were not fetched | fixed | P3-A | 6538d8d39 | reference_length_source; UI shows coverage unavailable |
 | TST-03 | P1 | Swift Build migration broke subpath `Bundle.module` fixtures, crashing tests with SIGTRAP | fixed | P0-A | 18b87a387 | fixtureURL helper, 4 classes |
@@ -69,7 +69,7 @@ Single source of truth for finding status (plan rule 9). Status: `open`, `verifi
 | ARC-11 | P2 | About 1,290 test hooks in production types, a symptom of logic trapped in view controllers | open | | | |
 | ARC-12 | P2 | `GenotypeResultViewController` is a 9.8K-line god object (323 stored vars, 508 funcs) | open | | | |
 | ARC-15 | P2 | Five external-process mechanisms, plus about 120 raw `Process()` sites across all layers | open | | | |
-| FEA-09 | P2 | Two locus parsers with different grammar, and no gene lookup in the locus field | open | | | |
+| FEA-09 | P2 | Two locus parsers with different grammar, and no gene lookup in the locus field | fixed | Q4 | 74609ce60 | one LocusQueryParser for ruler + Go to Location |
 | FEA-10 | P2 | Settings controls that nothing reads (default zoom window, max undo levels) | fixed | P2-A | 8632b57aa | default zoom wired; max undo control removed |
 | FEA-11 | P2 | Export Image/PDF can export a hidden view or the wrong window; some menu actions ignore the key window | open | | | |
 | FEA-12 | P2 | GUI BAM and VCF imports record a `lungfish-cli` command that the CLI cannot run | open | | | |
@@ -91,12 +91,12 @@ Single source of truth for finding status (plan rule 9). Status: `open`, `verifi
 | REL-12 | P2 | Database archives and one pipeline are not integrity-pinned; one catalog ID/URL mismatch | open | | | |
 | REL-13 | P2 | Pages deploy job (pages:write, id-token:write) uses tag-pinned third-party actions | open | | | |
 | REL-14 | P2 | Code claims a Stable release triggers CI conformance; no workflow listens for it | fixed | P8-A | 267e82746 | stale claim removed |
-| SCI-10 | P2 | CDS translation ignores `/codon_start`, GFF phase and `/transl_table`, and reverse-strand phase comes from the | open | | | |
-| SCI-11 | P2 | GFF3 export writes phase 0 on every CDS segment, splits one CDS into distinct IDs, and leaves a dangling `Pare | open | | | |
+| SCI-10 | P2 | CDS translation ignores `/codon_start`, GFF phase and `/transl_table`, and reverse-strand phase comes from the | fixed | Q4 | a7f09c78a | codon_start, phase, transl_table |
+| SCI-11 | P2 | GFF3 export writes phase 0 on every CDS segment, splits one CDS into distinct IDs, and leaves a dangling `Pare | fixed | Q4 | f0b6bab26 | phase via CDSSegmentPhases, one ID, no dangling Parent |
 | SCI-12 | P2 | Bgzip FASTA reader returns `\r` and drops bases for CRLF FASTA | fixed | P3-D | f7da65c56 | CRLF bgzip fixture fail-then-pass |
-| SCI-13 | P2 | User-visible `chr:start-end` strings mix 0-based and 1-based conventions | open | | | |
+| SCI-13 | P2 | User-visible `chr:start-end` strings mix 0-based and 1-based conventions | fixed | Q4 | 74609ce60 | 1-based display strings |
 | SCI-14 | P2 | Variant track chromosome aliasing silently matches by length or max-position (up to 20% tolerance) | fixed | P3-D,Q3 | ddee0b5fa,024eab61c | length matches surfaced as tooltip |
-| SCI-15 | P2 | Origin-spanning features on circular genomes are sorted by start, which reorders segments | open | | | |
+| SCI-15 | P2 | Origin-spanning features on circular genomes are sorted by start, which reorders segments | fixed | Q4 | de9c25fdd | interval order preserved; bounding math uses min/max; renderer order-independent (orchestrator checked) |
 | SCI-16 | P2 | Interleaved paired FASTQ subsample via the CLI-backed Operations path is not pair-aware | fixed | Q3 | 7cf08caf7 | reproduced; interleaved -> reformat.sh pair-aware |
 | SCI-17 | P2 | Markdup shell pipeline: no `pipefail`, double-quote interpolation of paths, duplicate fraction over alignment  | fixed | P3-A | b1c665c91 | pipefail, argv paths, dup fraction over primary |
 | SCI-18 | P2 | Bracken always uses the 150 bp distribution regardless of actual read length | open | | | |
@@ -149,7 +149,7 @@ Single source of truth for finding status (plan rule 9). Status: `open`, `verifi
 | REL-17 | P3 | Double notarization and no delta updates, so a full 167 MB download for each of about 38 releases a month | open | | | |
 | SCI-19 | P3 | `kraken2 --fasta-input` is not a Kraken2 option (warning only) but is recorded in provenance | fixed | P3-D | 7af100247 | --fasta-input removed |
 | SCI-20 | P3 | Assembly statistics drop IUPAC codes from contig length and count N in the GC denominator | fixed | P3-D | 01b7b995d | IUPAC in length, GC over ACGT |
-| SCI-21 | P3 | Variant extraction keeps the full REF for records straddling the region start | open | | | |
+| SCI-21 | P3 | Variant extraction keeps the full REF for records straddling the region start | fixed | Q4 | 8c68a3ba1 | straddling records excluded |
 | SIMP-09 | P3 | Process-doc sprawl and stale process pointers to dead code | open | | | |
 | SIMP-10 | P3 | 49 SHA-256 helpers and 15 CSV/TSV escapers with inconsistent rules | open | | | |
 | SIMP-11 | P3 | About 5.4K lines of test hooks in production types, and 109 source-text test files | open | | | |
