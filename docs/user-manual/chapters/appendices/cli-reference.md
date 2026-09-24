@@ -196,6 +196,8 @@ The `import` group has sixteen subcommands and every one of them needs the subco
 
 `lungfish-cli import fasta <input-file> [--output-dir <dir>] [--name <name>]` imports a FASTA, GenBank, or EMBL record as a `.lungfishref` bundle. `import bam` and `import vcf` take the same shape for alignments and variant calls, and `import vcf` resolves the reference internally by matching the chromosome names written in the file, its `CHROM` column, against the project's bundles, so it has no `--reference` flag.
 
+To add variant calls to a reference you already have, point `--output-dir` at that bundle. `lungfish-cli import vcf <input.vcf.gz> --output-dir <bundle.lungfishref> [--name <track>] [--import-profile <auto|low-memory|fast|ultra-low-memory>]` attaches the calls to the bundle's variant database, the same way the Import Center does. `--name` sets the track name and defaults to the file name. `--import-profile` trades import speed against memory use and defaults to `auto`. Right-click a VCF import row in the Operations panel and choose **Copy CLI Command** to get this exact command.
+
 `lungfish-cli import fastq [<input>...] --project <path>` is the reads importer, and it is the one subcommand with a substantial flag set. Give it files or folders, or give it a samplesheet. A project path is an ordinary folder path ending `.lungfish`, such as `~/Documents/MyProject.lungfish`.
 
 | Flag | What it does |

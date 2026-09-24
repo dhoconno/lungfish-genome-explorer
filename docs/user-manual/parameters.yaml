@@ -1563,6 +1563,7 @@ operations:
     entry_points:
       - "File > Import Center... > Variants > VCF Variants"
       - "CLI: lungfish-cli import vcf <input.vcf.gz> --output-dir <project>"
+      - "CLI: lungfish-cli import vcf <input.vcf.gz> --output-dir <bundle.lungfishref> [--name <track>] [--import-profile <profile>]"
     gating: []
     sources:
       - Sources/LungfishApp/Views/ImportCenter/ImportCenterViewModel.swift
