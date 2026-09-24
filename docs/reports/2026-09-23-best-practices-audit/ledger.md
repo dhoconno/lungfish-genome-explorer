@@ -21,7 +21,7 @@ Single source of truth for finding status (plan rule 9). Status: `open`, `verifi
 | FEA-03 | P1 | Annotation edit and delete from the viewer and Inspector are not persisted for reference bundles | open | | | |
 | FEA-04 | P1 | The same BAM or VCF file does different things depending on the entry point, and BAM/VCF have no target choose | open | | | |
 | FEA-05 | P1 | Multi-file BAM or VCF import into an open bundle imports only the first file | open | | | |
-| FEA-06 | P1 | Quit and window close do not warn about running operations, and interrupted outputs become invisible | open | | | |
+| FEA-06 | P1 | Quit and window close do not warn about running operations, and interrupted outputs become invisible | fixed | P1-B | b732ea628 | quit/close warning sheets; interrupted outputs surfaced in storage scan |
 | FEA-07 | P1 | `OperationCenter.start` does not enforce the bundle lock, so unchecked callers mutate locked bundles | fixed | P1-A | c656e84c3 | drawer-delete sub-claim was wrong (already pre-checked); others migrated |
 | FEA-08 | P1 | Read sort and colour modes are implemented and tested but unreachable in the alignment viewer | open | | | |
 | PERF-01 | P1 | Alignment scientific actions SHA-256 the whole BAM, index and reference on the main actor, twice per action | fixed | P4-A | f02c6cc87 | off-main hashing + stat-keyed digest cache; coordinator tests 20/20 |
@@ -48,7 +48,7 @@ Single source of truth for finding status (plan rule 9). Status: `open`, `verifi
 | SCI-09 | P1 | NAO-MGS "coverage %" uses the furthest alignment end as reference length when references were not fetched | fixed | P3-A | 6538d8d39 | reference_length_source; UI shows coverage unavailable |
 | TST-03 | P1 | Swift Build migration broke subpath `Bundle.module` fixtures, crashing tests with SIGTRAP | fixed | P0-A | 18b87a387 | fixtureURL helper, 4 classes |
 | TST-04 | P1 | Stable-namespace change broke about 75 tests that hard-code `.lungfish` fake homes, and tests cannot inject an | partial | P0-A | b6c6cddfb,82133f4a6 | injectable appIdentity; ~50-60 tests still to migrate (follow-up lane) |
-| TST-05 | P1 | No per-test or overall timeout: a cancellation test hung for 14+ min and stalls the gate forever | partial | P0-A | 39f0ef622,76f14b0b5,7d7c3e4e2,651f0928d | gate wall-clock + tree kill; CLIImportRunner cancel hang is a confirmed product bug -> P1-B; test excluded via KNOWN_HANGING_TESTS |
+| TST-05 | P1 | No per-test or overall timeout: a cancellation test hung for 14+ min and stalls the gate forever | fixed | P0-A,P1-B | 88afe5580 | root cause: actor blocked on waitUntilExit; cancel nonisolated; 5/5 runs <1s; KNOWN_HANGING_TESTS removed; gate timeouts kept |
 | TST-06 | P1 | `ci.yml` has been an invalid workflow on every push since 2026-09-14 instead of being disabled cleanly | fixed | P0-A | 53371073b | workflow_dispatch only; valid file |
 | UX-01 | P1 | "Delete Annotation" from the viewer and the Inspector silently does nothing on reference bundles | open | | | |
 | UX-02 | P1 | Export failures are logged but never shown in EsViritu, TaxTriage (3 paths), NAO-MGS and NVD | fixed | P1-C | bfcad3925 | ResultExportCoordinator added to LungfishKit; migrated EsViritu, TaxTriage x3, NAO-MGS, NVD, plus Kraken2 and 12S; ResultExportCoordinatorTests 2/2 |
@@ -79,9 +79,9 @@ Single source of truth for finding status (plan rule 9). Status: `open`, `verifi
 | PERF-08 | P2 | Oriented virtual-FASTQ materialization loads the orient map twice as whole `String`s into two `Set<String>` of | open | | | |
 | PERF-09 | P2 | Loading-badge animation invalidates the whole sequence viewer at 18 fps, and horizontal pan redraw is a traili | open | | | |
 | PERF-10 | P2 | MSA drawing allocates an attributed string per residue and re-registers tooltips inside `draw(_:)`, and the gu | open | | | |
-| PERF-11 | P2 | Process-tree termination spawns `ps` per PID per loop, and quit terminates roots serially on the main thread | open | | | |
+| PERF-11 | P2 | Process-tree termination spawns `ps` per PID per loop, and quit terminates roots serially on the main thread | fixed | P1-B | 365e17396 | libproc snapshot per phase; concurrent terminateAll |
 | PERF-12 | P2 | Blocking waits pin cooperative-pool threads for tool lifetimes | open | | | |
-| PERF-13 | P2 | Import helper cancellation signals only the helper root and polls with `Thread.sleep` | open | | | |
+| PERF-13 | P2 | Import helper cancellation signals only the helper root and polls with `Thread.sleep` | fixed | P1-B | 793f54fc2 | waitForHelperProcessExit + tree termination at 4 sites |
 | REL-06 | P2 | App version inside the hashed dependency manifest resets "Later" and stales receipts every release | open | | | |
 | REL-07 | P2 | Five hand-maintained version sites where one would do | open | | | |
 | REL-08 | P2 | Legacy alpha bridge and pre-2026.9.2 previews are offered updates with a different bundle ID | open | | | |
@@ -127,7 +127,7 @@ Single source of truth for finding status (plan rule 9). Status: `open`, `verifi
 | UX-13 | P2 | The "viewport interface class" contract and dialog conventions are ceremonial or stale | open | | | |
 | UX-14 | P2 | No "no matches" or first-run empty states in result tables and empty projects | open | | | |
 | WFL-11 | P2 | Operations-panel CLI commands and several provenance argv records are not runnable | open | | | |
-| WFL-12 | P2 | Cancel missing or inert on several long-running paths | open | | | |
+| WFL-12 | P2 | Cancel missing or inert on several long-running paths | partial | P1-B | 01dd95338 | 12S x2, ONT MHC, CZ-ID, BLAST cancel wired; workflow-builder graph + AI provider calls not cancellable |
 | WFL-13 | P2 | MHC genotyping naming: "miSeq amplicon" workflow runs ONT data and tags it as MiSeq | open | | | |
 | WFL-14 | P2 | AI haplotyping exposed in the main viewport with no key check, no consent, macaque defaults | fixed | P1-C (D5) | 96dee9889 | aiHaplotypingUIEnabled=false removes the section from the viewport; defense-in-depth guard in requestAIHaplotyping; execution service/CLI kept; GenotypeResultViewportArtifactsAndOutlineTests 2 new + suite green |
 | WFL-15 | P2 | BLAST drawer inconsistencies: CZ ID no-op, `nt` vs `core_nt`, NAO-MGS taxon restriction, no persistence | open | | | |
