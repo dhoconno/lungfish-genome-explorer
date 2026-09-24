@@ -1690,6 +1690,13 @@ final class GenotypeHaplotypeAnalyzerTests: XCTestCase {
                             truth,
                             "\(locusDefinition.locus) \(first.name)/\(second.name): called \(call.haplotype1) / \(call.haplotype2), truth was \(first.name)/\(second.name)"
                         )
+                    case .unresolvedSecondHaplotype:
+                        // GEN-08: only one haplotype matched, but this pair's
+                        // observed alleles also include diagnostic evidence
+                        // for a haplotype outside the synthesized pair (a
+                        // known cross-definition overlap), so the analyzer
+                        // correctly declines to call it homozygous.
+                        XCTAssertEqual(call.haplotype2, "?")
                     case .ambiguous:
                         // GEN-02's whole point: an indistinguishable pair is
                         // reported as ambiguous, never as a specific wrong
@@ -1710,7 +1717,7 @@ final class GenotypeHaplotypeAnalyzerTests: XCTestCase {
                         // a wrong *specific* pairing reported as `.called`,
                         // not a loud review-needed status.
                         break
-                    case .notAssayed, .specialCase:
+                    case .notAssayed, .specialCase, .homozygous:
                         XCTFail(
                             "\(locusDefinition.locus) \(first.name)/\(second.name): unexpected status \(call.status)"
                         )

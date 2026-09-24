@@ -3695,8 +3695,10 @@ public final class GenotypeResultViewController: NSViewController {
         observed: Set<String>
     ) -> String {
         switch locusCall.status {
-        case .called, .specialCase:
+        case .called, .specialCase, .homozygous:
             return ""
+        case .unresolvedSecondHaplotype:
+            return "Only \(locusCall.haplotype1) matched a defined haplotype, but this sample also carries diagnostic genotype(s) at \(locusCall.locus) not explained by \(locusCall.haplotype1). A second, undefined or novel haplotype may be present; the second slot is reported as unresolved (\"?\") rather than homozygous."
         case .notAssayed:
             return locusCall.notes.isEmpty
                 ? "\(locusCall.locus) was not observed anywhere in this run for the active definition set. Treat this as assay/reference coverage not available, not as a sample-level haplotype failure."
@@ -7877,7 +7879,7 @@ public final class GenotypeResultViewController: NSViewController {
                 case .noHaplotype: noHap += 1
                 case .tooManyGenotypes: tmg += 1
                 case .ambiguous: ambiguous += 1
-                case .called, .notAssayed, .specialCase: break
+                case .called, .notAssayed, .specialCase, .homozygous, .unresolvedSecondHaplotype: break
                 }
             }
         }
@@ -9682,6 +9684,10 @@ public final class GenotypeResultViewController: NSViewController {
             return "too many genotype labels"
         case .ambiguous:
             return "ambiguous (indistinguishable haplotype definitions)"
+        case .homozygous:
+            return "homozygous"
+        case .unresolvedSecondHaplotype:
+            return "unresolved second haplotype"
         }
     }
 

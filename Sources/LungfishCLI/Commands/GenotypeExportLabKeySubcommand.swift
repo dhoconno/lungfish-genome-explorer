@@ -292,6 +292,8 @@ struct LabKeyExporter {
         case .tooManyGenotypes: return "too_many_genotypes"
         case .specialCase: return "special_case"
         case .ambiguous: return "ambiguous"
+        case .homozygous: return "homozygous"
+        case .unresolvedSecondHaplotype: return "unresolved_second_haplotype"
         }
     }
 

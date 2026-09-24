@@ -695,6 +695,22 @@ public enum GenotypeHaplotypeAnalyzer {
                 haplotype2 = "A1_063"
                 status = .specialCase
                 notes = "Notebook-compatible MCM MHC-A special case: A1_063 observed in addition to one non-M1/M2/M3 haplotype."
+            } else if hasResidualUnexplainedDiagnosticEvidence(
+                matched: matched[0],
+                locusDefinition: locusDefinition,
+                diagnosticCalls: diagnosticCalls
+            ) {
+                // GEN-08: a single haplotype's diagnostic set was matched,
+                // but the sample also shows diagnostic genotype calls at
+                // this locus that AREN'T part of that haplotype's
+                // definition. A true homozygote would show no such
+                // residual evidence -- distinct token + status from the
+                // ordinary single-match "-" placeholder below, which stays
+                // unchanged (and keeps `.called`) for every caller that
+                // already treats it as the confident-homozygous shape.
+                haplotype2 = "?"
+                status = .unresolvedSecondHaplotype
+                notes = "GEN-08: only \(matched[0].name) matched a defined haplotype, but this sample also carries diagnostic genotype(s) at this locus not explained by \(matched[0].name). A second, undefined or novel haplotype may be present; reported as unresolved rather than homozygous."
             } else {
                 haplotype2 = "-"
                 status = .called
@@ -968,6 +984,42 @@ public enum GenotypeHaplotypeAnalyzer {
                     genotype: call.genotype,
                     diagnosticAllele: primaryAllele
                 )
+            }
+        }
+    }
+
+    /// GEN-08 (2026-09-23 best-practices audit): true when `diagnosticCalls`
+    /// include a genotype that is diagnostic for a DIFFERENT haplotype at
+    /// this locus than the one in `matched` -- real, specific evidence that
+    /// a second haplotype may be present. A true homozygote's diagnostic
+    /// calls are fully explained by its single matched haplotype; this
+    /// residual evidence means a second, undefined or novel haplotype may
+    /// be present and the "-" homozygous placeholder would be misleading.
+    ///
+    /// Deliberately narrower than "any call not in `matched`'s own allele
+    /// list": several MCM rescue paths (the class-I G/AG family rescue, the
+    /// undercalled-A1063 special case) legitimately match a haplotype using
+    /// evidence that isn't itself a listed diagnostic allele for any
+    /// haplotype (e.g. a shared, non-diagnostic "A1_063" marker observed
+    /// across the whole family). Such calls must not be treated as residual
+    /// second-haplotype evidence -- only a call that is itself a diagnostic
+    /// allele of some OTHER haplotype counts.
+    private static func hasResidualUnexplainedDiagnosticEvidence(
+        matched: GenotypeHaplotypeMatchedDefinition,
+        locusDefinition: GenotypeHaplotypeLocusDefinition,
+        diagnosticCalls: [ONTGenotypeCall]
+    ) -> Bool {
+        let otherHaplotypes = locusDefinition.haplotypes.filter { $0.name != matched.name }
+        guard !otherHaplotypes.isEmpty else { return false }
+        return diagnosticCalls.contains { call in
+            let explainedByMatch = matched.diagnosticAlleles.contains { allele in
+                GenotypeHaplotypeDiagnosticMatcher.matches(genotype: call.genotype, diagnosticAllele: allele)
+            }
+            guard !explainedByMatch else { return false }
+            return otherHaplotypes.contains { haplotype in
+                haplotype.diagnosticAlleles.contains { allele in
+                    GenotypeHaplotypeDiagnosticMatcher.matches(genotype: call.genotype, diagnosticAllele: allele)
+                }
             }
         }
     }
