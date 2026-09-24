@@ -39,7 +39,7 @@ extension ViewerViewController {
         case .clipboard: title = "Copy Alignment"
         }
 
-        let operationID = OperationCenter.shared.start(
+        let startResult = OperationCenter.shared.begin(
             title: title,
             detail: "Exporting \(bundleURL.lastPathComponent)...",
             operationType: .multipleSequenceAlignmentAction,
@@ -50,6 +50,11 @@ extension ViewerViewController {
                 windowStateScope: windowStateScope
             )
         )
+        guard case .started(let operationID) = startResult else {
+            // The bundle is locked by another operation. The visible "Bundle
+            // is busy" row is already inserted; do not launch the CLI runner.
+            return
+        }
         OperationCenter.shared.log(
             id: operationID,
             level: .info,

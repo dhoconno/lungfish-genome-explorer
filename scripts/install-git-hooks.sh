@@ -2,12 +2,16 @@
 # install-git-hooks.sh - Install opt-in local git hooks for the developer iteration loop.
 #
 # Installs:
-#   - a pre-push hook that runs the unit tier of the full-suite gate
-#     (scripts/full-suite-gate.sh --tier unit) before pushing, so the regression
-#     gate runs locally on this fast Apple-Silicon Mac instead of on slow/
-#     usage-limited hosted CI. The full tier (everything, serial) remains the
-#     stable-release gate; run it explicitly with scripts/full-suite-gate.sh
-#     --tier full.
+#   - a pre-push hook that first runs the unchecked-operation-start ratchet
+#     (scripts/ratchets/unchecked-operation-start.sh), which fails the push if
+#     a new caller passes a bundle target to the deprecated
+#     OperationCenter.start(...) instead of begin(...) (see ARC-04/FEA-07 in
+#     docs/reports/2026-09-23-best-practices-audit/), then runs the unit tier
+#     of the full-suite gate (scripts/full-suite-gate.sh --tier unit) before
+#     pushing, so the regression gate runs locally on this fast Apple-Silicon
+#     Mac instead of on slow/usage-limited hosted CI. The full tier
+#     (everything, serial) remains the stable-release gate; run it explicitly
+#     with scripts/full-suite-gate.sh --tier full.
 #   - a pre-commit hook that rejects new or modified files over 500 KB under
 #     docs/ (docs/ is meant to stay small; large binaries belong in the
 #     manual-media repo per docs/user-manual/media.lock). Override the limit
@@ -48,9 +52,16 @@ fi
 mkdir -p "$HOOK_DIR"
 cat > "$PRE_PUSH_HOOK" << 'HOOK_EOF'
 #!/bin/bash
-# Lungfish pre-push hook: run the full-suite gate locally before pushing.
-# Bypass intentionally with: git push --no-verify
+# Lungfish pre-push hook: run the local ratchets, then the full-suite gate,
+# before pushing. Bypass intentionally with: git push --no-verify
 REPO_ROOT="$(git rev-parse --show-toplevel)"
+
+echo "pre-push: checking the unchecked-operation-start ratchet (use --no-verify to skip)..."
+if ! python3 "$REPO_ROOT/scripts/ratchets/unchecked-operation-start.sh"; then
+    echo "pre-push: unchecked-operation-start ratchet FAILED — push aborted. Migrate the new caller to OperationCenter.begin(...) or use --no-verify." >&2
+    exit 1
+fi
+
 echo "pre-push: running unit-tier gate (use --no-verify to skip)..."
 if "$REPO_ROOT/scripts/full-suite-gate.sh" --tier unit; then
     exit 0
@@ -61,7 +72,7 @@ fi
 HOOK_EOF
 chmod +x "$PRE_PUSH_HOOK"
 echo "Installed pre-push hook at $PRE_PUSH_HOOK"
-echo "It runs scripts/full-suite-gate.sh --tier unit before each push (bypass with: git push --no-verify)."
+echo "It runs the unchecked-operation-start ratchet, then scripts/full-suite-gate.sh --tier unit, before each push (bypass with: git push --no-verify)."
 
 cat > "$PRE_COMMIT_HOOK" << 'HOOK_EOF'
 #!/bin/bash

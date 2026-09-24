@@ -38,6 +38,169 @@ final class OperationCenterLockingTests: XCTestCase {
         XCTAssertNil(center.activeLockHolder(for: bundleURL))
     }
 
+    // MARK: - begin(...): a refusal the caller cannot ignore
+
+    /// The core contract test for ARC-04/FEA-07: `begin` must hand back a
+    /// value the caller has to switch on, and the refused case must not be
+    /// mistakable for a started operation.
+    func testBeginReturnsRefusedWhenBundleIsLocked() throws {
+        let center = OperationCenter()
+        let bundleURL = URL(fileURLWithPath: "/tmp/locked-begin.lungfishref", isDirectory: true)
+
+        let firstResult = center.begin(
+            title: "First Operation",
+            detail: "Running",
+            operationType: .bundleBuild,
+            targetBundleURL: bundleURL
+        )
+        guard case .started(let firstID) = firstResult else {
+            return XCTFail("Expected the first begin() to start, since nothing holds the lock yet.")
+        }
+
+        let secondResult = center.begin(
+            title: "Second Operation",
+            detail: "Should be refused",
+            operationType: .bundleBuild,
+            targetBundleURL: bundleURL
+        )
+        guard case .refused(let refusal) = secondResult else {
+            return XCTFail("Expected the second begin() to be refused while the first operation holds the lock.")
+        }
+        XCTAssertEqual(refusal.blockingOperationTitle, "First Operation")
+        XCTAssertTrue(refusal.message.contains("First Operation"))
+
+        // The visible "Bundle is busy" row still exists, matching `start`'s behaviour.
+        let refusedItem = try XCTUnwrap(center.items.first { $0.id == refusal.id })
+        XCTAssertEqual(refusedItem.state, .failed)
+        XCTAssertEqual(refusedItem.errorMessage, "Bundle is busy")
+
+        center.complete(id: firstID, detail: "Complete")
+        guard case .started = center.begin(
+            title: "Third Operation",
+            detail: "Should start once the lock is released",
+            operationType: .bundleBuild,
+            targetBundleURL: bundleURL
+        ) else {
+            return XCTFail("Expected begin() to start once the lock holder completed.")
+        }
+    }
+
+    func testBeginStartsNormallyWithNoConflict() throws {
+        let center = OperationCenter()
+        let bundleURL = URL(fileURLWithPath: "/tmp/unlocked-begin.lungfishref", isDirectory: true)
+
+        let result = center.begin(
+            title: "Solo Operation",
+            detail: "Running",
+            operationType: .bundleBuild,
+            targetBundleURL: bundleURL
+        )
+        guard case .started(let id) = result else {
+            return XCTFail("Expected begin() to start when nothing else holds the lock.")
+        }
+        XCTAssertEqual(center.items.first { $0.id == id }?.state, .running)
+        XCTAssertEqual(result.startedID, id)
+    }
+
+    // MARK: - Caller-family tests: the refused caller must never touch the transport
+
+    /// Simulates the annotation-import caller family
+    /// (`AppDelegate+ImportCenter.performSingleAnnotationTrackImport` and
+    /// `MainSplitViewController+FASTQImport`'s sidebar-drop twin): both now
+    /// call `begin` and must not invoke the annotation-attach closure when
+    /// refused.
+    func testAnnotationImportCallerNeverAttachesWhenBundleIsLocked() {
+        let center = OperationCenter()
+        let bundleURL = URL(fileURLWithPath: "/tmp/annotation-import.lungfishref", isDirectory: true)
+        _ = center.begin(title: "Existing Import", detail: "Running", operationType: .bundleBuild, targetBundleURL: bundleURL)
+
+        var attachInvoked = false
+        func performAnnotationImport() {
+            let result = center.begin(
+                title: "Annotation Import",
+                detail: "Importing...",
+                operationType: .bundleBuild,
+                targetBundleURL: bundleURL
+            )
+            guard case .started = result else { return }
+            attachInvoked = true
+        }
+        performAnnotationImport()
+
+        XCTAssertFalse(attachInvoked, "The annotation-attach work must never run when the bundle is locked.")
+    }
+
+    /// Simulates the MSA export caller family (`ViewerViewController+MSAExport.exportMSAAlignment`
+    /// and `ViewerViewController.exportMSASelectionViaCLI`): the CLI runner must never launch
+    /// when the target bundle is locked.
+    func testMSAExportCallerNeverLaunchesRunnerWhenBundleIsLocked() {
+        let center = OperationCenter()
+        let bundleURL = URL(fileURLWithPath: "/tmp/msa-export.lungfishmsa", isDirectory: true)
+        _ = center.begin(title: "Existing MSA Op", detail: "Running", operationType: .multipleSequenceAlignmentAction, targetBundleURL: bundleURL)
+
+        var runnerLaunched = false
+        func exportMSAAlignment() {
+            let result = center.begin(
+                title: "Export Alignment",
+                detail: "Exporting...",
+                operationType: .multipleSequenceAlignmentAction,
+                targetBundleURL: bundleURL
+            )
+            guard case .started = result else { return }
+            runnerLaunched = true
+        }
+        exportMSAAlignment()
+
+        XCTAssertFalse(runnerLaunched, "The CLI MSA runner must never launch when the bundle is locked.")
+    }
+
+    /// Simulates the four MSA/tree viewer actions in `ViewerViewController.swift`
+    /// (annotation add/project, IQ-TREE inference, tree transform): each now
+    /// guards its runner launch behind `begin`'s `.started` case.
+    func testMSATreeViewerActionsNeverLaunchRunnerWhenBundleIsLocked() {
+        let center = OperationCenter()
+        let bundleURL = URL(fileURLWithPath: "/tmp/msa-tree-viewer.lungfishmsa", isDirectory: true)
+        _ = center.begin(title: "Existing Tree Op", detail: "Running", operationType: .phylogeneticTreeInference, targetBundleURL: bundleURL)
+
+        let operationTypes: [OperationType] = [
+            .multipleSequenceAlignmentAction, // add/project annotation
+            .phylogeneticTreeInference,       // IQ-TREE inference
+            .phylogeneticTreeTransform,       // re-root / extract-subtree
+        ]
+        for operationType in operationTypes {
+            var runnerLaunched = false
+            let result = center.begin(
+                title: "Viewer Action",
+                detail: "Running...",
+                operationType: operationType,
+                targetBundleURL: bundleURL
+            )
+            guard case .started = result else { continue }
+            runnerLaunched = true
+            XCTAssertFalse(runnerLaunched, "operationType \(operationType) must not launch its runner while the bundle is locked.")
+        }
+    }
+
+    /// A representative existing correct caller (`performBAMImport`'s pattern,
+    /// and `LocalWorkflowExecutionService.run`'s post-check): confirms the
+    /// established pre-check idiom still refuses to launch its transport, so
+    /// the new `begin` API and the old pre-checked `start` idiom agree.
+    func testPreCheckedCallerAlsoNeverLaunchesTransportWhenBundleIsLocked() {
+        let center = OperationCenter()
+        let bundleURL = URL(fileURLWithPath: "/tmp/pre-checked-caller.lungfishref", isDirectory: true)
+        _ = center.begin(title: "Existing BAM Import", detail: "Running", operationType: .bamImport, targetBundleURL: bundleURL)
+
+        var transportLaunched = false
+        func performBAMImport() {
+            guard center.canStartOperation(on: bundleURL) else { return }
+            _ = center.start(title: "BAM Import", detail: "Importing...", operationType: .bamImport, targetBundleURL: bundleURL)
+            transportLaunched = true
+        }
+        performBAMImport()
+
+        XCTAssertFalse(transportLaunched, "The pre-checked caller must not launch its transport while the bundle is locked.")
+    }
+
     func testAnnotationImportCallSitesPassTargetBundleURLForLocking() throws {
         let repositoryRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
@@ -216,11 +379,20 @@ final class OperationCenterLockingTests: XCTestCase {
     }
 
     private static func operationStartBlock(titled title: String, in source: String) -> String {
-        guard let titleRange = source.range(of: #"title: "\#(title)""#),
-              let startRange = source[..<titleRange.lowerBound].range(of: "OperationCenter.shared.start(", options: .backwards),
-              let endRange = source[titleRange.upperBound...].range(of: "\n        )") else {
+        guard let titleRange = source.range(of: #"title: "\#(title)""#) else {
             return ""
         }
-        return String(source[startRange.lowerBound..<endRange.upperBound])
+        // Annotation import call sites now use `begin(...)`, whose refusal the
+        // caller must switch on (ARC-04/FEA-07), rather than the deprecated
+        // `start(...)` that returned a plain UUID even when refused.
+        let candidates = ["OperationCenter.shared.begin(", "OperationCenter.shared.start("]
+        for candidate in candidates {
+            guard let startRange = source[..<titleRange.lowerBound].range(of: candidate, options: .backwards),
+                  let endRange = source[titleRange.upperBound...].range(of: "\n        )") else {
+                continue
+            }
+            return String(source[startRange.lowerBound..<endRange.upperBound])
+        }
+        return ""
     }
 }

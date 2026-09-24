@@ -378,6 +378,7 @@ enum LocalWorkflowExecutionError: Error, LocalizedError, Equatable {
     case incompleteRunBundle(String)
     case missingProvenance(String)
     case invalidProvenance(String)
+    case bundleBusy(String)
 
     var errorDescription: String? {
         switch self {
@@ -389,6 +390,8 @@ enum LocalWorkflowExecutionError: Error, LocalizedError, Equatable {
             return "The workflow output is missing required provenance: \(path)"
         case .invalidProvenance(let path):
             return "The workflow output provenance is incomplete or does not match the expected workflow: \(path)"
+        case .bundleBusy(let message):
+            return message
         }
     }
 }
