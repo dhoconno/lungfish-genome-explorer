@@ -184,4 +184,4 @@ Single source of truth for finding status (plan rule 9). Status: `open`, `verifi
 | NEW-02 | P2 | Sidebar watcher misses CLI changes in newly created project | not-reproduced-in-tests | Q3 |  | wiring traced; FSEvents deliver in ~3s for brand-new dirs; recheck live via Computer Use (repro project was in TCC-protected ~/Documents) |
 | NEW-03 | P3 | Open Recent duplicates; reopening opens second window | fixed | Q3 | 95cbdfeac | dedupe by path; focus existing window |
 | NEW-04 | P2 | test_releasing_lungfish_skill 26/36 failing at base | open | | | pre-existing |
-| PERF-17 | P1 | (new, measured) Genotype comparison matrix: 955 ms to build 40x96 visible cells, 350 ms full redraw | partial | Q1c | d12957bff | font cache: full redraw 346->~106-174 ms; cell build ~500 ms still above 100 ms target; GenotypeUI 958 tests green |
+| PERF-17 | P1 | (new, measured) Genotype comparison matrix: 955 ms to build 40x96 visible cells, 350 ms full redraw | partial | Q1c,Q1d | d12957bff,abde7d24f | first-paint cell build ~707->~385 ms, redraw ~126->~93 ms; benchmark bypasses reuse queue (worst case); remaining floor = NSTextField per cell (custom-drawn cell deferred) |
