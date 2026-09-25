@@ -6,6 +6,7 @@ import AppKit
 import LungfishKit
 import LungfishCore
 import LungfishIO
+import LungfishWorkflow
 import os.log
 
 private let blastVCLogger = Logger(subsystem: LogSubsystem.app, category: "TaxonomyBlast")
@@ -29,7 +30,33 @@ extension TaxonomyViewController {
         currentBlastRunID = runID
         lastBlastNode = node
         lastBlastResult = nil
+        isBlastRunInFlight = true
         return runID
+    }
+
+    /// Shows the newest saved verification of `node` in the BLAST Results tab.
+    ///
+    /// Saved verifications live in `<result>/blast-verifications/` (see
+    /// ``BlastVerificationArchive``). Nothing changes while a run is in
+    /// flight, when the drawer already shows this taxon, or when the taxon
+    /// has no saved verification. The drawer is not opened or switched: the
+    /// saved result is waiting in the BLAST Results tab when the user opens it.
+    ///
+    /// - Returns: The restored result, or `nil` when nothing was restored.
+    @discardableResult
+    func restoreSavedBlastVerification(for node: TaxonNode?) -> BlastVerificationResult? {
+        guard let node,
+              !blastRunIsActive,
+              lastBlastResult?.taxId != node.taxId,
+              let directory = blastVerificationDirectoryResolver?(node),
+              let record = BlastVerificationArchive.latest(forTaxId: node.taxId, in: directory) else {
+            return nil
+        }
+        lastBlastResult = record.result
+        lastBlastNode = node
+        taxaCollectionsDrawerView?.blastResultsTab.showResults(record.result)
+        blastVCLogger.info("Restored saved BLAST verification for txid\(node.taxId, privacy: .public) from \(directory.path, privacy: .public)")
+        return record.result
     }
 
     /// Shows BLAST verification results in the drawer's BLAST tab.
@@ -45,6 +72,7 @@ extension TaxonomyViewController {
             return
         }
         lastBlastResult = result
+        isBlastRunInFlight = false
         ensureDrawerOpenOnBlastTab()
 
         // Switch to BLAST tab and show results
@@ -102,6 +130,7 @@ extension TaxonomyViewController {
             blastVCLogger.info("Ignoring stale BLAST failure update after results were displayed")
             return
         }
+        isBlastRunInFlight = false
         ensureDrawerOpenOnBlastTab()
         taxaCollectionsDrawerView?.blastResultsTab.showFailure(message: message)
         blastVCLogger.error("BLAST verification failed: \(message, privacy: .public)")
@@ -142,9 +171,23 @@ extension TaxonomyViewController {
             blastVCLogger.info("BLAST cancel requested from drawer")
             OperationCenter.shared.cancel(id: operationID)
         }
+
+        // A verification restored before the drawer existed is waiting.
+        if let lastBlastResult, !blastRunIsActive {
+            blastTab.showResults(lastBlastResult)
+        }
     }
 
     // MARK: - Private Helpers
+
+    /// Whether a run started here is still waiting for results. A run whose
+    /// operation was cancelled, or never reached the Operations panel,
+    /// no longer counts, so it cannot block restoring saved verifications.
+    var blastRunIsActive: Bool {
+        guard isBlastRunInFlight else { return false }
+        guard let operationID = currentBlastOperationID else { return true }
+        return OperationCenter.shared.activeItems.contains { $0.id == operationID }
+    }
 
     /// Ensures the drawer is created and open, with the BLAST tab selected.
     private func ensureDrawerOpenOnBlastTab() {

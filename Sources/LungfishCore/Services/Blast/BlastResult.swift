@@ -27,8 +27,10 @@ public enum BlastVerdict: String, Sendable, Codable, CaseIterable {
     /// novel, or from a divergent strain.
     case unverified
 
-    /// BLAST failed for this read (e.g., parse error, no results returned
-    /// due to a server issue).
+    /// BLAST returned no usable result for this read: NCBI's response had
+    /// no entry for the query, or the entry could not be parsed. The rest of
+    /// the batch is still judged. A job-level failure (submission rejected,
+    /// RID failed or timed out, whole response unreadable) still fails the job.
     case error
 }
 
@@ -158,23 +160,31 @@ public struct BlastReadResult: Sendable, Codable, Identifiable {
     /// The original query sequence submitted to BLAST (for FASTA copy).
     public let querySequence: String?
 
-    /// Whether the top hits disagree at genus level, indicating possible
-    /// taxonomic ambiguity (LCA disagreement).
+    /// Whether the top hits name conflicting organisms (LCA disagreement).
+    ///
+    /// With tax IDs, the hits conflict when they mix the queried genus with
+    /// organisms outside it. See ``BlastTaxonMatching/hasConflictingOrganisms(hits:queriedTaxonName:context:)``.
     public let hasLCADisagreement: Bool
 
-    /// Whether the top BLAST hit organism matches the queried (Kraken2-classified)
-    /// taxon at the genus level.
+    /// Whether the top BLAST hit is inside the queried (classifier-assigned) clade.
     ///
-    /// `true` when the first word (genus) of the top hit organism matches the
-    /// first word of the queried taxon name, or when the top hit organism name
-    /// contains the queried taxon name (for virus names that are not binomial).
-    /// `false` when there is a high-quality hit to a different organism, or
-    /// when there is no hit at all.
+    /// Judged by tax ID when the hit and the request carry them (see
+    /// ``BlastTaxonMatching``). Only hits without a tax ID fall back to the
+    /// name rule: the first word of the organism names match, or one name
+    /// contains the other. `false` when there is no hit at all.
     public let matchesQueriedTaxon: Bool
 
     /// For a paired fragment, which mate (1 or 2) was submitted to BLAST.
     /// `nil` for single-end reads or results saved before this was recorded.
     public let submittedMate: Int?
+
+    /// How the top hit relates to the queried taxon when both carry tax IDs.
+    /// `nil` when the name rule decided, or for results saved before this
+    /// was recorded.
+    public let topHitRelation: BlastHitRelation?
+
+    /// Why the read has an `.error` verdict. `nil` for other verdicts.
+    public let errorMessage: String?
 
     /// Creates a new per-read BLAST result.
     ///
@@ -206,7 +216,9 @@ public struct BlastReadResult: Sendable, Codable, Identifiable {
         querySequence: String? = nil,
         hasLCADisagreement: Bool = false,
         matchesQueriedTaxon: Bool = false,
-        submittedMate: Int? = nil
+        submittedMate: Int? = nil,
+        topHitRelation: BlastHitRelation? = nil,
+        errorMessage: String? = nil
     ) {
         self.id = id
         self.verdict = verdict
@@ -222,6 +234,8 @@ public struct BlastReadResult: Sendable, Codable, Identifiable {
         self.hasLCADisagreement = hasLCADisagreement
         self.matchesQueriedTaxon = matchesQueriedTaxon
         self.submittedMate = submittedMate
+        self.topHitRelation = topHitRelation
+        self.errorMessage = errorMessage
     }
 }
 
@@ -484,11 +498,16 @@ public struct BlastSearchResult: Sendable, Codable {
     /// All hits returned for this query, ordered by bit score.
     public let hits: [BlastHit]
 
+    /// Set when NCBI returned an entry for this query that could not be
+    /// parsed. The read then gets an `.error` verdict.
+    public let failureMessage: String?
+
     /// Creates a BLAST search result.
-    public init(queryId: String, queryLength: Int, hits: [BlastHit]) {
+    public init(queryId: String, queryLength: Int, hits: [BlastHit], failureMessage: String? = nil) {
         self.queryId = queryId
         self.queryLength = queryLength
         self.hits = hits
+        self.failureMessage = failureMessage
     }
 }
 

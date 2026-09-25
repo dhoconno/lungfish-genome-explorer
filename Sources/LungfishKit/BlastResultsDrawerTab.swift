@@ -441,6 +441,18 @@ public final class BlastResultsDrawerTab: NSView, NSMenuItemValidation {
     /// child rows for secondary BLAST hits.
     ///
     /// - Parameter result: The BLAST verification result to display.
+    /// The summary bar text for a taxon verification.
+    ///
+    /// Reads NCBI returned no usable result for are counted on their own, so
+    /// they are not mistaken for reads that found no hit.
+    public static func verificationSummary(for result: BlastVerificationResult) -> String {
+        var text = "BLAST for \(result.taxonName): \(result.supportingCount) supporting, \(result.contradictingCount) contradicting"
+        if result.errorCount > 0 {
+            text += ", \(result.errorCount) with no BLAST result"
+        }
+        return text + " (\(result.totalReads) reads)"
+    }
+
     public func showResults(_ result: BlastVerificationResult) {
         displayState = .results(result)
         let total = result.totalReads
@@ -449,7 +461,7 @@ public final class BlastResultsDrawerTab: NSView, NSMenuItemValidation {
         case .verification:
             let supporting = result.supportingCount
             let contradicting = result.contradictingCount
-            summaryLabel.stringValue = "BLAST for \(result.taxonName): \(supporting) supporting, \(contradicting) contradicting (\(total) reads)"
+            summaryLabel.stringValue = Self.verificationSummary(for: result)
 
             let confidence = result.confidence
             confidenceLabel.stringValue = confidence.displayLabel
@@ -1722,7 +1734,8 @@ extension BlastResultsDrawerTab: NSOutlineViewDelegate {
             )
         case .blastOrganism:
             return makeOrganismCell(
-                organism: readResult.topHitOrganism ?? "No significant hit",
+                organism: readResult.topHitOrganism
+                    ?? (readResult.verdict == .error ? "No BLAST result" : "No significant hit"),
                 hasLCADisagreement: readResult.hasLCADisagreement
             )
         case .blastIdentity:

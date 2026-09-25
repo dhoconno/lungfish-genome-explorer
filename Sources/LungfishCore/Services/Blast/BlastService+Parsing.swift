@@ -63,21 +63,40 @@ extension BlastService {
             throw BlastServiceError.resultParsingFailed(message: "Missing BlastOutput2 array (keys: \(keys))")
         }
 
-        return try blastOutput2.compactMap { entry in
-            try parseBlastOutput2Entry(entry)
+        return blastOutput2.map { entry in
+            parseBlastOutput2Entry(entry)
         }
     }
 
     /// Parses a single BlastOutput2 entry.
-    private nonisolated func parseBlastOutput2Entry(_ entry: [String: Any]) throws -> BlastSearchResult? {
-        guard let report = entry["report"] as? [String: Any],
-              let results = report["results"] as? [String: Any],
-              let search = results["search"] as? [String: Any] else {
-            return nil
+    ///
+    /// An entry without the `report.results.search` structure, or with a
+    /// `hits` value that is not an array, becomes a result carrying a
+    /// ``BlastSearchResult/failureMessage``, so that one read gets an
+    /// `.error` verdict instead of silently vanishing from the batch.
+    nonisolated func parseBlastOutput2Entry(_ entry: [String: Any]) -> BlastSearchResult {
+        let report = entry["report"] as? [String: Any]
+        let results = report?["results"] as? [String: Any]
+        guard let search = results?["search"] as? [String: Any] else {
+            // No title to match on: the entry's position lines it up with
+            // the submitted read (see `BlastService.reconcile`).
+            let title = entry["query_title"] as? String ?? ""
+            let detail = (entry["error"] as? String)
+                ?? (report?["message"] as? String)
+                ?? "NCBI's entry for this read has no search results"
+            return BlastSearchResult(queryId: title, queryLength: 0, hits: [], failureMessage: detail)
         }
 
-        let queryTitle = search["query_title"] as? String ?? "unknown"
-        let queryLen = search["query_len"] as? Int ?? 0
+        let queryTitle = search["query_title"] as? String ?? ""
+        let queryLen = Self.jsonInt(search["query_len"]) ?? 0
+        if let rawHits = search["hits"], !(rawHits is [[String: Any]]) {
+            return BlastSearchResult(
+                queryId: queryTitle,
+                queryLength: queryLen,
+                hits: [],
+                failureMessage: "NCBI's hit list for this read could not be parsed"
+            )
+        }
         let hitsArray = search["hits"] as? [[String: Any]] ?? []
 
         let hits: [BlastHit] = hitsArray.compactMap { hitDict in
@@ -95,7 +114,10 @@ extension BlastService {
         let accession = firstDesc["accession"] as? String ?? ""
         let title = firstDesc["title"] as? String ?? ""
         let organism = firstDesc["sciname"] as? String
-        let taxId = firstDesc["taxid"] as? Int
+        // JSON2 descriptions carry the subject tax ID (the staxids column of
+        // tabular output) and its scientific name without any extra request
+        // parameter. Accept it as a number or a numeric string.
+        let taxId = Self.jsonInt(firstDesc["taxid"])
 
         let hspsArray = hitDict["hsps"] as? [[String: Any]] ?? []
         let hsps: [BlastHSP] = hspsArray.compactMap { hspDict in
@@ -105,6 +127,16 @@ extension BlastService {
         guard !hsps.isEmpty else { return nil }
 
         return BlastHit(accession: accession, title: title, organism: organism, taxId: taxId, hsps: hsps)
+    }
+
+    /// Reads an integer that NCBI may encode as a JSON number or a string.
+    nonisolated static func jsonInt(_ value: Any?) -> Int? {
+        switch value {
+        case let int as Int: return int
+        case let number as NSNumber: return number.intValue
+        case let string as String: return Int(string.trimmingCharacters(in: .whitespaces))
+        default: return nil
+        }
     }
 
     /// Parses a single HSP from the JSON2 hsps array.

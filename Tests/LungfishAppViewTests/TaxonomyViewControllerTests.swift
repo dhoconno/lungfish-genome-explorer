@@ -804,6 +804,69 @@ final class TaxonomyViewControllerTests: XCTestCase {
         XCTAssertEqual(vc.testCollectionsDrawer?.selectedTab, .blastResults)
     }
 
+    // MARK: - Saved BLAST Verifications
+
+    func testSavedVerificationIsRestoredWhenItsTaxonIsSelected() throws {
+        let resultDir = FileManager.default.temporaryDirectory.appendingPathComponent("taxonomy-saved-blast-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: resultDir) }
+        try BlastVerificationArchive.save(
+            makeTaxonomyBlastResult(taxonName: "Escherichia coli", taxId: 562),
+            request: nil,
+            in: resultDir
+        )
+
+        // A reopened result: a fresh controller with no BLAST state.
+        let vc = TaxonomyViewController()
+        _ = vc.view
+        let classification = makeTestResult()
+        vc.configure(result: classification)
+        vc.blastVerificationDirectoryResolver = { _ in resultDir }
+
+        vc.testSunburstView.onNodeSelected?(try XCTUnwrap(classification.tree.node(taxId: 570)))
+        XCTAssertNil(vc.lastBlastResult, "Klebsiella has no saved verification")
+
+        vc.testSunburstView.onNodeSelected?(try XCTUnwrap(classification.tree.node(taxId: 562)))
+        XCTAssertEqual(vc.lastBlastResult?.taxId, 562)
+        XCTAssertEqual(vc.lastBlastNode?.taxId, 562, "Re-run BLAST targets the restored taxon")
+        XCTAssertFalse(vc.testIsCollectionsDrawerOpen, "restoring never opens the drawer on its own")
+
+        vc.toggleTaxaCollectionsDrawer()
+        XCTAssertEqual(
+            vc.testBlastResultsTab?.currentResult?.rid,
+            "RID123",
+            "the BLAST Results tab shows the saved verification once the drawer exists"
+        )
+    }
+
+    func testSavedVerificationDoesNotReplaceARunInFlight() throws {
+        let resultDir = FileManager.default.temporaryDirectory.appendingPathComponent("taxonomy-saved-blast-inflight-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: resultDir) }
+        try BlastVerificationArchive.save(
+            makeTaxonomyBlastResult(taxonName: "Escherichia coli", taxId: 562),
+            request: nil,
+            in: resultDir
+        )
+
+        let vc = TaxonomyViewController()
+        _ = vc.view
+        let classification = makeTestResult()
+        vc.configure(result: classification)
+        vc.blastVerificationDirectoryResolver = { _ in resultDir }
+
+        let klebsiella = try XCTUnwrap(classification.tree.node(taxId: 570))
+        let run = vc.beginBlastVerification(for: klebsiella)
+        vc.showBlastLoading(phase: .waiting, requestId: nil, runID: run)
+
+        vc.testSunburstView.onNodeSelected?(try XCTUnwrap(classification.tree.node(taxId: 562)))
+        XCTAssertNil(vc.lastBlastResult, "a saved result must not replace the loading state of a live run")
+        XCTAssertNil(vc.testBlastResultsTab?.currentResult)
+
+        vc.showBlastFailure(message: "network down", runID: run)
+        vc.testSunburstView.onNodeSelected?(try XCTUnwrap(classification.tree.node(taxId: 570)))
+        vc.testSunburstView.onNodeSelected?(try XCTUnwrap(classification.tree.node(taxId: 562)))
+        XCTAssertEqual(vc.lastBlastResult?.taxId, 562, "after the run ends, saved results restore again")
+    }
+
     // MARK: - Breadcrumb Integration
 
     func testBreadcrumbUpdatesOnSunburstZoom() throws {

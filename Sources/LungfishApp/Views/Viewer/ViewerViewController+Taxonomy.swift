@@ -161,6 +161,11 @@ extension ViewerViewController {
         let capturedSource = try? ClassifierReadResolver.resolveKraken2PrimarySource(classResult: result)
         let capturedOutputURL = result.outputURL
         let capturedTree = result.tree
+        let capturedResultDirectory = result.config.outputDirectory
+
+        // Saved verifications live in the result folder and come back when
+        // the result is reopened and the taxon is selected.
+        controller.blastVerificationDirectoryResolver = { _ in capturedResultDirectory }
 
         controller.onBlastVerification = { [weak controller] node, readCount in
             let blastRunID = controller?.beginBlastVerification(for: node)
@@ -189,6 +194,8 @@ extension ViewerViewController {
             let resolvedSource = capturedSource
             let classificationOutput = capturedOutputURL
             let tree = capturedTree
+            let resultDirectory = capturedResultDirectory
+            let startedAt = Date()
 
 
             let task = Task.detached {
@@ -205,9 +212,11 @@ extension ViewerViewController {
 
                     // Build read ID set for this taxon using the indexed
                     // sidecar when available (O(k) vs O(n) linear scan).
-                    let pipeline = TaxonomyExtractionPipeline()
-                    let targetTaxIds = await pipeline.collectDescendantTaxIds(Set([taxId]), tree: tree)
-                    let acceptedTaxonNames = targetTaxIds.compactMap { tree.node(taxId: $0)?.name }.sorted()
+                    // Clade (sampling targets and supporting hits) plus the
+                    // genus relatives the tree knows about.
+                    let taxonomyContext = tree.blastTaxonomyContext(for: taxId)
+                    let targetTaxIds = taxonomyContext.cladeTaxIds
+                    let acceptedTaxonNames = taxonomyContext.cladeNames
 
                     let blastService = BlastService.shared
                     let request: BlastVerificationRequest
@@ -228,7 +237,8 @@ extension ViewerViewController {
                             readCount: readCount,
                             targetTaxIds: targetTaxIds,
                             classificationOutputURL: classificationOutput,
-                            acceptedTaxonNames: acceptedTaxonNames
+                            acceptedTaxonNames: acceptedTaxonNames,
+                            taxonomyContext: taxonomyContext
                         )
                     } else {
                         // Slow path: linear scan (index will be built on next classification)
@@ -240,7 +250,8 @@ extension ViewerViewController {
                             classificationOutputURL: classificationOutput,
                             sourceURL: sourceURL,
                             readCount: readCount,
-                            acceptedTaxonNames: acceptedTaxonNames
+                            acceptedTaxonNames: acceptedTaxonNames,
+                            taxonomyContext: taxonomyContext
                         )
                     }
 
@@ -277,6 +288,16 @@ extension ViewerViewController {
                                 }
                             }
                         }
+                    )
+
+                    saveBlastVerification(
+                        blastResult,
+                        request: request,
+                        resultDirectory: resultDirectory,
+                        classResult: result,
+                        sourceURL: sourceURL,
+                        readCount: readCount,
+                        startedAt: startedAt
                     )
 
                     let capturedResult = blastResult
@@ -371,21 +392,20 @@ extension ViewerViewController {
         // currently displayed sample's sidecar result from the batch manifest.
         // Single-sample DB-backed results have no batch manifest, so fall back
         // to loading `classification-result.json` directly from `resultURL`.
+        controller.blastVerificationDirectoryResolver = { [weak controller] node in
+            guard let controller else { return nil }
+            return kraken2SampleResultDirectory(resultURL: resultURL, controller: controller, node: node)
+        }
+
         controller.onBlastVerification = { [weak controller] node, readCount in
             guard let controller else { return }
             let blastRunID = controller.beginBlastVerification(for: node)
-            let sampleResult: ClassificationResult
-            if let manifest = MetagenomicsBatchResultStore.loadClassification(from: resultURL),
-               let sampleId = controller.owningSampleId(for: node),
-               let sampleRecord = manifest.samples.first(where: { $0.sampleId == sampleId }),
-               let resolved = try? ClassificationResult.load(from: resultURL.appendingPathComponent(sampleRecord.resultDirectory)) {
-                sampleResult = resolved
-            } else if let resolved = try? ClassificationResult.load(from: resultURL) {
-                sampleResult = resolved
-            } else {
+            guard let sampleDirectory = kraken2SampleResultDirectory(resultURL: resultURL, controller: controller, node: node),
+                  let sampleResult = try? ClassificationResult.load(from: sampleDirectory) else {
                 taxonomyLogger.warning("BLAST: failed to resolve a Kraken2 classification sidecar for \(resultURL.path, privacy: .public)")
                 return
             }
+            let startedAt = Date()
 
             let weakController = controller
             let blastCliCmd = OperationCenter.buildCLICommand(
@@ -426,9 +446,11 @@ extension ViewerViewController {
                         throw BlastServiceError.noSequences
                     }
 
-                    let pipeline = TaxonomyExtractionPipeline()
-                    let targetTaxIds = await pipeline.collectDescendantTaxIds(Set([taxId]), tree: tree)
-                    let acceptedTaxonNames = targetTaxIds.compactMap { tree.node(taxId: $0)?.name }.sorted()
+                    // Clade (sampling targets and supporting hits) plus the
+                    // genus relatives the tree knows about.
+                    let taxonomyContext = tree.blastTaxonomyContext(for: taxId)
+                    let targetTaxIds = taxonomyContext.cladeTaxIds
+                    let acceptedTaxonNames = taxonomyContext.cladeNames
 
                     let blastService = BlastService.shared
                     let request: BlastVerificationRequest
@@ -446,7 +468,8 @@ extension ViewerViewController {
                             readCount: readCount,
                             targetTaxIds: targetTaxIds,
                             classificationOutputURL: classificationOutput,
-                            acceptedTaxonNames: acceptedTaxonNames
+                            acceptedTaxonNames: acceptedTaxonNames,
+                            taxonomyContext: taxonomyContext
                         )
                     } else {
                         request = try await blastService.buildVerificationRequest(
@@ -456,7 +479,8 @@ extension ViewerViewController {
                             classificationOutputURL: classificationOutput,
                             sourceURL: sourceURL,
                             readCount: readCount,
-                            acceptedTaxonNames: acceptedTaxonNames
+                            acceptedTaxonNames: acceptedTaxonNames,
+                            taxonomyContext: taxonomyContext
                         )
                     }
 
@@ -492,6 +516,16 @@ extension ViewerViewController {
                                 }
                             }
                         }
+                    )
+
+                    saveBlastVerification(
+                        blastResult,
+                        request: request,
+                        resultDirectory: sampleDirectory,
+                        classResult: sampleResult,
+                        sourceURL: sourceURL,
+                        readCount: readCount,
+                        startedAt: startedAt
                     )
 
                     scheduleTaxonomyOnMainRunLoop {
@@ -594,7 +628,66 @@ func blastVerifyCLIArguments(
 /// drawer. The old "N/M reads verified" text counted alignment quality only,
 /// so it could read "17/20" while the drawer said "0 supporting".
 func blastVerificationCompletionDetail(_ result: BlastVerificationResult) -> String {
-    "\(result.supportingCount) supporting, \(result.contradictingCount) contradicting of \(result.totalReads) reads"
+    let base = "\(result.supportingCount) supporting, \(result.contradictingCount) contradicting of \(result.totalReads) reads"
+    return result.errorCount > 0 ? "\(base), \(result.errorCount) with no BLAST result" : base
+}
+
+/// The result folder of the Kraken 2 sample that owns `node` in a
+/// database-backed display: the batch manifest's sample folder, or
+/// `resultURL` itself for a single-sample result. Only checks that the
+/// folder holds a classification sidecar, so it is cheap enough to call on
+/// every selection.
+@MainActor
+func kraken2SampleResultDirectory(
+    resultURL: URL,
+    controller: TaxonomyViewController,
+    node: TaxonNode
+) -> URL? {
+    func hasSidecar(_ directory: URL) -> Bool {
+        FileManager.default.fileExists(
+            atPath: directory.appendingPathComponent(ClassificationResult.sidecarFilename).path
+        )
+    }
+    if let manifest = MetagenomicsBatchResultStore.loadClassification(from: resultURL),
+       let sampleId = controller.owningSampleId(for: node),
+       let sampleRecord = manifest.samples.first(where: { $0.sampleId == sampleId }) {
+        let directory = resultURL.appendingPathComponent(sampleRecord.resultDirectory)
+        if hasSidecar(directory) { return directory }
+    }
+    return hasSidecar(resultURL) ? resultURL : nil
+}
+
+/// Saves a finished verification into `<resultDirectory>/blast-verifications/`
+/// with a provenance sidecar. A failure is logged and never fails the run.
+func saveBlastVerification(
+    _ result: BlastVerificationResult,
+    request: BlastVerificationRequest,
+    resultDirectory: URL,
+    classResult: ClassificationResult,
+    sourceURL: URL,
+    readCount: Int,
+    startedAt: Date
+) {
+    let argv = [CLICommandIdentity.executableName, "blast", "verify"]
+        + blastVerifyCLIArguments(
+            classResult: classResult,
+            sourceURL: sourceURL,
+            taxId: result.taxId,
+            readCount: readCount
+        )
+        + ["--result-dir", resultDirectory.path]
+    do {
+        try BlastVerificationArchive.save(
+            result,
+            request: request,
+            in: resultDirectory,
+            sourceURLs: [classResult.reportURL],
+            argv: argv,
+            startedAt: startedAt
+        )
+    } catch {
+        taxonomyLogger.warning("BLAST: could not save the verification to \(resultDirectory.path, privacy: .public): \(error.localizedDescription, privacy: .public)")
+    }
 }
 
 private func showBlastVerificationErrorAlert(_ errorDescription: String) {

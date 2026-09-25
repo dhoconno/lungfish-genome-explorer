@@ -43,7 +43,13 @@ private let logger = Logger(subsystem: LogSubsystem.core, category: "BlastServic
 public actor BlastService {
 
     /// Shared singleton instance.
-    public static let shared = BlastService()
+    ///
+    /// Its hourly submission ledger lives under the managed storage root
+    /// (`<root>/blast/submission-ledger.json`), so quitting the app or
+    /// running the CLI does not reset NCBI's 50-reads-per-hour budget.
+    public static let shared = BlastService(
+        submissionLedger: FileBlastSubmissionLedger.managedStorageDefault()
+    )
 
     // MARK: - Constants
 
@@ -91,8 +97,11 @@ public actor BlastService {
     /// Number of currently active NCBI BLAST submission requests.
     private var activeSubmissionCount = 0
 
-    /// Rolling one-hour sequence submission ledger.
-    private var submittedSequenceEvents: [(date: Date, count: Int)] = []
+    /// Rolling one-hour record of reads sent to NCBI.
+    private let submissionLedger: any BlastSubmissionLedger
+
+    /// The clock used for rate limiting and result timestamps.
+    private let now: @Sendable () -> Date
 
     // MARK: - Initialization
 
@@ -101,12 +110,19 @@ public actor BlastService {
     /// - Parameters:
     ///   - httpClient: HTTP client for making requests (defaults to URLSession).
     ///   - rateLimits: Local submission limits for NCBI BLAST etiquette.
+    ///   - submissionLedger: Where the rolling-hour submission count is kept.
+    ///     Defaults to an in-memory ledger; ``shared`` uses a file ledger.
+    ///   - now: The clock, injectable for tests.
     public init(
         httpClient: HTTPClient = URLSessionHTTPClient(),
-        rateLimits: BlastRateLimitConfiguration = .ncbiDefault
+        rateLimits: BlastRateLimitConfiguration = .ncbiDefault,
+        submissionLedger: any BlastSubmissionLedger = InMemoryBlastSubmissionLedger(),
+        now: @escaping @Sendable () -> Date = { Date() }
     ) {
         self.httpClient = httpClient
         self.rateLimits = rateLimits
+        self.submissionLedger = submissionLedger
+        self.now = now
     }
 
     // MARK: - Request Building
@@ -135,6 +151,9 @@ public actor BlastService {
     ///     hit strings for the sampled fragments.
     ///   - acceptedTaxonNames: Names of the taxa in `targetTaxIds`, used to
     ///     match BLAST hit organisms that name the taxon differently.
+    ///   - taxonomyContext: The clade and genus relatives BLAST hits are
+    ///     judged against. When `nil`, the clade is `targetTaxIds` with
+    ///     `acceptedTaxonNames` and there are no known relatives.
     ///   - seed: Sampling seed.
     /// - Returns: A ready-to-submit BlastVerificationRequest
     public func buildVerificationRequestFromReadIds(
@@ -146,6 +165,7 @@ public actor BlastService {
         targetTaxIds: Set<Int> = [],
         classificationOutputURL: URL? = nil,
         acceptedTaxonNames: [String] = [],
+        taxonomyContext: BlastTaxonomyContext? = nil,
         seed: UInt64 = 0
     ) async throws -> BlastVerificationRequest {
         logger.info("buildVerificationRequestFromReadIds: taxon=\(taxonName, privacy: .public) taxId=\(taxId, privacy: .public) matchingReadIds=\(matchingReadIds.count, privacy: .public) readCount=\(readCount, privacy: .public)")
@@ -165,6 +185,7 @@ public actor BlastService {
             targetTaxIds: targetTaxIds.isEmpty ? [taxId] : targetTaxIds,
             classificationOutputURL: classificationOutputURL,
             acceptedTaxonNames: acceptedTaxonNames,
+            taxonomyContext: taxonomyContext,
             seed: seed
         )
     }
@@ -187,6 +208,8 @@ public actor BlastService {
     ///   - sourceURL: Path to source FASTQ file
     ///   - readCount: Number of reads to subsample (default 20)
     ///   - acceptedTaxonNames: Names of the taxa in `targetTaxIds`.
+    ///   - taxonomyContext: The clade and genus relatives BLAST hits are
+    ///     judged against. When `nil`, the clade is `targetTaxIds`.
     ///   - seed: Sampling seed.
     /// - Returns: A ready-to-submit BlastVerificationRequest
     public func buildVerificationRequest(
@@ -197,6 +220,7 @@ public actor BlastService {
         sourceURL: URL,
         readCount: Int = 20,
         acceptedTaxonNames: [String] = [],
+        taxonomyContext: BlastTaxonomyContext? = nil,
         seed: UInt64 = 0
     ) async throws -> BlastVerificationRequest {
         logger.info("buildVerificationRequest: taxon=\(taxonName, privacy: .public) taxId=\(taxId, privacy: .public) targetTaxIds=\(targetTaxIds.count, privacy: .public) readCount=\(readCount, privacy: .public)")
@@ -233,6 +257,7 @@ public actor BlastService {
             targetTaxIds: targetTaxIds.isEmpty ? [taxId] : targetTaxIds,
             classificationOutputURL: classificationOutputURL,
             acceptedTaxonNames: acceptedTaxonNames,
+            taxonomyContext: taxonomyContext,
             seed: seed
         )
     }
@@ -380,6 +405,7 @@ public actor BlastService {
         targetTaxIds: Set<Int>,
         classificationOutputURL: URL?,
         acceptedTaxonNames: [String],
+        taxonomyContext: BlastTaxonomyContext?,
         seed: UInt64
     ) async throws -> BlastVerificationRequest {
         let sampledIds = sampleFragmentIds(matchingReadIds, count: readCount, seed: seed)
@@ -449,14 +475,20 @@ public actor BlastService {
         let mate2Count = sequenceMates.values.filter { $0 == 2 }.count
         logger.info("buildVerificationRequest: submitting \(sequences.count, privacy: .public) reads (\(mate2Count, privacy: .public) as mate 2)")
 
+        let context = taxonomyContext ?? BlastTaxonomyContext(
+            cladeTaxIds: targetTaxIds,
+            cladeNames: acceptedTaxonNames
+        )
         return BlastVerificationRequest(
             taxonName: taxonName,
             taxId: taxId,
             sequences: sequences,
             entrezQuery: nil,
             sequenceMates: sequenceMates,
-            acceptedTaxIds: targetTaxIds,
-            acceptedTaxonNames: acceptedTaxonNames
+            acceptedTaxIds: context.cladeTaxIds,
+            acceptedTaxonNames: context.cladeNames,
+            relatedTaxIds: context.relatedTaxIds,
+            relatedTaxonNames: context.relatedNames
         )
     }
 
@@ -484,7 +516,7 @@ public actor BlastService {
             throw BlastServiceError.noSequences
         }
 
-        let submittedAt = Date()
+        let submittedAt = now()
         let fasta = request.toMultiFASTA()
         let extraParameters = try BlastVerificationRequest.parseBlastURLAPIExtraParameters(request.extraArgs)
 
@@ -520,37 +552,121 @@ public actor BlastService {
         // Phase 3: Assign verdicts
         progress?(0.90, "Parsing BLAST results...")
 
-        // Build a sequence map from the request for querySequence population
+        let result = try buildVerificationResult(
+            request: request,
+            searchResults: searchResults,
+            rid: submission.rid,
+            submittedAt: submittedAt,
+            completedAt: now()
+        )
+        progress?(1.0, "BLAST verification complete")
+
+        logger.info("BLAST verification complete: \(result.verifiedCount, privacy: .public)/\(result.totalReads, privacy: .public) verified, \(result.errorCount, privacy: .public) without a usable result")
+
+        return result
+    }
+
+    /// Turns parsed NCBI results into a verification result for `request`.
+    ///
+    /// Every submitted read gets exactly one row, in submission order. A read
+    /// NCBI returned no entry for, or whose entry could not be parsed, gets an
+    /// `.error` verdict and the rest of the batch is still judged. Only when
+    /// no read has a usable result does this throw, because then the job as a
+    /// whole produced nothing to review.
+    nonisolated func buildVerificationResult(
+        request: BlastVerificationRequest,
+        searchResults: [BlastSearchResult],
+        rid: String,
+        submittedAt: Date,
+        completedAt: Date
+    ) throws -> BlastVerificationResult {
         let sequenceMap = Dictionary(
             request.sequences.map { ($0.id, $0.sequence) },
             uniquingKeysWith: { first, _ in first }
         )
-
-        let readResults = assignVerdicts(
+        let reconciled = Self.reconcile(
             searchResults: searchResults,
+            submittedIds: request.sequences.map(\.id)
+        )
+        let readResults = assignVerdicts(
+            searchResults: reconciled,
             eValueThreshold: request.eValueThreshold,
             sequenceMap: sequenceMap,
             queriedTaxonName: request.taxonName,
             sequenceMates: request.sequenceMates,
             acceptedTaxIds: request.acceptedTaxIds,
-            acceptedTaxonNames: request.acceptedTaxonNames
+            acceptedTaxonNames: request.acceptedTaxonNames,
+            relatedTaxIds: request.relatedTaxIds,
+            relatedTaxonNames: request.relatedTaxonNames
         )
-
-        let completedAt = Date()
-        progress?(1.0, "BLAST verification complete")
-
-        logger.info("BLAST verification complete: \(readResults.filter { $0.verdict == .verified }.count, privacy: .public)/\(readResults.count, privacy: .public) verified")
-
+        if !readResults.isEmpty, readResults.allSatisfy({ $0.verdict == .error }) {
+            let reason = readResults.first?.errorMessage ?? "no usable result"
+            throw BlastServiceError.resultParsingFailed(
+                message: "NCBI returned no usable result for any of the \(readResults.count) reads (RID \(rid)): \(reason)"
+            )
+        }
         return BlastVerificationResult(
             taxonName: request.taxonName,
             taxId: request.taxId,
             readResults: readResults,
             submittedAt: submittedAt,
             completedAt: completedAt,
-            rid: submission.rid,
+            rid: rid,
             blastProgram: request.program,
             database: request.database
         )
+    }
+
+    /// Message on the `.error` row of a read NCBI returned no entry for.
+    public nonisolated static let missingReadResultMessage = "NCBI returned no result for this read"
+
+    /// Lines parsed results up with the submitted reads.
+    ///
+    /// Results are matched by query title. When no title matches but NCBI
+    /// returned exactly one entry per read, entries are matched by position,
+    /// which is the order NCBI reports a batch in. Submitted reads with no
+    /// entry get a failure placeholder, and entries that match no read are
+    /// kept after the submitted ones unless they are unparsed placeholders.
+    nonisolated static func reconcile(
+        searchResults: [BlastSearchResult],
+        submittedIds: [String]
+    ) -> [BlastSearchResult] {
+        guard !submittedIds.isEmpty else { return searchResults }
+        let submittedSet = Set(submittedIds)
+        let positional = searchResults.count == submittedIds.count
+
+        var byId: [String: BlastSearchResult] = [:]
+        var orphans: [BlastSearchResult] = []
+        for (index, result) in searchResults.enumerated() {
+            var id = result.queryId
+            if !submittedSet.contains(id), positional, byId[submittedIds[index]] == nil {
+                id = submittedIds[index]
+            }
+            guard submittedSet.contains(id) else {
+                if result.failureMessage == nil { orphans.append(result) }
+                continue
+            }
+            if byId[id] == nil {
+                byId[id] = BlastSearchResult(
+                    queryId: id,
+                    queryLength: result.queryLength,
+                    hits: result.hits,
+                    failureMessage: result.failureMessage
+                )
+            }
+        }
+
+        var seen = Set<String>()
+        var ordered: [BlastSearchResult] = []
+        for id in submittedIds where seen.insert(id).inserted {
+            ordered.append(byId[id] ?? BlastSearchResult(
+                queryId: id,
+                queryLength: 0,
+                hits: [],
+                failureMessage: missingReadResultMessage
+            ))
+        }
+        return ordered + orphans
     }
 
     // MARK: - FASTQ Sequence Extraction
@@ -739,9 +855,6 @@ public actor BlastService {
         defer { activeSubmissionCount = max(0, activeSubmissionCount - 1) }
 
         try await enforceSubmitRateLimit(sequenceCount: sequenceCount)
-        let submissionStartedAt = Date()
-        lastSubmitTime = submissionStartedAt
-        recordSubmission(sequenceCount: sequenceCount, at: submissionStartedAt)
 
         // Build form-encoded body
         var params: [(String, String)] = [
@@ -965,9 +1078,11 @@ public actor BlastService {
     /// - **Verified**: >= 90% identity AND >= 80% query coverage AND E-value <= threshold
     /// - **Ambiguous**: Hit found but thresholds not fully met
     /// - **Unverified**: No hits found within the taxon
+    /// - **Error**: NCBI returned no usable entry for the read
     ///
-    /// Also builds up to 5 ``BlastHitSummary`` entries per read, computes
-    /// LCA genus disagreement, and attaches the original query sequence.
+    /// Also builds up to 5 ``BlastHitSummary`` entries per read, flags reads
+    /// whose top hits name conflicting organisms, and attaches the original
+    /// query sequence.
     ///
     /// - Parameters:
     ///   - searchResults: Parsed BLAST search results
@@ -975,9 +1090,11 @@ public actor BlastService {
     ///   - sequenceMap: Mapping from read ID to original query sequence (default: empty)
     ///   - sequenceMates: Mapping from read ID to the mate (1 or 2) submitted
     ///     for a paired fragment.
-    ///   - acceptedTaxIds: Tax IDs that count as the queried taxon when a
-    ///     BLAST hit reports its taxid (the taxon and, when requested, its clade).
-    ///   - acceptedTaxonNames: Other names for the queried taxon or its clade.
+    ///   - acceptedTaxIds: Tax IDs of the queried clade (the taxon and its
+    ///     descendants). Hits that report a tax ID are judged against these.
+    ///   - acceptedTaxonNames: Names in the queried clade.
+    ///   - relatedTaxIds: Tax IDs in the queried taxon's genus outside the clade.
+    ///   - relatedTaxonNames: Names in the queried taxon's genus outside the clade.
     /// - Returns: Array of per-read verification results
     nonisolated func assignVerdicts(
         searchResults: [BlastSearchResult],
@@ -986,35 +1103,51 @@ public actor BlastService {
         queriedTaxonName: String = "",
         sequenceMates: [String: Int] = [:],
         acceptedTaxIds: Set<Int> = [],
-        acceptedTaxonNames: [String] = []
+        acceptedTaxonNames: [String] = [],
+        relatedTaxIds: Set<Int> = [],
+        relatedTaxonNames: [String] = []
     ) -> [BlastReadResult] {
-        searchResults.map { result in
+        let context = BlastTaxonomyContext(
+            cladeTaxIds: acceptedTaxIds,
+            cladeNames: acceptedTaxonNames,
+            relatedTaxIds: relatedTaxIds,
+            relatedNames: relatedTaxonNames
+        )
+        return searchResults.map { result in
             assignVerdict(
                 for: result,
                 eValueThreshold: eValueThreshold,
                 sequenceMap: sequenceMap,
                 queriedTaxonName: queriedTaxonName,
                 sequenceMates: sequenceMates,
-                acceptedTaxIds: acceptedTaxIds,
-                acceptedTaxonNames: acceptedTaxonNames
+                context: context
             )
         }
     }
 
     /// Assigns a verdict for a single query result.
     ///
-    /// In addition to alignment-quality thresholds, this now computes whether
-    /// the top hit organism matches the queried (Kraken2-classified) taxon at
-    /// the genus level or by name containment.
+    /// Besides the alignment-quality thresholds, this decides whether the top
+    /// hit lies inside the queried clade (by tax ID where available, see
+    /// ``BlastTaxonMatching``) and whether the top hits conflict.
     private nonisolated func assignVerdict(
         for result: BlastSearchResult,
         eValueThreshold: Double,
         sequenceMap: [String: String],
         queriedTaxonName: String,
-        sequenceMates: [String: Int] = [:],
-        acceptedTaxIds: Set<Int> = [],
-        acceptedTaxonNames: [String] = []
+        sequenceMates: [String: Int],
+        context: BlastTaxonomyContext
     ) -> BlastReadResult {
+        if let failure = result.failureMessage {
+            return BlastReadResult(
+                id: result.queryId,
+                verdict: .error,
+                querySequence: sequenceMap[result.queryId],
+                submittedMate: sequenceMates[result.queryId],
+                errorMessage: failure
+            )
+        }
+
         // Find the best HSP across all hits
         guard let topHit = result.hits.first,
               let bestHSP = topHit.hsps.first else {
@@ -1037,10 +1170,8 @@ public actor BlastService {
             && pctIdentity >= verifiedIdentityThreshold
             && coverage >= verifiedCoverageThreshold {
             verdict = .verified
-        } else if !result.hits.isEmpty {
-            verdict = .ambiguous
         } else {
-            verdict = .unverified
+            verdict = .ambiguous
         }
 
         // Build up to 5 hit summaries sorted by best HSP e-value
@@ -1050,18 +1181,26 @@ public actor BlastService {
             maxCount: 5
         )
 
-        // Compute LCA genus disagreement across the top hits
-        let hasLCADisagreement = computeGenusDisagreement(hits: topHits)
+        let hasLCADisagreement = BlastTaxonMatching.hasConflictingOrganisms(
+            hits: topHits,
+            queriedTaxonName: queriedTaxonName,
+            context: context
+        )
 
-        // Determine whether the top hit matches the queried taxon
+        // Determine whether the top hit lies in the queried clade
         let hitOrganism = topHit.organism ?? topHit.title
-        let matchesQueriedTaxon = Self.hitMatchesQueriedTaxon(
+        let relation = BlastTaxonMatching.relation(
             hitOrganism: hitOrganism,
             hitTaxId: topHit.taxId,
             queriedTaxonName: queriedTaxonName,
-            acceptedTaxIds: acceptedTaxIds,
-            acceptedTaxonNames: acceptedTaxonNames
+            context: context
         )
+        let matchesQueriedTaxon = relation.map { $0 == .clade }
+            ?? Self.legacyNameMatchesQueriedTaxon(
+                hitOrganism: hitOrganism,
+                queriedTaxonName: queriedTaxonName,
+                acceptedTaxonNames: context.cladeNames
+            )
 
         return BlastReadResult(
             id: result.queryId,
@@ -1077,29 +1216,58 @@ public actor BlastService {
             querySequence: sequenceMap[result.queryId],
             hasLCADisagreement: hasLCADisagreement,
             matchesQueriedTaxon: matchesQueriedTaxon,
-            submittedMate: sequenceMates[result.queryId]
+            submittedMate: sequenceMates[result.queryId],
+            topHitRelation: relation
         )
     }
 
     /// Whether a BLAST top hit supports the queried taxon.
     ///
-    /// A hit supports the taxon when its taxid is one of `acceptedTaxIds`,
-    /// when its organism matches the queried name (see
-    /// ``organismMatchesTaxon(hitOrganism:queriedTaxonName:)``), or when its
-    /// organism name contains one of `acceptedTaxonNames`. The last two
-    /// checks matter because NCBI renamed many virus species to binomials:
-    /// Kraken 2 may report "Simplexvirus humanalpha1" while nt records name
-    /// the same virus "Human alphaherpesvirus 1".
+    /// When the hit reports a tax ID and `acceptedTaxIds` is not empty, the
+    /// tax ID rule decides (see ``BlastTaxonMatching/relation(hitOrganism:hitTaxId:queriedTaxonName:context:)``):
+    /// the hit supports the taxon only when it lies in the clade. Otherwise
+    /// the name rule decides: the organism matches the queried name (see
+    /// ``organismMatchesTaxon(hitOrganism:queriedTaxonName:)``) or contains
+    /// one of `acceptedTaxonNames`. The alternate names matter because NCBI
+    /// renamed many virus species to binomials: Kraken 2 may report
+    /// "Simplexvirus humanalpha1" while nt records name the same virus
+    /// "Human alphaherpesvirus 1".
     static nonisolated func hitMatchesQueriedTaxon(
         hitOrganism: String,
         hitTaxId: Int?,
         queriedTaxonName: String,
         acceptedTaxIds: Set<Int>,
+        acceptedTaxonNames: [String],
+        relatedTaxIds: Set<Int> = [],
+        relatedTaxonNames: [String] = []
+    ) -> Bool {
+        let context = BlastTaxonomyContext(
+            cladeTaxIds: acceptedTaxIds,
+            cladeNames: acceptedTaxonNames,
+            relatedTaxIds: relatedTaxIds,
+            relatedNames: relatedTaxonNames
+        )
+        if let relation = BlastTaxonMatching.relation(
+            hitOrganism: hitOrganism,
+            hitTaxId: hitTaxId,
+            queriedTaxonName: queriedTaxonName,
+            context: context
+        ) {
+            return relation == .clade
+        }
+        return legacyNameMatchesQueriedTaxon(
+            hitOrganism: hitOrganism,
+            queriedTaxonName: queriedTaxonName,
+            acceptedTaxonNames: acceptedTaxonNames
+        )
+    }
+
+    /// The name rule, used only for hits without a tax ID.
+    private static nonisolated func legacyNameMatchesQueriedTaxon(
+        hitOrganism: String,
+        queriedTaxonName: String,
         acceptedTaxonNames: [String]
     ) -> Bool {
-        if let hitTaxId, acceptedTaxIds.contains(hitTaxId) {
-            return true
-        }
         if organismMatchesTaxon(hitOrganism: hitOrganism, queriedTaxonName: queriedTaxonName) {
             return true
         }
@@ -1142,25 +1310,27 @@ public actor BlastService {
         }
     }
 
-    /// Determines whether the top hits disagree at genus level.
-    ///
-    /// Extracts the first word of each organism name (the genus) and checks
-    /// whether multiple distinct genera are represented. A count > 1 indicates
-    /// LCA disagreement.
+    /// The legacy name-only conflict rule: the top hits' organism names start
+    /// with more than one distinct first word. Verdicts now use
+    /// ``BlastTaxonMatching/hasConflictingOrganisms(hits:queriedTaxonName:context:)``,
+    /// which prefers tax IDs and falls back to this rule.
     ///
     /// - Parameter hits: Hit summaries to inspect
-    /// - Returns: `true` if multiple genera are present among the hits
+    /// - Returns: `true` if multiple first words are present among the hits
     nonisolated func computeGenusDisagreement(hits: [BlastHitSummary]) -> Bool {
-        let genera = Set(hits.compactMap { $0.organism?.split(separator: " ").first.map(String.init) })
-        return genera.count > 1
+        BlastTaxonMatching.legacyGenusDisagreement(hits: hits)
     }
 
-    /// Determines whether a BLAST hit organism matches the queried taxon.
+    /// Determines whether a BLAST hit organism matches the queried taxon by name.
     ///
-    /// Uses a two-tier matching strategy:
+    /// This is the fallback for hits without a tax ID. It uses a two-tier
+    /// matching strategy:
     /// 1. **Genus match** (for binomial names): the first word of the hit organism
     ///    matches the first word of the queried taxon (case-insensitive).
     ///    Example: "Escherichia coli K-12" matches queried "Escherichia coli".
+    ///    Host-prefixed virus names defeat this rule ("Human alphaherpesvirus 1"
+    ///    and "Human gammaherpesvirus 4" share "Human"), which is why hits with
+    ///    tax IDs never reach it.
     /// 2. **Containment match** (for virus names that are not binomial): the hit
     ///    organism contains the queried taxon name or vice versa (case-insensitive).
     ///    Example: "Oxbow virus isolate ABC" matches queried "Oxbow virus".
@@ -1303,7 +1473,9 @@ public actor BlastService {
         // Skip the manifest file (which contains BlastJSON, not BlastOutput2)
         var combinedEntries: [[String: Any]] = []
 
-        for file in extractedFiles.sorted(by: { $0.lastPathComponent < $1.lastPathComponent }) {
+        // Sort RID_2.json before RID_10.json so entries keep submission order,
+        // which `reconcile` relies on for entries without a usable title.
+        for file in extractedFiles.sorted(by: Self.zipEntryOrder) {
             guard file.pathExtension == "json" else { continue }
             guard let fileData = try? Data(contentsOf: file) else { continue }
 
@@ -1346,6 +1518,20 @@ public actor BlastService {
     // MARK: - Helpers
 
     /// HTTP error that should be retried with backoff.
+    /// Orders extracted ZIP members by the trailing number of their base
+    /// name (`RID_2` before `RID_10`), then by name.
+    nonisolated static func zipEntryOrder(_ lhs: URL, _ rhs: URL) -> Bool {
+        func trailingNumber(_ url: URL) -> Int? {
+            let base = url.deletingPathExtension().lastPathComponent
+            let digits = base.reversed().prefix(while: \.isNumber)
+            return digits.isEmpty ? nil : Int(String(digits.reversed()))
+        }
+        switch (trailingNumber(lhs), trailingNumber(rhs)) {
+        case let (l?, r?) where l != r: return l < r
+        default: return lhs.lastPathComponent < rhs.lastPathComponent
+        }
+    }
+
     private struct RetryableHTTPError: Error {
         let statusCode: Int
         let body: String
@@ -1558,37 +1744,29 @@ public actor BlastService {
         return allowed
     }()
 
-    /// Enforces the minimum interval between BLAST submissions.
+    /// Enforces NCBI etiquette before a submission.
     ///
-    /// If the last submission was too recent, this method sleeps until
-    /// the minimum interval has elapsed.
+    /// Reserves the reads in the rolling-hour ledger first, so a submission
+    /// over budget fails at once without waiting, then sleeps out the
+    /// minimum interval since the previous submission. The reservation is
+    /// dated when the submission will actually be sent.
     private func enforceSubmitRateLimit(sequenceCount: Int) async throws {
-        try enforceHourlySequenceLimit(sequenceCount: sequenceCount, now: Date())
-
+        let current = now()
+        var wait: TimeInterval = 0
         if let lastTime = lastSubmitTime {
-            let elapsed = Date().timeIntervalSince(lastTime)
-            if elapsed < rateLimits.minSubmitInterval {
-                let waitTime = rateLimits.minSubmitInterval - elapsed
-                logger.debug("Rate limiting: waiting \(waitTime, privacy: .public)s before next submission")
-                try await Task.sleep(for: .seconds(waitTime))
-            }
+            wait = max(0, rateLimits.minSubmitInterval - current.timeIntervalSince(lastTime))
         }
-    }
-
-    private func enforceHourlySequenceLimit(sequenceCount: Int, now: Date) throws {
-        submittedSequenceEvents.removeAll { now.timeIntervalSince($0.date) >= 3600 }
-
-        let used = submittedSequenceEvents.reduce(0) { $0 + $1.count }
-        guard used + sequenceCount <= rateLimits.maxSequencesPerHour else {
-            let retryAfter = submittedSequenceEvents.first
-                .map { max(1, 3600 - now.timeIntervalSince($0.date)) }
-                ?? 3600
-            throw BlastServiceError.rateLimitExceeded(retryAfter: retryAfter)
+        let sendAt = current.addingTimeInterval(wait)
+        try await submissionLedger.reserve(
+            count: max(0, sequenceCount),
+            at: sendAt,
+            limit: rateLimits.maxSequencesPerHour
+        )
+        lastSubmitTime = sendAt
+        if wait > 0 {
+            logger.debug("Rate limiting: waiting \(wait, privacy: .public)s before next submission")
+            try await Task.sleep(for: .seconds(wait))
         }
-    }
-
-    private func recordSubmission(sequenceCount: Int, at date: Date) {
-        submittedSequenceEvents.append((date: date, count: max(0, sequenceCount)))
     }
 
     private func acquireSubmissionSlot(maxConcurrentSubmissions: Int) async throws {

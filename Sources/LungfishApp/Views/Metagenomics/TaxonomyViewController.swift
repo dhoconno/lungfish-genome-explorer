@@ -331,6 +331,16 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
     /// needs this to actually cancel the run, rather than only logging.
     var currentBlastOperationID: UUID?
 
+    /// Whether a BLAST run started here has not yet shown results or a failure.
+    /// While it is set, selecting a taxon does not replace the drawer's
+    /// loading state with a saved verification.
+    var isBlastRunInFlight = false
+
+    /// Returns the result folder whose `blast-verifications/` holds saved
+    /// verifications for a taxon, or `nil` when there is none. Set by the
+    /// viewer; when `nil`, saved verifications are not restored.
+    public var blastVerificationDirectoryResolver: ((TaxonNode) -> URL?)?
+
     // MARK: - Batch Mode
 
     /// Whether this view controller is displaying an aggregated batch result.
@@ -1302,6 +1312,8 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
             actionBar.setBlastEnabled(false, reason: readLevelActionsDisabledReason)
             actionBar.setExtractEnabled(false, reason: readLevelActionsDisabledReason)
         }
+
+        restoreSavedBlastVerification(for: selectedTaxonNode)
     }
 
     // MARK: - NSSplitViewDelegate
@@ -1545,7 +1557,10 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
 
         let configView = BlastConfigPopoverView(
             taxonName: node.name,
-            readsClade: node.readsClade
+            readsClade: node.readsClade,
+            // The Kraken 2 viewport's BlastVerificationRequest keeps the
+            // default database, nt.
+            database: "nt"
         ) { [weak self, weak popover] readCount in
             popover?.performClose(nil)
             guard let self else { return }

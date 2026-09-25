@@ -25,6 +25,11 @@ import SwiftUI
 /// The slider range is 1...50, clamped to the number of available clade reads.
 /// When the user clicks "Run BLAST", the ``onRun`` callback fires with the
 /// selected read count.
+///
+/// The caption names the NCBI database the caller's BLAST run searches.
+/// Pass the same value the caller puts in its ``BlastVerificationRequest``:
+/// the Kraken 2 taxonomy viewport and the CLI search `nt` (the default), while
+/// the EsViritu, TaxTriage, NAO-MGS, NVD and 12S viewports search `core_nt`.
 public struct BlastConfigPopoverView: View {
 
     /// The taxon name for the title label.
@@ -33,16 +38,31 @@ public struct BlastConfigPopoverView: View {
     /// The number of reads in this taxon's clade (used to cap the slider).
     let readsClade: Int
 
+    /// The NCBI BLAST database the run will search, for example `nt` or `core_nt`.
+    let database: String
+
     /// Callback fired when the user clicks "Run BLAST".
     let onRun: (Int) -> Void
 
     /// The selected number of reads to submit.
     @State private var readCount: Double = 20
 
-    public init(taxonName: String, readsClade: Int, onRun: @escaping (Int) -> Void) {
+    public init(
+        taxonName: String,
+        readsClade: Int,
+        database: String = "nt",
+        onRun: @escaping (Int) -> Void
+    ) {
         self.taxonName = taxonName
         self.readsClade = readsClade
+        self.database = database
         self.onRun = onRun
+    }
+
+    /// The caption under the slider, naming the database searched.
+    public static func submissionCaption(database: String) -> String {
+        let name = database.trimmingCharacters(in: .whitespacesAndNewlines)
+        return "Submits selected reads to NCBI BLASTN \(name.isEmpty ? "nt" : name) for review. Reads leave the app for NCBI."
     }
 
     /// Maximum slider value, capped to available reads.
@@ -83,7 +103,7 @@ public struct BlastConfigPopoverView: View {
                     .font(.subheadline)
             }
 
-            Text("Submits selected reads to NCBI BLASTN nt for review. Reads leave the app for NCBI.")
+            Text(Self.submissionCaption(database: database))
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)

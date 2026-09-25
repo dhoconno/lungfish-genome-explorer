@@ -115,6 +115,12 @@ extension BlastCommand {
         )
         var extraArgs: String = ""
 
+        @Option(
+            name: .customLong("result-dir"),
+            help: "Classifier result folder to save the verification in, under blast-verifications/ (the app restores it when the taxon is selected)"
+        )
+        var resultDirectory: String?
+
         @OptionGroup var globalOptions: GlobalOptions
 
         // MARK: - Validation
@@ -197,7 +203,12 @@ extension BlastCommand {
             }
 
             let acceptedNames = targetTaxIds.compactMap { tree.node(taxId: $0)?.name }.sorted()
+            // Hits are always judged against the whole clade and its genus
+            // relatives, even when only reads assigned directly to the taxon
+            // are sampled.
+            let taxonomyContext = tree.blastTaxonomyContext(for: taxId)
             let service = BlastService.shared
+            let startedAt = Date()
             let built: BlastVerificationRequest
             do {
                 built = try await service.buildVerificationRequest(
@@ -208,6 +219,7 @@ extension BlastCommand {
                     sourceURL: sourceURL,
                     readCount: readCount,
                     acceptedTaxonNames: acceptedNames,
+                    taxonomyContext: taxonomyContext,
                     seed: seed
                 )
             } catch BlastServiceError.noSequences {
@@ -234,7 +246,9 @@ extension BlastCommand {
                 maxConcurrentSubmissions: maxConcurrent,
                 sequenceMates: built.sequenceMates,
                 acceptedTaxIds: built.acceptedTaxIds,
-                acceptedTaxonNames: built.acceptedTaxonNames
+                acceptedTaxonNames: built.acceptedTaxonNames,
+                relatedTaxIds: built.relatedTaxIds,
+                relatedTaxonNames: built.relatedTaxonNames
             )
             _ = request.blastURLAPIExtraParameters
 
@@ -244,6 +258,26 @@ extension BlastCommand {
                 if chatty {
                     print("\r\(formatter.info(message))", terminator: "")
                     fflush(stdout)
+                }
+            }
+
+            if let resultDirectory {
+                let resultURL = URL(fileURLWithPath: resultDirectory, isDirectory: true)
+                do {
+                    let saved = try BlastVerificationArchive.save(
+                        result,
+                        request: request,
+                        in: resultURL,
+                        sourceURLs: [kreportURL],
+                        argv: CommandLine.arguments,
+                        startedAt: startedAt
+                    )
+                    if chatty {
+                        print("")
+                        print(formatter.info("Saved verification to \(saved.path)"))
+                    }
+                } catch {
+                    print(formatter.warning("Could not save the verification in \(resultDirectory): \(error.localizedDescription)"))
                 }
             }
 
@@ -295,7 +329,9 @@ extension BlastCommand {
                         verdictStr = formatter.colored("ERR ", .brightBlack)
                     }
 
-                    let organism = readResult.topHitOrganism ?? "(no hit)"
+                    let organism = readResult.topHitOrganism
+                        ?? readResult.errorMessage.map { "(\($0))" }
+                        ?? "(no hit)"
                     let identity = readResult.percentIdentity.map { String(format: "%.1f%%", $0) } ?? "--"
                     print("  \(verdictStr) \(readResult.id)  \(organism)  \(identity)")
                 }
