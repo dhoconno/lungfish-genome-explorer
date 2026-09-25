@@ -3911,6 +3911,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
             rootView: BlastConfigPopoverView(
                 taxonName: taxonName,
                 readsClade: readsClade,
+                database: "core_nt",
                 onRun: { [weak self, weak popover] readCount in
                     popover?.close()
                     self?.activeBlastConfigPopover = nil
@@ -5553,6 +5554,7 @@ final class TaxTriageOrganismTableView: NSView, NSTableViewDataSource, NSTableVi
             rootView: BlastConfigPopoverView(
                 taxonName: tableRow.organism,
                 readsClade: tableRow.uniqueReads ?? tableRow.reads,
+                database: "core_nt",
                 onRun: { [weak self, weak popover] readCount in
                     popover?.close()
                     self?.onBlastRequested?(tableRow, readCount)
