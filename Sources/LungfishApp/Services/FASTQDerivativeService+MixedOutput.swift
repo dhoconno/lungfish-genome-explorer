@@ -1591,8 +1591,9 @@ extension FASTQDerivativeService {
 
         switch request {
         case .pairedEndMerge(let strictness, let minOverlap):
-            // bbmerge runs without interleaved=t and its unmerged stream is
-            // split by position, so only strictly interleaved pairs may enter.
+            // bbmerge pairs by position (interleaved=t) and its unmerged
+            // stream is split by position, so only strictly interleaved
+            // pairs may enter.
             let readLayout = resolvedReadLayout(of: sourceFASTQ, in: sourceBundleURL)
             switch readLayout.layout {
             case .strictlyInterleaved:

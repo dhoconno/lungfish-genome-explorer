@@ -176,6 +176,7 @@ extension FASTQDerivativeService {
         strictness: FASTQMergeStrictness,
         minOverlap: Int,
         countDuplicateMergedReads: Bool = true,
+        isInterleaved: Bool = true,
         provenanceCollector: FASTQDerivativeNativeProvenanceCollector? = nil
     ) async throws -> (BBToolResult, ReadClassification) {
         let mergedURL = outputBundleURL.appendingPathComponent("merged.fastq")
@@ -189,6 +190,10 @@ extension FASTQDerivativeService {
             "out=\(mergedURL.path)",
             "outu=\(unmergedInterleavedURL.path)",
             "minoverlap=\(minOverlap)",
+            // Stated, not guessed: bbmerge's own detection does not pair
+            // identically named mates (SRA dumps), and on /1 /2 names it
+            // pairs by position and drops the last read of an odd count.
+            isInterleaved ? "interleaved=t" : "interleaved=f",
         ]
 
         if strictness == .strict {

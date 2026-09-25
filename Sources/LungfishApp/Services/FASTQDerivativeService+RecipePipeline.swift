@@ -147,7 +147,8 @@ extension FASTQDerivativeService {
                     sourceFASTQ: currentURL,
                     outputBundleURL: mergeDir,
                     strictness: strictness,
-                    minOverlap: minOverlap
+                    minOverlap: minOverlap,
+                    isInterleaved: currentIsInterleaved
                 )
 
                 // Build output: merged reads + re-interleaved unmerged pairs

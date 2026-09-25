@@ -2387,8 +2387,12 @@ public enum FASTQBatchImporter {
             currentURL = interleavedURL
             currentIsInterleaved = true
         } else {
+            // One file: pair-aware only when its records strictly alternate
+            // mates (any naming, identical names included). The steps below
+            // state interleaved=t or =f from this, never leaving BBTools to
+            // guess from the first read names.
             currentURL = inputR1
-            currentIsInterleaved = false
+            currentIsInterleaved = FASTQReadLayoutClassifier.classify(inputURL: inputR1).layout == .strictlyInterleaved
         }
 
         // Phase 3: Run remaining steps on interleaved file
@@ -2415,6 +2419,10 @@ public enum FASTQBatchImporter {
                     "dedupe=t",
                     "optical=\(step.deduplicateOptical == true ? "t" : "f")",
                     "threads=\(config.threads)",
+                    // Stated, not guessed: BBTools does not pair identically
+                    // named mates on its own, and when it does pair /1 /2
+                    // names by position an odd record count loses a read.
+                    currentIsInterleaved ? "interleaved=t" : "interleaved=f",
                 ]
                 let result = try await runner.run(.clumpify, arguments: dedupeArgs, environment: env, timeout: 3600)
                 guard result.isSuccess else {
@@ -2576,6 +2584,8 @@ public enum FASTQBatchImporter {
                     "outu=\(unmergedURL.path)",
                     "minoverlap=\(minOverlap)",
                     "threads=\(config.threads)",
+                    // bbmerge only pairs identically named mates when told to.
+                    currentIsInterleaved ? "interleaved=t" : "interleaved=f",
                 ]
                 if strictness == .strict { args.append("strict=t") }
 

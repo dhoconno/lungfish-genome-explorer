@@ -171,8 +171,8 @@ public enum FASTQConsumerRegistry {
             ("fastq.adapter-trim", "fastq adapter-trim", "fastp single-end", .asSingle),
             ("fastq.fixed-trim", "fastq fixed-trim", "fastp single-end", .asSingle),
             ("fastq.length-filter", "fastq length-filter", "seqkit seq per record", .asSingle),
-            ("fastq.primer-remove", "fastq primer-remove", "bbduk or cutadapt per record", .asSingle),
-            ("fastq.error-correct", "fastq error-correct", "tadpole without an interleaved flag", .asSingle),
+            ("fastq.primer-remove", "fastq primer-remove", "bbduk interleaved=f or cutadapt per record", .asSingle),
+            ("fastq.error-correct", "fastq error-correct", "tadpole interleaved=f", .asSingle),
             ("fastq.ribodetector", "fastq ribodetector", "ribodetector_cpu -i", .asPairs),
         ]
         let single = perRecord.map { entry in
@@ -245,11 +245,11 @@ public enum FASTQConsumerRegistry {
                 displayName: "Import clumpify / Trim Galore",
                 handling: [
                     .singleEnd: .asSingle,
-                    .strictlyInterleaved: .asSingle,
-                    .mixedMergedAndPairs: .asSingle,
+                    .strictlyInterleaved: .asPairs,
+                    .mixedMergedAndPairs: .asPairs,
                     .pairedFiles: .asPairs,
                 ],
-                mixedRationale: "FASTQIngestionPipeline passes one file without an interleaved flag (BBTools auto-detection may still pair /1 /2 names); only two files get in2= or --paired."
+                mixedRationale: "FASTQIngestionPipeline scans one file by NAME (FASTQPairInterleaver.countMixed) and always states the layout: a strictly interleaved file runs clumpify interleaved=t, a file without mates interleaved=f, and a mixed file is partitioned by name so its pairs run with interleaved=t and its unpaired reads with interleaved=f; the output read count is verified. Trim Galore splits a strictly interleaved file into R1/R2 and runs --paired, and refuses a mixed file. Two files get in2= or --paired."
             ),
             FASTQConsumerDeclaration(
                 consumerID: "recipe.convert-interleaved-to-paired",

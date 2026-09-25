@@ -467,10 +467,82 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
 
     // MARK: - Pipeline Steps
 
+    /// How the storage clumpify run treats one input file's records.
+    ///
+    /// BBTools guesses the layout of a single file from its first read names
+    /// when no `interleaved=` flag is given, and both guesses go wrong on real
+    /// imports (verified against the managed BBTools 2026-09-25):
+    ///
+    /// - Mates that share one identical name (SRA dumps such as
+    ///   `@SRR12486983.1 SRR12486983.1` twice, or bare `@frag1` twice) are not
+    ///   recognised, so clumpify sorts every read on its own and splits
+    ///   nearly every pair.
+    /// - `/1` `/2` or Casava names are recognised, and clumpify then pairs
+    ///   records by position; a file with an odd record count (a mixed file
+    ///   of pairs plus merged reads, for example) silently loses its last
+    ///   read.
+    ///
+    /// So the layout is always stated, and it is decided from the records by
+    /// name (``FASTQPairInterleaver/countMixed(interleaved:)``) rather than
+    /// from the recorded pairing mode, which a recipe or an explicit choice
+    /// may set without the records alternating.
+    enum SingleFileClumpPlan: Equatable, Sendable {
+        /// No record has its mate next to it: `interleaved=f`.
+        case unpaired
+        /// Every record is followed by its mate: `interleaved=t`.
+        case interleaved
+        /// Adjacent pairs mixed with unpaired reads: the pairs run with
+        /// `interleaved=t` and the unpaired reads with `interleaved=f`.
+        case splitMixed
+    }
+
+    static func singleFileClumpPlan(for counts: FASTQPairInterleaver.MixedCounts) -> SingleFileClumpPlan {
+        if counts.pairs == 0 { return .unpaired }
+        if counts.unpaired == 0 { return .interleaved }
+        return .splitMixed
+    }
+
+    /// The argv for one storage `clumpify.sh` run.
+    ///
+    /// `interleaved=` is always stated (see ``SingleFileClumpPlan``). A second
+    /// input is an R2 file, which always means `interleaved=t` output.
+    static func clumpifyArguments(
+        input: URL,
+        input2: URL? = nil,
+        output: URL,
+        interleaved: Bool,
+        heapGB: Int,
+        threads: Int,
+        qualityBinning: QualityBinningScheme
+    ) -> [String] {
+        var args = [
+            "in=\(input.path)",
+            "out=\(output.path)",
+            "-Xmx\(heapGB)g",
+            "ow=t",
+            "reorder",
+            "groups=auto",
+            "pigz=t",
+            "zl=4",
+            "threads=\(max(1, threads))"
+        ]
+        if let input2 {
+            args.append("in2=\(input2.path)")
+        }
+        args.append(input2 != nil || interleaved ? "interleaved=t" : "interleaved=f")
+        if let quantize = quantizeArgument(for: qualityBinning) {
+            args.append(quantize)
+        }
+        return args
+    }
+
     /// Sorts reads by k-mer similarity using managed BBTools `clumpify.sh`.
     ///
     /// This writes directly to a gzip output so we can avoid an extra
     /// compression pass while keeping compatibility with `samtools fqidx`.
+    /// A single input file is scanned first so mates stay adjacent and no
+    /// record is lost (``SingleFileClumpPlan``); the output record count is
+    /// then checked against the input before anything is deleted.
     private func clumpify(
         config: FASTQIngestionConfig,
         outputFile: URL,
@@ -478,7 +550,6 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
     ) async throws -> FASTQProcessingRecord {
         let inputFile = config.inputFiles[0]
         let inputFile2 = config.pairingMode == .pairedEnd ? config.inputFiles[1] : nil
-        let clumpifyScript = try await runner.toolPath(for: .clumpify)
         let timeoutSeconds = max(900, Double((try? FileManager.default.attributesOfItem(atPath: inputFile.path)[.size] as? Int64) ?? 0) / 2_500_000)
 
         var env = CoreToolLocator.bbToolsEnvironment(
@@ -499,36 +570,143 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
         // BBTools reads -Xmx from its own args, but _JAVA_OPTIONS takes highest priority.
         env["_JAVA_OPTIONS"] = "-Xmx\(heapGB)g"
 
-        var args = [
-            "in=\(inputFile.path)",
-            "out=\(outputFile.path)",
-            "-Xmx\(heapGB)g",
-            "ow=t",
-            "reorder",
-            "groups=auto",
-            "pigz=t",
-            "zl=4",
-            "threads=\(max(1, config.threads))"
-        ]
+        func arguments(_ input: URL, _ output: URL, interleaved: Bool, input2: URL? = nil) -> [String] {
+            Self.clumpifyArguments(
+                input: input,
+                input2: input2,
+                output: output,
+                interleaved: interleaved,
+                heapGB: heapGB,
+                threads: config.threads,
+                qualityBinning: config.qualityBinning
+            )
+        }
 
         if let inputFile2 {
-            args.append("in2=\(inputFile2.path)")
-            args.append("interleaved=t")
+            progress(0.05, "Launching bbtools clumpify.sh...")
+            let step = try await runStorageClumpify(
+                arguments: arguments(inputFile, outputFile, interleaved: true, input2: inputFile2),
+                inputs: [inputFile, inputFile2],
+                output: outputFile,
+                config: config,
+                environment: env,
+                timeout: timeoutSeconds
+            )
+            return try await clumpifyRecord(outputFile: outputFile, steps: [step], config: config, progress: progress)
         }
 
-        if let quantize = Self.quantizeArgument(for: config.qualityBinning) {
-            args.append(quantize)
+        progress(0.02, "Checking which reads are mates...")
+        let counts = try await Task.detached(priority: .utility) {
+            try FASTQPairInterleaver.countMixed(interleaved: inputFile)
+        }.value
+        let expectedRecords = counts.pairs * 2 + counts.unpaired
+        let plan = Self.singleFileClumpPlan(for: counts)
+        logger.info("Clumpify plan \(String(describing: plan)): \(counts.pairs) mate pairs, \(counts.unpaired) unpaired reads")
+
+        var steps: [StepExecution] = []
+        switch plan {
+        case .unpaired, .interleaved:
+            progress(0.05, "Launching bbtools clumpify.sh...")
+            steps.append(try await runStorageClumpify(
+                arguments: arguments(inputFile, outputFile, interleaved: plan == .interleaved),
+                inputs: [inputFile],
+                output: outputFile,
+                config: config,
+                environment: env,
+                timeout: timeoutSeconds
+            ))
+        case .splitMixed:
+            // Partition by name so each half gets the right flag, clump each,
+            // then compress the concatenation as one stream.
+            let scratch = config.outputDirectory.appendingPathComponent(
+                ".clumpify-split-\(UUID().uuidString)",
+                isDirectory: true
+            )
+            try fm.createDirectory(at: scratch, withIntermediateDirectories: true)
+            defer { try? fm.removeItem(at: scratch) }
+            let pairsURL = scratch.appendingPathComponent("pairs.fastq")
+            let unpairedURL = scratch.appendingPathComponent("unpaired.fastq")
+            progress(0.04, "Separating mate pairs from unpaired reads...")
+            try await Task.detached(priority: .utility) {
+                FileManager.default.createFile(atPath: pairsURL.path, contents: nil)
+                FileManager.default.createFile(atPath: unpairedURL.path, contents: nil)
+                let pairsHandle = try FileHandle(forWritingTo: pairsURL)
+                defer { try? pairsHandle.close() }
+                let unpairedHandle = try FileHandle(forWritingTo: unpairedURL)
+                defer { try? unpairedHandle.close() }
+                let split = try FASTQPairInterleaver.partitionMixed(
+                    interleaved: inputFile,
+                    pairs: pairsHandle,
+                    unpaired: unpairedHandle
+                )
+                guard split == counts else {
+                    throw FASTQIngestionError.clumpifyFailed(
+                        "the pair scan found \(counts.pairs) pairs and \(counts.unpaired) unpaired reads, but the split wrote \(split.pairs) and \(split.unpaired)"
+                    )
+                }
+            }.value
+
+            let clumpedPairs = scratch.appendingPathComponent("pairs.clumped.fastq")
+            let clumpedUnpaired = scratch.appendingPathComponent("unpaired.clumped.fastq")
+            progress(0.1, "Launching bbtools clumpify.sh on mate pairs...")
+            steps.append(try await runStorageClumpify(
+                arguments: arguments(pairsURL, clumpedPairs, interleaved: true),
+                inputs: [pairsURL],
+                output: clumpedPairs,
+                config: config,
+                environment: env,
+                timeout: timeoutSeconds
+            ))
+            progress(0.5, "Launching bbtools clumpify.sh on unpaired reads...")
+            steps.append(try await runStorageClumpify(
+                arguments: arguments(unpairedURL, clumpedUnpaired, interleaved: false),
+                inputs: [unpairedURL],
+                output: clumpedUnpaired,
+                config: config,
+                environment: env,
+                timeout: timeoutSeconds
+            ))
+            let combined = scratch.appendingPathComponent("combined.fastq")
+            try Self.concatenate([clumpedPairs, clumpedUnpaired], to: combined)
+            let compressed = try await compress(
+                inputFile: combined,
+                outputFile: outputFile,
+                threads: config.threads,
+                progress: { fraction, msg in progress(0.8 + fraction * 0.2, msg) }
+            )
+            steps.append(contentsOf: compressed.steps)
         }
 
-        progress(0.05, "Launching bbtools clumpify.sh...")
+        progress(0.95, "Verifying read count...")
+        let outputRecords = try await Task.detached(priority: .utility) {
+            try FASTQPairInterleaver.countRecords(in: outputFile)
+        }.value
+        guard outputRecords == expectedRecords else {
+            try? fm.removeItem(at: outputFile)
+            throw FASTQIngestionError.clumpifyFailed(
+                "expected \(expectedRecords) reads after clumpify.sh but \(outputFile.lastPathComponent) holds \(outputRecords); originals were kept"
+            )
+        }
+        return try await clumpifyRecord(outputFile: outputFile, steps: steps, config: config, progress: progress)
+    }
 
+    /// Runs one storage `clumpify.sh` invocation and returns its provenance step.
+    private func runStorageClumpify(
+        arguments args: [String],
+        inputs: [URL],
+        output: URL,
+        config: FASTQIngestionConfig,
+        environment env: [String: String],
+        timeout: Double
+    ) async throws -> StepExecution {
+        let clumpifyScript = try await runner.toolPath(for: .clumpify)
         let stepStartedAt = Date()
         let result = try await runner.run(
             .clumpify,
             arguments: args,
             workingDirectory: config.outputDirectory,
             environment: env,
-            timeout: timeoutSeconds
+            timeout: timeout
         )
         let stepCompletedAt = Date()
 
@@ -538,36 +716,61 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
                 String(stderr.suffix(2_000)).trimmingCharacters(in: .whitespacesAndNewlines)
             )
         }
-
-        guard fm.fileExists(atPath: outputFile.path) else {
+        guard FileManager.default.fileExists(atPath: output.path) else {
             throw FASTQIngestionError.clumpifyFailed("clumpify.sh completed without producing output")
         }
 
-        progress(1.0, "clumpify.sh complete")
-        logger.info("Clumpified reads with bbtools (\(config.qualityBinning.rawValue) binning)")
-
         let toolVersion = await runner.getToolVersion(.clumpify) ?? Self.pinnedManagedToolVersion(named: "bbtools")
-        let step = StepExecution(
+        return StepExecution(
             toolName: "clumpify.sh",
             toolVersion: toolVersion ?? "unknown",
             command: [clumpifyScript.path] + args,
-            inputs: config.inputFiles.map {
+            inputs: inputs.map {
                 ProvenanceRecorder.fileRecord(url: $0, format: .fastq, role: .input)
             },
-            outputs: [ProvenanceRecorder.fileRecord(url: outputFile, format: .fastq, role: .output)],
+            outputs: [ProvenanceRecorder.fileRecord(url: output, format: .fastq, role: .output)],
             exitCode: result.exitCode,
             wallTime: stepCompletedAt.timeIntervalSince(stepStartedAt),
             stderr: result.stderr.isEmpty ? nil : result.stderr,
             startTime: stepStartedAt,
             endTime: stepCompletedAt
         )
+    }
+
+    private func clumpifyRecord(
+        outputFile: URL,
+        steps: [StepExecution],
+        config: FASTQIngestionConfig,
+        progress: @escaping @Sendable (Double, String) -> Void
+    ) async throws -> FASTQProcessingRecord {
+        progress(1.0, "clumpify.sh complete")
+        logger.info("Clumpified reads with bbtools (\(config.qualityBinning.rawValue) binning)")
+        let toolVersion = await runner.getToolVersion(.clumpify) ?? Self.pinnedManagedToolVersion(named: "bbtools")
+        let commandLine = steps
+            .filter { $0.toolName == "clumpify.sh" }
+            .map { "clumpify.sh " + $0.command.dropFirst().joined(separator: " ") }
+            .joined(separator: " && ")
         return FASTQProcessingRecord(
             url: outputFile,
             tool: "clumpify.sh",
             toolVersion: toolVersion,
-            commandLine: "clumpify.sh \(args.joined(separator: " "))",
-            steps: [step]
+            commandLine: commandLine,
+            steps: steps
         )
+    }
+
+    /// Byte-for-byte concatenation of plain FASTQ files.
+    private static func concatenate(_ inputs: [URL], to output: URL) throws {
+        FileManager.default.createFile(atPath: output.path, contents: nil)
+        let sink = try FileHandle(forWritingTo: output)
+        defer { try? sink.close() }
+        for input in inputs {
+            let source = try FileHandle(forReadingFrom: input)
+            defer { try? source.close() }
+            while let chunk = try source.read(upToCount: 4 << 20), !chunk.isEmpty {
+                try sink.write(contentsOf: chunk)
+            }
+        }
     }
 
     /// Runs Trim Galore's `--clumpify` mode for final-stage FASTQ storage optimization.
@@ -590,10 +793,49 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
         defer { try? fm.removeItem(at: trimOutputDirectory) }
 
         let timeoutSeconds = max(900, Double(Self.estimatedUncompressedInputBytes(for: config.inputFiles)) / 2_500_000)
+
+        // An interleaved single file runs in Trim Galore's single-end mode
+        // otherwise, which clumps and filters each mate on its own and splits
+        // the pairs. Split it into R1/R2 first and run --paired; the paired
+        // outputs are interleaved again below.
+        var trimInputs = config.inputFiles
+        var trimPairing = config.pairingMode
+        if config.pairingMode == .interleaved, config.inputFiles.count == 1 {
+            let interleavedInput = config.inputFiles[0]
+            let counts = try await Task.detached(priority: .utility) {
+                try FASTQPairInterleaver.countMixed(interleaved: interleavedInput)
+            }.value
+            switch Self.singleFileClumpPlan(for: counts) {
+            case .unpaired:
+                trimPairing = .singleEnd
+            case .interleaved:
+                let splitDirectory = trimOutputDirectory.appendingPathComponent("input", isDirectory: true)
+                try fm.createDirectory(at: splitDirectory, withIntermediateDirectories: true)
+                let stem = Self.deriveBaseName(from: interleavedInput)
+                let r1 = splitDirectory.appendingPathComponent("\(stem)_R1.fastq")
+                let r2 = splitDirectory.appendingPathComponent("\(stem)_R2.fastq")
+                try await Task.detached(priority: .utility) {
+                    FileManager.default.createFile(atPath: r1.path, contents: nil)
+                    FileManager.default.createFile(atPath: r2.path, contents: nil)
+                    let r1Handle = try FileHandle(forWritingTo: r1)
+                    defer { try? r1Handle.close() }
+                    let r2Handle = try FileHandle(forWritingTo: r2)
+                    defer { try? r2Handle.close() }
+                    _ = try FASTQPairInterleaver.deinterleave(interleaved: interleavedInput, r1: r1Handle, r2: r2Handle)
+                }.value
+                trimInputs = [r1, r2]
+                trimPairing = .pairedEnd
+            case .splitMixed:
+                throw FASTQIngestionError.clumpifyFailed(
+                    "Trim Galore cannot keep mates together in a file that mixes \(counts.pairs) read pairs with \(counts.unpaired) unpaired reads. Choose BBTools clumpify or skip storage optimization for this file."
+                )
+            }
+        }
+
         let args = Self.trimGaloreClumpifyArguments(
-            inputFiles: config.inputFiles,
+            inputFiles: trimInputs,
             outputDirectory: trimOutputDirectory,
-            pairingMode: config.pairingMode,
+            pairingMode: trimPairing,
             threads: config.threads,
             compressionLevel: config.compressionLevel,
             memoryBytes: ClumpingTool.clumpifyHeapBytes(
@@ -635,7 +877,7 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
             endTime: stepCompletedAt
         )
 
-        if config.pairingMode == .pairedEnd {
+        if trimPairing == .pairedEnd {
             let pairedOutputs = try Self.trimGalorePairedOutputs(in: trimOutputDirectory)
             let interleaveRecord = try await interleavePairedFASTQ(
                 r1: pairedOutputs.r1,
@@ -655,7 +897,22 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
 
         let trimmedOutput = try Self.trimGaloreSingleOutput(in: trimOutputDirectory)
         try? fm.removeItem(at: outputFile)
-        try fm.moveItem(at: trimmedOutput, to: outputFile)
+        // Trim Galore --clumpify writes plain FASTQ for plain input (its
+        // --gzip is ignored in that mode), so compress it instead of moving.
+        var compressionSteps: [StepExecution] = []
+        var compressionCommand = ""
+        if Self.isGzipCompressed(trimmedOutput) {
+            try fm.moveItem(at: trimmedOutput, to: outputFile)
+        } else {
+            let compressed = try await compress(
+                inputFile: trimmedOutput,
+                outputFile: outputFile,
+                threads: config.threads,
+                progress: { fraction, msg in progress(0.75 + fraction * 0.25, msg) }
+            )
+            compressionSteps = compressed.steps
+            compressionCommand = " && " + compressed.commandLine
+        }
 
         guard fm.fileExists(atPath: outputFile.path) else {
             throw FASTQIngestionError.clumpifyFailed("trim_galore completed without producing output")
@@ -666,8 +923,8 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
             url: outputFile,
             tool: "trim_galore",
             toolVersion: toolVersion,
-            commandLine: "trim_galore \(args.joined(separator: " "))",
-            steps: [trimStep]
+            commandLine: "trim_galore \(args.joined(separator: " "))" + compressionCommand,
+            steps: [trimStep] + compressionSteps
         )
     }
 
@@ -930,9 +1187,11 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
             "zl=\(config.compressionLevel.zlValue)",
             "threads=\(max(1, config.threads))",
         ]
-        if inputFile2 != nil {
-            args.append("interleaved=t")
-        }
+        // Two files are interleaved into one output. One file is quantized
+        // record by record in its own order, so mates stay where they are;
+        // interleaved=f stops reformat.sh from pairing /1 /2 names by
+        // position, which silently drops the last read of an odd-count file.
+        args.append(inputFile2 != nil ? "interleaved=t" : "interleaved=f")
         args.append(quantize)
 
         let timeoutSeconds = max(900, Double(Self.estimatedUncompressedInputBytes(for: config.inputFiles)) / 2_500_000)
@@ -1142,9 +1401,9 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
     }
 
     private static func trimGaloreSingleOutput(in directory: URL) throws -> URL {
-        let outputs = try fastqOutputs(in: directory).filter {
-            $0.lastPathComponent.hasSuffix("_trimmed.fq.gz")
-                || $0.lastPathComponent.hasSuffix("_trimmed.fastq.gz")
+        let outputs = try fastqOutputs(in: directory).filter { url in
+            ["_trimmed.fq.gz", "_trimmed.fastq.gz", "_trimmed.fq", "_trimmed.fastq"]
+                .contains { url.lastPathComponent.hasSuffix($0) }
         }
         guard let output = outputs.sorted(by: { $0.lastPathComponent < $1.lastPathComponent }).first else {
             throw FASTQIngestionError.clumpifyFailed("trim_galore did not produce a single-end clumped FASTQ")
@@ -1154,8 +1413,14 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
 
     private static func trimGalorePairedOutputs(in directory: URL) throws -> (r1: URL, r2: URL) {
         let outputs = try fastqOutputs(in: directory)
-        guard let r1 = outputs.first(where: { $0.lastPathComponent.hasSuffix("_val_1.fq.gz") }),
-              let r2 = outputs.first(where: { $0.lastPathComponent.hasSuffix("_val_2.fq.gz") }) else {
+        // Plain input gives plain `_val_N.fq` under --clumpify; reformat.sh
+        // reads either when it interleaves them.
+        func mate(_ number: Int) -> URL? {
+            outputs.first { url in
+                ["_val_\(number).fq.gz", "_val_\(number).fq"].contains { url.lastPathComponent.hasSuffix($0) }
+            }
+        }
+        guard let r1 = mate(1), let r2 = mate(2) else {
             throw FASTQIngestionError.clumpifyFailed("trim_galore did not produce paired clumped FASTQs")
         }
         return (r1, r2)
@@ -1168,7 +1433,7 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
             options: [.skipsHiddenFiles]
         ).filter { url in
             let name = url.lastPathComponent.lowercased()
-            return name.hasSuffix(".fq.gz") || name.hasSuffix(".fastq.gz")
+            return [".fq.gz", ".fastq.gz", ".fq", ".fastq"].contains { name.hasSuffix($0) }
         }
     }
 

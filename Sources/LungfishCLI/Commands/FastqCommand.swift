@@ -1971,6 +1971,10 @@ struct FastqPrimerRemovalSubcommand: AsyncParsableCommand {
                 "k=\(kmerSize)",
                 "mink=\(minKmer)",
                 "hdist=\(hammingDistance)",
+                // Per record, as FASTQConsumerRegistry declares. Left to
+                // guess, bbduk pairs /1 /2 names by position and aborts
+                // ("corrupt or truncated") on an odd record count.
+                "interleaved=f",
             ]
 
             if let literalSequence {
@@ -2113,6 +2117,10 @@ struct FastqErrorCorrectSubcommand: AsyncParsableCommand {
             "mode=correct",
             "ecc=t",
             "k=\(kmerSize)",
+            // Per record, as FASTQConsumerRegistry declares. Left to guess,
+            // tadpole pairs /1 /2 names by position and aborts on an odd
+            // record count.
+            "interleaved=f",
         ]
 
         let env = await bbToolsEnvironment(runner: runner)

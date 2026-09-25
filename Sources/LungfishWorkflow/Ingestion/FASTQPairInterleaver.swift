@@ -198,6 +198,16 @@ public enum FASTQPairInterleaver {
         return counts
     }
 
+    /// Counts the adjacent mate pairs and unpaired records of a file without
+    /// writing anything, using the same by-name rule as ``partitionMixed``.
+    ///
+    /// `unpaired == 0` means every record is followed by its mate (strictly
+    /// interleaved, so the record count is even); `pairs == 0` means no
+    /// record has its mate next to it.
+    public static func countMixed(interleaved: URL) throws -> MixedCounts {
+        try partitionMixed(interleaved: interleaved, onPair: { _, _ in }, onUnpaired: { _ in })
+    }
+
     private static func partitionMixed(
         interleaved: URL,
         onPair: ([[UInt8]], [[UInt8]]) throws -> Void,
