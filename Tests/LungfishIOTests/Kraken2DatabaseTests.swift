@@ -38,6 +38,45 @@ final class Kraken2DatabaseTests: XCTestCase {
         return String(cString: value)
     }
 
+    /// Databases written before the Bracken columns and the format key must
+    /// still open and draw (so a folder whose reports are gone still shows
+    /// something), and must report themselves stale so the app rebuilds them.
+    func testLegacyDatabaseWithoutBrackenColumnsOpensAndIsStale() throws {
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let dbURL = dir.appendingPathComponent("kraken2.sqlite")
+        let rows = [
+            Kraken2ClassificationRow(sample: "S", taxonName: "root", taxId: 1, rank: "R", rankDisplayName: "Root",
+                                     readsDirect: 0, readsClade: 40, percentage: 40, parentTaxId: nil, depth: 0),
+            Kraken2ClassificationRow(sample: "S", taxonName: "Virus sp.", taxId: 10, rank: "S", rankDisplayName: "Species",
+                                     readsDirect: 40, readsClade: 40, percentage: 40, parentTaxId: 1, depth: 1,
+                                     brackenReads: 44, brackenFraction: 1.0),
+        ]
+        try Kraken2Database.create(at: dbURL, rows: rows, metadata: ["total_reads_S": "100", "unclassified_reads_S": "60"])
+        XCTAssertFalse(try Kraken2Database(at: dbURL).needsRebuild)
+        XCTAssertEqual(try Kraken2Database(at: dbURL).fetchTree(sample: "S").node(taxId: 10)?.brackenReads, 44)
+
+        var handle: OpaquePointer?
+        XCTAssertEqual(sqlite3_open(dbURL.path, &handle), SQLITE_OK)
+        for sql in [
+            "ALTER TABLE classification_rows DROP COLUMN bracken_reads",
+            "ALTER TABLE classification_rows DROP COLUMN bracken_fraction",
+            "DELETE FROM metadata WHERE key = '\(Kraken2Database.formatVersionMetadataKey)'",
+        ] {
+            XCTAssertEqual(sqlite3_exec(handle, sql, nil, nil, nil), SQLITE_OK, sql)
+        }
+        sqlite3_close(handle)
+
+        let legacy = try Kraken2Database(at: dbURL)
+        XCTAssertEqual(legacy.formatVersion(), 1)
+        XCTAssertTrue(legacy.needsRebuild)
+        let tree = try legacy.fetchTree(sample: "S")
+        XCTAssertEqual(tree.totalReads, 100)
+        XCTAssertEqual(tree.node(taxId: 10)?.readsClade, 40)
+        XCTAssertNil(tree.node(taxId: 10)?.brackenReads)
+        XCTAssertEqual(try legacy.searchPrunedHierarchy(taxonQuery: "virus", sampleIds: ["S"]).rows.count, 2)
+    }
+
     func testCreateAndOpen() throws {
         let dir = try makeTempDir()
         defer { try? FileManager.default.removeItem(at: dir) }

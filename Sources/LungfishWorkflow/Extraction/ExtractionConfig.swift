@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import LungfishIO
 
 // MARK: - ReadIDExtractionConfig
 
@@ -408,16 +409,28 @@ public struct ExtractionResult: Sendable {
     /// Whether the extracted data is paired-end.
     public let pairedEnd: Bool
 
+    /// The pairing to record on the output FASTQ. Defaults to split
+    /// paired-end when ``pairedEnd`` is true and single-end otherwise; a
+    /// single-file output that kept both mates in order is `.interleaved`.
+    public let pairingMode: IngestionMetadata.PairingMode
+
     /// Creates an extraction result.
     ///
     /// - Parameters:
     ///   - fastqURLs: Output FASTQ file URL(s).
     ///   - readCount: Number of reads (or pairs) extracted.
     ///   - pairedEnd: Whether the output is paired-end.
-    public init(fastqURLs: [URL], readCount: Int, pairedEnd: Bool) {
+    ///   - pairingMode: The pairing to record; derived from `pairedEnd` when nil.
+    public init(
+        fastqURLs: [URL],
+        readCount: Int,
+        pairedEnd: Bool,
+        pairingMode: IngestionMetadata.PairingMode? = nil
+    ) {
         self.fastqURLs = fastqURLs
         self.readCount = readCount
         self.pairedEnd = pairedEnd
+        self.pairingMode = pairingMode ?? (pairedEnd ? .pairedEnd : .singleEnd)
     }
 }
 

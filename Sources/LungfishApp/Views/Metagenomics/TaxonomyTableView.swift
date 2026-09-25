@@ -1279,6 +1279,11 @@ public class TaxonomyTableView: NSView, NSOutlineViewDataSource, NSOutlineViewDe
     }
 
     #if DEBUG
+    /// Test-only: whether the Bracken column is shown for the loaded tree.
+    public var testingIsBrackenColumnVisible: Bool {
+        brackenColumn.map { !$0.isHidden } ?? false
+    }
+
     /// Test-only: the outline view's configured context menu, exposed so
     /// menu-wiring tests do not need to reach into a private subview.
     public var testingContextMenu: NSMenu? {

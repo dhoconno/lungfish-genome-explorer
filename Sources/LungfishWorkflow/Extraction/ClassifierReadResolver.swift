@@ -628,6 +628,10 @@ public actor ClassifierReadResolver {
         // used to be dropped silently, so the user saw a "success" that
         // omitted whole samples.
         var skippedSamples: [String] = []
+        // Whether every extracted sample came from one interleaved paired
+        // FASTQ. Extraction keeps both mates in source order, so such an
+        // output is itself interleaved and must be recorded that way.
+        var everySourceInterleaved = true
 
         for (jobIndex, job) in sampleJobs.enumerated() {
             try Task.checkCancellation()
@@ -664,6 +668,8 @@ public actor ClassifierReadResolver {
                 continue
             }
             provenanceSourceURLs.append(contentsOf: sourceFASTQs)
+            everySourceInterleaved = everySourceInterleaved
+                && Self.sourceHoldsInterleavedPairs(config: classResult.config, sourceFASTQs: sourceFASTQs)
 
             // Build per-sample output paths in the shared temp dir.
             let stem = "\(jobIndex)_\(sampleLabel)"
@@ -721,6 +727,11 @@ public actor ClassifierReadResolver {
         }
         try Task.checkCancellation()
 
+        let outputPairingMode: IngestionMetadata.PairingMode =
+            options.format == .fastq && everySourceInterleaved
+                ? Self.extractedPairingMode(ofInterleavedSourceOutput: concatenated)
+                : .singleEnd
+
         // Format conversion.
         let finalFile: URL
         if options.format == .fasta {
@@ -739,6 +750,7 @@ public actor ClassifierReadResolver {
             options: options,
             provenanceSourceURLs: existingUniqueURLs(provenanceSourceURLs),
             extractionStartedAt: startedAt,
+            outputPairingMode: outputPairingMode,
             progress: progress
         )
         if !skippedSamples.isEmpty {
@@ -748,6 +760,37 @@ public actor ClassifierReadResolver {
             )
         }
         return outcome
+    }
+
+    /// Whether a Kraken 2 sample's source is one FASTQ holding interleaved
+    /// mate pairs, from the layout the classification recorded or, failing
+    /// that, the source bundle's pairing metadata.
+    static func sourceHoldsInterleavedPairs(
+        config: ClassificationConfig,
+        sourceFASTQs: [URL]
+    ) -> Bool {
+        guard sourceFASTQs.count == 1, let source = sourceFASTQs.first else { return false }
+        if config.interleavedInput { return true }
+        if let layout = config.inputLayout?.layout {
+            return layout != .singleEnd
+        }
+        return FASTQReadLayoutClassifier.metadataHints(for: source).pairingMode == .interleaved
+    }
+
+    /// The pairing to record for an extraction whose sources were all
+    /// interleaved pairs. Confirms from the output's own records that mates
+    /// are still adjacent; a selection that kept no adjacent mates is
+    /// recorded as single-end.
+    static func extractedPairingMode(ofInterleavedSourceOutput fastqURL: URL) -> IngestionMetadata.PairingMode {
+        guard let scan = try? FASTQReadLayoutClassifier.readHeaders(from: fastqURL) else {
+            return .singleEnd
+        }
+        let classification = FASTQReadLayoutClassifier.classify(
+            headers: scan.headers,
+            scannedWholeFile: scan.scannedWholeFile,
+            metadata: FASTQPairingMetadataHints(pairingMode: .interleaved)
+        )
+        return classification.matePairs > 0 ? .interleaved : .singleEnd
     }
 
     /// Resolves the Kraken2 source FASTQ(s) for extraction.
@@ -977,6 +1020,7 @@ public actor ClassifierReadResolver {
         options: ExtractionOptions,
         provenanceSourceURLs: [URL],
         extractionStartedAt: Date,
+        outputPairingMode: IngestionMetadata.PairingMode = .singleEnd,
         progress: (@Sendable (Double, String) -> Void)?
     ) async throws -> ExtractionOutcome {
         let fm = FileManager.default
@@ -1017,20 +1061,21 @@ public actor ClassifierReadResolver {
             let outputFormat = finalFile.pathExtension.lowercased() == "fasta" ? "fasta" : "fastq"
             let bundleMetadata = metadata.mergingParameters([
                 "classifierExtractionOutputLayout": "single_file",
-                "classifierExtractionOutputPairingMode": "single_end",
+                "classifierExtractionOutputPairingMode": outputPairingMode.rawValue,
                 "classifierExtractionOutputFormat": outputFormat,
                 "classifierExtractionReadCountUnit": "reads",
             ])
             .recordingSourceURLs(provenanceSourceURLs)
-            // Classifier extraction intentionally normalizes BAM-backed and
-            // Kraken2 selections into one output file before bundling. Any
-            // upstream mate layout has already been flattened, so the bundle
-            // must be marked single-end rather than carrying an inferred
-            // paired-end flag that no longer matches the stored payload.
+            // Classifier extraction normalizes BAM-backed and Kraken2
+            // selections into one output file before bundling, so the bundle
+            // is never split paired-end. It is single-end unless every source
+            // was one interleaved FASTQ and the output kept adjacent mates, in
+            // which case it is interleaved (`outputPairingMode`).
             let result = ExtractionResult(
                 fastqURLs: [finalFile],
                 readCount: readCount,
-                pairedEnd: false
+                pairedEnd: false,
+                pairingMode: outputPairingMode
             )
             let bundleURL = try await service.createBundle(
                 from: result,

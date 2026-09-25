@@ -1,0 +1,9 @@
+ 60.00	600	600	U	0	unclassified
+ 40.00	400	0	R	1	root
+ 40.00	400	10	R1	10239	  Viruses
+ 38.20	382	2	F	3044472	    Orthoherpesviridae
+ 38.00	380	0	G	10294	      Simplexvirus
+ 37.00	370	0	S	3050292	        Simplexvirus humanalpha1
+ 37.00	370	370	S1	10298	          Human alphaherpesvirus 1
+  1.00	10	10	S	10325	        Macacine alphaherpesvirus 1
+  0.80	8	8	G	1982251	    Pahexavirus

@@ -1,0 +1,51 @@
+{
+  "brackenPath": "classification.bracken",
+  "config": {
+    "brackenProfileRequest": {
+      "rank": {
+        "automatic": {}
+      },
+      "readLength": 150,
+      "threshold": 10
+    },
+    "confidence": 0.2,
+    "databaseCatalogID": "kraken2-viral",
+    "databaseName": "Viral",
+    "databasePath": "database",
+    "databaseVersion": "20260626",
+    "goal": "profile",
+    "inputFiles": [
+      "source.fastq"
+    ],
+    "interleavedInput": true,
+    "isPairedEnd": false,
+    "memoryMapping": false,
+    "minimumHitGroups": 2,
+    "originalInputFiles": [
+      "source.fastq"
+    ],
+    "outputDirectory": ".",
+    "quickMode": false,
+    "sampleDisplayName": "SRRTEST1",
+    "threads": 4
+  },
+  "outputPath": "classification.kraken",
+  "profileOutcome": {
+    "resolution": {
+      "rank": "S",
+      "readLength": 150,
+      "request": {
+        "automatic": {}
+      },
+      "source": "catalogIdentity",
+      "threshold": 10
+    },
+    "state": "completed",
+    "toolVersion": "3.0.1"
+  },
+  "provenanceId": "34EB0DCF-6C3D-4074-9785-16A316741465",
+  "reportPath": "classification.kreport",
+  "runtime": 18.0,
+  "savedAt": "2026-09-25T04:36:47Z",
+  "toolVersion": "2.17.1"
+}
