@@ -17,9 +17,9 @@ shots:
   - id: taxtriage-advanced-settings
     caption: "The dialog's Advanced Settings disclosure expanded, showing the K2 Confidence slider at 0.20, the Top hits stepper at 10, the Max memory stepper at 16 GB, the Max CPUs stepper, the Skip Krona visualization checkbox, and the Extra arguments field holding --remove_taxids 9606."
   - id: taxtriage-result-table
-    caption: "The TaxTriage viewport for the two-sample corneal run with only SRR12486983 ticked in the Inspector's Sample Filter, the Human alphaherpesvirus 1 row selected in the organism table on top, and its reads drawn against the HSV-1 reference in the alignment pane below."
+    caption: "The TaxTriage viewport for the two-sample corneal run in the List Over Detail layout, with both samples ticked in the Inspector's Sample Filter and the cards reading Batch TaxTriage, Samples 2, and Organisms 322. The Human alphaherpesvirus 1 row of SRR12486983 is selected in the table on top, showing TASS Score 0.930, Reads 2.0M, Unique Reads 1.6M, and High, and the alignment pane below shows the coverage track across the 152,222-base HSV-1 reference NC_001806.2, zoomed out, with its prompt to zoom in to view individual mapped reads. The Inspector shows its Panel Layout control and the run's Operation Details."
   - id: taxtriage-batch-overview
-    caption: "The TaxTriage viewport with both samples ticked and Kocuria typed in the Filter organisms... field, showing the Kocuria rows of SRR12486983 and SRR12486989 in one table, told apart by the Sample column, with TASS Score, Reads, Confidence, Coverage Breadth, and Coverage Depth beside each."
+    caption: "The TaxTriage viewport with both samples ticked and Kocuria typed in the Filter organisms... field, showing SRR12486983's Kocuria rows first, from Kocuria sp. BT304 at 0.920 High down to Kocuria rosea at 0.080 Low, then SRR12486989's, starting with Kocuria sp. BT304 at 0.980 High, under the Sample, Organism, TASS Score, Reads, Unique Reads, and Confidence columns. No row is selected, so the alignment pane is empty."
 illustrations: []
 glossary_refs: [accession, amplicon, bam, blast, bundle, container, coverage-breadth, depth, fastq, inspector, kraken2, k-mer, library-prep, lowest-common-ancestor, mark-duplicates, negative-control, nextflow, paired-end, plugin-pack, read, read-classification, reference-genome, required-setup-pack, samplesheet, shotgun, sra, taxon, taxonomy-id, tass-score, taxtriage, tsv, viewport]
 features_refs: []
@@ -114,6 +114,8 @@ Click **Run**. Watch the run in the [Operations Panel](../01-foundations/06-the-
 
 Then find the result in the sidebar. It lands under `Analyses/` in a new folder, as [Where results land](../01-foundations/06-the-lungfish-project.md#where-results-land) describes. LGE names it `taxtriage-batch-` followed by the date and time, such as `taxtriage-batch-2026-09-25T03-40-19`, with one subfolder per sample inside it. Click the folder and the TaxTriage [viewport](../../GLOSSARY.md#viewport) opens, the panel that fills the window and shows one result.
 
+Once the result is open, the Inspector's **Operation Details** section lists the settings the run used, including the database path, Max CPUs, Max Memory, Platform, Top Hits, and the runtime, 17m 39s for the worked example. Copy them from there into a methods section.
+
 ## Settings
 
 Several bold labels below end in a colon followed by a period, because they keep the colon the app draws after each label on screen. Five controls sit in plain view and six more inside **Advanced Settings**.
@@ -146,7 +148,7 @@ The viewport has a row of summary cards across the top, an organism table with a
 
 ### Choosing which samples to show
 
-The table starts with every row of both samples, SRR12486983 first. Which samples show is set in the [Inspector](../../GLOSSARY.md#inspector), the panel on the right of the window, in its **Samples & Metadata** section. Its **Sample Filter** list has a tick box for each sample, and the Select All and Filter... controls work as [The taxonomy viewport](02-running-kraken2.md#the-taxonomy-viewport) describes. Untick SRR12486989 to read SRR12486983 alone, which leaves 209 rows. SRR12486989 alone has 113.
+The table starts with every row of both samples, SRR12486983 first. The table is wider than the pane, so Coverage Breadth, Coverage Depth, and Abundance sit to the right of Confidence, and you scroll sideways to reach them. Which samples show is set in the [Inspector](../../GLOSSARY.md#inspector), the panel on the right of the window, in its **Samples & Metadata** section. Its **Sample Filter** list has a tick box for each sample, and the Select All and Filter... controls work as [The taxonomy viewport](02-running-kraken2.md#the-taxonomy-viewport) describes. Untick SRR12486989 to read SRR12486983 alone, which leaves 209 rows. SRR12486989 alone has 113.
 
 That is far more than the ten of Top hits. For SRR12486983 the pipeline downloaded 1,766 reference sequences, covering many more organisms than its ten top hits, and mapped every read against all of them at once. Its report lists every organism whose genome received reads, and every row in the table was mapped and scored the same way.
 
@@ -244,7 +246,7 @@ TaxTriage reports what DNA is in the tube. Deciding that an organism caused a pa
 
 ### The alignment pane
 
-Selecting a row loads its reads into the alignment pane below the table, drawn against the reference the pipeline mapped them to, so you can see where along the genome the evidence sits. If a row has no mapped reads to draw, the pane stays closed. Very deep piles are drawn from a subset of their reads, as [The read stack and the sample banner](../04-alignments/02-reading-an-alignment.md#the-read-stack-and-the-sample-banner) explains. The HSV-1 pile, 733.8 deep on average, runs deeper than 500, the most reads the pane draws over one position by default, so the pane draws a subset while the table's counts include every read.
+Selecting a row loads its reads into the alignment pane below the table, drawn against the reference the pipeline mapped them to, so you can see where along the genome the evidence sits. If a row has no mapped reads to draw, the pane stays closed. Zoomed out to the whole genome, the pane draws a coverage track, the depth of reads along the reference, and asks you to zoom in to view individual mapped reads. For HSV-1 the track spans the 152,222-base reference NC_001806.2. The pane works out its own covered share and mean depth from the alignment file, so its figures, 99% covered at about 794× for HSV-1, can differ a little from the table's. Very deep piles are drawn from a subset of their reads, as [The read stack and the sample banner](../04-alignments/02-reading-an-alignment.md#the-read-stack-and-the-sample-banner) explains. The HSV-1 pile, 733.8 deep on average, runs deeper than 500, the most reads the pane draws over one position by default, so the pane draws a subset while the table's counts include every read.
 
 <!-- SHOT: taxtriage-result-table -->
 
