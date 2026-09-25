@@ -17,7 +17,7 @@ shots:
   - id: taxtriage-advanced-settings
     caption: "The dialog's Advanced Settings disclosure expanded, showing the K2 Confidence slider at 0.20, the Top hits stepper at 10, the Max memory stepper at 16 GB, the Max CPUs stepper, the Skip Krona visualization checkbox, and the Extra arguments field holding --remove_taxids 9606."
   - id: taxtriage-result-table
-    caption: "The TaxTriage viewport for the two-sample corneal run with only SRR12486983 ticked in the Inspector's Sample Filter, the Human alphaherpesvirus 1 row selected in the organism table on the right, and its reads drawn against the HSV-1 reference in the alignment pane on the left."
+    caption: "The TaxTriage viewport for the two-sample corneal run with only SRR12486983 ticked in the Inspector's Sample Filter, the Human alphaherpesvirus 1 row selected in the organism table on top, and its reads drawn against the HSV-1 reference in the alignment pane below."
   - id: taxtriage-batch-overview
     caption: "The TaxTriage viewport with both samples ticked and Kocuria typed in the Filter organisms... field, showing the Kocuria rows of SRR12486983 and SRR12486989 in one table, told apart by the Sample column, with TASS Score, Reads, Confidence, Coverage Breadth, and Coverage Depth beside each."
 illustrations: []
@@ -82,7 +82,7 @@ The worked example runs TaxTriage once on both corneal samples against Standard-
 
 The **Samples** section holds one row per bundle you selected, so it lists SRR12486983 and SRR12486989.
 
-1. Read each **Sample ID** field. It starts with the name LGE took from the bundle, and the pipeline reports the sample under whatever you type here. The reads file's name sits beside the field.
+1. Read each **Sample ID** field. It starts with the reads file's name, less its `.fastq.gz` ending, which here matches the bundle's name, and the pipeline reports the sample under whatever you type here. The reads file's name sits beside the field.
 
 2. Leave the role picker at the right of each row on **Clinical Sample**, because both runs are patient specimens.
 
@@ -118,9 +118,9 @@ Then find the result in the sidebar. It lands under `Analyses/` in a new folder,
 
 Several bold labels below end in a colon followed by a period, because they keep the colon the app draws after each label on screen. Five controls sit in plain view and six more inside **Advanced Settings**.
 
-**Sample ID.** Names one row of the sample list, and every report the pipeline writes refers to the sample by this label. The default is the name LGE takes from the selected bundle. Change it to the identifier your lab already uses so the reports match your records. On the command line this is `--sample`.
+**Sample ID.** Names one row of the sample list, and every report the pipeline writes refers to the sample by this label. The default is the reads file's name without its ending and without any `_R1` or `_1` mate marker. Change it to the identifier your lab already uses so the reports match your records. On the command line this is `--sample`.
 
-**Sample role.** Records what kind of material a row holds. The choices are Clinical Sample, the specimen under test, and four controls. A Negative Control is a no-template tube, and an Extraction Blank is a tube with nothing in it carried through DNA extraction. A Positive Control holds a known organism, and an Environmental Control samples the room or bench. The default is Clinical Sample. In this release the role is saved with the run's record and changes nothing in the result table, so name your controls' Sample IDs clearly as well, such as `NEG-blank-1`. This setting has no command-line flag.
+**Sample role.** Records what kind of material a row holds. The choices are Clinical Sample, the specimen under test, and four controls. A Negative Control is a no-template tube, and an Extraction Blank is a tube with nothing in it carried through DNA extraction. A Positive Control holds a known organism, and an Environmental Control samples the room or bench. The default is Clinical Sample. In this release LGE saves only one fact from the role, whether the row is a negative control, which Negative Control and Extraction Blank both set. Positive Control and Environmental Control are saved the same as Clinical Sample, and no role changes the result table, so name your controls' Sample IDs clearly as well, such as `NEG-blank-1`. This setting has no command-line flag.
 
 **Kraken2 Database.** Names the reference collection the classification step compares every read against, and so fixes which organisms can be reported at all. The default is the first installed Kraken 2 database, which is an accident of install order rather than a choice. Match it to the organisms you expect, such as Viral for viruses only, Standard-8 or Standard-16 for a broad survey on an 8 GB or 16 GB Mac, and PlusPF when fungi and protozoa matter, as [Picking a classifier for your sample](01-what-is-classification.md#picking-a-classifier-for-your-sample) describes. On the command line this is `--db`.
 
@@ -142,7 +142,7 @@ Several bold labels below end in a colon followed by a period, because they keep
 
 ## Reading the results
 
-The viewport has a row of summary cards across the top, an alignment pane on the left, an organism table on the right, and an action bar along the bottom. The cards read Batch, Samples, and Organisms. For the worked example, Batch reads TaxTriage and Samples reads 2. Organisms counts the rows in the table, 322 while both samples are showing, and one organism found in both samples takes two rows.
+The viewport has a row of summary cards across the top, an organism table with an alignment pane below it, and an action bar along the bottom. That table-over-pane arrangement is the default, and the Inspector's **Panel Layout** control can put the two side by side instead. The cards read Batch, Samples, and Organisms. For the worked example, Batch reads TaxTriage and Samples reads 2. Organisms counts the rows in the table, 322 while both samples are showing, and one organism found in both samples takes two rows.
 
 ### Choosing which samples to show
 
@@ -150,7 +150,7 @@ The table starts with every row of both samples, SRR12486983 first. Which sample
 
 That is far more than the ten of Top hits. For SRR12486983 the pipeline downloaded 1,766 reference sequences, covering many more organisms than its ten top hits, and mapped every read against all of them at once. Its report lists every organism whose genome received reads, and every row in the table was mapped and scored the same way.
 
-The **Filter organisms…** field above the table keeps only the rows whose organism name contains what you type. With both samples ticked, typing a name such as Kocuria puts that genus's rows from both samples together, one above the other.
+The **Filter organisms…** field above the table keeps only the rows whose organism name contains what you type. With both samples ticked, typing a name such as Kocuria leaves only that genus's rows, all of SRR12486983's first and then all of SRR12486989's, with the Sample column telling them apart.
 
 <!-- SHOT: taxtriage-batch-overview -->
 
@@ -216,8 +216,8 @@ Now untick SRR12486983 and tick SRR12486989, the *Streptococcus agalactiae* case
 |---|---|---|---|---|
 | *Kocuria* sp. BT304 | 0.980 | 150,917 | 91.8% | 4.0× |
 | *Cutibacterium acnes* | 0.970 | 2,621 | 6.6% | 0.1× |
-| *Cellulosimicrobium cellulans* | 0.890 | 4,829 | 7.0% | 0.1× |
 | *Bradyrhizobium* sp. WCU1 | 0.890 | 4,038 | 3.5% | 0.0× |
+| *Cellulosimicrobium cellulans* | 0.890 | 4,829 | 7.0% | 0.1× |
 | *Burkholderia arboris* | 0.830 | 13,247 | 15.7% | 0.2× |
 | *Streptococcus agalactiae* | 0.780 | 10,698 | 28.1% | 0.4× |
 
@@ -244,13 +244,13 @@ TaxTriage reports what DNA is in the tube. Deciding that an organism caused a pa
 
 ### The alignment pane
 
-Selecting a row loads its reads into the alignment pane on the left, drawn against the reference the pipeline mapped them to, so you can see where along the genome the evidence sits. If a row has no mapped reads to draw, the pane stays closed. Very deep piles are drawn from a subset of their reads, as [The read stack and the sample banner](../04-alignments/02-reading-an-alignment.md#the-read-stack-and-the-sample-banner) explains. The HSV-1 pile, 733.8 deep on average, runs deeper than 500, the most reads the pane draws over one position by default, so the pane draws a subset while the table's counts include every read.
+Selecting a row loads its reads into the alignment pane below the table, drawn against the reference the pipeline mapped them to, so you can see where along the genome the evidence sits. If a row has no mapped reads to draw, the pane stays closed. Very deep piles are drawn from a subset of their reads, as [The read stack and the sample banner](../04-alignments/02-reading-an-alignment.md#the-read-stack-and-the-sample-banner) explains. The HSV-1 pile, 733.8 deep on average, runs deeper than 500, the most reads the pane draws over one position by default, so the pane draws a subset while the table's counts include every read.
 
 <!-- SHOT: taxtriage-result-table -->
 
 ### Working with a single row
 
-**BLAST Verify** in the action bar sends some of the selected row's reads to NCBI for a second opinion, as [BLAST Verification](06-blast-verification.md) explains, and needs exactly one row selected. **Extract FASTQ** opens the dialog [Running Kraken 2](02-running-kraken2.md#4-extract-the-reads-of-one-taxon) documents.
+**BLAST Verify** in the action bar sends reads of the selected row to NCBI for a second opinion, as [BLAST Verification](06-blast-verification.md) explains, and needs exactly one row selected. In this viewport it opens no popover and sends 50 reads at once, or every read when the row has fewer, which uses up LGE's hourly allowance of 50. To choose how many, right-click the row and choose **Verify with BLAST...** instead, which opens the popover with its slider. **Extract FASTQ** opens the dialog [Running Kraken 2](02-running-kraken2.md#4-extract-the-reads-of-one-taxon) documents.
 
 Right-clicking a row offers **Verify with BLAST...**, **Copy Organism Name**, **Copy Taxon ID**, **Copy Row as TSV**, **Look Up in NCBI Taxonomy**, and **Extract Reads...**. Copy Row as [TSV](../../GLOSSARY.md#tsv) copies the row as tab-separated text you can paste into a spreadsheet.
 

@@ -1,0 +1,39 @@
+# Recaptured on Lungfish Preview 2026.9.43 (2026-09 campaign) in a project holding SRR12486983 downloaded through the SRA route.
+# Cropped to the viewport columns, drawer included.
+# App state: BLAST Results drawer after a 20-read verification of Simplexvirus humanalpha1 in the Kraken2 Viral result for SRR12486983, under the sunburst drilled down to Orthoherpesviridae, Detail | List layout. Summary bar: 20 supporting, 0 contradicting, ten filled circles, Supported, 1 with conflicting organisms. Rows: top hit Human alphaherpesvirus 1, Identity 100.0%, E-value 1e-29 or 4e-29, Bit Score 140 or 141
+id: blast-results-drawer
+chapter: 06-classification/06-blast-verification
+caption: "The BLAST Results drawer under the sunburst, drilled down to Orthoherpesviridae, of the SRR12486983 Viral result in the Detail | List layout, with the summary bar reading 20 supporting, 0 contradicting, ten filled circles, the word Supported, and 1 with conflicting organisms, above per-read rows whose top hit is Human alphaherpesvirus 1 at 100.0% identity."
+viewport_class: taxonomy
+app_state:
+  fixture: kraken-protocol-cornea
+  open_files:
+  - analysis: kraken2 Viral result for SRR12486983
+  window_size:
+  - 1400
+  - 900
+  appearance: light
+steps:
+- action: open_application
+  app: Lungfish Preview
+- action: wait_ready
+  signal: main_window_visible
+- action: resize_window
+  size:
+  - 1400
+  - 900
+  # PROSE-ONLY: Select the Viral kraken2- result for SRR12486983 under Analyses in the sidebar
+  # PROSE-ONLY: Double-click the Orthoherpesviridae wedge to drill the sunburst down
+  # PROSE-ONLY: Type humanalpha1 in Filter taxa... and select the Simplexvirus humanalpha1 row
+  # PROSE-ONLY: Click BLAST Verify, leave Reads to submit at 20, click Run BLAST
+  # PROSE-ONLY: Wait for the drawer to show the Supported summary
+crop:
+  mode: region
+  region:
+  - 0
+  - 0
+  - 1059
+  - 900
+post:
+  retina: true
+  format: png
