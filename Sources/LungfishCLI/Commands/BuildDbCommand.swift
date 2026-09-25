@@ -336,9 +336,12 @@ extension BuildDbCommand {
 
     /// Build a SQLite database from TaxTriage pipeline output.
     ///
-    /// Parses the confidence TSV (`report/multiqc_data/multiqc_confidences.txt`),
-    /// resolves BAM paths and accession data from gcfmap files, and writes a
-    /// `taxtriage.sqlite` database in the result directory.
+    /// Parses the per-sample organism discovery report (`report/<sample>.odr.txt`,
+    /// TaxTriage 3.3.x), falling back to `<sample>.organisms.report.txt`, the legacy
+    /// `report/multiqc_data/multiqc_confidences.txt`, and finally the Kraken-only
+    /// `top/*.top_report.tsv`. Resolves BAM paths and accession data from gcfmap
+    /// files, and writes a `taxtriage.sqlite` database in the result directory.
+    /// Rerun with `--force` to rebuild an existing database.
     struct TaxTriageSubcommand: AsyncParsableCommand {
         static let configuration = CommandConfiguration(
             commandName: "taxtriage",
@@ -388,6 +391,10 @@ extension BuildDbCommand {
                     "tool": "taxtriage",
                     "created_at": ISO8601DateFormatter().string(from: Date()),
                     "source_dir": resultURL.path,
+                    TaxTriageDatabase.taxonomySourceMetadataKey: resolvedInput.sources
+                        .map(\.rawValue)
+                        .joined(separator: ","),
+                    TaxTriageDatabase.tassScaleMetadataKey: TaxTriageDatabase.currentTASSScale,
                 ]
 
                 try TaxTriageDatabase.create(at: dbURL, rows: rows, accessionMap: accessionMap, metadata: metadata) { fraction, msg in
@@ -533,53 +540,83 @@ extension BuildDbCommand {
 
 extension BuildDbCommand.TaxTriageSubcommand {
 
+    /// Where `build-db taxtriage` read its taxonomy rows from. Recorded in the database
+    /// metadata as `taxonomy_source` so stale databases can be detected.
+    enum TaxonomySource: String {
+        /// `report/<sample>.odr.txt` (TaxTriage 3.3.x), or `all.odr.txt` when no
+        /// per-sample report exists, or an older `<sample>.organisms.report.txt`.
+        case organismReport = "organism_report"
+        /// `report/multiqc_data/multiqc_confidences.txt`.
+        case multiqcConfidences = "multiqc_confidences"
+        /// `top/*.top_report.tsv`: Kraken-derived counts only, no TASS.
+        case topReport = "top_report"
+    }
+
     private func resolveTaxonomyRows(
         resultURL: URL
     ) throws -> (
         rows: [TaxTriageTaxonomyRow],
         accessionMap: [TaxTriageAccessionEntry],
-        sourceDescription: String
+        sourceDescription: String,
+        sources: [TaxonomySource]
     ) {
         if let parsed = try parseSingleTaxTriageResult(resultURL: resultURL) {
-            return parsed
+            return (parsed.rows, parsed.accessionMap, parsed.sourceDescription, [parsed.source])
         }
 
         let serialResults = serialTaxTriageResultDirectories(in: resultURL)
         if !serialResults.isEmpty {
             var rows: [TaxTriageTaxonomyRow] = []
             var accessionMap: [TaxTriageAccessionEntry] = []
+            var sources: [TaxonomySource] = []
 
             for sampleResultURL in serialResults {
                 guard let parsed = try parseSingleTaxTriageResult(resultURL: sampleResultURL) else { continue }
                 let directoryName = sampleResultURL.lastPathComponent
                 rows.append(contentsOf: parsed.rows.map { prefixBAMPaths(in: $0, with: directoryName) })
                 accessionMap.append(contentsOf: parsed.accessionMap)
+                if !sources.contains(parsed.source) { sources.append(parsed.source) }
             }
 
             if !rows.isEmpty {
-                return (rows, accessionMap, "serial sample result directories")
+                return (rows, accessionMap, "serial sample result directories", sources)
             }
         }
 
         throw ValidationError(
-            "No supported TaxTriage taxonomy report found in \(resultURL.path). Expected report/multiqc_data/multiqc_confidences.txt, top/*.top_report.tsv, or serial sample subdirectories containing those reports"
+            "No supported TaxTriage taxonomy report found in \(resultURL.path). Expected report/<sample>.odr.txt, <sample>.organisms.report.txt, report/multiqc_data/multiqc_confidences.txt, top/*.top_report.tsv, or serial sample subdirectories containing those reports"
         )
     }
 
+    /// Parses one TaxTriage result directory (a single run, or one sample of a serial batch).
+    ///
+    /// Source priority: the organism discovery report (`report/<sample>.odr.txt`, 3.3.x,
+    /// or the older `<sample>.organisms.report.txt`), then the legacy MultiQC confidence
+    /// table, then the Kraken-only `top/*.top_report.tsv` fallback, which has no TASS.
     private func parseSingleTaxTriageResult(
         resultURL: URL
     ) throws -> (
         rows: [TaxTriageTaxonomyRow],
         accessionMap: [TaxTriageAccessionEntry],
-        sourceDescription: String
+        sourceDescription: String,
+        source: TaxonomySource
     )? {
+        let organismReports = TaxTriageOrganismReport.reportFiles(inResultDirectory: resultURL)
+        if !organismReports.isEmpty {
+            let parsed = try parseOrganismReports(at: organismReports, resultURL: resultURL)
+            if !parsed.rows.isEmpty {
+                let names = organismReports.map(\.lastPathComponent).joined(separator: ", ")
+                return (parsed.rows, parsed.accessionMap, "organism report (\(names))", .organismReport)
+            }
+        }
+
         let confidenceURL = resultURL
             .appendingPathComponent("report")
             .appendingPathComponent("multiqc_data")
             .appendingPathComponent("multiqc_confidences.txt")
         if FileManager.default.fileExists(atPath: confidenceURL.path) {
             let parsed = try parseConfidenceTSV(at: confidenceURL, resultURL: resultURL)
-            return (parsed.rows, parsed.accessionMap, "confidence report")
+            return (parsed.rows, parsed.accessionMap, "confidence report", .multiqcConfidences)
         }
 
         let topDir = resultURL.appendingPathComponent("top")
@@ -587,7 +624,7 @@ extension BuildDbCommand.TaxTriageSubcommand {
         guard !topReportFiles.isEmpty else { return nil }
 
         let parsed = try parseTopReportTSVs(at: topReportFiles, resultURL: resultURL)
-        return (parsed.rows, parsed.accessionMap, "top report fallback")
+        return (parsed.rows, parsed.accessionMap, "top report fallback", .topReport)
     }
 
     private func serialTaxTriageResultDirectories(in resultURL: URL) -> [URL] {
@@ -604,6 +641,10 @@ extension BuildDbCommand.TaxTriageSubcommand {
             .filter { child in
                 let values = try? child.resourceValues(forKeys: [.isDirectoryKey])
                 guard values?.isDirectory == true else { return false }
+
+                if !TaxTriageOrganismReport.reportFiles(inResultDirectory: child).isEmpty {
+                    return true
+                }
 
                 let confidenceURL = child
                     .appendingPathComponent("report")
@@ -674,130 +715,93 @@ extension BuildDbCommand.TaxTriageSubcommand {
         at url: URL,
         resultURL: URL
     ) throws -> (rows: [TaxTriageTaxonomyRow], accessionMap: [TaxTriageAccessionEntry]) {
-        let content = try String(contentsOf: url, encoding: .utf8)
-        let lines = content.components(separatedBy: .newlines)
-            .filter { !$0.isEmpty }
+        try parseOrganismReports(at: [url], resultURL: resultURL)
+    }
 
-        guard lines.count >= 2 else {
-            return (rows: [], accessionMap: []) // Header only or empty
-        }
-
-        // Parse header to find column indices
-        let header = lines[0].split(separator: "\t", omittingEmptySubsequences: false)
-            .map { String($0) }
-        let colIndex = buildColumnIndex(from: header)
-
-        // Load gcfmap data for accession lookup — keyed by sample ID
+    /// Parses TaxTriage organism confidence tables into taxonomy rows.
+    ///
+    /// Accepts the 3.3.x per-sample organism discovery report (`report/<sample>.odr.txt`),
+    /// the combined `report/all.odr.txt` (rows keyed by `Specimen ID`), the older
+    /// `<sample>.organisms.report.txt`, and the legacy `multiqc_confidences.txt`.
+    /// Column mapping and scale normalization live in ``TaxTriageOrganismReport``.
+    /// BAM paths and primary accessions are resolved here from `minimap2/` and the
+    /// `combine/<sample>.combined.gcfmap.tsv` files.
+    func parseOrganismReports(
+        at urls: [URL],
+        resultURL: URL
+    ) throws -> (rows: [TaxTriageTaxonomyRow], accessionMap: [TaxTriageAccessionEntry]) {
         let gcfmapDir = resultURL.appendingPathComponent("combine")
         var gcfmapCache: [String: [(accession: String, organism: String)]] = [:]
-
+        var bamCache: [String: (bamPath: String?, bamIndexPath: String?)] = [:]
+        var seenKeys: Set<String> = []
         var rows: [TaxTriageTaxonomyRow] = []
 
-        for lineIndex in 1..<lines.count {
-            let fields = lines[lineIndex]
-                .split(separator: "\t", omittingEmptySubsequences: false)
-                .map { String($0) }
+        for url in urls.sorted(by: { $0.path < $1.path }) {
+            for parsed in try TaxTriageOrganismReport.parse(url: url) {
+                let sample = parsed.sample
+                // taxonomy_rows is UNIQUE(sample, organism). Keep the first occurrence.
+                guard seenKeys.insert("\(sample)\t\(parsed.organism)").inserted else { continue }
 
-            guard fields.count >= header.count else { continue }
+                if gcfmapCache[sample] == nil {
+                    gcfmapCache[sample] = loadGCFMap(
+                        at: gcfmapDir.appendingPathComponent("\(sample).combined.gcfmap.tsv")
+                    )
+                }
+                if bamCache[sample] == nil {
+                    bamCache[sample] = resolveTaxTriageBAMPaths(sample: sample, resultURL: resultURL)
+                }
+                let bam = bamCache[sample] ?? (nil, nil)
+                let primaryAccession = gcfmapCache[sample].flatMap {
+                    findAccession(for: parsed.organism, in: $0)
+                }
 
-            let sample = field(fields, colIndex["specimen id"])
-            let rawOrganism = field(fields, colIndex["detected organism"])
-            guard !sample.isEmpty, !rawOrganism.isEmpty else { continue }
-
-            // Strip leading star and trailing degree symbol from organism name
-            let organism = cleanOrganismName(rawOrganism)
-
-            let taxId = parseInt(fields, colIndex["taxonomic id #"])
-            let status = optionalField(fields, colIndex["status"])
-            let tassScore = parseDouble(fields, colIndex["tass score"]) ?? 0.0
-            let readsAligned = parseInt(fields, colIndex["# reads aligned"]) ?? 0
-            let pctReads = optionalField(fields, colIndex["% reads"])
-            let pctAlignedReads = optionalField(fields, colIndex["% aligned reads"])
-            let coverageBreadth = optionalField(fields, colIndex["coverage"])
-            let meanCoverage = optionalField(fields, colIndex["mean coverage"])
-            let meanDepth = optionalField(fields, colIndex["mean depth"])
-            let confidence = optionalField(fields, colIndex["group"])
-            let k2Reads = parseInt(fields, colIndex["k2 reads"])
-            let parentK2Reads = parseInt(fields, colIndex["parent k2 reads"])
-            let giniCoefficient = parseDouble(fields, colIndex["gini coefficient"])
-            let meanBaseQ = parseDouble(fields, colIndex["mean baseq"])
-            let meanMapQ = parseDouble(fields, colIndex["mean mapq"])
-            let mapqScore = parseDouble(fields, colIndex["mapq score"])
-            let disparityScore = parseDouble(fields, colIndex["disparity score"])
-            let minhashScore = parseDouble(fields, colIndex["minhash score"])
-            let diamondIdentity = parseDouble(fields, colIndex["diamond identity"])
-            let k2DisparityScore = parseDouble(fields, colIndex["k2 disparity score"])
-            let siblingsScore = parseDouble(fields, colIndex["siblings score"])
-            let breadthWeightScore = parseDouble(fields, colIndex["breadth weight score"])
-            let hhsPercentile = parseDouble(fields, colIndex["hhs percentile"])
-            let isAnnotated = parseBoolYesNo(fields, colIndex["isannotated"])
-            let annClass = optionalField(fields, colIndex["annclass"])
-            let microbialCategory = optionalField(fields, colIndex["microbial category"])
-            let highConsequence = parseBoolTrueFalse(fields, colIndex["high consequence"])
-            let isSpecies = parseBoolTrueFalse(fields, colIndex["isspecies"])
-            let pathogenicSubstrains = optionalField(fields, colIndex["pathogenic subsp/strains"])
-            let sampleType = optionalField(fields, colIndex["sample type"])
-
-            // Resolve BAM path
-            let (bamPath, bamIndexPath) = resolveTaxTriageBAMPaths(sample: sample, resultURL: resultURL)
-
-            // Resolve primary accession from gcfmap
-            var primaryAccession: String?
-            if gcfmapCache[sample] == nil {
-                gcfmapCache[sample] = loadGCFMap(
-                    at: gcfmapDir.appendingPathComponent("\(sample).combined.gcfmap.tsv")
-                )
+                rows.append(TaxTriageTaxonomyRow(
+                    sample: parsed.sample,
+                    organism: parsed.organism,
+                    taxId: parsed.taxId,
+                    status: parsed.status,
+                    tassScore: parsed.tassScore,
+                    readsAligned: parsed.readsAligned,
+                    // Filled by the post-parse unique-read update pass once samtools
+                    // dedup counts are available for all rows.
+                    uniqueReads: nil,
+                    pctReads: parsed.pctReads,
+                    pctAlignedReads: parsed.pctAlignedReads,
+                    coverageBreadth: parsed.coverageBreadth,
+                    meanCoverage: parsed.meanCoverage,
+                    meanDepth: parsed.meanDepth,
+                    confidence: parsed.confidence,
+                    k2Reads: parsed.k2Reads,
+                    parentK2Reads: parsed.parentK2Reads,
+                    giniCoefficient: parsed.giniCoefficient,
+                    meanBaseQ: parsed.meanBaseQ,
+                    meanMapQ: parsed.meanMapQ,
+                    mapqScore: parsed.mapqScore,
+                    disparityScore: parsed.disparityScore,
+                    minhashScore: parsed.minhashScore,
+                    diamondIdentity: parsed.diamondIdentity,
+                    k2DisparityScore: parsed.k2DisparityScore,
+                    siblingsScore: parsed.siblingsScore,
+                    breadthWeightScore: parsed.breadthWeightScore,
+                    hhsPercentile: parsed.hhsPercentile,
+                    isAnnotated: parsed.isAnnotated,
+                    annClass: parsed.annClass,
+                    microbialCategory: parsed.microbialCategory,
+                    highConsequence: parsed.highConsequence,
+                    isSpecies: parsed.isSpecies,
+                    pathogenicSubstrains: parsed.pathogenicSubstrains,
+                    sampleType: parsed.sampleType,
+                    bamPath: bam.bamPath,
+                    bamIndexPath: bam.bamIndexPath,
+                    primaryAccession: primaryAccession,
+                    accessionLength: nil
+                ))
             }
-            if let entries = gcfmapCache[sample] {
-                primaryAccession = findAccession(for: organism, in: entries)
-            }
-
-            rows.append(TaxTriageTaxonomyRow(
-                sample: sample,
-                organism: organism,
-                taxId: taxId,
-                status: status,
-                tassScore: tassScore,
-                readsAligned: readsAligned,
-                // Filled by the post-parse unique-read update pass once samtools
-                // dedup counts are available for all rows.
-                uniqueReads: nil,
-                pctReads: Double(pctReads ?? ""),
-                pctAlignedReads: Double(pctAlignedReads ?? ""),
-                coverageBreadth: Double(coverageBreadth ?? ""),
-                meanCoverage: Double(meanCoverage ?? ""),
-                meanDepth: Double(meanDepth ?? ""),
-                confidence: confidence,
-                k2Reads: k2Reads,
-                parentK2Reads: parentK2Reads,
-                giniCoefficient: giniCoefficient,
-                meanBaseQ: meanBaseQ,
-                meanMapQ: meanMapQ,
-                mapqScore: mapqScore,
-                disparityScore: disparityScore,
-                minhashScore: minhashScore,
-                diamondIdentity: diamondIdentity,
-                k2DisparityScore: k2DisparityScore,
-                siblingsScore: siblingsScore,
-                breadthWeightScore: breadthWeightScore,
-                hhsPercentile: hhsPercentile,
-                isAnnotated: isAnnotated,
-                annClass: annClass,
-                microbialCategory: microbialCategory,
-                highConsequence: highConsequence,
-                isSpecies: isSpecies,
-                pathogenicSubstrains: pathogenicSubstrains,
-                sampleType: sampleType,
-                bamPath: bamPath,
-                bamIndexPath: bamIndexPath,
-                primaryAccession: primaryAccession,
-                accessionLength: nil
-            ))
         }
 
         // Build accession map entries from gcfmap cache (raw organism names)
         var accessionEntries: [TaxTriageAccessionEntry] = []
-        for (sampleId, gcfEntries) in gcfmapCache {
+        for (sampleId, gcfEntries) in gcfmapCache.sorted(by: { $0.key < $1.key }) {
             for entry in gcfEntries {
                 accessionEntries.append(TaxTriageAccessionEntry(
                     sample: sampleId,

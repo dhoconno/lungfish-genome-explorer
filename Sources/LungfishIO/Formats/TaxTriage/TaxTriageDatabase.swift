@@ -213,6 +213,25 @@ public final class TaxTriageDatabase: @unchecked Sendable {
     /// The URL of the database file.
     public var databaseURL: URL { url }
 
+    /// Metadata key naming the report(s) the rows were read from, written by
+    /// `lungfish build-db taxtriage` (for example `organism_report` or `top_report`).
+    public static let taxonomySourceMetadataKey = "taxonomy_source"
+    /// Metadata key recording the scale of `tass_score`.
+    public static let tassScaleMetadataKey = "tass_scale"
+    /// `tass_score` is stored on a 0-1 scale, as the viewport expects.
+    public static let currentTASSScale = "0-1"
+
+    /// True when this database was built before organism-report parsing existed
+    /// (no `taxonomy_source` metadata) while the result folder holds a TaxTriage
+    /// organism report. Such databases were filled from the Kraken-only top report
+    /// and show TASS 0 for every row, so they should be rebuilt with
+    /// `lungfish build-db taxtriage <result-dir> --force`.
+    public func isStale(forResultDirectory resultURL: URL) -> Bool {
+        let metadata = (try? fetchMetadata()) ?? [:]
+        guard metadata[Self.taxonomySourceMetadataKey] == nil else { return false }
+        return TaxTriageOrganismReport.containsReportFiles(inResultOrBatchDirectory: resultURL)
+    }
+
     // MARK: - Open Existing (Read-Only)
 
     /// Opens an existing TaxTriage database for reading.

@@ -502,27 +502,20 @@ public enum MetagenomicsImportService {
         let allOutputFiles = scanRegularFilesRecursively(in: resultDirectory)
 
         progress?(0.55, "Detecting report files...")
-        let reportFiles = allOutputFiles.filter {
-            let name = $0.lastPathComponent.lowercased()
-            let ext = $0.pathExtension.lowercased()
-            return name.contains("report") && (ext == "txt" || ext == "tsv")
-        }
-
-        let metricsFiles = allOutputFiles.filter {
-            let name = $0.lastPathComponent.lowercased()
-            let ext = $0.pathExtension.lowercased()
-            return name.contains("tass")
-                || name.contains("metrics")
-                || name.contains("confidence")
-                || (ext == "tsv" && !name.contains("trace") && !name.contains("samplesheet"))
-        }
-
-        let kronaFiles = allOutputFiles.filter {
-            let name = $0.lastPathComponent.lowercased()
-            let ext = $0.pathExtension.lowercased()
-            let path = $0.path.lowercased()
-            return ext == "html" && (name.contains("krona") || path.contains("/krona/"))
-        }
+        // Same classification as a pipeline run: organism reports are
+        // `<sample>.odr.txt` / `<sample>.organisms.report.txt`. Imports of partial
+        // outputs without one keep the older rule (any "report" table) so their
+        // entry count still reflects something.
+        let categorized = TaxTriagePipeline.categorizeOutputFiles(allOutputFiles)
+        let reportFiles = categorized.reportFiles.isEmpty
+            ? allOutputFiles.filter {
+                let name = $0.lastPathComponent.lowercased()
+                let ext = $0.pathExtension.lowercased()
+                return name.contains("report") && (ext == "txt" || ext == "tsv")
+            }
+            : categorized.reportFiles
+        let metricsFiles = categorized.metricsFiles
+        let kronaFiles = categorized.kronaFiles
 
         let reportEntries = reportFiles.first.map(countDataRows(in:)) ?? 0
         let logFile = allOutputFiles.first {
