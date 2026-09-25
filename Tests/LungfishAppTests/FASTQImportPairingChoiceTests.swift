@@ -2,6 +2,7 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 
+import AppKit
 import XCTest
 import LungfishIO
 import LungfishWorkflow
@@ -19,6 +20,7 @@ final class FASTQImportPairingChoiceTests: XCTestCase {
 
     private func makeConfig(
         pairingMode: FASTQIngestionConfig.PairingMode,
+        pairingModeIsUserChoice: Bool = true,
         clumpingTool: ClumpingTool = .auto,
         skipClumpify: Bool = false
     ) -> FASTQImportConfiguration {
@@ -27,6 +29,7 @@ final class FASTQImportPairingChoiceTests: XCTestCase {
             detectedPlatform: .illumina,
             confirmedPlatform: .illumina,
             pairingMode: pairingMode,
+            pairingModeIsUserChoice: pairingModeIsUserChoice,
             qualityBinning: .none,
             skipClumpify: skipClumpify,
             clumpingTool: clumpingTool,
@@ -79,6 +82,67 @@ final class FASTQImportPairingChoiceTests: XCTestCase {
             )
             XCTAssertTrue(preview.contains("--pairing \(expected)"), preview)
         }
+    }
+
+    func testAnUntouchedPairingProposalRunsTheCLIInAutoMode() {
+        // The popup's preselection is a proposal. Left alone, the CLI reads a
+        // lone file's records and records the pairing as detected; only a
+        // pick the user made becomes an explicit (final) choice.
+        let pair = FASTQFilePair(r1: r1, r2: nil)
+        for mode in [FASTQIngestionConfig.PairingMode.singleEnd, .interleaved] {
+            let config = makeConfig(pairingMode: mode, pairingModeIsUserChoice: false)
+            XCTAssertNil(config.cliPairingMode)
+            let args = FASTQIngestionService.cliImportArguments(
+                pair: pair, projectDirectory: project, importConfig: config
+            )
+            XCTAssertFalse(args.contains("--pairing"), "\(mode): \(args)")
+            let sra = DatabaseBrowserViewModel.sraImportCLIArguments(
+                importConfig: config, r1: r1, r2: nil, projectDirectory: project
+            )
+            XCTAssertFalse(sra.contains("--pairing"), "\(mode): \(sra)")
+        }
+        let legacyPreview = FASTQIngestionService.cliImportCommandPreview(
+            sourceURL: r1, projectDirectory: project
+        )
+        XCTAssertFalse(legacyPreview.contains("--pairing"), legacyPreview)
+    }
+
+    @MainActor
+    func testSheetProposesInterleavedForALoneFileWhoseRecordsAlternateMates() throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("pairing-proposal-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let interleaved = dir.appendingPathComponent("MHC-pairs.fastq")
+        try "@f0/1\nACGT\n+\nIIII\n@f0/2\nACGT\n+\nIIII\n@f1/1\nACGT\n+\nIIII\n@f1/2\nACGT\n+\nIIII\n"
+            .write(to: interleaved, atomically: true, encoding: .utf8)
+        let single = dir.appendingPathComponent("single.fastq")
+        try "@a\nACGT\n+\nIIII\n@b\nACGT\n+\nIIII\n".write(to: single, atomically: true, encoding: .utf8)
+
+        XCTAssertEqual(FASTQImportConfigSheet.proposedPairingIndex(for: [FASTQFilePair(r1: interleaved, r2: nil)]), 2)
+        XCTAssertEqual(FASTQImportConfigSheet.proposedPairingIndex(for: [FASTQFilePair(r1: single, r2: nil)]), 0)
+        XCTAssertEqual(
+            FASTQImportConfigSheet.proposedPairingIndex(for: [
+                FASTQFilePair(r1: interleaved, r2: nil), FASTQFilePair(r1: single, r2: nil),
+            ]),
+            0
+        )
+        XCTAssertEqual(FASTQImportConfigSheet.proposedPairingIndex(for: [FASTQFilePair(r1: r1, r2: r2)]), 1)
+
+        var captured: FASTQImportConfiguration?
+        let sheet = FASTQImportConfigSheet(
+            pairs: [FASTQFilePair(r1: interleaved, r2: nil)],
+            detectedPlatform: .illumina,
+            onImport: { captured = $0 }
+        )
+        sheet.loadViewIfNeeded()
+        let pairingPopup = sheet.view.pairingTestDescendants(of: NSPopUpButton.self)
+            .first { popup in (0..<popup.numberOfItems).contains { popup.item(at: $0)?.title == "Interleaved" } }
+        XCTAssertEqual(pairingPopup?.selectedItem?.title, "Interleaved")
+        sheet.view.pairingTestDescendants(of: NSButton.self).first { $0.title == "Import" }?.performClick(nil)
+        XCTAssertEqual(captured?.pairingMode, .interleaved)
+        XCTAssertEqual(captured?.pairingModeIsUserChoice, false)
+        XCTAssertNil(captured?.cliPairingMode)
     }
 
     // MARK: - Splitting detected pairs in the GUI
@@ -140,5 +204,13 @@ final class FASTQImportPairingChoiceTests: XCTestCase {
             r1: r1, r2: r2, projectDirectory: project
         )
         XCTAssertEqual(value(after: "--pairing", in: paired), "paired")
+    }
+}
+
+private extension NSView {
+    func pairingTestDescendants<T: NSView>(of type: T.Type) -> [T] {
+        subviews.flatMap { subview -> [T] in
+            ((subview as? T).map { [$0] } ?? []) + subview.pairingTestDescendants(of: type)
+        }
     }
 }

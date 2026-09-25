@@ -425,6 +425,45 @@ public enum FASTQBatchImporter {
         return pairs.sorted { $0.sampleName < $1.sampleName }
     }
 
+    /// The pairing an import records for one sample, and where it came from.
+    public struct RecordedPairing: Sendable, Equatable {
+        public let mode: IngestionMetadata.PairingMode
+        public let source: IngestionMetadata.PairingSource
+    }
+
+    /// Decides the pairing an import records in `ingestion.pairingMode`.
+    ///
+    /// - An R1/R2 pair is stored interleaved: `explicit` under `--pairing
+    ///   paired`, `detected` (from the file names) under `auto`.
+    /// - `--pairing single` and `--pairing interleaved` are explicit choices.
+    /// - `auto` (or `paired`) on a single file reads its records: a strictly
+    ///   interleaved file records `interleaved`, anything else `single_end`,
+    ///   both `detected`. A mixed file (merged reads between pairs) records
+    ///   `single_end` so no tool pairs it by position; consumers still scan it
+    ///   because a detected `single_end` is not final
+    ///   (``FASTQPairingMetadataHints/recordsExplicitSingleEnd``).
+    public static func recordedPairing(
+        pairing: ImportPairing,
+        r1: URL,
+        hasR2: Bool
+    ) -> RecordedPairing {
+        if hasR2 {
+            return RecordedPairing(mode: .interleaved, source: pairing == .paired ? .explicit : .detected)
+        }
+        switch pairing {
+        case .single:
+            return RecordedPairing(mode: .singleEnd, source: .explicit)
+        case .interleaved:
+            return RecordedPairing(mode: .interleaved, source: .explicit)
+        case .auto, .paired:
+            let layout = FASTQReadLayoutClassifier.classify(inputURL: r1).layout
+            return RecordedPairing(
+                mode: layout == .strictlyInterleaved ? .interleaved : .singleEnd,
+                source: .detected
+            )
+        }
+    }
+
     /// Applies a pairing choice to detected samples.
     ///
     /// `single` and `interleaved` split every R1/R2 pair into two single-file
@@ -887,6 +926,15 @@ public enum FASTQBatchImporter {
             )
             let processingPair = materialization.processingPair
             try validateRecipeApplicability(pair: processingPair, config: config)
+            // Decided on the reads as imported, before any recipe or storage
+            // step: clumpify must keep the mates of an interleaved file
+            // adjacent, and the sidecar records what the user chose or what
+            // the records showed.
+            let recordedPairing = Self.recordedPairing(
+                pairing: config.pairing,
+                r1: processingPair.r1,
+                hasR2: processingPair.r2 != nil
+            )
 
             // Step 1: Apply recipe if provided (BEFORE clumpify — recipe changes the
             // read population, so k-mer grouping must be computed on the final reads)
@@ -995,11 +1043,12 @@ public enum FASTQBatchImporter {
                     clumpifyInput = try stageRawInputsForIngestion(rawInputs, in: workspace)
                     deleteIngestionInputsAfterRun = true
                 }
-                // A single file is interleaved only when the user said so; the
-                // pipeline then keeps it whole and the metadata records pairs.
+                // A single file is interleaved when the user said so or, under
+                // auto, when its records alternate mates; the pipeline then
+                // keeps pairs together and the metadata records them.
                 clumpifyPairingMode = processingPair.r2 != nil
                     ? .pairedEnd
-                    : (config.pairing == .interleaved ? .interleaved : .singleEnd)
+                    : (recordedPairing.mode == .interleaved ? .interleaved : .singleEnd)
             }
 
             let ingestionConfig = FASTQIngestionConfig(
@@ -1090,13 +1139,11 @@ public enum FASTQBatchImporter {
             )
 
             // Write ingestion metadata sidecar
-            let pairingMeta: IngestionMetadata.PairingMode = (processingPair.r2 != nil || config.pairing == .interleaved)
-                ? .interleaved
-                : .singleEnd
             let ingestion = IngestionMetadata(
                 isClumpified: ingestionResult.wasClumpified,
                 isCompressed: true,
-                pairingMode: pairingMeta,
+                pairingMode: recordedPairing.mode,
+                pairingSource: recordedPairing.source,
                 qualityBinning: ingestionResult.qualityBinning.rawValue,
                 originalFilenames: originalInputURLs.map(\.lastPathComponent),
                 ingestionDate: Date(),

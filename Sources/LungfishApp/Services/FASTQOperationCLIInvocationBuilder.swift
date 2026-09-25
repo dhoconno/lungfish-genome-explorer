@@ -50,12 +50,18 @@ struct FASTQOperationCLIInvocationBuilder: Sendable {
     /// `metadataURL` as hints): a VSP2 bundle records `interleaved` while
     /// holding merged reads, and only a strictly interleaved file may ask
     /// the CLI to pair by position. Mixed input is passed as `single`.
+    ///
+    /// A recorded `single_end` is verified the same way: only a single-end
+    /// pairing the user chose at import settles it without reading the file
+    /// (the resolver honours `ingestion.pairingSource == explicit`); a
+    /// defaulted or pre-2026-09-25 `single_end` over a strictly interleaved
+    /// file is passed as `interleaved`, never as a final `single`.
     static func pairingArguments(
         for pairingMode: IngestionMetadata.PairingMode?,
         verifiedAgainst inputURL: URL?,
         metadataFrom metadataURL: URL?
     ) -> [String] {
-        guard pairingMode == .interleaved, let inputURL else {
+        guard pairingMode == .interleaved || pairingMode == .singleEnd, let inputURL else {
             return pairingArguments(for: pairingMode)
         }
         let layout = FASTQInputLayoutResolver.resolve(fastqURL: inputURL, metadataFrom: metadataURL).layout

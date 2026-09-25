@@ -1273,14 +1273,17 @@ public struct GenotypeReviewableRowCatalogPublisher: Sendable {
         return "\(rank)|\(locus)|\(displayName)|\(stableID ?? "")"
     }
 
+    /// Compares physical paths: `standardizedFileURL` shortens an existing
+    /// `/private/tmp/...` bundle to `/tmp/...` but leaves a not-yet-written
+    /// output inside it at `/private/tmp/...`, which read as "outside".
     private func relativePath(from directoryURL: URL, to fileURL: URL) throws -> String {
-        let directory = directoryURL.standardizedFileURL.path
-        let file = fileURL.standardizedFileURL.path
-        let prefix = directory.hasSuffix("/") ? directory : directory + "/"
-        guard file.hasPrefix(prefix) else {
-            throw GenotypeReviewableRowCatalogPublisherError.outputOutsideBundle(file)
+        guard let relative = PhysicalPathContainment.relativePath(
+            of: fileURL,
+            within: directoryURL
+        ) else {
+            throw GenotypeReviewableRowCatalogPublisherError.outputOutsideBundle(fileURL.standardizedFileURL.path)
         }
-        return String(file.dropFirst(prefix.count))
+        return relative
     }
 
     private func publishCatalogData(

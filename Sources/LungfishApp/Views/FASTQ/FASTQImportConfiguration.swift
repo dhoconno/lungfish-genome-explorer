@@ -15,8 +15,14 @@ public struct FASTQImportConfiguration: Sendable {
     public let detectedPlatform: LungfishIO.SequencingPlatform
     /// Platform confirmed or overridden by the user.
     public let confirmedPlatform: LungfishIO.SequencingPlatform
-    /// Pairing mode selected by the user.
+    /// Pairing mode shown in the sheet's Pairing popup.
     public let pairingMode: FASTQIngestionConfig.PairingMode
+    /// Whether the user picked ``pairingMode``. `false` when the popup still
+    /// shows the sheet's proposal: the import then runs with `--pairing auto`,
+    /// which reads a lone file's records, and the bundle records the pairing
+    /// as detected rather than chosen. Only a chosen `single_end` stops later
+    /// tools from reading the records (`FASTQInputLayoutResolver`).
+    public let pairingModeIsUserChoice: Bool
     /// Quality score binning scheme.
     public let qualityBinning: QualityBinningScheme
     /// Whether to skip clumpify (k-mer sorting). Useful for low-memory machines.
@@ -42,6 +48,7 @@ public struct FASTQImportConfiguration: Sendable {
         detectedPlatform: LungfishIO.SequencingPlatform,
         confirmedPlatform: LungfishIO.SequencingPlatform,
         pairingMode: FASTQIngestionConfig.PairingMode,
+        pairingModeIsUserChoice: Bool = true,
         qualityBinning: QualityBinningScheme,
         skipClumpify: Bool,
         clumpingTool: ClumpingTool = .default,
@@ -56,6 +63,7 @@ public struct FASTQImportConfiguration: Sendable {
         self.detectedPlatform = detectedPlatform
         self.confirmedPlatform = confirmedPlatform
         self.pairingMode = pairingMode
+        self.pairingModeIsUserChoice = pairingModeIsUserChoice
         self.qualityBinning = qualityBinning
         self.skipClumpify = skipClumpify
         self.clumpingTool = skipClumpify ? .none : clumpingTool
@@ -65,6 +73,12 @@ public struct FASTQImportConfiguration: Sendable {
         self.recipeName = recipeName
         self.compressionLevel = compressionLevel
         self.demultiplexOutputFolderName = demultiplexOutputFolderName
+    }
+
+    /// The `--pairing` the CLI import receives: the chosen mode, or `nil`
+    /// (the CLI's `auto`) while the popup still shows the sheet's proposal.
+    public var cliPairingMode: FASTQIngestionConfig.PairingMode? {
+        pairingModeIsUserChoice ? pairingMode : nil
     }
 }
 

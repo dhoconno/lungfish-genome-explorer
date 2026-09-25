@@ -409,13 +409,15 @@ public enum FASTQIngestionService {
         operationID opID: UUID,
         completion: @escaping @MainActor (Result<URL, Error>) -> Void
     ) async {
-        // Legacy entry point — wrap in a single-file pair with defaults
+        // Legacy entry point — wrap in a single-file pair with defaults.
+        // Nobody chose the pairing, so the CLI detects it from the records.
         let pair = FASTQFilePair(r1: sourceURL, r2: nil)
         let importConfig = FASTQImportConfiguration(
             inputFiles: [sourceURL],
             detectedPlatform: .unknown,
             confirmedPlatform: .unknown,
             pairingMode: .singleEnd,
+            pairingModeIsUserChoice: false,
             qualityBinning: .illumina4,
             skipClumpify: false,
             deleteOriginals: false,
@@ -593,7 +595,8 @@ public enum FASTQIngestionService {
             projectDirectory: projectDirectory,
             importConfig: defaultCLIImportConfiguration(
                 pair: pair,
-                pairingMode: .singleEnd
+                pairingMode: .singleEnd,
+                pairingModeIsUserChoice: false
             )
         )
     }
@@ -631,7 +634,7 @@ public enum FASTQIngestionService {
             qualityBinning: importConfig.qualityBinning.rawValue,
             optimizeStorage: !importConfig.skipClumpify,
             clumpingTool: importConfig.clumpingTool,
-            pairingMode: importConfig.pairingMode,
+            pairingMode: importConfig.cliPairingMode,
             compressionLevel: importConfig.compressionLevel?.rawValue ?? "balanced",
             bundleName: bundleName,
             force: force
@@ -640,13 +643,15 @@ public enum FASTQIngestionService {
 
     nonisolated private static func defaultCLIImportConfiguration(
         pair: FASTQFilePair,
-        pairingMode: FASTQIngestionConfig.PairingMode
+        pairingMode: FASTQIngestionConfig.PairingMode,
+        pairingModeIsUserChoice: Bool = true
     ) -> FASTQImportConfiguration {
         FASTQImportConfiguration(
             inputFiles: [pair.r1] + (pair.r2.map { [$0] } ?? []),
             detectedPlatform: .illumina,
             confirmedPlatform: .illumina,
             pairingMode: pairingMode,
+            pairingModeIsUserChoice: pairingModeIsUserChoice,
             qualityBinning: .illumina4,
             skipClumpify: false,
             deleteOriginals: false,

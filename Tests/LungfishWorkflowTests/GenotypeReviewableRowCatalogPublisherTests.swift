@@ -433,6 +433,28 @@ final class GenotypeReviewableRowCatalogPublisherTests: XCTestCase {
         )
     }
 
+    func testPublishesIntoABundleNamedThroughThePrivateSymlinkTarget() throws {
+        // `--output-dir /private/tmp/...`: the existing bundle standardizes to
+        // `/tmp/...` while the not-yet-written catalog keeps `/private/tmp/...`,
+        // which used to read as "outside the result bundle".
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let physical = PhysicalPathContainment.physicalPath(of: fixture.outputDirectory)
+        let bundle = URL(fileURLWithPath: physical, isDirectory: true)
+        guard bundle.standardizedFileURL.path != physical else {
+            throw XCTSkip("The temporary directory is not reached through a /private symlink here.")
+        }
+        let inputs = fixture.inputs(
+            references: [makeReference("ref-a", "Mafa-A1*001:01", "MHC-A")],
+            calls: [makeCall("MHC-A", "Mafa-A1*001:01", [("S1", 7)])]
+        )
+
+        let publication = try fixture.publisher.publish(inputs, to: bundle)
+
+        XCTAssertEqual(publication.artifact.path, "artifacts/projections/genotype-reviewable-rows.json")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: publication.outputURL.path))
+    }
+
     func testPublishesLegacyIPDMHCReferenceIDsWithExactCallJoins() throws {
         let fixture = try Fixture()
         defer { fixture.remove() }

@@ -38,6 +38,32 @@ final class AmpliconGenotypeScientificArtifactPublisherTests: XCTestCase {
         )
     }
 
+    func testPublishesIntoAnOutputDirectoryNamedThroughThePrivateSymlinkTarget() throws {
+        let fixture = try Fixture(
+            csv: "sample,genotype,passed_alignments,passed_unique_reads\nSampleA,E_02_nov_17,5,5\n",
+            fasta: """
+            >E_02_nov_17
+            ACGT
+            """
+        )
+        defer { fixture.remove() }
+        let physical = PhysicalPathContainment.physicalPath(of: fixture.outputDirectory)
+        let outputDirectory = URL(fileURLWithPath: physical, isDirectory: true)
+        guard outputDirectory.standardizedFileURL.path != physical else {
+            throw XCTSkip("The temporary directory is not reached through a /private symlink here.")
+        }
+
+        let publication = try AmpliconGenotypeScientificArtifactPublisher().publish(
+            reportCSVURL: fixture.csvURL,
+            referenceFASTAURL: fixture.fastaURL,
+            retainedBAMURL: fixture.bamURL,
+            retainedBAIURL: fixture.baiURL,
+            outputDirectoryURL: outputDirectory
+        )
+
+        XCTAssertNotNil(publication.provisionalExon2Document)
+    }
+
     func testRejectsDuplicateCSVHeadersWithTypedError() throws {
         let fixture = try Fixture(
             csv: """

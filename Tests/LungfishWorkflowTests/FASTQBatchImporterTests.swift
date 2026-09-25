@@ -778,6 +778,101 @@ final class FASTQBatchImporterTests: XCTestCase {
         )
     }
 
+    // MARK: - Recorded pairing (auto detection on a lone file)
+
+    private func writeInterleavedFixture(to url: URL, pairs: Int) throws {
+        var text = ""
+        for index in 0..<pairs {
+            text += "@frag\(index)/1\nACGTACGT\n+\nIIIIIIII\n"
+            text += "@frag\(index)/2\nTTGCATGC\n+\nIIIIIIII\n"
+        }
+        try text.write(to: url, atomically: true, encoding: .utf8)
+    }
+
+    func testRecordedPairingDetectsAStrictlyInterleavedLoneFileUnderAuto() throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("FASTQBatchImporterTests-recorded-pairing-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let interleaved = dir.appendingPathComponent("pairs.fastq")
+        try writeInterleavedFixture(to: interleaved, pairs: 5)
+        let single = dir.appendingPathComponent("single.fastq")
+        try "@a\nACGT\n+\nIIII\n@b\nACGT\n+\nIIII\n".write(to: single, atomically: true, encoding: .utf8)
+
+        typealias Recorded = FASTQBatchImporter.RecordedPairing
+        XCTAssertEqual(
+            FASTQBatchImporter.recordedPairing(pairing: .auto, r1: interleaved, hasR2: false),
+            Recorded(mode: .interleaved, source: .detected)
+        )
+        XCTAssertEqual(
+            FASTQBatchImporter.recordedPairing(pairing: .paired, r1: interleaved, hasR2: false),
+            Recorded(mode: .interleaved, source: .detected)
+        )
+        XCTAssertEqual(
+            FASTQBatchImporter.recordedPairing(pairing: .auto, r1: single, hasR2: false),
+            Recorded(mode: .singleEnd, source: .detected)
+        )
+        XCTAssertEqual(
+            FASTQBatchImporter.recordedPairing(pairing: .single, r1: interleaved, hasR2: false),
+            Recorded(mode: .singleEnd, source: .explicit)
+        )
+        XCTAssertEqual(
+            FASTQBatchImporter.recordedPairing(pairing: .interleaved, r1: single, hasR2: false),
+            Recorded(mode: .interleaved, source: .explicit)
+        )
+        XCTAssertEqual(
+            FASTQBatchImporter.recordedPairing(pairing: .auto, r1: single, hasR2: true),
+            Recorded(mode: .interleaved, source: .detected)
+        )
+        XCTAssertEqual(
+            FASTQBatchImporter.recordedPairing(pairing: .paired, r1: single, hasR2: true),
+            Recorded(mode: .interleaved, source: .explicit)
+        )
+    }
+
+    func testRunBatchImportRecordsTheDetectedOrChosenPairingOfALoneInterleavedFile() async throws {
+        let tmpDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("FASTQBatchImporterTests-auto-interleaved-\(UUID().uuidString)")
+        let sourceDir = tmpDir.appendingPathComponent("source", isDirectory: true)
+        try FileManager.default.createDirectory(at: sourceDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+        let source = sourceDir.appendingPathComponent("MHC-pairs.fastq")
+        try writeInterleavedFixture(to: source, pairs: 6)
+
+        for (pairing, expectedMode, expectedSource, expectedLayout) in [
+            (FASTQBatchImporter.ImportPairing.auto, IngestionMetadata.PairingMode.interleaved,
+             IngestionMetadata.PairingSource.detected, FASTQInputLayout.strictlyInterleaved),
+            (.single, .singleEnd, .explicit, .singleEnd),
+        ] {
+            let projectURL = tmpDir.appendingPathComponent("\(pairing.rawValue).lungfish", isDirectory: true)
+            try FileManager.default.createDirectory(at: projectURL, withIntermediateDirectories: true)
+            let config = FASTQBatchImporter.ImportConfig(
+                projectDirectory: projectURL,
+                recipe: nil,
+                qualityBinning: QualityBinningScheme.none,
+                optimizeStorage: false,
+                threads: 1,
+                pairing: pairing
+            )
+            let pair = SamplePair(sampleName: "MHC-pairs", r1: source, r2: nil)
+            let result = await FASTQBatchImporter.runBatchImport(pairs: [pair], config: config, log: nil)
+            XCTAssertEqual(result.completed, 1, "\(pairing): \(result.errors)")
+
+            let bundleURL = projectURL
+                .appendingPathComponent("Imports", isDirectory: true)
+                .appendingPathComponent("MHC-pairs.lungfishfastq", isDirectory: true)
+            let bundleFASTQ = bundleURL.appendingPathComponent("MHC-pairs.fastq.gz")
+            let ingestion = try XCTUnwrap(FASTQMetadataStore.load(for: bundleFASTQ)?.ingestion)
+            XCTAssertEqual(ingestion.pairingMode, expectedMode, "\(pairing)")
+            XCTAssertEqual(ingestion.pairingSource, expectedSource, "\(pairing)")
+            XCTAssertEqual(
+                FASTQInputLayoutResolver.resolve(inputURLs: [bundleURL]).layout,
+                expectedLayout,
+                "\(pairing)"
+            )
+        }
+    }
+
     func testRunBatchImportFailsPairedOnlyRecipeBeforeStartingStepsForSingleEndSample() async throws {
         let tmpDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("FASTQBatchImporterTests-pairing-preflight-\(UUID().uuidString)")

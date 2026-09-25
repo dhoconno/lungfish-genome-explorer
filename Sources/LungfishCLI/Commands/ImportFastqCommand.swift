@@ -113,9 +113,12 @@ extension ImportCommand {
             help: ArgumentHelp(
                 "Read pairing: auto, single, paired, interleaved (default: auto)",
                 discussion: """
-                auto and paired match R1/R2 files by name. single imports every file as \
-                its own single-end sample, even when a mate is detected. interleaved \
-                imports every file on its own and records it as interleaved mates.
+                auto and paired match R1/R2 files by name. For a file with no mate \
+                file, they read its records and record interleaved mates when every \
+                record is followed by its mate, otherwise single-end. single imports \
+                every file as its own single-end sample, even when a mate is detected. \
+                interleaved imports every file on its own and records it as interleaved \
+                mates.
                 """
             )
         )

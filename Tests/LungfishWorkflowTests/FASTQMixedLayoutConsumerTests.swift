@@ -177,6 +177,45 @@ final class FASTQMixedLayoutConsumerTests: XCTestCase {
         XCTAssertEqual(outcome.mappingReadCount, 6)
     }
 
+    /// SIMULATED-MHC-A-pairs regression: a bundle imported with no pairing
+    /// choice recorded `single_end` over records that alternate /1 /2 mates.
+    /// The merger must still see pairs and run bbmerge, or genotyping maps
+    /// unmerged 244 bp mates and reports zero reads.
+    func testMergerMergesTheSimulatedMHCPairsBehindALegacySingleEndRecord() async throws {
+        let fixture = CLITestBinaryResolver.repositoryRoot(containing: #filePath)
+            .appendingPathComponent("docs/user-manual/fixtures/mhc-simulated/SIMULATED-MHC-A-pairs.fastq")
+        guard FileManager.default.fileExists(atPath: fixture.path) else {
+            throw XCTSkip("mhc-simulated fixture not present: \(fixture.path)")
+        }
+        let bundle = root.appendingPathComponent("SIMULATED-MHC-A-pairs.lungfishfastq", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundle, withIntermediateDirectories: true)
+        let fastq = bundle.appendingPathComponent("SIMULATED-MHC-A-pairs.fastq")
+        try FileManager.default.copyItem(at: fixture, to: fastq)
+        FASTQMetadataStore.save(
+            PersistedFASTQMetadata(ingestion: IngestionMetadata(
+                pairingMode: .singleEnd,
+                originalFilenames: ["SIMULATED-MHC-A-pairs.fastq"]
+            )),
+            for: fastq
+        )
+        XCTAssertEqual(FASTQInputLayoutResolver.resolve(inputURLs: [fastq]).layout, .strictlyInterleaved)
+
+        let bbmergeURL = try await ToolAvailability.require("bbmerge.sh", environment: "bbtools")
+        let outcome = try await IlluminaAmpliconPairMerger.prepareForMapping(
+            fastqURL: fastq,
+            bbmergeURL: bbmergeURL,
+            workingDirectory: root.appendingPathComponent("merge", isDirectory: true),
+            stem: "SIMULATED-MHC-A-pairs",
+            threads: 2
+        )
+        XCTAssertEqual(outcome.disposition, .merged)
+        XCTAssertEqual(outcome.pairCount, 204)
+        // simulation-truth.json: sample A holds 120 G, 80 DRB, and 4 DPA1
+        // fragments, every one of which overlaps and merges.
+        XCTAssertEqual(outcome.mergedCount, 204)
+        XCTAssertEqual(outcome.mappingReadCount, 204)
+    }
+
     func testMergerMergesOnlyTheStrictPairsOfAMixedFileAndKeepsMergedReads() async throws {
         let bbmergeURL = try await ToolAvailability.require("bbmerge.sh", environment: "bbtools")
         // Overlapping mates: mate 2 is the reverse complement of the tail of

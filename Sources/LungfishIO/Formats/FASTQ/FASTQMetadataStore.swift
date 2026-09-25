@@ -403,6 +403,23 @@ public struct IngestionMetadata: Codable, Sendable {
         case interleaved = "interleaved"
     }
 
+    /// Where the recorded ``pairingMode`` came from.
+    ///
+    /// Only an ``explicit`` single-end pairing lets a consumer skip reading the
+    /// records (``FASTQInputLayoutResolver``). A ``detected`` or ``defaulted``
+    /// value, or metadata written before this field existed (`nil`), is a hint
+    /// and the records are scanned: bundles imported with no pairing choice
+    /// recorded `single_end` even when the file alternated mates.
+    public enum PairingSource: String, Codable, Sendable {
+        /// The user chose the pairing (`--pairing single|paired|interleaved`,
+        /// or a Pairing popup item the user picked in the Import sheet).
+        case explicit
+        /// The importer read the records (or R1/R2 file names) and decided.
+        case detected
+        /// A fallback no one chose and nothing verified.
+        case defaulted = "default"
+    }
+
     /// Whether the file has been clumpified (k-mer sorted for compression).
     public var isClumpified: Bool
 
@@ -411,6 +428,10 @@ public struct IngestionMetadata: Codable, Sendable {
 
     /// Pairing mode (single-end, paired-end, or interleaved).
     public var pairingMode: PairingMode
+
+    /// Where ``pairingMode`` came from. `nil` for metadata written before
+    /// 2026-09-25, which is treated like ``PairingSource/defaulted``.
+    public var pairingSource: PairingSource?
 
     /// Quality binning scheme applied (e.g. "illumina4", "eightLevel", "none").
     /// Nil for files ingested before quality binning was added.
@@ -438,6 +459,7 @@ public struct IngestionMetadata: Codable, Sendable {
         isClumpified: Bool = false,
         isCompressed: Bool = false,
         pairingMode: PairingMode = .singleEnd,
+        pairingSource: PairingSource? = nil,
         qualityBinning: String? = nil,
         originalFilenames: [String] = [],
         ingestionDate: Date? = nil,
@@ -449,6 +471,7 @@ public struct IngestionMetadata: Codable, Sendable {
         self.isClumpified = isClumpified
         self.isCompressed = isCompressed
         self.pairingMode = pairingMode
+        self.pairingSource = pairingSource
         self.qualityBinning = qualityBinning
         self.originalFilenames = originalFilenames
         self.ingestionDate = ingestionDate

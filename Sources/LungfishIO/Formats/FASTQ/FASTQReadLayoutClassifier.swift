@@ -26,6 +26,10 @@ public enum FASTQReadLayout: String, Codable, Sendable, Equatable {
 public struct FASTQPairingMetadataHints: Codable, Sendable, Equatable {
     /// The recorded pairing mode, if any.
     public var pairingMode: IngestionMetadata.PairingMode?
+    /// Where the recorded pairing mode came from, when the metadata says.
+    /// `nil` for metadata that predates `IngestionMetadata.pairingSource`
+    /// and for a derived manifest, whose pairing is inherited, not chosen.
+    public var pairingSource: IngestionMetadata.PairingSource?
     /// Whether metadata records merged reads or orphans inside this dataset
     /// (a read classification with merged or unpaired reads, a paired-end
     /// merge in the derivative lineage, or a merge step in the applied recipe).
@@ -35,10 +39,12 @@ public struct FASTQPairingMetadataHints: Codable, Sendable, Equatable {
 
     public init(
         pairingMode: IngestionMetadata.PairingMode? = nil,
+        pairingSource: IngestionMetadata.PairingSource? = nil,
         hasMergedOrUnpairedReads: Bool = false,
         mergeEvidence: String? = nil
     ) {
         self.pairingMode = pairingMode
+        self.pairingSource = pairingSource
         self.hasMergedOrUnpairedReads = hasMergedOrUnpairedReads
         self.mergeEvidence = mergeEvidence
     }
@@ -46,6 +52,17 @@ public struct FASTQPairingMetadataHints: Codable, Sendable, Equatable {
     /// Whether metadata says the file carries mates of paired-end fragments.
     public var claimsPairedContent: Bool {
         pairingMode == .interleaved || pairingMode == .pairedEnd
+    }
+
+    /// Whether a user explicitly declared the reads single-end.
+    ///
+    /// This is the only recorded pairing that settles a layout without reading
+    /// the records. A `single_end` that an importer fell back to (or that
+    /// predates `pairingSource`) is not: such bundles exist whose file
+    /// alternates `/1` `/2` mates (imports with no pairing choice before
+    /// 2026-09-25).
+    public var recordsExplicitSingleEnd: Bool {
+        pairingMode == .singleEnd && pairingSource == .explicit
     }
 }
 
@@ -292,6 +309,12 @@ public enum FASTQReadLayoutClassifier {
            let sidecar = FASTQMetadataStore.load(for: fastqURL) {
             if hints.pairingMode == nil {
                 hints.pairingMode = sidecar.ingestion?.pairingMode
+            }
+            // The source travels with the mode it describes: a derived
+            // manifest that records a different pairing does not inherit the
+            // sidecar's explicitness.
+            if let ingestion = sidecar.ingestion, ingestion.pairingMode == hints.pairingMode {
+                hints.pairingSource = ingestion.pairingSource
             }
             if let classification = sidecar.readClassification,
                classification.mergedReadCount > 0 || classification.unpairedReadCount > 0 {
