@@ -101,11 +101,16 @@ final class ScientificCLIProvenanceCoverageTests: XCTestCase {
     }
 
     func testScientificTopLevelCommandsHavePolicyEntries() {
+        // Commands that only maintain the installation or managed storage. `storage`
+        // inspects the channel roots and replaces byte-identical duplicates with
+        // verified APFS clones, so like `provision-tools` and `conda` it never creates
+        // or modifies scientific data and records no provenance envelope.
         let nonScientificTopLevelCommands: Set<String> = [
             "version",
             "provision-tools",
             "conda",
-            "debug"
+            "debug",
+            "storage"
         ]
         let topLevelCommands = Set(LungfishCLI.configuration.subcommands.compactMap { $0.configuration.commandName })
         let commandsExpectedToHavePolicy = topLevelCommands.subtracting(nonScientificTopLevelCommands)

@@ -13,8 +13,14 @@ final class ToolsMenuStructureTests: XCTestCase {
         XCTAssertEqual(item.identifier?.rawValue, "tools-pcr-primer-design")
         XCTAssertNotEqual(item.action, #selector(ToolsMenuActions.showPCRPrimerDesign(_:)))
         let submenu = try XCTUnwrap(item.submenu)
-        XCTAssertEqual(submenu.items.map(\.title), ["Primer3…", "PrimalScheme…"])
-        XCTAssertEqual(submenu.items.compactMap { $0.representedObject as? PrimerDesignEngine }, [.primer3, .primalScheme])
+        // One entry per engine, in declaration order, each carrying its engine so the
+        // action opens the dialog on that engine directly.
+        XCTAssertEqual(submenu.items.map(\.title), PrimerDesignEngine.allCases.map { "\($0.rawValue)…" })
+        XCTAssertEqual(submenu.items.map(\.title), ["Primer3…", "PrimalScheme…", "Olivar…", "varVAMP…"])
+        XCTAssertEqual(
+            submenu.items.compactMap { $0.representedObject as? PrimerDesignEngine },
+            [.primer3, .primalScheme, .olivar, .varVAMP]
+        )
         XCTAssertTrue(submenu.items.allSatisfy { $0.action == #selector(ToolsMenuActions.showPCRPrimerDesign(_:)) })
     }
 

@@ -952,7 +952,16 @@ final class OperationRoutingTests: XCTestCase {
         // F2: pairedEnd must be recomputed from the resolved file list,
         // never taken from the pre-resolve request as-is.
         XCTAssertTrue(single.contains("Self.resolvedPairedEnd(for: resolvedFiles)"))
-        XCTAssertTrue(single.contains("request.withInputFASTQURLs(resolvedFiles, pairedEnd: resolvedPairedEnd)"))
+        // The request the pipeline runs is rebuilt from the resolved files and the
+        // recomputed pairedEnd, then carries the resolved read layout so the manifest
+        // and provenance record how the mates were actually handled.
+        let resolvedRequest = try XCTUnwrap(single.range(of: "let resolvedRequest = request\n"))
+        let rebuilt = try XCTUnwrap(single.range(of: ".withInputFASTQURLs(resolvedFiles, pairedEnd: resolvedPairedEnd)"))
+        let withLayout = try XCTUnwrap(single.range(of: ".withInputLayout(layoutResolution.layout)"))
+        XCTAssertLessThan(resolvedRequest.lowerBound, rebuilt.lowerBound)
+        XCTAssertLessThan(rebuilt.lowerBound, withLayout.lowerBound)
+        XCTAssertTrue(single.contains("FASTQInputLayoutResolver.resolve(inputURLs: resolvedFiles, pairedFiles: resolvedPairedEnd)"))
+        XCTAssertTrue(single.contains("pipeline.run(\n                request: resolvedRequest,"))
     }
 
     /// Regression test for a round-2 fix: the F2 pairedEnd-resolution change

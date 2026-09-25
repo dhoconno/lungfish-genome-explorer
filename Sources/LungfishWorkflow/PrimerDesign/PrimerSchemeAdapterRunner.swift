@@ -442,11 +442,12 @@ public enum PrimerSchemeAdapterResultLoader {
             throw PrimerSchemeDesignError.contractViolation(
                 "Adapter native events, invocations, or auxiliary-input inventory are invalid.")
         }
+        let expectedPackage = try expectedCondaPackage(for: command.request.engine)
         guard !provenance.runtime.sourceVerification.isEmpty,
               provenance.runtime.pythonExecutable == command.executableURL.path,
               provenance.runtime.environmentPrefix == command.executableURL
                 .deletingLastPathComponent().deletingLastPathComponent().path,
-              provenance.runtime.distribution == expectedDistribution(for: command.request.engine) else {
+              provenance.runtime.distribution == expectedPackage.distribution else {
             throw PrimerSchemeDesignError.contractViolation("Adapter provenance lacks upstream source verification.")
         }
         for source in provenance.runtime.sourceVerification {
@@ -465,7 +466,7 @@ public enum PrimerSchemeAdapterResultLoader {
               try ProvenanceFileHasher.fileSize(of: recordURL) == record.byteSize,
               record.name == command.request.engine.rawValue,
               record.version == command.request.engineVersion,
-              record.build == expectedBuild(for: command.request.engine),
+              record.build == expectedPackage.build,
               record.channel == "bioconda", record.subdir == "noarch",
               URL(string: record.url)?.scheme == "https" else {
             throw PrimerSchemeDesignError.contractViolation("Pinned conda package evidence is invalid.")
@@ -501,15 +502,22 @@ public enum PrimerSchemeAdapterResultLoader {
     }
 }
 
-private func expectedDistribution(for engine: PrimerSchemeEngine) -> String {
-    switch engine {
-    case .olivar: return "bioconda::olivar=1.3.3=pyhdfd78af_3"
-    case .varvamp: return "bioconda::varvamp=1.3.2=pyhdfd78af_0"
+/// The conda package the adapter must have run under, read from the dependency
+/// manifest's `pcr-primer-design` pack so the pin lives in exactly one place. The
+/// manifest's `packageSpec` is `channel::name=version=build`; the build string is
+/// its last component.
+private func expectedCondaPackage(for engine: PrimerSchemeEngine) throws -> (distribution: String, build: String) {
+    let manifest = try DependencyManifest.loadFromBundle()
+    guard let spec = manifest.packTool(packID: "pcr-primer-design", id: engine.rawValue)?.packageSpec else {
+        throw PrimerSchemeDesignError.contractViolation(
+            "Dependency manifest has no pcr-primer-design package spec for \(engine.rawValue).")
     }
-}
-
-private func expectedBuild(for engine: PrimerSchemeEngine) -> String {
-    engine == .olivar ? "pyhdfd78af_3" : "pyhdfd78af_0"
+    let components = spec.split(separator: "=", omittingEmptySubsequences: false)
+    guard components.count == 3, let build = components.last, !build.isEmpty else {
+        throw PrimerSchemeDesignError.contractViolation(
+            "Managed-tool package spec for \(engine.rawValue) is not channel::name=version=build: \(spec)")
+    }
+    return (distribution: spec, build: String(build))
 }
 
 private extension Array where Element == String {
