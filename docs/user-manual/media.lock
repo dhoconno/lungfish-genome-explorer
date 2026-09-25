@@ -1,10 +1,10 @@
 {
   "repo": "https://github.com/dhoconno/lungfish-manual-media",
-  "tag": "manual-v2026.9.43",
-  "commit": "fc69806c9edc5d594060c2509e5b09c1ef97fe8c",
+  "tag": "manual-v2026.9.44",
+  "commit": "054561ca407c32780941bff9548c1ed71db9103e",
   "publicArchive": {
-    "url": "https://github.com/dhoconno/lungfish-genome-explorer/releases/download/manual-media/manual-media-v2026.9.43.tar.gz",
-    "sha256": "b83e6969e1d2fb3aa868fdc59844bc1515b9b21082455e924f2b56a3010831b8",
+    "url": "https://github.com/dhoconno/lungfish-genome-explorer/releases/download/manual-media/manual-media-v2026.9.44.tar.gz",
+    "sha256": "a42d6a78b6ca0196c1d0548ce8e4fd3484273e1f344abb0e6ab0ea821c05c415",
     "prefixes": [
       "user-manual/assets/"
     ]
@@ -752,8 +752,8 @@
     },
     {
       "path": "user-manual/assets/screenshots/06-classification/taxtriage-advanced-settings.png",
-      "sha256": "9a10f6d83f11dfa80a8bf9c539ffbd708a6076f6984981365453c34d45d05bea",
-      "size": 336034
+      "sha256": "3f5604b49ba1f02ea363dc150ddf042949ee9bc8dbb376056591c6b5a8b6b8e5",
+      "size": 413988
     },
     {
       "path": "user-manual/assets/screenshots/06-classification/taxtriage-batch-overview.png",
@@ -762,8 +762,8 @@
     },
     {
       "path": "user-manual/assets/screenshots/06-classification/taxtriage-dialog.png",
-      "sha256": "1c5affe01a0f76ccffaff8574a92a3bcda9f449983aaac61edc4f0b95acab9dd",
-      "size": 354347
+      "sha256": "f7dd74a49f62baa2580d3795da610ef8ca2d456f14a805a6d8cc48ea585fa58f",
+      "size": 387262
     },
     {
       "path": "user-manual/assets/screenshots/06-classification/taxtriage-result-table.png",

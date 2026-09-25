@@ -13,9 +13,9 @@ entry_points:
   - "CLI: lungfish-cli taxtriage run"
 shots:
   - id: taxtriage-dialog
-    caption: "The FASTQ/FASTA Operations dialog opened from Tools > Classification > TaxTriage... with SRR12486983 and SRR12486989 selected, showing both samples as Clinical Sample rows, the Kraken2 Database picker on Standard-16, Sequencing Platform on Illumina, Skip assembly (faster) ticked, and Advanced Settings collapsed."
+    caption: "The FASTQ/FASTA Operations dialog opened from Tools > Classification > TaxTriage... with SRR12486983 and SRR12486989 selected, showing both samples as Clinical Sample rows, the Kraken2 Database picker on Standard-16, Sequencing Platform on Illumina, Skip assembly (faster) ticked, the Exclude host taxa field holding 9606, and Advanced Settings collapsed."
   - id: taxtriage-advanced-settings
-    caption: "The dialog's Advanced Settings disclosure expanded, showing the K2 Confidence slider at 0.20, the Top hits stepper at 10, the Max memory stepper at 16 GB, the Max CPUs stepper, the Skip Krona visualization checkbox, and the Extra arguments field holding --remove_taxids 9606."
+    caption: "The dialog's Advanced Settings disclosure expanded, showing the K2 Confidence slider at 0.20, the Top hits stepper at 10, the Max memory stepper at 16 GB, the Max CPUs stepper at 14, the Skip Krona visualization checkbox, and an empty Extra arguments field, below the Exclude host taxa field holding 9606."
   - id: taxtriage-result-table
     caption: "The TaxTriage viewport for the two-sample corneal run in the List Over Detail layout, with both samples ticked in the Inspector's Sample Filter and the cards reading Batch TaxTriage, Samples 2, and Organisms 322. The Human alphaherpesvirus 1 row of SRR12486983 is selected in the table on top, showing TASS Score 0.930, Reads 2.0M, Unique Reads 1.6M, and High, and the alignment pane below shows the coverage track across the 152,222-base HSV-1 reference NC_001806.2, zoomed out, with its prompt to zoom in to view individual mapped reads. The Inspector shows its Panel Layout control and the run's Operation Details."
   - id: taxtriage-batch-overview
@@ -102,7 +102,7 @@ Leave **Skip assembly (faster)** ticked. The line under it reads "Classification
 
 Find the **Exclude host taxa** field below **Skip assembly (faster)**. Because both rows are Clinical Sample rows, LGE has already filled it with 9606. Leave it as it is. The line under the field reads "NCBI taxids removed before TaxTriage picks references, separated by spaces. 9606 is human. Leave empty to keep every taxon."
 
-Click **Advanced Settings** to open it. Leave every value at its default and leave **Extra arguments** empty. On the test Mac the defaults were K2 Confidence 0.20, where K2 stands for Kraken 2, Top hits 10, Max memory 16 GB, and Max CPUs 14, a number that follows how many processor cores your Mac has. The picture below comes from an earlier release, which had no Exclude host taxa field, so it shows `--remove_taxids 9606` typed into Extra arguments instead. Typing that still works, and it takes the place of the field, whose line then says the field is not used.
+Click **Advanced Settings** to open it. Leave every value at its default and leave **Extra arguments** empty. On the test Mac the defaults were K2 Confidence 0.20, where K2 stands for Kraken 2, Top hits 10, Max memory 16 GB, and Max CPUs 14, a number that follows how many processor cores your Mac has. If you type `--remove_taxids` into Extra arguments yourself, it takes the place of the Exclude host taxa field, and the line under the field then says the field is not used.
 
 <!-- SHOT: taxtriage-advanced-settings -->
 

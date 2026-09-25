@@ -1,8 +1,8 @@
-# Recapture on Lungfish Preview 2026.9.43 (2026-09 campaign) in a project holding SRR12486983 and SRR12486989 downloaded through the SRA route.
-# App state: TaxTriage pane with both bundles selected and Standard-16 chosen, Advanced Settings disclosure expanded at defaults (K2 Confidence 0.20, Top hits 10, Max memory 16 GB, Max CPUs at the Mac's core count), Extra arguments holding --remove_taxids 9606
+# Recapture on Lungfish Preview 2026.9.44 (2026-09 campaign) in a project holding SRR12486983 and SRR12486989 downloaded through the SRA route.
+# App state: TaxTriage pane with both bundles selected and Standard-16 chosen, Exclude host taxa 9606, Advanced Settings disclosure expanded at defaults (K2 Confidence 0.20, Top hits 10, Max memory 16 GB, Max CPUs at the Mac's core count), Extra arguments empty, sheet scrolled to the bottom
 id: taxtriage-advanced-settings
 chapter: 06-classification/04-running-taxtriage
-caption: "The dialog's Advanced Settings disclosure expanded, showing the K2 Confidence slider at 0.20, the Top hits stepper at 10, the Max memory stepper at 16 GB, the Max CPUs stepper, the Skip Krona visualization checkbox, and the Extra arguments field holding --remove_taxids 9606."
+caption: "The dialog's Advanced Settings disclosure expanded, showing the K2 Confidence slider at 0.20, the Top hits stepper at 10, the Max memory stepper at 16 GB, the Max CPUs stepper at 14, the Skip Krona visualization checkbox, and an empty Extra arguments field, below the Exclude host taxa field holding 9606."
 viewport_class: none
 app_state:
   fixture: kraken-protocol-cornea
