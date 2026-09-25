@@ -100,19 +100,21 @@ Leave **Skip assembly (faster)** ticked. The line under it reads "Classification
 
 ### 4. Keep the human genome out of the top hits
 
-Click **Advanced Settings** to open it. Leave every value at its default. On the test Mac those were K2 Confidence 0.20, where K2 stands for Kraken 2, Top hits 10, Max memory 16 GB, and Max CPUs 14, a number that follows how many processor cores your Mac has. Then click the **Extra arguments** field and type `--remove_taxids 9606`, which is two hyphens, the word `remove_taxids` with an underscore, a space, and the number. Check that the field shows two separate hyphens rather than one long dash.
+Find the **Exclude host taxa** field below **Skip assembly (faster)**. Because both rows are Clinical Sample rows, LGE has already filled it with 9606. Leave it as it is. The line under the field reads "NCBI taxids removed before TaxTriage picks references, separated by spaces. 9606 is human. Leave empty to keep every taxon."
+
+Click **Advanced Settings** to open it. Leave every value at its default and leave **Extra arguments** empty. On the test Mac the defaults were K2 Confidence 0.20, where K2 stands for Kraken 2, Top hits 10, Max memory 16 GB, and Max CPUs 14, a number that follows how many processor cores your Mac has. The picture below comes from an earlier release, which had no Exclude host taxa field, so it shows `--remove_taxids 9606` typed into Extra arguments instead. Typing that still works, and it takes the place of the field, whose line then says the field is not used.
 
 <!-- SHOT: taxtriage-advanced-settings -->
 
-This one line is the most useful thing in the chapter. TaxTriage downloads a reference genome for each organism at the top of the Kraken 2 report, the summary table of how many reads went to each [taxon](../../GLOSSARY.md#taxon), meaning each named group of organisms. Standard-16 contains the human genome, and a human tissue sample is mostly human DNA, so without the line *Homo sapiens* enters the top hits. TaxTriage then downloads GRCh38, the complete human reference genome, and its mapping step needs more memory than the 16 GB limit allows, so Nextflow stops it.
+This one setting is the most useful thing in the chapter. TaxTriage downloads a reference genome for each organism at the top of the Kraken 2 report, the summary table of how many reads went to each [taxon](../../GLOSSARY.md#taxon), meaning each named group of organisms. Standard-16 contains the human genome, and a human tissue sample is mostly human DNA, so without the setting *Homo sapiens* enters the top hits. TaxTriage then downloads GRCh38, the complete human reference genome, and its mapping step needs more memory than the 16 GB limit allows, so Nextflow stops it.
 
-The first run on these two samples failed exactly that way. The mapping step was stopped four times for each sample, and the run still finished as if it had worked, with no organism given a score. Do not rely on LGE to warn you about a run that ended like this. A result where every TASS Score reads 0.000 is the sign.
+The first run on these two samples failed exactly that way. The mapping step was stopped four times for each sample, and LGE 2026.9.43 still reported the run as finished, with no organism given a score. LGE now spots a step that TaxTriage gave up on. The Operations Panel row reads "Completed with Warnings", and its detail names the failed step, adding that the step was killed for lack of memory when that is what happened. In the result itself, every TASS Score reading 0.000 is the sign.
 
-The pipeline's `remove_taxids` option drops the listed taxa from the Kraken 2 report before the top hits are chosen. The human reads are still in the sample, but no human genome is downloaded and nothing is ranked as human. The number 9606 is the [taxonomy ID](../../GLOSSARY.md#taxonomy-id) that NCBI, the United States National Center for Biotechnology Information, gives *Homo sapiens*. Add the same line for any human clinical sample classified against a database that includes the human genome.
+Exclude host taxa hands the pipeline its `remove_taxids` option, which drops the listed taxa from the Kraken 2 report before the top hits are chosen. The human reads are still in the sample, but no human genome is downloaded and nothing is ranked as human. The number 9606 is the [taxonomy ID](../../GLOSSARY.md#taxonomy-id) that NCBI, the United States National Center for Biotechnology Information, gives *Homo sapiens*. LGE fills it in only for Clinical Sample rows and only for human, so for an animal sample type the host's taxonomy ID instead, such as 9544 for the rhesus macaque.
 
 ### 5. Run it and open the result
 
-Click **Run**. Watch the run in the [Operations Panel](../01-foundations/06-the-lungfish-project.md#the-operations-panel), which opens with **Operations > Show Operations Panel** (Cmd-Shift-P). Its row shows progress while the samples run one after the other, and reports the run complete when both are done. On the test Mac the whole run took about 18 minutes, 11 for SRR12486983 and the rest for SRR12486989.
+Click **Run**. Watch the run in the [Operations Panel](../01-foundations/06-the-lungfish-project.md#the-operations-panel), which opens with **Operations > Show Operations Panel** (Cmd-Shift-P). Its row shows progress while the samples run one after the other, and reports the run complete when both are done. If a step failed and TaxTriage carried on without it, the row reads Completed with Warnings instead, as step 4 explains. On the test Mac the worked example took about 18 minutes, 11 for SRR12486983 and the rest for SRR12486989.
 
 Then find the result in the sidebar. It lands under `Analyses/` in a new folder, as [Where results land](../01-foundations/06-the-lungfish-project.md#where-results-land) describes. LGE names it `taxtriage-batch-` followed by the date and time, such as `taxtriage-batch-2026-09-25T03-40-19`, with one subfolder per sample inside it. Click the folder and the TaxTriage [viewport](../../GLOSSARY.md#viewport) opens, the panel that fills the window and shows one result.
 
@@ -120,17 +122,19 @@ Once the result is open, the Inspector's **Operation Details** section lists the
 
 ## Settings
 
-Several bold labels below end in a colon followed by a period, because they keep the colon the app draws after each label on screen. Five controls sit in plain view and six more inside **Advanced Settings**.
+Several bold labels below end in a colon followed by a period, because they keep the colon the app draws after each label on screen. Six controls sit in plain view and six more inside **Advanced Settings**.
 
 **Sample ID.** Names one row of the sample list, and every report the pipeline writes refers to the sample by this label. The default is the reads file's name without its ending and without any `_R1` or `_1` mate marker. Change it to the identifier your lab already uses so the reports match your records. On the command line this is `--sample`.
 
-**Sample role.** Records what kind of material a row holds. The choices are Clinical Sample, the specimen under test, and four controls. A Negative Control is a no-template tube, and an Extraction Blank is a tube with nothing in it carried through DNA extraction. A Positive Control holds a known organism, and an Environmental Control samples the room or bench. The default is Clinical Sample. In this release LGE saves only one fact from the role, whether the row is a negative control, which Negative Control and Extraction Blank both set. Positive Control and Environmental Control are saved the same as Clinical Sample, and no role changes the result table, so name your controls' Sample IDs clearly as well, such as `NEG-blank-1`. This setting has no command-line flag.
+**Sample role.** Records what kind of material a row holds. The choices are Clinical Sample, the specimen under test, and four controls. A Negative Control is a no-template tube, and an Extraction Blank is a tube with nothing in it carried through DNA extraction. A Positive Control holds a known organism, and an Environmental Control samples the room or bench. The default is Clinical Sample. LGE uses the role in two ways. A Clinical Sample row fills **Exclude host taxa** with 9606, and a Negative Control or Extraction Blank row marks every organism found in it as a contamination risk in the result, as Recognising the pathogen explains. Positive Control and Environmental Control change neither, so name your controls' Sample IDs clearly as well, such as `NEG-blank-1`. This setting has no command-line flag.
 
 **Kraken2 Database.** Names the reference collection the classification step compares every read against, and so fixes which organisms can be reported at all. The default is the first installed Kraken 2 database, which is an accident of install order rather than a choice. Match it to the organisms you expect, such as Viral for viruses only, Standard-8 or Standard-16 for a broad survey on an 8 GB or 16 GB Mac, and PlusPF when fungi and protozoa matter, as [Picking a classifier for your sample](01-what-is-classification.md#picking-a-classifier-for-your-sample) describes. On the command line this is `--db`.
 
 **Sequencing Platform.** Tells the pipeline which instrument made the reads, offering Illumina, Oxford Nanopore, and PacBio, so its steps can expect that instrument's typical errors. The default is Illumina. Illumina gives short, accurate reads and the other two give long reads with more errors, so match it to the instrument named on your run sheet. On the command line this is `--platform`.
 
 **Skip assembly (faster).** Leaves out de novo assembly, the slow stitching of overlapping reads into long sequences without a reference. The default is on, because classification and scoring answer the detection question and assembly does not. Turn it off only when you want assembled genomes and can spare hours more. On the command line assembly is skipped by default and `--no-skip-assembly` turns it back on.
+
+**Exclude host taxa:.** Lists NCBI taxonomy IDs, separated by spaces or commas, that are removed from the Kraken 2 report before TaxTriage picks its top hits, so their genomes are never downloaded as references. The default is 9606, human, whenever any row is a Clinical Sample, and empty otherwise, because a human specimen is mostly human DNA. Type the host's ID for an animal sample, such as 9544 for the rhesus macaque, and clear the field only when the host itself is what you want to find. On the command line this is `--remove-taxids`.
 
 **K2 Confidence:.** Sets what share of a read's [k-mers](../../GLOSSARY.md#k-mer), the short fixed-length pieces Kraken 2 matches, must agree on one taxon before Kraken 2 names it. A read short of the threshold moves up to the [lowest common ancestor](../../GLOSSARY.md#lowest-common-ancestor) of the taxa it matched, such as the genus shared by two species. The default is 0.20, one k-mer in five, and the control runs from 0.00 to 1.00 in steps of 0.05, with a slider and a typed number field. Raise it when the table fills with species that make no sense for the sample, such as ocean bacteria in an eye, and lower it when an organism you expect never appears. On the command line this is `--confidence`.
 
@@ -142,21 +146,31 @@ Several bold labels below end in a colon followed by a period, because they keep
 
 **Skip Krona visualization.** Leaves out the interactive Krona chart, a clickable picture of the community written into the result folder as a web page. The default is off, so the chart is made, and the viewport's tables do not depend on it. Turn it on to shorten a run when you only want the tables. On the command line this is `--skip-krona`.
 
-**Extra arguments:.** Passes text straight to TaxTriage and Nextflow without LGE checking it. The default is empty. Type `--remove_taxids 9606` here for any human sample classified against a database that holds the human genome, as step 4 explains. For any other option, read the TaxTriage documentation at https://github.com/jhuapl-bio/taxtriage first. A value that contains spaces goes in quotes, and an unclosed quote keeps **Run** disabled, with the line under it reading "Complete the classifier settings to continue." On the command line this is `--extra-args`.
+**Extra arguments:.** Passes text straight to TaxTriage and Nextflow without LGE checking it. The default is empty. A `--remove_taxids` typed here takes the place of **Exclude host taxa**, as step 4 explains. For any other option, read the TaxTriage documentation at https://github.com/jhuapl-bio/taxtriage first. A value that contains spaces goes in quotes, and an unclosed quote keeps **Run** disabled, with the line under it reading "Complete the classifier settings to continue." On the command line this is `--extra-args`.
 
 ## Reading the results
 
-The viewport has a row of summary cards across the top, an organism table with an alignment pane below it, and an action bar along the bottom. That table-over-pane arrangement is the default, and the Inspector's **Panel Layout** control can put the two side by side instead. The cards read Batch, Samples, and Organisms. For the worked example, Batch reads TaxTriage and Samples reads 2. Organisms counts the rows in the table, 322 while both samples are showing, and one organism found in both samples takes two rows.
+The viewport has a row of summary cards across the top, an organism table with an alignment pane below it, and an action bar along the bottom. That table-over-pane arrangement is the default, and the Inspector's **Panel Layout** control can put the two side by side instead. The cards read Batch, Samples, and Organisms.
+
+Every figure in this section comes from a run with LGE 2026.9.43. That release handed TaxTriage each bundle's reads as one file, so TaxTriage treated each read of a pair as a separate read. This release splits a paired bundle into its two mates first and runs TaxTriage on true pairs, so your own row counts, read counts, and scores will not match these exactly. The reasoning in this section does not change.
+
+For the worked example, Batch reads TaxTriage and Samples reads 2. Organisms counts the rows in the table, 322 while both samples are showing, and one organism found in both samples takes two rows.
 
 ### Choosing which samples to show
 
-The table starts with every row of both samples, SRR12486983 first. The table is wider than the pane, so Coverage Breadth, Coverage Depth, and Abundance sit to the right of Confidence, and you scroll sideways to reach them. Which samples show is set in the [Inspector](../../GLOSSARY.md#inspector), the panel on the right of the window, in its **Samples & Metadata** section. Its **Sample Filter** list has a tick box for each sample, and the Select All and Filter... controls work as [The taxonomy viewport](02-running-kraken2.md#the-taxonomy-viewport) describes. Untick SRR12486989 to read SRR12486983 alone, which leaves 209 rows. SRR12486989 alone has 113.
+The table starts with every row of both samples, SRR12486983 first. The table is wider than the pane, so Coverage Breadth, Coverage Depth, and Abundance sit to the right of Confidence, and you scroll sideways to reach them.
+
+A row of buttons above the table picks samples quickly. **All Samples** comes first, then one button per sample, and a batch of more than six samples gets a pop-up menu instead. Click SRR12486983 to read that sample alone, which leaves 209 rows. SRR12486989 alone has 113. **View > Next Sample** (Cmd-right bracket) and **View > Previous Sample** (Cmd-left bracket) step from one sample to the next.
+
+The buttons are shortcuts into the [Inspector](../../GLOSSARY.md#inspector), the panel on the right of the window. Its **Samples & Metadata** section holds the **Sample Filter** list, with a tick box for each sample, and its Select All and Filter... controls work as [The taxonomy viewport](02-running-kraken2.md#the-taxonomy-viewport) describes. Tick any mix of samples there to show them together.
 
 That is far more than the ten of Top hits. For SRR12486983 the pipeline downloaded 1,766 reference sequences, covering many more organisms than its ten top hits, and mapped every read against all of them at once. Its report lists every organism whose genome received reads, and every row in the table was mapped and scored the same way.
 
 The **Filter organisms…** field above the table keeps only the rows whose organism name contains what you type. With both samples ticked, typing a name such as Kocuria leaves only that genus's rows, all of SRR12486983's first and then all of SRR12486989's, with the Sample column telling them apart.
 
 <!-- SHOT: taxtriage-batch-overview -->
+
+Click **All Samples**, or choose **View > All Samples**, and the list gives way to an overview grid with one row per organism across the batch. Its first columns give the number of samples the organism appears in, its mean TASS score, and the range of its read counts, and one column per sample follows. A control above the grid switches the sample columns between TASS Score, Total Reads, Unique Reads, and Coverage. Double-click a value in a sample's column to open that sample's list with the organism selected, or click **All Samples** again to return to the list.
 
 ### The organism table
 
@@ -178,7 +192,7 @@ Rows arrive in TaxTriage's own order, highest TASS score first within each sampl
 
 Depth is an average over every position of the genome, so it can fall below one. A depth of 0.1× means the reads, laid end to end, would cover only a tenth of the genome, so most positions have no read at all.
 
-LGE handed TaxTriage each bundle's reads as one file, so TaxTriage counted each read of a pair as its own read. The counts in this table are reads, so halve them before you compare them with the pairs [Running Kraken 2](02-running-kraken2.md) counts. SRR12486983's 4,819,760 pairs are 9,639,520 reads here.
+In the worked example each read of a pair counted on its own, as the start of this section explains. To compare its counts with the pairs [Running Kraken 2](02-running-kraken2.md) counts, halve them. SRR12486983's 4,819,760 pairs were 9,639,520 reads in that run.
 
 Abundance and Reads come from different counts. Abundance is TaxTriage's figure, the reads it aligned to the organism divided by every read in the sample. The Reads cell is LGE's own count from the same file, which can count one read more than once when it aligns to several places. For HSV-1 in SRR12486983, TaxTriage's report gives 1,482,057 aligned reads, which is the 15.37% in the Abundance cell, and the Reads cell shows 1,972,047. Quote the figure you read and say where it came from.
 
@@ -192,7 +206,7 @@ LGE gives every row one of three labels. They are unrelated to the K2 Confidence
 | Medium | Below the pipeline's threshold, with a TASS score of 0.40 or more |
 | Low | A TASS score below 0.40 |
 
-In the worked example *Streptococcus agalactiae* reads High at 0.780.
+In the worked example *Streptococcus agalactiae* reads High at 0.780. Hold the pointer over a Confidence or TASS Score cell to see a tooltip that states the rule behind that row's label.
 
 ### What the TASS score means
 
@@ -238,11 +252,11 @@ No single column picks out the pathogen. Read four things together.
 3. TaxTriage's own annotations in its report, described below.
 4. A negative control, which says what the lab and reagents put in every tube.
 
-The viewport does not show TaxTriage's annotations, so open the pipeline's report, which TaxTriage calls its organism discovery report. Right-click the result folder in the sidebar, choose **Show in Finder**, and open a sample's folder, then its `report` folder. The file `<sample>.odr.pdf` is TaxTriage's printable report. The file `<sample>.odr.txt` holds the same table as tab-separated text, which Numbers or Excel opens with one column per field.
+The viewport does not show TaxTriage's annotations, so open the pipeline's report, which TaxTriage calls its organism discovery report. Select a row and click **Open Report** in the action bar to open the report for that row's sample, `<sample>.odr.pdf`, or the HTML version when there is no PDF. The report files sit in each sample's `report` folder inside the result folder, which **Show in Finder** on the result's right-click menu in the sidebar reaches. The file `<sample>.odr.txt` there holds the same table as tab-separated text, which Numbers or Excel opens with one column per field.
 
 Its **Microbial Category** column sorts organisms into Primary, Opportunistic, Potential, Commensal, and Unknown. Primary marks a recognised pathogen. Opportunistic marks an organism that causes disease mainly in a weakened host, and Commensal one that normally lives harmlessly on the body. Unknown means TaxTriage has no annotation for it. In the worked example, Human alphaherpesvirus 1 and *Streptococcus agalactiae* are both Primary, and the high-scoring *Kocuria* and *Bradyrhizobium* rows are Unknown. The **High Consequence** column flags organisms of special public-health concern and reads False for both pathogens.
 
-This batch has no negative control, so it cannot show which organisms came from the laboratory. When you run your own samples, include one. An organism present in the negative control is suspect in every sample of the batch, whatever its score in the specimens.
+This batch has no negative control, so it cannot show which organisms came from the laboratory. When you run your own samples, include one and give it the Negative Control or Extraction Blank role in the dialog. An organism present in the negative control is suspect in every sample of the batch, whatever its score in the specimens. LGE marks every such organism in the table with a warning sign and orange text, and its tooltip says it was detected in a negative control sample. The overview grid adds a Risk column for the same organisms.
 
 TaxTriage reports what DNA is in the tube. Deciding that an organism caused a patient's infection is a clinical judgement, and confirming a pathogen for patient care needs your laboratory's own validated tests.
 
@@ -254,13 +268,15 @@ Selecting a row loads its reads into the alignment pane below the table, drawn a
 
 ### Working with a single row
 
-**BLAST Verify** in the action bar sends reads of the selected row to NCBI for a second opinion, as [BLAST Verification](06-blast-verification.md) explains, and needs exactly one row selected. In this viewport it opens no popover and sends 50 reads at once, or every read when the row has fewer, which uses up LGE's hourly allowance of 50. To choose how many, right-click the row and choose **Verify with BLAST...** instead, which opens the popover with its slider. **Extract FASTQ** opens the dialog [Running Kraken 2](02-running-kraken2.md#4-extract-the-reads-of-one-taxon) documents.
+**BLAST Verify** in the action bar sends reads of the selected row to NCBI for a second opinion, as [BLAST Verification](06-blast-verification.md) explains, and needs exactly one row selected. It opens a popover whose slider sets how many reads to send, starting at 20, and whose caption names the database searched, core_nt. Right-clicking the row and choosing **Verify with BLAST...** opens the same popover. **Extract FASTQ** opens the dialog [Running Kraken 2](02-running-kraken2.md#4-extract-the-reads-of-one-taxon) documents.
 
 Right-clicking a row offers **Verify with BLAST...**, **Copy Organism Name**, **Copy Taxon ID**, **Copy Row as TSV**, **Look Up in NCBI Taxonomy**, and **Extract Reads...**. Copy Row as [TSV](../../GLOSSARY.md#tsv) copies the row as tab-separated text you can paste into a spreadsheet.
 
+**Export** in the action bar offers **Export as CSV...** and **Export as TSV...**, which write the rows the table shows at that moment, with columns for the sample, the scores and counts, the taxonomy ID, and a Contamination Risk flag. **Copy Summary** copies a short text summary of the run and of what the view shows. A batch adds **Export Organism Matrix (CSV)...** and **Export Batch Report...**. The Provenance button at the right end of the action bar shows how the run was made, as [Provenance and Reproducibility](../01-foundations/08-provenance-and-reproducibility.md#reading-the-results) explains.
+
 ## What good looks like
 
-Check the run first. A result where every TASS Score reads 0.000 is a failed run, whatever the Operations Panel said. For a human sample, the usual cause is a missing `--remove_taxids 9606`, as step 4 explains.
+Check the run first. A result where every TASS Score reads 0.000 is a failed run, and so is one whose Operations Panel row reads Completed with Warnings with a step killed for lack of memory. For a human sample, the usual cause is an empty **Exclude host taxa** field, as step 4 explains.
 
 Then read coverage breadth and depth beside the score. A breadth near 100% with a depth of several reads or more, like HSV-1's 100% at 733.8, is what an abundant organism looks like. A depth below one means most of the genome has no read, so the organism is present at most in trace amounts, whatever its score. A breadth of a few percent with a large read count is the classic shape of a false call, because every read landed in one place.
 
@@ -289,13 +305,13 @@ lungfish-cli taxtriage check-prerequisites
 lungfish-cli taxtriage run \
   --samplesheet cornea.csv \
   --db ~/.lungfish/databases/kraken2/standard-16 \
-  --extra-args="--remove_taxids 9606" \
+  --remove-taxids 9606 \
   --output ./taxtriage-cornea
 ```
 
 A passing check ends with the line `All prerequisites met. Ready to run TaxTriage.` The `~` stands for your home folder, and `~/.lungfish/databases/kraken2` is where the Plugin Manager installs Kraken 2 databases. `./taxtriage-cornea` is a new folder inside whichever folder Terminal is working in, and LGE's sidebar does not show it unless that folder is inside your project.
 
-Write `--extra-args=` with the equals sign. Without it, the program would read `--remove_taxids` as one of its own options and stop. The `fastq_2` column is empty because each bundle holds both reads of a pair in one file, which is how the dialog passes them too. For a single sample, `--input` with a FASTQ file and `--sample` with its name replace `--samplesheet`, and `--input2` adds the second file of a pair stored as two files. The samplesheet has no role column, so sample roles have no command-line equivalent.
+`--remove-taxids` is the command-line form of **Exclude host taxa**. The command line fills in no default, so pass it yourself for every human sample. The `fastq_2` column stays empty because each bundle holds both reads of a pair in one file, and LGE splits that file into its two mates before the run, as the dialog does. For a single sample, `--input` with a FASTQ file or a `.lungfishfastq` bundle and `--sample` with its name replace `--samplesheet`, and `--input2` adds the second file of a pair stored as two files. The samplesheet has no role column, so sample roles have no command-line equivalent.
 
 ## Next
 
