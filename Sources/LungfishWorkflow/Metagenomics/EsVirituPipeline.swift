@@ -20,8 +20,9 @@ public enum EsVirituPipelineError: Error, LocalizedError, Sendable {
     /// The EsViritu tool is not installed in the conda environment.
     case esVirituNotInstalled
 
-    /// The detection output file was not produced.
-    case detectionOutputNotProduced(URL)
+    /// The detection output file was not produced. `diagnosis` carries
+    /// EsViritu's own last ERROR log line and a short-read hint, when known.
+    case detectionOutputNotProduced(URL, diagnosis: EsVirituFailureDiagnosis? = nil)
 
     /// The result sidecar could not be persisted.
     case resultSidecarSaveFailed(URL, String)
@@ -38,8 +39,20 @@ public enum EsVirituPipelineError: Error, LocalizedError, Sendable {
             return "EsViritu failed with exit code \(code): \(stderr)"
         case .esVirituNotInstalled:
             return "EsViritu is not installed. Run: lungfish conda install --pack metagenomics"
-        case .detectionOutputNotProduced(let url):
-            return "EsViritu did not produce a detection output at \(url.path)"
+        case .detectionOutputNotProduced(let url, let diagnosis):
+            var parts: [String] = []
+            if let reported = diagnosis?.reportedError {
+                parts.append("EsViritu stopped without a detection table: \(reported)")
+            } else {
+                parts.append("EsViritu did not produce a detection output at \(url.path)")
+            }
+            if let hint = diagnosis?.readLengthHint {
+                parts.append(hint)
+            }
+            if diagnosis?.reportedError != nil {
+                parts.append("Expected output: \(url.path)")
+            }
+            return parts.joined(separator: " ")
         case .resultSidecarSaveFailed(let url, let reason):
             return "Failed to save EsViritu result sidecar at \(url.path): \(reason)"
         case .versionDetectionFailed:
@@ -47,6 +60,15 @@ public enum EsVirituPipelineError: Error, LocalizedError, Sendable {
         case .cancelled:
             return "EsViritu pipeline was cancelled"
         }
+    }
+
+    /// The last lines of EsViritu's log, for failure reports. `nil` for
+    /// errors that carry no log.
+    public var logTail: String? {
+        if case .detectionOutputNotProduced(_, let diagnosis) = self {
+            return diagnosis?.logTail
+        }
+        return nil
     }
 }
 
@@ -560,7 +582,18 @@ public actor EsVirituPipeline {
 
         guard fm.fileExists(atPath: config.detectionOutputURL.path) else {
             await provenanceRecorder.completeRun(runID, status: .failed)
-            throw EsVirituPipelineError.detectionOutputNotProduced(config.detectionOutputURL)
+            let diagnosis = EsVirituFailureDiagnosis.diagnose(
+                logURL: config.logURL,
+                stderr: esVirituResult.stderr,
+                readLengths: EsVirituReadLengths.persistedOrSampled(for: config.inputFiles)
+            )
+            if let reported = diagnosis.reportedError {
+                logger.error("EsViritu reported: \(reported, privacy: .public)")
+            }
+            throw EsVirituPipelineError.detectionOutputNotProduced(
+                config.detectionOutputURL,
+                diagnosis: diagnosis
+            )
         }
 
         // Count detected viruses from the TSV (skip header line).

@@ -1281,10 +1281,17 @@ extension AppDelegate {
                 }
             } catch {
                 let errorDesc = error.localizedDescription
+                let esVirituLogTail = (error as? EsVirituPipelineError)?.logTail
                 DispatchQueue.main.async {
                     MainActor.assumeIsolated {
                         viewerController.hideProgress()
-                        guard OperationCenter.shared.fail(id: opID, detail: errorDesc) else { return }
+                        OperationCenter.shared.log(id: opID, level: .error, message: errorDesc)
+                        guard OperationCenter.shared.fail(
+                            id: opID,
+                            detail: errorDesc,
+                            errorMessage: errorDesc,
+                            errorDetail: esVirituLogTail.map { "EsViritu log (last lines):\n\($0)" }
+                        ) else { return }
 
                         let alert = NSAlert()
                         alert.messageText = "EsViritu Failed"
@@ -1954,6 +1961,20 @@ extension AppDelegate {
                 } catch {
                     failedResults.append((sampleID, error.localizedDescription))
                     appDelegateLogger.warning("runEsVirituBatch: Sample \(sampleID, privacy: .public) failed - \(error.localizedDescription, privacy: .public)")
+                    let failureMessage = "\(samplePrefix): \(error.localizedDescription)"
+                    let logTail = (error as? EsVirituPipelineError)?.logTail
+                    DispatchQueue.main.async {
+                        MainActor.assumeIsolated {
+                            OperationCenter.shared.log(id: opID, level: .error, message: failureMessage)
+                            if let logTail {
+                                OperationCenter.shared.log(
+                                    id: opID,
+                                    level: .error,
+                                    message: "\(samplePrefix): EsViritu log (last lines):\n\(logTail)"
+                                )
+                            }
+                        }
+                    }
                 }
             }
 

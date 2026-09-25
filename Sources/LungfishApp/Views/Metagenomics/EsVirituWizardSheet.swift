@@ -42,6 +42,50 @@ struct EsVirituSampleReadPlan: Equatable, Sendable {
     }
 }
 
+/// The read-length warning shown in the EsViritu dialog before Run.
+///
+/// Built from each sample's persisted FASTQ statistics (see
+/// ``EsVirituReadLengthAdvisory``). It never blocks the run.
+struct EsVirituReadLengthWarning: Equatable {
+    /// `true` when at least one sample has no read of 100 bases or longer.
+    let isSevere: Bool
+    let message: String
+
+    static func make(
+        advisories: [String: EsVirituReadLengthAdvisory],
+        sampleOrder: [String]
+    ) -> EsVirituReadLengthWarning? {
+        let ordered = sampleOrder.compactMap { id in advisories[id].map { (id, $0) } }
+        guard !ordered.isEmpty else { return nil }
+
+        if sampleOrder.count <= 1, let advisory = ordered.first?.1 {
+            return EsVirituReadLengthWarning(isSevere: advisory.isSevere, message: advisory.wizardMessage)
+        }
+
+        let minimum = EsVirituReadLengthAdvisory.minimumAlignmentLength
+        let severe = ordered.filter { $0.1.isSevere }.map(\.0)
+        let soft = ordered.filter { !$0.1.isSevere }.map(\.0)
+        let total = sampleOrder.count
+        var sentences: [String] = []
+        if !severe.isEmpty {
+            sentences.append("\(countPhrase(severe.count, of: total)) no reads of \(minimum) bases or longer (\(nameList(severe))). EsViritu ignores alignments shorter than \(minimum) bases, so it will likely report no viruses for \(severe.count == 1 ? "that sample" : "those samples").")
+        }
+        if !soft.isEmpty {
+            sentences.append("\(countPhrase(soft.count, of: total)) a median read length under \(minimum) bases (\(nameList(soft))). Reads shorter than \(minimum) bases cannot count toward a detection.")
+        }
+        return EsVirituReadLengthWarning(isSevere: !severe.isEmpty, message: sentences.joined(separator: " "))
+    }
+
+    private static func countPhrase(_ count: Int, of total: Int) -> String {
+        "\(count) of \(total) samples \(count == 1 ? "has" : "have")"
+    }
+
+    private static func nameList(_ names: [String]) -> String {
+        let shown = names.prefix(3).joined(separator: ", ")
+        return names.count > 3 ? "\(shown), and \(names.count - 3) more" : shown
+    }
+}
+
 struct EsVirituRunReadiness {
     static func canRun(
         groupedSampleCount: Int,
@@ -162,6 +206,8 @@ struct EsVirituWizardSheet: View {
     @State private var readPlans: [String: EsVirituSampleReadPlan] = [:]
     /// The input list `readPlans` was computed for.
     @State private var readPlansInputFiles: [URL]?
+    /// Short-read advisories per sample ID, from persisted FASTQ statistics.
+    @State private var readLengthAdvisories: [String: EsVirituReadLengthAdvisory] = [:]
 
     // Advanced settings
     @State private var threads: Int = ProcessInfo.processInfo.activeProcessorCount
@@ -284,13 +330,18 @@ struct EsVirituWizardSheet: View {
         .task(id: inputFiles) {
             let files = inputFiles
             let samples = groupedSamples
-            let plans = await Task.detached(priority: .userInitiated) {
-                samples.reduce(into: [String: EsVirituSampleReadPlan]()) { result, sample in
-                    result[sample.sampleId] = EsVirituSampleReadPlan.plan(for: sample)
+            let (plans, advisories) = await Task.detached(priority: .userInitiated) {
+                var plans: [String: EsVirituSampleReadPlan] = [:]
+                var advisories: [String: EsVirituReadLengthAdvisory] = [:]
+                for sample in samples {
+                    plans[sample.sampleId] = EsVirituSampleReadPlan.plan(for: sample)
+                    advisories[sample.sampleId] = EsVirituReadLengthAdvisory.evaluate(inputURLs: sample.inputFiles)
                 }
+                return (plans, advisories)
             }.value
             guard !Task.isCancelled else { return }
             readPlans = plans
+            readLengthAdvisories = advisories
             readPlansInputFiles = files
         }
         .onChange(of: canRun) { _, newValue in
@@ -423,7 +474,45 @@ struct EsVirituWizardSheet: View {
                         .foregroundStyle(.secondary)
                 }
             }
+
+            if readPlansInputFiles == inputFiles,
+               let warning = EsVirituReadLengthWarning.make(
+                   advisories: readLengthAdvisories,
+                   sampleOrder: groupedSamples.map(\.sampleId)
+               ) {
+                readLengthWarningBanner(warning)
+            }
         }
+    }
+
+    /// Warns that EsViritu drops alignments shorter than 100 bases. Shown
+    /// before Run; never disables Run.
+    private func readLengthWarningBanner(_ warning: EsVirituReadLengthWarning) -> some View {
+        HStack(alignment: .top, spacing: 6) {
+            Image(systemName: warning.isSevere ? "exclamationmark.triangle.fill" : "info.circle")
+                .font(.system(size: 11))
+                .foregroundStyle(warning.isSevere ? Color.lungfishCreamsicleFallback : Color.lungfishSecondaryText)
+                .padding(.top, 1)
+            Text(warning.message)
+                .font(.system(size: 11))
+                .foregroundStyle(warning.isSevere ? Color.primary : Color.lungfishSecondaryText)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 6)
+                .fill(warning.isSevere ? Color.lungfishAttentionFill : Color.lungfishMutedFill)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 6)
+                .stroke(
+                    warning.isSevere ? Color.lungfishCreamsicleFallback.opacity(0.35) : Color.clear,
+                    lineWidth: 0.5
+                )
+        )
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("esviritu-read-length-warning")
     }
 
     // MARK: - Database
