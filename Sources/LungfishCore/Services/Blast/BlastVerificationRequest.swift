@@ -65,6 +65,18 @@ public struct BlastVerificationRequest: Sendable {
     /// Maximum concurrent BLAST submissions permitted for this process.
     public let maxConcurrentSubmissions: Int
 
+    /// For paired fragments, the mate (1 or 2) whose sequence was submitted,
+    /// keyed by sequence ID. Empty for single-end input.
+    public let sequenceMates: [String: Int]
+
+    /// Tax IDs that count as the queried taxon when a BLAST hit reports its
+    /// taxid, normally the taxon plus its descendants.
+    public let acceptedTaxIds: Set<Int>
+
+    /// Other names for the queried taxon or its descendants. A BLAST hit
+    /// whose organism contains one of these names supports the taxon.
+    public let acceptedTaxonNames: [String]
+
     /// Creates a new BLAST verification request.
     ///
     /// - Parameters:
@@ -88,7 +100,10 @@ public struct BlastVerificationRequest: Sendable {
         maxTargetSeqs: Int = 5,
         eValueThreshold: Double = 1e-10,
         extraArgs: String = "",
-        maxConcurrentSubmissions: Int = 1
+        maxConcurrentSubmissions: Int = 1,
+        sequenceMates: [String: Int] = [:],
+        acceptedTaxIds: Set<Int> = [],
+        acceptedTaxonNames: [String] = []
     ) {
         self.taxonName = taxonName
         self.taxId = taxId
@@ -100,6 +115,9 @@ public struct BlastVerificationRequest: Sendable {
         self.eValueThreshold = eValueThreshold
         self.extraArgs = extraArgs
         self.maxConcurrentSubmissions = max(1, maxConcurrentSubmissions)
+        self.sequenceMates = sequenceMates
+        self.acceptedTaxIds = acceptedTaxIds
+        self.acceptedTaxonNames = acceptedTaxonNames
     }
 
     /// Formats the sequences as a multi-FASTA string for BLAST submission.

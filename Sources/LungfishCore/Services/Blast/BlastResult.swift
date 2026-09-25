@@ -172,6 +172,10 @@ public struct BlastReadResult: Sendable, Codable, Identifiable {
     /// when there is no hit at all.
     public let matchesQueriedTaxon: Bool
 
+    /// For a paired fragment, which mate (1 or 2) was submitted to BLAST.
+    /// `nil` for single-end reads or results saved before this was recorded.
+    public let submittedMate: Int?
+
     /// Creates a new per-read BLAST result.
     ///
     /// - Parameters:
@@ -201,7 +205,8 @@ public struct BlastReadResult: Sendable, Codable, Identifiable {
         topHits: [BlastHitSummary] = [],
         querySequence: String? = nil,
         hasLCADisagreement: Bool = false,
-        matchesQueriedTaxon: Bool = false
+        matchesQueriedTaxon: Bool = false,
+        submittedMate: Int? = nil
     ) {
         self.id = id
         self.verdict = verdict
@@ -216,6 +221,7 @@ public struct BlastReadResult: Sendable, Codable, Identifiable {
         self.querySequence = querySequence
         self.hasLCADisagreement = hasLCADisagreement
         self.matchesQueriedTaxon = matchesQueriedTaxon
+        self.submittedMate = submittedMate
     }
 }
 

@@ -47,7 +47,9 @@ extension BlastCommand {
     /// This subcommand:
     /// 1. Parses the kreport to build a taxonomy tree
     /// 2. Scans the Kraken2 per-read output for reads classified to the target taxon
-    /// 3. Subsamples reads from the source FASTQ
+    /// 3. Draws a seeded, unbiased random sample of those fragments and, for
+    ///    paired reads, reads the mate whose k-mers hit the taxon from the
+    ///    source FASTQ (plain or gzip)
     /// 4. Submits the subsample to NCBI BLAST
     /// 5. Waits for results and prints a verification summary
     ///
@@ -90,6 +92,12 @@ extension BlastCommand {
 
         @Option(name: .customLong("reads"), help: "Number of reads to submit (default: 20)")
         var readCount: Int = 20
+
+        @Option(
+            name: .customLong("seed"),
+            help: "Random seed for choosing which fragments to submit (default: 0)"
+        )
+        var seed: UInt64 = 0
 
         @Option(
             name: .customLong("max-concurrent"),
@@ -146,7 +154,7 @@ extension BlastCommand {
             }
 
             // Phase 1: Parse kreport and find the target taxon
-            if !globalOptions.quiet {
+            if !globalOptions.quiet && globalOptions.outputFormat != .json {
                 print(formatter.header("BLAST Verification"))
                 print("")
             }
@@ -158,7 +166,7 @@ extension BlastCommand {
                 throw CLIExitCode.inputError.exitCode
             }
 
-            if !globalOptions.quiet {
+            if !globalOptions.quiet && globalOptions.outputFormat != .json {
                 print(formatter.keyValueTable([
                     ("Taxon", "\(targetNode.name) (txid\(taxId))"),
                     ("Rank", targetNode.rank.displayName),
@@ -178,80 +186,75 @@ extension BlastCommand {
                 targetTaxIds = Set([taxId])
             }
 
-            // Phase 3: Scan kraken output for matching read IDs
-            if !globalOptions.quiet {
-                print(formatter.info("Scanning classification output for matching reads..."))
+            // Phase 3-5: Scan the Kraken output, draw an unbiased seeded
+            // sample of fragments, and for each paired fragment pick the mate
+            // whose k-mers carry the taxon's evidence. This is the same code
+            // path the app's BLAST Verify button uses.
+            let jsonOutput = globalOptions.outputFormat == .json
+            let chatty = !globalOptions.quiet && !jsonOutput
+            if chatty {
+                print(formatter.info("Sampling \(readCount) fragments classified to the target taxa..."))
             }
 
-            let matchingReadIds = try blastScanKrakenOutput(
-                url: krakenOutputURL,
-                targetTaxIds: targetTaxIds
-            )
-
-            guard !matchingReadIds.isEmpty else {
-                print(formatter.warning("No reads found for taxon \(taxId) in classification output"))
+            let acceptedNames = targetTaxIds.compactMap { tree.node(taxId: $0)?.name }.sorted()
+            let service = BlastService.shared
+            let built: BlastVerificationRequest
+            do {
+                built = try await service.buildVerificationRequest(
+                    taxonName: targetNode.name,
+                    taxId: taxId,
+                    targetTaxIds: targetTaxIds,
+                    classificationOutputURL: krakenOutputURL,
+                    sourceURL: sourceURL,
+                    readCount: readCount,
+                    acceptedTaxonNames: acceptedNames,
+                    seed: seed
+                )
+            } catch BlastServiceError.noSequences {
+                print(formatter.warning("No reads for taxon \(taxId) could be read from the classification output and source FASTQ"))
                 throw CLIExitCode.inputError.exitCode
             }
 
-            if !globalOptions.quiet {
-                print(formatter.info("Found \(matchingReadIds.count) matching reads"))
-            }
-
-            // Phase 4: Extract sequences from FASTQ
-            if !globalOptions.quiet {
-                print(formatter.info("Extracting sequences from FASTQ..."))
-            }
-
-            let allReads = try blastExtractSequences(
-                from: sourceURL,
-                matchingIds: matchingReadIds
-            )
-
-            guard !allReads.isEmpty else {
-                print(formatter.warning("No matching reads found in source FASTQ"))
-                throw CLIExitCode.inputError.exitCode
-            }
-
-            // Phase 5: Subsample
-            let strategy: SubsampleStrategy
-            if readCount <= 10 {
-                strategy = .longestFirst(count: readCount)
-            } else {
-                let longestCount = max(3, readCount / 4)
-                strategy = .mixed(longest: longestCount, random: readCount - longestCount)
-            }
-
-            let subsampled = BlastService.shared.subsampleReads(
-                from: allReads,
-                strategy: strategy
-            )
-
-            if !globalOptions.quiet {
-                print(formatter.info("Subsampled \(subsampled.count) reads (\(allReads.count) available)"))
+            if chatty {
+                let mate2 = built.sequenceMates.values.filter { $0 == 2 }.count
+                print(formatter.info("Selected \(built.sequences.count) reads (\(mate2) submitted as mate 2)"))
             }
 
             // Phase 6: Submit to BLAST
-            if !globalOptions.quiet {
+            if chatty {
                 print(formatter.info("Submitting to NCBI BLAST..."))
                 print("")
             }
 
             let request = BlastVerificationRequest(
-                taxonName: targetNode.name,
-                taxId: taxId,
-                sequences: subsampled,
+                taxonName: built.taxonName,
+                taxId: built.taxId,
+                sequences: built.sequences,
                 extraArgs: extraArgs,
-                maxConcurrentSubmissions: maxConcurrent
+                maxConcurrentSubmissions: maxConcurrent,
+                sequenceMates: built.sequenceMates,
+                acceptedTaxIds: built.acceptedTaxIds,
+                acceptedTaxonNames: built.acceptedTaxonNames
             )
             _ = request.blastURLAPIExtraParameters
 
-            let result = try await BlastService.shared.verify(
+            let result = try await service.verify(
                 request: request
             ) { fraction, message in
-                if !globalOptions.quiet {
+                if chatty {
                     print("\r\(formatter.info(message))", terminator: "")
                     fflush(stdout)
                 }
+            }
+
+            if jsonOutput {
+                let encoder = JSONEncoder()
+                encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+                encoder.dateEncodingStrategy = .iso8601
+                let summary = BlastVerifyCLISummary(result: result)
+                let data = try encoder.encode(summary)
+                print(String(decoding: data, as: UTF8.self))
+                return
             }
 
             // Phase 7: Print results
@@ -502,80 +505,42 @@ private func blastOpenKrakenOutputStream(url: URL) throws -> BlastKrakenOutputSt
     return BlastKrakenOutputStream(fileHandle: fileHandle, process: nil, stderr: nil)
 }
 
-/// Extracts sequences from a FASTQ file for reads matching the given IDs.
+/// JSON shape printed by `lungfish blast verify --format json`.
 ///
-/// Reads the FASTQ file in 4-line record chunks, collecting the sequence
-/// line for each record whose header ID matches the set.
-///
-/// - Parameters:
-///   - sourceURL: Path to the source FASTQ file (plain text).
-///   - matchingIds: Set of read IDs to extract.
-/// - Returns: Array of (id, sequence) tuples for matching reads.
-/// - Throws: If the file cannot be read.
-private func blastExtractSequences(
-    from sourceURL: URL,
-    matchingIds: Set<String>
-) throws -> [(id: String, sequence: String)] {
-    guard let fileHandle = FileHandle(forReadingAtPath: sourceURL.path) else {
-        throw CLIError.inputFileNotFound(path: sourceURL.path)
+/// Carries the summary counts the text output shows plus the full per-read
+/// results, including which mate of each paired fragment was submitted.
+struct BlastVerifyCLISummary: Encodable {
+    let taxonName: String
+    let taxId: Int
+    let totalReads: Int
+    let supporting: Int
+    let contradicting: Int
+    let inconclusive: Int
+    let verified: Int
+    let ambiguous: Int
+    let unverified: Int
+    let errors: Int
+    let confidence: String
+    let rid: String
+    let program: String
+    let database: String
+    let readResults: [BlastReadResult]
+
+    init(result: BlastVerificationResult) {
+        taxonName = result.taxonName
+        taxId = result.taxId
+        totalReads = result.totalReads
+        supporting = result.supportingCount
+        contradicting = result.contradictingCount
+        inconclusive = result.inconclusiveCount
+        verified = result.verifiedCount
+        ambiguous = result.ambiguousCount
+        unverified = result.unverifiedCount
+        errors = result.errorCount
+        confidence = result.confidence.rawValue
+        rid = result.rid
+        program = result.blastProgram
+        database = result.database
+        readResults = result.readResults
     }
-    defer { fileHandle.closeFile() }
-
-    var results: [(id: String, sequence: String)] = []
-    var residual = ""
-    let bufferSize = 4_194_304 // 4 MB chunks
-
-    while true {
-        let chunk = fileHandle.readData(ofLength: bufferSize)
-        if chunk.isEmpty { break }
-
-        guard let text = String(data: chunk, encoding: .utf8) else { continue }
-        let combined = residual + text
-        residual = ""
-
-        // Split into lines, keeping the last partial line as residual
-        var lines = combined.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
-        if !combined.hasSuffix("\n") {
-            residual = lines.removeLast()
-        }
-
-        // Process FASTQ records (4 lines each)
-        var i = 0
-        while i + 3 < lines.count {
-            let header = lines[i]
-            let sequence = lines[i + 1]
-            // lines[i + 2] is the "+" separator
-            // lines[i + 3] is quality scores
-            i += 4
-
-            guard header.hasPrefix("@") else { continue }
-
-            // Extract read ID from header: @readId optional_description
-            let headerBody = header.dropFirst() // remove @
-            let readId: String
-            if let spaceIdx = headerBody.firstIndex(of: " ") {
-                readId = String(headerBody[headerBody.startIndex..<spaceIdx])
-            } else {
-                readId = String(headerBody)
-            }
-
-            // Strip paired-end suffix
-            var normalizedId = readId
-            if normalizedId.hasSuffix("/1") || normalizedId.hasSuffix("/2") {
-                normalizedId = String(normalizedId.dropLast(2))
-            }
-
-            if matchingIds.contains(normalizedId) {
-                results.append((id: normalizedId, sequence: sequence))
-            }
-        }
-
-        // Any unprocessed lines go to residual
-        if i < lines.count {
-            let remaining = lines[i...].joined(separator: "\n")
-            residual = remaining + (residual.isEmpty ? "" : "\n" + residual)
-        }
-    }
-
-    return results
 }

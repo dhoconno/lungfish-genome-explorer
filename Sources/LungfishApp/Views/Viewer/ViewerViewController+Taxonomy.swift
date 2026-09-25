@@ -165,10 +165,15 @@ extension ViewerViewController {
         controller.onBlastVerification = { [weak controller] node, readCount in
             let blastRunID = controller?.beginBlastVerification(for: node)
             let weakController = controller
-            let blastCliCmd = OperationCenter.buildCLICommand(subcommand: "blast verify", args: [
-                "--kreport", capturedOutputURL.path,
-                "--taxid", "\(node.taxId)",
-            ])
+            let blastCliCmd = OperationCenter.buildCLICommand(
+                subcommand: "blast verify",
+                args: blastVerifyCLIArguments(
+                    classResult: result,
+                    sourceURL: capturedSource,
+                    taxId: node.taxId,
+                    readCount: readCount
+                )
+            )
             let opID = OperationCenter.shared.start(
                 title: "BLAST \(node.name)",
                 detail: "Preparing BLAST verification\u{2026}",
@@ -202,6 +207,7 @@ extension ViewerViewController {
                     // sidecar when available (O(k) vs O(n) linear scan).
                     let pipeline = TaxonomyExtractionPipeline()
                     let targetTaxIds = await pipeline.collectDescendantTaxIds(Set([taxId]), tree: tree)
+                    let acceptedTaxonNames = targetTaxIds.compactMap { tree.node(taxId: $0)?.name }.sorted()
 
                     let blastService = BlastService.shared
                     let request: BlastVerificationRequest
@@ -219,7 +225,10 @@ extension ViewerViewController {
                             taxId: taxId,
                             matchingReadIds: matchingReadIds,
                             sourceURL: sourceURL,
-                            readCount: readCount
+                            readCount: readCount,
+                            targetTaxIds: targetTaxIds,
+                            classificationOutputURL: classificationOutput,
+                            acceptedTaxonNames: acceptedTaxonNames
                         )
                     } else {
                         // Slow path: linear scan (index will be built on next classification)
@@ -230,7 +239,8 @@ extension ViewerViewController {
                             targetTaxIds: targetTaxIds,
                             classificationOutputURL: classificationOutput,
                             sourceURL: sourceURL,
-                            readCount: readCount
+                            readCount: readCount,
+                            acceptedTaxonNames: acceptedTaxonNames
                         )
                     }
 
@@ -274,7 +284,7 @@ extension ViewerViewController {
                         MainActor.assumeIsolated {
                             guard OperationCenter.shared.complete(
                                 id: opID,
-                                detail: "\(capturedResult.verifiedCount)/\(capturedResult.readResults.count) reads verified"
+                                detail: blastVerificationCompletionDetail(capturedResult)
                             ) else { return }
                             weakController?.showBlastResults(capturedResult, runID: blastRunID)
                         }
@@ -378,10 +388,15 @@ extension ViewerViewController {
             }
 
             let weakController = controller
-            let blastCliCmd = OperationCenter.buildCLICommand(subcommand: "blast verify", args: [
-                "--kreport", sampleResult.outputURL.path,
-                "--taxid", "\(node.taxId)",
-            ])
+            let blastCliCmd = OperationCenter.buildCLICommand(
+                subcommand: "blast verify",
+                args: blastVerifyCLIArguments(
+                    classResult: sampleResult,
+                    sourceURL: try? ClassifierReadResolver.resolveKraken2PrimarySource(classResult: sampleResult),
+                    taxId: node.taxId,
+                    readCount: readCount
+                )
+            )
             let opID = OperationCenter.shared.start(
                 title: "BLAST \(node.name)",
                 detail: "Preparing BLAST verification\u{2026}",
@@ -413,6 +428,7 @@ extension ViewerViewController {
 
                     let pipeline = TaxonomyExtractionPipeline()
                     let targetTaxIds = await pipeline.collectDescendantTaxIds(Set([taxId]), tree: tree)
+                    let acceptedTaxonNames = targetTaxIds.compactMap { tree.node(taxId: $0)?.name }.sorted()
 
                     let blastService = BlastService.shared
                     let request: BlastVerificationRequest
@@ -427,7 +443,10 @@ extension ViewerViewController {
                             taxId: taxId,
                             matchingReadIds: matchingReadIds,
                             sourceURL: sourceURL,
-                            readCount: readCount
+                            readCount: readCount,
+                            targetTaxIds: targetTaxIds,
+                            classificationOutputURL: classificationOutput,
+                            acceptedTaxonNames: acceptedTaxonNames
                         )
                     } else {
                         request = try await blastService.buildVerificationRequest(
@@ -436,7 +455,8 @@ extension ViewerViewController {
                             targetTaxIds: targetTaxIds,
                             classificationOutputURL: classificationOutput,
                             sourceURL: sourceURL,
-                            readCount: readCount
+                            readCount: readCount,
+                            acceptedTaxonNames: acceptedTaxonNames
                         )
                     }
 
@@ -478,7 +498,7 @@ extension ViewerViewController {
                         MainActor.assumeIsolated {
                             guard OperationCenter.shared.complete(
                                 id: opID,
-                                detail: "\(blastResult.verifiedCount)/\(blastResult.readResults.count) reads verified"
+                                detail: blastVerificationCompletionDetail(blastResult)
                             ) else { return }
                             weakController.showBlastResults(blastResult, runID: blastRunID)
                         }
@@ -549,6 +569,34 @@ private func showTaxonomyExtractionErrorAlert(_ errorDescription: String) {
 }
 
 /// Presents an error alert for a failed BLAST verification request.
+/// Arguments for the `lungfish-cli blast verify` command that reproduces an
+/// in-app BLAST verification. The app always includes descendant taxa.
+func blastVerifyCLIArguments(
+    classResult: ClassificationResult,
+    sourceURL: URL?,
+    taxId: Int,
+    readCount: Int
+) -> [String] {
+    var args = [
+        "--kreport", classResult.reportURL.path,
+        "--kraken-output", classResult.outputURL.path,
+    ]
+    if let sourceURL {
+        args += ["--source", sourceURL.path]
+    }
+    args += ["--taxid", "\(taxId)", "--include-children", "--reads", "\(readCount)"]
+    return args
+}
+
+/// Operations-panel summary for a finished BLAST verification.
+///
+/// Uses the same supporting/contradicting counts as the BLAST Results
+/// drawer. The old "N/M reads verified" text counted alignment quality only,
+/// so it could read "17/20" while the drawer said "0 supporting".
+func blastVerificationCompletionDetail(_ result: BlastVerificationResult) -> String {
+    "\(result.supportingCount) supporting, \(result.contradictingCount) contradicting of \(result.totalReads) reads"
+}
+
 private func showBlastVerificationErrorAlert(_ errorDescription: String) {
     MainActor.assumeIsolated {
         let alert = NSAlert()

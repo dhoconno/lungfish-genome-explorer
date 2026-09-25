@@ -117,19 +117,36 @@ public actor BlastService {
     /// ``KrakenIndexDatabase`` for O(k) indexed access instead of O(n)
     /// linear scanning.
     ///
+    /// Fragments are sampled uniformly at random (seeded, so repeatable).
+    /// When `classificationOutputURL` is given, the Kraken 2 hit string of
+    /// each sampled paired fragment decides which mate is submitted: the
+    /// mate with the most k-mers assigned to `targetTaxIds`.
+    ///
     /// - Parameters:
     ///   - taxonName: Display name of the taxon
     ///   - taxId: NCBI taxonomy ID
     ///   - matchingReadIds: Pre-fetched read IDs for the target taxon(s)
     ///   - sourceURL: Path to source FASTQ file
     ///   - readCount: Number of reads to subsample (default 20)
+    ///   - targetTaxIds: The taxon (and descendants when requested) whose
+    ///     k-mer hits count as evidence for mate selection and verdicts.
+    ///     Defaults to `[taxId]` when empty.
+    ///   - classificationOutputURL: Kraken 2 per-read output, used to read
+    ///     hit strings for the sampled fragments.
+    ///   - acceptedTaxonNames: Names of the taxa in `targetTaxIds`, used to
+    ///     match BLAST hit organisms that name the taxon differently.
+    ///   - seed: Sampling seed.
     /// - Returns: A ready-to-submit BlastVerificationRequest
     public func buildVerificationRequestFromReadIds(
         taxonName: String,
         taxId: Int,
         matchingReadIds: Set<String>,
         sourceURL: URL,
-        readCount: Int = 20
+        readCount: Int = 20,
+        targetTaxIds: Set<Int> = [],
+        classificationOutputURL: URL? = nil,
+        acceptedTaxonNames: [String] = [],
+        seed: UInt64 = 0
     ) async throws -> BlastVerificationRequest {
         logger.info("buildVerificationRequestFromReadIds: taxon=\(taxonName, privacy: .public) taxId=\(taxId, privacy: .public) matchingReadIds=\(matchingReadIds.count, privacy: .public) readCount=\(readCount, privacy: .public)")
         logger.info("buildVerificationRequestFromReadIds: sourceURL=\(sourceURL.path, privacy: .public)")
@@ -142,19 +159,25 @@ public actor BlastService {
         return try await extractSequencesAndBuild(
             taxonName: taxonName,
             taxId: taxId,
-            matchingReadIds: matchingReadIds,
+            matchingReadIds: Set(matchingReadIds.map { Self.normalizeFragmentId($0).id }),
             sourceURL: sourceURL,
-            readCount: readCount
+            readCount: readCount,
+            targetTaxIds: targetTaxIds.isEmpty ? [taxId] : targetTaxIds,
+            classificationOutputURL: classificationOutputURL,
+            acceptedTaxonNames: acceptedTaxonNames,
+            seed: seed
         )
     }
 
     /// Builds a BLAST verification request by subsampling reads from classification output.
     ///
     /// This is a convenience method that handles:
-    /// 1. Scanning the Kraken2 per-read output for matching read IDs
-    /// 2. Extracting sequences from the source FASTQ
-    /// 3. Subsampling to the requested count
-    /// 4. Building the BlastVerificationRequest
+    /// 1. Scanning the Kraken2 per-read output for matching fragment IDs
+    /// 2. Drawing an unbiased, seeded random sample of those fragments
+    /// 3. Choosing, for each paired fragment, the mate that carries the
+    ///    taxon's k-mer evidence according to the Kraken 2 hit string
+    /// 4. Extracting those sequences from the source FASTQ
+    /// 5. Building the BlastVerificationRequest
     ///
     /// - Parameters:
     ///   - taxonName: Display name of the taxon
@@ -163,6 +186,8 @@ public actor BlastService {
     ///   - classificationOutputURL: Path to Kraken2 per-read output
     ///   - sourceURL: Path to source FASTQ file
     ///   - readCount: Number of reads to subsample (default 20)
+    ///   - acceptedTaxonNames: Names of the taxa in `targetTaxIds`.
+    ///   - seed: Sampling seed.
     /// - Returns: A ready-to-submit BlastVerificationRequest
     public func buildVerificationRequest(
         taxonName: String,
@@ -170,7 +195,9 @@ public actor BlastService {
         targetTaxIds: Set<Int>,
         classificationOutputURL: URL,
         sourceURL: URL,
-        readCount: Int = 20
+        readCount: Int = 20,
+        acceptedTaxonNames: [String] = [],
+        seed: UInt64 = 0
     ) async throws -> BlastVerificationRequest {
         logger.info("buildVerificationRequest: taxon=\(taxonName, privacy: .public) taxId=\(taxId, privacy: .public) targetTaxIds=\(targetTaxIds.count, privacy: .public) readCount=\(readCount, privacy: .public)")
         logger.info("buildVerificationRequest: classificationOutput=\(classificationOutputURL.path, privacy: .public)")
@@ -202,7 +229,11 @@ public actor BlastService {
             taxId: taxId,
             matchingReadIds: matchingReadIds,
             sourceURL: sourceURL,
-            readCount: readCount
+            readCount: readCount,
+            targetTaxIds: targetTaxIds.isEmpty ? [taxId] : targetTaxIds,
+            classificationOutputURL: classificationOutputURL,
+            acceptedTaxonNames: acceptedTaxonNames,
+            seed: seed
         )
     }
 
@@ -229,22 +260,23 @@ public actor BlastService {
         )
     }
 
-    private func scanKrakenClassificationOutput(
-        _ classificationOutputURL: URL,
-        targetTaxIds: Set<Int>
-    ) throws -> (matchingReadIds: Set<String>, totalClassified: Int) {
-        let isGzip = classificationOutputURL.pathExtension.lowercased() == "gz"
+    /// Streams the lines of a plain or gzip-compressed Kraken 2 output file.
+    private func forEachKrakenOutputLine(
+        _ url: URL,
+        _ body: (Substring) -> Void
+    ) throws {
+        let isGzip = url.pathExtension.lowercased() == "gz"
         let fileHandle: FileHandle
         let gzipProcess: Process?
         let gzipStderr: Pipe?
 
         if isGzip {
-            let stream = try launchGzipDecompression(for: classificationOutputURL)
+            let stream = try launchGzipDecompression(for: url)
             fileHandle = stream.handle
             gzipProcess = stream.process
             gzipStderr = stream.stderr
         } else {
-            guard let handle = FileHandle(forReadingAtPath: classificationOutputURL.path) else {
+            guard let handle = FileHandle(forReadingAtPath: url.path) else {
                 throw BlastServiceError.noSequences
             }
             fileHandle = handle
@@ -252,10 +284,15 @@ public actor BlastService {
             gzipStderr = nil
         }
 
-        var matchingReadIds = Set<String>()
-        var totalClassified = 0
         var residual = Data()
         let bufferSize = 1_048_576
+
+        func emit(_ data: Data) {
+            guard let text = String(data: data, encoding: .utf8) else { return }
+            for line in text.split(separator: "\n") {
+                body(line)
+            }
+        }
 
         while true {
             let chunk = fileHandle.readData(ofLength: bufferSize)
@@ -273,24 +310,11 @@ public actor BlastService {
                 residual = data
                 continue
             }
-
-            if let text = String(data: data, encoding: .utf8) {
-                collectKrakenBlastReadIds(
-                    from: text,
-                    targetTaxIds: targetTaxIds,
-                    matchingReadIds: &matchingReadIds,
-                    totalClassified: &totalClassified
-                )
-            }
+            emit(data)
         }
 
-        if !residual.isEmpty, let text = String(data: residual, encoding: .utf8) {
-            collectKrakenBlastReadIds(
-                from: text,
-                targetTaxIds: targetTaxIds,
-                matchingReadIds: &matchingReadIds,
-                totalClassified: &totalClassified
-            )
+        if !residual.isEmpty {
+            emit(residual)
         }
 
         fileHandle.closeFile()
@@ -298,78 +322,141 @@ public actor BlastService {
             gzipProcess.waitUntilExit()
             guard gzipProcess.terminationStatus == 0 else {
                 throw Self.gzipFailure(
-                    path: classificationOutputURL.path,
+                    path: url.path,
                     status: gzipProcess.terminationStatus,
                     stderr: gzipStderr
                 )
             }
         }
-
-        return (matchingReadIds, totalClassified)
     }
 
-    private func collectKrakenBlastReadIds(
-        from text: String,
-        targetTaxIds: Set<Int>,
-        matchingReadIds: inout Set<String>,
-        totalClassified: inout Int
-    ) {
-        for line in text.split(separator: "\n") {
+    private func scanKrakenClassificationOutput(
+        _ classificationOutputURL: URL,
+        targetTaxIds: Set<Int>
+    ) throws -> (matchingReadIds: Set<String>, totalClassified: Int) {
+        var matchingReadIds = Set<String>()
+        var totalClassified = 0
+        try forEachKrakenOutputLine(classificationOutputURL) { line in
             let cols = line.split(separator: "\t", maxSplits: 3)
-            guard cols.count >= 3, cols[0] == "C" else { continue }
+            guard cols.count >= 3, cols[0] == "C" else { return }
             totalClassified += 1
             if let tid = Int(cols[2].trimmingCharacters(in: .whitespaces)),
                targetTaxIds.contains(tid) {
-                var readId = String(cols[1].trimmingCharacters(in: .whitespaces))
-                if readId.hasSuffix("/1") || readId.hasSuffix("/2") {
-                    readId = String(readId.dropLast(2))
-                }
-                matchingReadIds.insert(readId)
+                let readId = cols[1].trimmingCharacters(in: .whitespaces)
+                matchingReadIds.insert(Self.normalizeFragmentId(readId).id)
             }
         }
+        return (matchingReadIds, totalClassified)
     }
 
-    /// Shared implementation: extracts sequences from FASTQ, subsamples, and builds the request.
+    /// Reads the Kraken 2 hit strings (column 5) for the given fragment IDs.
+    private func lookupKrakenHitStrings(
+        _ classificationOutputURL: URL,
+        fragmentIds: Set<String>
+    ) throws -> [String: String] {
+        var hitStrings: [String: String] = [:]
+        try forEachKrakenOutputLine(classificationOutputURL) { line in
+            guard hitStrings.count < fragmentIds.count else { return }
+            let cols = line.split(separator: "\t", maxSplits: 4, omittingEmptySubsequences: false)
+            guard cols.count >= 5 else { return }
+            let id = Self.normalizeFragmentId(cols[1].trimmingCharacters(in: .whitespaces)).id
+            guard fragmentIds.contains(id) else { return }
+            hitStrings[id] = String(cols[4])
+        }
+        return hitStrings
+    }
+
+    /// Shared implementation: samples fragments, picks the evidence-carrying
+    /// mate of each, extracts sequences, and builds the request.
+    ///
+    /// Sampling happens on fragment IDs before any sequence is read, so
+    /// neither read length nor position in the FASTQ can bias it.
     private func extractSequencesAndBuild(
         taxonName: String,
         taxId: Int,
         matchingReadIds: Set<String>,
         sourceURL: URL,
-        readCount: Int
+        readCount: Int,
+        targetTaxIds: Set<Int>,
+        classificationOutputURL: URL?,
+        acceptedTaxonNames: [String],
+        seed: UInt64
     ) async throws -> BlastVerificationRequest {
+        let sampledIds = sampleFragmentIds(matchingReadIds, count: readCount, seed: seed)
+        let sampledSet = Set(sampledIds)
+        logger.info("extractSequencesAndBuild: sampled \(sampledIds.count, privacy: .public) of \(matchingReadIds.count, privacy: .public) fragments (seed \(seed, privacy: .public))")
 
-        // Extract sequences from FASTQ (handles both raw and gzip-compressed files)
+        // Hit strings decide which mate of a pair carries the taxon's evidence.
+        var hitStrings: [String: String] = [:]
+        if let classificationOutputURL,
+           FileManager.default.fileExists(atPath: classificationOutputURL.path) {
+            do {
+                hitStrings = try lookupKrakenHitStrings(classificationOutputURL, fragmentIds: sampledSet)
+            } catch {
+                logger.warning("extractSequencesAndBuild: could not read Kraken hit strings: \(error.localizedDescription, privacy: .public); submitting mate 1")
+            }
+        }
+
         let sourceExists = FileManager.default.fileExists(atPath: sourceURL.path)
         let isGzip = sourceURL.pathExtension.lowercased() == "gz"
         logger.info("buildVerificationRequest: source FASTQ exists=\(sourceExists, privacy: .public) gzip=\(isGzip, privacy: .public)")
 
         // Extract sequences from FASTQ, with retry for gzip subprocess failures.
-        // The gzip subprocess can be killed by macOS XPC interruptions, so we
-        // retry once before giving up.
-        let allSequences = try await extractMatchingSequences(
+        let records = try await extractMatchingSequences(
             from: sourceURL,
-            matchingReadIds: matchingReadIds,
+            matchingReadIds: sampledSet,
             isGzip: isGzip
         )
 
-        logger.info("extractSequencesAndBuild: extracted \(allSequences.count, privacy: .public) sequences from FASTQ (matched \(matchingReadIds.count, privacy: .public) read IDs)")
+        // Group records by fragment and number the mates. An explicit /1, /2
+        // or CASAVA marker wins. Otherwise order of appearance decides, which
+        // is how an interleaved file stores a pair.
+        var matesById: [String: [Int: String]] = [:]
+        for record in records {
+            var mates = matesById[record.id, default: [:]]
+            let mate = record.mate ?? ((mates.keys.max() ?? 0) + 1)
+            if mates[mate] == nil {
+                mates[mate] = record.sequence
+            }
+            matesById[record.id] = mates
+        }
 
-        guard !allSequences.isEmpty else {
+        logger.info("extractSequencesAndBuild: extracted \(records.count, privacy: .public) FASTQ records for \(matesById.count, privacy: .public) sampled fragments")
+
+        var sequences: [(id: String, sequence: String)] = []
+        var sequenceMates: [String: Int] = [:]
+        for id in sampledIds {
+            guard let mates = matesById[id], !mates.isEmpty else { continue }
+            var mate = 1
+            if let hitString = hitStrings[id] {
+                mate = KrakenMateEvidence(hitString: hitString, targetTaxIds: targetTaxIds).preferredMate
+            }
+            if mates[mate] == nil {
+                mate = mates.keys.min() ?? 1
+            }
+            guard let sequence = mates[mate] else { continue }
+            sequences.append((id: id, sequence: sequence))
+            if mates.count > 1 || hitStrings[id]?.contains("|:|") == true {
+                sequenceMates[id] = mate
+            }
+        }
+
+        guard !sequences.isEmpty else {
             logger.error("extractSequencesAndBuild: found \(matchingReadIds.count, privacy: .public) matching read IDs but 0 sequences in FASTQ — source file may be missing or read IDs may not match")
             throw BlastServiceError.noSequences
         }
 
-        // Subsample
-        let strategy = SubsampleStrategy.mixed(longest: min(5, readCount / 4), random: readCount - min(5, readCount / 4))
-        let subsampled = subsampleReads(from: allSequences, strategy: strategy)
-
-        logger.info("buildVerificationRequest: subsampled to \(subsampled.count, privacy: .public) reads")
+        let mate2Count = sequenceMates.values.filter { $0 == 2 }.count
+        logger.info("buildVerificationRequest: submitting \(sequences.count, privacy: .public) reads (\(mate2Count, privacy: .public) as mate 2)")
 
         return BlastVerificationRequest(
             taxonName: taxonName,
             taxId: taxId,
-            sequences: subsampled,
-            entrezQuery: nil
+            sequences: sequences,
+            entrezQuery: nil,
+            sequenceMates: sequenceMates,
+            acceptedTaxIds: targetTaxIds,
+            acceptedTaxonNames: acceptedTaxonNames
         )
     }
 
@@ -443,7 +530,10 @@ public actor BlastService {
             searchResults: searchResults,
             eValueThreshold: request.eValueThreshold,
             sequenceMap: sequenceMap,
-            queriedTaxonName: request.taxonName
+            queriedTaxonName: request.taxonName,
+            sequenceMates: request.sequenceMates,
+            acceptedTaxIds: request.acceptedTaxIds,
+            acceptedTaxonNames: request.acceptedTaxonNames
         )
 
         let completedAt = Date()
@@ -476,16 +566,17 @@ public actor BlastService {
     ///   - sourceURL: Path to the FASTQ file (raw or .gz)
     ///   - matchingReadIds: Set of read IDs to extract
     ///   - isGzip: Whether the file is gzip-compressed
-    /// - Returns: Array of (id, sequence) pairs
+    /// - Returns: Every matching FASTQ record as (fragment id, declared mate
+    ///   number if the header carries one, sequence), in file order.
     private func extractMatchingSequences(
         from sourceURL: URL,
         matchingReadIds: Set<String>,
         isGzip: Bool
-    ) async throws -> [(id: String, sequence: String)] {
+    ) async throws -> [(id: String, mate: Int?, sequence: String)] {
         let maxAttempts = isGzip ? 2 : 1  // Retry only for gzip (subprocess can fail)
 
         for attempt in 1...maxAttempts {
-            let sequences: [(id: String, sequence: String)]
+            let sequences: [(id: String, mate: Int?, sequence: String)]
             do {
                 sequences = try extractMatchingSequencesOnce(
                     from: sourceURL,
@@ -521,8 +612,8 @@ public actor BlastService {
         from sourceURL: URL,
         matchingReadIds: Set<String>,
         isGzip: Bool
-    ) throws -> [(id: String, sequence: String)] {
-        var allSequences: [(id: String, sequence: String)] = []
+    ) throws -> [(id: String, mate: Int?, sequence: String)] {
+        var allSequences: [(id: String, mate: Int?, sequence: String)] = []
         let handle: FileHandle?
         var gzipProcess: Process?
         var gzipStderr: Pipe?
@@ -578,13 +669,14 @@ public actor BlastService {
                     if lineBuffer.count == 4 {
                         if lineBuffer[0].hasPrefix("@") {
                             totalRecords += 1
-                            var readId = String(lineBuffer[0].dropFirst())
-                                .split(separator: " ", maxSplits: 1).first.map(String.init) ?? ""
-                            if readId.hasSuffix("/1") || readId.hasSuffix("/2") {
-                                readId = String(readId.dropLast(2))
-                            }
+                            let headerFields = lineBuffer[0].dropFirst()
+                                .split(separator: " ", maxSplits: 1)
+                            let (readId, idMate) = Self.normalizeFragmentId(headerFields.first ?? "")
                             if matchingReadIds.contains(readId) {
-                                allSequences.append((id: readId, sequence: lineBuffer[1]))
+                                let mate = idMate ?? (headerFields.count > 1
+                                    ? Self.mateFromDescription(headerFields[1])
+                                    : nil)
+                                allSequences.append((id: readId, mate: mate, sequence: lineBuffer[1]))
                             }
                         }
                         lineBuffer.removeAll(keepingCapacity: true)
@@ -881,19 +973,30 @@ public actor BlastService {
     ///   - searchResults: Parsed BLAST search results
     ///   - eValueThreshold: E-value threshold for significance
     ///   - sequenceMap: Mapping from read ID to original query sequence (default: empty)
+    ///   - sequenceMates: Mapping from read ID to the mate (1 or 2) submitted
+    ///     for a paired fragment.
+    ///   - acceptedTaxIds: Tax IDs that count as the queried taxon when a
+    ///     BLAST hit reports its taxid (the taxon and, when requested, its clade).
+    ///   - acceptedTaxonNames: Other names for the queried taxon or its clade.
     /// - Returns: Array of per-read verification results
     nonisolated func assignVerdicts(
         searchResults: [BlastSearchResult],
         eValueThreshold: Double,
         sequenceMap: [String: String] = [:],
-        queriedTaxonName: String = ""
+        queriedTaxonName: String = "",
+        sequenceMates: [String: Int] = [:],
+        acceptedTaxIds: Set<Int> = [],
+        acceptedTaxonNames: [String] = []
     ) -> [BlastReadResult] {
         searchResults.map { result in
             assignVerdict(
                 for: result,
                 eValueThreshold: eValueThreshold,
                 sequenceMap: sequenceMap,
-                queriedTaxonName: queriedTaxonName
+                queriedTaxonName: queriedTaxonName,
+                sequenceMates: sequenceMates,
+                acceptedTaxIds: acceptedTaxIds,
+                acceptedTaxonNames: acceptedTaxonNames
             )
         }
     }
@@ -907,7 +1010,10 @@ public actor BlastService {
         for result: BlastSearchResult,
         eValueThreshold: Double,
         sequenceMap: [String: String],
-        queriedTaxonName: String
+        queriedTaxonName: String,
+        sequenceMates: [String: Int] = [:],
+        acceptedTaxIds: Set<Int> = [],
+        acceptedTaxonNames: [String] = []
     ) -> BlastReadResult {
         // Find the best HSP across all hits
         guard let topHit = result.hits.first,
@@ -916,7 +1022,8 @@ public actor BlastService {
             return BlastReadResult(
                 id: result.queryId,
                 verdict: .unverified,
-                querySequence: sequenceMap[result.queryId]
+                querySequence: sequenceMap[result.queryId],
+                submittedMate: sequenceMates[result.queryId]
             )
         }
 
@@ -948,9 +1055,12 @@ public actor BlastService {
 
         // Determine whether the top hit matches the queried taxon
         let hitOrganism = topHit.organism ?? topHit.title
-        let matchesQueriedTaxon = Self.organismMatchesTaxon(
+        let matchesQueriedTaxon = Self.hitMatchesQueriedTaxon(
             hitOrganism: hitOrganism,
-            queriedTaxonName: queriedTaxonName
+            hitTaxId: topHit.taxId,
+            queriedTaxonName: queriedTaxonName,
+            acceptedTaxIds: acceptedTaxIds,
+            acceptedTaxonNames: acceptedTaxonNames
         )
 
         return BlastReadResult(
@@ -966,8 +1076,39 @@ public actor BlastService {
             topHits: topHits,
             querySequence: sequenceMap[result.queryId],
             hasLCADisagreement: hasLCADisagreement,
-            matchesQueriedTaxon: matchesQueriedTaxon
+            matchesQueriedTaxon: matchesQueriedTaxon,
+            submittedMate: sequenceMates[result.queryId]
         )
+    }
+
+    /// Whether a BLAST top hit supports the queried taxon.
+    ///
+    /// A hit supports the taxon when its taxid is one of `acceptedTaxIds`,
+    /// when its organism matches the queried name (see
+    /// ``organismMatchesTaxon(hitOrganism:queriedTaxonName:)``), or when its
+    /// organism name contains one of `acceptedTaxonNames`. The last two
+    /// checks matter because NCBI renamed many virus species to binomials:
+    /// Kraken 2 may report "Simplexvirus humanalpha1" while nt records name
+    /// the same virus "Human alphaherpesvirus 1".
+    static nonisolated func hitMatchesQueriedTaxon(
+        hitOrganism: String,
+        hitTaxId: Int?,
+        queriedTaxonName: String,
+        acceptedTaxIds: Set<Int>,
+        acceptedTaxonNames: [String]
+    ) -> Bool {
+        if let hitTaxId, acceptedTaxIds.contains(hitTaxId) {
+            return true
+        }
+        if organismMatchesTaxon(hitOrganism: hitOrganism, queriedTaxonName: queriedTaxonName) {
+            return true
+        }
+        let hitLower = hitOrganism.lowercased()
+        guard !hitLower.isEmpty else { return false }
+        return acceptedTaxonNames.contains { name in
+            let nameLower = name.lowercased()
+            return !nameLower.isEmpty && hitLower.contains(nameLower)
+        }
     }
 
     /// Builds an array of ``BlastHitSummary`` from up to `maxCount` hits.
