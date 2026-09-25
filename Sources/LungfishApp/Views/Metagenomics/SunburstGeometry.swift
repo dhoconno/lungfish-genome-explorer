@@ -322,6 +322,8 @@ public struct SunburstLayout {
 
         var currentAngle = startAngle
         var otherAngle: CGFloat = 0
+        var otherReads = 0
+        var otherCount = 0
 
         // Sort children by clade count descending for visual stability
         let sortedChildren = parent.children.sorted { $0.readsClade > $1.readsClade }
@@ -336,6 +338,8 @@ public struct SunburstLayout {
             let cladeToRoot = Double(child.readsClade) / rootClade
             if childSpan < minAngleRad || cladeToRoot < minFractionToShow {
                 otherAngle += childSpan
+                otherReads += child.readsClade
+                otherCount += 1
                 continue
             }
 
@@ -363,20 +367,53 @@ public struct SunburstLayout {
             currentAngle += childSpan
         }
 
-        // Aggregate "Other" segments
+        // Aggregate the children too small to draw into one wedge. It sits in
+        // the children's ring, inside the parent's angular range, and carries
+        // the summed clade reads so the parent's mass is fully accounted for:
+        // drawn children + this wedge + the parent's direct-read gap.
         if otherAngle > 0 {
             let otherSegment = SunburstSegment(
-                node: parent,  // parent as placeholder
+                node: Self.aggregateNode(under: parent, reads: otherReads, taxa: otherCount, tree: tree),
                 ring: ring,
                 innerRadius: innerRadius(forRing: ring),
                 outerRadius: outerRadius(forRing: ring),
                 startAngle: currentAngle,
                 endAngle: currentAngle + otherAngle,
-                color: PhylumPalette.otherColor,
+                color: Self.aggregateColor(under: parent),
                 isOther: true
             )
             segments.append(otherSegment)
         }
+    }
+
+    /// The rank code carried by an aggregate wedge's synthetic node.
+    public static let aggregateRankCode = "Aggregated"
+
+    /// Builds the synthetic node behind an aggregate ("Other") wedge.
+    ///
+    /// The node keeps the parent's taxId so table-filter dimming treats the
+    /// wedge like its parent, and it is never linked into the tree.
+    static func aggregateNode(under parent: TaxonNode, reads: Int, taxa: Int, tree: TaxonTree) -> TaxonNode {
+        let total = Double(max(tree.totalReads, 1))
+        return TaxonNode(
+            taxId: parent.taxId,
+            name: "\(taxa) smaller \(taxa == 1 ? "taxon" : "taxa") under \(parent.name)",
+            rank: TaxonomicRank(code: aggregateRankCode),
+            depth: parent.depth + 1,
+            readsDirect: 0,
+            readsClade: reads,
+            fractionClade: Double(reads) / total,
+            fractionDirect: 0,
+            parentTaxId: parent.taxId
+        )
+    }
+
+    /// The fill for an aggregate wedge: the parent's hue one tint lighter and
+    /// translucent, so it reads as unresolved children of that parent rather
+    /// than as a foreign grey object.
+    static func aggregateColor(under parent: TaxonNode) -> NSColor {
+        PhylumPalette.tintedColor(base: PhylumPalette.color(for: parent), depthBelowPhylum: 1)
+            .withAlphaComponent(0.55)
     }
 }
 

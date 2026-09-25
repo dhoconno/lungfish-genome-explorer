@@ -25,7 +25,7 @@ import LungfishKit
 /// | Reads | Cumulative clade read count |
 /// | Direct | Reads assigned exactly to this taxon |
 /// | Bracken | Reads re-estimated by Bracken (hidden unless Bracken ran) |
-/// | % | Clade reads as percent of classified |
+/// | % | Clade reads as percent of all reads (unclassified included) |
 ///
 /// ## Keyboard Shortcuts
 ///
@@ -326,7 +326,7 @@ public class TaxonomyTableView: NSView, NSOutlineViewDataSource, NSOutlineViewDe
         // Percent column
         let pctCol = NSTableColumn(identifier: NSUserInterfaceItemIdentifier(ColumnID.percent))
         pctCol.title = "%"
-        pctCol.headerToolTip = "Percent of classified reads represented by this clade."
+        pctCol.headerToolTip = "Clade reads as a percent of all reads in the sample, unclassified reads included."
         pctCol.width = 55
         pctCol.minWidth = 40
         pctCol.sortDescriptorPrototype = NSSortDescriptor(key: ColumnID.percent, ascending: false)
