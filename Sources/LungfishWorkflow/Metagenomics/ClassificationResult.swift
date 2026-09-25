@@ -161,7 +161,7 @@ public struct ClassificationResult: Sendable {
 private let classificationResultFilename = "classification-result.json"
 
 extension ClassificationResult {
-    static var sidecarFilename: String {
+    public static var sidecarFilename: String {
         classificationResultFilename
     }
 

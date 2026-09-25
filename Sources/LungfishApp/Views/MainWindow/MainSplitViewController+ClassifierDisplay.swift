@@ -351,6 +351,15 @@ extension MainSplitViewController {
             let dbURL = batchURL.appendingPathComponent("kraken2.sqlite")
             if FileManager.default.fileExists(atPath: dbURL.path),
                let db = try? Kraken2Database(at: dbURL) {
+                // A database from the older builder can hold Bracken's
+                // species-only report as the tree, keyed by a file stem.
+                // Rebuild it from the folder's reports once before display.
+                if Self.shouldRebuildStaleKraken2Database(db, resultURL: batchURL) {
+                    Kraken2StaleDatabaseRebuilds.markAttempted(batchURL)
+                    mainSplitLogger.info("displayBatchGroup: Rebuilding stale kraken2.sqlite in '\(dirName, privacy: .public)'")
+                    showDatabaseBuildPlaceholder(tool: "Kraken2", resultURL: batchURL)
+                    return
+                }
                 viewerController.displayTaxonomyFromDatabase(db: db, resultURL: batchURL)
                 if let taxonomyVC = viewerController.taxonomyViewController {
                     // Load sample metadata from the bundle if available
@@ -397,6 +406,15 @@ extension MainSplitViewController {
                     parameters: params,
                     timestamp: manifest.header.createdAt,
                     sourceSamples: sourceSamples
+                )
+            } else if let details = Self.singleKraken2ResultInspectorDetails(resultURL: batchURL) {
+                // A single result has no batch manifest; its database and
+                // parameters live in classification-result.json.
+                self.inspectorController?.updateBatchOperationDetails(
+                    tool: "Kraken2",
+                    parameters: details.parameters,
+                    timestamp: details.timestamp,
+                    sourceSamples: details.sourceSamples
                 )
             }
             // Kraken2 batch always reads from its own per-result sidecars; no separate
@@ -753,6 +771,84 @@ extension MainSplitViewController {
             .filter { $0.lastPathComponent != AnalysesFolder.metadataFilename }
             .sorted { $0.lastPathComponent < $1.lastPathComponent }
             .first
+    }
+
+    /// Inspector details for a single (non-batch) Kraken 2 result, read from
+    /// its `classification-result.json` without re-parsing the report.
+    nonisolated static func singleKraken2ResultInspectorDetails(
+        resultURL: URL
+    ) -> (parameters: [String: String], timestamp: Date?, sourceSamples: [(sampleId: String, bundleURL: URL?)])? {
+        let sidecarURL = resultURL.appendingPathComponent(ClassificationResult.sidecarFilename)
+        guard let data = try? Data(contentsOf: sidecarURL),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let config = object["config"] as? [String: Any] else {
+            return nil
+        }
+        var parameters: [String: String] = [:]
+        let databaseName = (config["databaseName"] as? String) ?? ""
+        let databaseVersion = (config["databaseVersion"] as? String) ?? ""
+        let database = "\(databaseName) \(databaseVersion)".trimmingCharacters(in: .whitespaces)
+        if !database.isEmpty { parameters["Database"] = database }
+        if let goal = config["goal"] as? String { parameters["Goal"] = goal }
+        if let toolVersion = object["toolVersion"] as? String, !toolVersion.isEmpty {
+            parameters["Tool Version"] = "Kraken2 \(toolVersion)"
+        }
+        if let profile = object["profileOutcome"] as? [String: Any],
+           let brackenVersion = profile["toolVersion"] as? String, !brackenVersion.isEmpty {
+            parameters["Bracken Version"] = brackenVersion
+        }
+        if let confidence = config["confidence"] as? Double {
+            parameters["Confidence"] = String(format: "%.2f", confidence)
+        }
+        if let hitGroups = config["minimumHitGroups"] as? Int { parameters["Min Hit Groups"] = "\(hitGroups)" }
+        if let threads = config["threads"] as? Int { parameters["Threads"] = "\(threads)" }
+        if let runtime = object["runtime"] as? Double {
+            let seconds = Int(runtime.rounded())
+            parameters["Runtime"] = seconds < 60 ? "\(seconds)s" : "\(seconds / 60)m \(seconds % 60)s"
+        }
+        let timestamp = (object["savedAt"] as? String).flatMap { ISO8601DateFormatter().date(from: $0) }
+
+        let inputStrings = ((config["originalInputFiles"] as? [String]) ?? [])
+            + ((config["inputFiles"] as? [String]) ?? [])
+        let bundleURL = inputStrings.lazy
+            .compactMap { URL(string: $0) }
+            .compactMap { url -> URL? in
+                var current = url.standardizedFileURL
+                for _ in 0..<3 {
+                    if current.pathExtension.lowercased() == FASTQBundle.directoryExtension { return current }
+                    current = current.deletingLastPathComponent()
+                }
+                return nil
+            }
+            .first
+        let sampleName = (config["sampleDisplayName"] as? String)
+            ?? bundleURL?.deletingPathExtension().lastPathComponent
+        let existingBundleURL = bundleURL.flatMap { FASTQBundle.isBundleURL($0) ? $0 : nil }
+        let sourceSamples: [(sampleId: String, bundleURL: URL?)] = sampleName.map { [($0, existingBundleURL)] } ?? []
+        return (parameters, timestamp, sourceSamples)
+    }
+
+    /// Whether a Kraken 2 database was built by the older builder (format 1,
+    /// which could take Bracken's report as the tree) and can be rebuilt from
+    /// the reports still in `resultURL`. Each folder is rebuilt at most once
+    /// per session so a failing rebuild cannot loop.
+    static func shouldRebuildStaleKraken2Database(_ db: Kraken2Database, resultURL: URL) -> Bool {
+        guard db.needsRebuild, !Kraken2StaleDatabaseRebuilds.wasAttempted(resultURL) else { return false }
+        return kraken2DatabaseSourcesAvailable(in: resultURL)
+    }
+
+    /// Whether `resultURL` still holds the Kraken 2 reports `build-db` needs.
+    nonisolated static func kraken2DatabaseSourcesAvailable(in resultURL: URL) -> Bool {
+        let fm = FileManager.default
+        if let manifest = MetagenomicsBatchResultStore.loadClassification(from: resultURL) {
+            return manifest.samples.contains { record in
+                let kreport = resultURL
+                    .appendingPathComponent(record.resultDirectory, isDirectory: true)
+                    .appendingPathComponent("classification.kreport")
+                return fm.fileExists(atPath: kreport.path)
+            }
+        }
+        return fm.fileExists(atPath: resultURL.appendingPathComponent("classification.kreport").path)
     }
 
     nonisolated static func classifierDatabaseBuildSampleDirectories(tool: String, resultURL: URL) throws -> [URL] {
@@ -1238,5 +1334,21 @@ enum TaxTriageStaleDatabaseRebuilds {
 
     static func shouldAttempt(for databaseURL: URL) -> Bool {
         attempted.insert(databaseURL.standardizedFileURL.path).inserted
+    }
+}
+
+/// Result folders whose stale `kraken2.sqlite` was already sent for a rebuild
+/// this session, so a rebuild that fails or still reports an old format does
+/// not re-trigger on every display.
+@MainActor
+enum Kraken2StaleDatabaseRebuilds {
+    private static var attempted: Set<String> = []
+
+    static func wasAttempted(_ resultURL: URL) -> Bool {
+        attempted.contains(resultURL.standardizedFileURL.path)
+    }
+
+    static func markAttempted(_ resultURL: URL) {
+        attempted.insert(resultURL.standardizedFileURL.path)
     }
 }

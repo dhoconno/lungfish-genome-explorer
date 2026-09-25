@@ -126,18 +126,68 @@ extension BuildDbCommand {
         )
 
         let writer = ProvenanceWriter()
-        try writer.write(envelope, to: resultURL)
+        try writeFolderProvenance(envelope, tool: tool, resultURL: resultURL, writer: writer)
         for output in envelope.outputs {
             let outputURL = URL(fileURLWithPath: output.path)
             let focused = envelope.focusedOnOutput(output)
             var isDirectory: ObjCBool = false
             if FileManager.default.fileExists(atPath: outputURL.path, isDirectory: &isDirectory),
                isDirectory.boolValue {
+                guard mayReplaceProvenance(ProvenanceRecorder.loadEnvelope(from: outputURL), tool: tool) else {
+                    continue
+                }
                 try writer.write(focused, to: outputURL)
             } else {
-                try writer.write(focused, toSidecar: ProvenanceRecorder.fileSidecarURL(for: outputURL))
+                let sidecarURL = ProvenanceRecorder.fileSidecarURL(for: outputURL)
+                guard mayReplaceProvenance(ProvenanceRecorder.loadEnvelope(fromSidecar: sidecarURL), tool: tool) else {
+                    continue
+                }
+                try writer.write(focused, toSidecar: sidecarURL)
             }
         }
+    }
+
+    /// Whether build-db may write over `existing`: only when there is none or
+    /// it is an earlier envelope from this same build-db tool. A result
+    /// folder's provenance describes the classifier run that produced it
+    /// (Kraken 2 and Bracken versions, database, parameters); building the
+    /// viewer's SQLite index must never replace that record.
+    static func mayReplaceProvenance(_ existing: ProvenanceEnvelope?, tool: BuildDbProvenanceTool) -> Bool {
+        guard let existing else { return true }
+        return existing.workflowName == tool.workflowName
+    }
+
+    /// Writes the result folder's `.lungfish-provenance.json` only when doing
+    /// so cannot destroy the classifier run's record.
+    ///
+    /// - Another workflow's envelope (the classifier run): left untouched. The
+    ///   build-db run is still recorded in `kraken2.sqlite`'s own sidecar.
+    /// - A single Kraken 2 result folder with no envelope, or with one an
+    ///   older build-db wrote over the run's record: the run envelope is
+    ///   rebuilt from `classification-result.json`.
+    /// - Otherwise (a bare or imported folder, a batch root, or a failed
+    ///   rebuild): the build-db envelope is written, as before.
+    private static func writeFolderProvenance(
+        _ envelope: ProvenanceEnvelope,
+        tool: BuildDbProvenanceTool,
+        resultURL: URL,
+        writer: ProvenanceWriter
+    ) throws {
+        let existing = ProvenanceRecorder.loadEnvelope(from: resultURL)
+        guard mayReplaceProvenance(existing, tool: tool) else { return }
+        if tool == .kraken2,
+           FileManager.default.fileExists(
+               atPath: resultURL.appendingPathComponent(ClassificationResult.sidecarFilename).path
+           ) {
+            do {
+                let restored = try ClassificationProvenanceReconstructor.reconstructEnvelope(resultDirectory: resultURL)
+                try writer.write(restored, to: resultURL)
+                return
+            } catch {
+                fputs("Warning: could not rebuild the Kraken 2 run provenance from classification-result.json: \(error)\n", stderr)
+            }
+        }
+        try writer.write(envelope, to: resultURL)
     }
 
     static func recordBuildDbFailureProvenanceIfNeeded(
@@ -278,6 +328,7 @@ extension BuildDbCommand {
                 || name.hasSuffix(".bam.csi")
         case .kraken2:
             return name.hasSuffix(".kreport")
+                || name == "classification.bracken"
                 || name == "classification.kraken"
                 || name == "classification.kraken.gz"
                 || name == "classification.kraken.idx.sqlite"

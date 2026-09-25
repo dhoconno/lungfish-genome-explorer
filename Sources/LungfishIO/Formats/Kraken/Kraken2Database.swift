@@ -50,6 +50,13 @@ public struct Kraken2ClassificationRow: Sendable {
     public let parentTaxId: Int?
     public let depth: Int
     public let fractionDirect: Double
+    /// Bracken's re-estimated read count for this taxon, when Bracken ran.
+    ///
+    /// Bracken only re-estimates one rank (usually species), so most rows
+    /// carry `nil`. The Kraken 2 counts above are never replaced by these.
+    public let brackenReads: Int?
+    /// Bracken's `fraction_total_reads` for this taxon, when Bracken ran.
+    public let brackenFraction: Double?
 
     public init(
         sample: String,
@@ -62,7 +69,9 @@ public struct Kraken2ClassificationRow: Sendable {
         percentage: Double,
         parentTaxId: Int? = nil,
         depth: Int = 0,
-        fractionDirect: Double = 0.0
+        fractionDirect: Double = 0.0,
+        brackenReads: Int? = nil,
+        brackenFraction: Double? = nil
     ) {
         self.sample = sample
         self.taxonName = taxonName
@@ -75,6 +84,8 @@ public struct Kraken2ClassificationRow: Sendable {
         self.parentTaxId = parentTaxId
         self.depth = depth
         self.fractionDirect = fractionDirect
+        self.brackenReads = brackenReads
+        self.brackenFraction = brackenFraction
     }
 }
 
@@ -133,8 +144,41 @@ public final class Kraken2Database: @unchecked Sendable {
         "idx_kr_metadata_sample",
     ]
 
+    /// Whether `classification_rows` carries the Bracken columns (format 2+).
+    private var hasBrackenColumns = false
+
     /// The URL of the database file.
     public var databaseURL: URL { url }
+
+    // MARK: - Format Version
+
+    /// Metadata key recording which build format produced the database.
+    public static let formatVersionMetadataKey = "kraken2_db_format"
+
+    /// The build format this code writes.
+    ///
+    /// - 1 (implicit, no key): rows came from whichever `*.kreport` sorted
+    ///   first in a single-result folder, which picked Bracken's
+    ///   `classification.bracken.kreport` over Kraken 2's own report, and the
+    ///   sample was keyed by that file's stem.
+    /// - 2: rows always come from Kraken 2's report, Bracken's re-estimates
+    ///   are stored in their own columns, and single results are keyed by the
+    ///   recorded sample name.
+    public static let currentFormatVersion = 2
+
+    /// The build format recorded in the database, or 1 for databases built
+    /// before the format was recorded.
+    public func formatVersion() -> Int {
+        guard let value = try? fetchMetadata()[Self.formatVersionMetadataKey],
+              let version = Int(value) else { return 1 }
+        return version
+    }
+
+    /// Whether this database was built by an older, known-wrong builder and
+    /// should be rebuilt from the result folder's reports before display.
+    public var needsRebuild: Bool {
+        formatVersion() < Self.currentFormatVersion
+    }
 
     // MARK: - Open Existing (Read-Only)
 
@@ -167,6 +211,8 @@ public final class Kraken2Database: @unchecked Sendable {
             db = nil
             throw Kraken2DatabaseError.openFailed(error.localizedDescription)
         }
+
+        hasBrackenColumns = Self.tableHasColumn(db: db, table: "classification_rows", column: "bracken_reads")
 
         // Read-side performance tuning
         sqlite3_exec(db, "PRAGMA cache_size = -65536", nil, nil, nil)    // 64 MB
@@ -221,7 +267,9 @@ public final class Kraken2Database: @unchecked Sendable {
             try bulkInsertRows(db: openedDB, rows: rows, progress: progress)
             progress?(0.80, "Inserting metadata...")
 
-            try insertMetadata(db: openedDB, metadata: metadata)
+            var versionedMetadata = metadata
+            versionedMetadata[formatVersionMetadataKey] = "\(currentFormatVersion)"
+            try insertMetadata(db: openedDB, metadata: versionedMetadata)
             progress?(0.85, "Building indices...")
 
             try createIndices(db: openedDB)
@@ -251,6 +299,45 @@ public final class Kraken2Database: @unchecked Sendable {
         }
     }
 
+    // MARK: - Rows From a Tree
+
+    /// Flattens a Kraken 2 taxonomy tree into rows for one sample.
+    ///
+    /// The tree must come from Kraken 2's own report; Bracken's estimates, if
+    /// merged into the nodes, are carried in the Bracken columns only. Every
+    /// node except the unclassified pseudo-node is kept, including the root,
+    /// so ``fetchTree(sample:)`` can rebuild the same tree. `percentage` is
+    /// the clade's share of all reads (classified plus unclassified).
+    public static func rows(from tree: TaxonTree, sample: String) -> [Kraken2ClassificationRow] {
+        tree.allNodes().compactMap { node -> Kraken2ClassificationRow? in
+            guard node.rank != .unclassified else { return nil }
+            return Kraken2ClassificationRow(
+                sample: sample,
+                taxonName: node.name,
+                taxId: node.taxId,
+                rank: node.rank.code,
+                rankDisplayName: node.rank.displayName,
+                readsDirect: node.readsDirect,
+                readsClade: node.readsClade,
+                percentage: node.fractionClade * 100.0,
+                parentTaxId: node.parent?.taxId,
+                depth: node.depth,
+                fractionDirect: node.fractionDirect,
+                brackenReads: node.brackenReads,
+                brackenFraction: node.brackenFraction
+            )
+        }
+    }
+
+    /// Per-sample tree totals in the metadata keys ``fetchTree(sample:)`` reads.
+    public static func sampleMetadata(for tree: TaxonTree, sample: String) -> [String: String] {
+        [
+            "total_reads_\(sample)": "\(tree.totalReads)",
+            "classified_reads_\(sample)": "\(tree.classifiedReads)",
+            "unclassified_reads_\(sample)": "\(tree.unclassifiedReads)",
+        ]
+    }
+
     // MARK: - Schema
 
     private static func createSchema(db: OpaquePointer) throws {
@@ -268,6 +355,8 @@ public final class Kraken2Database: @unchecked Sendable {
             parent_tax_id INTEGER,
             depth INTEGER NOT NULL DEFAULT 0,
             fraction_direct REAL NOT NULL DEFAULT 0.0,
+            bracken_reads INTEGER,
+            bracken_fraction REAL,
             UNIQUE(sample, tax_id)
         );
 
@@ -304,8 +393,9 @@ public final class Kraken2Database: @unchecked Sendable {
         INSERT INTO classification_rows (
             sample, taxon_name, tax_id, rank, rank_display_name,
             reads_direct, reads_clade, percentage,
-            parent_tax_id, depth, fraction_direct
-        ) VALUES (?,?,?,?,?,?,?,?,?,?,?)
+            parent_tax_id, depth, fraction_direct,
+            bracken_reads, bracken_fraction
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
         """
 
         var stmt: OpaquePointer?
@@ -357,6 +447,18 @@ public final class Kraken2Database: @unchecked Sendable {
             sqlite3_bind_int64(stmt, 10, Int64(row.depth))
             // 11: fraction_direct (REAL NOT NULL)
             sqlite3_bind_double(stmt, 11, row.fractionDirect)
+            // 12: bracken_reads (INTEGER, nullable)
+            if let brackenReads = row.brackenReads {
+                sqlite3_bind_int64(stmt, 12, Int64(brackenReads))
+            } else {
+                sqlite3_bind_null(stmt, 12)
+            }
+            // 13: bracken_fraction (REAL, nullable)
+            if let brackenFraction = row.brackenFraction {
+                sqlite3_bind_double(stmt, 13, brackenFraction)
+            } else {
+                sqlite3_bind_null(stmt, 13)
+            }
 
             guard sqlite3_step(stmt) == SQLITE_DONE else {
                 let msg = String(cString: sqlite3_errmsg(db))
@@ -660,6 +762,7 @@ public final class Kraken2Database: @unchecked Sendable {
         }
 
         let samplePlaceholders = sampleIds.map { _ in "?" }.joined(separator: ",")
+        let brackenSelect = hasBrackenColumns ? ", cr.bracken_reads, cr.bracken_fraction" : ""
         let sql = """
         WITH RECURSIVE
         matches AS (
@@ -679,7 +782,7 @@ public final class Kraken2Database: @unchecked Sendable {
         )
         SELECT DISTINCT
             cr.rowid, cr.sample, cr.taxon_name, cr.tax_id, cr.rank, cr.rank_display_name,
-            cr.reads_direct, cr.reads_clade, cr.percentage, cr.parent_tax_id, cr.depth, cr.fraction_direct
+            cr.reads_direct, cr.reads_clade, cr.percentage, cr.parent_tax_id, cr.depth, cr.fraction_direct\(brackenSelect)
         FROM classification_rows cr
         JOIN ancestor_ids a
           ON cr.sample = a.sample AND cr.tax_id = a.tax_id
@@ -735,6 +838,8 @@ public final class Kraken2Database: @unchecked Sendable {
                 fractionDirect: row.fractionDirect,
                 parentTaxId: row.parentTaxId
             )
+            node.brackenReads = row.brackenReads
+            node.brackenFraction = row.brackenFraction
             nodesByTaxId[row.taxId] = node
         }
 
@@ -776,6 +881,21 @@ public final class Kraken2Database: @unchecked Sendable {
 
     // MARK: - Private Helpers
 
+    /// Whether `table` has a column named `column`.
+    private static func tableHasColumn(db: OpaquePointer?, table: String, column: String) -> Bool {
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, "PRAGMA table_info(\(table))", -1, &stmt, nil) == SQLITE_OK else {
+            return false
+        }
+        defer { sqlite3_finalize(stmt) }
+        while sqlite3_step(stmt) == SQLITE_ROW {
+            if let name = sqlite3_column_text(stmt, 1), String(cString: name) == column {
+                return true
+            }
+        }
+        return false
+    }
+
     /// Reads an optional TEXT column, returning nil if the column is NULL.
     private func optionalText(_ stmt: OpaquePointer?, _ col: Int32) -> String? {
         if sqlite3_column_type(stmt, col) == SQLITE_NULL { return nil }
@@ -786,7 +906,8 @@ public final class Kraken2Database: @unchecked Sendable {
     ///
     /// Column order must match the schema: rowid(0), sample(1), taxon_name(2), tax_id(3),
     /// rank(4), rank_display_name(5), reads_direct(6), reads_clade(7), percentage(8),
-    /// parent_tax_id(9), depth(10), fraction_direct(11).
+    /// parent_tax_id(9), depth(10), fraction_direct(11), and, in format 2+
+    /// databases, bracken_reads(12) and bracken_fraction(13).
     private func collectRows(stmt: OpaquePointer?) -> [Kraken2ClassificationRow] {
         var rows: [Kraken2ClassificationRow] = []
         while sqlite3_step(stmt) == SQLITE_ROW {
@@ -803,6 +924,11 @@ public final class Kraken2Database: @unchecked Sendable {
                 ? nil : Int(sqlite3_column_int64(stmt, 9))
             let depth           = Int(sqlite3_column_int64(stmt, 10))
             let fractionDirect  = sqlite3_column_double(stmt, 11)
+            let hasBracken = sqlite3_column_count(stmt) > 13
+            let brackenReads: Int? = hasBracken && sqlite3_column_type(stmt, 12) != SQLITE_NULL
+                ? Int(sqlite3_column_int64(stmt, 12)) : nil
+            let brackenFraction: Double? = hasBracken && sqlite3_column_type(stmt, 13) != SQLITE_NULL
+                ? sqlite3_column_double(stmt, 13) : nil
 
             rows.append(Kraken2ClassificationRow(
                 sample: sample,
@@ -815,7 +941,9 @@ public final class Kraken2Database: @unchecked Sendable {
                 percentage: percentage,
                 parentTaxId: parentTaxId,
                 depth: depth,
-                fractionDirect: fractionDirect
+                fractionDirect: fractionDirect,
+                brackenReads: brackenReads,
+                brackenFraction: brackenFraction
             ))
         }
         return rows

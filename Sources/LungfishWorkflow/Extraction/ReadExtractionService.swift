@@ -893,7 +893,7 @@ public actor ReadExtractionService {
             persistedMeta.downloadDate = metadata.extractionDate
             persistedMeta.ingestion = IngestionMetadata(
                 isCompressed: movedPrimaryName.hasSuffix(".gz"),
-                pairingMode: result.pairedEnd ? .pairedEnd : .singleEnd,
+                pairingMode: result.pairingMode,
                 originalFilenames: result.fastqURLs.map(\.lastPathComponent),
                 ingestionDate: metadata.extractionDate
             )
