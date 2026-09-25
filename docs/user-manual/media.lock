@@ -1,10 +1,10 @@
 {
   "repo": "https://github.com/dhoconno/lungfish-manual-media",
-  "tag": "manual-v2026.9.42",
-  "commit": "8ef384c440f382555000ed9bc1dc5ad426d5ae97",
+  "tag": "manual-v2026.9.43",
+  "commit": "fc69806c9edc5d594060c2509e5b09c1ef97fe8c",
   "publicArchive": {
-    "url": "https://github.com/dhoconno/lungfish-genome-explorer/releases/download/manual-media/manual-media-v2026.9.42.tar.gz",
-    "sha256": "b918955602f0a2c6c5a0878c94bd44403938c915d6c254b53be3393733f8b88e",
+    "url": "https://github.com/dhoconno/lungfish-genome-explorer/releases/download/manual-media/manual-media-v2026.9.43.tar.gz",
+    "sha256": "b83e6969e1d2fb3aa868fdc59844bc1515b9b21082455e924f2b56a3010831b8",
     "prefixes": [
       "user-manual/assets/"
     ]
@@ -616,9 +616,14 @@
       "size": 208884
     },
     {
+      "path": "user-manual/assets/screenshots/06-classification/blast-results-drawer.png",
+      "sha256": "eb005fa8c911f9c6487232dbdfc678fcaa604bc6cd70fc47bd7536da5c0d4237",
+      "size": 769170
+    },
+    {
       "path": "user-manual/assets/screenshots/06-classification/blast-verify-popover.png",
-      "sha256": "fd5c8219e28c8eeb8b1ce3daa4eb159418a3e7a1f8a07e2be0de47fbb316d66f",
-      "size": 653420
+      "sha256": "9449c6ca035c9f0b97e0078bc5010a30147daa07e3860fea5ef0c2a0b5344c85",
+      "size": 480138
     },
     {
       "path": "user-manual/assets/screenshots/06-classification/classification-dialog-tool-sidebar.png",
@@ -661,6 +666,11 @@
       "size": 396231
     },
     {
+      "path": "user-manual/assets/screenshots/06-classification/esviritu-database-missing.png",
+      "sha256": "2fa3faa87a2fc5779a8fb25cddaf4b25c864f5f50b405a261d49d00aa3c7cb86",
+      "size": 18733
+    },
+    {
       "path": "user-manual/assets/screenshots/06-classification/esviritu-dialog.png",
       "sha256": "6506ac6b949c4250c6677ee96f0e2544ecec0957442d69eda6556b14fec51661",
       "size": 244366
@@ -682,23 +692,23 @@
     },
     {
       "path": "user-manual/assets/screenshots/06-classification/kraken2-dialog.png",
-      "sha256": "1c72819dd102d3b5a9a3fcbde9e50f90fa316826ba4a02bfbcea64b6a59a0b46",
-      "size": 189436
+      "sha256": "5dcc42e66867ca9b43cc1db2a3e120351410a3d4d5deb8966b3259b7dd94db29",
+      "size": 386538
     },
     {
-      "path": "user-manual/assets/screenshots/06-classification/kraken2-drilldown-coronaviridae.png",
-      "sha256": "bc386dc5c0426e717f1d8b46c6b59d52e3360229e92f3ed5cd1046152b5bbba4",
-      "size": 707596
+      "path": "user-manual/assets/screenshots/06-classification/kraken2-drilldown-orthoherpesviridae.png",
+      "sha256": "a2508b0e84ef32ae8f74333b209e6960aa9c516f2b53b5310ceccd26d81159a8",
+      "size": 809140
     },
     {
       "path": "user-manual/assets/screenshots/06-classification/kraken2-extract-reads.png",
-      "sha256": "5a42ce166d136ace81da5b422147883ed1bfef5690dfef931f8260e3d324e0b3",
-      "size": 129095
+      "sha256": "32d1df1a74cfbfec74f7dfc27e2e7dbb5d2c8986c0d9ad7e33f9e833317499fd",
+      "size": 177731
     },
     {
       "path": "user-manual/assets/screenshots/06-classification/kraken2-taxonomy-viewport.png",
-      "sha256": "9a8adbd0b28a2bff7bd8c38497f284889b527dc6776be6267d8be9ffc7f3bf19",
-      "size": 794683
+      "sha256": "324990f86689e112c759d1311799f623ee95d62df8e85f089f9204193ea4d50b",
+      "size": 836435
     },
     {
       "path": "user-manual/assets/screenshots/06-classification/nao-mgs-import-card.png",
@@ -746,9 +756,19 @@
       "size": 336034
     },
     {
+      "path": "user-manual/assets/screenshots/06-classification/taxtriage-batch-overview.png",
+      "sha256": "9c39395c3f5f465313d9ebca0532e526e478d556ff2c9765fa1b0f03efff275c",
+      "size": 523698
+    },
+    {
       "path": "user-manual/assets/screenshots/06-classification/taxtriage-dialog.png",
-      "sha256": "fd3c713e20382f95aebc34a8892e2c4fb0a20010d6a0bf0b09827fb29b54df39",
-      "size": 265498
+      "sha256": "1c5affe01a0f76ccffaff8574a92a3bcda9f449983aaac61edc4f0b95acab9dd",
+      "size": 354347
+    },
+    {
+      "path": "user-manual/assets/screenshots/06-classification/taxtriage-result-table.png",
+      "sha256": "504a02356fa26077d4069624b5f1d259804be0c9b79581be7a89e0e24167a048",
+      "size": 921726
     },
     {
       "path": "user-manual/assets/screenshots/06-classification/twelve-s-blast-review.png",
