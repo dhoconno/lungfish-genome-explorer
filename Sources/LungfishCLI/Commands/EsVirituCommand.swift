@@ -274,13 +274,34 @@ extension EsVirituCommand {
             ]))
             print("")
 
+            // Same read-length gate as the EsViritu dialog: warn, never block.
+            if let advisory = EsVirituReadLengthAdvisory.evaluate(inputURLs: inputURLs) {
+                print(formatter.warning(advisory.wizardMessage))
+                print("")
+            }
+
             // Run pipeline.
             let pipeline = EsVirituPipeline.shared
 
-            let result = try await pipeline.detect(config: config) { fraction, message in
-                if !globalOptions.quiet {
-                    print("\r\(formatter.info(message))", terminator: "")
+            let result: LungfishWorkflow.EsVirituResult
+            do {
+                result = try await pipeline.detect(config: config) { fraction, message in
+                    if !globalOptions.quiet {
+                        print("\r\(formatter.info(message))", terminator: "")
+                    }
                 }
+            } catch let error as EsVirituPipelineError {
+                // Surface EsViritu's own reason (for example "No reads aligned
+                // to the EsViritu DB") and any short-read hint, not only the
+                // missing-file path.
+                print("")
+                print(formatter.error(error.localizedDescription))
+                if let logTail = error.logTail {
+                    print("")
+                    print("EsViritu log (last lines):")
+                    print(logTail)
+                }
+                throw CLIExitCode.failure.exitCode
             }
 
             // Clear progress line.
