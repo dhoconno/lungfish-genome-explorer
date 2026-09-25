@@ -2973,7 +2973,7 @@ public class DatabaseBrowserViewModel: ObservableObject {
             qualityBinning: importConfig.qualityBinning.rawValue,
             optimizeStorage: !importConfig.skipClumpify,
             clumpingTool: importConfig.clumpingTool,
-            pairingMode: r2 == nil ? importConfig.pairingMode : .pairedEnd,
+            pairingMode: r2 == nil ? importConfig.cliPairingMode : .pairedEnd,
             compressionLevel: importConfig.compressionLevel?.rawValue ?? "balanced"
         )
     }

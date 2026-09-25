@@ -129,9 +129,43 @@ final class FASTQOperationCLIInvocationBuilderPairingTests: XCTestCase {
         )
     }
 
-    func testSingleEndBundleMetadataPassesSinglePairing() throws {
+    func testExplicitSingleEndBundleMetadataPassesSinglePairing() throws {
         let bundle = try InterleavedFASTQFixture.writeBundle(
-            named: "single", in: root, pairCount: 2, naming: .slashSuffix, pairingMode: .singleEnd
+            named: "single", in: root, pairCount: 2, naming: .slashSuffix,
+            pairingMode: .singleEnd, pairingSource: .explicit
+        )
+        for inputURL in [bundle.fastqURL, bundle.bundleURL] {
+            let launch = FASTQOperationLaunchRequest.derivative(
+                request: .subsampleCount(10),
+                inputURLs: [inputURL],
+                outputMode: .perInput
+            )
+            let invocation = try FASTQOperationCLIInvocationBuilder().buildInvocation(for: launch)
+            XCTAssertTrue(invocation.arguments.containsSequence(["--pairing", "single"]), "\(invocation.arguments)")
+        }
+    }
+
+    func testDefaultedSingleEndOverInterleavedRecordsPassesInterleavedPairing() throws {
+        // Pre-2026-09-25 imports with no pairing choice recorded single_end
+        // over files that alternate /1 /2 mates. Only an explicit choice is
+        // final; the records decide otherwise.
+        let bundle = try InterleavedFASTQFixture.writeBundle(
+            named: "legacy-single", in: root, pairCount: 4, naming: .slashSuffix, pairingMode: .singleEnd
+        )
+        for inputURL in [bundle.fastqURL, bundle.bundleURL] {
+            let launch = FASTQOperationLaunchRequest.derivative(
+                request: .subsampleCount(10),
+                inputURLs: [inputURL],
+                outputMode: .perInput
+            )
+            let invocation = try FASTQOperationCLIInvocationBuilder().buildInvocation(for: launch)
+            XCTAssertTrue(invocation.arguments.containsSequence(["--pairing", "interleaved"]), "\(invocation.arguments)")
+        }
+    }
+
+    func testRecordedInterleavedBundleDirectoryPassesInterleavedPairing() throws {
+        let bundle = try InterleavedFASTQFixture.writeBundle(
+            named: "strict-dir", in: root, pairCount: 3, naming: .identical, pairingMode: .interleaved
         )
         let launch = FASTQOperationLaunchRequest.derivative(
             request: .subsampleCount(10),
@@ -139,7 +173,7 @@ final class FASTQOperationCLIInvocationBuilderPairingTests: XCTestCase {
             outputMode: .perInput
         )
         let invocation = try FASTQOperationCLIInvocationBuilder().buildInvocation(for: launch)
-        XCTAssertTrue(invocation.arguments.containsSequence(["--pairing", "single"]))
+        XCTAssertTrue(invocation.arguments.containsSequence(["--pairing", "interleaved"]), "\(invocation.arguments)")
     }
 
     func testLooseFASTQWithoutMetadataLeavesTheCLIInAutoMode() throws {

@@ -31,6 +31,7 @@ final class FASTQInputLayoutResolverTests: XCTestCase {
     private func makeBundle(
         headers: [String],
         pairingMode: IngestionMetadata.PairingMode? = nil,
+        pairingSource: IngestionMetadata.PairingSource? = nil,
         recipe: RecipeAppliedInfo? = nil
     ) throws -> (bundle: URL, fastq: URL) {
         let dir = try makeTempDir()
@@ -40,7 +41,11 @@ final class FASTQInputLayoutResolverTests: XCTestCase {
         try fastq(headers).write(to: fastqURL, atomically: true, encoding: .utf8)
         if pairingMode != nil || recipe != nil {
             FASTQMetadataStore.save(
-                PersistedFASTQMetadata(ingestion: IngestionMetadata(pairingMode: pairingMode ?? .singleEnd, recipeApplied: recipe)),
+                PersistedFASTQMetadata(ingestion: IngestionMetadata(
+                    pairingMode: pairingMode ?? .singleEnd,
+                    pairingSource: pairingSource,
+                    recipeApplied: recipe
+                )),
                 for: fastqURL
             )
         }
@@ -84,13 +89,79 @@ final class FASTQInputLayoutResolverTests: XCTestCase {
 
     // MARK: - Bundle metadata first
 
-    func testSingleEndMetadataSettlesTheLayoutWithoutAScan() throws {
-        // Content alternates like pairs, but the bundle says single-end.
-        let (bundle, _) = try makeBundle(headers: ["a", "a", "b", "b"], pairingMode: .singleEnd)
+    func testExplicitSingleEndMetadataSettlesTheLayoutWithoutAScan() throws {
+        // Content alternates like pairs, but the user chose single-end.
+        let (bundle, fastqURL) = try makeBundle(
+            headers: ["a", "a", "b", "b"],
+            pairingMode: .singleEnd,
+            pairingSource: .explicit
+        )
+        for input in [bundle, fastqURL] {
+            let resolution = FASTQInputLayoutResolver.resolve(inputURLs: [input])
+            XCTAssertEqual(resolution.layout, .singleEnd)
+            XCTAssertEqual(resolution.source, .bundleMetadata)
+            XCTAssertNil(resolution.classification)
+        }
+        let scratch = try makeTempDir().appendingPathComponent("materialized.fastq")
+        try FileManager.default.copyItem(at: fastqURL, to: scratch)
+        let fromScratch = FASTQInputLayoutResolver.resolve(fastqURL: scratch, metadataFrom: bundle)
+        XCTAssertEqual(fromScratch.layout, .singleEnd)
+        XCTAssertEqual(fromScratch.source, .bundleMetadata)
+    }
+
+    func testDefaultedSingleEndMetadataOverInterleavedRecordsIsInterleaved() throws {
+        // SIMULATED-MHC-*-pairs: imported with no pairing choice, recorded
+        // single_end, records alternate /1 /2 mates. Metadata written before
+        // pairingSource existed (nil), and a defaulted or detected single_end,
+        // are hints; the records decide.
+        for source: IngestionMetadata.PairingSource? in [nil, .defaulted, .detected] {
+            let (bundle, fastqURL) = try makeBundle(
+                headers: ["f0/1", "f0/2", "f1/1", "f1/2", "f2/1", "f2/2"],
+                pairingMode: .singleEnd,
+                pairingSource: source
+            )
+            for input in [bundle, fastqURL] {
+                let resolution = FASTQInputLayoutResolver.resolve(inputURLs: [input])
+                XCTAssertEqual(resolution.layout, .strictlyInterleaved, "source \(String(describing: source))")
+                XCTAssertEqual(resolution.source, .contentScan)
+            }
+            let scratch = try makeTempDir().appendingPathComponent("materialized.fastq")
+            try FileManager.default.copyItem(at: fastqURL, to: scratch)
+            XCTAssertEqual(
+                FASTQInputLayoutResolver.resolve(fastqURL: scratch, metadataFrom: bundle).layout,
+                .strictlyInterleaved
+            )
+            // The bundle directory itself is scanned through its primary FASTQ.
+            XCTAssertEqual(
+                FASTQInputLayoutResolver.resolve(fastqURL: bundle, metadataFrom: bundle).layout,
+                .strictlyInterleaved
+            )
+        }
+    }
+
+    func testDefaultedSingleEndMetadataOverSingleRecordsStaysSingle() throws {
+        let (bundle, _) = try makeBundle(headers: ["r0", "r1", "r2"], pairingMode: .singleEnd)
         let resolution = FASTQInputLayoutResolver.resolve(inputURLs: [bundle])
         XCTAssertEqual(resolution.layout, .singleEnd)
-        XCTAssertEqual(resolution.source, .bundleMetadata)
-        XCTAssertNil(resolution.classification)
+        XCTAssertEqual(resolution.source, .contentScan)
+    }
+
+    func testBundleWithoutMetadataIsScanned() throws {
+        let (bundle, _) = try makeBundle(headers: ["a", "a", "b", "b"])
+        let resolution = FASTQInputLayoutResolver.resolve(inputURLs: [bundle])
+        XCTAssertEqual(resolution.layout, .strictlyInterleaved)
+        XCTAssertEqual(resolution.source, .contentScan)
+    }
+
+    func testLegacyIngestionMetadataDecodesWithoutAPairingSource() throws {
+        let json = #"{"isClumpified":false,"isCompressed":true,"pairingMode":"single_end","originalFilenames":[]}"#
+        let decoded = try JSONDecoder().decode(IngestionMetadata.self, from: Data(json.utf8))
+        XCTAssertEqual(decoded.pairingMode, .singleEnd)
+        XCTAssertNil(decoded.pairingSource)
+        var current = decoded
+        current.pairingSource = .defaulted
+        let reencoded = try JSONEncoder().encode(current)
+        XCTAssertTrue(String(decoding: reencoded, as: UTF8.self).contains(#""pairingSource":"default""#))
     }
 
     func testInterleavedMetadataWithIdenticalNamesIsStrictlyInterleaved() throws {

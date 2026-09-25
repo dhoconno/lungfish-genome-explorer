@@ -104,6 +104,7 @@ public enum InterleavedFASTQFixture {
         pairCount: Int,
         naming: MateNaming,
         pairingMode: IngestionMetadata.PairingMode = .interleaved,
+        pairingSource: IngestionMetadata.PairingSource? = nil,
         sequences: PairSequences? = nil
     ) throws -> (bundleURL: URL, fastqURL: URL) {
         let bundleURL = directory.appendingPathComponent(
@@ -114,7 +115,11 @@ public enum InterleavedFASTQFixture {
         let fastqURL = bundleURL.appendingPathComponent("\(name).fastq")
         try write(pairCount: pairCount, naming: naming, sequences: sequences, to: fastqURL)
         let metadata = PersistedFASTQMetadata(
-            ingestion: IngestionMetadata(pairingMode: pairingMode, originalFilenames: ["\(name).fastq"])
+            ingestion: IngestionMetadata(
+                pairingMode: pairingMode,
+                pairingSource: pairingSource,
+                originalFilenames: ["\(name).fastq"]
+            )
         )
         FASTQMetadataStore.save(metadata, for: fastqURL)
         return (bundleURL, fastqURL)
@@ -201,6 +206,7 @@ public enum InterleavedFASTQFixture {
         mergedCount: Int,
         naming: MateNaming,
         pairingMode: IngestionMetadata.PairingMode = .interleaved,
+        pairingSource: IngestionMetadata.PairingSource? = nil,
         sequences: PairSequences? = nil,
         mergedSequences: (@Sendable (_ mergedIndex: Int) -> String)? = nil
     ) throws -> (bundleURL: URL, fastqURL: URL) {
@@ -219,7 +225,11 @@ public enum InterleavedFASTQFixture {
             to: fastqURL
         )
         let metadata = PersistedFASTQMetadata(
-            ingestion: IngestionMetadata(pairingMode: pairingMode, originalFilenames: ["\(name).fastq"])
+            ingestion: IngestionMetadata(
+                pairingMode: pairingMode,
+                pairingSource: pairingSource,
+                originalFilenames: ["\(name).fastq"]
+            )
         )
         FASTQMetadataStore.save(metadata, for: fastqURL)
         return (bundleURL, fastqURL)

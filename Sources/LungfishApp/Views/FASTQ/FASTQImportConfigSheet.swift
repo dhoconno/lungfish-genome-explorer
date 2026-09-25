@@ -140,6 +140,9 @@ public final class FASTQImportConfigSheet: NSViewController {
     private var binningBelowPairingConstraint: NSLayoutConstraint?
     private var binningBelowPlatformConstraint: NSLayoutConstraint?
     private var barcodeDefinitionHelpPopover: NSPopover?
+    /// Set once the user picks a Pairing item. Until then the popup shows the
+    /// sheet's proposal and the import runs with `--pairing auto`.
+    private var pairingChosenByUser = false
 
     // MARK: - Init
 
@@ -286,8 +289,9 @@ public final class FASTQImportConfigSheet: NSViewController {
 
         // Pairing popup
         pairingPopup.addItems(withTitles: ["Single-end", "Paired-end", "Interleaved"])
-        let hasPaired = pairs.contains { $0.isPaired }
-        pairingPopup.selectItem(at: hasPaired ? 1 : 0)
+        pairingPopup.selectItem(at: Self.proposedPairingIndex(for: pairs))
+        pairingPopup.target = self
+        pairingPopup.action = #selector(pairingChanged(_:))
         pairingPopup.font = .systemFont(ofSize: 12)
         pairingPopup.translatesAutoresizingMaskIntoConstraints = false
         pairingPopup.applyLungfishHelp(LungfishHelpContent.fastqImportPairing)
@@ -699,6 +703,33 @@ public final class FASTQImportConfigSheet: NSViewController {
         updatePairingControlsForSelectedPlatform()
     }
 
+    @objc private func pairingChanged(_ sender: Any) {
+        pairingChosenByUser = true
+    }
+
+    /// Records read from each lone file when proposing its pairing.
+    nonisolated static let pairingProposalRecordLimit = 2_000
+    /// Lone files read when proposing a pairing for a batch.
+    nonisolated static let pairingProposalFileLimit = 4
+
+    /// The Pairing popup item the sheet proposes: Paired-end when R1/R2 files
+    /// were matched, Interleaved when every lone file (up to
+    /// ``pairingProposalFileLimit``) alternates mates in its first
+    /// ``pairingProposalRecordLimit`` records, otherwise Single-end.
+    ///
+    /// A proposal is not a choice: left untouched, the import runs with
+    /// `--pairing auto`, which reads every lone file in full on its own.
+    nonisolated static func proposedPairingIndex(for pairs: [FASTQFilePair]) -> Int {
+        if pairs.contains(where: { $0.isPaired }) { return 1 }
+        let loneFiles = pairs.prefix(pairingProposalFileLimit).map(\.r1)
+        guard !loneFiles.isEmpty else { return 0 }
+        let allInterleaved = loneFiles.allSatisfy {
+            FASTQReadLayoutClassifier.classify(inputURL: $0, limit: pairingProposalRecordLimit).layout
+                == .strictlyInterleaved
+        }
+        return allInterleaved ? 2 : 0
+    }
+
     @objc private func clumpifyToggled(_ sender: Any) {
         updateClumpingToolControls()
     }
@@ -961,6 +992,7 @@ public final class FASTQImportConfigSheet: NSViewController {
             detectedPlatform: detectedPlatform,
             confirmedPlatform: platform,
             pairingMode: pairingMode,
+            pairingModeIsUserChoice: pairingChosenByUser && platform != .oxfordNanopore,
             qualityBinning: binning,
             skipClumpify: skipClumpify,
             clumpingTool: skipClumpify ? .none : selectedStorageTool,

@@ -91,17 +91,37 @@ final class FASTQPairingModeResolverTests: XCTestCase {
 
     // MARK: - Bundle metadata
 
-    func testRecordedSingleEndPairingWinsWithoutReadingTheRecords() throws {
+    func testExplicitSingleEndPairingWinsWithoutReadingTheRecords() throws {
         let singleByMetadata = try InterleavedFASTQFixture.writeBundle(
             named: "meta-single",
             in: root,
             pairCount: 12,
             naming: .slashSuffix,
-            pairingMode: .singleEnd
+            pairingMode: .singleEnd,
+            pairingSource: .explicit
         )
         let decision = FASTQPairingModeResolver.resolvePairing(inputURL: singleByMetadata.fastqURL)
-        XCTAssertFalse(decision.pairAware, "Recorded single-end pairing must override paired-looking names")
+        XCTAssertFalse(decision.pairAware, "An explicit single-end choice must override paired-looking names")
         XCTAssertEqual(decision.resolution.source, .bundleMetadata)
+    }
+
+    func testDefaultedOrLegacySingleEndPairingIsVerifiedAgainstTheRecords() throws {
+        // Bundles imported with no pairing choice recorded `single_end` over
+        // files whose records alternate /1 /2 mates (SIMULATED-MHC-*-pairs).
+        for source: IngestionMetadata.PairingSource? in [nil, .defaulted, .detected] {
+            let bundle = try InterleavedFASTQFixture.writeBundle(
+                named: "meta-single-\(source?.rawValue ?? "legacy")",
+                in: root,
+                pairCount: 12,
+                naming: .slashSuffix,
+                pairingMode: .singleEnd,
+                pairingSource: source
+            )
+            let decision = FASTQPairingModeResolver.resolvePairing(inputURL: bundle.fastqURL)
+            XCTAssertTrue(decision.pairAware, "source \(String(describing: source))")
+            XCTAssertEqual(decision.layout, .strictlyInterleaved)
+            XCTAssertEqual(decision.resolution.source, .contentScan)
+        }
     }
 
     func testRecordedInterleavedPairingIsVerifiedAgainstTheRecords() throws {

@@ -165,8 +165,12 @@ public struct FASTQInputLayoutResolution: Codable, Sendable, Equatable {
 ///
 /// 1. an explicit layout the caller already knows (a `--read-layout` flag),
 /// 2. two files bound as R1/R2 by the caller,
-/// 3. the enclosing bundle's metadata: a recorded `singleEnd` pairing with no
-///    merge evidence settles the question without reading the file,
+/// 3. the enclosing bundle's metadata: a `singleEnd` pairing the user chose
+///    explicitly (`ingestion.pairingSource == explicit`) with no merge
+///    evidence settles the question without reading the file. A `singleEnd`
+///    that was defaulted, detected, or recorded before `pairingSource` existed
+///    does not: imports with no pairing choice recorded `single_end` for files
+///    whose records alternate mates, so those are scanned,
 /// 4. a bounded scan of the records (``FASTQReadLayoutClassifier``), with the
 ///    bundle metadata as hints that can demote strict to mixed (a VSP2 merge
 ///    recipe in the lineage, a read classification with merged reads).
@@ -223,11 +227,11 @@ public enum FASTQInputLayoutResolver {
         }
 
         let hints = FASTQReadLayoutClassifier.metadataHints(for: standardized)
-        if hints.pairingMode == .singleEnd, !hints.hasMergedOrUnpairedReads {
+        if hints.recordsExplicitSingleEnd, !hints.hasMergedOrUnpairedReads {
             return FASTQInputLayoutResolution(
                 layout: .singleEnd,
                 source: .bundleMetadata,
-                reason: "The bundle metadata records single-end reads."
+                reason: "The bundle metadata records single-end reads, chosen at import."
             )
         }
 
@@ -266,14 +270,19 @@ public enum FASTQInputLayoutResolver {
             )
         }
         let hints = FASTQReadLayoutClassifier.metadataHints(for: hintURL.standardizedFileURL)
-        if hints.pairingMode == .singleEnd, !hints.hasMergedOrUnpairedReads {
+        if hints.recordsExplicitSingleEnd, !hints.hasMergedOrUnpairedReads {
             return FASTQInputLayoutResolution(
                 layout: .singleEnd,
                 source: .bundleMetadata,
-                reason: "The bundle metadata records single-end reads."
+                reason: "The bundle metadata records single-end reads, chosen at import."
             )
         }
-        let scan = (try? FASTQReadLayoutClassifier.readHeaders(from: standardized, limit: recordLimit))
+        // A bundle directory is scanned through its primary FASTQ, the same
+        // file `resolve(inputURLs:)` reads.
+        let scanURL = FASTQBundle.isBundleURL(standardized)
+            ? (FASTQBundle.resolvePrimaryFASTQURL(for: standardized) ?? standardized)
+            : standardized
+        let scan = (try? FASTQReadLayoutClassifier.readHeaders(from: scanURL, limit: recordLimit))
             ?? (headers: [], scannedWholeFile: true)
         let classification = FASTQReadLayoutClassifier.classify(
             headers: scan.headers,
