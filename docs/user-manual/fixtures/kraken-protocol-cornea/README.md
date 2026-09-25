@@ -9,7 +9,9 @@ from the SRA as described below.
 
 BioProject `PRJNA381365`, "Diagnosing corneal infections in formalin fixed
 specimens using next generation sequencing". Human corneal tissue,
-sequenced on an Illumina NextSeq 550, paired-end, 2x76 bases.
+sequenced on an Illumina NextSeq 550, library strategy WGS, paired-end,
+up to 76 bases per read (trimmed reads run down to 35 bases). Checked
+against the ENA run records.
 
 | Run | Sample | Organism recorded | Read pairs | Used by |
 |---|---|---|---|---|

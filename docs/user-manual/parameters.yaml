@@ -4329,7 +4329,7 @@ operations:
         control: number
         default: "2"
         allowed: 1 to 10
-        effect: Sets how many separate stretches of a read must match the same taxon before that taxon can be assigned. One long chance match is easier to get than two independent ones.
+        effect: Sets how many separate database hits a read must have before Kraken2 names it at all, where a hit group is a run of overlapping k-mers that share one minimizer found in the database. One long chance match is easier to get than two independent ones.
         when_to_change: Raise it when short repeated sequence is producing spurious calls, and lower it for very short reads that cannot hold two separate matches.
         cli_flag: --min-hit-groups
       - label: "Threads:"

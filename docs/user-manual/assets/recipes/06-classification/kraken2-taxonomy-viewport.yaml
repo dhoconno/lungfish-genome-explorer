@@ -1,8 +1,8 @@
 # Captured from Lungfish Preview 2026.9.42 (2026-09 campaign) in a project holding SRR12486983 downloaded through the SRA route.
-# App state: Kraken2 Viral-database result for SRR12486983 (Sensitivity Balanced, Bracken run by the dialog) open in the taxonomy viewport, Detail | List layout, sunburst left, table right with Filter taxa... field and "27 taxa"
+# App state: Kraken2 Viral-database result for SRR12486983 (Sensitivity Balanced, Bracken run by the dialog) open in the taxonomy viewport, Detail | List layout, sunburst left, table right with Filter taxa... field and taxa count (recapture on the build with the reopened-result fix)
 id: kraken2-taxonomy-viewport
 chapter: 06-classification/02-running-kraken2
-caption: "The taxonomy viewport after classifying SRR12486983 against the Viral database, with the sunburst on the left and the per-taxon table on the right showing its Filter taxa... field and a count of 27 taxa."
+caption: "The taxonomy viewport after classifying SRR12486983 against the Viral database, with the sunburst on the left and the per-taxon table on the right showing its Filter taxa... field and taxa count."
 viewport_class: taxonomy
 app_state:
   fixture: kraken-protocol-cornea
