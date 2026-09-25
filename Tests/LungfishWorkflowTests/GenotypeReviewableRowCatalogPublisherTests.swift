@@ -1,3 +1,4 @@
+import CryptoKit
 import Darwin
 import Foundation
 import SQLite3
@@ -338,6 +339,121 @@ final class GenotypeReviewableRowCatalogPublisherTests: XCTestCase {
         ) { error in
             XCTAssertEqual(error as? FixtureError, .injected)
         }
+    }
+
+    /// Regression: an annotated `.lungfishref` (GenBank import with an
+    /// `annotations[].database_path` track store) failed genotyping with
+    /// "Could not open the MHC reference annotation store read-only at
+    /// …/lungfish-review-reference-…/annotations/imported_annotations.db"
+    /// because the review snapshot copied the FASTA, manifest, and record
+    /// store but not the annotation store the catalog loader opens.
+    func testMiSeqReferenceAuthoritySnapshotsAnnotationTrackStore() throws {
+        let fixture = try AnnotatedReferenceFixture(annotationStore: .rollbackJournal)
+        defer { fixture.remove() }
+        let liveBefore = try Data(contentsOf: fixture.annotationDatabaseURL)
+
+        let authority = try ONTBarcodeDemuxGenotypingPipeline.reviewableReferenceAuthority(
+            referenceFASTAURL: fixture.fastaURL,
+            sourceReferenceBundleURL: fixture.bundleURL
+        )
+
+        let record = try XCTUnwrap(authority.records.first)
+        XCTAssertEqual(record.alleleName, "Mafa-A1*001:01")
+        // The exon feature is only in the annotation store, so these prove
+        // the snapshot copy was opened and read.
+        XCTAssertEqual(
+            record.completeness.annotationTrackIDs,
+            [AnnotatedReferenceFixture.annotationTrackID]
+        )
+        XCTAssertEqual(record.completeness.observedExons, [2])
+        XCTAssertEqual(
+            Set(authority.descriptors.map(\.path)),
+            Set([
+                fixture.fastaURL.path,
+                fixture.manifestURL.path,
+                fixture.databaseURL.path,
+                fixture.annotationDatabaseURL.path,
+            ])
+        )
+        let annotationDescriptor = try XCTUnwrap(
+            authority.descriptors.first { $0.path == fixture.annotationDatabaseURL.path }
+        )
+        XCTAssertEqual(
+            annotationDescriptor.checksumSHA256,
+            SHA256.hash(data: liveBefore).map { String(format: "%02x", $0) }.joined()
+        )
+        XCTAssertEqual(annotationDescriptor.fileSize, UInt64(liveBefore.count))
+        XCTAssertNoThrow(try authority.requireUnchanged())
+        // The live store is read, never written or journaled.
+        XCTAssertEqual(try Data(contentsOf: fixture.annotationDatabaseURL), liveBefore)
+        let annotationDirectory = try FileManager.default.contentsOfDirectory(
+            atPath: fixture.annotationDatabaseURL.deletingLastPathComponent().path
+        )
+        XCTAssertEqual(annotationDirectory, ["imported_annotations.db"])
+    }
+
+    func testMiSeqReferenceAuthorityRejectsSameSizeAnnotationStoreSwapDuringLoad() throws {
+        let fixture = try AnnotatedReferenceFixture(annotationStore: .rollbackJournal)
+        defer { fixture.remove() }
+
+        XCTAssertThrowsError(
+            try ONTBarcodeDemuxGenotypingPipeline.reviewableReferenceAuthority(
+                referenceFASTAURL: fixture.fastaURL,
+                sourceReferenceBundleURL: fixture.bundleURL,
+                authorityObserver: { phase in
+                    if phase == .beforeFinalVerification {
+                        try fixture.replaceAnnotationDatabaseWithSameSizeStore()
+                    }
+                }
+            )
+        ) { error in
+            XCTAssertTrue(error.localizedDescription.contains("changed"))
+            XCTAssertTrue(
+                error.localizedDescription.contains(fixture.annotationDatabaseURL.path)
+            )
+        }
+    }
+
+    func testMiSeqReferenceAuthorityParsesRetainedAnnotationSnapshotNotLiveStore() throws {
+        let fixture = try AnnotatedReferenceFixture(annotationStore: .rollbackJournal)
+        defer { fixture.remove() }
+
+        XCTAssertThrowsError(
+            try ONTBarcodeDemuxGenotypingPipeline.reviewableReferenceAuthority(
+                referenceFASTAURL: fixture.fastaURL,
+                sourceReferenceBundleURL: fixture.bundleURL,
+                authorityObserver: { phase in
+                    switch phase {
+                    case .afterSnapshotBeforeSemanticLoad:
+                        try Data("not a sqlite database".utf8)
+                            .write(to: fixture.annotationDatabaseURL, options: .atomic)
+                    case .beforeFinalVerification:
+                        throw FixtureError.injected
+                    }
+                }
+            )
+        ) { error in
+            XCTAssertEqual(error as? FixtureError, .injected)
+        }
+    }
+
+    func testMiSeqReferenceAuthoritySnapshotsUncheckpointedAnnotationWAL() throws {
+        let fixture = try AnnotatedReferenceFixture(
+            annotationStore: .uncheckpointedWriteAheadLog
+        )
+        defer { fixture.remove() }
+        XCTAssertTrue(FileManager.default.fileExists(atPath: fixture.annotationWALURL.path))
+
+        let authority = try ONTBarcodeDemuxGenotypingPipeline.reviewableReferenceAuthority(
+            referenceFASTAURL: fixture.fastaURL,
+            sourceReferenceBundleURL: fixture.bundleURL
+        )
+
+        // The annotations table and its row exist only in the WAL.
+        let record = try XCTUnwrap(authority.records.first)
+        XCTAssertEqual(record.completeness.observedExons, [2])
+        XCTAssertTrue(authority.descriptors.contains { $0.path == fixture.annotationWALURL.path })
+        XCTAssertTrue(authority.descriptors.allSatisfy { $0.checksumSHA256 != nil })
     }
 
     func testFullLengthReviewAuthorityRejectsSameSizeCandidateSwapBeforePublication() throws {
@@ -1547,35 +1663,132 @@ private func makeCall(
     )
 }
 
-private struct AnnotatedReferenceFixture {
+// @unchecked: the writer connection is touched only from the test's thread
+// (created in init, closed in remove/deinit); observers only read URLs.
+private final class AnnotatedReferenceFixture: @unchecked Sendable {
+    /// How the bundle's annotation track store is laid out on disk.
+    enum AnnotationStore {
+        /// No `annotations` entry in the manifest.
+        case none
+        /// A rollback-journal SQLite store, as `lungfish import` writes it.
+        case rollbackJournal
+        /// A WAL-mode store whose rows exist only in the uncheckpointed
+        /// `-wal` sidecar while the fixture's writer connection stays open.
+        case uncheckpointedWriteAheadLog
+    }
+
+    static let annotationTrackID = "imported_annotations"
+
     let root: URL
     let bundleURL: URL
     let fastaURL: URL
     let manifestURL: URL
     let databaseURL: URL
+    let annotationDatabaseURL: URL
+    private var annotationWriter: OpaquePointer?
 
-    init() throws {
+    init(annotationStore: AnnotationStore = .none) throws {
         root = try TestTempDirectory.make(prefix: "review-reference")
         bundleURL = root.appendingPathComponent("reference.lungfishref", isDirectory: true)
         fastaURL = bundleURL.appendingPathComponent("genome/reference.fa")
         manifestURL = bundleURL.appendingPathComponent("manifest.json")
         databaseURL = bundleURL.appendingPathComponent("metadata/records.sqlite")
-        try FileManager.default.createDirectory(
-            at: fastaURL.deletingLastPathComponent(),
-            withIntermediateDirectories: true
+        annotationDatabaseURL = bundleURL.appendingPathComponent(
+            "annotations/imported_annotations.db"
         )
-        try FileManager.default.createDirectory(
-            at: databaseURL.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
+        for directory in [fastaURL, databaseURL, annotationDatabaseURL] {
+            try FileManager.default.createDirectory(
+                at: directory.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+        }
         try Data(">raw-a\nACGT\n".utf8).write(to: fastaURL)
-        let manifest: [String: Any] = [
+        var manifest: [String: Any] = [
             "genome": ["path": "genome/reference.fa"],
             "record_store": ["database_path": "metadata/records.sqlite"],
         ]
+        if annotationStore != .none {
+            manifest["annotations"] = [[
+                "id": Self.annotationTrackID,
+                "annotation_type": "gene",
+                "path": "annotations/imported_annotations.gff3",
+                "database_path": "annotations/imported_annotations.db",
+            ]]
+        }
         try JSONSerialization.data(withJSONObject: manifest, options: [.sortedKeys])
             .write(to: manifestURL)
         try Self.createDatabase(at: databaseURL, allele: "Mafa-A1*001:01")
+        switch annotationStore {
+        case .none:
+            break
+        case .rollbackJournal:
+            let writer = try Self.openAnnotationStore(at: annotationDatabaseURL, walMode: false)
+            sqlite3_close(writer)
+        case .uncheckpointedWriteAheadLog:
+            annotationWriter = try Self.openAnnotationStore(
+                at: annotationDatabaseURL,
+                walMode: true
+            )
+        }
+    }
+
+    deinit {
+        if let annotationWriter { sqlite3_close(annotationWriter) }
+    }
+
+    var annotationWALURL: URL {
+        annotationDatabaseURL.deletingLastPathComponent()
+            .appendingPathComponent(annotationDatabaseURL.lastPathComponent + "-wal")
+    }
+
+    func replaceAnnotationDatabaseWithSameSizeStore() throws {
+        let replacement = root.appendingPathComponent("replacement-annotations.db")
+        let writer = try Self.openAnnotationStore(
+            at: replacement,
+            walMode: false,
+            exonNumber: 3
+        )
+        sqlite3_close(writer)
+        XCTAssertEqual(
+            try FileManager.default.attributesOfItem(atPath: replacement.path)[.size] as? NSNumber,
+            try FileManager.default.attributesOfItem(atPath: annotationDatabaseURL.path)[.size] as? NSNumber
+        )
+        _ = try FileManager.default.replaceItemAt(annotationDatabaseURL, withItemAt: replacement)
+    }
+
+    /// Creates the annotation track store with one exon feature on `raw-a`
+    /// and returns the still-open writer connection.
+    private static func openAnnotationStore(
+        at url: URL,
+        walMode: Bool,
+        exonNumber: Int = 2
+    ) throws -> OpaquePointer {
+        var database: OpaquePointer?
+        guard sqlite3_open(url.path, &database) == SQLITE_OK, let database else {
+            throw FixtureDatabaseError.open
+        }
+        let pragmas = walMode
+            ? "PRAGMA journal_mode = WAL; PRAGMA wal_autocheckpoint = 0;"
+            : ""
+        let sql = """
+        \(pragmas)
+        CREATE TABLE annotations (
+            name TEXT NOT NULL,
+            type TEXT NOT NULL,
+            chromosome TEXT NOT NULL,
+            start INTEGER NOT NULL,
+            end INTEGER NOT NULL,
+            strand TEXT NOT NULL DEFAULT '.',
+            attributes TEXT
+        );
+        INSERT INTO annotations VALUES
+            ('exon \(exonNumber)', 'exon', 'raw-a', 0, 4, '+', 'number=\(exonNumber);gene=A1');
+        """
+        guard sqlite3_exec(database, sql, nil, nil, nil) == SQLITE_OK else {
+            sqlite3_close(database)
+            throw FixtureDatabaseError.create
+        }
+        return database
     }
 
     func updateAllele(to allele: String) throws {
@@ -1608,6 +1821,10 @@ private struct AnnotatedReferenceFixture {
     }
 
     func remove() {
+        if let annotationWriter {
+            sqlite3_close(annotationWriter)
+            self.annotationWriter = nil
+        }
         TestTempDirectory.cleanup(root)
     }
 

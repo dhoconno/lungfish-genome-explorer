@@ -33,12 +33,24 @@ private struct GenotypeReviewableReferenceManifestProjection: Decodable {
         }
     }
 
+    struct Annotation: Decodable {
+        let id: String?
+        let databasePath: String?
+
+        enum CodingKeys: String, CodingKey {
+            case id
+            case databasePath = "database_path"
+        }
+    }
+
     let genome: Genome?
     let recordStore: RecordStore?
+    let annotations: [Annotation]?
 
     enum CodingKeys: String, CodingKey {
         case genome
         case recordStore = "record_store"
+        case annotations
     }
 }
 
@@ -3809,11 +3821,27 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
                 ))
             }
             if let databasePath = manifest.recordStore?.databasePath {
-                authorityURLs.append(try BundleManifest.validatedBundleMemberURL(
+                let databaseURL = try BundleManifest.validatedBundleMemberURL(
                     for: databasePath,
                     in: catalogBundleURL,
                     field: "record_store.database_path"
-                ))
+                )
+                authorityURLs.append(databaseURL)
+                authorityURLs.append(contentsOf: existingSQLiteSidecarURLs(for: databaseURL))
+            }
+            // `MHCReferenceRecordCatalog.load` also opens every annotation
+            // track's SQLite store read-only, so each one must be part of the
+            // checksummed snapshot the catalog is parsed from.
+            for annotation in manifest.annotations ?? [] {
+                guard let databasePath = annotation.databasePath,
+                      !databasePath.isEmpty else { continue }
+                let databaseURL = try BundleManifest.validatedBundleMemberURL(
+                    for: databasePath,
+                    in: catalogBundleURL,
+                    field: "annotations[\(annotation.id ?? "")].database_path"
+                )
+                authorityURLs.append(databaseURL)
+                authorityURLs.append(contentsOf: existingSQLiteSidecarURLs(for: databaseURL))
             }
         }
         var seenPaths = Set<String>()
@@ -3909,8 +3937,32 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
                 withIntermediateDirectories: true
             )
             try snapshot.data.write(to: destination, options: .atomic)
+            // The copy is an immutable image of the verified authority file.
+            try fileManager.setAttributes(
+                [.posixPermissions: 0o444],
+                ofItemAtPath: destination.path
+            )
         }
         return try MHCReferenceRecordCatalog.load(from: temporaryRoot).records
+    }
+
+    /// SQLite sidecars that can hold committed rows the main database file
+    /// does not yet contain. A WAL-mode store keeps committed pages in its
+    /// `-wal` file until a checkpoint, so a nonempty WAL travels with the
+    /// database into the snapshot and the read-only copy sees the same rows.
+    /// The `-shm` index is rebuilt from the WAL and is not snapshotted.
+    private static func existingSQLiteSidecarURLs(for databaseURL: URL) -> [URL] {
+        ["-wal"].compactMap { suffix in
+            let sidecar = databaseURL.deletingLastPathComponent()
+                .appendingPathComponent(databaseURL.lastPathComponent + suffix)
+            var status = stat()
+            guard Darwin.lstat(sidecar.path, &status) == 0,
+                  status.st_mode & S_IFMT == S_IFREG,
+                  status.st_size > 0 else {
+                return nil
+            }
+            return sidecar
+        }
     }
 
     private static func recordsFromRetainedFASTASnapshot(
