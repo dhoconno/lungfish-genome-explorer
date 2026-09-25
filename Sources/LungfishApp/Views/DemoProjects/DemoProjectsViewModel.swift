@@ -190,6 +190,24 @@ final class DemoProjectsViewModel {
         return "Download & Open"
     }
 
+    /// Spoken name of the primary button. It names the project, because every row has one.
+    func primaryAccessibilityLabel(for project: DemoProject) -> String {
+        if case .downloaded = status(for: project) { return "Open \(project.title)" }
+        return "Download and open \(project.title)"
+    }
+
+    nonisolated static func revealAccessibilityLabel(for project: DemoProject) -> String {
+        "Reveal \(project.title) in Finder"
+    }
+
+    nonisolated static func replaceAccessibilityLabel(for project: DemoProject) -> String {
+        "Replace \(project.title) with a fresh copy"
+    }
+
+    nonisolated static func chapterAccessibilityLabel(for chapter: DemoProject.Chapter) -> String {
+        "Open chapter \(chapter.title)"
+    }
+
     func unsupportedReason(for project: DemoProject) -> String? {
         guard !project.isSupported(byAppVersion: environment.installer.appVersion) else { return nil }
         return "Requires Lungfish Genome Explorer \(project.minimumAppVersion ?? "") or later"

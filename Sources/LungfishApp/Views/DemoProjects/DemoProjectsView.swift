@@ -18,6 +18,7 @@ enum DemoProjectsAccessibilityID {
     static func reveal(_ id: String) -> String { "demo-projects-reveal-\(id)" }
     static func replace(_ id: String) -> String { "demo-projects-replace-\(id)" }
     static func status(_ id: String) -> String { "demo-projects-status-\(id)" }
+    static func chapter(_ id: String, _ index: Int) -> String { "demo-projects-chapter-\(id)-\(index)" }
 }
 
 struct DemoProjectsView: View {
@@ -55,6 +56,9 @@ struct DemoProjectsView: View {
         }
         .frame(minWidth: 680, idealWidth: 760, minHeight: 480, idealHeight: 600)
         .tint(Color.lungfishOrangeFallback)
+        // `.contain` keeps this a container. Without it the identifier is copied onto every
+        // descendant and replaces their own (Done, Change…) identifiers.
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier(DemoProjectsAccessibilityID.sheet)
         .alert(item: $viewModel.alert) { alert in
             Alert(title: Text(alert.title), message: Text(alert.message), dismissButton: .default(Text("OK")))
@@ -141,7 +145,10 @@ struct DemoProjectsView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: 0) {
+                // A plain VStack, not a LazyVStack: the handful of rows gains nothing from
+                // laziness, and a lazy stack puts the rows behind an AXOpaqueProviderGroup,
+                // an element with no press action that some accessibility clients stop at.
+                VStack(alignment: .leading, spacing: 0) {
                     ForEach(viewModel.projects) { project in
                         DemoProjectRow(project: project, viewModel: viewModel)
                             .padding(.horizontal, 20)
@@ -198,11 +205,14 @@ private struct DemoProjectRow: View {
                         Text("Manual:")
                             .font(.callout)
                             .foregroundStyle(.secondary)
-                        ForEach(project.chapters, id: \.self) { chapter in
+                        ForEach(Array(project.chapters.enumerated()), id: \.element) { index, chapter in
                             Button(chapter.title) { viewModel.openChapter(chapter) }
                                 .buttonStyle(.link)
                                 .font(.callout)
+                                .focusable(interactions: .activate)
                                 .help(chapter.url?.absoluteString ?? chapter.path)
+                                .accessibilityLabel(DemoProjectsViewModel.chapterAccessibilityLabel(for: chapter))
+                                .accessibilityIdentifier(DemoProjectsAccessibilityID.chapter(project.id, index))
                         }
                     }
                 }
@@ -232,17 +242,22 @@ private struct DemoProjectRow: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .disabled(viewModel.isDownloading(project) || viewModel.unsupportedReason(for: project) != nil)
+                .accessibilityLabel(viewModel.primaryAccessibilityLabel(for: project))
                 .accessibilityIdentifier(DemoProjectsAccessibilityID.primary(project.id))
 
                 if viewModel.status(for: project).isInstalled {
                     Button("Reveal in Finder") { viewModel.reveal(project) }
                         .buttonStyle(.link)
                         .font(.callout)
+                        .focusable(interactions: .activate)
+                        .accessibilityLabel(DemoProjectsViewModel.revealAccessibilityLabel(for: project))
                         .accessibilityIdentifier(DemoProjectsAccessibilityID.reveal(project.id))
                     Button("Replace with a Fresh Copy…") { viewModel.requestReplace(project) }
                         .buttonStyle(.link)
                         .font(.callout)
+                        .focusable(interactions: .activate)
                         .disabled(viewModel.isDownloading(project) || viewModel.unsupportedReason(for: project) != nil)
+                        .accessibilityLabel(DemoProjectsViewModel.replaceAccessibilityLabel(for: project))
                         .accessibilityIdentifier(DemoProjectsAccessibilityID.replace(project.id))
                 }
             }
