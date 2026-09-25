@@ -240,6 +240,16 @@ extension SidebarViewController: NSOutlineViewDelegate {
         applySidebarSelection(items)
     }
 
+    /// Clears the selection without notifying the selection delegate.
+    ///
+    /// Used when the window changes project: the owner blanks the viewport and
+    /// the Inspector itself, so the usual "selection cleared" callback (with its
+    /// debounce and focus heuristics) must not run for the previous project.
+    public func clearSelection() {
+        committedSelectionItems = []
+        applySidebarSelection([])
+    }
+
     private func applySidebarSelection(_ items: [SidebarItem]) {
         let rows = IndexSet(
             items.compactMap { item in

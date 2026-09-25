@@ -1693,7 +1693,7 @@ final class MappingViewportRoutingTests: XCTestCase {
     }
 }
 
-private enum MappingRoutingFixture {
+enum MappingRoutingFixture {
     struct Chromosome {
         let name: String
         let length: Int

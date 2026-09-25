@@ -100,6 +100,16 @@ extension ViewerViewController: AnnotationTableDrawerDelegate {
         }
     }
 
+    /// Closes the annotation drawer if it is open.
+    ///
+    /// The drawer's rows belong to the displayed bundle, so it must not stay
+    /// open across a project change. Call after the viewport has been cleared:
+    /// a native bundle viewport blocks the toggle.
+    public func closeAnnotationDrawer() {
+        guard isAnnotationDrawerOpen else { return }
+        toggleAnnotationDrawer()
+    }
+
     /// Opens the annotation drawer by default when the selected bundle has table data.
     /// Data criteria: at least one annotation or variant track in the manifest.
     public func openAnnotationDrawerIfBundleHasData(manifest: BundleManifest? = nil) {
