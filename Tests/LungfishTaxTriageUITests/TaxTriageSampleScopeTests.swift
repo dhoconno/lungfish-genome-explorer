@@ -20,9 +20,13 @@
 // `ClassifierSamplePickerState`/`ClassifierSamplePickerView` multi-select
 // checklist (`applyBatchGroupFilter`), the same component Kraken2/EsViritu/12S
 // use — matching the audit's own recommendation to converge on it. A popup
-// alternative to the segmented control was still added, in case a future
-// caller reactivates the single-sample-result path, but it is not reachable
-// today, and this file's tests reflect the code as it is actually exercised.
+// alternative to the segmented control was still added.
+//
+// 2026-09-25: database mode now shows the segmented control (or the popup
+// past six samples) as a shortcut into that same Inspector picker: "All
+// Samples" ticks every sample and shows the overview grid, and a sample
+// segment ticks only that sample. View > Next/Previous Sample step the
+// picker the same way.
 
 import XCTest
 import AppKit
@@ -43,52 +47,39 @@ final class TaxTriageSampleScopeTests: XCTestCase {
         )
     }
 
-    @MainActor func testBatchGroupModeAlwaysHidesBothSampleScopeControlsRegardlessOfCount() throws {
+    @MainActor func testDatabaseModeShowsSegmentsForFewSamplesAndThePopUpForMany() throws {
         // Every production TaxTriage result reaches the viewer through
-        // `configureFromDatabase`, which is always batch-group mode: sample
-        // scoping is exclusively the Inspector's multi-select picker
-        // (`applyBatchGroupFilter`/`samplePickerState`), never
-        // `sampleFilterControl`/`sampleFilterPopUp`. This holds at both a
-        // small and a large sample count.
-        for count in [3, 12] {
-            let (vc, tempDir) = try Self.makeController(sampleCount: count)
-            defer { try? FileManager.default.removeItem(at: tempDir) }
+        // `configureFromDatabase`. The Inspector's multi-select picker
+        // (`samplePickerState`) stays the source of truth; the segmented
+        // control (or, past the threshold, the popup) is a shortcut into it.
+        let (few, fewDir) = try Self.makeController(sampleCount: 3)
+        defer { try? FileManager.default.removeItem(at: fewDir) }
+        XCTAssertFalse(few.testSampleFilterControl.isHidden)
+        XCTAssertTrue(few.testSampleFilterPopUp.isHidden)
+        XCTAssertEqual(few.testSampleFilterControl.segmentCount, 4)
+        XCTAssertEqual(few.samplePickerState.selectedSamples.count, 3)
 
-            XCTAssertTrue(vc.testSampleFilterControl.isHidden, "count=\(count)")
-            XCTAssertTrue(vc.testSampleFilterPopUp.isHidden, "count=\(count)")
-            XCTAssertNotNil(vc.samplePickerState, "batch-group mode must populate the shared Inspector picker state")
-            XCTAssertEqual(vc.samplePickerState.selectedSamples.count, count)
-        }
-    }
-
-    @MainActor func testSampleFilterPopUpBuildsScalableItemListWhenTheUnreachableSingleResultPathIsDriven() throws {
-        // `enableMultiSampleFlatTableMode()` (the only caller that would show
-        // `sampleFilterControl`/`sampleFilterPopUp`) is never invoked from
-        // anywhere in the app today — see the file-level note. This test
-        // exercises `rebuildSampleFilterSegments` directly, bypassing
-        // `configureFromDatabase`'s batch-group re-hide, to prove the popup
-        // itself is correctly built and scales past the threshold, so the
-        // mechanism is ready if a future caller reactivates that path.
-        let (vc, tempDir) = try Self.makeController(sampleCount: 12)
-        defer { try? FileManager.default.removeItem(at: tempDir) }
-
-        vc.testRebuildSampleFilterSegments()
-
-        XCTAssertTrue(vc.testSampleFilterControl.isHidden, "segmented control should hide once the popup takes over")
-        XCTAssertFalse(vc.testSampleFilterPopUp.isHidden)
-        XCTAssertEqual(vc.testSampleFilterPopUp.numberOfItems, 13)  // "All Samples" + 12
+        let (many, manyDir) = try Self.makeController(sampleCount: 12)
+        defer { try? FileManager.default.removeItem(at: manyDir) }
+        XCTAssertTrue(many.testSampleFilterControl.isHidden, "segmented control should hide once the popup takes over")
+        XCTAssertFalse(many.testSampleFilterPopUp.isHidden)
+        XCTAssertEqual(many.testSampleFilterPopUp.numberOfItems, 13)  // "All Samples" + 12
+        XCTAssertEqual(many.samplePickerState.selectedSamples.count, 12)
     }
 
     @MainActor func testSelectNextSampleAdvancesPopUpSelectionAtLargeSampleCounts() throws {
         let (vc, tempDir) = try Self.makeController(sampleCount: 12)
         defer { try? FileManager.default.removeItem(at: tempDir) }
-        vc.testRebuildSampleFilterSegments()
 
-        XCTAssertEqual(vc.testSampleFilterPopUp.indexOfSelectedItem, 0)
+        XCTAssertEqual(vc.testSampleFilterPopUp.indexOfSelectedItem, -1, "every sample ticked, list view")
         vc.selectNextSample(nil)
         XCTAssertEqual(vc.testSampleFilterPopUp.indexOfSelectedItem, 1)
+        XCTAssertEqual(vc.samplePickerState.selectedSamples, ["sample-0"])
+        vc.selectNextSample(nil)
+        XCTAssertEqual(vc.testSampleFilterPopUp.indexOfSelectedItem, 2)
         vc.selectAllSamplesOverview(nil)
         XCTAssertEqual(vc.testSampleFilterPopUp.indexOfSelectedItem, 0)
+        XCTAssertEqual(vc.samplePickerState.selectedSamples.count, 12)
     }
 
     // MARK: - Fixture

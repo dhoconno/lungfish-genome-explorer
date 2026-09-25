@@ -5,6 +5,79 @@
 import AppKit
 import LungfishKit
 
+/// The High / Medium / Low band a TaxTriage row falls in, matching the
+/// Confidence column.
+///
+/// The row's stored confidence label wins. For organism reports (`.odr.txt`)
+/// that label is TaxTriage's own call: a row that passes the run's TASS
+/// threshold ("Passes Threshold", 75 on TaxTriage's 0-100 scale, so 0.75 in
+/// LGE's 0-1 scale) is High, and below it Medium starts at 0.40
+/// (`TaxTriageOrganismReport.odrConfidenceLabel`). Only rows without a label
+/// fall back to fixed score bands (High from 0.80, Medium from 0.40).
+enum TaxTriageConfidenceBand: Equatable, Sendable {
+    case high
+    case medium
+    case low
+
+    init(label: String?, tassScore: Double) {
+        switch label?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "high", "high confidence":
+            self = .high
+        case "medium", "moderate", "medium confidence", "moderate confidence":
+            self = .medium
+        case "low", "low confidence":
+            self = .low
+        default:
+            self = Self.scoreBand(tassScore)
+        }
+    }
+
+    /// Fixed score bands, used only when a row has no confidence label.
+    static func scoreBand(_ tassScore: Double) -> TaxTriageConfidenceBand {
+        if tassScore >= 0.8 { return .high }
+        if tassScore >= 0.4 { return .medium }
+        return .low
+    }
+
+    /// Whether `label` is one of the recognised confidence labels.
+    static func hasRecognisedLabel(_ label: String?) -> Bool {
+        switch label?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "high", "high confidence", "medium", "moderate", "medium confidence",
+             "moderate confidence", "low", "low confidence":
+            return true
+        default:
+            return false
+        }
+    }
+
+    /// Tooltip for TASS Score and Confidence cells.
+    static func toolTip(label: String?, tassScore: Double) -> String {
+        let band = TaxTriageConfidenceBand(label: label, tassScore: tassScore)
+        let labelled = hasRecognisedLabel(label)
+        switch band {
+        case .high:
+            return labelled
+                ? "High confidence: passes TaxTriage's TASS threshold. Strong taxonomic signal."
+                : "High confidence (TASS 0.80 or higher): strong taxonomic signal."
+        case .medium:
+            return labelled
+                ? "Medium confidence: below TaxTriage's TASS threshold, TASS 0.40 or higher. Likely true positive, verify with BLAST."
+                : "Medium confidence (TASS 0.40 to 0.80): likely true positive, verify with BLAST."
+        case .low:
+            return "Low confidence (TASS below 0.40): weak signal, may be noise or contamination."
+        }
+    }
+
+    @MainActor
+    var color: NSColor {
+        switch self {
+        case .high: return .systemGreen
+        case .medium: return .systemYellow
+        case .low: return .lungfishDanger
+        }
+    }
+}
+
 @MainActor
 enum TaxTriageConfidencePalette {
     static func color(for score: Double) -> NSColor {
@@ -43,6 +116,16 @@ final class TaxTriageConfidenceCellView: NSView {
         }
     }
 
+    /// The row's confidence band. When set (from the row's confidence label)
+    /// it decides the bar colour and the accessibility category, so the bar
+    /// agrees with the Confidence text. `nil` falls back to score bands.
+    var band: TaxTriageConfidenceBand? {
+        didSet {
+            needsDisplay = true
+            updateAccessibility()
+        }
+    }
+
     override var isFlipped: Bool { true }
 
     private var trackRect: NSRect {
@@ -56,7 +139,8 @@ final class TaxTriageConfidenceCellView: NSView {
     }
 
     private var fillColor: NSColor {
-        TaxTriageConfidencePalette.color(for: min(max(score, 0), 1))
+        if let band { return band.color }
+        return TaxTriageConfidencePalette.color(for: min(max(score, 0), 1))
     }
 
     override init(frame frameRect: NSRect) {
@@ -119,12 +203,10 @@ final class TaxTriageConfidenceCellView: NSView {
     private func updateAccessibility() {
         let clampedScore = min(max(score, 0), 1)
         let category: String
-        if clampedScore >= 0.8 {
-            category = "High"
-        } else if clampedScore >= 0.4 {
-            category = "Medium"
-        } else {
-            category = "Low"
+        switch band ?? TaxTriageConfidenceBand.scoreBand(clampedScore) {
+        case .high: category = "High"
+        case .medium: category = "Medium"
+        case .low: category = "Low"
         }
         setAccessibilityValue(NSNumber(value: clampedScore))
         setAccessibilityHelp(

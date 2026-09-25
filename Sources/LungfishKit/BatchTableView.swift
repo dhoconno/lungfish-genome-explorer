@@ -135,6 +135,24 @@ open class BatchTableView<Row>: NSView, NSTableViewDataSource, NSTableViewDelega
         nil
     }
 
+    /// Returns an optional tooltip for a cell. Reset on every render, so a
+    /// reused cell never keeps a tooltip from another row. Default: none.
+    open func cellToolTip(
+        for column: NSUserInterfaceItemIdentifier,
+        row: Row
+    ) -> String? {
+        nil
+    }
+
+    /// Returns an optional primary text colour for a cell, for example to
+    /// flag a warning. `nil` (the default) uses the standard label colour.
+    open func cellTextColor(
+        for column: NSUserInterfaceItemIdentifier,
+        row: Row
+    ) -> NSColor? {
+        nil
+    }
+
     /// Returns whether the given row matches `filterText`.
     ///
     /// The default implementation always returns `true` (no filtering).
@@ -1107,6 +1125,11 @@ open class BatchTableView<Row>: NSView, NSTableViewDataSource, NSTableViewDelega
                 preferredFontProvider: preferredFontProvider
             ).font(for: .monospaced)
         }
+
+        cellView.textField?.textColor = cellTextColor(for: id, row: rowData) ?? .labelColor
+        let toolTip = cellToolTip(for: id, row: rowData)
+        cellView.textField?.toolTip = toolTip
+        cellView.toolTip = toolTip
 
         let secondaryText = secondaryCellText(for: id, row: rowData)
         applySecondaryCellText(secondaryText, to: cellView, alignment: alignment)

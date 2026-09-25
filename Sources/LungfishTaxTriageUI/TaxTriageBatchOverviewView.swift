@@ -90,6 +90,9 @@ final class TaxTriageBatchOverviewView: NSView {
         let perSampleUniqueReads: [String: Int]
         /// Whether this organism was detected in a negative control sample.
         let isContaminationRisk: Bool
+        /// Per-sample confidence labels keyed by sample ID (the Confidence
+        /// column's value), used to colour per-sample cells.
+        var perSampleConfidence: [String: String] = [:]
     }
 
     // MARK: - State
@@ -448,11 +451,15 @@ final class TaxTriageBatchOverviewView: NSView {
             var perSampleTASS: [String: Double] = [:]
             var perSampleReads: [String: Int] = [:]
             var perSampleCoverage: [String: Double] = [:]
+            var perSampleConfidence: [String: String] = [:]
             for metric in group {
                 if let sample = metric.sample {
                     perSampleTASS[sample] = metric.tassScore
                     perSampleReads[sample] = metric.reads
                     perSampleCoverage[sample] = metric.coverageBreadth ?? 0
+                    if let confidence = metric.confidence {
+                        perSampleConfidence[sample] = confidence
+                    }
                 }
             }
 
@@ -473,7 +480,8 @@ final class TaxTriageBatchOverviewView: NSView {
                 perSampleReads: perSampleReads,
                 perSampleCoverage: perSampleCoverage,
                 perSampleUniqueReads: perSampleUnique,
-                isContaminationRisk: inNegativeControl
+                isContaminationRisk: inNegativeControl,
+                perSampleConfidence: perSampleConfidence
             ))
         }
 
@@ -507,6 +515,20 @@ final class TaxTriageBatchOverviewView: NSView {
     }
 
     // MARK: - TASS Color
+
+    /// Background for a per-sample cell: the confidence band of that sample's
+    /// row (label first, score bands only without a label).
+    private static func sampleCellColor(score: Double?, confidence: String?) -> NSColor {
+        guard let score else { return .clear }
+        guard TaxTriageConfidenceBand.hasRecognisedLabel(confidence) else {
+            return tassColor(for: score)
+        }
+        switch TaxTriageConfidenceBand(label: confidence, tassScore: score) {
+        case .high: return NSColor.systemGreen.withAlphaComponent(0.35)
+        case .medium: return NSColor.systemYellow.withAlphaComponent(0.35)
+        case .low: return score > 0 ? NSColor.systemOrange.withAlphaComponent(0.25) : .clear
+        }
+    }
 
     /// Returns a background color for a TASS score in the heatmap.
     private static func tassColor(for score: Double?) -> NSColor {
@@ -658,6 +680,12 @@ extension TaxTriageBatchOverviewView: NSTableViewDelegate {
             if id.hasPrefix("sample_") {
                 let sampleId = String(id.dropFirst("sample_".count))
                 let score = data.perSampleTASS[sampleId]
+                // Coloured by the sample's Confidence value (TaxTriage's own
+                // threshold call), matching the list's Confidence column.
+                let sampleCellColor = Self.sampleCellColor(
+                    score: score,
+                    confidence: data.perSampleConfidence[sampleId]
+                )
                 switch currentFacet {
                 case .tass:
                     if let score {
@@ -666,7 +694,7 @@ extension TaxTriageBatchOverviewView: NSTableViewDelegate {
                         field.stringValue = "-"
                     }
                     field.alignment = .center
-                    setBackgroundFillColor(Self.tassColor(for: score), on: cellView)
+                    setBackgroundFillColor(sampleCellColor, on: cellView)
 
                 case .reads:
                     if let reads = data.perSampleReads[sampleId] {
@@ -675,7 +703,7 @@ extension TaxTriageBatchOverviewView: NSTableViewDelegate {
                         field.stringValue = "-"
                     }
                     field.alignment = .center
-                    setBackgroundFillColor(Self.tassColor(for: score), on: cellView)
+                    setBackgroundFillColor(sampleCellColor, on: cellView)
 
                 case .uniqueReads:
                     if let unique = data.perSampleUniqueReads[sampleId] {
@@ -687,7 +715,7 @@ extension TaxTriageBatchOverviewView: NSTableViewDelegate {
                         field.stringValue = "-"
                     }
                     field.alignment = .center
-                    setBackgroundFillColor(Self.tassColor(for: score), on: cellView)
+                    setBackgroundFillColor(sampleCellColor, on: cellView)
 
                 case .coverage:
                     if let cov = data.perSampleCoverage[sampleId], cov > 0 {
@@ -696,7 +724,7 @@ extension TaxTriageBatchOverviewView: NSTableViewDelegate {
                         field.stringValue = "-"
                     }
                     field.alignment = .center
-                    setBackgroundFillColor(Self.tassColor(for: score), on: cellView)
+                    setBackgroundFillColor(sampleCellColor, on: cellView)
                 }
             }
         }
