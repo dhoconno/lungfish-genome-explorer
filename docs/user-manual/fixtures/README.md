@@ -114,3 +114,11 @@ reads fetched by the regeneration script, and committed expected iVar and
 LoFreq VCF outputs. `sarscov2-clinical/` is a legacy compact clinical-isolate
 fixture retained for older VCF-import review notes and future comparison
 examples. It is not the active pilot fixture.
+
+`kraken-protocol-cornea/` is a README only. It supports the Kraken 2,
+TaxTriage, and BLAST verification chapters with two public human corneal
+tissue runs from BioProject PRJNA381365, `SRR12486983` (herpes simplex
+keratitis, the pathogen-identification example of the Kraken protocol paper)
+and `SRR12486989`. The reads are fetched from the SRA inside the app, and
+none are stored here. Its README explains why EsViritu and Freyja keep the
+SARS-CoV-2 fixture instead.

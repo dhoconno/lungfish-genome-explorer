@@ -23,9 +23,9 @@ shots:
 illustrations:
   - id: classification-question
     brief: "Schematic showing a FASTQ bundle on the left, a classifier box in the middle labelled with a reference database, and a sunburst diagram on the right with reads assigned to taxonomic groups (host, bacteria, virus, unclassified). Use Lungfish Creamsicle for the classifier box and Deep Ink for the labels."
-glossary_refs: [fastq, read, taxon, taxonomic-rank, lowest-common-ancestor, read-classification, metagenomics, mapping, kraken2, esviritu, taxtriage, cz-id, nao-mgs, nvd, freyja, lineage, plugin-pack, k-mer, blast, container, nextflow, host-depletion, import-center, operations-panel, amplicon, accession, coverage, contig, rpkmf, reads-per-billion, reads-per-million, workflow-library]
+glossary_refs: [fastq, read, taxon, taxonomic-rank, lowest-common-ancestor, read-classification, metagenomics, mapping, kraken2, esviritu, taxtriage, cz-id, nao-mgs, nvd, freyja, lineage, plugin-pack, k-mer, blast, container, nextflow, host-depletion, import-center, operations-panel, amplicon, accession, shotgun, paired-end, coverage, contig, rpkmf, reads-per-billion, reads-per-million, workflow-library]
 features_refs: []
-fixtures_refs: [sarscov2-srr36291587]
+fixtures_refs: [kraken-protocol-cornea, sarscov2-srr36291587]
 brand_reviewed: false
 lead_approved: false
 ---
@@ -58,7 +58,13 @@ A targeted assay, meaning a test that looks only for organisms chosen in advance
 
 The same reasoning covers wastewater, a culture you suspect is contaminated, and any run where you need to check that the library holds what you think it holds. [Host depletion](../../GLOSSARY.md#host-depletion), the removal of the sampled organism's own reads, is often run first because the host fraction is so large, and [Decontamination](../03-reads/05-decontamination.md) covers that step.
 
-The worked examples in the chapters that follow use the SRR36291587 SARS-CoV-2 reads, a clinical [amplicon](../../GLOSSARY.md#amplicon) run of 170,398 reads, which is 85,199 read pairs. A [paired-end](../../GLOSSARY.md#paired-end) run reads each fragment from both ends, and LGE stores the two mates of a sample together in one bundle. An amplicon is a stretch of genome copied many times by PCR before sequencing, so the run reads one viral genome deeply rather than the whole sample evenly. SRR36291587 is an [accession](../../GLOSSARY.md#accession), the permanent identifier the NCBI Sequence Read Archive gives one public sequencing run. The example is viral because the databases these classifiers use are built to name microbes and viruses, so a viral sample exercises them end to end. Even on a run aimed at one virus, classification confirms that the library holds that virus and little else. The concepts apply unchanged to a human specimen, where the result would show the host as the dominant taxon and the pathogen as a small slice beside it. A macaque specimen behaves the same way with one difference, since the Standard database holds the human genome and no macaque genome, so macaque reads land on human or primate rows or stay unclassified.
+The worked examples in the chapters that follow use public runs from the NCBI Sequence Read Archive. Each run has an [accession](../../GLOSSARY.md#accession), the permanent identifier the archive gives one public sequencing run. A [paired-end](../../GLOSSARY.md#paired-end) run reads each fragment from both ends, and LGE stores the two mates of a sample together in one bundle.
+
+The Kraken 2, TaxTriage, and BLAST chapters use human corneal tissue from BioProject PRJNA381365, a study that diagnosed eye infections from preserved clinical specimens. The main run, SRR12486983, comes from a person with herpes simplex keratitis, an infection of the cornea by herpes simplex virus 1 (HSV-1). It is the pathogen-identification example in the Kraken authors' own protocol paper, Lu et al. 2022, [Metagenome analysis using the Kraken software suite](https://doi.org/10.1038/s41596-022-00738-y), *Nature Protocols* 17, 2815. It is a [shotgun](../../GLOSSARY.md#shotgun) library of 4,819,760 read pairs of up to 76 bases, so the reads sample whatever DNA the tissue held rather than one chosen target. The TaxTriage chapter adds a second case, SRR12486989, recorded as a *Streptococcus agalactiae* infection, to make a two-sample batch.
+
+EsViritu and Freyja keep SRR36291587, a SARS-CoV-2 [amplicon](../../GLOSSARY.md#amplicon) run of 85,199 read pairs. An amplicon is a stretch of genome copied many times by PCR before sequencing, so that run reads one viral genome deeply. EsViritu discards any read that aligns along fewer than 100 bases, so the 76-base corneal reads give it nothing to report, and Freyja names SARS-CoV-2 lineages, so it needs SARS-CoV-2 reads.
+
+A macaque specimen works the same way with one difference. The Standard database holds the human genome and no macaque genome, so macaque reads land on human or primate rows or stay unclassified.
 
 ## What LGE runs and what it only imports
 

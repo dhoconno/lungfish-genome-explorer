@@ -1,13 +1,13 @@
-# Captured from Lungfish Preview 2026.9.13 with capture-window.sh (2026-09 campaign).
-# App state: Kraken2 result kraken2-SRR36291587 open in the taxonomy viewport; this demo run has no Bracken sidecar so no Bracken column appears
+# Captured from Lungfish Preview 2026.9.42 (2026-09 campaign) in a project holding SRR12486983 downloaded through the SRA route.
+# App state: Kraken2 Viral-database result for SRR12486983 (Sensitivity Balanced, Bracken run by the dialog) open in the taxonomy viewport, Detail | List layout, sunburst left, table right with Filter taxa... field and "27 taxa"
 id: kraken2-taxonomy-viewport
 chapter: 06-classification/02-running-kraken2
-caption: "The taxonomy viewport after classifying SRR36291587, with the breadcrumb bar running across the top of both panes, the sunburst on the left, and the per-taxon table on the right showing its Filter taxa... field."
+caption: "The taxonomy viewport after classifying SRR12486983 against the Viral database, with the sunburst on the left and the per-taxon table on the right showing its Filter taxa... field and a count of 27 taxa."
 viewport_class: taxonomy
 app_state:
-  fixture: '{demo_project}'
+  fixture: kraken-protocol-cornea
   open_files:
-  - analysis: kraken2-SRR36291587
+  - analysis: kraken2 Viral result for SRR12486983
   window_size:
   - 1400
   - 900
@@ -21,7 +21,7 @@ steps:
   size:
   - 1400
   - 900
-  # PROSE-ONLY: Select kraken2-SRR36291587 under Analyses in the sidebar
+  # PROSE-ONLY: Select the Viral kraken2- result for SRR12486983 under Analyses in the sidebar
 crop:
   mode: window
 post:
