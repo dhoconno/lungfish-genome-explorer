@@ -310,7 +310,7 @@ public class TaxonomySunburstView: NSView {
         var fillColor = segment.color
         if isDimmed {
             fillColor = desaturatedColor(fillColor, saturationFactor: 0.25, alphaFactor: 0.25)
-        } else if segment.node === hoveredNode, !segment.isOther {
+        } else if segment.node === hoveredNode {
             // Brighten hovered segment by 10%
             fillColor = brightenedColor(fillColor, by: 0.10)
         }
@@ -319,7 +319,7 @@ public class TaxonomySunburstView: NSView {
 
         // Stroke
         let isSelected = !segment.isOther && segment.node === selectedNode
-        let isHovered = !segment.isOther && segment.node === hoveredNode
+        let isHovered = segment.node === hoveredNode
 
         if isDimmed {
             NSColor.separatorColor.withAlphaComponent(0.15).setStroke()
@@ -445,15 +445,7 @@ public class TaxonomySunburstView: NSView {
         let root = layout.effectiveRoot
         let name = centerNode != nil ? root.name : "All Taxa"
         let count = root.readsClade
-        let percentage: String
-        if let tree {
-            let pct = tree.totalReads > 0
-                ? Double(count) / Double(tree.totalReads) * 100
-                : 0
-            percentage = String(format: "(%.1f%%)", pct)
-        } else {
-            percentage = ""
-        }
+        let percentage = tree.map { Self.centerPercentText(for: root, isZoomed: centerNode != nil, tree: $0) } ?? ""
 
         // Name
         let nameAttrs: [NSAttributedString.Key: Any] = [
@@ -493,6 +485,23 @@ public class TaxonomySunburstView: NSView {
         y += countSize.height + 2
 
         pctStr.draw(at: CGPoint(x: center.x - pctSize.width / 2, y: y))
+    }
+
+    /// The percentage line under the centre count, naming its denominator.
+    ///
+    /// Wedge angles are shares of the classified tree, so a zoomed centre reports
+    /// its share of classified reads. The whole-tree centre reports the classified
+    /// share of every read in the sample, which is the same number the summary
+    /// bar's Classified card shows.
+    static func centerPercentText(for root: TaxonNode, isZoomed: Bool, tree: TaxonTree) -> String {
+        if isZoomed {
+            let fraction = tree.classifiedReads > 0
+                ? Double(root.readsClade) / Double(tree.classifiedReads) : 0
+            return "\(TaxonomyPercentFormat.string(fraction: fraction)) of classified"
+        }
+        let fraction = tree.totalReads > 0
+            ? Double(root.readsClade) / Double(tree.totalReads) : 0
+        return "\(TaxonomyPercentFormat.string(fraction: fraction)) of all reads"
     }
 
     /// Draws the empty state message when no tree is available.
@@ -609,8 +618,9 @@ public class TaxonomySunburstView: NSView {
         }
         ensureSegmentCache()
 
-        if let segment = layout.hitTest(point: point, segments: cachedSegments),
-           !segment.isOther {
+        // Aggregate wedges are hoverable so their tooltip explains what they
+        // hold, but they are never selectable or zoomable.
+        if let segment = layout.hitTest(point: point, segments: cachedSegments) {
             hoveredNode = segment.node
         } else {
             hoveredNode = nil

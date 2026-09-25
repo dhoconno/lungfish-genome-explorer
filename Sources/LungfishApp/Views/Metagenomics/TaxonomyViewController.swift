@@ -1279,12 +1279,12 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
             formatter.groupingSeparator = ","
             let readStr = formatter.string(from: NSNumber(value: node.readsClade)) ?? "\(node.readsClade)"
 
-            let pct = totalReadsForActionBar > 0
-                ? Double(node.readsClade) / Double(totalReadsForActionBar) * 100
+            let fraction = totalReadsForActionBar > 0
+                ? Double(node.readsClade) / Double(totalReadsForActionBar)
                 : 0
-            let pctStr = String(format: "%.1f%%", pct)
+            let pctStr = TaxonomyPercentFormat.string(fraction: fraction)
 
-            actionBar.updateInfoText("\(node.name) \u{2014} \(readStr) reads (\(pctStr))")
+            actionBar.updateInfoText("\(node.name) \u{2014} \(readStr) reads (\(pctStr) of all reads)")
             if readLevelActionsAvailable {
                 actionBar.setBlastEnabled(true)
                 actionBar.setExtractEnabled(true)

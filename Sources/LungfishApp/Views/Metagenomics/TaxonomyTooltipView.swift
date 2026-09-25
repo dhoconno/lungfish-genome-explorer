@@ -5,6 +5,27 @@
 import AppKit
 import LungfishIO
 
+// MARK: - TaxonomyPercentFormat
+
+/// Formats read-share percentages for the taxonomy viewport.
+///
+/// One decimal is fine for large shares, but a taxon holding 4,121 of 11.3M
+/// reads is 0.037%, which "%.1f" prints as 0.0% and makes the value look
+/// wrong. Small shares keep two decimals and anything under 0.01% is shown
+/// as a bound instead of as zero.
+enum TaxonomyPercentFormat {
+
+    /// - Parameter fraction: A share in 0...1.
+    /// - Returns: A percent string such as `5.1%`, `0.04%`, `<0.01%`, or `0%`.
+    static func string(fraction: Double) -> String {
+        let percent = fraction * 100
+        if percent <= 0 { return "0%" }
+        if percent < 0.01 { return "<0.01%" }
+        if percent < 1 { return String(format: "%.2f%%", percent) }
+        return String(format: "%.1f%%", percent)
+    }
+}
+
 // MARK: - TaxonomyTooltipView
 
 /// A compact tooltip view showing taxon details on hover.
@@ -199,7 +220,7 @@ public class TaxonomyTooltipView: NSView {
             attributes: labelAttrs
         )
         pctTotalLine.append(NSAttributedString(
-            string: String(format: "%.1f%%", percentOfTotal),
+            string: TaxonomyPercentFormat.string(fraction: percentOfTotal / 100),
             attributes: detailAttrs
         ))
         lines.append(pctTotalLine)
@@ -210,7 +231,7 @@ public class TaxonomyTooltipView: NSView {
             attributes: labelAttrs
         )
         pctClassLine.append(NSAttributedString(
-            string: String(format: "%.1f%%", percentOfClassified),
+            string: TaxonomyPercentFormat.string(fraction: percentOfClassified / 100),
             attributes: detailAttrs
         ))
         lines.append(pctClassLine)

@@ -1,0 +1,146 @@
+ 99.28	11203859	11203859	0	0	U	0	unclassified
+  0.72	80971	833	4387527	1790542	R	1	root
+  0.70	79216	780	4239437	1782942	R1	131567	  cellular organisms
+  0.66	74246	39907	4120081	1786747	D	2	    Bacteria
+  0.30	34339	4694	2040837	904907	K	3379134	      Pseudomonadati
+  0.26	29645	17528	1746134	743608	P	1224	        Pseudomonadota
+  0.11	12117	8617	731519	377155	C	1236	          Gammaproteobacteria
+  0.03	3500	0	220751	128715	O	2887326	            Moraxellales
+  0.03	3500	767	220751	128715	F	468	              Moraxellaceae
+  0.02	1861	1615	110463	67497	G	469	                Acinetobacter
+  0.00	76	76	5935	3813	S	28090	                  Acinetobacter lwoffii
+  0.00	60	60	5919	3850	S	40214	                  Acinetobacter johnsonii
+  0.00	33	33	2538	1676	S	108981	                  Acinetobacter schindleri
+  0.00	16	6	2654	1744	G1	196816	                  unclassified Acinetobacter
+  0.00	3	3	8	5	S	3425693	                    Acinetobacter sp. CE-15
+  0.00	3	3	50	26	S	3231720	                    Acinetobacter sp. FL
+  0.00	2	2	15	5	S	2983215	                    Acinetobacter sp. ESL0695
+  0.00	1	1	69	46	S	3692341	                    Acinetobacter sp. DL27
+  0.00	1	1	73	50	S	3687697	                    Acinetobacter sp. SW-226
+  0.00	14	14	128	65	S	487316	                  Acinetobacter soli
+  0.00	11	11	762	522	S	2053287	                  Acinetobacter pseudolwoffii
+  0.00	7	7	785	491	S	108980	                  Acinetobacter ursingii
+  0.00	7	1	1660	1012	G1	909768	                  Acinetobacter calcoaceticus/baumannii complex
+  0.00	3	3	723	355	S	470	                    Acinetobacter baumannii
+  0.00	3	3	220	171	S	48296	                    Acinetobacter pittii
+  0.00	4	4	89	69	S	2715163	                  Acinetobacter lanii
+  0.00	3	3	718	440	S	3045147	                  Acinetobacter corruptisaponis
+  0.00	3	3	541	346	S	40216	                  Acinetobacter radioresistens
+  0.00	3	3	89	51	S	1879050	                  Acinetobacter wuhouensis
+  0.00	3	3	184	134	S	756892	                  Acinetobacter indicus
+  0.00	2	2	180	117	S	40215	                  Acinetobacter junii
+  0.00	2	2	274	188	S	2762215	                  Acinetobacter pecorum
+  0.00	1	1	276	180	S	106649	                  Acinetobacter guillouiae
+  0.00	1	1	92	61	S	1226327	                  Acinetobacter kookii
+  0.01	671	351	44841	27530	G	497	                Psychrobacter
+  0.00	166	110	13608	8537	G1	196806	                  unclassified Psychrobacter
+  0.00	12	12	436	292	S	1699622	                    Psychrobacter sp. P2G3
+  0.00	7	7	766	497	S	3240930	                    Psychrobacter sp. CLB018
+  0.00	6	6	570	351	S	3064892	                    Psychrobacter sp. van23A
+  0.00	5	5	869	540	S	3414707	                    Psychrobacter sp. 219-2-C
+  0.00	5	5	660	458	S	1699624	                    Psychrobacter sp. P11G5
+  0.00	4	4	11	4	S	888437	                    Psychrobacter sp. 4Dc
+  0.00	4	4	139	78	S	2983299	                    Psychrobacter sp. SC65A.3
+  0.00	4	4	79	45	S	2203895	                    Psychrobacter sp. YP14
+  0.00	3	3	86	60	S	571800	                    Psychrobacter sp. G
+  0.00	2	2	50	32	S	3685289	                    Psychrobacter sp. M17(2026)
+  0.00	2	2	94	62	S	2708350	                    Psychrobacter sp. WY6
+  0.00	1	1	98	65	S	1028416	                    Psychrobacter sp. DAB_AL43B
+  0.00	1	1	97	62	S	1298610	                    Psychrobacter sp. JCM 18903
+  0.00	84	84	6706	4212	S	861445	                  Psychrobacter sanguinis
+  0.00	40	40	3261	2101	S	212403	                  Psychrobacter okhotskensis
+  0.00	22	22	2410	1552	S	256325	                  Psychrobacter maritimus
+  0.00	4	4	27	14	S	256326	                  Psychrobacter arenosus
+  0.00	2	2	41	31	S	112002	                  Psychrobacter pacificensis
+  0.00	1	1	672	445	S	228654	                  Psychrobacter pulmonis
+  0.00	1	1	84	57	S	330922	                  Psychrobacter cryohalolentis
+  0.00	162	2	16372	9700	G	1604696	                Faucicola
+  0.00	157	157	16029	9527	S	34062	                  Faucicola osloensis
+  0.00	3	3	173	106	S	34059	                  Faucicola atlantae
+  0.00	39	0	2975	1897	G	475	                Moraxella
+  0.00	26	8	2101	1285	G1	2685852	                  unclassified Moraxella
+  0.00	14	14	859	523	S	3149046	                    Moraxella sp. K02
+  0.00	3	3	581	357	S	3149047	                    Moraxella sp. K23
+  0.00	1	1	25	18	S	2780077	                    Moraxella sp. K1664
+  0.00	9	9	148	100	S	480	                  Moraxella catarrhalis
+  0.00	3	3	30	20	S	3344666	                  Moraxella veridica
+  0.00	1	1	213	151	S	478	                  Moraxella nonliquefaciens
+  0.04	4121	0	89485	39777	D	2759	    Eukaryota
+  0.04	4121	0	89367	39777	D1	33154	      Opisthokonta
+  0.04	4121	0	89367	39777	K	33208	        Metazoa
+  0.04	4121	0	89367	39777	K1	6072	          Eumetazoa
+  0.04	4121	0	89367	39777	K2	33213	            Bilateria
+  0.04	4121	0	89367	39777	K3	33511	              Deuterostomia
+  0.04	4121	0	89367	39777	P	7711	                Chordata
+  0.04	4121	0	89367	39777	P1	89593	                  Craniata
+  0.04	4121	0	89367	39777	P2	7742	                    Vertebrata
+  0.04	4121	0	89367	39777	P3	7776	                      Gnathostomata
+  0.04	4121	0	89367	39777	P4	117570	                        Teleostomi
+  0.04	4121	0	89367	39777	P5	117571	                          Euteleostomi
+  0.04	4121	0	89367	39777	P6	8287	                            Sarcopterygii
+  0.04	4121	0	89367	39777	P7	1338369	                              Dipnotetrapodomorpha
+  0.04	4121	0	89367	39777	P8	32523	                                Tetrapoda
+  0.04	4121	0	89367	39777	P9	32524	                                  Amniota
+  0.04	4121	0	89367	39777	C	40674	                                    Mammalia
+  0.04	4121	0	89367	39777	C1	32525	                                      Theria
+  0.04	4121	0	89367	39777	C2	9347	                                        Eutheria
+  0.04	4121	0	89367	39777	C3	1437010	                                          Boreoeutheria
+  0.04	4121	0	89367	39777	C4	314146	                                            Euarchontoglires
+  0.04	4121	0	89367	39777	O	9443	                                              Primates
+  0.04	4121	0	89367	39777	O1	376913	                                                Haplorrhini
+  0.04	4121	0	89367	39777	O2	314293	                                                  Simiiformes
+  0.04	4121	0	89367	39777	O3	9526	                                                    Catarrhini
+  0.04	4121	0	89367	39777	O4	314295	                                                      Hominoidea
+  0.04	4121	0	89367	39777	F	9604	                                                        Hominidae
+  0.04	4121	0	89367	39777	F1	207598	                                                          Homininae
+  0.04	4121	0	89367	39777	G	9605	                                                            Homo
+  0.04	4121	4121	89367	39777	S	9606	                                                              Homo sapiens
+  0.00	69	0	6922	4033	D	2157	    Archaea
+  0.00	63	0	6016	3465	K	3366610	      Methanobacteriati
+  0.00	63	4	5996	3452	P	28890	        Methanobacteriota
+  0.00	51	0	5274	2987	P1	2290931	          Stenosarchaea group
+  0.00	48	0	4838	2741	C	183963	            Halobacteria
+  0.00	48	16	4838	2741	O	2235	              Halobacteriales
+  0.00	22	0	1319	734	F	3386556	                Halalkalicoccaceae
+  0.00	22	3	1295	719	G	332246	                  Halalkalicoccus
+  0.00	19	19	1086	602	S	175632	                    Halalkalicoccus tibetensis
+  0.00	6	0	469	270	F	1963270	                Halococcaceae
+  0.00	6	6	469	270	G	2249	                  Halococcus
+  0.00	4	4	730	422	F	1644061	                Natrialbaceae
+  0.00	3	0	433	244	C	224756	            Methanomicrobia
+  0.00	3	0	51	26	O	2905377	              Methanotrichales
+  0.00	3	0	51	26	F	143067	                Methanotrichaceae
+  0.00	3	3	51	26	G	2222	                  Methanothrix
+  0.00	8	0	588	398	P1	2283794	          Methanomada group
+  0.00	8	0	550	374	C	183925	            Methanobacteria
+  0.00	8	0	550	374	O	2158	              Methanobacteriales
+  0.00	8	0	550	374	F	2159	                Methanobacteriaceae
+  0.00	7	6	358	238	G	2172	                  Methanobrevibacter
+  0.00	1	1	30	21	S	230361	                    Methanobrevibacter millerae
+  0.00	1	1	147	99	G	2160	                  Methanobacterium
+  0.00	6	0	886	556	K	1783275	      Thermoproteati
+  0.00	6	0	718	463	P	651137	        Nitrososphaerota
+  0.00	6	0	709	458	C	1643678	          Nitrososphaeria
+  0.00	6	0	670	435	O	1033996	            Nitrososphaerales
+  0.00	6	0	670	435	F	1033997	              Nitrososphaeraceae
+  0.00	6	1	651	425	G	1826864	                Candidatus Nitrosocosmicus
+  0.00	5	5	381	274	S	1353260	                  Candidatus Nitrosocosmicus oleophilus
+  0.01	922	616	83937	5561	R1	10239	  Viruses
+  0.00	306	0	19931	299	R2	2731342	    Floreoviria
+  0.00	306	0	19931	299	K	2732092	      Shotokuvirae
+  0.00	297	0	18645	234	P	2732415	        Cossaviricota
+  0.00	297	0	18620	231	C	2732421	          Papovaviricetes
+  0.00	297	0	18414	203	O	2732532	            Sepolyvirales
+  0.00	297	0	18414	203	F	151341	              Polyomaviridae
+  0.00	293	25	16998	118	G	1891713	                Alphapolyomavirus
+  0.00	268	0	15847	109	S	1891726	                  Alphapolyomavirus quintihominis
+  0.00	268	268	15847	109	S1	493803	                    Merkel cell polyomavirus
+  0.00	4	0	990	44	G	1891714	                Betapolyomavirus
+  0.00	3	0	526	18	S	1891765	                  Betapolyomavirus quartihominis
+  0.00	3	3	526	18	S1	440266	                    WU Polyomavirus
+  0.00	1	0	296	13	S	1891763	                  Betapolyomavirus secuhominis
+  0.00	1	1	296	13	S1	10632	                    JC polyomavirus
+  0.00	9	0	1129	25	P	3412625	        Commensaviricota
+  0.00	9	0	1129	25	C	3412723	          Cardeaviricetes
+  0.00	9	0	1129	25	O	3420546	            Sanitavirales
+  0.00	9	9	1129	25	F	687329	              Anelloviridae
