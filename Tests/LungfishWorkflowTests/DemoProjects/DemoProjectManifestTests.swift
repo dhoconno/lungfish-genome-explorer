@@ -35,8 +35,25 @@ final class DemoProjectManifestTests: XCTestCase {
         }
     }
 
-    func testBundledPlaceholdersDecodeButRefuseToDownload() throws {
+    func testBundledManifestPointsAtPublishedArchives() throws {
         let manifest = try DemoProjectManifest.loadBundled()
+        XCTAssertEqual(manifest.projects.count, 8)
+        for project in manifest.projects {
+            XCTAssertFalse(project.archive.isPlaceholder, project.id)
+            XCTAssertGreaterThan(project.archive.bytes, 0, project.id)
+            XCTAssertEqual(project.archive.sha256.count, 64, project.id)
+            XCTAssertTrue(
+                project.archive.url.absoluteString.hasPrefix(
+                    "https://github.com/dhoconno/lungfish-genome-explorer/releases/download/demo-projects/"
+                ),
+                project.id
+            )
+            XCTAssertNoThrow(try project.ensurePublished(), project.id)
+        }
+    }
+
+    func testPlaceholderArchivesDecodeButRefuseToDownload() throws {
+        let manifest = try DemoProjectManifestTests.placeholderManifest()
         let project = try XCTUnwrap(manifest.project(id: "human-reads"))
         XCTAssertTrue(project.archive.isPlaceholder)
         XCTAssertThrowsError(try project.ensurePublished()) { error in
@@ -46,6 +63,22 @@ final class DemoProjectManifestTests: XCTestCase {
             XCTAssertEqual(title, "Human Reads")
             XCTAssertTrue(error.localizedDescription.contains("has not been published yet"))
         }
+    }
+
+    /// The bundled manifest with every archive reset to the unpublished placeholder
+    /// (zero checksum, zero bytes), for exercising the refusal path.
+    static func placeholderManifest() throws -> DemoProjectManifest {
+        let url = try XCTUnwrap(DemoProjectManifest.bundledManifestURL())
+        var object = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
+        var projects = try XCTUnwrap(object["projects"] as? [[String: Any]])
+        for index in projects.indices {
+            var archive = try XCTUnwrap(projects[index]["archive"] as? [String: Any])
+            archive["sha256"] = String(repeating: "0", count: 64)
+            archive["bytes"] = 0
+            projects[index]["archive"] = archive
+        }
+        object["projects"] = projects
+        return try DemoProjectManifest.decode(from: JSONSerialization.data(withJSONObject: object))
     }
 
     func testChapterPathsResolveAgainstTheManual() throws {

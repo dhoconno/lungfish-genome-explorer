@@ -60,7 +60,7 @@ final class DemoCommandTests: XCTestCase {
     }
 
     func testListJSONShape() throws {
-        let manifest = try DemoProjectManifest.loadBundled()
+        let manifest = try DemoCommandTests.placeholderManifest()
         let destination = tempDir.appendingPathComponent("LGE Demo Projects", isDirectory: true)
         // One installed, current copy and one out-of-date copy.
         try install(manifest.project(id: "human-reads")!, version: manifest.project(id: "human-reads")!.version, in: destination)
@@ -101,7 +101,7 @@ final class DemoCommandTests: XCTestCase {
     }
 
     func testFetchOfPlaceholderProjectFailsWithAClearMessage() async throws {
-        let manifest = try DemoProjectManifest.loadBundled()
+        let manifest = try DemoCommandTests.placeholderManifest()
         let project = try DemoCommand.resolveProject("human-reads", in: manifest)
         do {
             _ = try await DemoProjectInstaller().install(project, into: tempDir, replaceExisting: false)
@@ -122,4 +122,20 @@ final class DemoCommandTests: XCTestCase {
         try encoder.encode(DemoProjectInstallRecord(id: project.id, version: version, sha256: "x", installedAt: Date()))
             .write(to: folder.appendingPathComponent(".lgedemo.json"))
     }
+
+    /// The bundled manifest with every archive reset to the unpublished placeholder.
+    static func placeholderManifest() throws -> DemoProjectManifest {
+        let url = try XCTUnwrap(DemoProjectManifest.bundledManifestURL())
+        var object = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
+        var projects = try XCTUnwrap(object["projects"] as? [[String: Any]])
+        for index in projects.indices {
+            var archive = try XCTUnwrap(projects[index]["archive"] as? [String: Any])
+            archive["sha256"] = String(repeating: "0", count: 64)
+            archive["bytes"] = 0
+            projects[index]["archive"] = archive
+        }
+        object["projects"] = projects
+        return try DemoProjectManifest.decode(from: JSONSerialization.data(withJSONObject: object))
+    }
+
 }
