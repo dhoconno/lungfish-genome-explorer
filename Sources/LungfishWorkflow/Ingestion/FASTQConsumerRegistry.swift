@@ -70,11 +70,11 @@ public enum FASTQConsumerRegistry {
                 displayName: "TaxTriage",
                 handling: [
                     .singleEnd: .asSingle,
-                    .strictlyInterleaved: .asSingle,
+                    .strictlyInterleaved: .splitToR1R2,
                     .mixedMergedAndPairs: .asSingle,
                     .pairedFiles: .asPairs,
                 ],
-                mixedRationale: "TaxTriageSamplesheet fills fastq_2 only for two files; any single file is a single-end row."
+                mixedRationale: "TaxTriage reads pairs only as samplesheet fastq_1/fastq_2. TaxTriagePipeline resolves a single Illumina file's layout through FASTQInputLayoutResolver, splits a strictly interleaved file with ClassificationPipeline.splitInterleavedInput (FASTQPairInterleaver.deinterleave), and writes both halves in the samplesheet; a mixed file stays a single-end row because a positional split would mis-pair it."
             ),
         ]
     }

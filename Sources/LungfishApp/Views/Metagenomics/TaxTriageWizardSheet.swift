@@ -104,6 +104,11 @@ struct TaxTriageWizardSheet: View {
     @State private var maxCpus: Int = ProcessInfo.processInfo.activeProcessorCount
     @State private var extraArgumentsText: String = ""
 
+    // Host taxa removal (--remove_taxids). Follows the sample roles (9606
+    // while any sample is a Clinical Sample) until the user edits the field.
+    @State private var removeTaxidsText: String = ""
+    @State private var removeTaxidsEdited: Bool = false
+
     // Prerequisite state
     @State private var nextflowAvailable: Bool? = nil
     @State private var containerAvailable: Bool? = nil
@@ -155,6 +160,34 @@ struct TaxTriageWizardSheet: View {
         && !selectedDatabaseName.isEmpty
         && samples.allSatisfy { !$0.sampleId.trimmingCharacters(in: .whitespaces).isEmpty }
         && advancedArgumentsParseError == nil
+        && Self.removeTaxidsValidationMessage(removeTaxidsText) == nil
+    }
+
+    /// Pure, testable helper: non-nil when the "Exclude host taxa" text holds
+    /// something other than NCBI taxids.
+    static func removeTaxidsValidationMessage(_ text: String) -> String? {
+        let invalid = TaxTriageConfig.invalidTaxIDTokens(in: text)
+        guard !invalid.isEmpty else { return nil }
+        return TaxTriageConfigError.invalidRemoveTaxids(invalid).localizedDescription
+    }
+
+    /// Pure, testable helper: the "Exclude host taxa" text after the sample
+    /// roles change. The field follows the roles (9606 while any sample is a
+    /// Clinical Sample, empty otherwise) until the user types in it.
+    static func removeTaxidsText(
+        current: String,
+        userEdited: Bool,
+        sampleRoles: [SampleRole]
+    ) -> String {
+        userEdited ? current : TaxTriageConfig.defaultRemoveTaxids(sampleRoles: sampleRoles)
+    }
+
+    /// Pure, testable helper: the taxid list the run passes as
+    /// `--remove_taxids`, or `nil` when the field is blank or the extra
+    /// arguments already set `--remove_taxids`.
+    static func effectiveRemoveTaxids(text: String, extraArguments: [String]) -> String? {
+        guard !TaxTriageConfig.extraArgumentsSetRemoveTaxids(extraArguments) else { return nil }
+        return TaxTriageConfig.normalizedTaxIDList(text)
     }
 
     /// Non-nil when the Extra Arguments field contains text that can't be
@@ -206,6 +239,13 @@ struct TaxTriageWizardSheet: View {
         }
         .onChange(of: canRun) { _, newValue in
             onRunnerAvailabilityChange?(newValue)
+        }
+        .onChange(of: samples.map(\.sampleRole)) { _, roles in
+            removeTaxidsText = Self.removeTaxidsText(
+                current: removeTaxidsText,
+                userEdited: removeTaxidsEdited,
+                sampleRoles: roles
+            )
         }
         .onChange(of: embeddedRunTrigger) { _, _ in
             guard embeddedInOperationsDialog else { return }
@@ -276,6 +316,11 @@ struct TaxTriageWizardSheet: View {
 
             Divider()
 
+            // Host taxa removal
+            hostTaxaSection
+
+            Divider()
+
             // Advanced settings
             advancedSettings
         }
@@ -307,6 +352,9 @@ struct TaxTriageWizardSheet: View {
         }
         if let advancedArgumentsParseError {
             return advancedArgumentsParseError
+        }
+        if let removeTaxidsError = Self.removeTaxidsValidationMessage(removeTaxidsText) {
+            return removeTaxidsError
         }
         return nil
     }
@@ -478,6 +526,46 @@ struct TaxTriageWizardSheet: View {
                  : "Full pipeline including de novo assembly. Slower but provides genome assemblies.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
+        }
+    }
+
+    // MARK: - Host Taxa
+
+    private var removeTaxidsBinding: Binding<String> {
+        Binding(
+            get: { removeTaxidsText },
+            set: { newValue in
+                if newValue != removeTaxidsText {
+                    removeTaxidsEdited = true
+                }
+                removeTaxidsText = newValue
+            }
+        )
+    }
+
+    private var hostTaxaCaption: String {
+        if let extraArguments = try? AdvancedCommandLineOptions.parse(extraArgumentsText),
+           TaxTriageConfig.extraArgumentsSetRemoveTaxids(extraArguments) {
+            return "Extra arguments already set --remove_taxids, so this field is not used."
+        }
+        return "NCBI taxids removed before TaxTriage picks references, separated by spaces. 9606 is human. Leave empty to keep every taxon."
+    }
+
+    private var hostTaxaSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("Exclude host taxa:")
+                    .font(.system(size: 12))
+                TextField("Taxids, for example 9606", text: removeTaxidsBinding)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.system(size: 12))
+                    .frame(maxWidth: 200)
+                    .accessibilityIdentifier("taxtriage-exclude-host-taxa-field")
+            }
+            Text(hostTaxaCaption)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 
@@ -666,11 +754,18 @@ struct TaxTriageWizardSheet: View {
 
             samples.append(sample)
         }
+
+        removeTaxidsText = Self.removeTaxidsText(
+            current: removeTaxidsText,
+            userEdited: removeTaxidsEdited,
+            sampleRoles: samples.map(\.sampleRole)
+        )
     }
 
     /// Builds a TaxTriageConfig from the current settings and calls onRun.
     private func performRun() {
-        guard let extraArguments = try? AdvancedCommandLineOptions.parse(extraArgumentsText) else { return }
+        guard let extraArguments = try? AdvancedCommandLineOptions.parse(extraArgumentsText),
+              Self.removeTaxidsValidationMessage(removeTaxidsText) == nil else { return }
         let taxSamples = samples.compactMap { wizardSample -> TaxTriageSample? in
             guard let r1 = wizardSample.fastq1 else { return nil }
             var sampleMeta = FASTQSampleMetadata(sampleName: wizardSample.sampleId)
@@ -720,7 +815,8 @@ struct TaxTriageWizardSheet: View {
             maxMemory: "\(maxMemoryGB).GB",
             maxCpus: maxCpus,
             sourceBundleURLs: sourceBundleURLs,
-            extraArguments: extraArguments
+            extraArguments: extraArguments,
+            removeTaxids: Self.effectiveRemoveTaxids(text: removeTaxidsText, extraArguments: extraArguments)
         )
 
         onRun?(config)

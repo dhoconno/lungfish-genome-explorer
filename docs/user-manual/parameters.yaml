@@ -4513,6 +4513,13 @@ operations:
         effect: Leaves out the assembly stage and runs classification plus confidence scoring only. Turning it off adds de novo assembly, which is much slower but produces genome sequences.
         when_to_change: Turn it off when you want assembled genomes for the organisms found, and you can spare the extra hours.
         cli_flag: --no-skip-assembly
+      - label: "Exclude host taxa:"
+        control: text
+        default: "9606 (human) when any sample is a Clinical Sample, otherwise empty. The CLI passes nothing unless the flag is given."
+        allowed: NCBI taxids separated by spaces or commas, or empty
+        effect: Removes these taxa from the Kraken2 report before TaxTriage picks its top hits, so their genomes are never downloaded as alignment references. Passed to TaxTriage as --remove_taxids. A --remove_taxids in Extra arguments takes its place.
+        when_to_change: Add the host species for animal samples, for example 9544 for rhesus macaque. Clear it only when the host organism itself is what you want to find.
+        cli_flag: --remove-taxids
       - label: "K2 Confidence:"
         control: slider
         default: "0.20"

@@ -154,6 +154,15 @@ extension TaxTriageCommand {
         var skipKrona: Bool = false
 
         @Option(
+            name: .customLong("remove-taxids"),
+            help: ArgumentHelp(
+                "NCBI taxids to exclude as host before TaxTriage picks references, separated by spaces or commas (e.g. 9606 for human). Passed as --remove_taxids. Default: none.",
+                valueName: "ids"
+            )
+        )
+        var removeTaxids: String?
+
+        @Option(
             name: .customLong("max-memory"),
             help: "Maximum memory (Nextflow format, default: 16.GB)"
         )
@@ -224,6 +233,20 @@ extension TaxTriageCommand {
             if skipAssembly && noSkipAssembly {
                 throw CLIError.validationFailed(errors: ["Cannot use both --skip-assembly and --no-skip-assembly"])
             }
+            if let removeTaxids {
+                let invalid = TaxTriageConfig.invalidTaxIDTokens(in: removeTaxids)
+                if !invalid.isEmpty {
+                    throw CLIError.validationFailed(errors: [
+                        "--remove-taxids must list NCBI taxids (whole numbers such as 9606), got: \(invalid.joined(separator: ", "))",
+                    ])
+                }
+            }
+        }
+
+        /// The normalized `--remove-taxids` list, or `nil` when the flag is
+        /// absent or blank.
+        var normalizedRemoveTaxids: String? {
+            removeTaxids.flatMap(TaxTriageConfig.normalizedTaxIDList)
         }
 
         // MARK: - Execution
@@ -299,9 +322,19 @@ extension TaxTriageCommand {
                         platform: platform.toPlatform()
                     )]
                 } else {
-                    samples = expandedInputURLs.map { fastq1 in
-                        TaxTriageSample(
-                            sampleId: Self.sampleID(for: fastq1, explicitSampleID: sampleId, totalSampleCount: expandedInputURLs.count),
+                    // A .lungfishfastq bundle runs on its FASTQ payload. A
+                    // strictly interleaved payload (LGE's paired import) is
+                    // split into R1/R2 by TaxTriagePipeline and runs as pairs.
+                    samples = try expandedInputURLs.map { inputURL in
+                        let fastq1: URL
+                        do {
+                            fastq1 = try Self.resolveReadsFile(for: inputURL)
+                        } catch {
+                            print(formatter.error(error.localizedDescription))
+                            throw CLIExitCode.inputError.exitCode
+                        }
+                        return TaxTriageSample(
+                            sampleId: Self.sampleID(for: inputURL, explicitSampleID: sampleId, totalSampleCount: expandedInputURLs.count),
                             fastq1: fastq1,
                             platform: platform.toPlatform()
                         )
@@ -355,7 +388,8 @@ extension TaxTriageCommand {
                 profile: nfProfile,
                 containerRuntime: nil,
                 revision: revision,
-                extraArguments: try AdvancedCommandLineOptions.parse(extraArgs)
+                extraArguments: try AdvancedCommandLineOptions.parse(extraArgs),
+                removeTaxids: normalizedRemoveTaxids
             )
 
             // Print configuration summary
@@ -370,6 +404,8 @@ extension TaxTriageCommand {
                 ("Rank", rank),
                 ("Skip assembly", effectiveSkipAssembly ? "yes" : "no"),
                 ("Skip Krona", skipKrona ? "yes" : "no"),
+                ("Exclude host taxa", config.effectiveRemoveTaxids
+                    ?? (TaxTriageConfig.extraArgumentsSetRemoveTaxids(config.extraArguments) ? "set in --extra-args" : "none")),
                 ("Max memory", maxMemory),
                 ("Max CPUs", String(config.maxCpus)),
                 ("Profile", nfProfile),
@@ -422,9 +458,16 @@ extension TaxTriageCommand {
             print("")
 
             let runtimeStr = String(format: "%.1f", result.runtime)
-            print(formatter.success(
-                "TaxTriage completed in \(runtimeStr)s"
-            ))
+            if let erroredProcessesMessage = result.erroredProcessesMessage {
+                // Nextflow exited 0, but TaxTriage ignored errored tasks.
+                print(formatter.warning(erroredProcessesMessage))
+                print("")
+                print(formatter.warning("TaxTriage completed with errors in \(runtimeStr)s"))
+            } else {
+                print(formatter.success(
+                    "TaxTriage completed in \(runtimeStr)s"
+                ))
+            }
         }
 
         func makeConfigForTesting() throws -> TaxTriageConfig {
@@ -460,8 +503,27 @@ extension TaxTriageCommand {
                 profile: nfProfile,
                 containerRuntime: nil,
                 revision: revision,
-                extraArguments: try AdvancedCommandLineOptions.parse(extraArgs)
+                extraArguments: try AdvancedCommandLineOptions.parse(extraArgs),
+                removeTaxids: normalizedRemoveTaxids
             )
+        }
+
+        /// The FASTQ file TaxTriage reads for one `--input` entry: the file
+        /// itself, or the single physical FASTQ payload of a `.lungfishfastq`
+        /// bundle.
+        static func resolveReadsFile(for inputURL: URL) throws -> URL {
+            guard FASTQBundle.isBundleURL(inputURL) else { return inputURL }
+            let payload = FASTQBundle.resolveAllFASTQURLs(for: inputURL) ?? []
+            guard payload.count == 1, let fastq = payload.first,
+                  FileManager.default.fileExists(atPath: fastq.path) else {
+                let reason = payload.count > 1
+                    ? "it holds \(payload.count) FASTQ chunks; TaxTriage needs one file per sample"
+                    : "it has no physical FASTQ payload (a virtual subset must be materialized first)"
+                throw CLIError.validationFailed(errors: [
+                    "Cannot run TaxTriage on bundle \(inputURL.lastPathComponent): \(reason).",
+                ])
+            }
+            return fastq
         }
 
         static func sampleID(for url: URL, explicitSampleID: String?, totalSampleCount: Int) -> String {

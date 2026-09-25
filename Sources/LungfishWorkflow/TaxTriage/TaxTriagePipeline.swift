@@ -32,6 +32,9 @@ public enum TaxTriagePipelineError: Error, LocalizedError, Sendable {
     /// A prerequisite check failed.
     case prerequisiteFailed(tool: String, reason: String)
 
+    /// A strictly interleaved sample could not be split into R1/R2 mate files.
+    case interleavedSplitFailed(sampleId: String, reason: String)
+
     public var errorDescription: String? {
         switch self {
         case .nextflowNotInstalled:
@@ -50,6 +53,8 @@ public enum TaxTriagePipelineError: Error, LocalizedError, Sendable {
             return "TaxTriage pipeline was cancelled"
         case .prerequisiteFailed(let tool, let reason):
             return "\(tool) prerequisite check failed: \(reason)"
+        case .interleavedSplitFailed(let sampleId, let reason):
+            return "Could not split the interleaved reads of sample '\(sampleId)' into R1/R2 files for TaxTriage: \(reason)"
         }
     }
 }
@@ -293,27 +298,37 @@ public actor TaxTriagePipeline {
         OperationMarker.markInProgress(profileAdjustedConfig.outputDirectory, detail: "Running TaxTriage\u{2026}")
         defer { OperationMarker.clearInProgress(profileAdjustedConfig.outputDirectory) }
 
+        // Phase 2a: Read layout (0.05)
+        //
+        // TaxTriage reads pairs only as fastq_1/fastq_2. A strictly
+        // interleaved single file is split into two temporary mate files
+        // (the same split Kraken 2 uses) so it runs as pairs rather than as
+        // single-end reads. Mixed merged-plus-pairs files stay single-end.
+        // The split lives only for this run; provenance and the result keep
+        // the durable interleaved file.
+        let interleavedSplitRoot = profileAdjustedConfig.outputDirectory
+            .appendingPathComponent(Self.interleavedSplitDirectoryName, isDirectory: true)
+        defer { try? fm.removeItem(at: interleavedSplitRoot) }
+        let layoutPrepared = try await Self.splitStrictlyInterleavedSamples(
+            in: profileAdjustedConfig,
+            splitRoot: interleavedSplitRoot,
+            progress: progress
+        )
+
         progress?(0.05, "Generating samplesheet...")
 
-        // Phase 2: Handle spaces in paths (0.05 -- 0.07)
+        // Phase 2b: Handle spaces in paths (0.05 -- 0.07)
         //
         // Nextflow and its Docker bind mounts break on paths with spaces.
         // If the output directory or input files contain spaces, redirect
         // everything through a space-free temp directory with symlinks.
-        let preparedExecution = try prepareExecutionConfig(for: profileAdjustedConfig)
+        let preparedExecution = try prepareExecutionConfig(for: layoutPrepared.config)
         let effectiveConfig = preparedExecution.effectiveConfig
         let tempRedirectDir = preparedExecution.redirectDirectory
         let needsRedirect = preparedExecution.needsRedirect
 
         // Generate samplesheet
-        let sampleEntries = effectiveConfig.samples.map { sample in
-            TaxTriageSampleEntry(
-                sampleId: sample.sampleId,
-                fastq1Path: sample.fastq1.path,
-                fastq2Path: sample.fastq2?.path,
-                platform: sample.platform.rawValue
-            )
-        }
+        let sampleEntries = Self.samplesheetEntries(for: effectiveConfig)
 
         do {
             try TaxTriageSamplesheet.write(
@@ -417,8 +432,29 @@ public actor TaxTriagePipeline {
         )
         let runID = await ProvenanceRecorder.shared.beginRun(
             name: "TaxTriage",
-            parameters: provenanceParameters(for: profileAdjustedConfig)
+            parameters: provenanceParameters(
+                for: profileAdjustedConfig,
+                interleavedSplits: layoutPrepared.splits
+            )
         )
+        for split in layoutPrepared.splits {
+            _ = await ProvenanceRecorder.shared.recordStep(
+                runID: runID,
+                toolName: "Lungfish TaxTriage Interleaved Split",
+                toolVersion: WorkflowRun.currentAppVersion,
+                command: ["LungfishWorkflow", "deinterleave-fastq", split.source.path, split.r1.deletingLastPathComponent().path],
+                resolvedOptions: [
+                    "sample": .string(split.sampleId),
+                    "readLayout": .string(FASTQInputLayout.strictlyInterleaved.rawValue),
+                    "pairs": .integer(split.pairCount),
+                ],
+                runtimeIdentity: ProvenanceRuntimeIdentity(),
+                inputs: [ProvenanceRecorder.fileRecord(url: split.source, format: .fastq, role: .input)],
+                outputs: [],
+                exitCode: 0,
+                wallTime: split.wallTime
+            )
+        }
         let provenanceCommand = [micromambaPath.path] + micromambaArgs
 
         let handle: ProcessHandle
@@ -559,6 +595,9 @@ public actor TaxTriagePipeline {
             logger.info("Moved TaxTriage results from temp dir to \(config.outputDirectory.path)")
         }
 
+        // The R1/R2 halves of an interleaved input are scratch, not results.
+        try? fm.removeItem(at: interleavedSplitRoot)
+
         // Prune non-essential heavy intermediates before result indexing.
         pruneOutputArtifacts(in: config.outputDirectory)
 
@@ -603,7 +642,12 @@ public actor TaxTriagePipeline {
             logFile: logFile
         )
 
-        progress?(1.0, "TaxTriage pipeline complete")
+        if let warning = result.erroredProcessesMessage {
+            logger.warning("\(warning, privacy: .public)")
+            progress?(1.0, warning)
+        } else {
+            progress?(1.0, "TaxTriage pipeline complete")
+        }
 
         let runtimeStr = String(format: "%.1f", result.runtime)
         logger.info("TaxTriage pipeline complete: \(sampleCount, privacy: .public) sample(s), \(runtimeStr, privacy: .public)s")
@@ -723,7 +767,8 @@ public actor TaxTriagePipeline {
                 sampleId: sample.sampleId,
                 fastq1: safeFastq1,
                 fastq2: safeFastq2,
-                platform: sample.platform
+                platform: sample.platform,
+                readLayout: sample.readLayout
             )
         }
 
@@ -741,7 +786,8 @@ public actor TaxTriagePipeline {
             maxCpus: config.maxCpus,
             profile: config.profile,
             revision: config.revision,
-            extraArguments: config.extraArguments
+            extraArguments: config.extraArguments,
+            removeTaxids: config.removeTaxids
         )
 
         try fm.createDirectory(at: effectiveConfig.outputDirectory, withIntermediateDirectories: true)
@@ -789,7 +835,10 @@ public actor TaxTriagePipeline {
         )
     }
 
-    private func provenanceParameters(for config: TaxTriageConfig) -> [String: ParameterValue] {
+    nonisolated func provenanceParameters(
+        for config: TaxTriageConfig,
+        interleavedSplits: [InterleavedSampleSplit] = []
+    ) -> [String: ParameterValue] {
         var parameters: [String: ParameterValue] = [
             "workflow": .string("taxtriage"),
             "sample_count": .integer(config.samples.count),
@@ -806,9 +855,15 @@ public actor TaxTriagePipeline {
             "revision": .string(config.revision),
             "extraArgs": .string(AdvancedCommandLineOptions.join(config.extraArguments)),
             "output_directory": .file(config.outputDirectory),
+            "remove_taxids": .string(config.effectiveRemoveTaxids ?? ""),
         ]
         if let githubReleaseVersion = TaxTriageConfig.githubReleaseVersion(for: config.revision) {
             parameters["github_release_version"] = .string(githubReleaseVersion)
+        }
+        if !interleavedSplits.isEmpty {
+            parameters["interleaved_samples_split_to_r1_r2"] = .array(
+                interleavedSplits.map { .string($0.sampleId) }
+            )
         }
         return parameters
     }
@@ -1205,6 +1260,14 @@ public actor TaxTriagePipeline {
             args.append("--skip_krona")
         }
 
+        // Host taxa removal. The pinned TaxTriage leaves remove_taxids null,
+        // so a human host otherwise becomes a top hit and GRCh38 is
+        // downloaded as an alignment reference. A --remove_taxids in the
+        // verbatim extra arguments wins (effectiveRemoveTaxids is nil then).
+        if let removeTaxids = config.effectiveRemoveTaxids {
+            args += ["--remove_taxids", removeTaxids]
+        }
+
         // Resource limits
         args += ["--max_memory", config.maxMemory]
         args += ["--max_cpus", String(config.maxCpus)]
@@ -1310,15 +1373,16 @@ public actor TaxTriagePipeline {
         // Find trace file
         let traceURL = outputDir.appendingPathComponent("trace.txt")
         let traceFile = fm.fileExists(atPath: traceURL.path) ? traceURL : nil
-        let ignoredFailures: [TaxTriageIgnoredFailure]
-        if let logText = try? String(contentsOf: logFile, encoding: .utf8) {
-            ignoredFailures = TaxTriageResult.sanitizeIgnoredFailures(
-                TaxTriageResult.parseIgnoredFailures(fromNextflowLogText: logText),
-                outputDirectory: outputDir
-            )
-        } else {
-            ignoredFailures = []
-        }
+        // Nextflow exits 0 when an errored task's error strategy is "ignore"
+        // (TaxTriage ends with "Pipeline completed successfully, but with
+        // errored process(es)"). Those tasks come from trace.txt FAILED rows
+        // whose retries ran out, the log's NOTE/[ERROR] blocks, and, as a
+        // last resort, the log's completion banner.
+        let ignoredFailures = TaxTriageResult.detectErroredProcesses(
+            nextflowLogText: try? String(contentsOf: logFile, encoding: .utf8),
+            traceText: traceFile.flatMap { try? String(contentsOf: $0, encoding: .utf8) },
+            outputDirectory: outputDir
+        )
 
         let runtime = Date().timeIntervalSince(startTime)
 

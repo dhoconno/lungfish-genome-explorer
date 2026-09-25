@@ -211,6 +211,7 @@ public struct TaxTriageSerialBatchRunner: Sendable {
             "revision": .string(config.revision),
             "extraArgs": .string(AdvancedCommandLineOptions.join(config.extraArguments)),
             "output_directory": .file(config.outputDirectory),
+            "remove_taxids": .string(config.effectiveRemoveTaxids ?? ""),
         ]
         if let githubReleaseVersion = TaxTriageConfig.githubReleaseVersion(for: config.revision) {
             parameters["github_release_version"] = .string(githubReleaseVersion)
@@ -333,6 +334,9 @@ public struct TaxTriageSerialBatchRunner: Sendable {
         }
         if config.skipKrona {
             command.append("--skip_krona")
+        }
+        if let removeTaxids = config.effectiveRemoveTaxids {
+            command += ["--remove_taxids", removeTaxids]
         }
         command += config.extraArguments
         return command
