@@ -53,9 +53,29 @@ struct ManagedStorageDedupeTests {
         return metadata.st_ino
     }
 
-    private func deduplicator(openFiles: Set<String> = []) -> ManagedStorageDeduplicator {
-        ManagedStorageDeduplicator(
-            openFileDetector: { openFiles.contains($0.path) },
+    /// Counts how often the open-file check is built and consulted.
+    private final class OpenFileProbe: @unchecked Sendable {
+        private let lock = NSLock()
+        private(set) var snapshotsBuilt = 0
+        private(set) var checks = 0
+        let openFiles: Set<String>
+
+        init(openFiles: Set<String>) { self.openFiles = openFiles }
+
+        func recordSnapshot() { lock.lock(); snapshotsBuilt += 1; lock.unlock() }
+        func recordCheck() { lock.lock(); checks += 1; lock.unlock() }
+    }
+
+    private func deduplicator(openFiles: Set<String> = [], probe: OpenFileProbe? = nil) -> ManagedStorageDeduplicator {
+        let probe = probe ?? OpenFileProbe(openFiles: openFiles)
+        return ManagedStorageDeduplicator(
+            openFileCheckFactory: {
+                probe.recordSnapshot()
+                return { url in
+                    probe.recordCheck()
+                    return probe.openFiles.contains(url.path)
+                }
+            },
             cloneIdentifier: APFSCloneSupport.cloneIdentifier(of:),
             now: Date.init
         )
@@ -225,14 +245,73 @@ struct ManagedStorageDedupeTests {
         let externalInode = Self.inode(external)
         let openInode = Self.inode(open)
 
-        let report = try deduplicator(openFiles: [open.path]).apply(ManagedStorageDedupeOptions(roots: fixture.roots))
+        let probe = OpenFileProbe(openFiles: [open.path])
+        let report = try deduplicator(probe: probe).apply(ManagedStorageDedupeOptions(roots: fixture.roots))
 
         #expect(report.duplicateSets == 0)
         #expect(report.filesWithExternalLinks == 1)
         #expect(report.filesOpenElsewhere == 1)
+        // One process-table snapshot per apply pass, consulted only for the
+        // files about to be replaced (the externally linked file is skipped
+        // before any open check).
+        #expect(probe.snapshotsBuilt == 1)
+        #expect(probe.checks == 1)
         #expect(report.bytesReclaimed == 0)
         #expect(Self.inode(external) == externalInode)
         #expect(Self.inode(open) == openInode)
+    }
+
+    @Test("A dry run over 20k tiny files finishes quickly and never inspects open files")
+    func dryRunOverManyTinyFilesIsFast() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        // 20k files of 512 bytes across two roots with 200 distinct contents,
+        // so nearly every file has a size collision and a duplicate.
+        let fileManager = FileManager.default
+        for (rootIndex, root) in fixture.roots.enumerated() {
+            for package in 0..<100 {
+                let directory = root.appendingPathComponent("conda/pkgs/pkg-\(package)/lib", isDirectory: true)
+                try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+                for file in 0..<100 {
+                    let seed = UInt8(truncatingIfNeeded: package * 2 + (file % 2))
+                    let payload = Fixture.payload(seed: seed, size: 512)
+                    try payload.write(to: directory.appendingPathComponent("f\(rootIndex)-\(file).so"))
+                }
+            }
+        }
+        let probe = OpenFileProbe(openFiles: [])
+        let started = Date()
+        var messages: [String] = []
+        let report = try deduplicator(probe: probe).dryRun(
+            ManagedStorageDedupeOptions(roots: fixture.roots, minimumFileSize: 0)
+        ) { _ in }
+        let elapsed = Date().timeIntervalSince(started)
+        messages.append("elapsed \(elapsed)")
+
+        #expect(report.filesExamined == 20_000)
+        // 200 distinct payloads, 20k files: everything beyond the kept copies is duplicate.
+        #expect(report.duplicateFiles == 20_000 - 200)
+        #expect(report.filesHashed == 20_000)
+        #expect(probe.snapshotsBuilt == 0, "a dry run must never inspect open files")
+        #expect(probe.checks == 0)
+        #expect(elapsed < 5, "20k tiny files took \(elapsed)s")
+    }
+
+    @Test("Already cloned families are not hashed")
+    func clonedFamiliesSkipHashing() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let original = try fixture.write("databases/a/original.bin", in: fixture.roots[0], seed: 3)
+        let clone = fixture.roots[1].appendingPathComponent("databases/a/original.bin")
+        try FileManager.default.createDirectory(at: clone.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try APFSCloneSupport.cloneItem(at: original, to: clone)
+        guard APFSCloneSupport.isAPFSVolume(fixture.base), APFSCloneSupport.cloneIdentifier(of: original) != nil else { return }
+
+        let report = try deduplicator().dryRun(ManagedStorageDedupeOptions(roots: fixture.roots))
+
+        #expect(report.filesHashed == 0)
+        #expect(report.duplicateSets == 0)
+        #expect(report.bytesAlreadyShared == 64 * 1024)
     }
 
     @Test("Apply refuses while an install transaction is in flight")

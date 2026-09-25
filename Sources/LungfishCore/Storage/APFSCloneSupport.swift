@@ -118,9 +118,74 @@ public enum APFSCloneSupport {
         }
     }
 
+    /// Every vnode any process holds open, captured in one pass over the
+    /// process table so that checking a file is a set lookup.
+    ///
+    /// `processesHoldingOpen(_:)` walks the whole system per call, which is
+    /// O(files x processes) when applied to hundreds of thousands of package
+    /// files. A dedupe pass captures this once and asks it about each file it
+    /// is about to replace. Processes the caller may not inspect are skipped.
+    public struct OpenFileSnapshot: Sendable {
+        private let identities: Set<FileIdentity>
+        public let processesInspected: Int
+
+        struct FileIdentity: Hashable, Sendable {
+            let device: dev_t
+            let inode: UInt64
+        }
+
+        init(identities: Set<FileIdentity>, processesInspected: Int) {
+            self.identities = identities
+            self.processesInspected = processesInspected
+        }
+
+        /// Whether the file at `url` (not followed if a link) is open anywhere.
+        public func contains(_ url: URL) -> Bool {
+            var metadata = stat()
+            guard lstat(url.path, &metadata) == 0 else { return false }
+            return identities.contains(FileIdentity(device: metadata.st_dev, inode: UInt64(metadata.st_ino)))
+        }
+
+        public static func capture(excludingCurrentProcess: Bool = true) -> OpenFileSnapshot {
+            let current = getpid()
+            let needed = proc_listpids(UInt32(PROC_ALL_PIDS), 0, nil, 0)
+            guard needed > 0 else { return OpenFileSnapshot(identities: [], processesInspected: 0) }
+            var pids = [pid_t](repeating: 0, count: Int(needed) / MemoryLayout<pid_t>.size + 64)
+            let used = pids.withUnsafeMutableBytes { buffer in
+                proc_listpids(UInt32(PROC_ALL_PIDS), 0, buffer.baseAddress, Int32(buffer.count))
+            }
+            guard used > 0 else { return OpenFileSnapshot(identities: [], processesInspected: 0) }
+            var identities = Set<FileIdentity>()
+            var inspected = 0
+            for pid in pids.prefix(Int(used) / MemoryLayout<pid_t>.size) where pid > 0 {
+                if excludingCurrentProcess, pid == current { continue }
+                let bytes = proc_pidinfo(pid, PROC_PIDLISTFDS, 0, nil, 0)
+                guard bytes > 0 else { continue }
+                inspected += 1
+                let count = Int(bytes) / MemoryLayout<proc_fdinfo>.size + 16
+                var descriptors = [proc_fdinfo](repeating: proc_fdinfo(), count: count)
+                let filled = descriptors.withUnsafeMutableBytes { buffer in
+                    proc_pidinfo(pid, PROC_PIDLISTFDS, 0, buffer.baseAddress, Int32(buffer.count))
+                }
+                guard filled > 0 else { continue }
+                for descriptor in descriptors.prefix(Int(filled) / MemoryLayout<proc_fdinfo>.size)
+                where descriptor.proc_fdtype == UInt32(PROX_FDTYPE_VNODE) {
+                    var info = vnode_fdinfowithpath()
+                    let size = Int32(MemoryLayout<vnode_fdinfowithpath>.size)
+                    guard proc_pidfdinfo(pid, descriptor.proc_fd, PROC_PIDFDVNODEPATHINFO, &info, size) == size else { continue }
+                    identities.insert(FileIdentity(
+                        device: dev_t(info.pvip.vip_vi.vi_stat.vst_dev),
+                        inode: info.pvip.vip_vi.vi_stat.vst_ino
+                    ))
+                }
+            }
+            return OpenFileSnapshot(identities: identities, processesInspected: inspected)
+        }
+    }
+
     /// Process identifiers that currently hold `url` open, or an empty list when
-    /// the kernel cannot answer. Used to avoid replacing a file another process
-    /// is working on.
+    /// the kernel cannot answer. This walks every process, so call it for one
+    /// file at a time, never per scanned file; use ``OpenFileSnapshot`` for bulk checks.
     public static func processesHoldingOpen(_ url: URL, excludingCurrentProcess: Bool = true) -> [pid_t] {
         let flags = UInt32(PROC_LISTPIDSPATH_EXCLUDE_EVTONLY)
         let needed = proc_listpidspath(UInt32(PROC_ALL_PIDS), 0, url.path, flags, nil, 0)

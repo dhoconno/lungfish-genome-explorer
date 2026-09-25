@@ -33,6 +33,7 @@ extension StorageCommand {
     }
 
     static func formatBytes(_ bytes: Int64) -> String {
+        guard bytes > 0 else { return "0 bytes" }
         let formatter = ByteCountFormatter()
         formatter.countStyle = .file
         return formatter.string(fromByteCount: bytes)
@@ -73,7 +74,10 @@ extension StorageCommand {
                 sharedCondaPackageCache: CondaSharedPackageCache().sharedCacheURL?.path ?? "disabled",
                 knownChannelRoots: ManagedStorageChannelRoots.knownChannelRoots().map(\.path)
             )
-            switch globalOptions.outputFormat {
+            // The root command's GlobalOptions can claim --format and --quiet
+            // first, so re-read them from the raw arguments like other commands.
+            let resolved = try globalOptions.resolved(with: CommandLine.arguments)
+            switch resolved.outputFormat {
             case .json:
                 let encoder = JSONEncoder()
                 encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
@@ -144,14 +148,17 @@ extension StorageCommand {
             }
             let options = ManagedStorageDedupeOptions(roots: resolvedRoots, includeCondaEnvironments: !skipEnvironments)
             let deduplicator = ManagedStorageDeduplicator()
-            let quiet = globalOptions.quiet || globalOptions.outputFormat == .json
+            // The root command's GlobalOptions can claim --format and --quiet
+            // first, so re-read them from the raw arguments like other commands.
+            let resolved = try globalOptions.resolved(with: CommandLine.arguments)
+            let quiet = resolved.quiet || resolved.outputFormat == .json
             let progress: ManagedStorageDeduplicator.ProgressHandler? = quiet ? nil : { @Sendable message in
                 FileHandle.standardError.write(Data((message + "\n").utf8))
             }
             let report = try apply
                 ? deduplicator.apply(options, progress: progress)
                 : deduplicator.dryRun(options, progress: progress)
-            Self.print(report, format: globalOptions.outputFormat)
+            Self.print(report, format: resolved.outputFormat)
         }
 
         static func print(_ report: ManagedStorageDedupeReport, format: OutputFormat) {
