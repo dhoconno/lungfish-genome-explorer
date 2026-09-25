@@ -381,11 +381,9 @@ extension MainSplitViewController {
     }
 
     public func applyProjectSessionState(restoring snapshot: ProjectWindowSnapshot? = nil) {
-        invalidateDisplayRequest()
-        resetInspectorForProjectChange()
+        resetWindowForProjectChange()
         guard let project = projectSession.project else {
             sidebarController.closeProject()
-            viewerController?.showNoSequenceSelected()
             onProjectOpenWarningStateChanged?(projectSession.openWarningState)
             return
         }
@@ -398,13 +396,34 @@ extension MainSplitViewController {
         if let firstDoc = projectSession.activeDocument ?? projectSession.documents.first {
             if firstDoc.projectSequenceID != nil { loadProjectDocument(firstDoc) }
             else { viewerController?.displayDocument(firstDoc) }
-        } else {
-            viewerController?.showNoSequenceSelected()
         }
 
         onProjectOpenWarningStateChanged?(projectSession.openWarningState)
 
         if let snapshot { applyProjectWindowSnapshot(snapshot) }
+    }
+
+    /// Drops everything this window shows about the previous project.
+    ///
+    /// Opening another project into this window replaced the sidebar, but the
+    /// viewport was only replaced once the new project's first document
+    /// finished hydrating, and never when that load was superseded or the new
+    /// project had nothing to show. The previous project's reference bundle
+    /// viewport (alignment, contig table, coverage) therefore stayed on screen
+    /// with nothing selected. The reset is synchronous and unconditional:
+    /// in-flight loads for the old item are cancelled, the viewport goes to
+    /// its empty state, the selection is cleared, project-scoped drawers close
+    /// and the Inspector is emptied. Everything the new project shows is then
+    /// installed on top of a blank window.
+    func resetWindowForProjectChange() {
+        invalidatePendingSelectionDebounce(reason: "project change")
+        invalidateDisplayRequest()
+        cancelFASTQLoadIfNeeded(hideProgress: false, reason: "project change")
+        cancelMultiDocumentLoadIfNeeded(hideProgress: false, reason: "project change")
+        viewerController?.clearViewport(statusMessage: "No sequence selected")
+        viewerController?.closeAnnotationDrawer()
+        sidebarController?.clearSelection()
+        resetInspectorForProjectChange()
     }
 
     /// Drops everything the Inspector shows about the previous project.
