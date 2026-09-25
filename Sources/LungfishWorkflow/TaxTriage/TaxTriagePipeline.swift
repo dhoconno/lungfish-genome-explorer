@@ -1242,6 +1242,49 @@ public actor TaxTriagePipeline {
 
     // MARK: - Output Collection
 
+    /// Sorts retained TaxTriage output files into organism reports, metrics tables and
+    /// Krona pages.
+    ///
+    /// Organism reports are the per-sample `report/<sample>.odr.txt` (TaxTriage 3.3.x)
+    /// and the older `<sample>.organisms.report.txt`. Other "report" text files (the
+    /// Kraken2 report, Krona text, top reports, MultiQC tables) and the combined
+    /// `all.odr.*` files are neither organism reports nor metrics; they remain in
+    /// `allOutputFiles` only.
+    nonisolated static func categorizeOutputFiles(
+        _ files: [URL]
+    ) -> (reportFiles: [URL], metricsFiles: [URL], kronaFiles: [URL]) {
+        var reportFiles: [URL] = []
+        var metricsFiles: [URL] = []
+        var kronaFiles: [URL] = []
+
+        for file in files {
+            let name = file.lastPathComponent.lowercased()
+            let ext = file.pathExtension.lowercased()
+            let pathString = file.path.lowercased()
+
+            if TaxTriageOrganismReport.isPerSampleReportFile(file) {
+                reportFiles.append(file)
+            } else if ext == "html"
+                        && (name.contains("krona") || pathString.contains("krona")) {
+                kronaFiles.append(file)
+            } else if name.contains("report") || TaxTriageOrganismReport.isCombinedReportFile(file) {
+                continue
+            } else if name.contains("tass") || name.contains("metrics")
+                        || name.contains("confidence") {
+                metricsFiles.append(file)
+            } else if ext == "tsv" && !name.contains("trace")
+                        && !name.contains("samplesheet") {
+                metricsFiles.append(file)
+            }
+        }
+
+        return (
+            reportFiles.sorted { $0.path < $1.path },
+            metricsFiles.sorted { $0.path < $1.path },
+            kronaFiles.sorted { $0.path < $1.path }
+        )
+    }
+
     /// Discovers and categorizes output files after pipeline completion.
     private func collectOutputFiles(
         config: TaxTriageConfig,
@@ -1259,29 +1302,10 @@ public actor TaxTriagePipeline {
             outputDirectory: outputDir
         )
 
-        // Categorize by extension and path patterns
-        var reportFiles: [URL] = []
-        var metricsFiles: [URL] = []
-        var kronaFiles: [URL] = []
-
-        for file in allFiles {
-            let name = file.lastPathComponent.lowercased()
-            let ext = file.pathExtension.lowercased()
-            let pathString = file.path.lowercased()
-
-            if name.contains("report") && (ext == "txt" || ext == "tsv") {
-                reportFiles.append(file)
-            } else if name.contains("tass") || name.contains("metrics")
-                        || name.contains("confidence") {
-                metricsFiles.append(file)
-            } else if ext == "html"
-                        && (name.contains("krona") || pathString.contains("krona")) {
-                kronaFiles.append(file)
-            } else if ext == "tsv" && !name.contains("trace")
-                        && !name.contains("samplesheet") {
-                metricsFiles.append(file)
-            }
-        }
+        let categorized = Self.categorizeOutputFiles(allFiles)
+        let reportFiles = categorized.reportFiles
+        let metricsFiles = categorized.metricsFiles
+        let kronaFiles = categorized.kronaFiles
 
         // Find trace file
         let traceURL = outputDir.appendingPathComponent("trace.txt")

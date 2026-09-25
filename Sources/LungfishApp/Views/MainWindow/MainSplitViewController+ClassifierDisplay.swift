@@ -461,8 +461,22 @@ extension MainSplitViewController {
         } else if toolId.hasPrefix("taxtriage") || dirName.hasPrefix("taxtriage") {
             // Check for SQLite database first — faster than parsing per-sample files.
             let dbURL = batchURL.appendingPathComponent("taxtriage.sqlite")
-            if FileManager.default.fileExists(atPath: dbURL.path),
-               let db = try? TaxTriageDatabase(at: dbURL) {
+            let existingDB = FileManager.default.fileExists(atPath: dbURL.path)
+                ? try? TaxTriageDatabase(at: dbURL)
+                : nil
+            // Databases built before organism-report (.odr.txt) parsing hold only
+            // Kraken counts and TASS 0. Rebuild those once per session; if the
+            // rebuild does not clear the flag, fall through and show what exists.
+            if let existingDB,
+               existingDB.isStale(forResultDirectory: batchURL),
+               TaxTriageStaleDatabaseRebuilds.shouldAttempt(for: dbURL) {
+                mainSplitLogger.info(
+                    "displayBatchGroup: Rebuilding stale TaxTriage database for '\(dirName, privacy: .public)'"
+                )
+                showDatabaseBuildPlaceholder(tool: "TaxTriage", resultURL: batchURL)
+                return
+            }
+            if let db = existingDB {
                 viewerController.displayTaxTriageFromDatabase(db: db, resultURL: batchURL)
                 if let ttVC = viewerController.taxTriageViewController {
                     self.installClassifierMetadataPresentation(
@@ -1213,5 +1227,16 @@ extension MainSplitViewController {
         }
 
         return result
+    }
+}
+
+/// Tracks which stale TaxTriage databases this session already tried to rebuild,
+/// so a rebuild that fails or leaves the database stale cannot loop.
+@MainActor
+enum TaxTriageStaleDatabaseRebuilds {
+    private static var attempted: Set<String> = []
+
+    static func shouldAttempt(for databaseURL: URL) -> Bool {
+        attempted.insert(databaseURL.standardizedFileURL.path).inserted
     }
 }

@@ -644,11 +644,38 @@ extension ProjectUniversalSearchIndex {
                 || filename.contains("metrics")
         }
 
-        var metricsByCompositeKey: [String: TaxTriageMetric] = [:]
+        // TaxTriage 3.3.x writes the organism table as `report/<sample>.odr.txt`
+        // (TASS 0-100). TaxTriageOrganismReport normalizes it to the 0-1 scale.
+        let organismReportFiles = allOutputFiles.filter {
+            $0.lastPathComponent.lowercased().hasSuffix(TaxTriageOrganismReport.perSampleODRSuffix)
+                && TaxTriageOrganismReport.isPerSampleReportFile($0)
+        }
+        var parsedTables: [[TaxTriageMetric]] = []
+        for reportURL in organismReportFiles.sorted(by: pathCompare) {
+            guard let rows = try? TaxTriageOrganismReport.parse(url: reportURL), !rows.isEmpty else { continue }
+            parsedTables.append(rows.map {
+                TaxTriageMetric(
+                    sample: $0.sample,
+                    taxId: $0.taxId,
+                    organism: $0.organism,
+                    reads: $0.readsAligned,
+                    abundance: $0.pctReads,
+                    coverageBreadth: $0.coverageBreadth,
+                    coverageDepth: $0.meanDepth,
+                    tassScore: $0.tassScore,
+                    confidence: $0.confidence
+                )
+            })
+        }
         for metricsURL in metricFiles.sorted(by: pathCompare) {
             guard let parsed = try? TaxTriageMetricsParser.parse(url: metricsURL), !parsed.isEmpty else {
                 continue
             }
+            parsedTables.append(parsed)
+        }
+
+        var metricsByCompositeKey: [String: TaxTriageMetric] = [:]
+        for parsed in parsedTables {
             for metric in parsed {
                 let key = "\(OrganismNameNormalizer.normalizedKey(metric.organism))\t\(metric.sample ?? "")"
                 if let existing = metricsByCompositeKey[key] {
