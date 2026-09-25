@@ -2216,6 +2216,7 @@ lungfish-cli blast verify [<options>] --kreport <kreport> --source <source> --kr
 | `--max-concurrent <max-concurrent>` | Maximum in-flight BLAST submissions for this process. The default is `1`. |
 | `--include-children` | Include reads classified to descendant taxa. |
 | `--extra-args <extra-args>` | Additional BLAST URL API parameters as KEY=VALUE tokens (for example WORD_SIZE=11). |
+| `--result-dir <result-dir>` | Classifier result folder to save the verification in, under `blast-verifications/`. The window restores it when the taxon is selected. |
 
 ### `esviritu detect`
 
@@ -2273,7 +2274,7 @@ A `--samplesheet` CSV needs exactly the header `sample,fastq_1,fastq_2,platform`
 
 | Argument or flag | What it does |
 |---|---|
-| `--input <input>` | Input FASTQ file (R1 or single-end). |
+| `--input <input>` | Input FASTQ file (R1 or single-end), or a `.lungfishfastq` bundle. A bundle's interleaved pairs are split into R1 and R2 and run as pairs. |
 | `--input2 <input2>` | Second FASTQ file (R2 for paired-end). |
 | `--recursive` | When `--input` is a directory, include eligible FASTQ files in subfolders. |
 | `--sample <sample>` | Sample identifier (required with `--input`). |
@@ -2291,6 +2292,7 @@ A `--samplesheet` CSV needs exactly the header `sample,fastq_1,fastq_2,platform`
 | `--max-cpus <max-cpus>` | Maximum CPUs. The default is `auto`. |
 | `--nf-profile <nf-profile>` | Nextflow execution profile. The default is `docker`. |
 | `--revision <revision>` | TaxTriage pipeline revision or branch. The default is the revision LGE pins, `e10bfebda32a62711f38a4e23ab03b61725a9675`. |
+| `--remove-taxids <ids>` | NCBI taxonomy IDs to exclude as host before TaxTriage picks references, separated by spaces or commas, such as `9606` for human. Passed as `--remove_taxids`. The default is none. |
 | `--extra-args <extra-args>` | Additional TaxTriage/Nextflow pipeline arguments passed verbatim. |
 
 ### `taxtriage check-prerequisites`
