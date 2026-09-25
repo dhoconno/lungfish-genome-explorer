@@ -1098,6 +1098,12 @@ public final class MainMenu {
         ).identifier = NSUserInterfaceItemIdentifier(MainMenuAccessibilityID.gettingStarted)
 
         helpMenu.addItem(
+            withTitle: "Demo Projects\u{2026}",
+            action: #selector(HelpMenuActions.showDemoProjects(_:)),
+            keyEquivalent: ""
+        ).identifier = NSUserInterfaceItemIdentifier(MainMenuAccessibilityID.demoProjects)
+
+        helpMenu.addItem(
             withTitle: "VCF Variants Guide",
             action: #selector(HelpMenuActions.showVCFGuide(_:)),
             keyEquivalent: ""
@@ -1395,6 +1401,8 @@ private final class WindowMenuDelegate: NSObject, NSMenuDelegate {
 @objc protocol HelpMenuActions {
     func showLungfishHelp(_ sender: Any?)
     func showGettingStarted(_ sender: Any?)
+    /// Opens the Demo Projects sheet for downloading ready-to-analyse projects.
+    func showDemoProjects(_ sender: Any?)
     func showVCFGuide(_ sender: Any?)
     func showAIGuide(_ sender: Any?)
     func openOnlineDocumentation(_ sender: Any?)

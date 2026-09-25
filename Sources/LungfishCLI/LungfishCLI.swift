@@ -75,6 +75,7 @@ struct LungfishCLI: AsyncParsableCommand {
             PrimerCommand.self,
             GenotypeCommandGroup.self,
             StorageCommand.self,
+            DemoCommand.self,
             DebugCommand.self,
         ],
         defaultSubcommand: nil

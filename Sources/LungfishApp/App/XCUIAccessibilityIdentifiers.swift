@@ -228,6 +228,7 @@ enum MainMenuAccessibilityID {
 
     static let helpHome = "help-menu-lungfish-help"
     static let gettingStarted = "help-menu-getting-started"
+    static let demoProjects = "help-menu-demo-projects"
     static let vcfGuide = "help-menu-vcf-variants-guide"
     static let aiGuide = "help-menu-ai-assistant-guide"
     static let onlineDocumentation = "help-menu-online-documentation"
