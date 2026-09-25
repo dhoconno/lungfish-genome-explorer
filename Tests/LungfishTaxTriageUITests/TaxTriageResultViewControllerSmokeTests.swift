@@ -599,14 +599,26 @@ final class TaxTriageResultViewControllerSmokeTests: XCTestCase {
         XCTAssertEqual(vc.testBatchFlatTableView.displayedRows.count, 1)
         vc.testBatchFlatTableView.selectDisplayedRowForContextMenuIfNeeded(0)
 
+        // BLAST Verify opens the read-count popover first; the chosen count
+        // (the popover's default is 20) is what gets forwarded.
+        var popoverReadsClade: Int?
+        var runPopover: ((Int) -> Void)?
+        vc.blastConfigPopoverPresenter = { _, readsClade, _, onRun in
+            popoverReadsClade = readsClade
+            runPopover = onRun
+        }
+
         XCTAssertTrue(vc.testActionBar.blastButton.isEnabled)
         vc.testActionBar.blastButton.performClick(nil)
+        XCTAssertNil(capturedOrganism, "nothing is submitted until the popover's Run BLAST")
+        XCTAssertEqual(popoverReadsClade, 37)
+        try XCTUnwrap(runPopover)(20)
 
         XCTAssertEqual(capturedOrganism?.name, "Influenza A virus")
         XCTAssertEqual(capturedOrganism?.taxId, 11320)
         XCTAssertEqual(capturedOrganism?.reads, 37)
         XCTAssertEqual(capturedOrganism?.coverage, 82.5)
-        XCTAssertEqual(capturedReadCount, 37)
+        XCTAssertEqual(capturedReadCount, 20)
         XCTAssertEqual(capturedAccessions, ["NC_123456.1"])
     }
 

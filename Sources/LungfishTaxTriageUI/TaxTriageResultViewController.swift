@@ -338,6 +338,33 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
     /// Optional pre-selected sample ID set by sidebar routing before `configure` runs.
     var preselectedSampleId: String?
 
+    /// Database mode: whether View > All Samples (or the "All Samples"
+    /// segment) asked for the organism-by-sample overview grid. The grid is
+    /// only shown while more than one sample is ticked; see
+    /// `isDatabaseOverviewVisible`.
+    public private(set) var isShowingDatabaseOverview = false
+
+    /// Database mode: the Sample Filter selection the loaded rows belong to.
+    private var loadedDatabaseSampleSelection: Set<String>?
+
+    /// Database mode: a row to select once its sample's rows load (set when
+    /// an overview grid value opens a sample).
+    private var pendingDatabaseRowSelection: (sample: String, organism: String)?
+
+    /// Loads the organisms seen in negative-control samples.
+    private var contaminationRiskLoadTask: Task<Void, Never>?
+
+    /// Opens report files and folders. Tests replace it to observe the URL.
+    var reportOpener: @MainActor (URL) -> Void = { NSWorkspace.shared.open($0) }
+
+    /// Presents the BLAST read-count popover for the action bar's BLAST
+    /// Verify button. `nil` uses the shared `BlastConfigPopoverView` in an
+    /// `NSPopover`; tests replace it to drive the chosen read count.
+    var blastConfigPopoverPresenter: (@MainActor (_ taxonName: String, _ readsClade: Int, _ anchor: NSView, _ onRun: @escaping (Int) -> Void) -> Void)?
+
+    /// The BLAST read-count popover currently shown from the action bar.
+    private(set) var activeBlastConfigPopover: NSPopover?
+
     // MARK: - Multi-Selection Placeholder
 
     private let multiSelectionPrimaryLabel = NSTextField(labelWithString: "")
@@ -644,6 +671,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         clearClassifierAlignmentEvidence()
         databaseRowLoadTask?.cancel()
         deduplicatedReadCountTask?.cancel()
+        contaminationRiskLoadTask?.cancel()
         if let contentTypographyObserver {
             NotificationCenter.default.removeObserver(contentTypographyObserver)
         }
@@ -739,7 +767,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         let detailIsLeading = splitView.arrangedSubviews.first === leftPaneContainer
         var minimumExtents: (leading: CGFloat, trailing: CGFloat) = detailIsLeading ? (250, 300) : (300, 250)
 
-        if leftPaneContainer.isHidden {
+        if leftPaneContainer.isHidden || isMiniBAMDetailPaneCollapsed {
             if detailIsLeading {
                 minimumExtents.leading = 0
             } else {
@@ -845,21 +873,55 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         splitView.isVertical ? leftPaneContainer.frame.width : leftPaneContainer.frame.height
     }
 
+    /// The smallest extent the detail pane may have and still count as shown.
+    ///
+    /// Uses the layout's detail minimum, reduced to what the container can
+    /// actually hold beside the list's own minimum.
+    private func minimumRevealedDetailPaneExtent() -> CGFloat {
+        let layout = currentPanelLayout()
+        let minimums = minimumExtents(for: layout)
+        let detailMinimum = layout == .detailLeading ? minimums.leading : minimums.trailing
+        let listMinimum = layout == .detailLeading ? minimums.trailing : minimums.leading
+        let available = splitContainerExtent() - listMinimum - splitView.dividerThickness
+        return max(1, min(detailMinimum, available))
+    }
+
     private func revealMiniBAMDetailPaneIfNeeded() {
+        let wasCollapsed = isMiniBAMDetailPaneCollapsed
         isMiniBAMDetailPaneCollapsed = false
-        if leftPaneContainer.isHidden || miniBAMDetailPaneExtent() <= 1 {
-            leftPaneContainer.isHidden = false
-            restoreDefaultSplitPosition()
-            splitView.adjustSubviews()
-            if miniBAMDetailPaneExtent() <= 1 {
-                DispatchQueue.main.async { [weak self] in
-                    guard let self else { return }
-                    guard !self.leftPaneContainer.isHidden else { return }
-                    self.restoreDefaultSplitPosition()
-                    self.splitView.adjustSubviews()
-                }
+        // Collapsing sets the divider to the container edge, and NSSplitView
+        // un-hides a pane whose divider it moves, so `isHidden` alone does not
+        // say whether the pane is collapsed. A pane left a few points tall
+        // (the evidence viewer's own minimum) must also be re-expanded:
+        // treating any extent above 1 pt as "shown" left the alignment pane
+        // stuck at about 31 pt after the Inspector sample filter reloaded the
+        // rows, so no later row selection could draw into it.
+        guard leftPaneContainer.isHidden
+                || wasCollapsed
+                || miniBAMDetailPaneExtent() < minimumRevealedDetailPaneExtent()
+        else { return }
+        leftPaneContainer.isHidden = false
+        applyRevealedDetailPaneFrames()
+        if miniBAMDetailPaneExtent() < minimumRevealedDetailPaneExtent() {
+            DispatchQueue.main.async { [weak self] in
+                guard let self, !self.isMiniBAMDetailPaneCollapsed else { return }
+                self.leftPaneContainer.isHidden = false
+                self.applyRevealedDetailPaneFrames()
             }
         }
+    }
+
+    /// Restores the default divider position and sets both pane frames from it.
+    ///
+    /// `NSSplitView.adjustSubviews()` distributes space in proportion to the
+    /// panes' current frames, so after a collapse it kept the detail pane at
+    /// its collapsed proportion. Setting the frames from the computed divider
+    /// position makes the reveal independent of the collapsed frames.
+    private func applyRevealedDetailPaneFrames() {
+        restoreDefaultSplitPosition()
+        guard didSetInitialSplitPosition,
+              let position = splitView.requestedDividerPosition(at: 0) else { return }
+        applySplitFrames(for: position)
     }
 
     private func applyInitialSplitPositionIfNeeded() {
@@ -1079,7 +1141,11 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
     /// nil target reach this method via the responder chain instead, the same
     /// pattern `TaxonomyViewController.expandAllTaxonomyItems` already uses.
     @objc public func selectNextSample(_ sender: Any?) {
-        guard sampleIds.count > 1 else { return }
+        if isBatchGroupMode {
+            stepDatabaseSample(by: 1)
+            return
+        }
+        guard sampleIds.count > 1, !metrics.isEmpty else { return }
         let maxIndex = sampleIds.count  // segment 0 is "All", 1..count are samples
         guard selectedSampleIndex < maxIndex else { return }
         selectedSampleIndex += 1
@@ -1090,7 +1156,11 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
 
     /// Selects the previous sample (⌘[). See ``selectNextSample(_:)``.
     @objc public func selectPreviousSample(_ sender: Any?) {
-        guard sampleIds.count > 1, selectedSampleIndex > 0 else { return }
+        if isBatchGroupMode {
+            stepDatabaseSample(by: -1)
+            return
+        }
+        guard sampleIds.count > 1, !metrics.isEmpty, selectedSampleIndex > 0 else { return }
         selectedSampleIndex -= 1
         sampleFilterControl.selectedSegment = selectedSampleIndex
         sampleFilterPopUp.selectItem(at: selectedSampleIndex)
@@ -1100,7 +1170,11 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
     /// Selects the "All Samples" overview (⌥⌘0 — plain ⌘0 is already View >
     /// Zoom to Fit). See ``selectNextSample(_:)``.
     @objc public func selectAllSamplesOverview(_ sender: Any?) {
-        guard sampleIds.count > 1 else { return }
+        if isBatchGroupMode {
+            toggleDatabaseOverview()
+            return
+        }
+        guard sampleIds.count > 1, !metrics.isEmpty else { return }
         selectedSampleIndex = 0
         sampleFilterControl.selectedSegment = 0
         sampleFilterPopUp.selectItem(at: 0)
@@ -1302,11 +1376,19 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
     }
 
     @objc private func sampleFilterChanged(_ sender: NSSegmentedControl) {
+        if isBatchGroupMode {
+            selectDatabaseSampleFilterIndex(sender.selectedSegment)
+            return
+        }
         selectedSampleIndex = sender.selectedSegment
         applyCurrentSampleFilter()
     }
 
     @objc private func sampleFilterPopUpChanged(_ sender: NSPopUpButton) {
+        if isBatchGroupMode {
+            selectDatabaseSampleFilterIndex(sender.indexOfSelectedItem)
+            return
+        }
         selectedSampleIndex = sender.indexOfSelectedItem
         applyCurrentSampleFilter()
     }
@@ -1413,7 +1495,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
     @objc private func handleInspectorSampleSelectionChanged() {
         guard samplePickerState != nil else { return }
         if isBatchGroupMode {
-            applyBatchGroupFilter()
+            databaseSampleSelectionDidChange()
         } else if isMultiSampleSingleResultMode {
             applyMultiSampleFilter()
         } else {
@@ -1572,6 +1654,15 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
     ///
     /// - Parameter sampleId: The sample ID to select, or nil for "All Samples".
     public func selectSample(_ sampleId: String?) {
+        if isBatchGroupMode {
+            if let sampleId {
+                guard sampleIds.contains(sampleId) else { return }
+                setDatabaseSampleSelection([sampleId], showOverview: false)
+            } else {
+                setDatabaseSampleSelection(sampleIds, showOverview: sampleIds.count > 1)
+            }
+            return
+        }
         guard let sampleId else {
             selectedSampleIndex = 0
             sampleFilterControl.selectedSegment = 0
@@ -1617,13 +1708,25 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         organismTableView.autoresizingMask = [.width, .height]
         rightPaneContainer.addSubview(organismTableView)
 
-        batchOverviewView.autoresizingMask = [.width, .height]
+        // Pinned with constraints (not an autoresizing mask from a zero
+        // frame) so the grid fills the pane whenever it is shown.
+        batchOverviewView.translatesAutoresizingMaskIntoConstraints = false
         batchOverviewView.isHidden = true
         rightPaneContainer.addSubview(batchOverviewView)
+        NSLayoutConstraint.activate([
+            batchOverviewView.topAnchor.constraint(equalTo: rightPaneContainer.topAnchor),
+            batchOverviewView.bottomAnchor.constraint(equalTo: rightPaneContainer.bottomAnchor),
+            batchOverviewView.leadingAnchor.constraint(equalTo: rightPaneContainer.leadingAnchor),
+            batchOverviewView.trailingAnchor.constraint(equalTo: rightPaneContainer.trailingAnchor),
+        ])
 
         // Wire batch overview cell clicks to navigate to organism in sample
         batchOverviewView.onCellSelected = { [weak self] organism, sampleId in
             guard let self else { return }
+            if self.isBatchGroupMode {
+                self.openDatabaseSample(sampleId, selectingOrganism: organism)
+                return
+            }
             self.selectSample(sampleId)
             // Try to select the organism row in the table
             self.organismTableView.selectRow(byOrganism: organism)
@@ -2209,7 +2312,9 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
 
     /// Saves current deduplicated read counts into the TaxTriage result sidecar.
     private func persistDeduplicatedReadCounts() {
-        guard var result = taxTriageResult else { return }
+        // Database mode reads the sidecar with relocated paths; it keeps its
+        // unique-read counts in the batch cache and never rewrites the sidecar.
+        guard !isBatchGroupMode, var result = taxTriageResult else { return }
         result.deduplicatedReadCounts = deduplicatedReadCounts
         result.perSampleDeduplicatedReadCounts = perSampleDeduplicatedReadCounts.isEmpty ? nil : perSampleDeduplicatedReadCounts
         do {
@@ -2830,7 +2935,16 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         self.batchGroupURL = resultURL
         self.isBatchGroupMode = true
         self.didLoadFromManifestCache = true
+        self.isShowingDatabaseOverview = false
+        self.pendingDatabaseRowSelection = nil
+        self.loadedDatabaseSampleSelection = nil
         batchFlatTableView.resultIdentity = resultURL.standardizedFileURL.path
+
+        // The run's sidecar (taxtriage-result.json) and its config drive Open
+        // Report, Copy Summary, the Provenance popover, Export Batch Report,
+        // CSV sample labels and negative-control flags. It is optional: a
+        // result folder without it still shows every database row.
+        loadResultSidecar(from: resultURL)
         organismTableView.metadataColumns.persistenceKey = "taxtriage.organisms:\(resultURL.standardizedFileURL.path)"
 
         // Fetch all samples from the DB.
@@ -2848,6 +2962,9 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         }
         samplePickerState = ClassifierSamplePickerState(allSamples: Set(sampleIds))
         samplePickerState.selectedSamples = Set(sampleIds)
+        resolvedDisplayNames = Dictionary(
+            uniqueKeysWithValues: sampleEntries.map { ($0.id, $0.displayName) }
+        ).merging(buildSampleLabelsFromCSVMetadata()) { _, csvLabel in csvLabel }
 
         // UX-03 (reproduced): `sampleFilterControl` is created with a single
         // "All Samples" segment and was never rebuilt to match the loaded
@@ -2915,18 +3032,20 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
             self.collapseMiniBAMDetailPane()
         }
 
-        // Show flat table, hide single-result UI. Batch group mode always
-        // uses the flat table + Inspector sample picker (a multi-select
-        // checklist via samplePickerState — see applyBatchGroupFilter), never
-        // the single-selection sampleFilterControl/sampleFilterPopUp, so both
-        // stay hidden here regardless of sample count.
-        sampleFilterControl.isHidden = true
-        sampleFilterPopUp.isHidden = true
+        // Show the flat table. The Inspector's Sample Filter checklist
+        // (samplePickerState) is the source of truth for which samples are
+        // loaded. The segmented control above the table is a shortcut into
+        // it for multi-sample results: "All Samples" ticks every sample and
+        // shows the organism-by-sample overview grid, and a sample segment
+        // ticks only that sample. rebuildSampleFilterSegments() above hides
+        // both controls when there is only one sample.
         blastDrawer.isHidden = true
         organismTableView.isHidden = true
         batchOverviewView.isHidden = true
         batchFlatTableView.isHidden = false
         collapseMiniBAMDetailPane()
+        syncSampleFilterControlToPickerState()
+        loadContaminationRiskOrganisms(from: db)
 
         // Show the organism search field.
         organismSearchField.isHidden = false
@@ -2972,6 +3091,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         databaseRowLoadGeneration = generation
 
         let selectedSamples = sampleIds.filter { state.selectedSamples.contains($0) }
+        loadedDatabaseSampleSelection = state.selectedSamples
         let searchText = organismSearchText
         let resultURL = batchGroupURL
         let pageSize = databaseRowsPageSize
@@ -3026,6 +3146,9 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
                     self.mergeDatabasePageSnapshot(snapshot)
                     self.batchFlatTableView.configure(rows: self.allBatchGroupRows)
                     self.selectTopDatabaseRowAfterInitialPageIfNeeded()
+                    if self.isDatabaseOverviewVisible {
+                        self.reconfigureDatabaseOverviewGrid()
+                    }
                     self.summaryBar.updateBatch(
                         sampleCount: self.sampleEntries.count,
                         totalOrganisms: snapshot.totalMatchingRows
@@ -3063,9 +3186,27 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
 
     private func selectTopDatabaseRowAfterInitialPageIfNeeded() {
         guard shouldSelectTopDatabaseRowAfterLoad else { return }
-        guard !batchFlatTableView.displayedRows.isEmpty else { return }
+        // The overview grid replaces the list; selecting a hidden list row
+        // would reveal the alignment pane behind it. The flag stays set so
+        // the top row is selected when the list comes back.
+        guard !isDatabaseOverviewVisible else { return }
+        let rows = batchFlatTableView.displayedRows
+        guard !rows.isEmpty else { return }
         shouldSelectTopDatabaseRowAfterLoad = false
-        batchFlatTableView.selectDisplayedRowForContextMenuIfNeeded(0)
+        var index = 0
+        if let pending = pendingDatabaseRowSelection {
+            pendingDatabaseRowSelection = nil
+            let pendingKey = normalizedOrganismName(pending.organism)
+            if let match = rows.firstIndex(where: {
+                $0.sample == pending.sample && normalizedOrganismName($0.organism) == pendingKey
+            }) {
+                index = match
+            }
+        }
+        batchFlatTableView.selectDisplayedRowForContextMenuIfNeeded(index)
+        if index > 0 {
+            batchFlatTableView.tableView.scrollRowToVisible(index)
+        }
     }
 
     private func mergeOrganismAccessions(_ incoming: [String: [String: [String]]]) {
@@ -3123,6 +3264,267 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
             }
         }
         batchFlatTableView.configure(rows: filtered)
+    }
+
+    // MARK: - Database Mode: Result Sidecar
+
+    /// Loads `taxtriage-result.json` and its config from the result folder.
+    ///
+    /// The sidecar stores absolute paths from the machine and folder the run
+    /// wrote. Paths under the stored output folder are rebased onto
+    /// `resultURL`, so a result that was copied or moved still finds its own
+    /// reports.
+    private func loadResultSidecar(from resultURL: URL) {
+        guard let stored = try? TaxTriageResult.load(from: resultURL) else {
+            taxTriageResult = nil
+            taxTriageConfig = nil
+            return
+        }
+        let relocated = Self.relocatedResult(stored, to: resultURL)
+        taxTriageResult = relocated
+        taxTriageConfig = relocated.config
+    }
+
+    static func relocatedResult(_ result: TaxTriageResult, to resultURL: URL) -> TaxTriageResult {
+        let oldRoot = result.outputDirectory.standardizedFileURL.path
+        let newRoot = resultURL.standardizedFileURL.path
+        guard oldRoot != newRoot else { return result }
+        func rebase(_ url: URL) -> URL {
+            let path = url.standardizedFileURL.path
+            guard path == oldRoot || path.hasPrefix(oldRoot + "/") else { return url }
+            return URL(fileURLWithPath: newRoot + String(path.dropFirst(oldRoot.count)))
+        }
+        return TaxTriageResult(
+            config: result.config,
+            runtime: result.runtime,
+            exitCode: result.exitCode,
+            outputDirectory: resultURL,
+            reportFiles: result.reportFiles.map(rebase),
+            metricsFiles: result.metricsFiles.map(rebase),
+            kronaFiles: result.kronaFiles.map(rebase),
+            logFile: result.logFile.map(rebase),
+            traceFile: result.traceFile.map(rebase),
+            allOutputFiles: result.allOutputFiles.map(rebase),
+            deduplicatedReadCounts: result.deduplicatedReadCounts,
+            perSampleDeduplicatedReadCounts: result.perSampleDeduplicatedReadCounts,
+            sourceBundleURLs: result.sourceBundleURLs,
+            ignoredFailures: result.ignoredFailures,
+            sampleFailures: result.sampleFailures
+        )
+    }
+
+    /// Flags every organism that TaxTriage detected in a negative-control
+    /// sample, across all samples and independent of the Sample Filter.
+    private func loadContaminationRiskOrganisms(from db: TaxTriageDatabase) {
+        batchFlatTableView.contaminationRiskOrganismKeys = []
+        let controls = negativeControlSampleIds().filter { sampleIds.contains($0) }
+        guard !controls.isEmpty else { return }
+        let samples = controls.sorted()
+        contaminationRiskLoadTask?.cancel()
+        contaminationRiskLoadTask = Task { [weak self, db, samples] in
+            let keys = await Task.detached(priority: .userInitiated) { () -> Set<String> in
+                let rows = (try? db.fetchRows(samples: samples)) ?? []
+                return Set(rows.map { OrganismNameNormalizer.normalizedKey($0.organism) })
+            }.value
+            guard let self, !Task.isCancelled, self.taxTriageDatabase === db else { return }
+            self.batchFlatTableView.contaminationRiskOrganismKeys = keys
+            if self.isDatabaseOverviewVisible {
+                self.reconfigureDatabaseOverviewGrid()
+            }
+        }
+    }
+
+    // MARK: - Database Mode: Sample Selection
+
+    /// Sample IDs ticked in the Inspector's Sample Filter, in `sampleIds` order.
+    var selectedDatabaseSampleIds: [String] {
+        guard let state = samplePickerState else { return [] }
+        return sampleIds.filter { state.selectedSamples.contains($0) }
+    }
+
+    /// Whether the organism-by-sample overview grid is on screen.
+    var isDatabaseOverviewVisible: Bool {
+        isBatchGroupMode && isShowingDatabaseOverview && selectedDatabaseSampleIds.count > 1
+    }
+
+    /// Index into `sampleIds` of the one sample the list shows, when exactly
+    /// one sample is ticked and the overview grid is not showing.
+    private func currentSingleDatabaseSampleIndex() -> Int? {
+        let selected = selectedDatabaseSampleIds
+        guard !isDatabaseOverviewVisible, selected.count == 1 else { return nil }
+        return sampleIds.firstIndex(of: selected[0])
+    }
+
+    private var canSelectNextDatabaseSample: Bool {
+        guard isBatchGroupMode, sampleIds.count > 1 else { return false }
+        guard let current = currentSingleDatabaseSampleIndex() else { return true }
+        return current < sampleIds.count - 1
+    }
+
+    private var canSelectPreviousDatabaseSample: Bool {
+        guard isBatchGroupMode, sampleIds.count > 1 else { return false }
+        guard let current = currentSingleDatabaseSampleIndex() else { return true }
+        return current > 0
+    }
+
+    /// Next/Previous Sample. From one ticked sample this moves to its
+    /// neighbour. From several ticked samples, or from the overview grid,
+    /// Next starts at the first sample and Previous at the last.
+    private func stepDatabaseSample(by delta: Int) {
+        guard sampleIds.count > 1 else { return }
+        let target: Int
+        if let current = currentSingleDatabaseSampleIndex() {
+            target = current + delta
+            guard sampleIds.indices.contains(target) else { return }
+        } else {
+            target = delta > 0 ? 0 : sampleIds.count - 1
+        }
+        setDatabaseSampleSelection([sampleIds[target]], showOverview: false)
+    }
+
+    /// View > All Samples. Ticks every sample and shows the overview grid;
+    /// choosing it again while the grid shows returns to the organism list.
+    private func toggleDatabaseOverview() {
+        guard sampleIds.count > 1 else { return }
+        if isDatabaseOverviewVisible {
+            isShowingDatabaseOverview = false
+            syncSampleFilterControlToPickerState()
+            applyDatabaseOverviewPresentation()
+        } else {
+            setDatabaseSampleSelection(sampleIds, showOverview: true)
+        }
+    }
+
+    /// Segment/popup index: 0 is "All Samples", 1... are the samples.
+    private func selectDatabaseSampleFilterIndex(_ index: Int) {
+        if index <= 0 {
+            if isDatabaseOverviewVisible, selectedDatabaseSampleIds.count == sampleIds.count {
+                toggleDatabaseOverview()
+            } else {
+                setDatabaseSampleSelection(sampleIds, showOverview: true)
+            }
+            return
+        }
+        guard index - 1 < sampleIds.count else { return }
+        setDatabaseSampleSelection([sampleIds[index - 1]], showOverview: false)
+    }
+
+    /// Opens one sample's organism list from an overview grid value and
+    /// selects the organism's row once the sample's rows load.
+    private func openDatabaseSample(_ sampleId: String, selectingOrganism organism: String) {
+        guard sampleIds.contains(sampleId) else { return }
+        pendingDatabaseRowSelection = (sampleId, organism)
+        setDatabaseSampleSelection([sampleId], showOverview: false)
+    }
+
+    /// Writes a sample selection into the Inspector's Sample Filter state and
+    /// applies it. The Inspector posts its own change notification for the
+    /// same edit; `databaseSampleSelectionDidChange()` recognises that the
+    /// rows are already loaded for it and does not reload them twice.
+    private func setDatabaseSampleSelection(_ ids: [String], showOverview: Bool) {
+        guard let state = samplePickerState else { return }
+        isShowingDatabaseOverview = showOverview && ids.count > 1
+        state.selectedSamples = Set(ids)
+        databaseSampleSelectionDidChange()
+    }
+
+    /// Applies the current Sample Filter state: reloads rows when the ticked
+    /// set changed, then updates the segmented control and the overview grid.
+    private func databaseSampleSelectionDidChange() {
+        guard let state = samplePickerState else { return }
+        if state.selectedSamples.count <= 1 {
+            isShowingDatabaseOverview = false
+        }
+        let needsReload = taxTriageDatabase == nil
+            || loadedDatabaseSampleSelection != state.selectedSamples
+        if needsReload {
+            applyBatchGroupFilter()
+        }
+        syncSampleFilterControlToPickerState()
+        applyDatabaseOverviewPresentation()
+    }
+
+    /// Mirrors the Sample Filter state into the segmented control or popup:
+    /// the overview grid selects "All Samples", one ticked sample selects its
+    /// segment, and any other combination selects nothing.
+    private func syncSampleFilterControlToPickerState() {
+        guard isBatchGroupMode else { return }
+        let index: Int
+        if isDatabaseOverviewVisible {
+            index = 0
+        } else if let single = currentSingleDatabaseSampleIndex() {
+            index = single + 1
+        } else {
+            index = -1
+        }
+        selectedSampleIndex = max(0, index)
+        if sampleFilterControl.segmentCount == sampleIds.count + 1 {
+            sampleFilterControl.selectedSegment = index
+        }
+        if sampleFilterPopUp.numberOfItems == sampleIds.count + 1 {
+            sampleFilterPopUp.selectItem(at: index)
+        }
+    }
+
+    /// Swaps between the flat organism list and the overview grid.
+    private func applyDatabaseOverviewPresentation() {
+        guard isBatchGroupMode else { return }
+        let showOverview = isDatabaseOverviewVisible
+        let wasShowingOverview = !batchOverviewView.isHidden
+        batchOverviewView.isHidden = !showOverview
+        batchFlatTableView.isHidden = showOverview
+
+        if showOverview {
+            alignmentEvidenceViewer?.clear()
+            multiSelectionPlaceholder.isHidden = true
+            collapseMiniBAMDetailPane()
+            reconfigureDatabaseOverviewGrid()
+            actionBar.updateInfoText(
+                "Organism overview of \(selectedDatabaseSampleIds.count) samples. Double-click a sample value to open that sample."
+            )
+            actionBar.setBlastEnabled(false, reason: "Choose one sample to use BLAST Verify")
+            actionBar.setExtractEnabled(false)
+            return
+        }
+
+        guard wasShowingOverview else { return }
+        // Back to the list: re-drive the list's selection so the action bar
+        // and alignment pane match what the list shows.
+        let selection = batchFlatTableView.selectedMetrics()
+        if selection.isEmpty {
+            shouldSelectTopDatabaseRowAfterLoad = true
+            selectTopDatabaseRowAfterInitialPageIfNeeded()
+        } else if selection.count == 1, let selected = selection.first,
+                  let index = batchFlatTableView.displayedRows.firstIndex(where: {
+                      $0.sample == selected.sample && $0.organism == selected.organism
+                  }) {
+            batchFlatTableView.selectDisplayedRowForContextMenuIfNeeded(index)
+        } else {
+            actionBar.updateInfoText("\(selection.count) rows selected")
+            actionBar.setExtractEnabled(hasExtractableResultPath)
+        }
+    }
+
+    /// Rebuilds the overview grid from the loaded database rows.
+    private func reconfigureDatabaseOverviewGrid() {
+        var perSampleUnique: [String: [String: Int]] = [:]
+        for row in allBatchGroupRows {
+            guard let sample = row.sample else { continue }
+            let key = "\(sample)\t\(row.organism)"
+            let readCount = batchFlatTableView.totalReadsByKey[key] ?? row.reads
+            guard let unique = ClassifierUniqueReads.normalized(
+                stored: batchFlatTableView.uniqueReadsByKey[key],
+                readCount: readCount
+            ) else { continue }
+            perSampleUnique[normalizedOrganismName(row.organism), default: [:]][sample] = unique
+        }
+        batchOverviewView.configure(
+            metrics: allBatchGroupRows,
+            sampleIds: selectedDatabaseSampleIds,
+            negativeControlSampleIds: negativeControlSampleIds(),
+            sampleLabels: resolvedDisplayNames,
+            perSampleDeduplicatedReadCounts: perSampleUnique
+        )
     }
 
     // MARK: - Multi-Sample Single Result Mode
@@ -3389,7 +3791,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
             self?.requestBlastVerification(for: metric, readCount: readCount)
         }
 
-        // Action bar BLAST verify -> run the selected row with the default all-reads count.
+        // Action bar BLAST verify -> read-count popover for the selected row.
         actionBar.onBlastVerify = { [weak self] in
             self?.requestBlastVerificationForCurrentSelection()
         }
@@ -3407,6 +3809,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         // Custom button: Open Report
         openReportButton.target = self
         openReportButton.action = #selector(openExternalTapped)
+        openReportButton.toolTip = "Open the TaxTriage report (PDF, or HTML when there is no PDF) for the selected row's sample"
         actionBar.addCustomButton(openReportButton)
 
         // Custom button: Related analyses (hidden until discoveries are made)
@@ -3458,20 +3861,65 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         onBlastVerification?(organism, readCount, rowAccessions, metricBamURL, metricBamIndexURL)
     }
 
+    /// Action bar BLAST Verify. Opens the same read-count popover as the
+    /// row's "Verify with BLAST…" context menu item (slider from 1 to at most
+    /// 50 reads, 20 by default) instead of submitting straight away, so one
+    /// click never spends the whole NCBI allowance.
     private func requestBlastVerificationForCurrentSelection() {
         let flatSelection = batchFlatTableView.selectedMetrics()
         if batchFlatTableView.isHidden == false, flatSelection.count == 1, let metric = flatSelection.first {
-            requestBlastVerification(for: metric, readCount: defaultBlastReadCount(for: metric))
+            presentBlastConfigPopover(
+                taxonName: metric.organism,
+                readsClade: defaultBlastReadCount(for: metric)
+            ) { [weak self] readCount in
+                self?.requestBlastVerification(for: metric, readCount: readCount)
+            }
             return
         }
 
         let organismRows = organismTableView.selectedTableRows()
         if organismTableView.isHidden == false, organismRows.count == 1, let row = organismRows.first {
-            requestBlastVerification(for: row, readCount: row.uniqueReads ?? row.reads)
+            presentBlastConfigPopover(
+                taxonName: row.organism,
+                readsClade: row.uniqueReads ?? row.reads
+            ) { [weak self] readCount in
+                self?.requestBlastVerification(for: row, readCount: readCount)
+            }
             return
         }
 
         actionBar.setBlastEnabled(false, reason: "Select a single row to use BLAST Verify")
+    }
+
+    private func presentBlastConfigPopover(
+        taxonName: String,
+        readsClade: Int,
+        onRun: @escaping (Int) -> Void
+    ) {
+        let anchor = actionBar.blastButton
+        if let presenter = blastConfigPopoverPresenter {
+            presenter(taxonName, readsClade, anchor, onRun)
+            return
+        }
+        activeBlastConfigPopover?.close()
+        // NSPopover raises when its anchor is not in a window.
+        guard anchor.window != nil else { return }
+        let popover = NSPopover()
+        popover.behavior = .transient
+        popover.contentSize = NSSize(width: 280, height: 160)
+        popover.contentViewController = NSHostingController(
+            rootView: BlastConfigPopoverView(
+                taxonName: taxonName,
+                readsClade: readsClade,
+                onRun: { [weak self, weak popover] readCount in
+                    popover?.close()
+                    self?.activeBlastConfigPopover = nil
+                    onRun(readCount)
+                }
+            )
+        )
+        activeBlastConfigPopover = popover
+        popover.show(relativeTo: anchor.bounds, of: anchor, preferredEdge: .maxY)
     }
 
     private func defaultBlastReadCount(for metric: TaxTriageMetric) -> Int {
@@ -3507,7 +3955,9 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
             try? FileManager.default.removeItem(at: manifestURL)
         }
         // Also clear from the per-result sidecar for single-result multi-sample mode.
-        if var result = taxTriageResult {
+        // Database mode loads the sidecar read-only (with relocated paths) and
+        // must never rewrite it.
+        if !isBatchGroupMode, var result = taxTriageResult {
             result.perSampleDeduplicatedReadCounts = nil
             result.deduplicatedReadCounts = nil
             try? result.save()
@@ -3714,7 +4164,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         guard totalExtent > 0 else { return }
 
         let targetLeadingExtent: CGFloat
-        if leftPaneContainer.isHidden {
+        if leftPaneContainer.isHidden || isMiniBAMDetailPaneCollapsed {
             targetLeadingExtent = collapsedSplitPositionForHiddenDetail(containerExtent: totalExtent)
         } else if didSetInitialSplitPosition, !needsInitialSplitValidation {
             let proposedLeadingExtent = self.splitView.requestedDividerPosition(at: 0) ?? currentDividerPosition()
@@ -3771,7 +4221,10 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
 
     private func hideMultiSelectionPlaceholder() {
         multiSelectionPlaceholder.isHidden = true
-        // miniBAMController visibility is managed by the row selection handler
+        // The placeholder hides the evidence view; give it back so a later
+        // single-row selection has somewhere to draw. Pane collapse and
+        // reveal are still managed by the row selection handlers.
+        alignmentEvidenceViewer?.viewController.view.isHidden = false
     }
 
     // MARK: - Action Bar Selection Helper
@@ -3895,9 +4348,31 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
     }
 
     @objc private func copySummaryAction(_ sender: Any) {
-        guard let result = taxTriageResult else { return }
+        guard let summary = summaryTextForCopy() else { return }
         NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(result.summary, forType: .string)
+        NSPasteboard.general.setString(summary, forType: .string)
+    }
+
+    /// Text for Export > Copy Summary: the run summary from the sidecar
+    /// followed, in database mode, by what the view currently shows.
+    func summaryTextForCopy() -> String? {
+        var lines: [String] = []
+        if let result = taxTriageResult {
+            lines.append(result.summary)
+        }
+        if isBatchGroupMode {
+            if lines.isEmpty {
+                lines.append("TaxTriage results: \(batchGroupURL?.lastPathComponent ?? "database")")
+            }
+            let selected = selectedDatabaseSampleIds
+            lines.append("Samples shown: \(selected.count) of \(sampleIds.count) (\(selected.joined(separator: ", ")))")
+            lines.append("Organism rows shown: \(batchFlatTableView.displayedRows.count)")
+            let high = batchFlatTableView.displayedRows.filter {
+                TaxTriageConfidenceBand(label: $0.confidence, tassScore: $0.tassScore) == .high
+            }.count
+            lines.append("High confidence rows: \(high)")
+        }
+        return lines.isEmpty ? nil : lines.joined(separator: "\n")
     }
 
     @objc private func exportBatchMatrixAction(_ sender: Any) {
@@ -4038,7 +4513,13 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
             return
         }
 
-        let baseName = taxTriageConfig?.samples.first?.sampleId ?? "taxtriage"
+        let baseName: String
+        if isBatchGroupMode {
+            let selected = selectedDatabaseSampleIds
+            baseName = selected.count == 1 ? selected[0] : (batchGroupURL?.lastPathComponent ?? "taxtriage")
+        } else {
+            baseName = taxTriageConfig?.samples.first?.sampleId ?? "taxtriage"
+        }
         let panel = MetagenomicsFilePanelFactory.delimitedExportPanel(
             title: "Export TaxTriage Results as \(fileTypeName)",
             suggestedName: "\(baseName)_results.\(fileExtension)"
@@ -4085,15 +4566,15 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
                 "format": .string("tsv"),
             ],
             resolved: [
-                "rowCount": .integer(organismTableView.exportRows.count),
+                "rowCount": .integer(delimitedExportRowCount),
                 "sampleIds": .array(sampleIds.map { .string($0) }),
                 "selectedSamples": .array(exportSelectedSampleIds().map(ParameterValue.string)),
                 "selectedSampleIndex": .integer(selectedSampleIndex),
                 "selectedSampleId": exportSelectedSampleId().map(ParameterValue.string) ?? .null,
                 "organismSearchText": .string(organismSearchText),
                 "tableMode": .string(exportTableModeName),
-                "sortDescriptors": .array(exportSortDescriptorParameters(organismTableView.exportSortDescriptors)),
-                "metadataColumns": .array(organismTableView.metadataColumns.exportHeaders.map { .string($0) }),
+                "sortDescriptors": .array(exportSortDescriptorParameters(delimitedExportSortDescriptors)),
+                "metadataColumns": .array(delimitedExportMetadataHeaders.map { .string($0) }),
             ],
             startedAt: startedAt
         )) { outputURL in
@@ -4109,7 +4590,10 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         if let batchGroupURL {
             urls.append(batchGroupURL.appendingPathComponent(TaxTriageBatchManifest.filename))
         }
-        if let outputDirectory = taxTriageConfig?.outputDirectory {
+        // In database mode the config's output folder is where the run was
+        // written, which is stale once the result is copied or moved. The
+        // relocated result folder below is the one this view reads.
+        if !isBatchGroupMode, let outputDirectory = taxTriageConfig?.outputDirectory {
             urls.append(outputDirectory)
         }
         if let resultDirectory = taxTriageResult?.outputDirectory {
@@ -4162,8 +4646,72 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         }).count
     }
 
+    /// Whether CSV/TSV export reads the database flat table (every
+    /// production TaxTriage result) rather than the legacy organism table.
+    private var exportsDatabaseFlatTable: Bool {
+        isBatchGroupMode && taxTriageDatabase != nil
+    }
+
+    private var delimitedExportRowCount: Int {
+        exportsDatabaseFlatTable ? batchFlatTableView.displayedRows.count : organismTableView.exportRows.count
+    }
+
+    private var delimitedExportSortDescriptors: [NSSortDescriptor] {
+        exportsDatabaseFlatTable ? batchFlatTableView.tableView.sortDescriptors : organismTableView.exportSortDescriptors
+    }
+
+    private var delimitedExportMetadataHeaders: [String] {
+        exportsDatabaseFlatTable
+            ? batchFlatTableView.metadataColumns.exportHeaders
+            : organismTableView.metadataColumns.exportHeaders
+    }
+
+    /// Delimited export of the database flat table: the rows it currently
+    /// shows (Sample Filter, organism search and column filters applied), in
+    /// its current sort order.
+    private func buildDatabaseDelimitedExport(separator: String) -> String {
+        var headers = [
+            "Sample", "Organism", "TASS Score", "Reads", "Unique Reads", "Coverage", "Confidence",
+            "Tax ID", "Rank", "Abundance", "Contamination Risk",
+        ]
+        let metadataColumns = batchFlatTableView.metadataColumns
+        headers.append(contentsOf: metadataColumns.exportHeaders)
+        var lines = [headers.map { escapeField($0, separator: separator) }.joined(separator: separator)]
+
+        for row in batchFlatTableView.displayedRows {
+            let sample = row.sample ?? ""
+            let key = "\(sample)\t\(row.organism)"
+            let reads = batchFlatTableView.totalReadsByKey[key] ?? row.reads
+            let unique = ClassifierUniqueReads.normalized(
+                stored: batchFlatTableView.uniqueReadsByKey[key],
+                readCount: reads
+            )
+            var fields: [String] = [
+                escapeField(sample, separator: separator),
+                escapeField(row.organism, separator: separator),
+                String(format: "%.4f", row.tassScore),
+                "\(reads)",
+                unique.map(String.init) ?? "",
+                row.coverageBreadth.map { String(format: "%.2f", $0) } ?? "",
+                escapeField(row.confidence ?? "", separator: separator),
+                row.taxId.map { "\($0)" } ?? "",
+                escapeField(row.rank ?? "", separator: separator),
+                row.abundance.map { String(format: "%.6f", $0) } ?? "",
+                batchFlatTableView.isContaminationRisk(row) ? "yes" : "",
+            ]
+            for value in metadataColumns.exportValues(for: sample) {
+                fields.append(escapeField(value, separator: separator))
+            }
+            lines.append(fields.joined(separator: separator))
+        }
+        return lines.joined(separator: "\n") + "\n"
+    }
+
     /// Builds delimited export content from all table rows.
     func buildDelimitedExport(separator: String) -> String {
+        if exportsDatabaseFlatTable {
+            return buildDatabaseDelimitedExport(separator: separator)
+        }
         var lines: [String] = []
 
         var headers = [
@@ -4228,21 +4776,74 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
 
     // MARK: - Open Externally
 
-    /// Opens the first available PDF report in the system's default PDF viewer.
+    /// The report Open Report shows in database mode: the selected row's
+    /// sample first, then the ticked samples, then any sample. Per sample it
+    /// tries `<sample>/report/<sample>.odr.pdf`, then `<sample>.odr.html`
+    /// (also under a top-level `report/` folder), and only then the run-level
+    /// `all.odr.pdf` / `all.odr.html` in a sample's report folder.
+    func databaseReportURL() -> URL? {
+        guard let root = batchGroupURL else { return nil }
+        var orderedSamples: [String] = []
+        for sample in [selectedBatchSampleId].compactMap({ $0 }) + selectedDatabaseSampleIds + sampleIds
+        where !orderedSamples.contains(sample) {
+            orderedSamples.append(sample)
+        }
+        let fm = FileManager.default
+        func sampleReportFolder(_ sample: String) -> URL {
+            root.appendingPathComponent(sample, isDirectory: true)
+                .appendingPathComponent("report", isDirectory: true)
+        }
+        for sample in orderedSamples {
+            let folders = [sampleReportFolder(sample), root.appendingPathComponent("report", isDirectory: true)]
+            for folder in folders {
+                let candidates = [
+                    folder.appendingPathComponent("\(sample).odr.pdf"),
+                    folder.appendingPathComponent("\(sample).odr.html"),
+                ]
+                if let found = candidates.first(where: { fm.fileExists(atPath: $0.path) }) {
+                    return found
+                }
+            }
+        }
+        for sample in orderedSamples {
+            let folder = sampleReportFolder(sample)
+            let candidates = [
+                folder.appendingPathComponent("all.odr.pdf"),
+                folder.appendingPathComponent("all.odr.html"),
+            ]
+            if let found = candidates.first(where: { fm.fileExists(atPath: $0.path) }) {
+                return found
+            }
+        }
+        return nil
+    }
+
+    /// Opens the TaxTriage report in the system's default viewer.
     private func openReportExternally() {
+        if isBatchGroupMode {
+            if let report = databaseReportURL() {
+                reportOpener(report)
+                return
+            }
+            if taxTriageResult == nil {
+                if let root = batchGroupURL { reportOpener(root) }
+                return
+            }
+        }
         guard let result = taxTriageResult else { return }
 
         let pdfFiles = result.allOutputFiles.filter { $0.pathExtension.lowercased() == "pdf" }
         let reportPDFs = result.reportFiles.filter { $0.pathExtension.lowercased() == "pdf" }
         let allPDFs = pdfFiles + reportPDFs
 
-        if let firstPDF = allPDFs.first {
-            NSWorkspace.shared.open(firstPDF)
-        } else if let firstReport = result.reportFiles.first {
-            NSWorkspace.shared.open(firstReport)
+        let fm = FileManager.default
+        if let firstPDF = allPDFs.first(where: { fm.fileExists(atPath: $0.path) }) {
+            reportOpener(firstPDF)
+        } else if let firstReport = result.reportFiles.first(where: { fm.fileExists(atPath: $0.path) }) {
+            reportOpener(firstReport)
         } else {
             // Open the output directory
-            NSWorkspace.shared.open(result.outputDirectory)
+            reportOpener(result.outputDirectory)
         }
     }
 
@@ -4372,6 +4973,10 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         alignmentEvidenceViewer.map { ObjectIdentifier($0) }
     }
     var testingMiniBAMLoadCount: Int { miniBAMLoadCount }
+    var testingOpenReportButton: NSButton { openReportButton }
+    var testingEvidenceView: NSView? { alignmentEvidenceViewer?.viewController.view }
+    var testingDetailPaneExtent: CGFloat { miniBAMDetailPaneExtent() }
+    var testingIsDetailPaneCollapsed: Bool { isMiniBAMDetailPaneCollapsed }
 
     func testingSetContentPreferredFontProvider(
         _ provider: any ContentPreferredFontProviding
@@ -4402,6 +5007,40 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
 #endif
 }
 
+
+// MARK: - Menu Validation
+
+extension TaxTriageResultViewController: NSMenuItemValidation {
+    /// Validates View > Next Sample / Previous Sample / All Samples (nil
+    /// target, reached through the responder chain) and the Export menu.
+    public func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        switch menuItem.action {
+        case #selector(selectNextSample(_:)):
+            if isBatchGroupMode { return canSelectNextDatabaseSample }
+            return sampleIds.count > 1 && !metrics.isEmpty && selectedSampleIndex < sampleIds.count
+        case #selector(selectPreviousSample(_:)):
+            if isBatchGroupMode { return canSelectPreviousDatabaseSample }
+            return sampleIds.count > 1 && !metrics.isEmpty && selectedSampleIndex > 0
+        case #selector(selectAllSamplesOverview(_:)):
+            if isBatchGroupMode {
+                menuItem.state = isDatabaseOverviewVisible ? .on : .off
+                return sampleIds.count > 1
+            }
+            menuItem.state = .off
+            return sampleIds.count > 1 && !metrics.isEmpty
+        case #selector(exportCSVAction(_:)), #selector(exportTSVAction(_:)):
+            return delimitedExportRowCount > 0
+        case #selector(copySummaryAction(_:)):
+            return summaryTextForCopy() != nil
+        case #selector(exportBatchReportAction(_:)):
+            return taxTriageResult != nil && taxTriageConfig != nil
+        case #selector(exportBatchMatrixAction(_:)):
+            return !exportMetrics.isEmpty
+        default:
+            return true
+        }
+    }
+}
 
 // MARK: - BatchUniqueReadsCache
 
@@ -5056,13 +5695,7 @@ final class TaxTriageOrganismTableView: NSView, NSTableViewDataSource, NSTableVi
 
         case ColumnID.tassScore:
             let tassCell = makeLabelCell(text: String(format: "%.3f", item.tassScore), monospaced: true)
-            if item.tassScore >= 0.80 {
-                tassCell.toolTip = "High confidence (>=0.80): strong taxonomic signal"
-            } else if item.tassScore >= 0.40 {
-                tassCell.toolTip = "Medium confidence (0.40-0.80): likely true positive, verify with BLAST"
-            } else {
-                tassCell.toolTip = "Low confidence (<0.40): weak signal, may be noise or contamination"
-            }
+            tassCell.toolTip = TaxTriageConfidenceBand.toolTip(label: item.confidence, tassScore: item.tassScore)
             return tassCell
 
         case ColumnID.reads:
@@ -5085,7 +5718,8 @@ final class TaxTriageOrganismTableView: NSView, NSTableViewDataSource, NSTableVi
         case ColumnID.confidence:
             let cell = TaxTriageConfidenceCellView()
             cell.score = item.tassScore
-            cell.toolTip = item.confidence ?? confidenceTip(for: item.tassScore)
+            cell.band = TaxTriageConfidenceBand(label: item.confidence, tassScore: item.tassScore)
+            cell.toolTip = TaxTriageConfidenceBand.toolTip(label: item.confidence, tassScore: item.tassScore)
             return cell
 
         default:
@@ -5145,12 +5779,6 @@ final class TaxTriageOrganismTableView: NSView, NSTableViewDataSource, NSTableVi
         field.setAccessibilityValue(text)
 
         return field
-    }
-
-    private func confidenceTip(for score: Double) -> String {
-        if score >= 0.8 { return "High confidence" }
-        if score >= 0.4 { return "Medium confidence" }
-        return "Low confidence"
     }
 
 #if DEBUG

@@ -63,7 +63,8 @@ final class TaxTriageKeyEquivalentDispatchTests: XCTestCase {
         _ = window.makeFirstResponder(vc.view)
         defer { window.orderOut(nil) }
 
-        let selectedSegmentBefore = vc.testSampleFilterControl.selectedSegment
+        // Both samples are ticked, so the list selects no segment yet.
+        XCTAssertEqual(vc.testSampleFilterControl.selectedSegment, -1)
 
         // `window.tryToPerform(_:with:)` is the same responder-chain walk
         // AppKit performs for a real, nil-target menu item (it is what
@@ -84,10 +85,11 @@ final class TaxTriageKeyEquivalentDispatchTests: XCTestCase {
             "View > Next Sample's nil-target action should reach TaxTriageResultViewController.selectNextSample via the responder chain, the same way TaxonomyViewController.expandAllTaxonomyItems already does."
         )
         XCTAssertEqual(
-            vc.testSampleFilterControl.selectedSegment,
-            selectedSegmentBefore + 1,
-            "selectNextSample should advance the sample selection exactly as the old (unreachable) performKeyEquivalent override did."
+            vc.samplePickerState.selectedSamples,
+            ["sample-1"],
+            "From a multi-sample list, Next Sample ticks only the first sample in the Inspector Sample Filter."
         )
+        XCTAssertEqual(vc.testSampleFilterControl.selectedSegment, 1)
 
         let handledAllSamples = window.firstResponder?.tryToPerform(
             #selector(TaxTriageResultViewController.selectAllSamplesOverview(_:)),
@@ -95,6 +97,8 @@ final class TaxTriageKeyEquivalentDispatchTests: XCTestCase {
         ) ?? false
         XCTAssertTrue(handledAllSamples)
         XCTAssertEqual(vc.testSampleFilterControl.selectedSegment, 0)
+        XCTAssertEqual(vc.samplePickerState.selectedSamples, ["sample-1", "sample-2"])
+        XCTAssertTrue(vc.isShowingDatabaseOverview)
     }
 
     private static func taxonomyRow(

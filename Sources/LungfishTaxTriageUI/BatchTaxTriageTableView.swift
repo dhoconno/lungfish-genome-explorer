@@ -243,6 +243,25 @@ public final class BatchTaxTriageTableView: BatchTableView<TaxTriageMetric> {
     /// BAM deduplication completes. Cells show "—" when the key is absent.
     public var uniqueReadsByKey: [String: Int] = [:]
 
+    /// Normalized organism names (`OrganismNameNormalizer.normalizedKey`)
+    /// that TaxTriage detected in a negative-control sample. Rows for these
+    /// organisms show a warning sign, orange text and a tooltip, as the
+    /// per-sample organism table always did.
+    public var contaminationRiskOrganismKeys: Set<String> = [] {
+        didSet {
+            guard contaminationRiskOrganismKeys != oldValue else { return }
+            tableView?.reloadData()
+        }
+    }
+
+    /// Whether `row`'s organism was detected in a negative-control sample.
+    public func isContaminationRisk(_ row: TaxTriageMetric) -> Bool {
+        !contaminationRiskOrganismKeys.isEmpty
+            && contaminationRiskOrganismKeys.contains(OrganismNameNormalizer.normalizedKey(row.organism))
+    }
+
+    static let contaminationRiskToolTipPrefix = "Contamination risk: detected in negative control sample"
+
     // MARK: - Subclass Hooks
 
     public override var columnSpecs: [BatchColumnSpec] {
@@ -284,7 +303,8 @@ public final class BatchTaxTriageTableView: BatchTableView<TaxTriageMetric> {
         case .tt_sample:
             return (row.sample ?? "\u{2014}", .left, .systemFont(ofSize: 11, weight: .medium))
         case .tt_organism:
-            return (row.organism, .left, .systemFont(ofSize: 11))
+            let text = isContaminationRisk(row) ? "\u{26A0} \(row.organism)" : row.organism
+            return (text, .left, .systemFont(ofSize: 11))
         case .tt_tassScore:
             return (String(format: "%.3f", row.tassScore), .right, nil)
         case .tt_reads:
@@ -312,6 +332,29 @@ public final class BatchTaxTriageTableView: BatchTableView<TaxTriageMetric> {
         default:
             return ("", .left, nil)
         }
+    }
+
+    public override func cellToolTip(
+        for column: NSUserInterfaceItemIdentifier,
+        row: TaxTriageMetric
+    ) -> String? {
+        switch column {
+        case .tt_organism:
+            return isContaminationRisk(row)
+                ? "\(Self.contaminationRiskToolTipPrefix)\n\(row.organism)"
+                : row.organism
+        case .tt_tassScore, .tt_confidence:
+            return TaxTriageConfidenceBand.toolTip(label: row.confidence, tassScore: row.tassScore)
+        default:
+            return nil
+        }
+    }
+
+    public override func cellTextColor(
+        for column: NSUserInterfaceItemIdentifier,
+        row: TaxTriageMetric
+    ) -> NSColor? {
+        column == .tt_organism && isContaminationRisk(row) ? .systemOrange : nil
     }
 
     public override func rowMatchesFilter(_ row: TaxTriageMetric, filterText: String) -> Bool {
