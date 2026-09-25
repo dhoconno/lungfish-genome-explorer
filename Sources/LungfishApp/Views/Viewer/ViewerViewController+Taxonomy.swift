@@ -69,6 +69,7 @@ extension ViewerViewController {
         // to the view hierarchy to avoid a one-frame bounce.
         let taxView = controller.view
         controller.configure(result: result)
+        controller.applyProjectCopyRecord(ProjectItemCopyRecord.load(from: result.config.outputDirectory))
         taxView.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(taxView)
 
@@ -345,6 +346,7 @@ extension ViewerViewController {
         let taxView = controller.view
         controller.batchURL = resultURL
         controller.configureFromDatabase(db)
+        controller.applyProjectCopyRecord(ProjectItemCopyRecord.load(from: resultURL))
         taxView.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(taxView)
 

@@ -557,6 +557,23 @@ public final class DocumentSectionViewModel {
     /// Source sample entries for the batch, each pairing a sample ID with its originating bundle URL (if resolvable).
     var batchSourceSampleURLs: [(sampleId: String, bundleURL: URL?)] = []
 
+    // MARK: - Cross-Project Copy
+
+    /// The copy receipt of the selected item when it was copied in from
+    /// another project, so the Inspector can list source data that is not
+    /// available here. Nil for items made in this project.
+    var projectCopyRecord: ProjectItemCopyRecord?
+
+    /// Reads the copy receipt for the selected item, if it has one.
+    func updateProjectCopyRecord(for url: URL?) {
+        guard let url else {
+            projectCopyRecord = nil
+            return
+        }
+        let record = ProjectItemCopyRecord.load(from: url)
+        projectCopyRecord = record?.hasMissingSources == true ? record : nil
+    }
+
     // MARK: - Batch Manifest Cache Status
 
     /// Represents the caching state of the aggregated batch manifest file.

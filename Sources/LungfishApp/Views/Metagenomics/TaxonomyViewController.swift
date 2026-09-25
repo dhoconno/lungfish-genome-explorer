@@ -115,6 +115,37 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
         }
     }
 
+    /// Why read-level actions are unavailable, shown as the tooltip of the
+    /// disabled Extract and BLAST buttons. Nil uses the generic wording.
+    public var readLevelActionsUnavailableReason: String?
+
+    /// The reason to hand a disabled Extract or BLAST button.
+    private var readLevelActionsDisabledReason: String {
+        readLevelActionsUnavailableReason ?? "Read-level actions are unavailable for this result"
+    }
+
+    /// Strip above the result that names source data a copied result cannot
+    /// reach. Hidden with zero height unless ``applyProjectCopyRecord(_:)``
+    /// finds something to say.
+    let missingSourceNotice = MissingSourceNoticeView()
+    private var missingSourceNoticeHeight: NSLayoutConstraint?
+
+    /// Applies the cross-project copy receipt of the displayed result.
+    ///
+    /// The taxonomy still renders from the result's own kreport or SQLite
+    /// database. When the reads it was computed from are not in this
+    /// project, read-level actions are disabled with a reason instead of
+    /// failing later, and the notice strip explains what is missing.
+    public func applyProjectCopyRecord(_ record: ProjectItemCopyRecord?) {
+        let hasNotice = missingSourceNotice.update(with: record)
+        missingSourceNotice.isHidden = !hasNotice
+        missingSourceNoticeHeight?.constant = hasNotice ? MissingSourceNoticeView.preferredHeight : 0
+        if let record, record.missingSourceReads {
+            readLevelActionsUnavailableReason = record.missingSourceReadsReason
+            readLevelActionsAvailable = false
+        }
+    }
+
     /// The taxonomy tree extracted from the result.
     var tree: TaxonTree?
 
@@ -342,6 +373,7 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
 
         setupSummaryBar()
         setupBreadcrumbBar()
+        setupMissingSourceNotice()
         setupSplitView()
         setupBatchTableView()
         setupActionBar()
@@ -603,7 +635,7 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
             breadcrumbBar.update(zoomNode: nil)
             totalReadsForActionBar = displayTree.totalReads
             updateActionBarSelection(nil)
-            actionBar.setExtractEnabled(readLevelActionsAvailable)
+            actionBar.setExtractEnabled(readLevelActionsAvailable, reason: readLevelActionsDisabledReason)
         } catch {
             logger.error("Failed to fetch Kraken2 tree for sample \(sample, privacy: .public): \(error.localizedDescription, privacy: .public)")
             currentBatchSampleId = nil
@@ -858,6 +890,13 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
         view.addSubview(batchTableView)
     }
 
+    // MARK: - Setup: Missing Source Notice
+
+    private func setupMissingSourceNotice() {
+        missingSourceNotice.isHidden = true
+        view.addSubview(missingSourceNotice)
+    }
+
     // MARK: - Setup: Action Bar
 
     private func setupActionBar() {
@@ -874,6 +913,8 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
         summaryBar.onPreferredContentHeightChanged = { [weak summaryHeight] height in
             summaryHeight?.constant = height
         }
+        let noticeHeight = missingSourceNotice.heightAnchor.constraint(equalToConstant: 0)
+        missingSourceNoticeHeight = noticeHeight
         NSLayoutConstraint.activate([
             // Summary bar (top, below safe area to avoid title bar overlap)
             summaryBar.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
@@ -887,6 +928,12 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
             breadcrumbBar.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             breadcrumbBar.heightAnchor.constraint(equalToConstant: 28),
 
+            // Missing-source notice (below breadcrumb, zero height unless shown)
+            missingSourceNotice.topAnchor.constraint(equalTo: breadcrumbBar.bottomAnchor),
+            missingSourceNotice.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            missingSourceNotice.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            noticeHeight,
+
             // Action bar (bottom, fixed height)
             actionBar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             actionBar.trailingAnchor.constraint(equalTo: view.trailingAnchor),
@@ -894,13 +941,13 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
             actionBar.heightAnchor.constraint(equalToConstant: 36),
 
             // Batch table view (same region as splitView, hidden by default)
-            batchTableView.topAnchor.constraint(equalTo: breadcrumbBar.bottomAnchor),
+            batchTableView.topAnchor.constraint(equalTo: missingSourceNotice.bottomAnchor),
             batchTableView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             batchTableView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             batchTableView.bottomAnchor.constraint(equalTo: actionBar.topAnchor),
 
-            // Split view (fills remaining space between breadcrumb and action bar)
-            splitView.topAnchor.constraint(equalTo: breadcrumbBar.bottomAnchor),
+            // Split view (fills remaining space between the notice and action bar)
+            splitView.topAnchor.constraint(equalTo: missingSourceNotice.bottomAnchor),
             splitView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             splitView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             splitView.bottomAnchor.constraint(equalTo: actionBar.topAnchor),
@@ -1242,13 +1289,18 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
                 actionBar.setBlastEnabled(true)
                 actionBar.setExtractEnabled(true)
             } else {
-                actionBar.setBlastEnabled(false, reason: "Read-level actions are unavailable for this result")
-                actionBar.setExtractEnabled(false)
+                actionBar.setBlastEnabled(false, reason: readLevelActionsDisabledReason)
+                actionBar.setExtractEnabled(false, reason: readLevelActionsDisabledReason)
             }
-        } else {
+        } else if readLevelActionsAvailable {
             actionBar.updateInfoText("Select a taxon to view details")
             actionBar.setBlastEnabled(false, reason: "Select a row to use BLAST Verify")
             actionBar.setExtractEnabled(false)
+        } else {
+            // Nothing is selected, but selecting a row would not help: say why.
+            actionBar.updateInfoText("Select a taxon to view details")
+            actionBar.setBlastEnabled(false, reason: readLevelActionsDisabledReason)
+            actionBar.setExtractEnabled(false, reason: readLevelActionsDisabledReason)
         }
     }
 

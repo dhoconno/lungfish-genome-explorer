@@ -42,6 +42,7 @@ extension InspectorViewController {
         viewModel.selectedItem = item.title
         viewModel.selectedType = item.type.description
         updateProvenanceTarget(url: item.url, sidebarType: item.type, displayName: item.title)
+        viewModel.documentSectionViewModel.updateProjectCopyRecord(for: item.url)
 
         if selectedFASTQMetadataTargetBundleURLs.count > 1,
            let firstFASTQBundleURL = selectedFASTQMetadataTargetBundleURLs.first {
@@ -73,6 +74,7 @@ extension InspectorViewController {
         // Clear sidebar selection display
         viewModel.selectedItem = nil
         viewModel.selectedType = nil
+        viewModel.documentSectionViewModel.projectCopyRecord = nil
 
         // Clear annotation selection
         viewModel.selectedAnnotation = nil

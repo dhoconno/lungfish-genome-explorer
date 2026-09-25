@@ -123,6 +123,10 @@ public struct InspectorView: View {
                 PrimerAnalysisInspectorBundleSection(document: document)
             } else {
                 DocumentSection(viewModel: viewModel.documentSectionViewModel)
+                if let record = viewModel.documentSectionViewModel.projectCopyRecord {
+                    Divider().padding(.vertical, 4)
+                    MissingSourcesSection(record: record)
+                }
                 if viewModel.readStyleSectionViewModel.hasAlignmentTracks {
                     Divider()
                     AlignmentBundleSection(viewModel: viewModel.readStyleSectionViewModel)
@@ -582,6 +586,12 @@ private struct MetagenomicsResultSummarySection: View {
                 }
             }
             .font(LungfishInspectorStyle.controlFont.weight(.semibold))
+
+            if let record = viewModel.projectCopyRecord {
+                Divider()
+                    .padding(.vertical, 4)
+                MissingSourcesSection(record: record)
+            }
 
             if !viewModel.batchSourceSampleURLs.isEmpty {
                 Divider()

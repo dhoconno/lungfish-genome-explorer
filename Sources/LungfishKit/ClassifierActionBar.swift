@@ -136,9 +136,17 @@ public final class ClassifierActionBar: NSView {
         }
     }
 
-    /// Enable/disable Extract FASTQ button.
-    public func setExtractEnabled(_ enabled: Bool) {
+    /// Enable/disable Extract FASTQ button, with an optional tooltip reason shown when disabled.
+    public func setExtractEnabled(_ enabled: Bool, reason: String? = nil) {
         extractButton.isEnabled = enabled
+        if !enabled, let reason, !reason.isEmpty {
+            extractButton.toolTip = "\(reason). \(LungfishHelpContent.classifierExtractFASTQ.summary)"
+            extractButton.setAccessibilityHelp(
+                "\(reason). \(LungfishHelpContent.classifierExtractFASTQ.detail ?? LungfishHelpContent.classifierExtractFASTQ.summary)"
+            )
+        } else {
+            extractButton.applyLungfishHelp(LungfishHelpContent.classifierExtractFASTQ)
+        }
     }
 
     // MARK: - Setup
