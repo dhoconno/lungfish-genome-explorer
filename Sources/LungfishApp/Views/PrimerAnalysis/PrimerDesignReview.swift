@@ -47,6 +47,8 @@ struct PrimerTargetDesignReview: Identifiable, Sendable {
   let intervals: [PrimerReviewInterval]
   let primers: [PrimerReviewPrimer]
   let notes: [String]
+  /// Visible explanations of how the engine reached this coverage.
+  var advisories: [PrimerSchemeCoverageAdvisory] = []
   var sourceResultID: String = ""
   var referenceID: String = ""
   var presentation: Presentation = .schemeReference

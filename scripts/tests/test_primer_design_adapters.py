@@ -38,6 +38,9 @@ from olivar_adapter import (  # noqa: E402
 )
 from varvamp_adapter import (  # noqa: E402
     build_gap_projection,
+    consensus_agreement,
+    coverage_diagnostics,
+    parse_native_warnings,
     generate_varvamp_config,
     normalize_varvamp_outputs,
 )
@@ -482,6 +485,60 @@ class ProjectionTests(unittest.TestCase):
                 {"generatedStart": 7, "generatedEnd": 9, "sourceStart": 8, "sourceEnd": 12, "kind": "collapsed"},
             ],
         )
+
+
+class VarVAMPCoverageDiagnosticsTests(unittest.TestCase):
+    LOG = (
+        "Automatic parameter selection set -t 0.99 at -a 2.\n"
+        "WARNING: your amplicon lengths might be to small. Consider increasing\n"
+        "\n"
+        "Job:\t Creating amplicon scheme. \n"
+        "Result:\t 66.62 % total coverage with 13 amplicons\n"
+        "WARNING: coverage < 70 %. Possible solutions:\n"
+        "\t - lower threshold\n"
+        "\t - increase amplicons lengths\n"
+        "\n"
+        "Job:\t Trying to solve primer dimers. \n"
+    )
+
+    def test_consensus_agreement_counts_sequences_that_must_agree(self):
+        # varVAMP builds a cumulative consensus: a base stays unambiguous only
+        # when its count reaches threshold * N.
+        self.assertEqual(consensus_agreement(0.99, 6), {"requiredAgreeing": 6, "equivalentThresholdRange": [0.84, 1.0]})
+        self.assertEqual(consensus_agreement(0.8, 6), {"requiredAgreeing": 5, "equivalentThresholdRange": [0.67, 0.83]})
+        # Exact multiples must not round up through floating-point error.
+        self.assertEqual(consensus_agreement(0.5, 6)["requiredAgreeing"], 3)
+        self.assertEqual(consensus_agreement(0.7, 10)["requiredAgreeing"], 7)
+        self.assertEqual(consensus_agreement(0.99, 200), {"requiredAgreeing": 198, "equivalentThresholdRange": [0.99, 0.99]})
+
+    def test_native_warnings_keep_each_block_with_its_suggestions(self):
+        self.assertEqual(parse_native_warnings(self.LOG), [
+            "your amplicon lengths might be to small. Consider increasing",
+            "coverage < 70 %. Possible solutions: lower threshold; increase amplicons lengths",
+        ])
+        self.assertEqual(parse_native_warnings("Result: all done\n"), [])
+
+    def test_coverage_diagnostics_records_threshold_source_and_tiling_model(self):
+        diagnostics = coverage_diagnostics(
+            mode="tiled", requested_threshold=None, effective_threshold=0.99,
+            sequence_count=6, log_text=self.LOG)
+        self.assertEqual(diagnostics, {
+            "sequenceCount": 6,
+            "thresholdSource": "automatic",
+            "effectiveThreshold": 0.99,
+            "requiredAgreeing": 6,
+            "equivalentThresholdRange": [0.84, 1.0],
+            "nativeWarnings": [
+                "your amplicon lengths might be to small. Consider increasing",
+                "coverage < 70 %. Possible solutions: lower threshold; increase amplicons lengths",
+            ],
+            "tilingModel": "longestContiguousChain",
+        })
+        requested = coverage_diagnostics(
+            mode="single", requested_threshold=0.8, effective_threshold=0.8,
+            sequence_count=6, log_text="")
+        self.assertEqual(requested["thresholdSource"], "requested")
+        self.assertNotIn("tilingModel", requested)
 
 
 class VarVAMPConfigTests(unittest.TestCase):

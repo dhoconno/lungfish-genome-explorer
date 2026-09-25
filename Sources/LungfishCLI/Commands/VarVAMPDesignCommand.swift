@@ -176,6 +176,19 @@ struct VarVAMPDesignCommand: AsyncParsableCommand {
     func run() async throws {
         let output = try await execute(argv: CommandLine.arguments)
         print("varVAMP primer analysis written to \(output.path)")
+        for line in Self.advisoryLines(analysisURL: output) { print(line) }
+    }
+
+    /// The same coverage explanations the GUI shows on each saved target.
+    static func advisoryLines(analysisURL: URL) -> [String] {
+        let url = analysisURL.appendingPathComponent(PrimerSchemeResultsDocument.storedRelativePath)
+        guard let data = try? Data(contentsOf: url),
+              let document = try? JSONDecoder().decode(PrimerSchemeResultsDocument.self, from: data) else { return [] }
+        return document.results.flatMap(\.targets).flatMap { target in
+            document.varVAMPCoverageAdvisories(for: target).map { advisory in
+                "[\(advisory.severity.rawValue)] \(target.label): \(advisory.message)"
+            }
+        }
     }
 
     private func execute(argv: [String]) async throws -> URL {

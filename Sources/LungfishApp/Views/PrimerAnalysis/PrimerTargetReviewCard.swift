@@ -1,4 +1,5 @@
 import SwiftUI
+import LungfishWorkflow
 
 /// Saved-coordinate summary; the model defines coverage semantics and never infers assay success.
 struct PrimerTargetReviewCard: View {
@@ -39,6 +40,20 @@ struct PrimerTargetReviewCard: View {
       } else {
         Text("\(target.referenceLength.formatted()) bp reference · amplicon spans are not available in this saved result")
           .font(.caption).foregroundStyle(.secondary)
+      }
+      if !target.advisories.isEmpty {
+        VStack(alignment: .leading, spacing: 6) {
+          ForEach(Array(target.advisories.enumerated()), id: \.offset) { _, advisory in
+            Label {
+              Text(advisory.message).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
+            } icon: {
+              Image(systemName: advisory.severity == .warning ? "exclamationmark.triangle.fill" : "info.circle")
+                .foregroundStyle(advisory.severity == .warning ? Color.orange : Color.secondary)
+            }
+          }
+        }
+        .font(.caption)
+        .accessibilityIdentifier("primerTargetReview.advisories")
       }
       if visibility.visiblePrimers(in: target).count != target.primers.count {
         Text("\(visibility.visiblePrimers(in: target).count)/\(target.primers.count) oligos shown")

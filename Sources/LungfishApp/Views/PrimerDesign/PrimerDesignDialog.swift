@@ -176,7 +176,7 @@ struct PrimerDesignDialog: View {
           ? "Cumulative consensus threshold (required)"
           : "Cumulative consensus threshold (blank = native automatic)",
           $state.varVAMPConsensusThreshold)
-        Text("Controls cumulative base support when building the consensus; this differs from PrimalScheme’s frequency filter.")
+        Text("Controls cumulative base support when building the consensus; this differs from PrimalScheme’s frequency filter. With few sequences it works in whole-sequence steps: for 6 sequences, every value from 0.84 to 1.00 requires all 6 to agree.")
           .font(.caption).foregroundStyle(.secondary)
       }
       Picker("Output grouping", selection: $state.grouping) {

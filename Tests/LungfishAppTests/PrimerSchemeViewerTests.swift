@@ -20,6 +20,17 @@ final class PrimerSchemeViewerTests: XCTestCase {
     XCTAssertEqual(Set(review.primers.flatMap(\.ampliconIDs)), Set(fixture.assayIDs.map { $0.uuidString.lowercased() }))
   }
 
+  func testVarVAMPReviewCarriesStoredThresholdAdvisory() throws {
+    var fixture = makeQPCRFixture()
+    let key = try XCTUnwrap(fixture.document.results.first?.targets.first).sourceInputID.uuidString.lowercased()
+    fixture.document.resolvedOptions = [
+      "cumulativeConsensusThreshold": .number(0.8),
+      "adapterResolution": .object(["nativeCumulativeConsensusThresholds": .object([key: .number(0.8)])]),
+    ]
+    let review = try XCTUnwrap(PrimerSchemeViewerAdapter.adapt(document: fixture.document).reviews.first)
+    XCTAssertEqual(review.advisories.map(\.message), ["Consensus threshold 0.80, as requested."])
+  }
+
   func testEqualWidthAndZeroWidthCollapsedBlocksRemainAuthoritative() throws {
     let fixture = makeQPCRFixture()
     let target = try XCTUnwrap(fixture.document.results.first?.targets.first)

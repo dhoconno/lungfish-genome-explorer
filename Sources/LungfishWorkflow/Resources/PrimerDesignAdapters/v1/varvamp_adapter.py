@@ -406,6 +406,53 @@ def _read_alignment_length(path: Path) -> int:
     return lengths[0]
 
 
+def _count_alignment_rows(path: Path) -> int:
+    return sum(1 for raw in path.read_text(encoding="utf-8").splitlines() if raw.startswith(">"))
+
+
+def consensus_agreement(threshold: float, sequence_count: int) -> dict[str, Any]:
+    """Translate varVAMP's cumulative consensus threshold into sequence counts.
+
+    varVAMP keeps a base unambiguous only when its count reaches threshold * N
+    (gaps excluded), so every threshold in ((k-1)/N, k/N] behaves the same.
+    The range is reported at the two-decimal resolution users enter.
+    """
+    required = max(1, math.ceil(round(threshold * sequence_count, 9)))
+    lower = ((required - 1) * 100 // sequence_count + 1) / 100
+    upper = (required * 100 // sequence_count) / 100
+    return {"requiredAgreeing": required, "equivalentThresholdRange": [lower, upper]}
+
+
+def parse_native_warnings(log_text: str) -> list[str]:
+    """Collect varVAMP log warnings, folding indented suggestions into their warning."""
+    blocks: list[tuple[str, list[str]]] = []
+    for raw in log_text.splitlines():
+        line = raw.strip()
+        if line.startswith("WARNING:"):
+            blocks.append((line[len("WARNING:"):].strip(), []))
+        elif blocks and raw[:1].isspace() and line.startswith("-"):
+            blocks[-1][1].append(line.lstrip("- ").strip())
+    return [f"{head} {'; '.join(items)}" if items else head for head, items in blocks]
+
+
+def coverage_diagnostics(
+    *, mode: str, requested_threshold: float | None, effective_threshold: float,
+    sequence_count: int, log_text: str,
+) -> dict[str, Any]:
+    """Facts the viewer needs to explain a varVAMP scheme's coverage."""
+    diagnostics: dict[str, Any] = {
+        "sequenceCount": sequence_count,
+        "thresholdSource": "automatic" if requested_threshold is None else "requested",
+        "effectiveThreshold": effective_threshold,
+        **consensus_agreement(effective_threshold, sequence_count),
+        "nativeWarnings": parse_native_warnings(log_text),
+    }
+    if mode == "tiled":
+        # varVAMP's tiler returns only the single longest chain of linked amplicons.
+        diagnostics["tilingModel"] = "longestContiguousChain"
+    return diagnostics
+
+
 def _spawn_read_qamplicon(queue):
     try:
         from varvamp.scripts import config
@@ -451,6 +498,7 @@ def run_varvamp(
     runtime: dict[str, Any] | None = None
     effective_thresholds: dict[str, float] = {}
     effective_configs: dict[str, dict[str, Any]] = {}
+    diagnostics_by_input: dict[str, dict[str, Any]] = {}
     for item in request["inputs"]:
         input_id = item["id"]
         native_dir = stage / "native" / input_id
@@ -558,6 +606,14 @@ def run_varvamp(
         if "gaps" not in captured:
             raise AdapterError("native_contract_mismatch", "varVAMP process_alignment interception did not run")
         effective_thresholds[input_id] = float(captured["threshold"])
+        log_path = native_dir / "varvamp_log.txt"
+        diagnostics_by_input[input_id] = coverage_diagnostics(
+            mode=request["mode"],
+            requested_threshold=options["cumulativeConsensusThreshold"],
+            effective_threshold=float(captured["threshold"]),
+            sequence_count=_count_alignment_rows(Path(item["path"])),
+            log_text=log_path.read_text(encoding="utf-8") if log_path.is_file() else "",
+        )
         source_length = _read_alignment_length(Path(item["path"]))
         deletion_cutoff = resolved_config.get("QAMPLICON_DEL_CUTOFF", CONFIG_SPECS["QAMPLICON_DEL_CUTOFF"][2])
         blocks = build_gap_projection(source_length=source_length, gaps=captured["gaps"], deletion_cutoff=deletion_cutoff)
@@ -595,6 +651,7 @@ def run_varvamp(
     assert runtime is not None
     engine_resolution = {
         "nativeCumulativeConsensusThresholds": effective_thresholds,
+        "coverageDiagnostics": diagnostics_by_input,
         "generatedConfigOverridesByInput": effective_configs,
         "nominalAmpliconLengthRole": "displayAndProvenanceOnly",
         "minimumAmpliconLengthNativeRole": "optLength" if request["mode"] in {"single", "tiled"} else "QAMPLICON_LENGTH.minimum",
