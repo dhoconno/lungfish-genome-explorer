@@ -1,13 +1,11 @@
-# Captured from Lungfish Preview 2026.9.13 with capture-window.sh (2026-09 campaign).
-# App state: TaxTriage pane's Advanced Settings disclosure expanded, showing K2 Confidence, Top hits, Max memory, Max CPUs, Skip Krona visualization, and Extra arguments
+# Recapture on Lungfish Preview 2026.9.43 (2026-09 campaign) in a project holding SRR12486983 and SRR12486989 downloaded through the SRA route.
+# App state: TaxTriage pane with both bundles selected and Standard-16 chosen, Advanced Settings disclosure expanded at defaults (K2 Confidence 0.20, Top hits 10, Max memory 16 GB, Max CPUs at the Mac's core count), Extra arguments holding --remove_taxids 9606
 id: taxtriage-advanced-settings
 chapter: 06-classification/04-running-taxtriage
-caption: The dialog's Advanced Settings disclosure expanded, showing the K2 Confidence slider, the Top
-  hits stepper, the Max memory stepper, the Max CPUs stepper, the Skip Krona visualization checkbox, and
-  the Extra arguments field.
+caption: "The dialog's Advanced Settings disclosure expanded, showing the K2 Confidence slider at 0.20, the Top hits stepper at 10, the Max memory stepper at 16 GB, the Max CPUs stepper, the Skip Krona visualization checkbox, and the Extra arguments field holding --remove_taxids 9606."
 viewport_class: none
 app_state:
-  fixture: '{demo_project}'
+  fixture: kraken-protocol-cornea
   open_files: []
   window_size:
   - 1400
@@ -22,9 +20,11 @@ steps:
   size:
   - 1400
   - 900
-  # PROSE-ONLY: Select Imports/SRR36291587
+  # PROSE-ONLY: Select Imports/SRR12486983, then Cmd-click Imports/SRR12486989
   # PROSE-ONLY: Tools > Classification > TaxTriage...
+  # PROSE-ONLY: Choose Standard-16 in the Kraken2 Database picker
   # PROSE-ONLY: Click Advanced Settings disclosure
+  # PROSE-ONLY: Type --remove_taxids 9606 in Extra arguments
 crop:
   mode: region
   region:

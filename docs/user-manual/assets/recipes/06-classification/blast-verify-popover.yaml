@@ -1,14 +1,14 @@
-# Captured from Lungfish Preview 2026.9.13 with capture-window.sh (2026-09 campaign).
-# Cropped to the viewport columns because the Inspector showed stale NVD Result content.
-# App state: Verify via NCBI BLAST popover open over the Riboviria taxon row in the Kraken2 taxonomy viewport, showing the Reads to submit slider, the NCBI warning, and the Run BLAST button (not clicked)
+# Recapture on Lungfish Preview 2026.9.43 (2026-09 campaign) in a project holding SRR12486983 downloaded through the SRA route.
+# Cropped to the viewport columns.
+# App state: Verify "Simplexvirus humanalpha1" via NCBI BLAST popover open over the sunburst of the Kraken2 Viral result for SRR12486983, Reads to submit at 20, the NCBI warning, and the Run BLAST button (not clicked)
 id: blast-verify-popover
 chapter: 06-classification/06-blast-verification
-caption: "The Verify via NCBI BLAST popover open over the sunburst, showing the Reads to submit slider with its typed number field, the warning that reads leave the app for NCBI, and the Run BLAST button."
+caption: "The Verify \"Simplexvirus humanalpha1\" via NCBI BLAST popover open over the sunburst of the SRR12486983 Viral result, showing the Reads to submit slider at 20 with its typed number field, the warning that reads leave the app for NCBI, and the Run BLAST button."
 viewport_class: taxonomy
 app_state:
-  fixture: '{demo_project}'
+  fixture: kraken-protocol-cornea
   open_files:
-  - analysis: kraken2-SRR36291587
+  - analysis: kraken2 Viral result for SRR12486983
   window_size:
   - 1400
   - 900
@@ -22,8 +22,8 @@ steps:
   size:
   - 1400
   - 900
-  # PROSE-ONLY: Select kraken2-SRR36291587 in the sidebar
-  # PROSE-ONLY: Select the Riboviria taxon row
+  # PROSE-ONLY: Select the Viral kraken2- result for SRR12486983 under Analyses in the sidebar
+  # PROSE-ONLY: Type humanalpha1 in Filter taxa... and select the Simplexvirus humanalpha1 row
   # PROSE-ONLY: Click BLAST Verify
 crop:
   mode: region
