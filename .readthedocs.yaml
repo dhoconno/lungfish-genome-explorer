@@ -17,4 +17,5 @@ build:
     - curl -sL "https://github.com/google/fonts/raw/main/ofl/ibmplexmono/IBMPlexMono-Regular.ttf" -o ~/.local/share/fonts/IBMPlexMono-Regular.ttf
     - curl -sL "https://github.com/google/fonts/raw/main/ofl/ibmplexmono/IBMPlexMono-Bold.ttf" -o ~/.local/share/fonts/IBMPlexMono-Bold.ttf
     - fc-cache -f ~/.local/share/fonts/
+    - bash docs/user-manual/build/scripts/fetch-media.sh --public
     - ENABLE_PDF_EXPORT=1 mkdocs build -f docs/user-manual/build/mkdocs.yml -d $READTHEDOCS_OUTPUT/html

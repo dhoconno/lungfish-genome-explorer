@@ -2,6 +2,13 @@
   "repo": "https://github.com/dhoconno/lungfish-manual-media",
   "tag": "manual-v2026.9.42",
   "commit": "8ef384c440f382555000ed9bc1dc5ad426d5ae97",
+  "publicArchive": {
+    "url": "https://github.com/dhoconno/lungfish-genome-explorer/releases/download/manual-media/manual-media-v2026.9.42.tar.gz",
+    "sha256": "b918955602f0a2c6c5a0878c94bd44403938c915d6c254b53be3393733f8b88e",
+    "prefixes": [
+      "user-manual/assets/"
+    ]
+  },
   "files": [
     {
       "path": "user-manual/assets/illustrations-imagegen/01-foundations/01-what-is-a-genome/linear-vs-circular-genomes.png",
