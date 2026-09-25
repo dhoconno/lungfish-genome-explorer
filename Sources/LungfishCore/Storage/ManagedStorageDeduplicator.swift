@@ -194,7 +194,7 @@ public struct ManagedStorageDeduplicator: Sendable {
             guard force || now.timeIntervalSince(lastReport) >= interval else { return }
             lastReport = now
             let elapsed = Int(now.timeIntervalSince(started))
-            let hashed = ByteCountFormatter.string(fromByteCount: bytesHashed, countStyle: .file)
+            let hashed = bytesHashed > 0 ? ByteCountFormatter.string(fromByteCount: bytesHashed, countStyle: .file) : "0 bytes"
             handler("\(phase): \(filesScanned) files scanned, \(filesHashed) hashed (\(hashed)), \(elapsed)s elapsed")
         }
     }
