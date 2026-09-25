@@ -75,9 +75,13 @@ def extract_literal_titles(text: str) -> set[str]:
 def extract_dynamic_category_titles(text: str) -> set[str]:
     """Pull the FASTQOperationCategoryID.menuTitle switch arms - these never
     appear as string literals matched by TITLE_PATTERN because they are
-    `return "..."` inside a computed property, not `title:`/`withTitle:`."""
+    `return "..."` inside a computed property, not `title:`/`withTitle:`.
+    Anchor on the extension so another type's `menuTitle` (for example
+    LinkedPackageEntry's) cannot shadow the category switch."""
     titles = set()
-    match = re.search(r"var menuTitle: String \{(.*?)\n\s*\}\s*\n\}", text, re.DOTALL)
+    match = re.search(
+        r"extension FASTQOperationCategoryID \{.*?var menuTitle: String \{(.*?)\n\s*\}\s*\n\}",
+        text, re.DOTALL)
     if not match:
         return titles
     body = match.group(1)
