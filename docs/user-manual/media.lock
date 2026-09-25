@@ -1,7 +1,7 @@
 {
   "repo": "https://github.com/dhoconno/lungfish-manual-media",
-  "tag": "manual-v2026.9.41",
-  "commit": "f2089d8a9e716aa60cc07f70e4edd2f05199487a",
+  "tag": "manual-v2026.9.42",
+  "commit": "8ef384c440f382555000ed9bc1dc5ad426d5ae97",
   "files": [
     {
       "path": "user-manual/assets/illustrations-imagegen/01-foundations/01-what-is-a-genome/linear-vs-circular-genomes.png",
@@ -280,8 +280,8 @@
     },
     {
       "path": "user-manual/assets/screenshots/02-sequences/mafft-dialog.png",
-      "sha256": "00e44b954e5e938fea8f75645e622652af8f11bb0643b2e8154a1ddc48bafa53",
-      "size": 279173
+      "sha256": "0b566dc47a46b30a3a2a507ff973570b7a2cde9d54e12aeea37a2e994e3aebdf",
+      "size": 266156
     },
     {
       "path": "user-manual/assets/screenshots/02-sequences/ncbi-advanced-filters.png",
@@ -325,8 +325,8 @@
     },
     {
       "path": "user-manual/assets/screenshots/03-reads/fastq-sparkline-popover.png",
-      "sha256": "3b63b62c6e022ecc8e6819026fba5f2c9e627c8e6ef0d16c0421f04345b4e0f1",
-      "size": 223100
+      "sha256": "7b2be5f5f9ef3190555945a84d089c6ad2697213a88a376a174ad9737c3590cd",
+      "size": 307280
     },
     {
       "path": "user-manual/assets/screenshots/03-reads/fastq-viewport-reads-tab.png",
@@ -485,8 +485,8 @@
     },
     {
       "path": "user-manual/assets/screenshots/04-alignments/mapping-wizard-overview.png",
-      "sha256": "cf3faae1a70a942440f4f3a77d30337136e3f63d708aa2806bb1c74ba3311621",
-      "size": 272919
+      "sha256": "f5f41ba9c91d77ea532ee71d03fc0864fbbaac4cf094eff537f22585ffff6d24",
+      "size": 271574
     },
     {
       "path": "user-manual/assets/screenshots/04-alignments/pileup-zoom.png",
@@ -540,18 +540,18 @@
     },
     {
       "path": "user-manual/assets/screenshots/05-variants/call-variants-dialog-bcftools.png",
-      "sha256": "26e9abfd4bbdb4db9f5fa1d6d138830075728fa5508324e23e6fa2e40bbff81b",
-      "size": 326650
+      "sha256": "ad7c2dad5c0fac869838daf34d0eba09c723e25d24ca2f6387a08304d2c16def",
+      "size": 317664
     },
     {
       "path": "user-manual/assets/screenshots/05-variants/call-variants-dialog-ivar.png",
-      "sha256": "6d0993839b97655bc31861f35e4879b25ede9765e0da7908677c41036d19f1a6",
-      "size": 371286
+      "sha256": "786330c613648465a38768db289a83006657add26b615f9b2c37181c1939cbc9",
+      "size": 337632
     },
     {
       "path": "user-manual/assets/screenshots/05-variants/call-variants-dialog-medaka.png",
-      "sha256": "e6f02975517bac87f0cb205a203de8512332251220b0bce5a8b8f08e15402f42",
-      "size": 315930
+      "sha256": "c1d6ca7f3a1d101817b861aa09307f50dbec4bc15ac21abce7bc01654cd891a0",
+      "size": 277174
     },
     {
       "path": "user-manual/assets/screenshots/05-variants/consensus-destination-dialog.png",
@@ -570,8 +570,8 @@
     },
     {
       "path": "user-manual/assets/screenshots/05-variants/medaka-model-field.png",
-      "sha256": "5072b262fee2de71a19cab04c9caafa4e9d1fd869f7901824d65cf6fc618e5be",
-      "size": 322617
+      "sha256": "28184d5bb7e81b551068bc74d3424bead36dd3fe0a3ed1c4687cd3eeeb6b509d",
+      "size": 281530
     },
     {
       "path": "user-manual/assets/screenshots/05-variants/tools-mapping-submenu.png",
@@ -780,8 +780,8 @@
     },
     {
       "path": "user-manual/assets/screenshots/06-human-germline-variants/call-variants-dialog-gatk.png",
-      "sha256": "caaacd2eae5b4810c8ff95afea42ba7e6c74bb3a64068dc881f8534338753eb2",
-      "size": 319915
+      "sha256": "62c95762fbc621f7de2200f4b8ac703a423f32f683580e1697b340b717ba9b3d",
+      "size": 301140
     },
     {
       "path": "user-manual/assets/screenshots/06-human-germline-variants/plugin-manager-gatk-packs.png",
@@ -920,8 +920,8 @@
     },
     {
       "path": "user-manual/assets/screenshots/09-genotyping/genotype-inspector-display.png",
-      "sha256": "11b99fc21caed43b1c6c2560fcf6fab09b57155ae16a35cbcc164dada66b2b8d",
-      "size": 111812
+      "sha256": "aec9943ddb4614536faf6208e0128081c41deee8a4ffb63e0631140dafe5e179",
+      "size": 116003
     },
     {
       "path": "user-manual/assets/screenshots/09-genotyping/genotype-inspector-export.png",
@@ -930,8 +930,8 @@
     },
     {
       "path": "user-manual/assets/screenshots/09-genotyping/genotype-matrix-reading.png",
-      "sha256": "2b81752fd71ba6cd55feff175ebc61e82514a275943abb8276fbd157d06f1ba9",
-      "size": 502394
+      "sha256": "b7ff36e6cdeb0a382f755449d0c8d16448cb7886d258de6eadac000a1c2e6da8",
+      "size": 531332
     },
     {
       "path": "user-manual/assets/screenshots/09-genotyping/genotype-pivot-workbook.png",
@@ -992,6 +992,11 @@
       "path": "user-manual/assets/screenshots/appendices/primer-scheme-import-sheet.png",
       "sha256": "804909aed3b9033be747c70f8472476110997a781709c53f44ca0b1e22882568",
       "size": 354519
+    },
+    {
+      "path": "user-manual/assets/screenshots/appendices/primer-scheme-inspector.png",
+      "sha256": "1da8232788a5ee946015e31fd2e262351ce4046c6a8a73d227d5358539797d70",
+      "size": 699963
     },
     {
       "path": "user-manual/assets/screenshots/appendices/shared-projects-read-only-banner.png",
@@ -1085,13 +1090,13 @@
     },
     {
       "path": "user-manual/fixtures/hg002-long-reads/README.md",
-      "sha256": "857f87b1bcbc06c4b44f0ae17f35de156c8bb59c1f29e93ec1d7527575361ee4",
-      "size": 8987
+      "sha256": "82c0f78724882ed9bf7219f536d0516633314744fedf6cdfc4b60d40e8b828bb",
+      "size": 11057
     },
     {
       "path": "user-manual/fixtures/hg002-long-reads/expected/flye/assembly.fasta",
-      "sha256": "576a400ae5805d9e128a098e26458f06a251e8478f47249cec4b001afde4384b",
-      "size": 16642
+      "sha256": "e0666015b6783f1ffb3ff432e64d1e7ca95016ffdee858a02a8ed96467140b82",
+      "size": 33245
     },
     {
       "path": "user-manual/fixtures/hg002-long-reads/expected/hifiasm/contigs.fasta",
@@ -1110,8 +1115,8 @@
     },
     {
       "path": "user-manual/fixtures/hg002-long-reads/regenerate.sh",
-      "sha256": "b846b5687ef4a05d8145f9b60f842b7fb10c5a656b47de1a04f926e53c0720f2",
-      "size": 446
+      "sha256": "0c92946c1fde870ef1d5aae3018b7e1ba34f172f63876e4e363b8f37034b2e7c",
+      "size": 2153
     }
   ]
 }
