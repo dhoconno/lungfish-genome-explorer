@@ -77,13 +77,17 @@ final class FASTQConsumerRegistryTests: XCTestCase {
     }
 
     func testAlreadyFixedPathsDeclareTheContractDefaultForMixedInput() {
-        for id in ["classify.kraken2", "classify.esviritu", "map.bowtie2", "map.bbmap"] {
+        for id in ["classify.kraken2", "classify.esviritu", "classify.taxtriage", "map.bowtie2", "map.bbmap"] {
             let declaration = try? XCTUnwrap(FASTQConsumerRegistry.declaration(for: id))
             XCTAssertEqual(declaration?.handling(for: .mixedMergedAndPairs), .asSingle, id)
             XCTAssertEqual(declaration?.handling(for: .pairedFiles), .asPairs, id)
         }
         XCTAssertEqual(FASTQConsumerRegistry.declaration(for: "classify.kraken2")?.handling(for: .strictlyInterleaved), .splitToR1R2)
         XCTAssertEqual(FASTQConsumerRegistry.declaration(for: "classify.esviritu")?.handling(for: .strictlyInterleaved), .asPairs)
+        // TaxTriage splits a strictly interleaved file into samplesheet
+        // fastq_1/fastq_2 (TaxTriagePipeline+ReadLayout) instead of running it
+        // single-end; a mixed file still runs single-end.
+        XCTAssertEqual(FASTQConsumerRegistry.declaration(for: "classify.taxtriage")?.handling(for: .strictlyInterleaved), .splitToR1R2)
     }
 
     func testMappersComeFromTheirOwnDeclarations() {

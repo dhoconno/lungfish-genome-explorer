@@ -11,7 +11,7 @@ extension TaxTriageConfig {
     /// Includes runtime-relevant parameters only. Paths (outputDirectory,
     /// kraken2DatabasePath, sourceBundleURLs, and per-sample FASTQ paths) are omitted.
     public func summaryParameters() -> [String: AnalysisParameterValue] {
-        [
+        var parameters: [String: AnalysisParameterValue] = [
             "platform": .string(platform.rawValue),
             "classifiers": .string(classifiers.joined(separator: ",")),
             "topHitsCount": .int(topHitsCount),
@@ -21,5 +21,9 @@ extension TaxTriageConfig {
             "maxCpus": .int(maxCpus),
             "extraArgs": .string(AdvancedCommandLineOptions.join(extraArguments)),
         ]
+        if let effectiveRemoveTaxids {
+            parameters["removeTaxids"] = .string(effectiveRemoveTaxids)
+        }
+        return parameters
     }
 }

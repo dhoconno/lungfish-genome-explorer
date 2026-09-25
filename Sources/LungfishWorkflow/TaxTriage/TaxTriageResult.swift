@@ -6,25 +6,48 @@ import Foundation
 
 // MARK: - TaxTriageResult
 
+/// A Nextflow task that errored while the run as a whole still exited 0.
+///
+/// TaxTriage gives some processes (MINIMAP2_ALIGN among them) an "ignore"
+/// error strategy after their retries, so Nextflow reports "Pipeline completed
+/// successfully, but with errored process(es)" and exits 0 even though every
+/// result downstream of the task (alignments, TASS scores) is missing for that
+/// sample. Persisted in `taxtriage-result.json` under `ignoredFailures`.
 public struct TaxTriageIgnoredFailure: Sendable, Codable, Equatable {
     public let processPath: String
     public let processName: String
     public let taskLabel: String
     public let sampleID: String?
     public let exitCode: Int
+    /// How many times Nextflow ran the task (trace.txt FAILED rows), when known.
+    public var attempts: Int?
+    /// The key line of the task's stderr, when the log carried one
+    /// (for example `Killed: minimap2 -ax sr -t 14 ...`).
+    public var diagnostic: String?
 
     public init(
         processPath: String,
         processName: String,
         taskLabel: String,
         sampleID: String?,
-        exitCode: Int
+        exitCode: Int,
+        attempts: Int? = nil,
+        diagnostic: String? = nil
     ) {
         self.processPath = processPath
         self.processName = processName
         self.taskLabel = taskLabel
         self.sampleID = sampleID
         self.exitCode = exitCode
+        self.attempts = attempts
+        self.diagnostic = diagnostic
+    }
+
+    /// Whether the task was killed for running out of memory: exit status
+    /// 137 (SIGKILL, what the container's OOM killer sends) or a "Killed"
+    /// line in its stderr.
+    public var isOutOfMemory: Bool {
+        exitCode == 137 || (diagnostic?.hasPrefix("Killed") ?? false)
     }
 }
 
@@ -347,7 +370,7 @@ public struct TaxTriageResult: Sendable, Codable, Equatable {
         }
     }
 
-    private static func extractSampleID(fromTaskLabel taskLabel: String) -> String? {
+    static func extractSampleID(fromTaskLabel taskLabel: String) -> String? {
         let candidate = taskLabel.split(separator: ".").first.map(String.init)
         guard let candidate, !candidate.isEmpty else { return nil }
         return candidate

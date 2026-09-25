@@ -54,6 +54,9 @@ struct BatchRunParameters: Codable, Sendable, Equatable {
     let topHitsCount: Int
     let skipAssembly: Bool
     let kraken2DatabasePath: String?
+    /// The `--remove_taxids` list the run passed (nil for none, and for
+    /// records written before the field existed).
+    var removeTaxids: String? = nil
 }
 
 // MARK: - BatchRunHistoryLog
@@ -106,7 +109,8 @@ enum BatchRunHistory {
                 k2Confidence: config.k2Confidence,
                 topHitsCount: config.topHitsCount,
                 skipAssembly: config.skipAssembly,
-                kraken2DatabasePath: config.kraken2DatabasePath?.path
+                kraken2DatabasePath: config.kraken2DatabasePath?.path,
+                removeTaxids: config.effectiveRemoveTaxids
             )
         )
 

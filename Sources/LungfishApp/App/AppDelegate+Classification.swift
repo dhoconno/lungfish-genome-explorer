@@ -2173,6 +2173,9 @@ extension AppDelegate {
             for sample in config.samples {
                 args.append(sample.fastq1.path); if let f2 = sample.fastq2 { args.append(f2.path) }
             }
+            if let removeTaxids = config.effectiveRemoveTaxids {
+                args += ["--remove-taxids", removeTaxids]
+            }
             return OperationCenter.buildCLICommand(subcommand: "taxtriage", args: args)
         }()
         let opID = OperationCenter.shared.start(
@@ -2209,6 +2212,17 @@ extension AppDelegate {
                     resolvedConfig.samples[i].fastq1 = resolved[0]
                     if resolved.count > 1 {
                         resolvedConfig.samples[i].fastq2 = resolved[1]
+                    } else if sample.fastq2 == nil,
+                              resolved[0].standardizedFileURL != sample.fastq1.standardizedFileURL {
+                        // A materialized scratch copy carries no bundle sidecar,
+                        // so resolve its layout now with the bundle's metadata as
+                        // hints (a VSP2 merge in the lineage demotes strict to
+                        // mixed). TaxTriagePipeline splits a strictly interleaved
+                        // file into R1/R2 and runs it as pairs.
+                        resolvedConfig.samples[i].readLayout = FASTQInputLayoutResolver.resolve(
+                            fastqURL: resolved[0],
+                            metadataFrom: sample.fastq1
+                        ).layout
                     }
                 }
 
@@ -2268,55 +2282,11 @@ extension AppDelegate {
                                 message: "Database build failed: \(dbError) — batch will rebuild lazily on open"
                             )
                         }
-                        if capturedResult.hasIgnoredFailures {
-                            let sampleIDs = Array(Set(capturedResult.ignoredFailures.compactMap(\.sampleID))).sorted()
-                            let sampleSummary: String
-                            if sampleIDs.isEmpty {
-                                sampleSummary = "\(capturedResult.ignoredFailures.count) ignored task failures"
-                            } else {
-                                let preview = sampleIDs.prefix(5).joined(separator: ", ")
-                                let suffix = sampleIDs.count > 5 ? ", +\(sampleIDs.count - 5) more" : ""
-                                sampleSummary = "\(capturedResult.ignoredFailures.count) ignored sample failures across \(sampleIDs.count) samples (\(preview)\(suffix))"
-                            }
-                            OperationCenter.shared.log(
-                                id: opID,
-                                level: .warning,
-                                message: sampleSummary
-                            )
-                        }
-                        if capturedResult.hasSampleFailures {
-                            let preview = capturedResult.sampleFailures
-                                .prefix(5)
-                                .map { failure in
-                                    "\(failure.sampleID): \(failure.errorDescription)"
-                                }
-                                .joined(separator: "; ")
-                            let suffix = capturedResult.sampleFailures.count > 5
-                                ? "; +\(capturedResult.sampleFailures.count - 5) more"
-                                : ""
-                            OperationCenter.shared.log(
-                                id: opID,
-                                level: .warning,
-                                message: "\(capturedResult.sampleFailures.count) TaxTriage samples failed (\(preview)\(suffix))"
-                            )
-                        }
-                        let completionDetail: String
-                        var warningSummaries: [String] = []
-                        if capturedResult.hasIgnoredFailures {
-                            warningSummaries.append("\(capturedResult.ignoredFailures.count) ignored task failures")
-                        }
-                        if capturedResult.hasSampleFailures {
-                            warningSummaries.append("\(capturedResult.sampleFailures.count) failed samples")
-                        }
-                        if !warningSummaries.isEmpty {
-                            completionDetail = "\(capturedResult.reportFiles.count) reports, \(warningSummaries.joined(separator: ", "))"
-                        } else {
-                            completionDetail = capturedResult.summary
-                        }
                         Self.writeTaxTriageCrossRefSidecars(result: capturedResult, config: capturedConfig)
-                        guard OperationCenter.shared.complete(
+                        guard Self.finishTaxTriageOperation(
                             id: opID,
-                            detail: completionDetail
+                            result: capturedResult,
+                            center: OperationCenter.shared
                         ) else { return }
                         // Write cross-reference sidecars into each source bundle so
                         // the sidebar discovers TaxTriage results under all contributors.
@@ -2369,6 +2339,54 @@ extension AppDelegate {
         }
 
         OperationCenter.shared.setCancelCallback(for: opID) { task.cancel() }
+    }
+
+    /// Logs a finished TaxTriage run's errored tasks and failed samples and
+    /// moves its operation to a terminal state.
+    ///
+    /// Nextflow exits 0 when TaxTriage ignores an errored task (for example
+    /// MINIMAP2_ALIGN killed for memory), so a run with errored tasks or failed
+    /// samples finishes with a warning ("Completed with Warnings") whose
+    /// detail names the process, never as a plain "Completed".
+    ///
+    /// - Returns: `false` when the operation was no longer active (cancelled).
+    @MainActor
+    @discardableResult
+    static func finishTaxTriageOperation(
+        id opID: UUID,
+        result: TaxTriageResult,
+        center: OperationCenter
+    ) -> Bool {
+        if let erroredProcessesMessage = result.erroredProcessesMessage {
+            center.log(id: opID, level: .warning, message: erroredProcessesMessage)
+        }
+        if result.hasSampleFailures {
+            let preview = result.sampleFailures
+                .prefix(5)
+                .map { failure in "\(failure.sampleID): \(failure.errorDescription)" }
+                .joined(separator: "; ")
+            let suffix = result.sampleFailures.count > 5
+                ? "; +\(result.sampleFailures.count - 5) more"
+                : ""
+            center.log(
+                id: opID,
+                level: .warning,
+                message: "\(result.sampleFailures.count) TaxTriage samples failed (\(preview)\(suffix))"
+            )
+        }
+
+        var warningSummaries: [String] = []
+        if let headline = result.erroredProcessesHeadline {
+            warningSummaries.append(headline)
+        }
+        if result.hasSampleFailures {
+            warningSummaries.append("\(result.sampleFailures.count) failed samples")
+        }
+        guard result.completedWithErrors, !warningSummaries.isEmpty else {
+            return center.complete(id: opID, detail: result.summary)
+        }
+        let detail = "\(warningSummaries.joined(separator: "; ")) (\(result.reportFiles.count) reports)"
+        return center.completeWithWarning(id: opID, detail: detail)
     }
 
     /// Writes TaxTriage cross-reference sidecars into each source bundle directory.

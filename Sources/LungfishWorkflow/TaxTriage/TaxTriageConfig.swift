@@ -170,6 +170,17 @@ public struct TaxTriageConfig: Sendable, Codable, Equatable {
     /// Additional Nextflow/TaxTriage arguments appended verbatim after managed options.
     public var extraArguments: [String]
 
+    /// NCBI taxids removed from the Kraken 2 report before TaxTriage picks its
+    /// top hits and downloads their reference genomes, as a space-separated
+    /// list (for example `"9606"` for human).
+    ///
+    /// Passed as `--remove_taxids`. The pinned TaxTriage leaves the parameter
+    /// null in its `nextflow.config` even though its schema documents a 9606
+    /// default, so without this a human host becomes a top hit, all of GRCh38
+    /// is downloaded as a reference, and the alignment step runs out of
+    /// memory. `nil` (or blank) passes nothing.
+    public var removeTaxids: String?
+
     // MARK: - Initialization
 
     /// Creates a TaxTriage configuration with the specified parameters.
@@ -208,7 +219,8 @@ public struct TaxTriageConfig: Sendable, Codable, Equatable {
         containerRuntime: String? = nil,
         revision: String = TaxTriageConfig.defaultRevision,
         sourceBundleURLs: [URL]? = nil,
-        extraArguments: [String] = []
+        extraArguments: [String] = [],
+        removeTaxids: String? = nil
     ) {
         self.samples = samples
         self.platform = platform
@@ -227,6 +239,7 @@ public struct TaxTriageConfig: Sendable, Codable, Equatable {
         self.revision = revision
         self.sourceBundleURLs = sourceBundleURLs
         self.extraArguments = extraArguments
+        self.removeTaxids = removeTaxids
     }
 
     // MARK: - Computed Properties
@@ -319,12 +332,70 @@ public struct TaxTriageConfig: Sendable, Codable, Equatable {
             args.append("--skip_krona")
         }
 
+        // Host taxa removal
+        if let effectiveRemoveTaxids {
+            args += ["--remove_taxids", effectiveRemoveTaxids]
+        }
+
         // Resource limits
         args += ["--max_memory", maxMemory]
         args += ["--max_cpus", String(maxCpus)]
         args += extraArguments
 
         return args
+    }
+
+    // MARK: - Host Taxa Removal
+
+    /// The NCBI taxid of *Homo sapiens*, the default host taxon removed from
+    /// clinical samples.
+    public static let humanTaxID = "9606"
+
+    /// The taxid list passed as `--remove_taxids`, or `nil` when nothing is
+    /// set or when ``extraArguments`` already carries its own
+    /// `--remove_taxids` (the verbatim arguments win).
+    public var effectiveRemoveTaxids: String? {
+        guard let normalized = removeTaxids.flatMap(Self.normalizedTaxIDList),
+              !Self.extraArgumentsSetRemoveTaxids(extraArguments) else {
+            return nil
+        }
+        return normalized
+    }
+
+    /// Whether verbatim extra arguments already pass `--remove_taxids`
+    /// (as a separate value or in `--remove_taxids=<ids>` form).
+    public static func extraArgumentsSetRemoveTaxids(_ arguments: [String]) -> Bool {
+        arguments.contains { argument in
+            argument == "--remove_taxids" || argument.hasPrefix("--remove_taxids=")
+        }
+    }
+
+    /// Normalizes a user-entered taxid list ("9606", "9606 2", "9606, 10090")
+    /// to TaxTriage's space-separated form, dropping repeats. Returns `nil`
+    /// for blank input. Tokens are not validated here; see
+    /// ``invalidTaxIDTokens(in:)``.
+    public static func normalizedTaxIDList(_ text: String) -> String? {
+        let tokens = text
+            .split(whereSeparator: { $0 == "," || $0 == ";" || $0 == "\"" || $0.isWhitespace })
+            .map(String.init)
+        guard !tokens.isEmpty else { return nil }
+        var seen = Set<String>()
+        return tokens.filter { seen.insert($0).inserted }.joined(separator: " ")
+    }
+
+    /// The tokens of a taxid list that are not positive whole numbers.
+    public static func invalidTaxIDTokens(in text: String) -> [String] {
+        guard let normalized = normalizedTaxIDList(text) else { return [] }
+        return normalized.split(separator: " ").map(String.init).filter { token in
+            guard token.allSatisfy(\.isASCII), let value = Int(token) else { return true }
+            return value <= 0
+        }
+    }
+
+    /// The default for the dialog's "Exclude host taxa" field: human (9606)
+    /// when any sample is a Clinical Sample, otherwise empty.
+    public static func defaultRemoveTaxids(sampleRoles: [SampleRole]) -> String {
+        sampleRoles.contains(.testSample) ? humanTaxID : ""
     }
 }
 
@@ -347,6 +418,7 @@ extension TaxTriageConfig {
         case revision
         case sourceBundleURLs
         case extraArguments
+        case removeTaxids
     }
 
     public init(from decoder: Decoder) throws {
@@ -370,7 +442,8 @@ extension TaxTriageConfig {
             revision: try container.decodeIfPresent(String.self, forKey: .revision)
                 ?? TaxTriageConfig.defaultRevision,
             sourceBundleURLs: try container.decodeIfPresent([URL].self, forKey: .sourceBundleURLs),
-            extraArguments: try container.decodeIfPresent([String].self, forKey: .extraArguments) ?? []
+            extraArguments: try container.decodeIfPresent([String].self, forKey: .extraArguments) ?? [],
+            removeTaxids: try container.decodeIfPresent(String.self, forKey: .removeTaxids)
         )
     }
 }
@@ -430,6 +503,13 @@ public struct TaxTriageSample: Sendable, Codable, Equatable, Identifiable {
     /// Not serialized in the TaxTriage config JSON (populated at runtime).
     public var metadata: FASTQSampleMetadata?
 
+    /// The read layout of a single-file sample, when the caller resolved it
+    /// before the file was materialized away from its bundle (so the bundle's
+    /// metadata could inform the answer). `nil` lets ``TaxTriagePipeline``
+    /// resolve the layout from the file itself. A strictly interleaved file is
+    /// split into R1/R2 mate files so TaxTriage runs it as pairs.
+    public var readLayout: FASTQInputLayout?
+
     /// Creates a new TaxTriage sample.
     ///
     /// - Parameters:
@@ -444,7 +524,8 @@ public struct TaxTriageSample: Sendable, Codable, Equatable, Identifiable {
         fastq2: URL? = nil,
         platform: TaxTriageConfig.Platform = .illumina,
         isNegativeControl: Bool = false,
-        metadata: FASTQSampleMetadata? = nil
+        metadata: FASTQSampleMetadata? = nil,
+        readLayout: FASTQInputLayout? = nil
     ) {
         self.sampleId = sampleId
         self.fastq1 = fastq1
@@ -452,12 +533,13 @@ public struct TaxTriageSample: Sendable, Codable, Equatable, Identifiable {
         self.platform = platform
         self.isNegativeControl = isNegativeControl
         self.metadata = metadata
+        self.readLayout = readLayout
     }
 
     // Backward-compatible decoding: isNegativeControl defaults to false if absent.
     // metadata is not serialized in config JSON; it's populated at runtime.
     enum CodingKeys: String, CodingKey {
-        case sampleId, fastq1, fastq2, platform, isNegativeControl
+        case sampleId, fastq1, fastq2, platform, isNegativeControl, readLayout
     }
 
     public init(from decoder: Decoder) throws {
@@ -467,6 +549,7 @@ public struct TaxTriageSample: Sendable, Codable, Equatable, Identifiable {
         fastq2 = try container.decodeIfPresent(URL.self, forKey: .fastq2)
         platform = try container.decode(TaxTriageConfig.Platform.self, forKey: .platform)
         isNegativeControl = try container.decodeIfPresent(Bool.self, forKey: .isNegativeControl) ?? false
+        readLayout = try container.decodeIfPresent(FASTQInputLayout.self, forKey: .readLayout)
         metadata = nil  // Not serialized; populated at runtime
     }
 
@@ -528,6 +611,9 @@ public enum TaxTriageConfigError: Error, LocalizedError, Sendable {
     /// An input path is a directory, not a FASTQ file.
     case inputPathIsDirectory(sampleId: String, path: URL)
 
+    /// The host taxa list holds something other than NCBI taxids.
+    case invalidRemoveTaxids([String])
+
     public var errorDescription: String? {
         switch self {
         case .noSamples:
@@ -548,6 +634,8 @@ public enum TaxTriageConfigError: Error, LocalizedError, Sendable {
             return "top_hits_count must be positive, got \(value)"
         case .outputDirectoryCreationFailed(let url, let error):
             return "Cannot create output directory at \(url.path): \(error.localizedDescription)"
+        case .invalidRemoveTaxids(let tokens):
+            return "Exclude host taxa must list NCBI taxids (whole numbers such as 9606), got: \(tokens.joined(separator: ", "))"
         }
     }
 }
@@ -620,6 +708,14 @@ extension TaxTriageConfig {
         // Validate top hits count
         guard topHitsCount > 0 else {
             throw TaxTriageConfigError.invalidTopHitsCount(topHitsCount)
+        }
+
+        // Validate the host taxa list
+        if let removeTaxids {
+            let invalid = Self.invalidTaxIDTokens(in: removeTaxids)
+            guard invalid.isEmpty else {
+                throw TaxTriageConfigError.invalidRemoveTaxids(invalid)
+            }
         }
 
         // Validate database if specified
