@@ -59,6 +59,8 @@ Install the `metagenomics` [plugin pack](../../GLOSSARY.md#plugin-pack), a theme
 
 Download the EsViritu Viral DB database from the Plugin Manager's Databases tab, as [The Databases tab](../01-foundations/07-plugin-packs.md#the-databases-tab) describes. It is the only database EsViritu uses, so there is nothing to choose at run time. The numbers in this chapter came from EsViritu 1.3.3 with database v3.2.4. Another version shifts the exact figures without changing what any of them mean.
 
+EsViritu needs reads of at least 100 bases. EsViritu 1.3.3 keeps a read's alignment only when it is at least 100 bases long (`alignLength >= 100` in its `minimap2_f` filter), so a run of shorter reads, such as 2x75 or 2x76 NextSeq data, reports no detections at all. That is why this chapter does not use the 76-base corneal sample from [Running Kraken 2](02-running-kraken2.md).
+
 The example run takes about six minutes on a fourteen-core Mac. Mapping is the slow step, so expect minutes where a Kraken 2 run against a small database takes seconds.
 
 ## Procedure
@@ -151,7 +153,7 @@ Detecting viruses in the SRR36291587 reads with the default settings produced on
 
 The reference [accession](../../GLOSSARY.md#accession) behind that row is `OP400692.1`, a 29,808-base SARS-CoV-2 genome that the database files under the Omicron BQ.1.23 [lineage](../../GLOSSARY.md#lineage), a named branch of the virus's family tree. That is the closest genome the collection holds, not a claim about which lineage your sample belongs to.
 
-EsViritu counts each mate as its own read, so these figures are about double the pair counts in [Running Kraken 2](02-running-kraken2.md). The Reads column shows 163,987 because LGE recounts it from the alignment, while EsViritu's own report counts 162,441, so quote the source you read. Compare EsViritu's figure with the number of reads that survived the quality filter, 170,180 of the bundle's 170,398. About 95 in every 100 surviving reads mapped to the virus, which is healthy for this library. In an amplicon library nearly all of them should be viral, because PCR enriched the target so heavily that little else remains.
+EsViritu counts each mate as its own read, where [Running Kraken 2](02-running-kraken2.md) counts a pair once, so its figures count reads, not pairs. The Reads column shows 163,987 because LGE recounts it from the alignment, while EsViritu's own report counts 162,441, so quote the source you read. Compare EsViritu's figure with the number of reads that survived the quality filter, 170,180 of the bundle's 170,398. About 95 in every 100 surviving reads mapped to the virus, which is healthy for this library. In an amplicon library nearly all of them should be viral, because PCR enriched the target so heavily that little else remains.
 
 Now read the coverage evidence. EsViritu's report records that the detection covered 29,777 of the reference's 29,808 bases, a breadth of 99.90%, and it records the depth of each of 100 windows along the genome, which the sparkline draws. Judge the sparkline against the run's own mean depth, not against a fixed number. A thinnest window at a sizeable fraction of the mean is the ordinary unevenness of a tiled amplicon protocol. A window at a tiny fraction of the mean, or at zero, marks a stretch that went barely read. In this run the thinnest window sits about 319 reads deep, roughly a quarter of the 1259.4x mean, so the sparkline is an even track from one end to the other, which is what a real infection sequenced this way looks like.
 

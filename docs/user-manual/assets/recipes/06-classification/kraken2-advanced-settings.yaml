@@ -6,7 +6,7 @@ caption: The dialog's Advanced Settings disclosure expanded, showing the Confide
   groups stepper, the Threads stepper, the Memory mapping checkbox, and the Extra arguments field.
 viewport_class: none
 app_state:
-  fixture: '{demo_project}'
+  fixture: kraken-protocol-cornea
   open_files: []
   window_size:
   - 1400
@@ -21,7 +21,7 @@ steps:
   size:
   - 1400
   - 900
-  # PROSE-ONLY: Select Imports/SRR36291587
+  # PROSE-ONLY: Select Imports/SRR12486983
   # PROSE-ONLY: Tools > Classification > Kraken2...
   # PROSE-ONLY: Click Advanced Settings disclosure
 crop:

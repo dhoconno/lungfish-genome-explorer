@@ -1,0 +1,31 @@
+# Captured from Lungfish Preview 2026.9.42 (2026-09 campaign) in a project holding SRR12486983 downloaded through the SRA route.
+# App state: Kraken2 Viral result for SRR12486983 after double-clicking the Orthoherpesviridae wedge. Centre reads "Orthoherpesviridae 893.0K". Breadcrumb: Root > Viruses > Duplodnaviria > Heunggongvirae > Peploviricota > Herviviricetes > Herpesvirales > Orthoherpesviridae
+id: kraken2-drilldown-orthoherpesviridae
+chapter: 06-classification/02-running-kraken2
+caption: The sunburst re-centred on Orthoherpesviridae after a double-click, with the breadcrumb bar
+  showing the path back to the root.
+viewport_class: taxonomy
+app_state:
+  fixture: kraken-protocol-cornea
+  open_files:
+  - analysis: kraken2 Viral result for SRR12486983
+  window_size:
+  - 1400
+  - 900
+  appearance: light
+steps:
+- action: open_application
+  app: Lungfish Preview
+- action: wait_ready
+  signal: main_window_visible
+- action: resize_window
+  size:
+  - 1400
+  - 900
+  # PROSE-ONLY: Select the Viral kraken2- result for SRR12486983 in the sidebar
+  # PROSE-ONLY: Double-click the Orthoherpesviridae wedge in the sunburst
+crop:
+  mode: window
+post:
+  retina: true
+  format: png

@@ -1,12 +1,12 @@
-# Captured from Lungfish Preview 2026.9.13 with capture-window.sh (2026-09 campaign).
-# App state: Existing Kraken report taxon row context menu, Extract Reads highlighted only.
+# Captured from Lungfish Preview 2026.9.42 (2026-09 campaign) in a project holding SRR12486983 downloaded through the SRA route.
+# App state: Kraken2 Viral result for SRR12486983, right-click menu open on the Orthoherpesviridae table row, no item highlighted.
 id: kraken2-extract-reads
 chapter: 06-classification/02-running-kraken2
-caption: The right-click menu on a taxon row, with Extract Reads... highlighted above the expansion, BLAST,
-  NCBI lookup, and Copy Taxon Name actions.
+caption: The right-click menu on the Orthoherpesviridae row, listing Extract Reads... above the Expand
+  and Collapse items, BLAST Matching Reads..., the Look Up on NCBI submenu, and Copy Taxon Name.
 viewport_class: none
 app_state:
-  fixture: '{demo_project}'
+  fixture: kraken-protocol-cornea
   open_files: []
   window_size:
   - 1400
@@ -21,7 +21,7 @@ steps:
   size:
   - 1400
   - 900
-  # PROSE-ONLY: Filter sidebar to kraken2 and open existing result. Right-click a visible taxon row. Down highlights Extract Reads. Capture and Escape without extraction.
+  # PROSE-ONLY: Open the Viral kraken2- result for SRR12486983. Right-click the Orthoherpesviridae row. Capture with no item highlighted, then Escape without extraction.
 crop:
   mode: region
   region:

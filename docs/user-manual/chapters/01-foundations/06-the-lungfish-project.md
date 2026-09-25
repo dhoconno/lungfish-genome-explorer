@@ -193,6 +193,7 @@ Every task chapter works on a small, public practice data set, which the manual 
 | `primate-12s` | A human 12S ribosomal RNA amplicon read set and a primate reference table | [primate-12s](https://github.com/dhoconno/lungfish-genome-explorer/tree/v2026.9.40/docs/user-manual/fixtures/primate-12s) |
 | `mhc-simulated` | Simulated MHC amplicon reads and references for the genotyping chapters | [mhc-simulated](https://github.com/dhoconno/lungfish-genome-explorer/tree/v2026.9.40/docs/user-manual/fixtures/mhc-simulated) |
 | `sarscov2-srr36291587` | The SARS-CoV-2 reference and expected results for the viral chapters, whose reads come from SRA | [sarscov2-srr36291587](https://github.com/dhoconno/lungfish-genome-explorer/tree/v2026.9.40/Tests/Fixtures/sarscov2-srr36291587) |
+| `kraken-protocol-cornea` | Notes on two public human corneal tissue runs for the Kraken 2, TaxTriage, and BLAST chapters, whose reads come from SRA | [kraken-protocol-cornea](https://github.com/dhoconno/lungfish-genome-explorer/tree/main/docs/user-manual/fixtures/kraken-protocol-cornea) |
 | `sarscov2-clinical` | A small SARS-CoV-2 read set with its reference, alignment, and variants | [sarscov2-clinical](https://github.com/dhoconno/lungfish-genome-explorer/tree/v2026.9.40/docs/user-manual/fixtures/sarscov2-clinical) |
 | `nvd-demo` | A sample results table from the NVD viral discovery pipeline | [nvd-demo](https://github.com/dhoconno/lungfish-genome-explorer/tree/v2026.9.40/docs/user-manual/fixtures/nvd-demo) |
 
@@ -200,9 +201,9 @@ Each chapter's `## Before you start` names its fixture and the files it needs. T
 
 GitHub offers no download for a single folder. To get a whole fixture folder at once, open the repository at the version its link names, click the green **Code** button, choose **Download ZIP**, and double-click the downloaded file to unpack it. The fixture folders are under `docs/user-manual/fixtures/`, or under `Tests/Fixtures/` for `sarscov2-srr36291587`. That archive holds the whole repository, so it is much larger than one fixture.
 
-Most links name version v2026.9.40, the version this manual describes. The `demo-project` and two `hg002` links name v2026.9.39 instead, because the large `hg002` files moved out of the repository after that version, and v2026.9.39 is the last one that still holds them. Nothing breaks from mixing the two, since a fixture is only data.
+Most links name version v2026.9.40, the version this manual describes. The `kraken-protocol-cornea` link names the main branch, because that fixture was added after v2026.9.40. The `demo-project` and two `hg002` links name v2026.9.39 instead, because the large `hg002` files moved out of the repository after that version, and v2026.9.39 is the last one that still holds them. Nothing breaks from mixing the two, since a fixture is only data.
 
-The SARS-CoV-2 reads for `sarscov2-srr36291587` are not stored on GitHub. They are fetched from the Sequence Read Archive inside LGE, as [Downloading Reads from the SRA](../03-reads/02-downloading-from-sra.md) shows.
+The reads for `sarscov2-srr36291587` and `kraken-protocol-cornea` are not stored on GitHub. They are fetched from the Sequence Read Archive inside LGE, as [Downloading Reads from the SRA](../03-reads/02-downloading-from-sra.md) shows.
 
 ### Build the demo project
 

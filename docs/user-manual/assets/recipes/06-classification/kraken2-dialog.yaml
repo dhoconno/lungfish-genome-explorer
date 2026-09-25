@@ -1,12 +1,13 @@
-# Captured from Lungfish Preview 2026.9.13 with capture-window.sh (2026-09 campaign).
-# App state: FASTQ/FASTA Operations sheet on the Kraken2 pane for SRR36291587, showing the dataset line, Database picker (SILVA, size/RAM readout), and Sensitivity segmented control (Balanced selected)
+# Captured from Lungfish Preview 2026.9.42 (2026-09 campaign) in a project holding SRR12486983 downloaded through the SRA route.
+# App state: FASTQ/FASTA Operations sheet on the Kraken2 pane, dataset line Imports/SRR12486983.lungfishfastq, Database picker on Viral ("RefSeq viral genomes only -- 512 MB RAM recommended"), Sensitivity on Balanced
 id: kraken2-dialog
 chapter: 06-classification/02-running-kraken2
-caption: The FASTQ/FASTA Operations dialog opened from Tools > Classification > Kraken2..., showing the
-  dataset line, the Database picker with its size readout, and the Sensitivity segmented control.
+caption: The FASTQ/FASTA Operations dialog opened from Tools > Classification > Kraken2..., with the
+  dataset line naming Imports/SRR12486983.lungfishfastq, the Database picker on Viral with its description
+  and recommended memory, and the Sensitivity control on Balanced.
 viewport_class: none
 app_state:
-  fixture: '{demo_project}'
+  fixture: kraken-protocol-cornea
   open_files: []
   window_size:
   - 1400
@@ -21,8 +22,9 @@ steps:
   size:
   - 1400
   - 900
-  # PROSE-ONLY: Select Imports/SRR36291587 in the sidebar
+  # PROSE-ONLY: Select Imports/SRR12486983 in the sidebar
   # PROSE-ONLY: Tools > Classification > Kraken2...
+  # PROSE-ONLY: Choose Database Viral, leave Sensitivity on Balanced
 crop:
   mode: region
   region:
