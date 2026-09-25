@@ -53,13 +53,15 @@ This chapter works through the SRR36291587 SARS-CoV-2 reads, an [amplicon](../..
 
 You need a project open, as [The Lungfish Genome Explorer Project](../01-foundations/06-the-lungfish-project.md#procedure) shows.
 
+Open the SARS-CoV-2 Amplicons demo project with **Help > Demo Projects…**, as [Demo projects](../01-foundations/06-the-lungfish-project.md#demo-projects) explains. It already holds run `SRR36291587` under `Imports`, so the SRA download below is done. To fetch the reads yourself instead, follow the rest of this section.
+
 This chapter uses the sarscov2-srr36291587 fixture. Download its reads from the Sequence Read Archive as accession `SRR36291587`, following [Downloading Reads from the SRA](../03-reads/02-downloading-from-sra.md), and find the fixture's other files in [its fixture folder on GitHub](https://github.com/dhoconno/lungfish-genome-explorer/tree/v2026.9.40/Tests/Fixtures/sarscov2-srr36291587), as [Practice data for this manual](../01-foundations/06-the-lungfish-project.md#practice-data-for-this-manual) explains.
 
 Install the `metagenomics` [plugin pack](../../GLOSSARY.md#plugin-pack), a themed group of tools LGE installs on request, as [Plugin Packs](../01-foundations/07-plugin-packs.md#procedure) shows.
 
 Download the EsViritu Viral DB database from the Plugin Manager's Databases tab, as [The Databases tab](../01-foundations/07-plugin-packs.md#the-databases-tab) describes. It is the only database EsViritu uses, so there is nothing to choose at run time. The numbers in this chapter came from EsViritu 1.3.3 with database v3.2.4. Another version shifts the exact figures without changing what any of them mean.
 
-EsViritu needs reads of at least 100 bases. EsViritu 1.3.3 keeps a read's alignment only when it is at least 100 bases long (`alignLength >= 100` in its `minimap2_f` filter), so a run of shorter reads, such as 2x75 or 2x76 NextSeq data, reports no detections at all. That is why this chapter does not use the 76-base corneal sample from [Running Kraken 2](02-running-kraken2.md).
+EsViritu needs reads of at least 100 bases. EsViritu 1.3.3 keeps a read's alignment only when it is at least 100 bases long (`alignLength >= 100` in its `minimap2_f` filter), so a run of shorter reads, such as 2x75 or 2x76 NextSeq data, finds nothing and ends without a detection table. LGE warns you before such a run. When the read statistics recorded at import show that every read is shorter than 100 bases, a banner at the foot of the dialog's **Sample** section gives the longest read length and says EsViritu will likely report no viruses for these reads. When only the median read is shorter than 100 bases, a softer note says those reads cannot count toward a detection. Neither turns Run off. If a short-read run goes ahead anyway, the failure message quotes EsViritu's own reason, such as "No reads aligned to the EsViritu DB", and adds the same short-read hint. That is why this chapter does not use the 76-base corneal sample from [Running Kraken 2](02-running-kraken2.md).
 
 The example run takes about six minutes on a fourteen-core Mac. Mapping is the slow step, so expect minutes where a Kraken 2 run against a small database takes seconds.
 

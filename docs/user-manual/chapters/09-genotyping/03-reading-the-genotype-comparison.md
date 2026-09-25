@@ -55,6 +55,8 @@ The worked example is the Williams MiSeq project of 30 rhesus macaques and a 970
 
 You need a project open with a finished genotype result in it, as [The Lungfish Genome Explorer Project](../01-foundations/06-the-lungfish-project.md#procedure) shows. [Running Amplicon MHC Genotyping](02-running-genotyping.md) produces one. This chapter reads a result without changing it.
 
+To practise on public data, open the MHC Genotyping demo project with **Help > Demo Projects…**, as [Demo projects](../01-foundations/06-the-lungfish-project.md#demo-projects) explains. It holds the simulated reads and allele library but no result, so run [Running Amplicon MHC Genotyping](02-running-genotyping.md) in it first.
+
 A MiSeq amplicon run gathers its bundles into an `Amplicon genotyping results` folder inside the project's `Analyses/` folder. If the bundle is not there yet, the run has not finished. Watch the run in the [Operations Panel](../01-foundations/06-the-lungfish-project.md#the-operations-panel), which opens with **Operations > Show Operations Panel** (Cmd-Shift-P).
 
 Open the [Inspector](../../GLOSSARY.md#inspector) with **View > Show Inspector** (Cmd-Opt-I) if it is hidden.

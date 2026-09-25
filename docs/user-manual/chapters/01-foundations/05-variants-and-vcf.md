@@ -46,6 +46,8 @@ The fixture carries three VCFs, and the contrast between them is the point. Two 
 
 This chapter uses the `hg002-chr20` fixture. Its VCFs are `expected/variants/bcftools/HG002.bcftools.vcf.gz`, `expected/variants/lofreq/HG002.lofreq.vcf.gz`, and `HG002.chr20.10.0-10.5Mb.benchmark.vcf.gz`, in the folder at https://github.com/dhoconno/lungfish-genome-explorer/tree/v2026.9.39/docs/user-manual/fixtures/hg002-chr20, as [Practice data for this manual](06-the-lungfish-project.md#practice-data-for-this-manual) explains.
 
+The Human Mapping and Variants demo project, which **Help > Demo Projects…** opens as [Demo projects](06-the-lungfish-project.md#demo-projects) explains, holds the benchmark VCF and its index under `Practice Data/hg002-chr20`. It holds inputs only, so the bcftools and LoFreq VCFs are not in it, and those two come from the fixture folder above.
+
 Nothing in this chapter has to be run in Lungfish Genome Explorer (LGE), and no plugin pack is needed to read it. A VCF is plain text once uncompressed, so the rows below can be read in any text editor. The demo project also holds the bcftools calls as a variant track, and the chapter's one screenshot shows it.
 
 ## What a VCF file looks like

@@ -67,6 +67,8 @@ Alignment is also the step most later work depends on. Column-by-column conserva
 
 You need a project open, as [The Lungfish Genome Explorer Project](../01-foundations/06-the-lungfish-project.md#procedure) shows.
 
+Open the Genes and Sequences demo project with **Help > Demo Projects…**, as [Demo projects](../01-foundations/06-the-lungfish-project.md#demo-projects) explains. It already holds the five genomes as the `primate-mito` reference bundle this section imports, so only the plugin pack remains. To import the FASTA yourself instead, follow the rest of this section.
+
 This chapter uses the primate-mito fixture. Download `primate-mito.fasta` from [primate-mito](https://github.com/dhoconno/lungfish-genome-explorer/tree/v2026.9.40/docs/user-manual/fixtures/primate-mito), as [Practice data for this manual](../01-foundations/06-the-lungfish-project.md#practice-data-for-this-manual) explains.
 
 Install the `multiple-sequence-alignment` [plugin pack](../../GLOSSARY.md#plugin-pack), a themed group of tools LGE installs on request, as [Plugin Packs](../01-foundations/07-plugin-packs.md#procedure) shows. The pack ships MAFFT 7.526, the version that produced the numbers in this chapter. Docker Desktop is not needed.

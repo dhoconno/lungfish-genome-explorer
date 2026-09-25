@@ -50,6 +50,8 @@ This chapter assembles reads from the [mitochondrial genome](../../GLOSSARY.md#m
 
 You need a project open, as [The Lungfish Genome Explorer Project](../01-foundations/06-the-lungfish-project.md#procedure) shows.
 
+Open the Long Reads and Assembly demo project with **Help > Demo Projects…**, as [Demo projects](../01-foundations/06-the-lungfish-project.md#demo-projects) explains. It already holds the `HG002.chrM` bundle this section imports, so only the plugin pack remains. To import the pair yourself instead, follow the rest of this section.
+
 This chapter uses the human-mito fixture. Download `HG002.chrM_R1.fastq.gz` and `HG002.chrM_R2.fastq.gz` from [the human-mito fixture folder](https://github.com/dhoconno/lungfish-genome-explorer/tree/v2026.9.40/docs/user-manual/fixtures/human-mito), as [Practice data for this manual](../01-foundations/06-the-lungfish-project.md#practice-data-for-this-manual) explains. Import both files together as [Importing Sequencing Reads](../03-reads/01-importing-fastq.md) shows. LGE pairs them into one bundle named `HG002.chrM`.
 
 Install the `assembly` [plugin pack](../../GLOSSARY.md#plugin-pack), a themed group of tools LGE installs on request, as [Plugin Packs](../01-foundations/07-plugin-packs.md#procedure) shows. It carries SPAdes 4.3.0, MEGAHIT 1.2.9, and SKESA 2.5.1, the versions that produced the numbers below. The SPAdes run on the fixture takes well under a minute on a recent Mac.

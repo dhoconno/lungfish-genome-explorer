@@ -44,7 +44,7 @@ The worked example uses the NCBI record `NG_000007.3`. An [accession](../../GLOS
 
 <!-- SHOT: hbb-record-in-sequence-viewport -->
 
-The picture shows the record open in LGE, with the bases in one strip and the gene features drawn beneath them. [Importing and Viewing a Sequence](../02-sequences/01-importing-and-viewing.md) shows how to import the record and jump to a coordinate on it.
+The picture shows the record open in LGE, with the bases in one strip and the gene features drawn beneath them. [Importing and Viewing a Sequence](../02-sequences/01-importing-and-viewing.md) shows how to import the record and jump to a coordinate on it. To open the record without importing it, download the Genes and Sequences demo project with **Help > Demo Projects…**, as [Demo projects](06-the-lungfish-project.md#demo-projects) explains, and click `NG_000007.3` under `Reference Sequences`.
 
 A gene is rarely one unbroken run of coding bases. The [CDS](../../GLOSSARY.md#cds), short for coding sequence, is the part of a gene translated into protein. In HBB it is split across three [exons](../../GLOSSARY.md#exon), separated by introns, which are stretches cut out of the gene's message before the protein is made. The record writes the CDS as `join(70595..70686,70817..71039,71890..72018)`, three ranges stitched together in order.
 

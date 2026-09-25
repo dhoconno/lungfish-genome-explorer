@@ -39,6 +39,8 @@ The HG002 chromosome 20 slice is a 500 kilobase window from a real human genome.
 
 You need a project open, as [The Lungfish Genome Explorer Project](../01-foundations/06-the-lungfish-project.md#procedure) shows.
 
+Open the Human Mapping and Variants demo project with **Help > Demo Projects…**, as [Demo projects](../01-foundations/06-the-lungfish-project.md#demo-projects) explains. It already holds the `HG002.chr20.10.0-10.5Mb` reads and the `GRCh38.chr20.10.0-10.5Mb` reference bundle this section imports, so start from the mapping step below. To import the files yourself instead, follow the rest of this section.
+
 This chapter uses the HG002 chromosome 20 slice fixture. Download `GRCh38.chr20.10.0-10.5Mb.fasta`, `HG002.chr20.10.0-10.5Mb_R1.fastq.gz`, and `HG002.chr20.10.0-10.5Mb_R2.fastq.gz` from the [hg002-chr20 fixture folder](https://github.com/dhoconno/lungfish-genome-explorer/tree/v2026.9.39/docs/user-manual/fixtures/hg002-chr20), as [Practice data for this manual](../01-foundations/06-the-lungfish-project.md#practice-data-for-this-manual) explains.
 
 Import the reference and reads and map them with **Tools > Mapping > minimap2...**, accepting every default, as [Mapping Reads to a Reference](../04-alignments/01-mapping-reads-to-a-reference.md) describes. That leaves a reference bundle with an alignment track, which is what the dialog reads.

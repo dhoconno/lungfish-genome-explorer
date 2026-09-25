@@ -52,6 +52,8 @@ Long-read calling on mitochondrial DNA is also real work. Mitochondrial disease 
 
 You need a project open, as [The Lungfish Genome Explorer Project](../01-foundations/06-the-lungfish-project.md#procedure) shows.
 
+Open the Long Reads and Assembly demo project with **Help > Demo Projects…**, as [Demo projects](../01-foundations/06-the-lungfish-project.md#demo-projects) explains. It already holds the `HG002.chrM.ont` bundle, imported with its platform set to Oxford Nanopore, and the `NC_012920.1` reference bundle this section imports. To import the files yourself instead, follow the rest of this section.
+
 This chapter uses the HG002 long reads fixture and the human mitochondrial fixture. Download `HG002.chrM.ont.fastq.gz` from the [hg002-long-reads fixture folder](https://github.com/dhoconno/lungfish-genome-explorer/tree/v2026.9.39/docs/user-manual/fixtures/hg002-long-reads) and `NC_012920.1.fasta` from the [human-mito fixture folder](https://github.com/dhoconno/lungfish-genome-explorer/tree/v2026.9.40/docs/user-manual/fixtures/human-mito), as [Practice data for this manual](../01-foundations/06-the-lungfish-project.md#practice-data-for-this-manual) explains.
 
 Import the FASTQ file with its platform set to Oxford Nanopore, as [Importing Sequencing Reads](../03-reads/01-importing-fastq.md) describes, and import the FASTA as a reference. The platform matters, because the mapper reads it off the imported bundle to decide which presets suit the reads.

@@ -5,13 +5,14 @@ audience: bench-scientist
 prereqs: [01-foundations/01-what-is-a-genome]
 estimated_reading_min: 23
 task: Understand the Lungfish Genome Explorer project, the window, the Import Center, operation dialogs, the Inspector, and the Operations Panel, and fetch the manual's practice data.
-tags: [foundations, project, sidebar, inspector, operations-panel, bundle, import-center, operation-dialogs, fixtures, ui]
+tags: [foundations, project, demo-projects, sidebar, inspector, operations-panel, bundle, import-center, operation-dialogs, fixtures, ui]
 tools: []
 parameters_refs: []
 entry_points:
   - File > New Project (Cmd-N)
   - File > Open Project Folder... (Cmd-O)
   - File > Import Center... (Cmd-Shift-I)
+  - Help > Demo Projects…
   - View > Show Sidebar (Ctrl-Cmd-S)
   - View > Show Inspector (Cmd-Opt-I)
   - Operations > Show Operations Panel (Cmd-Shift-P)
@@ -34,7 +35,7 @@ shots:
     caption: "The right-click menu on a completed trim operation, showing Copy CLI Command, Copy Log, View Log, Reveal Log in Finder, and Clear."
 illustrations: []
 glossary_refs: [project, project-store, bundle, reference-bundle, primer-scheme, extraction, project-lock, inspector, operations-panel, sidebar, provenance, provenance-sidecar, checksum, import-center, plugin-pack]
-features_refs: []
+features_refs: [project.demo-projects]
 fixtures_refs: [demo-project]
 brand_reviewed: false
 lead_approved: false
@@ -180,7 +181,36 @@ The Output section is absent when an operation can only produce one kind of outp
 
 ## Practice data for this manual
 
-Every task chapter works on a small, public practice data set, which the manual calls a fixture. The fixtures live in the LGE repository on GitHub, a public website that stores the project's files. No GitHub account is needed to download them.
+Every task chapter works on a small, public practice data set, which the manual calls a fixture. There are two ways to get one. A demo project is a ready-made LGE project that already holds the fixture files a chapter asks for, imported and waiting. The fixture files themselves are also on GitHub for readers who want to do the imports by hand.
+
+### Demo projects
+
+LGE offers eight demo projects, each built for a group of chapters. Choose **Help > Demo Projects…** to open a sheet that lists them with their size and whether you already have a copy. Click **Download & Open** beside a project. LGE downloads it, checks that its size and its SHA-256 checksum match the published values, unpacks it, and opens it. The download also appears in the Operations Panel. Once a project is on your Mac, its button reads **Open** instead.
+
+Downloaded projects go into `~/Documents/LGE Demo Projects`, which means the `LGE Demo Projects` folder inside your Documents folder. Click **Change…** beside the folder path at the top of the sheet to pick another folder, and **Use Default** to go back. **Reveal in Finder** shows a downloaded project's folder. After you have worked in a demo project, **Replace with a Fresh Copy…** downloads it again and moves your old copy, with every change you made, to the Trash once the new copy has passed its checks.
+
+A demo project holds inputs only. The reads, references, and practice files a chapter's `## Before you start` section asks for are already imported, but no analysis has been run, so every result in the project is one you make. Plugin packs and databases live on your Mac rather than inside a project, so install the ones each chapter names as usual. Each project folder holds a `README.md` that lists what is inside, where the data came from, and how to cite it.
+
+| Demo project | Chapters it covers |
+|---|---|
+| Genes and Sequences | [What Is a Genome](01-what-is-a-genome.md), [Importing and Viewing a Sequence](../02-sequences/01-importing-and-viewing.md), [Downloading from NCBI](../02-sequences/02-downloading-from-ncbi.md), [Extracting Sequences](../02-sequences/03-extracting-and-comparing.md), [Aligning Sequences](../02-sequences/04-aligning-sequences.md), [Building Trees](../02-sequences/05-building-trees.md) |
+| Human Reads | [Sequencing Reads](02-sequencing-reads.md), [Importing Sequencing Reads](../03-reads/01-importing-fastq.md), [Quality Control for Reads](../03-reads/03-quality-control.md), [Trimming and Filtering Reads](../03-reads/04-trimming-and-filtering.md), [Decontamination](../03-reads/05-decontamination.md), [Subsetting and Extraction](../03-reads/06-subsetting-and-extraction.md), [Read Processing](../03-reads/08-read-processing.md) |
+| Human Mapping and Variants | [Alignment Files](04-alignment-files.md), [Variants and VCF Files](05-variants-and-vcf.md), [Mapping Reads to a Reference](../04-alignments/01-mapping-reads-to-a-reference.md), [Reading an Alignment](../04-alignments/02-reading-an-alignment.md), [Alignment Quality](../04-alignments/04-alignment-quality.md), [Calling Variants](../05-variants/01-calling-variants-from-amplicons.md), [Reading the Variants Table](../05-variants/02-reading-the-variant-browser.md), [Extracting a Consensus Sequence](../05-variants/05-consensus-and-lineage.md), [Importing Existing VCFs](../05-variants/06-importing-existing-vcfs.md), [HaplotypeCaller](../06-human-germline-variants/01-haplotype-caller.md), [Joint Genotyping](../06-human-germline-variants/02-joint-genotyping.md), [Filtering, Selecting, and Metrics](../06-human-germline-variants/03-filtering-selecting-and-metrics.md), [Reference Files for GATK](../06-human-germline-variants/04-reference-packs.md) |
+| Long Reads and Assembly | [Oxford Nanopore Runs](../03-reads/07-ont-runs.md), [Nanopore Variant Calling](../05-variants/04-nanopore-variant-calling.md), [When to Assemble](../07-assembly/01-when-to-assemble.md), [Running SPAdes](../07-assembly/02-running-spades.md), [Running Flye or hifiasm](../07-assembly/03-running-flye-or-hifiasm.md), [Extracting Contigs](../07-assembly/04-extracting-contigs.md), [The Workflow Builder](../08-workflows/01-the-workflow-builder.md) |
+| SARS-CoV-2 Amplicons | [Decontamination](../03-reads/05-decontamination.md), [Primer Trimming an Alignment](../04-alignments/03-primer-trimming.md), [The Viral Recon Wizard](../04-alignments/05-viral-recon-wizard.md), [Running EsViritu](../06-classification/03-running-esviritu.md), [Running Freyja](../06-classification/07-running-freyja.md) |
+| Pathogen Detection | [What Is Read Classification](../06-classification/01-what-is-classification.md), [Running Kraken 2](../06-classification/02-running-kraken2.md), [Running TaxTriage](../06-classification/04-running-taxtriage.md), [Importing NAO-MGS Results](../06-classification/05-running-nao-mgs.md), [BLAST Verification](../06-classification/06-blast-verification.md), [Importing CZ ID Results](../06-classification/08-importing-cz-id-results.md), [Novel Virus Diagnostics](../06-classification/09-novel-virus-detection.md) |
+| MHC Genotyping | [What Is MHC Genotyping](../09-genotyping/01-what-is-mhc-genotyping.md), [Running Amplicon MHC Genotyping](../09-genotyping/02-running-genotyping.md), [Reading the Genotype Comparison](../09-genotyping/03-reading-the-genotype-comparison.md), [Exporting Genotypes](../09-genotyping/04-haplotype-definitions-and-export.md) |
+| 12S Metabarcoding | [12S Amplicon Metabarcoding](../06-classification/10-twelve-s-metabarcoding.md) |
+
+Most projects are small, from under a megabyte to about 50 MB. Pathogen Detection is the exception at about 260 MB, because it carries two corneal tissue runs of several million read pairs each. The demo projects need LGE 2026.9.44 or later.
+
+Without the menu, download a project as a zip file from the [demo-projects release page](https://github.com/dhoconno/lungfish-genome-explorer/releases/tag/demo-projects). Double-click the zip to unpack it, then open the `.lungfish` folder inside with **File > Open Project Folder...**. This route skips the checksum test the menu runs for you. From Terminal, `lungfish-cli demo list` lists the projects and `lungfish-cli demo fetch <id>` downloads and checks one, as [Demo projects](../appendices/cli-reference.md#demo-projects) in the command-line reference shows.
+
+These downloadable projects are separate from the demo project that the manual's screenshots come from, which you build yourself as [Build the demo project](#build-the-demo-project) explains.
+
+### Fixture files
+
+The fixtures live in the LGE repository on GitHub, a public website that stores the project's files. No GitHub account is needed to download them.
 
 | Fixture | What it is | Folder |
 |---|---|---|
@@ -277,7 +307,7 @@ A failed row turns red and adds three more items. **Copy Failure Report** gather
 
 ## Finding this manual inside the app
 
-The manual ships inside LGE. **Help > Lungfish Genome Explorer Help** opens it in the macOS Help Viewer, the system window that shows an application's built-in help, or in a window of LGE's own when the Help Viewer is unavailable. Three shorter guides sit under it, Getting Started, VCF Variants Guide, and AI Assistant Guide. Below those, Documentation and Release Notes open pages on the web. **Help > Report an Issue…** opens a pre-filled bug report carrying LGE's version, which suits a problem that is not tied to one job. For a failed job, the row's own **Open GitHub Issue** is faster because it includes the command and the log.
+The manual ships inside LGE. **Help > Lungfish Genome Explorer Help** opens it in the macOS Help Viewer, the system window that shows an application's built-in help, or in a window of LGE's own when the Help Viewer is unavailable. Below it sit Getting Started, **Demo Projects…**, which the [Demo projects](#demo-projects) section covers, and two shorter guides, VCF Variants Guide and AI Assistant Guide. Below those, Documentation and Release Notes open pages on the web. **Help > Report an Issue…** opens a pre-filled bug report carrying LGE's version, which suits a problem that is not tied to one job. For a failed job, the row's own **Open GitHub Issue** is faster because it includes the command and the log.
 
 ## What good looks like
 

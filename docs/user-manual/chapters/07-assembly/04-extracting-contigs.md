@@ -45,6 +45,8 @@ Extraction never changes the source assembly. You can extract from it again as o
 
 You need a project open, as [The Lungfish Genome Explorer Project](../01-foundations/06-the-lungfish-project.md#procedure) shows.
 
+Open the Long Reads and Assembly demo project with **Help > Demo Projects…**, as [Demo projects](../01-foundations/06-the-lungfish-project.md#demo-projects) explains. It already holds the `HG002.chrM` bundle, so run the assembly below on it. To import the pair yourself instead, follow the rest of this section.
+
 This chapter uses the human-mito fixture. Download `HG002.chrM_R1.fastq.gz` and `HG002.chrM_R2.fastq.gz` from [the human-mito fixture folder](https://github.com/dhoconno/lungfish-genome-explorer/tree/v2026.9.40/docs/user-manual/fixtures/human-mito), as [Practice data for this manual](../01-foundations/06-the-lungfish-project.md#practice-data-for-this-manual) explains.
 
 You also need an assembly to extract from. Run MEGAHIT on those reads as [Running SPAdes](02-running-spades.md) shows. This chapter uses MEGAHIT because its three contigs make the selection step real. A MEGAHIT run may need repeating on Apple Silicon, as that chapter explains. If you would rather not, use the single SPAdes contig instead, and every step works the same with one row to select.

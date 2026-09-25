@@ -57,7 +57,11 @@ IQ-TREE returns an unrooted tree, which shows the groupings but not which lineag
 
 ## Before you start
 
-You need a project open, as [The Lungfish Genome Explorer Project](../01-foundations/06-the-lungfish-project.md#procedure) shows. This chapter uses the primate-mito fixture. Download `primate-mito.fasta` from [primate-mito](https://github.com/dhoconno/lungfish-genome-explorer/tree/v2026.9.40/docs/user-manual/fixtures/primate-mito), as [Practice data for this manual](../01-foundations/06-the-lungfish-project.md#practice-data-for-this-manual) explains.
+You need a project open, as [The Lungfish Genome Explorer Project](../01-foundations/06-the-lungfish-project.md#procedure) shows.
+
+Open the Genes and Sequences demo project with **Help > Demo Projects…**, as [Demo projects](../01-foundations/06-the-lungfish-project.md#demo-projects) explains. It holds the `primate-mito` reference bundle but no alignment, so run [Aligning Sequences](04-aligning-sequences.md) in it first. To import the FASTA yourself instead, follow the rest of this section.
+
+This chapter uses the primate-mito fixture. Download `primate-mito.fasta` from [primate-mito](https://github.com/dhoconno/lungfish-genome-explorer/tree/v2026.9.40/docs/user-manual/fixtures/primate-mito), as [Practice data for this manual](../01-foundations/06-the-lungfish-project.md#practice-data-for-this-manual) explains.
 
 The FASTA file is the input to the previous chapter, not to this one. This chapter starts from the `.lungfishmsa` [bundle](../../GLOSSARY.md#bundle) that [Aligning Sequences](04-aligning-sequences.md) leaves under `Analyses/Multiple Sequence Alignments/`, so work through that chapter first.
 

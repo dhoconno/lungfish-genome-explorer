@@ -602,6 +602,12 @@ menu.Help.UserManual:
   scope: menu
   description: Help > Lungfish Help (Cmd-?)
 
+menu.Help.DemoProjects:
+  chapter: 01-foundations/06-the-lungfish-project
+  anchor: demo-projects
+  scope: menu
+  description: Help > Demo Projects…
+
 # === Settings panes ===
 
 settings.General:

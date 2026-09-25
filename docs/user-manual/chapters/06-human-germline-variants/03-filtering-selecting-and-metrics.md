@@ -51,6 +51,8 @@ The worked example runs on the cohort VCF from the HG002 chromosome 20 slice, a 
 
 You need a project open, as [The Lungfish Genome Explorer Project](../01-foundations/06-the-lungfish-project.md#procedure) shows.
 
+Open the Human Mapping and Variants demo project with **Help > Demo Projects…**, as [Demo projects](../01-foundations/06-the-lungfish-project.md#demo-projects) explains. Its `Practice Data/hg002-chr20` folder holds the reference, its `.fai` index, the benchmark VCF, and its `.tbi` index, so copy them from there into your working folder instead of downloading them.
+
 This chapter uses the HG002 chromosome 20 slice fixture. Download `GRCh38.chr20.10.0-10.5Mb.fasta`, its `.fai` index, `HG002.chr20.10.0-10.5Mb.benchmark.vcf.gz`, and its `.tbi` index from the [hg002-chr20 fixture folder](https://github.com/dhoconno/lungfish-genome-explorer/tree/v2026.9.39/docs/user-manual/fixtures/hg002-chr20), as [Practice data for this manual](../01-foundations/06-the-lungfish-project.md#practice-data-for-this-manual) explains. Put them, and the `cohort.vcf.gz` and `.tbi` from [Joint Genotyping](02-joint-genotyping.md), in one folder and run every command from there.
 
 This pack is experimental, so turn experimental features on first, as [Experimental packs and features](../01-foundations/07-plugin-packs.md#experimental-packs-and-features) shows. Install the `gatk-core` pack. The command line keeps its own copy of the tools, which [HaplotypeCaller](01-haplotype-caller.md#on-the-command-line) installs.

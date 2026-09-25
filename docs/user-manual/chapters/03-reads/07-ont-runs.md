@@ -53,6 +53,8 @@ The fixture is a slice of HG002, a human genome from the Genome in a Bottle proj
 
 You need a project open, as [The Lungfish Genome Explorer Project](../01-foundations/06-the-lungfish-project.md#procedure) shows.
 
+The Long Reads and Assembly demo project, which **Help > Demo Projects…** opens as [Demo projects](../01-foundations/06-the-lungfish-project.md#demo-projects) explains, holds the `ont-run` folder under `Practice Data/hg002-long-reads` with its nested folders intact. Importing it is this chapter's procedure, so point the importer at that folder, or download it as described next.
+
 This chapter uses the hg002-long-reads fixture. Download the `ont-run` folder from [the hg002-long-reads fixture folder](https://github.com/dhoconno/lungfish-genome-explorer/tree/v2026.9.39/docs/user-manual/fixtures/hg002-long-reads), as [Practice data for this manual](../01-foundations/06-the-lungfish-project.md#practice-data-for-this-manual) explains. Keep its nested folders and leave the file compressed, because the importer takes the barcode name from the folder. The file sits at this path:
 
 ```

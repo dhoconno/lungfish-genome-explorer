@@ -58,6 +58,8 @@ HBB encodes the beta chain of adult hemoglobin. A single-base change in the seve
 
 You need a project open, as [The Lungfish Genome Explorer Project](../01-foundations/06-the-lungfish-project.md#procedure) shows. This chapter uses the hbb-gene fixture. Download `NG_000007.3.gb` from [the hbb-gene fixture folder](https://github.com/dhoconno/lungfish-genome-explorer/tree/v2026.9.40/docs/user-manual/fixtures/hbb-gene), as [Practice data for this manual](../01-foundations/06-the-lungfish-project.md#practice-data-for-this-manual) explains.
 
+The Genes and Sequences demo project, which **Help > Demo Projects…** opens as [Demo projects](../01-foundations/06-the-lungfish-project.md#demo-projects) explains, already holds the finished `NG_000007.3` bundle under `Reference Sequences` and the original `NG_000007.3.gb` under `Practice Data/hbb-gene`. To repeat the import as the procedure shows it, make a new empty project and import that file there, or download it as described next.
+
 Nothing needs installing, because reading and drawing sequence files is built into LGE. The `.gb` extension marks a GenBank flatfile, which is why the bundle you build from it arrives with features. The import takes about a second on this record.
 
 ## Procedure

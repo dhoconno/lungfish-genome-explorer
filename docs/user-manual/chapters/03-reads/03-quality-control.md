@@ -54,6 +54,8 @@ This chapter works through the HG002 chromosome 20 slice. HG002 is a human genom
 
 You need a project open, as [The Lungfish Genome Explorer Project](../01-foundations/06-the-lungfish-project.md#procedure) shows.
 
+Open the Human Reads demo project with **Help > Demo Projects…**, as [Demo projects](../01-foundations/06-the-lungfish-project.md#demo-projects) explains. It already holds the `HG002.chr20.10.0-10.5Mb` bundle this section imports, made with Quality Binning left on None, so go straight to the procedure. To import the pair yourself instead, follow the rest of this section.
+
 This chapter uses the HG002 chromosome 20 fixture. Download `HG002.chr20.10.0-10.5Mb_R1.fastq.gz` and `HG002.chr20.10.0-10.5Mb_R2.fastq.gz` from the [hg002-chr20 fixture folder](https://github.com/dhoconno/lungfish-genome-explorer/tree/v2026.9.39/docs/user-manual/fixtures/hg002-chr20), as [Practice data for this manual](../01-foundations/06-the-lungfish-project.md#practice-data-for-this-manual) explains.
 
 Import the pair as [Importing Sequencing Reads](01-importing-fastq.md) shows. Leave the import sheet's Quality Binning control on its default, None (preserve original), which keeps every score exactly as the instrument wrote it. The figures in this chapter come from an import with that default.

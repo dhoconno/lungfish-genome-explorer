@@ -52,6 +52,8 @@ This chapter works through run SRR12486983, the pathogen-identification example 
 
 You need a project open, as [The Lungfish Genome Explorer Project](../01-foundations/06-the-lungfish-project.md#procedure) shows.
 
+Open the Pathogen Detection demo project with **Help > Demo Projects…**, as [Demo projects](../01-foundations/06-the-lungfish-project.md#demo-projects) explains. It already holds run `SRR12486983` as the bundle described below, so the SRA download is done. To fetch the run yourself instead, follow the rest of this section.
+
 This chapter uses the kraken-protocol-cornea fixture, the manual's name for this chapter's practice data. Its only data is run `SRR12486983`, which you download from the [Sequence Read Archive](../../GLOSSARY.md#sra), following [Downloading Reads from the SRA](../03-reads/02-downloading-from-sra.md). It imports as one [bundle](../../GLOSSARY.md#bundle), a folder LGE treats as one item, named `Imports/SRR12486983.lungfishfastq` and holding 4,819,760 read pairs. The fixture's README, with the study's source and terms of use, is at https://github.com/dhoconno/lungfish-genome-explorer/tree/main/docs/user-manual/fixtures/kraken-protocol-cornea, as [Practice data for this manual](../01-foundations/06-the-lungfish-project.md#practice-data-for-this-manual) explains.
 
 Install the `metagenomics` [plugin pack](../../GLOSSARY.md#plugin-pack), a themed group of tools LGE installs on request, as [Plugin Packs](../01-foundations/07-plugin-packs.md#procedure) shows. It carries Kraken 2 and Bracken.
