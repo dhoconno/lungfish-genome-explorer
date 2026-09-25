@@ -120,43 +120,83 @@ public enum ManagedStorageDedupeError: Error, LocalizedError, Equatable, Sendabl
 /// 1. Walk `databases/`, `conda/pkgs/` and (optionally) `conda/envs/` under each
 ///    root, never following symbolic links and skipping install transaction files.
 /// 2. Group paths by inode (hard links are one physical file), then physical
-///    files by size, then by streaming SHA-256. Only sizes seen more than once
-///    are hashed.
-/// 3. Inside one SHA-256 group, files that already share an APFS clone
-///    identifier are one family. One family is kept (the most linked, then the
-///    earliest root); every other family is a duplicate.
-/// 4. Applying clones the kept file to a temporary name next to each duplicate
+///    files by size. Only sizes seen more than once go further.
+/// 3. Inside one size group, files that already share an APFS clone identifier
+///    are one family and are never hashed against each other. One
+///    representative per family is digested with streaming SHA-256, so a tree
+///    that is already cloned costs no hashing at all.
+/// 4. Families with one digest are one duplicate set. One family is kept (the
+///    most linked, then the earliest root); every other family is a duplicate.
+/// 5. Applying clones the kept file to a temporary name next to each duplicate
 ///    path, verifies size and SHA-256 of the clone, preserves mode, xattrs and
 ///    times, and renames it over the duplicate. Open readers keep their old
 ///    inode. A family is only counted as reclaimed once every hard link to its
-///    inode has been replaced, so the inode is actually freed.
+///    inode has been replaced, so the inode is actually freed. Open files are
+///    checked only when applying, against one snapshot of the process table
+///    captured on first use; a dry run never inspects processes.
 public struct ManagedStorageDeduplicator: Sendable {
     public static let logFilename = "storage-dedupe-log.jsonl"
     static let temporaryPrefix = ".lungfish-dedupe-"
 
     public typealias ProgressHandler = @Sendable (String) -> Void
 
+    /// Builds one open-file check per apply pass. It is invoked at most once
+    /// per run, only when applying, and only when there is a duplicate to
+    /// replace, so a dry run never inspects the process table.
+    public typealias OpenFileCheckFactory = @Sendable () -> (@Sendable (URL) -> Bool)
+
     private var fileManager: FileManager { .default }
-    private let openFileDetector: @Sendable (URL) -> Bool
+    private let openFileCheckFactory: OpenFileCheckFactory
     private let cloneIdentifier: @Sendable (URL) -> UInt64?
     private let now: @Sendable () -> Date
 
     public init() {
         self.init(
-            openFileDetector: { !APFSCloneSupport.processesHoldingOpen($0).isEmpty },
+            openFileCheckFactory: {
+                let snapshot = APFSCloneSupport.OpenFileSnapshot.capture()
+                return { snapshot.contains($0) }
+            },
             cloneIdentifier: APFSCloneSupport.cloneIdentifier(of:),
             now: Date.init
         )
     }
 
     init(
-        openFileDetector: @escaping @Sendable (URL) -> Bool,
+        openFileCheckFactory: @escaping OpenFileCheckFactory,
         cloneIdentifier: @escaping @Sendable (URL) -> UInt64?,
         now: @escaping @Sendable () -> Date
     ) {
-        self.openFileDetector = openFileDetector
+        self.openFileCheckFactory = openFileCheckFactory
         self.cloneIdentifier = cloneIdentifier
         self.now = now
+    }
+
+    /// Throttles progress messages to one every `interval` seconds.
+    private final class ProgressReporter {
+        private let handler: ProgressHandler?
+        private let started: Date
+        private var lastReport: Date
+        private let interval: TimeInterval
+        var filesScanned = 0
+        var filesHashed = 0
+        var bytesHashed: Int64 = 0
+
+        init(handler: ProgressHandler?, started: Date, interval: TimeInterval = 10) {
+            self.handler = handler
+            self.started = started
+            self.lastReport = started
+            self.interval = interval
+        }
+
+        func tick(phase: String, force: Bool = false) {
+            guard let handler else { return }
+            let now = Date()
+            guard force || now.timeIntervalSince(lastReport) >= interval else { return }
+            lastReport = now
+            let elapsed = Int(now.timeIntervalSince(started))
+            let hashed = ByteCountFormatter.string(fromByteCount: bytesHashed, countStyle: .file)
+            handler("\(phase): \(filesScanned) files scanned, \(filesHashed) hashed (\(hashed)), \(elapsed)s elapsed")
+        }
     }
 
     // MARK: - Public entry points
@@ -237,7 +277,7 @@ public struct ManagedStorageDeduplicator: Sendable {
             throw ManagedStorageDedupeError.installInProgress(report.blockers)
         }
 
-        progress?("Scanning \(roots.count) root(s)")
+        let reporter = ProgressReporter(handler: progress, started: report.startedAt)
         var physical: [String: PhysicalFile] = [:]
         var rootSummaries = roots.map {
             ManagedStorageDedupeReport.RootSummary(
@@ -247,56 +287,78 @@ public struct ManagedStorageDeduplicator: Sendable {
         }
         for (rootIndex, root) in roots.enumerated() {
             for directory in Self.scanDirectories(under: root, includeEnvironments: options.includeCondaEnvironments) {
-                scan(directory: directory, rootIndex: rootIndex, minimumSize: options.minimumFileSize, into: &physical, summary: &rootSummaries[rootIndex])
+                scan(directory: directory, rootIndex: rootIndex, minimumSize: options.minimumFileSize,
+                     into: &physical, summary: &rootSummaries[rootIndex], reporter: reporter)
             }
         }
         report.filesExamined = rootSummaries.reduce(0) { $0 + $1.filesExamined }
         report.bytesExamined = rootSummaries.reduce(0) { $0 + $1.bytesExamined }
+        reporter.tick(phase: "Scanned", force: true)
 
-        // Group by size; only collisions are hashed.
+        // Group by size; only sizes seen more than once can hold duplicates.
         var bySize: [Int64: [PhysicalFile]] = [:]
         for file in physical.values { bySize[file.size, default: []].append(file) }
         let candidates = bySize.filter { $0.value.count > 1 }.sorted { $0.key > $1.key }
-        progress?("Hashing \(candidates.reduce(0) { $0 + $1.value.count }) size-collision file(s)")
+
+        // The open-file check is built once per apply pass, on first use.
+        var openFileCheck: (@Sendable (URL) -> Bool)?
+        func isOpen(_ url: URL) -> Bool {
+            if openFileCheck == nil { openFileCheck = openFileCheckFactory() }
+            return openFileCheck!(url)
+        }
 
         for (size, files) in candidates {
-            var byHash: [String: [PhysicalFile]] = [:]
-            for file in files {
-                guard let path = file.paths.first else { continue }
+            // Files already in one APFS clone family share blocks: nothing to
+            // gain and nothing to hash. Only distinct families are digested,
+            // one representative each.
+            let sizeFamilies = Self.families(of: files, cloneIdentifier: cloneIdentifier)
+            guard sizeFamilies.count > 1 else {
+                report.bytesAlreadyShared += Int64(files.count - 1) * size
+                continue
+            }
+            var byHash: [String: [Family]] = [:]
+            for family in sizeFamilies {
+                guard let path = family.paths.first else { continue }
                 do {
                     let digest = try FileDigest.sha256(of: path)
+                    reporter.filesHashed += 1
+                    reporter.bytesHashed += size
                     report.filesHashed += 1
-                    byHash[digest, default: []].append(file)
+                    byHash[digest, default: []].append(family)
                 } catch {
                     report.failures.append("hash \(path.path): \(error.localizedDescription)")
                 }
+                reporter.tick(phase: "Hashing")
             }
             for (digest, group) in byHash where group.count > 1 {
-                var families = Self.families(of: group, cloneIdentifier: cloneIdentifier)
-                guard families.count > 1 else {
-                    // Every copy already shares one clone family.
-                    report.bytesAlreadyShared += Int64(group.count - 1) * size
-                    continue
-                }
+                var families = group
                 families.sort { lhs, rhs in
                     if lhs.linkCount != rhs.linkCount { return lhs.linkCount > rhs.linkCount }
                     if lhs.rootIndex != rhs.rootIndex { return lhs.rootIndex < rhs.rootIndex }
                     return (lhs.paths.first?.path ?? "") < (rhs.paths.first?.path ?? "")
                 }
                 let kept = families.removeFirst()
+                if kept.files.count > 1 {
+                    report.bytesAlreadyShared += Int64(kept.files.count - 1) * size
+                }
                 guard let keptPath = kept.paths.sorted(by: { $0.path < $1.path }).first else { continue }
                 var set = ManagedStorageDedupeReport.DuplicateSet(
                     sha256: digest, size: size, keptPath: keptPath.path, duplicatePaths: [], bytesReclaimable: 0
                 )
                 for family in families {
+                    if family.files.count > 1 {
+                        report.bytesAlreadyShared += Int64(family.files.count - 1) * size
+                    }
                     guard family.fullyLinked else {
                         report.filesWithExternalLinks += family.files.count
                         continue
                     }
-                    let openPaths = family.paths.filter(openFileDetector)
-                    guard openPaths.isEmpty else {
-                        report.filesOpenElsewhere += openPaths.count
-                        continue
+                    if apply {
+                        let openPaths = family.paths.filter(isOpen)
+                        guard openPaths.isEmpty else {
+                            report.filesOpenElsewhere += openPaths.count
+                            continue
+                        }
                     }
                     let reclaimable = min(family.allocatedBytes, Int64(family.files.count) * size)
                     set.duplicatePaths.append(contentsOf: family.paths.map(\.path))
@@ -312,13 +374,14 @@ public struct ManagedStorageDeduplicator: Sendable {
                         rootSummaries[family.rootIndex].bytesReclaimed += reclaimable
                         rootSummaries[family.rootIndex].filesReplaced += family.paths.count
                     }
+                    reporter.tick(phase: apply ? "Replacing" : "Comparing")
                 }
                 guard !set.duplicatePaths.isEmpty else { continue }
                 report.duplicateSets += 1
                 report.sets.append(set)
-                progress?("Duplicate set \(digest.prefix(12)) \(set.duplicatePaths.count) file(s), \(size) bytes each")
             }
         }
+        reporter.tick(phase: apply ? "Replaced" : "Compared", force: true)
         report.roots = rootSummaries
         report.finishedAt = now()
         if apply {
@@ -341,7 +404,8 @@ public struct ManagedStorageDeduplicator: Sendable {
     private func scan(
         directory: URL, rootIndex: Int, minimumSize: Int,
         into physical: inout [String: PhysicalFile],
-        summary: inout ManagedStorageDedupeReport.RootSummary
+        summary: inout ManagedStorageDedupeReport.RootSummary,
+        reporter: ProgressReporter
     ) {
         guard isDirectory(directory) else { return }
         guard let enumerator = fileManager.enumerator(
@@ -367,6 +431,8 @@ public struct ManagedStorageDeduplicator: Sendable {
             let size = Int64(metadata.st_size)
             summary.filesExamined += 1
             summary.bytesExamined += size
+            reporter.filesScanned += 1
+            reporter.tick(phase: "Scanning")
             guard size >= Int64(minimumSize) else { continue }
             let key = "\(metadata.st_dev):\(metadata.st_ino)"
             if var existing = physical[key] {
