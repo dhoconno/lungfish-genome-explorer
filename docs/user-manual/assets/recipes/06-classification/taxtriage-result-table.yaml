@@ -1,9 +1,14 @@
-# Captured from Lungfish Preview 2026.9.43 (2026-09 campaign) in a project holding SRR12486983 and SRR12486989 downloaded through the SRA route and run through TaxTriage against Standard-16 with --remove_taxids 9606.
-# App state: TaxTriage viewport in List Over Detail layout, both samples ticked in the Inspector Sample Filter (cards Batch TaxTriage, Samples 2, Organisms 322), Human alphaherpesvirus 1 row of SRR12486983 selected (TASS 0.930, Reads 2.0M, Unique Reads 1.6M, High), alignment pane below showing the coverage track over NC_001806.2 (152,222 bases, 99% covered, mean depth about 794x) zoomed out with the zoom-in prompt, Inspector showing Panel Layout and Operation Details (Runtime 17m 39s)
+# Captured from Lungfish Preview 2026.9.43 (2026-09 campaign) in a project holding SRR12486983 and SRR12486989 run through TaxTriage against Standard-16 with --remove_taxids 9606.
+# App state: TaxTriage viewport in List Over Detail layout, both samples ticked in the Inspector Sample Filter (cards Batch TaxTriage, Samples 2, Organisms 322), Human alphaherpesvirus 1 row of SRR12486983 selected (TASS 0.930, Reads 2.0M, Unique Reads 1.6M, High), alignment pane below showing the zoomed-out coverage track over NC_001806.2 (152,222 bases, 99% covered, mean depth about 794x) with the prompt to zoom in to view individual mapped reads, Inspector showing Panel Layout and Operation Details (Runtime 17m 39s)
 id: taxtriage-result-table
 chapter: 06-classification/04-running-taxtriage
-caption: "The TaxTriage viewport for the two-sample corneal run in the List Over Detail layout, with both samples ticked in the Inspector's Sample Filter and the cards reading Batch TaxTriage, Samples 2, and Organisms 322. The Human alphaherpesvirus 1 row of SRR12486983 is selected in the table on top, showing TASS Score 0.930, Reads 2.0M, Unique Reads 1.6M, and High, and the alignment pane below shows the coverage track across the 152,222-base HSV-1 reference NC_001806.2, zoomed out, with its prompt to zoom in to view individual mapped reads. The Inspector shows its Panel Layout control and the run's Operation Details."
-viewport_class: none
+caption: The TaxTriage viewport for the two-sample corneal run in the List Over Detail layout, with both
+  samples ticked in the Inspector's Sample Filter and the cards reading Batch TaxTriage, Samples 2, and
+  Organisms 322. The Human alphaherpesvirus 1 row of SRR12486983 is selected in the table on top, showing
+  TASS Score 0.930, Reads 2.0M, Unique Reads 1.6M, and High, and the alignment pane below shows the coverage
+  track across the 152,222-base HSV-1 reference NC_001806.2, zoomed out, with its prompt to zoom in to
+  view individual mapped reads. The Inspector shows its Panel Layout control and the run's Operation Details.
+viewport_class: taxonomy
 app_state:
   fixture: kraken-protocol-cornea
   open_files:
@@ -21,7 +26,7 @@ steps:
   size:
   - 1400
   - 900
-  # PROSE-ONLY: Select the taxtriage-batch- result under Analyses in the sidebar
+  # PROSE-ONLY: Select the taxtriage-batch- result for SRR12486983 and SRR12486989 under Analyses in the sidebar
   # PROSE-ONLY: Leave both samples ticked in the Inspector Sample Filter and Panel Layout on List Over Detail
   # PROSE-ONLY: Select the Human alphaherpesvirus 1 row of SRR12486983
 crop:

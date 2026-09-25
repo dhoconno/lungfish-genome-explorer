@@ -1,9 +1,13 @@
-# Captured from Lungfish Preview 2026.9.43 (2026-09 campaign) in a project holding SRR12486983 and SRR12486989 downloaded through the SRA route and run through TaxTriage against Standard-16 with --remove_taxids 9606.
+# Captured from Lungfish Preview 2026.9.43 (2026-09 campaign) in a project holding SRR12486983 and SRR12486989 run through TaxTriage against Standard-16 with --remove_taxids 9606.
 # App state: TaxTriage viewport, both samples ticked, Kocuria typed in Filter organisms..., SRR12486983 Kocuria rows first (Kocuria sp. BT304 0.920 High down to Kocuria rosea 0.080 Low) then SRR12486989 rows (Kocuria sp. BT304 0.980 High first), visible columns Sample, Organism, TASS Score, Reads, Unique Reads, Confidence, no row selected, alignment pane empty
 id: taxtriage-batch-overview
 chapter: 06-classification/04-running-taxtriage
-caption: "The TaxTriage viewport with both samples ticked and Kocuria typed in the Filter organisms... field, showing SRR12486983's Kocuria rows first, from Kocuria sp. BT304 at 0.920 High down to Kocuria rosea at 0.080 Low, then SRR12486989's, starting with Kocuria sp. BT304 at 0.980 High, under the Sample, Organism, TASS Score, Reads, Unique Reads, and Confidence columns. No row is selected, so the alignment pane is empty."
-viewport_class: none
+caption: The TaxTriage viewport with both samples ticked and Kocuria typed in the Filter organisms...
+  field, showing SRR12486983's Kocuria rows first, from Kocuria sp. BT304 at 0.920 High down to Kocuria
+  rosea at 0.080 Low, then SRR12486989's, starting with Kocuria sp. BT304 at 0.980 High, under the Sample,
+  Organism, TASS Score, Reads, Unique Reads, and Confidence columns. No row is selected, so the alignment
+  pane is empty.
+viewport_class: taxonomy
 app_state:
   fixture: kraken-protocol-cornea
   open_files:
@@ -21,9 +25,9 @@ steps:
   size:
   - 1400
   - 900
-  # PROSE-ONLY: Select the taxtriage-batch- result under Analyses in the sidebar
+  # PROSE-ONLY: Select the taxtriage-batch- result for SRR12486983 and SRR12486989 under Analyses in the sidebar
   # PROSE-ONLY: Leave both samples ticked in the Inspector Sample Filter
-  # PROSE-ONLY: Type Kocuria in the Filter organisms... field with no row selected
+  # PROSE-ONLY: Type Kocuria in the Filter organisms... field and leave no row selected
 crop:
   mode: window
 post:
