@@ -78,7 +78,13 @@ public enum SidebarImportPlanner {
         }
 
         if isDirectory.boolValue {
+            // Native packages, analysis result folders (kraken2-<timestamp>,
+            // minimap2-<timestamp>, esviritu-batch-<timestamp>, ...) and ONT run
+            // directories are one item each. Exploding a result folder into
+            // loose files is what used to lose a Kraken 2 result dragged from
+            // another project.
             if SidebarProjectScanner.isNativePackage(standardizedURL)
+                || AnalysesFolder.analysisInfo(for: standardizedURL) != nil
                 || ontDirectoryDetector(standardizedURL) {
                 appendAtomicSource(standardizedURL, seenPaths: &seenPaths, expanded: &expanded)
                 return

@@ -635,17 +635,12 @@ extension MainSplitViewController {
         }
 
         let importPlan = makeSidebarImportPlan(for: zipImportBatch.sourceURLs)
-        let sourceURLs = importPlan.sourceURLs
+        let partition = Self.partitionDroppedSources(importPlan.sourceURLs)
+        let sourceURLs = partition.other
 
         mainSplitLogger.info(
-            "handleSidebarFileDropped: Expanded to \(sourceURLs.count) import source(s); autoDisplay=\(importPlan.shouldAutoDisplayImportedContent)"
+            "handleSidebarFileDropped: Expanded to \(importPlan.sourceURLs.count) import source(s) (\(partition.projectItems.count) project item(s)); autoDisplay=\(importPlan.shouldAutoDisplayImportedContent)"
         )
-
-        guard !sourceURLs.isEmpty else {
-            mainSplitLogger.warning("handleSidebarFileDropped: No importable sources found after expansion")
-            zipImportBatch.cleanup()
-            return
-        }
 
         // Determine destination - use the new filesystem-backed project URL
         let destinationItem = notification.userInfo?["destination"] as? SidebarItem
@@ -657,6 +652,32 @@ extension MainSplitViewController {
             }
             return projectURL
         }()
+
+        // Lungfish bundles and analysis result folders, whether they come from
+        // another project window or from Finder, are copied whole through one
+        // shared path that lands them in the folder this project expects and
+        // records which of their source data is not available here.
+        // A dropped .zip only ever yields native packages, so when project
+        // items are present the copy path owns the extracted-temp cleanup.
+        let projectItemCopyOwnsZipCleanup = !partition.projectItems.isEmpty
+        if projectItemCopyOwnsZipCleanup {
+            importProjectItemsFromDrop(
+                urls: partition.projectItems,
+                projectURL: projectURL,
+                requestedFolder: destinationItem?.type == .folder ? destinationItem?.url : nil,
+                requestID: requestID,
+                displayAfterImport: importPlan.shouldAutoDisplayImportedContent,
+                onFinished: { zipImportBatch.cleanup() }
+            )
+        }
+
+        guard !sourceURLs.isEmpty else {
+            if !projectItemCopyOwnsZipCleanup {
+                mainSplitLogger.warning("handleSidebarFileDropped: No importable sources found after expansion")
+                zipImportBatch.cleanup()
+            }
+            return
+        }
 
         // Partition URLs into FASTQ files, ONT directories, and other files
         var fastqURLs: [URL] = []
@@ -683,7 +704,9 @@ extension MainSplitViewController {
         // Non-FASTQ files: copy to project as before
         if !otherURLs.isEmpty {
             Task { @MainActor [weak self, zipImportBatch] in
-                defer { zipImportBatch.cleanup() }
+                defer {
+                    if !projectItemCopyOwnsZipCleanup { zipImportBatch.cleanup() }
+                }
                 guard let self else { return }
                 for url in otherURLs {
                     await self.importNonFASTQFile(
@@ -696,7 +719,7 @@ extension MainSplitViewController {
                     )
                 }
             }
-        } else {
+        } else if !projectItemCopyOwnsZipCleanup {
             zipImportBatch.cleanup()
         }
     }

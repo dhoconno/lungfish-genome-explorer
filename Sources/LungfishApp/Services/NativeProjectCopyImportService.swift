@@ -5,7 +5,10 @@ import LungfishWorkflow
 /// Publishes opaque native documents with a receipt for the bytes actually copied.
 /// Archives remain archives; directory payloads keep their existing layout.
 enum NativeProjectCopyImportService {
-    static func copy(from source: URL, to destination: URL, replaceExisting: Bool = false) throws -> URL {
+    /// - Parameter sourceProjectURL: the project the item is being copied out
+    ///   of, when known. It is recorded in the copy receipt so a copied item
+    ///   remembers where it came from.
+    static func copy(from source: URL, to destination: URL, replaceExisting: Bool = false, sourceProjectURL: URL? = nil) throws -> URL {
         let fm = FileManager.default
         let source = source.standardizedFileURL
         let destination = destination.standardizedFileURL
@@ -49,9 +52,13 @@ enum NativeProjectCopyImportService {
             try publication.publish(stagedURL: staged, to: destination, replacingExisting: replaceExisting)
             if writesReceipt {
                 let completedAt = Date()
-                let argv = ["Lungfish.app", "import-native", source.path, "--output", destination.path]
-                let resolved: [String: ParameterValue] = ["source": .file(source), "destination": .file(destination),
+                var argv = ["Lungfish.app", "import-native", source.path, "--output", destination.path]
+                var resolved: [String: ParameterValue] = ["source": .file(source), "destination": .file(destination),
                     "replaceExisting": .boolean(replaceExisting), "copyMode": .string(isDirectory ? "directory-copy" : "opaque-file-copy")]
+                if let sourceProjectURL {
+                    argv += ["--source-project", sourceProjectURL.path]
+                    resolved["sourceProject"] = .file(sourceProjectURL)
+                }
                 let step = ProvenanceStep(toolName: "lungfish-app", toolVersion: WorkflowRun.currentAppVersion,
                     argv: argv, resolvedOptions: resolved, runtimeIdentity: ProvenanceRuntimeIdentity(),
                     inputs: inputs, outputs: outputs, exitStatus: 0, wallTimeSeconds: completedAt.timeIntervalSince(startedAt),
