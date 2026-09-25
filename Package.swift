@@ -190,7 +190,8 @@ let package = Package(
                 .copy("Resources/MCMHaplotyping"),
                 .copy("Resources/Recipes"),
                 .copy("Resources/ONTGenotyping"),
-                .copy("Resources/PrimerDesignAdapters")
+                .copy("Resources/PrimerDesignAdapters"),
+                .copy("Resources/DemoProjects")
             ]
         ),
         .testTarget(

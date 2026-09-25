@@ -1,0 +1,277 @@
+{
+  "schemaVersion": 1,
+  "projects": [
+    {
+      "id": "genes-and-sequences",
+      "title": "Genes and Sequences",
+      "summary": "Reference genomes and gene sequences with annotations, ready to browse, extract, align into a multiple sequence alignment and build a tree from.",
+      "chapters": [
+        {
+          "title": "Importing and Viewing Sequences",
+          "path": "chapters/02-sequences/01-importing-and-viewing/"
+        },
+        {
+          "title": "Downloading from NCBI",
+          "path": "chapters/02-sequences/02-downloading-from-ncbi/"
+        },
+        {
+          "title": "Extracting and Comparing Sequences",
+          "path": "chapters/02-sequences/03-extracting-and-comparing/"
+        },
+        {
+          "title": "Aligning Sequences",
+          "path": "chapters/02-sequences/04-aligning-sequences/"
+        },
+        {
+          "title": "Building Trees",
+          "path": "chapters/02-sequences/05-building-trees/"
+        }
+      ],
+      "projectFolderName": "Genes and Sequences.lungfish",
+      "archive": {
+        "url": "https://github.com/dhoconno/lungfish-genome-explorer/releases/download/demo-projects/lge-demo-genes-and-sequences-2026.9.44.zip",
+        "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+        "bytes": 0
+      },
+      "version": "2026.9.44",
+      "minimumAppVersion": "2026.9.44"
+    },
+    {
+      "id": "human-reads",
+      "title": "Human Reads",
+      "summary": "A small set of paired Illumina human reads for practising FASTQ import, quality control, trimming, filtering, decontamination and subsetting.",
+      "chapters": [
+        {
+          "title": "Importing FASTQ Files",
+          "path": "chapters/03-reads/01-importing-fastq/"
+        },
+        {
+          "title": "Quality Control",
+          "path": "chapters/03-reads/03-quality-control/"
+        },
+        {
+          "title": "Trimming and Filtering",
+          "path": "chapters/03-reads/04-trimming-and-filtering/"
+        },
+        {
+          "title": "Decontamination",
+          "path": "chapters/03-reads/05-decontamination/"
+        },
+        {
+          "title": "Subsetting and Extraction",
+          "path": "chapters/03-reads/06-subsetting-and-extraction/"
+        }
+      ],
+      "projectFolderName": "Human Reads.lungfish",
+      "archive": {
+        "url": "https://github.com/dhoconno/lungfish-genome-explorer/releases/download/demo-projects/lge-demo-human-reads-2026.9.44.zip",
+        "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+        "bytes": 0
+      },
+      "version": "2026.9.44",
+      "minimumAppVersion": "2026.9.44"
+    },
+    {
+      "id": "human-mapping-and-variants",
+      "title": "Human Mapping and Variants",
+      "summary": "Human reads and a reference region for mapping, inspecting the alignment, and calling, joint-genotyping and filtering germline variants.",
+      "chapters": [
+        {
+          "title": "Mapping Reads to a Reference",
+          "path": "chapters/04-alignments/01-mapping-reads-to-a-reference/"
+        },
+        {
+          "title": "Reading an Alignment",
+          "path": "chapters/04-alignments/02-reading-an-alignment/"
+        },
+        {
+          "title": "Alignment Quality",
+          "path": "chapters/04-alignments/04-alignment-quality/"
+        },
+        {
+          "title": "HaplotypeCaller",
+          "path": "chapters/06-human-germline-variants/01-haplotype-caller/"
+        },
+        {
+          "title": "Joint Genotyping",
+          "path": "chapters/06-human-germline-variants/02-joint-genotyping/"
+        },
+        {
+          "title": "Filtering, Selecting and Metrics",
+          "path": "chapters/06-human-germline-variants/03-filtering-selecting-and-metrics/"
+        }
+      ],
+      "projectFolderName": "Human Mapping and Variants.lungfish",
+      "archive": {
+        "url": "https://github.com/dhoconno/lungfish-genome-explorer/releases/download/demo-projects/lge-demo-human-mapping-and-variants-2026.9.44.zip",
+        "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+        "bytes": 0
+      },
+      "version": "2026.9.44",
+      "minimumAppVersion": "2026.9.44"
+    },
+    {
+      "id": "long-reads-and-assembly",
+      "title": "Long Reads and Assembly",
+      "summary": "Oxford Nanopore reads for exploring a long-read run, assembling it, extracting contigs and calling variants from nanopore data.",
+      "chapters": [
+        {
+          "title": "Oxford Nanopore Runs",
+          "path": "chapters/03-reads/07-ont-runs/"
+        },
+        {
+          "title": "When to Assemble",
+          "path": "chapters/07-assembly/01-when-to-assemble/"
+        },
+        {
+          "title": "Running Flye or hifiasm",
+          "path": "chapters/07-assembly/03-running-flye-or-hifiasm/"
+        },
+        {
+          "title": "Extracting Contigs",
+          "path": "chapters/07-assembly/04-extracting-contigs/"
+        },
+        {
+          "title": "Nanopore Variant Calling",
+          "path": "chapters/05-variants/04-nanopore-variant-calling/"
+        }
+      ],
+      "projectFolderName": "Long Reads and Assembly.lungfish",
+      "archive": {
+        "url": "https://github.com/dhoconno/lungfish-genome-explorer/releases/download/demo-projects/lge-demo-long-reads-and-assembly-2026.9.44.zip",
+        "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+        "bytes": 0
+      },
+      "version": "2026.9.44",
+      "minimumAppVersion": "2026.9.44"
+    },
+    {
+      "id": "sarscov2-amplicons",
+      "title": "SARS-CoV-2 Amplicons",
+      "summary": "SARS-CoV-2 amplicon reads with a reference and primer scheme for primer trimming, variant calling, consensus, lineage assignment and Freyja demixing.",
+      "chapters": [
+        {
+          "title": "Primer Trimming",
+          "path": "chapters/04-alignments/03-primer-trimming/"
+        },
+        {
+          "title": "The Viral Recon Wizard",
+          "path": "chapters/04-alignments/05-viral-recon-wizard/"
+        },
+        {
+          "title": "Calling Variants from Amplicons",
+          "path": "chapters/05-variants/01-calling-variants-from-amplicons/"
+        },
+        {
+          "title": "Reading the Variant Browser",
+          "path": "chapters/05-variants/02-reading-the-variant-browser/"
+        },
+        {
+          "title": "Consensus and Lineage",
+          "path": "chapters/05-variants/05-consensus-and-lineage/"
+        },
+        {
+          "title": "Running Freyja",
+          "path": "chapters/06-classification/07-running-freyja/"
+        }
+      ],
+      "projectFolderName": "SARS-CoV-2 Amplicons.lungfish",
+      "archive": {
+        "url": "https://github.com/dhoconno/lungfish-genome-explorer/releases/download/demo-projects/lge-demo-sarscov2-amplicons-2026.9.44.zip",
+        "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+        "bytes": 0
+      },
+      "version": "2026.9.44",
+      "minimumAppVersion": "2026.9.44"
+    },
+    {
+      "id": "pathogen-detection",
+      "title": "Pathogen Detection",
+      "summary": "Metagenomic reads for classifying with Kraken2, EsViritu and TaxTriage, confirming hits with BLAST and looking for novel viruses.",
+      "chapters": [
+        {
+          "title": "What Is Classification?",
+          "path": "chapters/06-classification/01-what-is-classification/"
+        },
+        {
+          "title": "Running Kraken2",
+          "path": "chapters/06-classification/02-running-kraken2/"
+        },
+        {
+          "title": "Running EsViritu",
+          "path": "chapters/06-classification/03-running-esviritu/"
+        },
+        {
+          "title": "Running TaxTriage",
+          "path": "chapters/06-classification/04-running-taxtriage/"
+        },
+        {
+          "title": "BLAST Verification",
+          "path": "chapters/06-classification/06-blast-verification/"
+        },
+        {
+          "title": "Novel Virus Detection",
+          "path": "chapters/06-classification/09-novel-virus-detection/"
+        }
+      ],
+      "projectFolderName": "Pathogen Detection.lungfish",
+      "archive": {
+        "url": "https://github.com/dhoconno/lungfish-genome-explorer/releases/download/demo-projects/lge-demo-pathogen-detection-2026.9.44.zip",
+        "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+        "bytes": 0
+      },
+      "version": "2026.9.44",
+      "minimumAppVersion": "2026.9.44"
+    },
+    {
+      "id": "mhc-genotyping",
+      "title": "MHC Genotyping",
+      "summary": "Macaque MHC amplicon reads and haplotype definitions for running genotyping and reading the genotype comparison.",
+      "chapters": [
+        {
+          "title": "What Is MHC Genotyping?",
+          "path": "chapters/09-genotyping/01-what-is-mhc-genotyping/"
+        },
+        {
+          "title": "Running Genotyping",
+          "path": "chapters/09-genotyping/02-running-genotyping/"
+        },
+        {
+          "title": "Reading the Genotype Comparison",
+          "path": "chapters/09-genotyping/03-reading-the-genotype-comparison/"
+        },
+        {
+          "title": "Haplotype Definitions and Export",
+          "path": "chapters/09-genotyping/04-haplotype-definitions-and-export/"
+        }
+      ],
+      "projectFolderName": "MHC Genotyping.lungfish",
+      "archive": {
+        "url": "https://github.com/dhoconno/lungfish-genome-explorer/releases/download/demo-projects/lge-demo-mhc-genotyping-2026.9.44.zip",
+        "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+        "bytes": 0
+      },
+      "version": "2026.9.44",
+      "minimumAppVersion": "2026.9.44"
+    },
+    {
+      "id": "twelve-s-metabarcoding",
+      "title": "12S Metabarcoding",
+      "summary": "12S rRNA amplicon reads for matching against a vertebrate reference set and reviewing species assignments and abundance.",
+      "chapters": [
+        {
+          "title": "12S Metabarcoding",
+          "path": "chapters/06-classification/10-twelve-s-metabarcoding/"
+        }
+      ],
+      "projectFolderName": "12S Metabarcoding.lungfish",
+      "archive": {
+        "url": "https://github.com/dhoconno/lungfish-genome-explorer/releases/download/demo-projects/lge-demo-twelve-s-metabarcoding-2026.9.44.zip",
+        "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+        "bytes": 0
+      },
+      "version": "2026.9.44",
+      "minimumAppVersion": "2026.9.44"
+    }
+  ]
+}

@@ -65,6 +65,9 @@ final class AppShellAccessibilityTests: XCTestCase {
         XCTAssertEqual(releaseNotesItem.identifier?.rawValue, "help-menu-release-notes")
         XCTAssertEqual(reportIssueItem.identifier?.rawValue, "help-menu-report-issue")
         XCTAssertEqual(reportIssueItem.action, #selector(AppDelegate.reportIssue(_:)))
+        let demoProjectsItem = try XCTUnwrap(helpMenu.items.first(where: { $0.title == "Demo Projects\u{2026}" }))
+        XCTAssertEqual(demoProjectsItem.identifier?.rawValue, "help-menu-demo-projects")
+        XCTAssertEqual(demoProjectsItem.action, #selector(AppDelegate.showDemoProjects(_:)))
     }
 
     func testProvenanceExportMenuItemsMatchSupportedFormats() throws {

@@ -110,7 +110,10 @@ final class ScientificCLIProvenanceCoverageTests: XCTestCase {
             "provision-tools",
             "conda",
             "debug",
-            "storage"
+            "storage",
+            // `demo` downloads a published demo project archive and unpacks it; it runs
+            // no analysis, and the project it installs carries its own provenance.
+            "demo"
         ]
         let topLevelCommands = Set(LungfishCLI.configuration.subcommands.compactMap { $0.configuration.commandName })
         let commandsExpectedToHavePolicy = topLevelCommands.subtracting(nonScientificTopLevelCommands)

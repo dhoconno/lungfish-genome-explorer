@@ -878,6 +878,27 @@ extension AppDelegate {
         showHelpTopic("getting-started")
     }
 
+    @objc func showDemoProjects(_ sender: Any?) {
+        DemoProjectsSheetController.present(
+            openProject: { [weak self] url in self?.openDemoProject(at: url) },
+            isProjectOpen: { [weak self] url in self?.controller(forProjectURL: url) != nil }
+        )
+    }
+
+    /// Opens an installed demo project through the normal project-open path,
+    /// focusing its window instead when it is already open.
+    func openDemoProject(at url: URL) {
+        if let existing = controller(forProjectURL: url) {
+            NSApp.activate()
+            existing.showWindow(nil)
+            existing.window?.makeKeyAndOrderFront(nil)
+            return
+        }
+        let controller = createAndShowMainWindow()
+        NSApp.activate()
+        openProject(url, in: controller)
+    }
+
     @objc func showVCFGuide(_ sender: Any?) {
         showHelpTopic("vcf-variants")
     }
