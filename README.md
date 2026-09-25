@@ -195,6 +195,6 @@ LGE is mostly a friendly face on other people's tools. Every bundled and
 on-demand tool is listed with its license in [THIRD-PARTY-NOTICES](THIRD-PARTY-NOTICES), and
 `lungfish-cli version --tools` prints the versions in the running build.
 
-Development is supported by [Inkfish](https://ink.fish). Lungfish Genome
+Development supported by Inkfish LLC. Lungfish Genome
 Explorer is developed in association with the
 [Lungfish Research Collaboratory](https://lung.fish).

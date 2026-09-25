@@ -91,7 +91,7 @@ def validate_runtime_contract(identity, channels, profiles):
 
 def legacy_identity():
     return PublicIdentity(UPSTREAM_REPOSITORY, UPSTREAM_PUBLIC_KEY, None,
-                          "https://lungfish.bio", "https://lungfish.bio/docs/",
+                          "https://dho.pathology.wisc.edu", "https://dho.pathology.wisc.edu/docs/",
                           f"https://github.com/{UPSTREAM_REPOSITORY}/releases")
 
 

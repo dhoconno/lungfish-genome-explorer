@@ -380,7 +380,7 @@ Also consider having the app detect an old-ID preview on first launch of the new
 
 **Evidence.** [pages.yml:18-21](.github/workflows/pages.yml:18) grants `pages: write` and `id-token: write`. It uses `quarto-dev/quarto-actions/setup@v2` ([:47](.github/workflows/pages.yml:47)), `actions/upload-pages-artifact@v3` ([:55](.github/workflows/pages.yml:55)) and `actions/deploy-pages@v4` ([:69](.github/workflows/pages.yml:69)) by mutable tag. It runs on every published release. `ci.yml` pins by SHA, so this is an inconsistency.
 
-**Impact.** A compromised `quarto-actions` tag could deploy arbitrary content to lungfish.bio, which is the page users download DMGs from. Notarization limits the damage for the app itself, but a phishing redirect is enough.
+**Impact.** A compromised `quarto-actions` tag could deploy arbitrary content to dho.pathology.wisc.edu, which is the page users download DMGs from. Notarization limits the damage for the app itself, but a phishing redirect is enough.
 
 **Recommendation.** SHA-pin all three actions with version comments. Add Dependabot or Renovate for `github-actions`, restricted to digest updates.
 

@@ -97,8 +97,8 @@ final class AboutWindowController: NSWindowController {
             caveatLabel = nil
         }
 
-        // Tagline
-        let taglineLabel = NSTextField(labelWithString: "Seeing the invisible. Informing action.")
+        // Development support
+        let taglineLabel = NSTextField(labelWithString: "Development supported by Inkfish LLC")
         taglineLabel.translatesAutoresizingMaskIntoConstraints = false
         taglineLabel.font = .systemFont(ofSize: 12, weight: .regular)
         taglineLabel.alignment = .center
