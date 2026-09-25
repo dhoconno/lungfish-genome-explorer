@@ -45,6 +45,8 @@ The same reasoning covers the other reasons to import. A reviewer sends the VCF 
 
 You need a project open, as [The Lungfish Genome Explorer Project](../01-foundations/06-the-lungfish-project.md#procedure) shows.
 
+Open the Human Mapping and Variants demo project with **Help > Demo Projects…**, as [Demo projects](../01-foundations/06-the-lungfish-project.md#demo-projects) explains. It holds the benchmark VCF and its `.tbi` index under `Practice Data/hg002-chr20`, and the reads and reference that [Calling Variants](01-calling-variants-from-amplicons.md) starts from. To download the files yourself instead, follow the rest of this section.
+
 This chapter uses the HG002 chromosome 20 slice fixture. Download `HG002.chr20.10.0-10.5Mb.benchmark.vcf.gz` and its index `HG002.chr20.10.0-10.5Mb.benchmark.vcf.gz.tbi` from the [hg002-chr20 fixture folder](https://github.com/dhoconno/lungfish-genome-explorer/tree/v2026.9.39/docs/user-manual/fixtures/hg002-chr20), as [Practice data for this manual](../01-foundations/06-the-lungfish-project.md#practice-data-for-this-manual) explains. Keep both in one folder and leave the `.gz` file compressed. The `.tbi` is a [tabix](../../GLOSSARY.md#tabix) index, a small companion file that lets a reader jump straight to a region.
 
 Work through [Calling Variants](01-calling-variants-from-amplicons.md) first, which leaves a reference bundle carrying a bcftools track and a LoFreq track. Importing the benchmark onto that bundle is what makes the comparison here possible. If you skip it, step 5 builds a [variant-only bundle](../../GLOSSARY.md#variant-only-bundle) from the benchmark alone.

@@ -53,6 +53,8 @@ The worked example is a three-row taxon report from a SARS-CoV-2 respiratory sam
 
 You need a project open, as [The Lungfish Genome Explorer Project](../01-foundations/06-the-lungfish-project.md#procedure) shows.
 
+The Pathogen Detection demo project, which **Help > Demo Projects…** opens as [Demo projects](../01-foundations/06-the-lungfish-project.md#demo-projects) explains, holds `minimal_taxon_report.tsv` under `Practice Data/czid`. Importing it is this chapter's procedure, so point the importer at that file, or download it as described next.
+
 This chapter uses the CZ ID taxon report fixture. Download `minimal_taxon_report.tsv` from [Tests/Fixtures/czid](https://github.com/dhoconno/lungfish-genome-explorer/tree/v2026.9.40/Tests/Fixtures/czid), as [Practice data for this manual](../01-foundations/06-the-lungfish-project.md#practice-data-for-this-manual) explains. It is a small synthetic report kept for testing. A report from a real CZ ID run is far longer and behaves the same way.
 
 Getting the export out of CZ ID is the one step this chapter cannot show, because the CZ ID website belongs to the service. Follow CZ ID's own instructions for downloading a sample's report. LGE needs a taxon report with a `tax_id` and a `taxon_name` column, and reads `rank` when present. A standard CZ ID taxon report has all three. To check, open the file in Numbers or Excel and read the header row.

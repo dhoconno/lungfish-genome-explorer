@@ -58,6 +58,8 @@ This chapter builds its chain over HG002 mitochondrial reads, from a widely used
 
 You need a project open, as [The Lungfish Genome Explorer Project](../01-foundations/06-the-lungfish-project.md#procedure) shows.
 
+Open the Long Reads and Assembly demo project with **Help > Demo Projects…**, as [Demo projects](../01-foundations/06-the-lungfish-project.md#demo-projects) explains. It already holds the `HG002.chrM` bundle this section imports. To import the pair yourself instead, follow the rest of this section.
+
 This chapter uses the human-mito fixture. Download `HG002.chrM_R1.fastq.gz` and `HG002.chrM_R2.fastq.gz` from the [human-mito folder](https://github.com/dhoconno/lungfish-genome-explorer/tree/v2026.9.40/docs/user-manual/fixtures/human-mito), as [Practice data for this manual](../01-foundations/06-the-lungfish-project.md#practice-data-for-this-manual) explains. Import them as [Importing Sequencing Reads](../03-reads/01-importing-fastq.md) describes. LGE recognises them as the two halves of a [paired-end](../../GLOSSARY.md#paired-end) library, read from both ends of each fragment, and groups them into one [bundle](../../GLOSSARY.md#bundle) named `HG002.chrM.lungfishfastq` under `Imports`. It holds 19,916 reads, 9,958 pairs, with a mean read length of 248.4 bases, figures to check your import against.
 
 The Workflow Builder is experimental, so turn experimental features on first, as [Experimental packs and features](../01-foundations/07-plugin-packs.md#experimental-packs-and-features) shows. The **Tools > Workflow Builder (Experimental)...** item appears only when **Show Experimental Features** in **Settings > Advanced** is on.

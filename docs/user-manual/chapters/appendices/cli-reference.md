@@ -125,7 +125,7 @@ For a run you intend to reproduce exactly, pin `--threads` to a fixed number. Se
 
 ## Command index
 
-The program has 45 top-level commands. Each row names the section that lists its subcommands and flags, and each section links the chapter that explains the tools it names.
+The program has 46 top-level commands. Each row names the section that lists its subcommands and flags, and each section links the chapter that explains the tools it names.
 
 | Command | What it is for | Section |
 |---|---|---|
@@ -140,6 +140,7 @@ The program has 45 top-level commands. Each row names the section that lists its
 | `convert` | Convert a sequence file between formats. | [Sequence utilities](#sequence-utilities) |
 | `cz-id` | Summarize or convert a CZ ID taxon report. | [Classification](#classification) |
 | `debug` | Environment, container, and log diagnostics. | [Diagnostics](#diagnostics) |
+| `demo` | List, describe, and download the manual's demo projects. | [Demo projects](#demo-projects) |
 | `esviritu` | Run EsViritu and manage its database. | [Classification](#classification) |
 | `extract` | Pull out subsequences, reads, or contigs. | [Sequence utilities](#sequence-utilities), [Read processing](#read-processing), [Assembly](#assembly) |
 | `fastq` | Read processing, demultiplexing, genotyping, and 12S matching. | [Read processing](#read-processing) and the sections after it |
@@ -4029,6 +4030,55 @@ lungfish-cli provision-tools <options>
 | `--force-rebuild` | Force rebuild even if tools are already installed. |
 | `--list-tools` | List the bundled bootstrap tool without provisioning. |
 | `--status` | Check installation status of the bundled bootstrap tool. |
+
+## Demo projects
+
+These commands do what **Help > Demo Projects…** does in the window, as [Demo projects](../01-foundations/06-the-lungfish-project.md#demo-projects) describes. They read the same list of eight projects and install into the same default folder, `~/Documents/LGE Demo Projects`. Each project has a short id, such as `pathogen-detection`, which `demo list` prints. On these three commands `--format` takes `text` or `json`.
+
+This downloads the Genes and Sequences project, checks it, and prints the path of the installed `.lungfish` folder.
+
+```bash
+lungfish-cli demo fetch genes-and-sequences
+```
+
+### `demo list`
+
+Lists every demo project with its id, title, size, whether it is installed, and its path.
+
+```text
+lungfish-cli demo list [--dest <dest>]
+```
+
+| Argument or flag | What it does |
+|---|---|
+| `--dest <dest>` | Folder that holds installed demo projects. The default is `~/Documents/LGE Demo Projects`. |
+
+### `demo info`
+
+Describes one demo project, with its version, size, archive address, SHA-256 checksum, and the manual chapters it goes with.
+
+```text
+lungfish-cli demo info <id> [--dest <dest>]
+```
+
+| Argument or flag | What it does |
+|---|---|
+| `<id>` | Demo project id, as `demo list` prints it. |
+| `--dest <dest>` | Folder that holds installed demo projects. The default is `~/Documents/LGE Demo Projects`. |
+
+### `demo fetch`
+
+Downloads one demo project, checks its byte count and SHA-256 checksum before unpacking it, installs it as `<dest>/<Project Name>.lungfish`, and prints its path. A failed or cancelled fetch leaves no half-unpacked project behind. If the project is already installed, the command leaves it alone and prints its path.
+
+```text
+lungfish-cli demo fetch <id> [--force] [--dest <dest>]
+```
+
+| Argument or flag | What it does |
+|---|---|
+| `<id>` | Demo project id, as `demo list` prints it. |
+| `--force` | Replaces an existing copy with a fresh one. The old copy goes to the Trash. |
+| `--dest <dest>` | Folder that holds installed demo projects. The default is `~/Documents/LGE Demo Projects`. |
 
 ## Projects, provenance, and run history
 

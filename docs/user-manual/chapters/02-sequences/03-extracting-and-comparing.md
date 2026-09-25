@@ -55,6 +55,8 @@ Find ORFs answers a different question. On a sequence nobody has annotated, it s
 
 You need a project open, as [The Lungfish Genome Explorer Project](../01-foundations/06-the-lungfish-project.md#procedure) shows. This chapter uses the HBB gene fixture. Download `NG_000007.3.gb` from the [hbb-gene fixture folder](https://github.com/dhoconno/lungfish-genome-explorer/tree/v2026.9.40/docs/user-manual/fixtures/hbb-gene), as [Practice data for this manual](../01-foundations/06-the-lungfish-project.md#practice-data-for-this-manual) explains.
 
+Open the Genes and Sequences demo project with **Help > Demo Projects…**, as [Demo projects](../01-foundations/06-the-lungfish-project.md#demo-projects) explains. It already holds the `NG_000007.3` bundle this section imports, so click it in the sidebar and go to the procedure. To import the record yourself instead, follow the rest of this section.
+
 Import the record as [Importing and Viewing a Sequence](01-importing-and-viewing.md) describes, then click the new bundle in the [sidebar](../../GLOSSARY.md#sidebar), the project list on the left of the window, so the record is on screen. The `.3` in the file name is the record's version number, which the rest of this chapter leaves off.
 
 The `samtools` program that indexes a new bundle arrives with the [Required Setup pack](../../GLOSSARY.md#required-setup-pack), the one pack LGE installs by itself, so there is nothing to install. Nothing here needs an internet connection, and every step finishes in a few seconds.

@@ -62,6 +62,8 @@ You need a project open, as [The Lungfish Genome Explorer Project](../01-foundat
 
 This chapter uses the human-mito fixture. Nothing needs downloading from it, because the chapter fetches the same record live from NCBI. The fixture's `NC_012920.1.fasta`, in [the human-mito folder on GitHub](https://github.com/dhoconno/lungfish-genome-explorer/tree/v2026.9.40/docs/user-manual/fixtures/human-mito), is the frozen copy the numbers here were checked against, as [Practice data for this manual](../01-foundations/06-the-lungfish-project.md#practice-data-for-this-manual) explains.
 
+The Genes and Sequences demo project, which **Help > Demo Projects…** opens as [Demo projects](../01-foundations/06-the-lungfish-project.md#demo-projects) explains, holds the same frozen `NC_012920.1.fasta` under `Practice Data/human-mito`. The download itself is the procedure, so run it in that project or in any other.
+
 You also need an internet connection, since every step talks to a public server. The `samtools` program that indexes the downloaded sequence arrives with the [Required Setup pack](../../GLOSSARY.md#required-setup-pack), the one pack LGE installs by itself, so there is nothing to install. Docker Desktop is not needed. On a typical connection the download finishes in well under a minute.
 
 One habit is worth forming now. Type the version suffix, the `.1` in `NC_012920.1`, every time. Curators revise records and the version number goes up when they do, so a bare accession can give you a different sequence from the one a colleague downloaded last year.

@@ -53,6 +53,8 @@ The import also puts the surveillance result in the same project as everything e
 
 You need a project open, as [The Lungfish Genome Explorer Project](../01-foundations/06-the-lungfish-project.md#procedure) shows.
 
+The Pathogen Detection demo project, which **Help > Demo Projects…** opens as [Demo projects](../01-foundations/06-the-lungfish-project.md#demo-projects) explains, holds `virus_hits_final.tsv.gz` under `Practice Data/naomgs`. Importing it is this chapter's procedure, so point the importer at that file, or download it as described next.
+
 This chapter uses the NAO-MGS wastewater fixture, a small five-site run in one combined table. Download `virus_hits_final.tsv.gz` from [Tests/Fixtures/naomgs](https://github.com/dhoconno/lungfish-genome-explorer/tree/v2026.9.40/Tests/Fixtures/naomgs), as [Practice data for this manual](../01-foundations/06-the-lungfish-project.md#practice-data-for-this-manual) explains. In normal work this file arrives from a collaborator or a computing core.
 
 Nothing needs installing. The window's import downloads each matched reference sequence from NCBI, so it needs an internet connection.

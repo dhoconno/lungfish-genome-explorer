@@ -44,6 +44,8 @@ Freyja is a SARS-CoV-2 tool by design, so this chapter uses a SARS-CoV-2 example
 
 ## Before you start
 
+Open the SARS-CoV-2 Amplicons demo project with **Help > Demo Projects…**, as [Demo projects](../01-foundations/06-the-lungfish-project.md#demo-projects) explains. It already holds run `SRR36291587` and the `MN908947.3` reference bundle, so step 1 of the list below is done. To fetch the data yourself instead, follow the rest of this section.
+
 This chapter uses the sarscov2-srr36291587 fixture. Download `MN908947.3.fasta` from [the fixture folder on GitHub](https://github.com/dhoconno/lungfish-genome-explorer/tree/v2026.9.40/Tests/Fixtures/sarscov2-srr36291587), as [Practice data for this manual](../01-foundations/06-the-lungfish-project.md#practice-data-for-this-manual) explains. The reads themselves are fetched from the Sequence Read Archive as accession `SRR36291587`, following [Downloading Reads from the SRA](../03-reads/02-downloading-from-sra.md).
 
 Freyja does not read your reads. It reads two summary tables made from an alignment, so three steps in LGE come first, each in its own chapter. You need a project open for them, as [The Lungfish Genome Explorer Project](../01-foundations/06-the-lungfish-project.md#procedure) shows.

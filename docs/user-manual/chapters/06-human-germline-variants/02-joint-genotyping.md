@@ -37,6 +37,8 @@ The worked example uses the HG002 chromosome 20 slice, a 500 kilobase stretch of
 
 You need a project open, as [The Lungfish Genome Explorer Project](../01-foundations/06-the-lungfish-project.md#procedure) shows.
 
+Open the Human Mapping and Variants demo project with **Help > Demo Projects…**, as [Demo projects](../01-foundations/06-the-lungfish-project.md#demo-projects) explains. Its `Practice Data/hg002-chr20` folder holds `GRCh38.chr20.10.0-10.5Mb.fasta` and its `.fai` index, so copy them from there into your working folder instead of downloading them.
+
 This chapter uses the HG002 chromosome 20 slice fixture. Download `GRCh38.chr20.10.0-10.5Mb.fasta` and its `.fai` index from the [hg002-chr20 fixture folder](https://github.com/dhoconno/lungfish-genome-explorer/tree/v2026.9.39/docs/user-manual/fixtures/hg002-chr20), as [Practice data for this manual](../01-foundations/06-the-lungfish-project.md#practice-data-for-this-manual) explains. Put every file this chapter names in one folder and run every command from that folder, which [Before you type anything](../appendices/cli-reference.md#before-you-type-anything) shows how to reach.
 
 You need at least one GVCF. Make it by typing the command below, which writes a GVCF by default. Its input is the BAM of aligned reads that [HaplotypeCaller](01-haplotype-caller.md#on-the-command-line) has you copy out of the bundle as `hg002-minimap2.bam`. The dialog cannot make one, because it always writes a plain VCF, and a plain VCF cannot be joint-genotyped.

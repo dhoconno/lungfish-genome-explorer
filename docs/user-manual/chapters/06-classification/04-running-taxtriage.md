@@ -52,6 +52,8 @@ This chapter works through two human corneal samples, the cornea being the clear
 
 You need a project open, as [The Lungfish Genome Explorer Project](../01-foundations/06-the-lungfish-project.md#procedure) shows.
 
+Open the Pathogen Detection demo project with **Help > Demo Projects…**, as [Demo projects](../01-foundations/06-the-lungfish-project.md#demo-projects) explains. It already holds both runs as the two bundles described below, so the SRA downloads are done. To fetch the runs yourself instead, follow the rest of this section.
+
 This chapter uses the kraken-protocol-cornea fixture, the manual's name for the example data of the Kraken 2, TaxTriage, and BLAST chapters. Download both runs from the [Sequence Read Archive](../../GLOSSARY.md#sra), NCBI's public store of sequencing runs, as `SRR12486983` and `SRR12486989`, following [Downloading Reads from the SRA](../03-reads/02-downloading-from-sra.md). Each run is [paired-end](../../GLOSSARY.md#paired-end), so every DNA fragment was read from both ends, and the two reads of one fragment are a read pair. Each run imports as one [bundle](../../GLOSSARY.md#bundle), a folder LGE treats as one item, `Imports/SRR12486983.lungfishfastq` with 4,819,760 read pairs and `Imports/SRR12486989.lungfishfastq` with 5,440,369. The fixture's README, with the study's source and terms of use, is at https://github.com/dhoconno/lungfish-genome-explorer/tree/main/docs/user-manual/fixtures/kraken-protocol-cornea. Reading it is optional, as [Practice data for this manual](../01-foundations/06-the-lungfish-project.md#practice-data-for-this-manual) explains.
 
 Nextflow arrives with the [Required Setup pack](../../GLOSSARY.md#required-setup-pack), the one pack every LGE install needs.

@@ -52,6 +52,8 @@ This chapter works through SRR36291587, a public QIAseq Direct SARS-CoV-2 amplic
 
 You need a project open, as [The Lungfish Genome Explorer Project](../01-foundations/06-the-lungfish-project.md#procedure) shows.
 
+Open the SARS-CoV-2 Amplicons demo project with **Help > Demo Projects…**, as [Demo projects](../01-foundations/06-the-lungfish-project.md#demo-projects) explains. It already holds run `SRR36291587` and the `MN908947.3` reference bundle this section brings in, so start from the mapping step below. To fetch the data yourself instead, follow the rest of this section.
+
 This chapter uses the sarscov2-srr36291587 fixture. Download `MN908947.3.fasta` from [the sarscov2-srr36291587 fixture folder](https://github.com/dhoconno/lungfish-genome-explorer/tree/v2026.9.40/Tests/Fixtures/sarscov2-srr36291587), as [Practice data for this manual](../01-foundations/06-the-lungfish-project.md#practice-data-for-this-manual) explains. The reads are not in that folder. Download them from the Sequence Read Archive as accession `SRR36291587`, as [Downloading Reads from the SRA](../03-reads/02-downloading-from-sra.md) shows.
 
 Import the FASTA as a reference and map the reads to it with minimap2, as [Mapping Reads to a Reference](01-mapping-reads-to-a-reference.md) shows. The mapping result under `Analyses/` holds the alignment track this chapter trims. On the reference run, minimap2 placed 99.3% of the read records. An amplicon library mapped to its own reference should land well above 90%. Below that, check the reference and the sample before you trim, because trimming fixes neither.

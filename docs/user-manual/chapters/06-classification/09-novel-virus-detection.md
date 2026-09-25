@@ -55,6 +55,8 @@ This chapter works through the NVD demo results, a small synthetic run holding 1
 
 You need a project open, as [The Lungfish Genome Explorer Project](../01-foundations/06-the-lungfish-project.md#procedure) shows.
 
+The Pathogen Detection demo project, which **Help > Demo Projects…** opens as [Demo projects](../01-foundations/06-the-lungfish-project.md#demo-projects) explains, holds the demo results under `Practice Data/nvd-demo/results`. Importing that folder is this chapter's procedure, so point the importer at it, or download it as described next.
+
 This chapter uses the NVD demo results fixture. Download the `nvd-demo` folder from [docs/user-manual/fixtures/nvd-demo](https://github.com/dhoconno/lungfish-genome-explorer/tree/v2026.9.40/docs/user-manual/fixtures/nvd-demo), as [Practice data for this manual](../01-foundations/06-the-lungfish-project.md#practice-data-for-this-manual) explains. The folder you point the importer at is `nvd-demo/results`.
 
 ```text

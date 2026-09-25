@@ -50,6 +50,8 @@ There is a second reason. Two callers reading the same alignment disagree, and t
 
 You need a project open, as [The Lungfish Genome Explorer Project](../01-foundations/06-the-lungfish-project.md#procedure) shows.
 
+Open the Human Mapping and Variants demo project with **Help > Demo Projects…**, as [Demo projects](../01-foundations/06-the-lungfish-project.md#demo-projects) explains. It holds the reads and reference the two tracks are made from, so work through [Calling Variants](01-calling-variants-from-amplicons.md) in it first. To import the files yourself instead, follow the rest of this section.
+
 This chapter uses the HG002 chromosome 20 slice fixture, whose files are in the [hg002-chr20 fixture folder](https://github.com/dhoconno/lungfish-genome-explorer/tree/v2026.9.39/docs/user-manual/fixtures/hg002-chr20), as [Practice data for this manual](../01-foundations/06-the-lungfish-project.md#practice-data-for-this-manual) explains. What the chapter needs in the project is the two variant tracks those files lead to. Work through [Calling Variants](01-calling-variants-from-amplicons.md) first, which leaves a reference bundle carrying a bcftools track and a LoFreq track. Both are needed, because half of what this chapter teaches shows only when two tracks sit in one table.
 
 Nothing needs installing. The table reads files already inside the bundle.

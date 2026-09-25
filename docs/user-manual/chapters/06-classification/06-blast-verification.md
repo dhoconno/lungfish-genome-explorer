@@ -49,6 +49,8 @@ The worked example verifies the Kraken 2 Viral result from [Running Kraken 2](02
 
 You need a project open, as [The Lungfish Genome Explorer Project](../01-foundations/06-the-lungfish-project.md#procedure) shows.
 
+Open the Pathogen Detection demo project with **Help > Demo Projects…**, as [Demo projects](../01-foundations/06-the-lungfish-project.md#demo-projects) explains. It already holds run `SRR12486983`, so the SRA download below is done, but classify the run with Kraken 2 before you start. To fetch the run yourself instead, follow the rest of this section.
+
 This chapter uses the kraken-protocol-cornea fixture, the manual's name for the example data of the Kraken 2, TaxTriage, and BLAST chapters. Download run `SRR12486983` from the Sequence Read Archive, following [Downloading Reads from the SRA](../03-reads/02-downloading-from-sra.md), then classify it against the Viral database as [Running Kraken 2](02-running-kraken2.md#procedure) shows. The download alone is not enough. The fixture's README, with the study's source and terms of use, is at https://github.com/dhoconno/lungfish-genome-explorer/tree/main/docs/user-manual/fixtures/kraken-protocol-cornea, as [Practice data for this manual](../01-foundations/06-the-lungfish-project.md#practice-data-for-this-manual) explains.
 
 Verification starts from that finished classification open in its [viewport](../../GLOSSARY.md#viewport), the panel that fills the window and shows one result, rather than from a FASTQ file. A result imported from CZ-ID, a web-based metagenomics service, cannot be verified, because it carries no per-read identifiers to send.

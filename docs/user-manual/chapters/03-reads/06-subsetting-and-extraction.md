@@ -72,6 +72,8 @@ This chapter works on the HG002 chromosome 20 slice. HG002 is a human genome fro
 
 You need a project open, as [The Lungfish Genome Explorer Project](../01-foundations/06-the-lungfish-project.md#procedure) shows.
 
+Open the Human Reads demo project with **Help > Demo Projects…**, as [Demo projects](../01-foundations/06-the-lungfish-project.md#demo-projects) explains. It already holds the `HG002.chr20.10.0-10.5Mb` bundle this section imports, so go straight to the procedure. To import the pair yourself instead, follow the rest of this section.
+
 This chapter uses the hg002-chr20 fixture. Download `HG002.chr20.10.0-10.5Mb_R1.fastq.gz` and `HG002.chr20.10.0-10.5Mb_R2.fastq.gz` from the [hg002-chr20 fixture folder](https://github.com/dhoconno/lungfish-genome-explorer/tree/v2026.9.39/docs/user-manual/fixtures/hg002-chr20), as [Practice data for this manual](../01-foundations/06-the-lungfish-project.md#practice-data-for-this-manual) explains.
 
 Import the pair following [Importing Sequencing Reads](01-importing-fastq.md), so it becomes the bundle `HG002.chr20.10.0-10.5Mb`, which holds 91,148 reads. Every operation here starts from a bundle in the sidebar rather than a file on disk. The worked counts in this chapter come from the bundle's own file, run from the command line, and a run from the Tools menu gives the same counts. On a paired bundle every operation keeps or drops the two mates of a pair together, so each count is even.

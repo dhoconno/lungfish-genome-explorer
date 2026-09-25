@@ -49,6 +49,8 @@ The consensus also reports its own uncertainty. A [variant caller](../../GLOSSAR
 
 You need a project open, as [The Lungfish Genome Explorer Project](../01-foundations/06-the-lungfish-project.md#procedure) shows.
 
+Open the Human Mapping and Variants demo project with **Help > Demo Projects…**, as [Demo projects](../01-foundations/06-the-lungfish-project.md#demo-projects) explains. It already holds the `HG002.chr20.10.0-10.5Mb` reads and the `GRCh38.chr20.10.0-10.5Mb` reference bundle this section imports, so map them as the next paragraphs describe. To import the files yourself instead, follow the rest of this section.
+
 This chapter uses the HG002 chromosome 20 slice fixture. Download `GRCh38.chr20.10.0-10.5Mb.fasta`, `HG002.chr20.10.0-10.5Mb_R1.fastq.gz`, and `HG002.chr20.10.0-10.5Mb_R2.fastq.gz` from the [hg002-chr20 fixture folder](https://github.com/dhoconno/lungfish-genome-explorer/tree/v2026.9.39/docs/user-manual/fixtures/hg002-chr20), as [Practice data for this manual](../01-foundations/06-the-lungfish-project.md#practice-data-for-this-manual) explains.
 
 You need an alignment inside a [reference bundle](../../GLOSSARY.md#reference-bundle), because **Extract Consensus...** stays disabled until the bundle holds an [alignment track](../../GLOSSARY.md#alignment-track). If you have not mapped the fixture reads yet, [Mapping Reads to a Reference](../04-alignments/01-mapping-reads-to-a-reference.md) does that, and mapping as it describes should reproduce every number in this chapter. Nothing needs installing, because samtools arrives with the app.

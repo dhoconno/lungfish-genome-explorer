@@ -1125,6 +1125,30 @@ features:
     notes: >-
       Opens project folders, creates and removes project-local lock records, and
       migrates bundles for shared multi-user projects.
+  project.demo-projects:
+    title: Download ready-made demo projects for the manual
+    entry_points:
+      - "Help > Demo Projects…"
+      - "CLI: lungfish demo list"
+      - "CLI: lungfish demo info"
+      - "CLI: lungfish demo fetch"
+    inputs: [demo-project-manifest]
+    outputs: [lungfish-project]
+    viewport_class: none
+    sources:
+      - Sources/LungfishWorkflow/DemoProjects/DemoProjectManifest.swift
+      - Sources/LungfishWorkflow/DemoProjects/DemoProjectInstaller.swift
+      - Sources/LungfishWorkflow/DemoProjects/SafeZipExtractor.swift
+      - Sources/LungfishWorkflow/Resources/DemoProjects/demo-projects.json
+      - Sources/LungfishApp/Views/DemoProjects/DemoProjectsView.swift
+      - Sources/LungfishApp/Views/DemoProjects/DemoProjectsViewModel.swift
+      - Sources/LungfishCLI/Commands/DemoCommand.swift
+    notes: >-
+      Lists eight demo projects from the bundled manifest, downloads one from
+      the public demo-projects GitHub release, checks its byte count and
+      SHA-256, unpacks it through a staging folder, installs it under
+      ~/Documents/LGE Demo Projects (changeable), and opens it. Replacing a
+      copy moves the old one to the Trash after the new one passes its checks.
   tools.provision:
     title: Provision managed tools
     entry_points:

@@ -51,6 +51,8 @@ The Excel report is built for that trust. It freezes the result at the moment yo
 
 You need a project open with a finished genotype result in it, as [The Lungfish Genome Explorer Project](../01-foundations/06-the-lungfish-project.md#procedure) shows. [Running Amplicon MHC Genotyping](02-running-genotyping.md) makes one.
 
+Open the MHC Genotyping demo project with **Help > Demo Projects…**, as [Demo projects](../01-foundations/06-the-lungfish-project.md#demo-projects) explains. It already holds the mhc-simulated reads and allele library described next, but no result, so run [Running Amplicon MHC Genotyping](02-running-genotyping.md) in it first. To import the files yourself instead, follow the rest of this section.
+
 This chapter uses the mhc-simulated fixture, two simulated macaque samples read against three allele targets at the MHC-G, MHC-DRB, and MHC-DPA1 loci. Its reads are generated, not taken from animals, so it teaches the export without standing for any real genotype. Download the files from the [mhc-simulated folder](https://github.com/dhoconno/lungfish-genome-explorer/tree/v2026.9.40/docs/user-manual/fixtures/mhc-simulated), as [Practice data for this manual](../01-foundations/06-the-lungfish-project.md#practice-data-for-this-manual) explains. Run it as [Running Amplicon MHC Genotyping](02-running-genotyping.md#before-you-start) describes. Each read pair merges into one read, so sample A carries 120, 80, and 4 reads on the three targets in that order, and sample B carries 12, 60, and 100.
 
 The Excel writer, openpyxl, arrives with the [Required Setup pack](../../GLOSSARY.md#required-setup-pack), the one pack LGE installs by itself, so there is nothing to install.

@@ -64,6 +64,8 @@ This chapter's example is SRR36291587, a public SARS-CoV-2 run prepared with the
 
 You need a project open, as [The Lungfish Genome Explorer Project](../01-foundations/06-the-lungfish-project.md#procedure) shows.
 
+Open the SARS-CoV-2 Amplicons demo project with **Help > Demo Projects…**, as [Demo projects](../01-foundations/06-the-lungfish-project.md#demo-projects) explains. It already holds run `SRR36291587` under `Imports`, so the SRA download below is done. To fetch the reads yourself instead, follow the rest of this section.
+
 This chapter uses the sarscov2-srr36291587 fixture. Its reads are not stored on GitHub, so download them into your project from the SRA as accession `SRR36291587`, as [Downloading Reads from the SRA](../03-reads/02-downloading-from-sra.md) shows. [The sarscov2-srr36291587 fixture folder](https://github.com/dhoconno/lungfish-genome-explorer/tree/v2026.9.40/Tests/Fixtures/sarscov2-srr36291587) holds only the `MN908947.3` reference, its GFF3 annotation, and expected variant files, as [Practice data for this manual](../01-foundations/06-the-lungfish-project.md#practice-data-for-this-manual) explains. You do not need to download them here, because the wizard fetches its own reference.
 
 A container is a sealed package holding a program and everything it needs to run, and Docker Desktop is the free app from docker.com that runs them. Unlike the mappers in [Mapping Reads to a Reference](01-mapping-reads-to-a-reference.md), this pipeline runs in containers, so Docker Desktop must be running first, as [Tools that run in containers](../01-foundations/07-plugin-packs.md#tools-that-run-in-containers) explains. Leave Docker Desktop running for the whole analysis.

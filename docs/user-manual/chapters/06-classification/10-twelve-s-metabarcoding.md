@@ -55,6 +55,8 @@ This chapter works through a human example, matching mitochondrial reads from on
 
 You need a project open, as [The Lungfish Genome Explorer Project](../01-foundations/06-the-lungfish-project.md#procedure) shows.
 
+Open the 12S Metabarcoding demo project with **Help > Demo Projects…**, as [Demo projects](../01-foundations/06-the-lungfish-project.md#demo-projects) explains. It already holds the `HG002-12S-oriented` read bundle this section imports, and keeps the reference FASTA and the species table as files under `Practice Data/primate-12s`, where the procedure picks them. To import the files yourself instead, follow the rest of this section.
+
 This chapter uses the primate 12S fixture. Download `primate-12s-dedup.fasta`, `primate-12s-midori.tsv`, and `HG002-12S-oriented.fastq` from [the primate-12s fixture folder](https://github.com/dhoconno/lungfish-genome-explorer/tree/v2026.9.40/docs/user-manual/fixtures/primate-12s), as [Practice data for this manual](../01-foundations/06-the-lungfish-project.md#practice-data-for-this-manual) explains. The first file is the deduplicated reference, the second is the table that labels each reference sequence with its species, and the third holds the reads. The reference holds five primate 12S sequences cut from public mitochondrial genomes. The reads are 12S reads from HG002, a public reference human sample, so they should match Homo sapiens and nothing else. About a third of them still come back unresolved, which is expected for this fixture, as Reading the results explains.
 
 Import `HG002-12S-oriented.fastq` into the project as a read bundle, following [Importing FASTQ Files](../03-reads/01-importing-fastq.md).

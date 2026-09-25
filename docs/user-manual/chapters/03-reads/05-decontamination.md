@@ -64,6 +64,8 @@ This chapter runs four operations on HG002 reads, from a well-characterised huma
 
 You need a project open, as [The Lungfish Genome Explorer Project](../01-foundations/06-the-lungfish-project.md#procedure) shows.
 
+Open the Human Reads demo project with **Help > Demo Projects…**, as [Demo projects](../01-foundations/06-the-lungfish-project.md#demo-projects) explains. It already holds both inputs this section brings in, the `HG002.chr20.10.0-10.5Mb` bundle and run `SRR36291587`, and the SARS-CoV-2 Amplicons demo project holds `SRR36291587` as well. To import the data yourself instead, follow the rest of this section.
+
 This chapter uses the hg002-chr20 fixture. Download `HG002.chr20.10.0-10.5Mb_R1.fastq.gz` and `HG002.chr20.10.0-10.5Mb_R2.fastq.gz` from [the hg002-chr20 fixture folder](https://github.com/dhoconno/lungfish-genome-explorer/tree/v2026.9.39/docs/user-manual/fixtures/hg002-chr20), as [Practice data for this manual](../01-foundations/06-the-lungfish-project.md#practice-data-for-this-manual) explains. The two files hold the reads from a half-megabase window of chromosome 20, small enough to run in seconds and low in repeat content. A [paired-end](../../GLOSSARY.md#paired-end) run gives two mates per DNA fragment, as [Importing Sequencing Reads](01-importing-fastq.md) explains. Import both files together as one bundle, as [Importing Sequencing Reads](01-importing-fastq.md) shows.
 
 The human-read-removal steps also use run SRR36291587, a SARS-CoV-2 amplicon run. Fetch it from the Sequence Read Archive as [Downloading Reads from the SRA](02-downloading-from-sra.md) shows.
