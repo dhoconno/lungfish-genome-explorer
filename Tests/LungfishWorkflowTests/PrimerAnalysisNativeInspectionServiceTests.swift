@@ -59,10 +59,18 @@ final class PrimerAnalysisNativeInspectionServiceTests: XCTestCase {
                 query: .init(stage: "strict", limit: 100),
                 invocationArgv: ["lungfish-cli", "cancelled-history"])
         }
-        for _ in 0..<200 where !FileManager.default.fileExists(atPath: fixture.output.appendingPathComponent("query.json").path) {
-            try await Task.sleep(nanoseconds: 10_000_000)
+        // Bundle verification and the capabilities probe run before the fake tool writes
+        // query.json, which can take several seconds on a loaded machine. The tool then
+        // sleeps 30 s, so a 20 s deadline still cancels it mid-run.
+        let queryPath = fixture.output.appendingPathComponent("query.json").path
+        let deadline = Date().addingTimeInterval(20)
+        while !FileManager.default.fileExists(atPath: queryPath), Date() < deadline {
+            try await Task.sleep(nanoseconds: 20_000_000)
         }
-        XCTAssertTrue(FileManager.default.fileExists(atPath: fixture.output.appendingPathComponent("query.json").path))
+        guard FileManager.default.fileExists(atPath: queryPath) else {
+            task.cancel()
+            return XCTFail("The native tool never wrote query.json within 20 s")
+        }
         task.cancel()
         do {
             _ = try await task.value
