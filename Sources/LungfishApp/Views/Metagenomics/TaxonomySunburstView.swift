@@ -449,7 +449,7 @@ public class TaxonomySunburstView: NSView {
 
         // Name
         let nameAttrs: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: min(13, radius / 3), weight: .semibold),
+            .font: DrawingFont.system(ofSize: min(13, radius / 3), weight: .semibold),
             .foregroundColor: NSColor.labelColor,
         ]
         let nameStr = NSAttributedString(string: name, attributes: nameAttrs)
@@ -457,7 +457,7 @@ public class TaxonomySunburstView: NSView {
 
         // Count
         let countAttrs: [NSAttributedString.Key: Any] = [
-            .font: NSFont.monospacedDigitSystemFont(ofSize: min(11, radius / 4), weight: .regular),
+            .font: DrawingFont.monospacedDigit(ofSize: min(11, radius / 4), weight: .regular),
             .foregroundColor: NSColor.labelColor,
         ]
         let countStr = NSAttributedString(
@@ -468,7 +468,7 @@ public class TaxonomySunburstView: NSView {
 
         // Percentage
         let pctAttrs: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: min(10, radius / 5)),
+            .font: DrawingFont.system(ofSize: min(10, radius / 5)),
             .foregroundColor: NSColor.secondaryLabelColor,
         ]
         let pctStr = NSAttributedString(string: percentage, attributes: pctAttrs)

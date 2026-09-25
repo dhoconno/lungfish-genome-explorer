@@ -7,6 +7,7 @@
 // with visibility controllable globally or per-sequence.
 
 import AppKit
+import LungfishKit
 import LungfishCore
 import os.log
 
@@ -755,9 +756,9 @@ extension SequenceViewerView {
         let visibleBases = frame.end - frame.start
         let pixelsPerBase = bounds.width / CGFloat(max(1, visibleBases))
 
-        let fontSize = min(pixelsPerBase * 0.75, rect.height * 0.8)
-        let showLetters = pixelsPerBase >= 8 && fontSize >= 6
-        let font = NSFont.monospacedSystemFont(ofSize: max(6, fontSize), weight: .bold)
+        let letterFontSize = Self.baseLetterFontSize(pixelsPerBase: pixelsPerBase, trackHeight: rect.height)
+        let showLetters = letterFontSize != nil
+        let font = DrawingFont.monospaced(ofSize: letterFontSize ?? 6, weight: .bold)
 
         // Inset drawing area slightly for visual clarity
         let drawRect = rect.insetBy(dx: 0, dy: 2)

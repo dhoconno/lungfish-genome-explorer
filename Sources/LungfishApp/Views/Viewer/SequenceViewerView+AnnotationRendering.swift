@@ -6,6 +6,7 @@ import AppKit
 import SwiftUI
 import LungfishCore
 import LungfishIO
+import LungfishKit
 import UniformTypeIdentifiers
 import Quartz
 import PDFKit
@@ -1436,6 +1437,16 @@ extension SequenceViewerView {
         context.restoreGState()
     }
 
+    /// Point size for base letters drawn in a cell `pixelsPerBase` wide and `trackHeight` tall,
+    /// or nil when letters must not be drawn: the cell is too small, or the geometry is not
+    /// finite (a zero-sized or torn-down view can yield NaN or infinite widths).
+    static func baseLetterFontSize(pixelsPerBase: CGFloat, trackHeight: CGFloat) -> CGFloat? {
+        let fontSize = min(pixelsPerBase * 0.75, trackHeight * 0.8)
+        guard pixelsPerBase.isFinite, trackHeight.isFinite, DrawingFont.isDrawableSize(fontSize),
+              pixelsPerBase >= 8, fontSize >= 6 else { return nil }
+        return fontSize
+    }
+
     func drawBaseLevelSequence(_ seq: Sequence, frame: ReferenceFrame, context: CGContext) {
         let startBase = max(0, Int(frame.start))
         let endBase = min(seq.length, Int(frame.end) + 1)
@@ -1443,10 +1454,11 @@ extension SequenceViewerView {
         let visibleBases = frame.end - frame.start
         let pixelsPerBase = frame.dataPixelWidth / CGFloat(max(1, visibleBases))
 
-        // Font sizing based on available space
-        let fontSize = min(pixelsPerBase * 0.75, trackHeight * 0.8)
-        let showLetters = pixelsPerBase >= 8 && fontSize >= 6
-        let font = NSFont.monospacedSystemFont(ofSize: max(6, fontSize), weight: .bold)
+        // Font sizing based on available space. The font comes from DrawingFont so a nil from
+        // AppKit can never reach the attribute dictionary (CoreText aborts on that).
+        let letterFontSize = Self.baseLetterFontSize(pixelsPerBase: pixelsPerBase, trackHeight: trackHeight)
+        let showLetters = letterFontSize != nil
+        let font = DrawingFont.monospaced(ofSize: letterFontSize ?? 6, weight: .bold)
 
         // Draw quality overlay BEFORE the base colors so it appears behind
         let trackRect = CGRect(x: frame.leadingInset, y: trackY, width: frame.dataPixelWidth, height: trackHeight)

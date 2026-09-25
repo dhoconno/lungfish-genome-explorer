@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import AppKit
+import LungfishKit
 import LungfishCore
 
 // MARK: - Translation Track Renderer
@@ -52,7 +53,7 @@ enum TranslationTrackRenderer {
 
         // Font for amino acid letters (only used when zoomed in enough)
         let showLetters = pixelsPerBase >= 8
-        let font = NSFont.monospacedSystemFont(ofSize: min(11, trackHeight * 0.75), weight: .medium)
+        let font = DrawingFont.monospaced(ofSize: min(11, trackHeight * 0.75), weight: .medium)
 
         // Draw track background
         let trackRect = CGRect(
@@ -171,7 +172,7 @@ enum TranslationTrackRenderer {
     ) {
         let pixelsPerBase = CGFloat(frame.pixelWidth) / CGFloat(max(1, frame.end - frame.start))
         let showLetters = pixelsPerBase >= 8
-        let font = NSFont.monospacedSystemFont(ofSize: min(10, subTrackHeight * 0.7), weight: .medium)
+        let font = DrawingFont.monospaced(ofSize: min(10, subTrackHeight * 0.7), weight: .medium)
 
         let translations = TranslationEngine.translateFrames(frames, sequence: sequence, table: table)
 

@@ -2795,7 +2795,7 @@ private final class MSAAlignmentCornerHeaderView: NSView {
             title,
             in: NSRect(x: 10, y: 29, width: bounds.width - 18, height: 18),
             color: .secondaryLabelColor,
-            font: .systemFont(ofSize: 11, weight: .semibold)
+            font: DrawingFont.system(ofSize: 11, weight: .semibold)
         )
         NSColor.separatorColor.setStroke()
         NSBezierPath.strokeLine(from: NSPoint(x: bounds.maxX - 0.5, y: 0), to: NSPoint(x: bounds.maxX - 0.5, y: bounds.maxY))
@@ -2884,7 +2884,7 @@ private final class MSAComparisonLabelView: NSView {
         NSColor.controlBackgroundColor.setFill()
         dirtyRect.fill()
         drawText(title + (menuProvider == nil ? "" : " ▾"), in: bounds.insetBy(dx: 8, dy: 5), color: .labelColor,
-                 font: .systemFont(ofSize: 12, weight: .semibold), lineBreakMode: .byTruncatingMiddle)
+                 font: DrawingFont.system(ofSize: 12, weight: .semibold), lineBreakMode: .byTruncatingMiddle)
         NSColor.separatorColor.setStroke()
         NSBezierPath.strokeLine(from: NSPoint(x: 0, y: bounds.maxY - 0.5), to: NSPoint(x: bounds.maxX, y: bounds.maxY - 0.5))
     }
@@ -3012,7 +3012,7 @@ private final class MSAAlignmentRowGutterView: NSView, NSViewToolTipOwner {
                 "\(rowIndex + 1)",
                 in: NSRect(x: leadingX, y: inset.minY + 1, width: 24, height: inset.height),
                 color: .secondaryLabelColor,
-                font: .monospacedSystemFont(ofSize: 10, weight: .regular),
+                font: DrawingFont.monospaced(ofSize: 10, weight: .regular),
                 alignment: .right
             )
             leadingX += 32
@@ -3031,7 +3031,7 @@ private final class MSAAlignmentRowGutterView: NSView, NSViewToolTipOwner {
             rowIndex == referenceRowIndex ? "Ref · \(name)" : name,
             in: nameRect,
             color: rowIndex == referenceRowIndex ? .controlAccentColor : .labelColor,
-            font: .systemFont(ofSize: 12, weight: rowIndex == referenceRowIndex ? .semibold : .regular),
+            font: DrawingFont.system(ofSize: 12, weight: rowIndex == referenceRowIndex ? .semibold : .regular),
             lineBreakMode: .byTruncatingMiddle
         )
         if let coordinateText {
@@ -3039,7 +3039,7 @@ private final class MSAAlignmentRowGutterView: NSView, NSViewToolTipOwner {
                 coordinateText,
                 in: NSRect(x: inset.maxX - coordinateWidth, y: inset.minY + 2, width: coordinateWidth, height: inset.height),
                 color: .secondaryLabelColor,
-                font: .monospacedSystemFont(ofSize: 10, weight: .regular),
+                font: DrawingFont.monospaced(ofSize: 10, weight: .regular),
                 alignment: .right
             )
         }
@@ -3080,7 +3080,7 @@ private final class MSAAlignmentRowGutterView: NSView, NSViewToolTipOwner {
 
     /// The gutter width that would show every loaded label in full.
     func widthThatFitsWidestLabel() -> CGFloat {
-        let font = NSFont.systemFont(ofSize: 12)
+        let font = DrawingFont.system(ofSize: 12)
         let widest = rows.reduce(CGFloat.zero) { partial, row in
             let width = (row.name as NSString).size(withAttributes: [.font: font]).width
             return max(partial, width)
@@ -3218,7 +3218,7 @@ private final class MSAAlignmentColumnHeaderView: NSView {
                     "\(alignmentColumn + 1)",
                     in: NSRect(x: x - 8, y: 5, width: 42, height: 14),
                     color: .secondaryLabelColor,
-                    font: .monospacedSystemFont(ofSize: 9, weight: .regular)
+                    font: DrawingFont.monospaced(ofSize: 9, weight: .regular)
                 )
             }
             if columnSummaries[safe: alignmentColumn]?.variable == true {
@@ -3251,7 +3251,7 @@ private final class MSAAlignmentColumnHeaderView: NSView {
         let paragraphStyle = NSMutableParagraphStyle()
         paragraphStyle.alignment = .left
         let attributes: [NSAttributedString.Key: Any] = [
-            .font: NSFont.monospacedSystemFont(ofSize: 9, weight: .regular),
+            .font: DrawingFont.monospaced(ofSize: 9, weight: .regular),
             .foregroundColor: NSColor.secondaryLabelColor,
             .paragraphStyle: paragraphStyle,
         ]
@@ -3312,7 +3312,7 @@ private final class MSAAlignmentOverviewSignalView: NSView {
             summaryText,
             in: bounds.insetBy(dx: 8, dy: 2),
             color: .secondaryLabelColor,
-            font: .systemFont(ofSize: 10, weight: .medium),
+            font: DrawingFont.system(ofSize: 10, weight: .medium),
             alignment: .right
         )
         NSColor.separatorColor.setStroke()
@@ -4104,7 +4104,7 @@ private func drawResidue(
         String(residue),
         in: rect.insetBy(dx: 0, dy: 1),
         color: textColor,
-        font: .monospacedSystemFont(ofSize: 11, weight: isConsensus ? .semibold : .regular),
+        font: DrawingFont.monospaced(ofSize: 11, weight: isConsensus ? .semibold : .regular),
         alignment: .center
     )
 }
@@ -4172,7 +4172,7 @@ func drawText(
     _ text: String,
     in rect: NSRect,
     color: NSColor,
-    font: NSFont = .systemFont(ofSize: 11),
+    font: NSFont = DrawingFont.system(ofSize: 11),
     alignment: NSTextAlignment = .left,
     lineBreakMode: NSLineBreakMode = .byTruncatingTail
 ) {

@@ -487,7 +487,7 @@ final class OperationPreviewView: NSView {
                 let bases = ["A", "T", "G", "C"]
                 let base = bases[i % 4]
                 let baseAttrs: [NSAttributedString.Key: Any] = [
-                    .font: NSFont.monospacedSystemFont(ofSize: min(11, cellWidth - 2), weight: .regular),
+                    .font: DrawingFont.monospaced(ofSize: min(11, cellWidth - 2), weight: .regular),
                     .foregroundColor: isTrimmed ? FASTQPalette.dimText : FASTQPalette.summaryText,
                 ]
                 let baseStr = NSAttributedString(string: base, attributes: baseAttrs)
@@ -894,7 +894,7 @@ final class OperationPreviewView: NSView {
             if cellWidth >= 10 {
                 let base = isError ? errors[errorPositions.firstIndex(of: i)! % errors.count] : bases[i % 4]
                 let baseAttrs: [NSAttributedString.Key: Any] = [
-                    .font: NSFont.monospacedSystemFont(ofSize: min(11, cellWidth - 2), weight: isError ? .bold : .regular),
+                    .font: DrawingFont.monospaced(ofSize: min(11, cellWidth - 2), weight: isError ? .bold : .regular),
                     .foregroundColor: isError ? FASTQPalette.trimmed : FASTQPalette.summaryText,
                 ]
                 let baseStr = NSAttributedString(string: base.uppercased(), attributes: baseAttrs)

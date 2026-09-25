@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import AppKit
+import LungfishKit
 
 /// Renders a small rounded-rectangle badge with centered text.
 ///
@@ -61,7 +62,7 @@ enum TextBadgeIcon {
 
             // Text
             let fontSize = rect.height * 0.48
-            let font = NSFont.systemFont(ofSize: fontSize, weight: .bold)
+            let font = DrawingFont.system(ofSize: fontSize, weight: .bold)
             let attributes: [NSAttributedString.Key: Any] = [
                 .font: font,
                 .foregroundColor: textColor,

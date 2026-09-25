@@ -276,7 +276,7 @@ final class GenotypeHaplotypeTapeView: NSView {
         guard rect.height >= 8 else { return }
         let fontSize = labelFont.pointSize
         let attrs: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: fontSize, weight: .bold),
+            .font: DrawingFont.system(ofSize: fontSize, weight: .bold),
             .foregroundColor: NSColor.lungfishDanger,
         ]
         let attributed = NSAttributedString(string: symbol, attributes: attrs)
@@ -290,7 +290,7 @@ final class GenotypeHaplotypeTapeView: NSView {
         guard rect.height >= 10 else { return }
         let fontSize = labelFont.pointSize
         let attrs: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: fontSize, weight: .regular),
+            .font: DrawingFont.system(ofSize: fontSize, weight: .regular),
             .foregroundColor: NSColor.secondaryLabelColor,
         ]
         let attributed = NSAttributedString(string: "\(count)", attributes: attrs)
@@ -304,7 +304,7 @@ final class GenotypeHaplotypeTapeView: NSView {
         guard rect.height >= 10 else { return }
         let fontSize = labelFont.pointSize
         let attrs: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: fontSize, weight: .semibold),
+            .font: DrawingFont.system(ofSize: fontSize, weight: .semibold),
             .foregroundColor: NSColor.systemOrange,
         ]
         let attributed = NSAttributedString(string: "\u{2014}", attributes: attrs)

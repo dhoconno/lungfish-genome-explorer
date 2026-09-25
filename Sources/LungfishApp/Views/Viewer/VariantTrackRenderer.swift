@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import AppKit
+import LungfishKit
 import LungfishCore
 import LungfishIO
 import os.log
@@ -144,7 +145,7 @@ public enum VariantTrackRenderer {
 
         let fontSize = max(7, min(rowHeight - 2, 12))
         let attrs: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: fontSize, weight: .regular),
+            .font: DrawingFont.system(ofSize: fontSize, weight: .regular),
         ]
         var maxWidth: CGFloat = 0
         for sample in samples {
@@ -373,7 +374,7 @@ public enum VariantTrackRenderer {
         }()
         let fontSize = max(7, min(rowH - 2, 12))
         let labelAttrs: [NSAttributedString.Key: Any] = showLabels ? [
-            .font: NSFont.systemFont(ofSize: fontSize, weight: .regular),
+            .font: DrawingFont.system(ofSize: fontSize, weight: .regular),
             .foregroundColor: NSColor.labelColor,
             .paragraphStyle: truncationStyle,
         ] : [:]

@@ -299,7 +299,7 @@ final class MiniPileupView: NSView {
         guard endRef >= startRef else { return }
 
         if basePxWidth >= 5 {
-            let font = NSFont.monospacedSystemFont(ofSize: min(10, max(7, basePxWidth * 0.7)), weight: .medium)
+            let font = DrawingFont.monospaced(ofSize: min(10, max(7, basePxWidth * 0.7)), weight: .medium)
             for refPos in startRef...endRef {
                 let base = inferredReferenceBases[refPos] ?? "N"
                 let x = leftMargin + CGFloat(Double(refPos) / bpPerPixel)
@@ -448,7 +448,7 @@ final class MiniPileupView: NSView {
         guard basePxWidth >= 4 else { return }  // Too small to render letters
 
         let fontSize = min(10, max(6, basePxWidth * 0.8))
-        let font = NSFont.monospacedSystemFont(ofSize: fontSize, weight: .medium)
+        let font = DrawingFont.monospaced(ofSize: fontSize, weight: .medium)
         let readBases = Array(read.sequence)
 
         var refPos = read.position
