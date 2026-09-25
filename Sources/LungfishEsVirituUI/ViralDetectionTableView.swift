@@ -1003,7 +1003,9 @@ public final class ViralDetectionTableView: NSView, NSOutlineViewDataSource, NSO
         popover.contentViewController = NSHostingController(
             rootView: BlastConfigPopoverView(
                 taxonName: detection.name,
-                readsClade: availableUniqueReads
+                readsClade: availableUniqueReads,
+                // Matches the database ViewerViewController+EsViritu submits to.
+                database: "core_nt"
             ) { [weak self, weak popover] readCount in
                 popover?.close()
                 self?.onBlastRequested?(detection, readCount, accessions)

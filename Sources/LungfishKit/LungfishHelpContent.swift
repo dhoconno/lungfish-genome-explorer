@@ -751,14 +751,14 @@ public enum LungfishHelpContent {
     public static let classifierBlastVerify = HelpItem(
         id: "workflow.classifier.blastVerify",
         summary: "Submit selected reads to NCBI BLAST for review.",
-        detail: "Uses BLASTN nt without taxon restriction by default; reads leave the app for NCBI. This supports review, not diagnosis.",
+        detail: "Uses BLASTN without taxon restriction by default. The popover names the database searched, nt or core_nt. Reads leave the app for NCBI. This supports review, not diagnosis.",
         audience: .benchScientist
     )
 
     public static let classifierBlastReadCount = HelpItem(
         id: "workflow.classifier.blastReadCount",
         summary: "Choose how many selected reads to submit to BLAST.",
-        detail: "Default is 20 reads and the maximum is 50. BLAST searches nt with E-value 1e-10 by default.",
+        detail: "Default is 20 reads and the maximum is 50. BLAST uses an E-value cutoff of 1e-10 by default.",
         audience: .benchScientist
     )
 

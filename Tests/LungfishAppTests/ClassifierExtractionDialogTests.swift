@@ -40,7 +40,8 @@ final class ClassifierExtractionDialogTests: XCTestCase {
         )
 
         XCTAssertFalse(source.localizedCaseInsensitiveContains("independent verification"))
-        XCTAssertTrue(source.contains("NCBI BLASTN nt for review"))
+        XCTAssertTrue(source.contains("Submits selected reads to NCBI BLASTN"))
+        XCTAssertTrue(source.contains("database: String = \"nt\""))
         XCTAssertTrue(source.contains("LungfishHelpContent.classifierBlastReadCount"))
         XCTAssertTrue(source.contains("Reads leave the app for NCBI"))
     }

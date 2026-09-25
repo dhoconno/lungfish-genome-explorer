@@ -77,6 +77,24 @@ public struct BlastVerificationRequest: Sendable {
     /// whose organism contains one of these names supports the taxon.
     public let acceptedTaxonNames: [String]
 
+    /// Tax IDs in the queried taxon's genus but outside its clade. A hit to
+    /// one of these is a relative: not supporting, not conflicting.
+    public let relatedTaxIds: Set<Int>
+
+    /// Names in the queried taxon's genus but outside its clade, including
+    /// the genus name.
+    public let relatedTaxonNames: [String]
+
+    /// The taxonomy BLAST hits are judged against.
+    public var taxonomyContext: BlastTaxonomyContext {
+        BlastTaxonomyContext(
+            cladeTaxIds: acceptedTaxIds,
+            cladeNames: acceptedTaxonNames,
+            relatedTaxIds: relatedTaxIds,
+            relatedNames: relatedTaxonNames
+        )
+    }
+
     /// Creates a new BLAST verification request.
     ///
     /// - Parameters:
@@ -103,7 +121,9 @@ public struct BlastVerificationRequest: Sendable {
         maxConcurrentSubmissions: Int = 1,
         sequenceMates: [String: Int] = [:],
         acceptedTaxIds: Set<Int> = [],
-        acceptedTaxonNames: [String] = []
+        acceptedTaxonNames: [String] = [],
+        relatedTaxIds: Set<Int> = [],
+        relatedTaxonNames: [String] = []
     ) {
         self.taxonName = taxonName
         self.taxId = taxId
@@ -118,6 +138,8 @@ public struct BlastVerificationRequest: Sendable {
         self.sequenceMates = sequenceMates
         self.acceptedTaxIds = acceptedTaxIds
         self.acceptedTaxonNames = acceptedTaxonNames
+        self.relatedTaxIds = relatedTaxIds.subtracting(acceptedTaxIds)
+        self.relatedTaxonNames = relatedTaxonNames
     }
 
     /// Formats the sequences as a multi-FASTA string for BLAST submission.

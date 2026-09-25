@@ -132,6 +132,8 @@ public final class BatchTaxTriageTableView: BatchTableView<TaxTriageMetric> {
             rootView: BlastConfigPopoverView(
                 taxonName: metric.organism,
                 readsClade: metric.reads,
+                // Matches the database ViewerViewController+TaxTriage submits to.
+                database: "core_nt",
                 onRun: { [weak self, weak popover] readCount in
                     popover?.close()
                     self?.onBlastVerifyRequested?(metric, readCount)
