@@ -400,4 +400,30 @@ private final class VariantThemeNotificationCounter {
             notificationCenter.removeObserver(token)
         }
     }
+
+    func testNoTwoMainMenuItemsShareAKeyboardShortcut() throws {
+        _ = NSApplication.shared
+        let mainMenu = MainMenu.createMainMenu(experimentalFeaturesEnabled: true)
+        var owners: [String: [String]] = [:]
+
+        func walk(_ menu: NSMenu, path: String) {
+            for item in menu.items {
+                let itemPath = path.isEmpty ? item.title : "\(path) > \(item.title)"
+                if let submenu = item.submenu {
+                    walk(submenu, path: itemPath)
+                }
+                guard !item.keyEquivalent.isEmpty, !item.isAlternate else { continue }
+                var mask = item.keyEquivalentModifierMask.intersection([.command, .option, .control, .shift])
+                let key = item.keyEquivalent
+                if key != key.lowercased() { mask.insert(.shift) }
+                let signature = "\(mask.rawValue)-\(key.lowercased())"
+                owners[signature, default: []].append(itemPath)
+            }
+        }
+        walk(mainMenu, path: "")
+
+        let clashes = owners.values.filter { $0.count > 1 }.map { $0.joined(separator: " / ") }.sorted()
+        XCTAssertEqual(clashes, [], "Menu items share a keyboard shortcut: \(clashes)")
+    }
+
 }

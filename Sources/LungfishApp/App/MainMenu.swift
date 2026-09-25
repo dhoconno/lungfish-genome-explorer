@@ -614,7 +614,7 @@ public final class MainMenu {
             action: #selector(TaxTriageResultViewController.selectAllSamplesOverview(_:)),
             keyEquivalent: "0"
         )
-        allSamplesItem.keyEquivalentModifierMask = [.command, .option]
+        allSamplesItem.keyEquivalentModifierMask = [.command, .shift]
 
         viewMenu.addItem(.separator())
 

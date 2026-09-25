@@ -129,7 +129,7 @@ The **Content Text Size** submenu is a different thing entirely and is the answe
 | Content Text Size > Smaller | Cmd-Opt-minus | LGE's own |
 | Content Text Size > Default | Cmd-Opt-0 | LGE's own |
 
-Adding Opt turns a viewport zoom command into a text size command, with one exception, Cmd-Opt-0, which the View menu also gives to **All Samples**.
+Adding Opt turns a viewport zoom command into a text size command.
 
 The rest of the View menu acts on particular viewports.
 
@@ -139,10 +139,10 @@ The rest of the View menu acts on particular viewports.
 | Collapse All | Cmd-Shift-Left Arrow | Taxonomy table |
 | Next Sample | Cmd-right bracket | TaxTriage result window |
 | Previous Sample | Cmd-left bracket | TaxTriage result window |
-| All Samples | Cmd-Opt-0 | TaxTriage result window |
+| All Samples | Cmd-Shift-0 | TaxTriage result window |
 | Show as RNA (U instead of T) | Cmd-Shift-U | Sequence viewport |
 
-The taxonomy table is the tree of organism names a [classifier](../../GLOSSARY.md#classifier), a program that names the organism each read came from, produces, and its two rows need the table to have focus. With it focused, Opt-Right Arrow expands the selected row and everything beneath it. The three sample rows work only when a run of TaxTriage, one of LGE's classifiers, holds more than one sample. **All Samples** shares Cmd-Opt-0 with **Content Text Size > Default**. This is a known defect, listed with its workaround in [Known defects in this release](troubleshooting.md#known-defects-in-this-release). **Show as RNA** redraws the sequence with uracil in place of thymine and shows a checkmark while it is on. **Reset View Settings to Defaults** has no shortcut.
+The taxonomy table is the tree of organism names a [classifier](../../GLOSSARY.md#classifier), a program that names the organism each read came from, produces, and its two rows need the table to have focus. With it focused, Opt-Right Arrow expands the selected row and everything beneath it. The three sample rows work only when a run of TaxTriage, one of LGE's classifiers, holds more than one sample. **Show as RNA** redraws the sequence with uracil in place of thymine and shows a checkmark while it is on. **Reset View Settings to Defaults** has no shortcut.
 
 ## Sequence menu
 
@@ -254,7 +254,7 @@ A user of another sequence viewer will reach for these and find them missing or 
 - **The arrow keys inside a viewport** zoom and pan the display rather than scrolling it.
 - **Zoom to selection, annotate, and BLAST** have no shortcuts at all. Reach them from the menu bar or a right-click menu.
 
-Among the menu-bar shortcuts, only Cmd-Opt-0 is assigned twice, as noted under the View menu.
+No two menu-bar shortcuts share a key combination.
 
 ## Mouse and trackpad
 
@@ -299,7 +299,7 @@ Sorted by the final key, letters and numbers first in alphabetical order with De
 | Cmd-0 | Zoom to fit | Alignment viewport |
 | Cmd-0 | Zoom to the centre | Taxonomy sunburst |
 | Cmd-Opt-0 | Content Text Size, Default | View menu |
-| Cmd-Opt-0 | All Samples | View menu, TaxTriage result window |
+| Cmd-Shift-0 | All Samples | View menu, TaxTriage result window |
 | Cmd-1 | Zoom Reset (10kb) | View menu, coordinate ruler |
 | Cmd-A | Select All | Edit menu, sequence viewport, MSA viewport |
 | Cmd-A | Select every box | Workflow Builder canvas |
