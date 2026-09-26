@@ -502,7 +502,7 @@ final class OperationsPanelViewController: NSViewController, NSTableViewDataSour
             let alert = NSAlert()
             alert.messageText = "Unable to show results"
             alert.informativeText = "Open the operation’s project in the main viewer and make sure its result files are still available."
-            await alert.beginSheetModal(for: window)
+            alert.beginSheetModal(for: window, completionHandler: nil)
         }
     }
 
