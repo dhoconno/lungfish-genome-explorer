@@ -3,7 +3,7 @@ title: Importing Sequencing Reads
 chapter_id: 03-reads/01-importing-fastq
 audience: bench-scientist
 prereqs: [01-foundations/02-sequencing-reads, 01-foundations/06-the-lungfish-project]
-estimated_reading_min: 15
+estimated_reading_min: 18
 task: Import FASTQ read files, or an unmapped Oxford Nanopore BAM, into a Lungfish Genome Explorer project.
 tags: [reads, fastq, bam, ont, import, paired-end, batch, sample-sheet]
 tools: []
@@ -21,7 +21,7 @@ shots:
   - id: sidebar-after-import
     caption: "The sidebar after the paired-end import, showing the new HG002 chromosome 20 bundle under Imports."
 illustrations: []
-glossary_refs: [fastq, bam, bundle, paired-end, single-end, interleaved-fastq, project, sidebar, inspector, import-center, provenance, checksum, required-setup-pack, sample-metadata, quality-binning, read-clumping, sample-sheet, phred-score, adapter, virtual-bundle]
+glossary_refs: [fastq, bam, bundle, paired-end, single-end, interleaved-fastq, project, sidebar, inspector, import-center, provenance, checksum, required-setup-pack, sample-metadata, quality-binning, read-clumping, sample-sheet, phred-score, adapter, virtual-bundle, k-mer, clumpify]
 features_refs: []
 fixtures_refs: [hg002-chr20]
 brand_reviewed: false
@@ -49,6 +49,26 @@ The bundle also records what a FASTQ file leaves out. A FASTQ file holds reads a
 This chapter works through the HG002 chromosome 20 slice. HG002 is a human genome from the Genome in a Bottle project whose true sequence is already known. The project publishes such reference samples so laboratories can check their methods. The fixture is a pair of Illumina files holding 45,574 read pairs, each read up to 250 bases long. The reads come from a 500,000-base stretch of chromosome 20, from 10.0 to 10.5 million bases along it, which is what `10.0-10.5Mb` in the filenames means.
 
 A whole human genome run delivers hundreds of millions of pairs, so this is a tiny read set. It still covers each position of its window about 45 times over, the depth a real human genome project aims for, so it is realistic in quality and small enough to import in seconds.
+
+## Choosing a tool
+
+The import sheet asks one tool question, which program reorders the reads before LGE compresses them. What settles it is whether the stored reads should be exactly what the sequencer wrote, or a trimmed version of them.
+
+**BBTools clumpify** is the default. BBTools is a suite of read-processing programs from the Joint Genome Institute, and [clumpify](../../GLOSSARY.md#clumpify) is the one that sorts reads. It groups reads that share [k-mers](../../GLOSSARY.md#k-mer), stretches of exactly k bases, so that near-identical reads end up next to each other in the file. A compressor such as gzip shrinks a file by spotting text it has just seen, so a file with similar reads side by side comes out smaller. Clumpify changes the order of the reads and nothing else, so every base and every quality score survives. It holds the reads in memory while it sorts them, which is why LGE clears Optimize storage for a batch too large for the memory it can give clumpify.
+
+**Trim Galore --clumpify** runs Trim Galore, a program that trims reads, with its own read-sorting option switched on. It recognises common [adapter](../../GLOSSARY.md#adapter) types from the reads themselves, among them the standard Illumina and Nextera adapters, and removes them. It also cuts low-quality bases from the 3' end of each read and drops reads left too short. Earlier versions of Trim Galore called another trimmer, Cutadapt, to do the work, and the 2.x version LGE installs is a single program written from scratch. Its strength is that every sample in a batch gets the same standard trim the moment it lands. Its weakness is that the trim is baked into the only copy of the reads LGE stores, with settings the sheet does not let you change. It also stops with an error on a single file that mixes read pairs with unpaired reads, where clumpify copes.
+
+Clearing **Optimize storage** skips the sorting, so the reads are only compressed and keep the order of the source file.
+
+| Tool | Built for | Choose it when | Choose something else when |
+|---|---|---|---|
+| BBTools clumpify | Shrinking stored short reads without changing them | Almost every Illumina-style import | The batch is too large for memory, or a later step needs the original read order |
+| Trim Galore --clumpify | Trimming adapters and poor read ends while storing | Every sample in the batch needs the same standard trim | You have not yet looked at read quality, or want to measure what a trim removed |
+| Optimize storage off | Keeping the source file's read order | Nanopore or PacBio reads, very large batches, or order-dependent steps | Disk space is tight and the reads are short |
+
+The HG002 fixture uses BBTools clumpify, the default, because these are clean Illumina reads and nothing about them needs changing at import. [Trimming and Filtering Reads](04-trimming-and-filtering.md) shows that a trim of these reads costs about 7 percent of their bases, a cost you can measure there and cannot measure after a Trim Galore import. Switch to Trim Galore only once [Quality Control for Reads](03-quality-control.md) has shown that every sample in a batch carries adapter or poor read ends. The processing recipes described under [Settings](#settings) are a separate choice. A recipe runs before the reordering step, so the reordering and compression apply to what the recipe produced. Two of the recipes already trim with fastp, so pairing either of them with Trim Galore trims the reads twice. BBTools, Trim Galore, and Cutadapt are cited in [Tools installed with every copy of LGE](../appendices/bibliography.md#tools-installed-with-every-copy-of-lge).
+
+So what should you do with this? Leave the Compression Tool on BBTools clumpify unless you have already decided, from quality control, that every sample needs the same trim.
 
 ## Before you start
 
@@ -141,7 +161,7 @@ The memory cutoff is half of what LGE sets aside for the reordering tool, which 
 
 **Compression Level.** Trades import speed against stored file size, offering Fast, Balanced, and Maximum. The default is Balanced, the middle setting that suits most imports. Choose Fast for a large run when disk space is plentiful, and Maximum when it is tight and a slower import is acceptable. On the command line this is `--compression`.
 
-**Apply processing recipe after import.** Runs a packaged multi-step workflow, called a recipe, on the reads as soon as each bundle lands. It is off by default, so the reads arrive changed by nothing beyond the settings above. Turn it on when every sample in the batch needs the same standard processing, so you do not repeat the steps by hand. On the command line this is `--recipe`.
+**Apply processing recipe after import.** Runs a packaged multi-step workflow, called a recipe, on each sample's reads during the import, before they are reordered and compressed, so the bundle holds the recipe's output rather than the original reads. It is off by default, so the reads arrive changed by nothing beyond the settings above. Turn it on when every sample in the batch needs the same standard processing, so you do not repeat the steps by hand. On the command line this is `--recipe`.
 
 **(recipe picker).** Chooses which recipe runs, and the grey text under it lists that recipe's steps and the input it needs. It is the unlabelled popup that appears under the checkbox once the checkbox is on, and it starts on the first recipe in the list. Change it whenever the batch calls for a different recipe than the one shown. On the command line this is `--recipe`, which takes `vsp2-target-enrichment`, `wastewater-metagenomics`, or `illumina-amplicon-merge` for the three file recipes.
 

@@ -3,7 +3,7 @@ title: Decontamination
 chapter_id: 03-reads/05-decontamination
 audience: analyst
 prereqs: [03-reads/01-importing-fastq, 03-reads/02-downloading-from-sra, 01-foundations/07-plugin-packs]
-estimated_reading_min: 15
+estimated_reading_min: 20
 task: Remove host, ribosomal, contaminant, low-complexity, and duplicate reads from a FASTQ bundle.
 tags: [reads, decontamination, human, rrna, low-complexity, entropy, duplicates, deacon, bbduk, clumpify]
 tools: [deacon, bbduk, clumpify]
@@ -23,7 +23,7 @@ shots:
   - id: remove-duplicates-preset-picker
     caption: "The Remove Duplicates pane with the Preset picker open on its six choices, Exact PCR selected."
 illustrations: []
-glossary_refs: [fastq, read, bundle, paired-end, deacon, bbduk, clumpify, k-mer, minimizer, hamming-distance, ribosomal-rna, phix, pcr-duplicate, optical-duplicate, shannon-entropy, host-depletion, required-setup-pack, provenance, checksum, depth, coverage-breadth, amplicon, primer-scheme, shotgun, variant-caller]
+glossary_refs: [fastq, read, bundle, paired-end, deacon, bbduk, clumpify, k-mer, minimizer, hamming-distance, ribosomal-rna, phix, pcr-duplicate, optical-duplicate, shannon-entropy, host-depletion, required-setup-pack, provenance, checksum, depth, coverage-breadth, amplicon, primer-scheme, shotgun, variant-caller, fastp, mark-duplicates, samtools]
 features_refs: []
 fixtures_refs: [hg002-chr20, sarscov2-srr36291587]
 brand_reviewed: false
@@ -59,6 +59,48 @@ The second reason is that unwanted reads can produce answers that look real. [De
 The third reason is privacy. Sequencing a patient sample also captures that patient's own genome. Stripping the human reads, a step called [host depletion](../../GLOSSARY.md#host-depletion), is what makes a clinical dataset shareable.
 
 This chapter runs four operations on HG002 reads, from a well-characterised human genome. Removing human reads from a human sample would leave nothing behind, so human read removal runs on SRR36291587 instead, a SARS-CoV-2 run from a clinical sample that carries a human background.
+
+## Choosing a tool
+
+Two jobs in this chapter have more than one tool. Which program removes a class of unwanted reads depends on the size of the unwanted sequence, a whole genome or a short known stretch. Where to remove duplicates depends on whether the reads will be mapped to a reference before anything else is done with them.
+
+### Matching unwanted reads against a reference
+
+Deacon reduces every read to its [minimizers](../../GLOSSARY.md#minimizer), a small, evenly spread subset of the read's k-mers that act as fingerprints, and looks each one up in a prebuilt index. By default a read counts as a match only when at least two of its minimizers hit and the hits make up at least 1 percent of its minimizers, and LGE keeps those defaults. For a pair, hits in either mate count toward one decision, and LGE hands Deacon both mates, so the two are kept or removed together. The human index LGE installs, called panhuman-1, was built from many human genome assemblies rather than one reference, so it recognises human variation that no single genome carries, and its authors subtracted bacterial and viral sequence from it. Deacon was designed for short and long reads alike. Its authors report that it runs faster and uses less memory than earlier host-removal tools, and they note that accuracy drops on very short reads, such as the 50-base reads of older Illumina runs. LGE shows none of its settings.
+
+Earlier releases of LGE removed human reads with NCBI's human read scrubber, a separate tool built on a human k-mer database. The current release runs Deacon for every human read removal, including the two import recipes that remove human reads. A command or saved recipe that still names the old database, `human-scrubber` or `sra-human-scrubber`, runs against Deacon's human index instead without saying so.
+
+[bbduk](../../GLOSSARY.md#bbduk) takes every 31-base [k-mer](../../GLOSSARY.md#k-mer) of the reference each time it runs and removes any read that shares one with it, allowing one mismatched base. Building that table is quick for a small reference such as the 5,386-base PhiX genome or a cloning vector, and impractical for a whole human genome, which is why human removal uses a prebuilt Deacon index instead. The Low-Complexity Filter also runs bbduk, but it compares the read with nothing and scores only how varied the read is.
+
+| Tool | Built for | Choose it when | Choose something else when |
+|---|---|---|---|
+| Deacon, Remove Human Reads | Removing human host reads | A patient or wastewater sample in which a pathogen is the target | The sample is human and the human genome is what you are studying |
+| Deacon, Remove ribosomal RNA sequences | Removing ribosomal RNA | An RNA library swamped by ribosomal reads | A DNA library, where it removes little |
+| bbduk, Remove Contaminants | Removing a small known sequence | The run carries PhiX, a vector, or carrier DNA | The unwanted sequence is a large genome, or the genome you are studying |
+
+LGE ships no macaque host index, so it has no way to remove macaque host reads, and the human index is not a tested substitute for one.
+
+### Duplicates, before or after mapping
+
+A [PCR duplicate](../../GLOSSARY.md#pcr-duplicate) is a copy of one original fragment made during amplification, and counting copies as separate reads overstates the evidence at a position. Three tools can remove or flag them.
+
+[Clumpify](../../GLOSSARY.md#clumpify), behind Remove Duplicates in this chapter, works on the FASTQ file before any mapping. It groups reads that share k-mers so that near-identical reads sit together, then collapses reads whose sequences match, exactly or within the one or two mismatches a preset allows. It needs no reference, which suits a step such as assembly or classification that never maps the reads.
+
+[Mark Duplicates](../../GLOSSARY.md#mark-duplicates), in the Inspector once the reads are mapped, runs [samtools](../../GLOSSARY.md#samtools) markdup, as [Alignment Quality](../04-alignments/04-alignment-quality.md#mark-duplicates) shows. It calls two pairs duplicates when their mates map to the same positions on the same strands, whatever their sequence, so a sequencing error in one copy does not hide it. It flags the extra copies rather than deleting them, and a filtered alignment can then leave them out. This is the usual route for shotgun data headed for variant calling.
+
+[fastp](../../GLOSSARY.md#fastp) removes duplicates only inside the VSP2 Target Enrichment import recipe, where its first step drops pairs whose sequences are identical.
+
+| Tool | Built for | Choose it when | Choose something else when |
+|---|---|---|---|
+| clumpify, Remove Duplicates | Duplicate removal on reads that will not be mapped first | You want a smaller FASTQ before assembly or classification | The reads are headed for mapping and variant calling |
+| samtools markdup, Mark Duplicates | Duplicate marking by mapped position | Shotgun human or macaque data headed for variant calling | The library is amplicon data |
+| fastp dedup, VSP2 recipe | Short-insert viral target enrichment at import | You import VSP2 libraries | Any other library |
+
+Amplicon data gets none of the three. Every read from one amplicon starts at the same primer, so all three would treat real, independent reads as copies. Abundance questions get none either, and the wastewater import recipe leaves deduplication out on purpose to preserve abundance.
+
+The HG002 fixture is a PCR-free human library headed for variant calling, so its duplicates are best marked after mapping, where [Alignment Quality](../04-alignments/04-alignment-quality.md#reading-the-results) finds 1.85 percent. This chapter runs Remove Duplicates on it only to show what a clean library looks like. SRR36291587 is an amplicon run, so it gets human read removal and no deduplication. Deacon, BBTools, fastp, and SAMtools are cited in [Tools installed with every copy of LGE](../appendices/bibliography.md#tools-installed-with-every-copy-of-lge).
+
+So what should you do with this? Let the unwanted sequence pick the matching tool, and mark duplicates after mapping unless the reads will never be mapped.
 
 ## Before you start
 
@@ -200,7 +242,7 @@ Check that the output is not nearly empty. A run that kept a handful of reads, l
 
 Check that the reference fits the sample. A ribosomal index applied to a DNA library does very little and still looks like a successful run. A human index applied to a macaque sample is the quieter trap, because the two genomes are similar enough that some reads match, so the run reports a plausible removal rate rather than an obvious zero.
 
-Check that you want the operation at all. In an amplicon run every fragment starts at the same designed position, so identical reads are the expected product rather than PCR artifacts, and removing them discards real depth. Run Remove Duplicates on shotgun libraries and leave it off amplicon runs.
+Check that you want the operation at all. In an amplicon run every fragment starts at the same designed position, so identical reads are the expected product rather than PCR artifacts, and removing them discards real depth. Remove duplicates from shotgun libraries, by marking them after mapping when the reads will be mapped, and leave amplicon runs alone.
 
 ## On the command line
 
@@ -236,6 +278,6 @@ Each command reads the pairing the bundle records, so given the file inside a pa
 
 ## Next
 
-Most samples need one of these operations, not all five. Where two apply, remove host reads first, since that is the largest cut, then remove duplicates if the library was a shotgun one.
+Most samples need one of these operations, not all five. Where two apply, remove host reads first, since that is the largest cut, then deal with duplicates if the library was a shotgun one, as [Choosing a tool](#choosing-a-tool) describes.
 
 Continue to [Subsetting and Extraction](06-subsetting-and-extraction.md) to take a smaller set of reads out of a bundle, or go to [Mapping Reads to a Reference](../04-alignments/01-mapping-reads-to-a-reference.md) once your reads are clean.
