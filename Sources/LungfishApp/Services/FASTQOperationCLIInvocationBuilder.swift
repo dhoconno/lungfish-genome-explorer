@@ -151,6 +151,7 @@ struct FASTQOperationCLIInvocationBuilder: Sendable {
                 arguments.append("--paired")
             }
             arguments += [
+                "--json-events",
                 "--assembler", executionRequest.tool.rawValue,
                 "--read-type", executionRequest.readType.cliArgument,
                 "--project-name", executionRequest.projectName,

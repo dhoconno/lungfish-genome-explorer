@@ -19,22 +19,29 @@ private final class CondaPipeDrainBuffer: @unchecked Sendable {
     private let lock = NSLock()
     private var buffer = Data()
     private let eof = DispatchSemaphore(value: 0)
+    private var framer = ProcessOutputLineFramer()
 
     /// Attaches this buffer to a pipe's readabilityHandler. Signals `eof`
     /// exactly once, when the handler observes empty data (true EOF), rather
     /// than after a fixed delay that has no happens-before relationship to
     /// the last handler invocation.
-    func attach(to pipe: Pipe) {
+    func attach(to pipe: Pipe, onLine: (@Sendable (String) -> Void)? = nil) {
         pipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
-            let chunk = handle.availableData
             guard let self else { return }
+            // Serialize the final callback with EOF: completion must not overtake
+            // output still being delivered to the caller's durable diagnostic sink.
+            self.lock.lock()
+            defer { self.lock.unlock() }
+            let chunk = handle.availableData
             if chunk.isEmpty {
+                for line in self.framer.finish() { onLine?(line) }
                 pipe.fileHandleForReading.readabilityHandler = nil
                 self.eof.signal()
             } else {
-                self.lock.lock()
                 self.buffer.append(chunk)
-                self.lock.unlock()
+                if let onLine {
+                    for line in self.framer.append(chunk) { onLine(line) }
+                }
             }
         }
     }
@@ -1096,6 +1103,10 @@ public actor CondaManager {
     ///     progress output from tools like kraken2 that report progress to
     ///     stderr. The full stderr is still accumulated and returned in the
     ///     result tuple regardless of whether this handler is set.
+    ///   - stdoutHandler: Optional live stdout line callback. Each pipe frames UTF-8,
+    ///     LF, CRLF, CR updates and its final unterminated line independently.
+    ///     Both callbacks finish before this method returns or throws after launch.
+    ///     Callbacks run synchronously on pipe readers and should enqueue expensive work.
     /// - Returns: A tuple of (stdout, stderr, exitCode).
     /// - Throws: ``CondaError`` on tool-not-found, timeout, or launch failure.
     public func runTool(
@@ -1105,6 +1116,23 @@ public actor CondaManager {
         workingDirectory: URL? = nil,
         environmentVariables: [String: String]? = nil,
         timeout: TimeInterval = 3600,
+        stderrHandler: (@Sendable (String) -> Void)? = nil
+    ) async throws -> (stdout: String, stderr: String, exitCode: Int32) {
+        try await runTool(name: name, arguments: arguments, environment: environment,
+            workingDirectory: workingDirectory, environmentVariables: environmentVariables,
+            timeout: timeout, stdoutHandler: nil, stderrHandler: stderrHandler)
+    }
+
+    /// Streams stdout in addition to stderr. The explicit stdout argument preserves
+    /// the original overload's unlabeled trailing-closure binding to stderr.
+    public func runTool(
+        name: String,
+        arguments: [String] = [],
+        environment: String,
+        workingDirectory: URL? = nil,
+        environmentVariables: [String: String]? = nil,
+        timeout: TimeInterval = 3600,
+        stdoutHandler: (@Sendable (String) -> Void)?,
         stderrHandler: (@Sendable (String) -> Void)? = nil
     ) async throws -> (stdout: String, stderr: String, exitCode: Int32) {
         repairManagedLaunchers(environment: environment)
@@ -1158,33 +1186,9 @@ public actor CondaManager {
                 let stdoutDrain = CondaPipeDrainBuffer()
                 cancellationHandle.store(process)
 
-                stdoutDrain.attach(to: stdoutPipe)
-
-                // stderrHandler needs line-by-line forwarding as data arrives,
-                // which CondaPipeDrainBuffer's generic accumulator does not do,
-                // so this pipe keeps its own handler but the same EOF-semaphore
-                // shape.
-                let stderrEOF = DispatchSemaphore(value: 0)
-                let stderrLock = NSLock()
-                nonisolated(unsafe) var stderrBuffer = Data()
-                stderrPipe.fileHandleForReading.readabilityHandler = { handle in
-                    let data = handle.availableData
-                    if data.isEmpty {
-                        stderrPipe.fileHandleForReading.readabilityHandler = nil
-                        stderrEOF.signal()
-                    } else {
-                        stderrLock.lock()
-                        stderrBuffer.append(data)
-                        stderrLock.unlock()
-                        // Forward lines to the stderrHandler if provided.
-                        if let handler = stderrHandler,
-                           let text = String(data: data, encoding: .utf8) {
-                            for line in text.split(separator: "\n", omittingEmptySubsequences: true) {
-                                handler(String(line))
-                            }
-                        }
-                    }
-                }
+                let stderrDrain = CondaPipeDrainBuffer()
+                stdoutDrain.attach(to: stdoutPipe, onLine: stdoutHandler)
+                stderrDrain.attach(to: stderrPipe, onLine: stderrHandler)
 
                 // Timeout timer: terminates the process if it runs too long.
                 // nonisolated(unsafe) because DispatchWorkItem is not Sendable,
@@ -1212,10 +1216,7 @@ public actor CondaManager {
                     // executor for other callers.
                     DispatchQueue.global().async {
                         let stdoutData = stdoutDrain.waitForEOFAndTake()
-                        stderrEOF.wait()
-                        stderrLock.lock()
-                        let stderrData = stderrBuffer
-                        stderrLock.unlock()
+                        let stderrData = stderrDrain.waitForEOFAndTake()
 
                         cancellationHandle.clear(terminatedProcess)
                         // Nil out handlers to break retain cycles.

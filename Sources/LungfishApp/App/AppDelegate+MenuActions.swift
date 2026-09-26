@@ -841,7 +841,7 @@ extension AppDelegate {
 
         let alert = NSAlert()
         alert.messageText = "Cancel \"\(item.title)\"?"
-        alert.informativeText = "This operation is \(Int(item.progress * 100))% complete."
+        alert.informativeText = "\(item.displayProgressLabel)\n\(item.detail)"
         alert.alertStyle = .warning
         alert.addButton(withTitle: "Cancel Operation")
         alert.addButton(withTitle: "Keep Running")

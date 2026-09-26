@@ -96,8 +96,22 @@ public struct ManagedAssemblyPipeline: Sendable {
         }
     }
 
+    /// Runs an assembler with durable diagnostics and independent output/activity callbacks.
+    /// Output is written before callbacks, to assembly.log or a same-volume sibling
+    /// while an assembler requires a not-yet-existing output directory.
+    /// `progress` reports activity with an unspecified (zero) fraction; stage markers do
+    /// not establish a measured percentage. Callbacks run on pipe readers and must be brief.
     public func run(
         request: AssemblyRunRequest,
+        progress: ProgressHandler? = nil
+    ) async throws -> AssemblyResult {
+        try await run(request: request, onOutput: nil, progress: progress)
+    }
+
+    /// Supplying `onOutput` separates raw diagnostics from recognized stage activity.
+    public func run(
+        request: AssemblyRunRequest,
+        onOutput: (@Sendable (String) -> Void)?,
         progress: ProgressHandler? = nil
     ) async throws -> AssemblyResult {
         let request = request.normalizedForExecution()
@@ -111,32 +125,65 @@ public struct ManagedAssemblyPipeline: Sendable {
         let command = try Self.buildCommand(for: preparedExecution.request)
         let start = Date()
 
-        progress?(0, "Launching \(request.tool.displayName)...")
-        let result = try await condaManager.runTool(
-            name: command.executable,
-            arguments: command.arguments,
-            environment: command.environment,
-            workingDirectory: command.workingDirectory,
-            timeout: 24 * 3600,
-            stderrHandler: { line in
-                progress?(0.5, line)
-            }
-        )
-
-        let logPath = preparedExecution.request.outputDirectory.appendingPathComponent("assembly.log")
-        let logBody = [result.stdout, result.stderr]
-            .filter { !$0.isEmpty }
-            .joined(separator: "\n")
-        if !logBody.isEmpty {
-            try logBody.write(to: logPath, atomically: true, encoding: .utf8)
+        let finalLogURL = request.outputDirectory.appendingPathComponent("assembly.log")
+        let logURL: URL
+        if preparedExecution.redirectRoot == nil && Self.toolRequiresFreshOutputDirectory(request.tool) {
+            // MEGAHIT must create its own fresh destination. Keep diagnostics beside
+            // it on the chosen volume until the subprocess exits; logging must not
+            // force a potentially huge assembly into the system temporary volume.
+            logURL = request.outputDirectory.deletingLastPathComponent().appendingPathComponent(
+                ".\(request.outputDirectory.lastPathComponent).assembly-\(UUID().uuidString).log"
+            )
+        } else {
+            try FileManager.default.createDirectory(at: request.outputDirectory, withIntermediateDirectories: true)
+            logURL = finalLogURL
         }
-
-        if result.exitCode != 0 {
-            try Self.repatriateOutputsIfNeeded(
+        let diagnosticLog = try AssemblyDiagnosticLog(url: logURL)
+        defer { diagnosticLog.close() }
+        let parser = SPAdesOutputParser()
+        let receiveOutput: @Sendable (String) -> Void = { line in
+            diagnosticLog.append(line) {
+                onOutput?(line)
+                if request.tool == .spades, let stage = parser.parseLine(line) {
+                    // Existing parser fractions are stage weights, not measured work.
+                    progress?(0, stage.message)
+                } else if onOutput == nil {
+                    // Preserve activity for legacy callers without a separate log callback.
+                    progress?(0, line)
+                }
+            }
+        }
+        progress?(0, "Running \(request.tool.displayName)...")
+        let result: (stdout: String, stderr: String, exitCode: Int32)
+        do {
+            result = try await condaManager.runTool(
+                name: command.executable,
+                arguments: command.arguments,
+                environment: command.environment,
+                workingDirectory: command.workingDirectory,
+                timeout: 24 * 3600,
+                stdoutHandler: receiveOutput,
+                stderrHandler: receiveOutput
+            )
+        } catch {
+            // The runner drains both pipes before throwing cancellation or timeout.
+            // Keep any assembler-specific diagnostic artifacts as well as assembly.log.
+            try? Self.repatriateOutputsIfNeeded(
                 from: preparedExecution.request.outputDirectory,
                 to: request.outputDirectory,
                 redirectRoot: preparedExecution.redirectRoot
             )
+            try? diagnosticLog.publish(to: finalLogURL)
+            throw error
+        }
+        try Self.repatriateOutputsIfNeeded(
+            from: preparedExecution.request.outputDirectory,
+            to: request.outputDirectory,
+            redirectRoot: preparedExecution.redirectRoot
+        )
+        try diagnosticLog.publish(to: finalLogURL)
+
+        if result.exitCode != 0 {
             throw ManagedAssemblyPipelineError.executionFailed(
                 tool: request.tool.displayName,
                 exitCode: result.exitCode,
@@ -156,12 +203,7 @@ public struct ManagedAssemblyPipeline: Sendable {
             flags: versionFlags(for: request.tool)
         )
 
-        try Self.repatriateOutputsIfNeeded(
-            from: preparedExecution.request.outputDirectory,
-            to: request.outputDirectory,
-            redirectRoot: preparedExecution.redirectRoot
-        )
-        progress?(0.9, "Normalizing \(request.tool.displayName) output...")
+        progress?(0, "Normalizing \(request.tool.displayName) output...")
 
         let durableCommandLine = try Self.buildCommand(for: request).shellCommand
         let normalizedResult = try AssemblyOutputNormalizer.normalize(
@@ -434,6 +476,7 @@ public struct ManagedAssemblyPipeline: Sendable {
 
         let fm = FileManager.default
         try fm.createDirectory(at: finalOutputDirectory, withIntermediateDirectories: true)
+        guard fm.fileExists(atPath: stagedOutputDirectory.path) else { return }
         let contents = try fm.contentsOfDirectory(
             at: stagedOutputDirectory,
             includingPropertiesForKeys: nil,
@@ -441,7 +484,8 @@ public struct ManagedAssemblyPipeline: Sendable {
         )
 
         for item in contents {
-            let destination = finalOutputDirectory.appendingPathComponent(item.lastPathComponent)
+            let leafName = item.lastPathComponent == "assembly.log" ? "assembly.tool.log" : item.lastPathComponent
+            let destination = finalOutputDirectory.appendingPathComponent(leafName)
             if fm.fileExists(atPath: destination.path) {
                 try fm.removeItem(at: destination)
             }
@@ -572,5 +616,62 @@ private extension AssemblyRunRequest {
             extraArguments: extraArguments,
             profileSelectionBasis: profileSelectionBasis
         )
+    }
+}
+
+/// Each pipe can deliver concurrently. Write directly to a file handle under a
+/// lock, independently of UI sampling and without waiting for successful exit.
+private final class AssemblyDiagnosticLog: @unchecked Sendable {
+    private let lock = NSLock()
+    private let handle: FileHandle
+    private let url: URL
+    private var writeFailure: (any Error)?
+    private var closed = false
+
+    init(url: URL) throws {
+        self.url = url
+        try Data().write(to: url)
+        handle = try FileHandle(forWritingTo: url)
+    }
+
+    func append(_ line: String, deliver: () -> Void) {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !closed else { return }
+        if writeFailure == nil {
+            do { try handle.write(contentsOf: Data((line + "\n").utf8)) }
+            catch { writeFailure = error }
+        }
+        // One delivery lock gives disk and GUI callbacks the same observed order
+        // even when stdout and stderr arrive on different reader queues.
+        deliver()
+    }
+
+    func publish(to destination: URL) throws {
+        lock.lock()
+        defer { lock.unlock() }
+        if !closed {
+            try handle.synchronize()
+            try handle.close()
+            closed = true
+        }
+        if url != destination {
+            let fm = FileManager.default
+            try fm.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
+            if fm.fileExists(atPath: destination.path) {
+                let toolLog = destination.deletingLastPathComponent().appendingPathComponent("assembly.tool.log")
+                try fm.moveItem(at: destination, to: toolLog)
+            }
+            try fm.moveItem(at: url, to: destination)
+        }
+        if let writeFailure { throw writeFailure }
+    }
+
+    func close() {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !closed else { return }
+        try? handle.close()
+        closed = true
     }
 }

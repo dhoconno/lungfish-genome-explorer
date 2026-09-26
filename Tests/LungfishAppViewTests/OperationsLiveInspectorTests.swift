@@ -1,0 +1,171 @@
+import AppKit
+import XCTest
+import LungfishKit
+@testable import LungfishApp
+
+@MainActor
+final class OperationsLiveInspectorTests: XCTestCase {
+    private func find<T: NSView>(_ root: NSView, _ identifier: String, as type: T.Type) -> T? {
+        if root.accessibilityIdentifier() == identifier { return root as? T }
+        return root.subviews.compactMap { find($0, identifier, as: type) }.first
+    }
+
+    private func panel() throws -> (OperationsPanelController, NSView, NSTableView) {
+        _ = NSApplication.shared
+        let controller = OperationsPanelController()
+        let window = try XCTUnwrap(controller.window)
+        window.setContentSize(NSSize(width: 900, height: 700))
+        let view = try XCTUnwrap(window.contentViewController?.view)
+        view.layoutSubtreeIfNeeded()
+        let table = try XCTUnwrap(find(view, "operations-table", as: NSTableView.self))
+        table.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false)
+        return (controller, view, table)
+    }
+
+    func testContinuousUpdatesRenderLatestLineWithoutWaitingForSilence() async throws {
+        let id = OperationCenter.shared.start(title: "Live inspector fixture", detail: "Working", operationType: .assembly)
+        defer {
+            _ = OperationCenter.shared.complete(id: id, detail: "Done")
+            OperationCenter.shared.clearItem(id: id)
+        }
+        let (controller, view, table) = try panel()
+        defer { controller.close() }
+        var observedDuringStream = false
+        for index in 0..<20 {
+            OperationCenter.shared.log(id: id, level: .info, message: "Live output \(index)")
+            try await Task.sleep(for: .milliseconds(30))
+            view.layoutSubtreeIfNeeded()
+            if let header = find(view, "operations-inspector-latest", as: NSTextField.self),
+               header.stringValue.contains("Live output") { observedDuringStream = true }
+        }
+        XCTAssertTrue(observedDuringStream, "A continuing stream must not restart the refresh deadline")
+        XCTAssertNil(table.tableColumn(withIdentifier: .init("eta")))
+        XCTAssertEqual(table.tableColumn(withIdentifier: .init("elapsed"))?.title, "Time")
+        let progressColumn = try XCTUnwrap(table.tableColumns.firstIndex { $0.identifier.rawValue == "progress" })
+        let cell = try XCTUnwrap(table.view(atColumn: progressColumn, row: 0, makeIfNecessary: true))
+        XCTAssertNotNil(find(cell, "operations-progress-\(id)", as: NSTextField.self))
+        let titleColumn = try XCTUnwrap(table.tableColumns.firstIndex { $0.identifier.rawValue == "title" })
+        let titleCell = try XCTUnwrap(table.view(atColumn: titleColumn, row: 0, makeIfNecessary: true))
+        let latest = try XCTUnwrap(find(titleCell, "operations-latest-\(id)", as: NSTextField.self))
+        XCTAssertTrue(latest.stringValue.contains("Live output"))
+    }
+
+    func testLogSelectionPausesFollowingAndSurvivesNewLinesAndSwitching() async throws {
+        let other = OperationCenter.shared.start(title: "Other fixture", detail: "Working", operationType: .assembly)
+        let id = OperationCenter.shared.start(title: "Reading fixture", detail: "Working", operationType: .assembly)
+        defer {
+            for value in [id, other] {
+                _ = OperationCenter.shared.complete(id: value, detail: "Done")
+                OperationCenter.shared.clearItem(id: value)
+            }
+        }
+        for index in 0..<120 { OperationCenter.shared.log(id: id, level: .info, message: "Earlier output \(index)") }
+        let (controller, view, table) = try panel()
+        defer { controller.close() }
+        try await Task.sleep(for: .milliseconds(200))
+        let text = try XCTUnwrap(find(view, "operations-inspector-log-text", as: NSTextView.self))
+        let scroll = try XCTUnwrap(text.enclosingScrollView)
+        view.layoutSubtreeIfNeeded()
+        XCTAssertGreaterThan(scroll.contentView.bounds.minY, 0, "First opening follows the tail")
+        text.setSelectedRange(NSRange(location: 0, length: 8))
+        scroll.contentView.scroll(to: .zero)
+        scroll.reflectScrolledClipView(scroll.contentView)
+        let selection = text.selectedRange()
+        OperationCenter.shared.log(id: id, level: .info, message: "New output while reading")
+        try await Task.sleep(for: .milliseconds(220))
+        XCTAssertEqual(text.selectedRange(), selection)
+        XCTAssertEqual(scroll.contentView.bounds.minY, 0, accuracy: 1)
+        let jump = try XCTUnwrap(find(view, "operations-inspector-jump-latest", as: NSButton.self))
+        XCTAssertTrue(jump.title.contains("1 new"))
+        let latest = try XCTUnwrap(find(view, "operations-inspector-latest", as: NSTextField.self))
+        XCTAssertTrue(latest.stringValue.contains("New output while reading"))
+        table.selectRowIndexes(IndexSet(integer: 1), byExtendingSelection: false)
+        table.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false)
+        XCTAssertEqual(text.selectedRange(), selection)
+        XCTAssertEqual(scroll.contentView.bounds.minY, 0, accuracy: 1)
+        jump.performClick(nil)
+        XCTAssertEqual(text.selectedRange().length, 0)
+        XCTAssertGreaterThan(scroll.contentView.bounds.minY, 0)
+        OperationCenter.shared.log(id: id, level: .info, message: "Following again")
+        try await Task.sleep(for: .milliseconds(220))
+        XCTAssertTrue(text.string.contains("Following again"))
+        XCTAssertFalse(jump.title.contains("new"))
+    }
+    func testUserScrollPausesButResizeAndDetailsKeepFollowing() async throws {
+        let id = OperationCenter.shared.start(title: "Resize fixture", detail: "Graph construction", operationType: .assembly)
+        defer {
+            _ = OperationCenter.shared.complete(id: id, detail: "Done")
+            OperationCenter.shared.clearItem(id: id)
+        }
+        for index in 0..<120 { OperationCenter.shared.log(id: id, level: .info, message: "Graph output \(index)") }
+        let (controller, view, _) = try panel()
+        defer { controller.close() }
+        try await Task.sleep(for: .milliseconds(200))
+        let window = try XCTUnwrap(controller.window)
+        let follow = try XCTUnwrap(find(view, "operations-inspector-follow-latest", as: NSButton.self))
+        let text = try XCTUnwrap(find(view, "operations-inspector-log-text", as: NSTextView.self))
+        let scroll = try XCTUnwrap(text.enclosingScrollView)
+        let details = try XCTUnwrap(find(view, "operations-inspector-details-toggle", as: NSButton.self))
+        XCTAssertEqual(follow.state, .on)
+        window.setFrame(NSRect(origin: window.frame.origin, size: window.minSize), display: false)
+        view.layoutSubtreeIfNeeded()
+        details.performClick(nil)
+        view.layoutSubtreeIfNeeded()
+        XCTAssertEqual(follow.state, .on, "Window resize and details layout are not user log scrolling")
+        XCTAssertGreaterThanOrEqual(scroll.contentView.bounds.maxY, text.bounds.maxY - 3)
+
+        // A live-scroll notification is emitted by AppKit for a user's scrollbar
+        // or gesture scroll. A plain bounds change from layout must not pause.
+        scroll.contentView.scroll(to: .zero)
+        scroll.reflectScrolledClipView(scroll.contentView)
+        NotificationCenter.default.post(name: NSScrollView.didLiveScrollNotification, object: scroll)
+        XCTAssertEqual(follow.state, .off)
+        OperationCenter.shared.log(id: id, level: .info, message: "Output while scrolled up")
+        try await Task.sleep(for: .milliseconds(220))
+        XCTAssertEqual(scroll.contentView.bounds.minY, 0, accuracy: 1)
+        let jump = try XCTUnwrap(find(view, "operations-inspector-jump-latest", as: NSButton.self))
+        XCTAssertTrue(jump.title.contains("1 new"))
+        jump.performClick(nil)
+        XCTAssertEqual(follow.state, .on)
+        XCTAssertGreaterThanOrEqual(scroll.contentView.bounds.maxY, text.bounds.maxY - 3)
+    }
+
+    func testNarrowInspectorKeepsFailureDetailsAndLogInsideWindow() async throws {
+        let id = OperationCenter.shared.start(
+            title: "SPAdes assembly: sample 01", detail: "Preparing assembly", operationType: .assembly,
+            cliCommand: "lungfish-cli assemble --assembler spades --input /project/reads/sample-01.fastq --threads 8"
+        )
+        defer { OperationCenter.shared.clearItem(id: id) }
+        for index in 0..<80 {
+            OperationCenter.shared.log(id: id, level: .info, message: "Assembly log line \(index): constructing graph")
+        }
+        _ = OperationCenter.shared.fail(id: id, detail: "Assembler exited with status 1",
+            errorMessage: "Assembly failed: insufficient memory to construct the graph.",
+            errorDetail: "Tool stderr and the exact command remain available in this diagnostic snapshot.")
+        let (controller, view, _) = try panel()
+        defer { controller.close() }
+        let window = try XCTUnwrap(controller.window)
+        window.setFrame(NSRect(origin: window.frame.origin, size: window.minSize), display: false)
+        view.layoutSubtreeIfNeeded()
+        let details = try XCTUnwrap(find(view, "operations-inspector-details-toggle", as: NSButton.self))
+        details.performClick(nil)
+        try await Task.sleep(for: .milliseconds(100))
+        view.layoutSubtreeIfNeeded()
+        let inspector = try XCTUnwrap(find(view, "operations-log-inspector", as: NSView.self))
+        let text = try XCTUnwrap(find(view, "operations-inspector-log-text", as: NSTextView.self))
+        let log = try XCTUnwrap(text.enclosingScrollView)
+        XCTAssertGreaterThanOrEqual(inspector.bounds.height, 329)
+        XCTAssertGreaterThanOrEqual(log.bounds.height, 69)
+        XCTAssertGreaterThanOrEqual(log.bounds.width, 570)
+        for identifier in ["operations-inspector-latest", "operations-inspector-failure", "operations-inspector-jump-latest", "operations-inspector-actions"] {
+            let control = try XCTUnwrap(find(view, identifier, as: NSView.self))
+            let rect = inspector.convert(control.bounds, from: control)
+            XCTAssertTrue(inspector.bounds.insetBy(dx: -1, dy: -1).contains(rect), "\(identifier) must remain inside the inspector")
+        }
+        let bitmap = try XCTUnwrap(view.bitmapImageRepForCachingDisplay(in: view.bounds))
+        view.cacheDisplay(in: view.bounds, to: bitmap)
+        let png = try XCTUnwrap(bitmap.representation(using: .png, properties: [:]))
+        try png.write(to: URL(fileURLWithPath: "/tmp/issue33-operations.png"))
+    }
+
+}

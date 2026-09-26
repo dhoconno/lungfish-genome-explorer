@@ -5,6 +5,13 @@ import LungfishWorkflow
 @testable import LungfishCLI
 
 final class AssembleProfileResolutionTests: XCTestCase {
+    func testLiveEventOutputIsOptInForInteractiveCLI() throws {
+        let normal = try AssembleCommand.parse(["reads.fastq"])
+        XCTAssertFalse(normal.jsonEvents)
+        let gui = try AssembleCommand.parse(["reads.fastq", "--json-events"])
+        XCTAssertTrue(gui.jsonEvents)
+    }
+
     private var tempDir: URL!
 
     override func setUpWithError() throws {
