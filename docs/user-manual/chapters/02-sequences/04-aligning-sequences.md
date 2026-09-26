@@ -3,7 +3,7 @@ title: Aligning Sequences
 chapter_id: 02-sequences/04-aligning-sequences
 audience: analyst
 prereqs: [01-foundations/01-what-is-a-genome, 02-sequences/01-importing-and-viewing]
-estimated_reading_min: 19
+estimated_reading_min: 24
 task: Align a set of related sequences with MAFFT, read the alignment in the alignment viewport, and export the result.
 tags: [sequences, msa, mafft, alignment, conservation, export]
 tools: [mafft]
@@ -63,6 +63,37 @@ The gorilla is the shortest at 16,412 bases and the cynomolgus macaque the longe
 
 Alignment is also the step most later work depends on. Column-by-column conservation is how you find a stretch steady enough to design a primer against. Column-by-column disagreement is what tree building reads. A pairwise identity matrix, which asks how similar every pair of sequences is, is computed straight off the aligned columns. None of those questions can be asked of unaligned sequences.
 
+## Choosing a tool
+
+MAFFT is the only aligner in LGE, so the choice is among its six strategies, and three properties of your sequences settle it. They are how many sequences there are, whether they share the same start and end, and whether long stretches of them have no counterpart in the others.
+
+Every MAFFT strategy starts the same way. It builds a guide tree, a quick sketch of which sequences look most alike, and then aligns in the tree's order, joining the two most similar sequences first and adding the rest one group at a time. That is called progressive alignment. It is fast, but a gap placed early is never moved, even when a sequence added later shows the gap belongs elsewhere. Iterative refinement reduces this problem. MAFFT repeatedly splits the finished alignment into two groups, realigns the groups to each other, and keeps the change whenever the alignment scores better, stopping when nothing improves or after up to 1,000 rounds. The strategies differ in how carefully they build the guide tree and whether refinement runs at all.
+
+The three strategies whose names end in INS-i also compare every pair of sequences in full before aligning. A global pairwise alignment lines up two sequences from first base to last. A local pairwise alignment finds the best matching stretch and ignores unmatched ends. Scoring every pair this way is what makes these three accurate, and it is also why their run time climbs steeply with the number of sequences. MAFFT's own manual recommends each of them for fewer than about 200 sequences. MAFFT itself is cited in the [Tool Bibliography](../appendices/bibliography.md#tools-installed-by-a-plugin-pack), and the papers describing its FFT, INS-i, and PartTree methods are listed under [Method papers](../appendices/bibliography.md#method-papers).
+
+**Automatic** lets MAFFT look at the number and length of your sequences and pick for you among L-INS-i, FFT-NS-i, and FFT-NS-2, choosing the careful method for small sets and the fast one for large sets. FFT-NS-i, a middle strategy with a couple of refinement rounds, is only reachable this way. Automatic is a sound first run for almost any set. Its weakness is that it knows only the size of your data, not whether the ends are ragged or whether long regions fail to line up. MAFFT's own log, in the run's row of the Operations Panel, names the strategy it picked.
+
+**L-INS-i** uses local pairwise alignments and full refinement. It suits a set of fewer than about 200 sequences that share one alignable region but differ at their ends, such as macaque MHC allele sequences where some records are complete and others stop short. The MAFFT authors call it probably the most accurate of the six. It is also among the slowest, so it becomes impractical long before a set reaches the thousands.
+
+**G-INS-i** uses global pairwise alignments and full refinement. It assumes every sequence runs end to end over the same region, as complete human mitochondrial genomes or full-length copies of one gene do. It handles that case well and handles ragged ends badly, because it tries to align bases that have no counterpart. Keep it under about 200 sequences.
+
+**E-INS-i** uses a gap score that tolerates long unalignable stretches between conserved blocks, which MAFFT calls a generalized affine gap cost. It suits sequences where short conserved regions sit between long ones that vary in length, such as genomic copies of a gene whose introns differ in length between individuals, introns being the stretches cut out of the RNA before it is read into protein. Like the other INS-i strategies, it suits fewer than about 200 sequences.
+
+**FFT-NS-2** skips the all-pairs comparison and the refinement. It finds matching stretches with a fast Fourier transform, a mathematical shortcut for spotting similar segments quickly, builds the guide tree twice, and aligns progressively. It stays practical for thousands of sequences. It is less accurate than the INS-i strategies, especially where sequences are distantly related or carry many insertions and deletions.
+
+**PartTree** builds its guide tree without comparing every pair of sequences, which is the slow step once a set runs into the tens of thousands. Its authors aligned about 60,000 sequences in several minutes on a desktop computer. It trades the most accuracy for that speed, so use it only when the set is too large for anything else.
+
+| Strategy | Built for | Choose it when | Choose something else when |
+|---|---|---|---|
+| Automatic | Any set, sized by MAFFT | You have no reason to pick, or it is a first run | The result shows ragged gap columns or you know the ends differ |
+| L-INS-i | Under about 200 sequences with ragged ends | Records share one core region but start or stop in different places | You have hundreds or more sequences |
+| G-INS-i | Under about 200 sequences aligned end to end | Every record covers the same full region | Some records are partial |
+| E-INS-i | Under about 200 sequences with long unalignable stretches | Conserved blocks sit between regions of very different length | The sequences line up along their whole length |
+| FFT-NS-2 | Hundreds to thousands of sequences | Speed matters more than the last few gaps | You have under about 200 sequences and time for L-INS-i |
+| PartTree | Tens of thousands of sequences | Nothing slower will finish | A subsample of a few thousand would answer the question |
+
+This chapter's five primate genomes are few, closely related, and complete from end to end, so Automatic handles them well and the chapter uses it. Switch when your own data differ. For several dozen complete macaque MHC class I genomic sequences, try G-INS-i, or E-INS-i if intron lengths differ a lot. For a set mixing complete alleles with short partial records, use L-INS-i and expect gaps at the ends. For a few thousand human mitochondrial genomes, leave Automatic on and it will choose a fast strategy. For tens of thousands, PartTree works, but aligning a representative subsample of a few thousand is often the better answer.
+
 ## Before you start
 
 You need a project open, as [The Lungfish Genome Explorer Project](../01-foundations/06-the-lungfish-project.md#procedure) shows.
@@ -82,7 +113,7 @@ Import the FASTA the way [Importing and Viewing a Sequence](01-importing-and-vie
 1. Click the imported bundle in the sidebar under `Reference Sequences/`. The viewport opens on a table with one row per sequence and Sequence, Length, and Role columns, so the five primates are listed there. Click the first row and Shift-click the last to select all five, so the run covers every sequence.
 2. Choose **Tools > Multiple Sequence Alignment > MAFFT...**. The FASTQ/FASTA Operations dialog opens on the MAFFT pane. The dialog follows the layout [Operation dialogs](../01-foundations/06-the-lungfish-project.md#operation-dialogs) describes.
 3. Read the line at the top of the pane. Because you are aligning the whole file, it states what will run, either "Aligning all 5 sequences." or "Aligning the 5 sequences you selected." A **Sequences to align** choice takes its place only when you select some but not all of a file's sequences.
-4. Leave **Strategy** on **Automatic**, leave the Advanced Options group collapsed, and click **Run**. MAFFT is the only aligner in LGE, so there is no aligner to pick.
+4. Leave **Strategy** on **Automatic**, leave the Advanced Options group collapsed, and click **Run**. [Choosing a tool](#choosing-a-tool) explains when another strategy is the better choice.
 
     <!-- SHOT: mafft-dialog -->
 
@@ -104,7 +135,7 @@ The MAFFT pane holds eleven settings. The first five below sit in plain view. Th
 
 **Batch Output.** States that every input file is pooled into one alignment, because an alignment has no meaning file by file. The default and only choice is Combine all inputs, run once (1 result), locked with the reason "Alignment requires all sequences in one run", and the row appears only when you give the dialog two or more files. There is nothing to change. This setting has no command-line flag.
 
-**Strategy.** Picks how hard MAFFT works to place gaps, from Automatic, L-INS-i, G-INS-i, E-INS-i, FFT-NS-2, and PartTree. The default is Automatic, which lets MAFFT choose from the number and length of your sequences and suits this chapter's five genomes. Move to L-INS-i, a slower and more careful method, when you have under about 200 sequences of similar length and the automatic result leaves ragged gap columns, meaning gaps scattered one or two at a time instead of falling into clean blocks. On the command line this is `--strategy`.
+**Strategy.** Picks how hard MAFFT works to place gaps, from Automatic, L-INS-i, G-INS-i, E-INS-i, FFT-NS-2, and PartTree. The default is Automatic, which lets MAFFT choose from the number and length of your sequences and suits this chapter's five genomes. Move to L-INS-i, a slower and more careful method, when you have under about 200 sequences and the automatic result leaves ragged gap columns, meaning gaps scattered one or two at a time instead of falling into clean blocks, and see [Choosing a tool](#choosing-a-tool) for the other four. On the command line this is `--strategy`.
 
 **Sequence Type.** Tells MAFFT whether the letters are DNA or amino acids, which decides how it scores a match, and offers Auto, Nucleotide, and Protein. The default is Auto, which guesses from the letters and is reliable on a full mitochondrial genome. Set it by hand when a short or unusual sequence makes the guess wrong, which shows up as scattered gaps and uncoloured letters in the viewport. On the command line this is `--sequence-type`.
 

@@ -86,7 +86,7 @@ Three rows do work you may not associate with a named tool. pysam is the Python 
 
 ## Tools installed by a plugin pack
 
-None of these tools is on a machine that has not installed its pack. The lock pins twenty-five tools across eleven packs. Install the `<pack-id>` [plugin pack](../../GLOSSARY.md#plugin-pack), a themed group of tools LGE installs on request, as [Plugin Packs](../01-foundations/07-plugin-packs.md#procedure) shows. Here `<pack-id>` is the value in the Pack column. Three packs, `gatk-core`, `phasing`, and `wastewater-surveillance`, are experimental, so turn experimental features on first, as [Experimental packs and features](../01-foundations/07-plugin-packs.md#experimental-packs-and-features) shows. A version you find in a provenance sidecar is what ran, whatever this machine holds today.
+None of these tools is on a machine that has not installed its pack. The lock pins twenty-seven tools across eleven packs. Install the `<pack-id>` [plugin pack](../../GLOSSARY.md#plugin-pack), a themed group of tools LGE installs on request, as [Plugin Packs](../01-foundations/07-plugin-packs.md#procedure) shows. Here `<pack-id>` is the value in the Pack column. Three packs, `gatk-core`, `phasing`, and `wastewater-surveillance`, are experimental, so turn experimental features on first, as [Experimental packs and features](../01-foundations/07-plugin-packs.md#experimental-packs-and-features) shows. A version you find in a provenance sidecar is what ran, whatever this machine holds today.
 
 | Pack | Tool | Version | Environment | License | Executables |
 |---|---|---|---|---|---|
@@ -97,6 +97,8 @@ None of these tools is on a machine that has not installed its pack. The lock pi
 | `full-length-mhc-genotyping` | blast | 2.16.0 | `blast` | Public Domain | `blastn` |
 | `pcr-primer-design` | primer3 | 2.6.1 | `primer3` | GPL-2.0-or-later | `primer3_core` |
 | `pcr-primer-design` | primalscheme3 | 3.3.0+lge.5 | `primalscheme3` | GPL-3.0 | `primalscheme3` |
+| `pcr-primer-design` | olivar | 1.3.3 | `olivar` | GPL-3.0-or-later | `olivar` |
+| `pcr-primer-design` | varvamp | 1.3.2 | `varvamp` | GPL-3.0-or-later | `varvamp` |
 | `variant-calling` | lofreq | 2.1.5 | `lofreq` | MIT | `lofreq` |
 | `variant-calling` | ivar | 1.4.4 | `ivar` | GPL-3.0-or-later | `ivar` |
 | `variant-calling` | medaka | 2.2.2 | `medaka` | MPL-2.0 | `medaka` |
@@ -116,7 +118,11 @@ None of these tools is on a machine that has not installed its pack. The lock pi
 | `metagenomics` | ribodetector | 0.3.3 | `ribodetector` | GPL-3.0-or-later | `ribodetector_cpu` |
 | `wastewater-surveillance` | freyja | 2.0.3 | `freyja` | BSD-2-Clause | `freyja` |
 
-LoFreq 2.1.5 rejects `--version`, so a LoFreq provenance record can carry the text `Unrecognized command '--version'` where a version belongs. Take LoFreq's version from this table. Bracken at 1.0.0 beside Kraken 2 at 2.17.1 is not an error. Each project numbers its own releases, so a low number simply means that project has cut fewer of them.
+LoFreq 2.1.5 rejects `--version`, so a LoFreq provenance record can carry the text `Unrecognized command '--version'` where a version belongs. Take LoFreq's version from this table.
+
+The Bracken row needs care. The lock's version field reads 1.0.0 because that is the conda package the environment starts from, but the only build of that package for Apple Silicon Macs lacks Bracken's main program. LGE therefore builds Bracken from the upstream v3.1 source release into the same environment, and the lock records that release in a separate source-build entry. The Bracken that runs is release 3.1, so write 3.1 in a methods section, and check your provenance record if it prints a different string.
+
+Olivar and varVAMP joined the `pcr-primer-design` pack in release 2026.9.42, after the release these tables otherwise describe, without a change to the dependency set name. A copy of LGE older than 2026.9.42 has no Olivar or varVAMP row. Each of the two installs from an exact list of packages kept inside LGE, so every Mac receives the same builds.
 
 Two entries name the pack rather than the tool in their Environment column. GATK4 installs into an environment called `gatk-core` and WhatsHap into one called `phasing`, so a provenance record naming either environment is naming the pack. The GATK Core pack holds GATK4 4.6.2.0 alone, and the Plugin Manager estimates its download at about 600 MB. The primalscheme3 version carries the suffix `+lge.5`, which marks a build LGE maintains on top of PrimalScheme 3.3.0, so copy it whole.
 
