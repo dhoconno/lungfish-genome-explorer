@@ -100,5 +100,80 @@ class InstallGitHooksPreCommitTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout)
 
 
+class InstallGitHooksPrePushTagTests(unittest.TestCase):
+    """Real pushes to a throwaway bare remote. The temp repo has none of the
+    check scripts, so any push where the hook runs its checks fails, which
+    tells a skipped hook apart from one that ran."""
+
+    def setUp(self):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        root = Path(directory.name)
+        self.remote = root / "remote.git"
+        self.repo = root / "repo"
+        subprocess.run(["git", "init", "-q", "--bare", str(self.remote)], check=True)
+        subprocess.run(["git", "init", "-q", "-b", "main", str(self.repo)], check=True)
+        for key, value in (("user.email", "test@example.com"), ("user.name", "Test")):
+            subprocess.run(["git", "-C", str(self.repo), "config", key, value], check=True)
+        subprocess.run(["git", "-C", str(self.repo), "remote", "add", "origin", str(self.remote)], check=True)
+        scripts_dir = self.repo / "scripts"
+        scripts_dir.mkdir()
+        (scripts_dir / "install-git-hooks.sh").write_text(SCRIPT.read_text())
+        result = subprocess.run(
+            ["/bin/bash", str(scripts_dir / "install-git-hooks.sh")],
+            cwd=self.repo, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.commit("first")
+        # The first branch push stands in for a push that went through the gate.
+        self.git("push", "-q", "--no-verify", "origin", "main")
+
+    def git(self, *args, check=True):
+        return subprocess.run(
+            ["git", "-C", str(self.repo), *args],
+            env={"PATH": "/usr/bin:/bin:/usr/local/bin"},
+            text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, check=check,
+        )
+
+    def commit(self, message):
+        (self.repo / "file.txt").write_text(message)
+        self.git("add", "file.txt")
+        self.git("commit", "-q", "-m", message)
+
+    def test_tag_on_already_pushed_commit_skips_the_checks(self):
+        self.git("tag", "-a", "v1", "-m", "v1")
+
+        result = self.git("push", "origin", "v1", check=False)
+
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertIn("skipping checks", result.stdout)
+
+    def test_tag_on_unpushed_commit_still_runs_the_checks(self):
+        self.commit("second")
+        self.git("tag", "-a", "v2", "-m", "v2")
+
+        result = self.git("push", "origin", "v2", check=False)
+
+        self.assertNotEqual(result.returncode, 0, result.stdout)
+        self.assertNotIn("skipping checks", result.stdout)
+
+    def test_branch_and_tag_together_still_run_the_checks(self):
+        self.git("tag", "-a", "v1", "-m", "v1")
+        self.commit("second")
+
+        result = self.git("push", "origin", "main", "v1", check=False)
+
+        self.assertNotEqual(result.returncode, 0, result.stdout)
+        self.assertNotIn("skipping checks", result.stdout)
+
+    def test_tag_deletion_skips_the_checks(self):
+        self.git("tag", "-a", "v1", "-m", "v1")
+        self.git("push", "-q", "--no-verify", "origin", "v1")
+
+        result = self.git("push", "origin", ":refs/tags/v1", check=False)
+
+        self.assertEqual(result.returncode, 0, result.stdout)
+
+
 if __name__ == "__main__":
     unittest.main()

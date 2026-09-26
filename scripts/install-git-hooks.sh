@@ -15,6 +15,9 @@
 #     runs the unit tier of the full-suite gate (scripts/full-suite-gate.sh
 #     --tier unit) before pushing, so the regression gate runs locally on
 #     this fast Apple-Silicon Mac instead of on slow/usage-limited hosted CI.
+#     A push of tags alone, on commits already on the remote's branches,
+#     skips all of these checks, since those commits were checked when
+#     their branch was pushed (release.py pushes its release tag this way).
 #     The full tier (everything, serial) remains the stable-release gate;
 #     run it explicitly with scripts/full-suite-gate.sh --tier full.
 #   - a pre-commit hook that rejects new or modified files over 500 KB under
@@ -60,6 +63,38 @@ cat > "$PRE_PUSH_HOOK" << 'HOOK_EOF'
 # Lungfish pre-push hook: run the local ratchets, then the full-suite gate,
 # before pushing. Bypass intentionally with: git push --no-verify
 REPO_ROOT="$(git rev-parse --show-toplevel)"
+
+# A push of tags alone, each on a commit already on one of this remote's
+# branches, adds no code the checks have not seen: that commit went through
+# this hook when its branch was pushed. release.py pushes its release tag this
+# way, and its time-limited push cannot wait for the unit gate. Tag deletions
+# also skip. Any branch in the push, or a tag on an unpushed commit, runs
+# everything.
+REMOTE="$1"
+TAGS_ONLY=1
+SAW_REF=0
+while read -r local_ref local_sha remote_ref remote_sha; do
+    SAW_REF=1
+    case "$remote_ref" in
+        refs/tags/*) ;;
+        *) TAGS_ONLY=0; continue ;;
+    esac
+    case "$local_sha" in
+        *[!0]*) ;;
+        *) continue ;;
+    esac
+    if ! commit="$(git rev-parse --verify --quiet "$local_sha^{commit}")"; then
+        TAGS_ONLY=0
+        continue
+    fi
+    if [ -z "$(git for-each-ref --contains "$commit" --format='x' "refs/remotes/$REMOTE/")" ]; then
+        TAGS_ONLY=0
+    fi
+done
+if [ "$SAW_REF" -eq 1 ] && [ "$TAGS_ONLY" -eq 1 ]; then
+    echo "pre-push: only tags on commits already on $REMOTE; skipping checks (they ran when those commits were pushed)."
+    exit 0
+fi
 
 echo "pre-push: checking the unchecked-operation-start ratchet (use --no-verify to skip)..."
 if ! python3 "$REPO_ROOT/scripts/ratchets/unchecked-operation-start.sh"; then
