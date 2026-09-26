@@ -259,7 +259,10 @@ struct PrimerBindingInspectionContext: Identifiable, Sendable {
                 sequence = []
             } else {
                 guard name != nil else { throw PrimerAnalysisBundleError.invalidArtifact("Missing FASTA row header") }
-                sequence += line.uppercased().filter { !$0.isWhitespace }
+                // Rows are nucleotide-only (validated below), so U is uracil. Show and compare it
+                // as T, matching the DNA primers, so RNA-alphabet inputs saved before import
+                // normalization do not display every U as a difference.
+                sequence += line.uppercased().filter { !$0.isWhitespace }.map { $0 == "U" ? "T" : $0 }
             }
         }
         if let name { rows.append(.init(name: name, sequence: sequence)) }

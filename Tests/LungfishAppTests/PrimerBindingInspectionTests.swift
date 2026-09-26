@@ -32,9 +32,10 @@ final class PrimerBindingInspectionTests: XCTestCase {
     }
 
     func testRNAAlphabetRowsLoadAndCompareUracilAsThymine() throws {
-        // Genomic-RNA references (e.g. influenza C NS segments) are stored with U, not T.
+        // Genomic-RNA references (e.g. influenza C NS segments) may be saved with U. The
+        // inspection rows, grid and consensus show them in the T alphabet of the primers.
         let rows = try PrimerBindingInspectionContext.parseFASTA(Data(">rna\nacgu-\n>dna\nACGT-\n".utf8))
-        XCTAssertEqual(rows.map { String($0.sequence) }, ["ACGU-", "ACGT-"])
+        XCTAssertEqual(rows.map { String($0.sequence) }, ["ACGT-", "ACGT-"])
         XCTAssertEqual(compare(row: "ACGU", primer: "ACGT").mismatchCount, 0)
         XCTAssertEqual(compare(row: "ACGU", primer: "ACGT", strand: "-").mismatchCount, 0)
         XCTAssertEqual(compare(row: "ACGU", primer: "ACGA").mismatchPositions, [3])
