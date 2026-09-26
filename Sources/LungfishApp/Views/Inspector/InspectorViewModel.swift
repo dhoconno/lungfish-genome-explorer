@@ -52,7 +52,7 @@ public final class InspectorViewModel {
         case .mapping:
             return [.bundle, .selectedItem, .view, .analysis, .provenance]
         case .assembly:
-            return [.bundle, .provenance]
+            return [.bundle, .view, .provenance]
         case .fastq:
             return [.bundle, .provenance]
         case .metagenomics:

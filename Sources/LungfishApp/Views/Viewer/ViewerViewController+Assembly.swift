@@ -140,7 +140,7 @@ extension ViewerViewController {
         view.addSubview(assemblyView)
 
         NSLayoutConstraint.activate([
-            assemblyView.topAnchor.constraint(equalTo: view.topAnchor),
+            assemblyView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
             assemblyView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             assemblyView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             assemblyView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
