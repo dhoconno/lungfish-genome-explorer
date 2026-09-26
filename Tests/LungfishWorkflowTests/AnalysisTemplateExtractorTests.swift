@@ -93,6 +93,20 @@ final class AnalysisTemplateExtractorTests: XCTestCase {
         }
     }
 
+    func testSeparatePairedInputsAreRefused() throws {
+        // A rerun classifies the imported bundle, which cannot supply the two
+        // loose files a paired-format Kraken2 run used.
+        var options = AnalysisTemplateTestFixture.ClassificationOptions()
+        options.isPairedEnd = true
+        options.interleavedInput = false
+        let fixture = try AnalysisTemplateTestFixture.make(classification: options)
+        defer { fixture.cleanup() }
+
+        XCTAssertThrowsError(try makeExtractor().extract(analysisURL: fixture.analysisURL)) { error in
+            XCTAssertEqual(error as? AnalysisTemplateExtractionError, .separatePairedInputs)
+        }
+    }
+
     func testExtractGoalIsRefused() throws {
         var options = AnalysisTemplateTestFixture.ClassificationOptions()
         options.goal = "extract"

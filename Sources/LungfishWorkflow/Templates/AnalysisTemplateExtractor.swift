@@ -17,6 +17,7 @@ public enum AnalysisTemplateExtractionError: Error, LocalizedError, Equatable, S
     case batchAnalysis(URL)
     case unsupportedGoal(String)
     case missingOriginalInputFiles
+    case separatePairedInputs
     case unexpectedInputCount(expected: Int, found: Int)
     case inputNotFound(String)
     case inputOutsideBundle(String)
@@ -41,6 +42,8 @@ public enum AnalysisTemplateExtractionError: Error, LocalizedError, Equatable, S
             return "\(url.lastPathComponent) is a classification batch. Templates in this version repeat steps for one sample at a time."
         case .unsupportedGoal(let goal):
             return "The '\(goal)' goal cannot be repeated from the command line. Only classify and profile analyses can become templates."
+        case .separatePairedInputs:
+            return "Kraken2 classified this sample as two separate read files. A template classifies the bundle its import step creates, so this analysis cannot become a template in this version."
         case .missingOriginalInputFiles:
             return "The analysis record does not name its original input files, so LGE cannot tell which import it came from."
         case .unexpectedInputCount(let expected, let found):
@@ -132,12 +135,16 @@ public struct AnalysisTemplateExtractor: Sendable {
         case .extract: throw AnalysisTemplateExtractionError.unsupportedGoal(config.goal.rawValue)
         }
 
+        // A rerun classifies the one bundle the import step creates, which
+        // cannot supply the two loose files a paired-format run needs.
+        guard config.readFormat != .paired else {
+            throw AnalysisTemplateExtractionError.separatePairedInputs
+        }
         guard let originalInputs = config.originalInputFiles, !originalInputs.isEmpty else {
             throw AnalysisTemplateExtractionError.missingOriginalInputFiles
         }
-        let expectedCount = config.readFormat == .paired ? 2 : 1
-        guard originalInputs.count == expectedCount else {
-            throw AnalysisTemplateExtractionError.unexpectedInputCount(expected: expectedCount, found: originalInputs.count)
+        guard originalInputs.count == 1 else {
+            throw AnalysisTemplateExtractionError.unexpectedInputCount(expected: 1, found: originalInputs.count)
         }
 
         var warnings: [String] = []
