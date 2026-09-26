@@ -103,8 +103,38 @@ public final class MAFFTAlignmentPipeline: @unchecked Sendable {
         let fastqQualitySummaries: [MultipleSequenceAlignmentBundle.FASTQQualitySummaryInput]
     }
 
-    public init(toolRunner: any MSAToolRunning = CondaMSAToolRunner()) {
+    /// Writes a derived FASTQ bundle's reads (oriented, subset, trimmed or
+    /// demultiplexed) to a file in the given directory and returns it.
+    public typealias DerivedBundleMaterializer = @Sendable (_ bundleURL: URL, _ directory: URL) async throws -> URL
+
+    private let derivedBundleMaterializer: DerivedBundleMaterializer
+
+    public init(
+        toolRunner: any MSAToolRunning = CondaMSAToolRunner(),
+        derivedBundleMaterializer: @escaping DerivedBundleMaterializer = { bundleURL, directory in
+            try await FASTQCLIMaterializer(runner: .shared).materialize(bundleURL: bundleURL, tempDirectory: directory)
+        }
+    ) {
         self.toolRunner = toolRunner
+        self.derivedBundleMaterializer = derivedBundleMaterializer
+    }
+
+    /// The enclosing derived FASTQ bundle when `inputURL` is one whose reads are
+    /// only a recipe over its root bundle (an orientation map, read-ID list,
+    /// trim positions or demultiplexing list). Reading such a bundle through
+    /// ``SequenceInputResolver`` yields the root bundle's original reads, so it
+    /// must be materialized first.
+    static func unmaterializedDerivedBundle(for inputURL: URL) -> URL? {
+        guard let bundleURL = SequenceInputResolver.enclosingFASTQBundleURL(for: inputURL.standardizedFileURL),
+              let manifest = FASTQBundle.loadDerivedManifest(in: bundleURL) else {
+            return nil
+        }
+        switch manifest.payload {
+        case .full, .fullFASTA, .fullPaired, .fullMixed:
+            return nil
+        default:
+            return bundleURL
+        }
     }
 
     // MARK: - Test seams
@@ -320,7 +350,16 @@ public final class MAFFTAlignmentPipeline: @unchecked Sendable {
         var pending: [PendingRecord] = []
 
         for inputURL in inputURLs {
-            guard let fastaURL = SequenceInputResolver.resolvePrimarySequenceURL(for: inputURL),
+            let readableURL: URL?
+            if let derivedBundleURL = Self.unmaterializedDerivedBundle(for: inputURL) {
+                let directory = stagedInputURL.deletingLastPathComponent()
+                    .appendingPathComponent("materialized-inputs", isDirectory: true)
+                try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+                readableURL = try await derivedBundleMaterializer(derivedBundleURL, directory)
+            } else {
+                readableURL = SequenceInputResolver.resolvePrimarySequenceURL(for: inputURL)
+            }
+            guard let fastaURL = readableURL,
                   let sequenceFormat = SequenceInputResolver.inputSequenceFormat(for: inputURL) ??
                     SequenceInputResolver.inputSequenceFormat(for: fastaURL) else {
                 throw MAFFTAlignmentPipelineError.unsupportedInput(inputURL)

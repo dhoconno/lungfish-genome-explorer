@@ -384,6 +384,76 @@ final class MAFFTAlignmentPipelineTests: XCTestCase {
         XCTAssertTrue(provenanceText.contains("--allow-fastq-assembly-inputs"))
     }
 
+    func testStageInputFASTAUsesOrientedReadsFromAnOrientMapBundle() async throws {
+        // An oriented dataset stores only an orientation map over its root
+        // bundle's reads. MAFFT must align the oriented reads, never the root's
+        // original ones: read 2 reverse-complemented, read 3 (not mapped) left out.
+        let workspace = try makeWorkspace()
+        let project = workspace.appendingPathComponent("Project.lungfish", isDirectory: true)
+        let imports = project.appendingPathComponent("Imports", isDirectory: true)
+        let root = imports.appendingPathComponent("reads.lungfishfastq", isDirectory: true)
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        try """
+        @read1
+        ACGTTG
+        +
+        IIIIII
+        @read2
+        AACCCG
+        +
+        IIIIII
+        @read3
+        TTTTTT
+        +
+        IIIIII
+
+        """.write(to: root.appendingPathComponent("reads.fastq"), atomically: true, encoding: .utf8)
+
+        let oriented = imports.appendingPathComponent("reads-oriented.lungfishfastq", isDirectory: true)
+        try fileManager.createDirectory(at: oriented, withIntermediateDirectories: true)
+        try "read1\t+\nread2\t-\n".write(
+            to: oriented.appendingPathComponent("orient-map.tsv"), atomically: true, encoding: .utf8)
+        try "@read1\nACGTTG\n+\nIIIIII\n".write(
+            to: oriented.appendingPathComponent("preview.fastq"), atomically: true, encoding: .utf8)
+        let operation = FASTQDerivativeOperation(kind: .orient)
+        try FASTQBundle.saveDerivedManifest(
+            FASTQDerivedBundleManifest(
+                name: "reads-oriented",
+                parentBundleRelativePath: "@/Imports/reads.lungfishfastq",
+                rootBundleRelativePath: "@/Imports/reads.lungfishfastq",
+                rootFASTQFilename: "reads.fastq",
+                payload: .orientMap(orientMapFilename: "orient-map.tsv", previewFilename: "preview.fastq"),
+                lineage: [operation],
+                operation: operation,
+                cachedStatistics: .placeholder(readCount: 2, baseCount: 12),
+                pairingMode: .singleEnd,
+                sequenceFormat: .fastq
+            ),
+            in: oriented
+        )
+
+        let staged = workspace.appendingPathComponent("staged.fasta")
+        let request = MSAAlignmentRunRequest(
+            tool: .mafft,
+            inputSequenceURLs: [oriented],
+            projectURL: project,
+            outputBundleURL: project.appendingPathComponent("Oriented.lungfishmsa", isDirectory: true),
+            name: "Oriented",
+            threads: nil,
+            allowFASTQAssemblyInputs: true
+        )
+
+        let result = try await MAFFTAlignmentPipeline()
+            .testingStageInputFASTA([oriented], to: staged, request: request)
+
+        let text = try String(contentsOf: staged, encoding: .utf8)
+        XCTAssertEqual(result.recordCount, 2)
+        XCTAssertTrue(text.contains(">read1\nACGTTG\n"), text)
+        XCTAssertTrue(text.contains(">read2\nCGGGTT\n"), text)
+        XCTAssertFalse(text.contains("TTTTTT"), text)
+        XCTAssertFalse(text.contains("AACCCG"), text)
+    }
+
     private func makeWorkspace() throws -> URL {
         let root = repoRoot
             .appendingPathComponent(".build", isDirectory: true)
