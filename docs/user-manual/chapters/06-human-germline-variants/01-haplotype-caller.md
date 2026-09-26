@@ -3,7 +3,7 @@ title: HaplotypeCaller
 chapter_id: 06-human-germline-variants/01-haplotype-caller
 audience: power-user
 prereqs: [01-foundations/05-variants-and-vcf, 01-foundations/07-plugin-packs]
-estimated_reading_min: 15
+estimated_reading_min: 18
 task: Call germline SNPs and indels with GATK HaplotypeCaller from the CLI or the GUI.
 tags: [gatk, haplotypecaller, germline, preview, cli, gui]
 tools: [gatk, whatshap]
@@ -34,6 +34,21 @@ Lungfish Genome Explorer (LGE) does not reimplement GATK. It assembles the GATK 
 ## Why you would do this
 
 The HG002 chromosome 20 slice is a 500 kilobase window from a real human genome. HG002 is the Genome in a Bottle reference individual, sequenced many times by many methods, so a consensus answer exists for what their variants are. That answer ships beside the reads as a [benchmark VCF](../../GLOSSARY.md#benchmark-vcf) of 961 records. On a fresh patient sample you can only ask whether the output looks plausible. Here you can ask whether it is right. A run on this slice takes under a minute, so you can try a setting and look again.
+
+## Choosing a tool
+
+Choosing a caller for a diploid germline sample, from a person or a macaque, comes down to how much the indels matter and whether the sample will later be analysed together with others. LGE offers two callers for short-read diploid calling, bcftools and GATK HaplotypeCaller.
+
+**bcftools** judges each position largely on its own. It stacks the read bases over the position, works out how likely each genotype is from their quality scores and how confidently each read was mapped, and writes the most likely genotype. It comes with LGE, needs nothing beyond the reference bundle, and finishes quickly, which makes it a good first pass and a useful independent check. It does not rebuild the local sequence from the reads, so around insertions and deletions, especially inside repeats, it has less to go on than HaplotypeCaller. Its ploidy comes from the bundle, and a reference named with an assembly such as GRCh38 or Mmul_10, or a bundle whose organism is human or macaque, is called diploid.
+
+**GATK HaplotypeCaller** finds stretches where the reads suggest variation, rebuilds candidate haplotypes there by local reassembly, scores every read against every candidate, and only then writes genotypes. The reassembly is what makes it stronger at indels and at clusters of nearby changes, and it costs time and memory. It is the usual caller in published human germline studies. Through a [GVCF](../../GLOSSARY.md#gvcf) it also supports [joint genotyping](../../GLOSSARY.md#joint-genotyping), which calls a whole cohort together so that a position called in one sample is judged in every other sample too. In LGE it sits in the experimental `gatk-core` pack, it needs a sequence dictionary beside the reference, and the dialog always calls diploid.
+
+| Tool | Built for | Choose it when | Choose something else when |
+|---|---|---|---|
+| bcftools | Fast per-position genotyping | You want a quick answer or a second opinion on one sample | Indels matter, or the sample joins a cohort |
+| GATK HaplotypeCaller | Diploid germline calls with local reassembly | Results are for publication, indels matter, or several samples will be genotyped together | You need a quick check, or the data are amplicon rather than shotgun |
+
+On clean data the two agree closely. On this chapter's fixture bcftools writes 1,040 rows, as [Calling Variants](../05-variants/01-calling-variants-from-amplicons.md#reading-the-results) shows, and HaplotypeCaller writes 1,026, against a benchmark of 961. This chapter uses HaplotypeCaller because HG002 is a human shotgun sample and the chapter teaches the route to joint genotyping. For one human or macaque sample and a quick look, bcftools is enough. For a cohort, or wherever indels carry the finding, use HaplotypeCaller, and for long reads use Clair3 from [Nanopore Variant Calling](../05-variants/04-nanopore-variant-calling.md). GATK4 is cited in [Tools installed by a plugin pack](../appendices/bibliography.md#tools-installed-by-a-plugin-pack), and bcftools in [Tools installed with every copy of LGE](../appendices/bibliography.md#tools-installed-with-every-copy-of-lge).
 
 ## Before you start
 
