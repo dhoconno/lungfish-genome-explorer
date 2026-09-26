@@ -145,6 +145,7 @@ public enum FullLengthONTMHCGenotypingError: Error, LocalizedError, Sendable, Eq
     case missingInput(String)
     case invalidReference(String)
     case invalidFASTQ(String)
+    case derivedBundleNotMaterialized(String)
     case invalidHaplotypeDefinition(String)
     case invalidHaplotypeDefinitionForAssay(definitionID: String, assayID: String)
     case ambiguousHaplotypeDefinition(definitionID: String)
@@ -159,6 +160,8 @@ public enum FullLengthONTMHCGenotypingError: Error, LocalizedError, Sendable, Eq
             return "Could not resolve an MHC reference FASTA from \(path)."
         case .invalidFASTQ(let path):
             return "Could not resolve a FASTQ payload from \(path)."
+        case .derivedBundleNotMaterialized(let path):
+            return "\(path) stores its reads as a recipe over another dataset, and they must be materialized before they can be read."
         case .invalidHaplotypeDefinition(let id):
             return "Could not find haplotype definition \(id)."
         case .invalidHaplotypeDefinitionForAssay(let definitionID, let assayID):

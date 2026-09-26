@@ -51,15 +51,26 @@ enum FullLengthONTMHCFASTQMaterializer {
         internalCommandName: String = "materialize-full-length-mhc-fastq",
         recordsDurableReplayArgv: Bool = true,
         beforePayloadRead: ((URL) throws -> Void)? = nil,
-        afterFirstSourceChunkRead: ((URL) throws -> Void)? = nil
+        afterFirstSourceChunkRead: ((URL) throws -> Void)? = nil,
+        derivedSourceBundleURL: URL? = nil,
+        derivedSourceDescriptors: [ProvenanceFileDescriptor] = []
     ) throws -> FullLengthONTMHCFASTQMaterializationResult {
         let startedAt = Date()
         try Task.checkCancellation()
+        // A virtual derived bundle's own FASTQ is a short preview and its
+        // resolver file is the root's original reads. Only the async entry,
+        // which materializes the real reads first, may read one.
+        if let bundleURL = SequenceInputResolver.unmaterializedDerivedBundleURL(for: inputURL) {
+            throw FullLengthONTMHCGenotypingError.derivedBundleNotMaterialized(bundleURL.path)
+        }
         let input = try validatedInput(for: inputURL)
         let logicalOutputURL = (logicalOutputURL ?? outputURL).standardizedFileURL
         var argv = [
             "lungfish-internal", internalCommandName,
         ]
+        if let derivedSourceBundleURL {
+            argv += ["--derived-bundle", derivedSourceBundleURL.path]
+        }
         if let bundleURL = input.bundleURL {
             argv += ["--bundle", bundleURL.path]
         } else {
@@ -163,7 +174,7 @@ enum FullLengthONTMHCFASTQMaterializer {
                         "pathValidation": .string("component-wise-openat-o_nofollow-stable-descriptor-snapshot"),
                     ],
                     runtimeIdentity: ProvenanceRuntimeIdentity(),
-                    inputs: input.metadataDescriptors + payloadDescriptors,
+                    inputs: derivedSourceDescriptors + input.metadataDescriptors + payloadDescriptors,
                     outputs: [outputDescriptor],
                     exitStatus: 0,
                     wallTimeSeconds: completedAt.timeIntervalSince(startedAt),
@@ -177,6 +188,46 @@ enum FullLengthONTMHCFASTQMaterializer {
             }
             throw error
         }
+    }
+
+    /// Materializes an input's reads as plain FASTQ. A virtual derived bundle
+    /// (oriented, subset, trimmed or demultiplexed) is first materialized from
+    /// its root, and the bundle, its recipe and its root reads are recorded as
+    /// inputs; every other input goes straight to ``materializePlainFASTQ``.
+    static func materializeReadsAsPlainFASTQ(
+        inputURL: URL,
+        outputURL: URL,
+        logicalOutputURL: URL? = nil,
+        internalCommandName: String = "materialize-full-length-mhc-fastq",
+        recordsDurableReplayArgv: Bool = true,
+        derivedBundleMaterializer: DerivedFASTQBundleInput.Materializer = DerivedFASTQBundleInput.defaultMaterializer
+    ) async throws -> FullLengthONTMHCFASTQMaterializationResult {
+        guard let bundleURL = SequenceInputResolver.unmaterializedDerivedBundleURL(for: inputURL) else {
+            return try materializePlainFASTQ(
+                inputURL: inputURL,
+                outputURL: outputURL,
+                logicalOutputURL: logicalOutputURL,
+                internalCommandName: internalCommandName,
+                recordsDurableReplayArgv: recordsDurableReplayArgv
+            )
+        }
+        let scratchURL = outputURL.deletingLastPathComponent().appendingPathComponent(
+            ".\(outputURL.lastPathComponent).derived-input-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        defer { try? FileManager.default.removeItem(at: scratchURL) }
+        let sourceDescriptors = try provenanceSourceDescriptors(for: bundleURL)
+        let readsURL = try await derivedBundleMaterializer(bundleURL, scratchURL)
+        return try materializePlainFASTQ(
+            inputURL: readsURL,
+            outputURL: outputURL,
+            logicalOutputURL: logicalOutputURL,
+            internalCommandName: internalCommandName,
+            // The intermediate file is deleted, so the argv cannot be replayed.
+            recordsDurableReplayArgv: false,
+            derivedSourceBundleURL: bundleURL,
+            derivedSourceDescriptors: sourceDescriptors
+        )
     }
 
     static func provenanceSourceDescriptors(for inputURL: URL) throws -> [ProvenanceFileDescriptor] {
@@ -202,6 +253,10 @@ enum FullLengthONTMHCFASTQMaterializer {
 
     private static func validatedInput(for inputURL: URL) throws -> ValidatedInput {
         let standardized = inputURL.standardizedFileURL
+        if let derivedBundleURL = SequenceInputResolver.unmaterializedDerivedBundleURL(for: standardized),
+           let manifest = FASTQBundle.loadDerivedManifest(in: derivedBundleURL) {
+            return try virtualDerivedBundleSource(derivedBundleURL, manifest: manifest)
+        }
         if FASTQBundle.isBundleURL(standardized) {
             let safety = FullLengthONTMHCAlignmentSafety()
             try safety.requireDirectoryNoFollow(standardized, role: "FASTQ bundle")
@@ -284,6 +339,65 @@ enum FullLengthONTMHCFASTQMaterializer {
                 sourceProvenanceURL: sourceProvenanceURL(for: payloadURL)
             )],
             metadataDescriptors: []
+        )
+    }
+
+    /// Describes what a virtual derived bundle's reads are made from: its
+    /// root bundle's reads, its manifest and its recipe file (orientation map,
+    /// read-ID list or trim positions). Never its preview, which is not the
+    /// data. Used for provenance only; the reads themselves are materialized by
+    /// ``materializeReadsAsPlainFASTQ(inputURL:outputURL:logicalOutputURL:internalCommandName:recordsDurableReplayArgv:derivedBundleMaterializer:)``.
+    private static func virtualDerivedBundleSource(
+        _ bundleURL: URL,
+        manifest: FASTQDerivedBundleManifest
+    ) throws -> ValidatedInput {
+        let bundleURL = bundleURL.standardizedFileURL
+        try FullLengthONTMHCAlignmentSafety().requireDirectoryNoFollow(bundleURL, role: "FASTQ bundle")
+        let rootBundleURL = FASTQBundle.resolveBundle(
+            relativePath: manifest.rootBundleRelativePath,
+            from: bundleURL
+        ).standardizedFileURL
+        guard let rootFASTQURL = try? FASTQBundle.validatedBundleMemberURL(
+            for: manifest.rootFASTQFilename,
+            in: rootBundleURL,
+            field: "rootFASTQFilename"
+        ), FileManager.default.fileExists(atPath: rootFASTQURL.path) else {
+            throw FullLengthONTMHCGenotypingError.invalidFASTQ(bundleURL.path)
+        }
+        let payload = try validatedPayload(
+            rootFASTQURL,
+            trustedRootURL: rootBundleURL,
+            sourceProvenanceURL: sourceProvenanceURL(for: rootFASTQURL)
+        )
+
+        let recipeFilenames: [String]
+        switch manifest.payload {
+        case .subset(let readIDs): recipeFilenames = [readIDs]
+        case .trim(let positions): recipeFilenames = [positions]
+        case .orientMap(let orientMap, _): recipeFilenames = [orientMap]
+        case .demuxedVirtual(_, let readIDs, _, let positions, let orientMap):
+            recipeFilenames = [readIDs] + [positions, orientMap].compactMap { $0 }
+        default: recipeFilenames = []
+        }
+        let manifestURL = FASTQBundle.derivedManifestURL(in: bundleURL)
+        var metadataDescriptors: [ProvenanceFileDescriptor] = []
+        for (url, role) in [(manifestURL, "FASTQ derived bundle manifest")]
+            + recipeFilenames.map({ (bundleURL.appendingPathComponent($0), "FASTQ derived bundle recipe") }) {
+            let fingerprint = try fingerprintRegularFile(url, trustedRootURL: bundleURL, role: role)
+            metadataDescriptors.append(ProvenanceFileDescriptor(
+                path: url.standardizedFileURL.path,
+                checksumSHA256: fingerprint.checksum,
+                fileSize: fingerprint.size,
+                format: url == manifestURL ? .json : .text,
+                role: .input,
+                sourceProvenancePath: sourceProvenanceURL(for: bundleURL)?.path
+            ))
+        }
+        return ValidatedInput(
+            bundleURL: bundleURL,
+            manifestURL: manifestURL,
+            payloads: [payload],
+            metadataDescriptors: metadataDescriptors
         )
     }
 

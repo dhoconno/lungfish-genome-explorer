@@ -533,15 +533,6 @@ struct ClassifyCommand: AsyncParsableCommand {
         }
     }
 
-    static func resolveExecutionInputURLs(for inputURLs: [URL]) throws -> [URL] {
-        try inputURLs.map { inputURL in
-            guard let resolvedURL = SequenceInputResolver.resolvePrimarySequenceURL(for: inputURL) else {
-                throw CLIError.formatDetectionFailed(path: inputURL.path)
-            }
-            return resolvedURL.standardizedFileURL
-        }
-    }
-
     static func terminalPolicy(for result: ClassificationResult) -> ClassifyTerminalPolicy {
         switch result.profileOutcome.state {
         case .notRequested where result.config.goal == .profile:
