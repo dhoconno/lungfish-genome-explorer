@@ -24,6 +24,7 @@ struct WorkflowCommand: AsyncParsableCommand {
         subcommands: [
             RunSubcommand.self,
             WorkflowBuilderRunSubcommand.self,
+            WorkflowTemplateCommand.self,
             ListSubcommand.self,
             WorkflowValidateSubcommand.self,
             WorkflowDiffSubcommand.self,

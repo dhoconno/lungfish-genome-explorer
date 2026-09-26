@@ -205,10 +205,8 @@ final class AnalysisTemplateRunnerTests: XCTestCase {
     func testRecipeHashMismatchRefusesUnlessDriftAllowed() async throws {
         let workspace = try makeWorkspace()
         defer { workspace.cleanup() }
-        var changed = recipe
-        changed.steps.append(RecipeStep(type: "fastp-trim", label: "Trim", params: nil))
         let executor = FakeExecutor()
-        let runner = makeRunner(executor: executor, installedRecipe: changed, database: readyDatabase)
+        let runner = makeRunner(executor: executor, installedRecipe: AnalysisTemplateTestFixture.changedRecipe, database: readyDatabase)
         let template = try makeTemplate(recipe: recipe)
 
         let strict = AnalysisTemplateRunRequest(template: template, inputs: workspace.inputs, projectURL: workspace.projectURL)

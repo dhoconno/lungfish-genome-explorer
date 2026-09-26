@@ -4,70 +4,84 @@
 
 import Foundation
 import LungfishIO
-import LungfishTestSupport
-@testable import LungfishWorkflow
+import LungfishWorkflow
 
 /// Builds a throwaway project with one imported FASTQ bundle (with import
 /// provenance and bundle metadata) and one Kraken2 analysis folder whose
 /// `classification-result.json` is modelled on
 /// `Tests/Fixtures/kraken2-bracken-reopen/`. No tools run.
-struct AnalysisTemplateTestFixture {
-    let rootURL: URL
-    let projectURL: URL
-    let bundleURL: URL
-    let fastqURL: URL
-    let analysisURL: URL
+public struct AnalysisTemplateTestFixture: Sendable {
+    public let rootURL: URL
+    public let projectURL: URL
+    public let bundleURL: URL
+    public let fastqURL: URL
+    public let analysisURL: URL
 
-    struct ImportOptions {
-        var platform = "illumina"
-        var recipe = "vsp2-target-enrichment"
-        var qualityBinning = "illumina4"
-        var optimizeStorage = true
-        var clumpingTool = "auto"
-        var compressionLevel = "balanced"
+    public struct ImportOptions: Sendable {
+        public init() {}
+        public var platform = "illumina"
+        public var recipe = "vsp2-target-enrichment"
+        public var qualityBinning = "illumina4"
+        public var optimizeStorage = true
+        public var clumpingTool = "auto"
+        public var compressionLevel = "balanced"
         /// The requested `--pairing`.
-        var pairing = "auto"
-        var pairedEndInput = true
-        var outputPairingMode = "interleaved"
-        var recipeApplied: (id: String, name: String)? = ("vsp2-target-enrichment", "VSP2 Target Enrichment")
-        var includeGUIImportStep = false
-        var workflowName = "lungfish import fastq"
-        var writeProvenance = true
+        public var pairing = "auto"
+        public var pairedEndInput = true
+        public var outputPairingMode = "interleaved"
+        public var recipeApplied: (id: String, name: String)? = ("vsp2-target-enrichment", "VSP2 Target Enrichment")
+        public var includeGUIImportStep = false
+        public var workflowName = "lungfish import fastq"
+        public var writeProvenance = true
     }
 
-    struct ClassificationOptions {
-        var goal = "profile"
-        var databaseName = "Viral"
-        var databaseVersion = "20260626"
-        var databaseCatalogID: String? = "kraken2-viral"
-        var databaseDigest: String? = nil
-        var confidence = 0.2
-        var minimumHitGroups = 2
-        var interleavedInput = true
-        var isPairedEnd = false
-        var memoryMapping = false
-        var quickMode = false
-        var extraArguments: [String] = []
-        var threads = 4
-        var includeOriginalInputFiles = true
+    public struct ClassificationOptions: Sendable {
+        public init() {}
+        public var goal = "profile"
+        public var databaseName = "Viral"
+        public var databaseVersion = "20260626"
+        public var databaseCatalogID: String? = "kraken2-viral"
+        public var databaseDigest: String? = nil
+        public var confidence = 0.2
+        public var minimumHitGroups = 2
+        public var interleavedInput = true
+        public var isPairedEnd = false
+        public var memoryMapping = false
+        public var quickMode = false
+        public var extraArguments: [String] = []
+        public var threads = 4
+        public var includeOriginalInputFiles = true
         /// Overrides the recorded original input paths (absolute). Nil records the fixture's FASTQ.
-        var originalInputFiles: [String]? = nil
-        var includeBracken = true
-        var toolVersion = "2.17.1"
-        var brackenVersion: String? = "3.0.1"
-        var isBatch = false
+        public var originalInputFiles: [String]? = nil
+        public var includeBracken = true
+        public var toolVersion = "2.17.1"
+        public var brackenVersion: String? = "3.0.1"
+        public var isBatch = false
     }
 
-    static let sampleRecipe = Recipe(
-        id: "vsp2-target-enrichment",
-        name: "VSP2 Target Enrichment",
-        platforms: [.illumina],
-        requiredInput: .paired,
-        qualityBinning: .illumina4,
-        steps: [RecipeStep(type: "fastp-dedup", label: "Remove PCR duplicates", params: nil)]
-    )
+    /// A small recipe in the built-in VSP2 shape, decoded from JSON so no
+    /// internal initializer is needed.
+    public static let sampleRecipe: Recipe = {
+        let json = """
+        {"formatVersion": 1, "id": "vsp2-target-enrichment", "name": "VSP2 Target Enrichment",
+         "platforms": ["illumina"], "requiredInput": "paired", "qualityBinning": "illumina4",
+         "steps": [{"type": "fastp-dedup", "label": "Remove PCR duplicates"}]}
+        """
+        // A literal that fails to decode is a programming error in the fixture itself.
+        return try! JSONDecoder().decode(Recipe.self, from: Data(json.utf8))
+    }()
 
-    static func make(
+    /// `sampleRecipe` with one more step, for hash-mismatch tests.
+    public static let changedRecipe: Recipe = {
+        let json = """
+        {"formatVersion": 1, "id": "vsp2-target-enrichment", "name": "VSP2 Target Enrichment",
+         "platforms": ["illumina"], "requiredInput": "paired", "qualityBinning": "illumina4",
+         "steps": [{"type": "fastp-dedup", "label": "Remove PCR duplicates"}, {"type": "fastp-trim", "label": "Trim"}]}
+        """
+        return try! JSONDecoder().decode(Recipe.self, from: Data(json.utf8))
+    }()
+
+    public static func make(
         sampleName: String = "SRRTEST1",
         importOptions: ImportOptions = ImportOptions(),
         classification: ClassificationOptions = ClassificationOptions()
@@ -118,7 +132,7 @@ struct AnalysisTemplateTestFixture {
         )
     }
 
-    func cleanup() {
+    public func cleanup() {
         TestTempDirectory.cleanup(rootURL)
     }
 

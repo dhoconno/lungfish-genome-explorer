@@ -112,11 +112,9 @@ final class AnalysisTemplateModelTests: XCTestCase {
     }
 
     func testRecipeHashChangesWhenRecipeContentChanges() throws {
-        var changed = AnalysisTemplateTestFixture.sampleRecipe
-        changed.steps.append(RecipeStep(type: "fastp-trim", label: "Trim", params: nil))
         XCTAssertNotEqual(
             try RecipeSnapshot.sha256(of: AnalysisTemplateTestFixture.sampleRecipe),
-            try RecipeSnapshot.sha256(of: changed)
+            try RecipeSnapshot.sha256(of: AnalysisTemplateTestFixture.changedRecipe)
         )
     }
 }
