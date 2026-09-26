@@ -3012,8 +3012,8 @@ The remaining flags, `--output`, `--primalscheme3-path`, `--high-gc`, `--max-amp
 | `--grouping <grouping>` | Whether several inputs get `independent` schemes or one `combined` panel. The default is `independent`. |
 | `--primalscheme3-path <primalscheme3-path>` | Path of the PrimalScheme program to use instead of the managed one. |
 | `--amplicon-size <amplicon-size>` | Target amplicon size in bases. The default is `400`. |
-| `--amplicon-size-min <amplicon-size-min>` | Inclusive minimum reference amplicon span, including primer sites. Supplying either bound enables reference-span sizing. |
-| `--amplicon-size-max <amplicon-size-max>` | Inclusive maximum reference amplicon span, including primer sites. |
+| `--amplicon-size-min <amplicon-size-min>` | Inclusive minimum reference amplicon span, including primer sites. Defaults to 90% of `--amplicon-size`, as the GUI does. |
+| `--amplicon-size-max <amplicon-size-max>` | Inclusive maximum reference amplicon span, including primer sites. Defaults to 110% of `--amplicon-size`, as the GUI does. |
 | `--pool-count <pool-count>` | Number of primer pools. The default is `2`. |
 | `--min-overlap <min-overlap>` | Minimum overlap for independent legacy designs. Combined designs require the default 10. The default is `10`. |
 | `--minimum-base-frequency <minimum-base-frequency>` | Lowest frequency a base must have in the alignment to be considered. The default is `0.0`. |

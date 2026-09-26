@@ -548,11 +548,11 @@ final class PrimerDesignDialogState {
   private func updateDefaultAmpliconBounds() {
     guard !isUpdatingAmpliconBounds,
       let target = Int(ampliconSize.trimmingCharacters(in: .whitespacesAndNewlines)),
-      (100...2000).contains(target) else { return }
+      let bounds = PrimalScheme3DesignOptions.defaultAmpliconSizeBounds(target: target) else { return }
     isUpdatingAmpliconBounds = true
     defer { isUpdatingAmpliconBounds = false }
-    if !minimumAmpliconSizeWasCustomized { ampliconSizeMinimum = String(Int(Double(target) * 0.9)) }
-    if !maximumAmpliconSizeWasCustomized { ampliconSizeMaximum = String(Int(Double(target) * 1.1)) }
+    if !minimumAmpliconSizeWasCustomized { ampliconSizeMinimum = String(bounds.minimum) }
+    if !maximumAmpliconSizeWasCustomized { ampliconSizeMaximum = String(bounds.maximum) }
   }
 
   private func updateEngine(from oldEngine: PrimerDesignEngine) {

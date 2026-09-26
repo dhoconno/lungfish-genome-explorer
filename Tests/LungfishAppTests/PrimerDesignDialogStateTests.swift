@@ -3,6 +3,7 @@ import XCTest
 import LungfishIO
 import LungfishWorkflow
 @testable import LungfishApp
+@testable import LungfishCLI
 
 @MainActor
 final class PrimerDesignDialogStateTests: XCTestCase {
@@ -590,6 +591,24 @@ final class PrimerDesignDialogStateTests: XCTestCase {
     XCTAssertEqual(options.gapExpansionOptions.mode, .bounded)
     XCTAssertEqual(options.gapExpansionOptions.maxAnchorsPerMSA, 12)
     XCTAssertEqual(options.gapExpansionOptions.maxPairsPerMSA, 9)
+  }
+
+  func testDialogAndCLIResolveIdenticalPrimalSchemeSizingFromVisibleSettings() throws {
+    let state = configuredState()
+    state.engine = .primalScheme
+    state.ampliconSize = "300"
+    let dialogOptions = try state.primalSchemeOptions()
+    XCTAssertEqual(dialogOptions.requestedAmpliconSizeMinimum, 270)
+    XCTAssertEqual(dialogOptions.requestedAmpliconSizeMaximum, 330)
+
+    let command = try PrimerDesignCommand.PrimalScheme3Subcommand.parse([
+      "--msa", "/input/mhc.fasta", "--output", "/tmp/out.lungfishprimeranalysis",
+      "--amplicon-size", "300",
+    ])
+    let cli = try command.makeOptions()
+    XCTAssertEqual(cli.grouping, .independent)
+    XCTAssertEqual(cli.options, dialogOptions)
+    XCTAssertEqual(cli.options.ampliconSizeMetric, "reference-span")
   }
 
   private func configuredState() -> PrimerDesignDialogState {

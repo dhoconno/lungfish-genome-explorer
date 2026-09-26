@@ -99,8 +99,8 @@ struct PrimerDesignCommand: AsyncParsableCommand {
         @Option(name: .customLong("grouping"), help: "independent or combined") var grouping = "independent"
         @Option(name: .customLong("primalscheme3-path")) var executablePath: String?
         @Option(name: .customLong("amplicon-size")) var ampliconSize = 400
-        @Option(name: .customLong("amplicon-size-min"), help: "Inclusive minimum reference amplicon span, including primer sites. Supplying either bound enables reference-span sizing.") var ampliconSizeMinimum: Int?
-        @Option(name: .customLong("amplicon-size-max"), help: "Inclusive maximum reference amplicon span, including primer sites.") var ampliconSizeMaximum: Int?
+        @Option(name: .customLong("amplicon-size-min"), help: "Inclusive minimum reference amplicon span, including primer sites. Defaults to 90% of --amplicon-size, as the GUI does.") var ampliconSizeMinimum: Int?
+        @Option(name: .customLong("amplicon-size-max"), help: "Inclusive maximum reference amplicon span, including primer sites. Defaults to 110% of --amplicon-size, as the GUI does.") var ampliconSizeMaximum: Int?
         @Option(name: .customLong("pool-count")) var poolCount = 2
         @Option(name: .customLong("min-overlap"), help: "Minimum overlap for independent legacy designs; combined designs require the default 10.") var minOverlap = 10
         @Option(name: .customLong("minimum-base-frequency")) var minimumBaseFrequency = 0.0
@@ -169,11 +169,22 @@ struct PrimerDesignCommand: AsyncParsableCommand {
         }
         private func execute(argv: [String]) async throws -> URL {
             let inputs = try validatedInputURLs(paths: msaPaths)
+            let resolved = try makeOptions()
+            let options = resolved.options
+            let resolvedGrouping = resolved.grouping
+            var checksums: [URL: String] = [:]
+            for input in inputs { checksums[input] = try await Primer3DesignPipeline.inspectInput(at: input).checksumSHA256 }
+            let explicit = options.provenanceOptions.merging(["grouping": .string(resolvedGrouping.rawValue), "inputCount": .integer(inputs.count)]) { _, new in new }
+            let invocation = PrimerAnalysisWrapperInvocation(argv: argv, callerVersion: LungfishAppVersion.cliToolVersion, explicitOptions: explicit, runtimeIdentity: ProvenanceRuntimeIdentity(executablePath: argv.first ?? CLICommandIdentity.executableName))
+            return try await PrimalScheme3DesignPipeline().run(request: .init(inputURLs: inputs, destinationURL: URL(fileURLWithPath: outputPath), options: options, grouping: resolvedGrouping, invocation: invocation, executableURL: executablePath.map(URL.init(fileURLWithPath:)), expectedInputChecksums: checksums))
+        }
+
+        /// Resolves the parsed flags into the same typed options the GUI dialog
+        /// builds, so identical visible settings produce identical requests.
+        func makeOptions() throws -> (options: PrimalScheme3DesignOptions, grouping: PrimerAnalysisGrouping) {
             let resolvedGrouping: PrimerAnalysisGrouping
             switch grouping { case "independent": resolvedGrouping = .independent; case "combined": resolvedGrouping = .combined; default: throw ValidationError("--grouping must be independent or combined.") }
             if resolvedGrouping == .combined, minOverlap != 10 { throw ValidationError("--min-overlap applies only to independent designs; combined mode requires 10.") }
-            var checksums: [URL: String] = [:]
-            for input in inputs { checksums[input] = try await Primer3DesignPipeline.inspectInput(at: input).checksumSHA256 }
             guard let resolvedTerminalGapPolicy = PrimalScheme3TerminalGapPolicy(rawValue: terminalGapPolicy) else {
                 throw ValidationError("--terminal-gap-policy must be observed-only or legacy.")
             }
@@ -246,10 +257,11 @@ struct PrimerDesignCommand: AsyncParsableCommand {
                 workPoolLookaheadCandidates: workPoolLookaheadCandidates,
                 workCleanupMovesPerRound: workCleanupMovesPerRound,
                 workFamiliesPerRefresh: workFamiliesPerRefresh)
-            let options = PrimalScheme3DesignOptions(ampliconSize: ampliconSize, poolCount: poolCount, minOverlap: minOverlap, minimumBaseFrequency: minimumBaseFrequency, highGC: highGC, coreCount: coreCount, terminalGapPolicy: resolvedTerminalGapPolicy, dimerScore: dimerScore, useMatchDB: !disableMatchDB, backtrack: backtrack, ignoreN: ignoreN, panelMode: resolvedPanelMode, maxAmplicons: maxAmplicons, maxAmpliconsPerMSA: maxAmpliconsPerMSA, ampliconSizeMinimum: ampliconSizeMinimum, ampliconSizeMaximum: ampliconSizeMaximum, selectionAlgorithm: resolvedSelectionAlgorithm, coverageMetric: resolvedCoverageMetric, coverageTarget: coverageTarget, optimizerSeed: optimizerSeed, optimizerStarts: optimizerStarts, optimizerRepairRounds: optimizerRepairRounds, optimizerTimeLimit: optimizerTimeLimit, misprimingProductSize: misprimingProductSize, alleleOptions: alleleOptions)
-            let explicit = options.provenanceOptions.merging(["grouping": .string(resolvedGrouping.rawValue), "inputCount": .integer(inputs.count)]) { _, new in new }
-            let invocation = PrimerAnalysisWrapperInvocation(argv: argv, callerVersion: LungfishAppVersion.cliToolVersion, explicitOptions: explicit, runtimeIdentity: ProvenanceRuntimeIdentity(executablePath: argv.first ?? CLICommandIdentity.executableName))
-            return try await PrimalScheme3DesignPipeline().run(request: .init(inputURLs: inputs, destinationURL: URL(fileURLWithPath: outputPath), options: options, grouping: resolvedGrouping, invocation: invocation, executableURL: executablePath.map(URL.init(fileURLWithPath:)), expectedInputChecksums: checksums))
+            // The GUI always sends both bounds. An omitted CLI bound takes the same
+            // default so the fork sees one sizing metric regardless of the caller.
+            let defaultBounds = PrimalScheme3DesignOptions.defaultAmpliconSizeBounds(target: ampliconSize)
+            let options = PrimalScheme3DesignOptions(ampliconSize: ampliconSize, poolCount: poolCount, minOverlap: minOverlap, minimumBaseFrequency: minimumBaseFrequency, highGC: highGC, coreCount: coreCount, terminalGapPolicy: resolvedTerminalGapPolicy, dimerScore: dimerScore, useMatchDB: !disableMatchDB, backtrack: backtrack, ignoreN: ignoreN, panelMode: resolvedPanelMode, maxAmplicons: maxAmplicons, maxAmpliconsPerMSA: maxAmpliconsPerMSA, ampliconSizeMinimum: ampliconSizeMinimum ?? defaultBounds?.minimum, ampliconSizeMaximum: ampliconSizeMaximum ?? defaultBounds?.maximum, selectionAlgorithm: resolvedSelectionAlgorithm, coverageMetric: resolvedCoverageMetric, coverageTarget: coverageTarget, optimizerSeed: optimizerSeed, optimizerStarts: optimizerStarts, optimizerRepairRounds: optimizerRepairRounds, optimizerTimeLimit: optimizerTimeLimit, misprimingProductSize: misprimingProductSize, alleleOptions: alleleOptions)
+            return (options, resolvedGrouping)
         }
     }
 }

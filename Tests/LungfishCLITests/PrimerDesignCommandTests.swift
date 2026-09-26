@@ -14,6 +14,24 @@ final class PrimerDesignCommandTests: XCTestCase {
         XCTAssertEqual(command.ampliconSizeMaximum, 250)
     }
 
+    func testPrimalSchemeOmittedBoundsDefaultToTenPercentOfTargetLikeTheGUI() throws {
+        let command = try PrimerDesignCommand.PrimalScheme3Subcommand.parse([
+            "--msa", "/tmp/mhc.lungfishmsa", "--output", "/tmp/result.lungfishprimeranalysis",
+            "--amplicon-size", "400"])
+        let resolved = try command.makeOptions()
+        XCTAssertEqual(resolved.options.requestedAmpliconSizeMinimum, 360)
+        XCTAssertEqual(resolved.options.requestedAmpliconSizeMaximum, 440)
+        XCTAssertEqual(resolved.options.ampliconSizeMetric, "reference-span")
+        let partial = try PrimerDesignCommand.PrimalScheme3Subcommand.parse([
+            "--msa", "/tmp/mhc.lungfishmsa", "--output", "/tmp/result.lungfishprimeranalysis",
+            "--amplicon-size", "400", "--amplicon-size-max", "500"])
+        let partialOptions = try partial.makeOptions().options
+        XCTAssertEqual(partialOptions.requestedAmpliconSizeMinimum, 360)
+        XCTAssertEqual(partialOptions.requestedAmpliconSizeMaximum, 500)
+        XCTAssertEqual(PrimalScheme3DesignOptions.defaultAmpliconSizeBounds(target: 400)?.minimum, 360)
+        XCTAssertNil(PrimalScheme3DesignOptions.defaultAmpliconSizeBounds(target: 50))
+    }
+
     func testPrimer3ParsesExplicitFASTAAndMSATemplateSelections() throws {
         let command = try PrimerDesignCommand.Primer3Subcommand.parse([
             "--fasta-record", "/tmp/mhc.fa@1",

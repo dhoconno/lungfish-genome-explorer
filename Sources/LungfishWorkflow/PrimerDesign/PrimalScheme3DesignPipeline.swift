@@ -31,8 +31,16 @@ public struct PrimalScheme3DesignOptions: Codable, Equatable, Sendable {
     public static var defaultCoreCount: Int { max(1, min(4, ProcessInfo.processInfo.activeProcessorCount)) }
     public let requestedAmpliconSizeMinimum: Int?
     public let requestedAmpliconSizeMaximum: Int?
-    public var ampliconSizeMinimum: Int { requestedAmpliconSizeMinimum ?? ((100...2000).contains(ampliconSize) ? Int(Double(ampliconSize) * 0.9) : 0) }
-    public var ampliconSizeMaximum: Int { requestedAmpliconSizeMaximum ?? ((100...2000).contains(ampliconSize) ? Int(Double(ampliconSize) * 1.1) : 0) }
+    /// Bounds the GUI seeds and the CLI defaults to when neither bound is
+    /// supplied: 90% and 110% of a supported target. The installed fork uses
+    /// the same fallback for an individually omitted bound, so every caller
+    /// resolves identical spans from the same visible target.
+    public static func defaultAmpliconSizeBounds(target: Int) -> (minimum: Int, maximum: Int)? {
+        guard (100...2000).contains(target) else { return nil }
+        return (Int(Double(target) * 0.9), Int(Double(target) * 1.1))
+    }
+    public var ampliconSizeMinimum: Int { requestedAmpliconSizeMinimum ?? Self.defaultAmpliconSizeBounds(target: ampliconSize)?.minimum ?? 0 }
+    public var ampliconSizeMaximum: Int { requestedAmpliconSizeMaximum ?? Self.defaultAmpliconSizeBounds(target: ampliconSize)?.maximum ?? 0 }
     public var ampliconSizeMetric: String {
         requestedAmpliconSizeMinimum != nil || requestedAmpliconSizeMaximum != nil ? "reference-span" : "legacy-pairing"
     }
