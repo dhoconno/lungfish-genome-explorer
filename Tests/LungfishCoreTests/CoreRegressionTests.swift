@@ -372,8 +372,8 @@ final class SequenceAlphabetRegressionTests: XCTestCase {
         for c: Character in ["A", "U", "G", "C", "N"] {
             XCTAssertTrue(valid.contains(c), "RNA should contain \(c)")
         }
-        // T is NOT valid for RNA
-        XCTAssertFalse(valid.contains("T"))
+        // RNA molecules are stored with T, so T is valid input too
+        XCTAssertTrue(valid.contains("T"))
     }
 
     func testProteinValidCharacters() {
@@ -413,7 +413,8 @@ final class SequenceAlphabetRegressionTests: XCTestCase {
     func testRNAComplementMap() {
         let map = SequenceAlphabet.rna.complementMap
         XCTAssertNotNil(map)
-        XCTAssertEqual(map?["A"], "U")
+        XCTAssertEqual(map?["A"], "T")
+        XCTAssertEqual(map?["T"], "A")
         XCTAssertEqual(map?["U"], "A")
         XCTAssertEqual(map?["G"], "C")
         XCTAssertEqual(map?["C"], "G")

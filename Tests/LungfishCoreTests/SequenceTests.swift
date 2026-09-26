@@ -22,6 +22,12 @@ final class SequenceTests: XCTestCase {
         XCTAssertEqual(seq.length, 8)
     }
 
+    func testRNASequencesAreStoredAndEmittedWithThymine() throws {
+        // RNA is a molecule label only; every nucleotide sequence is kept in the T alphabet.
+        XCTAssertEqual(try Sequence(name: "u", alphabet: .rna, bases: "AUCGaucgN").asString(), "ATCGATCGN")
+        XCTAssertEqual(try Sequence(name: "t", alphabet: .rna, bases: "ATCGatcg").asString(), "ATCGATCG")
+    }
+
     func testCreateProteinSequence() throws {
         let seq = try Sequence(name: "protein", alphabet: .protein, bases: "MKTAYIAKQ")
         XCTAssertEqual(seq.alphabet, .protein)
@@ -247,14 +253,14 @@ final class SequenceTests: XCTestCase {
         let seq = try Sequence(name: "rna", alphabet: .rna, bases: "AUCG")
         let comp = seq.complement()
         XCTAssertNotNil(comp)
-        XCTAssertEqual(comp?.asString(), "UAGC")
+        XCTAssertEqual(comp?.asString(), "TAGC")
     }
 
     func testRNAReverseComplement() throws {
         let seq = try Sequence(name: "rna", alphabet: .rna, bases: "AUCG")
         let rc = seq.reverseComplement()
         XCTAssertNotNil(rc)
-        XCTAssertEqual(rc?.asString(), "CGAU")
+        XCTAssertEqual(rc?.asString(), "CGAT")
     }
 
     func testProteinNoComplement() throws {
@@ -712,7 +718,7 @@ final class SequenceAlphabetTests: XCTestCase {
         XCTAssertTrue(alphabet.validCharacters.contains("U"))
         XCTAssertTrue(alphabet.validCharacters.contains("G"))
         XCTAssertTrue(alphabet.validCharacters.contains("C"))
-        XCTAssertFalse(alphabet.validCharacters.contains("T"))
+        XCTAssertTrue(alphabet.validCharacters.contains("T"))
     }
 
     func testProteinValidCharacters() {
@@ -750,7 +756,8 @@ final class SequenceAlphabetTests: XCTestCase {
 
     func testRNAComplementMap() {
         let map = SequenceAlphabet.rna.complementMap!
-        XCTAssertEqual(map["A"], "U")
+        XCTAssertEqual(map["A"], "T")
+        XCTAssertEqual(map["T"], "A")
         XCTAssertEqual(map["U"], "A")
         XCTAssertEqual(map["G"], "C")
         XCTAssertEqual(map["C"], "G")

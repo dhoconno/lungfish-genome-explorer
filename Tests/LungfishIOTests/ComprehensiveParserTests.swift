@@ -431,7 +431,7 @@ final class ComprehensiveParserTests: XCTestCase {
 
         XCTAssertEqual(seqs.count, 1)
         XCTAssertEqual(seqs[0].alphabet, .rna)
-        XCTAssertEqual(seqs[0].asString(), rna)
+        XCTAssertEqual(seqs[0].asString(), "ATGCATGCATGC")
     }
 
     // =========================================================================

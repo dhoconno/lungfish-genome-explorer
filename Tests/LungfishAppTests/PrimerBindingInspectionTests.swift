@@ -31,6 +31,16 @@ final class PrimerBindingInspectionTests: XCTestCase {
         XCTAssertTrue(compare(row: "AYGT", primer: "ACGT").status.contains("ambiguous"))
     }
 
+    func testRNAAlphabetRowsLoadAndCompareUracilAsThymine() throws {
+        // Genomic-RNA references (e.g. influenza C NS segments) are stored with U, not T.
+        let rows = try PrimerBindingInspectionContext.parseFASTA(Data(">rna\nacgu-\n>dna\nACGT-\n".utf8))
+        XCTAssertEqual(rows.map { String($0.sequence) }, ["ACGU-", "ACGT-"])
+        XCTAssertEqual(compare(row: "ACGU", primer: "ACGT").mismatchCount, 0)
+        XCTAssertEqual(compare(row: "ACGU", primer: "ACGT", strand: "-").mismatchCount, 0)
+        XCTAssertEqual(compare(row: "ACGU", primer: "ACGA").mismatchPositions, [3])
+        XCTAssertEqual(compare(row: "ACGU", primer: "ACGT").alignedSite, "ACGU")
+    }
+
     func testInternalGapsAndTerminalMissingnessAreDistinct() {
         let internalGap = compare(row: "A-GT", primer: "ACGT")
         let missingEnd = compare(row: "--GT", primer: "ACGT")

@@ -8,7 +8,7 @@ import Foundation
 public enum SequenceAlphabet: String, Codable, Sendable, CaseIterable {
     /// DNA sequence (A, T, G, C, N)
     case dna
-    /// RNA sequence (A, U, G, C, N)
+    /// RNA molecule. Input may use U or T; sequences are stored and emitted with T.
     case rna
     /// Protein/amino acid sequence
     case protein
@@ -19,7 +19,7 @@ public enum SequenceAlphabet: String, Codable, Sendable, CaseIterable {
         case .dna:
             return Set("ATGCNatgcnRYSWKMBDHVryswkmbdhv")
         case .rna:
-            return Set("AUGCNaugcnRYSWKMBDHVryswkmbdhv")
+            return Set("AUTGCNautgcnRYSWKMBDHVryswkmbdhv")
         case .protein:
             return Set("ACDEFGHIKLMNPQRSTVWYacdefghiklmnpqrstvwy*X")
         }
@@ -42,8 +42,8 @@ public enum SequenceAlphabet: String, Codable, Sendable, CaseIterable {
             ]
         case .rna:
             return [
-                "A": "U", "U": "A", "G": "C", "C": "G",
-                "a": "u", "u": "a", "g": "c", "c": "g",
+                "A": "T", "T": "A", "U": "A", "G": "C", "C": "G",
+                "a": "t", "t": "a", "u": "a", "g": "c", "c": "g",
                 "N": "N", "n": "n",
                 "R": "Y", "Y": "R", "S": "S", "W": "W",
                 "K": "M", "M": "K", "B": "V", "V": "B",

@@ -18,6 +18,28 @@ final class GenBankReaderTests: XCTestCase {
         return testFile
     }
 
+    func testGenomicRNARecordKeepsThymineAlphabet() throws {
+        let testFile = try writeTemporaryGenBank(
+            """
+            LOCUS       AB002469                12 bp    RNA     linear   VRL 03-DEC-2008
+            DEFINITION  Influenza C virus NS gene.
+            ACCESSION   AB002469
+            VERSION     AB002469.1
+            FEATURES             Location/Qualifiers
+                 source          1..12
+                                 /mol_type="genomic RNA"
+            ORIGIN
+                    1 gaagcagggg ta
+            //
+            """
+        )
+
+        let record = try XCTUnwrap(GenBankReader(url: testFile).readAllSync().first)
+
+        XCTAssertEqual(record.sequence.alphabet, .rna)
+        XCTAssertEqual(record.sequence.asString(), "GAAGCAGGGGTA")
+    }
+
     func testRecoveringAnnotationsKeepsSequenceAndValidFeatures() throws {
         let testFile = try writeTemporaryGenBank(
             """

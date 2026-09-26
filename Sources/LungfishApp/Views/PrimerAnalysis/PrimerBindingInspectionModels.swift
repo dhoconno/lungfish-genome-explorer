@@ -247,7 +247,7 @@ struct PrimerBindingInspectionContext: Identifiable, Sendable {
             }
     }
 
-    private static func parseFASTA(_ data: Data) throws -> [Row] {
+    static func parseFASTA(_ data: Data) throws -> [Row] {
         guard let text = String(data: data, encoding: .utf8) else {
             throw PrimerAnalysisBundleError.invalidArtifact("Binding inspection FASTA is not UTF-8")
         }
@@ -263,7 +263,7 @@ struct PrimerBindingInspectionContext: Identifiable, Sendable {
             }
         }
         if let name { rows.append(.init(name: name, sequence: sequence)) }
-        guard !rows.isEmpty, rows.allSatisfy({ !$0.sequence.isEmpty && $0.sequence.allSatisfy { "ACGTRYSWKMBDHVN-".contains($0) } }),
+        guard !rows.isEmpty, rows.allSatisfy({ !$0.sequence.isEmpty && $0.sequence.allSatisfy { "ACGTURYSWKMBDHVN-".contains($0) } }),
               Set(rows.map(\.name)).count == rows.count else {
             throw PrimerAnalysisBundleError.invalidArtifact("Invalid binding inspection FASTA rows")
         }
@@ -284,9 +284,11 @@ struct PrimerBindingInspectionContext: Identifiable, Sendable {
             if first == nil || lower < first! || upper - 1 > last! { return result(site, "Unknown: uncovered alignment end") }
             return result(site, "Unavailable: internal alignment gap")
         }
-        guard site.allSatisfy({ "ACGT".contains($0) }) else { return result(site, "Unknown: ambiguous sequence bases") }
+        guard site.allSatisfy({ "ACGTU".contains($0) }) else { return result(site, "Unknown: ambiguous sequence bases") }
+        // RNA-alphabet rows (genomic RNA references) pair with DNA primers exactly as T would.
+        let dnaSite = site.map { $0 == "U" ? Character("T") : $0 }
         let complement: [Character: Character] = ["A":"T", "C":"G", "G":"C", "T":"A"]
-        let oriented = strand == "-" ? Array(site.reversed().map { complement[$0]! }) : Array(site)
+        let oriented = strand == "-" ? Array(dnaSite.reversed().map { complement[$0]! }) : dnaSite
         let allowed: [Character: Set<Character>] = ["A":["A"], "C":["C"], "G":["G"], "T":["T"],
             "R":["A","G"], "Y":["C","T"], "S":["G","C"], "W":["A","T"], "K":["G","T"], "M":["A","C"],
             "B":["C","G","T"], "D":["A","G","T"], "H":["A","C","T"], "V":["A","C","G"], "N":["A","C","G","T"]]

@@ -560,8 +560,8 @@ final class EditableSequenceTests: XCTestCase {
         try editable.insert("UUU", at: 4)
         XCTAssertEqual(editable.sequence, "AUCGUUUAUCG")
 
-        // T should be invalid for RNA
-        XCTAssertThrowsError(try editable.insert("TTT", at: 0))
+        // RNA molecules share the T alphabet, so T is accepted.
+        XCTAssertNoThrow(try editable.insert("TTT", at: 0))
     }
 
     // MARK: - Protein Alphabet Tests

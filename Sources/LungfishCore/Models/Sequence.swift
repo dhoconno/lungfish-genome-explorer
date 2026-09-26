@@ -282,20 +282,15 @@ internal struct SequenceStorage: Hashable, Sendable {
 
         // Check for ambiguous base first
         if let ambig = ambiguousBases[index] {
-            let result = alphabet == .rna && ambig == "T" ? Character("U") :
-                         alphabet == .rna && ambig == "t" ? Character("u") : ambig
-            return result
+            return ambig
         }
 
         if alphabet == .dna || alphabet == .rna {
             let byteIndex = index / 4
             let bitOffset = (index % 4) * 2
             let encoded = (packedData[byteIndex] >> (6 - bitOffset)) & 0b11
-            var base = Self.dnaDecode[Int(encoded)]
-            if alphabet == .rna && base == "T" {
-                base = "U"
-            }
-            return base
+            // RNA is a molecule label only: uracil is stored and emitted as T.
+            return Self.dnaDecode[Int(encoded)]
         } else {
             return Character(UnicodeScalar(packedData[index]))
         }
