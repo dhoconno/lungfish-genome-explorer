@@ -2003,7 +2003,7 @@ final class WorkflowCommandRegressionTests: XCTestCase {
 
     func testSubcommands() {
         let subcommands = WorkflowCommand.configuration.subcommands.map { $0.configuration.commandName }
-        XCTAssertEqual(subcommands, ["run", "builder-run", "list", "validate", "diff"])
+        XCTAssertEqual(subcommands, ["run", "builder-run", "template", "list", "validate", "diff"])
     }
 
     func testDefaultSubcommand() {
