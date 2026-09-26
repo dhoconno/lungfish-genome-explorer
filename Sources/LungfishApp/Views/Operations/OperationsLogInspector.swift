@@ -344,13 +344,12 @@ final class OperationsLogInspector: NSView, NSTextViewDelegate {
         smallerTextButton.isEnabled = enabled && (logText.font?.pointSize ?? 11) > Self.minimumLogFontSize
         largerTextButton.isEnabled = enabled && (logText.font?.pointSize ?? 11) < Self.maximumLogFontSize
         followButton.state = reading.followsLatest ? .on : .off
-        followButton.title = reading.followsLatest ? "Follow latest" : "Log paused"
+        followButton.title = reading.followsLatest ? "Follow latest" : "Reviewing log history"
         followButton.toolTip = reading.followsLatest
             ? "The log follows new output as it arrives"
-            : "Only the log view is paused; this does not pause the operation. Select to resume live log output."
-        followButton.setAccessibilityLabel(reading.followsLatest
-            ? "Following latest log output"
-            : "Log updates paused; select to resume")
+            : "Reviewing earlier log output. Processing and log capture continue independently. Select to resume live log output."
+        followButton.setAccessibilityLabel("Follow latest log output")
+        followButton.setAccessibilityHelp(followButton.toolTip)
         let pending = max(0, (item?.logEntryCount ?? 0) - max(0, reading.renderedCount))
         jumpButton.title = !reading.followsLatest && pending > 0
             ? "Resume live log (\(pending) new)" : (reading.followsLatest ? "Jump to latest" : "Resume live log")

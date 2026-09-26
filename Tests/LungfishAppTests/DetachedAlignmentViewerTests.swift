@@ -446,30 +446,41 @@ final class DetachedAlignmentViewerTests: XCTestCase {
     func testSameSizeRestoredMTimeReplacementIsDetectedByEvidenceMonitor() async throws {
         let files = try DetachedEvidenceFiles()
         let request = try files.request("changed")
+        let checksumGate = DetachedEvidenceChecksumGate()
+        defer { checksumGate.resume() }
         let validator = ClassifierAlignmentEvidenceValidator(
             headerReader: { _ in "@SQ\tSN:chr1\tLN:4\n" },
             indexQuery: { _, _, _ in },
             fileManager: .default
         )
         let controller = ClassifierAlignmentEvidenceViewportController(validator: validator)
+        _ = controller.viewer.view
+        controller.viewer.viewerView.testSetDetachedEvidenceChecksumDidRun {
+            checksumGate.pauseAfterFirstChecksum()
+        }
         controller.display(request)
         await waitForDetachedSource(controller)
         guard controller.viewer.viewerView.testDetachedAlignmentSource != nil else {
             return XCTFail("Validated detached source was not installed")
         }
+        let checksumPaused = await checksumGate.waitUntilPaused()
+        XCTAssertTrue(checksumPaused, "Initial evidence checksum did not reach the test gate")
         controller.viewer.viewerView.testSetCachedAlignedReads([
             AlignedRead(name: "cached", flag: 0, chromosome: "chr1", position: 0, mapq: 60, cigar: [.init(op: .match, length: 1)], sequence: "A", qualities: [30])
         ])
 
         let originalAttributes = try FileManager.default.attributesOfItem(atPath: request.bamURL.path)
         let originalMTime = try XCTUnwrap(originalAttributes[.modificationDate] as? Date)
+        let initialMonitorCheckCount = controller.viewer.viewerView.testDetachedEvidenceMonitorEventCount
         try Data([9]).write(to: request.bamURL) // same byte count as the validated payload
         try FileManager.default.setAttributes([.modificationDate: originalMTime], ofItemAtPath: request.bamURL.path)
 
-        for _ in 0..<250 where controller.status != .stale("Classifier alignment evidence changed on disk: changed.bam.") {
-            try await Task.sleep(nanoseconds: 10_000_000)
-        }
+        let monitorObservedReplacement = await waitForDetachedEvidenceMonitorEvent(after: initialMonitorCheckCount, in: controller)
+        XCTAssertTrue(monitorObservedReplacement, "Evidence monitor did not observe the replacement")
+        checksumGate.resume()
+
         let reason = "Classifier alignment evidence changed on disk: changed.bam."
+        await waitForDetachedEvidenceStatus(.stale(reason), in: controller)
         XCTAssertEqual(controller.viewer.viewerView.detachedEvidenceStaleReason, reason)
         XCTAssertEqual(controller.status, .stale(reason))
         XCTAssertEqual(controller.visibleStatusText, reason)
@@ -803,5 +814,60 @@ private func waitForDetachedSource(
     let deadline = ContinuousClock.now + timeout
     while controller.viewer.viewerView.testDetachedAlignmentSource == nil, ContinuousClock.now < deadline {
         try? await Task.sleep(for: .milliseconds(10))
+    }
+}
+
+@MainActor
+private func waitForDetachedEvidenceMonitorEvent(
+    after count: Int,
+    in controller: ClassifierAlignmentEvidenceViewportController,
+    timeout: Duration = .seconds(5)
+) async -> Bool {
+    let deadline = ContinuousClock.now + timeout
+    while controller.viewer.viewerView.testDetachedEvidenceMonitorEventCount <= count,
+          ContinuousClock.now < deadline {
+        try? await Task.sleep(for: .milliseconds(10))
+    }
+    return controller.viewer.viewerView.testDetachedEvidenceMonitorEventCount > count
+}
+
+@MainActor
+private func waitForDetachedEvidenceStatus(
+    _ status: ClassifierAlignmentViewerStatus,
+    in controller: ClassifierAlignmentEvidenceViewportController,
+    timeout: Duration = .seconds(10)
+) async {
+    let deadline = ContinuousClock.now + timeout
+    while controller.status != status, ContinuousClock.now < deadline {
+        try? await Task.sleep(for: .milliseconds(10))
+    }
+}
+
+private final class DetachedEvidenceChecksumGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private let entered = DispatchSemaphore(value: 0)
+    private let release = DispatchSemaphore(value: 0)
+    private var shouldPause = true
+
+    func pauseAfterFirstChecksum() {
+        lock.lock()
+        let pause = shouldPause
+        shouldPause = false
+        lock.unlock()
+        guard pause else { return }
+        entered.signal()
+        _ = release.wait(timeout: .now() + 30)
+    }
+
+    func waitUntilPaused(timeout: DispatchTime = .now() + 5) async -> Bool {
+        await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .utility).async { [entered] in
+                continuation.resume(returning: entered.wait(timeout: timeout) == .success)
+            }
+        }
+    }
+
+    func resume() {
+        release.signal()
     }
 }
