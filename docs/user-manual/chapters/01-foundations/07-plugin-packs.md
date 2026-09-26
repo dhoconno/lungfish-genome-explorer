@@ -3,7 +3,7 @@ title: Plugin Packs
 chapter_id: 01-foundations/07-plugin-packs
 audience: bench-scientist
 prereqs: [01-foundations/06-the-lungfish-project]
-estimated_reading_min: 20
+estimated_reading_min: 23
 task: Install and verify Lungfish Genome Explorer plugin packs, experimental features, container prerequisites, and reference databases.
 tags: [foundations, plugin-pack, installation, databases, experimental, containers, docker]
 tools: []
@@ -91,16 +91,36 @@ Eleven optional packs can be installed from the Plugin Manager. Eight show all t
 | `assembly` | Genome Assembly | 950 MB | SPAdes, MEGAHIT, SKESA, Flye, hifiasm |
 | `metagenomics` | Metagenomics | 1.2 GB | Kraken 2, Bracken, EsViritu, RiboDetector |
 | `full-length-mhc-genotyping` | Full-length MHC Genotyping | 650 MB | Savont, NCBI BLAST+ |
-| `pcr-primer-design` | PCR Primer Design | 350 MB | Primer3, PrimalScheme3 |
+| `pcr-primer-design` | PCR Primer Design | 2.8 GB | Primer3, PrimalScheme, Olivar, varVAMP |
 | `multiple-sequence-alignment` | Multiple Sequence Alignment | 120 MB | MAFFT |
 | `phylogenetics` | Phylogenetics | 180 MB | IQ-TREE |
 | `gatk-core` | GATK Core (experimental) | 600 MB | GATK4 |
 | `phasing` | Variant Phasing (experimental) | 180 MB | WhatsHap |
 | `wastewater-surveillance` | Wastewater Surveillance (experimental) | 1.5 GB | Freyja, iVar, Pangolin, Nextclade, minimap2 |
 
-MHC in the genotyping pack's name stands for the major histocompatibility complex, the cluster of immune genes that varies more between individuals than any other part of the genome. Each task chapter says which of these tools it uses.
+MHC in the genotyping pack's name stands for the major histocompatibility complex, the cluster of immune genes that varies more between individuals than any other part of the genome. The PCR Primer Design card spells one of its tools OliVar, while the tool's own authors and this manual write Olivar. PrimalScheme on that card is an LGE build of PrimalScheme 3, the third version of the program.
 
-All eleven optional packs together come to about 6.3 GB, on top of the 2.7 GB Third-Party Tools pack. Most people install two or three.
+All eleven optional packs together come to about 8.7 GB, on top of the 2.7 GB Third-Party Tools pack. The PCR Primer Design pack alone is about 2.8 GB, because Olivar and varVAMP each install into a separate environment with its own supporting libraries, which measured about 1.1 GB and 0.8 GB when the two were added. Most people install two or three packs.
+
+### What each pack is for
+
+Most packs hold more than one tool for the same kind of job, because no single tool suits every kind of data. The table says what each pack's tools do and names the chapter that helps you pick among them, usually in a section called Choosing a tool.
+
+| Pack | What its tools do | Where to choose among them |
+|---|---|---|
+| Read Mapping | Place each read at the position on a reference genome it best matches, with three mappers suited to different read types | [Mapping Reads to a Reference](../04-alignments/01-mapping-reads-to-a-reference.md) |
+| Variant Calling | List the positions where a sample's reads differ from the reference, with LoFreq and iVar for Illumina reads and Medaka and Clair3 for Nanopore reads | [Calling Variants](../05-variants/01-calling-variants-from-amplicons.md) and [Nanopore Variant Calling](../05-variants/04-nanopore-variant-calling.md) |
+| Genome Assembly | Rebuild a genome from reads alone, with SPAdes, MEGAHIT, and SKESA for short reads and Flye and hifiasm for long reads | [When to Assemble](../07-assembly/01-when-to-assemble.md) |
+| Metagenomics | Name the organisms in a mixed sample with Kraken 2 and Bracken or, for viruses, EsViritu, and remove ribosomal RNA reads with RiboDetector | [What Is Read Classification](../06-classification/01-what-is-classification.md) |
+| Full-length MHC Genotyping | Cluster long MHC reads into consensus alleles with Savont and search unmatched ones against the allele library with BLAST+ | [What Is MHC Genotyping](../09-genotyping/01-what-is-mhc-genotyping.md#choosing-a-tool) |
+| PCR Primer Design | Design PCR primers, with Primer3 for a single assay and PrimalScheme, Olivar, and varVAMP for tiled schemes that cover a whole target, varVAMP also designing single and qPCR assays | [What Is Primer Design](../10-primer-design/01-what-is-primer-design.md) |
+| Multiple Sequence Alignment | Line up related sequences column by column with MAFFT, which offers six strategies | [Aligning Sequences](../02-sequences/04-aligning-sequences.md#choosing-a-tool) |
+| Phylogenetics | Build maximum-likelihood family trees from an alignment with IQ-TREE | [Building Trees](../02-sequences/05-building-trees.md#choosing-a-tool) |
+| GATK Core | Call inherited variants in human samples with GATK4 | [HaplotypeCaller](../06-human-germline-variants/01-haplotype-caller.md) |
+| Variant Phasing | Work out which nearby variants sit on the same copy of a chromosome with WhatsHap | [HaplotypeCaller](../06-human-germline-variants/01-haplotype-caller.md) |
+| Wastewater Surveillance | Estimate the mix of SARS-CoV-2 lineages in a wastewater sample with Freyja, with iVar, Pangolin, Nextclade, and minimap2 alongside | [Running Freyja](../06-classification/07-running-freyja.md) |
+
+A pack with a single tool, such as Phylogenetics, still leaves choices inside that tool, and its chapter covers them the same way.
 
 Some packs finish with extra work after the tools land. LGE calls these [post-install hooks](../../GLOSSARY.md#post-install-hook), small follow-up commands a pack declares for itself, such as fetching the list of named virus lineages Freyja compares a sample against. A pack that has hooks shows how many on its card, and resting the pointer on the count lists what they do.
 
@@ -206,7 +226,7 @@ If that message appears when you believe the pack is installed, open the **Packs
 
 ### Disk usage
 
-The Third-Party Tools pack is about 2.7 GB, and all eleven optional packs add about 6.3 GB, for roughly 9 GB with everything installed. The databases are the real weight, and a single Standard or PlusPF collection at 67 GB or 72 GB outweighs every tool on the Mac put together. Projects never hold tools or databases, so a project stays small and portable however much you install.
+The Third-Party Tools pack is about 2.7 GB, and all eleven optional packs add about 8.7 GB, for roughly 11 GB with everything installed. The databases are the real weight, and a single Standard or PlusPF collection at 67 GB or 72 GB outweighs every tool on the Mac put together. Projects never hold tools or databases, so a project stays small and portable however much you install.
 
 ## What good looks like
 

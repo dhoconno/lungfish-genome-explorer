@@ -3,7 +3,7 @@ title: Building Trees
 chapter_id: 02-sequences/05-building-trees
 audience: analyst
 prereqs: [01-foundations/01-what-is-a-genome, 02-sequences/04-aligning-sequences]
-estimated_reading_min: 18
+estimated_reading_min: 22
 task: Infer a maximum-likelihood tree from an alignment with IQ-TREE, read it in the tree viewport, and re-root, extract a clade from, or relabel it.
 tags: [sequences, phylogenetics, iqtree, tree, newick, bootstrap]
 tools: [iqtree]
@@ -22,7 +22,7 @@ shots:
 illustrations:
   - id: tree-anatomy
     caption: "Anatomy of a rectangular phylogram, showing tips, internal nodes, branch lengths, and support values."
-glossary_refs: [iqtree, phylogram, cladogram, clade, newick, support-value, sh-alrt, bootstrap, maximum-likelihood, substitution-model, tip, internal-node, branch-length, topology, rooting, outgroup, msa, alignment-column, mitochondrial-genome, accession, plugin-pack, provenance, checksum, bundle, sidebar, inspector, operations-panel, import-center]
+glossary_refs: [iqtree, phylogram, cladogram, clade, newick, support-value, sh-alrt, bootstrap, maximum-likelihood, substitution-model, tip, internal-node, branch-length, topology, rooting, outgroup, msa, alignment-column, mitochondrial-genome, accession, plugin-pack, provenance, checksum, bundle, sidebar, inspector, operations-panel, import-center, p-distance]
 features_refs: []
 fixtures_refs: [primate-mito]
 brand_reviewed: false
@@ -37,7 +37,7 @@ A tree also has lengths. On the default drawing, the horizontal length of a bran
 
 ![Rectangular phylogram with tips, internal nodes, branch lengths, and support values](../../assets/illustrations-imagegen/02-sequences/05-building-trees/tree-anatomy.png)
 
-Lungfish Genome Explorer (LGE) builds trees with [IQ-TREE](../../GLOSSARY.md#iqtree), a program that uses [maximum likelihood](../../GLOSSARY.md#maximum-likelihood). The alignment is the fixed evidence, and each candidate tree is scored against it. Maximum likelihood keeps the tree under which the observed columns are most probable, given an assumed [substitution model](../../GLOSSARY.md#substitution-model), a set of rates for turning one base into another. Models differ because real DNA does not change evenly. An A-to-G change is more common than an A-to-T change, for example, and a model that ignores this tends to underestimate how much change a long branch carries. IQ-TREE can test many models and choose one for you.
+Lungfish Genome Explorer (LGE) builds trees with [IQ-TREE](../../GLOSSARY.md#iqtree) version 3, a program that uses [maximum likelihood](../../GLOSSARY.md#maximum-likelihood). The alignment is the fixed evidence, and each candidate tree is scored against it. Maximum likelihood keeps the tree under which the observed columns are most probable, given an assumed [substitution model](../../GLOSSARY.md#substitution-model), a set of rates for turning one base into another. Models differ because real DNA does not change evenly. An A-to-G change is more common than an A-to-T change, for example, and a model that ignores this tends to underestimate how much change a long branch carries. IQ-TREE can test many models and choose one for you.
 
 Confidence is measured separately from the tree. A [support value](../../GLOSSARY.md#support-value) is a number from 0 to 100 on an internal node that says how consistently the data recover that grouping. The usual kind is the [bootstrap](../../GLOSSARY.md#bootstrap), which rebuilds the tree many times from resampled alignment columns and counts how often each grouping comes back. The topology looks equally crisp whether the data supported it strongly or barely, so the support values are the only way to tell the two apart.
 
@@ -54,6 +54,28 @@ The previous chapter ended with a pairwise identity matrix, which says how simil
 The known primate relationships make this a good teaching set, because you can check the answer. The two macaques should be sisters, meaning two tips that meet at the same internal node with nothing else between them. The human and the chimpanzee should be closer to each other than either is to the gorilla. All three apes should sit apart from the two monkeys. A tree that says otherwise is reporting a problem with the run, not news about primates.
 
 IQ-TREE returns an unrooted tree, which shows the groupings but not which lineage branched off first. [Rooting](../../GLOSSARY.md#rooting) the tree on an [outgroup](../../GLOSSARY.md#outgroup), a lineage known to sit outside the group you are studying, adds that direction. For the three apes, the two macaques are the natural outgroup.
+
+## Choosing a tool
+
+LGE builds trees one way, by maximum likelihood with IQ-TREE 3, so the choices left to you are whether you need a tree at all, which substitution model to use, and how to measure support. The size of your alignment and what you will claim from the tree settle all three.
+
+Tree-building methods fall into three broad families, and knowing them explains why LGE offers the one it does. Distance methods, such as neighbour joining and UPGMA, first reduce the alignment to one number per pair of sequences and then join the closest pairs step by step. They are very fast and cope with thousands of sequences, but they throw away which columns differ and keep only how many. Parsimony methods choose the tree that needs the fewest base changes to explain the alignment. They are simple to follow but can group two fast-changing lineages together only because both changed a lot. Maximum likelihood keeps the column-by-column information and models unequal rates of change, at the cost of more computing. None of the first two families runs inside LGE.
+
+**IQ-TREE with ModelFinder** is the default. With the Model field left at `MFP`, IQ-TREE first runs ModelFinder, which fits many substitution models to your alignment and keeps the one that balances fit against the number of rates it has to estimate. It then searches for the maximum-likelihood tree under that model. It suits almost any nucleotide or protein alignment from a handful of sequences to a few thousand, and it spares you from knowing model names. Its cost is time, since model testing runs before the tree search and grows with the length and number of sequences.
+
+**IQ-TREE with a named model** skips model testing and uses the model you type, such as `GTR+G`. It suits a replication of a published analysis that states its model, or a large alignment where testing takes too long. Its weakness is that a model poorly matched to your data can shorten long branches and misplace fast-changing lineages.
+
+**A pairwise distance matrix** from `lungfish-cli msa distance` reports, for every pair of rows, either the share of positions that agree (identity) or the share that differ ([p-distance](../../GLOSSARY.md#p-distance)). It is a quick check that the alignment behaves as biology predicts, and the previous chapter used it that way. It is not a tree and cannot give branching order, and LGE has no command that turns it into one.
+
+| Option | Built for | Choose it when | Choose something else when |
+|---|---|---|---|
+| IQ-TREE with `MFP` | Most alignments, up to a few thousand sequences | You want a defensible tree without choosing a model | A published method fixes the model, or testing is too slow |
+| IQ-TREE with a named model | Replicating a stated method, or very large alignments | You must match a model someone else used | You have no reason to prefer one model |
+| `msa distance` matrix | A quick similarity check | You only need to know which pairs are closest | You need branching order or support values |
+
+Support is a second choice inside IQ-TREE. The [ultrafast bootstrap](../../GLOSSARY.md#bootstrap), called UFBoot, approximates the classic bootstrap quickly by reusing trees it has already scored. [SH-aLRT](../../GLOSSARY.md#sh-alrt) instead tests each branch against the two nearest rearrangements around it and is faster still. IQ-TREE's documentation suggests trusting a group when UFBoot is at least 95 and SH-aLRT at least 80. Turn on UFBoot for any tree you will interpret, and add SH-aLRT when a reviewer may want two measures.
+
+This chapter's alignment has five sequences, so the default `MFP` with 1,000 ultrafast bootstrap replicates runs in minutes and is the setting the Procedure uses. Keep it for your own human or macaque alignments of up to a few thousand sequences. For tens of thousands of sequences, maximum likelihood in LGE becomes slow, so build the tree from a representative subsample, or export the alignment in PHYLIP format from the [Export Alignment sheet](04-aligning-sequences.md#export-alignment-sheet) for a faster program outside LGE. Citations for IQ-TREE 3, ModelFinder, UFBoot, and SH-aLRT are in the [Tool Bibliography](../appendices/bibliography.md#tools-installed-by-a-plugin-pack) and its [Method papers](../appendices/bibliography.md#method-papers).
 
 ## Before you start
 

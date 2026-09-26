@@ -3,7 +3,7 @@ title: What Is MHC Genotyping
 chapter_id: 09-genotyping/01-what-is-mhc-genotyping
 audience: bench-scientist
 prereqs: [01-foundations/02-sequencing-reads, 01-foundations/03-amplicon-vs-shotgun, 01-foundations/06-the-lungfish-project]
-estimated_reading_min: 12
+estimated_reading_min: 17
 task: Understand the question an MHC genotyping run answers, tell an allele apart from a haplotype, and pick between the two genotyping workflows LGE offers.
 tags: [genotyping, mhc, immunogenetics, amplicon, macaque, rhesus]
 tools: []
@@ -15,7 +15,7 @@ shots:
   - id: genotyping-submenu
     caption: "The Tools menu open on its Genotyping submenu, showing the three specialized workflows it holds, miSeq amplicon MHC genotyping..., 12S Amplicon Matching..., and Full-length ONT MHC genotyping..., with any workflow that is not yet enabled shown in grey followed by (not enabled)."
 illustrations: []
-glossary_refs: [alignment, allele, allele-target, amplicon, bbmerge, class-i-mhc, class-ii-mhc, clustering, fasta, fastq, genotype-matrix, haplotype, homozygous, immunogenetics, ipd-mhc, locus, mcm, mhc, minimap2, pcr, plugin-pack, primer, provenance, read, reference-bundle, required-setup-pack, retained-read, variant-caller, workflow-library]
+glossary_refs: [alignment, allele, allele-target, amplicon, bbmerge, blast, consensus-sequence, class-i-mhc, class-ii-mhc, clustering, fasta, fastq, genotype-matrix, haplotype, homozygous, immunogenetics, ipd-mhc, locus, mcm, mhc, minimap2, pcr, plugin-pack, primer, provenance, read, reference-bundle, required-setup-pack, retained-read, variant-caller, workflow-library]
 features_refs: []
 fixtures_refs: []
 brand_reviewed: false
@@ -45,6 +45,23 @@ The second is interpreting an immune response after the fact. A T cell is an imm
 The third is colony management. A breeding colony tracks genotypes across generations, and confirming which animals are the parents of which needs the same assay run consistently on every animal.
 
 The worked example throughout this part of the manual is the Williams MiSeq genotyping project, a rhesus macaque study of 30 animals sequenced on an Illumina MiSeq, a benchtop sequencing instrument. It does not ship with LGE, so its figures are for orientation. To follow the steps on public data, the MHC Genotyping demo project, which **Help > Demo Projects…** opens as [Demo projects](../01-foundations/06-the-lungfish-project.md#demo-projects) explains, holds two simulated macaque samples and a three-allele library. Rhesus macaque MHC genes carry the prefix `Mamu`, from *Macaca mulatta*. The run matched its reads against the IPD-MHC Mamu allele library dated 2021-07-09, which holds 970 allele targets, 362 of them group records, single entries standing for several alleles each, as [How allele names are built](#how-allele-names-are-built) explains. A 2021 library is still usable in 2026 provided every run in a study uses the same one, because calls made against different releases are not comparable.
+
+## Choosing a tool
+
+LGE offers two MHC genotyping workflows, and the length of your reads settles which one to use. Reads of a few hundred bases from a short-amplicon panel go to **miSeq amplicon MHC genotyping**. Oxford Nanopore reads long enough to span a whole allele go to **Full-length ONT MHC genotyping**, ONT being the usual abbreviation for Oxford Nanopore Technologies, the maker of the long-read instruments.
+
+**miSeq amplicon MHC genotyping** counts reads that match a library allele exactly. It takes Illumina paired reads or short ONT reads. For Illumina pairs it first merges the two reads of each pair with [BBMerge](../../GLOSSARY.md#bbmerge) into one longer read, so a read can span amplicons longer than either mate. It then places every read against the allele library with [minimap2](../../GLOSSARY.md#minimap2), a fast alignment program, and counts a read for an allele target only when the read covers that target from end to end with no substituted base, as [What counts as a supporting read](#what-counts-as-a-supporting-read) explains. It was built for typing many animals with an established panel, such as the roughly 156-base exon 2 amplicons of the Williams project, where an exon is one protein-coding stretch of a gene. It is fast, since the 30-animal Williams run took under six minutes, and every count traces back to a rule you can state in one sentence. It can only report sequences the library already holds. A read from an allele missing from the library matches nothing and is dropped, so a new allele shows up as missing reads rather than as a new sequence. It also cannot separate alleles that are identical across the short amplicon, which is why the library carries group records.
+
+**Full-length ONT MHC genotyping** builds one clean sequence of each allele from many long reads before comparing it with the library. It keeps reads inside a length window, 2,000 to 4,000 bases by default, and groups each sample's near-identical reads with [savONT](../../GLOSSARY.md#savont), a [clustering](../../GLOSSARY.md#clustering) program. Each group yields one [consensus sequence](../../GLOSSARY.md#consensus-sequence), a sequence made of the base most reads agree on at each position, which averages away the scattered errors of individual Nanopore reads. LGE then places each consensus against the library with minimap2. A consensus with no substituted base against a library allele becomes a known call, and small insertions or deletions are recorded but do not block the call, because single reads from Nanopore instruments often carry them. It was built for describing whole alleles, such as full-length macaque class I genes of about 3,000 bases. It separates alleles that look identical over a short amplicon and reports sequences the library lacks. It needs deeper sequencing, since each allele in each sample must gather enough reads to form its own cluster, and it runs slower than the amplicon workflow.
+
+The full-length workflow does not discard a consensus that matches no library allele. It reports it in one of three ways. A consensus close to a library allele becomes a candidate allele, a provisional new allele named after its closest library relative. A name ending `_nov` marks one with substituted bases, and the number before it counts them, so `_2nt_nov` means two differences. A name ending `_ext` or `_partial_ext` marks a consensus that matches a shorter library record, such as one holding only the protein-coding part of the gene, and runs past its ends. A consensus that aligns too little, too loosely, or equally well to two loci is kept as unnameable rather than forced into a name. A consensus with no usable minimap2 match at all is searched against the library with [BLAST](../../GLOSSARY.md#blast), a sequence search program, and one whose best hit covers at least 70 percent of it, over at least 1,000 bases, at 75 percent identity or more, is reported with that closest allele as a BLAST rescue. Candidate alleles appear as rows in the genotype comparison beside the known alleles. The workbook's Unmatched Alleles sheet lists every unmatched consensus with its closest match, and the bundle keeps them as the FASTA files `candidate_alleles.fasta`, `unnameable_unmatched_clusters.fasta`, and `deduplicated_unmatched_clusters.fasta`. A candidate is a lead to confirm, for example by sequencing it again or finding it in a second animal, not a published allele.
+
+| Workflow | Built for | Choose it when | Choose something else when |
+|---|---|---|---|
+| miSeq amplicon MHC genotyping | Short amplicons from Illumina pairs or short ONT reads, typed against an established library | You are assigning many animals with an established panel | You need whole allele sequences or expect alleles the library lacks |
+| Full-length ONT MHC genotyping | ONT reads spanning a whole allele, 2,000 to 4,000 bases by default | You must separate alleles identical over a short amplicon, or find new alleles | Your reads are short, or each sample has too few reads to cluster |
+
+The Williams project is MiSeq short-amplicon data, so this part of the manual follows the amplicon workflow. Switch to the full-length workflow when you are building a reference for a new colony or population, or when group records leave too many animals with ambiguous calls. Human HLA work fits either workflow, but LGE ships no HLA library, so you supply a human allele library yourself. A full-length assay needs one long amplicon whose primers sit in sequence shared by every allele, and [What Is Primer Design](../10-primer-design/01-what-is-primer-design.md) covers how to design one. The [Tool Bibliography](../appendices/bibliography.md#tools-installed-by-a-plugin-pack) cites the programs these workflows run, minimap2 in both and savONT and BLAST+ in the full-length workflow.
 
 ## Alleles, loci, and haplotypes
 
@@ -78,14 +95,7 @@ Every genotyping workflow opens from **Tools > Genotyping**. The submenu holds t
 
 <!-- SHOT: genotyping-submenu -->
 
-Oxford Nanopore, abbreviated ONT, makes the long-read instruments the second workflow expects.
-
-| Workflow | Reads it expects | The question it answers best |
-|---|---|---|
-| miSeq amplicon MHC genotyping | Illumina paired reads, or Oxford Nanopore reads, from a short-amplicon panel | Which catalogued alleles does each animal carry, as finely as a short amplicon can tell them apart? |
-| Full-length ONT MHC genotyping | Oxford Nanopore reads long enough to span a whole allele | What is the full-length sequence of each allele, including ones no library names yet? |
-
-The first name misleads slightly. **miSeq amplicon MHC genotyping** handles both Illumina paired reads and Oxford Nanopore reads from a short-amplicon panel. It works out which your reads are and says so in a caption in its dialog. There is no separate short-read ONT item.
+[Choosing a tool](#choosing-a-tool) compares the two MHC workflows. The first name misleads slightly. **miSeq amplicon MHC genotyping** handles both Illumina paired reads and Oxford Nanopore reads from a short-amplicon panel. It works out which your reads are and says so in a caption in its dialog. There is no separate short-read ONT item.
 
 Running either workflow on the wrong reads raises no error. It produces a poor result instead. Full-length reads pushed through the short-amplicon workflow rarely span an allele target end to end and mostly go uncounted, and short reads pushed through the full-length workflow cluster into nothing usable.
 
