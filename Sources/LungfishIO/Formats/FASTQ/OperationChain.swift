@@ -130,7 +130,8 @@ public enum OperationContract {
     /// Returns the output shape for an operation kind given the input pairing.
     public static func output(
         for kind: FASTQDerivativeOperationKind,
-        inputPairing: OperationOutput.PairingState
+        inputPairing: OperationOutput.PairingState,
+        inputFormat: OperationOutput.DataFormat = .fastq
     ) -> OperationOutput {
         switch kind {
         case .pairedEndMerge:
@@ -141,13 +142,16 @@ public enum OperationContract {
             let newPairing: OperationOutput.PairingState =
                 inputPairing == .interleaved ? .splitPaired : .interleaved
             return OperationOutput(format: .fastq, pairing: newPairing)
+        case .qualityTrim, .fastpTrim, .errorCorrection:
+            return OperationOutput(format: .fastq, pairing: inputPairing)
         case .demultiplex:
-            return OperationOutput(format: .fastq, pairing: .single)
+            // Demultiplexing partitions records without changing their format.
+            return OperationOutput(format: inputFormat, pairing: .single)
         case .translate:
             return OperationOutput(format: .fasta, pairing: .single)
         default:
             // Most operations preserve the input pairing and format
-            return OperationOutput(format: .fastq, pairing: inputPairing)
+            return OperationOutput(format: inputFormat, pairing: inputPairing)
         }
     }
 
@@ -354,7 +358,11 @@ extension ProcessingRecipe {
             }
 
             // Compute output for next step
-            let output = OperationContract.output(for: step.kind, inputPairing: currentPairing)
+            let output = OperationContract.output(
+                for: step.kind,
+                inputPairing: currentPairing,
+                inputFormat: currentFormat
+            )
             currentFormat = output.format
             currentPairing = output.pairing
         }

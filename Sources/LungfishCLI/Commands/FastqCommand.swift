@@ -2848,7 +2848,7 @@ struct FastqDemultiplexSubcommand: AsyncParsableCommand {
         commandName: "demultiplex",
         abstract: "Demultiplex reads by internal barcodes",
         discussion: """
-            Splits multiplexed FASTQ reads into per-barcode output files using
+            Splits multiplexed FASTA or FASTQ reads into per-barcode output files using
             embedded cutadapt. Supports single- and dual-indexed Illumina kits,
             Fluidigm Access Array indexes, custom barcode definition files, and
             terminally anchored barcode location (5', 3', or both ends) for
@@ -2875,7 +2875,7 @@ struct FastqDemultiplexSubcommand: AsyncParsableCommand {
             """
     )
 
-    @Argument(help: "Input FASTQ file or .lungfishfastq bundle")
+    @Argument(help: "Input FASTA/FASTQ file or .lungfishfastq bundle")
     var input: String
 
     @Option(name: .customLong("kit"),
@@ -2953,6 +2953,8 @@ struct FastqDemultiplexSubcommand: AsyncParsableCommand {
                 .flatMap { FASTQBundle.resolvePrimaryFASTQURL(for: $0) }
                 .flatMap { FASTQMetadataStore.load(for: $0)?.ingestion?.pairingMode }
         let inputSequenceFormat = sourceManifest?.sequenceFormat
+            ?? SequenceInputResolver.inputSequenceFormat(for: inputURL)
+        let fastaInput = inputSequenceFormat == .fasta
 
         // Parse barcode location
         let barcodeLocation: BarcodeLocation
@@ -2975,9 +2977,13 @@ struct FastqDemultiplexSubcommand: AsyncParsableCommand {
         }
         let effectiveTrimBarcodes = demultiplexEngine == .exactBareBarcode ? false : !noTrim
 
+        let preparedFASTA = fastaInput
+            ? try await FastqDemultiplexSequenceFormat.prepareFASTA(inputURL: inputURL, outputDirectory: outputURL)
+            : nil
+
         let config = DemultiplexConfig(
-            inputURL: inputURL,
-            sourceBundleURL: sourceBundleURL,
+            inputURL: preparedFASTA?.url ?? inputURL,
+            sourceBundleURL: fastaInput ? nil : sourceBundleURL,
             barcodeKit: barcodeKit,
             outputDirectory: outputURL,
             barcodeLocation: barcodeLocation,
@@ -2989,8 +2995,10 @@ struct FastqDemultiplexSubcommand: AsyncParsableCommand {
             unassignedDisposition: discardUnassigned ? .discard : .keep,
             threads: threads,
             engine: demultiplexEngine,
-            rootBundleURL: rootBundleURL,
-            rootFASTQFilename: rootFASTQFilename,
+            // FASTA execution uses a synthetic FASTQ solely inside the tool boundary.
+            // Publish complete FASTA bundles instead of virtual synthetic-quality previews.
+            rootBundleURL: fastaInput ? nil : rootBundleURL,
+            rootFASTQFilename: fastaInput ? nil : rootFASTQFilename,
             inputPairingMode: inputPairingMode,
             inputSequenceFormat: inputSequenceFormat
         )
@@ -3034,8 +3042,12 @@ struct FastqDemultiplexSubcommand: AsyncParsableCommand {
         }
         let outputBundleURLs = result.outputBundleURLs
             + (result.unassignedBundleURL.map { [$0] } ?? [])
-        let outputPayloads = outputBundleURLs
-        .compactMap { FASTQBundle.resolvePrimaryFASTQURL(for: $0) }
+        let outputPayloads: [URL]
+        if fastaInput {
+            outputPayloads = try outputBundleURLs.map { try FastqDemultiplexSequenceFormat.retainToolPayload(in: $0) }
+        } else {
+            outputPayloads = outputBundleURLs.compactMap { FASTQBundle.resolvePrimaryFASTQURL(for: $0) }
+        }
         let manifestURL = outputURL.appendingPathComponent(DemultiplexManifest.filename)
         let outputRecords = [ProvenanceRecorder.fileRecord(url: manifestURL, format: .json, role: .output)]
             + outputPayloads.map { ProvenanceRecorder.fileRecord(url: $0, format: .fastq, role: .output) }
@@ -3048,7 +3060,9 @@ struct FastqDemultiplexSubcommand: AsyncParsableCommand {
         }
         let stepCommand = result.nativeCommand
             ?? result.manifest.parameters.commandLine?.split(separator: " ").map(String.init)
-        let inputRecords = [ProvenanceRecorder.fileRecord(url: inputURL, format: .fastq, role: .input)]
+        let inputRecords = (fastaInput
+            ? try CLISequenceInputMaterialization.originalInputRecords(for: inputURL)
+            : [ProvenanceRecorder.fileRecord(url: inputURL, format: .fastq, role: .input)])
             + (customKitURL.map { provenanceRecords(for: $0, format: .text, role: .reference) } ?? [])
         var provenanceParameters: [String: ParameterValue] = [
             "input": .file(inputURL),
@@ -3057,6 +3071,8 @@ struct FastqDemultiplexSubcommand: AsyncParsableCommand {
             "customBarcodeKit": customKitURL.map(ParameterValue.file) ?? .null,
             "output": .file(outputURL),
             "engine": .string(demultiplexEngine.rawValue),
+            "inputFormat": .string((inputSequenceFormat ?? .fastq).rawValue),
+            "outputFormat": .string((inputSequenceFormat ?? .fastq).rawValue),
             "discardUnassigned": .boolean(discardUnassigned),
         ]
         var provenanceDefaults: [String: ParameterValue] = [
@@ -3091,7 +3107,7 @@ struct FastqDemultiplexSubcommand: AsyncParsableCommand {
             provenanceDefaults["threads"] = .integer(4)
         }
 
-        try await CLIProvenanceSupport.recordSingleStepRun(
+        let demultiplexEnvelope = try await CLIProvenanceSupport.recordSingleStepRun(
             name: "lungfish fastq demultiplex",
             parameters: provenanceParameters,
             defaults: provenanceDefaults,
@@ -3099,6 +3115,8 @@ struct FastqDemultiplexSubcommand: AsyncParsableCommand {
             toolVersion: demultiplexToolVersion,
             command: [CLICommandIdentity.executableName, "fastq"] + cliArguments,
             stepCommand: stepCommand,
+            stepInputs: preparedFASTA.map { [ProvenanceRecorder.fileRecord(url: $0.url, format: .fastq, role: .input)] },
+            extraSteps: preparedFASTA?.steps ?? [],
             inputs: inputRecords,
             outputs: outputRecords,
             exitCode: 0,
@@ -3107,6 +3125,24 @@ struct FastqDemultiplexSubcommand: AsyncParsableCommand {
             status: .completed,
             outputDirectory: outputURL
         )
+
+        if fastaInput {
+            // Focused output sidecars omit prerequisites with different outputs.
+            // Normalization needs the full bridge/materialization dependency chain.
+            for payload in outputPayloads {
+                try ProvenanceWriter(signingProvider: nil).write(
+                    demultiplexEnvelope, toSidecar: ProvenanceRecorder.fileSidecarURL(for: payload)
+                )
+            }
+            var normalizedBundles: [ProvenanceEnvelope] = []
+            for (bundle, payload) in zip(outputBundleURLs, outputPayloads) {
+                normalizedBundles.append(try await FastqDemultiplexSequenceFormat.publishFASTA(
+                    bundleURL: bundle, toolPayload: payload,
+                    toolName: demultiplexToolName, toolVersion: demultiplexToolVersion
+                ))
+            }
+            try FastqDemultiplexSequenceFormat.publishDirectoryProvenance(outputURL, bundles: normalizedBundles)
+        }
 
         // Summary output
         FileHandle.standardError.write(Data("\n--- Demultiplexing Summary ---\n".utf8))

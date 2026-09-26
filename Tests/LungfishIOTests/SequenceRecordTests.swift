@@ -157,6 +157,47 @@ final class SequenceRecordTests: XCTestCase {
         XCTAssertTrue(OperationContract.input(for: .humanReadScrub).acceptedFormats.contains(.fasta))
     }
 
+    func testFASTACompatibleOperationsPreserveFASTAOutputFormat() {
+        for kind in FASTQDerivativeOperationKind.allCases where kind.supportsFASTA && kind != .translate {
+            let output = OperationContract.output(
+                for: kind,
+                inputPairing: .single,
+                inputFormat: .fasta
+            )
+            XCTAssertEqual(output.format, .fasta, "\(kind) should preserve FASTA input format")
+        }
+    }
+
+    func testOperationContractPreservesFASTQExceptForTranslation() {
+        for kind in FASTQDerivativeOperationKind.allCases {
+            let output = OperationContract.output(
+                for: kind,
+                inputPairing: .single,
+                inputFormat: .fastq
+            )
+            let expected: OperationOutput.DataFormat = kind == .translate ? .fasta : .fastq
+            XCTAssertEqual(output.format, expected, "Unexpected output format for \(kind)")
+        }
+    }
+
+    func testQualityDependentOperationsAlwaysProduceFASTQ() {
+        for kind in [
+            FASTQDerivativeOperationKind.qualityTrim,
+            .fastpTrim,
+            .pairedEndMerge,
+            .pairedEndRepair,
+            .errorCorrection,
+            .interleaveReformat,
+        ] {
+            let output = OperationContract.output(
+                for: kind,
+                inputPairing: .single,
+                inputFormat: .fasta
+            )
+            XCTAssertEqual(output.format, .fastq, "\(kind) must produce FASTQ")
+        }
+    }
+
     // MARK: - Manifest sequenceFormat
 
     func testManifestSequenceFormatRoundTrip() throws {
@@ -178,6 +219,15 @@ final class SequenceRecordTests: XCTestCase {
         let data = try encoder.encode(manifest)
         let decoded = try decoder.decode(FASTQDerivedBundleManifest.self, from: data)
         XCTAssertEqual(decoded.sequenceFormat, .fasta)
+    }
+
+    func testRecipeDoesNotInventQualitiesAfterFASTASequenceProcessing() {
+        let recipe = ProcessingRecipe(name: "Sequence then quality", steps: [
+            FASTQDerivativeOperation(kind: .reverseComplement),
+            FASTQDerivativeOperation(kind: .qualityTrim)
+        ])
+        XCTAssertFalse(recipe.validate(inputFormat: .fasta).isValid)
+        XCTAssertTrue(recipe.validate(inputFormat: .fastq).isValid)
     }
 
     func testManifestSequenceFormatBackwardCompat() throws {

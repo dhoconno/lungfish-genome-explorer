@@ -370,12 +370,14 @@ extension FASTQDerivativeRequest {
     }
 
     func outputSequenceFormat(sourceSequenceFormat: SequenceFormat) -> SequenceFormat {
-        switch self {
-        case .translate:
-            return .fasta
-        default:
+        guard let kind = FASTQDerivativeOperationKind(rawValue: operationKindString) else {
             return sourceSequenceFormat
         }
+        let output = OperationContract.output(
+            for: kind, inputPairing: .single,
+            inputFormat: sourceSequenceFormat == .fasta ? .fasta : .fastq
+        )
+        return output.format == .fasta ? .fasta : .fastq
     }
 
     /// Constructs the equivalent `lungfish fastq` CLI command for this operation.

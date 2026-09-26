@@ -304,12 +304,18 @@ func isDemultiplexRequest(_ request: FASTQOperationLaunchRequest) -> Bool {
         resolvedRequest: FASTQOperationLaunchRequest
     ) -> [(original: FASTQOperationLaunchRequest, resolved: FASTQOperationLaunchRequest)] {
         switch (originalRequest, resolvedRequest) {
+        // A mixed-format group cannot share one execution representation and
+        // still preserve both formats. Keep each input's output identity while
+        // publishing all results under the same requested group.
         case (
             .derivative(let originalDerivative, let originalInputURLs, let outputMode),
             .derivative(let resolvedDerivative, let resolvedInputURLs, let resolvedOutputMode)
         )
-            where outputMode == .perInput &&
-                  resolvedOutputMode == .perInput &&
+            where (outputMode == .perInput ||
+                   (outputMode == .groupedResult &&
+                    originalInputURLs.contains(where: { SequenceInputResolver.inputSequenceFormat(for: $0) == .fasta }) &&
+                    originalInputURLs.contains(where: { SequenceInputResolver.inputSequenceFormat(for: $0) == .fastq }))) &&
+                  resolvedOutputMode == outputMode &&
                   originalInputURLs.count > 1 &&
                   originalInputURLs.count == resolvedInputURLs.count:
             return zip(originalInputURLs, resolvedInputURLs).map { originalInputURL, resolvedInputURL in
@@ -1075,7 +1081,10 @@ extension FASTQOperationLaunchRequest {
         switch self {
         case .refreshQCSummary:
             return false
-        case .derivative:
+        case .derivative(let operation, _, _):
+            // Demultiplex owns its FASTQ-only tool bridge and publishes bundles;
+            // keep the original format visible to that boundary.
+            if case .demultiplex = operation { return false }
             return !isRibosomalRNAFilterRequest
         case .classify(let tool, _, _, _):
             switch tool {

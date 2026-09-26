@@ -14,7 +14,7 @@ struct FastqOrientSubcommand: AsyncParsableCommand {
         abstract: "Orient reads against a reference sequence"
     )
 
-    @Argument(help: "Input FASTQ file path")
+    @Argument(help: "Input FASTA or FASTQ file path (output preserves the input format)")
     var input: String
 
     @OptionGroup var output: OutputOptions
@@ -46,17 +46,11 @@ struct FastqOrientSubcommand: AsyncParsableCommand {
             try? FileManager.default.removeItem(at: tabbedOutput)
         }
 
-        var args: [String] = [
-            "--orient", inputURL.path,
-            "--db", referenceURL.path,
-            "--fastqout", output.output,
-            "--tabbedout", tabbedOutput.path,
-            "--wordlength", String(wordLength),
-            "--dbmask", dbMask,
-            "--qmask", dbMask,
-            "--threads", "0",
-        ]
-        args += try AdvancedCommandLineOptions.parse(extraArgs)
+        let orientation = try resolveOrientationCommand(
+            inputURL: inputURL, referenceURL: referenceURL, tabbedOutputURL: tabbedOutput
+        )
+        let args = orientation.arguments
+        let fileFormat: FileFormat = orientation.sequenceFormat == .fasta ? .fasta : .fastq
 
         let runner = NativeToolRunner.shared
         let startedAt = Date()
@@ -103,15 +97,19 @@ struct FastqOrientSubcommand: AsyncParsableCommand {
                 "force": .boolean(false),
                 "compress": .boolean(false)
             ],
+            resolved: [
+                "inputFormat": .string(orientation.sequenceFormat.rawValue),
+                "outputFormat": .string(orientation.sequenceFormat.rawValue)
+            ],
             toolName: NativeTool.vsearch.rawValue,
             toolVersion: toolVersion,
             command: [CLICommandIdentity.executableName, "fastq"] + cliArguments,
             stepCommand: result.arguments.isEmpty ? [NativeTool.vsearch.executableName] + args : result.arguments,
             inputs: [
-                ProvenanceRecorder.fileRecord(url: inputURL, format: .fastq, role: .input),
+                ProvenanceRecorder.fileRecord(url: inputURL, format: fileFormat, role: .input),
                 ProvenanceRecorder.fileRecord(url: referenceURL, format: .fasta, role: .reference)
             ],
-            outputs: [ProvenanceRecorder.fileRecord(url: outputURL, format: .fastq, role: .output)],
+            outputs: [ProvenanceRecorder.fileRecord(url: outputURL, format: fileFormat, role: .output)],
             exitCode: result.exitCode,
             wallTime: wallTime,
             stderr: result.stderr,
@@ -119,4 +117,30 @@ struct FastqOrientSubcommand: AsyncParsableCommand {
             outputDirectory: outputURL.deletingLastPathComponent()
         )
     }
+
+    /// Orientation preserves quality scores when present and never fabricates them
+    /// for FASTA input. Resolve the flag and provenance format from the same source.
+    func resolveOrientationCommand(
+        inputURL: URL,
+        referenceURL: URL,
+        tabbedOutputURL: URL
+    ) throws -> (arguments: [String], sequenceFormat: SequenceFormat) {
+        guard let format = SequenceInputResolver.inputSequenceFormat(for: inputURL) else {
+            throw CLIError.formatDetectionFailed(path: inputURL.path)
+        }
+        let outputFlag = format == .fasta ? "--fastaout" : "--fastqout"
+        var arguments = [
+            "--orient", inputURL.path,
+            "--db", referenceURL.path,
+            outputFlag, output.output,
+            "--tabbedout", tabbedOutputURL.path,
+            "--wordlength", String(wordLength),
+            "--dbmask", dbMask,
+            "--qmask", dbMask,
+            "--threads", "0",
+        ]
+        arguments += try AdvancedCommandLineOptions.parse(extraArgs)
+        return (arguments, format)
+    }
+
 }

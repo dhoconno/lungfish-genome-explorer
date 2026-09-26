@@ -336,6 +336,7 @@ struct FASTQOperationExecutionService {
 
             var invocations: [FASTQCLIInvocation] = []
             var outputURLs: [URL] = []
+            var outputSourceInputs: [URL] = []
 
             // The tool phase occupies the front half of the progress bar
             // (0...0.5); the import phase that follows takes 0.5...1.0.
@@ -398,6 +399,7 @@ struct FASTQOperationExecutionService {
                         progress(scaled, message)
                     }
                 )
+                let firstOutputIndex = outputURLs.count
                 if case .savont = executionPlan.resolvedRequest {
                     // Savont publishes one FASTA at the exact path reserved by this plan. The
                     // generic CLI runner also discovers pre-existing FASTQ bundles in the shared
@@ -411,6 +413,29 @@ struct FASTQOperationExecutionService {
                     outputURLs.append(contentsOf: planner.discoverOutputs(for: executionPlan, in: executionDirectory))
                 } else {
                     outputURLs.append(contentsOf: result.outputURLs)
+                }
+
+                // Restore the original scientific format while each output still
+                // has an unambiguous source plan. Execution may have used synthetic
+                // FASTQ; its filename must not determine the published bundle type.
+                if case .derivative(let operation, let inputs, _) = executionPlan.originalRequest,
+                   let firstInput = inputs.first {
+                    let formats = inputs.map { SequenceInputResolver.inputSequenceFormat(for: $0) }
+                    if let sourceFormat = formats.first ?? nil,
+                       formats.allSatisfy({ $0 == sourceFormat }) {
+                        let preferred = operation.outputSequenceFormat(sourceSequenceFormat: sourceFormat)
+                        for index in firstOutputIndex..<outputURLs.count {
+                            outputURLs[index] = try await SequenceProcessingOutputNormalizer.normalize(
+                                outputURL: outputURLs[index], preferredFormat: preferred
+                            )
+                        }
+                    }
+                    let planOutputCount = outputURLs.count - firstOutputIndex
+                    if inputs.count == 1 {
+                        outputSourceInputs.append(contentsOf: repeatElement(firstInput, count: planOutputCount))
+                    } else if inputs.count == planOutputCount {
+                        outputSourceInputs.append(contentsOf: inputs)
+                    }
                 }
             }
 
@@ -447,10 +472,14 @@ struct FASTQOperationExecutionService {
                 )
 
             case .perInput, .fixedBatch:
+                // Multi-output plans repeat their source identity so later results
+                // from a mixed batch cannot be associated with the next input.
+                let importRequest = outputSourceInputs.count == outputURLs.count && !outputSourceInputs.isEmpty
+                    ? request.replacingInputURLs(with: outputSourceInputs) : request
                 let importedURLs = try await directImporter.importOutputs(
                     at: outputURLs,
                     forResolvedRequest: resolvedRequest,
-                    originalRequest: request,
+                    originalRequest: importRequest,
                     outputDirectory: outputDirectory,
                     progress: { fraction, message in
                         progress(fraction, message)
@@ -714,7 +743,7 @@ private struct FASTQSourceResolverAdapter: FASTQOperationInputResolving {
         let outputURL = tempDirectory.appendingPathComponent(
             "synthetic-\(UUID().uuidString).fastq"
         )
-        try await SyntheticFASTQBridge.convertFASTAToFASTQ(
+        try await SequenceProcessingOutputNormalizer.prepareFASTQInput(
             inputURL: inputURL,
             outputURL: outputURL
         )
