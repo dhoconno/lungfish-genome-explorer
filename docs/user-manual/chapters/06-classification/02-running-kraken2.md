@@ -46,6 +46,8 @@ Lungfish Genome Explorer (LGE) labels the tool **Kraken2** in its menus. Every r
 
 Run Kraken 2 whenever you do not already know, or cannot yet prove, what is in a sequencing library. A clinical swab from a person or a macaque is the obvious case, where most reads are host and the pathogen sits somewhere in the rest. The less obvious cases come up more often. A library you believe is one organism may be a mislabelled tube or a cross-contaminated plate, and the two look identical until something counts the reads. A low-yield run may mean the target is scarce or that the sample is mostly host DNA. And before a week of genome assembly, it pays to know how much of the data even comes from the organism you meant to assemble.
 
+Choose Kraken 2 first when you have no hypothesis, because it is the fastest and broadest classifier in LGE. Move to EsViritu or TaxTriage when a call needs coverage evidence behind it, and to 12S matching when the question is which vertebrate species are present. [Choosing a tool](01-what-is-classification.md#choosing-a-tool) compares every classification route in LGE. Kraken 2 is Wood and colleagues 2019 and Bracken is Lu and colleagues 2017, both listed in the [Tool Bibliography](../appendices/bibliography.md#tools-installed-by-a-plugin-pack).
+
 This chapter works through run SRR12486983, the pathogen-identification example in the Kraken authors' protocol paper, Lu et al. 2022, [Metagenome analysis using the Kraken software suite](https://doi.org/10.1038/s41596-022-00738-y), *Nature Protocols* 17, 2815. The reads come from the cornea, the clear front surface of the eye, of a person with herpes simplex keratitis, an eye infection caused by herpes simplex virus 1 (HSV-1). The tissue was preserved in formalin, a fixative that keeps tissue intact but damages its DNA, and sequenced on an Illumina NextSeq 550 as a [shotgun](../../GLOSSARY.md#shotgun) library, which reads whatever DNA the tissue held rather than copying one chosen target first. The study recorded HSV-1 as the organism, so you know the right answer before you start and can see plainly what each database finds, what it misses, and what else turns up.
 
 ## Before you start
@@ -58,7 +60,7 @@ This chapter uses the kraken-protocol-cornea fixture, the manual's name for this
 
 Install the `metagenomics` [plugin pack](../../GLOSSARY.md#plugin-pack), a themed group of tools LGE installs on request, as [Plugin Packs](../01-foundations/07-plugin-packs.md#procedure) shows. It carries Kraken 2 and Bracken.
 
-The counts in this chapter came from Kraken 2 version 2.17.1 and Bracken version 3.0.1 with the builds of the Viral and Standard-16 databases dated 26 June 2026, which LGE labels 20260626. A different tool or database build can move a few reads, so expect your counts to sit close to these rather than match them digit for digit.
+The counts in this chapter came from Kraken 2 version 2.17.1 and Bracken with the builds of the Viral and Standard-16 databases dated 26 June 2026, which LGE labels 20260626. LGE builds Bracken from the source of its release 3.1, and that release still prints its version as 3.0.1, so 3.0.1 is the number the provenance record shows. Both numbers name the same program. A different tool or database build can move a few reads, so expect your counts to sit close to these rather than match them digit for digit.
 
 ## Procedure
 

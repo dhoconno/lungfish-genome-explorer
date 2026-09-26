@@ -47,6 +47,8 @@ Run EsViritu when the question has narrowed from "what is in this sample" to "wh
 
 A viral read count on its own is a weak claim. The useful sentence is not "we saw two thousand reads" but "we saw two thousand reads covering the whole genome at an average depth above a thousand". EsViritu produces that second sentence directly, and it keeps the alignment underneath so anyone who doubts the claim can open the reads and look.
 
+Choose EsViritu over Kraken 2 when you need that coverage evidence for a virus, and over TaxTriage when viruses are the whole question and you want no Docker setup. Choose something else when your reads are shorter than 100 bases or the target might be a bacterium. [Choosing a tool](01-what-is-classification.md#choosing-a-tool) compares every classification route in LGE. EsViritu was described by Tisza and colleagues in 2023, listed in the [Tool Bibliography](../appendices/bibliography.md#tools-installed-by-a-plugin-pack).
+
 This chapter works through the SRR36291587 SARS-CoV-2 reads, an [amplicon](../../GLOSSARY.md#amplicon) library of [paired-end](../../GLOSSARY.md#paired-end) Illumina reads from a human clinical specimen. An amplicon library is one where PCR copied a fixed set of target regions before sequencing, so it is deliberately enriched for one organism. A tiled amplicon protocol is designed to cover a whole genome, so you can see at once whether it did. The example is viral because EsViritu is viral by design and has nothing to say about any other kind of sample.
 
 ## Before you start
