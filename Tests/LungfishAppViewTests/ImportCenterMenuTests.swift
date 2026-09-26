@@ -539,6 +539,4 @@ private final class WorkflowBuilderMenuActionRecorder: NSObject, ToolsMenuAction
     @objc func searchPathoplexus(_ sender: Any?) {}
     @objc func showPluginManager(_ sender: Any?) {}
     @objc func showPCRPrimerDesign(_ sender: Any?) {}
-    @objc func saveSelectionAsWorkflowTemplate(_ sender: Any?) {}
-    @objc func runWorkflowTemplate(_ sender: Any?) {}
 }

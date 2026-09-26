@@ -137,26 +137,6 @@ enum WorkflowBuilderAccessibilityID {
     static let experimentalBanner = "workflow-builder-experimental-banner"
 }
 
-enum WorkflowTemplateAccessibilityID {
-    static let saveSheet = "workflow-template-save-sheet"
-    static let saveNameField = "workflow-template-save-name"
-    static let saveFixedResource = "workflow-template-save-fixed-resource"
-    static let saveFootnote = "workflow-template-save-footnote"
-    static let stepList = "workflow-template-step-list"
-    static func stepRow(_ index: Int) -> String { "workflow-template-step-\(index)" }
-    static let runSheet = "workflow-template-run-sheet"
-    static let runTemplatePicker = "workflow-template-run-template-picker"
-    static let runEmptyLibrary = "workflow-template-run-empty-library"
-    static let runChooseFiles = "workflow-template-run-choose-files"
-    static let runSampleNameField = "workflow-template-run-sample-name"
-    static let runThreadsStepper = "workflow-template-run-threads"
-    static let runDatabaseStatus = "workflow-template-run-database-status"
-    static let runReadyLabel = "workflow-template-run-ready"
-    static let runBlockingIssues = "workflow-template-run-blocking-issues"
-    static let runAllowDriftToggle = "workflow-template-run-allow-drift"
-    static let sidebarSaveCommand = "workflow-template-sidebar-save-command"
-}
-
 enum WorkflowOperationsAccessibilityID {
     static let window = "workflow-operations-window"
 }
@@ -236,8 +216,6 @@ enum MainMenuAccessibilityID {
     static let workflows = "tools-menu-workflows"
     static let workflowLibrary = "tools-menu-workflow-library"
     static let workflowBuilder = "tools-menu-workflow-builder"
-    static let saveWorkflowTemplate = "tools-menu-save-workflow-template"
-    static let runWorkflowTemplate = "tools-menu-run-workflow-template"
 
     /// Tools > Workflows item for one linked workflow package, keyed by its manifest ID.
     static func workflowPackage(_ manifestID: String) -> String {

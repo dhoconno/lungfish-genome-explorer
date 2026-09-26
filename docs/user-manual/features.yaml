@@ -1043,30 +1043,6 @@ features:
     notes: >-
       Builds and runs a native operation graph on project datasets, with outputs
       auto-imported into the appropriate viewport.
-  workflow.template:
-    title: Workflow templates from a finished Kraken2 analysis
-    entry_points:
-      - "Sidebar context menu > Save as Workflow Template…"
-      - "Tools > Workflows > Save Selection as Workflow Template…"
-      - "Tools > Workflows > Run Workflow Template…"
-      - "CLI: lungfish workflow template create"
-      - "CLI: lungfish workflow template list"
-      - "CLI: lungfish workflow template show"
-      - "CLI: lungfish workflow template run"
-    inputs: [kraken2-analysis, fastq-files]
-    outputs: [workflow-template, fastq-bundle, kraken2-analysis]
-    viewport_class: none
-    sources:
-      - Sources/LungfishWorkflow/Templates
-      - Sources/LungfishCLI/Commands/WorkflowTemplateCommand.swift
-      - Sources/LungfishApp/Services/WorkflowTemplateRunService.swift
-      - Sources/LungfishApp/Views/WorkflowTemplates
-    notes: >-
-      Saves the chain from FASTQ import (with its recipe) through Kraken2 and
-      Bracken as a .lungfishtemplate with every setting pinned, then repeats
-      the same steps with the same settings on new FASTQ files. The run
-      refuses a changed recipe or database unless drift is allowed, and it
-      records every difference in a run-level provenance record.
   workflow.nextflow:
     title: Run Nextflow and nf-core pipelines
     entry_points:

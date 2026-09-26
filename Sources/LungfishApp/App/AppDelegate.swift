@@ -2398,16 +2398,6 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             return enabled
         }
 
-        if menuItem.action == #selector(saveSelectionAsWorkflowTemplate(_:)) {
-            return selectedKraken2AnalysisForTemplate(in: activeMainWindowController()) != nil
-        }
-
-        if menuItem.action == #selector(runWorkflowTemplate(_:)) {
-            let controller = activeMainWindowController()
-            return (currentOperationRouteContext(for: controller)?.projectURL
-                ?? controller?.mainSplitViewController?.sidebarController?.currentProjectURL) != nil
-        }
-
         if menuItem.action == #selector(launchWorkflowFromMenu(_:))
             || menuItem.action == #selector(promptEnableWorkflowFromMenu(_:)) {
             return true
