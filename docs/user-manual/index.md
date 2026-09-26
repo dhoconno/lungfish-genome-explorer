@@ -35,7 +35,7 @@ The specialized and downstream domains follow.
 - [Human Germline Variants](chapters/06-human-germline-variants/01-haplotype-caller.md) for GATK germline calling (power-user preview)
 - [Genotyping](chapters/09-genotyping/01-what-is-mhc-genotyping.md) for amplicon MHC immunogenetics and named haplotype calling
 - [Assembly](chapters/07-assembly/01-when-to-assemble.md) for de novo assembly
-- [Workflows](chapters/08-workflows/01-the-workflow-builder.md) for the visual Workflow Builder and Nextflow / Snakemake export
+- [Workflows](chapters/08-workflows/02-exporting-as-nextflow-or-snakemake.md) for Nextflow / Snakemake export and running external workflow packages
 
 ## Reference
 

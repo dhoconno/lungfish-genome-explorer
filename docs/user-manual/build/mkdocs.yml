@@ -130,7 +130,6 @@ nav:
     - Extracting Contigs: chapters/07-assembly/04-extracting-contigs.md
 
   - Workflows:
-    - The Workflow Builder: chapters/08-workflows/01-the-workflow-builder.md
     - Exporting as Nextflow or Snakemake: chapters/08-workflows/02-exporting-as-nextflow-or-snakemake.md
     - Running External Workflows: chapters/08-workflows/03-running-external-workflows.md
 

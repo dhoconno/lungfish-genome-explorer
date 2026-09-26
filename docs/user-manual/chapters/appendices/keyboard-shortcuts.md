@@ -35,7 +35,7 @@ A shortcut acts on the window that has focus. Focus means the window or pane you
 
 A greyed menu item is disabled, and its shortcut does nothing until the item is enabled. Nothing happens and no message appears. LGE greys items out on purpose whenever the command has nothing to act on, so **Zoom In** is disabled until a sequence is on screen and **Cancel All Operations** is disabled until something is running.
 
-Two parts of the Tools menu are gated further. A Genotyping tool shows "(not enabled)" after its name until you turn it on in the [Workflow Library](../../GLOSSARY.md#workflow-library), and **Workflow Builder (Experimental)...** stays hidden until experimental features are on, as [Experimental packs and features](../01-foundations/07-plugin-packs.md#experimental-packs-and-features) shows.
+One part of the Tools menu is gated further. A Genotyping tool shows "(not enabled)" after its name until you turn it on in the [Workflow Library](../../GLOSSARY.md#workflow-library).
 
 Your work is saved as you go. There is no Save command and no Cmd-S in LGE, because every change is written to the project folder the moment you make it. Nothing sits in memory waiting to be saved, and closing a window loses nothing.
 
@@ -175,7 +175,7 @@ This row works whenever a project window is in front.
 
 The Plugin Manager installs and removes [plugin packs](../../GLOSSARY.md#plugin-pack). B is not a mnemonic.
 
-Nothing else in the Tools menu has a shortcut, including **Call Variants...**, **Workflow Library...**, **Haplotype Definitions...**, the **Search Online Databases** submenu, every individual tool, and **Workflow Builder (Experimental)...**.
+Nothing else in the Tools menu has a shortcut, including **Call Variants...**, **Workflow Library...**, **Haplotype Definitions...**, the **Search Online Databases** submenu, and every individual tool.
 
 ## Operations menu
 
@@ -242,10 +242,6 @@ Right-clicking in the sidebar opens a context menu, and three of its commands pr
 
 Two more work whenever the sidebar list has focus, with no menu open. Delete or Forward Delete moves the selected items to the Trash, and Cmd-Shift-A selects every item beside the selected one in the same folder, which takes precedence over **View > AI Assistant** while the sidebar has focus. Moving an item to the Trash removes it from the project, and recovering it means retrieving it from the Trash yourself.
 
-## Inside the Workflow Builder
-
-The Workflow Builder canvas, where an analysis chain is drawn as connected boxes, takes the arrow keys to nudge a selected box one grid square at a time and Cmd-A to select every box, once the canvas has focus. The Delete key removes the selection, and so does Forward Delete, which is Fn-Delete on a laptop.
-
 ## What LGE does not bind
 
 A user of another sequence viewer will reach for these and find them missing or different.
@@ -302,7 +298,6 @@ Sorted by the final key, letters and numbers first in alphabetical order with De
 | Cmd-Shift-0 | All Samples | View menu, TaxTriage result window |
 | Cmd-1 | Zoom Reset (10kb) | View menu, coordinate ruler |
 | Cmd-A | Select All | Edit menu, sequence viewport, MSA viewport |
-| Cmd-A | Select every box | Workflow Builder canvas |
 | Cmd-Shift-A | AI Assistant | View menu |
 | Cmd-Shift-A | Select all items in the same folder | Sidebar list |
 | Cmd-Shift-B | Plugin Manager... | Tools menu |
@@ -311,7 +306,6 @@ Sorted by the final key, letters and numbers first in alphabetical order with De
 | Cmd-Opt-D | Document Inspector | View menu |
 | Cmd-Shift-D | Duplicate | Sidebar right-click menu |
 | Cmd-Delete | Move to Trash | Sidebar right-click menu |
-| Delete | Delete the selection | Workflow Builder canvas |
 | Delete | Move to Trash | Sidebar list |
 | Cmd-Shift-E | Extract Visible Region... | Sequence menu |
 | Escape | Cancel read load or clear selection | Sequence viewport |
@@ -359,7 +353,6 @@ Sorted by the final key, letters and numbers first in alphabetical order with De
 | Cmd-Shift-slash | Lungfish Genome Explorer Help | Help menu |
 | Arrow keys | Pan sideways, zoom up and down | Sequence viewport |
 | Arrow keys | Move the selection, Shift extends it | MSA viewport |
-| Arrow keys | Nudge the selected box | Workflow Builder canvas |
 | Opt-Right Arrow | Expand the selected row recursively | Taxonomy table |
 | Cmd-Shift-Right Arrow | Expand All | View menu, taxonomy table |
 | Cmd-Shift-Left Arrow | Collapse All | View menu, taxonomy table |

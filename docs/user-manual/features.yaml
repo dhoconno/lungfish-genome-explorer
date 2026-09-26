@@ -1027,22 +1027,6 @@ features:
       from bundle metadata, writing new bundles with provenance.
 
   # --- Workflows ---
-  workflow.builder:
-    title: Native Workflow Builder
-    entry_points:
-      - "Tools > Workflow Builder (Experimental)…"
-      - "CLI: lungfish workflow builder-run"
-    inputs: [workflow-graph, project-datasets]
-    outputs: [workflow-run-bundle, project-datasets]
-    viewport_class: none
-    sources:
-      - Sources/LungfishApp/Views/WorkflowBuilder/WorkflowBuilderViewController.swift
-      - Sources/LungfishApp/Views/WorkflowBuilder/WorkflowCanvasView.swift
-      - Sources/LungfishCLI/Commands/WorkflowCommand.swift
-      - Sources/LungfishWorkflow/Builder
-    notes: >-
-      Builds and runs a native operation graph on project datasets, with outputs
-      auto-imported into the appropriate viewport.
   workflow.nextflow:
     title: Run Nextflow and nf-core pipelines
     entry_points:

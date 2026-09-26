@@ -248,8 +248,6 @@ Terms appear in alphabetical order. Each entry is a one-sentence definition, fol
 
 **Dialog**{#dialog}. The settings window Lungfish Genome Explorer opens before a run, holding the controls for one operation and a Run button, which is what a menu item ending in an ellipsis opens. See also Operations Panel, wizard.
 
-**Directed acyclic graph**{#directed-acyclic-graph}. A set of boxes joined by one-way arrows in which no path of arrows ever leads back to the box it started from, which is the shape a Workflow Builder drawing must have so that the runner can always work out an order in which every step's input is ready before that step runs. See also node port, workflow bundle.
-
 **Docker**{#docker}. The container software that nf-core pipelines run their tool steps inside, installed on a Mac as the separate Docker Desktop application rather than through the Lungfish Genome Explorer Plugin Manager, and the only execution profile the Viral Recon wizard will accept. See also container, nf-core, Nextflow.
 
 **DOI**{#doi}. The digital object identifier of a published article, the permanent string beginning `10.` that a journal prints on the first page and that resolves at `https://doi.org/` even after the journal moves its website, which is why a bibliography cites it rather than a URL. See also citation, alias table.
@@ -284,7 +282,7 @@ Terms appear in alphabetical order. Each entry is a one-sentence definition, fol
 
 **Exon**{#exon}. One of the stretches of a gene that survives splicing and contributes to the mature transcript, so a protein-coding sequence split across three exons is written in a GenBank record as a `join()` of three ranges. See also CDS, GFF.
 
-**Experimental features**{#experimental-features}. Parts of LGE hidden until **Settings > Advanced > Show Experimental Features** is on, including the GATK Core, Variant Phasing, and Wastewater Surveillance packs and the Workflow Builder. See also plugin pack.
+**Experimental features**{#experimental-features}. Parts of LGE hidden until **Settings > Advanced > Show Experimental Features** is on, including the GATK Core, Variant Phasing, and Wastewater Surveillance packs. See also plugin pack.
 
 **Extraction**{#extraction}. A bundle pulled out of a larger dataset by an LGE operation, either a chosen set of reads taken from a FASTQ or BAM or a chosen stretch of a reference sequence, written into the project's `Extractions/` folder with its own provenance sidecar. See also bundle, project, provenance sidecar.
 
@@ -551,8 +549,6 @@ Terms appear in alphabetical order. Each entry is a one-sentence definition, fol
 **Nextflow**{#nextflow}. A language and runner for describing an analysis as a set of steps and the files that flow between them, which then executes those steps in the right order and inside containers, shipped with the Required Setup pack and used by Lungfish Genome Explorer to run the nf-core/viralrecon pipeline. See also nf-core, container, run bundle.
 
 **nf-core**{#nf-core}. A community that curates, versions, and tests openly published Nextflow pipelines to a common standard, so a pipeline named by release runs the same steps for everyone who runs that release, and Lungfish Genome Explorer supports one of them, nf-core/viralrecon, pinned at release 3.0.0. See also Nextflow, container.
-
-**Node port**{#node-port}. A labelled connection point on the edge of a Workflow Builder node, carrying a direction and a data type, so that LGE accepts a connection only between two ports whose types match and refuses one that would join, for example, a reads port to an alignments port. See also directed acyclic graph, workflow bundle.
 
 **Novel variant**{#novel-variant}. A call absent from the catalogue of variation it was compared against, reported by Picard's metrics step as `NOVEL_SNPS` and `NOVEL_INDELS`, and worth reading with suspicion rather than excitement because in a well-studied human sample most genuine variation is already catalogued. See also dbSNP, transition to transversion ratio, VCF.
 
@@ -928,7 +924,7 @@ Terms appear in alphabetical order. Each entry is a one-sentence definition, fol
 
 **Wastewater Surveillance pack**{#wastewater-surveillance}. The Lungfish Genome Explorer plugin pack that installs Freyja together with iVar, minimap2, Pangolin, and Nextclade, marked Experimental in the Plugin Manager and installing a build of Freyja that runs natively on Apple Silicon. See also plugin pack, Freyja, demixing.
 
-**Workflow bundle**{#workflow-bundle}. A `.lungfishflow` folder under a project's `Workflows` folder holding one Workflow Builder chain, with the drawing and every parameter in `workflow.json`, a copy in `graph.json`, one line per save in `versions/history.json`, a `provenance.json` naming the LGE version and the checksum of each written file, and a `runs/<run-id>/` folder for each time the chain was run. See also directed acyclic graph, node port, provenance.
+**Workflow bundle**{#workflow-bundle}. A `.lungfishflow` folder under a project's `Workflows` folder, written by the retired Workflow Builder. LGE keeps such folders and copies them between projects, but it no longer opens or runs them. See also provenance.
 
 **Workflow engine**{#workflow-engine}. A program that reads a description of an analysis, works out which step must happen before which other step, and then runs them in that order, of which Lungfish Genome Explorer drives two, Nextflow pinned at version 26.04.6 and Snakemake pinned at version 9.25.2. See also Nextflow, Snakemake, workflow package.
 

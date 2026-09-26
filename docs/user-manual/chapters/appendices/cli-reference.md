@@ -3603,7 +3603,7 @@ lungfish-cli genotype ai-haplotyping <options>
 
 ## Workflows
 
-The window covers this ground in [The Workflow Builder](../08-workflows/01-the-workflow-builder.md) and [Running External Workflows](../08-workflows/03-running-external-workflows.md). A [run bundle](../../GLOSSARY.md#run-bundle), a `.lungfishrun` folder, records a workflow run before it starts.
+The window covers this ground in [Running External Workflows](../08-workflows/03-running-external-workflows.md). A [run bundle](../../GLOSSARY.md#run-bundle), a `.lungfishrun` folder, records a workflow run before it starts.
 
 This lists the one supported nf-core pipeline.
 
@@ -3657,24 +3657,6 @@ It prints only the run bundle's path, the form suited to unattended runs, which 
 | `<workflow>` | Workflow file (`*.nf` or a `Snakefile`), or `nf-core/viralrecon`, passed to `workflow run`. |
 | `<workflow-run-arguments>` | Additional workflow run options passed through after the workflow argument. |
 
-### `workflow builder-run`
-
-Runs a Workflow Builder graph.
-
-```text
-lungfish-cli workflow builder-run --workflow <workflow> --project <project> [--run-directory <run-directory>] [--threads <threads>] [--dry-run]
-```
-
-`--project` is the `.lungfish` folder that `@/` paths in the graph resolve against. `--run-directory` defaults to `runs/<run-id>/` inside a `.lungfishflow` bundle, or to `Workflow Runs/<run-id>/` in the project for a bare graph JSON. `--dry-run` prints the same plan saved as `builder-plan.json`. Plan steps record an argument list beginning `lungfish-cli workflow builder-step run`, which is a record rather than a command you can run. Its own `--threads` flag has no effect, because the global `--threads` takes the value first.
-
-| Argument or flag | What it does |
-|---|---|
-| `--workflow <workflow>` | Workflow Builder `.lungfishflow` bundle or graph JSON. |
-| `--project <project>` | Active `.lungfish` project directory. |
-| `--run-directory <run-directory>` | Directory for workflow run state and intermediate files. |
-| `--threads <threads>` | Threads for the FASTQ tools the graph runs. It has no effect, as the note above explains. The default is `4`. |
-| `--dry-run` | Compile the executable plan and print JSON without running tools. |
-
 ### `workflow list`
 
 Lists available workflows.
@@ -3700,22 +3682,6 @@ lungfish-cli workflow validate <workflow>
 | Argument or flag | What it does |
 |---|---|
 | `<workflow>` | Workflow file to validate. |
-
-### `workflow diff`
-
-Compares two saved workflows.
-
-```text
-lungfish-cli workflow diff <first> <second> [--format <format>]
-```
-
-It takes two `.lungfishflow` folders or graph JSON files. Its own `--format` flag has no effect, because the global `--format` takes the value first, so it always prints text.
-
-| Argument or flag | What it does |
-|---|---|
-| `<first>` | First workflow file or `.lungfishflow` bundle. |
-| `<second>` | Second workflow file or `.lungfishflow` bundle. |
-| `--format <format>` | Output format. It has no effect, as the note above explains. |
 
 ## Tool packs, databases, and managed tools
 

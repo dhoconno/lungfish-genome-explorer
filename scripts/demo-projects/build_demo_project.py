@@ -178,7 +178,6 @@ PROJECTS: dict[str, dict] = {
             "07-assembly/02-running-spades",
             "07-assembly/03-running-flye-or-hifiasm",
             "07-assembly/04-extracting-contigs",
-            "08-workflows/01-the-workflow-builder",
         ],
         "steps": [
             ("reads", ["fx:human-mito/HG002.chrM_R1.fastq.gz",

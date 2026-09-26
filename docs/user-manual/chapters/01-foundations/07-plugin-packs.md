@@ -117,7 +117,7 @@ A few parts of LGE are marked experimental, which means they are still being tes
 
     <!-- SHOT: plugin-manager-wastewater-pack -->
 
-The same switch adds **Tools > Workflow Builder (Experimental)...** to the menu. Turning the switch off again hides the experimental packs from the Plugin Manager, but it does not remove any you installed.
+Turning the switch off again hides the experimental packs from the Plugin Manager, but it does not remove any you installed.
 
 Install an experimental pack from the Plugin Manager. The command line's `lungfish-cli conda install --pack` accepts only the packs that show without the switch, and answers "Unknown tool pack" for the three experimental ids.
 

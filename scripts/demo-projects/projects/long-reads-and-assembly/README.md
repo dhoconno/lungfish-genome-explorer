@@ -6,7 +6,7 @@ This is a demo project for Lungfish Genome Explorer (LGE), version {{VERSION}}. 
 
 | Item | What it is |
 | --- | --- |
-| `Imports/HG002.chrM.lungfishfastq` | HG002 Illumina 2x250 mitochondrial reads, one paired bundle of 19,916 reads (9,958 pairs), for SPAdes, MEGAHIT, SKESA, and the Workflow Builder |
+| `Imports/HG002.chrM.lungfishfastq` | HG002 Illumina 2x250 mitochondrial reads, one paired bundle of 19,916 reads (9,958 pairs), for SPAdes, MEGAHIT, and SKESA |
 | `Imports/HG002.chrM.ont.lungfishfastq` | 950 HG002 mitochondrial reads from an Oxford Nanopore instrument, imported with the platform set to Oxford Nanopore |
 | `Imports/HG002.chrM.hifi.lungfishfastq` | HG002 mitochondrial PacBio HiFi reads, imported with the platform set to PacBio |
 | `Reference Sequences/NC_012920.1.lungfishref` | The human mitochondrial reference sequence (rCRS), for nanopore variant calling |
@@ -24,7 +24,7 @@ GIAB reference materials and NCBI records are U.S. government work in the public
 
 {{CHAPTERS}}
 
-Extracting Contigs starts from an assembly, so run MEGAHIT or SPAdes as Running SPAdes shows first. The Workflow Builder is an experimental feature, so turn on **Show Experimental Features** in **Settings > Advanced** before you look for it.
+Extracting Contigs starts from an assembly, so run MEGAHIT or SPAdes as Running SPAdes shows first.
 
 ## A first step to try
 

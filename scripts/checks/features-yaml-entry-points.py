@@ -5,7 +5,7 @@ entry points against the titles MainMenu.swift actually builds.
 Background (2026-09-23 best-practices audit, FEA-16): features.yaml is the
 manual pipeline's ground truth for GUI entry points, but several entries
 named menu paths that do not exist ("File > Open", "Tools > Freyja Demix",
-"Tools > Operations > Workflow Builder", ...). Those propagate into chapters
+"Tools > Operations > Call Variants", ...). Those propagate into chapters
 and screenshot recipes. This script is a local, best-effort guard: it does
 not build or run the app, it only checks that every top-level menu name and
 every "Menu > Item" second-level title an entry_points string opens with

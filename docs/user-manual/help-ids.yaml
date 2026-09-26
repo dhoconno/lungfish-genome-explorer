@@ -242,12 +242,6 @@ dialog.PluginManager:
   scope: dialog
   description: Install, list, and remove Lungfish plugin packs.
 
-dialog.WorkflowBuilder:
-  chapter: 08-workflows/01-the-workflow-builder
-  anchor: procedure
-  scope: dialog
-  description: Visual node-graph composer for Lungfish workflows.
-
 dialog.FASTQImportConfigSheet:
   chapter: 03-reads/01-importing-fastq
   anchor: procedure
@@ -499,12 +493,6 @@ menu.Tools.PluginManager:
   anchor: procedure
   scope: menu
   description: Tools > Plugin Manager (Cmd-Shift-B)
-
-menu.Tools.WorkflowBuilder:
-  chapter: 08-workflows/01-the-workflow-builder
-  anchor: procedure
-  scope: menu
-  description: Tools > Workflow Builder (Experimental)
 
 menu.File.NewProject:
   chapter: 01-foundations/06-the-lungfish-project

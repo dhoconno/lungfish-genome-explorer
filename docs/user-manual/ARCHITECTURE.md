@@ -125,7 +125,6 @@ is the only chapter that explains the topics in its last column in full.
 | 07-assembly/02-running-spades | Running SPAdes, MEGAHIT, or SKESA and reading any assembly result | Contig table, Assembly Context |
 | 07-assembly/03-running-flye-or-hifiasm | Running Flye or hifiasm and diagnosing doubled circular contigs | Long-read assembly, circular overshoot |
 | 07-assembly/04-extracting-contigs | Turning selected contigs into a reference bundle | Create Bundle from contigs |
-| 08-workflows/01-the-workflow-builder | Composing and running a Workflow Builder chain | Workflow Builder |
 | 08-workflows/02-exporting-as-nextflow-or-snakemake | Exporting a run record as a script, workflow, methods text, or JSON | Provenance export |
 | 08-workflows/03-running-external-workflows | Linking, enabling, and running a workflow package | Workflow Library, run bundles |
 | 09-genotyping/01-what-is-mhc-genotyping | What MHC genotyping answers and which workflow to use | Allele, locus, haplotype, allele naming, retained reads |

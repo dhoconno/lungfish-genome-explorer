@@ -178,10 +178,6 @@
         {
           "title": "Extracting Contigs",
           "path": "chapters/07-assembly/04-extracting-contigs/"
-        },
-        {
-          "title": "The Workflow Builder",
-          "path": "chapters/08-workflows/01-the-workflow-builder/"
         }
       ],
       "projectFolderName": "Long Reads and Assembly.lungfish",

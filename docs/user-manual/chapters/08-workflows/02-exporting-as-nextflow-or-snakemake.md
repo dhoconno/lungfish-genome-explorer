@@ -2,7 +2,7 @@
 title: Exporting as Nextflow or Snakemake
 chapter_id: 08-workflows/02-exporting-as-nextflow-or-snakemake
 audience: analyst
-prereqs: [01-foundations/08-provenance-and-reproducibility, 08-workflows/01-the-workflow-builder]
+prereqs: [01-foundations/08-provenance-and-reproducibility]
 estimated_reading_min: 10
 task: Export one artifact's recorded history as a Nextflow pipeline, a Snakemake workflow, a script, a methods draft, or raw JSON.
 tags: [workflows, export, nextflow, snakemake, methods, provenance]
@@ -65,7 +65,7 @@ You need a project open, as [The Lungfish Genome Explorer Project](../01-foundat
 
 This chapter uses the demo-project fixture. Build it from the instructions in the [demo-project folder](https://github.com/dhoconno/lungfish-genome-explorer/tree/v2026.9.40/docs/user-manual/fixtures/demo-project), as [Practice data for this manual](../01-foundations/06-the-lungfish-project.md#practice-data-for-this-manual) explains. The example is the project's `Analyses/mapping-HG002` run, which mapped human reads, placing each one at its position on the genome, from a short stretch of HG002 chromosome 20 to the same stretch of the human reference genome with minimap2, a read-mapping tool, and then processed the alignment with [samtools](../../GLOSSARY.md#samtools). HG002 is a well-characterised human genome used for reference datasets. Any finished run in your own project works the same way.
 
-The artifact must have a recorded history. LGE records provenance for files a tool operation made, so a mapping result, an assembly, or the cleaned bundle from [The Workflow Builder](01-the-workflow-builder.md) qualifies, and a FASTA you dragged in does not. An artifact with no history produces a **No Provenance Available** alert instead of a save panel, so select a different artifact.
+The artifact must have a recorded history. LGE records provenance for files a tool operation made, so a mapping result or an assembly qualifies, and a FASTA you dragged in does not. An artifact with no history produces a **No Provenance Available** alert instead of a save panel, so select a different artifact.
 
 Nothing needs installing to export. Reading an export needs only a text editor. Running a Nextflow or Snakemake export needs that engine on the recipient's machine.
 
@@ -178,4 +178,4 @@ The input can be a sidecar file, a bundle, or a result folder. The command print
 
 ## Next
 
-Continue to [Running External Workflows](03-running-external-workflows.md), which runs a pipeline written outside LGE. [The Workflow Builder](01-the-workflow-builder.md) builds a chain by hand.
+Continue to [Running External Workflows](03-running-external-workflows.md), which runs a pipeline written outside LGE.

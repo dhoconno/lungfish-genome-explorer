@@ -464,13 +464,11 @@ The 12S and MHC amplicon reference bundles are inputs rather than results. A `.l
 
 ## The workflow bundles
 
-Three formats cover workflows and they do different jobs.
-
-A `.lungfishflow` bundle is a workflow definition, meaning the connected sequence of steps you assembled in the Workflow Builder. It lives in the project's `Workflows/` folder and holds `graph.json`, `workflow.json`, and `provenance.json`. Running a saved bundle writes each execution into a `runs/<run-id>/` folder inside that same bundle.
+Two formats cover workflows and they do different jobs. A `.lungfishflow` folder under a project's `Workflows/` folder is left over from the retired Workflow Builder. LGE leaves such folders in place and copies them between projects, but it no longer opens or runs them.
 
 A `.lungfishflowpkg` package holds an external pipeline file, such as a Nextflow script. Nextflow is an outside system for describing a multi-step analysis, and an engine is the program that runs such a description. The package pairs that file with a `manifest.json` declaring its name, version, engine, inputs, and outputs. LGE builds the run form from those declarations, so a package that declares a reference and a reads input gets a reference picker and a reads picker.
 
-A `.lungfishrun` bundle records one external pipeline execution. It holds `manifest.json` alongside `logs/`, `reports/`, and `outputs/` folders. A workflow can also be saved as a plain JSON file rather than as a bundle, and a run started from one of those has no bundle to write into, so its results land under a `Workflow Runs/<run-id>/` folder in the project instead.
+A `.lungfishrun` bundle records one external pipeline execution. It holds `manifest.json` alongside `logs/`, `reports/`, and `outputs/` folders.
 
 ## Provenance sidecars
 

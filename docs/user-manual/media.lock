@@ -911,21 +911,6 @@
       "size": 172457
     },
     {
-      "path": "user-manual/assets/screenshots/08-workflows/workflow-builder-experimental-toggle.png",
-      "sha256": "5330277075a78705caed990481ec33cccccc519b7735a476b5d97049f2be563c",
-      "size": 64598
-    },
-    {
-      "path": "user-manual/assets/screenshots/08-workflows/workflow-builder-palette.png",
-      "sha256": "14824bfbf260e15db41efa730f979a411c900cc712f7512522d027a37a5f408c",
-      "size": 70978
-    },
-    {
-      "path": "user-manual/assets/screenshots/08-workflows/workflow-builder-sidebar-library.png",
-      "sha256": "deadedcda996458c29ffc64574e33f1dbcf061a7b8189c31560794c6080ccc78",
-      "size": 85774
-    },
-    {
       "path": "user-manual/assets/screenshots/08-workflows/workflow-library-linked-package.png",
       "sha256": "66ceb8a108c9c3549a84ed082a57410e67c48cf385af87cad3472030f16ac271",
       "size": 123216
