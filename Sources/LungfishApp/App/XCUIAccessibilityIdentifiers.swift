@@ -133,10 +133,6 @@ enum InspectorAccessibilityID {
     static let appearanceDisclosure = "genotype-annotation-appearance-disclosure"
 }
 
-enum WorkflowBuilderAccessibilityID {
-    static let experimentalBanner = "workflow-builder-experimental-banner"
-}
-
 enum WorkflowOperationsAccessibilityID {
     static let window = "workflow-operations-window"
 }
@@ -215,7 +211,6 @@ enum MainMenuAccessibilityID {
     static let haplotypeDefinitions = "tools-menu-haplotype-definitions"
     static let workflows = "tools-menu-workflows"
     static let workflowLibrary = "tools-menu-workflow-library"
-    static let workflowBuilder = "tools-menu-workflow-builder"
 
     /// Tools > Workflows item for one linked workflow package, keyed by its manifest ID.
     static func workflowPackage(_ manifestID: String) -> String {

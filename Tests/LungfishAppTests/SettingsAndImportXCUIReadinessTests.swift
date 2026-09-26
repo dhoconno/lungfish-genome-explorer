@@ -59,7 +59,6 @@ final class SettingsAndImportXCUIReadinessTests: XCTestCase {
         XCTAssertEqual(MainMenuAccessibilityID.callVariants, "tools-menu-call-variants")
         XCTAssertEqual(MainMenuAccessibilityID.freyjaDemix, "tools-menu-freyja-demix")
         XCTAssertEqual(MainMenuAccessibilityID.workflowLibrary, "tools-menu-workflow-library")
-        XCTAssertEqual(MainMenuAccessibilityID.workflowBuilder, "tools-menu-workflow-builder")
         XCTAssertEqual(MainMenuAccessibilityID.pluginManager, "tools-menu-plugin-manager")
         XCTAssertEqual(MainMenuAccessibilityID.showOperationsPanel, "operations-menu-show-panel")
         XCTAssertEqual(MainMenuAccessibilityID.reportIssue, "help-menu-report-issue")
@@ -448,12 +447,6 @@ final class SettingsAndImportXCUIReadinessTests: XCTestCase {
     func testAppDelegateRespondsToVariantCallingMenuSelector() {
         XCTAssertTrue(
             AppDelegate.instancesRespond(to: NSSelectorFromString("showBAMVariantCalling:"))
-        )
-    }
-
-    func testAppDelegateRespondsToWorkflowBuilderMenuSelector() {
-        XCTAssertTrue(
-            AppDelegate.instancesRespond(to: NSSelectorFromString("showWorkflowBuilder:"))
         )
     }
 

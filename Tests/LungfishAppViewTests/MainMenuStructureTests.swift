@@ -403,7 +403,7 @@ private final class VariantThemeNotificationCounter {
 
     func testNoTwoMainMenuItemsShareAKeyboardShortcut() throws {
         _ = NSApplication.shared
-        let mainMenu = MainMenu.createMainMenu(experimentalFeaturesEnabled: true)
+        let mainMenu = MainMenu.createMainMenu()
         var owners: [String: [String]] = [:]
 
         func walk(_ menu: NSMenu, path: String) {

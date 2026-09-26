@@ -21,11 +21,6 @@ struct AdvancedSettingsTab: View {
                     .foregroundStyle(.secondary)
             }
 
-            Section("Workflow Builder") {
-                Label("Workflow Builder is marked experimental while the builder and runner are being validated.", systemImage: "exclamationmark.triangle")
-                    .foregroundStyle(.secondary)
-            }
-
             HStack {
                 Spacer()
                 Button("Restore Defaults") {

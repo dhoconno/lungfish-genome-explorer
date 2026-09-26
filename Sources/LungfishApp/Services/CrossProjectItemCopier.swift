@@ -38,6 +38,11 @@ enum CrossProjectItemCopier {
         case otherNativeBundle
         case analysisResult(tool: String, isBatch: Bool)
 
+        /// Project folder that holds saved `.lungfishflow` workflow bundles.
+        static let workflowsDirectoryName = "Workflows"
+        /// Directory extension of a saved workflow bundle.
+        static let workflowBundleExtension = "lungfishflow"
+
         /// Items that carry `analysis-metadata.json` are hidden by the sidebar
         /// anywhere except under `Analyses/`, so they must land there.
         var mustLiveUnderAnalyses: Bool {
@@ -56,7 +61,7 @@ enum CrossProjectItemCopier {
             case .phylogeneticTreeBundle: return "Phylogenetic Trees"
             case .primerSchemeBundle: return PrimerSchemesFolder.folderName
             case .czIdResult: return "Classifications"
-            case .workflowBundle: return WorkflowLibraryStore.workflowsDirectoryName
+            case .workflowBundle: return ItemKind.workflowsDirectoryName
             case .analysisResult, .genotypeResultBundle, .primerAnalysisBundle, .twelveSResultBundle:
                 return AnalysesFolder.directoryName
             case .otherNativeBundle: return ""
@@ -95,7 +100,7 @@ enum CrossProjectItemCopier {
             return nil
         case MHCAmpliconReferenceBundle.directoryExtension:
             return nil
-        case WorkflowLibraryStore.workflowBundleExtension:
+        case ItemKind.workflowBundleExtension:
             return .workflowBundle
         default:
             break

@@ -93,7 +93,6 @@ final class ImportCenterMenuTests: XCTestCase {
     func testMainMenuKeyItemsExposeStableIdentifiers() throws {
         let _ = NSApplication.shared
         let mainMenu = MainMenu.createMainMenu(
-            experimentalFeaturesEnabled: true,
             workflowFeatureAvailability: .init(
                 hasWorkflowOperations: true,
                 hasHaplotypeDefinitions: true
@@ -118,28 +117,10 @@ final class ImportCenterMenuTests: XCTestCase {
         let workflowsMenu = try XCTUnwrap(workflowsItem.submenu)
         XCTAssertEqual(workflowsMenu.items.first(where: { $0.title == "Workflow Library…" })?.identifier?.rawValue, MainMenuAccessibilityID.workflowLibrary)
         XCTAssertNil(toolsMenu.items.first(where: { $0.title == "Workflow Library…" }))
-        XCTAssertEqual(toolsMenu.items.first(where: { $0.title == "Workflow Builder (Experimental)…" })?.identifier?.rawValue, MainMenuAccessibilityID.workflowBuilder)
         XCTAssertEqual(toolsMenu.items.first(where: { $0.title == "Plugin Manager…" })?.identifier?.rawValue, MainMenuAccessibilityID.pluginManager)
         XCTAssertEqual(operationsMenu.items.first(where: { $0.title == "Show Operations Panel" })?.identifier?.rawValue, MainMenuAccessibilityID.showOperationsPanel)
     }
 
-    func testToolsMenuPlacesWorkflowBuilderBeforePluginManager() throws {
-        let _ = NSApplication.shared
-        let mainMenu = MainMenu.createMainMenu(experimentalFeaturesEnabled: true)
-        let toolsMenu = try XCTUnwrap(mainMenu.items.first(where: { $0.title == "Tools" })?.submenu)
-
-        let workflowIndex = try XCTUnwrap(
-            toolsMenu.items.firstIndex(where: { $0.title == "Workflow Builder (Experimental)…" })
-        )
-        let pluginIndex = try XCTUnwrap(
-            toolsMenu.items.firstIndex(where: { $0.title == "Plugin Manager…" })
-        )
-        let workflowItem = toolsMenu.items[workflowIndex]
-
-        XCTAssertLessThan(workflowIndex, pluginIndex)
-        XCTAssertEqual(workflowItem.action, #selector(AppDelegate.showWorkflowBuilder(_:)))
-        XCTAssertEqual(workflowItem.identifier?.rawValue, MainMenuAccessibilityID.workflowBuilder)
-    }
 
     func testToolsMenuExposesCallVariantsItemWithStableIdentifier() throws {
         let _ = NSApplication.shared
@@ -150,51 +131,18 @@ final class ImportCenterMenuTests: XCTestCase {
         XCTAssertEqual(callVariantsItem.identifier?.rawValue, MainMenuAccessibilityID.callVariants)
     }
 
-    func testToolsMenuExposesWorkflowBuilderItemWithStableIdentifier() throws {
-        let _ = NSApplication.shared
-        let mainMenu = MainMenu.createMainMenu(experimentalFeaturesEnabled: true)
-        let toolsMenu = try XCTUnwrap(mainMenu.items.first(where: { $0.title == "Tools" })?.submenu)
-        let workflowBuilderItem = try XCTUnwrap(toolsMenu.items.first(where: { $0.title == "Workflow Builder (Experimental)…" }))
 
-        XCTAssertEqual(workflowBuilderItem.identifier?.rawValue, MainMenuAccessibilityID.workflowBuilder)
-    }
 
-    func testToolsMenuHidesWorkflowBuilderWhenExperimentalFeaturesAreDisabled() throws {
-        let _ = NSApplication.shared
-        let mainMenu = MainMenu.createMainMenu(experimentalFeaturesEnabled: false)
-        let toolsMenu = try XCTUnwrap(mainMenu.items.first(where: { $0.title == "Tools" })?.submenu)
-
-        XCTAssertNil(toolsMenu.items.first(where: { $0.identifier?.rawValue == MainMenuAccessibilityID.workflowBuilder }))
-        XCTAssertNotNil(toolsMenu.items.first(where: { $0.title == "Plugin Manager…" }))
-    }
-
-    func testWorkflowBuilderMenuItemRoutesThroughToolsMenuActionProtocol() throws {
-        let _ = NSApplication.shared
-        let mainMenu = MainMenu.createMainMenu(experimentalFeaturesEnabled: true)
-        let toolsMenu = try XCTUnwrap(mainMenu.items.first(where: { $0.title == "Tools" })?.submenu)
-        let workflowBuilderItem = try XCTUnwrap(toolsMenu.items.first(where: { $0.title == "Workflow Builder (Experimental)…" }))
-        let selector = NSSelectorFromString("showWorkflowBuilder:")
-        let protocolMethod = protocol_getMethodDescription(ToolsMenuActions.self, selector, true, true)
-        let recorder = WorkflowBuilderMenuActionRecorder()
-
-        XCTAssertNotNil(protocolMethod.name)
-        XCTAssertEqual(workflowBuilderItem.action, selector)
-        XCTAssertTrue(recorder.responds(to: selector))
-
-        recorder.perform(workflowBuilderItem.action, with: workflowBuilderItem)
-
-        XCTAssertEqual(recorder.workflowBuilderInvocationCount, 1)
-    }
 
     func testWorkflowLibraryMenuItemRoutesThroughToolsMenuActionProtocol() throws {
         let _ = NSApplication.shared
-        let mainMenu = MainMenu.createMainMenu(experimentalFeaturesEnabled: false)
+        let mainMenu = MainMenu.createMainMenu()
         let toolsMenu = try XCTUnwrap(mainMenu.items.first(where: { $0.title == "Tools" })?.submenu)
         let workflowsMenu = try XCTUnwrap(toolsMenu.items.first(where: { $0.title == "Workflows" })?.submenu)
         let workflowLibraryItem = try XCTUnwrap(workflowsMenu.items.first(where: { $0.title == "Workflow Library…" }))
         let selector = NSSelectorFromString("showWorkflowLibrary:")
         let protocolMethod = protocol_getMethodDescription(ToolsMenuActions.self, selector, true, true)
-        let recorder = WorkflowBuilderMenuActionRecorder()
+        let recorder = ToolsMenuActionRecorder()
 
         XCTAssertNotNil(protocolMethod.name)
         XCTAssertEqual(workflowLibraryItem.action, selector)
@@ -208,7 +156,6 @@ final class ImportCenterMenuTests: XCTestCase {
     func testInlinedWorkflowMenuItemRoutesThroughToolsMenuActionProtocol() throws {
         let _ = NSApplication.shared
         let mainMenu = MainMenu.createMainMenu(
-            experimentalFeaturesEnabled: false,
             workflowFeatureAvailability: .init(
                 hasWorkflowOperations: true,
                 hasHaplotypeDefinitions: false
@@ -221,7 +168,7 @@ final class ImportCenterMenuTests: XCTestCase {
         }))
         let selector = NSSelectorFromString("launchWorkflowFromMenu:")
         let protocolMethod = protocol_getMethodDescription(ToolsMenuActions.self, selector, true, true)
-        let recorder = WorkflowBuilderMenuActionRecorder()
+        let recorder = ToolsMenuActionRecorder()
 
         XCTAssertNotNil(protocolMethod.name)
         XCTAssertEqual(workflowItem.action, selector)
@@ -506,15 +453,10 @@ final class ImportCenterMenuTests: XCTestCase {
 }
 
 @MainActor
-private final class WorkflowBuilderMenuActionRecorder: NSObject, ToolsMenuActions {
-    private(set) var workflowBuilderInvocationCount = 0
+private final class ToolsMenuActionRecorder: NSObject, ToolsMenuActions {
     private(set) var workflowLibraryInvocationCount = 0
     private(set) var workflowOperationsInvocationCount = 0
     private(set) var launchWorkflowInvocationCount = 0
-
-    @objc func showWorkflowBuilder(_ sender: Any?) {
-        workflowBuilderInvocationCount += 1
-    }
 
     @objc func showWorkflowLibrary(_ sender: Any?) {
         workflowLibraryInvocationCount += 1

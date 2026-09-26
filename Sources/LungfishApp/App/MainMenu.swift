@@ -29,11 +29,9 @@ public final class MainMenu {
 
     /// Creates and returns the main menu bar.
     public static func createMainMenu(
-        experimentalFeaturesEnabled: Bool = AppSettings.shared.experimentalFeaturesEnabled,
         workflowFeatureAvailability: WorkflowFeatureAvailability? = nil
     ) -> NSMenu {
         createMainMenu(
-            experimentalFeaturesEnabled: experimentalFeaturesEnabled,
             workflowFeatureAvailability: workflowFeatureAvailability,
             workflowLibraryEnablementStore: .shared,
             workflowPackageStore: .shared,
@@ -42,7 +40,6 @@ public final class MainMenu {
     }
 
     static func createMainMenu(
-        experimentalFeaturesEnabled: Bool = AppSettings.shared.experimentalFeaturesEnabled,
         workflowFeatureAvailability: WorkflowFeatureAvailability? = nil,
         workflowLibraryEnablementStore: WorkflowLibraryEnablementStore = .shared,
         workflowPackageStore: WorkflowLibraryImportedPackageStore = .shared,
@@ -69,7 +66,6 @@ public final class MainMenu {
         // Tools menu
         mainMenu.addItem(
             createToolsMenu(
-                experimentalFeaturesEnabled: experimentalFeaturesEnabled,
                 workflowFeatureAvailability: workflowFeatureAvailability,
                 workflowLibraryEnablementStore: workflowLibraryEnablementStore,
                 workflowPackageStore: workflowPackageStore
@@ -726,7 +722,6 @@ public final class MainMenu {
     // MARK: - Tools Menu
 
     private static func createToolsMenu(
-        experimentalFeaturesEnabled: Bool,
         workflowFeatureAvailability: WorkflowFeatureAvailability,
         workflowLibraryEnablementStore: WorkflowLibraryEnablementStore,
         workflowPackageStore: WorkflowLibraryImportedPackageStore
@@ -776,17 +771,6 @@ public final class MainMenu {
         callVariantsItem.identifier = NSUserInterfaceItemIdentifier(MainMenuAccessibilityID.callVariants)
 
         toolsMenu.addItem(.separator())
-
-        if experimentalFeaturesEnabled {
-            let workflowBuilderItem = toolsMenu.addItem(
-                withTitle: "Workflow Builder (Experimental)\u{2026}",
-                action: #selector(ToolsMenuActions.showWorkflowBuilder(_:)),
-                keyEquivalent: ""
-            )
-            workflowBuilderItem.identifier = NSUserInterfaceItemIdentifier(MainMenuAccessibilityID.workflowBuilder)
-
-            toolsMenu.addItem(.separator())
-        }
 
         // Online databases
         let searchDatabasesItem = NSMenuItem(title: "Search Online Databases", action: nil, keyEquivalent: "")
@@ -1267,8 +1251,6 @@ enum ProvenanceExportMenuModel {
     func searchNCBI(_ sender: Any?)
     func searchSRA(_ sender: Any?)
     func searchPathoplexus(_ sender: Any?)
-    /// Opens the Workflow Builder window for constructing and running local workflows.
-    func showWorkflowBuilder(_ sender: Any?)
     /// Opens the enabled workflow operations runner.
     func showWorkflowOperations(_ sender: Any?)
     /// Opens an enabled workflow operation from an in-category Tools menu item.

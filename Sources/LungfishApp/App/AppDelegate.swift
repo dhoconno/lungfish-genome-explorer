@@ -58,7 +58,6 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
     internal var aboutWindowController: AboutWindowController?
     /// Retains the detached informational alert until its explicit dismissal.
     internal var persistenceInformationAlert: NSAlert?
-    internal var workflowBuilderWindowController: NSWindowController?
 
     /// App-executable updater hooks. Sparkle is linked by the graphical target,
     /// not by LungfishApp, so the shared app module exposes only these closures.
@@ -88,7 +87,6 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
     private var lastAppliedTempRetentionHours: Int = 24
 
     /// Last applied experimental feature visibility.
-    private var lastAppliedExperimentalFeaturesEnabled = AppSettings.defaultExperimentalFeaturesEnabled
 
     private var workflowLibraryEnablementObserver: AppDelegateNotificationObserver?
     private var workflowLibraryPackagesObserver: AppDelegateNotificationObserver?
@@ -166,7 +164,6 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         // Load persisted settings
         AppSettings.load()
         lastAppliedTempRetentionHours = AppSettings.shared.tempFileRetentionHours
-        lastAppliedExperimentalFeaturesEnabled = AppSettings.shared.experimentalFeaturesEnabled
 
         // Register for system notifications
         registerNotifications()
@@ -1683,15 +1680,6 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
 
     /// Applies runtime settings that require service reconfiguration.
     @objc private func handleAppSettingsChanged(_ notification: Notification) {
-        let experimentalFeaturesEnabled = AppSettings.shared.experimentalFeaturesEnabled
-        if experimentalFeaturesEnabled != lastAppliedExperimentalFeaturesEnabled {
-            lastAppliedExperimentalFeaturesEnabled = experimentalFeaturesEnabled
-            NSApp.mainMenu = MainMenu.createMainMenu(
-                experimentalFeaturesEnabled: experimentalFeaturesEnabled,
-                workflowFeatureAvailability: .current()
-            )
-        }
-
         let retentionHours = AppSettings.shared.tempFileRetentionHours
         guard retentionHours != lastAppliedTempRetentionHours else { return }
         lastAppliedTempRetentionHours = retentionHours
@@ -1704,10 +1692,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
     }
 
     private func handleWorkflowLibraryEnablementChanged() {
-        NSApp.mainMenu = MainMenu.createMainMenu(
-            experimentalFeaturesEnabled: AppSettings.shared.experimentalFeaturesEnabled,
-            workflowFeatureAvailability: .current()
-        )
+        NSApp.mainMenu = MainMenu.createMainMenu(workflowFeatureAvailability: .current())
     }
 
     /// Linked packages were added, removed, relocated, or revalidated. Rebuilding the

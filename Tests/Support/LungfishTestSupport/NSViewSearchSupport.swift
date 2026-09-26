@@ -2,11 +2,10 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
-// Promoted from three separate `private extension NSView` copies duplicated
-// across Tests/LungfishAppTests/WindowAppearanceTests.swift,
-// Tests/LungfishAppViewTests/GUIRegressionTests.swift, and
-// Tests/LungfishAppViewTests/WorkflowBuilderAppIntegrationTests.swift (fix
-// wave for the source-text conversion campaign, 2026-08-22). These are plain
+// Promoted from separate `private extension NSView` copies duplicated across
+// Tests/LungfishAppTests/WindowAppearanceTests.swift and
+// Tests/LungfishAppViewTests/GUIRegressionTests.swift (fix wave for the
+// source-text conversion campaign, 2026-08-22). These are plain
 // AppKit tree-walking helpers with no ViewInspector dependency, so they live
 // here rather than in a ViewInspector-only test-target support file.
 

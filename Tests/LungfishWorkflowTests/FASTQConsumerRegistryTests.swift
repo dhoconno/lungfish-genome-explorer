@@ -26,9 +26,9 @@ final class FASTQConsumerRegistryTests: XCTestCase {
         "fastq.trim", "fastq.quality-trim", "fastq.adapter-trim", "fastq.fixed-trim",
         "fastq.length-filter", "fastq.primer-remove", "fastq.error-correct", "fastq.ribodetector",
         "fastq.merge", "fastq.deinterleave", "fastq.interleave",
-        // GUI in-process derivatives, ingestion, recipes, Workflow Builder.
+        // GUI in-process derivatives, ingestion, recipes.
         "gui.fastq-derivative", "ingest.clumpify",
-        "recipe.convert-interleaved-to-paired", "workflow-builder.native-runner",
+        "recipe.convert-interleaved-to-paired",
         // Genotyping, 12S, Viral Recon.
         "genotype.illumina-mhc", "genotype.ont-mhc", "twelve-s.amplicon-matching", "viralrecon.illumina",
     ]

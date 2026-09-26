@@ -14,7 +14,6 @@ final class NextPanelExtractionTests: XCTestCase {
             "Sources/LungfishApp/Views/Mapping/MappingWizardSheet.swift",
             "Sources/LungfishApp/Views/Mapping/ViralReconWizardSheet.swift",
             "Sources/LungfishKit/ReferenceSequencePickerView.swift",
-            "Sources/LungfishApp/Views/WorkflowBuilder/WorkflowBuilderViewController.swift",
             "Sources/LungfishApp/Views/Viewer/AnnotationTableDrawerView+Bookmarks.swift",
             "Sources/LungfishApp/Views/Viewer/AnnotationTableDrawerView+Export.swift",
             "Sources/LungfishApp/Views/Viewer/AnnotationTableDrawerView.swift",

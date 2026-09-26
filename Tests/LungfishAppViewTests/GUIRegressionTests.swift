@@ -55,7 +55,7 @@ final class GUIRegressionTests: XCTestCase {
     @MainActor
     func testToolsMenuContainsVariantCallingCommand() throws {
         _ = NSApplication.shared
-        let mainMenu = MainMenu.createMainMenu(experimentalFeaturesEnabled: true)
+        let mainMenu = MainMenu.createMainMenu()
         let toolsMenu = try XCTUnwrap(mainMenu.items.first { $0.title == "Tools" }?.submenu)
         let visibleTitles = toolsMenu.items.compactMap { $0.isSeparatorItem ? nil : $0.title }
 
@@ -75,7 +75,6 @@ final class GUIRegressionTests: XCTestCase {
             "Genotyping",
             "Haplotype Definitions…",
             "Call Variants…",
-            "Workflow Builder (Experimental)…",
             "Search Online Databases",
             "Workflows",
             "Plugin Manager…",

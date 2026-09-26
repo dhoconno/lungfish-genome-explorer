@@ -267,7 +267,7 @@ public final class OperationCenter: ObservableObject {
         public var errorMessage: String?
         /// Extended diagnostic detail (stack trace, stderr, etc.) for debugging.
         public var errorDetail: String?
-        /// Durable workflow-builder run identifier carried by parent and child rows.
+        /// Durable workflow run identifier carried by parent and child rows.
         public var workflowRunID: UUID?
         /// The project/window context that launched this operation, when available.
         public var routeContext: OperationRouteContext?

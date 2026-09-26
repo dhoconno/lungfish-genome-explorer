@@ -262,17 +262,6 @@ public enum FASTQConsumerRegistry {
                 ],
                 mixedRationale: "RecipeEngine.convertInterleavedToPaired resolves the layout first and runs reformat interleaved=t out= out2= only for a strictly interleaved file; a mixed or single-end file continues as .single and a later paired step reports the format mismatch."
             ),
-            FASTQConsumerDeclaration(
-                consumerID: "workflow-builder.native-runner",
-                displayName: "Workflow Builder native runner",
-                handling: [
-                    .singleEnd: .asSingle,
-                    .strictlyInterleaved: .splitToR1R2,
-                    .mixedMergedAndPairs: .asSingle,
-                    .pairedFiles: .asPairs,
-                ],
-                mixedRationale: "WorkflowBuilderNativeRunner.resolveStepInput resolves the layout through FASTQInputLayoutResolver: only a strictly interleaved file enters the recipe as .interleaved (converted to R1/R2 by position); a mixed file enters as .single."
-            ),
         ]
     }
 

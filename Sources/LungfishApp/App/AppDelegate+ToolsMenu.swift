@@ -993,7 +993,7 @@ extension AppDelegate {
     /// the single bundle directory being resolved.
     ///
     /// - A `.fullPaired` derived bundle (the FASTQ Ops / BAM primer-trim /
-    ///   WorkflowBuilder interleave payload shape) resolves via
+    ///   interleave payload shape) resolves via
     ///   `FASTQBundle.pairedFASTQURLs`, which is the only API that returns
     ///   BOTH R1 and R2 for that payload --
     ///   `SequenceInputResolver.resolvePrimarySequenceURL` deliberately
@@ -1647,53 +1647,6 @@ extension AppDelegate {
 
     @objc func searchPathoplexus(_ sender: Any?) {
         showDatabaseBrowser(source: .pathoplexus, sender: sender)
-    }
-
-    @objc func showWorkflowBuilder(_ sender: Any?) {
-        guard AppSettings.shared.experimentalFeaturesEnabled else {
-            NSSound.beep()
-            SettingsNavigationState.shared.open(.advanced)
-            return
-        }
-        let sourceController = activeMainWindowController(sender: sender)
-
-        if workflowBuilderWindowController == nil {
-            let viewController = WorkflowBuilderViewController()
-            let window = NSWindow(
-                contentRect: NSRect(x: 0, y: 0, width: 1024, height: 720),
-                styleMask: [.titled, .closable, .miniaturizable, .resizable],
-                backing: .buffered,
-                defer: false
-            )
-            window.title = "Workflow Builder"
-            window.contentViewController = viewController
-            window.setFrame(NSRect(x: 0, y: 0, width: 1024, height: 720), display: false)
-            window.delegate = viewController
-            window.isReleasedWhenClosed = false
-            window.titleVisibility = .hidden
-            window.titlebarAppearsTransparent = true
-            window.toolbarStyle = .unified
-            window.setAccessibilityIdentifier("WorkflowBuilderWindow")
-            window.center()
-
-            workflowBuilderWindowController = NSWindowController(window: window)
-        }
-
-        if let viewController = workflowBuilderWindowController?.window?.contentViewController as? WorkflowBuilderViewController {
-            let sidebarController = sourceController?.mainSplitViewController?.sidebarController
-            let selectedFileURLs = sidebarController?.selectedFileURLs() ?? []
-            viewController.configureRunContext(
-                projectURL: sidebarController?.currentProjectURL,
-                preferredSampleURL: sidebarController?.selectedFileURL,
-                windowStateScope: sourceController?.projectSession.windowStateScope,
-                isReadOnlyRecommended: sourceController?.projectSession.isReadOnlyRecommended == true,
-                ignoredPreferredSampleSelectionCount: max(0, selectedFileURLs.count - 1)
-            )
-        }
-
-        workflowBuilderWindowController?.showWindow(sender)
-        workflowBuilderWindowController?.window?.makeKeyAndOrderFront(sender)
-        NSApp.activate(ignoringOtherApps: true)
     }
 
     @objc func showPluginManager(_ sender: Any?) {

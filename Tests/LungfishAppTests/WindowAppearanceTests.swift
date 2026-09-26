@@ -648,12 +648,6 @@ final class WindowAppearanceTests: XCTestCase {
                 label: "derived alignment removal"
             ),
             AlertCase(
-                path: "Sources/LungfishApp/Views/WorkflowBuilder/WorkflowBuilderViewController.swift",
-                startToken: "private func deleteSelectedWorkflowInLibrary",
-                endToken: "private func promptForWorkflowName",
-                label: "workflow deletion"
-            ),
-            AlertCase(
                 path: "Sources/LungfishApp/Views/Viewer/ViewerViewController+AnnotationDrawer.swift",
                 startToken: "didRequestDeleteAnnotations annotations",
                 endToken: "private func runAnnotationRowDeletion",

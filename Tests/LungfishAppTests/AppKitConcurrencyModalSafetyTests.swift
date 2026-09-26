@@ -79,7 +79,6 @@ final class AppKitConcurrencyModalSafetyTests: XCTestCase {
             "Sources/LungfishApp/Views/Inspector/InspectorViewController.swift",
             "Sources/LungfishApp/Views/Settings/AIServicesSettingsTab.swift",
             "Sources/LungfishApp/Views/Settings/StorageSettingsTab.swift",
-            "Sources/LungfishApp/Views/WorkflowBuilder/WorkflowBuilderViewController.swift",
             "Sources/LungfishApp/Views/DatabaseBrowser/DatabaseBrowserViewController.swift",
             "Sources/LungfishApp/Views/Viewer/ViewerViewController.swift",
             "Sources/LungfishKit/MetadataColumnController.swift",

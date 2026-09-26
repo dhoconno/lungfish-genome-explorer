@@ -92,26 +92,4 @@ final class AppKitModalPresenterSemanticsTests: XCTestCase {
             .applicationErrorPresentation
         )
     }
-
-    func testWorkflowNamePromptAcceptsTrimmedNonEmptyFirstButtonOnly() {
-        XCTAssertEqual(
-            WorkflowBuilderViewController.workflowNamePromptResultForTest(
-                response: .alertFirstButtonReturn,
-                rawName: "  Assembly QC  "
-            ),
-            "Assembly QC"
-        )
-        XCTAssertNil(
-            WorkflowBuilderViewController.workflowNamePromptResultForTest(
-                response: .alertFirstButtonReturn,
-                rawName: "   "
-            )
-        )
-        XCTAssertNil(
-            WorkflowBuilderViewController.workflowNamePromptResultForTest(
-                response: .alertSecondButtonReturn,
-                rawName: "Assembly QC"
-            )
-        )
-    }
 }
