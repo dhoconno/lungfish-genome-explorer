@@ -705,6 +705,14 @@ public final class OperationCenter: ObservableObject {
         changes.send(.updated(id: id, index: index))
     }
 
+    /// Records the exact current native invocation once a workflow launches it.
+    public func setCommand(id: UUID, command: String) {
+        guard let index = items.firstIndex(where: { $0.id == id }),
+              items[index].state.isActive else { return }
+        items[index].cliCommand = command
+        changes.send(.updated(id: id, index: index))
+    }
+
     @discardableResult
     public func update(id: UUID, progress: Double, detail: String) -> Bool {
         guard let index = items.firstIndex(where: { $0.id == id }) else { return false }

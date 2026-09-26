@@ -8,6 +8,21 @@ import os.log
 import LungfishCore
 import LungfishIO
 
+/// UI diagnostics for native subprocesses. Observers must return promptly; stdout
+/// and stderr can arrive concurrently. Captured process results remain unchanged.
+public enum NativeProcessEvent: Sendable {
+    case started(argv: [String])
+    case output(stream: Stream, line: String)
+
+    public enum Stream: Sendable, Equatable { case stdout, stderr }
+}
+
+/// An optional task-scoped observer lets workflow callers expose native activity
+/// without changing every pipeline's public progress callback or runner mocks.
+public enum NativeProcessObservation {
+    @TaskLocal public static var onEvent: (@Sendable (NativeProcessEvent) -> Void)?
+}
+
 // MARK: - NativeToolResult
 
 /// Result of running a native tool.
@@ -128,6 +143,7 @@ private final class ProcessPipeDrain: @unchecked Sendable {
     private let stderrHandle: FileHandle
     private let stdoutAccumulator: ProcessOutputAccumulator
     private let stderrAccumulator: ProcessOutputAccumulator
+    private let onEvent: (@Sendable (NativeProcessEvent) -> Void)?
     private let group = DispatchGroup()
     private let lock = NSLock()
     private var started = false
@@ -136,12 +152,14 @@ private final class ProcessPipeDrain: @unchecked Sendable {
         stdoutHandle: FileHandle,
         stderrHandle: FileHandle,
         stdoutAccumulator: ProcessOutputAccumulator,
-        stderrAccumulator: ProcessOutputAccumulator
+        stderrAccumulator: ProcessOutputAccumulator,
+        onEvent: (@Sendable (NativeProcessEvent) -> Void)? = nil
     ) {
         self.stdoutHandle = stdoutHandle
         self.stderrHandle = stderrHandle
         self.stdoutAccumulator = stdoutAccumulator
         self.stderrAccumulator = stderrAccumulator
+        self.onEvent = onEvent
     }
 
     func start() {
@@ -153,8 +171,8 @@ private final class ProcessPipeDrain: @unchecked Sendable {
         started = true
         lock.unlock()
 
-        startReader(handle: stdoutHandle, accumulator: stdoutAccumulator)
-        startReader(handle: stderrHandle, accumulator: stderrAccumulator)
+        startReader(handle: stdoutHandle, accumulator: stdoutAccumulator, stream: .stdout)
+        startReader(handle: stderrHandle, accumulator: stderrAccumulator, stream: .stderr)
     }
 
     func waitUntilFinished() {
@@ -168,15 +186,29 @@ private final class ProcessPipeDrain: @unchecked Sendable {
 
     private func startReader(
         handle: FileHandle,
-        accumulator: ProcessOutputAccumulator
+        accumulator: ProcessOutputAccumulator,
+        stream: NativeProcessEvent.Stream
     ) {
         group.enter()
         DispatchQueue.global(qos: .utility).async {
             defer { self.group.leave() }
+            var framer = ProcessOutputLineFramer()
             while true {
-                let chunk = handle.readData(ofLength: 64 * 1024)
+                // availableData delivers sparse interactive output without waiting
+                // for a fixed-size buffer to fill or the process to exit.
+                let chunk = handle.availableData
                 if chunk.isEmpty { break }
                 accumulator.append(chunk)
+                if let onEvent = self.onEvent {
+                    for line in framer.append(chunk) where !line.isEmpty {
+                        onEvent(.output(stream: stream, line: line))
+                    }
+                }
+            }
+            if let onEvent = self.onEvent {
+                for line in framer.finish() where !line.isEmpty {
+                    onEvent(.output(stream: stream, line: line))
+                }
             }
         }
     }
@@ -902,8 +934,10 @@ public actor NativeToolRunner {
         environment: [String: String]? = nil,
         timeout: TimeInterval? = nil,
         toolName: String? = nil,
-        maxStderrBytes: Int? = nil
+        maxStderrBytes: Int? = nil,
+        onEvent: (@Sendable (NativeProcessEvent) -> Void)? = nil
     ) async throws -> NativeToolResult {
+        let onEvent = onEvent ?? NativeProcessObservation.onEvent
         let name = toolName ?? executableURL.lastPathComponent
         let actualTimeout = timeout ?? defaultTimeout
         let cancellationState = ProcessCancellationState()
@@ -940,7 +974,8 @@ public actor NativeToolRunner {
                     stdoutHandle: stdoutHandle,
                     stderrHandle: stderrHandle,
                     stdoutAccumulator: stdoutAccumulator,
-                    stderrAccumulator: stderrAccumulator
+                    stderrAccumulator: stderrAccumulator,
+                    onEvent: onEvent
                 )
                 let logger = self.logger
 
@@ -1012,6 +1047,7 @@ public actor NativeToolRunner {
                         throw CancellationError()
                     }
                     try processLauncher(process)
+                    onEvent?(.started(argv: [executableURL.path] + arguments))
                     pipeDrain.start()
                     // Cancellation can arrive before Process.run assigns a PID.
                     // Reapply it now that the newly launched child can be stopped.

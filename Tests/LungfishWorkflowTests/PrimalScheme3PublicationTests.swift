@@ -137,17 +137,24 @@ final class PrimalScheme3PublicationTests: XCTestCase {
         XCTFail("Recovery must prepare the managed runtime before execution")
         throw ManagedRuntimeUnavailable()
       },
-      runtimePreparer: { _ in throw ManagedRuntimeUnavailable() })
+      runtimePreparer: { _ in
+        NativeProcessObservation.onEvent?(.output(stream: .stdout, line: "Preparing runtime"))
+        throw ManagedRuntimeUnavailable()
+      })
     let managedRequest = PrimalScheme3DesignRequest(
       inputURLs: original.inputURLs, destinationURL: original.destinationURL,
       options: options, grouping: original.grouping, invocation: original.invocation,
       executableURL: nil, expectedInputChecksums: original.expectedInputChecksums)
+    let observed = expectation(description: "Native observer survives detached worker")
     do {
-      _ = try await pipeline.run(request: managedRequest)
+      _ = try await NativeProcessObservation.$onEvent.withValue({ event in
+        if case .output(_, "Preparing runtime") = event { observed.fulfill() }
+      }) { try await pipeline.run(request: managedRequest) }
       XCTFail("Expected the managed runtime fixture to fail")
     } catch {
       XCTAssertEqual(error.localizedDescription, "managed runtime fixture")
     }
+    await fulfillment(of: [observed], timeout: 1)
     XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.destination.path))
   }
 

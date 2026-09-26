@@ -29,6 +29,37 @@ final class NativeToolRunnerTests: XCTestCase {
             "Cancellation before PID assignment must be reapplied after launch")
     }
 
+    func testNativeOutputStreamsBeforeProcessExitAndRetainsCompleteOutput() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let gate = root.appendingPathComponent("continue")
+        let finished = root.appendingPathComponent("finished")
+        let firstOutput = expectation(description: "stdout arrives before releasing process")
+        let firstError = expectation(description: "stderr arrives before releasing process")
+        let runner = NativeToolRunner()
+        let task = Task {
+            try await NativeProcessObservation.$onEvent.withValue({ event in
+                if case .output(let stream, let line) = event {
+                    if stream == .stdout, line == "first output" { firstOutput.fulfill() }
+                    if stream == .stderr, line == "first error" { firstError.fulfill() }
+                }
+            }) {
+                try await runner.runProcess(
+                    executableURL: URL(fileURLWithPath: "/bin/sh"),
+                    arguments: ["-c", "printf 'first output\\n'; printf 'first error\\n' >&2; while [ ! -f \"$1\" ]; do sleep 0.01; done; printf 'final tail'; touch \"$2\"", "test", gate.path, finished.path],
+                    timeout: 10)
+            }
+        }
+        await fulfillment(of: [firstOutput, firstError], timeout: 2)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: finished.path), "Callbacks must run while the tool is still working")
+        try Data().write(to: gate)
+        let result = try await task.value
+        XCTAssertEqual(result.exitCode, 0)
+        XCTAssertEqual(result.stdout, "first output\nfinal tail")
+        XCTAssertEqual(result.stderr, "first error\n")
+    }
+
     // MARK: - Tool Discovery Tests
 
     func testToolsDirectoryDiscoveryIsOnlyRequiredWhenBundledToolsRemain() async {

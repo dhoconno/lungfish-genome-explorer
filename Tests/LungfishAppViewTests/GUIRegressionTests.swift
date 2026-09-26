@@ -883,7 +883,7 @@ final class OperationsPanelTests: XCTestCase {
     }
 
     @MainActor
-    func testOperationsPanelDisplaysOutputFileExpansionSection() throws {
+    func testOperationsPanelKeepsOutputActionsAvailableWithoutDetailsCheckbox() throws {
         _ = NSApplication.shared
         OperationCenter.shared.cancelAll()
         OperationCenter.shared.clearCompleted()
@@ -907,14 +907,7 @@ final class OperationsPanelTests: XCTestCase {
         }
 
         let inspector = try selectOperation(operationID, in: controller)
-        let details = try XCTUnwrap(
-            inspector.firstSubview(withAccessibilityIdentifier: "operations-inspector-details-toggle") as? NSButton
-        )
-        details.performClick(nil)
-        let text = try XCTUnwrap(
-            inspector.firstSubview(withAccessibilityIdentifier: "operations-inspector-details-text") as? NSTextView
-        )
-        XCTAssertTrue(text.string.contains(outputURL.path))
+        XCTAssertNil(inspector.firstSubview(withAccessibilityIdentifier: "operations-inspector-details-toggle"))
         let actions = try XCTUnwrap(
             inspector.firstSubview(withAccessibilityIdentifier: "operations-inspector-actions") as? NSPopUpButton
         )
@@ -996,6 +989,10 @@ final class OperationsPanelTests: XCTestCase {
         drainOperationsPanelRunLoop(window)
         let row = try XCTUnwrap(OperationCenter.shared.items.firstIndex { $0.id == operationID })
         tableView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+        drainOperationsPanelRunLoop(window)
+        let cell = try XCTUnwrap(tableView.view(atColumn: 0, row: row, makeIfNecessary: true))
+        let logButton = try XCTUnwrap(cell.viewWithTag(102) as? NSButton)
+        logButton.performClick(nil)
         drainOperationsPanelRunLoop(window)
         return try XCTUnwrap(window.contentView?.firstSubview(withAccessibilityIdentifier: "operations-log-inspector"))
     }

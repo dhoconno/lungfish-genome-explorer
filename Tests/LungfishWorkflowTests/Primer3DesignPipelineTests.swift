@@ -23,9 +23,18 @@ final class Primer3DesignPipelineTests: XCTestCase {
         let pipeline = Primer3DesignPipeline(runner: { _ in
             XCTFail("Preparation failure must prevent execution")
             throw CancellationError()
-        }, runtimePreparer: { _ in throw PrimerDesignManagedRuntime.Unavailable(message: "Runtime preparation failed") })
-        do { _ = try await pipeline.run(request: request); XCTFail("Expected preparation failure") }
-        catch { XCTAssertEqual(error.localizedDescription, "Runtime preparation failed") }
+        }, runtimePreparer: { _ in
+            NativeProcessObservation.onEvent?(.output(stream: .stdout, line: "Preparing runtime"))
+            throw PrimerDesignManagedRuntime.Unavailable(message: "Runtime preparation failed")
+        })
+        let observed = expectation(description: "Native observer survives detached worker")
+        do {
+            _ = try await NativeProcessObservation.$onEvent.withValue({ event in
+                if case .output(_, "Preparing runtime") = event { observed.fulfill() }
+            }) { try await pipeline.run(request: request) }
+            XCTFail("Expected preparation failure")
+        } catch { XCTAssertEqual(error.localizedDescription, "Runtime preparation failed") }
+        await fulfillment(of: [observed], timeout: 1)
         XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: root.path), [])
     }
 

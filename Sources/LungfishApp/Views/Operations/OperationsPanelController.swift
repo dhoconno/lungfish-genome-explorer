@@ -25,7 +25,7 @@ final class OperationsPanelController: NSWindowController {
         window.level = .normal
         window.isReleasedWhenClosed = false
         window.isRestorable = false
-        window.minSize = NSSize(width: 620, height: 530)
+        window.minSize = NSSize(width: 700, height: 530)
         window.center()
 
         super.init(window: window)
@@ -63,6 +63,8 @@ final class OperationsPanelViewController: NSViewController, NSTableViewDataSour
     private nonisolated(unsafe) var elapsedRefreshTimer: Timer?
 
     private var items: [OperationCenter.Item] = []
+    private var drawerIsOpen = false
+    private var drawerHeight: CGFloat = 349
     private var pendingRowReloadIDs: Set<UUID> = []
     private var pendingRowReloadTask: Task<Void, Never>?
 
@@ -105,6 +107,8 @@ final class OperationsPanelViewController: NSViewController, NSTableViewDataSour
         splitView.delegate = self
         splitView.addArrangedSubview(scrollView)
         splitView.addArrangedSubview(inspector)
+        inspector.isHidden = true
+        inspector.onClose = { [weak self] in self?.setDrawerOpen(false) }
         footerView.translatesAutoresizingMaskIntoConstraints = false
         container.addSubview(splitView)
         container.addSubview(footerView)
@@ -153,9 +157,12 @@ final class OperationsPanelViewController: NSViewController, NSTableViewDataSour
     }
 
     func splitView(_ splitView: NSSplitView, resizeSubviewsWithOldSize oldSize: NSSize) {
+        guard drawerIsOpen else {
+            scrollView.frame = splitView.bounds
+            return
+        }
         let available = max(0, splitView.bounds.height - splitView.dividerThickness)
-        let ratio = oldSize.height > 0 ? inspector.frame.height / oldSize.height : 0.57
-        let height = min(max(330, available * ratio), max(0, available - 100))
+        let height = min(max(330, drawerHeight), max(0, available - 100))
         let listHeight = available - height
         scrollView.frame = NSRect(x: 0, y: 0, width: splitView.bounds.width, height: listHeight)
         inspector.frame = NSRect(x: 0, y: listHeight + splitView.dividerThickness,
@@ -170,8 +177,22 @@ final class OperationsPanelViewController: NSViewController, NSTableViewDataSour
         max(100, splitView.bounds.height - 330)
     }
 
+    func splitViewDidResizeSubviews(_ notification: Notification) {
+        if drawerIsOpen { drawerHeight = inspector.frame.height }
+    }
+
+    private func setDrawerOpen(_ open: Bool) {
+        drawerIsOpen = open
+        inspector.isHidden = !open
+        splitView.adjustSubviews()
+        if open, tableView.selectedRow >= 0 { tableView.scrollRowToVisible(tableView.selectedRow) }
+        refreshInspector()
+        tableView.reloadData(forRowIndexes: IndexSet(integersIn: 0..<items.count), columnIndexes: IndexSet(integer: 0))
+    }
+
     func tableViewSelectionDidChange(_ notification: Notification) {
         refreshInspector()
+        tableView.reloadData(forRowIndexes: IndexSet(integersIn: 0..<items.count), columnIndexes: IndexSet(integer: 0))
     }
 
     private func refreshInspector() {
@@ -417,9 +438,9 @@ final class OperationsPanelViewController: NSViewController, NSTableViewDataSour
 
         let actionColumn = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("action"))
         actionColumn.title = ""
-        actionColumn.width = 60
-        actionColumn.minWidth = 60
-        actionColumn.maxWidth = 60
+        actionColumn.width = 82
+        actionColumn.minWidth = 82
+        actionColumn.maxWidth = 82
         tableView.addTableColumn(actionColumn)
 
         tableView.columnAutoresizingStyle = .noColumnAutoresizing
@@ -438,6 +459,8 @@ final class OperationsPanelViewController: NSViewController, NSTableViewDataSour
 
         scrollView.documentView = tableView
         scrollView.hasVerticalScroller = true
+        scrollView.hasHorizontalScroller = true
+        scrollView.autohidesScrollers = true
         scrollView.setAccessibilityIdentifier("operations-scroll-view")
     }
 
@@ -464,8 +487,23 @@ final class OperationsPanelViewController: NSViewController, NSTableViewDataSour
     @objc private func toggleDetailExpansion(_ sender: NSButton) {
         let row = tableView.row(for: sender)
         guard row >= 0, row < items.count else { return }
+        let close = drawerIsOpen && tableView.selectedRow == row
         tableView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
-        refreshInspector()
+        setDrawerOpen(!close)
+    }
+
+    @objc private func showResults(_ sender: NSButton) {
+        let row = tableView.row(for: sender)
+        guard items.indices.contains(row) else { return }
+        let item = items[row]
+        Task { @MainActor [weak self] in
+            guard !(await OperationResultNavigation.navigate(to: item)) else { return }
+            guard let window = self?.view.window else { return }
+            let alert = NSAlert()
+            alert.messageText = "Unable to show results"
+            alert.informativeText = "Open the operation’s project in the main viewer and make sure its result files are still available."
+            await alert.beginSheetModal(for: window)
+        }
     }
 
     @objc private func cancelItem(_ sender: NSButton) {
@@ -637,14 +675,14 @@ final class OperationsPanelViewController: NSViewController, NSTableViewDataSour
             let label: NSTextField = cell.viewWithTag(200) as? NSTextField ?? {
                 let label = NSTextField(wrappingLabelWithString: "")
                 label.tag = 200
-                label.font = .systemFont(ofSize: 12)
+                label.font = .systemFont(ofSize: 13)
                 label.maximumNumberOfLines = 2
                 label.translatesAutoresizingMaskIntoConstraints = false
                 cell.addSubview(label)
                 NSLayoutConstraint.activate([
-                    label.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 4),
+                    label.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 23),
                     label.trailingAnchor.constraint(equalTo: cell.trailingAnchor, constant: -4),
-                    label.topAnchor.constraint(equalTo: cell.topAnchor, constant: 8),
+                    label.topAnchor.constraint(equalTo: cell.topAnchor, constant: 6),
                 ])
                 return label
             }()
@@ -655,7 +693,24 @@ final class OperationsPanelViewController: NSViewController, NSTableViewDataSour
                 label.toolTip = "\(item.displayProgressLabel) · \(evidence.phase) · \(evidence.basis)"
             } else { label.toolTip = item.displayProgressLabel }
             label.setAccessibilityHelp(label.toolTip)
-            label.textColor = item.state == .failed ? .lungfishDanger : item.hasWarnings ? .systemOrange : .labelColor
+            let status = Self.statusAppearance(for: item)
+            label.textColor = .labelColor
+            let symbol: NSImageView = cell.viewWithTag(201) as? NSImageView ?? {
+                let symbol = NSImageView()
+                symbol.tag = 201
+                symbol.translatesAutoresizingMaskIntoConstraints = false
+                cell.addSubview(symbol)
+                NSLayoutConstraint.activate([
+                    symbol.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 4),
+                    symbol.topAnchor.constraint(equalTo: cell.topAnchor, constant: 8),
+                    symbol.widthAnchor.constraint(equalToConstant: 13),
+                    symbol.heightAnchor.constraint(equalToConstant: 13),
+                ])
+                symbol.setAccessibilityElement(false)
+                return symbol
+            }()
+            symbol.image = NSImage(systemSymbolName: status.symbol, accessibilityDescription: nil)
+            symbol.contentTintColor = status.color
             let bar: NSProgressIndicator = cell.subviews.compactMap { $0 as? NSProgressIndicator }.first ?? {
                 let bar = NSProgressIndicator()
                 bar.style = .bar
@@ -682,14 +737,14 @@ final class OperationsPanelViewController: NSViewController, NSTableViewDataSour
             let label: NSTextField = cell.viewWithTag(400) as? NSTextField ?? {
                 let label = NSTextField(wrappingLabelWithString: "")
                 label.tag = 400
-                label.font = .monospacedDigitSystemFont(ofSize: 11, weight: .regular)
+                label.font = .systemFont(ofSize: 13)
                 label.maximumNumberOfLines = 3
                 label.translatesAutoresizingMaskIntoConstraints = false
                 cell.addSubview(label)
                 NSLayoutConstraint.activate([
                     label.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 4),
                     label.trailingAnchor.constraint(equalTo: cell.trailingAnchor, constant: -4),
-                    label.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
+                    label.topAnchor.constraint(equalTo: cell.topAnchor, constant: 6),
                 ])
                 return label
             }()
@@ -706,6 +761,26 @@ final class OperationsPanelViewController: NSViewController, NSTableViewDataSour
 
         case "action":
             let cell = reuseOrCreate(identifier: identifier, in: tableView)
+            let resultsButton = cell.viewWithTag(302) as? NSButton ?? {
+                let button = NSButton(title: "Results", target: self, action: #selector(showResults(_:)))
+                button.tag = 302
+                button.bezelStyle = .rounded
+                button.controlSize = .small
+                button.font = .systemFont(ofSize: 11)
+                button.translatesAutoresizingMaskIntoConstraints = false
+                cell.addSubview(button)
+                NSLayoutConstraint.activate([
+                    button.centerXAnchor.constraint(equalTo: cell.centerXAnchor),
+                    button.topAnchor.constraint(equalTo: cell.topAnchor, constant: 4),
+                ])
+                return button
+            }()
+            resultsButton.isEnabled = OperationResultNavigation.canNavigate(to: item)
+            resultsButton.setAccessibilityIdentifier("operations-results-\(item.id)")
+            resultsButton.setAccessibilityLabel("Show results for \(item.title)")
+            resultsButton.toolTip = resultsButton.isEnabled
+                ? "Show this operation’s results in the main viewer"
+                : "Results become available when the operation saves a viewable result"
             let cancelButton = cell.viewWithTag(300) as? NSButton ?? {
                 let btn = NSButton(title: "Cancel", target: self, action: #selector(cancelItem(_:)))
                 btn.tag = 300
@@ -717,7 +792,7 @@ final class OperationsPanelViewController: NSViewController, NSTableViewDataSour
                 cell.addSubview(btn)
                 NSLayoutConstraint.activate([
                     btn.centerXAnchor.constraint(equalTo: cell.centerXAnchor),
-                    btn.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
+                    btn.topAnchor.constraint(equalTo: cell.topAnchor, constant: 30),
                 ])
                 return btn
             }()
@@ -734,7 +809,7 @@ final class OperationsPanelViewController: NSViewController, NSTableViewDataSour
                 cell.addSubview(btn)
                 NSLayoutConstraint.activate([
                     btn.centerXAnchor.constraint(equalTo: cell.centerXAnchor),
-                    btn.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
+                    btn.topAnchor.constraint(equalTo: cell.topAnchor, constant: 30),
                 ])
                 return btn
             }()
@@ -769,7 +844,7 @@ final class OperationsPanelViewController: NSViewController, NSTableViewDataSour
         in tableView: NSTableView
     ) -> NSTableCellView {
         let cell = reuseOrCreate(identifier: identifier, in: tableView)
-        let title = rowLabel(in: cell, tag: 100, top: 3, size: 12, weight: .medium)
+        let title = rowLabel(in: cell, tag: 100, top: 6, size: 13)
         title.stringValue = item.title
         title.toolTip = "\(item.operationType.rawValue): \(item.title)"
         title.setAccessibilityIdentifier("operations-title-\(accessibilitySlug(for: item.title))")
@@ -784,22 +859,25 @@ final class OperationsPanelViewController: NSViewController, NSTableViewDataSour
         latest.toolTip = item.latestLogEntry?.message
         latest.setAccessibilityIdentifier("operations-latest-\(item.id)")
         let button: NSButton = cell.viewWithTag(102) as? NSButton ?? {
-            let button = NSButton(title: "›", target: self, action: #selector(toggleDetailExpansion(_:)))
+            let button = NSButton(title: "Log", target: self, action: #selector(toggleDetailExpansion(_:)))
             button.tag = 102
-            button.isBordered = false
-            button.font = .systemFont(ofSize: 16)
+            button.bezelStyle = .rounded
+            button.controlSize = .small
+            button.font = .systemFont(ofSize: 11)
             button.translatesAutoresizingMaskIntoConstraints = false
             cell.addSubview(button)
             NSLayoutConstraint.activate([
                 button.trailingAnchor.constraint(equalTo: cell.trailingAnchor, constant: -3),
-                button.topAnchor.constraint(equalTo: cell.topAnchor, constant: 2),
-                button.widthAnchor.constraint(equalToConstant: 18),
+                button.topAnchor.constraint(equalTo: cell.topAnchor, constant: 4),
+                button.widthAnchor.constraint(equalToConstant: 70),
             ])
             return button
         }()
         button.setAccessibilityIdentifier("operations-detail-toggle-\(item.id.uuidString)")
-        button.setAccessibilityLabel("Inspect \(item.title)")
-        button.toolTip = "Select this operation to read its log and diagnostics below."
+        let isOpen = drawerIsOpen && items.indices.contains(tableView.selectedRow) && items[tableView.selectedRow].id == item.id
+        button.title = isOpen ? "Hide Log" : "Log"
+        button.setAccessibilityLabel("\(isOpen ? "Hide" : "Show") log for \(item.title)")
+        button.toolTip = isOpen ? "Close the log drawer" : "Open the log drawer for this operation"
         return cell
     }
 
@@ -813,7 +891,7 @@ final class OperationsPanelViewController: NSViewController, NSTableViewDataSour
         cell.addSubview(label)
         NSLayoutConstraint.activate([
             label.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 4),
-            label.trailingAnchor.constraint(equalTo: cell.trailingAnchor, constant: -22),
+            label.trailingAnchor.constraint(equalTo: cell.trailingAnchor, constant: tag == 100 ? -78 : -4),
             label.topAnchor.constraint(equalTo: cell.topAnchor, constant: top),
         ])
         return label
@@ -822,6 +900,17 @@ final class OperationsPanelViewController: NSViewController, NSTableViewDataSour
     private func accessibilitySlug(for value: String) -> String {
         value.lowercased().components(separatedBy: CharacterSet.alphanumerics.inverted)
             .filter { !$0.isEmpty }.joined(separator: "-")
+    }
+
+    static func statusAppearance(for item: OperationCenter.Item) -> (color: NSColor, symbol: String) {
+        switch item.state {
+        case .completed:
+            return item.hasWarnings ? (.systemOrange, "exclamationmark.triangle.fill") : (.systemGreen, "checkmark.circle.fill")
+        case .failed: return (.systemRed, "xmark.circle.fill")
+        case .running: return (.systemBlue, "arrow.trianglehead.2.clockwise.rotate.90")
+        case .cancelling: return (.systemOrange, "stop.circle")
+        case .cancelled: return (.secondaryLabelColor, "stop.circle.fill")
+        }
     }
 
     // MARK: - Cell Reuse

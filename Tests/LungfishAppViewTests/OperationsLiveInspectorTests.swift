@@ -10,7 +10,7 @@ final class OperationsLiveInspectorTests: XCTestCase {
         return root.subviews.compactMap { find($0, identifier, as: type) }.first
     }
 
-    private func panel() throws -> (OperationsPanelController, NSView, NSTableView) {
+    private func panel(id: UUID) throws -> (OperationsPanelController, NSView, NSTableView) {
         _ = NSApplication.shared
         let controller = OperationsPanelController()
         let window = try XCTUnwrap(controller.window)
@@ -18,7 +18,13 @@ final class OperationsLiveInspectorTests: XCTestCase {
         let view = try XCTUnwrap(window.contentViewController?.view)
         view.layoutSubtreeIfNeeded()
         let table = try XCTUnwrap(find(view, "operations-table", as: NSTableView.self))
-        table.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false)
+        let row = try XCTUnwrap(OperationCenter.shared.items.firstIndex { $0.id == id })
+        table.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+        let titleColumn = try XCTUnwrap(table.tableColumns.firstIndex { $0.identifier.rawValue == "title" })
+        let titleCell = try XCTUnwrap(table.view(atColumn: titleColumn, row: row, makeIfNecessary: true))
+        let logButton = try XCTUnwrap(titleCell.viewWithTag(102) as? NSButton)
+        logButton.performClick(nil)
+        view.layoutSubtreeIfNeeded()
         return (controller, view, table)
     }
 
@@ -28,17 +34,21 @@ final class OperationsLiveInspectorTests: XCTestCase {
             _ = OperationCenter.shared.complete(id: id, detail: "Done")
             OperationCenter.shared.clearItem(id: id)
         }
-        let (controller, view, table) = try panel()
+        let (controller, view, table) = try panel(id: id)
         defer { controller.close() }
         var observedDuringStream = false
+        var observedInLogDuringStream = false
         for index in 0..<20 {
             OperationCenter.shared.log(id: id, level: .info, message: "Live output \(index)")
             try await Task.sleep(for: .milliseconds(30))
             view.layoutSubtreeIfNeeded()
             if let header = find(view, "operations-inspector-latest", as: NSTextField.self),
                header.stringValue.contains("Live output") { observedDuringStream = true }
+            if let log = find(view, "operations-inspector-log-text", as: NSTextView.self),
+               log.string.contains("Live output \(index)") { observedInLogDuringStream = true }
         }
         XCTAssertTrue(observedDuringStream, "A continuing stream must not restart the refresh deadline")
+        XCTAssertTrue(observedInLogDuringStream, "The open log must update while the operation is still producing output")
         XCTAssertNil(table.tableColumn(withIdentifier: .init("eta")))
         XCTAssertEqual(table.tableColumn(withIdentifier: .init("elapsed"))?.title, "Time")
         let progressColumn = try XCTUnwrap(table.tableColumns.firstIndex { $0.identifier.rawValue == "progress" })
@@ -60,7 +70,7 @@ final class OperationsLiveInspectorTests: XCTestCase {
             }
         }
         for index in 0..<120 { OperationCenter.shared.log(id: id, level: .info, message: "Earlier output \(index)") }
-        let (controller, view, table) = try panel()
+        let (controller, view, table) = try panel(id: id)
         defer { controller.close() }
         try await Task.sleep(for: .milliseconds(200))
         let text = try XCTUnwrap(find(view, "operations-inspector-log-text", as: NSTextView.self))
@@ -77,6 +87,8 @@ final class OperationsLiveInspectorTests: XCTestCase {
         XCTAssertEqual(scroll.contentView.bounds.minY, 0, accuracy: 1)
         let jump = try XCTUnwrap(find(view, "operations-inspector-jump-latest", as: NSButton.self))
         XCTAssertTrue(jump.title.contains("1 new"))
+        let follow = try XCTUnwrap(find(view, "operations-inspector-follow-latest", as: NSButton.self))
+        XCTAssertEqual(follow.title, "Log paused")
         let latest = try XCTUnwrap(find(view, "operations-inspector-latest", as: NSTextField.self))
         XCTAssertTrue(latest.stringValue.contains("New output while reading"))
         table.selectRowIndexes(IndexSet(integer: 1), byExtendingSelection: false)
@@ -84,6 +96,7 @@ final class OperationsLiveInspectorTests: XCTestCase {
         XCTAssertEqual(text.selectedRange(), selection)
         XCTAssertEqual(scroll.contentView.bounds.minY, 0, accuracy: 1)
         jump.performClick(nil)
+        XCTAssertEqual(follow.title, "Follow latest")
         XCTAssertEqual(text.selectedRange().length, 0)
         XCTAssertGreaterThan(scroll.contentView.bounds.minY, 0)
         OperationCenter.shared.log(id: id, level: .info, message: "Following again")
@@ -91,27 +104,24 @@ final class OperationsLiveInspectorTests: XCTestCase {
         XCTAssertTrue(text.string.contains("Following again"))
         XCTAssertFalse(jump.title.contains("new"))
     }
-    func testUserScrollPausesButResizeAndDetailsKeepFollowing() async throws {
+    func testUserScrollPausesButResizeKeepsFollowing() async throws {
         let id = OperationCenter.shared.start(title: "Resize fixture", detail: "Graph construction", operationType: .assembly)
         defer {
             _ = OperationCenter.shared.complete(id: id, detail: "Done")
             OperationCenter.shared.clearItem(id: id)
         }
         for index in 0..<120 { OperationCenter.shared.log(id: id, level: .info, message: "Graph output \(index)") }
-        let (controller, view, _) = try panel()
+        let (controller, view, _) = try panel(id: id)
         defer { controller.close() }
         try await Task.sleep(for: .milliseconds(200))
         let window = try XCTUnwrap(controller.window)
         let follow = try XCTUnwrap(find(view, "operations-inspector-follow-latest", as: NSButton.self))
         let text = try XCTUnwrap(find(view, "operations-inspector-log-text", as: NSTextView.self))
         let scroll = try XCTUnwrap(text.enclosingScrollView)
-        let details = try XCTUnwrap(find(view, "operations-inspector-details-toggle", as: NSButton.self))
         XCTAssertEqual(follow.state, .on)
         window.setFrame(NSRect(origin: window.frame.origin, size: window.minSize), display: false)
         view.layoutSubtreeIfNeeded()
-        details.performClick(nil)
-        view.layoutSubtreeIfNeeded()
-        XCTAssertEqual(follow.state, .on, "Window resize and details layout are not user log scrolling")
+        XCTAssertEqual(follow.state, .on, "Window resize is not user log scrolling")
         XCTAssertGreaterThanOrEqual(scroll.contentView.bounds.maxY, text.bounds.maxY - 3)
 
         // A live-scroll notification is emitted by AppKit for a user's scrollbar
@@ -142,13 +152,11 @@ final class OperationsLiveInspectorTests: XCTestCase {
         _ = OperationCenter.shared.fail(id: id, detail: "Assembler exited with status 1",
             errorMessage: "Assembly failed: insufficient memory to construct the graph.",
             errorDetail: "Tool stderr and the exact command remain available in this diagnostic snapshot.")
-        let (controller, view, _) = try panel()
+        let (controller, view, _) = try panel(id: id)
         defer { controller.close() }
         let window = try XCTUnwrap(controller.window)
         window.setFrame(NSRect(origin: window.frame.origin, size: window.minSize), display: false)
         view.layoutSubtreeIfNeeded()
-        let details = try XCTUnwrap(find(view, "operations-inspector-details-toggle", as: NSButton.self))
-        details.performClick(nil)
         try await Task.sleep(for: .milliseconds(100))
         view.layoutSubtreeIfNeeded()
         let inspector = try XCTUnwrap(find(view, "operations-log-inspector", as: NSView.self))
@@ -166,6 +174,68 @@ final class OperationsLiveInspectorTests: XCTestCase {
         view.cacheDisplay(in: view.bounds, to: bitmap)
         let png = try XCTUnwrap(bitmap.representation(using: .png, properties: [:]))
         try png.write(to: URL(fileURLWithPath: "/tmp/issue33-operations.png"))
+    }
+
+    func testDrawerShowsCommandSupportsTextSizingAndClosesFromInspector() throws {
+        let command = "lungfish-cli fastq orient --input /project/reads.fastq --output /project/oriented.fastq"
+        let id = OperationCenter.shared.start(
+            title: "Command fixture", detail: "Orienting reads", operationType: .fastqOperation,
+            cliCommand: command
+        )
+        defer {
+            _ = OperationCenter.shared.complete(id: id, detail: "Done")
+            OperationCenter.shared.clearItem(id: id)
+        }
+        let (controller, view, _) = try panel(id: id)
+        defer { controller.close() }
+
+        let commandText = try XCTUnwrap(find(view, "operations-inspector-command-text", as: NSTextView.self))
+        XCTAssertEqual(commandText.string, command)
+        XCTAssertTrue(commandText.isSelectable)
+        XCTAssertNil(find(view, "operations-inspector-details-toggle", as: NSButton.self))
+
+        let logText = try XCTUnwrap(find(view, "operations-inspector-log-text", as: NSTextView.self))
+        let originalSize = try XCTUnwrap(logText.font?.pointSize)
+        let larger = try XCTUnwrap(find(view, "operations-inspector-larger-text", as: NSButton.self))
+        let smaller = try XCTUnwrap(find(view, "operations-inspector-smaller-text", as: NSButton.self))
+        if larger.isEnabled {
+            larger.performClick(nil)
+            XCTAssertEqual(try XCTUnwrap(logText.font?.pointSize), originalSize + 1)
+            smaller.performClick(nil)
+        } else {
+            smaller.performClick(nil)
+            XCTAssertEqual(try XCTUnwrap(logText.font?.pointSize), originalSize - 1)
+            larger.performClick(nil)
+        }
+        XCTAssertEqual(try XCTUnwrap(logText.font?.pointSize), originalSize)
+
+        let inspector = try XCTUnwrap(find(view, "operations-log-inspector", as: NSView.self))
+        let close = try XCTUnwrap(find(view, "operations-inspector-close", as: NSButton.self))
+        close.performClick(nil)
+        XCTAssertTrue(inspector.isHidden)
+    }
+
+    func testTimestampIncludesDateOnlyAfterTwentyFourHours() throws {
+        let now = try XCTUnwrap(Calendar.current.date(from: DateComponents(
+            year: 2026, month: 9, day: 26, hour: 14, minute: 0
+        )))
+        let recent = try XCTUnwrap(Calendar.current.date(byAdding: .hour, value: -23, to: now))
+        let old = try XCTUnwrap(Calendar.current.date(byAdding: .hour, value: -25, to: now))
+        let recentText = OperationsLogInspector.timestamp(for: recent, at: now)
+        let oldText = OperationsLogInspector.timestamp(for: old, at: now)
+        XCTAssertFalse(recentText.contains("2026"))
+        XCTAssertTrue(oldText.contains("2026"))
+    }
+
+    func testEmptyInspectorCanStillClose() throws {
+        let inspector = OperationsLogInspector(frame: NSRect(x: 0, y: 0, width: 700, height: 330))
+        var didClose = false
+        inspector.onClose = { didClose = true }
+        inspector.display(nil)
+        let close = try XCTUnwrap(find(inspector, "operations-inspector-close", as: NSButton.self))
+        XCTAssertTrue(close.isEnabled)
+        close.performClick(nil)
+        XCTAssertTrue(didClose)
     }
 
 }

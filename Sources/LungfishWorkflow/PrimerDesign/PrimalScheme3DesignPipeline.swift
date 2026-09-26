@@ -315,8 +315,11 @@ public struct PrimalScheme3DesignPipeline: Sendable {
 
     public func run(request: PrimalScheme3DesignRequest,
                     progress: (@Sendable (Double, String) -> Void)? = nil) async throws -> URL {
+        let observer = NativeProcessObservation.onEvent
         let worker = Task.detached(priority: .userInitiated) {
-            try await runOffMain(request: request, progress: progress)
+            try await NativeProcessObservation.$onEvent.withValue(observer) {
+                try await runOffMain(request: request, progress: progress)
+            }
         }
         return try await withTaskCancellationHandler {
             try await worker.value

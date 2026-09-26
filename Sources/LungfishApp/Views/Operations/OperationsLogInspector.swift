@@ -5,6 +5,12 @@ import LungfishKit
 /// even when the operation's bounded log rotates underneath them.
 @MainActor
 final class OperationsLogInspector: NSView, NSTextViewDelegate {
+    private static let logFontSizeDefaultsKey = "OperationsCenter.logFontSize"
+    private static let minimumLogFontSize: CGFloat = 10
+    private static let maximumLogFontSize: CGFloat = 18
+
+    var onClose: (() -> Void)?
+
     private struct ReadingState {
         var followsLatest = true
         var renderedCount = -1
@@ -24,11 +30,14 @@ final class OperationsLogInspector: NSView, NSTextViewDelegate {
     private let titleField = NSTextField(labelWithString: "Select an operation to read its log")
     private let latestField = NSTextField(labelWithString: "No operation selected")
     private let failureField = NSTextField(wrappingLabelWithString: "")
-    private let detailsToggle = NSButton(checkboxWithTitle: "Details", target: nil, action: nil)
-    private let detailsScroll = NSScrollView()
-    private let detailsText = NSTextView()
+    private let closeButton = NSButton(title: "", target: nil, action: nil)
+    private let commandLabel = NSTextField(labelWithString: "Command")
+    private let commandScroll = NSScrollView()
+    private let commandText = NSTextView()
     private let followButton = NSButton(checkboxWithTitle: "Follow latest", target: nil, action: nil)
     private let jumpButton = NSButton(title: "Jump to latest", target: nil, action: nil)
+    private let smallerTextButton = NSButton(title: "A−", target: nil, action: nil)
+    private let largerTextButton = NSButton(title: "A+", target: nil, action: nil)
     private let actionsButton = NSPopUpButton(frame: .zero, pullsDown: true)
     private let logScroll = OperationsLogScrollView()
     private let logText = OperationsLogTextView()
@@ -49,23 +58,30 @@ final class OperationsLogInspector: NSView, NSTextViewDelegate {
             stack.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -8),
         ])
 
-        titleField.font = .systemFont(ofSize: 13, weight: .semibold)
+        titleField.font = .systemFont(ofSize: 13, weight: .regular)
         titleField.lineBreakMode = .byTruncatingTail
         titleField.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         titleField.setAccessibilityIdentifier("operations-inspector-title")
-        detailsToggle.target = self
-        detailsToggle.action = #selector(toggleDetails)
-        detailsToggle.setAccessibilityIdentifier("operations-inspector-details-toggle")
-        let titleRow = NSStackView(views: [titleField, detailsToggle])
+        closeButton.image = NSImage(systemSymbolName: "xmark", accessibilityDescription: "Close details")
+        closeButton.imagePosition = .imageOnly
+        closeButton.bezelStyle = .inline
+        closeButton.target = self
+        closeButton.action = #selector(closeInspector)
+        closeButton.toolTip = "Close operation details"
+        closeButton.setAccessibilityIdentifier("operations-inspector-close")
+        closeButton.setAccessibilityLabel("Close operation details")
+        let titleSpacer = NSView()
+        titleSpacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        let titleRow = NSStackView(views: [titleField, titleSpacer, closeButton])
         titleRow.distribution = .fill
         stack.addArrangedSubview(titleRow)
 
-        latestField.font = .systemFont(ofSize: 11)
+        latestField.font = .systemFont(ofSize: 13, weight: .regular)
         latestField.textColor = .secondaryLabelColor
         latestField.lineBreakMode = .byTruncatingTail
         latestField.setAccessibilityIdentifier("operations-inspector-latest")
         stack.addArrangedSubview(latestField)
-        failureField.font = .systemFont(ofSize: 12)
+        failureField.font = .systemFont(ofSize: 13, weight: .regular)
         failureField.textColor = .lungfishDanger
         failureField.maximumNumberOfLines = 2
         failureField.isSelectable = true
@@ -73,10 +89,13 @@ final class OperationsLogInspector: NSView, NSTextViewDelegate {
         failureField.setAccessibilityIdentifier("operations-inspector-failure")
         stack.addArrangedSubview(failureField)
 
-        configureText(detailsText, in: detailsScroll, identifier: "operations-inspector-details-text")
-        detailsScroll.isHidden = true
-        stack.addArrangedSubview(detailsScroll)
-        detailsScroll.heightAnchor.constraint(equalToConstant: 85).isActive = true
+        commandLabel.font = .systemFont(ofSize: 13, weight: .regular)
+        commandLabel.textColor = .secondaryLabelColor
+        stack.addArrangedSubview(commandLabel)
+        configureText(commandText, in: commandScroll, identifier: "operations-inspector-command-text", fontSize: 11)
+        commandText.setAccessibilityLabel("Actual command")
+        stack.addArrangedSubview(commandScroll)
+        commandScroll.heightAnchor.constraint(equalToConstant: 52).isActive = true
 
         followButton.target = self
         followButton.action = #selector(toggleFollowing)
@@ -86,15 +105,27 @@ final class OperationsLogInspector: NSView, NSTextViewDelegate {
         jumpButton.action = #selector(jumpToLatest)
         jumpButton.bezelStyle = .rounded
         jumpButton.setAccessibilityIdentifier("operations-inspector-jump-latest")
+        smallerTextButton.target = self
+        smallerTextButton.action = #selector(makeLogTextSmaller)
+        smallerTextButton.bezelStyle = .rounded
+        smallerTextButton.toolTip = "Decrease log text size"
+        smallerTextButton.setAccessibilityIdentifier("operations-inspector-smaller-text")
+        smallerTextButton.setAccessibilityLabel("Decrease log text size")
+        largerTextButton.target = self
+        largerTextButton.action = #selector(makeLogTextLarger)
+        largerTextButton.bezelStyle = .rounded
+        largerTextButton.toolTip = "Increase log text size"
+        largerTextButton.setAccessibilityIdentifier("operations-inspector-larger-text")
+        largerTextButton.setAccessibilityLabel("Increase log text size")
         actionsButton.setAccessibilityIdentifier("operations-inspector-actions")
         actionsButton.setAccessibilityLabel("Operation actions")
         let spacer = NSView()
         spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        let toolbar = NSStackView(views: [followButton, jumpButton, spacer, actionsButton])
+        let toolbar = NSStackView(views: [followButton, jumpButton, smallerTextButton, largerTextButton, spacer, actionsButton])
         toolbar.spacing = 8
         stack.addArrangedSubview(toolbar)
 
-        configureText(logText, in: logScroll, identifier: "operations-inspector-log-text")
+        configureText(logText, in: logScroll, identifier: "operations-inspector-log-text", fontSize: Self.savedLogFontSize)
         logText.delegate = self
         logScroll.onUserScroll = { [weak self] in self?.userScrolled() }
         logText.onUserNavigation = { [weak self] in self?.userScrolled() }
@@ -111,12 +142,6 @@ final class OperationsLogInspector: NSView, NSTextViewDelegate {
         }
         stack.addArrangedSubview(logScroll)
         logScroll.heightAnchor.constraint(greaterThanOrEqualToConstant: 70).isActive = true
-        let retention = NSTextField(labelWithString: "Captured preview · up to 2,000 entries. View Log exports this retained diagnostic snapshot.")
-        retention.font = .systemFont(ofSize: 10)
-        retention.textColor = .secondaryLabelColor
-        retention.lineBreakMode = .byTruncatingTail
-        retention.toolTip = retention.stringValue
-        stack.addArrangedSubview(retention)
         for child in stack.arrangedSubviews {
             child.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
         }
@@ -131,7 +156,12 @@ final class OperationsLogInspector: NSView, NSTextViewDelegate {
         if let liveScrollObserver { NotificationCenter.default.removeObserver(liveScrollObserver) }
     }
 
-    private func configureText(_ text: NSTextView, in scroll: NSScrollView, identifier: String) {
+    private static var savedLogFontSize: CGFloat {
+        let stored = UserDefaults.standard.double(forKey: logFontSizeDefaultsKey)
+        return stored == 0 ? 11 : min(maximumLogFontSize, max(minimumLogFontSize, stored))
+    }
+
+    private func configureText(_ text: NSTextView, in scroll: NSScrollView, identifier: String, fontSize: CGFloat) {
         scroll.hasVerticalScroller = true
         scroll.autohidesScrollers = true
         scroll.borderType = .bezelBorder
@@ -139,7 +169,7 @@ final class OperationsLogInspector: NSView, NSTextViewDelegate {
         text.isEditable = false
         text.isSelectable = true
         text.isRichText = false
-        text.font = .monospacedSystemFont(ofSize: 12, weight: .regular)
+        text.font = .monospacedSystemFont(ofSize: fontSize, weight: .regular)
         text.textContainerInset = NSSize(width: 6, height: 5)
         text.isVerticallyResizable = true
         text.isHorizontallyResizable = false
@@ -149,7 +179,7 @@ final class OperationsLogInspector: NSView, NSTextViewDelegate {
         text.textContainer?.widthTracksTextView = true
         text.textContainer?.containerSize = NSSize(width: 500, height: CGFloat.greatestFiniteMagnitude)
         text.setAccessibilityIdentifier(identifier)
-        text.setAccessibilityLabel(identifier == "operations-inspector-log-text" ? "Operation log preview" : "Operation diagnostics and command")
+        text.setAccessibilityLabel(identifier == "operations-inspector-log-text" ? "Operation log" : "Actual command")
         scroll.documentView = text
     }
 
@@ -177,8 +207,8 @@ final class OperationsLogInspector: NSView, NSTextViewDelegate {
             ? (newItem?.errorMessage ?? newItem?.detail ?? "Operation failed") : ""
         failureField.toolTip = newItem?.errorDetail ?? failureField.stringValue
         failureField.isHidden = failureField.stringValue.isEmpty
-        let diagnosticText = newItem.map(Self.diagnostics) ?? ""
-        if detailsText.string != diagnosticText { detailsText.string = diagnosticText }
+        let command = newItem?.cliCommand ?? "No command recorded for this operation."
+        if commandText.string != command { commandText.string = command }
         if let newItem {
             if reading.followsLatest {
                 renderLatest(newItem)
@@ -205,10 +235,15 @@ final class OperationsLogInspector: NSView, NSTextViewDelegate {
 
     static func latestLine(for item: OperationCenter.Item, at now: Date = Date()) -> String {
         guard let entry = item.latestLogEntry else { return "No captured log output yet" }
-        let timestamp = entry.timestamp.formatted(date: .omitted, time: .standard)
+        let timestamp = timestamp(for: entry.timestamp, at: now)
         let age = max(0, now.timeIntervalSince(entry.timestamp))
         let silence = item.state.isActive && age >= 10 ? " · no new output for \(formatElapsedTime(age))" : ""
         return "\(timestamp)\(silence) · \(entry.message.replacingOccurrences(of: "\n", with: " ").replacingOccurrences(of: "\r", with: " "))"
+    }
+
+    static func timestamp(for date: Date, at now: Date = Date()) -> String {
+        let age = max(0, now.timeIntervalSince(date))
+        return date.formatted(date: age > 24 * 60 * 60 ? .abbreviated : .omitted, time: .standard)
     }
 
     private func renderLatest(_ item: OperationCenter.Item) {
@@ -218,7 +253,7 @@ final class OperationsLogInspector: NSView, NSTextViewDelegate {
             return
         }
         reading.text = item.logEntries.map { entry in
-            let timestamp = entry.timestamp.formatted(date: .omitted, time: .standard)
+            let timestamp = Self.timestamp(for: entry.timestamp)
             return "[\(timestamp)] [\(entry.level.rawValue.uppercased())] \(entry.message)"
         }.joined(separator: "\n")
         reading.renderedCount = item.logEntryCount
@@ -277,7 +312,7 @@ final class OperationsLogInspector: NSView, NSTextViewDelegate {
 
     private func saveViewportAfterBoundsChange() {
         guard !changingView, item != nil else { return }
-        // Resizing the window, opening Details, and text layout also change
+        // Resizing the window and text layout also change
         // bounds. Those changes are not evidence of a user's intent to pause.
         saveReadingPosition()
     }
@@ -304,12 +339,21 @@ final class OperationsLogInspector: NSView, NSTextViewDelegate {
         let enabled = item != nil
         followButton.isEnabled = enabled
         jumpButton.isEnabled = enabled
-        detailsToggle.isEnabled = enabled
+        closeButton.isEnabled = true
         actionsButton.isEnabled = enabled
+        smallerTextButton.isEnabled = enabled && (logText.font?.pointSize ?? 11) > Self.minimumLogFontSize
+        largerTextButton.isEnabled = enabled && (logText.font?.pointSize ?? 11) < Self.maximumLogFontSize
         followButton.state = reading.followsLatest ? .on : .off
+        followButton.title = reading.followsLatest ? "Follow latest" : "Log paused"
+        followButton.toolTip = reading.followsLatest
+            ? "The log follows new output as it arrives"
+            : "Only the log view is paused; this does not pause the operation. Select to resume live log output."
+        followButton.setAccessibilityLabel(reading.followsLatest
+            ? "Following latest log output"
+            : "Log updates paused; select to resume")
         let pending = max(0, (item?.logEntryCount ?? 0) - max(0, reading.renderedCount))
         jumpButton.title = !reading.followsLatest && pending > 0
-            ? "Jump to latest (\(pending) new)" : "Jump to latest"
+            ? "Resume live log (\(pending) new)" : (reading.followsLatest ? "Jump to latest" : "Resume live log")
         jumpButton.setAccessibilityLabel(jumpButton.title)
     }
 
@@ -329,23 +373,79 @@ final class OperationsLogInspector: NSView, NSTextViewDelegate {
         changingView = false
     }
 
-    @objc private func toggleDetails() {
-        changingView = true
-        detailsScroll.isHidden = detailsToggle.state != .on
-        layoutSubtreeIfNeeded()
-        if reading.followsLatest { scrollToEnd() }
-        changingView = false
+    @objc private func closeInspector() {
+        onClose?()
     }
 
-    private static func diagnostics(_ item: OperationCenter.Item) -> String {
-        var lines = [item.detail]
-        if let command = item.cliCommand { lines += ["", "CLI Command", command] }
-        let outputs = item.outputURLs + item.bundleURLs
-        if !outputs.isEmpty { lines += ["", "Output Files"] + outputs.map(\.path) }
-        if let message = item.errorMessage { lines += ["", "Error", message] }
-        if let detail = item.errorDetail { lines += ["", "Error Detail", detail] }
-        if let report = item.failureReportURL { lines += ["", "Failure Report", report.path] }
-        return lines.joined(separator: "\n")
+    @objc private func makeLogTextSmaller() {
+        setLogFontSize((logText.font?.pointSize ?? Self.savedLogFontSize) - 1)
+    }
+
+    @objc private func makeLogTextLarger() {
+        setLogFontSize((logText.font?.pointSize ?? Self.savedLogFontSize) + 1)
+    }
+
+    private func setLogFontSize(_ requestedSize: CGFloat) {
+        let size = min(Self.maximumLogFontSize, max(Self.minimumLogFontSize, requestedSize))
+        changingView = true
+        saveReadingPosition()
+        let pausedAnchor = reading.followsLatest ? nil : visibleTextAnchor()
+        logText.font = .monospacedSystemFont(ofSize: size, weight: .regular)
+        UserDefaults.standard.set(Double(size), forKey: Self.logFontSizeDefaultsKey)
+        layoutSubtreeIfNeeded()
+        if reading.followsLatest {
+            scrollToEnd()
+        } else if let pausedAnchor {
+            restoreVisibleTextAnchor(pausedAnchor)
+        } else {
+            restoreReadingPosition()
+        }
+        changingView = false
+        updateControls()
+    }
+
+    private struct VisibleTextAnchor {
+        let characterIndex: Int
+        let offsetFromLineTop: CGFloat
+        let horizontalOrigin: CGFloat
+    }
+
+    private func visibleTextAnchor() -> VisibleTextAnchor? {
+        guard let layoutManager = logText.layoutManager,
+              let textContainer = logText.textContainer,
+              !logText.string.isEmpty else { return nil }
+        layoutManager.ensureLayout(for: textContainer)
+        let origin = logScroll.contentView.bounds.origin
+        let point = logText.convert(origin, from: logScroll.contentView)
+        let glyph = min(
+            layoutManager.glyphIndex(for: point, in: textContainer),
+            max(0, layoutManager.numberOfGlyphs - 1)
+        )
+        let character = layoutManager.characterIndexForGlyph(at: glyph)
+        let line = layoutManager.lineFragmentRect(forGlyphAt: glyph, effectiveRange: nil)
+        return VisibleTextAnchor(
+            characterIndex: character,
+            offsetFromLineTop: point.y - line.minY,
+            horizontalOrigin: origin.x
+        )
+    }
+
+    private func restoreVisibleTextAnchor(_ anchor: VisibleTextAnchor) {
+        guard let layoutManager = logText.layoutManager,
+              let textContainer = logText.textContainer,
+              layoutManager.numberOfGlyphs > 0 else { return }
+        logText.frame.size.width = logScroll.contentSize.width
+        layoutManager.ensureLayout(for: textContainer)
+        logText.sizeToFit()
+        let character = min(anchor.characterIndex, max(0, (logText.string as NSString).length - 1))
+        let glyph = layoutManager.glyphIndexForCharacter(at: character)
+        let line = layoutManager.lineFragmentRect(forGlyphAt: glyph, effectiveRange: nil)
+        logScroll.contentView.scroll(to: NSPoint(
+            x: anchor.horizontalOrigin,
+            y: max(0, line.minY + anchor.offsetFromLineTop)
+        ))
+        logScroll.reflectScrolledClipView(logScroll.contentView)
+        saveReadingPosition()
     }
 }
 
