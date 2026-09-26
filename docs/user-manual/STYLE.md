@@ -100,6 +100,8 @@ and whatever else applies.
    an undergraduate who has taken genetics and never opened a terminal.
 2. `## Why you would do this`. The biological motivation, tied to the
    chapter's fixture.
+   `## Choosing a tool` follows here in every chapter that offers more
+   than one tool or mode for the same job (added 2026-09-26, see below).
 3. `## Before you start`. What must already be in the project, which tool
    pack, whether Docker Desktop is needed, how long the example takes.
 4. `## Procedure`. Numbered steps, exact menu path, one action per step,
@@ -141,6 +143,32 @@ Explanations use the same sentence shapes across chapters. Introduce a
 number with what it measures ("Depth is the number of reads covering a
 position"), then what a typical value looks like on the fixture, then what
 a bad value looks like.
+
+## Choosing a tool (added 2026-09-26)
+
+A reader who has never used the tools in a plugin pack should finish this
+section knowing which one to pick for their data and why. It teaches the
+method, not only the menu.
+
+1. Open with one or two sentences that name the decision and the property
+   of the data that settles it, such as read length, error profile, how
+   variable the targets are, or whether the genome is large.
+2. Give each tool one paragraph. Say how it works in plain terms (for
+   example, a mapper that indexes the reference and extends short exact
+   matches, or a classifier that looks up every k-mer in a database), what
+   data it was built for, what it does well, and where it struggles. Gloss
+   every term at first use.
+3. Follow with a table with the columns Tool, Built for, Choose it when,
+   and Choose something else when. Keep cells short.
+4. Close with the choice this chapter's fixture uses and why, and when a
+   reader with different data should switch.
+5. Cite each tool's paper through `appendices/bibliography.md` and state
+   only what the paper, the tool's documentation, or LGE's own behaviour
+   supports. Name speed and memory only as rough comparisons LGE users will
+   notice. Mention tools LGE does not offer at most once, as context.
+
+A concept that several chapters need, such as what a k-mer is, has one
+owning chapter. Other chapters gloss it in one sentence and link there.
 
 ## Fixture references
 

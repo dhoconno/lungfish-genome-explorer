@@ -243,6 +243,23 @@ PROJECTS: dict[str, dict] = {
             ("reference", "fx:mhc-simulated/SIMULATED-MHC-annotated-reference.gb"),
         ],
     },
+    "primer-design": {
+        "title": "Primer Design",
+        "folder": "Primer Design.lungfish",
+        "summary": "Twelve full-length rhesus macaque Mamu-A1 alleles, the Mamu-A1*001 lineage, and its near relatives and paralogs, imported as reference bundles for designing PCR assays, qPCR assays, and tiled amplicon schemes.",
+        "chapters": [
+            "10-primer-design/01-what-is-primer-design",
+            "10-primer-design/02-designing-a-pcr-assay",
+            "10-primer-design/03-designing-a-tiled-amplicon-scheme",
+            "10-primer-design/04-designing-qpcr-and-dpcr-assays",
+            "10-primer-design/05-reviewing-and-ordering-primers",
+        ],
+        "steps": [
+            ("reference", "fx:mhc-primer-design/mamu-a1-panel.fasta"),
+            ("reference", "fx:mhc-primer-design/mamu-a1-001-lineage.fasta"),
+            ("reference", "fx:mhc-primer-design/mamu-class-i-exclusion.fasta"),
+        ],
+    },
     "twelve-s-metabarcoding": {
         "title": "12S Metabarcoding",
         "folder": "12S Metabarcoding.lungfish",
@@ -661,6 +678,15 @@ def chapter_operation(pid: str, project: pathlib.Path, outputs: pathlib.Path, ru
     elif pid == "pathogen-detection":
         r = runner.run(["import", "nvd", practice / "nvd-demo/results", "-o", outputs, "--name", "nvd-demo"], "import-nvd", check=False)
         check("06-classification/09 NVD import", r.returncode == 0 and "Total hits: 10" in r.stdout)
+    elif pid == "primer-design":
+        out = outputs / "mamu-a1-panel-check.lungfishmsa"
+        r = runner.run(["align", "mafft", refs / "mamu-a1-panel.lungfishref", "--project", project,
+                        "--output", out, "--name", "mamu-a1-panel-check"], "mafft-panel", check=False)
+        rows = 0
+        aligned = out / "alignment/primary.aligned.fasta"
+        if aligned.exists():
+            rows = sum(1 for line in aligned.read_text().splitlines() if line.startswith(">"))
+        check("10-primer-design/03 MAFFT aligns the 12-allele Mamu-A1 panel", r.returncode == 0 and rows == 12, f"rows={rows}")
     elif pid == "mhc-genotyping":
         bundles = sorted(project.glob("Imports/SIMULATED-MHC-*-pairs.lungfishfastq"))
         r = runner.run(["fastq", "genotype-cohort", *bundles, "--reference", refs / "SIMULATED-MHC-annotated-reference.lungfishref",
