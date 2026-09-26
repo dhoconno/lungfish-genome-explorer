@@ -21,6 +21,8 @@ final class AnalysisTemplateRunnerTests: XCTestCase {
         var brackenToolVersion: String? = "3.0.1"
         var failStep: RenderedTemplateStepKind?
         var reportBundlePathInJSON = true
+        /// The real importer reports the bundle name relative to Imports/.
+        var reportRelativeBundlePath = false
 
         private func record(_ step: RenderedTemplateStep) {
             lock.withLock { executed.append(step) }
@@ -39,8 +41,9 @@ final class AnalysisTemplateRunnerTests: XCTestCase {
                 try Data("@r\nACGT\n+\n!!!!\n".utf8).write(to: bundleURL.appendingPathComponent("\(name).fastq"))
                 try Data("{\"workflowName\":\"lungfish import fastq\"}".utf8)
                     .write(to: bundleURL.appendingPathComponent(ProvenanceRecorder.provenanceFilename))
+                let reportedPath = reportRelativeBundlePath ? bundleURL.lastPathComponent : bundleURL.path
                 let stdout = reportBundlePathInJSON
-                    ? "{\"event\":\"sampleStart\",\"sample\":\"\(name)\"}\n{\"event\":\"sampleComplete\",\"sample\":\"\(name)\",\"bundle\":\"\(bundleURL.path)\",\"durationSeconds\":1}\n"
+                    ? "{\"event\":\"sampleStart\",\"sample\":\"\(name)\"}\n{\"event\":\"sampleComplete\",\"sample\":\"\(name)\",\"bundle\":\"\(reportedPath)\",\"durationSeconds\":1}\n"
                     : "Imported \(name)\n"
                 return AnalysisTemplateStepResult(exitCode: 0, standardOutput: stdout, standardError: "")
             case .kraken2:
@@ -185,6 +188,22 @@ final class AnalysisTemplateRunnerTests: XCTestCase {
         XCTAssertTrue(record.outputs.contains { $0.path.hasSuffix("classification-result.json") })
         XCTAssertTrue(record.files.contains { $0.path.hasSuffix("S2_R1.fastq") })
         XCTAssertEqual(record.argv.prefix(4), ["lungfish-cli", "workflow", "template", "run"])
+    }
+
+    func testRelativeBundlePathFromImportEventResolvesUnderImports() async throws {
+        let workspace = try makeWorkspace()
+        defer { workspace.cleanup() }
+        let executor = FakeExecutor()
+        executor.reportRelativeBundlePath = true
+        let runner = makeRunner(executor: executor, installedRecipe: nil, database: readyDatabase)
+
+        let result = try await runner.run(AnalysisTemplateRunRequest(
+            template: try makeTemplate(),
+            inputs: workspace.inputs,
+            projectURL: workspace.projectURL
+        ))
+        XCTAssertEqual(result.importBundleURL.path, workspace.projectURL.appendingPathComponent("Imports/S2.lungfishfastq").path)
+        XCTAssertEqual(executor.executed[1].arguments.last, result.importBundleURL.path)
     }
 
     func testBundlePathFallsBackToExpectedLocationWithoutJSONEvent() async throws {

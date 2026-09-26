@@ -402,7 +402,13 @@ public struct AnalysisTemplateRunner: Sendable {
     private func locateOutput(for step: RenderedTemplateStep, result: AnalysisTemplateStepResult) throws -> URL {
         switch step.kind {
         case .importFASTQ:
-            let reported = Self.importedBundlePath(fromImportOutput: result.standardOutput).map { URL(fileURLWithPath: $0) }
+            // The importer reports the bundle name relative to the project's
+            // Imports folder (an absolute path when a sample sheet placed it
+            // elsewhere), so resolve it beside the expected bundle.
+            let importsURL = step.expectedOutputURL.deletingLastPathComponent()
+            let reported = Self.importedBundlePath(fromImportOutput: result.standardOutput).map { path in
+                path.hasPrefix("/") ? URL(fileURLWithPath: path) : importsURL.appendingPathComponent(path)
+            }
             let candidate = (reported ?? step.expectedOutputURL).standardizedFileURL
             guard FASTQBundle.isBundleURL(candidate),
                   FileManager.default.fileExists(atPath: candidate.appendingPathComponent(ProvenanceRecorder.provenanceFilename).path) else {

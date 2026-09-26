@@ -172,31 +172,32 @@ struct WorkflowTemplateListSubcommand: AsyncParsableCommand {
 struct WorkflowTemplateShowSubcommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "show",
-        abstract: "Show a workflow template's pinned steps, as text, JSON or a shell script"
+        abstract: "Show a workflow template's pinned steps as text, JSON or (--shell) a shell script"
     )
-
-    enum ShowFormat: String, ExpressibleByArgument, CaseIterable {
-        case text
-        case json
-        case shell
-    }
 
     @Argument(help: "Template file, or the name of a template in the library")
     var template: String
 
     @OptionGroup var libraryOption: WorkflowTemplateLibraryOption
 
-    @Option(name: .customLong("format"), help: "Output format: text, json, shell (default: text)")
-    var format: ShowFormat = .text
+    @Option(name: .customLong("format"), help: "Output format: text, json (default: text)")
+    var format: TextAndJSONOutputFormat = .text
+
+    /// A flag rather than a `--format shell` value: the root command's
+    /// `--format` (text, json, tsv) is parsed first and would reject `shell`.
+    @Flag(name: .customLong("shell"), help: "Print the steps as a shell script with <placeholders> instead of text or JSON")
+    var shell: Bool = false
 
     func run() async throws {
         let (loaded, url) = try WorkflowTemplatePresentation.loadTemplate(reference: template, library: libraryOption.resolved)
+        if shell {
+            let steps = AnalysisTemplateRenderer.placeholderSteps(for: loaded)
+            print(AnalysisTemplateRenderer.shellScript(for: loaded, steps: steps))
+            return
+        }
         switch format {
         case .json:
             print(String(decoding: try loaded.jsonData(), as: UTF8.self))
-        case .shell:
-            let steps = AnalysisTemplateRenderer.placeholderSteps(for: loaded)
-            print(AnalysisTemplateRenderer.shellScript(for: loaded, steps: steps))
         case .text:
             print("Workflow template \"\(loaded.name)\"")
             print("  File: \(url.path)")

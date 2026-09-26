@@ -49,9 +49,9 @@ final class WorkflowTemplateCommandTests: XCTestCase {
         let list = try WorkflowTemplateListSubcommand.parse(["--library", "/tmp/lib", "--format", "json"])
         XCTAssertEqual(list.libraryOption.library, "/tmp/lib")
 
-        let show = try WorkflowTemplateShowSubcommand.parse(["My Template", "--format", "shell"])
+        let show = try WorkflowTemplateShowSubcommand.parse(["My Template", "--shell"])
         XCTAssertEqual(show.template, "My Template")
-        XCTAssertEqual(show.format, .shell)
+        XCTAssertTrue(show.shell)
 
         let run = try WorkflowTemplateRunSubcommand.parse([
             "/tmp/t.lungfishtemplate", "--project", "/p.lungfish", "/r/a_R1.fastq.gz", "/r/a_R2.fastq.gz",
@@ -84,7 +84,7 @@ final class WorkflowTemplateCommandTests: XCTestCase {
         XCTAssertEqual(template.name, "Kraken2 + Bracken from SRRTEST1")
         XCTAssertEqual(template.kraken2Step?.database.name, "Viral")
 
-        let show = try WorkflowTemplateShowSubcommand.parse([output.path, "--format", "shell"])
+        let show = try WorkflowTemplateShowSubcommand.parse([output.path, "--shell"])
         let script = try await captureStandardOutput { try await show.run() }
         XCTAssertTrue(script.hasPrefix("#!/bin/sh\n# Workflow template: Kraken2 + Bracken from SRRTEST1"))
         XCTAssertTrue(script.contains("lungfish-cli import fastq '<reads_R1.fastq.gz>' '<reads_R2.fastq.gz>'"))
