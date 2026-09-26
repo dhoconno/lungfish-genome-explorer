@@ -865,9 +865,10 @@ public final class MainMenu {
             }
     }
 
-    /// Tools > Workflows: one item per linked workflow package, then the Workflow Library.
+    /// Tools > Workflows: one item per linked workflow package, then the Workflow
+    /// Library, then the workflow template commands.
     ///
-    /// With no linked packages the submenu holds only "Workflow Library…".
+    /// With no linked packages the submenu starts with "Workflow Library…".
     static func workflowsMenuItem(for packages: [ToolsMenuModel.LinkedPackageEntry]) -> NSMenuItem {
         let workflowsItem = NSMenuItem(title: "Workflows", action: nil, keyEquivalent: "")
         workflowsItem.identifier = NSUserInterfaceItemIdentifier(MainMenuAccessibilityID.workflows)
@@ -886,6 +887,20 @@ public final class MainMenu {
             keyEquivalent: ""
         )
         workflowLibraryItem.identifier = NSUserInterfaceItemIdentifier(MainMenuAccessibilityID.workflowLibrary)
+
+        workflowsMenu.addItem(.separator())
+        let saveTemplateItem = workflowsMenu.addItem(
+            withTitle: "Save Selection as Workflow Template\u{2026}",
+            action: #selector(ToolsMenuActions.saveSelectionAsWorkflowTemplate(_:)),
+            keyEquivalent: ""
+        )
+        saveTemplateItem.identifier = NSUserInterfaceItemIdentifier(MainMenuAccessibilityID.saveWorkflowTemplate)
+        let runTemplateItem = workflowsMenu.addItem(
+            withTitle: "Run Workflow Template\u{2026}",
+            action: #selector(ToolsMenuActions.runWorkflowTemplate(_:)),
+            keyEquivalent: ""
+        )
+        runTemplateItem.identifier = NSUserInterfaceItemIdentifier(MainMenuAccessibilityID.runWorkflowTemplate)
 
         workflowsItem.submenu = workflowsMenu
         return workflowsItem
@@ -1283,6 +1298,10 @@ enum ProvenanceExportMenuModel {
     func showHaplotypeDefinitions(_ sender: Any?)
     /// Opens the Workflow Library window for enabling specialized workflow surfaces.
     func showWorkflowLibrary(_ sender: Any?)
+    /// Saves the selected Kraken2 analysis as a workflow template (Tools > Workflows).
+    func saveSelectionAsWorkflowTemplate(_ sender: Any?)
+    /// Runs a saved workflow template on new FASTQ files in the open project.
+    func runWorkflowTemplate(_ sender: Any?)
     /// Opens the Plugin Manager window for browsing and installing bioconda tools.
     func showPluginManager(_ sender: Any?)
 }

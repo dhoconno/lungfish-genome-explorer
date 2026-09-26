@@ -1704,6 +1704,68 @@ extension AppDelegate {
         WorkflowLibraryWindowController.show()
     }
 
+    // MARK: - Workflow templates
+
+    /// The single selected Kraken2 analysis in the active window's sidebar, if any.
+    func selectedKraken2AnalysisForTemplate(in controller: MainWindowController?) -> SidebarItem? {
+        let items = controller?.mainSplitViewController?.sidebarController?.selectedItems() ?? []
+        guard items.count == 1, let item = items.first, item.type == .classificationResult, item.url != nil else {
+            return nil
+        }
+        return item
+    }
+
+    @objc func saveSelectionAsWorkflowTemplate(_ sender: Any?) {
+        guard let controller = activeMainWindowController(sender: sender),
+              let window = controller.window else {
+            NSSound.beep()
+            return
+        }
+        guard let item = selectedKraken2AnalysisForTemplate(in: controller), let analysisURL = item.url else {
+            showAlert(
+                title: "No Kraken2 Analysis Selected",
+                message: "Select one Kraken2 classification result in the sidebar, then choose Save Selection as Workflow Template… again.",
+                presentingWindow: window
+            )
+            return
+        }
+        let routeContext = currentOperationRouteContext(for: controller)
+        let projectURL = routeContext?.projectURL
+            ?? controller.mainSplitViewController?.sidebarController?.currentProjectURL
+        WorkflowTemplateSheetPresenter.presentSave(
+            from: window,
+            analysisURL: analysisURL,
+            projectURL: projectURL,
+            sourceTitle: item.title,
+            routeContext: routeContext
+        )
+    }
+
+    @objc func runWorkflowTemplate(_ sender: Any?) {
+        guard let controller = activeMainWindowController(sender: sender),
+              let window = controller.window else {
+            NSSound.beep()
+            return
+        }
+        let routeContext = currentOperationRouteContext(for: controller)
+        guard let projectURL = routeContext?.projectURL
+                ?? controller.mainSplitViewController?.sidebarController?.currentProjectURL else {
+            showAlert(
+                title: "No Project Open",
+                message: "Open a project before running a workflow template. The imported reads and the Kraken2 result go into the project.",
+                presentingWindow: window
+            )
+            return
+        }
+        guard canWriteProjectOutputs(
+            projectURL: projectURL,
+            windowStateScope: routeContext?.windowStateScopeID.map(WindowStateScope.init(id:)),
+            workflowName: "Workflow template run",
+            presentingWindow: window
+        ) else { return }
+        WorkflowTemplateSheetPresenter.presentRun(from: window, projectURL: projectURL, routeContext: routeContext)
+    }
+
     @objc func showWorkflowOperations(_ sender: Any?) {
         showWorkflowOperations(sender, preselectedWorkflowID: nil)
     }

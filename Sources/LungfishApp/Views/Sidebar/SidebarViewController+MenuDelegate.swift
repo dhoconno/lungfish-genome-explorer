@@ -255,6 +255,16 @@ extension SidebarViewController: NSMenuDelegate {
             )
             copyCommandItem.target = self
             menu.addItem(copyCommandItem)
+
+            // Save as Workflow Template — repeats the import and Kraken2 steps on new files.
+            let saveTemplateItem = NSMenuItem(
+                title: "Save as Workflow Template\u{2026}",
+                action: #selector(contextMenuSaveAsWorkflowTemplate(_:)),
+                keyEquivalent: ""
+            )
+            saveTemplateItem.target = self
+            saveTemplateItem.identifier = NSUserInterfaceItemIdentifier(WorkflowTemplateAccessibilityID.sidebarSaveCommand)
+            menu.addItem(saveTemplateItem)
             menu.addItem(NSMenuItem.separator())
         }
 
@@ -974,6 +984,29 @@ extension SidebarViewController: NSMenuDelegate {
         pasteboard.setString(command, forType: .string)
 
         sidebarLogger.info("contextMenuCopyClassificationCommand: Copied command for '\(item.title, privacy: .public)'")
+    }
+
+    /// Opens the save sheet for the selected Kraken2 analysis.
+    ///
+    /// The extractor refuses (with a named reason) anything it cannot pin:
+    /// batches, derived inputs, missing import records. The presenter shows
+    /// that reason as an alert instead of a sheet.
+    @objc private func contextMenuSaveAsWorkflowTemplate(_ sender: Any?) {
+        let items = selectedItems()
+        guard items.count == 1,
+              let item = items.first,
+              item.type == .classificationResult,
+              let analysisURL = item.url,
+              let window = view.window else { return }
+
+        sidebarLogger.info("contextMenuSaveAsWorkflowTemplate: '\(item.title, privacy: .public)'")
+        WorkflowTemplateSheetPresenter.presentSave(
+            from: window,
+            analysisURL: analysisURL,
+            projectURL: projectURL,
+            sourceTitle: item.title,
+            routeContext: OperationRouteContext(projectURL: projectURL, windowStateScope: windowStateScope)
+        )
     }
 
     /// Posts a notification to show the selected bundle in the inspector.

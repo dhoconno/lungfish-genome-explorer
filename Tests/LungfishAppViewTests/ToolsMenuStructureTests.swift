@@ -144,8 +144,10 @@ final class ToolsMenuStructureTests: XCTestCase {
         XCTAssertEqual(item.title, "Workflows")
         XCTAssertEqual(item.identifier?.rawValue, MainMenuAccessibilityID.workflows)
         let submenu = try XCTUnwrap(item.submenu)
-        XCTAssertEqual(submenu.items.map(\.title), ["Workflow Library\u{2026}"])
-        XCTAssertFalse(submenu.items.contains { $0.isSeparatorItem })
+        XCTAssertEqual(submenu.items.map(\.title), ["Workflow Library\u{2026}", "", "Save Selection as Workflow Template\u{2026}", "Run Workflow Template\u{2026}"])
+        // Only the separator before the template commands; no package separator.
+        XCTAssertEqual(submenu.items.filter(\.isSeparatorItem).count, 1)
+        XCTAssertTrue(submenu.items[1].isSeparatorItem)
         XCTAssertEqual(submenu.items.first?.action, #selector(ToolsMenuActions.showWorkflowLibrary(_:)))
         XCTAssertEqual(submenu.items.first?.identifier?.rawValue, MainMenuAccessibilityID.workflowLibrary)
     }
@@ -162,8 +164,16 @@ final class ToolsMenuStructureTests: XCTestCase {
             "Switched Off (not enabled)",
             "",
             "Workflow Library\u{2026}",
+            "",
+            "Save Selection as Workflow Template\u{2026}",
+            "Run Workflow Template\u{2026}",
         ])
         XCTAssertTrue(submenu.items[2].isSeparatorItem)
+        XCTAssertTrue(submenu.items[4].isSeparatorItem)
+        XCTAssertEqual(submenu.items[5].action, #selector(ToolsMenuActions.saveSelectionAsWorkflowTemplate(_:)))
+        XCTAssertEqual(submenu.items[5].identifier?.rawValue, MainMenuAccessibilityID.saveWorkflowTemplate)
+        XCTAssertEqual(submenu.items[6].action, #selector(ToolsMenuActions.runWorkflowTemplate(_:)))
+        XCTAssertEqual(submenu.items[6].identifier?.rawValue, MainMenuAccessibilityID.runWorkflowTemplate)
 
         let enabled = submenu.items[0]
         XCTAssertEqual(enabled.action, #selector(ToolsMenuActions.launchLinkedWorkflowPackageFromMenu(_:)))
@@ -205,29 +215,29 @@ final class ToolsMenuStructureTests: XCTestCase {
             return workflows.items.map { $0.isSeparatorItem ? "-" : $0.title }
         }
 
-        XCTAssertEqual(try workflowsTitles(), ["Workflow Library\u{2026}"])
+        XCTAssertEqual(try workflowsTitles(), ["Workflow Library\u{2026}", "-", "Save Selection as Workflow Template\u{2026}", "Run Workflow Template\u{2026}"])
 
         // Link: the store announces the change and the rebuilt menu lists the package as not enabled.
         let linkExpectation = expectation(forNotification: .workflowLibraryPackagesChanged, object: packageStore)
         packageStore.addValidatedPackage(package)
         wait(for: [linkExpectation], timeout: 1)
-        XCTAssertEqual(try workflowsTitles(), ["Hello Linked (not enabled)", "-", "Workflow Library\u{2026}"])
+        XCTAssertEqual(try workflowsTitles(), ["Hello Linked (not enabled)", "-", "Workflow Library\u{2026}", "-", "Save Selection as Workflow Template\u{2026}", "Run Workflow Template\u{2026}"])
 
         // Enable: the enablement store posts the notification AppDelegate already rebuilds on.
         let enableExpectation = expectation(forNotification: .workflowLibraryEnablementChanged, object: enablementStore)
         enablementStore.setUserWorkflow(package, enabled: true)
         wait(for: [enableExpectation], timeout: 1)
-        XCTAssertEqual(try workflowsTitles(), ["Hello Linked\u{2026}", "-", "Workflow Library\u{2026}"])
+        XCTAssertEqual(try workflowsTitles(), ["Hello Linked\u{2026}", "-", "Workflow Library\u{2026}", "-", "Save Selection as Workflow Template\u{2026}", "Run Workflow Template\u{2026}"])
 
         // Disable.
         enablementStore.setUserWorkflow(package, enabled: false)
-        XCTAssertEqual(try workflowsTitles(), ["Hello Linked (not enabled)", "-", "Workflow Library\u{2026}"])
+        XCTAssertEqual(try workflowsTitles(), ["Hello Linked (not enabled)", "-", "Workflow Library\u{2026}", "-", "Save Selection as Workflow Template\u{2026}", "Run Workflow Template\u{2026}"])
 
         // Unlink.
         let unlinkExpectation = expectation(forNotification: .workflowLibraryPackagesChanged, object: packageStore)
         packageStore.removePackage(withManifestID: package.manifest.id)
         wait(for: [unlinkExpectation], timeout: 1)
-        XCTAssertEqual(try workflowsTitles(), ["Workflow Library\u{2026}"])
+        XCTAssertEqual(try workflowsTitles(), ["Workflow Library\u{2026}", "-", "Save Selection as Workflow Template\u{2026}", "Run Workflow Template\u{2026}"])
     }
 
     func testWorkflowOperationsSelectsMenuRequestedPackageOnceRefreshListsIt() async throws {
