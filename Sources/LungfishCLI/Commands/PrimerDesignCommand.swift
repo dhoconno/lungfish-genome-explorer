@@ -153,6 +153,20 @@ struct PrimerDesignCommand: AsyncParsableCommand {
         @Option(name: .customLong("work-cleanup-moves-per-round")) var workCleanupMovesPerRound: Int?
         @Option(name: .customLong("work-families-per-refresh")) var workFamiliesPerRefresh: Int?
 
+        // GUI recovery controls. These mirror the native --legacy-salvage* and
+        // --gap-expansion* arguments and are unrelated to the --salvage* allele-coverage flags.
+        @Option(name: .customLong("legacy-salvage"), help: "Bounded dimer salvage for combined legacy panels: off or bounded.") var legacySalvage: String?
+        @Option(name: .customLong("legacy-salvage-threshold"), help: "Strictly decreasing salvage dimer thresholds below the dimer score. Repeatable.") var legacySalvageThresholds: [Double] = []
+        @Option(name: .customLong("legacy-salvage-floor"), help: "Lowest salvage dimer score considered.") var legacySalvageFloor: Double?
+        @Option(name: .customLong("legacy-salvage-max-edges-per-pool")) var legacySalvageMaxEdgesPerPool: Int?
+        @Option(name: .customLong("legacy-salvage-max-incident-species-per-pool")) var legacySalvageMaxIncidentSpeciesPerPool: Int?
+        @Option(name: .customLong("legacy-salvage-min-reference-gain")) var legacySalvageMinReferenceGain: Int?
+        @Option(name: .customLong("legacy-salvage-max-candidate-evaluations")) var legacySalvageMaxCandidateEvaluations: Int?
+        @Option(name: .customLong("gap-completion-parent"), help: "Saved combined PrimalScheme analysis whose uncovered regions this follow-up design should fill.") var gapCompletionParent: String?
+        @Option(name: .customLong("gap-expansion"), help: "Generate candidates for uncovered regions of the gap-completion parent: off or bounded.") var gapExpansion: String?
+        @Option(name: .customLong("gap-expansion-max-anchors-per-msa")) var gapExpansionMaxAnchorsPerMSA: Int?
+        @Option(name: .customLong("gap-expansion-max-pairs-per-msa")) var gapExpansionMaxPairsPerMSA: Int?
+
         func run() async throws {
             let output = try await execute(argv: CommandLine.arguments)
             print("PrimalScheme analysis written to \(output.path)")
@@ -257,11 +271,94 @@ struct PrimerDesignCommand: AsyncParsableCommand {
                 workPoolLookaheadCandidates: workPoolLookaheadCandidates,
                 workCleanupMovesPerRound: workCleanupMovesPerRound,
                 workFamiliesPerRefresh: workFamiliesPerRefresh)
+            let resolvedLegacySalvageMode: PrimalScheme3LegacySalvageMode
+            if let legacySalvage {
+                guard let value = PrimalScheme3LegacySalvageMode(rawValue: legacySalvage) else {
+                    throw ValidationError("--legacy-salvage must be off or bounded.")
+                }
+                resolvedLegacySalvageMode = value
+            } else {
+                resolvedLegacySalvageMode = .off
+            }
+            let legacySalvageOptions = PrimalScheme3LegacySalvageOptions(
+                mode: resolvedLegacySalvageMode,
+                thresholds: legacySalvageThresholds.isEmpty ? nil : legacySalvageThresholds,
+                floor: legacySalvageFloor, maxEdgesPerPool: legacySalvageMaxEdgesPerPool,
+                maxIncidentSpeciesPerPool: legacySalvageMaxIncidentSpeciesPerPool,
+                minReferenceGain: legacySalvageMinReferenceGain,
+                maxCandidateEvaluations: legacySalvageMaxCandidateEvaluations)
+            let resolvedGapExpansionMode: PrimalScheme3GapExpansionMode
+            if let gapExpansion {
+                guard let value = PrimalScheme3GapExpansionMode(rawValue: gapExpansion) else {
+                    throw ValidationError("--gap-expansion must be off or bounded.")
+                }
+                resolvedGapExpansionMode = value
+            } else {
+                resolvedGapExpansionMode = .off
+            }
+            let gapExpansionOptions = PrimalScheme3GapExpansionOptions(
+                mode: resolvedGapExpansionMode, maxAnchorsPerMSA: gapExpansionMaxAnchorsPerMSA,
+                maxPairsPerMSA: gapExpansionMaxPairsPerMSA)
             // The GUI always sends both bounds. An omitted CLI bound takes the same
             // default so the fork sees one sizing metric regardless of the caller.
             let defaultBounds = PrimalScheme3DesignOptions.defaultAmpliconSizeBounds(target: ampliconSize)
-            let options = PrimalScheme3DesignOptions(ampliconSize: ampliconSize, poolCount: poolCount, minOverlap: minOverlap, minimumBaseFrequency: minimumBaseFrequency, highGC: highGC, coreCount: coreCount, terminalGapPolicy: resolvedTerminalGapPolicy, dimerScore: dimerScore, useMatchDB: !disableMatchDB, backtrack: backtrack, ignoreN: ignoreN, panelMode: resolvedPanelMode, maxAmplicons: maxAmplicons, maxAmpliconsPerMSA: maxAmpliconsPerMSA, ampliconSizeMinimum: ampliconSizeMinimum ?? defaultBounds?.minimum, ampliconSizeMaximum: ampliconSizeMaximum ?? defaultBounds?.maximum, selectionAlgorithm: resolvedSelectionAlgorithm, coverageMetric: resolvedCoverageMetric, coverageTarget: coverageTarget, optimizerSeed: optimizerSeed, optimizerStarts: optimizerStarts, optimizerRepairRounds: optimizerRepairRounds, optimizerTimeLimit: optimizerTimeLimit, misprimingProductSize: misprimingProductSize, alleleOptions: alleleOptions)
+            let options = PrimalScheme3DesignOptions(ampliconSize: ampliconSize, poolCount: poolCount, minOverlap: minOverlap, minimumBaseFrequency: minimumBaseFrequency, highGC: highGC, coreCount: coreCount, terminalGapPolicy: resolvedTerminalGapPolicy, dimerScore: dimerScore, useMatchDB: !disableMatchDB, backtrack: backtrack, ignoreN: ignoreN, panelMode: resolvedPanelMode, maxAmplicons: maxAmplicons, maxAmpliconsPerMSA: maxAmpliconsPerMSA, ampliconSizeMinimum: ampliconSizeMinimum ?? defaultBounds?.minimum, ampliconSizeMaximum: ampliconSizeMaximum ?? defaultBounds?.maximum, selectionAlgorithm: resolvedSelectionAlgorithm, coverageMetric: resolvedCoverageMetric, coverageTarget: coverageTarget, optimizerSeed: optimizerSeed, optimizerStarts: optimizerStarts, optimizerRepairRounds: optimizerRepairRounds, optimizerTimeLimit: optimizerTimeLimit, misprimingProductSize: misprimingProductSize, alleleOptions: alleleOptions, legacySalvageOptions: legacySalvageOptions, gapCompletionParent: gapCompletionParent.map { URL(fileURLWithPath: $0).standardizedFileURL }, gapExpansionOptions: gapExpansionOptions)
             return (options, resolvedGrouping)
+        }
+
+        /// The argv that reproduces `options` through `makeOptions()`. It covers every
+        /// control the GUI dialog exposes; allele-coverage tuning stays at its defaults.
+        static func arguments(inputs: [URL], output: URL, grouping: PrimerAnalysisGrouping,
+                              options: PrimalScheme3DesignOptions) -> [String] {
+            func option(_ name: String, _ value: String) -> [String] { ["--\(name)=\(value)"] }
+            var args: [String] = []
+            for input in inputs { args += option("msa", input.path) }
+            args += option("output", output.path)
+            args += option("grouping", grouping.rawValue)
+            args += option("amplicon-size", String(options.ampliconSize))
+            if let value = options.requestedAmpliconSizeMinimum { args += option("amplicon-size-min", String(value)) }
+            if let value = options.requestedAmpliconSizeMaximum { args += option("amplicon-size-max", String(value)) }
+            args += option("pool-count", String(options.poolCount))
+            if grouping == .independent { args += option("min-overlap", String(options.minOverlap)) }
+            args += option("minimum-base-frequency", String(options.minimumBaseFrequency))
+            if options.highGC { args.append("--high-gc") }
+            args += option("core-count", String(options.coreCount))
+            args += option("terminal-gap-policy", options.terminalGapPolicy.rawValue)
+            args += option("dimer-score", String(options.dimerScore))
+            if !options.useMatchDB { args.append("--disable-matchdb") }
+            if options.backtrack { args.append("--backtrack") }
+            if options.ignoreN { args.append("--ignore-n") }
+            args += option("panel-mode", options.panelMode.rawValue)
+            if let value = options.maxAmplicons { args += option("max-amplicons", String(value)) }
+            if let value = options.maxAmpliconsPerMSA { args += option("max-amplicons-per-msa", String(value)) }
+            args += option("selection-algorithm", options.selectionAlgorithm.rawValue)
+            args += option("coverage-metric", options.coverageMetric.rawValue)
+            args += option("coverage-target", String(options.coverageTarget))
+            args += option("optimizer-seed", String(options.optimizerSeed))
+            if let value = options.requestedOptimizerStarts { args += option("optimizer-starts", String(value)) }
+            if let value = options.requestedOptimizerRepairRounds { args += option("optimizer-repair-rounds", String(value)) }
+            if let value = options.requestedOptimizerTimeLimit { args += option("optimizer-time-limit", String(value)) }
+            if let value = options.requestedMisprimingProductSize { args += option("mispriming-product-size", String(value)) }
+            let salvage = options.legacySalvageOptions
+            if salvage.mode != .off {
+                args += option("legacy-salvage", salvage.mode.rawValue)
+                if salvage.requestedOptionNames.contains("thresholds") {
+                    for value in salvage.thresholds { args += option("legacy-salvage-threshold", String(value)) }
+                }
+                if salvage.requestedOptionNames.contains("floor") { args += option("legacy-salvage-floor", String(salvage.floor)) }
+                if salvage.requestedOptionNames.contains("maxEdgesPerPool") { args += option("legacy-salvage-max-edges-per-pool", String(salvage.maxEdgesPerPool)) }
+                if salvage.requestedOptionNames.contains("maxIncidentSpeciesPerPool") { args += option("legacy-salvage-max-incident-species-per-pool", String(salvage.maxIncidentSpeciesPerPool)) }
+                if salvage.requestedOptionNames.contains("minReferenceGain") { args += option("legacy-salvage-min-reference-gain", String(salvage.minReferenceGain)) }
+                if salvage.requestedOptionNames.contains("maxCandidateEvaluations") { args += option("legacy-salvage-max-candidate-evaluations", String(salvage.maxCandidateEvaluations)) }
+            }
+            if let parent = options.gapCompletionParent { args += option("gap-completion-parent", parent.path) }
+            let expansion = options.gapExpansionOptions
+            if expansion.mode != .off {
+                args += option("gap-expansion", expansion.mode.rawValue)
+                if expansion.requestedOptionNames.contains("maxAnchorsPerMSA") { args += option("gap-expansion-max-anchors-per-msa", String(expansion.maxAnchorsPerMSA)) }
+                if expansion.requestedOptionNames.contains("maxPairsPerMSA") { args += option("gap-expansion-max-pairs-per-msa", String(expansion.maxPairsPerMSA)) }
+            }
+            return args
         }
     }
 }

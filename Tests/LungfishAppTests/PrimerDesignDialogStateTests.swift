@@ -611,6 +611,45 @@ final class PrimerDesignDialogStateTests: XCTestCase {
     XCTAssertEqual(cli.options.ampliconSizeMetric, "reference-span")
   }
 
+  func testDialogRecoveryControlsRoundTripThroughCLIArguments() throws {
+    let state = configuredState()
+    state.engine = .primalScheme
+    state.grouping = .combined
+    state.legacySalvageEnabled = true
+    state.legacySalvageThresholds = "-28,-30"
+    state.legacySalvageMaxEdgesPerPool = "6"
+    try assertRoundTrip(state)
+
+    state.legacySalvageEnabled = false
+    state.gapCompletionParentPath = "/tmp/parent.lungfishprimeranalysis"
+    state.gapExpansionEnabled = true
+    state.gapExpansionMaxPairsPerMSA = "250"
+    try assertRoundTrip(state)
+
+    state.gapExpansionEnabled = false
+    state.gapCompletionParentPath = ""
+    state.grouping = .independent
+    state.backtrack = true
+    state.minOverlap = "20"
+    state.useMatchDB = false
+    try assertRoundTrip(state)
+  }
+
+  private func assertRoundTrip(_ state: PrimerDesignDialogState, file: StaticString = #filePath, line: UInt = #line) throws {
+    let options = try state.primalSchemeOptions()
+    let argv = PrimerDesignCommand.PrimalScheme3Subcommand.arguments(
+      inputs: state.inputURLs, output: URL(fileURLWithPath: "/tmp/out.lungfishprimeranalysis"),
+      grouping: state.grouping, options: options)
+    let command = try PrimerDesignCommand.PrimalScheme3Subcommand.parse(argv)
+    let resolved = try command.makeOptions()
+    XCTAssertEqual(resolved.grouping, state.grouping, file: file, line: line)
+    XCTAssertEqual(resolved.options, options, file: file, line: line)
+    XCTAssertEqual(resolved.options.legacySalvageOptions.requestedOptionNames,
+      options.legacySalvageOptions.requestedOptionNames, file: file, line: line)
+    XCTAssertEqual(resolved.options.gapExpansionOptions.requestedOptionNames,
+      options.gapExpansionOptions.requestedOptionNames, file: file, line: line)
+  }
+
   private func configuredState() -> PrimerDesignDialogState {
     let state = PrimerDesignDialogState(projectURL: FileManager.default.temporaryDirectory)
     state.analysisName = UUID().uuidString

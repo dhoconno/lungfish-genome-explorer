@@ -3032,6 +3032,17 @@ The remaining flags, `--output`, `--primalscheme3-path`, `--high-gc`, `--max-amp
 | `--phase-scheduling <phase-scheduling>` | Optimizer phase policy, one of `serial` or `reserved`. |
 | `--intended-product-policy <intended-product-policy>` | Intended product policy, one of `exact-supported` or `concrete-designated-sites`. |
 | `--secondary-product-policy <secondary-product-policy>` | Secondary product policy, one of `ordered-disjoint-intended-sites`, `reject-secondary-products/v1`, or `ordered-disjoint-concrete-designated-sites/v1`. |
+| `--legacy-salvage <legacy-salvage>` | Bounded dimer salvage for combined legacy panels, one of `off` or `bounded`. The default is `off`. Unrelated to the `--salvage*` allele-coverage flags. |
+| `--legacy-salvage-threshold <legacy-salvage-threshold>` | Strictly decreasing salvage dimer thresholds below the dimer score. Repeatable. |
+| `--legacy-salvage-floor <legacy-salvage-floor>` | Lowest salvage dimer score considered. |
+| `--legacy-salvage-max-edges-per-pool <n>` | Salvage edge budget per pool, as in the GUI. |
+| `--legacy-salvage-max-incident-species-per-pool <n>` | Salvage incident-species budget per pool, as in the GUI. |
+| `--legacy-salvage-min-reference-gain <n>` | Fewest references a salvaged edge must add. |
+| `--legacy-salvage-max-candidate-evaluations <n>` | Cap on salvage candidate evaluations. |
+| `--gap-completion-parent <gap-completion-parent>` | Saved combined PrimalScheme analysis whose uncovered regions this follow-up design should fill. |
+| `--gap-expansion <gap-expansion>` | Generate candidates for uncovered regions of the gap-completion parent, one of `off` or `bounded`. The default is `off`. |
+| `--gap-expansion-max-anchors-per-msa <n>` | Gap-expansion anchor budget per alignment. |
+| `--gap-expansion-max-pairs-per-msa <n>` | Gap-expansion pair budget per alignment. |
 
 ### `primers analysis inspect`
 
