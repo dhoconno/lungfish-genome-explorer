@@ -68,8 +68,9 @@ struct WorkflowTemplateCreateSubcommand: AsyncParsableCommand {
 
     @OptionGroup var libraryOption: WorkflowTemplateLibraryOption
 
-    @Option(name: .customLong("format"), help: "Output format: text, json (default: text)")
-    var format: TextAndJSONOutputFormat = .text
+    /// `--format` comes from the shared global options (the root command
+    /// parses it first), as every other subcommand reads it.
+    @OptionGroup var globalOptions: GlobalOptions
 
     func run() async throws {
         let analysisURL = URL(fileURLWithPath: (from as NSString).expandingTildeInPath)
@@ -98,14 +99,14 @@ struct WorkflowTemplateCreateSubcommand: AsyncParsableCommand {
             }
         }
 
-        switch format {
+        switch globalOptions.outputFormat {
         case .json:
             print(try WorkflowTemplatePresentation.json([
                 "file": fileURL.path,
                 "sourceBundle": extraction.sourceBundleURL.path,
                 "template": try WorkflowTemplatePresentation.jsonObject(extraction.template),
             ]))
-        case .text:
+        case .text, .tsv:
             print("Saved workflow template \"\(extraction.template.name)\"")
             print("  File: \(fileURL.path)")
             print(WorkflowTemplatePresentation.describe(extraction.template, indent: "  "))
@@ -123,13 +124,12 @@ struct WorkflowTemplateListSubcommand: AsyncParsableCommand {
 
     @OptionGroup var libraryOption: WorkflowTemplateLibraryOption
 
-    @Option(name: .customLong("format"), help: "Output format: text, json (default: text)")
-    var format: TextAndJSONOutputFormat = .text
+    @OptionGroup var globalOptions: GlobalOptions
 
     func run() async throws {
         let library = libraryOption.resolved
         let entries = library.list()
-        switch format {
+        switch globalOptions.outputFormat {
         case .json:
             let items: [[String: Any]] = try entries.map { entry in
                 var item: [String: Any] = ["file": entry.url.path, "name": entry.name]
@@ -142,7 +142,7 @@ struct WorkflowTemplateListSubcommand: AsyncParsableCommand {
                 return item
             }
             print(try WorkflowTemplatePresentation.json(["library": library.directoryURL.path, "templates": items]))
-        case .text:
+        case .text, .tsv:
             if entries.isEmpty {
                 print("No workflow templates in \(library.directoryURL.path)")
                 print("Create one with: lungfish workflow template create --from <project>/Analyses/kraken2-…")
@@ -180,8 +180,7 @@ struct WorkflowTemplateShowSubcommand: AsyncParsableCommand {
 
     @OptionGroup var libraryOption: WorkflowTemplateLibraryOption
 
-    @Option(name: .customLong("format"), help: "Output format: text, json (default: text)")
-    var format: TextAndJSONOutputFormat = .text
+    @OptionGroup var globalOptions: GlobalOptions
 
     /// A flag rather than a `--format shell` value: the root command's
     /// `--format` (text, json, tsv) is parsed first and would reject `shell`.
@@ -195,10 +194,10 @@ struct WorkflowTemplateShowSubcommand: AsyncParsableCommand {
             print(AnalysisTemplateRenderer.shellScript(for: loaded, steps: steps))
             return
         }
-        switch format {
+        switch globalOptions.outputFormat {
         case .json:
             print(String(decoding: try loaded.jsonData(), as: UTF8.self))
-        case .text:
+        case .text, .tsv:
             print("Workflow template \"\(loaded.name)\"")
             print("  File: \(url.path)")
             print(WorkflowTemplatePresentation.describe(loaded, indent: "  "))

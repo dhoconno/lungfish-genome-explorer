@@ -44,7 +44,7 @@ final class WorkflowTemplateCommandTests: XCTestCase {
         XCTAssertEqual(create.from, "/p/Analyses/kraken2-x")
         XCTAssertEqual(create.name, "My Template")
         XCTAssertEqual(create.output, "/tmp/t.lungfishtemplate")
-        XCTAssertEqual(create.format, .json)
+        XCTAssertEqual(create.globalOptions.outputFormat, .json)
 
         let list = try WorkflowTemplateListSubcommand.parse(["--library", "/tmp/lib", "--format", "json"])
         XCTAssertEqual(list.libraryOption.library, "/tmp/lib")
