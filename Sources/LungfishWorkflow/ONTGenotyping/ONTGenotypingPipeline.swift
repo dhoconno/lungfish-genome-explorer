@@ -272,7 +272,7 @@ public struct ONTGenotypingPipeline: Sendable {
             let sampleDirectory = request.outputDirectory.appendingPathComponent(Self.sanitizeFileStem(sampleName), isDirectory: true)
             try FileManager.default.createDirectory(at: sampleDirectory, withIntermediateDirectories: true)
 
-            let executionInputURL = try resolveInputFASTQ(inputURL)
+            let executionInputURL = try await Self.executionInputFASTQ(for: inputURL, sampleDirectory: sampleDirectory)
             let readGroup = MappingReadGroup.resolved(
                 sampleName: sampleName,
                 defaultPlatform: "ILLUMINA"
@@ -439,8 +439,19 @@ public struct ONTGenotypingPipeline: Sendable {
         return ReferenceResolution(referenceFASTAURL: fastaURL.standardizedFileURL, sourceReferenceBundleURL: sourceBundle)
     }
 
-    private func resolveInputFASTQ(_ inputURL: URL) throws -> URL {
-        guard let resolved = SequenceInputResolver.resolvePrimarySequenceURL(for: inputURL),
+    /// The FASTQ to map for `inputURL`. A virtual derived bundle, such as a
+    /// demultiplexed barcode, is materialized into the sample directory first:
+    /// the resolver would otherwise hand back its root's pooled reads.
+    static func executionInputFASTQ(
+        for inputURL: URL,
+        sampleDirectory: URL,
+        materializer: DerivedFASTQBundleInput.Materializer = DerivedFASTQBundleInput.defaultMaterializer
+    ) async throws -> URL {
+        guard let resolved = try await DerivedFASTQBundleInput.readableURL(
+                for: inputURL,
+                in: sampleDirectory.appendingPathComponent("materialized-input", isDirectory: true),
+                materializer: materializer
+              ),
               (SequenceInputResolver.inputSequenceFormat(for: inputURL) ?? SequenceFormat.from(url: resolved)) == .fastq else {
             throw ONTGenotypingError.missingInput(inputURL)
         }

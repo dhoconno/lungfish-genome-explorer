@@ -10,9 +10,9 @@ extension FullLengthONTMHCGenotypingPipeline {
         sample: String,
         sampleDirectory: URL,
         logicalFinalOutputURL: URL
-    ) throws -> FullLengthONTMHCFASTQMaterializationResult {
+    ) async throws -> FullLengthONTMHCFASTQMaterializationResult {
         let outputURL = sampleDirectory.appendingPathComponent("00-input.fastq")
-        return try FullLengthONTMHCFASTQMaterializer.materializePlainFASTQ(
+        return try await FullLengthONTMHCFASTQMaterializer.materializeReadsAsPlainFASTQ(
             inputURL: inputURL,
             outputURL: outputURL,
             logicalOutputURL: logicalFinalOutputURL
@@ -27,7 +27,7 @@ extension FullLengthONTMHCGenotypingPipeline {
         workDirectory: URL,
         logicalFinalOutputURL: URL,
         progressHandler: (@Sendable (Double, String) -> Void)?
-    ) throws -> [FullLengthONTMHCScheduledSample] {
+    ) async throws -> [FullLengthONTMHCScheduledSample] {
         var sampleNameCounts: [String: Int] = [:]
         var stagedSamples: [FullLengthONTMHCScheduledSample] = []
         let totalCount = request.inputFASTQURLs.count
@@ -45,7 +45,7 @@ extension FullLengthONTMHCGenotypingPipeline {
             )
             let sampleDirectory = workDirectory.appendingPathComponent(sample, isDirectory: true)
             try FileManager.default.createDirectory(at: sampleDirectory, withIntermediateDirectories: true)
-            let materialization = try materializeFASTQ(
+            let materialization = try await materializeFASTQ(
                 inputURL: inputURL,
                 sample: sample,
                 sampleDirectory: sampleDirectory,

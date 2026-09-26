@@ -10,11 +10,14 @@ import LungfishWorkflow
 
 enum MapInputResolutionError: LocalizedError {
     case unreadableSequenceInput(String)
+    case derivedBundleRequiresMaterialization(String)
 
     var errorDescription: String? {
         switch self {
         case .unreadableSequenceInput(let path):
             return "Sequence input does not contain a readable FASTQ or FASTA payload: \(path)"
+        case .derivedBundleRequiresMaterialization(let path):
+            return "Sequence input stores its reads as a recipe over another dataset and must be materialized first: \(path)"
         }
     }
 }
@@ -356,8 +359,14 @@ struct MapCommand: AsyncParsableCommand {
         FileHandle.standardError.write(Data("warning: --advanced-options is deprecated, use --extra-args\n".utf8))
     }
 
+    /// Synchronous resolution for inputs that need no materialization. A
+    /// virtual derived bundle is refused: its resolver file is the root's
+    /// original reads. `resolveExecutionInputs` materializes such bundles.
     static func resolveExecutionInputURLs(for inputURLs: [URL]) throws -> [URL] {
         try inputURLs.map { inputURL in
+            if SequenceInputResolver.unmaterializedDerivedBundleURL(for: inputURL) != nil {
+                throw MapInputResolutionError.derivedBundleRequiresMaterialization(inputURL.standardizedFileURL.path)
+            }
             guard let resolvedURL = SequenceInputResolver.resolvePrimarySequenceURL(for: inputURL) else {
                 throw MapInputResolutionError.unreadableSequenceInput(inputURL.standardizedFileURL.path)
             }

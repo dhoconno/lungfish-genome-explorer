@@ -10,6 +10,12 @@ public enum SequenceInputResolver {
     /// - raw FASTQ / FASTA files
     /// - `.lungfishfastq` bundles (including derived FASTA bundles)
     /// - `.lungfishref` bundles and files nested inside them
+    ///
+    /// - Important: For a derived bundle whose reads are only a recipe over its
+    ///   root (see ``unmaterializedDerivedBundleURL(for:)``) this returns the
+    ///   ROOT bundle's original reads, which is right for locating provenance
+    ///   and formats but wrong for processing reads. Tools that read sequences
+    ///   must materialize such bundles first.
     public static func resolvePrimarySequenceURL(for candidateURL: URL) -> URL? {
         let standardizedURL = candidateURL.standardizedFileURL
 
@@ -59,6 +65,24 @@ public enum SequenceInputResolver {
             return nil
         }
         return standardizedURL
+    }
+
+    /// The enclosing derived `.lungfishfastq` bundle when `candidateURL` is one
+    /// whose reads exist only as a recipe over its root bundle: an orientation
+    /// map, read-ID list, trim positions or demultiplexing list. Its own FASTQ
+    /// file, if any, is a short preview. Returns nil for plain files, root
+    /// bundles and derived bundles that store their full reads.
+    public static func unmaterializedDerivedBundleURL(for candidateURL: URL) -> URL? {
+        guard let bundleURL = enclosingFASTQBundleURL(for: candidateURL.standardizedFileURL),
+              let manifest = FASTQBundle.loadDerivedManifest(in: bundleURL) else {
+            return nil
+        }
+        switch manifest.payload {
+        case .full, .fullFASTA, .fullPaired, .fullMixed:
+            return nil
+        default:
+            return bundleURL
+        }
     }
 
     /// Returns the effective FASTQ/FASTA format for a candidate input.
