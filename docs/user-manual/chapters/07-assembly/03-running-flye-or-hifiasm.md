@@ -47,6 +47,8 @@ This chapter assembles the HG002 long reads. [HG002](../../GLOSSARY.md#hg002) is
 
 The small circular target is also a good teaching case for real failures. On these reads Flye's result changes from run to run, and both assemblers can report a small circle at twice its true length. [Reading the results](#reading-the-results) works through each outcome.
 
+On Nanopore reads, choose Flye for older or noisier reads and, with Metagenome mode, for a community. Choose hifiasm for HiFi reads, and for reads from a current Nanopore flow cell when the two parental copies of a region must stay apart. [Choosing a tool](01-when-to-assemble.md#choosing-a-tool) compares all five assemblers in LGE and explains how long-read assembly differs from short-read assembly.
+
 ## Before you start
 
 You need a project open, as [The Lungfish Genome Explorer Project](../01-foundations/06-the-lungfish-project.md#procedure) shows.

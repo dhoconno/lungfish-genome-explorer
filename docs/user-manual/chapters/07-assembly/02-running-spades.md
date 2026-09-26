@@ -46,6 +46,8 @@ You assemble when you want the sequence itself rather than a list of differences
 
 This chapter assembles reads from the [mitochondrial genome](../../GLOSSARY.md#mitochondrial-genome) of HG002, a widely studied human sample. Mitochondria carry a small circular chromosome of their own, 16,569 bases long in humans. That is small enough to assemble in seconds and large enough to be a real genome. The fixture is a [paired-end](../../GLOSSARY.md#paired-end) Illumina library, meaning each DNA fragment was read from both ends, holding 9,958 read pairs. The right answer is published, so you can see what each assembler gets right.
 
+Choose SPAdes for Illumina reads from one organism, and its Meta profile for a community. Choose SKESA when you prefer more contigs with fewer wrong joins, and MEGAHIT for a large community only if it completes on your Mac. [Choosing a tool](01-when-to-assemble.md#choosing-a-tool) compares all five assemblers in LGE and explains the de Bruijn graph method the three short-read tools share.
+
 ## Before you start
 
 You need a project open, as [The Lungfish Genome Explorer Project](../01-foundations/06-the-lungfish-project.md#procedure) shows.
