@@ -167,6 +167,19 @@ final class MultipleSequenceAlignmentBundleTests: XCTestCase {
         }
     }
 
+    func testRNAAlignmentImportStoresThymine() throws {
+        let inputURL = try writeInput(named: "rna.fasta", contents: ">a\nACGU-\n>b\nACGUU\n")
+        let bundleURL = workspace.appendingPathComponent("rna.lungfishmsa", isDirectory: true)
+        let result = try MultipleSequenceAlignmentBundle.importAlignment(
+            from: inputURL, to: bundleURL, options: .init(name: "rna"))
+
+        XCTAssertEqual(result.manifest.alphabet, "dna")
+        let primary = try String(
+            contentsOf: bundleURL.appendingPathComponent("alignment/primary.aligned.fasta"), encoding: .utf8)
+        XCTAssertFalse(primary.contains("U"))
+        XCTAssertTrue(primary.contains("ACGTT"))
+    }
+
     func testRectangularFormatsRejectUnequalRowLengths() throws {
         let inputURL = try writeInput(
             named: "bad.fasta",

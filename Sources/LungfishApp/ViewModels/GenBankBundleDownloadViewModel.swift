@@ -467,9 +467,9 @@ public final class GenBankBundleDownloadViewModel: @unchecked Sendable {
         progressHandler?(0.01, "Checking tools...")
         try await validateTools()
 
-        let cleanedSequence = sequence
+        let cleanedSequence = ThymineAlphabet.normalized(sequence
             .uppercased()
-            .filter { "ACGTNURYKMSWBDHV.-".contains($0) }
+            .filter { "ACGTNURYKMSWBDHV.-".contains($0) })
         guard !cleanedSequence.isEmpty else {
             throw DatabaseServiceError.parseError(message: "No nucleotide sequence available for \(accession)")
         }

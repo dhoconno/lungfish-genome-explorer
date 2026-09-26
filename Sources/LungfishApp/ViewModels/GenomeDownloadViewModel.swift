@@ -233,6 +233,8 @@ public final class GenomeDownloadViewModel: @unchecked Sendable {
             try fileManager.moveItem(at: fastaDestination, to: plainFASTA)
         }
 
+        try ThymineAlphabet.normalizeFASTAFile(at: plainFASTA)
+
         // bgzip compress for random access
         progressHandler?(0.62, "Compressing FASTA (bgzip)...")
         logger.info("downloadAndBuild: bgzip compressing FASTA")

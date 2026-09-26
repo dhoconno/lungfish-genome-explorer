@@ -740,6 +740,7 @@ private struct ReferenceBundleBuildExecutor: Sendable {
         } else {
             destinationFASTA = genomeDir.appendingPathComponent(fastaFilename)
             try FileManager.default.copyItem(at: configuration.fastaURL, to: destinationFASTA)
+            try ThymineAlphabet.normalizeFASTAFile(at: destinationFASTA)
         }
 
         await updateProgress(

@@ -35,6 +35,14 @@ extension MultipleSequenceAlignmentBundle {
     }
 
     static func parse(_ text: String, format: SourceFormat) throws -> [ParsedRow] {
+        var rows = try parseRows(text, format: format)
+        // Nucleotide alignments are stored with T; protein rows keep U (selenocysteine).
+        let sequences = ThymineAlphabet.normalizedIfNucleotide(rows.map(\.sequence))
+        for index in rows.indices { rows[index].sequence = sequences[index] }
+        return rows
+    }
+
+    private static func parseRows(_ text: String, format: SourceFormat) throws -> [ParsedRow] {
         switch format {
         case .alignedFASTA, .a2mA3m:
             return try parseFASTA(text)

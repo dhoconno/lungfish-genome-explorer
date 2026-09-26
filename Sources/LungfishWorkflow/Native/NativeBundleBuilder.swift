@@ -861,6 +861,7 @@ public final class NativeBundleBuilder: ObservableObject {
         // Copy FASTA to bundle first
         let destinationFASTA = genomeDir.appendingPathComponent(fastaFilename)
         try FileManager.default.copyItem(at: configuration.fastaURL, to: destinationFASTA)
+        try ThymineAlphabet.normalizeFASTAFile(at: destinationFASTA)
 
         // Parse chromosomes from FASTA
         let chromosomes = try parseFASTAForChromosomes(configuration.fastaURL)

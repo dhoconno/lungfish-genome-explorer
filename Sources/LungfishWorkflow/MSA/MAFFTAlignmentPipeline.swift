@@ -343,7 +343,8 @@ public final class MAFFTAlignmentPipeline: @unchecked Sendable {
                 pending.append(
                     PendingRecord(
                         name: record.name,
-                        sequence: record.sequence,
+                        sequence: ThymineAlphabet.containsProteinOnlyResidues(record.sequence)
+                            ? record.sequence : ThymineAlphabet.normalized(record.sequence),
                         quality: record.quality,
                         inputURL: inputURL,
                         sequenceFormat: sequenceFormat,

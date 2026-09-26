@@ -1,4 +1,5 @@
 import Foundation
+import LungfishCore
 import LungfishIO
 
 public struct PrimerSchemeImportRequest: Sendable {
@@ -115,7 +116,9 @@ public enum PrimerSchemeImportService {
             try fm.createDirectory(at: bundleURL, withIntermediateDirectories: true)
             try fm.copyItem(at: request.bedURL, to: bundleURL.appendingPathComponent("primers.bed"))
             if let fastaURL = request.fastaURL {
-                try fm.copyItem(at: fastaURL, to: bundleURL.appendingPathComponent("primers.fasta"))
+                let primersFASTA = bundleURL.appendingPathComponent("primers.fasta")
+                try fm.copyItem(at: fastaURL, to: primersFASTA)
+                try ThymineAlphabet.normalizeFASTAFile(at: primersFASTA)
             }
             if !request.attachments.isEmpty {
                 let attachmentsDir = bundleURL.appendingPathComponent("attachments", isDirectory: true)
