@@ -266,7 +266,9 @@ extension ClassificationResult {
         )
     }
 
-    private static func resolvingRelativeConfigURLs(
+    /// Also used by the template extractor, which reads the sidecar without
+    /// rebuilding the taxonomy tree.
+    static func resolvingRelativeConfigURLs(
         _ config: ClassificationConfig,
         relativeTo directory: URL
     ) -> ClassificationConfig {
