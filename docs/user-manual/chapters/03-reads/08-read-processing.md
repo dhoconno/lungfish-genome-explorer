@@ -3,7 +3,7 @@ title: Read Processing
 chapter_id: 03-reads/08-read-processing
 audience: bench-scientist
 prereqs: [03-reads/01-importing-fastq, 03-reads/03-quality-control]
-estimated_reading_min: 20
+estimated_reading_min: 23
 task: Merge overlapping pairs, repair desynchronized mates, correct sequencing errors, reverse-complement reads, orient reads against a reference, and translate reads to protein.
 tags: [reads, merge, repair, error-correct, reverse-complement, orient, translate, interleave]
 tools: [bbmerge, repair.sh, tadpole, reformat, vsearch]
@@ -27,7 +27,7 @@ shots:
   - id: sidebar-after-merge
     caption: "The sidebar after a merge run, showing the new bundle under Analyses."
 illustrations: []
-glossary_refs: [fastq, read, read-merging, insert-size, paired-end, interleaved-fastq, singleton-read, k-mer, phred-score, reverse-complement, reading-frame, codon, orient-reads, amplicon, shotgun, provenance, checksum, inspector, required-setup-pack, library-prep, depth, coverage-breadth, de-novo-assembly]
+glossary_refs: [fastq, read, read-merging, insert-size, paired-end, interleaved-fastq, singleton-read, k-mer, phred-score, reverse-complement, reading-frame, codon, orient-reads, amplicon, shotgun, provenance, checksum, inspector, required-setup-pack, library-prep, depth, coverage-breadth, de-novo-assembly, bbmerge]
 features_refs: [fastq.read-processing]
 fixtures_refs: [hg002-chr20, hg002-long-reads, human-mito]
 brand_reviewed: false
@@ -59,6 +59,27 @@ That combination is the case merging was invented for. [Library preparation](../
 Merging buys two things. The joined sequence is longer than either mate, which helps any step that needs length, such as [de novo assembly](../../GLOSSARY.md#de-novo-assembly), where a program rebuilds a genome from overlapping reads without a reference. The middle of the joined sequence is also more accurate, because every base in the overlap was measured twice and the merger keeps the better-supported call.
 
 The other five operations answer narrower questions. Correct Sequencing Errors is worth running before an assembly on deep data. Repair rescues a paired file that an earlier filter left out of step. Reverse Complement, Orient Reads, and Translate exist because a later tool sometimes cares about strand or about protein, and a read as sequenced makes no promise about either.
+
+## Choosing a tool
+
+Merging is the one job in this chapter that LGE does with two programs, and whether to merge at all matters more than which program merges. What settles it is the step that comes next. Error correction always runs Tadpole and orientation always runs vsearch, so neither has a choice to make. Duplicate removal is compared in [Decontamination](05-decontamination.md#choosing-a-tool).
+
+[bbmerge](../../GLOSSARY.md#bbmerge) runs behind Merge Overlapping Pairs. It slides the second mate along the first until the shared bases line up, as the procedure below describes, and joins the pair only when it trusts the overlap. It was built for shotgun paired reads, and its authors report that it joined pairs more accurately, with fewer false joins, than the other merging tools they tested. The dialog gives you a Strict mode for doubtful data, and it also collapses identical merged sequences into single records with a `size=` count.
+
+fastp merges pairs inside three import recipes, using the same overlap search it uses to find adapters. The VSP2 Target Enrichment and Wastewater metagenomics recipes require 15 shared bases and keep the pairs that did not merge beside the merged reads. The Illumina Amplicon Merge recipe requires 20 shared bases and keeps only the merged reads, so every pair that failed to merge is dropped. A recipe runs on every sample at import, with settings you cannot change from the sheet.
+
+Not merging is often the right choice. A merged bundle holds merged single reads and unmerged pairs in one file. When you map such a file, minimap2 in its short-read mode and BWA-MEM2 still pair the unmerged mates, while Bowtie2 and BBMap map every record as a single read and lose the pairing, as [Mapping Reads to a Reference](../04-alignments/01-mapping-reads-to-a-reference.md) describes.
+
+| Tool | Built for | Choose it when | Choose something else when |
+|---|---|---|---|
+| bbmerge, Merge Overlapping Pairs | Merging shotgun or amplicon pairs you choose to merge | Assembly, or any step that needs one long read per fragment | The next step is mapping for variant calling |
+| fastp merge, VSP2 or wastewater recipe | Short-insert viral and wastewater libraries at import | You import those libraries with the matching recipe | You want to choose the merge settings yourself |
+| fastp merge, Illumina Amplicon Merge recipe | Amplicons read end to end for exact-match genotyping | You are preparing MHC amplicon genotyping | Losing the pairs that did not merge would cost you data |
+| No merging | Mapping pairs directly | Shotgun human or macaque reads headed for variant calling | The fragments overlap and a later step needs whole fragments |
+
+This chapter merges the HG002 fixture to show what a merge does to clean shotgun reads, and to read its insert sizes. For the variant-calling route that the rest of this manual follows with the same reads, map the pairs unmerged. BBTools, fastp, and vsearch are cited in [Tools installed with every copy of LGE](../appendices/bibliography.md#tools-installed-with-every-copy-of-lge).
+
+So what should you do with this? Merge when the next step wants whole fragments, and map the pairs as they are when the next step is variant calling.
 
 ## Before you start
 
