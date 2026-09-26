@@ -3,7 +3,7 @@ title: Mapping Reads to a Reference
 chapter_id: 04-alignments/01-mapping-reads-to-a-reference
 audience: bench-scientist
 prereqs: [01-foundations/02-sequencing-reads, 01-foundations/03-amplicon-vs-shotgun, 01-foundations/04-alignment-files, 03-reads/01-importing-fastq]
-estimated_reading_min: 19
+estimated_reading_min: 24
 task: Map sequencing reads onto a reference genome with one of four mappers and read the alignment statistics of the BAM it produces.
 tags: [alignments, mapping, minimap2, bwa-mem2, bowtie2, bbmap, illumina, nanopore]
 tools: [minimap2, bwa-mem2, bowtie2, bbmap, samtools]
@@ -25,7 +25,7 @@ shots:
   - id: alignment-inspector-stats
     caption: "The Inspector Alignment Summary for the HG002 minimap2 track, showing Total Mapped, Total Unmapped, Mapped %, Chromosomes, and Est. Coverage above the collapsed Read Groups and Flag Statistics sections."
 illustrations: []
-glossary_refs: [bam, mapping, alignment, mapper, mapq, soft-clip, cigar, supplementary-alignment, secondary-alignment, primary-alignment, read-group, flagstat, properly-paired, depth, coverage-breadth, mapping-preset, paired-end, contig, mark-duplicates, plugin-pack, required-setup-pack, reference-bundle, import-center, inspector, provenance, checksum]
+glossary_refs: [bam, mapping, alignment, mapper, mapq, soft-clip, cigar, supplementary-alignment, secondary-alignment, primary-alignment, read-group, flagstat, properly-paired, depth, coverage-breadth, mapping-preset, paired-end, contig, mark-duplicates, plugin-pack, required-setup-pack, reference-bundle, import-center, inspector, provenance, checksum, minimizer, read-merging, interleaved-fastq]
 features_refs: [map]
 fixtures_refs: [hg002-chr20]
 brand_reviewed: false
@@ -49,6 +49,33 @@ A read on its own has no address. A 250-base read from a human sample could come
 The rest of this manual reads that stack. When 40 reads sit over one position and 38 of them read A where the reference reads G, that is evidence of a real difference in your sample rather than one instrument error. Variant calling, consensus building, coverage checks, and primer trimming all start from it, so none of them can run until mapping has built it.
 
 This chapter maps reads from HG002, a man whose genome the Genome in a Bottle consortium has sequenced and checked many times over, which makes his data a common test set. A [paired-end](../../GLOSSARY.md#paired-end) run reads each fragment from both ends, and LGE stores the two mates of a sample together in one bundle. The fixture holds 45,574 read pairs, so 91,148 reads, all drawn from a 500 kb window of chromosome 20. A kb is a kilobase, a thousand bases, so the window is about 500,000 bases long (500,001 exactly, since both end positions are included). The matching reference holds that window and nothing else, which is why the run takes seconds rather than hours.
+
+## Choosing a tool
+
+Choosing a mapper comes down to two facts about your data, which instrument made the reads and how large the reference is. For most readers the answer is minimap2, and the paragraphs below explain when another mapper fits better.
+
+**minimap2** does not record every stretch of the genome in its index. It records [minimizers](../../GLOSSARY.md#minimizer), a small, evenly spaced sample of the short words in the genome, so even a whole human genome is indexed in a few minutes. For each read it looks up the read's own minimizers, keeps the hits that fall in the same order along read and genome, and fills the gaps between them with a full base-by-base alignment. One program covers Illumina, nanopore, and PacBio reads through its presets, and for nanopore reads it is the only mapper LGE offers. The minimap2 documentation reports it as about three times as fast as BWA-MEM and Bowtie2 on Illumina reads longer than 100 bases, and as accurate on simulated data. It is built for reads of about 100 bases or longer, so older, shorter Illumina reads suit the next two mappers better.
+
+**BWA-MEM2** is a faster rewrite of BWA-MEM, the mapper most published human resequencing pipelines name, and its authors report that it gives the same alignments as BWA-MEM. It builds an FM-index, a compressed and searchable copy of the whole genome, finds stretches where a read matches the genome exactly, and extends each one into a local alignment. A local alignment may leave a poorly matching read end unaligned as a [soft clip](../../GLOSSARY.md#soft-clip). BWA-MEM2 was built for Illumina short reads, and LGE offers it for nothing else. The price is memory while the index is built. The BWA-MEM2 documentation gives about 28 GB of memory per gigabase of reference, which comes to about 85 GB for a 3-gigabase human or macaque genome, more than most Macs hold.
+
+**Bowtie2** also searches an FM-index, but by default it aligns each read end to end, which means every base from the first to the last must be placed and nothing is soft-clipped. That strictness suits the protocols written around it. ChIP-seq and ATAC-seq, two methods that find where proteins sit on DNA and where DNA is open, often name Bowtie2, and the Viral Recon pipeline uses it. LGE runs it end to end at its default sensitivity, and typing `--local` in Extra arguments switches it to local alignment when a protocol asks for that. Its [MAPQ](../../GLOSSARY.md#mapq) scale stops at 42, and LGE offers it only for Illumina-class reads.
+
+**BBMap**, part of the BBTools suite that comes with LGE, indexes short words 13 bases long and aligns each read across its whole length. By default it accepts an alignment at about 76 percent identity and looks for insertions and deletions up to 16,000 bases long. That tolerance makes it the mapper most likely to place reads from a sample that differs noticeably from its reference, such as a distant virus lineage or macaque reads on a human reference. Check those extra placements before you trust them, because a loose match is also an easier wrong match. Its documentation gives about 24 GB of memory for a human genome. Standard mode accepts reads up to 500 bases, and PacBio mode accepts PacBio reads up to 6,000 bases.
+
+The size of the reference matters more in LGE than the speed figures above suggest, because LGE builds the index again at the start of every run and keeps none of them. BWA-MEM2 and Bowtie2 write theirs to a temporary folder in the project and delete it when the run ends, and minimap2 and BBMap build theirs in memory. On this chapter's 500,001-base reference that takes seconds. On a whole human or macaque genome it becomes the slowest part of the run, and LGE starts `bowtie2-build`, the program that builds Bowtie2's index, on a single processor core. So for a whole mammalian genome minimap2 is the practical choice, BBMap is possible on a Mac with plenty of memory, and BWA-MEM2 and Bowtie2 belong to smaller references such as a virus, a bacterium, a mitochondrion, one chromosome, or a set of target regions.
+
+[Merged reads](../../GLOSSARY.md#read-merging) change the choice as well. Merging joins the two mates of a pair into one longer read where they overlap, and a bundle can end up holding merged reads and still-paired mates in one file. minimap2's Short-read preset and BWA-MEM2 map the merged reads on their own and still pair the rest. Bowtie2 and BBMap map the whole file as single reads, so the remaining mates lose their pairing. For variant calling, map the unmerged pairs, or use minimap2 or BWA-MEM2.
+
+Two jobs have no good answer in LGE. Short-read RNA sequencing needs a splice-aware mapper, one that can split a read across an intron, and LGE has none for short reads. The Spliced CDS/cDNA preset is minimap2's `splice` preset, which is meant for long cDNA and direct-RNA reads. Mapping contigs from a related species is the other. The Assembly-to-assembly preset is minimap2's `asm5`, and the minimap2 manual says to use it only when the average difference between the two genomes is not much above 0.1 percent, about the difference between two people. Macaque contigs against a human reference differ by several percent, and minimap2's presets for more distant genomes are not offered. Nor is `lr:hq`, minimap2's preset for the most accurate recent nanopore reads, so use Oxford Nanopore for every nanopore run.
+
+| Tool | Built for | Choose it when | Choose something else when |
+|---|---|---|---|
+| minimap2 | Any read type, about 100 bases or longer | You are unsure, the reads are long, or the reference is a whole human or macaque genome | Reads are shorter than about 100 bases, or a protocol names another mapper |
+| BWA-MEM2 | Illumina short reads | You are matching a human pipeline that names BWA-MEM or BWA-MEM2, on a small reference | The reference is a whole mammalian genome, or the reads are long |
+| Bowtie2 | Illumina short reads, aligned end to end | A protocol names it, such as ChIP-seq, ATAC-seq, or a match to Viral Recon | The reference is a whole mammalian genome, or merged reads share the file with pairs |
+| BBMap | Short reads, and PacBio reads up to 6,000 bases | Reads come from a strain or species that differs from the reference | Reads are from a nanopore run, or merged reads share the file with pairs |
+
+This chapter maps HG002's Illumina reads with minimap2, the default and a good fit for human short reads. Its reference is a 500 kb slice, small enough that all four mappers finish in seconds, which is why [What the four mappers give you on the same reads](#what-the-four-mappers-give-you-on-the-same-reads) can compare them side by side. Switch to BWA-MEM2 on a small reference when you must match a published pipeline, to Bowtie2 when a protocol names it, and to BBMap when your reads come from a relative of the reference species. Citations for minimap2, BWA-MEM2, and Bowtie2 are in [Tools installed by a plugin pack](../appendices/bibliography.md#tools-installed-by-a-plugin-pack), and BBMap is cited as BBTools in [Tools installed with every copy of LGE](../appendices/bibliography.md#tools-installed-with-every-copy-of-lge).
 
 ## Before you start
 
@@ -187,7 +214,7 @@ Run Settings lists the mapper, the preset, the main settings you chose, the mapp
 
 Total Reads matches the 91,148 reads you imported, which is the first thing to check after any run. Mapped Reads sits 55 below the Alignment Summary's Total Mapped, and the Flag Statistics list shows why.
 
-The Paired End row reads `Yes (interleaved)` for this run, because the bundle keeps both mates in one file and minimap2 pairs them as it reads. BBMap reports the same. BWA-MEM2 and Bowtie2 receive that file as unpaired reads, and on them the row reads `No (interleaved input mapped as single-end)`.
+The Paired End row reads `Yes (interleaved)` for this run, because the bundle keeps both mates in one [interleaved](../../GLOSSARY.md#interleaved-fastq) file, each read followed by its mate, and minimap2 pairs them as it reads. All four mappers pair a file like this one. On a bundle that mixes merged reads with pairs, the row reads `Yes (interleaved; merged reads mapped as single reads)` for minimap2 and BWA-MEM2, and `No (mixed merged reads and pairs mapped as single-end)` for Bowtie2 and BBMap, as [Choosing a tool](#choosing-a-tool) explains.
 
 ### Flag Statistics
 
@@ -207,7 +234,9 @@ A read is [properly paired](../../GLOSSARY.md#properly-paired) when its mate lan
 
 ### What the four mappers give you on the same reads
 
-All four mappers ran on the identical fixture with their default settings. Records is the Flag Statistics total, Mapped counts mapped records, and Mapped % is the share of records placed. Median MAPQ is the middle MAPQ of all placed reads, so half scored above it and half below.
+All four mappers ran on the identical fixture with their default settings. Records is the Flag Statistics total, Mapped counts mapped records, and Mapped % is the share of records placed. Median MAPQ is the middle MAPQ of all placed reads, so half scored above it and half below. The runs date from 2026-09-06, before LGE began handing an interleaved bundle to BWA-MEM2 and Bowtie2 as pairs, so a run on the current release may give slightly different counts in those two rows.
+
+<!-- RERUN: four-mapper table after interleaved pairing fix -->
 
 | Mapper | Records | Mapped | Mapped % | Mean depth | Median MAPQ |
 |---|---|---|---|---|---|
@@ -220,7 +249,7 @@ The record counts differ because the mappers disagree about how many split reads
 
 Median MAPQ is where they part company, and the reason is scaling, not placement. Each mapper puts its confidence on its own scale. minimap2 and BWA-MEM2 give a clear placement 60. Bowtie2's scale stops at 42, so a read it is certain of scores 42. BBMap's scores also ran lower on these reads, with a median of 45. A Min mapping quality cutoff therefore means different things for different mappers. A cutoff of 20 is a mild filter under minimap2 or BWA-MEM2 and a stricter one under Bowtie2 or BBMap. Set any cutoff against the mapper you actually ran, and never compare MAPQ values between mappers.
 
-For clean human short reads against the right reference, the choice of mapper barely matters. minimap2 is the default, suits almost any project, and is the one to use for nanopore or PacBio reads. BWA-MEM2 is what many published human resequencing pipelines use, so choose it when you are reproducing one. Choose Bowtie2 when a published protocol names it. BBMap often tolerates more mismatches, so a second run with it is worth trying when another mapper reports a mapping rate you did not expect.
+For clean human short reads against the right reference, the choice of mapper barely matters to the result. What differs is what each mapper can run on and how large a reference it handles, which [Choosing a tool](#choosing-a-tool) covers. BBMap tolerates more mismatches than the other three, so a second run with it is worth trying when another mapper reports a mapping rate you did not expect.
 
 ## What good looks like
 

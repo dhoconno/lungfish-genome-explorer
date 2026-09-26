@@ -3929,6 +3929,21 @@ final class MapCommandRegressionTests: XCTestCase {
         )
     }
 
+    func testMapSynchronousResolutionRefusesAVirtualDerivedBundle() throws {
+        // The synchronous helper cannot materialize, and the resolver alone
+        // would hand back the root bundle's original reads.
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("map-virtual-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let fixture = try DerivedFASTQBundleFixture.make(in: directory)
+
+        XCTAssertThrowsError(try MapCommand.resolveExecutionInputURLs(for: [fixture.derivedBundleURL])) { error in
+            guard case MapInputResolutionError.derivedBundleRequiresMaterialization = error else {
+                return XCTFail("Unexpected error: \(error)")
+            }
+        }
+    }
+
     func testMapMaterializesVirtualDerivedBundleInsteadOfRootPayload() async throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("map-materialize-derived-\(UUID().uuidString)", isDirectory: true)

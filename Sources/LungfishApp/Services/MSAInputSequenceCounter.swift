@@ -33,6 +33,13 @@ enum MSAInputSequenceCounter {
            let count = referenceBundleSequenceCount(in: bundleURL) {
             return count
         }
+        // An oriented, subset or trimmed dataset's reads are a recipe over its
+        // root; the resolver would count the root's reads. Its manifest records
+        // the dataset's own count.
+        if let derivedBundleURL = SequenceInputResolver.unmaterializedDerivedBundleURL(for: standardized) {
+            let readCount = FASTQBundle.loadDerivedManifest(in: derivedBundleURL)?.cachedStatistics.readCount ?? 0
+            return readCount > 0 ? readCount : nil
+        }
         guard let sequenceURL = SequenceInputResolver.resolvePrimarySequenceURL(for: standardized),
               let format = SequenceFormat.from(url: sequenceURL) else {
             return nil

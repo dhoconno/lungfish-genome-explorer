@@ -3,7 +3,7 @@ title: Calling Variants
 chapter_id: 05-variants/01-calling-variants-from-amplicons
 audience: bench-scientist
 prereqs: [01-foundations/04-alignment-files, 01-foundations/05-variants-and-vcf, 04-alignments/01-mapping-reads-to-a-reference, 04-alignments/03-primer-trimming]
-estimated_reading_min: 14
+estimated_reading_min: 19
 task: Call variants from a bundle-owned alignment track with bcftools and LoFreq, and know when to reach for iVar instead.
 tags: [variants, variant-calling, bcftools, lofreq, ivar, vcf, hg002]
 tools: [bcftools, lofreq, ivar, samtools, htslib]
@@ -20,7 +20,7 @@ shots:
   - id: variants-tab-two-callers
     caption: "The Variants tab of the table drawer with both the bcftools and LoFreq tracks loaded, and the Variant Track column naming which track each row came from."
 illustrations: []
-glossary_refs: [alignment-track, allele-frequency, amplicon, bam, bcftools, benchmark-vcf, bgzip, codon, depth, filter, genotype, indel, ivar, lofreq, mpileup, phred-score, pileup, ploidy, plugin-pack, primer-scheme, primer-trim, provenance, reference-bundle, required-setup-pack, shotgun, table-drawer, tabix, variant-caller, vcf]
+glossary_refs: [alignment-track, allele-frequency, amplicon, bam, bcftools, benchmark-vcf, bgzip, codon, depth, filter, genotype, indel, ivar, lofreq, mpileup, phred-score, pileup, ploidy, plugin-pack, primer-scheme, primer-trim, provenance, reference-bundle, required-setup-pack, shotgun, strand-bias, lineage, table-drawer, tabix, variant-caller, vcf]
 features_refs: [variants.call]
 fixtures_refs: [hg002-chr20]
 brand_reviewed: false
@@ -36,7 +36,7 @@ Lungfish Genome Explorer (LGE) runs the caller for you. You pick an [alignment t
 The six callers in the dialog are not six ways of doing the same thing. Each was built around an assumption about how the reads were produced, and three matter here.
 
 - **bcftools** asks which [genotype](../../GLOSSARY.md#genotype) best explains the pileup at each position, given how many copies of each chromosome the sample carries, its [ploidy](../../GLOSSARY.md#ploidy). A virus or a mitochondrion has one copy, which makes it haploid, and a human has two, which makes it diploid. LGE picks the ploidy from what the bundle records about the organism, and on a diploid sample bcftools writes `0/1` for a [heterozygous](../../GLOSSARY.md#heterozygous) site, where one copy carries the change, and `1/1` where both do.
-- **LoFreq** builds an error model, an estimate of how often the instrument misreads a base, from the base qualities, and reports changes whose reads outnumber that error rate. Base quality is the sequencer's confidence in each base, the Phred score described under Minimum ALT quality below. It reports the fraction of reads carrying each change rather than a genotype, which suits samples whose true fractions can be anything, such as a mixed infection or a tumour biopsy.
+- **LoFreq** builds an error model, an estimate of how often the instrument misreads a base, from the base qualities, and reports a change when more reads carry it than that error rate predicts. Base quality is the sequencer's confidence in each base, the Phred score described under Minimum ALT quality below. It reports the fraction of reads carrying each change rather than a genotype, which suits samples whose true fractions can be anything, such as a mixed infection or a tumour biopsy.
 - **[iVar](../../GLOSSARY.md#ivar)** reports the observed fraction of reads carrying each change above a fixed threshold. It is written for [amplicon](../../GLOSSARY.md#amplicon) data whose primer bases have already been clipped away.
 
 The other three are Medaka and Clair3, which [Nanopore Variant Calling](04-nanopore-variant-calling.md) covers, and GATK HaplotypeCaller, which [HaplotypeCaller](../06-human-germline-variants/01-haplotype-caller.md) covers. Match the caller to how the sample was prepared before you look at a row of output.
@@ -46,6 +46,31 @@ The other three are Medaka and Clair3, which [Nanopore Variant Calling](04-nanop
 The worked example is human. HG002 is a consenting research participant whose DNA is distributed as a cell line, so laboratories everywhere sequence the same genome. The HG002 chromosome 20 slice holds Illumina reads from that cell line, mapped to a 500 kilobase stretch of chromosome 20. Calling variants on it asks which positions differ from the reference in this person, and the question has a checkable answer.
 
 The fixture ships with a [benchmark VCF](../../GLOSSARY.md#benchmark-vcf), 961 calls the Genome in a Bottle consortium produced for HG002 by combining many sequencing platforms and callers. Those calls did not come from the fixture's reads, so they work as an outside answer key. Few real projects offer one, and learning to ask how a call set was checked is easiest where the checking is possible. Every clinical genetics pipeline and population study begins with this step.
+
+## Choosing a tool
+
+Choosing a caller comes down to what you expect the sample to hold. A person or a macaque carries two copies of each chromosome, so a true variant sits in about half the reads or in nearly all of them. A virus population, a mixed infection, or a tumour can carry a change in any fraction of the reads, from nearly all to under one percent. A caller built for one of those situations gives confident wrong answers in the other.
+
+Two kinds of calling follow from that. Genotype-based calling asks which combination of alleles best explains the reads, given the ploidy, and writes a genotype such as `0/1`. Frequency-based calling asks whether a change turns up more often than sequencing error would explain, and writes the fraction of reads that carry it. bcftools does the first, and LoFreq and iVar do the second.
+
+**bcftools** works out, at each position, how likely each possible genotype is given the read bases, their quality scores, and how confidently each read was mapped, then writes the most likely genotype. It comes with LGE and is fast. It suits a diploid sample such as HG002 and a haploid one such as a clonal bacterial isolate. It is not built for minority variants, since a haploid call has no way to say that a change sits in only 10 percent of the reads. LGE removes bcftools' usual cap of 250 reads per position, so deep amplicon piles are read in full. LGE also applies one ploidy to every sequence in the reference, so on a human reference the X and Y chromosomes of a male sample, and the mitochondrion, are called diploid too.
+
+**LoFreq** treats each base's quality score as the chance that the base is wrong, combines those chances across the pileup, and asks whether more reads carry a change than error alone would plausibly produce. Its authors report calls below 0.05 percent frequency in very deep data. It was built for virus populations, bacteria, and mixed tumour samples. It needs deep coverage to reach low frequencies, and a systematic error, one the instrument repeats at the same place in many reads, can pass its test. In LGE it runs on one processor core and calls single-base changes only, unless you add `--call-indels` in Extra arguments. It also keeps its own default filters, one of which removes calls whose reads come mostly from one strand, a [strand bias](../../GLOSSARY.md#strand-bias). Amplicon reads often cover a position from one strand only, so that filter can remove real variants in amplicon data.
+
+**iVar** reads the pileup and reports every change above a fixed fraction of reads and a fixed depth, with a flag for low base quality. It has no error model beyond those thresholds, which makes it simple to explain and check. It was built for primer-trimmed [amplicon](../../GLOSSARY.md#amplicon) data such as SARS-CoV-2 surveillance panels. It is the one caller that applies the dialog's Minimum Allele Frequency and Minimum Depth itself while calling. For bcftools and LoFreq, LGE removes rows below those thresholds after the caller finishes, so the caller never sees them.
+
+**Viral Recon**, on **Tools > Mapping > Viral Recon...**, is a pipeline rather than a caller. In one run inside Docker Desktop it maps with Bowtie2, trims primers and calls variants with iVar, builds a consensus, and assigns a [lineage](../../GLOSSARY.md#lineage), the named branch of the virus family tree the sample belongs to. For a SARS-CoV-2 amplicon run it replaces the separate steps of this chapter, as [Viral Recon Wizard](../04-alignments/05-viral-recon-wizard.md) shows.
+
+Low-frequency calls need care whichever caller made them, and depth sets the floor. One study of targeted deep sequencing of SARS-CoV-2 found that detecting every variant at 10, 5, 3, and 1 percent needed at least 250, 500, 1,500, and 10,000 reads over the position ([Van Poelvoorde and colleagues, 2021](https://doi.org/10.3389/fmicb.2021.747458)). That study measured only how many true variants LoFreq found, not how many false ones it added. A comparison of six callers on synthetic and wastewater SARS-CoV-2 mixtures found that LoFreq reported the most false positives of the six ([Bassano and colleagues, 2023](https://doi.org/10.1099/mgen.0.000933)). So confirm a low-frequency LoFreq call with a second caller, such as iVar with a lowered Minimum Allele Frequency, before you report it.
+
+| Tool | Built for | Choose it when | Choose something else when |
+|---|---|---|---|
+| bcftools | Genotypes in diploid or haploid samples | The sample is a person, a macaque, or a clonal isolate | You need changes carried by a minority of reads |
+| LoFreq | Allele fractions in mixed populations | You look for minority variants in deep Illumina data | Coverage is thin, or the reads are from a nanopore run |
+| iVar | Primer-trimmed amplicon data | The run is an amplicon panel such as a SARS-CoV-2 scheme | The data are shotgun, or the primers are still on the reads |
+| Viral Recon | SARS-CoV-2 amplicon runs, from reads to lineage | You want the standard viral pipeline in one run | The sample is not viral, or Docker Desktop is not available |
+
+This chapter calls HG002, a diploid human sample sequenced by shotgun, so bcftools is the main caller and LoFreq runs beside it for comparison. iVar is left out because the reads carry no primers. For a person or a macaque on short reads, start with bcftools, and move to [HaplotypeCaller](../06-human-germline-variants/01-haplotype-caller.md) for publishable or multi-sample work. For a virus or any mixture, use LoFreq or iVar, and for nanopore reads use the callers in [Nanopore Variant Calling](04-nanopore-variant-calling.md). Citations for LoFreq and iVar are in [Tools installed by a plugin pack](../appendices/bibliography.md#tools-installed-by-a-plugin-pack), bcftools is in [Tools installed with every copy of LGE](../appendices/bibliography.md#tools-installed-with-every-copy-of-lge), and Viral Recon is in [Pinned external pipelines](../appendices/bibliography.md#pinned-external-pipelines).
 
 ## Before you start
 

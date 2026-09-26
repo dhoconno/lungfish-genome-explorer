@@ -3,7 +3,7 @@ title: Nanopore Variant Calling
 chapter_id: 05-variants/04-nanopore-variant-calling
 audience: analyst
 prereqs: [05-variants/01-calling-variants-from-amplicons, 03-reads/07-ont-runs, 04-alignments/01-mapping-reads-to-a-reference]
-estimated_reading_min: 18
+estimated_reading_min: 21
 task: Call variants from Oxford Nanopore reads with Medaka or Clair3, and match the model to the basecaller that produced the reads.
 tags: [variants, medaka, clair3, nanopore, ont, long-read, mitochondrial]
 tools: [medaka, clair3, minimap2, samtools, bcftools]
@@ -21,7 +21,7 @@ shots:
   - id: medaka-model-field
     caption: "The Medaka Model field with a model identifier typed in, the Readiness line naming that model back, and the Run button enabled."
 illustrations: []
-glossary_refs: [checksum, allele-frequency, amplicon, basecaller, bgzip, clair3, depth, filter, genotype, haplogroup, homopolymer, indel, ivar, lofreq, medaka, mitochondrial-genome, phred-score, plugin-pack, primer-scheme, provenance, read, shotgun, supplementary-alignment, tabix, variant-caller]
+glossary_refs: [checksum, allele-frequency, amplicon, basecaller, bgzip, clair3, depth, filter, genotype, haplogroup, heterozygous, homopolymer, indel, ivar, lofreq, medaka, mitochondrial-genome, phred-score, plugin-pack, primer-scheme, provenance, read, shotgun, supplementary-alignment, tabix, variant-caller]
 features_refs: [variants.call]
 fixtures_refs: [hg002-long-reads, human-mito]
 brand_reviewed: false
@@ -47,6 +47,21 @@ The worked example is the human [mitochondrial genome](../../GLOSSARY.md#mitocho
 Mitochondrial DNA is a good teacher because part of the right answer is known in advance. The reference, `NC_012920.1`, is the revised Cambridge Reference Sequence (rCRS), assembled from one European individual. Nearly every other person differs from it at a set of near-universal positions, where that one individual carried the uncommon base, and at positions marking their [haplogroup](../../GLOSSARY.md#haplogroup), a branch of the human maternal family tree. A call set that misses those positions is broken, and you can check that without a benchmark file.
 
 Long-read calling on mitochondrial DNA is also real work. Mitochondrial disease diagnosis, forensic identification, and population history all read this molecule, and long reads span the control region, about 1,100 bases of short repeats that short reads resolve poorly.
+
+## Choosing a tool
+
+Choosing between the two long-read callers comes down to how many copies of the genome your sample carries and which instrument made the reads. Both are neural-network callers, trained on reads whose true variants were already known, so that they learn to tell a real change from a basecalling error. Both need a model that matches your reads.
+
+**Clair3** first runs a fast network over a summary of the pileup at every candidate position, then sends only the hard positions to a slower network that looks at the individual reads. It was built for germline calling in diploid samples such as a person, from long reads, and it writes genotypes such as `0/1` and `1/1`. Its models cover nanopore, PacBio HiFi, and Illumina reads, and LGE tells Clair3 which of those platforms made the reads from the platform recorded on the imported read bundle. For a haploid genome, such as a bacterium or a virus, typing `--haploid_precise` or `--haploid_sensitive` in Extra arguments switches it to one-copy calling. A comparison on bacterial nanopore data placed Clair3 among the most accurate callers tested ([Hall and colleagues, 2024](https://doi.org/10.7554/eLife.98300)).
+
+**Medaka** is Oxford Nanopore's own tool, and its variant caller is described by its authors as haploid variant calling with neural networks. It reads nanopore reads only, and each of its models is named for the pore chemistry, the instrument speed, and the basecaller version it was trained on. Only models whose names carry `variant` are built for calling against a reference. Because Medaka assumes one copy of the genome, it cannot report a [heterozygous](../../GLOSSARY.md#heterozygous) site in a diploid sample, where one chromosome copy carries a change and the other does not. It has no published paper, only its code repository.
+
+| Tool | Built for | Choose it when | Choose something else when |
+|---|---|---|---|
+| Clair3 | Diploid germline calling from long reads | The sample is a person or a macaque, or the reads are PacBio HiFi | The sample is haploid and you want a caller built for one copy only |
+| Medaka | Haploid calling from nanopore reads | The sample is a virus or bacterium sequenced on a nanopore instrument | The sample is diploid, or the reads are not from a nanopore instrument |
+
+This chapter's call set comes from Clair3, the caller built for human samples, run with `--include_all_ctgs` so that it also calls the mitochondrion. Its genotype column still carries information on a molecule with one sequence, where `0/1` marks a possible mixture, as [Reading the results](#reading-the-results) explains. For a human or macaque nuclear genome on long reads, use Clair3. For a viral or bacterial genome on nanopore reads, use Medaka, or Clair3 with a haploid flag. Never use LoFreq or iVar on nanopore reads, for the homopolymer reason given in [What it is](#what-it-is). The citation for Clair3 and the project page for Medaka are in [Tools installed by a plugin pack](../appendices/bibliography.md#tools-installed-by-a-plugin-pack).
 
 ## Before you start
 

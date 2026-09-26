@@ -540,7 +540,7 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             0.02,
             "Planning \(request.inputFASTQURLs.count) \(sampleLabel(request.inputFASTQURLs.count)): \(executionPlan.sampleJobs) concurrent sample \(jobLabel(executionPlan.sampleJobs)), Savont \(executionPlan.savontThreadsPerSample) thread/sample."
         )
-        let stagedSamples = try stageSamples(
+        let stagedSamples = try await stageSamples(
             request: request,
             workDirectory: workDirectory,
             logicalFinalOutputURL: logicalFinalOutputURL,

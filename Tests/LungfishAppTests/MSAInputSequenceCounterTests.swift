@@ -6,6 +6,7 @@ import XCTest
 @testable import LungfishApp
 @testable import LungfishCore
 @testable import LungfishIO
+import LungfishTestSupport
 
 final class MSAInputSequenceCounterTests: XCTestCase {
     private var tempDir: URL!
@@ -20,6 +21,14 @@ final class MSAInputSequenceCounterTests: XCTestCase {
     override func tearDown() {
         if let tempDir { try? FileManager.default.removeItem(at: tempDir) }
         super.tearDown()
+    }
+
+    func testCountsTheDerivedBundlesReadsNotTheRootOrPreview() async throws {
+        // An oriented bundle keeps 2 of its root's 3 reads; the dialog's
+        // "All sequences (N)" must say 2, not 3 (root) or 1 (preview).
+        let fixture = try DerivedFASTQBundleFixture.make(in: tempDir)
+        let count = await MSAInputSequenceCounter.sequenceCount(for: fixture.derivedBundleURL)
+        XCTAssertEqual(count, 2)
     }
 
     // MARK: - Fixtures

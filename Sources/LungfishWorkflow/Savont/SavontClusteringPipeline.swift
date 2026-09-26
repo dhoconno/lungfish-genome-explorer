@@ -255,7 +255,7 @@ public struct SavontClusteringPipeline: Sendable {
                 : nil
             let materialization: FullLengthONTMHCFASTQMaterializationResult
             do {
-                materialization = try FullLengthONTMHCFASTQMaterializer.materializePlainFASTQ(
+                materialization = try await FullLengthONTMHCFASTQMaterializer.materializeReadsAsPlainFASTQ(
                     inputURL: originalInputURL,
                     outputURL: runScratchURL.appendingPathComponent("input.fastq"),
                     internalCommandName: "materialize-savont-clustering-fastq",
