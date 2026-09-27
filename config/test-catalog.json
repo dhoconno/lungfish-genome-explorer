@@ -147,7 +147,7 @@
         "workflow",
         "cli"
       ],
-      "filter": "^(LungfishCoreTests\\.(BundleManifestTests|GenomicRegionTests|RuntimeResourceLocatorTests|SequenceTests)|LungfishWorkflowTests\\.(BAMPrimerTrimProvenanceTests|MappingProvenanceTests|ScientificProvenancePolicyTests)|LungfishCLITests\\.ScientificCLIProvenanceCoverageTests)(/|$)",
+      "filter": "^(LungfishCoreTests\\.(BundleManifestTests|GenomicRegionTests|RuntimeResourceLocatorTests|SequenceTests)|LungfishWorkflowTests\\.(DependencyReconcilerTests|BAMPrimerTrimProvenanceTests|MappingProvenanceTests|ScientificProvenancePolicyTests)|LungfishCLITests\\.ScientificCLIProvenanceCoverageTests)(/|$)",
       "parallel": true,
       "workers": 4,
       "requireTools": false,

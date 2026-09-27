@@ -56,3 +56,5 @@
 - Dependency pin/bundling tests: 60 passed. Test catalog/gate selection checks: 23 passed.
 
 - Final independent review: no blocking findings. Signature context bound to running app, staged version check, and replacement metadata corrected during review.
+
+- Preview package exposed the existing quick/release filter equality contract. Both profiles now include dependency reconciliation; independent one-line review approved, and all 71 focused release Python tests pass. Exact-commit unit qualification is rerun after this configuration correction.
