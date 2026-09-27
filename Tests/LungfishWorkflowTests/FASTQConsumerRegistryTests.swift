@@ -89,6 +89,23 @@ final class FASTQConsumerRegistryTests: XCTestCase {
         // fastq_1/fastq_2 (TaxTriagePipeline+ReadLayout) instead of running it
         // single-end; a mixed file still runs single-end.
         XCTAssertEqual(FASTQConsumerRegistry.declaration(for: "classify.taxtriage")?.handling(for: .strictlyInterleaved), .splitToR1R2)
+        // Viral Recon splits a strictly interleaved bundle file into gzip
+        // fastq_1/fastq_2 inside the run (ViralReconReadPairing); a mixed
+        // file still runs single-end.
+        XCTAssertEqual(FASTQConsumerRegistry.declaration(for: "viralrecon.illumina")?.handling(for: .strictlyInterleaved), .splitToR1R2)
+        XCTAssertEqual(FASTQConsumerRegistry.declaration(for: "viralrecon.illumina")?.handling(for: .mixedMergedAndPairs), .asSingle)
+    }
+
+    /// RiboDetector takes R1/R2 (`-i R1 R2 -o out1 out2`) and keeps or drops
+    /// a fragment's mates together, so a strictly interleaved file is split
+    /// for it rather than judged record by record; a mixed file stays single.
+    func testRiboDetectorRunsPairedOnInterleavedInput() throws {
+        let declaration = try XCTUnwrap(FASTQConsumerRegistry.declaration(for: "fastq.ribodetector"))
+        XCTAssertEqual(declaration.handling(for: .strictlyInterleaved), .asPairs)
+        XCTAssertEqual(declaration.handling(for: .pairedFiles), .asPairs)
+        XCTAssertEqual(declaration.handling(for: .mixedMergedAndPairs), .asSingle)
+        XCTAssertEqual(declaration.handling(for: .singleEnd), .asSingle)
+        XCTAssertTrue(declaration.mixedRationale.contains("-i R1 R2"))
     }
 
     /// The fastp trims run paired on interleaved input and partition a mixed

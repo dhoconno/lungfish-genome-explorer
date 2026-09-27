@@ -10,12 +10,18 @@ public enum ViralReconSamplesheetBuilder {
         public let fastqPassDirectory: URL
     }
 
+    /// Writes `sample,fastq_1,fastq_2` rows: a sample's files are paired by
+    /// position, so `[R1, R2]` becomes one paired row and `[single]` a
+    /// single-end row. A strictly interleaved bundle file must be split into
+    /// R1/R2 first (``ViralReconReadPairing/prepareIlluminaSamples(_:splitRoot:progress:)``)
+    /// or its mates run single-end.
     public static func writeIlluminaSamplesheet(
         samples: [ViralReconSample],
-        in directory: URL
+        in directory: URL,
+        filename: String = "samplesheet.csv"
     ) throws -> URL {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let url = directory.appendingPathComponent("samplesheet.csv")
+        let url = directory.appendingPathComponent(filename)
         var lines = ["sample,fastq_1,fastq_2"]
         for sample in samples {
             for fastqURL in sample.fastqURLs {

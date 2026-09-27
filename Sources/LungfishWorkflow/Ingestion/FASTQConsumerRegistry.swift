@@ -192,7 +192,6 @@ public enum FASTQConsumerRegistry {
             ("fastq.length-filter", "fastq length-filter", "seqkit seq per record", .asSingle),
             ("fastq.primer-remove", "fastq primer-remove", "bbduk interleaved=f or cutadapt per record", .asSingle),
             ("fastq.error-correct", "fastq error-correct", "tadpole interleaved=f", .asSingle),
-            ("fastq.ribodetector", "fastq ribodetector", "ribodetector_cpu -i", .asPairs),
         ]
         let single = perRecord.map { entry in
             FASTQConsumerDeclaration(
@@ -207,6 +206,23 @@ public enum FASTQConsumerRegistry {
                 mixedRationale: "Runs \(entry.tool); every record is treated on its own."
             )
         }
+
+        // Verified against the installed ribodetector_cpu 0.3.3 help on
+        // 2026-09-27: `-i R1 R2 -o out1 out2` classifies each fragment from
+        // both mates and keeps or drops the pair together (`-e` decides
+        // discordant pairs). Handed one interleaved file it judges every
+        // record alone and orphans the surviving mate.
+        let ribodetector = FASTQConsumerDeclaration(
+            consumerID: "fastq.ribodetector",
+            displayName: "fastq ribodetector",
+            handling: [
+                .singleEnd: .asSingle,
+                .strictlyInterleaved: .asPairs,
+                .mixedMergedAndPairs: .asSingle,
+                .pairedFiles: .asPairs,
+            ],
+            mixedRationale: "FastqRiboDetectorSubcommand resolves the layout through FASTQPairingOptions: a strictly interleaved file is split by position into R1/R2 (FASTQPairInterleaver.deinterleave), ribodetector_cpu runs -i R1 R2 so both mates are kept or dropped together, and each output class is interleaved again; two files run as R1/R2 directly; a mixed file runs as single reads with a warning, because a positional split would mis-pair it."
+        )
 
         let merge = FASTQConsumerDeclaration(
             consumerID: "fastq.merge",
@@ -241,7 +257,7 @@ public enum FASTQConsumerRegistry {
             ],
             mixedRationale: "Takes two R1/R2 files only."
         )
-        return positional + byName + fastp + single + [merge, deinterleave, interleave]
+        return positional + byName + fastp + single + [ribodetector, merge, deinterleave, interleave]
     }
 
     // MARK: - GUI in-process derivatives, ingestion, recipes
@@ -322,15 +338,15 @@ public enum FASTQConsumerRegistry {
                 mixedRationale: "Reads are matched record by record in process; each mate counts on its own."
             ),
             FASTQConsumerDeclaration(
-                consumerID: "viralrecon.illumina",
+                consumerID: ViralReconReadPairing.consumerID,
                 displayName: "Viral Recon (Illumina samplesheet)",
                 handling: [
                     .singleEnd: .asSingle,
-                    .strictlyInterleaved: .asSingle,
+                    .strictlyInterleaved: .splitToR1R2,
                     .mixedMergedAndPairs: .asSingle,
                     .pairedFiles: .asPairs,
                 ],
-                mixedRationale: "ViralReconSamplesheetBuilder fills fastq_2 only for a second file; any single file is a single-end row."
+                mixedRationale: "viralrecon reads pairs only as samplesheet fastq_1/fastq_2. ViralReconReadPairing resolves a single file's layout through FASTQInputLayoutResolver inside the run (GUI operation and `workflow run nf-core/viralrecon` alike), splits a strictly interleaved file into gzip R1/R2 with FASTQPairInterleaver.deinterleave and writes both columns; two files are a paired row; a mixed or single-end file stays a single-end row with a warning, because a positional split would mis-pair it."
             ),
         ]
     }
