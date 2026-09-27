@@ -3,6 +3,22 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import LungfishCore
+
+/// The one wording for "this tool is missing" messages that several
+/// pipelines share, so the GUI and `lungfish-cli` never print two different
+/// hints for the same missing tool.
+public enum MissingToolMessage {
+    /// A mapper (minimap2, bwa-mem2, bowtie2) that the Read Mapping plugin
+    /// pack installs. `ManagedMappingPipeline` and `Minimap2Pipeline` both
+    /// use it, so a missing minimap2 reads the same from `lungfish-cli map`,
+    /// the genotyping pipelines and the Import Center, and the CLI maps it to
+    /// the documented exit status 126 through ``MissingToolError``.
+    public static func readMappingTool(_ tool: String) -> String {
+        "\(tool) is not installed. Install the Read Mapping plugin pack from the Plugin Manager, "
+            + "or run `\(CLICommandIdentity.executableName) conda install --pack read-mapping`."
+    }
+}
 
 /// An error whose cause is a required external tool that is not installed
 /// or cannot be found.

@@ -53,7 +53,7 @@ public enum ManagedMappingPipelineError: Error, LocalizedError, Sendable {
         case .referenceNotFound(let url):
             return "Reference FASTA not found: \(url.lastPathComponent)"
         case .mapperNotInstalled(let tool):
-            return "\(tool) is not installed. Install the read-mapping plugin pack first."
+            return MissingToolMessage.readMappingTool(tool)
         case .normalizationFailed(let message):
             return message
         }

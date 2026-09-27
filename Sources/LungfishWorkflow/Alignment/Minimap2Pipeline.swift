@@ -350,7 +350,7 @@ public enum Minimap2PipelineError: Error, LocalizedError, Sendable {
     public var errorDescription: String? {
         switch self {
         case .minimap2NotInstalled:
-            return "minimap2 is not installed. Install the Read Mapping plugin pack from the Plugin Manager."
+            return MissingToolMessage.readMappingTool("minimap2")
         case .inputNotFound(let url):
             return "Input FASTQ not found: \(url.lastPathComponent)"
         case .referenceNotFound(let url):
