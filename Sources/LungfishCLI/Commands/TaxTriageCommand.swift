@@ -36,7 +36,7 @@ struct TaxTriageCommand: AsyncParsableCommand {
         discussion: """
             Execute the TaxTriage Nextflow pipeline (jhuapl-bio/taxtriage) for
             metagenomic classification with confidence scoring. Requires Nextflow
-            and Docker (or Apple Containerization on macOS 26+).
+            and Docker Desktop (the pipeline runs with -profile docker).
 
             TaxTriage supports Illumina, Oxford Nanopore, and PacBio platforms.
             Results include organism identification reports, TASS confidence metrics,
@@ -576,7 +576,7 @@ extension TaxTriageCommand {
             } else {
                 print(formatter.error("Container runtime: NOT AVAILABLE"))
                 print(formatter.info(
-                    "  Install Docker Desktop or use Apple Containerization (macOS 26+)"
+                    "  Install and start Docker Desktop, then run `lungfish debug container`"
                 ))
             }
 

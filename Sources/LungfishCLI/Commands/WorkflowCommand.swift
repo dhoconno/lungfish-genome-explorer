@@ -16,10 +16,9 @@ struct WorkflowCommand: AsyncParsableCommand {
         commandName: "workflow",
         abstract: "Execute and manage bioinformatics workflows",
         discussion: """
-            Run Nextflow and Snakemake workflows using Apple Containerization
-            for isolated execution of bioinformatics tools.
-
-            Requires macOS 26 or later for container support.
+            Run Nextflow and Snakemake workflows. Containerised steps run
+            through Docker Desktop (-profile docker); check it with
+            `lungfish debug container` before launching.
             """,
         subcommands: [
             RunSubcommand.self,
@@ -71,7 +70,8 @@ struct RunSubcommand: AsyncParsableCommand {
         abstract: "Execute a workflow pipeline",
         discussion: """
             Run a Nextflow or Snakemake workflow with the specified parameters.
-            Workflows are executed using Apple Containerization (macOS 26+).
+            Containerised steps run through Docker Desktop (-profile docker);
+            `lungfish debug container` reports whether the daemon is reachable.
             The only built-in nf-core workflow supported by this command is
             nf-core/viralrecon, also accepted as viralrecon.
 
