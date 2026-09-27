@@ -16,12 +16,12 @@ illustrations:
   - id: read-mapping-cartoon
     brief: "A reference genome backbone in Deep Ink across the top. Below it, twenty short reads (Lungfish Creamsicle) placed at the positions where they map, with some reads on the forward strand (arrows pointing right) and some on the reverse strand (arrows pointing left). A few reads have soft-clipped ends shown lightened. Position ruler underneath."
   - id: coverage-histogram
-    brief: "A coverage histogram across a 2000-base region of the SARS-CoV-2 reference, showing per-position read depth ranging from 50 to 2000. Use a Lungfish Creamsicle area fill on a Cream background. Annotate 'low coverage' regions with a Peach highlight."
+    brief: "A coverage histogram across a 2,000-base stretch of the HG002 chromosome 20 slice, x axis labelled with slice positions, y axis read depth from 0 to 80, the curve wandering gently between about 30 and 60 around a dashed line at the mean depth of 44.7, with one short trough dropping below a dotted line at depth 10 and touching 0 for a few positions. Annotate the trough 'below 10 reads, too thin to call' with a Peach highlight. Use a Lungfish Creamsicle area fill on a Cream background, IBM Plex Mono for the numbers."
   - id: pileup-view
     brief: "Zoomed-in pileup at a single variant position. The reference base 'C' is shown at the top in Deep Ink. Below, ten reads stacked vertically, with most showing 'C' at this position and three showing 'T'. Each read base coloured by Phred quality. Annotate 'Allele frequency = 3/10 = 30%'."
   - id: cigar-anatomy
     brief: "Anatomy of a single BAM row: a 150-base Illumina read aligned at reference position 1000. Show the read sequence in IBM Plex Mono on top, the reference below, and a CIGAR string '5S140M5S' annotated with brackets indicating the soft-clipped ends and the matched middle. Position ruler with '1000' marked. Use Lungfish Creamsicle for read bases, Deep Ink for reference."
-glossary_refs: [bam, bai, csi, alignment, mapping, mapper, reference-genome, coverage, coverage-breadth, depth, pileup, soft-clip, strand, strand-bias, reverse-complement, cigar, mapq, phred-score, flag, supplementary-alignment, allele-frequency, heterozygous, homozygous, mark-duplicates, provenance, checksum, fixture, required-setup-pack, variant-caller, shotgun, amplicon, primer-scheme]
+glossary_refs: [mapped-percent, minimizer, track, alignment-track, demo-project, bam, bai, csi, alignment, mapping, mapper, reference-genome, coverage, coverage-breadth, depth, pileup, soft-clip, strand, strand-bias, reverse-complement, cigar, mapq, phred-score, flag, supplementary-alignment, allele-frequency, heterozygous, homozygous, mark-duplicates, provenance, checksum, fixture, required-setup-pack, variant-caller, shotgun, amplicon, primer-scheme]
 features_refs: []
 fixtures_refs: [hg002-chr20]
 brand_reviewed: false
@@ -30,7 +30,7 @@ lead_approved: false
 
 ## What it is
 
-A sequencing read on its own says nothing about where in a genome it came from. [Mapping](../../GLOSSARY.md#mapping) is the step that works that out. A [mapper](../../GLOSSARY.md#mapper) is a program that takes your reads and a [reference genome](../../GLOSSARY.md#reference-genome), the agreed sequence for a species that reads are compared against, and finds for each read the place where it fits best. The mapper writes its answers into a [BAM](../../GLOSSARY.md#bam) file, the standard format for storing reads together with the positions they were given.
+A sequencing read on its own says nothing about where in a genome it came from. [Mapping](../../GLOSSARY.md#mapping) is the step that works that out. A [mapper](../../GLOSSARY.md#mapper) is a program that takes your reads and a [reference genome](../../GLOSSARY.md#reference-genome), the agreed sequence for a species that reads are compared against, and finds for each read the place where it fits best. A mapper such as `minimap2` finds candidate places quickly by looking up [minimizers](../../GLOSSARY.md#minimizer), short words the read shares with the reference, and then lines the read up base by base at the best candidates, as [Three ways to match a read](../06-classification/01-what-is-classification.md#three-ways-to-match-a-read) compares. The mapper writes its answers into a [BAM](../../GLOSSARY.md#bam) file, the standard format for storing reads together with the positions they were given.
 
 BAM is the packed form of a text format called SAM, short for Sequence Alignment/Map and set out in the [SAM/BAM specification](https://samtools.github.io/hts-specs/SAMv1.pdf). The two hold the same information. BAM is binary, meaning it is packed for machines rather than written in readable letters, so unlike a FASTQ file you cannot open it in a text editor and see anything useful. A third form, CRAM, packs the same rows tighter still by storing mostly where each read differs from the reference, so it can only be read with that reference at hand. Lungfish Genome Explorer (LGE) works with all three through `samtools`, a standard toolkit for alignment files that LGE runs for you behind the scenes. A SAM file you import becomes a BAM, and a CRAM stays a CRAM.
 
@@ -46,19 +46,17 @@ Two steps can rewrite a BAM between mapping and variant calling. [Marking duplic
 
 This chapter works from the HG002 chromosome 20 slice. A [fixture](../../GLOSSARY.md#fixture) is an example data set shipped with this manual, so the numbers in the text are numbers you can reproduce. HG002 is the human reference sample that [Sequencing Reads](02-sequencing-reads.md#why-you-would-do-this) introduces, and its published true genotype at each position gives you an answer key to check your reading of a pileup against.
 
-The reads are Illumina 2x250 [paired-end](02-sequencing-reads.md#paired-end-reads) reads, 250 bases from each end of every fragment. The reference is a 500,001-base slice of human chromosome 20. The count ends in 1 because the slice runs from position 10,000,000 to position 10,500,000 and keeps both ends. Every figure below comes from mapping those reads against that slice with the mapper `minimap2`.
+The reads are Illumina 2x250 [paired-end](02-sequencing-reads.md#paired-end-reads) reads, 250 bases from each end of every fragment. The reference is a 500,001-base slice of human chromosome 20. The count ends in 1 because the slice runs from position 10,000,000 to position 10,500,000 of GRCh38 chromosome 20 and keeps both ends. Every figure below comes from mapping those reads against that slice with the mapper `minimap2`.
+
+The slice is its own reference sequence, named `chr20_10.0-10.5Mb`, and its positions count from the start of the slice, not from the start of chromosome 20. Every position in this chapter and in the chapters that use this data is a slice position, which is also what you type into **Go to Location**. To turn one into a GRCh38 chromosome 20 position, add 9,999,999, so slice position 250,527 is `chr20:10250526` on GRCh38.
 
 ## Before you start
 
 Nothing in this chapter has to be run, and you can read it with LGE closed.
 
-To follow along on screen, you need a project holding a reference bundle with an alignment track attached. The demo project's `chr20_10.0-10.5Mb` bundle and its "HG002 minimap2" track are that pairing. You need a project open, as [The Lungfish Genome Explorer Project](06-the-lungfish-project.md#procedure) shows. Viewing a BAM uses `samtools`, which arrives with the [Required Setup pack](../../GLOSSARY.md#required-setup-pack), the one pack LGE installs by itself, so there is nothing to install.
+To follow along on screen, open the Human Mapping and Variants (with results) [demo project](../../GLOSSARY.md#demo-project) as [The Lungfish Genome Explorer Project](06-the-lungfish-project.md#demo-projects) showed. Its alignment [track](../../GLOSSARY.md#track), `HG002 minimap2`, sits in the reference bundle inside the mapping result, a copy of `GRCh38.chr20.10.0-10.5Mb` that LGE keeps in the mapping result shown as the `minimap2-2026-09-25T00-00-00` row of the Analyses group, as [Where results land](06-the-lungfish-project.md#where-results-land) explains. The Human Mapping and Variants demo project holds the same reads and reference with nothing mapped, and mapping them yourself as [Mapping Reads to a Reference](../04-alignments/01-mapping-reads-to-a-reference.md) shows, with `HG002 minimap2` typed as the track name in the Output Track section of the mapping dialog, gives the same track.
 
-The Human Mapping and Variants demo project, which **Help > Demo Projects…** opens as [Demo projects](06-the-lungfish-project.md#demo-projects) explains, already holds this fixture's reads and reference bundle. Map them once as [Mapping Reads to a Reference](../04-alignments/01-mapping-reads-to-a-reference.md) shows and you have a track of your own to look at. To import the files yourself instead, download them as described next.
-
-This chapter uses the `hg002-chr20` fixture. Download `GRCh38.chr20.10.0-10.5Mb.fasta` and the two `HG002.chr20.10.0-10.5Mb` read files from [the hg002-chr20 folder](https://github.com/dhoconno/lungfish-genome-explorer/tree/v2026.9.39/docs/user-manual/fixtures/hg002-chr20), as [Practice data for this manual](06-the-lungfish-project.md#practice-data-for-this-manual) explains. The `README.md` in that folder carries the source, license, and citation of each file.
-
-Making an alignment from your own reads, including which mapper and settings to pick, is the subject of [Mapping Reads to a Reference](../04-alignments/01-mapping-reads-to-a-reference.md). LGE keeps a [provenance](../../GLOSSARY.md#provenance) record of how each result was made, which [Provenance and Reproducibility](08-provenance-and-reproducibility.md#reading-the-results) shows how to read.
+Viewing a BAM uses `samtools`, which comes with the [Required Setup pack](../../GLOSSARY.md#required-setup-pack), the pack the Welcome window offers to install the first time you open LGE. The raw files of the `hg002-chr20` fixture, `GRCh38.chr20.10.0-10.5Mb.fasta` and the two `HG002.chr20.10.0-10.5Mb` read files, are listed in [Fixture files](06-the-lungfish-project.md#fixture-files), and the `README.md` in [the hg002-chr20 folder](https://github.com/dhoconno/lungfish-genome-explorer/tree/v2026.9.39/docs/user-manual/fixtures/hg002-chr20) carries their source, license, and citation.
 
 ## What one row of a BAM records
 
@@ -66,7 +64,7 @@ Every row of a BAM describes one alignment. It carries the read's name, the refe
 
 ![Pileup-style mapped reads pinned to a reference with forward, reverse, and soft-clipped examples](../../assets/illustrations-imagegen/01-foundations/04-alignment-files/read-mapping-cartoon.png)
 
-Here is a real row from the fixture's BAM, one field per line, with the long sequence and quality strings left out. It is one read of a pair that maps near position 99,675.
+Here is a real row from the fixture's BAM, one field per line, with the long sequence and quality strings left out. It is one read of a pair that maps near slice position 99,675.
 
 ```
 QNAME  D00360:94:H2YT5BCXX:1:1204:17390:64334
@@ -137,13 +135,15 @@ When you import an alignment, LGE sorts a copy into the bundle and indexes it, s
 
 [Depth](../../GLOSSARY.md#depth), also called coverage, is the number of reads covering one position. This manual treats the two words as the same thing. [Coverage breadth](../../GLOSSARY.md#coverage-breadth) is a different number, the share of reference positions with at least one read over them. Depth says how much evidence you have at a position, and breadth says how much of the genome you have any evidence for at all.
 
-![Coverage area histogram across a genomic region with a low-coverage trough called out](../../assets/illustrations-imagegen/01-foundations/04-alignment-files/coverage-histogram.png)
+<!-- ILLUSTRATION: coverage-histogram -->
 
 The coverage track draws depth along the reference as a curve, so its height at each position is the number of reads stacked there. How the viewport draws and scales that curve, and what its shape says about a library, is covered in [The coverage curve](../04-alignments/02-reading-an-alignment.md#the-coverage-curve).
 
-Take the fixture's figures one at a time. Mean depth is the average depth over every position, and across the 500,001-base slice it is 44.7. The deepest single position has 79 reads over it. Breadth is 99.99 percent, which leaves 31 positions with no reads at all. The mapped fraction, the share of reads the mapper placed anywhere on the reference, is 99.77 percent.
+Take the fixture's figures one at a time. Mean depth is the average depth over every position, and across the 500,001-base slice it is 44.7. The deepest single position has 79 reads over it. Breadth is 99.99 percent, which leaves 31 positions with no reads at all. [Mapped %](../../GLOSSARY.md#mapped-percent), the share of the alignment's records the mapper placed anywhere on the reference, is 99.77 percent, which the Inspector rounds to 99.8%.
 
-A mean depth in the forties is comfortable for finding small differences in a human sample. The trouble sits at the low end. A position with only a few reads cannot support a confident call, because one sequencing error there is a large share of the evidence. A position with no reads cannot be called at all and appears as `N`, meaning unknown base, in any consensus sequence built from the BAM. In this fixture 505 positions sit below a depth of 10, including the 31 with none. That is about one position in a thousand, which is normal for a well-behaved run and would be worrying if it were one in ten.
+### How much depth is enough
+
+Human whole-genome sequencing usually aims for a mean depth of about 30, which means sequencing about 30 times the genome's length in bases. A human genome is about 3.1 billion bases, so a whole-genome run needs about 93 billion bases, roughly 310 million pairs of 150-base reads. A mean depth in the forties, like this fixture's, is comfortable for finding small differences in a human sample. The trouble sits at the low end. A position with only a few reads cannot support a confident call, because one sequencing error there is a large share of the evidence. A position with no reads cannot be called at all and appears as `N`, meaning unknown base, in any consensus sequence built from the BAM. In this fixture 505 positions sit below a depth of 10, including the 31 with none. That is about one position in a thousand, which is normal for a well-behaved run and would be worrying if it were one in ten.
 
 <!-- SHOT: bam-viewport-coverage-and-pileup -->
 
@@ -183,7 +183,7 @@ The variant callers suited to each kind differ, and [Nanopore Variant Calling](.
 
 Four checks settle whether a BAM is worth building on. [Mapping Reads to a Reference](../04-alignments/01-mapping-reads-to-a-reference.md#reading-the-results) shows where LGE reports each figure.
 
-First, the mapped fraction, the share of reads placed anywhere on the reference. The fixture reaches 99.77 percent, which is what you expect when reads and reference come from the same species and region. Above about 95 percent is healthy. Between 80 and 95 percent says the reference is close but not exact, or that the library carries DNA from another source. Below about 80 percent usually means the wrong reference.
+First, Mapped %, the share of records placed anywhere on the reference. The fixture reaches 99.77 percent, which is what you expect when reads and reference come from the same species and region. Above about 95 percent is healthy. Between 80 and 95 percent says the reference is close but not exact, or that the library carries DNA from another source. Below about 80 percent usually means the wrong reference.
 
 Second, mean depth. The fixture's 44.7 is ample for small-variant calling in a human sample. When the mean runs thin, pileups struggle to tell a real difference from a sequencing error, and [The coverage curve](../04-alignments/02-reading-an-alignment.md#the-coverage-curve) gives the working line.
 
@@ -191,7 +191,7 @@ Third, coverage breadth. The fixture covers 99.99 percent of its slice. Long str
 
 Fourth, the index. A `.bai`, `.csi`, or `.crai` file should sit beside the alignment under the same base name. LGE indexes every alignment it stores, so a missing index usually means a file copied in by hand.
 
-If all four hold, the pileups are worth reading. If the first fails, fix the reference before looking at anything else.
+If all four hold, the pileups are worth reading. If the first fails, fix the reference before looking at anything else. LGE's [provenance](../../GLOSSARY.md#provenance) record of the mapping, which [Provenance and Reproducibility](08-provenance-and-reproducibility.md#reading-the-results) reads, says which reference and reads made the alignment.
 
 ## Next
 
