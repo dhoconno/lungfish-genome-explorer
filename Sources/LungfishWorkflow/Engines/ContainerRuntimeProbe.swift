@@ -161,13 +161,21 @@ public struct PipelineContainerRuntimeStatus: Sendable, Equatable {
 public struct SystemContainerRuntimeProbe: ContainerRuntimeProbing {
     /// Locations Docker Desktop installs its CLI into. `which` covers an
     /// interactive shell; these cover a process launched from the app, whose
-    /// PATH may be bare.
-    public static let fallbackDockerPaths: [String] = [
-        "/usr/local/bin/docker",
-        "/opt/homebrew/bin/docker",
-        "/Applications/Docker.app/Contents/Resources/bin/docker",
-        NSHomeDirectory() + "/.docker/bin/docker",
-    ]
+    /// PATH may be bare. A Homebrew-installed CLI is found through
+    /// HOMEBREW_PREFIX when the environment carries it; the prefix is never
+    /// hardcoded (ReleaseBuildConfigurationTests polices that).
+    public static let fallbackDockerPaths: [String] = {
+        var paths = [
+            "/usr/local/bin/docker",
+            "/Applications/Docker.app/Contents/Resources/bin/docker",
+            NSHomeDirectory() + "/.docker/bin/docker",
+        ]
+        if let prefix = ProcessInfo.processInfo.environment["HOMEBREW_PREFIX"],
+           !prefix.isEmpty {
+            paths.insert(prefix + "/bin/docker", at: 1)
+        }
+        return paths
+    }()
 
     public init() {}
 
