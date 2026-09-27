@@ -38,7 +38,7 @@ lead_approved: false
 
 Lungfish Genome Explorer (LGE) does not carry every analysis tool inside the application. Tools update on their own schedules, no one person uses all of them, and bundling the lot would make the download enormous. So LGE installs tools on request.
 
-A [plugin pack](../../GLOSSARY.md#plugin-pack) is a themed group of related tools installed together, because the chapters that need one tend to need the rest. Each tool is a command-line program, one with no window of its own, which LGE runs for you behind the scenes. Installing one never means you have to type anything. The `read-mapping` pack, for example, installs three read mappers, programs that place each sequencing read at the position on a reference genome it best matches.
+A [plugin pack](../../GLOSSARY.md#plugin-pack) is a themed group of related tools installed together, because the chapters that need one tend to need the rest. Each tool is a command-line program, one with no window of its own, which LGE runs for you behind the scenes. Installing one never means you have to type anything. The `read-mapping` pack, for example, installs three read mappers, programs that place each sequencing read at the position on a reference genome it best matches. A fourth mapper, BBMap, comes with the required pack described next.
 
 Names in this typeface, such as `read-mapping`, are the ids LGE uses for a pack. On screen the same pack shows a plain title, Read Mapping, and the table in [The packs, and what is in them](#the-packs-and-what-is-in-them) pairs every id with its title.
 
@@ -108,25 +108,27 @@ Most packs hold more than one tool for the same kind of job, because no single t
 
 | Pack | What its tools do | Where to choose among them |
 |---|---|---|
-| Read Mapping | Place each read at the position on a reference genome it best matches, with three mappers suited to different read types | [Mapping Reads to a Reference](../04-alignments/01-mapping-reads-to-a-reference.md) |
-| Variant Calling | List the positions where a sample's reads differ from the reference, with LoFreq and iVar for Illumina reads and Medaka and Clair3 for Nanopore reads | [Calling Variants](../05-variants/01-calling-variants-from-amplicons.md) and [Nanopore Variant Calling](../05-variants/04-nanopore-variant-calling.md) |
-| Genome Assembly | Rebuild a genome from reads alone, with SPAdes, MEGAHIT, and SKESA for short reads and Flye and hifiasm for long reads | [When to Assemble](../07-assembly/01-when-to-assemble.md) |
-| Metagenomics | Name the organisms in a mixed sample with Kraken 2 and Bracken or, for viruses, EsViritu, and remove ribosomal RNA reads with RiboDetector | [What Is Read Classification](../06-classification/01-what-is-classification.md) |
+| Read Mapping | Place each read where it best matches a reference genome, with three mappers here and BBMap from the Third-Party Tools pack, four in all | [Mapping Reads to a Reference](../04-alignments/01-mapping-reads-to-a-reference.md#choosing-a-tool) |
+| Variant Calling | List the positions where a sample's reads differ from the reference, with LoFreq and iVar for Illumina reads and Medaka and Clair3 for Nanopore reads | [Calling Variants](../05-variants/01-calling-variants-from-amplicons.md#choosing-a-tool) and [Nanopore Variant Calling](../05-variants/04-nanopore-variant-calling.md#choosing-a-tool) |
+| Genome Assembly | Rebuild a genome from reads alone, with SPAdes, MEGAHIT, and SKESA for short reads and Flye and hifiasm for long reads | [When to Assemble](../07-assembly/01-when-to-assemble.md#choosing-a-tool) |
+| Metagenomics | Name the organisms in a mixed sample with Kraken 2 and Bracken or, for viruses, EsViritu. RiboDetector is also installed, but no operation in this release runs it | [What Is Read Classification](../06-classification/01-what-is-classification.md#choosing-a-tool) |
 | Full-length MHC Genotyping | Cluster long MHC reads into consensus alleles with Savont and search unmatched ones against the allele library with BLAST+ | [What Is MHC Genotyping](../09-genotyping/01-what-is-mhc-genotyping.md#choosing-a-tool) |
-| PCR Primer Design | Design PCR primers, with Primer3 for a single assay and PrimalScheme, Olivar, and varVAMP for tiled schemes that cover a whole target, varVAMP also designing single and qPCR assays | [What Is Primer Design](../10-primer-design/01-what-is-primer-design.md) |
+| PCR Primer Design | Design PCR primers, with Primer3 for a single assay and PrimalScheme, Olivar, and varVAMP for tiled schemes that cover a whole target, varVAMP also designing single and qPCR assays | [What Is Primer Design](../10-primer-design/01-what-is-primer-design.md#choosing-a-tool) |
 | Multiple Sequence Alignment | Line up related sequences column by column with MAFFT, which offers six strategies | [Aligning Sequences](../02-sequences/04-aligning-sequences.md#choosing-a-tool) |
 | Phylogenetics | Build maximum-likelihood family trees from an alignment with IQ-TREE | [Building Trees](../02-sequences/05-building-trees.md#choosing-a-tool) |
-| GATK Core | Call inherited variants in human samples with GATK4 | [HaplotypeCaller](../06-human-germline-variants/01-haplotype-caller.md) |
-| Variant Phasing | Work out which nearby variants sit on the same copy of a chromosome with WhatsHap | [HaplotypeCaller](../06-human-germline-variants/01-haplotype-caller.md) |
-| Wastewater Surveillance | Estimate the mix of SARS-CoV-2 lineages in a wastewater sample with Freyja, with iVar, Pangolin, Nextclade, and minimap2 alongside | [Running Freyja](../06-classification/07-running-freyja.md) |
+| GATK Core | Call inherited variants in human samples with GATK4 | [HaplotypeCaller](../06-human-germline-variants/01-haplotype-caller.md#choosing-a-tool) |
+| Variant Phasing | Work out which nearby variants sit on the same copy of a chromosome with WhatsHap | [HaplotypeCaller](../06-human-germline-variants/01-haplotype-caller.md#choosing-a-tool) |
+| Wastewater Surveillance | Estimate the mix of SARS-CoV-2 lineages in a wastewater sample with Freyja, with iVar, Pangolin, Nextclade, and minimap2 alongside | [What Is Read Classification](../06-classification/01-what-is-classification.md#choosing-a-tool) |
 
-A pack with a single tool, such as Phylogenetics, still leaves choices inside that tool, and its chapter covers them the same way.
+A pack with a single tool, such as Phylogenetics, still leaves choices inside that tool, and its chapter covers them the same way. Ribosomal RNA removal, the job RiboDetector was built for, runs with Deacon from the Third-Party Tools pack, as [Decontamination](../03-reads/05-decontamination.md#choosing-a-tool) explains.
+
+Most projects need only a few packs on top of the required one. A phylogeny of finished sequences, such as macaque mitochondrial genomes downloaded from NCBI, needs Multiple Sequence Alignment to line them up and Phylogenetics to build the tree. A bacterial genome assembled from its reads needs only Genome Assembly, since trimming and quality control run on the required pack's tools.
 
 Some packs finish with extra work after the tools land. LGE calls these [post-install hooks](../../GLOSSARY.md#post-install-hook), small follow-up commands a pack declares for itself, such as fetching the list of named virus lineages Freyja compares a sample against. A pack that has hooks shows how many on its card, and resting the pointer on the count lists what they do.
 
 ### Experimental packs and features
 
-A few parts of LGE are marked experimental, which means they are still being tested and may change between releases. They stay hidden until you turn them on, so nobody meets one by accident.
+A few parts of LGE are marked experimental, which means they are still being tested and may change between releases. They stay hidden until you turn them on, so nobody meets one by accident. In practice, a result from an experimental pack deserves a second check before it goes into a report, and a command or setting it offers may be renamed in a later release.
 
 1. Choose **Settings...** (Cmd-,) from the application menu described in [Before you start](#before-you-start), and click the **Advanced** tab.
 2. Turn on **Show Experimental Features**. The warning beside it says experimental features may be incomplete and are not intended for production scientific work.
