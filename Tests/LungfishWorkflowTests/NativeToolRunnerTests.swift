@@ -177,6 +177,8 @@ final class NativeToolRunnerTests: XCTestCase {
             (.lofreq, "lofreq", "lofreq"),
             (.ivar, "ivar", "ivar"),
             (.medaka, "medaka", "medaka"),
+            (.medakaVariant, "medaka", "medaka_variant"),
+            (.clair3, "clair3", "run_clair3.sh"),
         ]
 
         for (tool, environment, executable) in expectations {
@@ -188,6 +190,31 @@ final class NativeToolRunnerTests: XCTestCase {
                 XCTFail("\(tool.rawValue) should resolve from a managed tool environment")
             }
         }
+    }
+
+    func testManagedToolsRunWithTheirEnvironmentBinDirectoryLeadingPATH() async throws {
+        // Conda wrappers such as run_clair3.sh (`exec python3 ...`, then
+        // `pypy3`, `parallel`, `whatshap`) and medaka_variant (`medaka`,
+        // `mini_align`, `bcftools`) call their siblings by bare name. Run
+        // under the app's inherited PATH they find the Mac's own python or
+        // nothing at all, which is the "pypy3: command not found" failure.
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("NativeToolRunner PATH Test \(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+        let binDirectory = root.appendingPathComponent(".lungfish/conda/envs/clair3/bin", isDirectory: true)
+        try fm.createDirectory(at: binDirectory, withIntermediateDirectories: true)
+        let script = binDirectory.appendingPathComponent("run_clair3.sh")
+        try "#!/bin/sh\nprintf '%s' \"$PATH\"\n".write(to: script, atomically: true, encoding: .utf8)
+        try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: script.path)
+
+        let runner = NativeToolRunner(toolsDirectory: nil, homeDirectory: root, appIdentity: .preview)
+        let result = try await runner.run(.clair3, arguments: [])
+
+        XCTAssertEqual(result.exitCode, 0, result.stderr)
+        XCTAssertTrue(result.stdout.hasPrefix(binDirectory.path + ":"), result.stdout)
+        let inherited = ProcessInfo.processInfo.environment["PATH"] ?? ""
+        XCTAssertTrue(result.stdout.hasSuffix(inherited), "the inherited PATH must follow the environment's bin")
     }
 
     func testFindToolReturnsExecutableURLForBundledTools() async throws {
@@ -876,7 +903,7 @@ final class NativeToolRunnerTests: XCTestCase {
         // The legacy human-scrubber executables were retired when Deacon replaced that path.
         // BBMap shell wrappers, full-length MHC tools, viral variant callers, phasing, and lineage demixing
         // are all part of the managed tool surface.
-        XCTAssertEqual(NativeTool.allCases.count, 30, "Should include BBTools wrappers, Trim Galore, full-length MHC, variant callers, phasing, and lineage demixing tools")
+        XCTAssertEqual(NativeTool.allCases.count, 31, "Should include BBTools wrappers, Trim Galore, full-length MHC, variant callers, phasing, and lineage demixing tools")
     }
 
     // MARK: - Error Tests

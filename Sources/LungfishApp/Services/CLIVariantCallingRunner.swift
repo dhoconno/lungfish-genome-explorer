@@ -116,6 +116,10 @@ struct CLIVariantCallingRunner {
             arguments += ["--ploidy", ploidy.commandLineValue]
         }
 
+        if request.caller == .medaka || request.caller == .clair3, let platform = request.platform {
+            arguments += ["--platform", platform.rawValue]
+        }
+
         if !request.advancedArguments.isEmpty {
             arguments += ["--extra-args", AdvancedCommandLineOptions.join(request.advancedArguments)]
         }

@@ -18,6 +18,13 @@ public struct BAMVariantCallingPreflightResult: Sendable {
     public let bamReferenceSequences: [SAMParser.ReferenceSequence]
     public let referenceNameMap: [String: String]
     public let contigValidation: BAMVariantCallingContigValidation
+    /// The platform the BAM's `@RG PL:` tags agree on, read for Medaka and
+    /// Clair3 only. `nil` when the header has no read groups, no recognised
+    /// platform, or read groups that disagree.
+    public let detectedPlatform: VariantCallingPlatform?
+    /// The `@RG DS:` values, which a dorado BAM uses to name the basecaller
+    /// model (`basecall_model=...`). Read for Medaka and Clair3 only.
+    public let readGroupDescriptions: [String]
     // Retains bookmark-backed alignment scopes until downstream staging finishes with this result.
     private let securityScopedReferenceBundle: ReferenceBundle?
 
@@ -32,6 +39,8 @@ public struct BAMVariantCallingPreflightResult: Sendable {
         bamReferenceSequences: [SAMParser.ReferenceSequence],
         referenceNameMap: [String: String],
         contigValidation: BAMVariantCallingContigValidation,
+        detectedPlatform: VariantCallingPlatform? = nil,
+        readGroupDescriptions: [String] = [],
         securityScopedReferenceBundle: ReferenceBundle? = nil
     ) {
         self.manifest = manifest
@@ -44,6 +53,8 @@ public struct BAMVariantCallingPreflightResult: Sendable {
         self.bamReferenceSequences = bamReferenceSequences
         self.referenceNameMap = referenceNameMap
         self.contigValidation = contigValidation
+        self.detectedPlatform = detectedPlatform
+        self.readGroupDescriptions = readGroupDescriptions
         self.securityScopedReferenceBundle = securityScopedReferenceBundle
     }
 }
@@ -60,7 +71,7 @@ public enum BAMVariantCallingPreflightError: Error, LocalizedError, Equatable {
     case referenceMD5Mismatch(String, String)
     case ivarRequiresPrimerTrimConfirmation
     case medakaRequiresModelMetadata
-    case medakaCouldNotVerifyONTMetadata
+    case medakaCouldNotVerifyONTMetadata(String)
     case bamHeaderReadFailed(String)
 
     public var errorDescription: String? {
@@ -87,8 +98,8 @@ public enum BAMVariantCallingPreflightError: Error, LocalizedError, Equatable {
             return "iVar requires explicit confirmation that primer trimming has already been applied."
         case .medakaRequiresModelMetadata:
             return "Medaka requires ONT model metadata before the run can start."
-        case .medakaCouldNotVerifyONTMetadata:
-            return "Medaka could not verify ONT/basecaller metadata in this BAM. Use a BAM that preserves ONT model information or choose a different caller."
+        case .medakaCouldNotVerifyONTMetadata(let platforms):
+            return "Medaka calls variants from Oxford Nanopore reads only, but this alignment's read groups record the platform as \(platforms). Choose a different caller, or pass --platform ont if the read groups are wrong."
         case .bamHeaderReadFailed(let detail):
             return "Failed to read BAM header references: \(detail)"
         }
@@ -129,7 +140,7 @@ public actor BAMVariantCallingPreflight {
         if request.caller == .ivar, !request.ivarPrimerTrimConfirmed {
             throw BAMVariantCallingPreflightError.ivarRequiresPrimerTrimConfirmation
         }
-        if (request.caller == .medaka || request.caller == .clair3),
+        if request.caller == .medaka,
            request.medakaModel?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false {
             throw BAMVariantCallingPreflightError.medakaRequiresModelMetadata
         }
@@ -203,10 +214,15 @@ public actor BAMVariantCallingPreflight {
             bamReferenceSequences: bamReferenceSequences,
             genome: genome
         )
-        if request.caller == .medaka {
+        var detectedPlatform: VariantCallingPlatform?
+        var readGroupDescriptions: [String] = []
+        if request.caller == .medaka || request.caller == .clair3 {
             let bamHeaderText = try await bamHeaderReader(alignmentURL)
-            try validateMedakaHeaderIfNeeded(
+            detectedPlatform = VariantCallingPlatform.detect(fromBAMHeader: bamHeaderText)
+            readGroupDescriptions = SAMParser.parseReadGroups(from: bamHeaderText).compactMap { $0.description }
+            try validateMedakaPlatformIfNeeded(
                 request: request,
+                detectedPlatform: detectedPlatform,
                 bamHeaderText: bamHeaderText
             )
         }
@@ -222,6 +238,8 @@ public actor BAMVariantCallingPreflight {
             bamReferenceSequences: bamReferenceSequences,
             referenceNameMap: referenceNameMap,
             contigValidation: contigValidation,
+            detectedPlatform: detectedPlatform,
+            readGroupDescriptions: readGroupDescriptions,
             securityScopedReferenceBundle: bundle
         )
     }
@@ -281,41 +299,28 @@ public actor BAMVariantCallingPreflight {
         }
     }
 
-    private func validateMedakaHeaderIfNeeded(
+    /// Medaka is a nanopore-only caller, so an alignment whose read groups
+    /// positively name another platform is refused. A header with no read
+    /// groups proves nothing and is let through, and an explicit
+    /// `--platform ont` on the request overrides the header.
+    ///
+    /// The model itself is not checked against the header: LGE's mapper
+    /// writes only `PL:ONT`, and a dorado BAM spells its basecaller model
+    /// `dna_r10.4.1_e8.2_400bps_sup@v5.0.0`, never the medaka name, so a
+    /// header lookup for the medaka model rejected every real alignment.
+    private func validateMedakaPlatformIfNeeded(
         request: BundleVariantCallingRequest,
+        detectedPlatform: VariantCallingPlatform?,
         bamHeaderText: String
     ) throws {
-        guard request.caller == .medaka else {
+        guard request.caller == .medaka, request.platform == nil else {
             return
         }
-        guard let requestedModel = request.medakaModel?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !requestedModel.isEmpty else {
-            throw BAMVariantCallingPreflightError.medakaRequiresModelMetadata
+        let recorded = VariantCallingPlatform.readGroupPlatformValues(fromBAMHeader: bamHeaderText)
+        guard !recorded.isEmpty, detectedPlatform != .ont else {
+            return
         }
-
-        let readGroups = SAMParser.parseReadGroups(from: bamHeaderText)
-        let normalizedHeader = bamHeaderText.lowercased()
-        let hasONTPlatform = readGroups.contains { group in
-            guard let platform = group.platform?.lowercased() else { return false }
-            return platform.contains("ont")
-                || platform.contains("oxford")
-                || platform.contains("nanopore")
-        } || normalizedHeader.contains("pl:ont")
-
-        guard hasONTPlatform else {
-            throw BAMVariantCallingPreflightError.medakaCouldNotVerifyONTMetadata
-        }
-
-        let normalizedModel = requestedModel.lowercased()
-        let headerFields = readGroups.flatMap { group in
-            [group.description, group.platformUnit, group.center].compactMap { $0?.lowercased() }
-        }
-        let modelVerified = normalizedHeader.contains(normalizedModel)
-            || headerFields.contains(where: { $0.contains(normalizedModel) })
-
-        guard modelVerified else {
-            throw BAMVariantCallingPreflightError.medakaCouldNotVerifyONTMetadata
-        }
+        throw BAMVariantCallingPreflightError.medakaCouldNotVerifyONTMetadata(recorded.joined(separator: ", "))
     }
 
     public static func readBAMHeader(

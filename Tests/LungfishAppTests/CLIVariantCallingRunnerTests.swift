@@ -127,6 +127,26 @@ final class CLIVariantCallingRunnerTests: XCTestCase {
         XCTAssertFalse(CLIVariantCallingRunner.buildCLIArguments(request: derived).contains("--ploidy"))
     }
 
+    func testBuildCLIArgumentsIncludesPlatformOnlyWhenChosen() {
+        let chosen = BundleVariantCallingRequest(
+            bundleURL: URL(fileURLWithPath: "/tmp/Test Bundle.lungfishref"),
+            alignmentTrackID: "aln-1",
+            caller: .clair3,
+            outputTrackName: "Sample 1 • Clair3",
+            platform: .hifi
+        )
+        let automatic = BundleVariantCallingRequest(
+            bundleURL: URL(fileURLWithPath: "/tmp/Test Bundle.lungfishref"),
+            alignmentTrackID: "aln-1",
+            caller: .clair3,
+            outputTrackName: "Sample 1 • Clair3"
+        )
+
+        XCTAssertTrue(CLIVariantCallingRunner.buildCLIArguments(request: chosen).containsSequence(["--platform", "hifi"]))
+        XCTAssertFalse(CLIVariantCallingRunner.buildCLIArguments(request: automatic).contains("--platform"))
+        XCTAssertFalse(CLIVariantCallingRunner.buildCLIArguments(request: automatic).contains("--medaka-model"))
+    }
+
     func testBuildCLIArgumentsIncludesIvarSpecificOptions() {
         let request = BundleVariantCallingRequest(
             bundleURL: URL(fileURLWithPath: "/tmp/Test Bundle.lungfishref"),

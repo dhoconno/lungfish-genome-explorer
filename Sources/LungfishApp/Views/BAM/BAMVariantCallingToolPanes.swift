@@ -130,19 +130,38 @@ struct BAMVariantCallingToolPanes: View {
                     Text("Medaka Model")
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                    TextField("r1041_e82_400bps_sup_v5.0.0", text: $state.medakaModel)
+                    TextField("r1041_e82_400bps_sup_variant_v5.0.0", text: $state.medakaModel)
                         .textFieldStyle(.roundedBorder)
                         .lungfishHelp(LungfishHelpContent.bamVariantOntModel)
+                    Text("A medaka variant model named for the pore, instrument and basecaller, such as r941_prom_sup_variant_g507.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
 
             case .clair3:
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Clair3 Model")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    TextField("r1041_e82_400bps_sup_v5.0.0", text: $state.medakaModel)
-                        .textFieldStyle(.roundedBorder)
-                        .lungfishHelp(LungfishHelpContent.bamVariantOntModel)
+                VStack(alignment: .leading, spacing: 12) {
+                    Picker("Sequencing Platform", selection: $state.sequencingPlatform) {
+                        Text("Automatic (from read groups)")
+                            .tag(Optional<VariantCallingPlatform>.none)
+                        ForEach(VariantCallingPlatform.allCases, id: \.self) { platform in
+                            Text(platform.displayName)
+                                .tag(Optional(platform))
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    .lungfishHelp(LungfishHelpContent.bamVariantSequencingPlatform)
+
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Clair3 Model")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        TextField("Platform default", text: $state.medakaModel)
+                            .textFieldStyle(.roundedBorder)
+                            .lungfishHelp(LungfishHelpContent.bamVariantOntModel)
+                        Text("Leave empty for the model Clair3 ships for the platform, or name one, such as r941_prom_sup_g5014, or give a model folder path.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 }
                 }
             }

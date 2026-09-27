@@ -232,6 +232,7 @@ public enum ScientificProvenancePolicy {
         "lofreq": dataWriting("native.lofreq", writer: "NativeToolRunner/ProvenanceRunBuilder"),
         "ivar": dataWriting("native.ivar", writer: "NativeToolRunner/ProvenanceRunBuilder"),
         "medaka": dataWriting("native.medaka", writer: "NativeToolRunner/ProvenanceRunBuilder"),
+        "medakaVariant": dataWriting("native.medakaVariant", writer: "NativeToolRunner/ProvenanceRunBuilder"),
         "clair3": dataWriting("native.clair3", writer: "NativeToolRunner/ProvenanceRunBuilder"),
         "whatshap": dataWriting("native.whatshap", writer: "NativeToolRunner/ProvenanceRunBuilder"),
         "freyja": dataWriting("native.freyja", writer: "NativeToolRunner/ProvenanceRunBuilder")

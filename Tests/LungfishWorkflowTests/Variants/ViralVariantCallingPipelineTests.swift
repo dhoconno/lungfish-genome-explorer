@@ -16,7 +16,7 @@ final class ViralVariantCallingPipelineTests: XCTestCase {
         try? FileManager.default.removeItem(at: tempDir)
     }
 
-    func testIVarPipelineEmitsTSVAndUsesLungfishConverter() throws {
+    func testIVarPipelineEmitsTSVAndUsesLungfishConverter() async throws {
         // Phase 6 of the reads-to-variants chapter work replaced iVar's broken
         // `--output-format vcf` flag with a TSV emit + in-process Swift
         // conversion. The command-line preserved on the bundle's variant track
@@ -24,17 +24,17 @@ final class ViralVariantCallingPipelineTests: XCTestCase {
         // the bogus `--output-format vcf` flag iVar 1.4.x has never accepted.
         let pipeline = try makePipeline(caller: .ivar)
 
-        let plan = try pipeline.buildExecutionPlan()
+        let plan = try await pipeline.buildExecutionPlan()
 
         XCTAssertFalse(plan.commandLine.contains("--output-format vcf"))
         XCTAssertTrue(plan.commandLine.contains("ivar variants"))
         XCTAssertTrue(plan.commandLine.contains("ivar.tsv-prefix"))
     }
 
-    func testLoFreqCommandLineIncludesAdvancedArguments() throws {
+    func testLoFreqCommandLineIncludesAdvancedArguments() async throws {
         let pipeline = try makePipeline(caller: .lofreq, advancedArguments: ["--call-indels"])
 
-        let plan = try pipeline.buildExecutionPlan()
+        let plan = try await pipeline.buildExecutionPlan()
 
         XCTAssertTrue(plan.commandLine.contains("--call-indels"))
     }
@@ -102,16 +102,16 @@ final class ViralVariantCallingPipelineTests: XCTestCase {
         XCTAssertTrue(sortStep.inputs.contains { $0.path.hasSuffix("caller-with-reference-contigs.vcf") })
     }
 
-    func testIVarCommandLineIncludesAdvancedArguments() throws {
+    func testIVarCommandLineIncludesAdvancedArguments() async throws {
         let pipeline = try makePipeline(caller: .ivar, advancedArguments: ["-g", "primers.gff"])
 
-        let plan = try pipeline.buildExecutionPlan()
+        let plan = try await pipeline.buildExecutionPlan()
 
         XCTAssertTrue(plan.commandLine.contains("ivar variants"))
         XCTAssertTrue(plan.commandLine.contains("-g primers.gff"))
     }
 
-    func testIVarCommandLineIncludesPlannedBundleGFFWhenAnnotationsArePresent() throws {
+    func testIVarCommandLineIncludesPlannedBundleGFFWhenAnnotationsArePresent() async throws {
         let pipeline = try makePipeline(
             caller: .ivar,
             annotations: [
@@ -124,39 +124,187 @@ final class ViralVariantCallingPipelineTests: XCTestCase {
             ]
         )
 
-        let plan = try pipeline.buildExecutionPlan()
+        let plan = try await pipeline.buildExecutionPlan()
 
         XCTAssertTrue(plan.commandLine.contains("-g \(plan.workingDirectory.appendingPathComponent("ivar-annotations.gff3").path)"))
     }
 
-    func testMedakaCommandLineIncludesAdvancedArguments() throws {
+    // MARK: - Medaka 2.x invocation
+
+    func testMedakaCommandLineRunsMedakaVariantWrapperWithModelThreadsAndAdvancedArguments() async throws {
+        // medaka 2.x dropped the `medaka variant` subcommand. Haploid calling
+        // is the `medaka_variant` wrapper, which takes the reads (-i), the
+        // reference (-r), an output folder (-o), the model (-m) and threads
+        // (-t) and writes <folder>/medaka.annotated.vcf.
         let pipeline = try makePipeline(
             caller: .medaka,
-            medakaModel: "r1041_e82_400bps_sup_v5.0.0",
-            advancedArguments: ["--chunk_len", "1000"]
+            medakaModel: "r941_prom_sup_variant_g507",
+            advancedArguments: ["-b", "200"]
         )
 
-        let plan = try pipeline.buildExecutionPlan()
+        let plan = try await pipeline.buildExecutionPlan()
+        let fastq = try XCTUnwrap(plan.medakaFASTQURL)
+        let outputDirectory = plan.rawVCFURL.deletingLastPathComponent().appendingPathComponent("medaka").path
 
-        XCTAssertTrue(plan.commandLine.contains("--chunk_len 1000"))
+        XCTAssertTrue(plan.commandLine.hasPrefix("medaka_variant "), plan.commandLine)
+        XCTAssertFalse(plan.commandLine.contains("medaka variant"))
+        XCTAssertTrue(plan.commandLine.contains("-b 200"))
+        XCTAssertTrue(plan.commandLine.contains("-i \(fastq.path)"))
+        XCTAssertTrue(plan.commandLine.contains("-r \(plan.referenceURL.path)"))
+        XCTAssertTrue(plan.commandLine.contains("-o \(outputDirectory)"))
+        XCTAssertTrue(plan.commandLine.contains("-m r941_prom_sup_variant_g507"))
+        XCTAssertTrue(plan.commandLine.contains("-t 2"))
+        XCTAssertTrue(plan.commandLine.contains(" -f"), "medaka_variant must overwrite a stale output folder")
+        XCTAssertTrue(plan.commandLine.contains(" -s"), "medaka_variant -s writes INFO/SR, the only per-allele support the annotated VCF carries")
     }
 
-    func testClair3CommandLineUsesModelThreadsAndAdvancedArguments() throws {
+    func testMedakaPipelineAdoptsAnnotatedVCFAndRecordsWrapperProvenance() async throws {
+        let toolRunner = try makeFakeVariantToolRunner()
+        let pipeline = try makePipeline(
+            caller: .medaka,
+            medakaModel: "r941_prom_sup_variant_g507",
+            toolRunner: toolRunner,
+            bamToFASTQConverter: { _, outputFASTQ, _, _, _, _, _, _ in
+                try "@read-1\nACGT\n+\n!!!!\n".write(to: outputFASTQ, atomically: true, encoding: .utf8)
+            }
+        )
+
+        let result = try await pipeline.run()
+
+        let step = try XCTUnwrap(result.provenanceSteps.first { $0.toolName == "medaka_variant" })
+        XCTAssertTrue(step.command[0].hasSuffix("/envs/medaka/bin/medaka_variant"), step.command[0])
+        XCTAssertTrue(step.command.contains("-m"))
+        XCTAssertTrue(step.command.contains("r941_prom_sup_variant_g507"))
+        XCTAssertTrue(step.toolVersion.hasPrefix("2.2.2"), "version must come from `medaka --version`, got \(step.toolVersion)")
+        XCTAssertTrue(step.outputs.contains { $0.path.hasSuffix("medaka/medaka.annotated.vcf") })
+        XCTAssertTrue(result.commandLine.contains("medaka_variant"))
+        XCTAssertEqual(result.callerVersion, "2.2.2")
+
+        // The wrapper calls `medaka`, `mini_align` and `bcftools` by bare
+        // name, so the medaka environment's bin must lead PATH.
+        let observedPath = try String(contentsOf: tempDir.appendingPathComponent("medaka-observed-path.txt"), encoding: .utf8)
+        XCTAssertTrue(observedPath.hasPrefix(fakeEnvironmentBinPath("medaka")), observedPath)
+
+        // medaka.annotated.vcf declares no AF; the alt fraction comes from
+        // INFO/SR (ref fwd, ref rev, alt fwd, alt rev).
+        let filterStep = try XCTUnwrap(result.provenanceSteps.first { $0.toolName == "bcftools" && $0.command.contains("view") })
+        XCTAssertTrue(
+            filterStep.command.contains("(INFO/SR[2]+INFO/SR[3])/(INFO/SR[0]+INFO/SR[1]+INFO/SR[2]+INFO/SR[3])>=0.05 && INFO/DP>=10"),
+            filterStep.command.joined(separator: " ")
+        )
+        XCTAssertTrue(result.callerParametersJSON.contains("\"minimumAlleleFrequency\":0.05"), result.callerParametersJSON)
+
+        let normalized = try String(contentsOf: result.normalizedVCFURL, encoding: .utf8)
+        XCTAssertTrue(normalized.contains("chr1\t5\tmedaka-1"), "annotated VCF must feed the normalized track")
+    }
+
+    // MARK: - Clair3 platform and model
+
+    func testClair3CommandLineUsesDetectedPlatformShippedModelAndAllContigs() async throws {
+        let toolRunner = try makeFakeVariantToolRunner()
+        let pipeline = try makePipeline(
+            caller: .clair3,
+            medakaModel: "r941_prom_sup_g5014",
+            advancedArguments: ["--enable_phasing"],
+            toolRunner: toolRunner,
+            detectedPlatform: .ont
+        )
+
+        let plan = try await pipeline.buildExecutionPlan()
+        let outputDirectory = plan.rawVCFURL.deletingLastPathComponent().appendingPathComponent("clair3").path
+
+        XCTAssertTrue(plan.commandLine.hasPrefix("run_clair3.sh "), plan.commandLine)
+        XCTAssertTrue(plan.commandLine.contains("--bam_fn=\(plan.alignmentURL.path)"))
+        XCTAssertTrue(plan.commandLine.contains("--ref_fn=\(plan.referenceURL.path)"))
+        XCTAssertTrue(plan.commandLine.contains("--output=\(outputDirectory)"))
+        XCTAssertTrue(plan.commandLine.contains("--platform=ont"))
+        XCTAssertTrue(plan.commandLine.contains("--model_path=\(fakeEnvironmentBinPath("clair3"))/models/r941_prom_sup_g5014"))
+        XCTAssertTrue(plan.commandLine.contains("--threads=2"))
+        XCTAssertTrue(plan.commandLine.contains("--include_all_ctgs"))
+        XCTAssertTrue(plan.commandLine.contains("--enable_phasing"))
+        XCTAssertEqual(plan.platform, .ont)
+    }
+
+    func testClair3PlatformComesFromRequestBeforeReadGroupsAndPicksThePlatformDefaultModel() async throws {
+        let toolRunner = try makeFakeVariantToolRunner()
+
+        let hifi = try makePipeline(caller: .clair3, medakaModel: nil, toolRunner: toolRunner, platform: .hifi, detectedPlatform: .ont)
+        let hifiPlan = try await hifi.buildExecutionPlan()
+        XCTAssertTrue(hifiPlan.commandLine.contains("--platform=hifi"), hifiPlan.commandLine)
+        XCTAssertTrue(hifiPlan.commandLine.contains("--model_path=\(fakeEnvironmentBinPath("clair3"))/models/hifi"))
+
+        let illumina = try makePipeline(caller: .clair3, medakaModel: nil, toolRunner: toolRunner, detectedPlatform: .ilmn)
+        let illuminaPlan = try await illumina.buildExecutionPlan()
+        XCTAssertTrue(illuminaPlan.commandLine.contains("--platform=ilmn"), illuminaPlan.commandLine)
+        XCTAssertTrue(illuminaPlan.commandLine.contains("--model_path=\(fakeEnvironmentBinPath("clair3"))/models/ilmn"))
+    }
+
+    func testClair3RefusesToGuessThePlatform() async throws {
+        let toolRunner = try makeFakeVariantToolRunner()
+        let pipeline = try makePipeline(caller: .clair3, medakaModel: nil, toolRunner: toolRunner, detectedPlatform: nil)
+
+        do {
+            _ = try await pipeline.buildExecutionPlan()
+            XCTFail("Expected Clair3 to require a platform")
+        } catch let error as ViralVariantCallingPipelineError {
+            guard case .platformUnknown = error else {
+                return XCTFail("Unexpected error \(error)")
+            }
+        }
+    }
+
+    func testClair3UnknownModelNameFailsBeforeRunningWithShippedModelsListed() async throws {
+        let toolRunner = try makeFakeVariantToolRunner()
         let pipeline = try makePipeline(
             caller: .clair3,
             medakaModel: "r1041_e82_400bps_sup_v5.0.0",
-            advancedArguments: ["--enable_phasing"]
+            toolRunner: toolRunner,
+            detectedPlatform: .ont
         )
 
-        let plan = try pipeline.buildExecutionPlan()
+        do {
+            _ = try await pipeline.buildExecutionPlan()
+            XCTFail("Expected an unknown Clair3 model name to be refused")
+        } catch let error as ViralVariantCallingPipelineError {
+            guard case .clair3ModelUnavailable(let message) = error else {
+                return XCTFail("Unexpected error \(error)")
+            }
+            XCTAssertTrue(message.contains("r941_prom_sup_g5014"), message)
+            XCTAssertTrue(message.contains("r1041_e82_400bps_sup_v5.0.0"), message)
+        }
+    }
 
-        XCTAssertTrue(plan.commandLine.contains("run_clair3.sh"))
-        XCTAssertTrue(plan.commandLine.contains("--bam_fn=\(plan.alignmentURL.path)"))
-        XCTAssertTrue(plan.commandLine.contains("--ref_fn=\(plan.referenceURL.path)"))
-        XCTAssertTrue(plan.commandLine.contains("--output=\(plan.rawVCFURL.deletingLastPathComponent().path)"))
-        XCTAssertTrue(plan.commandLine.contains("--model_path=r1041_e82_400bps_sup_v5.0.0"))
-        XCTAssertTrue(plan.commandLine.contains("--threads=2"))
-        XCTAssertTrue(plan.commandLine.contains("--enable_phasing"))
+    func testClair3PipelineDecompressesMergeOutputAndAppliesThresholds() async throws {
+        let toolRunner = try makeFakeVariantToolRunner()
+        let pipeline = try makePipeline(
+            caller: .clair3,
+            medakaModel: "r941_prom_sup_g5014",
+            toolRunner: toolRunner,
+            minimumAlleleFrequency: 0.5,
+            minimumDepth: 10,
+            detectedPlatform: .ont
+        )
+
+        let result = try await pipeline.run()
+
+        let clair3Step = try XCTUnwrap(result.provenanceSteps.first { $0.toolName == "run_clair3.sh" })
+        XCTAssertTrue(clair3Step.command.contains("--platform=ont"))
+        XCTAssertTrue(clair3Step.outputs.contains { $0.path.hasSuffix("clair3/merge_output.vcf.gz") })
+        let observedPath = try String(contentsOf: tempDir.appendingPathComponent("clair3-observed-path.txt"), encoding: .utf8)
+        XCTAssertTrue(observedPath.hasPrefix(fakeEnvironmentBinPath("clair3")), observedPath)
+
+        // merge_output.vcf.gz is bgzipped; the raw VCF the threshold filter
+        // and reheader read must be plain text or the AF/DP header check
+        // silently skips both thresholds.
+        let filterStep = try XCTUnwrap(result.provenanceSteps.first { $0.toolName == "bcftools" && $0.command.contains("view") })
+        XCTAssertTrue(filterStep.command.contains("FORMAT/AF>=0.5 && FORMAT/DP>=10"), filterStep.command.joined(separator: " "))
+        XCTAssertTrue(result.callerParametersJSON.contains("\"minimumAlleleFrequency\":0.5"))
+        XCTAssertTrue(result.callerParametersJSON.contains("\"platform\":\"ont\""), result.callerParametersJSON)
+        XCTAssertTrue(result.callerParametersJSON.contains("\"clair3ModelPath\":\""), result.callerParametersJSON)
+        XCTAssertTrue(result.callerParametersJSON.contains("r941_prom_sup_g5014\""), result.callerParametersJSON)
+
+        let normalized = try String(contentsOf: result.normalizedVCFURL, encoding: .utf8)
+        XCTAssertTrue(normalized.contains("chr1\t5\tclair3-1"), "the decompressed Clair3 call must reach the normalized VCF")
     }
 
     func testPhasedVariantPlanBuildsGATKAndWhatsHapCommandsWithResolvedDefaults() throws {
@@ -187,10 +335,10 @@ final class ViralVariantCallingPipelineTests: XCTestCase {
         XCTAssertEqual(plan.packIDs, ["gatk-core", "phasing"])
     }
 
-    func testBcftoolsCommandLineUsesMpileupCallAndAdvancedArguments() throws {
+    func testBcftoolsCommandLineUsesMpileupCallAndAdvancedArguments() async throws {
         let pipeline = try makePipeline(caller: .bcftools, advancedArguments: ["-P", "0.001"])
 
-        let plan = try pipeline.buildExecutionPlan()
+        let plan = try await pipeline.buildExecutionPlan()
 
         XCTAssertTrue(plan.commandLine.contains("bcftools mpileup"))
         XCTAssertTrue(plan.commandLine.contains(" | bcftools call -P 0.001"))
@@ -199,7 +347,7 @@ final class ViralVariantCallingPipelineTests: XCTestCase {
 
     // MARK: - SCI-04: bcftools haploid calling and amplicon depth cap
 
-    func testBcftoolsCommandLineIsHaploidWithUncappedAmpliconDepth() throws {
+    func testBcftoolsCommandLineIsHaploidWithUncappedAmpliconDepth() async throws {
         // SCI-04: bcftools previously ran with implicit diploid genotyping
         // and the tool's default 250-read max-depth, which is far below
         // typical amplicon coverage. The mpileup stage must request AD/DP
@@ -207,7 +355,7 @@ final class ViralVariantCallingPipelineTests: XCTestCase {
         // request haploid genotypes for this viral fixture bundle.
         let pipeline = try makePipeline(caller: .bcftools)
 
-        let plan = try pipeline.buildExecutionPlan()
+        let plan = try await pipeline.buildExecutionPlan()
 
         XCTAssertTrue(plan.commandLine.contains("bcftools mpileup"))
         XCTAssertTrue(plan.commandLine.contains("-d 0"))
@@ -218,44 +366,50 @@ final class ViralVariantCallingPipelineTests: XCTestCase {
 
     // MARK: - bcftools ploidy follows the reference organism
 
-    func testBcftoolsCommandLineIsDiploidForHumanReferenceBundle() throws {
+    func testBcftoolsCommandLineIsDiploidForHumanReferenceBundle() async throws {
         // Regression: SCI-04 made `--ploidy 1` unconditional, which on the
         // manual's HG002 chromosome 20 example dropped 623 heterozygous
         // sites and wrote every genotype as `1`. A human bundle must call
         // diploid by default.
         let pipeline = try makePipeline(caller: .bcftools, sourceOrganism: "Homo sapiens")
 
-        let plan = try pipeline.buildExecutionPlan()
+        let plan = try await pipeline.buildExecutionPlan()
 
         XCTAssertTrue(plan.commandLine.contains("--ploidy 2"))
         XCTAssertFalse(plan.commandLine.contains("--ploidy 1"))
         XCTAssertEqual(pipeline.resolvedPloidy, .diploid)
     }
 
-    func testBcftoolsCommandLineIsDiploidForFASTASliceNamedAfterGRCh38() throws {
+    func testBcftoolsCommandLineIsDiploidForFASTASliceNamedAfterGRCh38() async throws {
         // The manual's fixture is imported from `GRCh38.chr20.10.0-10.5Mb.fasta`,
         // so the organism field holds the bundle name rather than a species.
         let pipeline = try makePipeline(caller: .bcftools, sourceOrganism: "GRCh38.chr20.10.0-10.5Mb")
 
         XCTAssertEqual(pipeline.resolvedPloidy, .diploid)
-        XCTAssertTrue(try pipeline.buildExecutionPlan().commandLine.contains("--ploidy 2"))
+        let plan = try await pipeline.buildExecutionPlan()
+        XCTAssertTrue(plan.commandLine.contains("--ploidy 2"))
     }
 
-    func testExplicitPloidyOverridesManifestDefault() throws {
+    func testExplicitPloidyOverridesManifestDefault() async throws {
         let viralAsDiploid = try makePipeline(caller: .bcftools, ploidy: .diploid)
         let humanAsHaploid = try makePipeline(caller: .bcftools, sourceOrganism: "Homo sapiens", ploidy: .haploid)
 
-        XCTAssertTrue(try viralAsDiploid.buildExecutionPlan().commandLine.contains("--ploidy 2"))
-        XCTAssertTrue(try humanAsHaploid.buildExecutionPlan().commandLine.contains("--ploidy 1"))
+        let diploidPlan = try await viralAsDiploid.buildExecutionPlan()
+        let haploidPlan = try await humanAsHaploid.buildExecutionPlan()
+        XCTAssertTrue(diploidPlan.commandLine.contains("--ploidy 2"))
+        XCTAssertTrue(haploidPlan.commandLine.contains("--ploidy 1"))
     }
 
-    func testBcftoolsRejectsPloidyInAdvancedArguments() throws {
+    func testBcftoolsRejectsPloidyInAdvancedArguments() async throws {
         // A `--ploidy` typed into Extra arguments used to be silently
         // overridden by LGE's own flag. It is now refused outright so the
         // Ploidy setting is the single source of truth.
         let pipeline = try makePipeline(caller: .bcftools, advancedArguments: ["--ploidy", "2"])
 
-        XCTAssertThrowsError(try pipeline.buildExecutionPlan()) { error in
+        do {
+            _ = try await pipeline.buildExecutionPlan()
+            XCTFail("Expected the reserved --ploidy argument to be refused")
+        } catch {
             XCTAssertEqual(
                 error as? ViralVariantCallingPipelineError,
                 .reservedAdvancedArgument(VariantCallingPloidy.reservedExtraArgumentMessage)
@@ -263,12 +417,12 @@ final class ViralVariantCallingPipelineTests: XCTestCase {
         }
     }
 
-    func testNonBcftoolsCallersIgnorePloidyInAdvancedArguments() throws {
+    func testNonBcftoolsCallersIgnorePloidyInAdvancedArguments() async throws {
         // Only bcftools owns the reserved flag. LoFreq's arguments are passed
         // through untouched, as before.
         let pipeline = try makePipeline(caller: .lofreq, advancedArguments: ["--ploidy", "2"])
 
-        XCTAssertNoThrow(try pipeline.buildExecutionPlan())
+        _ = try await pipeline.buildExecutionPlan()
     }
 
     func testBcftoolsCallerParametersJSONRecordsPloidyAndBasis() async throws {
@@ -466,10 +620,18 @@ final class ViralVariantCallingPipelineTests: XCTestCase {
         )
     }
 
-    func testAllCallersUseStagedUncompressedReference() throws {
+    func testAllCallersUseStagedUncompressedReference() async throws {
+        let toolRunner = try makeFakeVariantToolRunner()
         for caller in ViralVariantCaller.allCases {
-            let pipeline = try makePipeline(caller: caller)
-            let plan = try pipeline.buildExecutionPlan()
+            // Clair3 resolves its shipped model while planning, so it needs a
+            // platform and an installation to look in.
+            let pipeline = try makePipeline(
+                caller: caller,
+                medakaModel: nil,
+                toolRunner: toolRunner,
+                detectedPlatform: .ont
+            )
+            let plan = try await pipeline.buildExecutionPlan()
             XCTAssertTrue(plan.referenceURL.path.hasSuffix(".fa"), "Expected \(caller.rawValue) to stage an uncompressed FASTA")
             XCTAssertFalse(plan.referenceURL.path.hasSuffix(".fa.gz"), "Expected \(caller.rawValue) not to point callers at the bundle's compressed FASTA")
         }
@@ -659,7 +821,9 @@ final class ViralVariantCallingPipelineTests: XCTestCase {
         minimumAlleleFrequency: Double? = 0.05,
         minimumDepth: Int? = 10,
         sourceOrganism: String = "Virus",
-        ploidy: VariantCallingPloidy? = nil
+        ploidy: VariantCallingPloidy? = nil,
+        platform: VariantCallingPlatform? = nil,
+        detectedPlatform: VariantCallingPlatform? = nil
     ) throws -> ViralVariantCallingPipeline {
         let bundleURL = tempDir.appendingPathComponent("test.lungfishref", isDirectory: true)
         let referenceURL = tempDir.appendingPathComponent("reference.fa")
@@ -716,7 +880,8 @@ final class ViralVariantCallingPipelineTests: XCTestCase {
                 SAMParser.ReferenceSequence(name: "chr1", length: 20, md5: nil, assembly: nil, uri: nil, species: nil)
             ],
             referenceNameMap: ["chr1": "chr1"],
-            contigValidation: .exactMatch
+            contigValidation: .exactMatch,
+            detectedPlatform: detectedPlatform
         )
 
         let request = BundleVariantCallingRequest(
@@ -730,7 +895,8 @@ final class ViralVariantCallingPipelineTests: XCTestCase {
             ivarPrimerTrimConfirmed: true,
             medakaModel: (caller == .medaka || caller == .clair3) ? medakaModel : nil,
             advancedArguments: advancedArguments,
-            ploidy: ploidy
+            ploidy: ploidy,
+            platform: platform
         )
 
         let stagingRoot = tempDir.appendingPathComponent("staging-\(caller.rawValue)-\(UUID().uuidString)", isDirectory: true)
@@ -853,7 +1019,78 @@ final class ViralVariantCallingPipelineTests: XCTestCase {
         for arg in "$@"; do input="$arg"; done
         touch "$input.tbi"
         """)
+        // medaka 2.2.2: `medaka` answers --version; the `medaka_variant`
+        // wrapper takes -i/-r/-o/-m/-t and writes <out>/medaka.annotated.vcf.
+        // Both record the PATH they ran under so the test can prove the
+        // environment's bin directory led it.
+        try writeFakeTool(home: home, environment: "medaka", executable: "medaka", script: """
+        #!/bin/sh
+        if [ "$1" = "--version" ]; then echo "medaka 2.2.2"; exit 0; fi
+        exit 0
+        """)
+        try writeFakeTool(home: home, environment: "medaka", executable: "medaka_variant", script: """
+        #!/bin/sh
+        printf '%s' "$PATH" > "\(tempDir.path)/medaka-observed-path.txt"
+        output="medaka"
+        while [ "$#" -gt 0 ]; do
+          if [ "$1" = "-o" ]; then shift; output="$1"; fi
+          shift
+        done
+        mkdir -p "$output"
+        cat > "$output/medaka.annotated.vcf" <<'EOF'
+        ##fileformat=VCFv4.3
+        ##contig=<ID=chr1,length=20>
+        ##INFO=<ID=DP,Number=1,Type=Integer,Description="Depth">
+        ##INFO=<ID=SR,Number=.,Type=Integer,Description="Depth of spanning reads by strand which best align to each allele (ref fwd, ref rev, alt1 fwd, alt1 rev, etc.)">
+        #CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO
+        chr1	5	medaka-1	A	G	80	PASS	DP=30;SR=1,2,13,14
+        EOF
+        """)
+        // Clair3 2.0.2: run_clair3.sh, with the shipped models beside it in
+        // bin/models/<name>/{pileup.pt,full_alignment.pt}, writing a
+        // bgzipped merge_output.vcf.gz into --output.
+        try writeFakeTool(home: home, environment: "clair3", executable: "run_clair3.sh", script: """
+        #!/bin/sh
+        if [ "$1" = "--version" ] || [ "$1" = "-v" ]; then echo "Clair3 v2.0.2"; exit 0; fi
+        printf '%s' "$PATH" > "\(tempDir.path)/clair3-observed-path.txt"
+        output=""
+        for arg in "$@"; do
+          case "$arg" in
+            --output=*) output="${arg#--output=}" ;;
+          esac
+        done
+        mkdir -p "$output"
+        cat <<'EOF' | gzip -c > "$output/merge_output.vcf.gz"
+        ##fileformat=VCFv4.2
+        ##contig=<ID=chr1,length=20>
+        ##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">
+        ##FORMAT=<ID=DP,Number=1,Type=Integer,Description="Read depth">
+        ##FORMAT=<ID=AF,Number=1,Type=Float,Description="Allele frequency">
+        #CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO	FORMAT	SAMPLE
+        chr1	5	clair3-1	A	G	30	PASS	.	GT:DP:AF	1:30:0.95
+        EOF
+        """)
+        for model in ["ont", "hifi", "ilmn", "r941_prom_sup_g5014", "r1041_e82_400bps_sup_v500"] {
+            let modelDirectory = home
+                .appendingPathComponent(".lungfish/conda/envs/clair3/bin/models", isDirectory: true)
+                .appendingPathComponent(model, isDirectory: true)
+            try FileManager.default.createDirectory(at: modelDirectory, withIntermediateDirectories: true)
+            for weights in Clair3ModelResolver.requiredWeightFiles {
+                try Data("weights".utf8).write(to: modelDirectory.appendingPathComponent(weights))
+            }
+        }
         return NativeToolRunner(toolsDirectory: nil, homeDirectory: home, appIdentity: .preview)
+    }
+
+    /// The bin directory of a fake managed environment created by
+    /// `makeFakeVariantToolRunner`.
+    private func fakeEnvironmentBinPath(_ environment: String) -> String {
+        tempDir
+            .appendingPathComponent("fake-home", isDirectory: true)
+            .appendingPathComponent(".lungfish/conda/envs", isDirectory: true)
+            .appendingPathComponent(environment, isDirectory: true)
+            .appendingPathComponent("bin", isDirectory: true)
+            .path
     }
 
     private func writeFakeTool(home: URL, environment: String, executable: String, script: String) throws {

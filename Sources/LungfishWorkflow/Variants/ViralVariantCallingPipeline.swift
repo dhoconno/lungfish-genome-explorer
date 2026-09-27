@@ -18,6 +18,10 @@ public struct ViralVariantCallingExecutionPlan: Sendable, Equatable {
     public let stagedVCFGZURL: URL
     public let stagedTabixURL: URL
     public let commandLine: String
+    /// Medaka and Clair3 only: the platform the caller is told to expect.
+    public let platform: VariantCallingPlatform?
+    /// Clair3 only: the resolved `--model_path` directory.
+    public let clair3ModelPath: URL?
 
     public init(
         caller: ViralVariantCaller,
@@ -31,7 +35,9 @@ public struct ViralVariantCallingExecutionPlan: Sendable, Equatable {
         normalizedVCFURL: URL,
         stagedVCFGZURL: URL,
         stagedTabixURL: URL,
-        commandLine: String
+        commandLine: String,
+        platform: VariantCallingPlatform? = nil,
+        clair3ModelPath: URL? = nil
     ) {
         self.caller = caller
         self.workingDirectory = workingDirectory
@@ -45,6 +51,20 @@ public struct ViralVariantCallingExecutionPlan: Sendable, Equatable {
         self.stagedVCFGZURL = stagedVCFGZURL
         self.stagedTabixURL = stagedTabixURL
         self.commandLine = commandLine
+        self.platform = platform
+        self.clair3ModelPath = clair3ModelPath
+    }
+
+    /// The folder `medaka_variant -o` writes into (`medaka.annotated.vcf`
+    /// is the final, depth-annotated call set).
+    public var medakaOutputDirectory: URL {
+        rawVCFURL.deletingLastPathComponent().appendingPathComponent("medaka", isDirectory: true)
+    }
+
+    /// The folder `run_clair3.sh --output` writes into (`merge_output.vcf.gz`
+    /// is the final call set).
+    public var clair3OutputDirectory: URL {
+        rawVCFURL.deletingLastPathComponent().appendingPathComponent("clair3", isDirectory: true)
     }
 }
 
@@ -94,11 +114,17 @@ public enum ViralVariantCallingPipelineError: Error, LocalizedError, Equatable {
     case compressionFailed(String)
     case indexingFailed(String)
     case reservedAdvancedArgument(String)
+    case platformUnknown(String)
+    case clair3ModelUnavailable(String)
 
     public var errorDescription: String? {
         switch self {
         case .medakaRequiresModelMetadata:
             return "Medaka requires ONT model metadata before the run can start."
+        case .platformUnknown(let message):
+            return message
+        case .clair3ModelUnavailable(let message):
+            return message
         case .workspaceSetupFailed(let detail):
             return "Failed to prepare the variant-calling workspace: \(detail)"
         case .referenceStagingFailed(let detail):
@@ -135,6 +161,10 @@ public struct ViralVariantCallingPipeline: Sendable {
         let ivarBadQualityThreshold: Int?
         let ivarIgnoreStrandBias: Bool?
         let medakaModel: String?
+        /// Medaka and Clair3 only: the platform the caller ran for.
+        let platform: String?
+        /// Clair3 only: the resolved `--model_path` directory.
+        let clair3ModelPath: String?
         let advancedOptions: String?
         let advancedArguments: [String]?
         let extraArgs: String?
@@ -206,8 +236,53 @@ public struct ViralVariantCallingPipeline: Sendable {
         }
     }
 
-    public func buildExecutionPlan() throws -> ViralVariantCallingExecutionPlan {
+    /// The platform Medaka or Clair3 is told to expect: the request's
+    /// explicit choice, else what the alignment's read groups record.
+    public var resolvedPlatform: VariantCallingPlatform? {
+        request.platform ?? preflight.detectedPlatform
+    }
+
+    /// Clair3's platform flag and model directory. The model comes from the
+    /// request (a shipped model name or a folder path), else from a dorado
+    /// `basecall_model=` read-group description, else the platform's generic
+    /// shipped model; see `Clair3ModelResolver`.
+    private func resolveClair3Configuration() async throws -> (platform: VariantCallingPlatform, modelPath: URL) {
+        guard let platform = resolvedPlatform else {
+            throw ViralVariantCallingPipelineError.platformUnknown(
+                "Clair3 needs the sequencing platform to choose its model, and this alignment's read groups do not record one. Pass --platform ont, hifi or ilmn (Sequencing Platform in the Call Variants dialog)."
+            )
+        }
+        let toolURL = try await toolRunner.findTool(.clair3)
+        let modelsDirectory = toolURL.deletingLastPathComponent().appendingPathComponent("models", isDirectory: true)
+        let availableModels = (try? FileManager.default.contentsOfDirectory(atPath: modelsDirectory.path)) ?? []
+        do {
+            let modelPath = try Clair3ModelResolver.resolve(
+                requestedModel: request.medakaModel,
+                platform: platform,
+                readGroupDescriptions: preflight.readGroupDescriptions,
+                modelsDirectory: modelsDirectory,
+                availableModels: availableModels,
+                directoryHoldsWeights: { directory in
+                    Clair3ModelResolver.requiredWeightFiles.allSatisfy { weights in
+                        FileManager.default.fileExists(atPath: directory.appendingPathComponent(weights).path)
+                    }
+                }
+            )
+            return (platform, modelPath)
+        } catch let error as Clair3ModelResolver.ResolutionError {
+            throw ViralVariantCallingPipelineError.clair3ModelUnavailable(error.localizedDescription)
+        }
+    }
+
+    public func buildExecutionPlan() async throws -> ViralVariantCallingExecutionPlan {
         try validateAdvancedArguments()
+        var platform = resolvedPlatform
+        var clair3ModelPath: URL?
+        if request.caller == .clair3 {
+            let clair3 = try await resolveClair3Configuration()
+            platform = clair3.platform
+            clair3ModelPath = clair3.modelPath
+        }
         let workspaceURL = stagingRoot.appendingPathComponent("workspace", isDirectory: true)
         let inputsURL = workspaceURL.appendingPathComponent("inputs", isDirectory: true)
         let outputsURL = workspaceURL.appendingPathComponent("outputs", isDirectory: true)
@@ -240,18 +315,22 @@ public struct ViralVariantCallingPipeline: Sendable {
                 referenceURL: referenceURL,
                 alignmentURL: alignmentURL,
                 medakaFASTQURL: medakaFASTQURL,
-                rawVCFURL: rawVCFURL
-            )
+                rawVCFURL: rawVCFURL,
+                platform: platform,
+                clair3ModelPath: clair3ModelPath
+            ),
+            platform: platform,
+            clair3ModelPath: clair3ModelPath
         )
     }
 
     public func run(progress: ProgressHandler? = nil) async throws -> ViralVariantCallingPipelineResult {
-        if (request.caller == .medaka || request.caller == .clair3),
+        if request.caller == .medaka,
            request.medakaModel?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false {
             throw ViralVariantCallingPipelineError.medakaRequiresModelMetadata
         }
 
-        let plan = try buildExecutionPlan()
+        let plan = try await buildExecutionPlan()
         var provenanceSteps: [VariantCallingProvenanceStep] = []
         do {
             try FileManager.default.createDirectory(at: plan.workingDirectory, withIntermediateDirectories: true)
@@ -497,7 +576,7 @@ public struct ViralVariantCallingPipeline: Sendable {
             throw ViralVariantCallingPipelineError.referenceStagingFailed("Failed to compute staged FASTA checksum.")
         }
 
-        let callerVersion = await toolRunner.getToolVersion(nativeTool(for: request.caller)) ?? "unknown"
+        let callerVersion = await toolRunner.getToolVersion(versionTool(for: request.caller)) ?? "unknown"
         return ViralVariantCallingPipelineResult(
             normalizedVCFURL: plan.normalizedVCFURL,
             stagedVCFGZURL: plan.stagedVCFGZURL,
@@ -507,7 +586,8 @@ public struct ViralVariantCallingPipeline: Sendable {
             callerVersion: callerVersion,
             callerParametersJSON: callerParametersJSON(
                 appliedMinimumAlleleFrequency: effectiveMinimumAlleleFrequency,
-                appliedMinimumDepth: effectiveMinimumDepth
+                appliedMinimumDepth: effectiveMinimumDepth,
+                plan: plan
             ),
             commandLine: executedCommandLine,
             provenanceSteps: provenanceSteps
@@ -535,11 +615,16 @@ public struct ViralVariantCallingPipeline: Sendable {
     /// threshold, if any, is applied).
     private func alleleFrequencyExpression(for caller: ViralVariantCaller) -> String? {
         switch caller {
-        case .lofreq, .medaka:
-            // Both emit a per-record INFO/AF (LoFreq: confirmed via managed
-            // lofreq call output; Medaka: medaka/vcf.py declares INFO/AF as
-            // an A-length float field).
+        case .lofreq:
+            // LoFreq emits a per-record INFO/AF (confirmed via managed
+            // lofreq call output).
             return "INFO/AF"
+        case .medaka:
+            // medaka.annotated.vcf (medaka 2.2.2) declares no AF. With
+            // `medaka_variant -s` the annotator writes INFO/SR, the depth of
+            // spanning reads best aligned to each allele as (ref fwd, ref
+            // rev, alt fwd, alt rev), so the alt fraction is alt/(ref+alt).
+            return "(INFO/SR[2]+INFO/SR[3])/(INFO/SR[0]+INFO/SR[1]+INFO/SR[2]+INFO/SR[3])"
         case .bcftools:
             // bcftools call has no native AF tag; with `-a FORMAT/AD` (added
             // in bcftoolsMpileupArguments for SCI-04) the alt-allele
@@ -602,7 +687,12 @@ public struct ViralVariantCallingPipeline: Sendable {
         var appliedDP: Int?
 
         if let minimumAlleleFrequency, let afExpression = alleleFrequencyExpression(for: request.caller) {
-            let afTag = request.caller == .bcftools ? "AD" : "AF"
+            let afTag: String
+            switch request.caller {
+            case .bcftools: afTag = "AD"
+            case .medaka: afTag = "SR"
+            default: afTag = "AF"
+            }
             if vcfHeaderDeclaresTag(afTag, at: plan.rawVCFURL) {
                 conditions.append("\(afExpression)>=\(minimumAlleleFrequency)")
                 appliedAF = minimumAlleleFrequency
@@ -1082,24 +1172,29 @@ public struct ViralVariantCallingPipeline: Sendable {
                 [mpileupStep, callStep]
             )
         case .medaka:
+            // medaka 2.x: `medaka_variant` aligns the reads with mini_align,
+            // runs `medaka inference` and `medaka vcf`, sorts, and annotates
+            // depth and allele frequency into <out>/medaka.annotated.vcf.
+            let tool = NativeTool.medakaVariant
             let arguments = medakaArguments(plan: plan)
+            let annotatedVCF = plan.medakaOutputDirectory.appendingPathComponent("medaka.annotated.vcf")
             let startedAt = Date()
             let result = try await toolRunner.run(
-                .medaka,
+                tool,
                 arguments: arguments,
                 workingDirectory: plan.workingDirectory,
                 timeout: 3600
             )
             let completedAt = Date()
             let step = VariantCallingProvenanceStep(
-                toolName: nativeTool(for: request.caller).executableName,
-                toolVersion: await nativeToolVersion(for: nativeTool(for: request.caller)),
-                command: await nativeCommand(for: nativeTool(for: request.caller), arguments: arguments),
+                toolName: tool.executableName,
+                toolVersion: await nativeToolVersion(for: .medaka),
+                command: await nativeCommand(for: tool, arguments: arguments),
                 inputs: [
                     ProvenanceRecorder.fileRecord(url: plan.referenceURL, format: .fasta, role: .reference),
                     plan.medakaFASTQURL.map { ProvenanceRecorder.fileRecord(url: $0, format: .fastq, role: .input) },
                 ].compactMap { $0 },
-                outputs: [ProvenanceRecorder.fileRecord(url: plan.rawVCFURL, format: .vcf, role: .output)],
+                outputs: [ProvenanceRecorder.fileRecord(url: annotatedVCF, format: .vcf, role: .output)],
                 exitCode: result.exitCode,
                 wallTime: completedAt.timeIntervalSince(startedAt),
                 stderr: result.stderr,
@@ -1109,30 +1204,30 @@ public struct ViralVariantCallingPipeline: Sendable {
             guard result.isSuccess else {
                 throw ViralVariantCallingPipelineError.callerExecutionFailed(result.combinedOutput)
             }
-            return (([nativeTool(for: request.caller).executableName] + arguments).map(shellEscape).joined(separator: " "), [step])
+            try adoptCallerOutput(annotatedVCF, as: plan.rawVCFURL)
+            return (([tool.executableName] + arguments).map(shellEscape).joined(separator: " "), [step])
         case .clair3:
+            let tool = NativeTool.clair3
             let arguments = clair3Arguments(plan: plan)
+            let mergedVCFGZ = plan.clair3OutputDirectory.appendingPathComponent("merge_output.vcf.gz")
             let startedAt = Date()
             let result = try await toolRunner.run(
-                .clair3,
+                tool,
                 arguments: arguments,
                 workingDirectory: plan.workingDirectory,
                 timeout: 3600
             )
             let completedAt = Date()
-            let clair3OutputVCF = plan.rawVCFURL
-                .deletingLastPathComponent()
-                .appendingPathComponent("merge_output.vcf.gz")
             let step = VariantCallingProvenanceStep(
-                toolName: nativeTool(for: request.caller).executableName,
-                toolVersion: await nativeToolVersion(for: nativeTool(for: request.caller)),
-                command: await nativeCommand(for: nativeTool(for: request.caller), arguments: arguments),
+                toolName: tool.executableName,
+                toolVersion: await nativeToolVersion(for: tool),
+                command: await nativeCommand(for: tool, arguments: arguments),
                 inputs: [
                     ProvenanceRecorder.fileRecord(url: plan.referenceURL, format: .fasta, role: .reference),
                     ProvenanceRecorder.fileRecord(url: plan.alignmentURL, format: .bam, role: .input),
                     ProvenanceRecorder.fileRecord(url: plan.alignmentIndexURL, role: .index),
-                ],
-                outputs: [ProvenanceRecorder.fileRecord(url: clair3OutputVCF, format: .vcf, role: .output)],
+                ] + (plan.clair3ModelPath.map { [ProvenanceRecorder.fileRecord(url: $0, role: .reference)] } ?? []),
+                outputs: [ProvenanceRecorder.fileRecord(url: mergedVCFGZ, format: .vcf, role: .output)],
                 exitCode: result.exitCode,
                 wallTime: completedAt.timeIntervalSince(startedAt),
                 stderr: result.stderr,
@@ -1142,14 +1237,35 @@ public struct ViralVariantCallingPipeline: Sendable {
             guard result.isSuccess else {
                 throw ViralVariantCallingPipelineError.callerExecutionFailed(result.combinedOutput)
             }
-            if FileManager.default.fileExists(atPath: clair3OutputVCF.path) {
-                if FileManager.default.fileExists(atPath: plan.rawVCFURL.path) {
-                    try FileManager.default.removeItem(at: plan.rawVCFURL)
+            // merge_output.vcf.gz is bgzipped. The raw VCF must be plain text:
+            // the threshold filter reads its header to decide whether AF and
+            // DP are declared, and a gzip stream read as UTF-8 declares
+            // nothing, which silently dropped both thresholds.
+            if FileManager.default.fileExists(atPath: mergedVCFGZ.path) {
+                do {
+                    let text = try await GzipInputStream(url: mergedVCFGZ).readAll()
+                    if FileManager.default.fileExists(atPath: plan.rawVCFURL.path) {
+                        try FileManager.default.removeItem(at: plan.rawVCFURL)
+                    }
+                    try text.write(to: plan.rawVCFURL, atomically: true, encoding: .utf8)
+                } catch {
+                    throw ViralVariantCallingPipelineError.normalizationFailed(
+                        "Could not decompress Clair3 output \(mergedVCFGZ.path): \(error.localizedDescription)"
+                    )
                 }
-                try FileManager.default.copyItem(at: clair3OutputVCF, to: plan.rawVCFURL)
             }
-            return (([nativeTool(for: request.caller).executableName] + arguments).map(shellEscape).joined(separator: " "), [step])
+            return (([tool.executableName] + arguments).map(shellEscape).joined(separator: " "), [step])
         }
+    }
+
+    private func adoptCallerOutput(_ producedVCF: URL, as rawVCFURL: URL) throws {
+        guard FileManager.default.fileExists(atPath: producedVCF.path) else {
+            throw ViralVariantCallingPipelineError.missingCallerOutput(producedVCF.path)
+        }
+        if FileManager.default.fileExists(atPath: rawVCFURL.path) {
+            try FileManager.default.removeItem(at: rawVCFURL)
+        }
+        try FileManager.default.copyItem(at: producedVCF, to: rawVCFURL)
     }
 
     private func stageInputArtifact(from sourceURL: URL, to stagedURL: URL) throws {
@@ -1312,14 +1428,18 @@ public struct ViralVariantCallingPipeline: Sendable {
         referenceURL: URL,
         alignmentURL: URL,
         medakaFASTQURL: URL?,
-        rawVCFURL: URL
+        rawVCFURL: URL,
+        platform: VariantCallingPlatform?,
+        clair3ModelPath: URL?
     ) -> String {
         let plan = placeholderPlan(
             workingDirectory: workingDirectory,
             referenceURL: referenceURL,
             alignmentURL: alignmentURL,
             medakaFASTQURL: medakaFASTQURL,
-            rawVCFURL: rawVCFURL
+            rawVCFURL: rawVCFURL,
+            platform: platform,
+            clair3ModelPath: clair3ModelPath
         )
         switch caller {
         case .lofreq:
@@ -1348,7 +1468,7 @@ public struct ViralVariantCallingPipeline: Sendable {
             samtools \(ivarMpileupArguments(plan: plan).map(shellEscape).joined(separator: " ")) | ivar \(ivarVariantArguments(plan: plan, gffURL: plannedIVarGFFURL(workingDirectory: workingDirectory)).map(shellEscape).joined(separator: " "))
             """
         case .medaka:
-            return ([nativeTool(for: caller).executableName] + medakaArguments(
+            return ([NativeTool.medakaVariant.executableName] + medakaArguments(
                 plan: plan
             )).map(shellEscape).joined(separator: " ")
         case .bcftools:
@@ -1367,7 +1487,9 @@ public struct ViralVariantCallingPipeline: Sendable {
         referenceURL: URL,
         alignmentURL: URL,
         medakaFASTQURL: URL?,
-        rawVCFURL: URL
+        rawVCFURL: URL,
+        platform: VariantCallingPlatform?,
+        clair3ModelPath: URL?
     ) -> ViralVariantCallingExecutionPlan {
         ViralVariantCallingExecutionPlan(
             caller: request.caller,
@@ -1381,7 +1503,9 @@ public struct ViralVariantCallingPipeline: Sendable {
             normalizedVCFURL: rawVCFURL.deletingLastPathComponent().appendingPathComponent("variants.normalized.vcf"),
             stagedVCFGZURL: rawVCFURL.deletingLastPathComponent().appendingPathComponent("variants.vcf.gz"),
             stagedTabixURL: rawVCFURL.deletingLastPathComponent().appendingPathComponent("variants.vcf.gz.tbi"),
-            commandLine: ""
+            commandLine: "",
+            platform: platform,
+            clair3ModelPath: clair3ModelPath
         )
     }
 
@@ -1512,27 +1636,43 @@ public struct ViralVariantCallingPipeline: Sendable {
         }
     }
 
+    /// `medaka_variant` (medaka 2.2.2): `-i` reads, `-r` reference, `-o`
+    /// output folder, `-m` model, `-t` threads. `-f` forces a rerun rather
+    /// than reusing stale intermediates in the output folder, and `-s` makes
+    /// the annotator realign spanning reads so INFO/SR carries per-allele
+    /// read support, which the Minimum Allele Frequency filter needs. Extra
+    /// arguments are the wrapper's own short flags, such as `-b 200`.
     private func medakaArguments(plan: ViralVariantCallingExecutionPlan) -> [String] {
-        return ["variant"]
-            + request.advancedArguments
+        return request.advancedArguments
             + [
             "-i", plan.medakaFASTQURL?.path ?? "",
             "-r", plan.referenceURL.path,
-            "-o", plan.rawVCFURL.path,
+            "-o", plan.medakaOutputDirectory.path,
             "-m", request.medakaModel ?? "",
             "-t", String(max(1, request.threads)),
+            "-s",
+            "-f",
         ]
     }
 
+    /// `run_clair3.sh` (Clair3 2.0.2). `--platform` and `--model_path` come
+    /// from the resolved plan rather than a hardcoded `ont`, and
+    /// `--include_all_ctgs` is always on: Clair3 otherwise calls only contigs
+    /// named like human chromosomes and silently returns nothing for a viral
+    /// or mitochondrial reference such as `MN908947.3` or `NC_012920.1`.
     private func clair3Arguments(plan: ViralVariantCallingExecutionPlan) -> [String] {
-        [
+        var arguments = [
             "--bam_fn=\(plan.alignmentURL.path)",
             "--ref_fn=\(plan.referenceURL.path)",
             "--threads=\(max(1, request.threads))",
-            "--platform=ont",
-            "--model_path=\(request.medakaModel ?? "")",
-            "--output=\(plan.rawVCFURL.deletingLastPathComponent().path)",
-        ] + request.advancedArguments
+            "--platform=\(plan.platform?.clair3Value ?? "")",
+            "--model_path=\(plan.clair3ModelPath?.path ?? "")",
+            "--output=\(plan.clair3OutputDirectory.path)",
+        ]
+        if !request.advancedArguments.contains(where: { $0.hasPrefix("--include_all_ctgs") }) {
+            arguments.append("--include_all_ctgs")
+        }
+        return arguments + request.advancedArguments
     }
 
     /// Amplicon depth at a single position can run into the hundreds of
@@ -1575,10 +1715,12 @@ public struct ViralVariantCallingPipeline: Sendable {
 
     private func callerParametersJSON(
         appliedMinimumAlleleFrequency: Double?,
-        appliedMinimumDepth: Int?
+        appliedMinimumDepth: Int?,
+        plan: ViralVariantCallingExecutionPlan
     ) -> String {
         let isIvar = request.caller == .ivar
         let isBcftools = request.caller == .bcftools
+        let isLongReadCaller = request.caller == .medaka || request.caller == .clair3
         let payload = CallerParametersPayload(
             caller: request.caller.rawValue,
             threads: request.threads,
@@ -1590,6 +1732,8 @@ public struct ViralVariantCallingPipeline: Sendable {
             ivarBadQualityThreshold: isIvar ? request.ivarBadQualityThreshold : nil,
             ivarIgnoreStrandBias: isIvar ? request.ivarIgnoreStrandBias : nil,
             medakaModel: request.medakaModel,
+            platform: isLongReadCaller ? plan.platform?.rawValue : nil,
+            clair3ModelPath: request.caller == .clair3 ? plan.clair3ModelPath?.path : nil,
             advancedOptions: AdvancedCommandLineOptions.join(request.advancedArguments),
             advancedArguments: request.advancedArguments,
             extraArgs: AdvancedCommandLineOptions.join(request.advancedArguments),
@@ -1612,12 +1756,19 @@ public struct ViralVariantCallingPipeline: Sendable {
         case .ivar:
             return .ivar
         case .medaka:
-            return .medaka
+            return .medakaVariant
         case .bcftools:
             return .bcftools
         case .clair3:
             return .clair3
         }
+    }
+
+    /// The executable whose `--version` names the caller's release. The
+    /// `medaka_variant` wrapper has no version flag of its own; `medaka`
+    /// answers for it.
+    private func versionTool(for caller: ViralVariantCaller) -> NativeTool {
+        caller == .medaka ? .medaka : nativeTool(for: caller)
     }
 
     private func nativeCommand(for tool: NativeTool, arguments: [String]) async -> [String] {

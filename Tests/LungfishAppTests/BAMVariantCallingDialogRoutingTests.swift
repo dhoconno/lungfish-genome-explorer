@@ -124,9 +124,21 @@ final class BAMVariantCallingDialogRoutingTests: XCTestCase {
         state.selectCaller(.medaka)
         let medakaInspected = try BAMVariantCallingToolPanes(state: state).inspect()
         let modelField = try medakaInspected.find(ViewType.TextField.self, where: { tf in
-            (try? tf.labelView().text().string()) == "r1041_e82_400bps_sup_v5.0.0"
+            (try? tf.labelView().text().string()) == "r1041_e82_400bps_sup_variant_v5.0.0"
         })
         XCTAssertEqual(try modelField.help().string(), LungfishHelpContent.bamVariantOntModel.summary)
+
+        // Clair3 adds a Sequencing Platform picker and makes the model optional.
+        state.selectCaller(.clair3)
+        let clair3Inspected = try BAMVariantCallingToolPanes(state: state).inspect()
+        let platformPicker = try clair3Inspected.find(ViewType.Picker.self, where: { picker in
+            (try? picker.labelView().text().string()) == "Sequencing Platform"
+        })
+        XCTAssertEqual(try platformPicker.help().string(), LungfishHelpContent.bamVariantSequencingPlatform.summary)
+        let clair3ModelField = try clair3Inspected.find(ViewType.TextField.self, where: { tf in
+            (try? tf.labelView().text().string()) == "Platform default"
+        })
+        XCTAssertEqual(try clair3ModelField.help().string(), LungfishHelpContent.bamVariantOntModel.summary)
     }
 
     @MainActor
