@@ -490,16 +490,10 @@ public enum PrimerSchemeAdapterResultLoader {
                 "Adapter native events, invocations, or auxiliary-input inventory are invalid.")
         }
         let expectedPackage = try expectedCondaPackage(for: command.request.engine)
-        let expectedExecutable = Self.canonicalPath(command.executableURL)
-        let expectedPrefix = Self.canonicalPath(command.executableURL
-            .deletingLastPathComponent().deletingLastPathComponent())
-        guard !provenance.runtime.sourceVerification.isEmpty,
-              Self.canonicalPath(URL(fileURLWithPath: provenance.runtime.pythonExecutable))
-                == expectedExecutable,
-              Self.canonicalPath(URL(fileURLWithPath: provenance.runtime.environmentPrefix))
-                == expectedPrefix,
-              provenance.runtime.distribution == expectedPackage.distribution else {
-            throw PrimerSchemeDesignError.contractViolation("Adapter provenance lacks upstream source verification.")
+        if let violation = runtimeIdentityViolation(
+            runtime: provenance.runtime, engine: command.request.engine,
+            executableURL: command.executableURL, expectedDistribution: expectedPackage.distribution) {
+            throw PrimerSchemeDesignError.contractViolation(violation)
         }
         for source in provenance.runtime.sourceVerification {
             guard source.sha256 == source.expectedSHA256,
