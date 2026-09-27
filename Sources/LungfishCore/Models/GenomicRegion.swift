@@ -185,4 +185,27 @@ extension GenomicRegion {
         }
         return "\(chromosome):\(formatted(displayStart))-\(formatted(end))"
     }
+
+    /// The human-readable name of the coordinate convention `displayString` and
+    /// `plainDisplayString` use, for headers and provenance ("1-based").
+    public static let displayCoordinateSystem = "1-based"
+
+    /// The same 1-based closed `chrom:start-end` convention as `displayString`
+    /// but without thousands separators, for FASTA headers, bundle names and any
+    /// other machine-readable text where a comma would break parsing. A region
+    /// of one base is still written `chrom:pos-pos` here so the string always
+    /// has the two-number shape a parser expects.
+    public var plainDisplayString: String {
+        let displayStart = start + 1
+        if isEmpty {
+            return "\(chromosome):\(displayStart)"
+        }
+        return "\(chromosome):\(displayStart)-\(end)"
+    }
+
+    /// Builds the 1-based closed span text for a 0-based half-open range without
+    /// constructing a region first; see `plainDisplayString`.
+    public static func plainDisplayString(chromosome: String, start: Int, end: Int) -> String {
+        GenomicRegion(chromosome: chromosome, start: max(0, start), end: max(max(0, start), end)).plainDisplayString
+    }
 }

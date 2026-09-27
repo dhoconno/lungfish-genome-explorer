@@ -170,7 +170,7 @@ public final class SequenceExtractionBundleBuilder: @unchecked Sendable {
     }
 
     private func sourceInfo(for request: SequenceExtractionBundleBuildRequest) -> SourceInfo {
-        let coordinateLabel = "\(request.result.chromosome):\(request.result.effectiveStart)-\(request.result.effectiveEnd)"
+        let coordinateLabel = "\(request.result.headerRegion) (\(LungfishCore.ExtractionResult.headerCoordinateSystem))"
         let description: String
         if let sourceBundleName = request.sourceBundleName {
             description = "Extracted from \(sourceBundleName) at \(coordinateLabel)"

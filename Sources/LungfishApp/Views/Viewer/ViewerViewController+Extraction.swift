@@ -277,7 +277,8 @@ extension SequenceViewerView {
 
         switch source {
         case .region(let chrom, let start, let end):
-            sourceName = "\(chrom):\(start)-\(end)"
+            // 1-based inclusive, matching the ruler and the FASTA header the extractor writes.
+            sourceName = GenomicRegion.plainDisplayString(chromosome: chrom, start: start, end: end)
             sourceType = "Region"
             isDiscontiguous = false
             isCDS = false
