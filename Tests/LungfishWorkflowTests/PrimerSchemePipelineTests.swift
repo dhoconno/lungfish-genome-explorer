@@ -500,7 +500,9 @@ final class PrimerSchemePipelineTests: XCTestCase {
     }
 }
 
-private final class Fixture: @unchecked Sendable {
+private typealias Fixture = PrimerSchemePipelineFixture
+
+final class PrimerSchemePipelineFixture: @unchecked Sendable {
     enum Mutation { case none, invalidSpan, malformedMap, missingProbe, mismatchedIDs, duplicateNames, corruptedHash }
 
     let root: URL

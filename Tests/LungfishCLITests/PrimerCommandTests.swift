@@ -72,6 +72,30 @@ final class PrimerCommandTests: XCTestCase {
         ))
     }
 
+    func testSchemeFromAnalysisParsesOptionsAndRequiresOutputOrList() throws {
+        let command = try PrimerCommand.SchemeFromAnalysisSubcommand.parse([
+            "/tmp/design.lungfishprimeranalysis",
+            "--result-id", "8C12F5CA-D75B-4D17-B819-BD500321D521",
+            "--output", "MHC-scheme",
+            "--project", "/tmp/project.lungfish",
+            "--display-name", "MHC scheme",
+        ])
+        XCTAssertEqual(command.analysisPath, "/tmp/design.lungfishprimeranalysis")
+        XCTAssertEqual(command.resultID, "8C12F5CA-D75B-4D17-B819-BD500321D521")
+        XCTAssertEqual(command.outputPath, "MHC-scheme")
+        XCTAssertEqual(command.projectPath, "/tmp/project.lungfish")
+        XCTAssertEqual(command.displayName, "MHC scheme")
+        XCTAssertFalse(command.list)
+
+        XCTAssertNoThrow(try PrimerCommand.SchemeFromAnalysisSubcommand.parse(["/tmp/a.lungfishprimeranalysis", "--list"]))
+        XCTAssertThrowsError(try PrimerCommand.SchemeFromAnalysisSubcommand.parse(["/tmp/a.lungfishprimeranalysis"]))
+        XCTAssertThrowsError(try PrimerCommand.SchemeFromAnalysisSubcommand.parse([
+            "/tmp/a.lungfishprimeranalysis", "--output", "x", "--result-id", "not-a-uuid"]))
+        XCTAssertTrue(PrimerCommand.configuration.subcommands.contains {
+            $0.configuration.commandName == "scheme-from-analysis"
+        })
+    }
+
     private func writeSampleBED() throws -> URL {
         let url = tempDir.appendingPathComponent("primers.bed")
         let content = """
