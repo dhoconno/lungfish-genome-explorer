@@ -906,9 +906,14 @@ struct BundleValidateSubcommand: AsyncParsableCommand {
                     }
 
                     for variant in manifest.variants {
-                        let varPath = bundleURL.appendingPathComponent(variant.path)
-                        if !FileManager.default.fileExists(atPath: varPath.path) {
-                            errors.append("Variant file not found: \(variant.path)")
+                        // An imported VCF lives only in its SQLite database, so
+                        // that is the file that must exist. Older manifests
+                        // name a `.bcf` placeholder that was never written.
+                        for required in VCFBundleVariantImport.requiredFiles(for: variant) {
+                            let url = bundleURL.appendingPathComponent(required.relativePath)
+                            if !FileManager.default.fileExists(atPath: url.path) {
+                                errors.append("Variant file not found: \(required.relativePath)")
+                            }
                         }
                     }
 

@@ -93,9 +93,13 @@ public enum VCFBundleVariantImport {
 
     // MARK: - Manifest and metadata
 
-    /// `databasePath` is authoritative for VCF imports. The BCF fields are
-    /// legacy manifest compatibility sentinels and must not be interpreted as
-    /// generated BCF/CSI artifacts.
+    /// The imported variants live only in `variants/<track>.db`, so the
+    /// track's `path` names that database and it carries no index file.
+    /// Bundles written before this recorded a `variants/<track>.bcf` and
+    /// `.bcf.csi` placeholder pair that never existed on disk, which made
+    /// `bundle validate --check-integrity` fail on every imported VCF; those
+    /// manifests still load, and ``isDatabaseBackedTrack(_:)`` recognises
+    /// both spellings.
     public static func makeTrackInfo(
         trackID: String,
         vcfURL: URL,
@@ -106,13 +110,37 @@ public enum VCFBundleVariantImport {
             id: trackID,
             name: trackName ?? defaultTrackName(forVCFURL: vcfURL),
             description: "Imported from \(vcfURL.lastPathComponent)",
-            path: "variants/\(trackID).bcf",
-            indexPath: "variants/\(trackID).bcf.csi",
+            path: databaseRelativePath(trackID: trackID),
+            indexPath: "",
             databasePath: databaseRelativePath(trackID: trackID),
             variantType: .mixed,
             variantCount: variantCount,
             source: "VCF Import"
         )
+    }
+
+    /// True when the track's variants are served from its SQLite database:
+    /// every VCF import (CLI, Import Center, auto-ingest). For such a track
+    /// `path` is either the database itself or a legacy `.bcf` placeholder
+    /// that was never written, so readers must not require a variant file
+    /// beside the database.
+    public static func isDatabaseBackedTrack(_ track: VariantTrackInfo) -> Bool {
+        guard let databasePath = track.databasePath else { return false }
+        return !databasePath.isEmpty
+    }
+
+    /// The manifest fields that name a real file for `track`: the database
+    /// for a database-backed track (plus `path`/`indexPath` when they are
+    /// distinct files that exist), otherwise `path` and `indexPath`.
+    public static func requiredFiles(for track: VariantTrackInfo) -> [(field: String, relativePath: String)] {
+        var files: [(field: String, relativePath: String)] = []
+        if isDatabaseBackedTrack(track), let databasePath = track.databasePath {
+            files.append(("database_path", databasePath))
+            return files
+        }
+        if !track.path.isEmpty { files.append(("path", track.path)) }
+        if !track.indexPath.isEmpty { files.append(("index_path", track.indexPath)) }
+        return files
     }
 
     public static func finalizationMetadata(

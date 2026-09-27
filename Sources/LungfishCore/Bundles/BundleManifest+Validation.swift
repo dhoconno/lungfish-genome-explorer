@@ -94,7 +94,11 @@ extension BundleManifest {
 
         for track in variants {
             appendPathValidationError(path: track.path, field: "variants[\(track.id)].path", to: &errors)
-            appendPathValidationError(path: track.indexPath, field: "variants[\(track.id)].indexPath", to: &errors)
+            // A database-backed track (an imported VCF) has no index file and
+            // records an empty `index_path`; only a named index is checked.
+            if !track.indexPath.isEmpty {
+                appendPathValidationError(path: track.indexPath, field: "variants[\(track.id)].indexPath", to: &errors)
+            }
             if let databasePath = track.databasePath {
                 appendPathValidationError(path: databasePath, field: "variants[\(track.id)].databasePath", to: &errors)
             }
