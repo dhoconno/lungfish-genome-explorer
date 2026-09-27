@@ -63,7 +63,10 @@ final class ManualScreenshotProductFixTests: XCTestCase {
             let copy = try ProvenanceSection(viewModel: model).inspect()
                 .find(viewWithAccessibilityIdentifier: "provenance-copy-text")
             XCTAssertTrue(copy.isDisabled())
-            let deadline = Date().addingTimeInterval(10)
+            // The lookup runs a coverage audit plus a sidecar walk on a
+            // detached task; alone it takes a few seconds, under the parallel
+            // gate's load it has exceeded 10 s. Generous deadline, same checks.
+            let deadline = Date().addingTimeInterval(120)
             while model.isLoading && Date() < deadline {
                 try await Task.sleep(for: .milliseconds(5))
             }
