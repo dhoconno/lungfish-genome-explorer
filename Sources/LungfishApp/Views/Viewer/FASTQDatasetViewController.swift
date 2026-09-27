@@ -72,17 +72,11 @@ private func parseFASTQReadPreviewRecords(from fastqText: String) -> [FASTQReadP
         let sequence = String(sequenceLine)
         let length = sequence.count
 
-        // Compute mean Phred quality from ASCII quality string
-        let meanQ: Double
-        if qualityLine.isEmpty {
-            meanQ = 0
-        } else {
-            var totalQ = 0
-            for char in qualityLine.utf8 {
-                totalQ += Int(char) - 33
-            }
-            meanQ = Double(totalQ) / Double(qualityLine.count)
-        }
+        // Per-read Mean Q uses the same error-probability definition as the
+        // dataset Mean Q card and seqkit, not an arithmetic Phred average.
+        let meanQ = qualityLine.isEmpty
+            ? 0
+            : QualityScore.errorProbabilityMeanQuality(ofASCII: qualityLine, encoding: .phred33)
 
         records.append(FASTQReadPreviewRecord(
             index: recordIndex,

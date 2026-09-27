@@ -1066,7 +1066,7 @@ public struct DocumentSection: View {
 
                 Divider()
 
-                metadataRow(label: "Mean Quality", value: String(format: "%.1f", stats.meanQuality))
+                metadataRow(label: "Mean Q", value: String(format: "%.1f", stats.meanQuality))
                 metadataRow(label: "Q20 Bases", value: String(format: "%.1f%%", stats.q20Percentage))
                 metadataRow(label: "Q30 Bases", value: String(format: "%.1f%%", stats.q30Percentage))
                 metadataRow(label: "GC Content", value: String(format: "%.1f%%", stats.gcContent * 100))

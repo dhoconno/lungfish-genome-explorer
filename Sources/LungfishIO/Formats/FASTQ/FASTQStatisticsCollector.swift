@@ -68,7 +68,12 @@ public struct FASTQDatasetStatistics: Sendable, Codable, Equatable {
 
     // MARK: Quality
 
-    /// Mean quality score across all bases.
+    /// Mean quality across all bases, defined through error probabilities:
+    /// each Phred value is converted to `10^(-Q/10)`, those are averaged,
+    /// and the average is converted back to a Phred value. This is the
+    /// definition seqkit reports as `AvgQual`, so the value written at
+    /// import and the value written by Refresh QC Summary (`fastq
+    /// qc-summary`) agree. See `QualityScore.phredMean(errorProbabilitySum:baseCount:)`.
     public let meanQuality: Double
     /// Percentage of bases with quality >= 20.
     public let q20Percentage: Double
@@ -161,7 +166,9 @@ public final class FASTQStatisticsCollector {
     private var gcCount: Int64 = 0
     private var q20Count: Int64 = 0
     private var q30Count: Int64 = 0
-    private var qualitySum: Int64 = 0
+    /// Sum of per-base error probabilities (`10^(-Q/10)`), the accumulator
+    /// behind the error-probability mean quality.
+    private var errorProbabilitySum: Double = 0
     private var minReadLength: Int = Int.max
     private var maxReadLength: Int = 0
 
@@ -209,7 +216,7 @@ public final class FASTQStatisticsCollector {
         // Quality analysis
         for i in 0..<record.quality.count {
             let q = record.quality.qualityAt(i)
-            qualitySum += Int64(q)
+            errorProbabilitySum += QualityScore.errorProbability(forPhred: q)
             if q >= 20 { q20Count += 1 }
             if q >= 30 { q30Count += 1 }
 
@@ -237,7 +244,10 @@ public final class FASTQStatisticsCollector {
         guard readCount > 0 else { return .empty }
 
         let meanLength = Double(baseCount) / Double(readCount)
-        let meanQ = baseCount > 0 ? Double(qualitySum) / Double(baseCount) : 0
+        let meanQ = QualityScore.phredMean(
+            errorProbabilitySum: errorProbabilitySum,
+            baseCount: Int(baseCount)
+        )
         let q20Pct = baseCount > 0 ? Double(q20Count) / Double(baseCount) * 100 : 0
         let q30Pct = baseCount > 0 ? Double(q30Count) / Double(baseCount) * 100 : 0
         let gc = baseCount > 0 ? Double(gcCount) / Double(baseCount) : 0
