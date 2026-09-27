@@ -5,6 +5,32 @@ import LungfishWorkflow
 @testable import LungfishCLI
 
 final class PrimerDesignCommandTests: XCTestCase {
+    /// Primer3 considers no pair when the target cannot fit inside the maximum product, so
+    /// the command must fail up front rather than exit 0 with an empty result.
+    func testPrimer3RejectsTargetLongerThanTheMaximumProductSize() throws {
+        let command = try PrimerDesignCommand.Primer3Subcommand.parse([
+            "--fasta-record", "/tmp/mhc.fasta@0",
+            "--output", "/tmp/result.lungfishprimeranalysis",
+            "--assay", "qpcr-dye", "--target-start", "205", "--target-end", "474"])
+        let productMax = Primer3AssayDefaults.defaults(for: .qpcrDye).productSizeMax
+        XCTAssertGreaterThan(474 - 205 + 1, productMax)
+        do {
+            _ = try command.makeOptions()
+            XCTFail("Expected an over-long target to be rejected.")
+        } catch {
+            let message = "\(error)"
+            XCTAssertTrue(message.contains("270"), message)
+            XCTAssertTrue(message.contains("\(productMax)"), message)
+        }
+
+        let fits = try PrimerDesignCommand.Primer3Subcommand.parse([
+            "--fasta-record", "/tmp/mhc.fasta@0",
+            "--output", "/tmp/result.lungfishprimeranalysis",
+            "--assay", "qpcr-dye", "--target-start", "205",
+            "--target-end", String(205 + productMax - 1)])
+        XCTAssertNoThrow(try fits.makeOptions())
+    }
+
     func testPrimalSchemeParsesIndependentAmpliconSizeBounds() throws {
         let command = try PrimerDesignCommand.PrimalScheme3Subcommand.parse([
             "--msa", "/tmp/mhc.lungfishmsa", "--output", "/tmp/result.lungfishprimeranalysis",

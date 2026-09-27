@@ -103,7 +103,7 @@ struct PrimerDesignCommand: AsyncParsableCommand {
                 throw ValidationError("--assay must be pcr, qpcr-dye, or qpcr-probe.")
             }
             let defaults = Primer3AssayDefaults.defaults(for: mode)
-            return Primer3DesignOptions(
+            let options = Primer3DesignOptions(
                 assayMode: mode,
                 productSizeMin: productSizeMin ?? defaults.productSizeMin,
                 productSizeMax: productSizeMax ?? defaults.productSizeMax,
@@ -125,6 +125,8 @@ struct PrimerDesignCommand: AsyncParsableCommand {
                 primerMaxSelfEndTh: primerMaxSelfEndTh ?? defaults.primerMaxSelfEndTh,
                 pairMaxComplAnyTh: pairMaxComplAnyTh ?? defaults.pairMaxComplAnyTh,
                 pairMaxComplEndTh: pairMaxComplEndTh ?? defaults.pairMaxComplEndTh)
+            try Primer3DesignPipeline.validate(options)
+            return options
         }
 
         private static func explicitOptions(_ options: Primer3DesignOptions, selections: [Primer3TemplateSelection]) -> [String: ParameterValue] {

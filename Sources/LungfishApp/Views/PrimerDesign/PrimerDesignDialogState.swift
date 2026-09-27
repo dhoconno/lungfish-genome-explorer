@@ -729,6 +729,9 @@ final class PrimerDesignDialogState {
     let start = targetEnabled ? try positiveInteger(targetStart, "Target start") : nil
     let end = targetEnabled ? try positiveInteger(targetEnd, "Target end") : nil
     if let start, let end, start > end { throw invalid("Target start must not exceed target end.") }
+    if let start, let end, start <= end, end - start + 1 > productMax {
+      throw invalid("The target region is \(end - start + 1) bp but the maximum product size is \(productMax) bp. Every product must span the whole target, so widen the product size range or choose a shorter target.")
+    }
     let maxEndGC = try optionalNonnegativeInteger(primerMaxEndGC, "3′-end GC maximum")
     if let maxEndGC, maxEndGC > 5 { throw invalid("3′-end GC maximum counts the last five bases, so it must be 5 or fewer.") }
     return Primer3DesignOptions(

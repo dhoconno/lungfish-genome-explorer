@@ -4,6 +4,35 @@ import LungfishIO
 @testable import LungfishWorkflow
 
 final class PrimerSchemePipelineTests: XCTestCase {
+    /// A conda root reached through a symlink (the /tmp -> /private/tmp case that failed
+    /// real Olivar and varVAMP runs) must compare equal to the resolved path the adapter
+    /// reports, or provenance verification rejects a runtime that is in fact the same one.
+    func testAdapterProvenancePathsCompareThroughSymlinks() throws {
+        let manager = FileManager.default
+        let base = manager.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let real = base.appendingPathComponent("real-root", isDirectory: true)
+        let binary = real.appendingPathComponent("bin/python", isDirectory: false)
+        try manager.createDirectory(at: binary.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("#!/bin/sh\n".utf8).write(to: binary)
+        let link = base.appendingPathComponent("linked-root", isDirectory: true)
+        try manager.createSymbolicLink(at: link, withDestinationURL: real)
+        defer { try? manager.removeItem(at: base) }
+
+        let viaLink = link.appendingPathComponent("bin/python", isDirectory: false)
+        XCTAssertNotEqual(viaLink.path, binary.resolvingSymlinksInPath().path)
+        XCTAssertEqual(PrimerSchemeAdapterResultLoader.canonicalPath(viaLink),
+                       PrimerSchemeAdapterResultLoader.canonicalPath(binary))
+        XCTAssertEqual(
+            PrimerSchemeAdapterResultLoader.canonicalPath(viaLink.deletingLastPathComponent().deletingLastPathComponent()),
+            PrimerSchemeAdapterResultLoader.canonicalPath(real))
+        // A genuinely different runtime must still differ.
+        let other = base.appendingPathComponent("other-root/bin/python", isDirectory: false)
+        try manager.createDirectory(at: other.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("#!/bin/sh\n".utf8).write(to: other)
+        XCTAssertNotEqual(PrimerSchemeAdapterResultLoader.canonicalPath(other),
+                          PrimerSchemeAdapterResultLoader.canonicalPath(binary))
+    }
+
     func testAdapterDirectoryDigestUsesCanonicalPOSIXRelativeRecords() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }

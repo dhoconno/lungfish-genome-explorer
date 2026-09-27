@@ -62,6 +62,58 @@ final class PrimerSchemeCommandsTests: XCTestCase {
                        .init(minimum: 5, maximum: 14))
     }
 
+    func testVarVAMPQPCRDefaultsToNativeAmpliconBoundsWithoutRecordingThemAsRequested() throws {
+        let argv = ["--msa", "/tmp/a.lungfishmsa",
+                    "--output", "/tmp/result.lungfishprimeranalysis", "--mode", "qpcr",
+                    "--consensus-threshold", "0.92"]
+        let command = try VarVAMPDesignCommand.parse(argv)
+        let options = try command.makeOptions(argv: ["lungfish-cli", "primers", "design", "varvamp"] + argv)
+        XCTAssertEqual(options.mode, .qpcr)
+        XCTAssertEqual(options.minimumAmpliconLength, 70)
+        XCTAssertEqual(options.maximumAmpliconLength, 200)
+        XCTAssertEqual(options.nominalAmpliconLength, 135)
+        XCTAssertNil(options.requestedMinimumAmpliconLength)
+        XCTAssertNil(options.requestedMaximumAmpliconLength)
+        for name in ["nominalAmpliconLength", "minimumAmpliconLength", "maximumAmpliconLength",
+                     "requestedMinimumAmpliconLength", "requestedMaximumAmpliconLength"] {
+            XCTAssertFalse(options.suppliedOptionNames.contains(name), name)
+        }
+    }
+
+    func testVarVAMPTiledKeepsNominalRelativeBoundsAndQPCRHonoursExplicitOnes() throws {
+        let tiledArgv = ["--msa", "/tmp/a.lungfishmsa",
+                         "--output", "/tmp/result.lungfishprimeranalysis"]
+        let tiled = try VarVAMPDesignCommand.parse(tiledArgv).makeOptions(argv: tiledArgv)
+        XCTAssertEqual(tiled.mode, .tiled)
+        XCTAssertEqual(tiled.nominalAmpliconLength, 400)
+        XCTAssertEqual(tiled.minimumAmpliconLength, 360)
+        XCTAssertEqual(tiled.maximumAmpliconLength, 440)
+
+        // An explicit nominal keeps the 90%/110% derivation even in qPCR mode.
+        let nominalArgv = tiledArgv + ["--mode", "qpcr", "--consensus-threshold", "0.92",
+                                       "--amplicon-size", "120"]
+        let nominal = try VarVAMPDesignCommand.parse(nominalArgv).makeOptions(argv: nominalArgv)
+        XCTAssertEqual(nominal.nominalAmpliconLength, 120)
+        XCTAssertEqual(nominal.minimumAmpliconLength, 108)
+        XCTAssertEqual(nominal.maximumAmpliconLength, 132)
+        XCTAssertTrue(nominal.suppliedOptionNames.contains("nominalAmpliconLength"))
+
+        let explicitArgv = tiledArgv + ["--mode", "qpcr", "--consensus-threshold", "0.92",
+                                        "--amplicon-size-min", "90", "--amplicon-size-max", "180"]
+        let explicit = try VarVAMPDesignCommand.parse(explicitArgv).makeOptions(argv: explicitArgv)
+        XCTAssertEqual(explicit.minimumAmpliconLength, 90)
+        XCTAssertEqual(explicit.maximumAmpliconLength, 180)
+        XCTAssertEqual(explicit.requestedMinimumAmpliconLength, 90)
+        XCTAssertEqual(explicit.requestedMaximumAmpliconLength, 180)
+        XCTAssertTrue(explicit.suppliedOptionNames.contains("minimumAmpliconLength"))
+    }
+
+    func testVarVAMPHelpStatesTheNativeQPCRAmpliconDefaults() throws {
+        let help = VarVAMPDesignCommand.helpMessage()
+        XCTAssertTrue(help.contains("70"), help)
+        XCTAssertTrue(help.contains("200"), help)
+    }
+
     func testVarVAMPRejectsCombinedGroupingAndMissingQPCRThreshold() throws {
         let combined = try VarVAMPDesignCommand.parse([
             "--msa", "/tmp/a.fasta", "--output", "/tmp/out.lungfishprimeranalysis",

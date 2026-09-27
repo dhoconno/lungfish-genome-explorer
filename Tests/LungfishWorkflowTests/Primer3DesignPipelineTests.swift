@@ -149,6 +149,29 @@ final class Primer3DesignPipelineTests: XCTestCase {
         XCTAssertFalse(runRecorder.didRun)
     }
 
+    /// Every product must span the whole target, so a target longer than the maximum
+    /// product size makes Primer3 consider zero pairs while the run still exits cleanly.
+    /// Validation has to reject it up front and name both lengths.
+    func testValidationRejectsTargetLongerThanTheMaximumProductSize() throws {
+        let dye = Primer3AssayDefaults.defaults(for: .qpcrDye)
+        let tooLong = Primer3DesignOptions.preset(.qpcrDye, targetStart: 205, targetEnd: 474)
+        XCTAssertGreaterThan(474 - 205 + 1, dye.productSizeMax)
+        do {
+            try Primer3DesignPipeline.validate(tooLong)
+            XCTFail("Expected an over-long target to be rejected.")
+        } catch let error as Primer3DesignError {
+            let message = "\(error)"
+            XCTAssertTrue(message.contains("270"), message)
+            XCTAssertTrue(message.contains("\(dye.productSizeMax)"), message)
+        }
+
+        // A target exactly at the maximum product size still designs.
+        XCTAssertNoThrow(try Primer3DesignPipeline.validate(
+            Primer3DesignOptions.preset(.qpcrDye, targetStart: 1, targetEnd: dye.productSizeMax)))
+        XCTAssertNoThrow(try Primer3DesignPipeline.validate(
+            Primer3DesignOptions.preset(.pcr, targetStart: 205, targetEnd: 474)))
+    }
+
     func testParserRejectsMalformedCoordinateAndParsesRightOrientationAndInternalOligo() throws {
         let id = UUID()
         let raw = """

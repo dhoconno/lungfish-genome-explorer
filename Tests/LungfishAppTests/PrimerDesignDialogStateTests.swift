@@ -27,6 +27,26 @@ final class PrimerDesignDialogStateTests: XCTestCase {
     XCTAssertNil(state.validationMessage)
   }
 
+  /// A target longer than the maximum product size leaves Primer3 nothing to consider, so
+  /// the dialog must refuse it instead of producing an empty result that looks successful.
+  func testTargetLongerThanMaximumProductSizeIsRejected() throws {
+    let state = configuredState()
+    state.chemistry = .intercalatingDye
+    state.targetEnabled = true
+    state.targetStart = "205"
+    state.targetEnd = "474"
+    let productMax = try XCTUnwrap(Int(state.productSizeMax))
+    XCTAssertGreaterThan(474 - 205 + 1, productMax)
+    let message = try XCTUnwrap(state.validationMessage)
+    XCTAssertTrue(message.contains("270"), message)
+    XCTAssertTrue(message.contains("\(productMax)"), message)
+    XCTAssertThrowsError(try state.primer3Options())
+
+    state.targetEnd = String(205 + productMax - 1)
+    XCTAssertNil(state.validationMessage)
+    XCTAssertNoThrow(try state.primer3Options())
+  }
+
   func testInputIdentityUsesFullPathAndPreservesSelectionOrder() {
     let state = PrimerDesignDialogState()
     let first = URL(fileURLWithPath: "/a/mhc.fasta")

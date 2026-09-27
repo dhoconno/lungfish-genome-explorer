@@ -308,6 +308,13 @@ public struct PrimerSchemeVerifiedAdapterOutput: Sendable {
 }
 
 public enum PrimerSchemeAdapterResultLoader {
+    /// The adapter reports the paths Python resolved, so a conda root reached through a
+    /// symlink (`/tmp` -> `/private/tmp`, for instance) reads back differently from the
+    /// path LGE launched. Compare both sides fully resolved so only real mismatches fail.
+    static func canonicalPath(_ url: URL) -> String {
+        url.resolvingSymlinksInPath().standardizedFileURL.path
+    }
+
     public static func loadVerified(
         outputDirectory: URL, command: PrimerSchemeAdapterCommand,
         options: PrimerSchemeDesignOptions
@@ -443,10 +450,14 @@ public enum PrimerSchemeAdapterResultLoader {
                 "Adapter native events, invocations, or auxiliary-input inventory are invalid.")
         }
         let expectedPackage = try expectedCondaPackage(for: command.request.engine)
+        let expectedExecutable = Self.canonicalPath(command.executableURL)
+        let expectedPrefix = Self.canonicalPath(command.executableURL
+            .deletingLastPathComponent().deletingLastPathComponent())
         guard !provenance.runtime.sourceVerification.isEmpty,
-              provenance.runtime.pythonExecutable == command.executableURL.path,
-              provenance.runtime.environmentPrefix == command.executableURL
-                .deletingLastPathComponent().deletingLastPathComponent().path,
+              Self.canonicalPath(URL(fileURLWithPath: provenance.runtime.pythonExecutable))
+                == expectedExecutable,
+              Self.canonicalPath(URL(fileURLWithPath: provenance.runtime.environmentPrefix))
+                == expectedPrefix,
               provenance.runtime.distribution == expectedPackage.distribution else {
             throw PrimerSchemeDesignError.contractViolation("Adapter provenance lacks upstream source verification.")
         }
@@ -459,9 +470,9 @@ public enum PrimerSchemeAdapterResultLoader {
         }
         let record = provenance.runtime.condaPackageRecord
         let recordURL = URL(fileURLWithPath: record.path)
-        let metadataRoot = URL(fileURLWithPath: provenance.runtime.environmentPrefix)
-            .appendingPathComponent("conda-meta", isDirectory: true).standardizedFileURL.path + "/"
-        guard recordURL.standardizedFileURL.path.hasPrefix(metadataRoot),
+        let metadataRoot = Self.canonicalPath(URL(fileURLWithPath: provenance.runtime.environmentPrefix)
+            .appendingPathComponent("conda-meta", isDirectory: true)) + "/"
+        guard Self.canonicalPath(recordURL).hasPrefix(metadataRoot),
               try ProvenanceFileHasher.sha256(of: recordURL) == record.sha256,
               try ProvenanceFileHasher.fileSize(of: recordURL) == record.byteSize,
               record.name == command.request.engine.rawValue,

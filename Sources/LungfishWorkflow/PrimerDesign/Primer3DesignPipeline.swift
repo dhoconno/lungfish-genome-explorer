@@ -227,7 +227,7 @@ public struct Primer3DesignPipeline: Sendable {
         guard request.destinationURL.pathExtension.lowercased() == "lungfishprimeranalysis", !FileManager.default.fileExists(atPath: request.destinationURL.path) else { throw Primer3DesignError.invalidRequest("destination must be a new .lungfishprimeranalysis bundle") }
     }
 
-    static func validate(_ options: Primer3DesignOptions) throws {
+    public static func validate(_ options: Primer3DesignOptions) throws {
         guard options.productSizeMin > 0, options.productSizeMin <= options.productSizeMax,
               options.pairCount > 0, options.primerMinSize > 0,
               options.primerMinSize <= options.primerOptSize, options.primerOptSize <= options.primerMaxSize,
@@ -237,6 +237,16 @@ public struct Primer3DesignPipeline: Sendable {
               options.primerMinGC >= 0, options.primerMinGC <= options.primerMaxGC, options.primerMaxGC <= 100,
               (options.targetStart == nil) == (options.targetEnd == nil) else { throw Primer3DesignError.invalidRequest("option values are out of range or order") }
         if let start = options.targetStart, let end = options.targetEnd, !(start > 0 && start <= end) { throw Primer3DesignError.invalidRequest("target must be 1-based inclusive and ordered") }
+        // A product must span the whole target, so a target longer than the maximum product
+        // size leaves Primer3 nothing to consider and it would otherwise return no pairs
+        // while the run reports success.
+        if let start = options.targetStart, let end = options.targetEnd {
+            let targetLength = end - start + 1
+            guard targetLength <= options.productSizeMax else {
+                throw Primer3DesignError.invalidRequest(
+                    "target region is \(targetLength) bp but the maximum product size is \(options.productSizeMax) bp; widen the product size range or choose a shorter target")
+            }
+        }
         guard options.pairMaxTmDifference.map({ $0.isFinite && $0 >= 0 }) ?? true,
               options.primerMaxEndGC.map({ (0...5).contains($0) }) ?? true,
               options.primerGCClamp.map({ $0 >= 0 }) ?? true,
