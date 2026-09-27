@@ -38,4 +38,4 @@ RefSeq records and GIAB reference materials are U.S. government work in the publ
 
 ## Before you run anything
 
-Plugin packs and databases are installed on your Mac, not stored in a project, so this download carries none. The chimera check uses vsearch, which arrives with the Required Setup pack that LGE installs by itself.
+Plugin packs and databases are installed on your Mac, not stored in a project, so this download carries none. The chimera check uses vsearch, which arrives with the Required Setup pack. The Welcome window offers to install that pack the first time you open LGE.

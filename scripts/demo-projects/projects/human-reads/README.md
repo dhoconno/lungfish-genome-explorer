@@ -34,4 +34,4 @@ Sequencing Reads is a reading chapter, and the bundles here let you look at the 
 
 ## Before you run anything
 
-Plugin packs and databases are installed on your Mac, not stored in a project, so this download carries none. Every tool these chapters use arrives with the Required Setup pack, which LGE installs by itself, including the Deacon indexes for human and ribosomal RNA removal.
+Plugin packs and databases are installed on your Mac, not stored in a project, so this download carries none. Every tool these chapters use arrives with the Required Setup pack, including the Deacon indexes for human and ribosomal RNA removal. The Welcome window offers to install that pack the first time you open LGE, and nothing is installed until you click its **Install** button. You can also install it from **Tools > Plugin Manager...**.

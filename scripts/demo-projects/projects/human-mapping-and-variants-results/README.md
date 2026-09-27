@@ -1,6 +1,6 @@
 # Human Mapping and Variants (with results)
 
-This is a demo project for Lungfish Genome Explorer (LGE), version {{VERSION}}. It holds the same practice data as the Human Mapping and Variants project, and on top of it the work those chapters ask you to do, already done: the HG002 reads mapped to the chromosome 20 slice with minimap2, variants called on that alignment with bcftools and with LoFreq, and the GIAB benchmark calls imported beside them. Every result was made by `lungfish-cli`, the same program the window runs, with every setting left at its default, so each result carries the run record the window would have written.
+This is a demo project for Lungfish Genome Explorer (LGE), version {{VERSION}}. It holds the same practice data as the Human Mapping and Variants project, and on top of it the work those chapters ask you to do, already done. The HG002 reads are mapped to the chromosome 20 slice with minimap2, variants are called on that alignment with bcftools and with LoFreq, and the GIAB benchmark calls are imported beside them. Every result was made by `lungfish-cli`, the same program the window runs, with every setting left at its default, so each result carries the run record the window would have written.
 
 Open this project when a chapter reads a finished project rather than building one. The project chapter uses it to show a sidebar with something in every folder, the provenance chapter reads its run records, the provenance export chapter exports its mapping run, and the file-format appendix quotes the files inside it.
 
@@ -10,7 +10,7 @@ Open this project when a chapter reads a finished project rather than building o
 | --- | --- |
 | `Imports/HG002.chr20.10.0-10.5Mb.lungfishfastq` | HG002 Illumina 2x250 reads from a 500 kb slice of chromosome 20, one paired bundle of 91,148 reads (45,574 pairs) |
 | `Reference Sequences/GRCh38.chr20.10.0-10.5Mb.lungfishref` | The matching 500,001-base slice of GRCh38 chromosome 20 as a reference bundle, untouched by the mapping |
-| `Analyses/minimap2-2026-09-25T00-00-00/` | The mapping result: the sorted, indexed BAM the mapper wrote, its `mapping-result.json` and `mapping-provenance.json` sidecars, and the reference copy below |
+| `Analyses/minimap2-2026-09-25T00-00-00/` | The mapping result, holding the sorted, indexed BAM the mapper wrote, its `mapping-result.json` and `mapping-provenance.json` sidecars, and the reference copy below |
 | `Analyses/minimap2-2026-09-25T00-00-00/GRCh38.chr20.10.0-10.5Mb.lungfishref` | The copy of the reference LGE makes inside a mapping result, carrying the alignment track `HG002 minimap2` (its BAM sits under `alignments/mapped/`, named by a generated track id) and the three variant tracks under `variants/` |
 | Variant track `HG002 bcftools` | bcftools calls on that alignment, diploid, minimum allele frequency 0.05 and minimum depth 10, 1,040 rows |
 | Variant track `HG002 LoFreq` | LoFreq calls on the same alignment with the same thresholds, 862 rows |
@@ -43,4 +43,4 @@ None of these chapters runs an analysis on this project, so nothing here needs a
 
 ## Before you run anything
 
-Plugin packs and databases are installed on your Mac, not stored in a project, so this download carries none. Reading the results needs no pack. Calling more variants on the alignment needs the Variant Calling pack for LoFreq and iVar, and mapping again needs the Read Mapping pack. Install them from **Tools > Plugin Manager...** as the Plugin Packs chapter shows. bcftools and samtools arrive with the Required Setup pack, which LGE installs by itself.
+Plugin packs and databases are installed on your Mac, not stored in a project, so this download carries none. Reading the results needs no pack. Calling more variants on the alignment needs the Variant Calling pack for LoFreq and iVar, and mapping again needs the Read Mapping pack. Install them from **Tools > Plugin Manager...** as the Plugin Packs chapter shows. bcftools and samtools arrive with the Required Setup pack, which the Welcome window offers to install the first time you open LGE.

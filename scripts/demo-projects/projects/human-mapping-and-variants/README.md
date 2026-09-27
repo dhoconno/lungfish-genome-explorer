@@ -37,4 +37,4 @@ Most of these chapters start from the alignment that Mapping Reads to a Referenc
 
 ## Before you run anything
 
-Plugin packs and databases are installed on your Mac, not stored in a project, so this download carries none. Mapping needs the Read Mapping pack, and LoFreq and iVar need the Variant Calling pack. The GATK chapters need the experimental GATK Core pack. Install them from **Tools > Plugin Manager...** as the Plugin Packs chapter shows. bcftools and samtools arrive with the Required Setup pack, which LGE installs by itself.
+Plugin packs and databases are installed on your Mac, not stored in a project, so this download carries none. Mapping needs the Read Mapping pack, and LoFreq and iVar need the Variant Calling pack. The GATK chapters need the experimental GATK Core pack. Install them from **Tools > Plugin Manager...** as the Plugin Packs chapter shows. bcftools and samtools arrive with the Required Setup pack, which the Welcome window offers to install the first time you open LGE.
