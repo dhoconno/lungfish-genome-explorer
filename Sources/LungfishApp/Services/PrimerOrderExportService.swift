@@ -85,7 +85,7 @@ struct PrimerOrderExportService: Sendable {
             oligo.start >= 0, oligo.end > oligo.start, oligo.end <= review.referenceLength else {
             throw PrimerOrderExportError.invalid("A candidate oligo has no verified sequence or coordinates.")
           }
-          let stem = Self.orderNameStem(result.title)
+          let stem = Self.orderNameStem(result.title, recordID: result.sourceRecordID)
           oligos.append(.init(primerID: primer.id, targetID: review.id, sourceResultID: result.resultID.uuidString,
             schemeLabel: result.title, poolName: "Template_\(templateOrdinal)_Candidate_\(index + 1)", pool: nil,
             referenceID: result.sourceRecordID, name: "\(stem)_P\(index + 1)_\(tag)",
@@ -104,12 +104,52 @@ struct PrimerOrderExportService: Sendable {
     return oligos
   }
 
-  /// Vendor sheets need short, file-safe names. Template titles can be long FASTA headers.
-  static func orderNameStem(_ title: String) -> String {
+  /// Vendor sheets need short, file-safe names. Template titles can be long FASTA
+  /// headers, so the stem is built from the record's own identifier when there is
+  /// one and only falls back to the title.
+  ///
+  /// A hard character cut used to end names mid-field, turning
+  /// `LR699574.1_Mamu-A1_001_01_01_01_Macaca_mulatta_genomic_DNA` into
+  /// `LR699574.1_Mamu-A1_001_0`, which reads as a different allele. Names are now
+  /// shortened by dropping whole underscore-separated fields from the end, so a
+  /// stem never stops inside a field unless one field alone exceeds the limit.
+  static let orderNameStemLimit = 24
+
+  static func orderNameStem(_ title: String, recordID: String? = nil) -> String {
+    // A record ID is an accession like "LR699574.1"; an MSA row ID is an opaque
+    // "row-000001-032f0085da", which identifies nothing a person recognizes.
+    let candidate = [recordID, title].compactMap { value -> String? in
+      guard let value, !value.trimmingCharacters(in: .whitespaces).isEmpty,
+        !isOpaqueRowIdentifier(value) else { return nil }
+      return value
+    }.first ?? title
     let permitted = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-_."))
-    let cleaned = String(title.unicodeScalars.map { permitted.contains($0) ? Character($0) : "_" })
-    let stem = String(cleaned.prefix(24)).trimmingCharacters(in: CharacterSet(charactersIn: "_"))
-    return stem.isEmpty ? "Template" : stem
+    let cleaned = String(candidate.unicodeScalars.map { permitted.contains($0) ? Character($0) : "_" })
+      .trimmingCharacters(in: CharacterSet(charactersIn: "_"))
+    if cleaned.isEmpty { return "Template" }
+    if cleaned.count <= orderNameStemLimit { return cleaned }
+    // Keep whole fields, dropping trailing ones until the name fits. Fields are
+    // separated by "_" or "-", so a hyphenated accession is not cut either. The
+    // separators are retained exactly, so a shortened stem is still a prefix.
+    let separators: Set<Character> = ["_", "-"]
+    var boundaries = cleaned.indices.filter { separators.contains(cleaned[$0]) }
+    while let boundary = boundaries.popLast() {
+      let candidateStem = String(cleaned[cleaned.startIndex..<boundary])
+      if candidateStem.count <= orderNameStemLimit, !candidateStem.isEmpty {
+        return candidateStem
+      }
+    }
+    // One field alone exceeds the limit and a vendor sheet needs a bounded name.
+    return String(cleaned.prefix(orderNameStemLimit))
+  }
+
+  /// True for generated row identifiers like `row-000001-032f0085da`, which carry
+  /// no meaning for someone reading an order sheet.
+  private static func isOpaqueRowIdentifier(_ value: String) -> Bool {
+    let fields = value.split(separator: "-")
+    guard fields.count == 3, fields[0] == "row" else { return false }
+    return fields[1].allSatisfy(\.isNumber)
+      && fields[2].allSatisfy { $0.isHexDigit && !$0.isUppercase }
   }
 
   private static func prepareNormalized(

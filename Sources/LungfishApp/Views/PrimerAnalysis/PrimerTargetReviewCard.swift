@@ -22,24 +22,59 @@ struct PrimerTargetReviewCard: View {
     .accessibilityElement(children: .contain)
   }
 
+  /// qPCR shows how many alternative assays were reported; a tiled scheme shows the
+  /// share of the reference its one panel spans.
+  private var headline: String {
+    if let count = target.assayCountHeadline { return String(count) }
+    return target.coveragePercent.map { String(format: "%.1f%%", $0) } ?? "Unavailable"
+  }
+
   private var schemeContent: some View {
     VStack(alignment: .leading, spacing: 12) {
       HStack(alignment: .firstTextBaseline) {
         Text(target.label).font(.headline).textSelection(.enabled)
         Spacer(minLength: 12)
         VStack(alignment: .trailing, spacing: 3) {
-          Text(target.coveragePercent.map { String(format: "%.1f%%", $0) } ?? "Unavailable")
+          Text(headline)
             .font(.title2.weight(.semibold)).monospacedDigit()
           Text(target.coverageLabel).font(.caption).foregroundStyle(.secondary)
-            .help(target.notes.joined(separator: "\n"))
         }
-      }
-      if let covered = target.coveredBases {
+}
+      if target.assayCountHeadline != nil {
+        // Saying how much of the reference is "uncovered" would imply the
+        // alternatives were meant to tile it together.
+        Text("\(target.referenceLength.formatted()) bp reference · spans of individual assays overlap and are not additive")
+          .font(.caption).foregroundStyle(.secondary)
+      } else if let covered = target.coveredBases {
         Text("\(covered.formatted()) of \(target.referenceLength.formatted()) bp · \((target.referenceLength - covered).formatted()) bp outside saved amplicon spans")
           .font(.caption).foregroundStyle(.secondary)
       } else {
         Text("\(target.referenceLength.formatted()) bp reference · amplicon spans are not available in this saved result")
           .font(.caption).foregroundStyle(.secondary)
+      }
+      // Coverage is positional, not a measure of whether an assay works. That
+      // qualification used to be reachable only by hovering the small label, so a
+      // reader could take the figure at face value. The first note is always
+      // visible and the rest expand in place.
+      if !target.notes.isEmpty {
+        VStack(alignment: .leading, spacing: 4) {
+          Text(target.notes[0])
+            .fixedSize(horizontal: false, vertical: true)
+          if target.notes.count > 1 {
+            DisclosureGroup("What this coverage figure does and does not mean") {
+              VStack(alignment: .leading, spacing: 4) {
+                ForEach(Array(target.notes.dropFirst().enumerated()), id: \.offset) { _, note in
+                  Text("• " + note).fixedSize(horizontal: false, vertical: true)
+                }
+              }
+              .padding(.top, 4)
+              .frame(maxWidth: .infinity, alignment: .leading)
+            }
+          }
+        }
+        .font(.caption)
+        .foregroundStyle(.secondary)
+        .accessibilityIdentifier("primerTargetReview.coverageNotes")
       }
       if !target.advisories.isEmpty {
         VStack(alignment: .leading, spacing: 6) {

@@ -71,8 +71,11 @@ final class Primer3OrderAndBindingTests: XCTestCase {
     XCTAssertEqual(draft.oligos.count, 3)
     XCTAssertEqual(draft.oligos.map(\.oligoRole), [.forward, .probe, .reverse])
     XCTAssertEqual(Set(draft.oligos.map(\.poolName)), ["Template_1_Candidate_1"])
-    XCTAssertEqual(draft.oligos.map(\.name), ["Synthetic_display_fixtur_P1_LEFT",
-      "Synthetic_display_fixtur_P1_PROBE", "Synthetic_display_fixtur_P1_RIGHT"])
+    // Names come from the record ID and keep whole fields. "synthetic-display-fixture"
+    // is one character over the limit, so the last whole field is dropped rather than
+    // cut: the old behaviour produced "Synthetic_display_fixtur", stopping mid-field.
+    XCTAssertEqual(draft.oligos.map(\.name), ["synthetic-display_P1_LEFT",
+      "synthetic-display_P1_PROBE", "synthetic-display_P1_RIGHT"])
     XCTAssertTrue(draft.oligos.allSatisfy { $0.pool == nil && $0.nativePool == nil && $0.sourceOligoID != nil })
     XCTAssertTrue(draft.defaultName.hasSuffix(" candidate pairs order"))
 

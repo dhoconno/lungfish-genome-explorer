@@ -81,21 +81,33 @@ enum PrimerSchemeViewerAdapter {
             sequence: oligo.sequence,
             ampliconIDs: oligo.assayIDs.map { $0.uuidString.lowercased() })
         }
+        // A tiled scheme is one panel, so spanned reference is meaningful. qPCR
+        // reports independent alternatives, where a span union says nothing about
+        // any one assay, so the headline is the number of assays instead.
+        let isQPCR = document.mode == .qpcr
+        let assayCount = target.assays.count
         reviews.append(.init(id: target.id.uuidString.lowercased(), label: target.label,
           referenceLength: target.referenceLength,
           coverageLabel: document.mode == .tiled
             ? "Generated reference spanned by tiled assays"
-            : "Descriptive union of reported assay spans",
-          coveredBases: PrimerDesignReview.coveredBases(reviewIntervals), intervals: reviewIntervals,
+            : isQPCR
+              ? (assayCount == 1 ? "reported qPCR assay" : "reported qPCR assays, each an independent alternative")
+              : "Descriptive union of reported assay spans",
+          coveredBases: PrimerDesignReview.coveredBases(reviewIntervals),
+          assayCountHeadline: isQPCR ? assayCount : nil,
+          intervals: reviewIntervals,
           primers: reviewPrimers,
           notes: [
+            isQPCR
+              ? "Each reported assay is a separate candidate. Choose one; they are not a panel and are not ranked by reference coverage."
+              : nil,
             "Coordinates are zero-based half-open on the saved generated reference; displayed spans include primer sites.",
             "Candidate status, oligo role and native pool identity come from the validated normalized result.",
             document.mode == .tiled
               ? "Overlapping tiled assay spans count once."
               : "Reported alternatives are separate candidates; their displayed span union is not one compatible panel.",
             "Unpooled assays remain unpooled. Display grouping does not create scientific pool membership.",
-          ], advisories: document.varVAMPCoverageAdvisories(for: target),
+          ].compactMap { $0 }, advisories: document.varVAMPCoverageAdvisories(for: target),
           sourceResultID: resultID, referenceID: target.referenceID))
       }
       let engine = document.engine == .olivar ? "Olivar" : "varVAMP"

@@ -349,17 +349,24 @@ final class PrimerDesignDialogState {
     isInspecting = false
   }
 
+  /// The name the input list shows, without the bundle extension, so the status
+  /// line and the list name the same input the same way.
+  nonisolated static func inputDisplayName(_ url: URL) -> String {
+    url.deletingPathExtension().lastPathComponent
+  }
+
   var inputReadinessMessage: String? {
     if isInspecting { return "Reading input records…" }
     for url in inputURLs {
-      if let error = inputErrors[url] { return "\(url.lastPathComponent): \(error)" }
+      let name = Self.inputDisplayName(url)
+      if let error = inputErrors[url] { return "\(name): \(error)" }
       guard let summary = inputSummaries[url] else { return "Reading input records…" }
       if engine == .primer3 {
         if summary.isAlignment, templateRowIndices[url] == nil {
-          return "Choose a template row for \(url.lastPathComponent)."
+          return "Choose a template row for \(name)."
         }
         if !summary.isAlignment, selectedRecordIndices[url, default: []].isEmpty {
-          return "Select at least one record in \(url.lastPathComponent)."
+          return "Select at least one record in \(name)."
         }
       }
     }

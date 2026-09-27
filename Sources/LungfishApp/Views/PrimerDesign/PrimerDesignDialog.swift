@@ -76,12 +76,13 @@ struct PrimerDesignDialog: View {
           HStack(alignment: .top, spacing: 10) {
           Image(systemName: "doc.text").foregroundStyle(.secondary)
           VStack(alignment: .leading, spacing: 3) {
-            Text(url.deletingPathExtension().lastPathComponent).font(.body.weight(.medium))
+            Text(PrimerDesignDialogState.inputDisplayName(url)).font(.body.weight(.medium))
             Text(url.path).font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
           }
           Spacer()
           Button { state.removeInput(url) } label: { Image(systemName: "minus.circle") }
-            .buttonStyle(.borderless).accessibilityLabel("Remove \(url.lastPathComponent)")
+            .buttonStyle(.borderless)
+            .accessibilityLabel("Remove \(PrimerDesignDialogState.inputDisplayName(url))")
           }
           if let error = state.inputErrors[url] {
             Text(error).font(.caption).foregroundStyle(Color.lungfishDangerFallback)

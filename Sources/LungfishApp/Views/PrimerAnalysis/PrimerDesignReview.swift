@@ -43,7 +43,15 @@ struct PrimerTargetDesignReview: Identifiable, Sendable {
   let referenceLength: Int
   let coverageLabel: String
   let coveredBases: Int?
-  var coveragePercent: Double? { coveredBases.map { Double($0) * 100 / Double(referenceLength) } }
+  /// qPCR reports independent alternative assays, so a spanned-bases percentage
+  /// would read as a quality score for candidates the user chooses among. When
+  /// this is set the card shows the assay count instead of a percentage.
+  var assayCountHeadline: Int?
+  var coveragePercent: Double? {
+    // A count headline replaces the percentage rather than sitting beside it.
+    guard assayCountHeadline == nil else { return nil }
+    return coveredBases.map { Double($0) * 100 / Double(referenceLength) }
+  }
   let intervals: [PrimerReviewInterval]
   let primers: [PrimerReviewPrimer]
   let notes: [String]

@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import LungfishIO
 import LungfishKit
 import LungfishWorkflow
 
@@ -145,34 +146,52 @@ struct Primer3ResultsView: View {
     }.frame(maxWidth: .infinity, alignment: .leading)
   }
 
+  /// A saved analysis lives in `<project>/Analyses/<name>.lungfishprimeranalysis`,
+  /// so the project is the bundle's grandparent. Every other primer output is
+  /// written inside the originating project, and an annotated reference is no
+  /// different, so the destination is resolved there instead of being chosen
+  /// anywhere on disk.
+  private var originatingProjectURL: URL? {
+    let analyses = bundleURL.deletingLastPathComponent()
+    guard analyses.lastPathComponent == AnalysesFolder.directoryName else { return nil }
+    let project = analyses.deletingLastPathComponent()
+    return project.path == "/" ? nil : project
+  }
+
   private func createReference(for result: Primer3TemplateResult) {
-    let panel = NSOpenPanel()
-    panel.title = "Choose a folder for the annotated reference"
-    panel.canChooseFiles = false
-    panel.canChooseDirectories = true
-    panel.canCreateDirectories = true
-    panel.allowsMultipleSelection = false
-    panel.directoryURL = bundleURL.deletingLastPathComponent()
-    // runModal() blocks the whole app on its own nested run loop instead of
-    // yielding control back to AppKit; begin(completionHandler:) presents
-    // the same non-sheet panel without blocking. See macOS API rules /
-    // AppKitConcurrencyModalSafetyTests.
-    panel.begin { response in
-      guard response == .OK, let directory = panel.url else { return }
-      isCreatingReference = true
-      referenceMessage = "Creating annotated reference…"
-      createdReferenceURL = nil
-      Task {
-        do {
-          let url = try await PrimerAnalysisAnnotatedReferenceService().createReference(
-            analysisURL: bundleURL, resultID: result.resultID,
-            outputDirectory: directory, invocationArgv: CommandLine.arguments)
-          createdReferenceURL = url
-          referenceMessage = "Saved \(url.lastPathComponent)."
-        } catch { referenceMessage = error.localizedDescription }
-        isCreatingReference = false
-      }
+    guard let projectURL = originatingProjectURL else {
+      referenceMessage = "This analysis is not inside a project's Analyses folder, so LGE cannot choose a destination for the reference."
+      return
     }
+    isCreatingReference = true
+    referenceMessage = "Creating annotated reference…"
+    createdReferenceURL = nil
+    Task {
+      do {
+        let analyses = projectURL.appendingPathComponent(
+          AnalysesFolder.directoryName, isDirectory: true)
+        let url = try await PrimerAnalysisAnnotatedReferenceService().createReference(
+          analysisURL: bundleURL, resultID: result.resultID,
+          outputDirectory: analyses, invocationArgv: CommandLine.arguments)
+        // The service resolves symlinks before writing, so confirm the result
+        // really landed inside this project rather than trusting the request.
+        guard Self.isContained(url, in: projectURL) else {
+          throw PrimerAnalysisAnnotatedReferenceError.unavailable(
+            "The annotated reference would have been written outside this project.")
+        }
+        createdReferenceURL = url
+        referenceMessage = "Saved \(url.lastPathComponent) in this project's \(AnalysesFolder.directoryName) folder."
+      } catch { referenceMessage = error.localizedDescription }
+      isCreatingReference = false
+    }
+  }
+
+  /// Containment is judged on resolved paths so a symlinked Analyses folder cannot
+  /// place project output somewhere else.
+  static func isContained(_ candidate: URL, in project: URL) -> Bool {
+    let child = candidate.resolvingSymlinksInPath().standardizedFileURL.path
+    let root = project.resolvingSymlinksInPath().standardizedFileURL.path
+    return child == root || child.hasPrefix(root + "/")
   }
 
   private func oligoRow(_ title: String, _ oligo: Primer3Oligo, color: Color, pair: Primer3Pair) -> some View {
