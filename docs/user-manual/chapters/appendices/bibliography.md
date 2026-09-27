@@ -380,6 +380,35 @@ DeepVariant  Poplin R, Chang PC, Alexander D, et al. A universal SNP and small-i
 ARTIC        ARTIC Network. fieldbioinformatics v1.5.1 release notes. 2024.
 ```
 
+## Primer design background
+
+The primer design chapters explain how PCR, primers, and qPCR work, and they rest those explanations on a
+few papers and guidelines. LGE runs none of them, so they never appear in a provenance record. Cite them
+when your methods section makes the same argument, and cite MIQE or digital MIQE whenever you publish a
+qPCR or dPCR assay.
+
+| Work | Cited for | DOI |
+|---|---|---|
+| Saiki and colleagues 1988 | PCR with a heat-stable polymerase | 10.1126/science.2448875 |
+| SantaLucia 1998 | Nearest-neighbour melting temperature parameters | 10.1073/pnas.95.4.1460 |
+| Kwok and colleagues 1990 | How primer mismatches at the 3′ end and inside a primer affect yield | 10.1093/nar/18.4.999 |
+| Holland and colleagues 1991 | Hydrolysis probe detection by the polymerase's 5′ nuclease | 10.1073/pnas.88.16.7276 |
+| Bustin and colleagues 2009 (MIQE) | What a qPCR report must include | 10.1373/clinchem.2008.112797 |
+| Huggett and colleagues 2013 (digital MIQE) | What a dPCR report must include | 10.1373/clinchem.2013.206375 |
+| Thornton and Basu 2011 | qPCR primer rules for intercalating-dye assays | 10.1002/bmb.20461 |
+| Maccari and colleagues 2017 (IPD-MHC 2.0) | Non-human MHC allele names, including the Mamu-A1 example | 10.1093/nar/gkw1050 |
+
+```
+Saiki      Saiki RK, Gelfand DH, Stoffel S, et al. Primer-directed enzymatic amplification of DNA with a thermostable DNA polymerase. Science. 1988.
+SantaLucia SantaLucia J. A unified view of polymer, dumbbell, and oligonucleotide DNA nearest-neighbor thermodynamics. Proceedings of the National Academy of Sciences USA. 1998.
+Kwok       Kwok S, Kellogg DE, McKinney N, et al. Effects of primer-template mismatches on the polymerase chain reaction: human immunodeficiency virus type 1 model studies. Nucleic Acids Research. 1990.
+Holland    Holland PM, Abramson RD, Watson R, Gelfand DH. Detection of specific polymerase chain reaction product by utilizing the 5'-3' exonuclease activity of Thermus aquaticus DNA polymerase. Proceedings of the National Academy of Sciences USA. 1991.
+MIQE       Bustin SA, Benes V, Garson JA, et al. The MIQE guidelines: minimum information for publication of quantitative real-time PCR experiments. Clinical Chemistry. 2009.
+dMIQE      Huggett JF, Foy CA, Benes V, et al. The digital MIQE guidelines: Minimum Information for Publication of Quantitative Digital PCR Experiments. Clinical Chemistry. 2013.
+Thornton   Thornton B, Basu C. Real-time PCR (qPCR) primer design using free online software. Biochemistry and Molecular Biology Education. 2011.
+IPD-MHC    Maccari G, Robinson J, Ballingall K, et al. IPD-MHC 2.0: an improved inter-species database for the study of the major histocompatibility complex. Nucleic Acids Research. 2017.
+```
+
 ## Reference databases
 
 A classification result depends on the database as much as on the classifier, so name the database and its version beside the tool. [Reference databases](tool-versions.md#reference-databases) lists the version of every database this release pins. The NCBI Taxonomy is not pinned at all, so record the date you ran the classification, which your provenance record also holds.
