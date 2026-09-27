@@ -27,7 +27,7 @@ The argument lists are shown in grey blocks with file paths shortened, because t
 
 ## Before you type anything
 
-This section is optional, and nothing later in this manual needs it. The `lungfish-cli` program ships inside LGE, and [Finding the program](cli-reference.md#finding-the-program) shows how to run it.
+The commands in the grey blocks below are for reading, not typing. The few you might type, in the later sections, run the `lungfish-cli` program that ships inside LGE, and [Finding the program](cli-reference.md#finding-the-program) shows how to run it.
 
 ## Reproducibility caveats at a glance
 
@@ -195,7 +195,7 @@ Two are LGE's own choices. On Apple Silicon Macs, where LGE also caps MEGAHIT's 
 
 ### Two settings are ignored on some assemblers
 
-The minimum contig length reaches MEGAHIT and SKESA and never reaches SPAdes, Flye, or hifiasm. The memory limit reaches SPAdes, MEGAHIT, and SKESA and never reaches Flye or hifiasm. [Running SPAdes](../07-assembly/02-running-spades.md) and [Running Flye or hifiasm](../07-assembly/03-running-flye-or-hifiasm.md) say where each lands.
+The minimum contig length reaches MEGAHIT and SKESA and never reaches SPAdes, Flye, or hifiasm. The memory limit reaches SPAdes, MEGAHIT, and SKESA and never reaches Flye or hifiasm. [Short-Read Assembly (SPAdes, MEGAHIT, SKESA)](../07-assembly/02-running-spades.md) and [Long-Read Assembly (Flye, hifiasm)](../07-assembly/03-running-flye-or-hifiasm.md) say where each lands.
 
 ## GATK
 
@@ -207,9 +207,9 @@ gatk HaplotypeCaller -R reference.fasta -I input.bam -O output.g.vcf.gz \
     --native-pair-hmm-threads 4 -ERC GVCF
 ```
 
-`--sample-ploidy` is the number of copies of each chromosome, 2 for a human. `--max-alternate-alleles` caps how many different alternate bases GATK weighs at one position. `--pcr-indel-model` sets how much insertion and deletion noise to expect from the library's PCR step. All three default to GATK's own defaults. `--native-pair-hmm-threads` is 4 unless `gatk haplotype-caller --pair-hmm-threads` sets another value. `-ERC GVCF` asks for a [GVCF](../../GLOSSARY.md#gvcf), a VCF with a record for every position that lets several samples be genotyped together later, and is the default of `lungfish-cli gatk haplotype-caller`. The window's HaplotypeCaller runs without it, writing an ordinary VCF, and adds `--standard-min-confidence-threshold-for-calling 30` instead.
+`--sample-ploidy` is the number of copies of each chromosome, 2 for a human. `--max-alternate-alleles` caps how many different alternate bases GATK weighs at one position. `--pcr-indel-model` sets how much insertion and deletion noise to expect from the library's PCR step. All three default to GATK's own defaults. `--native-pair-hmm-threads` is 4 unless `gatk haplotype-caller --pair-hmm-threads` sets another value. `-ERC GVCF` asks for a [GVCF](../../GLOSSARY.md#gvcf), a VCF with a record for every position that lets several samples be genotyped together later, and is the default of `lungfish-cli gatk haplotype-caller`. GATK HaplotypeCaller in the Call Variants dialog, the window route [HaplotypeCaller](../06-human-germline-variants/01-haplotype-caller.md) works through, runs without it, writing an ordinary VCF, and adds `--standard-min-confidence-threshold-for-calling 30` instead.
 
-A GATK track is stored at `variants/gatk/<track-id>.vcf.gz` inside the [bundle](../../GLOSSARY.md#bundle), with a SQLite database beside it, where every other caller writes to `variants/<name>.vcf.gz`.
+A GATK track is stored at `variants/gatk/<track-id>.vcf.gz` inside the [bundle](../../GLOSSARY.md#bundle), with a SQLite database beside it. Every other caller writes to `variants/<track-id>.vcf.gz`. In both, `<track-id>` is a generated track id such as `vc-` followed by a long random string, not the track's display name.
 
 ## Reaching a flag LGE does not wrap
 
@@ -231,13 +231,13 @@ Only what is listed here was measured, during the manual's 2026-09 checks.
 
 - The MHC genotyping route gave the same 104 allele rows for sample `WD1_S148_L001` in a whole-plate run and in a rerun of three of its samples. The agreement matters, not the number.
 - Two exports of the same [pivot workbook](../../GLOSSARY.md#pivot-workbook) differ only in `docProps/core.xml`, a timestamp inside the file, so compare the sheets rather than the files.
-- MEGAHIT fails most runs on Apple Silicon, three of four in one test. A failure is never silent, since it exits nonzero and writes no [contigs](../../GLOSSARY.md#contig), so a run that does finish can be trusted. SPAdes is the alternative for short reads.
-- Flye sometimes, and hifiasm consistently, doubles the circular mitochondrial genome, so the contig holds the genome twice. Compare a contig's length with the known genome length.
+- MEGAHIT often fails on Apple Silicon, always with a nonzero exit and no [contigs](../../GLOSSARY.md#contig), so a run that does finish can be trusted. The defect registry in [Known defects in this release](troubleshooting.md#known-defects-in-this-release) gives the details, and SPAdes is the alternative for short reads.
+- A long-read assembler can report a circular genome, such as the mitochondrion, as a contig about twice its true length. Compare a contig's length with the known genome length, as [When to Assemble](../07-assembly/01-when-to-assemble.md#circular-genomes-trimmed-overlapped-or-walked-twice) explains.
 - Tools that run on several [threads](../../GLOSSARY.md#thread) can give slightly different output at different thread counts, so fix `--threads` to one number for every run you compare.
 
 ### Cross-architecture and cross-version drift
 
-Some tools use processor-specific instructions, so files can differ byte for byte between an Intel Mac and an Apple Silicon Mac while agreeing scientifically. A byte comparison is the wrong check across processors, and the sidecar's `runtimeIdentity.architecture` field shows when two runs came from different ones.
+Some tools use processor-specific instructions, so files can differ byte for byte between two kinds of processor while agreeing scientifically, for example between an Apple Silicon Mac and another machine rerunning a workflow exported from LGE. A byte comparison is the wrong check across processors, and the sidecar's `runtimeIdentity.architecture` field shows when two runs came from different ones.
 
 A minor release of a wrapped tool can change how reads are trimmed or placed without announcing it. Each step's `toolVersion` in the sidecar is how a rerunner catches that. This release pins every tool under one dependency set, listed in [Tool Versions](tool-versions.md), and a sidecar recording other versions came from a different installation.
 
@@ -245,7 +245,7 @@ A minor release of a wrapped tool can change how reads are trimmed or placed wit
 
 Reproducing a run months later means installing the same tools at the same versions. A [plugin pack](../../GLOSSARY.md#plugin-pack) pins its tools, but not every package those tools depend on, so reinstalling the same pack later can resolve slightly different underlying packages as the [conda](../../GLOSSARY.md#conda) channels move.
 
-`lungfish-cli conda offline-export --pack <id> --output <folder>` copies the installed environments into a folder with a checksum for every file, and `lungfish-cli conda offline-install <pack-folder>` installs them elsewhere with no network. That pair is the route that reproduces an environment today, and [Running in CI](06-running-in-ci.md#offline-packs) uses it.
+An offline pack copies a pack's installed environments, with a checksum for every file, and installs them on another Mac with no network. It reproduces an environment exactly, where a fresh install may not. [Install a pack without internet access](../01-foundations/07-plugin-packs.md#install-a-pack-without-internet-access) shows the commands, and [Running in CI](06-running-in-ci.md#offline-packs) uses them on a build machine.
 
 `lungfish-cli conda lock --pack <name> --output <file>` writes the requested environment specification, meaning what was asked for, not what was installed, so it does not guarantee an identical rebuild. Its companion `conda install --from-lockfile` refuses by design, as its own help says, because exact reconstruction is not supported.
 
@@ -267,4 +267,4 @@ Folders that were filled before this sharing existed still hold two full copies.
 
 ## Next
 
-See [CLI Reference](cli-reference.md) for every flag of the commands named here, [Provenance and Reproducibility](../01-foundations/08-provenance-and-reproducibility.md) for reading a run record, and [Running in CI](06-running-in-ci.md) for repeating runs on a fresh machine.
+The next appendix is [Shared Projects and Bundle Migration](shared-projects.md), for a project that two people or two Macs work on. See [CLI Reference](cli-reference.md) for every flag of the commands named here, [Provenance and Reproducibility](../01-foundations/08-provenance-and-reproducibility.md) for reading a run record, and [Running in CI](06-running-in-ci.md) for repeating runs on a fresh machine.
