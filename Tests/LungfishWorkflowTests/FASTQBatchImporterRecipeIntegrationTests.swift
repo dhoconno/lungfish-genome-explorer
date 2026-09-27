@@ -389,6 +389,90 @@ final class FASTQBatchImporterRecipeIntegrationTests: XCTestCase {
         XCTAssertEqual(startedSteps.map(\.1), [6, 6, 6, 6, 6, 6])
     }
 
+    /// The sarscov2 fixture through the VSP2 recipe with storage
+    /// optimization on. Before 2026-09-27 the bundle held 72 merged reads,
+    /// then every unmerged R1, then every unmerged R2: 19 fragments had both
+    /// mates but only 1 was adjacent, 6 reads were orphans, and the sidecar
+    /// still said "interleaved". Now every surviving pair is adjacent, no
+    /// orphan survives the length filter, clumpify keeps every record, and
+    /// the sidecar records the merged and paired counts.
+    func testRunBatchImportVSP2KeepsUnmergedMatesAdjacentThroughClumpify() async throws {
+        try await requireManagedTools([.fastp, .seqkit, .deacon, .clumpify, .pigz])
+        guard await DatabaseRegistry.shared.effectiveDatabasePath(for: "deacon-panhuman") != nil else {
+            try ToolAvailability.skipOrFail("Deacon human-read removal index (deacon-panhuman) not installed")
+        }
+        let recipe = try XCTUnwrap(
+            RecipeRegistryV2.builtinRecipes().first { $0.id == "vsp2-target-enrichment" }
+        )
+        let fixtures = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Fixtures/sarscov2")
+        let pair = SamplePair(
+            sampleName: "test",
+            r1: fixtures.appendingPathComponent("test_1.fastq.gz"),
+            r2: fixtures.appendingPathComponent("test_2.fastq.gz")
+        )
+        guard FileManager.default.fileExists(atPath: pair.r1.path) else {
+            throw XCTSkip("sarscov2 fixture not found")
+        }
+
+        let config = FASTQBatchImporter.ImportConfig(
+            projectDirectory: tempDir.appendingPathComponent("VSP2Mates.lungfish"),
+            newRecipe: recipe,
+            qualityBinning: QualityBinningScheme.none,
+            optimizeStorage: true,
+            clumpingTool: .bbtools,
+            threads: 2,
+            pairing: .paired
+        )
+        let result = await FASTQBatchImporter.runBatchImport(pairs: [pair], config: config, log: nil)
+        XCTAssertEqual(result.completed, 1, "VSP2 import should succeed. Errors: \(result.errors)")
+
+        let bundleURL = config.projectDirectory
+            .appendingPathComponent("Imports")
+            .appendingPathComponent("test.lungfishfastq")
+        let fastqURL = bundleURL.appendingPathComponent("test.fastq.gz")
+        let metadata = try XCTUnwrap(FASTQMetadataStore.load(for: fastqURL))
+        let ingestion = try XCTUnwrap(metadata.ingestion)
+        XCTAssertTrue(ingestion.isClumpified)
+
+        // The sidecar states the layout by count, and the pairing it
+        // records was read from the recipe output rather than assumed
+        // from the R1/R2 input.
+        let classification = try XCTUnwrap(metadata.readClassification, "the sidecar records the mixed layout")
+        let pairs = classification.pairedReadCount / 2
+        XCTAssertGreaterThan(pairs, 0)
+        XCTAssertGreaterThan(classification.mergedReadCount, 0)
+        XCTAssertEqual(classification.unpairedReadCount, 0, "the length filter drops both mates, never one")
+        XCTAssertEqual(ingestion.pairingMode, .interleaved)
+        XCTAssertEqual(ingestion.pairingSource, .detected)
+
+        // Every stored record is either a merged read or half of an adjacent
+        // pair, the counts survived clumpify, and no unmerged fragment is
+        // present with only one mate.
+        let scan = try FASTQPairInterleaver.countMixed(interleaved: fastqURL)
+        XCTAssertEqual(scan.pairs, pairs)
+        XCTAssertEqual(scan.unpaired, classification.mergedReadCount)
+        XCTAssertEqual(try FASTQPairInterleaver.countRecords(in: fastqURL), classification.totalReadCount)
+        let headers = try FASTQReadLayoutClassifier.readHeaders(from: fastqURL).headers
+        var mateCounts: [String: Int] = [:]
+        for header in headers where !header.contains("merged_") {
+            mateCounts[String(header.split(separator: " ").first ?? ""), default: 0] += 1
+        }
+        XCTAssertEqual(mateCounts.count, pairs)
+        XCTAssertTrue(mateCounts.values.allSatisfy { $0 == 2 }, "no orphan mates: \(mateCounts.filter { $0.value != 2 })")
+
+        let layoutResolution = FASTQInputLayoutResolver.resolve(inputURLs: [fastqURL])
+        XCTAssertEqual(layoutResolution.layout, .mixedMergedAndPairs)
+
+        let stepNames = ingestion.recipeApplied?.stepResults.map(\.stepName) ?? []
+        XCTAssertTrue(stepNames.contains("Remove short reads (unmerged pairs)"), "\(stepNames)")
+        let pairFilter = try XCTUnwrap(ingestion.recipeApplied?.stepResults.first { $0.stepName == "Remove short reads (unmerged pairs)" })
+        XCTAssertEqual(pairFilter.tool, "fastp")
+        XCTAssertEqual(pairFilter.commandArguments?.firstIndex(of: "-l").map { pairFilter.commandArguments![$0 + 1] }, "50")
+    }
+
     private func requireManagedTools(_ tools: [NativeTool]) async throws {
         for tool in tools {
             guard (try? await runner.toolPath(for: tool)) != nil else {
