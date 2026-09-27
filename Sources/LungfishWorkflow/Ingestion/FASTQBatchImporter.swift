@@ -464,6 +464,56 @@ public enum FASTQBatchImporter {
         }
     }
 
+    /// The pairing to record once a recipe has rewritten the reads.
+    ///
+    /// A merge recipe turns an R1/R2 import into one file of merged reads and
+    /// adjacent unmerged pairs, which stays `interleaved` (mates alternate
+    /// wherever they exist; the sidecar's read classification carries the
+    /// counts). A merge that kept no pairs, or a recipe whose output is
+    /// single reads, records `single_end`. Both are `detected`: the records
+    /// no longer match what the user described. Paired-file input the
+    /// recipe left paired keeps the import's own record.
+    static func recordedPairing(
+        afterRecipeOutput format: RecipeFileFormat,
+        mixedLayout: RecipeMixedLayoutCounts?,
+        importedAs imported: RecordedPairing
+    ) -> RecordedPairing {
+        switch format {
+        case .mixed:
+            let pairs = mixedLayout?.pairs ?? 0
+            return RecordedPairing(mode: pairs > 0 ? .interleaved : .singleEnd, source: .detected)
+        case .single:
+            return RecordedPairing(mode: .singleEnd, source: .detected)
+        case .interleaved:
+            return RecordedPairing(mode: .interleaved, source: imported.mode == .interleaved ? imported.source : .detected)
+        case .pairedR1R2, .merged:
+            return imported
+        }
+    }
+
+    /// The sidecar read classification for a recipe's mixed output, or nil
+    /// when no recipe produced one. Every role names the bundle's one FASTQ:
+    /// the counts describe kinds of records inside it, not separate files.
+    static func readClassification(
+        forMixedLayout layout: RecipeMixedLayoutCounts?,
+        bundleFASTQName: String
+    ) -> ReadClassification? {
+        guard let layout else { return nil }
+        var entries: [ReadClassification.FileEntry] = []
+        if layout.mergedReads > 0 {
+            entries.append(ReadClassification.FileEntry(filename: bundleFASTQName, role: .merged, readCount: layout.mergedReads))
+        }
+        if layout.pairs > 0 {
+            entries.append(ReadClassification.FileEntry(filename: bundleFASTQName, role: .pairedR1, readCount: layout.pairs))
+            entries.append(ReadClassification.FileEntry(filename: bundleFASTQName, role: .pairedR2, readCount: layout.pairs))
+        }
+        if layout.unpairedReads > 0 {
+            entries.append(ReadClassification.FileEntry(filename: bundleFASTQName, role: .unpaired, readCount: layout.unpairedReads))
+        }
+        guard !entries.isEmpty else { return nil }
+        return ReadClassification(files: entries)
+    }
+
     /// Applies a pairing choice to detected samples.
     ///
     /// `single` and `interleaved` split every R1/R2 pair into two single-file
@@ -930,11 +980,15 @@ public enum FASTQBatchImporter {
             // step: clumpify must keep the mates of an interleaved file
             // adjacent, and the sidecar records what the user chose or what
             // the records showed.
-            let recordedPairing = Self.recordedPairing(
+            var recordedPairing = Self.recordedPairing(
                 pairing: config.pairing,
                 r1: processingPair.r1,
                 hasR2: processingPair.r2 != nil
             )
+            // Filled in when a recipe merged pairs: the bundle then holds
+            // merged reads and adjacent pairs, which the sidecar records by
+            // count so consumers do not take "interleaved" at face value.
+            var recipeMixedLayout: RecipeMixedLayoutCounts? = nil
 
             // Step 1: Apply recipe if provided (BEFORE clumpify — recipe changes the
             // read population, so k-mer grouping must be computed on the final reads)
@@ -994,18 +1048,31 @@ public enum FASTQBatchImporter {
                                        durationSeconds: Date().timeIntervalSince(tracker.stepStart)))
                 }
                 var currentURL = output.r1
-                // If output is merged format, concatenate r1/r2/r3 for bundle finalization
-                if output.format == .merged, let r2 = output.r2 {
-                    let combined = workspace.appendingPathComponent("\(pair.sampleName)_combined.fq.gz")
-                    var data = try Data(contentsOf: output.r1)
-                    data.append(try Data(contentsOf: r2))
-                    if let r3 = output.r3 { data.append(try Data(contentsOf: r3)) }
-                    try data.write(to: combined)
+                var outputFormat = output.format
+                recipeMixedLayout = output.mixedLayout
+                // The engine normalizes a merged layout to one mixed file
+                // itself; this keeps the same shape (merged reads first,
+                // then each pair adjacent) should a step contract ever hand
+                // the three files back.
+                if output.format == .merged {
+                    let combined = workspace.appendingPathComponent("\(pair.sampleName)_mixed.fastq")
+                    recipeMixedLayout = try await RecipeEngine.writeMixedLayout(
+                        merged: output.r1,
+                        unmergedR1: output.r2,
+                        unmergedR2: output.r3,
+                        to: combined
+                    )
                     currentURL = combined
+                    outputFormat = .mixed
                 }
                 recipeOutputFASTQ = currentURL
-                // New-format recipes produce interleaved or single output
-                isPairedAfterRecipe = output.format == .interleaved || output.format == .merged
+                // New-format recipes produce interleaved, mixed, or single output.
+                isPairedAfterRecipe = outputFormat == .interleaved || outputFormat == .mixed
+                recordedPairing = Self.recordedPairing(
+                    afterRecipeOutput: outputFormat,
+                    mixedLayout: recipeMixedLayout,
+                    importedAs: recordedPairing
+                )
             } else if let recipe = config.recipe, !recipe.steps.isEmpty {
                 // Old-format recipe: use existing applyRecipe() code path
                 recipeOutputFASTQ = try await applyRecipe(
@@ -1153,6 +1220,10 @@ public enum FASTQBatchImporter {
             )
             var metadata = PersistedFASTQMetadata()
             metadata.ingestion = ingestion
+            metadata.readClassification = Self.readClassification(
+                forMixedLayout: recipeMixedLayout,
+                bundleFASTQName: bundleFASTQName
+            )
             applyConfirmedPlatformMetadata(to: &metadata, platform: config.platform)
             if let recipe = config.newRecipe, !recipeStepResults.isEmpty {
                 metadata.ingestion?.recipeApplied = RecipeAppliedInfo(

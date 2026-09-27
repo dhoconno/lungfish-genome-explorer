@@ -160,6 +160,44 @@ final class FASTQPairInterleaverTests: XCTestCase {
         }
     }
 
+    func testRequireMatesAcceptsLockstepFilesAndRejectsOutOfStepOnes() throws {
+        let r1 = try write(r1Text, name: "r1.fastq")
+        let r2 = try write(r2Text, name: "r2.fastq")
+        let sink = root.appendingPathComponent("checked.fastq")
+        FileManager.default.createFile(atPath: sink.path, contents: nil)
+        let handle = try XCTUnwrap(FileHandle(forWritingAtPath: sink.path))
+        let counts = try FASTQPairInterleaver.interleave(r1: r1, r2: r2, to: handle, requireMates: true)
+        try handle.close()
+        XCTAssertEqual(counts.writtenRecords, 4)
+        XCTAssertEqual(try String(contentsOf: sink, encoding: .utf8), expectedInterleaved)
+
+        // Same records, but the second file lists the fragments in the other order.
+        let swapped = try write(
+            "@read2/2\nCCCCCCCCCC\n+\nFFFFFFFFFF\n@read1/2\nTTTTTTTTTT\n+\n#########+\n",
+            name: "r2-swapped.fastq"
+        )
+        let rejected = root.appendingPathComponent("rejected.fastq")
+        FileManager.default.createFile(atPath: rejected.path, contents: nil)
+        let rejectedHandle = try XCTUnwrap(FileHandle(forWritingAtPath: rejected.path))
+        defer { try? rejectedHandle.close() }
+        XCTAssertThrowsError(
+            try FASTQPairInterleaver.interleave(r1: r1, r2: swapped, to: rejectedHandle, requireMates: true)
+        ) { error in
+            guard case FASTQPairInterleaver.InterleaveError.mateNameMismatch(
+                let recordNumber, let r1File, let r1Name, let r2File, let r2Name
+            ) = error else {
+                return XCTFail("Expected mateNameMismatch, got \(error)")
+            }
+            XCTAssertEqual(recordNumber, 1)
+            XCTAssertEqual(r1File, "r1.fastq")
+            XCTAssertEqual(r1Name, "read1/1 extra words\r")
+            XCTAssertEqual(r2File, "r2-swapped.fastq")
+            XCTAssertEqual(r2Name, "read2/2")
+        }
+        // Without the check the same files interleave by position, as before.
+        XCTAssertEqual(try interleave(r1, swapped).counts.writtenRecords, 4)
+    }
+
     func testMalformedRecordThrows() throws {
         let r1 = try write("@ok\nACGT\n+\nIIII\nnot-a-header\nACGT\n+\nIIII\n", name: "r1.fastq")
         let r2 = try write(r2Text, name: "r2.fastq")

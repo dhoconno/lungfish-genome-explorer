@@ -24,6 +24,7 @@ public enum FASTQPairInterleaver {
     public enum InterleaveError: Error, LocalizedError, Equatable {
         case malformedRecord(file: String, recordNumber: Int, reason: String)
         case mateCountMismatch(r1File: String, r1Records: Int, r2File: String, r2Records: Int)
+        case mateNameMismatch(recordNumber: Int, r1File: String, r1Name: String, r2File: String, r2Name: String)
         case recordCountMismatch(expected: Int, actual: Int)
         case unreadableInput(file: String, reason: String)
 
@@ -33,6 +34,8 @@ public enum FASTQPairInterleaver {
                 return "Malformed FASTQ record \(recordNumber) in \(file): \(reason)"
             case .mateCountMismatch(let r1File, let r1Records, let r2File, let r2Records):
                 return "Paired FASTQ mates do not match: \(r1File) has \(r1Records) reads but \(r2File) has \(r2Records). Nothing was imported."
+            case .mateNameMismatch(let recordNumber, let r1File, let r1Name, let r2File, let r2Name):
+                return "Paired FASTQ mates are out of step at record \(recordNumber): \(r1File) has '\(r1Name)' but \(r2File) has '\(r2Name)'. The two files do not list the same fragments in the same order, so nothing was written."
             case .recordCountMismatch(let expected, let actual):
                 return "Paired import integrity check failed: expected \(expected) interleaved reads (R1 + R2) but the output holds \(actual). Nothing was imported."
             case .unreadableInput(let file, let reason):
@@ -45,14 +48,43 @@ public enum FASTQPairInterleaver {
     ///
     /// Both inputs may be plain or gzip-compressed. Throws before finishing
     /// when either file runs out of records first, so the caller never keeps
-    /// a truncated output.
-    public static func interleave(r1: URL, r2: URL, to sink: FileHandle) throws -> Counts {
+    /// a truncated output. With `requireMates`, every R1/R2 record pair must
+    /// also satisfy ``FASTQReadLayoutClassifier/areMates(_:_:)`` (identical
+    /// IDs, `/1` `/2`, or Casava comments); the first pair that does not
+    /// throws ``InterleaveError/mateNameMismatch(recordNumber:r1File:r1Name:r2File:r2Name:)``,
+    /// which is how a caller relying on two files being in lockstep (fastp's
+    /// unmerged outputs) finds out they are not.
+    public static func interleave(
+        r1: URL,
+        r2: URL,
+        to sink: FileHandle,
+        requireMates: Bool = false
+    ) throws -> Counts {
+        var output = BufferedSink(handle: sink)
+        let counts = try interleave(r1: r1, r2: r2, requireMates: requireMates) { record1, record2 in
+            try output.write(record1)
+            try output.write(record2)
+        }
+        try output.flush()
+
+        let written = output.recordsWritten
+        guard written == counts.r1Records + counts.r2Records else {
+            throw InterleaveError.recordCountMismatch(expected: counts.r1Records + counts.r2Records, actual: written)
+        }
+        return Counts(r1Records: counts.r1Records, r2Records: counts.r2Records, writtenRecords: written)
+    }
+
+    private static func interleave(
+        r1: URL,
+        r2: URL,
+        requireMates: Bool,
+        onPair: ([[UInt8]], [[UInt8]]) throws -> Void
+    ) throws -> (r1Records: Int, r2Records: Int) {
         let reader1 = try FASTQRawLineReader(url: r1)
         defer { reader1.close() }
         let reader2 = try FASTQRawLineReader(url: r2)
         defer { reader2.close() }
 
-        var output = BufferedSink(handle: sink)
         var r1Count = 0
         var r2Count = 0
 
@@ -78,16 +110,79 @@ public enum FASTQPairInterleaver {
                 }
                 break
             }
-            try output.write(record1)
-            try output.write(record2)
+            if requireMates {
+                let name1 = headerText(record1[0])
+                let name2 = headerText(record2[0])
+                guard FASTQReadLayoutClassifier.areMates(name1, name2) else {
+                    throw InterleaveError.mateNameMismatch(
+                        recordNumber: r1Count,
+                        r1File: r1.lastPathComponent, r1Name: name1,
+                        r2File: r2.lastPathComponent, r2Name: name2
+                    )
+                }
+            }
+            try onPair(record1, record2)
+        }
+        return (r1Count, r2Count)
+    }
+
+    /// Writes a mixed file: every merged record first, then each unmerged
+    /// R1 record immediately followed by its R2 mate.
+    ///
+    /// The unmerged files must be in lockstep (fastp's `--out1`/`--out2`
+    /// after `--merge` are); every pair is checked by name and the first
+    /// mismatch throws, so a file that would later be read as orphans is
+    /// never produced. Records are copied byte for byte and the merged file
+    /// is validated record by record on the way through. Any of the inputs
+    /// may be plain or gzip-compressed; `sink` receives plain FASTQ. With no
+    /// unmerged files only the merged reads are copied.
+    public static func writeMergedThenPairs(
+        merged: URL,
+        unmergedR1: URL?,
+        unmergedR2: URL?,
+        to sink: FileHandle
+    ) throws -> MergedThenPairsCounts {
+        var output = BufferedSink(handle: sink)
+        var mergedCount = 0
+        do {
+            let reader = try FASTQRawLineReader(url: merged)
+            defer { reader.close() }
+            let file = merged.lastPathComponent
+            while let record = try readRecord(from: reader, file: file, recordNumber: mergedCount + 1) {
+                mergedCount += 1
+                if mergedCount & 0x3FFF == 0 { try Task.checkCancellation() }
+                try output.write(record)
+            }
+        }
+        var pairCount = 0
+        if let unmergedR1, let unmergedR2 {
+            let pairs = try interleave(r1: unmergedR1, r2: unmergedR2, requireMates: true) { record1, record2 in
+                try output.write(record1)
+                try output.write(record2)
+            }
+            pairCount = pairs.r1Records
+        } else if unmergedR1 != nil || unmergedR2 != nil {
+            let present = unmergedR1 ?? unmergedR2
+            throw InterleaveError.unreadableInput(
+                file: present?.lastPathComponent ?? "",
+                reason: "an unmerged mate file was given without its partner"
+            )
         }
         try output.flush()
 
-        let written = output.recordsWritten
-        guard written == r1Count + r2Count else {
-            throw InterleaveError.recordCountMismatch(expected: r1Count + r2Count, actual: written)
+        let expected = mergedCount + pairCount * 2
+        guard output.recordsWritten == expected else {
+            throw InterleaveError.recordCountMismatch(expected: expected, actual: output.recordsWritten)
         }
-        return Counts(r1Records: r1Count, r2Records: r2Count, writtenRecords: written)
+        return MergedThenPairsCounts(mergedRecords: mergedCount, pairs: pairCount)
+    }
+
+    /// What ``writeMergedThenPairs(merged:unmergedR1:unmergedR2:to:)`` wrote.
+    public struct MergedThenPairsCounts: Sendable, Equatable {
+        public let mergedRecords: Int
+        public let pairs: Int
+
+        public var writtenRecords: Int { mergedRecords + pairs * 2 }
     }
 
     /// Splits a strictly interleaved FASTQ back into R1 and R2 streams.

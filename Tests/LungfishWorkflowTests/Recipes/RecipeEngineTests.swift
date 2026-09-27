@@ -143,12 +143,18 @@ final class RecipeEngineTests: XCTestCase {
         let engine = RecipeEngine()
         let plan = try engine.plan(recipe: recipe, inputFormat: .pairedR1R2)
 
-        // 3 separate steps (no fusion)
-        XCTAssertEqual(plan.count, 3,
-                       "Expected 3 steps but got \(plan.count): \(plan.map { "\($0)" })")
+        // 3 separate steps (no fusion), then the merged→mixed normalization
+        XCTAssertEqual(plan.count, 4,
+                       "Expected 3 steps + normalization but got \(plan.count): \(plan.map { "\($0)" })")
+        for entry in plan.prefix(3) {
+            guard case .singleStep = entry else { return XCTFail("Expected an unfused step, got \(entry)") }
+        }
+        guard case .formatConversion(.merged, .mixed) = plan[3] else {
+            return XCTFail("Expected merged→mixed normalization last, got \(plan[3])")
+        }
     }
 
-    func testPlanInsertsMergedToSingleConversion() throws {
+    func testPlanKeepsMergedLayoutThroughLengthFilterThenWritesMixedFile() throws {
         let recipe = makeRecipe(steps: [
             RecipeStep(type: "fastp-merge", params: ["minOverlap": .int(15)]),
             RecipeStep(type: "seqkit-length-filter", params: ["minLength": .int(50)]),
@@ -156,15 +162,154 @@ final class RecipeEngineTests: XCTestCase {
         let engine = RecipeEngine()
         let plan = try engine.plan(recipe: recipe, inputFormat: .pairedR1R2)
 
-        // merge + conversion(merged→single) + length-filter = 3
+        // merge + length-filter (on the three-file layout) + conversion(merged→mixed) = 3.
+        // Flattening to single BEFORE the filter is the bug: it separates every
+        // mate from its partner and the per-record filter then leaves orphans.
         XCTAssertEqual(plan.count, 3,
-                       "Expected 3 plan entries but got \(plan.count)")
-        if case .formatConversion(let from, let to) = plan[1] {
-            XCTAssertEqual(from, .merged)
-            XCTAssertEqual(to, .single)
-        } else {
-            XCTFail("Expected .formatConversion at index 1, got \(plan[1])")
+                       "Expected 3 plan entries but got \(plan.count): \(plan.map { "\($0)" })")
+        guard case .singleStep(let filter, _) = plan[1] else {
+            return XCTFail("Expected the length filter at index 1, got \(plan[1])")
         }
+        XCTAssertTrue(filter is SeqkitLengthFilterStep)
+        if case .formatConversion(let from, let to) = plan[2] {
+            XCTAssertEqual(from, .merged)
+            XCTAssertEqual(to, .mixed)
+        } else {
+            XCTFail("Expected .formatConversion at index 2, got \(plan[2])")
+        }
+    }
+
+    func testPlanWritesMixedFileWhenMergeIsTheLastStep() throws {
+        let recipe = makeRecipe(steps: [
+            RecipeStep(type: "fastp-merge", params: ["minOverlap": .int(15)]),
+        ])
+        let plan = try RecipeEngine().plan(recipe: recipe, inputFormat: .pairedR1R2)
+        XCTAssertEqual(plan.count, 2)
+        guard case .formatConversion(.merged, .mixed) = plan[1] else {
+            return XCTFail("Expected merged→mixed normalization, got \(plan[1])")
+        }
+        XCTAssertEqual(try RecipeEngine().reportableStepCount(recipe: recipe, inputFormat: .pairedR1R2), 1)
+    }
+
+    func testPlanKeepsMergeWithoutUnmergedReadsSingle() throws {
+        let recipe = makeRecipe(steps: [
+            RecipeStep(type: "fastp-merge", params: ["minOverlap": .int(20), "keepUnmerged": .bool(false)]),
+        ])
+        let plan = try RecipeEngine().plan(recipe: recipe, inputFormat: .pairedR1R2)
+        XCTAssertEqual(plan.count, 1, "single-end merge output needs no normalization")
+    }
+
+    func testLengthFilterFormatsFollowTheInputLayout() throws {
+        let step = try SeqkitLengthFilterStep(params: ["minLength": .int(50)])
+        XCTAssertEqual(step.inputFormat(for: .merged), .merged)
+        XCTAssertEqual(step.outputFormat(for: .merged), .merged)
+        XCTAssertEqual(step.inputFormat(for: .pairedR1R2), .pairedR1R2)
+        XCTAssertEqual(step.outputFormat(for: .pairedR1R2), .pairedR1R2)
+        XCTAssertEqual(step.inputFormat(for: .single), .single)
+        XCTAssertEqual(step.outputFormat(for: .single), .single)
+    }
+
+    func testLengthFilterPairArgumentsJudgeBothMatesTogether() {
+        let root = URL(fileURLWithPath: "/tmp/lf")
+        let args = SeqkitLengthFilterStep.fastpPairArguments(
+            r1: root.appendingPathComponent("R1.fq.gz"),
+            r2: root.appendingPathComponent("R2.fq.gz"),
+            outR1: root.appendingPathComponent("out_R1.fq.gz"),
+            outR2: root.appendingPathComponent("out_R2.fq.gz"),
+            minLength: 50, maxLength: 300, threads: 3
+        )
+        // One paired fastp run: a pair is dropped when either mate fails.
+        XCTAssertEqual(Array(args.prefix(8)), ["-i", "/tmp/lf/R1.fq.gz", "-I", "/tmp/lf/R2.fq.gz",
+                                              "-o", "/tmp/lf/out_R1.fq.gz", "-O", "/tmp/lf/out_R2.fq.gz"])
+        XCTAssertTrue(args.contains("-A") && args.contains("-G") && args.contains("-Q"),
+                      "only length may decide: no adapter, poly-G, or quality filtering")
+        XCTAssertFalse(args.contains("-L"), "length filtering must stay enabled")
+        XCTAssertEqual(args.firstIndex(of: "-l").map { args[$0 + 1] }, "50")
+        XCTAssertEqual(args.firstIndex(of: "--length_limit").map { args[$0 + 1] }, "300")
+        XCTAssertEqual(args.firstIndex(of: "-w").map { args[$0 + 1] }, "3")
+    }
+
+    // MARK: - Mixed layout
+
+    private func writeFASTQ(_ records: [(String, String)], to url: URL) throws {
+        let text = records.map { "@\($0.0)\n\($0.1)\n+\n\(String(repeating: "I", count: $0.1.count))\n" }.joined()
+        try Data(text.utf8).write(to: url)
+    }
+
+    private func headers(of url: URL) throws -> [String] {
+        try String(contentsOf: url, encoding: .utf8)
+            .split(separator: "\n", omittingEmptySubsequences: true)
+            .enumerated()
+            .filter { $0.offset % 4 == 0 }
+            .map { String($0.element) }
+    }
+
+    private func makeMixedRoot() throws -> URL {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("RecipeEngineMixed-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        return root
+    }
+
+    func testMixedLayoutWritesMergedReadsThenEachPairAdjacent() async throws {
+        let root = try makeMixedRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let merged = root.appendingPathComponent("merged.fastq")
+        let r1 = root.appendingPathComponent("unmerged_R1.fastq")
+        let r2 = root.appendingPathComponent("unmerged_R2.fastq")
+        let output = root.appendingPathComponent("mixed.fastq")
+        try writeFASTQ([("M1 merged_120_30", "ACGTACGT"), ("M2 merged_100_10", "TTTTGGGG")], to: merged)
+        try writeFASTQ([("a/1", "AAAA"), ("b/1", "CCCC")], to: r1)
+        try writeFASTQ([("a/2", "GGGG"), ("b/2", "TTTT")], to: r2)
+
+        let counts = try await RecipeEngine.writeMixedLayout(
+            merged: merged, unmergedR1: r1, unmergedR2: r2, to: output)
+
+        XCTAssertEqual(counts, RecipeMixedLayoutCounts(mergedReads: 2, pairs: 2, unpairedReads: 0))
+        XCTAssertEqual(counts.totalRecords, 6)
+        XCTAssertEqual(try headers(of: output),
+                       ["@M1 merged_120_30", "@M2 merged_100_10", "@a/1", "@a/2", "@b/1", "@b/2"])
+        // The storage clumpify plan and every consumer scan this file by name:
+        // the old concatenation (M1 M2 a/1 b/1 a/2 b/2) reported 0 pairs + 6 unpaired.
+        XCTAssertEqual(try FASTQPairInterleaver.countMixed(interleaved: output),
+                       FASTQPairInterleaver.MixedCounts(pairs: 2, unpaired: 2))
+    }
+
+    func testMixedLayoutWithoutUnmergedFilesCopiesMergedReadsOnly() async throws {
+        let root = try makeMixedRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let merged = root.appendingPathComponent("merged.fastq")
+        let output = root.appendingPathComponent("mixed.fastq")
+        try writeFASTQ([("M1", "ACGT")], to: merged)
+
+        let counts = try await RecipeEngine.writeMixedLayout(
+            merged: merged, unmergedR1: nil, unmergedR2: nil, to: output)
+        XCTAssertEqual(counts, RecipeMixedLayoutCounts(mergedReads: 1, pairs: 0))
+        XCTAssertEqual(try headers(of: output), ["@M1"])
+    }
+
+    func testMixedLayoutRejectsUnmergedFilesThatAreOutOfStep() async throws {
+        let root = try makeMixedRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let merged = root.appendingPathComponent("merged.fastq")
+        let r1 = root.appendingPathComponent("unmerged_R1.fastq")
+        let r2 = root.appendingPathComponent("unmerged_R2.fastq")
+        let output = root.appendingPathComponent("mixed.fastq")
+        try writeFASTQ([("M1", "ACGT")], to: merged)
+        try writeFASTQ([("a/1", "AAAA"), ("b/1", "CCCC")], to: r1)
+        try writeFASTQ([("b/2", "GGGG"), ("a/2", "TTTT")], to: r2)
+
+        do {
+            _ = try await RecipeEngine.writeMixedLayout(merged: merged, unmergedR1: r1, unmergedR2: r2, to: output)
+            XCTFail("Out-of-step mates must not be written as a pair")
+        } catch FASTQPairInterleaver.InterleaveError.mateNameMismatch(let recordNumber, _, let r1Name, _, let r2Name) {
+            XCTAssertEqual(recordNumber, 1)
+            XCTAssertEqual(r1Name, "a/1")
+            XCTAssertEqual(r2Name, "b/2")
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: output.path), "a rejected layout leaves no partial file")
     }
 
     func testPlanSupportsPairedRiboDetectorBeforeMerge() throws {
@@ -185,7 +330,7 @@ final class RecipeEngineTests: XCTestCase {
         let engine = RecipeEngine()
         let plan = try engine.plan(recipe: recipe, inputFormat: .pairedR1R2)
 
-        XCTAssertEqual(plan.count, 3)
+        XCTAssertEqual(plan.count, 4, "three steps plus the merged→mixed normalization")
         guard case .singleStep(let executor, let label) = plan[1] else {
             return XCTFail("Expected RiboDetector single step at index 1, got \(plan[1])")
         }

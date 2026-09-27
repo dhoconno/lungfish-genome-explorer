@@ -4,6 +4,7 @@
 
 import XCTest
 import LungfishTestSupport
+import LungfishIO
 @testable import LungfishWorkflow
 
 final class RecipeIntegrationTests: XCTestCase {
@@ -100,11 +101,16 @@ final class RecipeIntegrationTests: XCTestCase {
         }
         XCTAssertTrue(merge is FastpMergeStep)
 
-        guard case .formatConversion(let from, let to) = plan[4] else {
-            return XCTFail("Expected merged-to-single conversion before length filtering, got \(plan[4])")
+        guard case .singleStep(let filter, _) = plan[4] else {
+            return XCTFail("Expected the length filter on the merged layout, got \(plan[4])")
+        }
+        XCTAssertTrue(filter is SeqkitLengthFilterStep)
+
+        guard case .formatConversion(let from, let to) = plan[5] else {
+            return XCTFail("Expected merged-to-mixed normalization after length filtering, got \(plan[5])")
         }
         XCTAssertEqual(from, .merged)
-        XCTAssertEqual(to, .single)
+        XCTAssertEqual(to, .mixed)
     }
 
     // MARK: - Tool Execution Tests
@@ -290,6 +296,61 @@ final class RecipeIntegrationTests: XCTestCase {
         // Verify output is valid FASTQ
         let stats = try await NativeToolRunner.shared.run(.seqkit, arguments: ["stats", "--tabular", result.output.r1.path])
         XCTAssertEqual(stats.exitCode, 0, "seqkit stats should succeed on final output")
+
+        // The merged reads come first and every unmerged fragment keeps its
+        // two mates adjacent; nothing is left as an orphan.
+        XCTAssertEqual(result.output.format, .mixed)
+        let layout = try XCTUnwrap(result.output.mixedLayout)
+        let scan = try FASTQPairInterleaver.countMixed(interleaved: result.output.r1)
+        XCTAssertEqual(scan.pairs, layout.pairs)
+        XCTAssertEqual(scan.unpaired, layout.mergedReads)
+        XCTAssertGreaterThan(layout.pairs, 0, "the fixture has unmerged pairs")
+        XCTAssertGreaterThan(layout.mergedReads, 0)
+        XCTAssertEqual(try FASTQPairInterleaver.countRecords(in: result.output.r1), layout.totalRecords)
+
+        let filterRecords = result.stepRecords.filter { $0.stepName.hasPrefix("Filter") }
+        XCTAssertEqual(filterRecords.map(\.tool), ["seqkit", "fastp"],
+                       "merged reads are filtered by seqkit, the pairs by one paired fastp run")
+        XCTAssertEqual(filterRecords.last?.stepName, "Filter (unmerged pairs)")
+        XCTAssertTrue(filterRecords.last?.commandArguments?.contains("-l") == true)
+    }
+
+    func testLengthFilterOnMergedLayoutDropsBothMatesWhenEitherIsShort() async throws {
+        guard await toolAvailable(.fastp), await toolAvailable(.seqkit) else {
+            try ToolAvailability.skipOrFail("Required tools not available")
+        }
+        let workspace = try makeWorkspace()
+        defer { try? FileManager.default.removeItem(at: workspace) }
+
+        func fastq(_ records: [(String, Int)]) -> String {
+            records.map { name, length in
+                "@\(name)\n\(String(repeating: "ACGT", count: length / 4 + 1).prefix(length))\n+\n\(String(repeating: "I", count: length))\n"
+            }.joined()
+        }
+        let merged = workspace.appendingPathComponent("merged.fastq")
+        let r1 = workspace.appendingPathComponent("unmerged_R1.fastq")
+        let r2 = workspace.appendingPathComponent("unmerged_R2.fastq")
+        try fastq([("m-long merged_120_30", 120), ("m-short merged_40_10", 40)]).write(to: merged, atomically: true, encoding: .utf8)
+        try fastq([("short-mate/1", 150), ("kept/1", 150)]).write(to: r1, atomically: true, encoding: .utf8)
+        try fastq([("short-mate/2", 40), ("kept/2", 150)]).write(to: r2, atomically: true, encoding: .utf8)
+
+        let step = try SeqkitLengthFilterStep(params: ["minLength": .int(50)])
+        let context = StepContext(workspace: workspace, threads: 2, sampleName: "pairs",
+                                  runner: NativeToolRunner.shared, progress: { _, _ in })
+        let output = try await step.execute(
+            input: StepInput(r1: merged, r2: r1, r3: r2, format: .merged), context: context)
+
+        XCTAssertEqual(output.format, .merged)
+        XCTAssertEqual(output.tool, .seqkit)
+        XCTAssertEqual(output.supplementaryInvocations.map(\.tool), [.fastp])
+
+        func headers(_ url: URL) throws -> [String] {
+            try FASTQReadLayoutClassifier.readHeaders(from: url).headers
+        }
+        XCTAssertEqual(try headers(output.r1), ["m-long merged_120_30"], "merged reads are judged one by one")
+        // The 150 bp R1 of the short-mate pair is NOT kept as an orphan.
+        XCTAssertEqual(try headers(try XCTUnwrap(output.r2)), ["kept/1"])
+        XCTAssertEqual(try headers(try XCTUnwrap(output.r3)), ["kept/2"])
     }
 
     func testFullVSP2RecipeExecution() async throws {
