@@ -625,6 +625,27 @@ public struct AlignmentTrackInfo: Codable, Sendable, Equatable, Identifiable {
         self.sampleNames = sampleNames
     }
 
+    /// Returns a copy of this track with a different display name; every other field is kept.
+    public func renamed(_ newName: String) -> AlignmentTrackInfo {
+        AlignmentTrackInfo(
+            id: id,
+            name: newName,
+            description: description,
+            format: format,
+            sourcePath: sourcePath,
+            sourceBookmark: sourceBookmark,
+            indexPath: indexPath,
+            indexBookmark: indexBookmark,
+            metadataDBPath: metadataDBPath,
+            checksumSHA256: checksumSHA256,
+            fileSizeBytes: fileSizeBytes,
+            addedDate: addedDate,
+            mappedReadCount: mappedReadCount,
+            unmappedReadCount: unmappedReadCount,
+            sampleNames: sampleNames
+        )
+    }
+
     private enum CodingKeys: String, CodingKey {
         case id
         case name

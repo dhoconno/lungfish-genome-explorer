@@ -2851,7 +2851,8 @@ final class BundleCommandRegressionTests: XCTestCase {
     func testSubcommands() {
         let subs = BundleCommand.configuration.subcommands
         let names = subs.map { $0.configuration.commandName }
-        XCTAssertEqual(subs.count, 7)
+        XCTAssertEqual(subs.count, 8)
+        XCTAssertTrue(names.contains("mark-duplicates"))
         XCTAssertTrue(names.contains("deduplicate-alignments"))
     }
 
@@ -2867,6 +2868,41 @@ final class BundleCommandRegressionTests: XCTestCase {
         XCTAssertEqual(command.bundlePath, "/tmp/source.lungfishref")
         XCTAssertEqual(command.output, "/tmp/source-deduplicated.lungfishref")
         XCTAssertEqual(command.globalOptions.outputFormat, .json)
+    }
+
+    func testMarkDuplicatesSubcommandParsesBundlePath() throws {
+        let parsed = try BundleCommand.parseAsRoot([
+            "mark-duplicates",
+            "/tmp/source.lungfishref",
+            "--format", "json",
+        ])
+        let command = try XCTUnwrap(parsed as? BundleMarkDuplicatesSubcommand)
+
+        XCTAssertEqual(command.bundlePath, "/tmp/source.lungfishref")
+        XCTAssertEqual(command.globalOptions.outputFormat, .json)
+    }
+
+    func testMarkDuplicatesSupportRejectsNonBundlePath() async throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("markdup-cli-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+        let plainDir = tempDir.appendingPathComponent("not-a-bundle", isDirectory: true)
+        try FileManager.default.createDirectory(at: plainDir, withIntermediateDirectories: true)
+
+        do {
+            _ = try await CLIMarkDuplicatesBundleSupport.run(
+                bundlePath: plainDir.path,
+                outputFormat: .text,
+                quiet: true,
+                command: ["lungfish", "bundle", "mark-duplicates", plainDir.path]
+            ) { _ in }
+            XCTFail("Expected validation failure for a non-bundle directory")
+        } catch let error as CLIError {
+            guard case .validationFailed = error else {
+                return XCTFail("Unexpected CLI error: \(error)")
+            }
+        }
     }
 }
 

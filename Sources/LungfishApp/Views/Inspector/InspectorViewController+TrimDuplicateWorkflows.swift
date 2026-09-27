@@ -586,7 +586,8 @@ extension InspectorViewController {
         )
     }
 
-    /// Runs `samtools markdup` over all loaded alignment tracks and replaces those tracks in-place.
+    /// Runs `samtools markdup` over every unmarked alignment track and attaches the marked
+    /// copies alongside the originals, which are kept and renamed "[unmarked]".
     func runMarkDuplicatesWorkflow() {
         guard let bundleURL = viewModel.documentSectionViewModel.bundleURL else {
             presentSimpleAlert(title: "No Bundle Loaded", message: "Load a .lungfishref bundle before running duplicate workflows.")
@@ -599,8 +600,8 @@ extension InspectorViewController {
 
         let confirm = NSAlert()
         confirm.messageText = "Mark Duplicates in Alignment Tracks?"
-        confirm.informativeText = "This will run samtools markdup for each alignment track in the current bundle and replace existing tracks with duplicate-marked versions."
-        confirm.alertStyle = .warning
+        confirm.informativeText = "This runs samtools markdup for each unmarked alignment track in the current bundle and adds a duplicate-marked copy next to it. The original tracks are kept and renamed with an [unmarked] suffix; no files are deleted."
+        confirm.alertStyle = .informational
         confirm.addButton(withTitle: "Mark Duplicates")
         confirm.addButton(withTitle: "Cancel")
         guard let window = view.window ?? NSApp.keyWindow else { return }
@@ -629,7 +630,7 @@ extension InspectorViewController {
                                     self.viewModel.readStyleSectionViewModel.onSettingsChanged?()
                                     self.presentSimpleAlert(
                                         title: "Duplicate Marking Complete",
-                                        message: "Processed \(result.processedTracks) alignment track\(result.processedTracks == 1 ? "" : "s"). Duplicate-marked tracks are now loaded."
+                                        message: "Processed \(result.processedTracks) alignment track\(result.processedTracks == 1 ? "" : "s"). Duplicate-marked tracks were added; the original tracks are kept with an [unmarked] suffix."
                                     )
                                 } catch {
                                     self.presentSimpleAlert(

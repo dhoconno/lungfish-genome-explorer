@@ -22,11 +22,50 @@ public final class AlignmentDuplicateService: @unchecked Sendable {
         public let bundleURL: URL
         public let processedTracks: Int
         public let newTrackIds: [String]
+        /// Source tracks that were kept in the bundle (renamed with `unmarkedTrackNameSuffix`)
+        /// alongside their duplicate-marked derivatives. Empty for the deduplicated-bundle workflow,
+        /// which replaces the copied tracks.
+        public let retainedTrackIds: [String]
+
+        public init(bundleURL: URL, processedTracks: Int, newTrackIds: [String], retainedTrackIds: [String] = []) {
+            self.bundleURL = bundleURL
+            self.processedTracks = processedTracks
+            self.newTrackIds = newTrackIds
+            self.retainedTrackIds = retainedTrackIds
+        }
     }
 
-    /// Runs duplicate marking for all alignment tracks in a bundle, replacing existing tracks.
+    /// Suffix appended to the display name of a source track once its duplicate-marked
+    /// derivative has been attached. The source files are never moved or deleted.
+    public static let unmarkedTrackNameSuffix = "[unmarked]"
+
+    /// Suffix appended to the display name of a duplicate-marked derivative track.
+    public static let markedTrackNameSuffix = "[dup-marked]"
+
+    /// Bundle-relative directory that holds duplicate-marked BAMs.
+    public static let markedRelativeDirectory = "alignments/marked"
+
+    /// Alignment tracks that still need duplicate marking: source tracks that are neither a
+    /// marked derivative (living under `alignments/marked/`) nor a source that already carries
+    /// the `[unmarked]` suffix from an earlier run. Re-running the workflow on a bundle whose
+    /// tracks have all been processed therefore leaves the bundle unchanged instead of stacking
+    /// another marked copy on top of every existing track.
+    public static func tracksPendingDuplicateMarking(in manifest: BundleManifest) -> [AlignmentTrackInfo] {
+        manifest.alignments.filter { track in
+            if track.sourcePath.hasPrefix(markedRelativeDirectory + "/") { return false }
+            if track.name.hasSuffix(unmarkedTrackNameSuffix) { return false }
+            return true
+        }
+    }
+
+    /// Runs duplicate marking for every unprocessed alignment track in a bundle.
     ///
-    /// Produces marked BAM files inside `alignments/marked/` and re-attaches them as tracks.
+    /// Produces marked BAM files inside `alignments/marked/` and attaches them as new tracks
+    /// named "<name> [dup-marked]". The source tracks are kept, untouched on disk, and renamed
+    /// "<name> [unmarked]" so both versions stay loadable and the operation can be undone by
+    /// deleting the marked tracks. Both directions are recorded in the tracks' metadata
+    /// databases (`derivation_source_track_id` on the marked track, `duplicate_marked_track_id`
+    /// on the source).
     public static func markDuplicatesInBundle(
         bundleURL: URL,
         progressHandler: (@Sendable (Double, String) -> Void)? = nil,
@@ -55,22 +94,25 @@ public final class AlignmentDuplicateService: @unchecked Sendable {
         trackIDProvider: @escaping @Sendable () -> String = { "aln_\(String(UUID().uuidString.prefix(8)))" }
     ) async throws -> WorkflowResult {
         let manifest = try BundleManifest.load(from: bundleURL)
-        let tracks = manifest.alignments
-        guard !tracks.isEmpty else {
+        guard !manifest.alignments.isEmpty else {
             throw AlignmentDuplicateError.noAlignmentTracks
         }
+        let tracks = tracksPendingDuplicateMarking(in: manifest)
+        guard !tracks.isEmpty else {
+            throw AlignmentDuplicateError.allTracksAlreadyMarked
+        }
 
-        let outputRoot = bundleURL.appendingPathComponent("alignments/marked", isDirectory: true)
+        let outputRoot = bundleURL.appendingPathComponent(markedRelativeDirectory, isDirectory: true)
         try FileManager.default.createDirectory(at: outputRoot, withIntermediateDirectories: true)
 
         let newTrackIDs = try await runDuplicateWorkflow(
             bundleURL: bundleURL,
             tracks: tracks,
             outputRoot: outputRoot,
-            relativeDirectory: "alignments/marked",
+            relativeDirectory: markedRelativeDirectory,
             removeDuplicates: false,
             suffix: "marked",
-            outputTrackNameSuffix: "[dup-marked]",
+            outputTrackNameSuffix: markedTrackNameSuffix,
             progressHandler: progressHandler,
             markdupPipeline: markdupPipeline,
             attachmentService: attachmentService,
@@ -79,9 +121,14 @@ public final class AlignmentDuplicateService: @unchecked Sendable {
             trackIDProvider: trackIDProvider
         )
 
-        try removeAlignmentTracks(tracks, from: bundleURL)
+        try retainSourceTracks(tracks, markedTrackIDs: newTrackIDs, in: bundleURL)
         progressHandler?(1.0, "Duplicate marking complete.")
-        return WorkflowResult(bundleURL: bundleURL, processedTracks: tracks.count, newTrackIds: newTrackIDs)
+        return WorkflowResult(
+            bundleURL: bundleURL,
+            processedTracks: tracks.count,
+            newTrackIds: newTrackIDs,
+            retainedTrackIds: tracks.map(\.id)
+        )
     }
 
     /// Creates a sibling `.lungfishref` bundle with duplicate reads removed.
@@ -226,6 +273,37 @@ public final class AlignmentDuplicateService: @unchecked Sendable {
         return createdTrackIDs
     }
 
+    /// Keeps the source tracks in the manifest, renamed with the `[unmarked]` suffix, and records
+    /// the derivative each one produced in its metadata database when it has one.
+    private static func retainSourceTracks(
+        _ tracks: [AlignmentTrackInfo],
+        markedTrackIDs: [String],
+        in bundleURL: URL
+    ) throws {
+        var manifest = try BundleManifest.load(from: bundleURL)
+        for (index, track) in tracks.enumerated() {
+            let renamed = track.name.hasSuffix(unmarkedTrackNameSuffix)
+                ? track
+                : track.renamed("\(track.name) \(unmarkedTrackNameSuffix)")
+            manifest = manifest.replacingAlignmentTrack(renamed)
+
+            guard index < markedTrackIDs.count,
+                  let dbPath = track.metadataDBPath,
+                  let dbURL = try? BundleManifest.validatedBundleMemberURL(
+                      for: dbPath,
+                      in: bundleURL,
+                      field: "alignments[\(track.id)].metadataDBPath"
+                  ),
+                  FileManager.default.fileExists(atPath: dbURL.path),
+                  let metadataDB = try? AlignmentMetadataDatabase.openForUpdate(at: dbURL) else {
+                continue
+            }
+            metadataDB.setFileInfo("duplicate_marked_track_id", value: markedTrackIDs[index])
+            metadataDB.setFileInfo("duplicate_marking_role", value: "unmarked_source")
+        }
+        try manifest.save(to: bundleURL)
+    }
+
     /// Removes old alignment tracks from manifest and prunes their sidecar files.
     private static func removeAlignmentTracks(_ tracks: [AlignmentTrackInfo], from bundleURL: URL) throws {
         var manifest = try BundleManifest.load(from: bundleURL)
@@ -344,6 +422,7 @@ public final class AlignmentDuplicateService: @unchecked Sendable {
 
 public enum AlignmentDuplicateError: Error, LocalizedError, Sendable {
     case noAlignmentTracks
+    case allTracksAlreadyMarked
     case sourcePathNotFound(String)
     case samtoolsFailed(String)
 
@@ -351,6 +430,8 @@ public enum AlignmentDuplicateError: Error, LocalizedError, Sendable {
         switch self {
         case .noAlignmentTracks:
             return "No alignment tracks are loaded in this bundle."
+        case .allTracksAlreadyMarked:
+            return "Every alignment track in this bundle already has a duplicate-marked version. Nothing to do."
         case .sourcePathNotFound(let path):
             return "Could not resolve alignment source file: \(path)"
         case .samtoolsFailed(let message):

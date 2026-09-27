@@ -29,6 +29,7 @@ struct BundleCommand: AsyncParsableCommand {
             BundleCreateSubcommand.self,
             BundleExtractAnnotationsSubcommand.self,
             BundleDeduplicateAlignmentsSubcommand.self,
+            BundleMarkDuplicatesSubcommand.self,
             BundleExportSubcommand.self,
             BundleValidateSubcommand.self,
             BundleListSubcommand.self,
@@ -74,6 +75,118 @@ struct BundleDeduplicateAlignmentsSubcommand: AsyncParsableCommand {
             quiet: resolvedOptions.quiet,
             command: command
         ) { print($0) }
+    }
+}
+
+// MARK: - Mark Duplicates Subcommand
+
+struct BundleMarkDuplicatesSubcommand: AsyncParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "mark-duplicates",
+        abstract: "Add duplicate-marked copies of a bundle's alignment tracks, keeping the originals",
+        discussion: """
+            Runs the shared samtools markdup workflow on every unmarked alignment track in a
+            .lungfishref bundle and attaches each result as a new "[dup-marked]" track under
+            alignments/marked/. The source tracks are kept on disk and renamed "[unmarked]";
+            nothing is deleted. Running the command again on the same bundle is a no-op error
+            once every track has a marked copy. This is the CLI equivalent of the Inspector's
+            "Mark Duplicates in Bundle Tracks" action.
+
+            Examples:
+              lungfish bundle mark-duplicates MyGenome.lungfishref
+              lungfish bundle mark-duplicates MyGenome.lungfishref --format json
+            """
+    )
+
+    @Argument(help: "Path to the .lungfishref bundle to update in place")
+    var bundlePath: String
+
+    @OptionGroup var globalOptions: TextAndJSONGlobalOptions
+
+    func run() async throws {
+        let resolvedOptions = try globalOptions.resolved(with: ProcessInfo.processInfo.arguments)
+        _ = try await CLIMarkDuplicatesBundleSupport.run(
+            bundlePath: bundlePath,
+            outputFormat: resolvedOptions.outputFormat,
+            quiet: resolvedOptions.quiet,
+            command: [CLICommandIdentity.executableName, "bundle", "mark-duplicates", bundlePath]
+        ) { print($0) }
+    }
+}
+
+enum CLIMarkDuplicatesBundleSupport {
+    @discardableResult
+    static func run(
+        bundlePath: String,
+        outputFormat: OutputFormat,
+        quiet: Bool,
+        command: [String],
+        emit: @escaping (String) -> Void
+    ) async throws -> AlignmentDuplicateService.WorkflowResult {
+        let bundleURL = URL(fileURLWithPath: bundlePath)
+        var isDirectory = ObjCBool(false)
+        guard FileManager.default.fileExists(atPath: bundleURL.path, isDirectory: &isDirectory) else {
+            throw CLIError.inputFileNotFound(path: bundleURL.path)
+        }
+        guard isDirectory.boolValue, bundleURL.pathExtension == "lungfishref" else {
+            throw CLIError.validationFailed(errors: ["Bundle must be a .lungfishref bundle directory: \(bundleURL.path)"])
+        }
+
+        let startedAt = Date()
+        let result = try await AlignmentDuplicateService.markDuplicatesInBundle(bundleURL: bundleURL)
+
+        let parameters: [String: ParameterValue] = [
+            "bundle": .file(bundleURL),
+            "processedTracks": .integer(result.processedTracks),
+            "newTrackIds": .array(result.newTrackIds.map(ParameterValue.string)),
+            "retainedTrackIds": .array(result.retainedTrackIds.map(ParameterValue.string)),
+        ]
+        try await CLIProvenanceSupport.recordSingleStepRun(
+            name: "lungfish bundle mark-duplicates",
+            parameters: parameters,
+            defaults: [:],
+            resolved: parameters,
+            toolName: "lungfish bundle mark-duplicates",
+            toolVersion: WorkflowRun.currentAppVersion,
+            command: command,
+            inputs: provenanceRecords(for: bundleURL, role: .input),
+            outputs: provenanceRecords(
+                for: bundleURL.appendingPathComponent(AlignmentDuplicateService.markedRelativeDirectory, isDirectory: true),
+                role: .output
+            ),
+            exitCode: 0,
+            wallTime: Date().timeIntervalSince(startedAt),
+            stderr: nil,
+            status: .completed,
+            outputDirectory: result.bundleURL,
+            writeFileSidecars: false
+        )
+
+        if outputFormat == .json {
+            let summary = JSONOutput(
+                bundlePath: result.bundleURL.path,
+                processedTracks: result.processedTracks,
+                newTrackIds: result.newTrackIds,
+                retainedTrackIds: result.retainedTrackIds
+            )
+            if let data = try? JSONEncoder().encode(summary), let line = String(data: data, encoding: .utf8) {
+                emit(line)
+            }
+            return result
+        }
+        guard !quiet else { return result }
+        emit("Bundle: \(result.bundleURL.path)")
+        emit("Processed tracks: \(result.processedTracks)")
+        emit("Marked tracks added: \(result.newTrackIds.joined(separator: ", "))")
+        emit("Original tracks kept as [unmarked]: \(result.retainedTrackIds.joined(separator: ", "))")
+        return result
+    }
+
+    private struct JSONOutput: Encodable {
+        let bundlePath: String
+        let processedTracks: Int
+        let newTrackIds: [String]
+        let retainedTrackIds: [String]
     }
 }
 
