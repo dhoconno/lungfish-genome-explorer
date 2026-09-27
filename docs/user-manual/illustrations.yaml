@@ -23,9 +23,8 @@
 version: 0
 chapters:
 
-  # index.md is outside chapters/, and build/hooks/shots.py renders
-  # ILLUSTRATION markers only under chapters/, so this figure needs a hook
-  # change (or an inline image) before it can appear on the home page.
+  # index.md is outside chapters/. build/hooks/shots.py renders its
+  # ILLUSTRATION markers from assets/illustrations-imagegen/index/.
   index:
     illustrations:
       - id: learning-paths
@@ -65,6 +64,8 @@ chapters:
           bases, and a second callout marking the HBB gene span
           70545 to 72152. Use IBM Plex Mono for the numbers and
           Lungfish Creamsicle for the backbone.
+      # No chapter lists variant-notation after the 2026-09 revision. Keep the
+      # asset until a chapter uses it again or the owner retires it.
       - id: variant-notation
         target_dimensions: 1400x500
         asset: assets/illustrations-imagegen/01-foundations/01-what-is-a-genome/variant-notation.png
@@ -113,6 +114,8 @@ chapters:
         brief: >
           ARTIC-style primer scheme showing forward primers, reverse primers,
           overlapping amplicon bands, and BED-style coordinates.
+      # Also shown in 04-alignments/03-primer-trimming through a direct image
+      # link to this asset, so one drawing serves both chapters.
       - id: primer-trim-soft-clip
         target_dimensions: 1400x500
         asset: assets/illustrations-imagegen/01-foundations/03-amplicon-vs-shotgun/primer-trim-soft-clip.png
@@ -258,6 +261,8 @@ chapters:
           Provenance graph showing reference FASTA and reads FASTQ roots
           feeding mapping, primer-trim, and a VCF-producing variant-calling
           leaf selected for export.
+      # No chapter lists cli-to-gui-path-reconciliation after the 2026-09 revision. Keep the
+      # asset until a chapter uses it again or the owner retires it.
       - id: cli-to-gui-path-reconciliation
         target_dimensions: 1400x600
         asset: assets/illustrations-imagegen/01-foundations/08-provenance-and-reproducibility/cli-to-gui-path-reconciliation.png
@@ -267,18 +272,37 @@ chapters:
 
   02-sequences/01-importing-and-viewing:
     illustrations:
+      # No chapter lists reference-bundle-anatomy after the 2026-09 revision. Keep the
+      # asset until a chapter uses it again or the owner retires it.
       - id: reference-bundle-anatomy
         target_dimensions: 1400x600
         asset: assets/illustrations-imagegen/02-sequences/01-importing-and-viewing/reference-bundle-anatomy.png
         brief: >
           Reference bundle folder connected to FASTA, FAI, manifest, and
           provenance files with purpose captions.
+      # No chapter lists viewport-panes after the 2026-09 revision. Keep the
+      # asset until a chapter uses it again or the owner retires it.
       - id: viewport-panes
         target_dimensions: 1400x800
         asset: assets/illustrations-imagegen/02-sequences/01-importing-and-viewing/viewport-panes.png
         brief: >
           Stylized sequence viewport with track viewer, sequence panel, and
           feature inspector panes labelled.
+      - id: viewport-lanes
+        target_dimensions: 1400x700
+        asset: assets/illustrations-imagegen/02-sequences/01-importing-and-viewing/viewport-lanes.png
+        status: commission
+        brief: >
+          A single sequence viewport drawn as three stacked
+          drawing lanes rather than three separate panes. Top lane
+          is the numbered position ruler with ticks at 70600,
+          70613, 70620. Middle lane is a run of DNA letters
+          reading GAG at the marked position. Bottom lane is a row
+          of coloured feature blocks of differing colours,
+          labelled one colour per feature type. Use Lungfish
+          Creamsicle for the ruler and the lead lines, Deep Ink
+          for the letters and labels, IBM Plex Mono for the
+          numbers and bases.
 
   02-sequences/02-downloading-from-ncbi:
     illustrations:
@@ -289,6 +313,25 @@ chapters:
           MN908947.3 accession decomposed into prefix, number, and version,
           with fetch-path and snapshot meanings.
 
+  02-sequences/03-extracting-and-comparing:
+    illustrations:
+      - id: extraction-header-anatomy
+        target_dimensions: 1400x700
+        asset: assets/illustrations-imagegen/02-sequences/03-extracting-and-comparing/extraction-header-anatomy.png
+        status: commission
+        brief: >
+          An annotated breakdown of the FASTA header line
+          '>NG_000007:70545-72152 [NG_000007:70545-72152, 1-based]
+          [1608 bp]'. Three labelled parts, the leading region
+          name, the bracketed coordinate token with its '1-based'
+          label, and the bracketed length token, each with a lead
+          line to a short explanation. Below it a second variant
+          of the same header carrying an extra '[reverse
+          complement]' token, labelled as the token that appears
+          only when the extraction was flipped. Use IBM Plex Mono
+          for the header text, Lungfish Creamsicle for the lead
+          lines and labels, Deep Ink for the explanatory text.
+
   02-sequences/04-aligning-sequences:
     illustrations:
       - id: msa-column-homology
@@ -297,6 +340,25 @@ chapters:
         brief: >
           Three short sequences before and after MAFFT-style gap insertion so
           homologous bases share columns.
+      - id: mafft-progressive-alignment
+        target_dimensions: 1400x700
+        asset: assets/illustrations-imagegen/02-sequences/04-aligning-sequences/mafft-progressive-alignment.png
+        status: commission
+        brief: >
+          How a progressive aligner builds an alignment, in three
+          panels read left to right. Panel 1 is a guide tree over
+          three short DNA sequences labelled A, B, and C, with A
+          and B joined first because they look most alike. Panel 2
+          shows A and B aligned as a pair with one gap placed in
+          B, then C added to that fixed pair, so C must fit around
+          the gap already there. Panel 3 shows one round of
+          iterative refinement, the alignment split into the group
+          A and B against C, realigned, and kept because it scores
+          better, with a caption noting that plain progressive
+          alignment would never have moved the early gap. Use IBM
+          Plex Mono for the bases, Deep Ink for letters and
+          labels, Lungfish Creamsicle for the tree branches and
+          the moved gap, Warm Grey for the discarded arrangement.
 
   02-sequences/05-building-trees:
     illustrations:
@@ -306,6 +368,154 @@ chapters:
         brief: >
           Rectangular phylogram with tips, internal nodes, branch lengths, and
           bootstrap support values called out.
+      - id: tree-unrooted-to-rooted
+        target_dimensions: 1400x700
+        asset: assets/illustrations-imagegen/02-sequences/05-building-trees/tree-unrooted-to-rooted.png
+        status: commission
+        brief: >
+          The five-tip primate tree drawn twice, side by side.
+          Left panel, unrooted, as IQ-TREE returns it: human and
+          chimpanzee meeting at one internal node, gorilla joining
+          next, and the two macaques (rhesus and cynomolgus)
+          joined to the rest by one long branch, with no root
+          marked. Right panel, the same tree rooted on the branch
+          to the macaque clade, as Root on Branch to Here draws
+          it: a new root point placed at the midpoint of that long
+          branch, the two macaques as one clade on one side of the
+          root, and the three apes as the other clade with human
+          and chimpanzee paired inside it. Label the long branch
+          0.8982 in the left panel and its two halves 0.4491 each
+          in the right panel, and mark the root with a small
+          filled circle. Use Deep Ink for branches and labels,
+          Lungfish Creamsicle for the root marker and the split
+          branch, IBM Plex Mono for the numbers and tip names.
+
+  03-reads/01-importing-fastq:
+    illustrations:
+      - id: read-preparation-order
+        target_dimensions: 1600x600
+        asset: assets/illustrations-imagegen/03-reads/01-importing-fastq/read-preparation-order.png
+        status: commission
+        brief: >
+          A left-to-right chain of six rounded boxes joined by
+          arrows, each labelled with an operation and, below it in
+          IBM Plex Mono, the suffix it adds to the bundle name.
+          Import (no suffix, the name comes from the file),
+          Quality control (no suffix, the summary is rewritten in
+          place), Trim (-fastpTrim), Length filter
+          (-lengthFilter), Decontaminate (-humanReadScrub), then
+          an optional box for Remove duplicates or Subsample
+          (-deduplicate, -subsampleCount), ending in a larger box
+          labelled Map (Part 4). Three dashed side branches leave
+          the main chain: Merge Overlapping Pairs
+          (-pairedEndMerge) branching off after quality control,
+          Demultiplex branching off before quality control for
+          pooled runs, and Subsample branching off anywhere as a
+          test slice. A small note under the Remove duplicates box
+          reads 'skip for amplicon runs'. Lungfish Creamsicle
+          boxes on the main chain, Peach dashed boxes for side
+          branches, Deep Ink labels and arrows, Cream background.
+
+  04-alignments/02-reading-an-alignment:
+    illustrations:
+      - id: alignment-zoom-tiers
+        target_dimensions: 1400x700
+        asset: assets/illustrations-imagegen/04-alignments/02-reading-an-alignment/alignment-zoom-tiers.png
+        status: commission
+        brief: >
+          Three stacked thumbnails of the same stretch of the
+          HG002 chromosome 20 slice in the alignment viewport,
+          each labelled with its bases per pixel. Top, above 2
+          bp/px, the coverage curve alone with the message asking
+          you to zoom in where the reads would be. Middle, between
+          2 and 0.6 bp/px, the reads as plain strand-tinted bars.
+          Bottom, below 0.6 bp/px, the reads with their bases,
+          matching bases as dots and one alternate base in its
+          colour. A thin Lungfish Creamsicle bracket at the left
+          of each thumbnail names the tier (coverage, bars,
+          bases). Cream background, IBM Plex Mono for the bp/px
+          labels.
+
+  04-alignments/04-alignment-quality:
+    illustrations:
+      - id: duplicates-shotgun-vs-amplicon
+        target_dimensions: 1400x700
+        asset: assets/illustrations-imagegen/04-alignments/04-alignment-quality/duplicates-shotgun-vs-amplicon.png
+        status: commission
+        brief: >
+          Two panels side by side on a Cream background. Left, a
+          shotgun library, reads drawn as bars scattered at random
+          start positions along a reference line, with two reads
+          that start and end at exactly the same bases outlined in
+          Lungfish Creamsicle and labelled 'same start, same end:
+          probably PCR copies of one fragment'. Right, an amplicon
+          library, every read in one amplicon starting at the same
+          primer box and ending at the other, all of them
+          identical in position, labelled 'same start by design:
+          marking would flag nearly all of them'. Title strip
+          reads 'Why duplicate marking suits shotgun data and not
+          amplicon data'. IBM Plex Mono for labels, Deep Ink for
+          text.
+
+  04-alignments/05-viral-recon-wizard:
+    illustrations:
+      - id: viral-recon-flow
+        target_dimensions: 1600x600
+        asset: assets/illustrations-imagegen/04-alignments/05-viral-recon-wizard/viral-recon-flow.png
+        status: commission
+        brief: >
+          A left-to-right pipeline flow on a Cream background.
+          Boxes in order, joined by Deep Ink arrows, read 'FASTQ
+          reads', 'Bowtie2 maps', 'iVar trims primers', 'iVar
+          calls variants (AF 0.25 or more)', 'bcftools writes the
+          consensus (AF 0.75 or more, depth under 10 masked as
+          N)', then two boxes side by side, 'Pangolin lineage' and
+          'Nextclade clade'. Under each output a small Lungfish
+          Creamsicle tag names where it appears in LGE, 'Viral
+          Recon Alignment track', '<sample> Variants track and the
+          Variants tab', 'Consensus section of the Inspector',
+          'Lineage section of the Inspector'. IBM Plex Mono for
+          the tool names.
+
+  05-variants/02-reading-the-variant-browser:
+    illustrations:
+      - id: lofreq-af-histogram
+        target_dimensions: 1400x700
+        asset: assets/illustrations-imagegen/05-variants/02-reading-the-variant-browser/lofreq-af-histogram.png
+        status: commission
+        brief: >
+          Two histograms side by side on a Cream background, x
+          axis allele frequency from 0 to 1, y axis number of
+          calls. Left, the HG002 LoFreq track's 862 calls, with
+          one peak near 0.5 (heterozygous sites, one changed copy
+          of two) and one near 1.0 (homozygous sites), labelled
+          'diploid person: two peaks'. Right, a sketch of a viral
+          population's calls spread continuously across the range
+          with most near 1.0 and a long low tail of minority
+          changes, labelled 'virus population: a continuum'.
+          Lungfish Creamsicle bars, Deep Ink axes, IBM Plex Mono
+          labels.
+
+  05-variants/05-consensus-and-lineage:
+    illustrations:
+      - id: pileup-consensus-column
+        target_dimensions: 1400x700
+        asset: assets/illustrations-imagegen/05-variants/05-consensus-and-lineage/pileup-consensus-column.png
+        status: commission
+        brief: >
+          An alignment drawn as a grid on a Cream background, the
+          reference sequence along the top row and eight or ten
+          reads as rows beneath it, each column one reference
+          position. Three columns are outlined in Lungfish
+          Creamsicle and read downwards into a consensus row at
+          the bottom. In the first every read shows A, and the
+          consensus letter is A. In the second only three reads
+          cover the position, below the depth floor, and the
+          consensus letter is N. In the third about half the reads
+          show A and half G, and the consensus letter is R, with a
+          small note that R means A or G and appears only with
+          ambiguity codes on. IBM Plex Mono for the letters, Deep
+          Ink text.
 
   06-classification/01-what-is-classification:
     illustrations:
@@ -315,6 +525,144 @@ chapters:
         brief: >
           Reads file feeding a classifier box and taxonomy sunburst, with
           bacteria, virus, and host outputs labelled.
+      - id: classifier-decision-flowchart
+        target_dimensions: 1600x900
+        asset: assets/illustrations-imagegen/06-classification/01-what-is-classification/classifier-decision-flowchart.png
+        status: commission
+        brief: >
+          A left-to-right decision flowchart for choosing a
+          classification route. First branch, sample type: a
+          clinical swab or tissue from a person or macaque,
+          wastewater, an environmental or diet sample, or a
+          library you only want to check. Second branch, organism
+          class you expect: anything (no hypothesis), a virus, a
+          bacterium, a vertebrate species, or a SARS-CoV-2 lineage
+          mix. Third branch, library prep: shotgun or amplicon,
+          with short reads under 100 bases marked. Leaves name the
+          tool and its chapter: Kraken 2 with Bracken (Running
+          Kraken 2) for no hypothesis or a library check, EsViritu
+          (Running EsViritu) for a virus in reads of 100 bases or
+          more, TaxTriage (Running TaxTriage) for a clinical batch
+          with controls where bacteria matter, 12S Amplicon
+          Matching (12S Amplicon Metabarcoding) for a vertebrate
+          roster from a 12S amplicon, Freyja (Running Freyja) for
+          a SARS-CoV-2 lineage mix, and a side box of imports (CZ
+          ID, NAO-MGS, NVD) for results someone ran elsewhere.
+          Every path that ends at a call carries a small arrow to
+          BLAST Verification. Deep Ink labels, Creamsicle for the
+          leaves, Cream background.
+
+  06-classification/02-running-kraken2:
+    illustrations:
+      - id: clade-vs-direct-counts
+        target_dimensions: 1400x700
+        asset: assets/illustrations-imagegen/06-classification/02-running-kraken2/clade-vs-direct-counts.png
+        status: commission
+        brief: >
+          A small vertical tree for the cornea sample's Viral
+          result, one node per rank from the family
+          Orthoherpesviridae through the subfamily
+          Alphaherpesvirinae, the genus Simplexvirus, and the
+          species Simplexvirus humanalpha1, down to Human
+          alphaherpesvirus 1, with a short side branch from the
+          genus to Simplexvirus paninealpha3. Beside each node
+          print two numbers, Reads (the clade count) and Direct
+          (the reads assigned to that node only). Use the
+          chapter's figures, Orthoherpesviridae 893,154,
+          Alphaherpesvirinae 893,152, Simplexvirus 893,039 with
+          Direct 6,789, Simplexvirus humanalpha1 886,221 with
+          Direct 0, Human alphaherpesvirus 1 886,221 with Direct
+          886,221, and Simplexvirus paninealpha3 28. Show the
+          clade count as a bar that shrinks only slightly down the
+          tree and the Direct count as a small filled segment, so
+          the reader sees that Reads sums everything below and
+          Direct counts only the reads that stopped at that node.
+          Deep Ink text, Creamsicle bars, Cream background.
+
+  06-classification/03-running-esviritu:
+    illustrations:
+      - id: coverage-sparklines
+        target_dimensions: 1400x700
+        asset: assets/illustrations-imagegen/06-classification/03-running-esviritu/coverage-sparklines.png
+        status: commission
+        brief: >
+          Two coverage sparklines drawn one above the other at the
+          same width, each summarising the same number of reads
+          over one viral genome split into 100 windows. The upper
+          line is even, every window between about a quarter and
+          twice the mean depth, labelled 'reads tile the genome'.
+          The lower line is flat at zero across most of its width
+          with two or three tall spikes, labelled 'reads stacked
+          on a few short stretches'. A shared caption states that
+          both rows carry the same read count. Deep Ink lines on
+          Cream, Creamsicle for the spikes' labels.
+
+  06-classification/07-running-freyja:
+    illustrations:
+      - id: freyja-demixing
+        target_dimensions: 1400x700
+        asset: assets/illustrations-imagegen/06-classification/07-running-freyja/freyja-demixing.png
+        status: commission
+        brief: >
+          Three panels side by side, each a row of five
+          lineage-defining genome positions drawn as ticks along a
+          SARS-CoV-2 genome bar. Panel one, a pure sample of
+          lineage A, shows A's three defining positions each with
+          a bar at 100 percent allele frequency and B's two
+          defining positions at 0. Panel two, a pure sample of
+          lineage B, shows the reverse. Panel three, a blend,
+          shows A's positions at 60 percent and B's at 35 percent,
+          with a small leftover labelled 'unexplained'. An arrow
+          from panel three points to the demix answer, 'A 0.60, B
+          0.35', written the way Freyja's lineages and abundances
+          lines read. Lineage names are placeholders, A and B.
+          Deep Ink ticks and labels, Creamsicle bars for A, Peach
+          bars for B, Cream background.
+
+  06-classification/09-novel-virus-detection:
+    illustrations:
+      - id: contig-alignment-length
+        target_dimensions: 1400x700
+        asset: assets/illustrations-imagegen/06-classification/09-novel-virus-detection/contig-alignment-length.png
+        status: commission
+        brief: >
+          One horizontal bar standing for a contig, labelled with
+          its length, with the stretch BLAST aligned shaded in
+          Creamsicle and the unaligned remainder left in Warm Grey
+          outline. Draw two versions stacked. The upper is the
+          demo's NODE_1_length_500_cov_10.0, 500 bases long with
+          498 aligned, almost entirely shaded and labelled 'known
+          virus'. The lower is a 5,000-base contig with only 400
+          bases shaded near one end, labelled 'most of the contig
+          matches nothing the database knows'. Under each bar
+          print Length and Aln Length as the NVD table names them.
+          Deep Ink labels, Cream background.
+
+  06-human-germline-variants/04-reference-packs:
+    illustrations:
+      - id: gatk-pipeline-and-gvcf
+        target_dimensions: 1600x900
+        asset: assets/illustrations-imagegen/06-human-germline-variants/04-reference-packs/gatk-pipeline-and-gvcf.png
+        status: commission
+        brief: >
+          Two panels. Top, the GATK germline pipeline as a
+          left-to-right chain of boxes: reads, map (minimap2 in
+          LGE), mark duplicates, base quality score recalibration
+          (BQSR), HaplotypeCaller in GVCF mode (one box per
+          sample, three stacked for HG002, HG003, HG004), joint
+          genotyping (the three joining into one), hard filter,
+          metrics. Under each box the chapter that covers it:
+          Reference Files for GATK under BQSR, HaplotypeCaller,
+          Joint Genotyping, Filtering, Selecting, and Metrics.
+          Mark duplicates and BQSR drawn with a dashed outline
+          labelled 'optional on this slice'. Bottom, a VCF beside
+          a GVCF for the same 12 positions of one sample: the VCF
+          shows only two rows (the variant positions), the GVCF
+          shows the same two variant rows plus reference blocks
+          drawn as long bars covering the matching stretches, each
+          labelled with its minimum genotype quality. Deep Ink
+          boxes and text, Creamsicle for the variant rows, Warm
+          Grey for the reference blocks.
 
   07-assembly/01-when-to-assemble:
     illustrations:
@@ -324,3 +672,178 @@ chapters:
         brief: >
           Mapping with a reference contrasted against de novo assembly from
           read overlaps into thicker contigs.
+      - id: de-bruijn-walk
+        target_dimensions: 1400x700
+        asset: assets/illustrations-imagegen/07-assembly/01-when-to-assemble/de-bruijn-walk.png
+        status: commission
+        brief: >
+          The k = 3 de Bruijn walk for the read ATGGC. Three boxes
+          ATG, TGG, GGC joined left to right by arrows labelled
+          with the shared two bases TG and GG, spelling ATGGC
+          along the path. From ATG a thinner side branch runs to
+          TGC and then GCC, labelled 'seen once (sequencing error
+          ATGCC), pruned'. Main path in Deep Ink, the error spur
+          in Warm Grey with a Creamsicle cut mark.
+      - id: n50-stacked-bar
+        target_dimensions: 1400x700
+        asset: assets/illustrations-imagegen/07-assembly/01-when-to-assemble/n50-stacked-bar.png
+        status: commission
+        brief: >
+          The five made-up contigs of the N50 table (40, 30, 15,
+          10, 5 kb) drawn as one horizontal bar 100 kb long,
+          segments sorted longest first and labelled with their
+          lengths. A vertical Creamsicle line at 50 kb crosses the
+          second segment, labelled 'half the assembly'. Below the
+          bar, 'N50 = 30 kb (the segment the line crosses)' and
+          'L50 = 2 (segments counted to reach the line)'. Deep Ink
+          segments on Cream.
+      - id: circular-genome-three-ways
+        target_dimensions: 1400x700
+        asset: assets/illustrations-imagegen/07-assembly/01-when-to-assemble/circular-genome-three-ways.png
+        status: commission
+        brief: >
+          A circular genome drawn as a closed loop with a small
+          cut mark at the top, then three horizontal lines below
+          it showing how an assembler can write it out. First, a
+          line slightly shorter than the circle, labelled 'trimmed
+          join, 16,359 bases (Flye)'. Second, a line with a short
+          matching block drawn at both ends, labelled 'overlap
+          written twice, 16,697 bases (SPAdes)'. Third, a line
+          twice as long made of two identical halves, labelled
+          'walked twice, 33,140 bases (hifiasm)'. A dashed
+          reference bar of 16,569 bases above the three lines for
+          scale. Deep Ink lines, Creamsicle for the repeated
+          sequence.
+
+  09-genotyping/01-what-is-mhc-genotyping:
+    illustrations:
+      - id: allele-read-support
+        target_dimensions: 1400x700
+        asset: assets/illustrations-imagegen/09-genotyping/01-what-is-mhc-genotyping/allele-read-support.png
+        status: commission
+        brief: >
+          Two panels. Left, one allele target drawn as a Deep Ink
+          bar about 156 bases long with two reads above it: the
+          first read in Creamsicle spans the bar from its first
+          base to its last and matches every base, labelled
+          'counted'; the second also spans it end to end but
+          carries one mismatched base marked with a small Warm
+          Grey cross, labelled 'one substitution, not counted'; a
+          third, shorter read covers only part of the bar,
+          labelled 'does not span, not counted'. Right, a
+          haplotype drawn as two parallel chromosome copies, each
+          a horizontal line with three loci marked (MHC-A region,
+          MHC-DR, MHC-DP); copy 1 carries alleles labelled
+          Mafa-G_02:31:01:01, Mafa-DRB_W001:03:01:01,
+          Mafa-DPA1_07:02:01:01 bracketed as 'haplotype M4 / M7 /
+          M1 region calls'; copy 2 carries a different set; a
+          caption notes that each region's alleles are inherited
+          together and a haplotype call names one block per
+          region.
+
+  09-genotyping/03-reading-the-genotype-comparison:
+    illustrations:
+      - id: genotype-matrix-vs-vcf
+        target_dimensions: 1400x700
+        asset: assets/illustrations-imagegen/09-genotyping/03-reading-the-genotype-comparison/genotype-matrix-vs-vcf.png
+        status: commission
+        brief: >
+          Two panels side by side. Left, a small genotype matrix:
+          three allele-target rows (Mafa-G_02:31:01:01,
+          Mafa-DRB_W001:03:01:01, Mafa-DPA1_07:02:01:01) against
+          two sample columns (A, B), each cell a read count (120,
+          12; 80, 60; 4, 100), captioned 'which catalogued
+          sequence is present'. Right, three rows of a VCF: CHROM,
+          POS, REF, ALT and one sample's GT column (chr20 2078 G A
+          1/1; chr20 2162 A T 0/1; chr20 2244 T C 0/1), captioned
+          'which position differs from one reference'. A thin Warm
+          Grey divider between them. Deep Ink text, Creamsicle for
+          the read counts and the GT values.
+
+  10-primer-design/01-what-is-primer-design:
+    illustrations:
+      - id: pcr-three-cycles
+        target_dimensions: 1400x700
+        asset: assets/illustrations-imagegen/10-primer-design/01-what-is-primer-design/pcr-three-cycles.png
+        status: commission
+        brief: >
+          Three PCR cycles on one template. Cycle 1 shows the two
+          strands separated with the forward primer bound to the
+          bottom strand and the reverse primer to the top strand,
+          each labelled with its 5 prime and 3 prime ends and an
+          arrow showing the direction the polymerase extends.
+          Cycle 2 shows the long ragged products those extensions
+          make, whose far ends are set by where the polymerase
+          stopped rather than by a primer. Cycle 3 shows the first
+          product whose two ends are both primer 5 prime ends,
+          drawn as a fixed-length bar labelled amplicon, beside a
+          note that from here on this length dominates. Keep every
+          strand horizontal and use the brand palette, Deep Ink
+          strands, Creamsicle primers.
+      - id: strand-geometry
+        target_dimensions: 1400x700
+        asset: assets/illustrations-imagegen/10-primer-design/01-what-is-primer-design/strand-geometry.png
+        status: commission
+        brief: >
+          One stretch of double-stranded DNA drawn as two
+          horizontal lines, the top strand left to right with 5
+          prime at the left, the bottom strand right to left with
+          5 prime at the right. The forward primer sits on the
+          bottom strand pointing right, the reverse primer on the
+          top strand pointing left, both labelled with their 3
+          prime ends facing the product. Label upstream at the
+          left and downstream at the right. Beneath, show the
+          reverse primer twice, once as the bases it pairs with on
+          the top strand and once as the sequence a supplier would
+          synthesise, with an arrow between them labelled reverse
+          complement, so a reader sees the two are the same oligo
+          written two ways.
+      - id: tiled-overlap-pools
+        target_dimensions: 1400x700
+        asset: assets/illustrations-imagegen/10-primer-design/01-what-is-primer-design/tiled-overlap-pools.png
+        status: commission
+        brief: >
+          Two overlapping amplicons along one reference line.
+          Amplicon 1 carries a forward and a reverse primer arrow,
+          amplicon 2 the same, and the overlap region shows
+          amplicon 2's forward primer sitting inside amplicon 1's
+          span and facing amplicon 1's reverse primer. Draw the
+          short product those two would make in one tube as a
+          small bar marked with a cross. Then show the same four
+          primers split into two lanes labelled Pool 1 and Pool 2,
+          with a note that odd amplicons go in one tube and even
+          amplicons in the other. Use the brand palette.
+      - id: qpcr-standard-curve
+        target_dimensions: 1400x700
+        asset: assets/illustrations-imagegen/10-primer-design/01-what-is-primer-design/qpcr-standard-curve.png
+        status: commission
+        brief: >
+          A standard curve with the log of input template on the x
+          axis over four tenfold dilutions and the quantification
+          cycle Cq on the y axis, points falling on a straight
+          line of slope about minus 3.3, each tenfold step marked
+          as 3.3 cycles. Annotate the slope and print the relation
+          efficiency equals 10 to the power of minus one over
+          slope, minus 1, with minus 3.3 giving 100 percent. Keep
+          it a plain two-axis plot in the brand palette with no
+          red, amber or green.
+
+  10-primer-design/04-designing-qpcr-and-dpcr-assays:
+    illustrations:
+      - id: probe-geometry
+        target_dimensions: 1400x700
+        asset: assets/illustrations-imagegen/10-primer-design/04-designing-qpcr-and-dpcr-assays/probe-geometry.png
+        status: commission
+        brief: >
+          One amplicon drawn as a horizontal line with the forward
+          primer arrow at the left pointing right and the reverse
+          primer arrow at the right pointing left. A probe sits
+          between them on the same strand the forward primer's
+          polymerase reads, 4 to 15 bases from the primer,
+          labelled with its reporter dye at the 5 prime end and
+          quencher at the 3 prime end, and annotated that its Tm
+          sits at least 5 C above both primers and that its 5
+          prime base is never a G. Add a second small panel
+          showing the polymerase reaching the probe and cutting
+          it, freeing the reporter. Brand palette, probe in the
+          viewport's purple.
