@@ -101,6 +101,18 @@ public struct BarcodeKitDefinition: Codable, Sendable, Equatable, Identifiable {
         try container.encode(barcodes, forKey: .barcodes)
     }
 
+    /// True for long-read kits whose cutadapt search uses the platform's full
+    /// adapter+barcode construct (ONT native, rapid, PCR and 16S kits, and
+    /// other symmetric or single-barcode ONT/PacBio kits). The demultiplexing
+    /// pipeline searches that construct at both read ends in both orientations
+    /// and, for symmetric kits, keeps only reads carrying the same barcode at
+    /// both ends. The barcode location and 5'/3' distance settings shape
+    /// anchored short-read adapter specs and do not apply to these kits.
+    public var searchesFullPlatformConstruct: Bool {
+        platform.readsCanBeReverseComplemented
+            && (pairingMode == .symmetric || pairingMode == .singleEnd)
+    }
+
     /// Returns the platform-specific adapter context for this kit.
     public var adapterContext: any PlatformAdapterContext {
         platform.adapterContext(kitType: kitType)
@@ -145,13 +157,22 @@ public struct BarcodeEntry: Codable, Sendable, Equatable {
     public var secondarySequence: String? { i5Sequence }
 }
 
-public enum BarcodeKitLoadError: LocalizedError, Sendable {
+public enum BarcodeKitLoadError: LocalizedError, Sendable, Equatable {
     case noBarcodeRows
+    case invalidSequence(row: Int, id: String, value: String)
+    case invalidSecondarySequence(row: Int, id: String, value: String)
+    case ambiguousThirdColumn(row: Int, id: String, value: String)
 
     public var errorDescription: String? {
         switch self {
         case .noBarcodeRows:
             return "Barcode definition contains no barcode rows. Use CSV or TSV with at least two columns: id,sequence; for example: FLD0001,GTATCGTCGT or FLD0001<TAB>GTATCGTCGT."
+        case .invalidSequence(let row, let id, let value):
+            return "Barcode definition row \(row) (\(id)): the sequence column holds '\(value)', which is not a nucleotide sequence. Columns are id,sequence[,secondary_sequence][,sample_name]."
+        case .invalidSecondarySequence(let row, let id, let value):
+            return "Barcode definition row \(row) (\(id)): the secondary sequence column holds '\(value)', which is not a nucleotide sequence. If this column holds sample names, name it sample_name in the header line."
+        case .ambiguousThirdColumn(let row, let id, let value):
+            return "Barcode definition row \(row) (\(id)): the third column holds '\(value)', which is not a nucleotide sequence. Without a header line the third column is the secondary (dual-index) barcode. Put sample names in the fourth column (id,sequence,,sample_name) or add a header line naming the columns (id,sequence,sample_name)."
         }
     }
 }
@@ -383,27 +404,103 @@ public enum BarcodeKitRegistry {
         }
     }
 
+    /// Column roles of a custom barcode definition.
+    ///
+    /// Without a header the columns are positional:
+    /// `id,sequence[,secondary_sequence][,sample_name]`. A header line may
+    /// instead name the columns, so `id,sequence,sample_name` puts sample
+    /// names in the third column. Sequence columns must hold nucleotide
+    /// letters; a non-sequence value in a sequence column is reported with
+    /// the two accepted layouts rather than handed to cutadapt.
+    struct BarcodeDefinitionLayout: Equatable {
+        var idColumn = 0
+        var sequenceColumn = 1
+        var secondaryColumn: Int? = 2
+        var sampleColumn: Int? = 3
+
+        static let positional = BarcodeDefinitionLayout()
+    }
+
+    static let secondarySequenceHeaders: Set<String> = [
+        "secondary_sequence", "secondary", "i5_sequence", "i5", "i5_index", "index2", "index_2",
+        "reverse_sequence", "reverse", "barcode_2", "barcode2", "sequence_2", "sequence2",
+    ]
+
+    static let sampleNameHeaders: Set<String> = [
+        "sample_name", "sample", "sample_id", "sampleid", "samplename", "name", "sample_label", "label",
+    ]
+
+    private static let nucleotideLetters: Set<Character> = Set("ACGTUNRYSWKMBDHV")
+
+    static func isNucleotideSequence(_ value: String) -> Bool {
+        !value.isEmpty && value.uppercased().allSatisfy { nucleotideLetters.contains($0) }
+    }
+
+    /// Maps a header line onto column roles. Columns beyond the first two are
+    /// assigned by name; an unrecognised name keeps the positional role so
+    /// older files with free-form headers still load.
+    static func barcodeDefinitionLayout(header columns: [String]) -> BarcodeDefinitionLayout {
+        var layout = BarcodeDefinitionLayout(idColumn: 0, sequenceColumn: 1, secondaryColumn: nil, sampleColumn: nil)
+        for (index, column) in columns.enumerated() where index >= 2 {
+            let name = normalizedHeader(column)
+            if secondarySequenceHeaders.contains(name), layout.secondaryColumn == nil {
+                layout.secondaryColumn = index
+            } else if sampleNameHeaders.contains(name), layout.sampleColumn == nil {
+                layout.sampleColumn = index
+            }
+        }
+        let namedColumns = Set([layout.secondaryColumn, layout.sampleColumn].compactMap { $0 })
+        if layout.secondaryColumn == nil, columns.count > 2, !namedColumns.contains(2) {
+            layout.secondaryColumn = 2
+        }
+        if layout.sampleColumn == nil, columns.count > 3, !namedColumns.contains(3) {
+            layout.sampleColumn = 3
+        }
+        return layout
+    }
+
     private static func parseDelimitedBarcodeRecords(_ content: String) throws -> [BarcodeEntry] {
         let lines = content.components(separatedBy: .newlines)
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty && !$0.hasPrefix("#") }
 
         var barcodes: [BarcodeEntry] = []
-        for line in lines {
+        var layout = BarcodeDefinitionLayout.positional
+        var sawHeader = false
+        for (lineIndex, line) in lines.enumerated() {
             let cols = splitBarcodeDefinitionLine(line)
             guard cols.count >= 2 else { continue }
-            if isBarcodeDefinitionHeader(cols) { continue }
+            if barcodes.isEmpty, !sawHeader, isBarcodeDefinitionHeader(cols) {
+                layout = barcodeDefinitionLayout(header: cols)
+                sawHeader = true
+                continue
+            }
 
-            let id = cols[0]
-            let i7 = cols[1].uppercased()
-            let i5: String? = cols.count > 2 && !cols[2].isEmpty ? cols[2].uppercased() : nil
-            let sample: String? = cols.count > 3 && !cols[3].isEmpty ? cols[3] : nil
+            func value(at column: Int?) -> String? {
+                guard let column, column < cols.count, !cols[column].isEmpty else { return nil }
+                return cols[column]
+            }
+
+            let rowNumber = lineIndex + 1
+            let id = cols[layout.idColumn]
+            // A row with an empty sequence cell is skipped, as before.
+            guard let rawSequence = value(at: layout.sequenceColumn) else { continue }
+            guard isNucleotideSequence(rawSequence) else {
+                throw BarcodeKitLoadError.invalidSequence(row: rowNumber, id: id, value: rawSequence)
+            }
+            let rawSecondary = value(at: layout.secondaryColumn)
+            if let rawSecondary, !isNucleotideSequence(rawSecondary) {
+                if sawHeader {
+                    throw BarcodeKitLoadError.invalidSecondarySequence(row: rowNumber, id: id, value: rawSecondary)
+                }
+                throw BarcodeKitLoadError.ambiguousThirdColumn(row: rowNumber, id: id, value: rawSecondary)
+            }
 
             barcodes.append(BarcodeEntry(
                 id: id,
-                i7Sequence: i7,
-                i5Sequence: i5,
-                sampleName: sample
+                i7Sequence: rawSequence.uppercased(),
+                i5Sequence: rawSecondary?.uppercased(),
+                sampleName: value(at: layout.sampleColumn)
             ))
         }
 

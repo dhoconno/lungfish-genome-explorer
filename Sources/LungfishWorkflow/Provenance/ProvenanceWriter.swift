@@ -950,8 +950,8 @@ public struct ProvenanceWriter: Sendable {
         let mutation = ProvenanceWriterMutation(
             kind: mutationKind,
             affectedURLs: [artifactURL],
-            requiredPriorStates: [artifactURL.standardizedFileURL.path: priorState],
-            resultingStates: [artifactURL.standardizedFileURL.path: .missing]
+            requiredPriorStates: [artifactURL.canonicalFilePath: priorState],
+            resultingStates: [artifactURL.canonicalFilePath: .missing]
         )
         do {
             try reportMutation(mutation)
@@ -982,8 +982,10 @@ public struct ProvenanceWriter: Sendable {
         kind: ProvenanceWriterMutation.Kind,
         replacingExisting: Bool
     ) throws {
+        // Receipts are keyed by physical path (CanonicalFilePath) so a
+        // destination reached through a symlink matches its snapshot entry.
         let standardizedDestination =
-            destinationURL.standardizedFileURL
+            destinationURL.canonicalFileURL
         let stagedState = try ProvenancePublicationSnapshot.artifactState(
             at: stagedURL,
             fileManager: .default

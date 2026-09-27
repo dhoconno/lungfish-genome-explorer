@@ -1110,7 +1110,10 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
         case .singleEnd:
             requireBothEnds = false
         case .symmetric:
+            // Long-read symmetric kits always run the both-end pass (pass 2),
+            // whatever the location setting says, so the manifest must say so.
             requireBothEnds = config.barcodeLocation == .bothEnds
+                || (config.barcodeKit.platform.readsCanBeReverseComplemented && config.searchReverseComplement)
         case .asymmetric:
             requireBothEnds = config.barcodeKit.isDualIndexed || config.barcodeLocation == .bothEnds
         }

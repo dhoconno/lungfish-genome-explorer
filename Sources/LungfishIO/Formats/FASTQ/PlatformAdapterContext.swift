@@ -69,14 +69,19 @@ public enum BarcodeKitType: String, Codable, Sendable, CaseIterable {
 
 /// Adapter context for ONT Native Barcoding kits (SQK-NBD104, SQK-NBD114, etc.).
 ///
-/// Read structure:
+/// Read structure, as basecalled reads present it (see `PlatformAdapters.ontNativeOuterFlank5`
+/// for the evidence and for how it relates to ONT's published oligos):
 /// ```
-/// 5'-[Y-adapter]-[AAGGTTAA]-[Barcode_Fwd]-[CAGCACCT]-[INSERT]-[AGGTGCTG]-[Barcode_RC]-[TTAACCTT]-[Y-adapter_RC]-3'
+/// 5'-[Y-adapter]-[GGTGCTG]-[Barcode_Fwd]-[TTAACCTT]-[INSERT]-[AAGGTTAA]-[Barcode_RC]-[CAGCACC]-[Y-adapter_RC]-3'
 /// ```
-/// The outer flanks (AAGGTTAA / TTAACCTT) are part of the ONT adapter construct.
-/// The rear flanks (CAGCACCT / AGGTGCTG) sit between the barcode and insert DNA.
-/// They are concatenated into the adapter definition so cutadapt trims both in a
-/// single pass — this is more robust to indels than a separate flank-trimming step.
+/// The barcode appears in its published orientation at the 5' end and
+/// reverse-complemented at the 3' end. Reads sequenced from the other strand
+/// are the reverse complement of the whole construct, which cutadapt's
+/// `--revcomp` handles. The outer flanks (GGTGCTG / CAGCACC) sit between the
+/// Y-adapter and the barcode; the inner flanks (TTAACCTT / AAGGTTAA) sit
+/// between the barcode and the insert. They are concatenated into the adapter
+/// definition so cutadapt trims both in a single pass, which is more robust to
+/// indels than a separate flank-trimming step.
 public struct ONTNativeAdapterContext: PlatformAdapterContext {
     public init() {}
 

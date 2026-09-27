@@ -1108,6 +1108,21 @@ final class FASTQOperationDialogState {
         return kits.filter(Self.isExactBareBarcodeCompatible(_:))
     }
 
+    /// True when the cutadapt engine will search the selected built-in kit as
+    /// the platform's full adapter+barcode construct, so the Location picker
+    /// and the 5'/3' Distance fields have no effect and are hidden.
+    var demultiplexKitUsesPlatformConstruct: Bool {
+        guard demultiplexEngine == .cutadapt,
+              demultiplexBarcodeSource == .builtinKit,
+              let kit = BarcodeKitRegistry.kit(byID: demultiplexKitID) else { return false }
+        return kit.searchesFullPlatformConstruct
+    }
+
+    /// Caption shown in place of the Location and Distance controls for kits
+    /// where `demultiplexKitUsesPlatformConstruct` is true.
+    static let demultiplexPlatformConstructCaption =
+        "Long-read kit: cutadapt searches the kit's full adapter and barcode construct at both read ends in both orientations, and a read is assigned only when both ends carry the same barcode. Location and distance settings do not apply."
+
     var detectedAssemblyReadType: AssemblyReadType? {
         assemblyCompatibilityEvaluation.resolvedReadType
     }

@@ -187,7 +187,7 @@ enum CLIProvenanceSupport {
                 input,
                 to: builder,
                 consumedSnapshot: consumedInputSnapshotPaths.contains(
-                    URL(fileURLWithPath: input.path).standardizedFileURL.path
+                    URL(fileURLWithPath: input.path).canonicalFilePath
                 )
             )
         }

@@ -76,7 +76,7 @@ struct ConvertCommand: AsyncParsableCommand {
         let sameInode = outputIdentity != nil
             && (inputIdentity[.systemNumber] as? NSNumber) == (outputIdentity?[.systemNumber] as? NSNumber)
             && (inputIdentity[.systemFileNumber] as? NSNumber) == (outputIdentity?[.systemFileNumber] as? NSNumber)
-        guard inputURL.resolvingSymlinksInPath().standardizedFileURL != outputURL.resolvingSymlinksInPath().standardizedFileURL,
+        guard inputURL.canonicalFilePath != outputURL.canonicalFilePath,
               !sameInode else {
             throw CLIError.outputWriteFailed(path: outputFile,
                 reason: "Input and output must be different files. In-place, symlink and hard-link aliases are not supported.")
@@ -251,7 +251,7 @@ struct ConvertCommand: AsyncParsableCommand {
             outputs: [
                 ProvenanceRecorder.fileRecord(url: outputURL, role: .output)
             ],
-            consumedInputSnapshotPaths: Set(provenanceInputs.map { URL(fileURLWithPath: $0.path).standardizedFileURL.path }),
+            consumedInputSnapshotPaths: Set(provenanceInputs.map { URL(fileURLWithPath: $0.path).canonicalFilePath }),
             exitCode: 0,
             wallTime: completedAt.timeIntervalSince(startedAt),
             stderr: nil,

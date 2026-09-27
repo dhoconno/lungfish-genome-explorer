@@ -30,7 +30,7 @@ enum GenotypeExportProvenanceSupport {
         parameters["outputCount"] = .integer(outputURLs.count)
         let consumedInputSnapshotPaths = Set(
             additionalInputRecords.map {
-                URL(fileURLWithPath: $0.path).standardizedFileURL.path
+                URL(fileURLWithPath: $0.path).canonicalFilePath
             }
         )
 
