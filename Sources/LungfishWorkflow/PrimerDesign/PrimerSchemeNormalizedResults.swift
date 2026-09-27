@@ -392,7 +392,7 @@ public struct PrimerSchemeResultsDocument: Codable, Equatable, Sendable {
                   risk.values.allSatisfy(\.isNumber),
                   resolvedOptions["blastDatabasePath"]?.isSafeStoredPath == true else {
                 throw PrimerSchemeDesignError.contractViolation(
-                    "Stored OliVar resolved settings do not match adapter schema v1.")
+                    "Stored Olivar resolved settings do not match adapter schema v1.")
             }
             let stored = OlivarDesignOptions(
                 minimumVariantFrequency: resolvedOptions["minimumVariantFrequency"]!.storedNumber!,

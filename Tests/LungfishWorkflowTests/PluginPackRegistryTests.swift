@@ -3,6 +3,14 @@ import XCTest
 
 final class PluginPackRegistryTests: XCTestCase {
 
+    func testOlivarRequirementDisplayNameUsesTheProjectSpelling() throws {
+        let pack = try XCTUnwrap(PluginPack.activeOptionalPacks.first { $0.id == "pcr-primer-design" })
+        let requirement = try XCTUnwrap(pack.toolRequirements.first { $0.id == "olivar" })
+        XCTAssertEqual(requirement.displayName, "Olivar")
+        XCTAssertFalse(pack.description.contains("OliVar"))
+        XCTAssertTrue(pack.description.contains("Olivar"))
+    }
+
     func testRequiredSetupPackIsLungfishTools() {
         let pack = PluginPack.requiredSetupPack
 

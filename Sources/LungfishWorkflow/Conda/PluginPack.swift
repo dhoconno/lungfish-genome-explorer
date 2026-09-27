@@ -579,7 +579,7 @@ public extension PluginPack {
         PluginPack(
             id: "pcr-primer-design",
             name: "PCR Primer Design",
-            description: "Independent Primer3, PrimalScheme, OliVar, and varVAMP primer design runtimes.",
+            description: "Independent Primer3, PrimalScheme, Olivar, and varVAMP primer design runtimes.",
             sfSymbol: "lines.measurement.horizontal",
             packages: ["primer3", "primalscheme3", "olivar", "varvamp"],
             category: "Specialized Workflows",
@@ -617,7 +617,7 @@ public extension PluginPack {
                     ManagedToolLock.bundled,
                     packID: "pcr-primer-design",
                     id: "olivar",
-                    displayName: "OliVar",
+                    displayName: "Olivar",
                     executables: ["olivar"],
                     smokeTest: .command(
                         executable: "olivar",
