@@ -507,7 +507,10 @@ struct GenotypeMatrixContextMenuBuilder {
                 title: "Mark False Negative",
                 command: .markFalseNegative,
                 availability: capability.falseNegative,
-                keyEquivalent: "n",
+                // ⌥⌘X, not ⌥⌘N: ⌥⌘N is Window > New Window for Current
+                // Project, and the matrix's key-equivalent handler would
+                // pre-empt that menu item whenever the matrix had focus.
+                keyEquivalent: "x",
                 keyModifierRawValue: snapshot.keyModifierRawValue
             ),
             GenotypeMatrixContextMenuItemState(

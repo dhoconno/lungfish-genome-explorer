@@ -230,7 +230,9 @@ A multiple sequence alignment, meaning several sequences stacked so that matchin
 
 The genotype result window shows the alleles LGE [called](../../GLOSSARY.md#call) for each sample. With its quick filter search field focused, Escape clears the field.
 
-The comparison matrix inside that window, where each cell is one allele in one sample, takes four shortcuts, all of them holding Cmd and Opt together. Click a cell first. Cmd-Opt-P marks the selected cell a false positive, Cmd-Opt-N marks it a false negative, Cmd-Opt-R clears the review mark, and Cmd-Opt-M adds or edits a comment on the selection. These four also appear on the matrix's right-click menu.
+Four review commands live in the Tools menu under Genotype Review. They work once a sample is selected in the Review lens, or a call is selected in a MiSeq result, and stay greyed out otherwise. Cmd-R marks the sample reviewed, Cmd-K marks it confirmed, Cmd-Shift-F flags it for review, and Cmd-Shift-O opens its Sample Detail sheet.
+
+The comparison matrix inside that window, where each cell is one allele in one sample, takes four shortcuts, all of them holding Cmd and Opt together. Click a cell first. Cmd-Opt-P marks the selected cell a false positive, Cmd-Opt-X marks it a false negative, Cmd-Opt-R clears the review mark, and Cmd-Opt-M adds or edits a comment on the selection. These four also appear on the matrix's right-click menu.
 
 ## Inside a classifier result window
 
@@ -327,7 +329,7 @@ Sorted by the final key, letters and numbers first in alphabetical order with De
 | Cmd-Opt-M | Add or edit a comment | Genotype comparison matrix |
 | Cmd-N | New Project | File menu |
 | Cmd-Opt-N | New Window for Current Project | Window menu |
-| Cmd-Opt-N | Mark the cell a false negative | Genotype comparison matrix |
+| Cmd-Opt-X | Mark the cell a false negative | Genotype comparison matrix |
 | Cmd-Shift-N | New Folder | Sidebar right-click menu |
 | Cmd-O | Open Project Folder... | File menu |
 | Cmd-Opt-P | Mark the cell a false positive | Genotype comparison matrix |
