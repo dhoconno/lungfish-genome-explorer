@@ -1061,8 +1061,16 @@ extension AppDelegate {
 
     /// Starts a VCF import as an `OperationCenter` operation and returns its id, or `nil`
     /// if it was refused. See `performBAMImport`'s doc comment (FEA-05).
+    ///
+    /// `replaceTrackID` names an existing variant track this import replaces;
+    /// the caller has already confirmed that with the user (see
+    /// `importVCFToBundle`). Without it, the import adds a new track under a
+    /// unique id, so a second same-named VCF never overwrites the first one.
     @discardableResult
-    internal func performVCFImport(vcfURL: URL, bundleURL: URL, routeContext explicitRouteContext: OperationRouteContext? = nil) -> UUID? {
+    internal func performVCFImport(
+        vcfURL: URL, bundleURL: URL, routeContext explicitRouteContext: OperationRouteContext? = nil,
+        replaceTrackID: String? = nil
+    ) -> UUID? {
         let routeContext = explicitRouteContext ?? currentOperationRouteContext()
         guard canWriteProjectOutputs(
             projectURL: ProjectTempDirectory.findProjectRoot(bundleURL),
@@ -1081,14 +1089,28 @@ extension AppDelegate {
         let cancelFlag = OSAllocatedUnfairLock(initialState: false)
         let selectedImportProfile = selectedVCFImportProfile()
         let profileLabel = Self.importProfileLabel(selectedImportProfile)
-        let helperTrackID = VCFBundleVariantImport.trackID(forVCFURL: vcfURL)
+        // The track id is decided against the manifest up front, exactly as
+        // `lungfish-cli import vcf` does: a same-named VCF gets `calls-2`,
+        // and a replacement must name a track that exists.
+        let helperTrackID: String
+        do {
+            let manifest = try BundleManifest.load(from: bundleURL)
+            helperTrackID = try VCFBundleVariantImport.resolveTrackID(
+                forVCFURL: vcfURL, in: manifest, bundleURL: bundleURL, replacing: replaceTrackID)
+        } catch {
+            showAlert(title: "VCF Import Failed", message: error.localizedDescription,
+                      presentingWindow: targetMainWindowController(routeContext: routeContext)?.window)
+            return nil
+        }
         // FEA-12: `--vcf-import-helper` launches this same app executable as
         // a background worker and is not a `lungfish-cli` flag. Record the
         // runnable equivalent, `lungfish-cli import vcf <path> --output-dir
-        // <bundle.lungfishref> --import-profile <profile>`, which attaches
-        // through the same `VCFBundleVariantImport` core this import uses.
+        // <bundle.lungfishref> --import-profile <profile> [--replace <id>]`,
+        // which attaches through the same `VCFBundleVariantImport` core this
+        // import uses.
         let cliCmd: String? = VCFImportCLICommand.build(
-            vcfURL: vcfURL, bundleURL: bundleURL, importProfile: selectedImportProfile)
+            vcfURL: vcfURL, bundleURL: bundleURL, importProfile: selectedImportProfile,
+            replaceTrackID: replaceTrackID)
         let opID = OperationCenter.shared.start(
             title: "Importing \(vcfURL.lastPathComponent)",
             detail: "Importing VCF variants (\(profileLabel))...",

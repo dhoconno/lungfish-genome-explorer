@@ -21,8 +21,11 @@ public enum VCFBundleVariantImport {
 
     // MARK: - Naming
 
-    /// Track identifier: the file name with a trailing `.gz` and then `.vcf`
-    /// removed (`calls.vcf.gz` becomes `calls`).
+    /// Base track identifier: the file name with a trailing `.gz` and then
+    /// `.vcf` removed (`calls.vcf.gz` becomes `calls`). Two VCFs with the
+    /// same file name share this base, so an import into a bundle must use
+    /// ``resolveTrackID(forVCFURL:in:bundleURL:replacing:)``, which keeps
+    /// the id unique; this base alone is only the first candidate.
     public static func trackID(forVCFURL vcfURL: URL) -> String {
         var base = vcfURL
         if base.pathExtension.lowercased() == "gz" {
@@ -32,6 +35,73 @@ public enum VCFBundleVariantImport {
             base = base.deletingPathExtension()
         }
         return base.lastPathComponent
+    }
+
+    /// The track id an import into `manifest` will publish under.
+    ///
+    /// Without `replacing`, the id is ``trackID(forVCFURL:)`` when nothing
+    /// in the bundle uses it, else the first free `<base>-2`, `<base>-3`, ...
+    /// so importing a second `calls.vcf.gz` adds a second track instead of
+    /// silently replacing the first one's database, provenance sidecar and
+    /// manifest entry. "Used" means a manifest variant track with that id,
+    /// or a `variants/<id>.db` or `variants/<id>.lungfish-provenance.json`
+    /// already on disk (a track removed from the manifest whose files were
+    /// kept must not be overwritten either).
+    ///
+    /// With `replacing`, the caller asked for that exact track to be
+    /// replaced (`lungfish-cli import vcf --replace <track-id>`, or the
+    /// Import Center confirmation naming the track); the id must belong to
+    /// an existing variant track or ``Error/replaceTargetNotFound(trackID:available:)``
+    /// is thrown.
+    public static func resolveTrackID(
+        forVCFURL vcfURL: URL,
+        in manifest: BundleManifest,
+        bundleURL: URL,
+        replacing replaceTrackID: String? = nil
+    ) throws -> String {
+        let existingIDs = manifest.variants.map(\.id)
+        if let replaceTrackID {
+            let trimmed = replaceTrackID.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard existingIDs.contains(trimmed) else {
+                throw Error.replaceTargetNotFound(trackID: trimmed, available: existingIDs)
+            }
+            return trimmed
+        }
+        let base = trackID(forVCFURL: vcfURL)
+        let fileManager = FileManager.default
+        func isTaken(_ candidate: String) -> Bool {
+            if existingIDs.contains(candidate) { return true }
+            let databaseURL = bundleURL.appendingPathComponent(databaseRelativePath(trackID: candidate))
+            let provenanceURL = bundleURL.appendingPathComponent(provenanceRelativePath(trackID: candidate))
+            return fileManager.fileExists(atPath: databaseURL.path)
+                || fileManager.fileExists(atPath: provenanceURL.path)
+        }
+        if !isTaken(base) { return base }
+        var suffix = 2
+        while isTaken("\(base)-\(suffix)") { suffix += 1 }
+        return "\(base)-\(suffix)"
+    }
+
+    /// The manifest track a same-named import would collide with, so a front
+    /// end can offer "replace `<name>`" by id instead of guessing.
+    public static func existingTrack(forVCFURL vcfURL: URL, in manifest: BundleManifest) -> VariantTrackInfo? {
+        let base = trackID(forVCFURL: vcfURL)
+        return manifest.variants.first { $0.id == base }
+    }
+
+    public enum Error: Swift.Error, LocalizedError, Equatable, Sendable {
+        /// `--replace <track-id>` named a track the bundle does not have.
+        case replaceTargetNotFound(trackID: String, available: [String])
+
+        public var errorDescription: String? {
+            switch self {
+            case .replaceTargetNotFound(let trackID, let available):
+                let list = available.isEmpty
+                    ? "the bundle has no variant tracks"
+                    : "existing track ids: \(available.joined(separator: ", "))"
+                return "No variant track with id '\(trackID)' to replace (\(list))."
+            }
+        }
     }
 
     /// Default display name: the file name with only its last extension removed.
@@ -227,14 +297,20 @@ public enum VCFBundleVariantImport {
         public let trackName: String?
         public let importProfile: VCFImportProfile
         public let operationID: UUID
+        /// The id of an existing variant track this import replaces. `nil`
+        /// (the default) adds a new track under a unique id; see
+        /// ``resolveTrackID(forVCFURL:in:bundleURL:replacing:)``.
+        public let replaceTrackID: String?
 
         public init(vcfURL: URL, bundleURL: URL, trackName: String? = nil,
-                    importProfile: VCFImportProfile = .auto, operationID: UUID = UUID()) {
+                    importProfile: VCFImportProfile = .auto, operationID: UUID = UUID(),
+                    replaceTrackID: String? = nil) {
             self.vcfURL = vcfURL
             self.bundleURL = bundleURL
             self.trackName = trackName
             self.importProfile = importProfile
             self.operationID = operationID
+            self.replaceTrackID = replaceTrackID
         }
     }
 
@@ -272,7 +348,15 @@ public enum VCFBundleVariantImport {
     ) throws -> Result {
         let vcfURL = request.vcfURL
         let bundleURL = request.bundleURL
-        let trackID = trackID(forVCFURL: vcfURL)
+        // Decide the id against the manifest before any staging: a second
+        // `calls.vcf.gz` must land as `calls-2`, and `--replace` must name a
+        // track that exists, before a database is built.
+        let initialManifest = try BundleManifest.load(from: bundleURL)
+        let trackID = try resolveTrackID(
+            forVCFURL: vcfURL, in: initialManifest, bundleURL: bundleURL, replacing: request.replaceTrackID)
+        let replacedTrack = request.replaceTrackID == nil
+            ? nil
+            : initialManifest.variants.first { $0.id == trackID }
         let dbFilename = databaseFilename(trackID: trackID)
         let variantsDir = bundleURL.appendingPathComponent("variants")
         let finalDBURL = variantsDir.appendingPathComponent(dbFilename)
@@ -310,8 +394,12 @@ public enum VCFBundleVariantImport {
                     existingDBURL: dbURL, progressHandler: progressHandler, shouldCancel: shouldCancel)
             }
 
+            // A replacement keeps the replaced track's display name unless
+            // the caller renamed it; a new track takes the file-derived name.
             let trackInfo = makeTrackInfo(
-                trackID: trackID, vcfURL: vcfURL, trackName: request.trackName, variantCount: variantCount)
+                trackID: trackID, vcfURL: vcfURL,
+                trackName: request.trackName ?? replacedTrack?.name,
+                variantCount: variantCount)
             // Capture file ownership before reading the manifest the
             // replacement is built from.
             let filePublication = try makeFilePublication(bundleURL: bundleURL, trackID: trackID)

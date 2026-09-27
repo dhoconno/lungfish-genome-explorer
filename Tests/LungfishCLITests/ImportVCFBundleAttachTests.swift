@@ -184,18 +184,106 @@ final class ImportVCFBundleAttachTests: XCTestCase {
         )
     }
 
-    func testReattachReplacesTrackInsteadOfDuplicating() async throws {
+    /// Importing a second VCF with the same file name used to reuse the
+    /// file-derived track id and silently replace the first track's
+    /// database, provenance sidecar and manifest entry. It now adds a second
+    /// track under the next free id, and both stay readable.
+    func testSameNamedSecondImportAddsANewTrackInsteadOfReplacing() async throws {
+        let firstVCF = try fixtureVCF()
+        let secondDir = tempDir.appendingPathComponent("second-run", isDirectory: true)
+        try FileManager.default.createDirectory(at: secondDir, withIntermediateDirectories: true)
+        let secondVCF = secondDir.appendingPathComponent("test.vcf")
+        // Same file name, different content (one variant fewer) so the two
+        // tracks are distinguishable after import.
+        let lines = try String(contentsOf: firstVCF, encoding: .utf8).split(separator: "\n", omittingEmptySubsequences: false)
+        let lastRecordIndex = try XCTUnwrap(lines.lastIndex { !$0.isEmpty && !$0.hasPrefix("#") })
+        var trimmed = lines
+        trimmed.remove(at: lastRecordIndex)
+        try trimmed.joined(separator: "\n").write(to: secondVCF, atomically: true, encoding: .utf8)
+        let bundleURL = try makeReferenceBundle()
+
+        for vcf in [firstVCF, secondVCF] {
+            try await ImportCommand.VCFSubcommand.parse([vcf.path, "--output-dir", bundleURL.path, "--quiet"]).run()
+        }
+
+        let manifest = try BundleManifest.load(from: bundleURL)
+        XCTAssertEqual(manifest.variants.map(\.id), ["test", "test-2"])
+        XCTAssertEqual(manifest.variants.map(\.name), ["test", "test"], "display names still follow the file name")
+        XCTAssertEqual(manifest.variants.map(\.databasePath), ["variants/test.db", "variants/test-2.db"])
+        XCTAssertEqual(try VariantDatabase(url: bundleURL.appendingPathComponent("variants/test.db")).totalCount(), 9)
+        XCTAssertEqual(try VariantDatabase(url: bundleURL.appendingPathComponent("variants/test-2.db")).totalCount(), 8)
+        for id in ["test", "test-2"] {
+            XCTAssertTrue(FileManager.default.fileExists(
+                atPath: bundleURL.appendingPathComponent("variants/\(id).lungfish-provenance.json").path), id)
+        }
+
+        // A third same-named import takes the next free id; the bundle
+        // written by the earlier imports still loads unchanged.
+        try await ImportCommand.VCFSubcommand.parse([firstVCF.path, "--output-dir", bundleURL.path, "--quiet"]).run()
+        XCTAssertEqual(try BundleManifest.load(from: bundleURL).variants.map(\.id), ["test", "test-2", "test-3"])
+    }
+
+    /// `--replace <track-id>` is the only way to overwrite a track. It keeps
+    /// the replaced track's display name unless `--name` is given, records
+    /// the request in provenance, and refuses an id the bundle does not have.
+    func testReplaceRequiresAnExistingTrackIdAndReplacesOnlyThatTrack() async throws {
         let vcfURL = try fixtureVCF()
         let bundleURL = try makeReferenceBundle()
-        for _ in 0..<2 {
-            let command = try ImportCommand.VCFSubcommand.parse([
-                vcfURL.path, "--output-dir", bundleURL.path, "--quiet",
-            ])
-            try await command.run()
-        }
+        try await ImportCommand.VCFSubcommand.parse([
+            vcfURL.path, "--output-dir", bundleURL.path, "--name", "Round 1", "--quiet",
+        ]).run()
+        try await ImportCommand.VCFSubcommand.parse([vcfURL.path, "--output-dir", bundleURL.path, "--quiet"]).run()
+        XCTAssertEqual(try BundleManifest.load(from: bundleURL).variants.map(\.id), ["test", "test-2"])
+
+        try await ImportCommand.VCFSubcommand.parse([
+            vcfURL.path, "--output-dir", bundleURL.path, "--replace", "test", "--quiet",
+        ]).run()
         let manifest = try BundleManifest.load(from: bundleURL)
-        XCTAssertEqual(manifest.variants.map(\.id), ["test"])
+        XCTAssertEqual(manifest.variants.map(\.id), ["test-2", "test"], "the replaced track is re-appended, nothing else changes")
+        XCTAssertEqual(manifest.variants.first { $0.id == "test" }?.name, "Round 1")
         XCTAssertEqual(try VariantDatabase(url: bundleURL.appendingPathComponent("variants/test.db")).totalCount(), 9)
+        let provenance = try String(
+            contentsOf: bundleURL.appendingPathComponent("variants/test.lungfish-provenance.json"), encoding: .utf8)
+        XCTAssertTrue(provenance.contains("\"--replace\""), "the replay argv must carry --replace")
+        XCTAssertTrue(provenance.contains("\"replaceTrackId\""), provenance)
+
+        let bogus = try ImportCommand.VCFSubcommand.parse([
+            vcfURL.path, "--output-dir", bundleURL.path, "--replace", "missing", "--quiet",
+        ])
+        do {
+            try await bogus.run()
+            XCTFail("--replace with an unknown track id must fail")
+        } catch let exitCode as ExitCode {
+            XCTAssertEqual(exitCode, CLIExitCode.inputError.exitCode)
+        }
+        XCTAssertEqual(try BundleManifest.load(from: bundleURL).variants.map(\.id), ["test-2", "test"])
+        let leftovers = try FileManager.default.contentsOfDirectory(
+            atPath: bundleURL.appendingPathComponent("variants").path
+        ).filter { $0.hasPrefix(".import-") }
+        XCTAssertEqual(leftovers, [], "a refused --replace must not leave staging behind")
+    }
+
+    func testResolveTrackIDSkipsIdsWhoseFilesRemainOnDisk() throws {
+        let vcfURL = try fixtureVCF()
+        let bundleURL = try makeReferenceBundle()
+        let manifest = try BundleManifest.load(from: bundleURL)
+        XCTAssertEqual(
+            try VCFBundleVariantImport.resolveTrackID(forVCFURL: vcfURL, in: manifest, bundleURL: bundleURL), "test")
+        // A database left behind by a track that was removed from the
+        // manifest must not be overwritten either.
+        let variantsDir = bundleURL.appendingPathComponent("variants", isDirectory: true)
+        try FileManager.default.createDirectory(at: variantsDir, withIntermediateDirectories: true)
+        FileManager.default.createFile(atPath: variantsDir.appendingPathComponent("test.db").path, contents: Data())
+        XCTAssertEqual(
+            try VCFBundleVariantImport.resolveTrackID(forVCFURL: vcfURL, in: manifest, bundleURL: bundleURL), "test-2")
+        XCTAssertThrowsError(
+            try VCFBundleVariantImport.resolveTrackID(
+                forVCFURL: vcfURL, in: manifest, bundleURL: bundleURL, replacing: "test")
+        ) { error in
+            XCTAssertEqual(
+                error as? VCFBundleVariantImport.Error,
+                .replaceTargetNotFound(trackID: "test", available: []))
+        }
     }
 
     func testMissingBundleIsAnInputError() async throws {

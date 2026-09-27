@@ -42,6 +42,24 @@ final class VCFImportCLICommandTests: XCTestCase {
         XCTAssertNil(vcf.name)
     }
 
+    /// A replacement the user confirmed in the Import Center is recorded as
+    /// `--replace <track-id>`, so the copied command replaces the same track;
+    /// without it the CLI, like the GUI, adds a new track.
+    func testBuiltCommandRecordsConfirmedReplacement() throws {
+        let vcfURL = URL(fileURLWithPath: "/tmp/project/Imports/calls.vcf.gz")
+        let bundleURL = URL(fileURLWithPath: "/tmp/project/ref.lungfishref")
+
+        let adding = VCFImportCLICommand.build(vcfURL: vcfURL, bundleURL: bundleURL, importProfile: .auto)
+        XCTAssertFalse(adding.contains("--replace"))
+
+        let replacing = VCFImportCLICommand.build(
+            vcfURL: vcfURL, bundleURL: bundleURL, importProfile: .auto, replaceTrackID: "calls")
+        let parsed = try LungfishCLI.parseAsRoot(Array(shellSplit(replacing).dropFirst()))
+        let vcf = try XCTUnwrap(parsed as? ImportCommand.VCFSubcommand)
+        XCTAssertEqual(vcf.replace, "calls")
+        XCTAssertEqual(vcf.outputDir, bundleURL.path)
+    }
+
     /// Minimal POSIX-shell-style tokenizer sufficient for the single-quoted
     /// escaping `OperationCenter.buildCLICommand` produces.
     private func shellSplit(_ command: String) -> [String] {

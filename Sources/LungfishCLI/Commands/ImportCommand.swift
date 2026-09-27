@@ -544,8 +544,8 @@ extension ImportCommand {
                 ) else {
                     print(formatter.error(
                         "\(outputDir ?? outputDirectory.path) looks like a .lungfishref bundle path, but no bundle exists there yet. "
-                            + "`lungfish import bam` writes loose files into a plain directory; to attach an alignment to an existing "
-                            + "reference bundle, create the bundle first and use `lungfish bam adopt-mapping --bundle <bundle> --mapping-result <dir> --name <name>`."
+                            + "`lungfish-cli import bam` writes loose files into a plain directory; to attach an alignment to an existing "
+                            + "reference bundle, create the bundle first and use `lungfish-cli bam adopt-mapping --bundle <bundle> --mapping-result <dir> --name <name>`."
                     ))
                     throw CLIExitCode.inputError.exitCode
                 }
@@ -1080,6 +1080,17 @@ extension ImportCommand {
         )
         var importProfile: VCFImportProfile?
 
+        @Option(
+            name: .customLong("replace"),
+            help: ArgumentHelp(
+                "Replace the existing variant track with this id instead of adding a new track.",
+                discussion: "Without --replace, a VCF whose file name matches an existing track is added under "
+                    + "a new id (calls, calls-2, calls-3, ...); nothing is overwritten. "
+                    + "Use `bundle list <bundle> --tracks` to see track ids."
+            )
+        )
+        var replace: String?
+
         @OptionGroup var globalOptions: GlobalOptions
 
         func run() async throws {
@@ -1130,8 +1141,8 @@ extension ImportCommand {
                 )
                 return
             }
-            if name != nil || importProfile != nil {
-                print(formatter.error("--name and --import-profile apply only when --output-dir is an existing .lungfishref bundle."))
+            if name != nil || importProfile != nil || replace != nil {
+                print(formatter.error("--name, --import-profile and --replace apply only when --output-dir is an existing .lungfishref bundle."))
                 throw CLIExitCode.inputError.exitCode
             }
 
@@ -1255,7 +1266,8 @@ extension ImportCommand {
                 vcfURL: inputURL,
                 bundleURL: bundleURL,
                 trackName: name,
-                importProfile: profile
+                importProfile: profile,
+                replaceTrackID: replace
             )
             let result: VCFBundleVariantImport.Result
             do {
@@ -1269,6 +1281,11 @@ extension ImportCommand {
                         try Self.vcfAttachProvenance(context: context, command: command, startedAt: startedAt)
                     }
                 )
+            } catch let error as VCFBundleVariantImport.Error {
+                // `--replace` named a track the bundle does not have: a usage
+                // error, not a failed import.
+                print(formatter.error(error.localizedDescription))
+                throw CLIExitCode.inputError.exitCode
             } catch {
                 print(formatter.error("VCF attach failed: \(error.localizedDescription)"))
                 throw CLIExitCode.failure.exitCode
@@ -1298,6 +1315,9 @@ extension ImportCommand {
             }
             if let importProfile {
                 command += ["--import-profile", importProfile.rawValue]
+            }
+            if let replace {
+                command += ["--replace", replace]
             }
             if globalOptions.quiet {
                 command.append("--quiet")
@@ -1342,13 +1362,17 @@ extension ImportCommand {
                         "vcfPath": .file(request.vcfURL),
                         "bundlePath": .file(request.bundleURL),
                         "importProfile": .string(request.importProfile.rawValue),
-                    ],
+                    ].merging(
+                        request.replaceTrackID.map { ["replaceTrackId": .string($0)] } ?? [:],
+                        uniquingKeysWith: { _, new in new }
+                    ),
                     defaults: [
                         "trackName": .string(VCFBundleVariantImport.defaultTrackName(forVCFURL: request.vcfURL)),
                         "outputDirectory": .string("variants"),
                     ],
                     resolvedDefaults: [
                         "trackId": .string(context.trackInfo.id),
+                        "replacedExistingTrack": .boolean(request.replaceTrackID != nil),
                         "trackName": .string(context.trackInfo.name),
                         "variantCount": .integer(context.variantCount),
                         "databasePath": .string(VCFBundleVariantImport.databaseRelativePath(trackID: context.trackInfo.id)),

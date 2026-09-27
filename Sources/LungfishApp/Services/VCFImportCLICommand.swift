@@ -18,14 +18,19 @@ import LungfishKit
 /// helper path uses. The GUI never sets a custom track name, so `--name` is
 /// not recorded.
 enum VCFImportCLICommand {
-    static func build(vcfURL: URL, bundleURL: URL, importProfile: VCFImportProfile) -> String {
-        OperationCenter.buildCLICommand(
-            subcommand: "import vcf",
-            args: [
-                vcfURL.path,
-                "--output-dir", bundleURL.path,
-                "--import-profile", importProfile.rawValue,
-            ]
-        )
+    /// `replaceTrackID` records the `--replace <track-id>` the user confirmed
+    /// in the Import Center; without it the CLI, like the GUI, adds a new track.
+    static func build(
+        vcfURL: URL, bundleURL: URL, importProfile: VCFImportProfile, replaceTrackID: String? = nil
+    ) -> String {
+        var args = [
+            vcfURL.path,
+            "--output-dir", bundleURL.path,
+            "--import-profile", importProfile.rawValue,
+        ]
+        if let replaceTrackID {
+            args += ["--replace", replaceTrackID]
+        }
+        return OperationCenter.buildCLICommand(subcommand: "import vcf", args: args)
     }
 }

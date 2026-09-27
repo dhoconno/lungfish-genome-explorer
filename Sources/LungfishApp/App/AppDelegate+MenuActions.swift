@@ -300,6 +300,51 @@ extension AppDelegate {
         }
     }
 
+    /// Imports `vcfURL` into `bundleURL`, first asking what to do when the
+    /// bundle already has a variant track with the file's id. The default,
+    /// and the only behaviour without a confirmation, is to add a new track
+    /// under a unique id (`calls-2`); replacing is offered by name and runs
+    /// as `lungfish-cli import vcf --replace <track-id>` would.
+    private func importVCFIntoBundleConfirmingReplacement(
+        vcfURL: URL, bundleURL: URL, routeContext: OperationRouteContext?, window: NSWindow
+    ) {
+        let existingTrack: VariantTrackInfo?
+        do {
+            let manifest = try BundleManifest.load(from: bundleURL)
+            existingTrack = VCFBundleVariantImport.existingTrack(forVCFURL: vcfURL, in: manifest)
+        } catch {
+            showAlert(title: "VCF Import Failed", message: error.localizedDescription, presentingWindow: window)
+            return
+        }
+        guard let existingTrack else {
+            performVCFImport(vcfURL: vcfURL, bundleURL: bundleURL, routeContext: routeContext)
+            return
+        }
+
+        let alert = NSAlert()
+        alert.messageText = "A variant track named \u{201C}\(existingTrack.name)\u{201D} already exists"
+        alert.informativeText = "\(bundleURL.lastPathComponent) already has a variant track with id "
+            + "\u{201C}\(existingTrack.id)\u{201D} (\(existingTrack.variantCount) variants). "
+            + "Add \(vcfURL.lastPathComponent) as a new track, or replace \u{201C}\(existingTrack.name)\u{201D} "
+            + "with it? Replacing discards that track's database and provenance."
+        alert.addButton(withTitle: "Add as New Track")
+        alert.addButton(withTitle: "Replace \u{201C}\(existingTrack.name)\u{201D}")
+        alert.addButton(withTitle: "Cancel")
+        Task { @MainActor [weak self] in
+            let response = await alert.beginSheetModal(for: window)
+            switch response {
+            case .alertFirstButtonReturn:
+                self?.performVCFImport(vcfURL: vcfURL, bundleURL: bundleURL, routeContext: routeContext)
+            case .alertSecondButtonReturn:
+                self?.performVCFImport(
+                    vcfURL: vcfURL, bundleURL: bundleURL, routeContext: routeContext,
+                    replaceTrackID: existingTrack.id)
+            default:
+                debugLog("importVCFToBundle: User cancelled the same-named track prompt")
+            }
+        }
+    }
+
     @objc func importVCFToBundle(_ sender: Any?) {
         debugLog("importVCFToBundle: Menu action triggered")
 
@@ -341,7 +386,8 @@ extension AppDelegate {
             if let bundleURL {
                 // Existing bundle loaded — import into it (use first file for backward compat)
                 if let firstURL = selectedURLs.first {
-                    self?.performVCFImport(vcfURL: firstURL, bundleURL: bundleURL, routeContext: routeContext)
+                    self?.importVCFIntoBundleConfirmingReplacement(
+                        vcfURL: firstURL, bundleURL: bundleURL, routeContext: routeContext, window: window)
                 }
             } else {
                 // No bundle loaded — auto-ingest into a new naked bundle
