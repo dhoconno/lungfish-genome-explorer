@@ -962,7 +962,7 @@ extension VariantsCommand {
             let initialTrackName = normalizedOutputTrackName(fallback: resolvedCaller.displayName)
             let primerTrimAttestation = Self.resolveIvarPrimerTrimAttestation(
                 bundleURL: bundleURL,
-                alignmentTrackID: alignmentTrackID,
+                alignmentTrackID: resolvedAlignmentTrackID,
                 caller: resolvedCaller,
                 explicitlyConfirmed: ivarPrimerTrimConfirmed
             )
@@ -999,7 +999,7 @@ extension VariantsCommand {
                 )
                 let request = BundleVariantCallingRequest(
                     bundleURL: bundleURL,
-                    alignmentTrackID: alignmentTrackID,
+                    alignmentTrackID: resolvedAlignmentTrackID,
                     caller: resolvedCaller,
                     outputTrackName: finalTrackName,
                     threads: globalOptions.effectiveThreads,

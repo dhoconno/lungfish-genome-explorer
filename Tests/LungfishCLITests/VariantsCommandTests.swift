@@ -7,11 +7,19 @@ import ArgumentParser
 
 final class VariantsCommandTests: XCTestCase {
     private var tempDir: URL!
+    /// A bundle whose manifest names the `aln-1` track. `variants call`
+    /// resolves `--alignment-track` against the manifest before the runtime's
+    /// preflight runs, so the call tests point `--bundle` here.
+    private var callBundleURL: URL!
 
     override func setUpWithError() throws {
         tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("VariantsCommandTests-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        callBundleURL = try makeBundleOnDisk(
+            withPrimerTrimSidecar: false,
+            at: tempDir.appendingPathComponent("Call.lungfishref", isDirectory: true)
+        )
     }
 
     override func tearDownWithError() throws {
@@ -158,7 +166,7 @@ final class VariantsCommandTests: XCTestCase {
         let capture = CapturedVariantRequest()
         let command = try VariantsCommand.CallSubcommand.parse([
             "call",
-            "--bundle", tempDir.path,
+            "--bundle", callBundleURL.path,
             "--alignment-track", "aln-1",
             "--caller", "lofreq",
             "--advanced-options", #"--call-indels --tag "sample 1""#,
@@ -244,8 +252,8 @@ final class VariantsCommandTests: XCTestCase {
         XCTAssertFalse(unknownTrack.confirmed)
     }
 
-    private func makeBundleOnDisk(withPrimerTrimSidecar: Bool) throws -> URL {
-        let bundleURL = tempDir.appendingPathComponent("OnDisk.lungfishref", isDirectory: true)
+    private func makeBundleOnDisk(withPrimerTrimSidecar: Bool, at location: URL? = nil) throws -> URL {
+        let bundleURL = location ?? tempDir.appendingPathComponent("OnDisk.lungfishref", isDirectory: true)
         let bamURL = bundleURL.appendingPathComponent("alignments/sample.sorted.bam")
         try FileManager.default.createDirectory(at: bamURL.deletingLastPathComponent(), withIntermediateDirectories: true)
         try Data("bam".utf8).write(to: bamURL)
@@ -290,7 +298,7 @@ final class VariantsCommandTests: XCTestCase {
         let capture = CapturedVariantRequest()
         let command = try VariantsCommand.CallSubcommand.parse([
             "call",
-            "--bundle", tempDir.path,
+            "--bundle", callBundleURL.path,
             "--alignment-track", "aln-1",
             "--caller", "bcftools",
             "--extra-args", "-P 0.001",
@@ -311,7 +319,7 @@ final class VariantsCommandTests: XCTestCase {
         let capture = CapturedVariantRequest()
         let command = try VariantsCommand.CallSubcommand.parse([
             "call",
-            "--bundle", tempDir.path,
+            "--bundle", callBundleURL.path,
             "--alignment-track", "aln-1",
             "--caller", "bcftools",
             "--ploidy", "2",
@@ -329,7 +337,7 @@ final class VariantsCommandTests: XCTestCase {
     func testCallSubcommandRejectsPloidyInExtraArgsForBcftools() async throws {
         let command = try VariantsCommand.CallSubcommand.parse([
             "call",
-            "--bundle", tempDir.path,
+            "--bundle", callBundleURL.path,
             "--alignment-track", "aln-1",
             "--caller", "bcftools",
             "--extra-args", "--ploidy 1",
@@ -349,7 +357,7 @@ final class VariantsCommandTests: XCTestCase {
         let runtime = try makeRuntime(onPreflight: { _ in })
 
         let badValue = try VariantsCommand.CallSubcommand.parse([
-            "call", "--bundle", tempDir.path, "--alignment-track", "aln-1",
+            "call", "--bundle", callBundleURL.path, "--alignment-track", "aln-1",
             "--caller", "bcftools", "--ploidy", "3", "--format", "json",
         ])
         do {
@@ -360,7 +368,7 @@ final class VariantsCommandTests: XCTestCase {
         }
 
         let wrongCaller = try VariantsCommand.CallSubcommand.parse([
-            "call", "--bundle", tempDir.path, "--alignment-track", "aln-1",
+            "call", "--bundle", callBundleURL.path, "--alignment-track", "aln-1",
             "--caller", "lofreq", "--ploidy", "2", "--format", "json",
         ])
         do {
@@ -375,7 +383,7 @@ final class VariantsCommandTests: XCTestCase {
         let capture = CapturedVariantRequest()
         let command = try VariantsCommand.CallSubcommand.parse([
             "call",
-            "--bundle", tempDir.path,
+            "--bundle", callBundleURL.path,
             "--alignment-track", "aln-1",
             "--caller", "clair3",
             "--medaka-model", "r1041_e82_400bps_sup_v5.0.0",
@@ -397,7 +405,7 @@ final class VariantsCommandTests: XCTestCase {
         let capture = CapturedVariantRequest()
         let command = try VariantsCommand.CallSubcommand.parse([
             "call",
-            "--bundle", tempDir.path,
+            "--bundle", callBundleURL.path,
             "--alignment-track", "aln-1",
             "--caller", "clair3",
             "--platform", "hifi",
@@ -416,7 +424,7 @@ final class VariantsCommandTests: XCTestCase {
     func testCallSubcommandRejectsUnknownPlatformAndPlatformForShortReadCallers() async throws {
         let unknown = try VariantsCommand.CallSubcommand.parse([
             "call",
-            "--bundle", tempDir.path,
+            "--bundle", callBundleURL.path,
             "--alignment-track", "aln-1",
             "--caller", "clair3",
             "--platform", "iontorrent",
@@ -432,7 +440,7 @@ final class VariantsCommandTests: XCTestCase {
 
         let wrongCaller = try VariantsCommand.CallSubcommand.parse([
             "call",
-            "--bundle", tempDir.path,
+            "--bundle", callBundleURL.path,
             "--alignment-track", "aln-1",
             "--caller", "lofreq",
             "--platform", "ont",
@@ -551,7 +559,7 @@ final class VariantsCommandTests: XCTestCase {
     func testCallSubcommandKeepsAdvancedOptionsAliasForExistingScripts() throws {
         let command = try VariantsCommand.CallSubcommand.parse([
             "call",
-            "--bundle", tempDir.path,
+            "--bundle", callBundleURL.path,
             "--alignment-track", "aln-1",
             "--caller", "bcftools",
             "--advanced-options", "--ploidy 1",
@@ -564,7 +572,7 @@ final class VariantsCommandTests: XCTestCase {
     func testCallSubcommandEmitsRunCompleteJSON() async throws {
         let command = try VariantsCommand.CallSubcommand.parse([
             "call",
-            "--bundle", tempDir.path,
+            "--bundle", callBundleURL.path,
             "--alignment-track", "aln-1",
             "--caller", "lofreq",
             "--format", "json",
@@ -581,7 +589,7 @@ final class VariantsCommandTests: XCTestCase {
     func testImportCompleteJSONOmitsTransientDatabasePath() async throws {
         let command = try VariantsCommand.CallSubcommand.parse([
             "call",
-            "--bundle", tempDir.path,
+            "--bundle", callBundleURL.path,
             "--alignment-track", "aln-1",
             "--caller", "lofreq",
             "--format", "json",
@@ -615,6 +623,7 @@ final class VariantsCommandTests: XCTestCase {
             .appendingPathComponent("Project With Spaces.lungfish", isDirectory: true)
             .appendingPathComponent("Downloads", isDirectory: true)
             .appendingPathComponent("NC_045512.lungfishref", isDirectory: true)
+        _ = try makeBundleOnDisk(withPrimerTrimSidecar: false, at: spacedBundleURL)
         let command = try VariantsCommand.CallSubcommand.parse([
             "call",
             "--bundle", spacedBundleURL.path,
@@ -640,7 +649,7 @@ final class VariantsCommandTests: XCTestCase {
     func testCallSubcommandEmitsRunFailedJSON() async throws {
         let command = try VariantsCommand.CallSubcommand.parse([
             "call",
-            "--bundle", tempDir.path,
+            "--bundle", callBundleURL.path,
             "--alignment-track", "aln-1",
             "--caller", "medaka",
             "--format", "json",
