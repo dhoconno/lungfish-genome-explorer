@@ -3,7 +3,7 @@ title: Exporting as Nextflow or Snakemake
 chapter_id: 08-workflows/02-exporting-as-nextflow-or-snakemake
 audience: analyst
 prereqs: [01-foundations/08-provenance-and-reproducibility]
-estimated_reading_min: 10
+estimated_reading_min: 11
 task: Export one artifact's recorded history as a Nextflow pipeline, a Snakemake workflow, a script, a methods draft, or raw JSON.
 tags: [workflows, export, nextflow, snakemake, methods, provenance]
 tools: [nextflow, snakemake]
@@ -21,13 +21,13 @@ shots:
   - id: export-provenance-complete-alert
     caption: "The Provenance Export Complete alert, with its OK and Show in Finder buttons."
   - id: provenance-export-folder
-    caption: "The exported provenance folder open in Finder, with the primary artifact beside the provenance subdirectory of copied run records."
+    caption: "The exported provenance folder open in Finder, with main.nf, nextflow.config, and the containers folder beside the provenance subdirectory of copied run records."
   - id: nextflow-export-main-nf
-    caption: "The generated main.nf open in TextEdit, showing the process blocks for the selected chr20 reference bundle's import, bgzip, and samtools steps."
+    caption: "The generated main.nf of the minimap2 mapping result open in TextEdit, showing the params lines and the process blocks from the reference and read imports through MINIMAP2_6 and the samtools steps."
 illustrations: []
-glossary_refs: [bam, checksum, container, methods-export, nextflow, provenance, provenance-sidecar, reproducibility, samtools, snakemake, workflow-engine]
+glossary_refs: [bam, checksum, container, methods-export, nextflow, provenance, provenance-sidecar, reproducibility, samtools, snakemake, workflow-engine, demo-project]
 features_refs: []
-fixtures_refs: [demo-project]
+fixtures_refs: [hg002-chr20]
 brand_reviewed: false
 lead_approved: false
 ---
@@ -36,7 +36,7 @@ lead_approved: false
 
 Lungfish Genome Explorer (LGE) writes a [provenance](../../GLOSSARY.md#provenance) record beside every result, holding the command, the tool version, and a [checksum](../../GLOSSARY.md#checksum) of each file, and [Provenance and Reproducibility](../01-foundations/08-provenance-and-reproducibility.md#reading-the-results) shows how to read it. This chapter turns that record into something a person outside LGE can read or run.
 
-The **File > Export > Provenance** submenu offers six targets. The first four can be run, and the last two are for reading. Each writes a folder rather than a single file. The Nextflow and Snakemake files need editing before they run, as [What good looks like](#what-good-looks-like) notes.
+The **File > Export > Provenance** submenu offers six targets, four that transcribe the run as something to run and two for reading. Each writes a folder rather than a single file.
 
 | Target | Main file written | Best for |
 |---|---|---|
@@ -49,9 +49,9 @@ The **File > Export > Provenance** submenu offers six targets. The first four ca
 
 A shell script is a plain text file of terminal commands run top to bottom. [Nextflow](../../GLOSSARY.md#nextflow) and [Snakemake](../../GLOSSARY.md#snakemake) are [workflow engines](../../GLOSSARY.md#workflow-engine), programs that run a pipeline of tools in order on one computer or on a cluster, a shared set of computers a lab or university submits large jobs to.
 
-The export covers one artifact, meaning one file or bundle a tool made, not the whole project. LGE collects every earlier step that fed into the artifact you select, stopping at a file nothing in the project produced, such as an imported FASTQ.
+The export covers one artifact, meaning one file or bundle a tool made, not the whole project. LGE collects every earlier step that fed into the artifact you select, back through the imports that brought the first files into the project.
 
-The Nextflow and Snakemake files are faithful records of what ran rather than portable pipelines. They carry the absolute file paths of the machine that ran them, and they need editing by somebody who knows the engine before they run on a second machine.
+Every target is a faithful record of what ran rather than a portable pipeline. The commands carry the absolute file paths of the machine that ran them, so they need their paths edited before they run anywhere else. The Nextflow and Snakemake files need more than that, as [What good looks like](#what-good-looks-like) explains.
 
 ## Why you would do this
 
@@ -63,7 +63,7 @@ The same holds when a journal asks for the analysis behind a figure, when a manu
 
 You need a project open, as [The Lungfish Genome Explorer Project](../01-foundations/06-the-lungfish-project.md#procedure) shows.
 
-This chapter uses the demo-project fixture. Build it from the instructions in the [demo-project folder](https://github.com/dhoconno/lungfish-genome-explorer/tree/v2026.9.40/docs/user-manual/fixtures/demo-project), as [Practice data for this manual](../01-foundations/06-the-lungfish-project.md#practice-data-for-this-manual) explains. The example is the project's `Analyses/mapping-HG002` run, which mapped human reads, placing each one at its position on the genome, from a short stretch of HG002 chromosome 20 to the same stretch of the human reference genome with minimap2, a read-mapping tool, and then processed the alignment with [samtools](../../GLOSSARY.md#samtools). HG002 is a well-characterised human genome used for reference datasets. Any finished run in your own project works the same way.
+Open the Human Mapping and Variants (with results) [demo project](../../GLOSSARY.md#demo-project) with **Help > Demo Projects…**, as [Demo projects](../01-foundations/06-the-lungfish-project.md#demo-projects) explains. It holds a finished mapping result, `minimap2-2026-09-25T00-00-00` under `Analyses`. That run placed the HG002 reads from a half-megabase slice of human chromosome 20 on the matching slice of the human reference with minimap2, a read-mapping tool, then sorted and indexed the alignment with [samtools](../../GLOSSARY.md#samtools). HG002 is a human genome from the Genome in a Bottle project whose true sequence is already known. A mapping you ran yourself in [Mapping Reads to a Reference](../04-alignments/01-mapping-reads-to-a-reference.md) works the same way, under its own `minimap2-<timestamp>` name.
 
 The artifact must have a recorded history. LGE records provenance for files a tool operation made, so a mapping result or an assembly qualifies, and a FASTA you dragged in does not. An artifact with no history produces a **No Provenance Available** alert instead of a save panel, so select a different artifact.
 
@@ -71,29 +71,29 @@ Nothing needs installing to export. Reading an export needs only a text editor. 
 
 ## Procedure
 
-The walkthrough exports the HG002 mapping run as a Nextflow pipeline. Only the menu item changes for the other five targets.
+The walkthrough exports the HG002 mapping result as a Nextflow pipeline. Only the menu item changes for the other five targets.
 
-### 1. Select the artifact whose history you want
+### Select the artifact whose history you want
 
-Expand the `Analyses` folder in the sidebar and select `mapping-HG002`, or click it so it shows in the viewport, the main display area. LGE looks at the visible viewport first and the sidebar selection second. When nothing is selected, LGE falls back to the most recently finished run, so select deliberately.
+Click `minimap2-2026-09-25T00-00-00` under `Analyses` in the sidebar, so it shows in the viewport, the main display area. LGE looks at the visible viewport first and the sidebar selection second. When nothing is selected, LGE falls back to the most recently finished run, so select deliberately.
 
-### 2. Choose the target from the menu
+### Choose the target from the menu
 
 Choose **File > Export > Provenance > Nextflow Pipeline...**. The six targets appear in the order of the table above, with a separator after the fourth.
 
 <!-- SHOT: export-provenance-submenu -->
 
-The Inspector offers the same export. Its Provenance section has an **Export** button in its header, which is the route to use when a reference bundle carries variant tracks, lists of where samples differ from the reference, and you want the record of one track rather than of the whole bundle.
+The Inspector offers the same export. Its Provenance section has an **Export** button in its header, which is the route to use when a reference bundle carries variant tracks and you want the record of one track rather than of the whole bundle. A variant track is a list of where a sample differs from the reference, attached to the bundle.
 
-### 3. Name the folder and save it
+### Name the folder and save it
 
-A save panel titled **Export Provenance** appears, reading "Choose a folder name for the exported reproducibility package." Its name arrives as `<artifact>-provenance-<format>`, here `mapping-HG002-provenance-nextflow`. Choose a location outside the project, such as the Desktop, and click **Save**.
+A save panel titled **Export Provenance** appears, reading "Choose a folder name for the exported reproducibility package." Its Save As name arrives as `<artifact>-provenance-<format>`, here `minimap2-2026-09-25T00-00-00-provenance-nextflow`, and the format in the name keeps two exports of one artifact from colliding. Choose a location outside the project in the panel's Where menu, such as the Desktop, and click **Save**.
 
 <!-- SHOT: export-provenance-save-panel -->
 
-The format in the name keeps two exports of one artifact from colliding. If a folder of the same name already exists where you save, LGE writes into it and replaces the records it copies, so choose a new name to keep an earlier export intact. If a file of that name exists, LGE refuses the export and names the path.
+If a folder of the same name already exists where you save, LGE writes into it and replaces the records it copies, so choose a new name to keep an earlier export intact. If a file of that name exists, LGE refuses the export and names the path.
 
-### 4. Open the folder
+### Open the folder
 
 A **Provenance Export Complete** alert names the target and the file it wrote, with **OK** and **Show in Finder** buttons. Click **Show in Finder** to open the folder.
 
@@ -101,42 +101,47 @@ A **Provenance Export Complete** alert names the target and the file it wrote, w
 
 <!-- SHOT: provenance-export-folder -->
 
-Send the whole folder, compressed into a zip archive. A script pulled out on its own is unlikely to run, because it reads the records beside it. If your collaborator also runs LGE, you can skip the export and hand over the `.lungfish` project itself.
+Send the whole folder, compressed into a zip archive. A script pulled out on its own loses the records beside it that back every claim it makes. If your collaborator also runs LGE, you can skip the export and hand over the `.lungfish` project itself.
 
 ## Settings
 
-**Provenance.** Chooses what the export renders from the selected artifact's history, offering Shell Script..., Python Script..., Nextflow Pipeline..., Snakemake Workflow..., Methods Section..., and Full Provenance (JSON).... There is no default, because you pick a target from the submenu. Pick what the reader needs, a runnable transcription for a collaborator, a methods draft for a manuscript, or the raw JSON for a reviewer. On the command line this is `--format`, with the values `shell`, `python`, `nextflow`, `snakemake`, `methods`, and `json`.
+**Provenance.** Chooses what the export renders from the selected artifact's history, offering Shell Script..., Python Script..., Nextflow Pipeline..., Snakemake Workflow..., Methods Section..., and Full Provenance (JSON).... There is no default, because you pick a target from the submenu. Pick what the reader needs, a transcription to run for a collaborator, a methods draft for a manuscript, or the raw JSON for a reviewer. On the command line this is `--format`, with the values `shell`, `python`, `nextflow`, `snakemake`, `methods`, and `json`.
 
-**Save As.** Names the folder that receives the export. The default is the artifact name, `-provenance-`, and the format, so successive exports of one artifact do not collide. Change it when several exports of one artifact and format need telling apart, such as before and after a reanalysis. On the command line `--output` takes this name and the location below as one path.
+**Save As.** Names the export folder in the save panel. The default is the artifact name, `-provenance-`, and the format, so successive exports of one artifact do not collide. Change it to tell apart two exports of one artifact and format, such as before and after a reanalysis. On the command line this is the last part of the `--output` path.
 
-**Where.** Chooses where the export folder is created, opening at the save panel's last location. Keep the export outside the project, apart from the data it describes. Choose a place you can share, such as a repository checkout, when the export goes to a collaborator. On the command line this is the folder part of the `--output` path.
+**Where.** Chooses the folder the export is saved into, opening at the save panel's last location. Keep the export outside the project, apart from the data it describes. Choose a shared place, such as a repository checkout, when the export goes to a collaborator. On the command line this is the folder part of the `--output` path.
 
 ## Reading the results
 
 ### What the export folder holds
 
-Every export folder carries a `provenance/` subfolder beside the main file, and it is worth opening first, because it is correct whichever target you chose. It holds a fresh sidecar for the export itself and, under `provenance/source/`, the sidecars of every earlier step that fed into the artifact. Records from outside the export's own folder land under `provenance/source/external/` with their original path rebuilt as folders. The Nextflow export of the mapping run lays out like this.
+Every export folder carries a `provenance/` subfolder beside the main file, and it is worth opening first, because it is correct whichever target you chose. It holds a fresh sidecar for the export itself and, under `provenance/source/`, the sidecars of every earlier step that fed into the artifact, including those of the reference bundle inside the mapping result and its variant tracks. Records that the history names by a path outside the result's own folder, such as the imports, land under `provenance/source/external/` with their original path rebuilt as folders. The Nextflow export of the mapping result lays out like this.
 
 ```text
-mapping-HG002-provenance-nextflow/
+minimap2-2026-09-25T00-00-00-provenance-nextflow/
   main.nf
   nextflow.config
   containers/manifest.json
   provenance/
+    .lungfish-provenance.json
     source/
+      .lungfish-provenance.json
       mapping-provenance.json
-      external/Users/.../mapping-HG002/
+      GRCh38.chr20.10.0-10.5Mb.lungfishref/
+      external/
 ```
 
 The fields inside each sidecar are listed in [Provenance sidecars](../appendices/file-formats.md#provenance-sidecars).
 
 ### What each target file holds
 
-| File | What it holds on the HG002 mapping run |
+Three terms appear in the table. A conda environment is the private folder a tool is installed into, an image is a packaged copy of a tool that a [container](../../GLOSSARY.md#container) runs, and an image digest is a fingerprint of one exact build of that image.
+
+| File | What it holds on the HG002 mapping result |
 |---|---|
-| `main.nf` | A header naming the run, LGE version, start time, host, and user. One `params` line per file read or written, named from the file name. One process per recorded step, here `MINIMAP2_1` and `SAMTOOLS_2` to `SAMTOOLS_5`, each with a comment naming the tool, its version, and the step's duration, then the exact command. |
+| `main.nf` | A header naming the run, the LGE version, start time, host, and user. One `params` line per file read or written, named from the file name. One process per recorded step, here ten, from `LUNGFISH_IMPORT_FASTA_1`, `BGZIP_2`, and `SAMTOOLS_3` for the reference import, through `CLUMPIFYSH_4` and `LUNGFISH_IMPORT_FASTQ_5` for the read import, to `MINIMAP2_6` and `SAMTOOLS_7` to `SAMTOOLS_10` for the mapping. Each carries a comment naming the tool, its version, and the step's duration, then the exact command. |
 | `nextflow.config` | An `errorStrategy = 'terminate'` line and `docker.enabled = true`, with no cluster settings. |
-| `containers/manifest.json` | The tool, version, image, and image digest for each step that ran in a [container](../../GLOSSARY.md#container). An empty list here, because every tool came from a conda environment. |
+| `containers/manifest.json` | The tool, version, image, and image digest for each step that ran in a container. An empty list here, because every tool came from a conda environment. |
 | `Snakefile` | The same header, a usage comment `snakemake --cores 8 --use-singularity`, a `rule all` naming the final outputs, and one rule per step with its log under `logs/`. |
 | `config.yaml` | The same file-name keys as the Nextflow parameters, mapped to the recorded paths, plus `outdir: results`. |
 | `run.sh` | `set -euo pipefail`, one `INPUT_n` variable per input with its SHA-256 checksum, `OUTDIR`, and each command in order with its tool version. |
@@ -146,11 +151,11 @@ The fields inside each sidecar are listed in [Provenance sidecars](../appendices
 
 <!-- SHOT: nextflow-export-main-nf -->
 
-Nextflow reads files through `params`, named inputs a user can override, and Snakemake builds everything the `rule all` names. A conda environment is the private folder a tool is installed into, an image is a packaged copy of a tool, and its digest is a fingerprint of one exact build. Parameter names come from file names rather than roles, so nothing in `params.grch38_chr20_10_0_10_5mb_fasta` announces that it is the reference. Read the file before you override a parameter. A version comment reads like `minimap2 2.31 (managed conda environment minimap2; executable minimap2; root /Users/.../.lungfish/conda)`, where the dots stand for the account name of whoever ran the analysis.
+The `docker.enabled = true` line and the `--use-singularity` usage comment are the engines' standard boilerplate. They do nothing when the container manifest is empty, as it is here, so they are not a sign the export is wrong.
 
-A collaborator redirects one input in a Snakemake export by overriding its key, as in `snakemake --cores 8 --config grch38_chr20_10_0_10_5mb_fasta=/data/GRCh38.chr20.fasta`.
+Nextflow reads files through `params`, named inputs a user can override, and Snakemake builds everything the `rule all` names. Parameter names come from file names rather than roles, so nothing in `params.grch38_chr20_10_0_10_5mb_fasta` announces that it is the reference. Read the file before you override a parameter. A version comment reads like `minimap2 2.31 (managed conda environment minimap2; executable minimap2; root /Users/.../.lungfish/conda)`, where the dots stand for the account name of whoever ran the analysis. A collaborator redirects one input in a Snakemake export by overriding its key, as in `snakemake --cores 8 --config grch38_chr20_10_0_10_5mb_fasta=/data/GRCh38.chr20.fasta`.
 
-The methods draft needs editing. On the HG002 run it names samtools in four nearly identical sentences because four samtools steps ran.
+The methods draft needs editing. On the HG002 result it names samtools in five nearly identical sentences, one for the reference import and four for the mapping, because five samtools steps ran.
 
 A run made only of steps that copy a saved subset of reads out again emits a single `REPLAY_RETAINED_SELECTION` process instead of one per step, with a comment saying it does not rerun the upstream analysis.
 
@@ -158,24 +163,26 @@ A run made only of steps that copy a saved subset of reads out again emits a sin
 
 Check three things before you send an export.
 
-1. The `provenance/` folder is populated. It is what backs any claim you make about the run.
-2. The tool versions and input file names look right, and none reads `unknown`, which is what LGE writes when it never recorded a version. The HG002 run has none.
-3. If the recipient will run a Nextflow or Snakemake export, have it checked by its own engine first. The Nextflow export fails Nextflow's check and the Snakemake export fails Snakemake's. This is a known defect, listed with its workaround in [Known defects in this release](../appendices/troubleshooting.md#known-defects-in-this-release).
+The `provenance/` folder is populated. It is what backs any claim you make about the run.
 
-The Methods Section, Full Provenance, and Shell Script targets are ready to use as written.
+The tool versions and input file names look right, and none reads `unknown`, which is what LGE writes when it never recorded a version. The HG002 result has none.
+
+If the recipient will run a Nextflow or Snakemake export, have it checked by its own engine first. The Nextflow export fails Nextflow's check, which stops at the calls that link the steps, and the Snakemake export fails Snakemake's, which finds two rules claiming the same output. This is a known defect, listed with its workaround in [Known defects in this release](../appendices/troubleshooting.md#known-defects-in-this-release). The Methods Section and Full Provenance targets are ready to use as written. The Shell Script and Python Script targets run once their paths point at files on the recipient's machine.
 
 ## On the command line
 
-This section is optional, and nothing later in this manual needs it. The `lungfish-cli` program ships inside LGE, and [Finding the program](../appendices/cli-reference.md#finding-the-program) shows how to run it.
+The block follows the convention in [Reading an On the command line block](../01-foundations/06-the-lungfish-project.md#reading-a-command-line-block), and [Projects, provenance, and run history](../appendices/cli-reference.md#projects-provenance-and-run-history) in the CLI Reference lists every flag of `provenance export`.
 
 ```bash
-lungfish-cli provenance export ./Analyses/mapping-HG002 \
+PROJECT="$HOME/Documents/LGE Demo Projects/Human Mapping and Variants (with results).lungfish"
+
+lungfish-cli provenance export "$PROJECT/Analyses/minimap2-2026-09-25T00-00-00" \
   --format nextflow \
-  --output ./mapping-HG002-provenance-nextflow
+  --output "$HOME/Desktop/minimap2-2026-09-25T00-00-00-provenance-nextflow"
 ```
 
 The input can be a sidecar file, a bundle, or a result folder. The command prints each record it copied, which shows the chain of earlier steps the export captured. `run.sh` and `reproduce.py` arrive already marked as programs, so `./run.sh` starts one without a `chmod` first.
 
 ## Next
 
-Continue to [Running External Workflows](03-running-external-workflows.md), which runs a pipeline written outside LGE.
+Continue to [Running External Workflows](03-running-external-workflows.md), which goes the other way and runs a pipeline written outside LGE on data in your project.

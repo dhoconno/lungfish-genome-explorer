@@ -15,15 +15,15 @@ entry_points:
   - "CLI: lungfish-cli fetch sra info <accession>"
 shots:
   - id: sra-runs-pane
-    caption: "The Search Online Databases dialog on its SRA Runs pane, with the Import Accessions button above the query field and the Advanced Search Filters panel expanded to show Platform, Strategy, Layout, Min Size (Mbases), Publication Date, and Max Results."
+    caption: "The Search Online Databases dialog on its SRA Runs pane, with the Import Accessions button above the query field, the scope popup reading Accession, and the Advanced Search Filters panel expanded to show Platform, Strategy, Layout, Min Size (Mbases), Publication Date, and Max Results."
   - id: sra-results-download-selected
-    caption: "The results list with the SRR32909537 run ticked and the dialog's primary button at the bottom of the window reading Download Selected instead of Search."
+    caption: "The results list with the SRR36291587 run ticked and the dialog's primary button at the bottom of the window reading Download Selected instead of Search."
   - id: sra-bundle-in-sidebar
-    caption: "The downloaded SRR32909537 read bundle under the project's Imports folder in the sidebar, open in the FASTQ viewport."
+    caption: "The downloaded SRR36291587 read bundle under the project's Imports folder in the sidebar, open in the FASTQ viewport."
 illustrations: []
-glossary_refs: [sra, ena, fastq, accession, run-accession, library-strategy, library-layout, operations-panel, project, bundle, provenance, provenance-sidecar, checksum, paired-end, amplicon, primer-scheme, shotgun, insdc, mitochondrial-genome, required-setup-pack, inspector]
+glossary_refs: [sra, ena, fastq, accession, run-accession, library-strategy, library-layout, operations-panel, project, bundle, provenance, provenance-sidecar, checksum, paired-end, amplicon, primer-scheme, shotgun, insdc, required-setup-pack, inspector, read, mate]
 features_refs: [fetch.sra, fetch.ena]
-fixtures_refs: []
+fixtures_refs: [sarscov2-srr36291587, kraken-protocol-cornea]
 brand_reviewed: false
 lead_approved: false
 ---
@@ -36,10 +36,10 @@ The archive files its data under four levels of [accession](../../GLOSSARY.md#ac
 
 | Level | Prefix | What it names | This chapter's example |
 |---|---|---|---|
-| Study | `SRP`, or `PRJNA` in NCBI's BioProject numbering | Every experiment in one piece of research | `SRP573913`, also filed as `PRJNA1243402` |
-| Sample | `SRS`, with a matching BioSample number beginning `SAMN` | The biological material that went into the tube | `SRS24535949`, also filed as `SAMN47626540` |
-| Experiment | `SRX` | One library on one sequencing platform | `SRX28184639` |
-| Run | `SRR`, `ERR`, or `DRR` | One pass of that library through one instrument | `SRR32909537` |
+| Study | `SRP`, or `PRJNA` in NCBI's BioProject numbering | Every experiment in one piece of research | `SRP580701`, also filed as `PRJNA1254281` |
+| Sample | `SRS`, with a matching BioSample number beginning `SAMN` | The biological material that went into the tube | `SRS27297493`, also filed as `SAMN53624338` |
+| Experiment | `SRX` | One library on one sequencing platform | `SRX31324220` |
+| Run | `SRR`, `ERR`, or `DRR` | One pass of that library through one instrument | `SRR36291587` |
 
 A library here is one prepared pool of DNA fragments ready for the instrument, not a cloned collection. The three run prefixes record only which partner archive took the deposit, NCBI in the United States, the European archive, or the Japanese one, and say nothing about the data itself. LGE downloads at the [run accession](../../GLOSSARY.md#run-accession) level, because a run is what produces sequencing files. [FASTQ](../../GLOSSARY.md#fastq) is the read file format [Importing Sequencing Reads](01-importing-fastq.md) introduces.
 
@@ -51,33 +51,33 @@ So download a published run whenever you need someone else's reads, and treat th
 
 Two situations send you to the archive. You want to reproduce a published analysis, and the reads behind it carry a run accession printed in the paper. Or you want a known dataset to test a workflow on before you spend your own samples on it.
 
-This chapter downloads `SRR32909537`, a human run that targets the [mitochondrial genome](../../GLOSSARY.md#mitochondrial-genome), the small circular genome carried inside mitochondria rather than in the nucleus. It is an amplicon run. An [amplicon](../../GLOSSARY.md#amplicon) protocol copies the target in overlapping PCR pieces, and its [primer scheme](../../GLOSSARY.md#primer-scheme) lists where each primer binds, as [Amplicons and Shotgun Sequencing](../01-foundations/03-amplicon-vs-shotgun.md#amplicon-sequencing) explains. A [shotgun](../../GLOSSARY.md#shotgun) library is made from DNA broken at random, so reads land anywhere on the genome.
+This chapter downloads `SRR36291587`, a SARS-CoV-2 run from a clinical swab, prepared with the QIAseq Direct SARS-CoV-2 kit. It is the run the manual's viral chapters build on, from human read removal in [Decontamination](05-decontamination.md) through primer trimming and variant calling to lineage assignment. SARS-CoV-2 is the example because those chapters are about a virus by design.
 
-It is also a paired run. A [paired-end](../../GLOSSARY.md#paired-end) run gives two mates per DNA fragment, as [Importing Sequencing Reads](01-importing-fastq.md) explains. The run holds 115,776 read pairs of 151-base Illumina reads, which is 34,964,352 bases once both mates are counted. ENA delivers it as two compressed files of 12,840,092 and 15,276,682 bytes, about 28 MB together. That is small enough to download in under a minute and large enough to behave like a real dataset in every later chapter.
+It is an amplicon run. An [amplicon](../../GLOSSARY.md#amplicon) protocol copies the target in overlapping PCR pieces, and its [primer scheme](../../GLOSSARY.md#primer-scheme) lists where each primer binds, as [Amplicons and Shotgun Sequencing](../01-foundations/03-amplicon-vs-shotgun.md#amplicon-sequencing) explains. It is also a paired run. A [paired-end](../../GLOSSARY.md#paired-end) run writes two reads per fragment, called [mates](../../GLOSSARY.md#mate), as [Importing Sequencing Reads](01-importing-fastq.md) explains. The run holds 85,199 read pairs of 251-base Illumina reads from a NovaSeq X instrument, which is 42,769,898 bases once both mates are counted. ENA delivers it as two compressed files of 11,520,356 and 13,206,863 bytes, about 25 MB together, small enough to download in under a minute.
 
-The run belongs to BioProject `PRJNA1243402`, a study with 238 runs, nearly all of them human amplicon runs like this one. That makes it a fair picture of what a search returns in practice. You will rarely find one run sitting alone.
+The run belongs to BioProject `PRJNA1254281`, a surveillance study with more than five thousand runs, nearly all of them SARS-CoV-2 amplicon runs like this one. That makes it a fair picture of what a search returns in practice. You will rarely find one run sitting alone.
 
 ## Before you start
 
-You need a project open, as [The Lungfish Genome Explorer Project](../01-foundations/06-the-lungfish-project.md#procedure) shows. The active project decides where the reads land, so open the right one before you search.
+You need a project open, as [The Lungfish Genome Explorer Project](../01-foundations/06-the-lungfish-project.md#procedure) shows. The active project decides where the reads land, so open the right one before you search. The SARS-CoV-2 Amplicons and Human Reads demo projects already hold this run, so a new empty project, made with **File > New Project**, is the place to practise the download.
 
 This chapter uses a live archive search rather than a practice data set, because the archive itself is the source. The run's own figures, its accessions, read count, base count, and file sizes, were checked against ENA's record of the run and do not change once a run is deposited. A search list can change, because new runs are deposited every day.
 
-You need a working internet connection. The SRA Toolkit arrives with the [Required Setup pack](../../GLOSSARY.md#required-setup-pack), the one pack LGE installs by itself, so there is nothing to install. When this chapter was written, the download took about 20 seconds and the import a few seconds more.
+You need a working internet connection. The SRA Toolkit arrives with the [Required Setup pack](../../GLOSSARY.md#required-setup-pack), which the Welcome window offers to install the first time you open LGE. The download took about 20 seconds on a home connection and the import a few seconds more.
 
 ## Procedure
 
 1. Choose **Tools > Search Online Databases > Search SRA...**. The Search Online Databases dialog opens on its SRA Runs pane, with the line "Search sequencing runs and import accession lists." under its heading. The list down the left side switches between GenBank & Genomes (NCBI's collection of assembled sequences), SRA Runs, and Pathoplexus (a database of pathogen genomes), and [Downloading from NCBI](../02-sequences/02-downloading-from-ncbi.md) covers the other two. The query field sits below the Import Accessions card, with an unlabelled scope popup at its left end that reads All Fields.
 
-2. Click Show on the Advanced Search Filters panel below the query field. Six controls appear, Platform, Strategy, Layout, Min Size (Mbases), Publication Date, and Max Results.
+2. Set the scope popup to **Accession**, so the query matches the run identifier and nothing else.
 
-3. Set **Platform** to ILLUMINA, **Strategy** to AMPLICON, and **Layout** to PAIRED. These filters narrow the search itself rather than a list you already have, so set them before you search.
+3. Click Show on the Advanced Search Filters panel below the query field. Six controls appear, Platform, Strategy, Layout, Min Size (Mbases), Publication Date, and Max Results. Set **Platform** to ILLUMINA, **Strategy** to AMPLICON, and **Layout** to PAIRED. The run matches all three, so they change nothing here, but they are the filters that narrow a search when you do not know the accession. They narrow the search itself rather than a list you already have, so set them before you search.
 
     <!-- SHOT: sra-runs-pane -->
 
-4. Type `Homo sapiens mitochondrion` into the query field and click the Search button beside it. The results list fills with runs that match the text and every filter you set.
+4. Type `SRR36291587` into the query field and click the Search button beside it. The results list shows the one run.
 
-5. Tick `SRR32909537` in the results list. When the rows look alike, set the scope popup to Accession, type the accession, and search again to get that one run on its own. The dialog's primary button at the bottom of the window changes from Search to Download Selected as soon as a row is ticked. The Search button beside the query field keeps its title, so watch the bottom one.
+5. Tick `SRR36291587` in the results list. The dialog's primary button at the bottom of the window changes from Search to Download Selected as soon as a row is ticked. The Search button beside the query field keeps its title, so watch the bottom one.
 
 <!-- SHOT: sra-results-download-selected -->
 
@@ -85,15 +85,31 @@ You need a working internet connection. The SRA Toolkit arrives with the [Requir
 
 7. Click Import.
 
-Watch the run in the [Operations Panel](../01-foundations/06-the-lungfish-project.md#the-operations-panel), which opens with **Operations > Show Operations Panel** (Cmd-Shift-P). The row carries the run accession as its title. When it finishes, the row reads FASTQ ready and a bundle named `SRR32909537` appears under `Imports/` in the sidebar. Click the bundle to open the FASTQ viewport, whose summary cards [Quality Control for Reads](03-quality-control.md#reading-the-results) explains card by card.
+Watch the run in the [Operations Panel](../01-foundations/06-the-lungfish-project.md#the-operations-panel), which opens with **Operations > Show Operations Panel** (Cmd-Shift-P). The row carries the run accession as its title. When it finishes, the row reads FASTQ ready and a bundle named `SRR36291587` appears under `Imports/` in the sidebar. Click the bundle to open the FASTQ viewport, whose summary cards [Quality Control for Reads](03-quality-control.md#reading-the-results) explains card by card.
 
 <!-- SHOT: sra-bundle-in-sidebar -->
 
+### Searching without an accession
+
+When you do not yet hold an accession, leave the scope on All Fields and type words from the study, such as an organism and a kit name, with the three filters from step 3 set to the data you need. Tick the run you want in the list that comes back. When the rows look alike, set the scope popup to Accession, type the accession, and search again to get that one run on its own. To list every run of one study, set the scope to BioProject and type its `PRJNA` number, raising Max Results when the study is large.
+
 ### Downloading a list of accessions
 
-When you already hold run accessions, skip the free-text search. Click Import Accessions on the SRA Runs pane and pick a CSV or plain-text file listing them. One accession per line is enough, with no header row, so a file whose first line reads `SRR32909537` and whose second reads `SRR32909543` works. LGE reads the file, sets the scope popup to Accession, and runs one search for the whole list. A file with no recognisable accession in it raises an alert titled "No Valid Accessions" instead.
+When you already hold run accessions, skip the free-text search. Click Import Accessions on the SRA Runs pane and pick a CSV or plain-text file listing them. One accession per line is enough, with no header row, so a file whose first line reads `SRR12486983` and whose second reads `SRR12486989` works. LGE reads the file, sets the scope popup to Accession, and runs one search for the whole list. A file with no recognisable accession in it raises an alert titled "No Valid Accessions" instead.
 
 Tick the runs you want and click Download Selected as before. Ticking more than 50 runs brings up an alert asking you to confirm, because each run is downloaded and imported one after another. The configuration sheet reads only the first run's archive record, and its choices apply to every run in the batch, so batch runs from one platform together. Each run becomes its own bundle, and a run that fails does not stop the others.
+
+### Fetching the manual's other runs
+
+Three chapters later in the manual start from runs that this procedure fetches in the same way. Each demo project named in [Demo projects](../01-foundations/06-the-lungfish-project.md#demo-projects) already holds its runs, so a download is needed only when you work in a project of your own.
+
+| Run | What it is | Read pairs | Reads in the bundle | Used in |
+|---|---|---|---|---|
+| `SRR36291587` | SARS-CoV-2 amplicon run, this chapter | 85,199 | 170,398 | [Decontamination](05-decontamination.md), [Primer Trimming an Alignment](../04-alignments/03-primer-trimming.md), [The Viral Recon Wizard](../04-alignments/05-viral-recon-wizard.md), [Running EsViritu](../06-classification/03-running-esviritu.md), [Running Freyja](../06-classification/07-running-freyja.md) |
+| `SRR12486983` | Human corneal tissue, a herpes simplex keratitis case | 4,819,760 | 9,639,520 | [Running Kraken 2](../06-classification/02-running-kraken2.md), [Running TaxTriage](../06-classification/04-running-taxtriage.md), [BLAST Verification](../06-classification/06-blast-verification.md) |
+| `SRR12486989` | Human corneal tissue, a bacterial keratitis case | 5,440,369 | 10,880,738 | [Running TaxTriage](../06-classification/04-running-taxtriage.md) |
+
+The two corneal runs are much larger, about 240 MB and 115 MB of compressed files, so each takes minutes rather than seconds.
 
 ## Settings
 
@@ -105,7 +121,7 @@ These are the controls on the SRA Runs pane. Six sit in the Advanced Search Filt
 
 **Layout.** Keeps only runs whose reads come in mate pairs, or only runs whose reads are single, offering Any, PAIRED, and SINGLE. The default is Any, which returns both [library layout](../../GLOSSARY.md#library-layout) kinds mixed together. Set it to PAIRED when the workflow you plan to run needs both mates. This setting has no command-line flag.
 
-**Min Size (Mbases).** Drops runs that produced less sequence than the number you type, measured in millions of bases. It starts empty, so no size floor applies and the shallowest runs in a study still appear. Set it to exclude runs too thin for your analysis, remembering that this chapter's run holds about 35 million bases, so a floor of 10 keeps it and a floor of 50 drops it. This setting has no command-line flag.
+**Min Size (Mbases).** Drops runs that produced less sequence than the number you type, measured in millions of bases. It starts empty, so no size floor applies and the shallowest runs in a study still appear. Set it to exclude runs too thin for your analysis, remembering that this chapter's run holds about 43 million bases, so a floor of 10 keeps it and a floor of 50 drops it. This setting has no command-line flag.
 
 **Publication Date.** Keeps only runs released inside the range you type into its From and To fields. Both fields start empty, so the whole history of the archive is in scope. Fill in From when older deposits are irrelevant, for instance when you follow a study that began last year. This setting has no command-line flag.
 
@@ -119,15 +135,13 @@ Three places carry numbers worth reading, the results list, the Operations Panel
 
 Each row in the results list shows the run accession, the run's sequence length in bases at the right of the same line, and the run title and organism beneath. The list has no column headers and cannot be sorted, so the filters are how you narrow a long result.
 
-The Operations Panel row's detail line names each stage as it happens, from "Downloading SRR32909537 (1/1)" through "Fetching FASTQ URLs for SRR32909537..." to the import. If ENA cannot serve a usable copy, the line changes to one naming the SRA Toolkit, which the next section explains. A batch in which some runs fail ends with a line counting the downloads that completed and the ones that failed. A failed run turns its row red, and [Start here, at the failed row](../appendices/troubleshooting.md#start-here-at-the-failed-row) explains what to copy from it.
+The Operations Panel row's detail line names each stage as it happens, from "Downloading SRR36291587 (1/1)" through "Fetching FASTQ URLs for SRR36291587..." to the import. If ENA cannot serve a usable copy, the line changes to one naming the SRA Toolkit, which the next section explains. A batch in which some runs fail ends with a line counting the downloads that completed and the ones that failed. A failed run turns its row red, and [Start here, at the failed row](../appendices/troubleshooting.md#start-here-at-the-failed-row) explains what to copy from it.
 
 Open the [Inspector](../../GLOSSARY.md#inspector) with **View > Show Inspector** (Cmd-Opt-I) if it is hidden. Select the bundle, and the Inspector heads its panel FASTQ Dataset, with the read count beneath it, and below that it shows collapsible groups. The ENA Metadata group repeats the archive's record of the run, including Run, Experiment, Sample, Study, Layout, Strategy, Platform, Read Count, and Base Count. The Ingestion group records how the import stored the reads, including a Pairing row.
 
-Two of those numbers look as if they disagree, and they do not. The archive counts spots, not reads. A spot is one fragment the instrument read, so a paired run reports one spot for each pair of mates. The ENA Metadata Read Count for this run is 115,776, which is a spot count. The bundle keeps both mates of every spot as separate reads, so its read count is 231,552, exactly twice the archive figure. The Base Count, shown as 35.0 Mb (34,964,352 bases), already includes both mates, since 115,776 pairs times two mates times 151 bases gives that total.
+Two of those numbers look as if they disagree, and they do not. The archive counts spots, not reads. A spot is one fragment the instrument read, so a paired run reports one spot for each pair of mates. The ENA Metadata Read Count for this run is 85,199, which is a spot count. The bundle keeps both mates of every spot as separate reads, so its read count is 170,398, exactly twice the archive figure. The Base Count, 42,769,898 bases, already includes both mates, since 85,199 pairs times two mates times 251 bases gives that total.
 
-File sizes need the same care. A command-line search lists this run at 23 MB, a figure NCBI computes its own way, while the two files ENA actually delivered came to about 28 MB. The delivered size is the one to trust.
-
-LGE writes a [provenance](../../GLOSSARY.md#provenance) record beside every result, as [Provenance and Reproducibility](../01-foundations/08-provenance-and-reproducibility.md#reading-the-results) explains. For a download, that record lists the download steps first and the import after them, which is how you tell which service served the reads.
+File sizes need the same care. A command-line search lists this run at 21 MB, a figure NCBI computes its own way, while the two files ENA actually delivered came to about 25 MB. The delivered size is the one to trust.
 
 ## Which path served your download
 
@@ -152,39 +166,43 @@ To see which path ran, select the bundle and open the Inspector's Provenance tab
 
 Four checks are worth making before you build anything on downloaded reads.
 
-Confirm the accession. The bundle name should read the run accession you asked for, here `SRR32909537`. A different name means a different run was ticked, which is easy to do in a list of more than two hundred near-identical rows.
+Confirm the accession. The bundle name should read the run accession you asked for, here `SRR36291587`. A different name means a different run was ticked, which is easy to do in a list of near-identical rows.
 
-Confirm the read count against the archive. The bundle's read count should be twice the ENA Metadata Read Count for a paired run, 231,552 against 115,776 here. A count below that means reads are missing, and a count equal to the spot count means only one mate arrived.
+Confirm the read count against the archive. The bundle's read count should be twice the ENA Metadata Read Count for a paired run, 170,398 against 85,199 here. A count below that means reads are missing, and a count equal to the spot count means only one mate arrived.
 
 Confirm the pairing. The Ingestion group's Pairing row should read Interleaved, not Single End, for a run the archive lists as PAIRED. Interleaved is correct, because LGE stores the two mates of a pair in one file, one after the other, as [Importing Sequencing Reads](01-importing-fastq.md#reading-the-results) explains.
 
 Confirm the folder. A downloaded run lands under `Imports/`, alongside anything you imported from disk. A read bundle anywhere else came by a different route than the one you thought you took.
 
-When a download fails outright, the common causes, too many requests from one network and a connection that drops partway, are listed with their fixes in [A run stopped and I do not know why](../appendices/troubleshooting.md#a-run-stopped-and-i-do-not-know-why).
+LGE records the download and the import in the bundle's [provenance](../../GLOSSARY.md#provenance), download steps first, as [Provenance and Reproducibility](../01-foundations/08-provenance-and-reproducibility.md#reading-the-results) shows. When a download fails outright, the common causes, too many requests from one network and a connection that drops partway, are listed with their fixes in [A run stopped and I do not know why](../appendices/troubleshooting.md#a-run-stopped-and-i-do-not-know-why).
 
 ## On the command line
 
-This section is optional. [Finding the program](../appendices/cli-reference.md#finding-the-program) shows how to run `lungfish-cli`.
+The block follows the convention in [Reading an On the command line block](../01-foundations/06-the-lungfish-project.md#reading-a-command-line-block), and [Downloading records](../appendices/cli-reference.md#downloading-records) in the CLI Reference lists every flag of the `fetch sra` commands. `PROJECT` here names the new empty project the procedure downloads into.
 
 These commands repeat the procedure. The first searches, the second reads one run's record without downloading anything, the third downloads, and the fourth imports the files as a bundle.
 
 ```bash
-# Search, and cap the list at 15 runs.
-lungfish-cli fetch sra search "Homo sapiens mitochondrion AMPLICON Illumina" --limit 15
+PROJECT="$HOME/Documents/My Reads.lungfish"
+
+# Search for the run by its accession.
+lungfish-cli fetch sra search SRR36291587 --limit 5
 
 # Read one run's archive record without downloading anything.
-lungfish-cli fetch sra info SRR32909537
+lungfish-cli fetch sra info SRR36291587
 
 # Download the run's two FASTQ files, from ENA first and the SRA Toolkit if ENA fails.
-lungfish-cli fetch sra download SRR32909537 --output-dir ./SRR32909537
+lungfish-cli fetch sra download SRR36291587 --output-dir "$HOME/Downloads/SRR36291587"
 
-# Import the pair into a project as a bundle, which the window does for you.
-lungfish-cli import fastq ./SRR32909537/SRR32909537_1.fastq.gz ./SRR32909537/SRR32909537_2.fastq.gz \
-  --project ~/Documents/mito-study.lungfish --platform illumina
+# Import the pair into the project as a bundle, which the window does for you.
+lungfish-cli import fastq \
+  "$HOME/Downloads/SRR36291587/SRR36291587_1.fastq.gz" \
+  "$HOME/Downloads/SRR36291587/SRR36291587_2.fastq.gz" \
+  --project "$PROJECT" --platform illumina
 ```
 
-Three differences change what you get. `fetch sra download` writes loose files, `SRR32909537_1.fastq.gz` and `SRR32909537_2.fastq.gz`, plus one provenance sidecar named `.lungfish-provenance.json` in the output folder, and only `import fastq` turns them into a bundle. It also falls back to the SRA Toolkit after any ENA failure, where the window falls back only when ENA's files are missing or fail the check. And `--limit` defaults to 20 where the window's Max Results defaults to 50. To see the same run as a command, right-click its row and choose Copy CLI Command, as [The Operations Panel](../01-foundations/06-the-lungfish-project.md#the-operations-panel) describes. The command it copies covers the download only, so add the `import fastq` step yourself.
+Three differences change what you get. `fetch sra download` writes loose files, `SRR36291587_1.fastq.gz` and `SRR36291587_2.fastq.gz`, plus one provenance sidecar named `.lungfish-provenance.json` in the output folder, and only `import fastq` turns them into a bundle. It also falls back to the SRA Toolkit after any ENA failure, where the window falls back only when ENA's files are missing or fail the check. And `--limit` defaults to 20 where the window's Max Results defaults to 50. To see the same run as a command, right-click its row and choose Copy CLI Command, as [The Operations Panel](../01-foundations/06-the-lungfish-project.md#the-operations-panel) describes. The command it copies covers the download only, so add the `import fastq` step yourself.
 
 ## Next
 
-Continue to [Quality Control for Reads](03-quality-control.md) to run the first full quality pass on the reads you just pulled down.
+Continue to [Quality Control for Reads](03-quality-control.md) to run the first full quality pass on your reads. It works through the HG002 bundle from [Importing Sequencing Reads](01-importing-fastq.md), and the same cards read the SARS-CoV-2 run you just downloaded. The rest of the part follows [the order of read preparation](01-importing-fastq.md#the-order-of-read-preparation).
