@@ -1732,7 +1732,7 @@ final class CLIErrorRegressionTests: XCTestCase {
             (.formatDetectionFailed(path: "f.xyz"), "Could not detect format for file: f.xyz"),
             (.unsupportedFormat(format: "xyz"), "Unsupported format: xyz"),
             (.conversionFailed(reason: "bad"), "Conversion failed: bad"),
-            (.containerUnavailable, "Apple Containerization is not available. Requires macOS 26 or later."),
+            (.containerUnavailable, "Docker daemon unreachable. Nextflow pipelines (Viral Recon, TaxTriage) run through Docker Desktop; start Docker Desktop and retry."),
             (.networkError(reason: "timeout"), "Network error: timeout"),
             (.cancelled, "Operation cancelled"),
         ]

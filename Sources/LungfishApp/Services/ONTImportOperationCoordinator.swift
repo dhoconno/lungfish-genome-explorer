@@ -112,6 +112,21 @@ public final class ONTImportOperationCoordinator {
         }
     }
 
+    /// Project folder that receives imported read bundles. Every other
+    /// import route (Import Center, sidebar drops, the CLI import runner)
+    /// writes under this folder, so ONT run folders do too.
+    nonisolated static let importsFolderName = "Imports"
+
+    /// Resolves `<project>/Imports/<run name>/`, the folder the per-barcode
+    /// bundles are written into.
+    ///
+    /// The run name comes from the folder around `fastq_pass` (or the
+    /// selected barcode folder). A run folder that already holds ONT output
+    /// (a demux manifest, provenance, or a bundle for one of the barcodes
+    /// about to be written) is never reused; a numbered sibling is chosen
+    /// instead so an earlier import is not overwritten. Projects whose ONT
+    /// bundles were written at the project root by earlier releases keep
+    /// opening as before; only new imports move under `Imports/`.
     nonisolated static func resolvedOutputDirectory(
         sourceURL: URL,
         projectURL: URL,
@@ -124,22 +139,20 @@ public final class ONTImportOperationCoordinator {
             includeUnclassified || !$0.isUnclassified
         }
 
-        guard hasONTOutputConflict(
-            in: projectURL,
-            barcodeDirectories: barcodeDirectories,
-            fileManager: fileManager
-        ) else {
-            return projectURL
-        }
-
+        let importsURL = projectURL.appendingPathComponent(importsFolderName, isDirectory: true)
         let baseName = sanitizedOutputFolderName(
             suggestedOutputFolderName(sourceURL: sourceURL)
         )
         var counter = 1
-        var candidate = projectURL.appendingPathComponent(baseName, isDirectory: true)
-        while fileManager.fileExists(atPath: candidate.path) {
+        var candidate = importsURL.appendingPathComponent(baseName, isDirectory: true)
+        while fileManager.fileExists(atPath: candidate.path),
+              hasONTOutputConflict(
+                in: candidate,
+                barcodeDirectories: barcodeDirectories,
+                fileManager: fileManager
+              ) {
             counter += 1
-            candidate = projectURL.appendingPathComponent("\(baseName) \(counter)", isDirectory: true)
+            candidate = importsURL.appendingPathComponent("\(baseName) \(counter)", isDirectory: true)
         }
         return candidate
     }
@@ -174,15 +187,22 @@ public final class ONTImportOperationCoordinator {
         return false
     }
 
-    nonisolated private static func suggestedOutputFolderName(sourceURL: URL) -> String {
-        let name = sourceURL.lastPathComponent
-        let lowercased = name.lowercased()
-        if lowercased == "fastq_pass"
-            || lowercased.hasPrefix("barcode")
-            || lowercased == "unclassified" {
-            return sourceURL.deletingLastPathComponent().lastPathComponent
+    /// Names the run after the folder around `fastq_pass`. Selecting
+    /// `fastq_pass` itself, or one `barcodeNN`/`unclassified` folder inside
+    /// it, climbs to that same run folder.
+    nonisolated static func suggestedOutputFolderName(sourceURL: URL) -> String {
+        var url = sourceURL
+        var climbed = false
+        let name = url.lastPathComponent.lowercased()
+        if name.hasPrefix("barcode") || name == "unclassified" {
+            url = url.deletingLastPathComponent()
+            climbed = true
         }
-        return sourceURL.deletingPathExtension().lastPathComponent
+        if url.lastPathComponent.lowercased() == "fastq_pass" {
+            url = url.deletingLastPathComponent()
+            climbed = true
+        }
+        return climbed ? url.lastPathComponent : url.deletingPathExtension().lastPathComponent
     }
 
     nonisolated private static func sanitizedOutputFolderName(_ value: String) -> String {

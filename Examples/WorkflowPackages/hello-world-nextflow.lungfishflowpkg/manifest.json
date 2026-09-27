@@ -4,7 +4,7 @@
   "name": "Hello World Nextflow",
   "version": "1.0.0",
   "author": "Lungfish Genome Explorer",
-  "category": "Templates",
+  "category": "Examples",
   "maturity": "user",
   "description": "Minimal Nextflow workflow package template that accepts a reference bundle and FASTQ bundle and writes a tiny reference bundle.",
   "runner": {

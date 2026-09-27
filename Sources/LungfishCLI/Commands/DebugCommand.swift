@@ -121,13 +121,18 @@ struct EnvSubcommand: AsyncParsableCommand {
         ]))
         print("")
 
-        // Container support
+        // Container support: the pipelines run through Docker Desktop, so the
+        // real check is `debug container`. This section only notes the
+        // framework so the JSON `containerSupport` field keeps its meaning.
         print(formatter.header("Container Support"))
         if #available(macOS 26, *) {
-            print(formatter.success("Apple Containerization available (macOS 26+)"))
+            print(formatter.success("Apple Containerization framework available (macOS 26+)"))
         } else {
-            print(formatter.warning("Apple Containerization requires macOS 26 or later"))
+            print(formatter.warning("Apple Containerization framework requires macOS 26 or later"))
         }
+        print(formatter.info(
+            "Nextflow pipelines run through Docker Desktop; run `\(CLICommandIdentity.executableName) debug container` to check it."
+        ))
         print("")
 
         // Check tools if requested
@@ -251,77 +256,117 @@ struct EnvironmentInfo: Codable {
 
 // MARK: - Container Diagnostics
 
-/// Container runtime diagnostics
+/// Container runtime diagnostics.
+///
+/// Reports the runtime the Nextflow pipelines (Viral Recon, TaxTriage)
+/// actually launch with, which is Docker Desktop (`-profile docker`): whether
+/// the Docker CLI is installed, whether the daemon answers within a short
+/// timeout, and its versions. The Apple Containerization runtime is reported
+/// separately because no pipeline uses it.
+///
+/// Exits with status 65 (`containerError`) when the Docker daemon is
+/// unreachable, so scripts and the manual can treat a zero exit as "pipelines
+/// can run".
 struct ContainerSubcommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "container",
-        abstract: "Apple Container runtime diagnostics"
+        abstract: "Check the container runtime the pipelines use (Docker Desktop)",
+        discussion: """
+            Probes the Docker CLI and daemon that Nextflow pipelines such as
+            Viral Recon and TaxTriage run through, and reports the Apple
+            Containerization runtime separately. Exits with status 65 when
+            the Docker daemon is unreachable.
+
+            Examples:
+              lungfish debug container
+              lungfish debug container --format json
+              lungfish debug container --pull-test --test-image docker.io/library/alpine:latest
+            """
     )
+
+    /// Injection point for tests; the default runs `docker` and the Apple runtime.
+    nonisolated(unsafe) static var probe: any ContainerRuntimeProbing = SystemContainerRuntimeProbe()
 
     @Flag(
         name: .customLong("pull-test"),
-        help: "Test image pull capability"
+        help: "Pull a test image through Docker to confirm registry access"
     )
     var pullTest: Bool = false
 
     @Option(
         name: .customLong("test-image"),
-        help: "Image to use for testing (must have arm64/linux support)"
+        help: "Image to use for the pull test (must have linux/arm64 support)"
     )
     var testImage: String = "docker.io/condaforge/miniforge3:latest"
 
+    @Option(
+        name: .customLong("timeout"),
+        help: "Seconds to wait for the Docker daemon before reporting it unreachable"
+    )
+    var timeoutSeconds: Double = 5
+
     @OptionGroup var globalOptions: GlobalOptions
+
+    func validate() throws {
+        guard timeoutSeconds > 0 else {
+            throw ValidationError("--timeout must be greater than zero")
+        }
+    }
 
     func run() async throws {
         let formatter = TerminalFormatter(useColors: globalOptions.useColors)
+        let report = await ContainerRuntimeReport.collect(
+            probe: Self.probe,
+            timeout: timeoutSeconds
+        )
 
-        print(formatter.header("Apple Container Runtime"))
-        print("")
-
-        if #available(macOS 26, *) {
-            print(formatter.success("Apple Containerization framework available"))
-            print(formatter.keyValueTable([
-                ("Status", "Ready"),
-                ("VM Type", "Apple Virtualization"),
-                ("Architecture", "arm64"),
-            ]))
-
-            if pullTest {
-                print("\n" + formatter.info("Testing image pull: \(testImage)"))
-                print(formatter.info("Note: Uses miniforge3 which supports linux/arm64 for Apple Silicon"))
-                print(formatter.info("Bioinformatics tools are installed via mamba at container startup"))
-                do {
-                    // Ensure image reference has domain
-                    let fullReference: String
-                    if testImage.contains(".") {
-                        // Already has domain (e.g., docker.io/library/alpine)
-                        fullReference = testImage
-                    } else if testImage.contains("/") {
-                        // Has path but no domain (e.g., library/alpine)
-                        fullReference = "docker.io/\(testImage)"
-                    } else {
-                        // Just image name (e.g., alpine)
-                        fullReference = "docker.io/library/\(testImage)"
-                    }
-                    print(formatter.dim("  Full reference: \(fullReference)"))
-                    
-                    let runtime = try await AppleContainerRuntime()
-                    print(formatter.success("Container runtime initialized"))
-                    
-                    print(formatter.info("Pulling image (this may take a while)..."))
-                    let image = try await runtime.pullImage(reference: fullReference)
-                    print(formatter.success("Successfully pulled image: \(image.reference)"))
-                    print(formatter.dim("  Digest: \(image.digest ?? "unknown")"))
-                } catch {
-                    print(formatter.error("Pull test failed: \(error.localizedDescription)"))
-                    fputs("DEBUG: \(error)\n", stderr)
-                }
-            }
+        if globalOptions.outputFormat == .json {
+            JSONOutputHandler().writeData(report, label: nil)
         } else {
-            print(formatter.error("Apple Containerization requires macOS 26 or later"))
-            print("\nCurrent macOS version: \(ProcessInfo.processInfo.operatingSystemVersionString)")
-            print("Please upgrade to macOS 26 (Tahoe) or later for container support.")
+            for line in report.textLines(formatter: formatter) {
+                print(line)
+            }
         }
+
+        if let exitError = report.exitError {
+            // Keep the report ahead of the error line when stdout is a pipe.
+            fflush(stdout)
+            throw exitError
+        }
+
+        if pullTest {
+            try await runPullTest(formatter: formatter)
+        }
+    }
+
+    private func runPullTest(formatter: TerminalFormatter) async throws {
+        let fullReference = Self.fullImageReference(testImage)
+        print("")
+        print(formatter.info("Testing image pull through Docker: \(fullReference)"))
+        guard let runtime = await NewContainerRuntimeFactory.createDockerRuntime() else {
+            print(formatter.error("Pull test failed: Docker runtime could not be created"))
+            throw CLIError.containerUnavailable
+        }
+        do {
+            print(formatter.info("Pulling image (this may take a while)..."))
+            let image = try await runtime.pullImage(reference: fullReference)
+            print(formatter.success("Successfully pulled image: \(image.reference)"))
+            print(formatter.dim("  Digest: \(image.digest ?? "unknown")"))
+        } catch {
+            print(formatter.error("Pull test failed: \(error.localizedDescription)"))
+            throw CLIError.networkError(reason: "docker pull \(fullReference): \(error.localizedDescription)")
+        }
+    }
+
+    /// Fills in the registry and namespace Docker assumes for short names.
+    static func fullImageReference(_ image: String) -> String {
+        if image.contains(".") {
+            return image  // already has a registry (docker.io/library/alpine)
+        }
+        if image.contains("/") {
+            return "docker.io/\(image)"  // library/alpine
+        }
+        return "docker.io/library/\(image)"  // alpine
     }
 }
 

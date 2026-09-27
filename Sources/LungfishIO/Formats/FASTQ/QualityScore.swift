@@ -128,10 +128,71 @@ public struct QualityScore: Sendable, Equatable, Hashable {
     /// Whether the quality string is empty
     public var isEmpty: Bool { values.isEmpty }
 
-    /// Mean quality value
+    /// Arithmetic mean of the Phred values.
+    ///
+    /// This is a per-record convenience. Dataset-level "mean quality"
+    /// (the Mean Q card, `fastq qc-summary`, seqkit's `AvgQual`) uses
+    /// ``errorProbabilityMeanQuality`` instead, because Phred values are
+    /// logarithmic and averaging them directly overstates quality.
     public var meanQuality: Double {
         guard !values.isEmpty else { return 0 }
         return Double(values.reduce(0, { $0 + Int($1) })) / Double(values.count)
+    }
+
+    /// Mean quality defined through error probabilities: every Phred value
+    /// becomes its error probability, those are averaged, and the average
+    /// is converted back to a Phred value. This is what seqkit reports as
+    /// `AvgQual` and what "mean quality" means for a read set.
+    public var errorProbabilityMeanQuality: Double {
+        Self.errorProbabilityMeanQuality(ofPhredValues: values)
+    }
+
+    // MARK: - Error-probability mean
+
+    /// Error probability for each Phred value 0...93, so hot loops avoid `pow`.
+    private static let errorProbabilityTable: [Double] = (0...93).map { pow(10.0, -Double($0) / 10.0) }
+
+    /// Error probability for a Phred value (`10^(-Q/10)`), clamped to Q93.
+    public static func errorProbability(forPhred q: UInt8) -> Double {
+        errorProbabilityTable[Swift.min(Int(q), 93)]
+    }
+
+    /// Converts an accumulated error-probability sum back to a Phred mean.
+    ///
+    /// - Parameters:
+    ///   - errorProbabilitySum: Sum of `10^(-Q/10)` over every scored base.
+    ///   - baseCount: Number of scored bases the sum covers.
+    /// - Returns: `-10 * log10(errorProbabilitySum / baseCount)`, or 0 for no bases.
+    public static func phredMean(errorProbabilitySum: Double, baseCount: Int) -> Double {
+        guard baseCount > 0, errorProbabilitySum > 0 else { return 0 }
+        return -10.0 * log10(errorProbabilitySum / Double(baseCount))
+    }
+
+    /// Error-probability mean quality of a sequence of Phred values.
+    public static func errorProbabilityMeanQuality<S: Swift.Sequence>(ofPhredValues values: S) -> Double
+    where S.Element == UInt8 {
+        var sum = 0.0
+        var count = 0
+        for q in values {
+            sum += errorProbability(forPhred: q)
+            count += 1
+        }
+        return phredMean(errorProbabilitySum: sum, baseCount: count)
+    }
+
+    /// Error-probability mean quality of an ASCII quality line.
+    ///
+    /// - Parameters:
+    ///   - asciiQuality: The FASTQ quality line.
+    ///   - encoding: Encoding of the line (defaults to Phred+33).
+    public static func errorProbabilityMeanQuality(
+        ofASCII asciiQuality: some StringProtocol,
+        encoding: QualityEncoding = .phred33
+    ) -> Double {
+        let offset = Int(encoding.asciiOffset)
+        return errorProbabilityMeanQuality(ofPhredValues: asciiQuality.utf8.lazy.map { byte in
+            UInt8(clamping: Swift.max(0, Int(byte) - offset))
+        })
     }
 
     /// Minimum quality value

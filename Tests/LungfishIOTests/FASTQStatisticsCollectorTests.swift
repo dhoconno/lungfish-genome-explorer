@@ -203,6 +203,69 @@ final class FASTQStatisticsCollectorTests: XCTestCase {
         XCTAssertEqual(stats.meanQuality, 30.0, accuracy: 0.01)
     }
 
+    func testQualityMeanIsErrorProbabilityBasedNotArithmetic() {
+        // Half the bases at Q10 (p = 0.1), half at Q40 (p = 0.0001).
+        // Arithmetic Phred mean would be 25.0. The error-probability mean,
+        // which seqkit reports as AvgQual, is -10 * log10((0.1 + 0.0001) / 2).
+        let collector = FASTQStatisticsCollector()
+        collector.process(makeRecord(id: "low", sequence: "ACGT", quality: 10))
+        collector.process(makeRecord(id: "high", sequence: "ACGT", quality: 40))
+        let stats = collector.finalize()
+
+        let expected = -10.0 * log10((0.1 + 0.0001) / 2.0)
+        XCTAssertEqual(stats.meanQuality, expected, accuracy: 0.0001)
+        XCTAssertEqual(stats.meanQuality, 13.0, accuracy: 0.01)
+        XCTAssertNotEqual(stats.meanQuality, 25.0, accuracy: 1.0)
+    }
+
+    func testQualityMeanMatchesIndependentErrorProbabilityFormulaOnMixedReads() {
+        // Build reads with a spread of Phred values and compare the collector
+        // to a direct evaluation of the definition.
+        let collector = FASTQStatisticsCollector()
+        var errorSum = 0.0
+        var bases = 0
+        for (index, q) in [UInt8(2), 7, 12, 20, 25, 31, 37, 42].enumerated() {
+            let sequence = String(repeating: "A", count: 3 + index)
+            collector.process(makeRecord(id: "r\(index)", sequence: sequence, quality: q))
+            errorSum += Double(sequence.count) * pow(10.0, -Double(q) / 10.0)
+            bases += sequence.count
+        }
+        let stats = collector.finalize()
+        XCTAssertEqual(stats.meanQuality, -10.0 * log10(errorSum / Double(bases)), accuracy: 1e-9)
+    }
+
+    func testQualityScoreErrorProbabilityHelpers() {
+        XCTAssertEqual(QualityScore.errorProbability(forPhred: 0), 1.0, accuracy: 1e-12)
+        XCTAssertEqual(QualityScore.errorProbability(forPhred: 10), 0.1, accuracy: 1e-12)
+        XCTAssertEqual(QualityScore.errorProbability(forPhred: 30), 0.001, accuracy: 1e-12)
+        // Values above Q93 clamp instead of indexing past the table.
+        XCTAssertEqual(
+            QualityScore.errorProbability(forPhred: 200),
+            QualityScore.errorProbability(forPhred: 93),
+            accuracy: 1e-15
+        )
+
+        XCTAssertEqual(QualityScore.phredMean(errorProbabilitySum: 0, baseCount: 0), 0)
+        XCTAssertEqual(QualityScore.phredMean(errorProbabilitySum: 0.002, baseCount: 2), 30.0, accuracy: 1e-9)
+
+        XCTAssertEqual(
+            QualityScore.errorProbabilityMeanQuality(ofPhredValues: [UInt8(10), 40]),
+            -10.0 * log10((0.1 + 0.0001) / 2.0),
+            accuracy: 1e-9
+        )
+        // "+" is Q10 and "I" is Q40 in Phred+33.
+        XCTAssertEqual(
+            QualityScore.errorProbabilityMeanQuality(ofASCII: "+I"),
+            -10.0 * log10((0.1 + 0.0001) / 2.0),
+            accuracy: 1e-9
+        )
+        XCTAssertEqual(QualityScore.errorProbabilityMeanQuality(ofASCII: ""), 0)
+
+        let score = QualityScore(ascii: "+I", encoding: .phred33)
+        XCTAssertEqual(score.meanQuality, 25.0, accuracy: 1e-9, "per-record arithmetic mean is unchanged")
+        XCTAssertEqual(score.errorProbabilityMeanQuality, -10.0 * log10((0.1 + 0.0001) / 2.0), accuracy: 1e-9)
+    }
+
     func testQ20Percentage() {
         let collector = FASTQStatisticsCollector()
         // All bases Q30 → all are >= Q20

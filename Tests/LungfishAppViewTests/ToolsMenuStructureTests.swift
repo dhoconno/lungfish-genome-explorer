@@ -283,7 +283,7 @@ final class ToolsMenuStructureTests: XCTestCase {
         try "// invented fixture; never executed"
             .write(to: packageURL.appendingPathComponent(entrypoint), atomically: true, encoding: .utf8)
         let manifest = WorkflowPackageManifest(
-            id: id, name: name, version: "1", category: "Templates",
+            id: id, name: name, version: "1", category: "Examples",
             runner: WorkflowPackageRunner(
                 kind: runnerKind,
                 entrypoint: entrypoint,

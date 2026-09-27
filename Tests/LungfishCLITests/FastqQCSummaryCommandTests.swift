@@ -91,6 +91,38 @@ final class FastqQCSummaryCommandTests: XCTestCase {
         XCTAssertNotNil(ProvenanceRecorder.findProvenance(forFile: outputURL))
     }
 
+    func testQCSummaryMeanQualityUsesErrorProbabilityDefinition() async throws {
+        // Refresh QC Summary runs this command, and the import path stores
+        // seqkit's AvgQual. Both must report the error-probability mean, so
+        // a read at Q10 and a read at Q40 give about 13.0, not 25.0.
+        let fm = FileManager.default
+        let tempDir = fm.temporaryDirectory.appendingPathComponent("fastq-qc-meanq-\(UUID().uuidString)", isDirectory: true)
+        try fm.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tempDir) }
+
+        let inputURL = tempDir.appendingPathComponent("reads.fastq")
+        let outputURL = tempDir.appendingPathComponent("qc-summary.json")
+        let fastq = """
+        @low
+        ACGT
+        +
+        ++++
+        @high
+        ACGT
+        +
+        IIII
+        """
+        try Data(fastq.utf8).write(to: inputURL)
+
+        let command = try FastqQCSummarySubcommand.parse([inputURL.path, "--output", outputURL.path])
+        try await command.run()
+
+        let decoded = try JSONDecoder().decode(QCSummaryReport.self, from: Data(contentsOf: outputURL))
+        let expected = -10.0 * log10((0.1 + 0.0001) / 2.0)
+        XCTAssertEqual(decoded.inputs[0].statistics.meanQuality, expected, accuracy: 0.0001)
+        XCTAssertEqual(decoded.inputs[0].statistics.meanQuality, 13.0, accuracy: 0.01)
+    }
+
     func testQCSummaryRemovesOutputWhenProvenanceCannotBeWritten() async throws {
         let fm = FileManager.default
         let tempDir = fm.temporaryDirectory.appendingPathComponent("fastq-qc-rollback-\(UUID().uuidString)", isDirectory: true)

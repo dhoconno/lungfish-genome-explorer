@@ -162,7 +162,7 @@ public struct QualitySection: View {
             // Mean Quality with visual indicator
             VStack(alignment: .leading, spacing: 4) {
                 HStack {
-                    Text("Mean Quality")
+                    Text("Mean Q")
                         .font(LungfishInspectorStyle.controlFont)
                     Spacer()
                     Text(String(format: "%.1f", stats.meanQuality))

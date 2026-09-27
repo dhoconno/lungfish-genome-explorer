@@ -13,7 +13,7 @@ import LungfishCore
 /// - File format conversion
 /// - Sequence analysis and statistics
 /// - Sequence translation, search, and extraction
-/// - Workflow execution via Apple Containerization
+/// - Workflow execution (containerised steps through Docker Desktop)
 /// - Debugging and troubleshooting
 struct LungfishCLI: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
@@ -24,8 +24,9 @@ struct LungfishCLI: AsyncParsableCommand {
             bioinformatics capabilities. Use it for scripting, automation, pipeline
             integration, and debugging workflows.
 
-            Container support uses Apple Containerization framework (macOS 26+) for
-            running bioinformatics tools in isolated OCI containers.
+            Nextflow pipelines (Viral Recon, TaxTriage) run their tool containers
+            through Docker Desktop (-profile docker). Run `\(CLICommandIdentity.executableName) debug container`
+            to check that the Docker daemon is reachable before launching one.
 
             \(LungfishAppIdentity.current.cliInformationURL.map { "For more information, see: \($0.absoluteString)" } ?? "")
             """,
@@ -198,7 +199,7 @@ enum CLIError: Error, LocalizedError {
         case .workflowFailed(let reason):
             return "Workflow execution failed: \(reason)"
         case .containerUnavailable:
-            return "Apple Containerization is not available. Requires macOS 26 or later."
+            return "Docker daemon unreachable. Nextflow pipelines (Viral Recon, TaxTriage) run through Docker Desktop; start Docker Desktop and retry."
         case .networkError(let reason):
             return "Network error: \(reason)"
         case .cancelled:

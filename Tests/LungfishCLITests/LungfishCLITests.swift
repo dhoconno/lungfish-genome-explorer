@@ -90,7 +90,7 @@ final class LungfishCLITests: XCTestCase {
         XCTAssertTrue(error1.localizedDescription.contains("/test/path"))
 
         let error2 = CLIError.containerUnavailable
-        XCTAssertTrue(error2.localizedDescription.contains("macOS 26"))
+        XCTAssertTrue(error2.localizedDescription.contains("Docker Desktop"))
 
         let error3 = CLIError.unsupportedFormat(format: "xyz")
         XCTAssertTrue(error3.localizedDescription.contains("xyz"))

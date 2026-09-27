@@ -27,7 +27,7 @@ struct CzIdImportDialogPresentation: Equatable {
         self.selectedPathText = selectedPath?.path ?? "No file or folder selected"
         self.selectedPathIsPlaceholder = selectedPath == nil
         self.accessoryText = datasetURL?.deletingPathExtension().lastPathComponent
-        self.destinationText = Self.destinationText(projectURL: projectURL)
+        self.destinationText = Self.destinationText(projectURL: projectURL, preview: preview)
         self.isPrimaryEnabled = selectedPath != nil && preview != nil && !isScanning
 
         if isScanning {
@@ -45,18 +45,19 @@ struct CzIdImportDialogPresentation: Equatable {
         }
     }
 
-    private static func destinationText(projectURL: URL?) -> String {
-        guard let projectURL else { return "Current project / Analyses" }
+    /// Mirrors the destination the import actually uses
+    /// (`AppDelegate+ToolsMenu.importCzIdResults`): one `.lungfishtax`
+    /// bundle named after the CZ ID sample, inside the project's
+    /// `Classifications/` folder.
+    static func destinationText(projectURL: URL?, preview: CzIdImportPreview?) -> String {
+        let bundleName = preview.map {
+            "\(CzIdProjectImportWorkflow.bundleFileName(for: $0.sampleName)).lungfishtax"
+        } ?? "<sample name>.lungfishtax"
+        guard let projectURL else { return "Current project / Classifications / \(bundleName)" }
         return projectURL
-            .appendingPathComponent("Analyses", isDirectory: true)
-            .appendingPathComponent("cz-id-\(timestampHint)")
+            .appendingPathComponent("Classifications", isDirectory: true)
+            .appendingPathComponent(bundleName, isDirectory: true)
             .path
-    }
-
-    private static var timestampHint: String {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM-dd'T'HH-mm-ss"
-        return formatter.string(from: Date())
     }
 
     static func == (lhs: CzIdImportDialogPresentation, rhs: CzIdImportDialogPresentation) -> Bool {
