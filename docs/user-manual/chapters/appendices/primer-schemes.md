@@ -214,7 +214,7 @@ To confirm that two copies of a scheme are the same, compare the checksum of `pr
 
 ## On the command line
 
-This section is optional, and nothing later in this manual needs it. The `lungfish-cli` program ships inside LGE, and [Finding the program](cli-reference.md#finding-the-program) shows how to run it.
+The window route above does everything this one does except add attachments, so read this section only if you script your imports. The `lungfish-cli` program ships inside LGE, and [Finding the program](cli-reference.md#finding-the-program) shows how to run it.
 
 ```bash
 lungfish-cli primers import \
