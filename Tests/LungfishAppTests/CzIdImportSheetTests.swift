@@ -65,7 +65,33 @@ final class CzIdImportSheetTests: XCTestCase {
         XCTAssertEqual(ready.selectedPathText, "/tmp/taxon_report.tsv")
         XCTAssertEqual(ready.statusText, "Ready to import CZ-ID report.")
         XCTAssertTrue(ready.isPrimaryEnabled)
-        XCTAssertTrue(ready.destinationText.contains("/project/demo.lungfish/Analyses/cz-id-"))
+        XCTAssertEqual(
+            ready.destinationText,
+            "/project/demo.lungfish/Classifications/sample-a.lungfishtax"
+        )
+    }
+
+    func testDestinationTextMatchesClassificationsBundleTheImportWrites() {
+        // The Tools menu import writes
+        // `<project>/Classifications/<bundleFileName(sampleName)>.lungfishtax`,
+        // so the sheet must promise that path and nothing else.
+        let projectURL = URL(fileURLWithPath: "/project/demo.lungfish", isDirectory: true)
+        let withPreview = CzIdImportDialogPresentation.destinationText(projectURL: projectURL, preview: Self.preview)
+        let expectedBundle = projectURL
+            .appendingPathComponent("Classifications", isDirectory: true)
+            .appendingPathComponent(
+                "\(CzIdProjectImportWorkflow.bundleFileName(for: Self.preview.sampleName)).lungfishtax",
+                isDirectory: true
+            )
+        XCTAssertEqual(withPreview, expectedBundle.path)
+        XCTAssertFalse(withPreview.contains("Analyses"))
+        XCTAssertFalse(withPreview.contains("cz-id-"))
+
+        let withoutPreview = CzIdImportDialogPresentation.destinationText(projectURL: projectURL, preview: nil)
+        XCTAssertEqual(withoutPreview, "/project/demo.lungfish/Classifications/<sample name>.lungfishtax")
+
+        let withoutProject = CzIdImportDialogPresentation.destinationText(projectURL: nil, preview: nil)
+        XCTAssertEqual(withoutProject, "Current project / Classifications / <sample name>.lungfishtax")
     }
 
     func testActionsOnlyImportReadySelectionAndAlwaysCancelScan() {
