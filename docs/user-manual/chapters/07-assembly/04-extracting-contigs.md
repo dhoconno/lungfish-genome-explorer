@@ -3,7 +3,7 @@ title: Extracting Contigs
 chapter_id: 07-assembly/04-extracting-contigs
 audience: bench-scientist
 prereqs: [07-assembly/01-when-to-assemble, 07-assembly/02-running-spades]
-estimated_reading_min: 10
+estimated_reading_min: 7
 task: Pick contigs from an assembly and derive a new reference bundle from them.
 tags: [assembly, extract, contigs, reference]
 tools: []
@@ -35,7 +35,9 @@ Extraction picks contigs from an assembly and makes a new [reference bundle](../
 
 ## Why you would do this
 
-The clearest case is calling variants against your own assembly. You assembled because no good reference existed, and now you want to know where your reads disagree with the sequence you built. [Mapping](../../GLOSSARY.md#mapping) against the whole assembly would let some reads align to the short fragments instead of the real genome. That thins the [depth](../../GLOSSARY.md#depth), the number of reads covering one position, exactly where you need it to judge a call. Extracting the one long contig first gives each read a single place to go.
+The clearest case is using your own assembly as a reference. You assembled because no good reference existed, and now you want to map reads against the sequence you built. [Mapping](../../GLOSSARY.md#mapping) against the whole assembly would let some reads align to the short fragments instead of the real genome. That thins the [depth](../../GLOSSARY.md#depth), the number of reads covering one position, exactly where you need it to judge a call. Extracting the one long contig first gives each read a single place to go.
+
+Know what to expect before you map. The reads that built a contig agree with it almost everywhere, because the assembler wrote the base most of them carried at each position. Mapping those same reads back and calling variants should therefore give few or no calls, and an empty or nearly empty variant track is success. It is a check on the assembly, and a cluster of calls marks a stretch the assembler got wrong. The informative uses come after that check, mapping reads from other samples of the same organism to find where they differ, or looking at the same reads for low-frequency sites, such as mitochondrial heteroplasmy, a mixture of two mitochondrial sequences in one person, which a majority-base contig hides.
 
 The second case is looking at a contig as a sequence. The assembly viewport lists contigs but does not open one in the sequence viewport, where you can move along it by coordinate, read its translation, or search it. Clicking a row only shows its detail pane. A reference bundle made from the contig opens like any other reference.
 
@@ -49,12 +51,12 @@ Open the Long Reads and Assembly demo project with **Help > Demo Projects…**, 
 
 This chapter uses the human-mito fixture. Download `HG002.chrM_R1.fastq.gz` and `HG002.chrM_R2.fastq.gz` from [the human-mito fixture folder](https://github.com/dhoconno/lungfish-genome-explorer/tree/v2026.9.40/docs/user-manual/fixtures/human-mito), as [Practice data for this manual](../01-foundations/06-the-lungfish-project.md#practice-data-for-this-manual) explains.
 
-You also need an assembly to extract from. Run MEGAHIT on those reads as [Running SPAdes](02-running-spades.md) shows. This chapter uses MEGAHIT because its three contigs make the selection step real. A MEGAHIT run may need repeating on Apple Silicon, as that chapter explains. If you would rather not, use the single SPAdes contig instead, and every step works the same with one row to select.
+You also need an assembly to extract from. Run MEGAHIT on those reads as [Short-Read Assembly (SPAdes, MEGAHIT, SKESA)](02-running-spades.md) shows. This chapter uses MEGAHIT because its three contigs make the selection step real. A MEGAHIT run may need repeating on Apple Silicon, as that chapter explains. If you would rather not, use the single SPAdes contig instead. Every step works the same with one row to select, and each check below gives the SPAdes figure beside the MEGAHIT one.
 
 ## Procedure
 
-1. Open the assembly result from `Analyses/` in the sidebar. The contig table is read as [Running SPAdes](02-running-spades.md#reading-the-results) explains.
-2. Click the rows you want. The action bar under the table reads "Select contigs to materialize", meaning to write the selection out as real files, while nothing is chosen, then "1 contig selected" or "3 contigs selected". On the MEGAHIT run, select only the top row, the 16,711-base contig named `k141_1`.
+1. Open the assembly result from `Analyses/` in the sidebar. The contig table is read as [Short-Read Assembly (SPAdes, MEGAHIT, SKESA)](02-running-spades.md#reading-the-results) explains.
+2. Click the rows you want. The action bar under the table reads "Select contigs to materialize", meaning to write the selection out as real files, while nothing is chosen, then "1 contig selected" or "3 contigs selected". On the MEGAHIT run, select only the top row, the 16,711-base contig named `k141_1`. On the SPAdes run, select its one row, `NODE_1_length_16697_cov_121.957333`.
 3. Click **Create Bundle** in the action bar. Its buttons stay disabled until at least one row is selected.
 4. Watch the run in the [Operations Panel](../01-foundations/06-the-lungfish-project.md#the-operations-panel), which opens with **Operations > Show Operations Panel** (Cmd-Shift-P). The row is titled `Create Reference Bundle` and takes a couple of seconds on this fixture.
 5. Find the new bundle under `Reference Sequences/` in the sidebar. From here it is a reference bundle like any other.
@@ -79,11 +81,11 @@ Extraction has no dialog. The selection and the bundle name decide what it does.
 
 ## Reading the results
 
-A successful extraction is quiet. The `Create Reference Bundle` row finishes, the bundle appears under `Reference Sequences/`, and the source assembly is unchanged. If a name is already taken, LGE adds a space and a counter rather than overwriting, so a second `k141_1` shows as `k141_1 2` in the sidebar and `k141_1_2.lungfishref` on disk. The result lands in `Reference Sequences/` rather than `Analyses/` because it is a reference to map against.
+A successful extraction is quiet. The `Create Reference Bundle` row finishes, the bundle appears under `Reference Sequences/`, as [Where results land](../01-foundations/06-the-lungfish-project.md#where-results-land) lists for extracted contigs, and the source assembly is unchanged. If a name is already taken, LGE adds a space and a counter rather than overwriting, so a second `k141_1` shows as `k141_1 2` in the sidebar and `k141_1_2.lungfishref` on disk.
 
 <!-- SHOT: derived-bundle-in-sidebar -->
 
-Open the new bundle and check that it holds the sequences you meant to pick, at the lengths the contig table showed. Extracting the long MEGAHIT contig gives one sequence of 16,711 bases at 44.3% GC, the contig on its own rather than the 44.6% of all three contigs together. Extracting it with the 362-base fragment gives two sequences totalling 17,073 bases. Extraction copies sequence without editing it, so a length that does not match means you selected a different row.
+Open the new bundle and check that it holds the sequences you meant to pick, at the lengths the contig table showed. Extracting the long MEGAHIT contig gives one sequence of 16,711 bases at 44.3% GC, the contig on its own rather than the 44.6% of all three contigs together. The SPAdes contig gives one sequence of 16,697 bases at 44.4% GC. Extracting it with the 362-base fragment gives two sequences totalling 17,073 bases. Extraction copies sequence without editing it, so a length that does not match means you selected a different row.
 
 With the bundle open, the [Inspector](../../GLOSSARY.md#inspector) shows a Derived Subset block naming the assembler, the source assembly, the chosen contigs, their count, total length, and GC content. The source information adds the note "Derived from" followed by the source name. A bundle made with **Create Bundle** records its assembler as `Unknown`, while the command below records `MEGAHIT 1.2.9`. This is a known defect, listed with its workaround in [Known defects in this release](../appendices/troubleshooting.md#known-defects-in-this-release).
 
@@ -93,28 +95,29 @@ If extraction fails, LGE shows an alert headed "Reference Bundle Creation Failed
 
 ## What good looks like
 
-Check the contig's length against what you expected. The human mitochondrial genome is 16,569 bases in NCBI record `NC_012920.1`, and the MEGAHIT contig is 16,711, which is 142 bases long. That excess is the join of a circular genome written out twice, as [Running Flye or hifiasm](03-running-flye-or-hifiasm.md#reading-the-results) explains, not extra biology.
+Apply the length, GC, and count checks in [What good looks like](01-when-to-assemble.md#what-good-looks-like) of When to Assemble to the extracted bundle. Two points are particular to extraction.
 
-Check the GC percent against the organism's known value. The `NC_012920.1` reference is 44.4% GC and the extracted contig is 44.3%, the agreement you want. A figure far from the reference usually means the contig is not what you think.
+The extracted contig is as long as the assembler made it, overlap and all. The human mitochondrial genome is 16,569 bases in NCBI record `NC_012920.1`, the MEGAHIT contig is 16,711, and the SPAdes contig 16,697. The extra 142 or 128 bases are the join of a circular genome written twice, as [Circular genomes, trimmed, overlapped, or walked twice](01-when-to-assemble.md#circular-genomes-trimmed-overlapped-or-walked-twice) explains, not extra biology. Extraction copies whole contigs, so the overlap comes along. A contig about twice the expected length needs one more step, which [From a doubled contig to a reference](03-running-flye-or-hifiasm.md#from-a-doubled-contig-to-a-reference) shows.
 
-Check the contig's share of the assembly, its length as a percentage of all assembled bases. The long contig is 96.01% of its assembly, with the fragments at 2.08% and 1.91%, the picture of a clean assembly of one molecule. Several contigs of similar share mean either a broken assembly or several real sequences. Add the lengths and compare the total with the genome size you expected. Near the expected size points to a broken assembly, and well above it points to more than one organism.
+Check the contig's share of the assembly, its length as a percentage of all assembled bases, before you decide what to extract. The long MEGAHIT contig is 96.01% of its assembly, with the fragments at 2.08% and 1.91%, the picture of a clean assembly of one molecule, and the SPAdes contig is 100%. Several contigs of similar share mean either a broken assembly or several real sequences. Add the lengths and compare the total with the genome size you expected. Near the expected size points to a broken assembly, and well above it points to more than one organism.
 
 Judge the extraction by what happens downstream. If depth against the extracted contig comes back uneven, with stretches under about 10 reads while the rest sits far higher, the assembly probably lost part of the genome, and the assembly is what to revisit. If the contig turns out to come from the host or from a cloning vector, delete the bundle and extract a different contig. Extraction is cheap to redo.
 
 ## On the command line
 
-This section is optional, and nothing later in this manual needs it. The `lungfish-cli` program ships inside LGE, and [Finding the program](../appendices/cli-reference.md#finding-the-program) shows how to run it.
+The `lungfish-cli` program ships inside LGE, and [Finding the program](../appendices/cli-reference.md#finding-the-program) shows how to run it. Every flag of `extract contigs` is listed under [Assembly](../appendices/cli-reference.md#assembly) in the CLI Reference. Replace the run folder's name with the one your sidebar shows under Analyses.
 
 ```bash
+PROJECT="$HOME/Documents/LGE Demo Projects/Long Reads and Assembly.lungfish"
 lungfish-cli extract contigs \
-  --assembly ./HG002-mito.lungfish/Analyses/megahit-2026-09-07T05-05-00 \
+  --assembly "$PROJECT/Analyses/megahit-2026-09-07T05-05-00" \
   --contig k141_1 \
   --bundle \
-  --project-root ./HG002-mito.lungfish
+  --project-root "$PROJECT"
 ```
 
-`--assembly` takes the run folder under `Analyses/` that holds `assembly-result.json`, not the bundle shown in the sidebar. Reading that file is what lets the command record the real assembler. Without `--bundle-name` the bundle is named `<run folder>-subset`, and without `--bundle` the command prints the selected contigs as FASTA instead of making a bundle.
+`--assembly` takes the run folder under `Analyses/`, the folder the sidebar row stands for, which holds `assembly-result.json`. Reading that file is what lets the command record the real assembler. Without `--bundle-name` the bundle is named `<run folder>-subset`, and without `--bundle` the command prints the selected contigs as FASTA instead of making a bundle.
 
 ## Next
 
-This is the last chapter in Assembly. To use the contig you extracted, go to [Mapping Reads to a Reference](../04-alignments/01-mapping-reads-to-a-reference.md) and map reads against it, then to [Calling Variants](../05-variants/01-calling-variants-from-amplicons.md) to call variants against your own assembly. Its caller choice applies to any aligned reads, amplicon or not.
+This is the last chapter of Assembly. The manual continues with [Exporting as Nextflow or Snakemake](../08-workflows/02-exporting-as-nextflow-or-snakemake.md), which turns the provenance record behind a result, such as the bundle you just extracted, into a script or workflow that someone else can read and run again. To use the contig you extracted as a reference, map reads against it as [Mapping Reads to a Reference](../04-alignments/01-mapping-reads-to-a-reference.md) shows and call variants as [Calling Variants](../05-variants/01-calling-variants-from-amplicons.md) shows, expecting few calls from the reads that built it.

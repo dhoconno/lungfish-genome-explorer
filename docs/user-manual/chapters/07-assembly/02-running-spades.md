@@ -1,9 +1,9 @@
 ---
-title: Running SPAdes
+title: Short-Read Assembly (SPAdes, MEGAHIT, SKESA)
 chapter_id: 07-assembly/02-running-spades
 audience: bench-scientist
 prereqs: [01-foundations/07-plugin-packs, 03-reads/01-importing-fastq, 07-assembly/01-when-to-assemble]
-estimated_reading_min: 15
+estimated_reading_min: 12
 task: Assemble Illumina paired-end reads with SPAdes, MEGAHIT, or SKESA and read the contigs the run produces.
 tags: [assembly, spades, megahit, skesa, illumina, de-novo, contigs, n50]
 tools: [spades, megahit, skesa]
@@ -36,7 +36,7 @@ lead_approved: false
 
 SPAdes, short for St. Petersburg genome assembler, takes short sequencing [reads](../../GLOSSARY.md#read) and rebuilds the longer stretches of DNA they came from, using only the reads. A [contig](../../GLOSSARY.md#contig) is one continuous stretch of sequence an assembler rebuilt from overlapping reads. Building contigs with no reference genome is [de novo assembly](../../GLOSSARY.md#de-novo-assembly), and [When to Assemble](01-when-to-assemble.md) covers when you want it.
 
-A [k-mer](../../GLOSSARY.md#k-mer) is a stretch of exactly k bases, and [Running Kraken 2](../06-classification/02-running-kraken2.md#what-it-is) shows how tools match on them. SPAdes cuts every read into k-mers and joins k-mers that overlap by all but one base into a [de Bruijn graph](../../GLOSSARY.md#de-bruijn-graph), a network in which each unbranched path becomes a contig. Sequencing errors and repeats make the paths branch, and SPAdes prunes the weakly supported branches. It repeats this at several k values and merges the answers, and you never choose k yourself. On the fixture it used 21, 33, 55, 77, 99, and 127.
+SPAdes cuts every read into [k-mers](../../GLOSSARY.md#k-mer), overlapping words of exactly k bases, and joins k-mers that overlap by all but one base into a [de Bruijn graph](../../GLOSSARY.md#de-bruijn-graph), a network in which each unbranched path becomes a contig. [Two ways to put reads together](01-when-to-assemble.md#two-ways-to-put-reads-together) walks through a small example. Sequencing errors and repeats make the paths branch, and SPAdes prunes the weakly supported branches. It repeats this at several k values and merges the answers, and you never choose k yourself. On the fixture it used 21, 33, 55, 77, 99, and 127.
 
 Lungfish Genome Explorer (LGE) runs SPAdes from an assembly sheet under **Tools > Assembly > SPAdes...**. The same sheet runs MEGAHIT and SKESA, the other two short-read assemblers, so this chapter covers all three. They differ in presets and a few starting values, not in how you drive them. This chapter also explains how to read any assembly result, whichever of the five assemblers produced it.
 
@@ -46,7 +46,7 @@ You assemble when you want the sequence itself rather than a list of differences
 
 This chapter assembles reads from the [mitochondrial genome](../../GLOSSARY.md#mitochondrial-genome) of [HG002](../../GLOSSARY.md#hg002), a benchmark human sample sequenced many times by many methods. Mitochondria carry a small circular chromosome of their own, 16,569 bases long in humans. That is small enough to assemble in seconds and large enough to be a real genome. The fixture is a [paired-end](../../GLOSSARY.md#paired-end) Illumina library, meaning each DNA fragment was read from both ends, holding 9,958 read pairs. The right answer is published, so you can see what each assembler gets right.
 
-Choose SPAdes for Illumina reads from one organism, and its Meta profile for a community. Choose SKESA when you prefer more contigs with fewer wrong joins, and MEGAHIT for a large community only if it completes on your Mac. [Choosing a tool](01-when-to-assemble.md#choosing-a-tool) compares all five assemblers in LGE and works a small example of the de Bruijn graph method the three short-read tools share.
+Choose SPAdes for Illumina reads from one organism, and its Meta profile for a community. Choose SKESA when you prefer more contigs with fewer wrong joins, and MEGAHIT for a large community only if it completes on your Mac. [Choosing a tool](01-when-to-assemble.md#choosing-a-tool) compares all five assemblers in LGE.
 
 ## Before you start
 
@@ -62,7 +62,7 @@ Install the `assembly` [plugin pack](../../GLOSSARY.md#plugin-pack), a themed gr
 
 Every number below came from real runs on the fixture reads. Yours should match to within a few bases. A different contig count is not ordinary, and [What good looks like](#what-good-looks-like) says what to make of one.
 
-### 1. Open the sheet
+### Open the assembly sheet
 
 1. Click the `HG002.chrM` bundle in the sidebar to select it. The sheet takes whatever is selected and has no file picker of its own.
 
@@ -78,11 +78,11 @@ Every number below came from real runs on the fixture reads. Yours should match 
 
 Look at the **Readiness** line at the bottom before you click anything. Run stays disabled until the pack is installed and its quick launch test has passed, which takes a few seconds. When Run is disabled for another reason, a short line says which, such as "Select at least one FASTQ input." or "Project name is required."
 
-### 2. Run it
+### Run SPAdes
 
-6. Click **Run**. The sheet closes. Watch the run in the [Operations Panel](../01-foundations/06-the-lungfish-project.md#the-operations-panel), which opens with **Operations > Show Operations Panel** (Cmd-Shift-P). The tool's output streams into the row, and the full text is also saved as `assembly.log` in the run folder.
+1. Click **Run**. The sheet closes. Watch the run in the [Operations Panel](../01-foundations/06-the-lungfish-project.md#the-operations-panel), which opens with **Operations > Show Operations Panel** (Cmd-Shift-P). The tool's output streams into the row, and the full text is also saved as `assembly.log` in the run folder.
 
-7. When the row finishes, LGE opens the result in the assembly viewport. Later, click the result under `Analyses` in the sidebar to open it again. A summary strip above the contig table reads SPAdes, Illumina Short Reads, 1 contig, 16697 total bp, an N50 of 16697, and 44.4% global GC.
+2. When the row finishes, LGE opens the result in the assembly viewport. Later, click the result under `Analyses` in the sidebar to open it again. A summary strip above the contig table reads SPAdes, Illumina Short Reads, 1 contig, 16697 total bp, an N50 of 16697, and 44.4% global GC.
 
 <!-- SHOT: assembly-viewport -->
 
@@ -106,7 +106,7 @@ The sheet takes one read class per run. Bundles from more than one class stop th
 
 **Min Contig.** Drops contigs shorter than this from the result, set with a stepper from 0 to 1,000,000 bases in steps of 100. The default is 0, which keeps everything so you can see what the assembler produced. Raise it on a metagenome to keep thousands of unplaceable fragments out of the contig table. On the command line this is `--min-contig-length`. MEGAHIT and SKESA receive it, but with SPAdes selected the value never reaches the run, so screen short SPAdes contigs by sorting the table's Length (bp) column instead. This is a known defect, listed with its workaround in [Known defects in this release](../appendices/troubleshooting.md#known-defects-in-this-release).
 
-**Careful mode.** Turns on SPAdes' `--careful` pass, which corrects single-base mismatches and short insertions or deletions after assembly. It sits under **Advanced Settings > Curated extra arguments**, for SPAdes only, and is off by default because it adds noticeable run time and most runs do not need it. SPAdes' own documentation says careful mode cannot be combined with its isolate or meta modes, so it is of no use with the Isolate profile this chapter runs. Turn it on only with the Plasmid profile, when per-base accuracy matters. This setting has no command-line flag, so pass `--extra-args "--careful"` instead.
+**Careful mode.** Turns on SPAdes' `--careful` pass, which corrects single-base mismatches and short insertions or deletions after assembly. It sits under **Advanced Settings > Curated extra arguments**, for SPAdes only, and is off by default because it adds noticeable run time and most runs do not need it. SPAdes refuses careful mode in its isolate and meta modes, and the sheet still lets you tick it, so with the Isolate profile this chapter runs the run stops almost at once. The Operations Panel row then carries SPAdes' own message, "you cannot specify --mismatch-correction or --careful in isolate mode!", and no result is written. Turn it on only with the Plasmid profile, when per-base accuracy matters. This setting has no command-line flag, so pass `--extra-args "--careful"` instead.
 
 **Skip error correction.** Passes SPAdes' `--only-assembler` flag, which skips the read [error-correction](../../GLOSSARY.md#error-correction) stage. It sits beside Careful mode, for SPAdes only, and is off by default, because correcting errors first keeps false branches out of the graph. Turn it on when an earlier step already corrected the reads, or when the correction stage runs out of memory. This setting has no command-line flag, so pass `--extra-args "--only-assembler"` instead.
 
@@ -126,7 +126,7 @@ This section applies to a result from any of the five assemblers.
 
 ### Where the result sits
 
-The result lands under `Analyses/` in a new folder, as [Where results land](../01-foundations/06-the-lungfish-project.md#where-results-land) describes, named for the tool and the moment the run started, for example `spades-2026-09-07T14-23-10`. The sidebar shows it as one row. Every run gets its own folder, so several assemblies of the same reads sit side by side.
+The result lands under `Analyses/` in a new folder, as [Where results land](../01-foundations/06-the-lungfish-project.md#where-results-land) describes, named for the tool and the moment the run started, for example `spades-2026-09-07T14-23-10`. That run folder is the [assembly bundle](../../GLOSSARY.md#assembly-bundle), and the sidebar shows it as one row that opens the assembly viewport. It is a plain folder rather than a `.lungfishref` reference bundle, and the contigs sit inside it as `contigs.fasta`. A reference bundle exists only after you extract contigs, as [Extracting Contigs](04-extracting-contigs.md) shows. Every run gets its own folder, so several assemblies of the same reads sit side by side.
 
 <!-- SHOT: assembly-bundle-in-analyses -->
 
@@ -160,37 +160,37 @@ An assembler can finish cleanly and produce nothing. LGE records that as its own
 | MEGAHIT | 1.2.9 | 3 | 17405 | 16711 | 16711 | 44.6% |
 | SKESA | 2.5.1 | 1 | 16570 | 16570 | 16570 | 44.4% |
 
-All three recovered the 16,569-base mitochondrial genome. SKESA landed one base over and named its contig `Contig_1_257.173_Circ [topology=circular]`, marking that it recognised the circle. SPAdes and MEGAHIT each ran a little over a hundred bases long, the overlap an assembler can write twice where it cuts a circle open, as [Running Flye or hifiasm](03-running-flye-or-hifiasm.md#reading-the-results) explains. MEGAHIT also wrote two short contigs of 332 and 362 bases, fragments it could not place. The assemblers disagreed about the exact ends and agreed about the content, which is why the contig count matters more than the last hundred bases.
+All three recovered the 16,569-base mitochondrial genome. SKESA landed one base over and named its contig `Contig_1_257.173_Circ [topology=circular]`, marking that it recognised the circle. SPAdes and MEGAHIT each ran a little over a hundred bases long, the overlap written twice where the assembler cut the circle open, as [Circular genomes, trimmed, overlapped, or walked twice](01-when-to-assemble.md#circular-genomes-trimmed-overlapped-or-walked-twice) explains. MEGAHIT also wrote two short contigs of 332 and 362 bases, fragments it could not place. The assemblers disagreed about the exact ends and agreed about the content, which is why the contig count matters more than the last hundred bases.
 
 MEGAHIT runs on Apple Silicon often stop partway with no contigs, and a run that does finish, like the one in the table, is correct. This is a known defect, listed with its workaround in [Known defects in this release](../appendices/troubleshooting.md#known-defects-in-this-release).
 
 ## What good looks like
 
-Check three things before you trust an assembly, in this order.
+Apply the four checks in [What good looks like](01-when-to-assemble.md#what-good-looks-like) of When to Assemble, which covers the contig count, the total length, the GC content, and the coverage arithmetic for this fixture. Three points are particular to short-read results.
 
-First, the contig count and the longest contig together. For a small single-molecule target like the mitochondrion, one contig near the expected length is right, and a small overshoot on a circular genome is the closing overlap. MEGAHIT's three contigs still count as a good result, since one holds the whole genome. Many short contigs with none near the expected length is the sign of thin or uneven coverage.
+A small overshoot is the closing overlap. For a single-molecule target like the mitochondrion, one contig a hundred or so bases over the expected length is right, and SPAdes' 16,697 and SKESA's 16,570 are both the whole genome.
 
-Second, the GC percent. It is nearly constant within a genome and differs between genomes, so it is a cheap identity check. The human mitochondrion sits near 44 percent, and all three runs gave 44.4 to 44.6. A few tenths is nothing, while several percentage points away from what you expected usually means a contaminant or host fragment.
+A few short extra contigs beside one complete contig still count as a good result. MEGAHIT's three contigs hold the whole genome in one, with fragments of 332 and 362 bases beside it, and [Extracting Contigs](04-extracting-contigs.md) shows how to keep only the long one. Many short contigs with none near the expected length is the sign of thin or uneven coverage.
 
-Third, the total length against the expected genome size. Far above suggests duplicated or contaminating pieces. Far below means part of the genome had no reads.
+GC agrees closely across the three short-read assemblers, 44.4 to 44.6 percent, because Illumina reads carry few base errors. A few tenths of a percent is nothing.
 
-When a run disappoints, work out the coverage before blaming the assembler. Multiply the read count by the read length and divide by the genome size. The same 9,958 pairs that cover this 16.6 kb genome hundreds of times over would cover a 5 Mb bacterial chromosome about once, which is hopeless, and the only fix is more sequencing. When a run produces nothing at all, read its row in the Operations Panel, and [Start here, at the failed row](../appendices/troubleshooting.md#start-here-at-the-failed-row) explains what to copy from it. The usual causes are a truncated FASTQ or mate files with different read counts.
+When a run produces nothing at all, read its row in the Operations Panel, and [Start here, at the failed row](../appendices/troubleshooting.md#start-here-at-the-failed-row) explains what to copy from it. The usual causes are a truncated FASTQ or mate files with different read counts.
 
 ## On the command line
 
-This section is optional, and nothing later in this manual needs it. The `lungfish-cli` program ships inside LGE, and [Finding the program](../appendices/cli-reference.md#finding-the-program) shows how to run it.
+The `lungfish-cli` program ships inside LGE, and [Finding the program](../appendices/cli-reference.md#finding-the-program) shows how to run it. Every flag of `assemble` is listed under [Assembly](../appendices/cli-reference.md#assembly) in the CLI Reference.
 
 ```bash
-lungfish-cli assemble HG002.chrM_R1.fastq.gz HG002.chrM_R2.fastq.gz \
-  --paired \
+PROJECT="$HOME/Documents/LGE Demo Projects/Long Reads and Assembly.lungfish"
+lungfish-cli assemble "$PROJECT/Imports/HG002.chrM.lungfishfastq" \
   --assembler spades \
   --profile isolate \
   --project-name HG002.chrM_assembly \
-  --output ./out-spades
+  --output "$PROJECT/Analyses/spades-cli"
 ```
 
-Swap in `--assembler megahit` or `--assembler skesa` for the other two runs. `--paired` binds the two files as mates of one library, which the window works out from the file names. For MEGAHIT's Default preset, leave `--profile` out, since the command passes any profile it is given straight to MEGAHIT and `default` is not a MEGAHIT preset.
+Swap in `--assembler megahit` or `--assembler skesa` for the other two runs. Given the imported bundle, the command hands SPAdes every read in it as a single read, without the pairing, and its summary reads Paired-end no. On the fixture that gives the same one contig of 16,697 bases as a run on the two loose FASTQ files with `--paired`, which binds them as mates of one library. For MEGAHIT's Default preset, leave `--profile` out, since the command passes any profile it is given straight to MEGAHIT and `default` is not a MEGAHIT preset. `--output` writes exactly where you point it, so give each run its own folder.
 
 ## Next
 
-Continue to [Running Flye or hifiasm](03-running-flye-or-hifiasm.md) for long reads. If your reads are Illumina, go on to [Extracting Contigs](04-extracting-contigs.md), which turns contigs into a reference bundle for mapping and variant calling.
+Continue to [Long-Read Assembly (Flye, hifiasm)](03-running-flye-or-hifiasm.md), which assembles long reads from the same mitochondrion. If your reads are Illumina only, go on to [Extracting Contigs](04-extracting-contigs.md), which turns contigs into a reference bundle for mapping and variant calling.

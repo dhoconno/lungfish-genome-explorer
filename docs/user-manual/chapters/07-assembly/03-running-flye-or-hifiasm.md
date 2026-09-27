@@ -1,9 +1,9 @@
 ---
-title: Running Flye or hifiasm
+title: Long-Read Assembly (Flye, hifiasm)
 chapter_id: 07-assembly/03-running-flye-or-hifiasm
-audience: analyst
-prereqs: [07-assembly/01-when-to-assemble, 03-reads/07-ont-runs]
-estimated_reading_min: 15
+audience: bench-scientist
+prereqs: [07-assembly/01-when-to-assemble, 07-assembly/02-running-spades]
+estimated_reading_min: 14
 task: Assemble Oxford Nanopore reads with Flye or PacBio HiFi reads with hifiasm, and read the resulting contig table.
 tags: [assembly, flye, hifiasm, nanopore, pacbio, long-read]
 tools: [flye, hifiasm]
@@ -45,7 +45,7 @@ Assemble long reads when you want a genome's structure rather than its individua
 
 This chapter assembles the HG002 long reads. [HG002](../../GLOSSARY.md#hg002) is a benchmark human sample sequenced many times by many methods, so there is a published answer to check against. The fixture keeps only reads from the mitochondrion, whose genome is NCBI [accession](../../GLOSSARY.md#accession) `NC_012920.1`, 16,569 bases and circular. It holds 950 Nanopore reads totalling 4,348,051 bases and 363 HiFi reads totalling 4,991,345 bases. Dividing each total by 16,569 gives about 262-fold and 301-fold [coverage](../../GLOSSARY.md#coverage), far more than either assembler needs.
 
-The small circular target is also a good teaching case for real failures. On these reads Flye's result changes from run to run, and both assemblers can report a small circle at twice its true length. [Reading the results](#reading-the-results) works through each outcome.
+The small circular target is also a good teaching case for a real failure. Both assemblers report this circle at twice its true length, which [Circular genomes, trimmed, overlapped, or walked twice](01-when-to-assemble.md#circular-genomes-trimmed-overlapped-or-walked-twice) explains, and [From a doubled contig to a reference](#from-a-doubled-contig-to-a-reference) shows how to recover one copy.
 
 On Nanopore reads, choose Flye for older or noisier reads, for a haploid genome such as a bacterium or a virus, and, with Metagenome mode, for a community. Choose hifiasm for HiFi reads, and for reads from a current Nanopore flow cell, the consumable chip the reads come from, when the two parental copies of a region must stay apart. [Choosing a tool](01-when-to-assemble.md#choosing-a-tool) compares all five assemblers in LGE and explains how long-read assembly differs from short-read assembly.
 
@@ -55,13 +55,13 @@ You need a project open, as [The Lungfish Genome Explorer Project](../01-foundat
 
 Open the Long Reads and Assembly demo project with **Help > Demo Projects…**, as [Demo projects](../01-foundations/06-the-lungfish-project.md#demo-projects) explains. It already holds the `HG002.chrM.ont` and `HG002.chrM.hifi` bundles this section imports, each with its platform set. To import the files yourself instead, follow the rest of this section.
 
-This chapter uses the hg002-long-reads fixture. Download `HG002.chrM.ont.fastq.gz` and `HG002.chrM.hifi.fastq.gz` from [the hg002-long-reads fixture folder](https://github.com/dhoconno/lungfish-genome-explorer/tree/v2026.9.39/docs/user-manual/fixtures/hg002-long-reads), as [Practice data for this manual](../01-foundations/06-the-lungfish-project.md#practice-data-for-this-manual) explains. Import each file as [Importing Sequencing Reads](../03-reads/01-importing-fastq.md) shows. Each becomes its own [bundle](../../GLOSSARY.md#bundle), a folder LGE treats as one item, so look for two sidebar rows, `HG002.chrM.ont` and `HG002.chrM.hifi`.
+This chapter uses the hg002-long-reads fixture. Download `HG002.chrM.ont.fastq.gz` and `HG002.chrM.hifi.fastq.gz` from [the hg002-long-reads fixture folder](https://github.com/dhoconno/lungfish-genome-explorer/tree/v2026.9.39/docs/user-manual/fixtures/hg002-long-reads), as [Practice data for this manual](../01-foundations/06-the-lungfish-project.md#practice-data-for-this-manual) explains. Import each file as [Importing Sequencing Reads](../03-reads/01-importing-fastq.md) shows. Each becomes its own [bundle](../../GLOSSARY.md#bundle), a folder LGE treats as one item, so look for two sidebar rows, `HG002.chrM.ont` and `HG002.chrM.hifi`. Nanopore reads of your own that arrive as a sequencing run folder, one subfolder per barcode, are imported as [Oxford Nanopore Runs](../03-reads/07-ont-runs.md) shows. HiFi reads need no such step.
 
 Install the `assembly` [plugin pack](../../GLOSSARY.md#plugin-pack), a themed group of tools LGE installs on request, as [Plugin Packs](../01-foundations/07-plugin-packs.md#procedure) shows. It carries Flye 2.9.6 and hifiasm 0.25.0, the versions that produced this chapter's numbers. Each run on the fixture finishes in under a minute on a recent Mac.
 
 ## Procedure
 
-### 1. Assemble the Nanopore reads with Flye
+### Assemble the Nanopore reads with Flye
 
 1. Click the `HG002.chrM.ont` bundle in the sidebar to select it. The sheet assembles whatever is selected when you open it.
 
@@ -75,13 +75,13 @@ Install the `assembly` [plugin pack](../../GLOSSARY.md#plugin-pack), a themed gr
 
 5. Click **Run**. Watch the run in the [Operations Panel](../01-foundations/06-the-lungfish-project.md#the-operations-panel), which opens with **Operations > Show Operations Panel** (Cmd-Shift-P). Flye names its own stages as it reaches them, from configure through contigger and polishing to finalize. A stage that stays on screen a while is working, not stuck.
 
-### 2. Assemble the HiFi reads with hifiasm
+### Assemble the HiFi reads with hifiasm
 
 1. Click the `HG002.chrM.hifi` bundle in the sidebar. Opening a result changes the selection, so click the reads again before opening the menu.
 
 2. Choose **Tools > Assembly > Hifiasm...**. The **Detected** row reads PacBio HiFi/CCS, and the **Assembler** picker shows Hifiasm alone, because it is the only assembler that accepts HiFi reads.
 
-3. Leave **Profile** on **Diploid**, its default, which keeps the two chromosome copies apart. A mitochondrion has one copy, so **Haploid/Viral** fits it better in principle, but Diploid is the setting that produced this chapter's result, and the doubling described below comes from the circle rather than the profile.
+3. Leave **Profile** on **Diploid**, its default. A mitochondrion has one copy, so **Haploid/Viral** sounds like the better fit, but on these reads it gives the messier answer, as [Diploid or Haploid/Viral on a small circle](#diploid-or-haploidviral-on-a-small-circle) shows.
 
     <!-- SHOT: assembly-sheet-hifiasm -->
 
@@ -89,7 +89,7 @@ Install the `assembly` [plugin pack](../../GLOSSARY.md#plugin-pack), a themed gr
 
 Hifiasm writes its answer as a [GFA](../../GLOSSARY.md#gfa) file, a text format for assembly graphs, rather than as plain FASTA sequence. LGE converts the primary contigs, hifiasm's main answer, into a `contigs.fasta` for the viewport without you asking.
 
-### 3. Open the results
+### Open the results
 
 Each run lands under `Analyses/` in a new folder, as [Where results land](../01-foundations/06-the-lungfish-project.md#where-results-land) describes. LGE opens each result when its run finishes. Later, click either row to open it again.
 
@@ -103,7 +103,7 @@ Both assemblers share one sheet, so an entry names its assembler only where the 
 
 **Read Type.** States which sequencing chemistry produced the reads, which narrows the Assembler picker. It defaults to the class read from the FASTQ headers and is locked when detection succeeds. It unlocks into a picker of Illumina short reads, ONT reads, and PacBio HiFi/CCS only when detection is inconclusive, as with older PacBio CLR data, a noisier mode with no class of its own here. On the command line this is `--read-type`.
 
-**Profile.** Tells the assembler what input to expect. Flye offers **Nano HQ** for recent high-accuracy basecalls, **Nano Raw** for older or fast-mode basecalls, and **Nano Corrected** for reads another tool already corrected. LGE preselects Nano Raw when the reads' mean quality, read from the bundle's statistics or sampled from the first 500 reads, is below Q10, and Nano HQ otherwise, and the caption beneath the picker says which measurement it used. Hifiasm offers **Diploid** (the default), which keeps the two parental copies apart, and **Haploid/Viral**, which expects a single [haplotype](../../GLOSSARY.md#haplotype), one copy of each chromosome, and skips duplicate purging and a memory-saving filter that a small one-copy genome does not need. Flye's own documentation describes Nano HQ as for reads under 5 percent error, about Q13, so reads with a mean quality between Q10 and Q13 may assemble better on Nano Raw than on the preselected Nano HQ. Override the preselection only when you know the basecaller better than the quality scores do, and choose Haploid/Viral for a virus, a haploid genome, or any small target. On the command line this is `--profile`, and leaving it off applies the same read-quality rule.
+**Profile.** Tells the assembler what input to expect. Flye offers **Nano HQ** for recent high-accuracy basecalls, **Nano Raw** for older or fast-mode basecalls, and **Nano Corrected** for reads another tool already corrected. LGE preselects Nano Raw when the reads' mean quality, read from the bundle's statistics or sampled from the first 500 reads, is below Q10, and Nano HQ otherwise, and the caption beneath the picker says which measurement it used. Hifiasm offers **Diploid** (the default), which keeps the two parental copies apart and purges duplicated copies of one stretch, and **Haploid/Viral**, which expects a single [haplotype](../../GLOSSARY.md#haplotype), one copy of each chromosome. It passes hifiasm `--n-hap 1`, and it skips duplicate purging (`-l0`) and a memory-saving filter (`-f0`) that a small genome does not need. Flye's own documentation describes Nano HQ as for reads under 5 percent error, about Q13, so reads with a mean quality between Q10 and Q13 may assemble better on Nano Raw than on the preselected Nano HQ. Override the preselection only when you know the basecaller better than the quality scores do. Keep hifiasm on Diploid for a first run, and try Haploid/Viral on a haploid genome, checking any extra low-depth contig it keeps against the main one. On the command line this is `--profile`, and leaving it off applies the same read-quality rule.
 
 **Threads.** Sets how many processor cores the assembler uses at once. The default is the smaller of your Mac's core count and 8, and the control will not go above your Mac's core count. Lower it to keep the Mac responsive during a long run. On the command line this is `--threads`.
 
@@ -121,84 +121,98 @@ Above the Extra arguments field, Advanced Settings prints four read-only notes f
 
 ## Reading the results
 
-The contig table, the detail pane, and the Assembly Context block are read as [Running SPAdes](02-running-spades.md#reading-the-results) explains. [N50](../../GLOSSARY.md#n50) is the contig length at which contigs that long or longer hold half of all assembled bases, worked through in [When to Assemble](01-when-to-assemble.md#what-the-numbers-mean). This section covers what is particular to long-read results, above all what happens to a small circular genome.
+The contig table, the detail pane, and the Assembly Context block are read as [Short-Read Assembly (SPAdes, MEGAHIT, SKESA)](02-running-spades.md#reading-the-results) explains. [N50](../../GLOSSARY.md#n50) is the contig length at which contigs that long or longer hold half of all assembled bases, worked through in [When to Assemble](01-when-to-assemble.md#what-the-numbers-mean). This section covers what is particular to long-read results, above all what happens to a small circular genome.
 
 ### The files the viewport does not list
 
 The contig table has no column for coverage, for whether a contig is circular, or for how often the assembler thinks a sequence repeats. Flye records all three in `assembly_info.txt` in the run folder, which **Show in Finder** on the result's right-click menu reveals. Flye also keeps its graph there as `assembly_graph.gfa`. Hifiasm writes its primary graph as `<project name>.bp.p_ctg.gfa`, plus one graph per parental copy, `hap1` and `hap2`, and unitig graphs ending `p_utg` and `r_utg`. A [unitig](../../GLOSSARY.md#unitig) is an unambiguous stretch from before any joins. Only the primary contigs reach the viewport.
 
-### Why the same reads give different Flye results
+### What the fixture gives
 
-On this fixture, Flye has given three different answers.
+Run as the procedure describes, each assembler returns one contig about twice the length of the 16,569-base genome.
 
-| Run | Profile | Contigs | Total length | What it means |
+| Assembler and profile | Contigs | Length | GC | What it means |
 |---|---|---|---|---|
-| The fixture's stored result, 2026.9.41, imported bundle, 8 threads | Nano Raw | 1, circular | 32,690 bp | The circle walked twice |
-| Command line on 2026.9.40, on the raw file | Nano HQ | 1, circular | 32,652 bp | The circle walked twice |
-| Command line in an earlier release, on the raw file | Nano HQ | 1, circular | 16,359 bp | The whole genome, with the join trimmed |
-| The window on 2026.9.40, with the old Nano HQ default | Nano HQ | 4, none circular | 22,137 bp | The circle broken into overlapping pieces |
+| Flye, Nano Raw, imported bundle | 1, circular | 32,690 bp | 42.9% | The circle walked twice |
+| Hifiasm, Diploid | 1, circular | 33,140 bp | 44.4% | The circle walked twice |
 
-Small, noisy data sets sit close to the point where Flye's choices tip one way or the other, so a different release, a different profile, a different read order, or a different thread count can give a different graph. Importing reads into a project reorders them for storage, which is why a run on the imported bundle and a run on the raw file need not agree. The fixture's stored result is one example outcome, made the way the window makes it, by importing the reads first and assembling the bundle with the preselected Nano Raw profile. A rerun can land on any row of this table.
+Both are the third outcome in [Circular genomes, trimmed, overlapped, or walked twice](01-when-to-assemble.md#circular-genomes-trimmed-overlapped-or-walked-twice). Neither assembler found an end in its graph at which to stop, so each went round twice and reported both passes as one contig. Hifiasm's contig is exactly two copies, since 33,140 divided by 16,569 is 2.0001. Flye's is a little under, 1.97 times, because Flye polished the two passes separately. Flye's `assembly_info.txt` marks its contig `circ. Y` with a mean coverage of 125, about half the reads' 262-fold, because every read now has two places to sit. Hifiasm names its contig `ptg000001c`, where the closing `c` marks it circular. A HiFi assembly of a whole nuclear genome does not behave this way, because the mitochondrion is then one small loop among long linear chromosomes.
 
-The four-contig window run is worth reading too. Its contigs ran from 1,294 to 9,841 bases, its N50 was 5,800 and its L50 was 2, and Flye's `assembly_info.txt` gave several of them a multiplicity above 1, its estimate that a piece repeats. Four pieces that add up to more than the 16,569-base genome, some of them marked as repeats, are one circle cut into overlapping fragments, not four molecules.
-
-### A circle cut open, once or twice
-
-A linear contig has two ends, and a circular genome has none, so an assembler must cut the circle somewhere to write it out. Where it cuts, it either trims the join slightly, writes the overlap twice, or walks the whole circle more than once.
-
-A slightly short contig is a trimmed join. An earlier release's Flye run on these reads gave one contig of 16,359 bases at 43.9% GC. That is 210 bases, or 1.3%, under the 16,569-base reference, and Flye's `assembly_info.txt` marked it `circ. Y`, meaning circular. A percent or two under a known size reads as a trimmed junction.
-
-A contig slightly long is the overlap written twice. That is what the short-read assemblers did in [Running SPAdes](02-running-spades.md#reading-the-results), where SPAdes ran 128 bases over.
-
-A contig about twice the expected length is the circle walked twice. Hifiasm's result for the fixture is one contig of 33,140 bases at 44.4% GC, and 33,140 divided by 16,569 is 2.0001. Hifiasm looks for an end in its graph at which to stop, and a small circle assembled on its own offers none, so it goes round twice and reports both passes as one contig. Flye's current command-line runs do the same, giving 32,652 or 32,690 bases. Flye's `assembly_info.txt` reports a mean coverage near 125 for those contigs, about half the reads' 262-fold, because every read now has two places to sit. A HiFi assembly of a whole nuclear genome does not behave this way, because the mitochondrion is then one small loop among long linear chromosomes.
-
-The fixture's stored Flye result is the same story. It is one contig of 32,690 bases at 42.9% GC, and 32,690 divided by 16,569 is 1.97. Flye's `assembly_info.txt` marks it `circ. Y` with a mean coverage of 125, and the run's provenance records the profile as `nano-raw` with the basis "nano-raw preselected from read quality Q8 from the bundle's statistics". The stored `assembly.fasta` is one example outcome, and a rerun of the fixture can give any of the results in the table above.
+Flye's contig is 42.9% GC where the reference and the hifiasm contig are 44.4%. [When to Assemble](01-when-to-assemble.md#what-good-looks-like) treats a GC several points away from the expected value as a warning, and a point and a half sits near that line. Here it is not contamination. The Nanopore reads average about Q8, and Flye's polishing cannot correct every systematic error such reads carry, the miscounted runs of one repeated base above all, so an unpolished Nanopore assembly can sit a point or two off in GC. The HiFi reads are accurate enough that hifiasm's contig matches the reference.
 
 Nothing in the viewport flags a doubled contig. Its N50 and L50 look perfect. The check is knowing roughly how big the genome should be.
 
-### What to do with each outcome
+### What else Flye has given on these reads
 
-Compare the total assembled length with the 16,569 bases you expect.
+Small, noisy data sets sit close to the point where Flye's choices tip one way or the other, so the profile, the read order, or the thread count can change the graph. Importing reads into a project reorders them for storage, which is why a run on the imported bundle and a run on the raw file need not agree. Flye has given four different answers on these reads.
 
-- **About 16,569 in one contig.** The genome came back whole. Carry it forward.
-- **About 33,000 in one contig.** The circle was walked twice. Confirm it by turning the contig into a reference bundle as [Extracting Contigs](04-extracting-contigs.md) describes and mapping the same reads back as [Mapping Reads to a Reference](../04-alignments/01-mapping-reads-to-a-reference.md) describes. The depth then reads about half the fixture's 262-fold, roughly 130x, and the two halves carry the same sequence. LGE does not collapse a doubled contig.
-- **Several contigs adding up to more than 16,569.** The circle broke into overlapping pieces. Check that **Profile** matches the reads, which for this fixture means the preselected Nano Raw, and run Flye again. Nano Raw has given a single contig on these reads where the old Nano HQ default gave four.
-- **Well under 16,569.** Part of the genome had too little coverage to assemble, and more reads are the fix.
+| Input | Profile | Contigs | Total length | What it means |
+|---|---|---|---|---|
+| Imported bundle, 8 threads | Nano Raw | 1, circular | 32,690 bp | The circle walked twice, the procedure's result |
+| Raw file | Nano HQ | 1, circular | 32,652 bp | The circle walked twice |
+| Raw file | Nano HQ | 1, circular | 16,359 bp | The whole genome, with the join trimmed |
+| Imported bundle | Nano HQ | 4, none circular | 22,137 bp | The circle broken into overlapping pieces |
 
-To run again, select the reads and open **Tools > Assembly > Flye...** again. Each run keeps its own folder, so you can compare results side by side. For hifiasm the lasting fix is to assemble the mitochondrion together with the nuclear reads it came from. This fixture holds no nuclear reads, so for hifiasm the length check is the whole test.
+The procedure as written, with the preselected Nano Raw on the imported bundle, gave the first row on both runs made for this manual. The four-contig run is worth reading too. Its contigs ran from 1,294 to 9,841 bases, its N50 was 5,800 and its L50 was 2, and Flye's `assembly_info.txt` gave several of them a multiplicity above 1, its estimate that a piece repeats. Four pieces that add up to more than the 16,569-base genome, some of them marked as repeats, are one circle cut into overlapping fragments, not four molecules. Nano HQ expects more accurate reads than these Q8 reads, which is why the sheet preselects Nano Raw for them.
+
+### Diploid or Haploid/Viral on a small circle
+
+The mitochondrion has one copy, so hifiasm's Haploid/Viral profile sounds right for it. Run on the same HiFi reads it returned two contigs, 60,111 bases in all. One is the same doubled circle of 33,140 bases, at a read depth of 170 in hifiasm's graph. The other is a linear contig of 26,971 bases at a depth of 16, and it lines up along its whole length, 99.9 percent identical, with part of the first. It is a partial duplicate copy of the same sequence, built from a minority of the reads. Diploid's duplicate purging removes exactly this kind of redundant copy, and Haploid/Viral turns the purging off. The procedure therefore keeps Diploid, and the lesson is to read a second, low-depth contig that repeats the first as a leftover copy, not a second molecule.
+
+### From a doubled contig to a reference
+
+A doubled contig holds the genome twice, so reads mapped to it split between two identical copies, which halves the depth and doubles every position. Cut one copy out before you map to it. Hifiasm's contig is exactly two copies, so one copy is its first half, positions 1 to 16,570, half of 33,140. The halves differ at one position in 16,570, so either half will do. HG002's own mitochondrion is one base longer than the 16,569-base reference, which is why the half is 16,570 rather than 16,569.
+
+1. Turn the contig into a reference bundle as [Extracting Contigs](04-extracting-contigs.md) shows. Select its one row, `ptg000001c`, and click **Create Bundle**. The bundle lands under `Reference Sequences/`.
+2. Open the new bundle, type `1-16570` into the location field at the left end of the ruler, and press Return.
+3. Mark that range as a feature with **Sequence > Add Annotation...**, then right-click the feature, choose **Extract Sequence...**, and save it as a new bundle, as [Extract one annotated feature](../02-sequences/03-extracting-and-comparing.md#extract-one-annotated-feature) shows. The feature route cuts exactly the range you marked, where **Extract Visible Region...** cuts whatever the viewport frames.
+
+The new bundle lands under `Extractions/` and holds one sequence of 16,570 bases, which aligns to the whole of `NC_012920.1`. It starts at a different place from the published reference and reads on the opposite strand, because the assembler chose its own cut point and direction. Map reads to it as [Mapping Reads to a Reference](../04-alignments/01-mapping-reads-to-a-reference.md) shows, and expect positions that do not match the published numbering. For that numbering, map to `NC_012920.1` itself. [On the command line](#on-the-command-line) gives the same route as two commands.
+
+Flye's doubled contig is not an exact double, so its halves are not a clean cut. For a single-copy mitochondrial reference from these reads, use the hifiasm contig, or the short-read contig from [Short-Read Assembly (SPAdes, MEGAHIT, SKESA)](02-running-spades.md), whose overshoot is only the closing overlap.
 
 ## What good looks like
 
-Check the total length against the expected size first, as [What to do with each outcome](#what-to-do-with-each-outcome) sets out. A length near 16,569 in one contig is the whole genome. About twice that, as in hifiasm's 33,140 and the fixture's stored Flye result of 32,690, is the circle walked twice. Several contigs adding up to more than the genome is a circle broken into overlapping pieces. A length far under what you expected means the assembler could not bridge something, most often a stretch where coverage dropped away.
+Apply the four checks in [What good looks like](01-when-to-assemble.md#what-good-looks-like) of When to Assemble, above all the total length against the expected size. For a small circle, read the length as that chapter's circular-genome section explains.
 
-Then check the contig count against the number of separate DNA molecules you expect. That is one for a mitochondrion, one for a bacterial chromosome plus one per plasmid, and roughly one per chromosome for a deeply covered HiFi assembly of a small genome such as yeast. A count far higher usually means reads too short to span the repeats, coverage too thin, or a read set that is not long-read data at all. The Detected row from step 1 is the check on that last cause.
+- **About 16,569 in one contig.** The genome came back whole. Carry it forward.
+- **About 33,000 in one contig.** The circle was walked twice. Cut one copy out as [From a doubled contig to a reference](#from-a-doubled-contig-to-a-reference) shows.
+- **One doubled contig plus a shorter, low-depth one.** The shorter one is a leftover partial copy. Rerun hifiasm on Diploid, or ignore the extra contig.
+- **Several contigs adding up to more than 16,569.** The circle broke into overlapping pieces. Check that **Profile** matches the reads, which for this fixture means the preselected Nano Raw, and run Flye again.
+- **Well under 16,569.** Part of the genome had too little coverage to assemble, and more reads are the fix.
 
-Then read the N50 beside the contig count. Together they say whether a fragmented assembly is evenly fragmented or one good contig among small scraps, and only the second is usually usable.
+To run again, select the reads and open **Tools > Assembly > Flye...** again. Each run keeps its own folder, so you can compare results side by side. For hifiasm the lasting fix for a doubled mitochondrion is to assemble it together with the nuclear reads it came from. This fixture holds no nuclear reads, so for hifiasm the length check is the whole test.
 
-Finally, remember that a contig is a hypothesis. The doubled results in this chapter looked healthy by every summary number. When the answer matters, map the reads back and check that depth runs level along the contig, without a sharp drop or a halving.
+Remember that a contig is a hypothesis. The doubled results in this chapter looked healthy by every summary number. When the answer matters, map the reads back and check that depth runs level along the contig, without a sharp drop or a halving.
 
 ## On the command line
 
-This section is optional, and nothing later in this manual needs it. The `lungfish-cli` program ships inside LGE, and [Finding the program](../appendices/cli-reference.md#finding-the-program) shows how to run it.
+The `lungfish-cli` program ships inside LGE, and [Finding the program](../appendices/cli-reference.md#finding-the-program) shows how to run it. Every flag of `assemble` and `extract contigs` is listed under [Assembly](../appendices/cli-reference.md#assembly) in the CLI Reference, and `extract sequence` under [Sequence utilities](../appendices/cli-reference.md#sequence-utilities).
 
 ```bash
-lungfish-cli assemble HG002.chrM.ont.fastq.gz \
-  --assembler flye --read-type ont-reads \
-  --profile nano-raw \
-  --project-name HG002-chrM-flye \
-  --output ./flye-out
+PROJECT="$HOME/Documents/LGE Demo Projects/Long Reads and Assembly.lungfish"
 
-lungfish-cli assemble HG002.chrM.hifi.fastq.gz \
+lungfish-cli assemble "$PROJECT/Imports/HG002.chrM.ont.lungfishfastq" \
+  --assembler flye --read-type ont-reads \
+  --project-name HG002.chrM.ont_assembly \
+  --output "$PROJECT/Analyses/flye-cli"
+
+lungfish-cli assemble "$PROJECT/Imports/HG002.chrM.hifi.lungfishfastq" \
   --assembler hifiasm --read-type pacbio-hifi \
   --profile diploid \
-  --project-name HG002-chrM-hifiasm \
-  --output ./hifiasm-out
+  --project-name HG002.chrM.hifi_assembly \
+  --output "$PROJECT/Analyses/hifiasm-cli"
+
+# One copy of the doubled hifiasm contig
+lungfish-cli extract contigs --assembly "$PROJECT/Analyses/hifiasm-cli" \
+  --contig ptg000001c --bundle --project-root "$PROJECT"
+lungfish-cli extract sequence \
+  "$PROJECT/Reference Sequences/hifiasm-cli-subset.lungfishref/genome/sequence.fa" \
+  ptg000001c:1-16570 -o chrM-single-copy.fa
 ```
 
-Leave `--profile` off and the CLI applies the window's rule, choosing `nano-raw` for these reads and printing the choice with its basis in the Profile and Profile basis rows before Flye starts. The provenance file beside the output records both. The commands above name the profile so a reader can see it.
-
-Two differences change results. `--output` writes exactly where you point it and makes no timestamped folder, so a second run into the same folder overwrites the first, while the window always makes a new folder under `Analyses/`. The window assembles an imported bundle, whose reads were reordered for storage at import, while the commands above assemble the raw file, and Flye can answer differently for the two orders. To match the window from the command line, import the file first and pass the `.lungfishfastq` bundle to `assemble`. Both assemblers take one input file, so combine several files from one sample first, for example with `cat a.fastq.gz b.fastq.gz > combined.fastq.gz`.
+With `--profile` left off, as in the Flye command, the command applies the window's rule, choosing `nano-raw` for these reads and printing the choice with its basis in the Profile and Profile basis rows before Flye starts. The provenance file beside the output records both. `--output` writes exactly where you point it and makes no timestamped folder, so a second run into the same folder overwrites the first. Given the imported bundle, the command assembles the reads in the order the window does. The last command writes a plain FASTA file whose header reads `>ptg000001c:1-16570 [ptg000001c:1-16570, 1-based] [16570 bp]`, which you can import as a reference as [Importing and Viewing a Sequence](../02-sequences/01-importing-and-viewing.md) shows. Both assemblers take one input, so combine several files from one sample first, for example with `cat a.fastq.gz b.fastq.gz > combined.fastq.gz`, then import the combined file.
 
 ## Next
 
-Continue to [Extracting Contigs](04-extracting-contigs.md) to turn a contig into a [reference bundle](../../GLOSSARY.md#reference-bundle) you can map reads to or call variants against. Carry forward only a result whose length matches the genome you expect.
+Continue to [Extracting Contigs](04-extracting-contigs.md) to turn a contig into a [reference bundle](../../GLOSSARY.md#reference-bundle) you can map reads to or call variants against. Carry forward only a result whose length matches the genome you expect, or one copy cut from a doubled contig.
