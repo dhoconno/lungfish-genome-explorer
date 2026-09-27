@@ -3,9 +3,9 @@ title: Provenance and Reproducibility
 chapter_id: 01-foundations/08-provenance-and-reproducibility
 audience: bench-scientist
 prereqs: [01-foundations/06-the-lungfish-project]
-estimated_reading_min: 11
-task: Read the run record Lungfish Genome Explorer keeps for a result, check it before trusting the result, and verify a signed record.
-tags: [foundations, provenance, reproducibility, inspector, signing]
+estimated_reading_min: 13
+task: Read the run record Lungfish Genome Explorer keeps for a result, check it before trusting the result, follow a lineage of steps, and verify a signed record.
+tags: [foundations, provenance, reproducibility, inspector, lineage, signing]
 tools: []
 parameters_refs: []
 entry_points:
@@ -14,17 +14,17 @@ entry_points:
   - "CLI: lungfish-cli provenance verify"
 shots:
   - id: inspector-provenance-section
-    caption: "The chr20 reference bundle selected in the demo project, with the Inspector's Provenance tab open on the right showing Run Summary above the Warnings, Lineage, Files & Outputs, Invocation & Options, Runtime, and Raw JSON blocks."
+    caption: "The GRCh38.chr20.10.0-10.5Mb reference bundle selected in the Human Mapping and Variants (with results) demo project, with the Inspector's Provenance tab open on the right showing Run Summary above the Warnings, Lineage, Files & Outputs, Invocation & Options, Runtime, and Raw JSON blocks."
   - id: provenance-lineage-step-expanded
     caption: "The Provenance section with HG002 bcftools chosen in the Source picker and one bcftools step expanded in Lineage, showing that step's own Command, Inputs, Outputs, Exit Status, and Wall Time."
   - id: provenance-signing-settings
     caption: "Settings > General > Provenance Signing, showing the Off, Local, and Cosign Plan provider choices above the local signing key field, the public key path field, and the Save Signing Key and Clear Signing Key buttons."
 illustrations:
   - id: provenance-graph-cartoon
-    brief: "Schematic of the demo project's chain: an imported chr20 reference FASTA and an imported pair of HG002 FASTQ files feed a minimap2 mapping that produces a BAM, which feeds a bcftools variant call that produces a VCF. Each stage is a node, arrows show which stage produced inputs for the next, and each arrow carries a small SHA-256 label. Use Lungfish Creamsicle for nodes, Deep Ink for arrows and labels, Peach to highlight the variant track at the end as the item you would select before exporting."
-glossary_refs: [provenance, provenance-sidecar, reproducibility, checksum, inspector, methods-export, run-record, project, bundle, conda, pileup]
+    brief: "Schematic of the chain in the Human Mapping and Variants (with results) demo project: an imported GRCh38.chr20.10.0-10.5Mb reference FASTA and an imported pair of HG002 FASTQ files feed a minimap2 mapping that produces the HG002 minimap2 alignment track, which feeds a bcftools variant call that produces the HG002 bcftools variant track. Each stage is a node, arrows show which stage produced inputs for the next, and each arrow carries a small SHA-256 label. Use Lungfish Creamsicle for nodes, Deep Ink for arrows and labels, Peach to highlight the variant track at the end as the item you would select before exporting."
+glossary_refs: [provenance, provenance-sidecar, reproducibility, checksum, inspector, methods-export, run-record, project, bundle, conda, pileup, exit-status, wall-time, variant-track]
 features_refs: []
-fixtures_refs: [demo-project]
+fixtures_refs: [hg002-chr20]
 brand_reviewed: false
 lead_approved: false
 ---
@@ -33,10 +33,10 @@ lead_approved: false
 
 Every time Lungfish Genome Explorer (LGE) makes a file, it writes down how that file came to be. That note is called [provenance](../../GLOSSARY.md#provenance), the record of where a file came from and what was done to it. LGE stores it as a [provenance sidecar](../../GLOSSARY.md#provenance-sidecar), a small file that sits beside the result it describes, the way a sidecar rides beside a motorcycle. The sidecar is written in JSON, a plain-text format that both a program and a person can read.
 
-A sidecar answers one question. Which tool, at which version, with which options, read which files and wrote which files? The chr20 reference [bundle](../../GLOSSARY.md#bundle) in the demo project has such a sidecar, and one of its fields, `reproducibleCommand`, is the command that made the bundle. It is a record of what already ran, not something to type.
+A sidecar answers one question. Which tool, at which version, with which options, read which files and wrote which files? The `GRCh38.chr20.10.0-10.5Mb` reference [bundle](../../GLOSSARY.md#bundle) in the Human Mapping and Variants (with results) demo project has such a sidecar, and one of its fields, `reproducibleCommand`, is the command that made the bundle. It is a record of what already ran, not something to type.
 
 ```json
-"reproducibleCommand": "lungfish-cli import fasta .../GRCh38.chr20.10.0-10.5Mb.fasta --output-dir '.../LGE Manual Demo.lungfish' --name 'chr20 10.0-10.5Mb'"
+"reproducibleCommand": "lungfish-cli import fasta .../GRCh38.chr20.10.0-10.5Mb.fasta --output-dir '.../Human Mapping and Variants (with results).lungfish' --name GRCh38.chr20.10.0-10.5Mb"
 ```
 
 The three dots stand for a longer folder path shortened to fit the page.
@@ -47,52 +47,68 @@ Every file that command touched is listed with a [checksum](../../GLOSSARY.md#ch
 
 ## Why you would do this
 
-Six months after a run, nobody remembers which version of bcftools called those variants. bcftools is the program that reads aligned sequencing reads and writes out the positions where a sample differs from the reference. The demo project holds the answer. Its sidecar names bcftools as `bioconda::bcftools=1.24=h6bd33b9_2`. [Conda](../../GLOSSARY.md#conda) is the package manager LGE uses to install its tools, `bioconda` is the collection the package came from, `1.24` is the release, and `h6bd33b9_2` is the build, the particular compiled copy of that release. A reviewer asking how a figure was made needs exactly that level of detail.
+Six months after a run, nobody remembers which version of bcftools called those variants. bcftools is the program that reads aligned sequencing reads and writes out the positions where a sample differs from the reference. The demo project holds the answer. Its variant track's sidecar names bcftools as `bioconda::bcftools=1.24=h6bd33b9_2`. [Conda](../../GLOSSARY.md#conda) is the package manager LGE uses to install its tools, `bioconda` is the collection the package came from, `1.24` is the release, and `h6bd33b9_2` is the build, the particular compiled copy of that release. A reviewer asking how a figure was made needs exactly that level of detail.
 
 The record helps in everyday moments too. A run fails and you want to see which step broke. A paper needs a methods paragraph naming every tool. LGE writes a record for every analysis it runs, with no way to turn it off, so the material is already on disk before you go looking for it.
 
-This chapter uses three linked results in the demo project. They are the chr20 reference bundle, the HG002 minimap2 mapping built on it, and the HG002 bcftools variant track built on the mapping. HG002 is the human reference sample that [Sequencing Reads](02-sequencing-reads.md#why-you-would-do-this) introduces, and minimap2 is the program that places sequencing reads onto a reference genome. Because each result was made from the one before, each record reaches back through the one before it.
+This chapter reads three linked records in the demo project. The first is the import of the `GRCh38.chr20.10.0-10.5Mb` reference, the simplest record there is. The second is the minimap2 mapping of the HG002 reads onto that reference. The third, in [Reading a lineage](#reading-a-lineage), is the `HG002 bcftools` variant track called from that mapping. HG002 is the human reference sample that [Sequencing Reads](02-sequencing-reads.md#why-you-would-do-this) introduces, and minimap2 is the program that places sequencing reads onto a reference genome. Because each result was made from the one before, each record reaches back through the one before it.
 
 ## Before you start
 
-You need a project open, as [The Lungfish Genome Explorer Project](06-the-lungfish-project.md#procedure) shows. This chapter uses the demo project fixture. Build it from https://github.com/dhoconno/lungfish-genome-explorer/tree/v2026.9.39/docs/user-manual/fixtures/demo-project, as [Practice data for this manual](06-the-lungfish-project.md#practice-data-for-this-manual) explains.
+You need a project open, as [The Lungfish Genome Explorer Project](06-the-lungfish-project.md#procedure) shows. This chapter uses the Human Mapping and Variants (with results) demo project, which that chapter's procedure opens. If you have not downloaded it yet, choose **Help > Demo Projects…** and click **Download & Open** beside it, as [Demo projects](06-the-lungfish-project.md#demo-projects) explains.
 
 Nothing in this chapter needs a plugin pack, because it only reads records that earlier runs already wrote. Reading a record takes a minute.
 
 ## Procedure
 
-1. Select the `chr20_10.0-10.5Mb` reference bundle under `Reference Sequences/` in the sidebar. Open the [Inspector](../../GLOSSARY.md#inspector) if it is hidden, as [The Inspector](06-the-lungfish-project.md#the-inspector) shows.
+1. Select the `GRCh38.chr20.10.0-10.5Mb` reference bundle under `Reference Sequences/` in the sidebar. Open the [Inspector](../../GLOSSARY.md#inspector) if it is hidden, as [The Inspector](06-the-lungfish-project.md#the-inspector) shows.
 
 2. Click the **Provenance** tab at the top of the Inspector. Its content, which this chapter calls the Provenance section, fills the Inspector.
 
     <!-- SHOT: inspector-provenance-section -->
 
-3. Read **Run Summary** at the top. For this bundle it names the workflow `lungfish import fasta`, the tool and its version, and when the run was created. It then gives the exit status, the number a tool reports when it stops, where 0 means success and any other number means failure. The wall time is how long the run took by an ordinary clock. Counts of steps, inputs, and outputs follow, and the last row gives the path of the sidecar file itself.
+3. Read **Run Summary** at the top. For this bundle it names the workflow `lungfish import fasta`, the tool and its version, and when the run was created. It then gives the [exit status](../../GLOSSARY.md#exit-status), the number a tool reports when it stops, where 0 means success and any other number means failure. The [wall time](../../GLOSSARY.md#wall-time) is how long the run took by an ordinary clock, about two seconds here. Counts of steps, inputs, and outputs follow, and the last row gives the path of the sidecar file itself. This import ran three steps, LGE's own import, `bgzip` to compress the sequence, and `samtools` to index it.
 
-4. Choose `HG002 bcftools` from the **Source** picker at the top of the Provenance section, then open the **Lineage** block and expand one step. The picker offers **Bundle** and each named variant track attached to the reference bundle, and choosing a track loads that track's own record. That track's chain runs eleven steps, from staging the alignment and the reference, through `samtools faidx`, four `bcftools` calls, `bgzip`, `tabix`, and the import of the rows into the bundle's search database, to the `lungfish-cli variants call` command that ran them all. These are bookkeeping steps LGE ran for you, so read them as a list of what happened rather than as tools to learn.
+4. Open **Files & Outputs** and find the FASTA the import read and the compressed sequence it wrote, each with its checksum. [Reading the results](#reading-the-results) shows the two values to expect.
 
-    <!-- SHOT: provenance-lineage-step-expanded -->
+5. Select the mapping result `minimap2-2026-09-25T00-00-00` under `Analyses/`, and read its Run Summary in the same Provenance tab. It names the workflow `lungfish map`, the tool minimap2 at version 2.31, and five steps, the mapping followed by four `samtools` steps that filter, sort, index, and count the reads. Its inputs include the reads and the compressed sequence from step 4, which is how one record reaches back to the one before it.
 
-To hand the run to someone else as a script or a workflow, see [Exporting as Nextflow or Snakemake](../08-workflows/02-exporting-as-nextflow-or-snakemake.md#procedure).
+To hand a run to someone else as a script or a workflow, see [Exporting as Nextflow or Snakemake](../08-workflows/02-exporting-as-nextflow-or-snakemake.md#procedure).
 
 ## Reading the results
 
 The Provenance section breaks into blocks you open and close one at a time. They are Run Summary, Warnings, Lineage, Files & Outputs, Invocation & Options, Runtime, and Raw JSON, and Warnings appears only when the run reported one. Once a record is long enough, a **Filter provenance** field appears above the blocks and narrows a long lineage to the steps whose text matches what you type. A **Copy** button in the section header puts the whole record on the clipboard.
 
-**Run Summary** identifies the run. Steps is the number of tool runs the record holds, small for the chr20 import and eleven for the bcftools track. Inputs and Outputs are counts rather than lists, so a run reporting one input and ten outputs read one file and wrote ten. Signatures appears only when the record was signed, which [Signing a record](#signing-a-record) covers, and Sidecar gives the record's path on disk.
+**Run Summary** identifies the run. Steps is the number of tool runs the record holds, three for the chr20 import, five for the mapping, and twelve for the bcftools track. Inputs and Outputs are counts rather than lists, so a run reporting one input and ten outputs read one file and wrote ten. Signatures appears only when the record was signed, which [Signing a record](#signing-a-record) covers, and Sidecar gives the record's path on disk.
 
-**Lineage** is the chain of steps in order, each one numbered and expandable. Open a step and it shows that step's own Command, its Inputs and Outputs as file lists, its exit status, its wall time, and whatever the tool wrote to standard error. Standard error is the channel a command-line tool uses for its own progress notes and complaints, so text there is normal rather than a sign of failure. In the bcftools chain, step 4 is the [pileup](../../GLOSSARY.md#pileup), which gathers the bases every read shows at each reference position, and step 5 is the call, which decides from that evidence where the sample differs.
+**Lineage** is the chain of steps in order, each one numbered and expandable. Open a step and it shows that step's own Command, its Inputs and Outputs as file lists, its exit status, its wall time, and whatever the tool wrote to standard error. Standard error is the channel a command-line tool uses for its own progress notes and complaints, so text there is normal rather than a sign of failure.
 
-```
-bcftools mpileup -Ou -f .../reference.fa .../hg002-minimap2.bam
-bcftools call -mv -Ov -o .../bcftools.raw.vcf
-```
-
-**Files & Outputs** lists every file the run read and wrote, with its role, its size, and its SHA-256 checksum. The chr20 import's record shows the FASTA it read at `sha256 3ee1418353a681cbd415a278ecc0bd9579121eac2bc483448ab78ca679840101` and the compressed sequence it wrote at `sha256 e8d07729ea4729764967e236a2450ff1e356ee7947020dab68dc73dc85589a1e`. Those strings let a collaborator confirm they hold your file rather than a lookalike. Glancing at the first few characters is enough to see that two records name the same file.
+**Files & Outputs** lists every file the run read and wrote, with its role, its size, and its SHA-256 checksum. The chr20 import's record shows the FASTA it read at `sha256 3ee1418353a681cbd415a278ecc0bd9579121eac2bc483448ab78ca679840101` and the compressed sequence it wrote at `sha256 e8d07729ea4729764967e236a2450ff1e356ee7947020dab68dc73dc85589a1e`. Those strings let a collaborator confirm they hold your file rather than a lookalike. Glancing at the first few characters is enough to see that two records name the same file, and the mapping's record lists the compressed sequence with the same `e8d07729` start.
 
 **Invocation & Options** lists the option values the run used, each marked as explicit, default, or resolved default. A thread count can appear here, which matters because some tools give slightly different answers with a different number of threads. The demo project's minimap2 mapping ran with `-t 14`, which describes the Mac it ran on rather than a recommended setting.
 
-**Runtime** names the machine. The chr20 record carries the LGE version, the processor type `arm64`, a dependency set of `2026.2`, the operating system `macOS 26.6.2 (arm64)`, and the user who ran it. The dependency set is the versioned collection of tools LGE installed for itself, so `2026.2` names that whole collection rather than any one tool. **Raw JSON** shows the whole sidecar as text with a Copy button of its own, for any field the other blocks do not show. Each field in the sidecar is listed in [Provenance sidecars](../appendices/file-formats.md#provenance-sidecars).
+**Runtime** names the machine. The chr20 record carries the LGE version that ran it, the processor type `arm64`, a dependency set of `2026.2`, the operating system `macOS 26.6.2 (arm64)`, and the user who ran it. The dependency set is the versioned collection of tools LGE installed for itself, so `2026.2` names that whole collection rather than any one tool. **Raw JSON** shows the whole sidecar as text with a Copy button of its own, for any field the other blocks do not show. Each field in the sidecar is listed in [Provenance sidecars](../appendices/file-formats.md#provenance-sidecars).
+
+### Reading a lineage
+
+A lineage is the list of every step behind one result, in the order they ran. The `HG002 bcftools` variant track in the demo project has a long one, and it is the record to read when you want to know exactly how a set of variant calls was made. Variant tracks live in the reference bundle inside the mapping result, as [Where results land](06-the-lungfish-project.md#where-results-land) explains, so their records appear once that bundle is open in the viewport.
+
+1. Open the reference bundle inside the mapping result, the way [Calling Variants](../05-variants/01-calling-variants-from-amplicons.md) opens it before calling.
+2. In the Inspector's **Provenance** tab, choose `HG002 bcftools` from the **Source** picker at the top of the Provenance section. The picker offers **Bundle** and each named variant track attached to the bundle, and choosing a track loads that track's own record.
+3. Open the **Lineage** block and expand step 4.
+
+<!-- SHOT: provenance-lineage-step-expanded -->
+
+The chain runs twelve steps. The first two stage the alignment and the reference for the caller, and step 3 indexes the reference with `samtools faidx`. Step 4 is the [pileup](../../GLOSSARY.md#pileup), which gathers the bases every read shows at each reference position. Step 5 is the call, which decides from that evidence where the sample differs. Step 6 is the threshold filter, which removes every row below the Call Variants dialog's Minimum Allele Frequency of 0.05 or Minimum Depth of 10.
+
+```text
+bcftools mpileup -Ou -A -d 0 -a FORMAT/AD,FORMAT/DP,INFO/AD -f .../reference.fa .../aln_<id>.bam
+bcftools call --ploidy 2 -mv -Ov -o .../bcftools.raw.vcf
+```
+
+The remaining steps are bookkeeping. Two more `bcftools` steps attach the reference's sequence names and sort the rows, `bgzip` compresses the file, `tabix` indexes it, an LGE step loads the rows into the database the variants table searches, and the last step is the `lungfish-cli variants call` command that ran them all. Read them as a list of what happened rather than as tools to learn. The `aln_<id>` in the file name is the track's internal id, which differs in every project.
+
+Come back to this section after [Calling Variants](../05-variants/01-calling-variants-from-amplicons.md), where you call the same reads yourself, and read the lineage of your own track. Its steps should match these, with your Mac's thread count and your own file paths in place of the demo project's.
 
 ## What good looks like
 
@@ -104,29 +120,34 @@ Three things a record cannot promise are worth keeping in mind. A public databas
 
 ## Signing a record
 
-This section is optional, and most readers leave signing off and skip it. For audit work that needs a tamper-evident record, one that shows whether anyone changed it after it was written, **Settings...** (Cmd-,), in the application menu at the left of the menu bar, has a Provenance Signing section on its **General** tab. Signing uses a key pair, two linked codes where the private signing key stamps a record and the matching public key lets anyone check the stamp without being able to make one. The section's Provider control offers Off, Local, and Cosign Plan, where Cosign is an outside signing service used to check that software was not altered between its maker and its user. The default is Off, which is right for most research. Below the provider sit a local signing key field, a public key path field, and **Save Signing Key** and **Clear Signing Key** buttons, with a status line beneath them. A signature only matters if someone checks it later, which the command line below does.
+Most readers leave signing off and skip this section. For audit work that needs a tamper-evident record, one that shows whether anyone changed it after it was written, **Settings...** (Cmd-,), in the application menu at the left of the menu bar, has a Provenance Signing section on its **General** tab. Signing uses a key pair, two linked codes where the private signing key stamps a record and the matching public key lets anyone check the stamp without being able to make one. The section's Provider control offers Off, Local, and Cosign Plan, where Cosign is an outside signing service used to check that software was not altered between its maker and its user. The default is Off, which is right for most research. Below the provider sit a local signing key field, a public key path field, and **Save Signing Key** and **Clear Signing Key** buttons, with a status line beneath them. A signature only matters if someone checks it later, which the command line below does.
 
 <!-- SHOT: provenance-signing-settings -->
 
 ## On the command line
 
-This section is optional, and nothing later in this manual needs it. The `lungfish-cli` program ships inside LGE, and [Finding the program](../appendices/cli-reference.md#finding-the-program) shows how to run it.
-
-The command below checks a signed record against its signature. It takes a sidecar file, a bundle, or a result folder. Pointed at the demo project's unsigned chr20 bundle, as here, it stops with "Signature artifact is missing", which is the expected answer for a record nobody signed. The project path holds spaces, so it sits inside quotation marks, where `$HOME` stands for your home folder.
+The command below checks a signed record against its signature, following the convention in [Reading an On the command line block](06-the-lungfish-project.md#reading-a-command-line-block). It is listed in [Projects, provenance, and run history](../appendices/cli-reference.md#projects-provenance-and-run-history) in the CLI Reference. It takes a sidecar file, a bundle, or a result folder. Pointed at the demo project's unsigned chr20 bundle, as here, it stops with "Signature artifact is missing", which is the expected answer for a record nobody signed.
 
 ```bash
-lungfish-cli provenance verify \
-  "$HOME/Desktop/lge-docs/LGE Manual Demo.lungfish/Reference Sequences/chr20_10.0-10.5Mb.lungfishref"
+PROJECT="$HOME/Documents/LGE Demo Projects/Human Mapping and Variants (with results).lungfish"
+lungfish-cli provenance verify "$PROJECT/Reference Sequences/GRCh38.chr20.10.0-10.5Mb.lungfishref"
 ```
 
 The command looks for the signature beside the sidecar, in a file named after it ending in `.signature.json`, and the public key in a file ending in `.pub`. It checks only records signed with the Local provider, so it pairs with the Provenance Signing setting above.
 
 ## Next
 
-Foundations is complete. Continue to one of the task parts.
+Foundations is complete. Continue to [Importing and Viewing a Sequence](../02-sequences/01-importing-and-viewing.md), the first chapter of the Sequences part, where you bring a human gene record into a project and read it base by base. To go straight to the kind of data you have, the [reading paths](../../index.md#reading-paths) on the home page list a chapter order for each. The parts, in the order the manual presents them, are these.
 
-- [Sequences](../02-sequences/01-importing-and-viewing.md) for importing, viewing, and downloading reference sequences
-- [Reads](../03-reads/01-importing-fastq.md) for importing, checking, trimming, and cleaning sequencing reads
-- [Alignments](../04-alignments/01-mapping-reads-to-a-reference.md) for mapping reads and reviewing the alignment
-- [Variants](../05-variants/01-calling-variants-from-amplicons.md) for calling and reading variants
-- [Classification](../06-classification/01-what-is-classification.md) for identifying the organisms in a sample
+| Part | Start with |
+|---|---|
+| Sequences | [Importing and Viewing a Sequence](../02-sequences/01-importing-and-viewing.md) |
+| Reads (FASTQ) | [Importing Sequencing Reads](../03-reads/01-importing-fastq.md) |
+| Alignments | [Mapping Reads to a Reference](../04-alignments/01-mapping-reads-to-a-reference.md) |
+| Variants | [Calling Variants](../05-variants/01-calling-variants-from-amplicons.md) |
+| Human Germline Variants (Experimental) | [Reference Files for GATK](../06-human-germline-variants/04-reference-packs.md) |
+| Classification | [What Is Read Classification](../06-classification/01-what-is-classification.md) |
+| Assembly | [When to Assemble](../07-assembly/01-when-to-assemble.md) |
+| Workflows | [Exporting as Nextflow or Snakemake](../08-workflows/02-exporting-as-nextflow-or-snakemake.md) |
+| MHC Allele Genotyping | [What Is MHC Genotyping](../09-genotyping/01-what-is-mhc-genotyping.md) |
+| Primer Design | [What Is Primer Design](../10-primer-design/01-what-is-primer-design.md) |

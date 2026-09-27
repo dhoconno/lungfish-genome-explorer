@@ -29,14 +29,14 @@ Read these eight chapters first, in this order. The first shows how to get LGE a
 
 | Chapter | What it covers | Reading time |
 |---|---|---|
-| [The Lungfish Genome Explorer Project](chapters/01-foundations/06-the-lungfish-project.md) | Getting LGE, the project window, the demo projects, and where results land | 25 minutes |
+| [The Lungfish Genome Explorer Project](chapters/01-foundations/06-the-lungfish-project.md) | Getting LGE, the project window, the demo projects, and where results land | 28 minutes |
 | [What Is a Genome](chapters/01-foundations/01-what-is-a-genome.md) | Genomes, reference sequences, and coordinates | 8 minutes |
 | [Sequencing Reads](chapters/01-foundations/02-sequencing-reads.md) | Reads, FASTQ files, pairing, and quality scores | 12 minutes |
 | [Amplicons and Shotgun Sequencing](chapters/01-foundations/03-amplicon-vs-shotgun.md) | The two main ways a sequencing library is made | 10 minutes |
 | [Alignment Files](chapters/01-foundations/04-alignment-files.md) | What a BAM file records and how depth is counted | 12 minutes |
 | [Variants and VCF Files](chapters/01-foundations/05-variants-and-vcf.md) | What a variant is and how to read a VCF file | 13 minutes |
-| [Plugin Packs](chapters/01-foundations/07-plugin-packs.md) | Installing analysis tools, databases, and Docker Desktop | 22 minutes |
-| [Provenance and Reproducibility](chapters/01-foundations/08-provenance-and-reproducibility.md) | The record LGE keeps of every run | 11 minutes |
+| [Plugin Packs](chapters/01-foundations/07-plugin-packs.md) | Installing analysis tools, databases, specialized workflows, and Docker Desktop | 24 minutes |
+| [Provenance and Reproducibility](chapters/01-foundations/08-provenance-and-reproducibility.md) | The record LGE keeps of every run, and how to read a lineage | 13 minutes |
 
 ## Reading paths
 
