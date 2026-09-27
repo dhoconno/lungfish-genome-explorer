@@ -3,7 +3,7 @@ title: Alignment Files
 chapter_id: 01-foundations/04-alignment-files
 audience: bench-scientist
 prereqs: [01-foundations/01-what-is-a-genome, 01-foundations/02-sequencing-reads]
-estimated_reading_min: 12
+estimated_reading_min: 13
 task: Understand what BAM files are, what mapping does, and how to read coverage and pileups.
 tags: [foundations, bam, bai, mapping, alignment, coverage, pileup, soft-clip, strand]
 tools: [samtools, minimap2]

@@ -3,7 +3,7 @@ title: What Is a Genome
 chapter_id: 01-foundations/01-what-is-a-genome
 audience: bench-scientist
 prereqs: []
-estimated_reading_min: 11
+estimated_reading_min: 9
 task: Understand what a genome and a reference genome are, how a reference is stored, how a position on a reference is named, and why the same base gets different numbers on different references.
 tags: [foundations, genome, reference, coordinates, annotation, hbb]
 tools: []

@@ -3,7 +3,7 @@ title: Variants and VCF Files
 chapter_id: 01-foundations/05-variants-and-vcf
 audience: bench-scientist
 prereqs: [01-foundations/01-what-is-a-genome, 01-foundations/02-sequencing-reads, 01-foundations/04-alignment-files]
-estimated_reading_min: 18
+estimated_reading_min: 15
 task: Understand what a variant is, read a VCF file, its columns, its FILTER flags, and its genotype notation, and choose the right variant-calling route for your data.
 tags: [foundations, vcf, bcf, variants, allele-frequency, depth, filter, info, format, genotype, ploidy, snv, indel]
 tools: []
