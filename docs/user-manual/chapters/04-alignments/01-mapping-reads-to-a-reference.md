@@ -19,7 +19,7 @@ shots:
   - id: tools-mapping-submenu
     caption: "The Tools menu with its Mapping submenu open, listing the minimap2, BWA-MEM2, Bowtie2, BBMap, and Viral Recon items."
   - id: mapping-wizard-overview
-    caption: "The FASTQ/FASTA Operations dialog with minimap2 chosen in the tool list, the chr20_10.0-10.5Mb reference and the Short-read preset selected, the Input Compatibility readout reporting Ready, and the Read Group and Advanced Settings disclosures collapsed."
+    caption: "The FASTQ/FASTA Operations dialog with minimap2 chosen in the tool list, the chr20_10.0-10.5Mb reference and the Short-read preset selected, HG002 minimap2 typed into the Output Track section's Track name field, the Input Compatibility readout reporting Ready, and the Read Group and Advanced Settings disclosures collapsed."
   - id: mapping-wizard-advanced
     caption: "The Advanced Settings disclosure of the mapping wizard, expanded to show the Threads, Secondary alignments, Supplementary, Min mapping quality, and Extra arguments controls."
   - id: alignment-inspector-stats
@@ -32,9 +32,20 @@ brand_reviewed: false
 lead_approved: false
 ---
 
+## Two routes through this part
+
+The five chapters of Alignments serve two kinds of library, and you need only the chapters for yours. [Amplicons and Shotgun Sequencing](../01-foundations/03-amplicon-vs-shotgun.md) explains the difference. Both routes start here and continue with [Reading an Alignment](02-reading-an-alignment.md).
+
+| Your library | Chapters in order | Demo project | Then |
+|---|---|---|---|
+| Shotgun, DNA broken at random, such as a human genome | Mapping Reads to a Reference, Reading an Alignment, [Alignment Quality](04-alignment-quality.md) | Human Mapping and Variants | [Calling Variants](../05-variants/01-calling-variants-from-amplicons.md) with bcftools or LoFreq |
+| Amplicon, a target copied in PCR pieces, such as a SARS-CoV-2 panel | Mapping Reads to a Reference, Reading an Alignment, [Primer Trimming an Alignment](03-primer-trimming.md) | SARS-CoV-2 Amplicons | [Call the trimmed amplicon track with iVar](../05-variants/01-calling-variants-from-amplicons.md#call-the-trimmed-amplicon-track-with-ivar), or [The Viral Recon Wizard](05-viral-recon-wizard.md) for the whole SARS-CoV-2 pipeline in one run |
+
+The nav lists Alignment Quality before Primer Trimming, so a shotgun reader can stop after the third chapter and move to Variants. An amplicon reader skips Alignment Quality, because duplicate marking is wrong for amplicon data, as that chapter explains. This chapter's example is the shotgun route. Its procedure works the same way on the amplicon run, which [Primer Trimming an Alignment](03-primer-trimming.md) maps as its first step.
+
 ## What it is
 
-Mapping takes a set of sequencing reads and a reference genome and works out where along the reference each read came from. A read is one stretch of DNA sequence the instrument reported, up to 250 bases long for the data in this chapter. A reference genome is a finished genome sequence for the species, used as the shared map every sample is compared against. The program that does the placing is called a [mapper](../../GLOSSARY.md#mapper). Lungfish Genome Explorer (LGE) offers four of them, minimap2, BWA-MEM2, Bowtie2, and BBMap, and minimap2 is the default.
+Mapping takes a set of sequencing reads and a reference genome and works out where along the reference each read came from. A [read](../../GLOSSARY.md#read) is the record a sequencer writes for one DNA fragment, with its bases and a quality score for each base, and the reads in this chapter are up to 250 bases long. A reference genome is a finished genome sequence for the species, used as the shared map every sample is compared against. The program that does the placing is called a [mapper](../../GLOSSARY.md#mapper). Lungfish Genome Explorer (LGE) offers four of them, minimap2, BWA-MEM2, Bowtie2, and BBMap, and minimap2 is the default.
 
 LGE writes the answer as a BAM file. A [BAM](../../GLOSSARY.md#bam) file holds one row per aligned read, with an index beside it that lets a viewer jump to any position. Each row records where the read landed, on which strand, and how sure the mapper was. [MAPQ](../../GLOSSARY.md#mapq) is the mapper's confidence in where it placed a read, from 0 for a read that fits several places equally to 60 for one clear placement, as [What one row of a BAM records](../01-foundations/04-alignment-files.md#what-one-row-of-a-bam-records) explains. LGE sorts the rows into genome order and writes the index for you.
 
@@ -79,26 +90,28 @@ This chapter maps HG002's Illumina reads with minimap2, the default and a good f
 
 You need a project open, as [The Lungfish Genome Explorer Project](../01-foundations/06-the-lungfish-project.md#procedure) shows.
 
-Open the Human Mapping and Variants demo project with **Help > Demo Projects…**, as [Demo projects](../01-foundations/06-the-lungfish-project.md#demo-projects) explains. It already holds the `HG002.chr20.10.0-10.5Mb` reads and the `GRCh38.chr20.10.0-10.5Mb` reference bundle this section imports, so only the plugin pack remains. To import the files yourself instead, follow the rest of this section.
+Open the Human Mapping and Variants demo project with **Help > Demo Projects…**, as [Demo projects](../01-foundations/06-the-lungfish-project.md#demo-projects) explains. It already holds the `HG002.chr20.10.0-10.5Mb` reads under `Imports` and the `GRCh38.chr20.10.0-10.5Mb` reference bundle under `Reference Sequences`, so only the plugin pack remains. To import the files yourself instead, follow the rest of this section.
 
 This chapter uses the hg002-chr20 fixture. Download `GRCh38.chr20.10.0-10.5Mb.fasta`, `HG002.chr20.10.0-10.5Mb_R1.fastq.gz`, and `HG002.chr20.10.0-10.5Mb_R2.fastq.gz` from [the hg002-chr20 fixture folder](https://github.com/dhoconno/lungfish-genome-explorer/tree/v2026.9.39/docs/user-manual/fixtures/hg002-chr20), as [Practice data for this manual](../01-foundations/06-the-lungfish-project.md#practice-data-for-this-manual) explains.
 
 Import the two FASTQ files as one paired sample, as [Importing Sequencing Reads](../03-reads/01-importing-fastq.md) describes. Import the FASTA as a reference, as [Importing and Viewing a Sequence](../02-sequences/01-importing-and-viewing.md) describes. That import makes a [reference bundle](../../GLOSSARY.md#reference-bundle), the folder LGE keeps a reference sequence in, and the mapper reads the reference from it.
 
-Install the `read-mapping` [plugin pack](../../GLOSSARY.md#plugin-pack), a themed group of tools LGE installs on request, as [Plugin Packs](../01-foundations/07-plugin-packs.md#procedure) shows. It holds minimap2, BWA-MEM2, and Bowtie2. BBMap arrives with the [Required Setup pack](../../GLOSSARY.md#required-setup-pack), the one pack LGE installs by itself, so there is nothing to install.
+Install the `read-mapping` [plugin pack](../../GLOSSARY.md#plugin-pack), a themed group of tools LGE installs on request, as [Plugin Packs](../01-foundations/07-plugin-packs.md#procedure) shows. It holds minimap2, BWA-MEM2, and Bowtie2. BBMap arrives with the [Required Setup pack](../../GLOSSARY.md#required-setup-pack), which the Welcome window offers to install the first time you open LGE, as [First launch and the Welcome window](../01-foundations/06-the-lungfish-project.md#first-launch-and-the-welcome-window) shows.
 
-No container software is needed. The numbers in this chapter came from runs on 2026-09-06 with minimap2 2.31 and samtools 1.24, and the minimap2 run took under ten seconds on a recent Mac.
+No container software is needed. The numbers in this chapter came from minimap2 2.31 and samtools 1.24, and the minimap2 run takes under twenty seconds on a recent Mac.
 
 ## Procedure
 
-**Tools > Mapping** opens the FASTQ/FASTA Operations dialog with the mapper you chose already selected in its tool list. The dialog follows the layout [Operation dialogs](../01-foundations/06-the-lungfish-project.md#operation-dialogs) describes. Its settings pane stacks five sections, **Reference**, **Preset**, **Read Group**, **Input Compatibility**, and **Advanced Settings**. minimap2 calls the second section Preset, while BWA-MEM2, Bowtie2, and BBMap call it Mode. Read Group and Advanced Settings start collapsed, and their defaults suit an ordinary run.
+**Tools > Mapping** opens the FASTQ/FASTA Operations dialog with the mapper you chose already selected in its tool list. The dialog follows the layout [Operation dialogs](../01-foundations/06-the-lungfish-project.md#operation-dialogs) describes. Its settings pane stacks six sections, **Reference**, **Preset**, **Output Track**, **Read Group**, **Input Compatibility**, and **Advanced Settings**. minimap2 calls the second section Preset, while BWA-MEM2, Bowtie2, and BBMap call it Mode. Read Group and Advanced Settings start collapsed, and their defaults suit an ordinary run.
 
 <!-- SHOT: tools-mapping-submenu -->
 
-1. In the sidebar, click the read bundle you imported from the two HG002 files.
+### Map the HG002 reads with minimap2
+
+1. In the sidebar, click the `HG002.chr20.10.0-10.5Mb` read bundle under `Imports`.
 2. Choose **Tools > Mapping > minimap2...**. The dialog opens with minimap2 selected in the tool list on the left.
-3. Under **Reference**, choose the bundle you imported from `GRCh38.chr20.10.0-10.5Mb.fasta`. It may be listed as `chr20_10.0-10.5Mb`, the name of the one sequence inside that FASTA, and its path appears under the picker.
-4. Leave **Preset** on **Short-read**, minimap2's starting preset, which suits these Illumina reads.
+3. Under **Reference**, choose the `GRCh38.chr20.10.0-10.5Mb` bundle. The picker may list it as `chr20_10.0-10.5Mb`, the name of the one sequence inside the bundle, as [What "bundle" means](../01-foundations/06-the-lungfish-project.md#what-bundle-means) explains, and the bundle's path appears under the picker.
+4. Leave **Preset** on **Short-read**, minimap2's starting preset, which suits these Illumina reads. Below it, in the **Output Track** section, type `HG002 minimap2` into the **Track name** field over the grey `minimap2 Mapping`. [Naming the alignment track](#naming-the-alignment-track) says why.
 5. Check that the **Input Compatibility** readout ends in a line that starts with Ready, then click **Run**.
 
 For the fixture the Input Compatibility readout says this.
@@ -114,9 +127,25 @@ Ready: minimap2 is compatible with Illumina short reads.
 
 The first three lines report what LGE found in the reads. When the preset and the reads do not match, the last line turns orange and names the mismatch instead, and Run stays disabled until you fix it.
 
-Watch the run in the [Operations Panel](../01-foundations/06-the-lungfish-project.md#the-operations-panel), which opens with **Operations > Show Operations Panel** (Cmd-Shift-P). The row is titled Map Reads (minimap2) followed by the sample name. The result lands under `Analyses/` in a new folder, as [Where results land](../01-foundations/06-the-lungfish-project.md#where-results-land) describes. For this run the folder name starts with `minimap2-` and ends with the date and time the run began.
+Watch the run in the [Operations Panel](../01-foundations/06-the-lungfish-project.md#the-operations-panel), which opens with **Operations > Show Operations Panel** (Cmd-Shift-P). The row's title names the mapper and then the sample, `HG002.chr20.10.0-10.5Mb`. When the run finishes, the row's detail line reports the reads mapped out of the reads in the bundle, 90935 of 91148 here.
 
-When the row finishes, LGE selects the new result and opens it in the alignment viewport. The folder holds the sorted BAM, its index, a summary file called `mapping-result.json`, and a small reference bundle of its own that carries the new alignment track, named "minimap2 Mapping". The reference bundle you picked in step 3 is left unchanged.
+The result appears in the sidebar under **Analyses** as one row, named `minimap2-` followed by the date and time the run began, such as `minimap2-2026-09-27T11-21-19`. Its folder on disk holds the sorted BAM, its index, a summary file called `mapping-result.json`, and a copy of the `GRCh38.chr20.10.0-10.5Mb` reference bundle with the new alignment track attached. This manual calls that copy **the reference bundle inside the mapping result**, and every later chapter that reads, filters, or calls variants on the alignment works on it. The bundle under `Reference Sequences` is left exactly as it was. [Where results land](../01-foundations/06-the-lungfish-project.md#where-results-land) draws the layout.
+
+### Open the mapping result
+
+1. Click the `minimap2-` row under **Analyses**. The viewport becomes the mapping viewport. A summary line at the top reads `minimap2 Mapping — 90,935 / 91,148 reads mapped (99.8%)`, with a **Focus** button at its right.
+2. Read the table under the summary line. It lists each mapped reference sequence, here the one row `chr20_10.0-10.5Mb`, and LGE selects the first row for you.
+3. Read the pane below the table. It shows the reference bundle inside the mapping result, with the `HG002 minimap2` track drawn under the sequence. Click **Focus** to give that pane the whole viewport, and **Back** to return.
+
+With the mapping result selected, the [Inspector](../../GLOSSARY.md#inspector) describes the run and the reference bundle inside it, and its **Analysis** section acts on that bundle. [Reading an Alignment](02-reading-an-alignment.md) reads the picture in the pane.
+
+### Naming the alignment track
+
+A track is an alignment or variant file attached inside a reference bundle and drawn under its sequence, as the glossary entry for [track](../../GLOSSARY.md#track) says, and each track has a name you choose. LGE fills the **Track name** field with the mapper's name followed by "Mapping", so every minimap2 run you ever make is called "minimap2 Mapping" unless you change it. A name that says whose reads these are, such as `HG002 minimap2`, tells two alignments apart in the track pickers of later dialogs and in the Variants table's `Variant Track` column, where each caller's track name starts from this one. This manual calls the HG002 track `HG002 minimap2` everywhere, and the Human Mapping and Variants (with results) demo project uses the same name. The name is also recorded in the run's [provenance](../../GLOSSARY.md#provenance). On the command line it is `--track-name`.
+
+### Import an alignment somebody else made
+
+A BAM or CRAM file that already exists needs no mapping. Open the [Import Center](../../GLOSSARY.md#import-center) with **File > Import Center...** (Cmd-Shift-I), which [The Import Center](../01-foundations/06-the-lungfish-project.md#the-import-center) describes. On its Alignments tab, drop the file on the BAM/CRAM Alignments card, which has no settings. LGE indexes the file, collects its per-chromosome and read-group statistics, and takes the reference assembly name from the file's own header without asking you to confirm it.
 
 ## Settings
 
@@ -140,6 +169,8 @@ The table pairs each kind of read with its minimap2 preset and the token the com
 | Contigs from a closely related genome | Assembly-to-assembly | `asm5` |
 
 Two presets have limits the names do not show. Assembly-to-assembly is minimap2's `asm5`, which the minimap2 manual reserves for genomes whose average difference is not much above 0.1 percent, about the difference between two people, so it does not suit macaque contigs against a human reference. Spliced CDS/cDNA is minimap2's `splice`, meant for long cDNA reads and for direct-RNA reads, RNA read by a nanopore instrument without first being copied. minimap2's `lr:hq` preset for the most accurate recent nanopore reads is not offered, so use Oxford Nanopore for every nanopore run.
+
+**Track name (--track-name).** Names the alignment track the BAM becomes inside the reference bundle inside the mapping result, a name every later track picker shows. The default is the mapper's name followed by "Mapping", such as "minimap2 Mapping", which says how the reads were placed but not whose reads they are. Type a name that identifies the sample, as [Naming the alignment track](#naming-the-alignment-track) explains. On the command line this is `--track-name`.
 
 **Run Mode.** Appears only when you selected more than one read bundle, and decides whether each bundle gets its own alignment or all of them are pooled into one. The default is Run separately per bundle, which keeps samples apart, and in that state the Read Group fields give way to the note "Each bundle gets its own read group, derived automatically from its sample name." Choose Combine all inputs, run once only when the bundles are pieces of one library, such as two sequencing runs of the same tube, because pooling loses any record of which read came from which bundle. This setting has no command-line flag.
 
@@ -171,15 +202,11 @@ The last five settings sit inside the collapsed **Advanced Settings** disclosure
 
 LGE checks only that the Extra arguments text splits cleanly into separate options. Text it cannot split turns orange under the field and blocks Run. The grey placeholder in the field shows a sample for each mapper, `--eqx -N 5` for minimap2, `-M -Y` for BWA-MEM2, `--very-sensitive -N 1` for Bowtie2, and `minid=0.97 local=t` for BBMap.
 
-### Importing an alignment somebody else made
-
-A BAM or CRAM file that already exists needs no mapping. Open the [Import Center](../../GLOSSARY.md#import-center) with **File > Import Center...** (Cmd-Shift-I), which [The Import Center](../01-foundations/06-the-lungfish-project.md#the-import-center) describes. On its Alignments tab, drop the file on the BAM/CRAM Alignments card, which has no settings. LGE indexes the file, collects its per-chromosome and read-group statistics, and takes the reference assembly name from the file's own header without asking you to confirm it.
-
 ## Reading the results
 
-Click the new result under `Analyses/`. Open the [Inspector](../../GLOSSARY.md#inspector) with **View > Show Inspector** (Cmd-Opt-I) if it is hidden. Its Bundle tab lists the run's own sections first, Run Inputs, Run Settings, and Output Files. Below them sit Alignment Summary, Read Groups, and Flag Statistics, which describe the BAM itself.
+Click the `minimap2-` result under **Analyses**. Open the Inspector with **View > Show Inspector** (Cmd-Opt-I) if it is hidden. Its Bundle tab lists the run's own sections first, Run Inputs, Run Settings, Alignment Tracks, and Output Files. Below them sit Alignment Summary, Read Groups, and Flag Statistics, which describe the BAM itself.
 
-One idea makes every count below readable. A read is one sequenced piece of DNA, and a record is one row of the BAM. Most reads get exactly one record, called the [primary alignment](../../GLOSSARY.md#primary-alignment). A read that the mapper splits across two places also gets a supplementary record. So a count of records runs a little higher than a count of reads, and the Inspector shows both kinds, in different places.
+One idea makes every count below readable. A read is the sequencer's record of one fragment, and a record here is one row of the BAM. Most reads get exactly one record, called the [primary alignment](../../GLOSSARY.md#primary-alignment). A read that the mapper splits across two places also gets a supplementary record. So a count of records runs a little higher than a count of reads, and the Inspector shows both kinds, in different places.
 
 ### The Alignment Summary
 
@@ -234,18 +261,18 @@ A read is [properly paired](../../GLOSSARY.md#properly-paired) when its mate lan
 
 ### What the four mappers give you on the same reads
 
-All four mappers ran on the identical fixture with their default settings. Records is the Flag Statistics total, Mapped counts mapped records, and Mapped % is the share of records placed. Median MAPQ is the middle MAPQ of all placed reads, so half scored above it and half below. The runs date from 2026-09-06, before LGE began handing an interleaved bundle to BWA-MEM2 and Bowtie2 as pairs, so a run on the current release may give slightly different counts in those two rows.
+All four mappers ran on the identical fixture with their default settings, each handed the interleaved bundle as pairs. Records is the Flag Statistics total, Mapped counts mapped records, and Mapped % is the share of records placed. Properly paired is the Flag Statistics share described above. Median MAPQ is the middle MAPQ of all placed reads, so half scored above it and half below.
 
-<!-- RERUN: four-mapper table after interleaved pairing fix -->
+| Mapper | Records | Mapped | Mapped % | Properly paired | Mean depth | Median MAPQ |
+|---|---|---|---|---|---|---|
+| minimap2 | 91,203 | 90,990 | 99.77% | 99.19% | 44.7x | 60 |
+| BWA-MEM2 | 91,322 | 91,244 | 99.91% | 99.76% | 44.8x | 60 |
+| Bowtie2 | 91,148 | 90,241 | 99.00% | 82.22% | 44.8x | 42 |
+| BBMap | 91,148 | 90,655 | 99.46% | 98.91% | 45.0x | 45 |
 
-| Mapper | Records | Mapped | Mapped % | Mean depth | Median MAPQ |
-|---|---|---|---|---|---|
-| minimap2 | 91,203 | 90,990 | 99.77% | 44.7x | 60 |
-| BWA-MEM2 | 91,317 | 91,239 | 99.91% | 44.8x | 60 |
-| Bowtie2 | 91,148 | 90,241 | 99.00% | 44.8x | 42 |
-| BBMap | 91,148 | 90,658 | 99.46% | 45.0x | 45 |
+The record counts differ because the mappers disagree about how many split reads to report. minimap2 wrote 55 supplementary records and BWA-MEM2 wrote 174, while Bowtie2 and BBMap wrote none and so land on the input's own 91,148. The mapped percentages sit within one percentage point of each other, and mean depth agrees to within a third of a read.
 
-The record counts differ because the mappers disagree about how many split reads to report. minimap2 wrote 55 supplementary records and BWA-MEM2 wrote 169, while Bowtie2 and BBMap wrote none and so land on the input's own 91,148. The mapped percentages sit within one percentage point of each other, and mean depth agrees to within a third of a read.
+Bowtie2's low properly paired share is a setting, not a failure. By default it accepts a pair only when the fragment is at most 500 bases long, its `-X` option, and about 15 percent of this library's fragments are longer, judged from the minimap2 alignment. Both mates of such a pair are still placed, so Mapped hardly moves. Type `-X 1000` in Extra arguments when a Bowtie2 run on a long-insert library reports far fewer proper pairs than you expect.
 
 Median MAPQ is where they part company, and the reason is scaling, not placement. Each mapper puts its confidence on its own scale. minimap2 and BWA-MEM2 give a clear placement 60. Bowtie2's scale stops at 42, so a read it is certain of scores 42. BBMap's scores also ran lower on these reads, with a median of 45. A Min mapping quality cutoff therefore means different things for different mappers. A cutoff of 20 is a mild filter under minimap2 or BWA-MEM2 and a stricter one under Bowtie2 or BBMap. Set any cutoff against the mapper you actually ran, and never compare MAPQ values between mappers.
 
@@ -261,30 +288,25 @@ Check the pairing when the reads are paired. Properly paired near 100% is health
 
 Check depth with the measured mean depth, not Est. Coverage. The fixture's 44.7x is comfortable for calling variants in a human sample, while its Est. Coverage of 27.3x is the same run seen through the 150-base guess.
 
-LGE writes a [provenance](../../GLOSSARY.md#provenance) record beside every result, holding the command, the tool version, and a [checksum](../../GLOSSARY.md#checksum) of each file, and [Provenance and Reproducibility](../01-foundations/08-provenance-and-reproducibility.md#reading-the-results) shows how to read it. If a re-run after a plugin pack update gives a slightly different BAM, compare the Mapper Version rows in Run Settings first. A new mapper release sometimes moves a soft clip by a base or two. A [soft clip](../../GLOSSARY.md#soft-clip) is a stretch at a read end that stays in the file but is left out of the pileup, written as `S` in the read's [CIGAR](../../GLOSSARY.md#cigar) string, as [The CIGAR string](../01-foundations/04-alignment-files.md#the-cigar-string) explains. That change is harmless for variant calling.
+The run's [provenance](../../GLOSSARY.md#provenance) record, which [Provenance and Reproducibility](../01-foundations/08-provenance-and-reproducibility.md#reading-the-results) reads, holds the command and every tool version. If a re-run after a plugin pack update gives a slightly different BAM, compare the Mapper Version rows in Run Settings first. A new mapper release sometimes moves a soft clip by a base or two. A [soft clip](../../GLOSSARY.md#soft-clip) is a stretch at a read end that stays in the file but is left out of the pileup, written as `S` in the read's [CIGAR](../../GLOSSARY.md#cigar) string, as [The CIGAR string](../01-foundations/04-alignment-files.md#the-cigar-string) explains. That change is harmless for variant calling.
 
 ## On the command line
 
-This section is optional, and nothing later in this manual needs it. The `lungfish-cli` program ships inside LGE, and [Finding the program](../appendices/cli-reference.md#finding-the-program) shows how to run it.
+The block below maps the demo project's reads exactly as the procedure does, following the path convention in [Reading an On the command line block](../01-foundations/06-the-lungfish-project.md#reading-a-command-line-block). Every flag of `map` is listed in [Mapping and alignment tracks](../appendices/cli-reference.md#mapping-and-alignment-tracks) in the CLI Reference.
 
 ```bash
-# Map the fixture pair with minimap2 into a folder of its own.
-lungfish-cli map \
-  ~/Downloads/HG002.chr20.10.0-10.5Mb_R1.fastq.gz \
-  ~/Downloads/HG002.chr20.10.0-10.5Mb_R2.fastq.gz \
-  --reference ~/Downloads/GRCh38.chr20.10.0-10.5Mb.fasta \
-  --paired --mapper minimap2 --preset sr \
-  --sample-name HG002 \
-  -o ~/Downloads/hg002-mapping
+PROJECT="$HOME/Documents/LGE Demo Projects/Human Mapping and Variants.lungfish"
 
-# Attach that result to a reference bundle as an alignment track.
-lungfish-cli bam adopt-mapping \
-  --bundle "path/to/your/reference.lungfishref" \
-  --mapping-result ~/Downloads/hg002-mapping \
-  --name "minimap2 Mapping"
+lungfish-cli map "$PROJECT/Imports/HG002.chr20.10.0-10.5Mb.lungfishfastq" \
+  --reference "$PROJECT/Reference Sequences/GRCh38.chr20.10.0-10.5Mb.lungfishref" \
+  --project "$PROJECT" \
+  --mapper minimap2 --preset sr \
+  --track-name "HG002 minimap2"
 ```
 
-Two differences change what you get. The command line needs `--paired` to treat the two files as mates, which the window works out for itself, and without it the pairing counts lose their meaning. The window also keeps its result in its own folder under `Analyses/` and leaves your reference bundle untouched, while `bam adopt-mapping` adds the track to the reference bundle you name.
+With `--project`, the command writes the same result the window writes, a `minimap2-<timestamp>` folder under `Analyses/` holding the BAM and the reference bundle inside the mapping result with the `HG002 minimap2` track attached, and it prints the folder's path at the end. It reads the pairing from the read bundle, as the window does, so a bundle needs no `--paired`. Two loose FASTQ files do need `--paired`, because without it the command maps them as unrelated single reads. `--no-viewer-bundle` leaves out the reference bundle copy when you want only the BAM.
+
+The track's BAM sits inside the copy as `alignments/aln_` followed by eight letters and digits and `.sorted.bam`, such as `aln_93ACDFDA.sorted.bam`, and the mapper's own copy of the BAM stays at the top of the result folder as `HG002.chr20.10.0-10.5Mb.sorted.bam`. The eight characters, the track's identifier, differ on every run, and later command-line chapters take them from `lungfish-cli bundle list`.
 
 ## Next
 
