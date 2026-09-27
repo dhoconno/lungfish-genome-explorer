@@ -155,6 +155,7 @@ final class ViralVariantCallingPipelineTests: XCTestCase {
         XCTAssertTrue(plan.commandLine.contains("-m r941_prom_sup_variant_g507"))
         XCTAssertTrue(plan.commandLine.contains("-t 2"))
         XCTAssertTrue(plan.commandLine.contains(" -f"), "medaka_variant must overwrite a stale output folder")
+        XCTAssertTrue(plan.commandLine.contains(" -s"), "medaka_variant -s writes INFO/SR, the only per-allele support the annotated VCF carries")
     }
 
     func testMedakaPipelineAdoptsAnnotatedVCFAndRecordsWrapperProvenance() async throws {
@@ -183,6 +184,15 @@ final class ViralVariantCallingPipelineTests: XCTestCase {
         // name, so the medaka environment's bin must lead PATH.
         let observedPath = try String(contentsOf: tempDir.appendingPathComponent("medaka-observed-path.txt"), encoding: .utf8)
         XCTAssertTrue(observedPath.hasPrefix(fakeEnvironmentBinPath("medaka")), observedPath)
+
+        // medaka.annotated.vcf declares no AF; the alt fraction comes from
+        // INFO/SR (ref fwd, ref rev, alt fwd, alt rev).
+        let filterStep = try XCTUnwrap(result.provenanceSteps.first { $0.toolName == "bcftools" && $0.command.contains("view") })
+        XCTAssertTrue(
+            filterStep.command.contains("(INFO/SR[2]+INFO/SR[3])/(INFO/SR[0]+INFO/SR[1]+INFO/SR[2]+INFO/SR[3])>=0.05 && INFO/DP>=10"),
+            filterStep.command.joined(separator: " ")
+        )
+        XCTAssertTrue(result.callerParametersJSON.contains("\"minimumAlleleFrequency\":0.05"), result.callerParametersJSON)
 
         let normalized = try String(contentsOf: result.normalizedVCFURL, encoding: .utf8)
         XCTAssertTrue(normalized.contains("chr1\t5\tmedaka-1"), "annotated VCF must feed the normalized track")
@@ -1031,9 +1041,9 @@ final class ViralVariantCallingPipelineTests: XCTestCase {
         ##fileformat=VCFv4.3
         ##contig=<ID=chr1,length=20>
         ##INFO=<ID=DP,Number=1,Type=Integer,Description="Depth">
-        ##INFO=<ID=AF,Number=A,Type=Float,Description="Allele frequency">
+        ##INFO=<ID=SR,Number=.,Type=Integer,Description="Depth of spanning reads by strand which best align to each allele (ref fwd, ref rev, alt1 fwd, alt1 rev, etc.)">
         #CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO
-        chr1	5	medaka-1	A	G	80	PASS	DP=30;AF=0.9
+        chr1	5	medaka-1	A	G	80	PASS	DP=30;SR=1,2,13,14
         EOF
         """)
         // Clair3 2.0.2: run_clair3.sh, with the shipped models beside it in

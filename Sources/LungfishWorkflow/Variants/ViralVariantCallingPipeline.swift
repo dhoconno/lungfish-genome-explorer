@@ -615,11 +615,16 @@ public struct ViralVariantCallingPipeline: Sendable {
     /// threshold, if any, is applied).
     private func alleleFrequencyExpression(for caller: ViralVariantCaller) -> String? {
         switch caller {
-        case .lofreq, .medaka:
-            // Both emit a per-record INFO/AF (LoFreq: confirmed via managed
-            // lofreq call output; Medaka: medaka/vcf.py declares INFO/AF as
-            // an A-length float field).
+        case .lofreq:
+            // LoFreq emits a per-record INFO/AF (confirmed via managed
+            // lofreq call output).
             return "INFO/AF"
+        case .medaka:
+            // medaka.annotated.vcf (medaka 2.2.2) declares no AF. With
+            // `medaka_variant -s` the annotator writes INFO/SR, the depth of
+            // spanning reads best aligned to each allele as (ref fwd, ref
+            // rev, alt fwd, alt rev), so the alt fraction is alt/(ref+alt).
+            return "(INFO/SR[2]+INFO/SR[3])/(INFO/SR[0]+INFO/SR[1]+INFO/SR[2]+INFO/SR[3])"
         case .bcftools:
             // bcftools call has no native AF tag; with `-a FORMAT/AD` (added
             // in bcftoolsMpileupArguments for SCI-04) the alt-allele
@@ -682,7 +687,12 @@ public struct ViralVariantCallingPipeline: Sendable {
         var appliedDP: Int?
 
         if let minimumAlleleFrequency, let afExpression = alleleFrequencyExpression(for: request.caller) {
-            let afTag = request.caller == .bcftools ? "AD" : "AF"
+            let afTag: String
+            switch request.caller {
+            case .bcftools: afTag = "AD"
+            case .medaka: afTag = "SR"
+            default: afTag = "AF"
+            }
             if vcfHeaderDeclaresTag(afTag, at: plan.rawVCFURL) {
                 conditions.append("\(afExpression)>=\(minimumAlleleFrequency)")
                 appliedAF = minimumAlleleFrequency
@@ -1628,8 +1638,10 @@ public struct ViralVariantCallingPipeline: Sendable {
 
     /// `medaka_variant` (medaka 2.2.2): `-i` reads, `-r` reference, `-o`
     /// output folder, `-m` model, `-t` threads. `-f` forces a rerun rather
-    /// than reusing stale intermediates in the output folder. Extra
-    /// arguments are the wrapper's own short flags, such as `-b 200` or `-s`.
+    /// than reusing stale intermediates in the output folder, and `-s` makes
+    /// the annotator realign spanning reads so INFO/SR carries per-allele
+    /// read support, which the Minimum Allele Frequency filter needs. Extra
+    /// arguments are the wrapper's own short flags, such as `-b 200`.
     private func medakaArguments(plan: ViralVariantCallingExecutionPlan) -> [String] {
         return request.advancedArguments
             + [
@@ -1638,6 +1650,7 @@ public struct ViralVariantCallingPipeline: Sendable {
             "-o", plan.medakaOutputDirectory.path,
             "-m", request.medakaModel ?? "",
             "-t", String(max(1, request.threads)),
+            "-s",
             "-f",
         ]
     }
