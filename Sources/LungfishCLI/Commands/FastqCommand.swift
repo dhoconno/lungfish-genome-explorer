@@ -3054,6 +3054,33 @@ struct FastqDemultiplexSubcommand: AsyncParsableCommand {
             help: "Cutadapt thread count (default: 4)")
     var threads: Int = 4
 
+    @Flag(name: .customLong("replace"),
+          help: "Delete an existing, non-empty output directory before writing. Without it the command refuses to overwrite earlier results and names the directory.")
+    var replace: Bool = false
+
+    /// Refuses to write into a directory that already holds files unless
+    /// `replace` is set, in which case the directory is deleted first. A
+    /// rerun used to overwrite the earlier barcode bundles in place.
+    static func prepareOutputDirectory(_ outputURL: URL, replace: Bool) throws {
+        let fm = FileManager.default
+        var isDirectory: ObjCBool = false
+        guard fm.fileExists(atPath: outputURL.path, isDirectory: &isDirectory) else { return }
+        guard isDirectory.boolValue else {
+            throw ValidationError("Output path \(outputURL.path) is a file, not a directory")
+        }
+        let contents = (try? fm.contentsOfDirectory(atPath: outputURL.path))?.filter { !$0.hasPrefix(".") } ?? []
+        guard !contents.isEmpty else { return }
+        guard replace else {
+            let preview = contents.sorted().prefix(5).joined(separator: ", ")
+            let more = contents.count > 5 ? ", ..." : ""
+            throw ValidationError(
+                "Output directory \(outputURL.path) already holds \(contents.count) item(s) (\(preview)\(more)). "
+                + "Choose a new --output to keep them, or pass --replace to delete them first."
+            )
+        }
+        try fm.removeItem(at: outputURL)
+    }
+
     func run() async throws {
         guard errorRate >= 0 && errorRate <= 1 else {
             throw ValidationError("Error rate must be between 0 and 1 (got \(errorRate))")
@@ -3064,6 +3091,7 @@ struct FastqDemultiplexSubcommand: AsyncParsableCommand {
 
         let inputURL = try validateInput(input)
         let outputURL = URL(fileURLWithPath: output)
+        try Self.prepareOutputDirectory(outputURL, replace: replace)
 
         // Resolve barcode kit
         let resolvedKit = try resolveBarcodeKitArgument(kit)
@@ -3182,6 +3210,9 @@ struct FastqDemultiplexSubcommand: AsyncParsableCommand {
         }
         if discardUnassigned {
             cliArguments.append("--discard-unassigned")
+        }
+        if replace {
+            cliArguments.append("--replace")
         }
         let outputBundleURLs = result.outputBundleURLs
             + (result.unassignedBundleURL.map { [$0] } ?? [])

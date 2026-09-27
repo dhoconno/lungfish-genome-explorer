@@ -242,6 +242,77 @@ final class FASTQDerivativeServiceProvenanceTests: XCTestCase {
         }
     }
 
+    // Rerunning Demultiplex Barcodes used to delete demux/ before writing,
+    // silently discarding the earlier barcode bundles. Every run now gets
+    // its own directory and the first run's bundles stay where they were.
+    func testRerunningDemultiplexKeepsTheEarlierRunsOutput() async throws {
+        let fixture = try FASTQDerivativeToolFixture(tools: [])
+        defer { fixture.cleanup() }
+
+        let forward = "ACGTACGT"
+        let reverse = "TTGGAACC"
+        let source = try fixture.makeBundle(named: "demux-rerun-source")
+        try fixture.writeFASTQ(
+            [
+                ("sample-read", forward + String(repeating: "A", count: 2_100) + reverseComplement(reverse)),
+                ("unassigned-read", String(repeating: "G", count: 2_120)),
+            ],
+            to: source.fastqURL
+        )
+        let kit = BarcodeKitDefinition(
+            id: "custom-asymmetric",
+            displayName: "Custom Asymmetric",
+            vendor: "pacbio",
+            isDualIndexed: true,
+            pairingMode: .combinatorialDual,
+            barcodes: [
+                BarcodeEntry(id: "forward", i7Sequence: forward),
+                BarcodeEntry(id: "reverse", i7Sequence: reverse),
+            ]
+        )
+        let request = FASTQDerivativeRequest.demultiplex(
+            kitID: kit.id,
+            customCSVPath: nil,
+            location: "bothEnds",
+            symmetryMode: .asymmetric,
+            maxDistanceFrom5Prime: 0,
+            maxDistanceFrom3Prime: 0,
+            errorRate: 0.0,
+            engine: .cutadapt,
+            trimBarcodes: false,
+            sampleAssignments: [
+                FASTQSampleBarcodeAssignment(sampleID: "sample_a", forwardSequence: forward, reverseSequence: reverse),
+            ],
+            kitOverride: kit
+        )
+        let service = FASTQDerivativeService(runner: fixture.runner)
+
+        let first = try await service.createDerivative(from: source.bundleURL, request: request)
+        let firstRun = source.bundleURL.appendingPathComponent("demux", isDirectory: true)
+        XCTAssertTrue(first.path.hasPrefix(firstRun.path + "/"), first.path)
+        let firstManifest = firstRun.appendingPathComponent(DemultiplexManifest.filename)
+        let firstManifestData = try Data(contentsOf: firstManifest)
+        let firstBundles = try FileManager.default.contentsOfDirectory(at: firstRun, includingPropertiesForKeys: nil)
+            .filter { $0.pathExtension == FASTQBundle.directoryExtension }
+        XCTAssertFalse(firstBundles.isEmpty)
+
+        let second = try await service.createDerivative(from: source.bundleURL, request: request)
+        let secondRun = source.bundleURL.appendingPathComponent("demux-2", isDirectory: true)
+        XCTAssertTrue(second.path.hasPrefix(secondRun.path + "/"), second.path)
+        XCTAssertEqual(
+            FASTQBundle.demultiplexOutputDirectories(in: source.bundleURL).map(\.lastPathComponent),
+            ["demux", "demux-2"]
+        )
+        // The first run is untouched.
+        XCTAssertEqual(try Data(contentsOf: firstManifest), firstManifestData)
+        for bundleURL in firstBundles {
+            XCTAssertTrue(FileManager.default.fileExists(atPath: bundleURL.path), "\(bundleURL.lastPathComponent) was deleted by the rerun")
+        }
+        // The bundle-level manifest points at the latest run.
+        let latest = try XCTUnwrap(DemultiplexManifest.load(from: source.bundleURL))
+        XCTAssertEqual(latest.outputDirectoryRelativePath.trimmingCharacters(in: CharacterSet(charactersIn: "/")), "demux-2")
+    }
+
     func testDerivativeFailsAndCleansPartialBundleWhenProvenanceWriteFails() async throws {
         let fixture = try FASTQDerivativeToolFixture(tools: [.seqkit])
         defer { fixture.cleanup() }

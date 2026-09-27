@@ -79,6 +79,13 @@ final class SidebarScanSnapshotParityTests: XCTestCase {
             withIntermediateDirectories: true
         )
 
+        // A second demultiplex run keeps its own directory and is listed too,
+        // with the run directory as its subtitle.
+        let secondRunChild = bundle
+            .appendingPathComponent("demux-2", isDirectory: true)
+            .appendingPathComponent("barcode01.lungfishfastq", isDirectory: true)
+        try makeFASTQBundle(at: secondRunChild)
+
         // --- Standalone NAO-MGS and NVD result bundles inside Imports/.
         let naomgs = imports.appendingPathComponent("naomgs-alpha", isDirectory: true)
         try fm.createDirectory(at: naomgs, withIntermediateDirectories: true)
@@ -179,6 +186,7 @@ final class SidebarScanSnapshotParityTests: XCTestCase {
         Imports | type=Folder | icon=folder | badge=false | subtitle=- | userInfo=[] | url=/Imports
           run1 | type=FASTQ Bundle | icon=doc.text | badge=false | subtitle=- | userInfo=[] | url=/Imports/run1.lungfishfastq
             barcode01 | type=FASTQ Bundle | icon=doc.text | badge=false | subtitle=- | userInfo=[] | url=/Imports/run1.lungfishfastq/demux/barcode01.lungfishfastq
+            barcode01 | type=FASTQ Bundle | icon=doc.text | badge=false | subtitle=demux-2 | userInfo=[] | url=/Imports/run1.lungfishfastq/demux-2/barcode01.lungfishfastq
           sample.fasta | type=Sequence | icon=doc.text | badge=false | subtitle=- | userInfo=[] | url=/Imports/sample.fasta
           NAO-MGS | type=NAO-MGS Surveillance Result | icon=- | badge=true | subtitle=- | userInfo=[] | url=/Imports/naomgs-alpha
           NVD | type=NVD Classification Result | icon=- | badge=true | subtitle=- | userInfo=[] | url=/Imports/nvd-beta

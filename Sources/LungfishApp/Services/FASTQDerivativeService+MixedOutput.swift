@@ -1348,11 +1348,10 @@ extension FASTQDerivativeService {
 
         // Create demux output as a child directory inside the source bundle
         // This produces a parent-child hierarchy: parent.lungfishfastq/demux/barcode01/...
-        let outputDirectory = sourceBundleURL.appendingPathComponent("demux", isDirectory: true)
-        // Remove prior demux results if re-running
-        if FileManager.default.fileExists(atPath: outputDirectory.path) {
-            try FileManager.default.removeItem(at: outputDirectory)
-        }
+        // Every run gets its own directory (demux, demux-2, demux-3, ...).
+        // A rerun used to delete demux/ first, silently discarding the earlier
+        // barcode bundles and whatever had been derived from them.
+        let outputDirectory = FASTQBundle.nextDemultiplexOutputDirectory(in: sourceBundleURL)
         try FileManager.default.createDirectory(at: outputDirectory, withIntermediateDirectories: true)
         var shouldCleanOutputDirectoryOnFailure = true
         defer {
