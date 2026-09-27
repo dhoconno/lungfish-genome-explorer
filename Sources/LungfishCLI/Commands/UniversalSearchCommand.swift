@@ -19,9 +19,9 @@ struct UniversalSearchCommand: AsyncParsableCommand {
             and flattened JSON manifests.
 
             Examples:
-              lungfish universal-search ./Project.lungfish --query "type:fastq_dataset role:air_sample date>=2025-01-01"
-              lungfish universal-search ./Project.lungfish --query "virus:HKU1" --stats
-              lungfish universal-search ./Project.lungfish --query "sample:patient42" --reindex --format json
+              lungfish-cli universal-search ./Project.lungfish --query "type:fastq_dataset role:air_sample date>=2025-01-01"
+              lungfish-cli universal-search ./Project.lungfish --query "virus:HKU1" --stats
+              lungfish-cli universal-search ./Project.lungfish --query "sample:patient42" --reindex --format json
             """
     )
 

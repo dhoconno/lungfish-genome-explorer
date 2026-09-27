@@ -74,8 +74,8 @@ extension DbCommand {
               1   the installation failed
 
             Examples:
-              lungfish conda db install-managed --list
-              lungfish conda db install-managed deacon-panhuman
+              lungfish-cli conda db install-managed --list
+              lungfish-cli conda db install-managed deacon-panhuman
             """
         )
 
@@ -204,7 +204,7 @@ extension DbCommand {
 
             guard let db = try await registry.database(named: name) else {
                 print(formatter.error("Database '\(name)' not found in catalog"))
-                print(formatter.info("Use 'lungfish conda db list' to see available databases"))
+                print(formatter.info("Use 'lungfish-cli conda db list' to see available databases"))
                 throw CLIExitCode.inputError.exitCode
             }
 
@@ -259,7 +259,7 @@ extension DbCommand {
 
             guard let db = try await registry.database(named: name) else {
                 print(formatter.error("Database '\(name)' not found in catalog"))
-                print(formatter.info("Use 'lungfish conda db list' to see available databases"))
+                print(formatter.info("Use 'lungfish-cli conda db list' to see available databases"))
                 throw CLIExitCode.inputError.exitCode
             }
 
@@ -370,7 +370,7 @@ extension DbCommand {
 
             if !recommended.isDownloaded {
                 print("")
-                print(formatter.info("Download with: lungfish conda db download \(recommended.name)"))
+                print(formatter.info("Download with: lungfish-cli conda db download \(recommended.name)"))
             }
         }
     }
@@ -409,9 +409,9 @@ extension DbCommand {
                   every selected database was skipped
 
             Examples:
-              lungfish conda db update kraken2-viral --yes
-              lungfish conda db update Viral --yes
-              lungfish conda db update --all --yes
+              lungfish-cli conda db update kraken2-viral --yes
+              lungfish-cli conda db update Viral --yes
+              lungfish-cli conda db update --all --yes
             """
         )
 
@@ -461,7 +461,7 @@ extension DbCommand {
                         print(formatter.error(
                             "\(advertised.count) database(s) have an update available but none could be "
                             + "resolved to an update target: \(advertised.joined(separator: ", ")). "
-                            + "Run 'lungfish conda db info <name>' for details."
+                            + "Run 'lungfish-cli conda db info <name>' for details."
                         ))
                         throw CLIExitCode.failure.exitCode
                     }

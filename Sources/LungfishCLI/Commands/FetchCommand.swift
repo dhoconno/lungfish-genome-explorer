@@ -36,10 +36,10 @@ struct NCBISubcommand: AsyncParsableCommand {
             Download sequences from NCBI GenBank/RefSeq databases.
 
             Examples:
-              lungfish fetch ncbi NC_002549 --save-to ebola.gb
-              lungfish fetch ncbi NC_002549 --fetch-format fasta --save-to ebola.fa
-              lungfish fetch ncbi MN908947.3 --fetch-format gff3 --save-to MN908947.3.gff3
-              lungfish fetch ncbi MN908947 NM_000546 --save-to sequences.gb
+              lungfish-cli fetch ncbi NC_002549 --save-to ebola.gb
+              lungfish-cli fetch ncbi NC_002549 --fetch-format fasta --save-to ebola.fa
+              lungfish-cli fetch ncbi MN908947.3 --fetch-format gff3 --save-to MN908947.3.gff3
+              lungfish-cli fetch ncbi MN908947 NM_000546 --save-to sequences.gb
             """
     )
 
@@ -570,7 +570,7 @@ struct NCBISubcommand: AsyncParsableCommand {
         }
         return records
             .map { record in
-                var section = "# lungfish fetch ncbi accession: \(record.accession)\n"
+                var section = "# lungfish-cli fetch ncbi accession: \(record.accession)\n"
                 section += record.content
                 if !section.hasSuffix("\n") {
                     section += "\n"
@@ -607,8 +607,8 @@ struct SearchSubcommand: AsyncParsableCommand {
             Search NCBI databases and list matching accessions.
 
             Examples:
-              lungfish fetch search "Ebola virus" --db nucleotide --limit 10
-              lungfish fetch search "BRCA1[Gene]" --db nucleotide --organism human
+              lungfish-cli fetch search "Ebola virus" --db nucleotide --limit 10
+              lungfish-cli fetch search "BRCA1[Gene]" --db nucleotide --organism human
             """
     )
 
@@ -710,9 +710,9 @@ struct SRASubcommand: AsyncParsableCommand {
             (no SRA Toolkit required).
 
             Examples:
-              lungfish fetch sra search "SARS-CoV-2 Illumina" --limit 10
-              lungfish fetch sra download SRR11140748 --output-dir ./fastq
-              lungfish fetch sra info SRR11140748
+              lungfish-cli fetch sra search "SARS-CoV-2 Illumina" --limit 10
+              lungfish-cli fetch sra download SRR11140748 --output-dir ./fastq
+              lungfish-cli fetch sra info SRR11140748
             """,
         subcommands: [
             SRASearchSubcommand.self,
@@ -1198,9 +1198,9 @@ struct ENASubcommand: AsyncParsableCommand {
             ENA provides direct FASTQ download URLs without requiring the SRA Toolkit.
 
             Examples:
-              lungfish fetch ena search "Ebola virus" --limit 10
-              lungfish fetch ena reads SRR11140748
-              lungfish fetch ena fasta NC_002549
+              lungfish-cli fetch ena search "Ebola virus" --limit 10
+              lungfish-cli fetch ena reads SRR11140748
+              lungfish-cli fetch ena fasta NC_002549
             """,
         subcommands: [
             ENASearchSubcommand.self,
@@ -1721,10 +1721,10 @@ struct GenomeSubcommand: AsyncParsableCommand {
             - Manifest with metadata
 
             Examples:
-              lungfish fetch genome GCF_003047895.1 --output-dir ./genomes
-              lungfish fetch genome MN908947.3 --output-dir ./genomes
-              lungfish fetch genome GCF_000001405.40 --name "Human GRCh38" --output-dir ./
-              lungfish fetch genome GCF_003047895.1 --fasta-only --output-dir ./
+              lungfish-cli fetch genome GCF_003047895.1 --output-dir ./genomes
+              lungfish-cli fetch genome MN908947.3 --output-dir ./genomes
+              lungfish-cli fetch genome GCF_000001405.40 --name "Human GRCh38" --output-dir ./
+              lungfish-cli fetch genome GCF_003047895.1 --fasta-only --output-dir ./
             """
     )
 

@@ -19,8 +19,8 @@ struct ConvertCommand: AsyncParsableCommand {
             Input and output must be different files; in-place, symlink and hard-link aliases are rejected.
 
             Examples:
-              lungfish convert input.gb --to output.fa --to-format fasta
-              lungfish convert input.fasta --to output.gb --to-format genbank
+              lungfish-cli convert input.gb --to output.fa --to-format fasta
+              lungfish-cli convert input.fasta --to output.gb --to-format genbank
             """
     )
 

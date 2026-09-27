@@ -74,10 +74,10 @@ struct ExtractSubcommand: AsyncParsableCommand {
     /// replacement is `--by-classifier --tool kraken2`, not `--by-id` (which
     /// extracts by literal read-ID list and has no taxonomy concept). See F59.
     static let deprecationMessage = """
-        WARNING: 'lungfish conda extract' is deprecated. Use 'lungfish extract reads --by-classifier --tool kraken2' instead.
+        WARNING: 'lungfish-cli conda extract' is deprecated. Use 'lungfish-cli extract reads --by-classifier --tool kraken2' instead.
           Old: --taxid <id> --kraken-output <file>
           New: --taxon <id> --result <file>
-          Example: lungfish extract reads --by-classifier --tool kraken2 --taxon 562 --result class.kraken --source reads.fastq --output ecoli.fastq
+          Example: lungfish-cli extract reads --by-classifier --tool kraken2 --taxon 562 --result class.kraken --source reads.fastq --output ecoli.fastq
 
         """
 

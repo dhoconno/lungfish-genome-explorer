@@ -319,7 +319,7 @@ public enum MultipleSequenceAlignmentActionRegistry {
             createsOrModifiesScientificData: true,
             requiresProvenance: true,
             cli: .init(
-                command: "lungfish msa annotate add <bundle.lungfishmsa> --row <row> --columns <start-end> --name <name> --type <type> --format json",
+                command: "lungfish-cli msa annotate add <bundle.lungfishmsa> --row <row> --columns <start-end> --name <name> --type <type> --format json",
                 outputContract: "Updates metadata/annotations.sqlite and metadata/annotation-edit-provenance.json in the input .lungfishmsa bundle."
             ),
             status: .implemented,
@@ -337,7 +337,7 @@ public enum MultipleSequenceAlignmentActionRegistry {
             createsOrModifiesScientificData: true,
             requiresProvenance: true,
             cli: .init(
-                command: "lungfish msa annotate edit|delete <bundle.lungfishmsa> --annotation <id> [options] --format json",
+                command: "lungfish-cli msa annotate edit|delete <bundle.lungfishmsa> --annotation <id> [options] --format json",
                 outputContract: "Updates MSA annotation SQLite store and writes annotation edit provenance."
             ),
             status: .implemented,
@@ -355,7 +355,7 @@ public enum MultipleSequenceAlignmentActionRegistry {
             createsOrModifiesScientificData: true,
             requiresProvenance: true,
             cli: .init(
-                command: "lungfish msa annotate project <bundle.lungfishmsa> --source-annotation <id> --target-rows <rows> --conflict-policy append --format json",
+                command: "lungfish-cli msa annotate project <bundle.lungfishmsa> --source-annotation <id> --target-rows <rows> --conflict-policy append --format json",
                 outputContract: "Appends projected annotations with validation warnings and edit provenance."
             ),
             status: .implemented,
@@ -373,7 +373,7 @@ public enum MultipleSequenceAlignmentActionRegistry {
             createsOrModifiesScientificData: true,
             requiresProvenance: true,
             cli: .init(
-                command: "lungfish msa annotate import|export <bundle.lungfishmsa> --format gff|bed|tsv --output <path> --format json",
+                command: "lungfish-cli msa annotate import|export <bundle.lungfishmsa> --format gff|bed|tsv --output <path> --format json",
                 outputContract: "Imports update annotation SQLite with provenance; exports write requested files plus provenance sidecar."
             ),
             status: .planned,
@@ -391,7 +391,7 @@ public enum MultipleSequenceAlignmentActionRegistry {
             createsOrModifiesScientificData: true,
             requiresProvenance: true,
             cli: .init(
-                command: "lungfish msa extract <bundle.lungfishmsa> --rows <rows> --columns <ranges> --output <path> --output-kind fasta|msa|reference --format json",
+                command: "lungfish-cli msa extract <bundle.lungfishmsa> --rows <rows> --columns <ranges> --output <path> --output-kind fasta|msa|reference --format json",
                 outputContract: "Creates selected FASTA, derived .lungfishmsa, or native .lungfishref output with row/column selection, lifted annotations where representable, coordinate metadata, and provenance."
             ),
             status: .implemented,
@@ -409,7 +409,7 @@ public enum MultipleSequenceAlignmentActionRegistry {
             createsOrModifiesScientificData: true,
             requiresProvenance: true,
             cli: .init(
-                command: "lungfish msa mask columns <bundle.lungfishmsa> --ranges <ranges>|--gap-threshold <value>|--conservation-below <value>|--parsimony-uninformative|--annotation <id>|--codon-position <1|2|3> --output <path> [--reason <text>] --format json",
+                command: "lungfish-cli msa mask columns <bundle.lungfishmsa> --ranges <ranges>|--gap-threshold <value>|--conservation-below <value>|--parsimony-uninformative|--annotation <id>|--codon-position <1|2|3> --output <path> [--reason <text>] --format json",
                 outputContract: "Creates a derived .lungfishmsa bundle containing column mask metadata, selector details including conservation threshold, site class, or CDS codon position when selected, lineage, and provenance."
             ),
             status: .implemented,
@@ -427,7 +427,7 @@ public enum MultipleSequenceAlignmentActionRegistry {
             createsOrModifiesScientificData: true,
             requiresProvenance: true,
             cli: .init(
-                command: "lungfish msa trim columns <bundle.lungfishmsa> --gap-only|--gap-threshold <value> --output <path> --format json",
+                command: "lungfish-cli msa trim columns <bundle.lungfishmsa> --gap-only|--gap-threshold <value> --output <path> --format json",
                 outputContract: "Creates a derived .lungfishmsa bundle with removed-column metadata, lineage, and provenance."
             ),
             status: .implemented,
@@ -445,7 +445,7 @@ public enum MultipleSequenceAlignmentActionRegistry {
             createsOrModifiesScientificData: true,
             requiresProvenance: true,
             cli: .init(
-                command: "lungfish msa filter rows <bundle.lungfishmsa> --include <query>|--exclude <query> --project <project> --format json",
+                command: "lungfish-cli msa filter rows <bundle.lungfishmsa> --include <query>|--exclude <query> --project <project> --format json",
                 outputContract: "Creates a derived .lungfishmsa with row lineage, preserved annotations, and provenance."
             ),
             status: .planned,
@@ -463,7 +463,7 @@ public enum MultipleSequenceAlignmentActionRegistry {
             createsOrModifiesScientificData: true,
             requiresProvenance: true,
             cli: .init(
-                command: "lungfish msa transform reverse-complement <bundle.lungfishmsa> --rows <rows> --project <project> --format json",
+                command: "lungfish-cli msa transform reverse-complement <bundle.lungfishmsa> --rows <rows> --project <project> --format json",
                 outputContract: "Creates a derived .lungfishmsa with transformed rows, updated coordinate maps, warnings, and provenance."
             ),
             status: .planned,
@@ -481,7 +481,7 @@ public enum MultipleSequenceAlignmentActionRegistry {
             createsOrModifiesScientificData: true,
             requiresProvenance: true,
             cli: .init(
-                command: "lungfish msa consensus <bundle.lungfishmsa> [--rows <rows>] --threshold <value> --gap-policy omit|include --output-kind fasta|reference --output <path> --format json",
+                command: "lungfish-cli msa consensus <bundle.lungfishmsa> [--rows <rows>] --threshold <value> --gap-policy omit|include --output-kind fasta|reference --output <path> --format json",
                 outputContract: "Writes consensus FASTA plus provenance sidecar or a native .lungfishref consensus bundle with consensus metadata and provenance."
             ),
             status: .implemented,
@@ -499,7 +499,7 @@ public enum MultipleSequenceAlignmentActionRegistry {
             createsOrModifiesScientificData: true,
             requiresProvenance: true,
             cli: .init(
-                command: "lungfish align mafft <inputs...> --project <project> [options] --format json",
+                command: "lungfish-cli align mafft <inputs...> --project <project> [options] --format json",
                 outputContract: "Creates a .lungfishmsa bundle with input, external MAFFT, final payload, annotation, and quality-sidecar provenance.",
                 requiredPluginPackIDs: ["multiple-sequence-alignment"]
             ),
@@ -518,7 +518,7 @@ public enum MultipleSequenceAlignmentActionRegistry {
             createsOrModifiesScientificData: true,
             requiresProvenance: true,
             cli: .init(
-                command: "lungfish align muscle|clustalo|famsa <inputs...> --project <project> [options] --format json",
+                command: "lungfish-cli align muscle|clustalo|famsa <inputs...> --project <project> [options] --format json",
                 outputContract: "Creates a .lungfishmsa bundle with external-tool provenance and source annotation rehydration.",
                 requiredPluginPackIDs: ["multiple-sequence-alignment"]
             ),
@@ -537,7 +537,7 @@ public enum MultipleSequenceAlignmentActionRegistry {
             createsOrModifiesScientificData: true,
             requiresProvenance: true,
             cli: .init(
-                command: "lungfish msa export <bundle.lungfishmsa> --output-format fasta --output <path> [--rows <rows>] [--columns <ranges>] --format json",
+                command: "lungfish-cli msa export <bundle.lungfishmsa> --output-format fasta --output <path> [--rows <rows>] [--columns <ranges>] --format json",
                 outputContract: "Writes aligned FASTA plus <output>.lungfish-provenance.json with row/column selection, checksums, argv, and runtime identity."
             ),
             status: .implemented,
@@ -555,7 +555,7 @@ public enum MultipleSequenceAlignmentActionRegistry {
             createsOrModifiesScientificData: true,
             requiresProvenance: true,
             cli: .init(
-                command: "lungfish msa export <bundle.lungfishmsa> --output-format fasta|phylip|nexus|clustal|stockholm|a2m|a3m --output <path> [selection options] --format json",
+                command: "lungfish-cli msa export <bundle.lungfishmsa> --output-format fasta|phylip|nexus|clustal|stockholm|a2m|a3m --output <path> [selection options] --format json",
                 outputContract: "Writes requested file plus provenance sidecar recording row/column selection and checksums."
             ),
             status: .implemented,
@@ -585,7 +585,7 @@ public enum MultipleSequenceAlignmentActionRegistry {
             createsOrModifiesScientificData: true,
             requiresProvenance: true,
             cli: .init(
-                command: "lungfish tree infer iqtree <bundle.lungfishmsa> --project <project> --output <path.lungfishtree> [--rows <rows>] [--columns <ranges>] [--name <name>] [--model MFP] [--bootstrap <n>] [--seed <n>] [--iqtree-path <path>] --format json",
+                command: "lungfish-cli tree infer iqtree <bundle.lungfishmsa> --project <project> --output <path.lungfishtree> [--rows <rows>] [--columns <ranges>] [--name <name>] [--model MFP] [--bootstrap <n>] [--seed <n>] [--iqtree-path <path>] --format json",
                 outputContract: "Creates a native .lungfishtree bundle, preserves IQ-TREE outputs under artifacts/iqtree, and writes final .lungfish-provenance.json with wrapper argv, external IQ-TREE argv/version, input alignment checksum, output checksums, runtime identity, exit status, wall time, and stderr.",
                 requiredPluginPackIDs: ["phylogenetics"]
             ),
@@ -604,7 +604,7 @@ public enum MultipleSequenceAlignmentActionRegistry {
             createsOrModifiesScientificData: true,
             requiresProvenance: true,
             cli: .init(
-                command: "lungfish msa distance <bundle.lungfishmsa> --model identity|p-distance [selection options] --output <path> --format json",
+                command: "lungfish-cli msa distance <bundle.lungfishmsa> --model identity|p-distance [selection options] --output <path> --format json",
                 outputContract: "Writes matrix output plus provenance sidecar or derived analysis bundle."
             ),
             status: .implemented,
@@ -622,7 +622,7 @@ public enum MultipleSequenceAlignmentActionRegistry {
             createsOrModifiesScientificData: true,
             requiresProvenance: true,
             cli: .init(
-                command: "lungfish msa discriminating-sites <bundle.lungfishmsa> --exclusions <rows> | --exclusion-sequences <fasta|lungfishref> [--targets <rows>] [--target-mismatch-tolerance <n>] [--window-length <bp>] --output <path> --format json",
+                command: "lungfish-cli msa discriminating-sites <bundle.lungfishmsa> --exclusions <rows> | --exclusion-sequences <fasta|lungfishref> [--targets <rows>] [--target-mismatch-tolerance <n>] [--window-length <bp>] --output <path> --format json",
                 outputContract: "Writes a per-column TSV, a candidate-window TSV, and a JSON report, each with a provenance sidecar."
             ),
             status: .implemented,
@@ -652,7 +652,7 @@ public enum MultipleSequenceAlignmentActionRegistry {
             createsOrModifiesScientificData: true,
             requiresProvenance: true,
             cli: .init(
-                command: "lungfish msa edit apply <bundle.lungfishmsa> --edit-script <json> --project <project> --format json",
+                command: "lungfish-cli msa edit apply <bundle.lungfishmsa> --edit-script <json> --project <project> --format json",
                 outputContract: "Creates a derived .lungfishmsa from an explicit edit script with complete provenance."
             ),
             status: .deferred,

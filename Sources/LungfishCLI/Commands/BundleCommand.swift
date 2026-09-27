@@ -20,9 +20,9 @@ struct BundleCommand: AsyncParsableCommand {
             Use these commands to create, inspect, and validate bundles.
 
             Examples:
-              lungfish bundle info MyGenome.lungfishref
-              lungfish bundle create --fasta genome.fa --name "My Genome" --output ./
-              lungfish bundle validate MyGenome.lungfishref
+              lungfish-cli bundle info MyGenome.lungfishref
+              lungfish-cli bundle create --fasta genome.fa --name "My Genome" --output ./
+              lungfish-cli bundle validate MyGenome.lungfishref
             """,
         subcommands: [
             BundleInfoSubcommand.self,
@@ -49,8 +49,8 @@ struct BundleDeduplicateAlignmentsSubcommand: AsyncParsableCommand {
             every alignment track, and records reproducibility provenance in the output bundle.
 
             Examples:
-              lungfish bundle deduplicate-alignments MyGenome.lungfishref
-              lungfish bundle deduplicate-alignments MyGenome.lungfishref --output MyGenome-dedup.lungfishref
+              lungfish-cli bundle deduplicate-alignments MyGenome.lungfishref
+              lungfish-cli bundle deduplicate-alignments MyGenome.lungfishref --output MyGenome-dedup.lungfishref
             """
     )
 
@@ -93,8 +93,8 @@ struct BundleMarkDuplicatesSubcommand: AsyncParsableCommand {
             "Mark Duplicates in Bundle Tracks" action.
 
             Examples:
-              lungfish bundle mark-duplicates MyGenome.lungfishref
-              lungfish bundle mark-duplicates MyGenome.lungfishref --format json
+              lungfish-cli bundle mark-duplicates MyGenome.lungfishref
+              lungfish-cli bundle mark-duplicates MyGenome.lungfishref --format json
             """
     )
 
@@ -205,7 +205,7 @@ struct BundleExportSubcommand: AsyncParsableCommand {
             Exports a Lungfish bundle as a deterministic OCI layout tarball.
 
             Examples:
-              lungfish bundle export MyGenome.lungfishref --export-format container --output MyGenome.oci.tar
+              lungfish-cli bundle export MyGenome.lungfishref --export-format container --output MyGenome.oci.tar
             """
     )
 
@@ -272,8 +272,8 @@ struct BundleInfoSubcommand: AsyncParsableCommand {
             - Annotation, variant, and signal tracks
 
             Examples:
-              lungfish bundle info MyGenome.lungfishref
-              lungfish bundle info MyGenome.lungfishref --format json
+              lungfish-cli bundle info MyGenome.lungfishref
+              lungfish-cli bundle info MyGenome.lungfishref --format json
             """
     )
 
@@ -429,8 +429,8 @@ struct BundleCreateSubcommand: AsyncParsableCommand {
             Optional: Annotation files (GFF3, GTF, BED), variant files (VCF)
 
             Examples:
-              lungfish bundle create --fasta genome.fa --name "My Genome" --output-dir ./bundles
-              lungfish bundle create --fasta genome.fa --annotation genes.gff3 --name "Annotated Genome" --output-dir ./
+              lungfish-cli bundle create --fasta genome.fa --name "My Genome" --output-dir ./bundles
+              lungfish-cli bundle create --fasta genome.fa --annotation genes.gff3 --name "Annotated Genome" --output-dir ./
             """
     )
 
@@ -962,8 +962,8 @@ struct BundleValidateSubcommand: AsyncParsableCommand {
             - Index files are valid
 
             Examples:
-              lungfish bundle validate MyGenome.lungfishref
-              lungfish bundle validate *.lungfishref
+              lungfish-cli bundle validate MyGenome.lungfishref
+              lungfish-cli bundle validate *.lungfishref
             """
     )
 
@@ -1110,8 +1110,8 @@ struct BundleListSubcommand: AsyncParsableCommand {
             Lists the files and tracks contained in a bundle.
 
             Examples:
-              lungfish bundle list MyGenome.lungfishref
-              lungfish bundle list MyGenome.lungfishref --tracks
+              lungfish-cli bundle list MyGenome.lungfishref
+              lungfish-cli bundle list MyGenome.lungfishref --tracks
             """
     )
 

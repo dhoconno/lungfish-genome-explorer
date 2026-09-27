@@ -83,8 +83,8 @@ struct EnvSubcommand: AsyncParsableCommand {
             Verify that all required tools and dependencies are available.
 
             Examples:
-              lungfish debug env
-              lungfish debug env --check-tools
+              lungfish-cli debug env
+              lungfish-cli debug env --check-tools
             """
     )
 
@@ -278,9 +278,9 @@ struct ContainerSubcommand: AsyncParsableCommand {
             the Docker daemon is unreachable.
 
             Examples:
-              lungfish debug container
-              lungfish debug container --format json
-              lungfish debug container --pull-test --test-image docker.io/library/alpine:latest
+              lungfish-cli debug container
+              lungfish-cli debug container --format json
+              lungfish-cli debug container --pull-test --test-image docker.io/library/alpine:latest
             """
     )
 
@@ -381,8 +381,8 @@ struct FASTQIngestSubcommand: AsyncParsableCommand {
             Executes the same FASTQ ingestion pipeline used by app imports.
 
             Examples:
-              lungfish debug fastq-ingest ./SRR1770413_1.fastq.gz --stats --sample-limit 0
-              lungfish debug fastq-ingest ./R1.fastq.gz --pair ./R2.fastq.gz --delete-originals
+              lungfish-cli debug fastq-ingest ./SRR1770413_1.fastq.gz --stats --sample-limit 0
+              lungfish-cli debug fastq-ingest ./R1.fastq.gz --pair ./R2.fastq.gz --delete-originals
             """
     )
 
@@ -654,9 +654,9 @@ struct WorkflowLogSubcommand: AsyncParsableCommand {
             Parse Nextflow or Snakemake execution logs for debugging.
 
             Examples:
-              lungfish debug workflow-log ./work
-              lungfish debug workflow-log ./work --errors-only
-              lungfish debug workflow-log .nextflow.log --timeline
+              lungfish-cli debug workflow-log ./work
+              lungfish-cli debug workflow-log ./work --errors-only
+              lungfish-cli debug workflow-log .nextflow.log --timeline
             """
     )
 

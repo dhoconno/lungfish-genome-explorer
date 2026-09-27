@@ -356,8 +356,8 @@ extension TaxTriageCommand {
                 // surfaces as an opaque "pipeline failed with exit code 1" from deep
                 // inside Nextflow, so fail here with something actionable instead.
                 print(formatter.error("A Kraken2 database is required: pass --db <path>"))
-                print(formatter.info("  List installed databases: lungfish conda db list"))
-                print(formatter.info("  Install one:              lungfish conda db download Viral"))
+                print(formatter.info("  List installed databases: lungfish-cli conda db list"))
+                print(formatter.info("  Install one:              lungfish-cli conda db download Viral"))
                 throw CLIExitCode.inputError.exitCode
             }
 
@@ -566,7 +566,7 @@ extension TaxTriageCommand {
                 ?? "\(PipelineContainerRuntimeStatus.runtimeName) is not available"
             return [
                 formatter.error("Container runtime: NOT AVAILABLE (\(detail))"),
-                formatter.info("  Install and start Docker Desktop, then run `lungfish debug container`"),
+                formatter.info("  Install and start Docker Desktop, then run `lungfish-cli debug container`"),
             ]
         }
 

@@ -40,8 +40,8 @@ struct EsVirituCommand: AsyncParsableCommand {
         using EsViritu. Requires the EsViritu conda package and its curated
         viral reference database.
 
-        Install the tool: lungfish conda install esviritu
-        Download the database: lungfish esviritu download-db
+        Install the tool: lungfish-cli conda install esviritu
+        Download the database: lungfish-cli esviritu download-db
         """,
         subcommands: [
             DetectSubcommand.self,
@@ -220,7 +220,7 @@ extension EsVirituCommand {
                     dbURL = await dbManager.databaseURL
                 } else {
                     print(formatter.error("EsViritu database not found. Download it first:"))
-                    print(formatter.info("  lungfish esviritu download-db"))
+                    print(formatter.info("  lungfish-cli esviritu download-db"))
                     throw CLIExitCode.dependency.exitCode
                 }
             }
@@ -450,7 +450,7 @@ extension EsVirituCommand {
             } else {
                 print("  Status: Not installed")
                 print("")
-                print(formatter.info("Download with: lungfish esviritu download-db"))
+                print(formatter.info("Download with: lungfish-cli esviritu download-db"))
             }
         }
     }

@@ -51,7 +51,7 @@ struct FastqONTGenotypingSubcommand: AsyncParsableCommand {
     var extraArgs: String = ""
 
     static let deprecationMessage = """
-        WARNING: 'lungfish fastq ont-genotype' is deprecated and hidden from --help. It maps ONT reads with the short-read preset, ignores --allow-indels (indels are always allowed), and splits tied reads across identical alleles non-deterministically. Use 'lungfish fastq genotype --mode ont-sample-bundles' instead.
+        WARNING: 'lungfish-cli fastq ont-genotype' is deprecated and hidden from --help. It maps ONT reads with the short-read preset, ignores --allow-indels (indels are always allowed), and splits tied reads across identical alleles non-deterministically. Use 'lungfish-cli fastq genotype --mode ont-sample-bundles' instead.
 
         """
 

@@ -41,7 +41,7 @@ struct NaoMgsCommand: AsyncParsableCommand {
         discussion: """
         Import results from the SecureBio NAO-MGS metagenomic surveillance
         pipeline. Parses virus_hits_final.tsv.gz and writes a standalone JSON
-        summary. Use `lungfish import nao-mgs` for a project bundle.
+        summary. Use `lungfish-cli import nao-mgs` for a project bundle.
         """,
         subcommands: [ImportSubcommand.self, SummarySubcommand.self],
         defaultSubcommand: SummarySubcommand.self

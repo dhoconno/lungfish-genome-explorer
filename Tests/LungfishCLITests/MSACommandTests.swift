@@ -31,7 +31,7 @@ final class MSACommandTests: XCTestCase {
 
         let lines = recorder.lines()
         XCTAssertEqual(lines.first, "id\ttitle\tcategory\tpriority\tstatus\tprovenanceRequired\tcliCommand")
-        XCTAssertTrue(lines.contains { $0.hasPrefix("msa.transform.mask-columns\t") && $0.contains("\ttrue\tlungfish msa mask columns") })
+        XCTAssertTrue(lines.contains { $0.hasPrefix("msa.transform.mask-columns\t") && $0.contains("\ttrue\tlungfish-cli msa mask columns") })
     }
 
     func testDescribeSubcommandEmitsSpecificAction() throws {
@@ -45,7 +45,7 @@ final class MSACommandTests: XCTestCase {
 
         let output = recorder.joined()
         XCTAssertTrue(output.contains(#""id" : "msa.alignment.mafft""#))
-        XCTAssertTrue(output.contains("lungfish align mafft"))
+        XCTAssertTrue(output.contains("lungfish-cli align mafft"))
         XCTAssertTrue(output.contains(#""requiresProvenance" : true"#))
     }
 

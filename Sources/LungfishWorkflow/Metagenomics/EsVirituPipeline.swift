@@ -38,7 +38,7 @@ public enum EsVirituPipelineError: Error, LocalizedError, Sendable {
         case .esVirituFailed(let code, let stderr):
             return "EsViritu failed with exit code \(code): \(stderr)"
         case .esVirituNotInstalled:
-            return "EsViritu is not installed. Run: lungfish conda install --pack metagenomics"
+            return "EsViritu is not installed. Run: lungfish-cli conda install --pack metagenomics"
         case .detectionOutputNotProduced(let url, let diagnosis):
             var parts: [String] = []
             if let reported = diagnosis?.reportedError {

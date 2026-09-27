@@ -21,10 +21,10 @@ struct TranslateCommand: AsyncParsableCommand {
             (frames -1, -2, -3). By default, all 6 frames are translated.
 
             Examples:
-              lungfish translate input.fasta
-              lungfish translate input.fasta --frame 1
-              lungfish translate input.fasta --frame 1 --table 2 -o proteins.fasta
-              lungfish translate input.fasta --all-frames --stop-as-asterisk
+              lungfish-cli translate input.fasta
+              lungfish-cli translate input.fasta --frame 1
+              lungfish-cli translate input.fasta --frame 1 --table 2 -o proteins.fasta
+              lungfish-cli translate input.fasta --all-frames --stop-as-asterisk
             """
     )
 

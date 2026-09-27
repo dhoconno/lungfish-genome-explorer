@@ -25,10 +25,10 @@ struct CompositionSubcommand: AsyncParsableCommand {
             ambiguous symbols are excluded from frequency denominators.
 
             Examples:
-              lungfish analyze composition genome.fasta
-              lungfish analyze composition coding.fasta --codons
-              lungfish analyze composition genome.fasta --dinucleotides
-              lungfish analyze composition protein.faa --alphabet protein
+              lungfish-cli analyze composition genome.fasta
+              lungfish-cli analyze composition coding.fasta --codons
+              lungfish-cli analyze composition genome.fasta --dinucleotides
+              lungfish-cli analyze composition protein.faa --alphabet protein
             """
     )
 

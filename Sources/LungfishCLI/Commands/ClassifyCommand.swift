@@ -65,7 +65,7 @@ struct ClassifyCommand: AsyncParsableCommand {
         abstract: "Run Kraken2 taxonomic classification on FASTQ or FASTA inputs",
         discussion: """
         Classify metagenomic reads or assembled sequences using Kraken2 with an installed database.
-        Databases are managed via `lungfish conda db` or downloaded from the
+        Databases are managed via `lungfish-cli conda db` or downloaded from the
         built-in catalog. Results include a kreport file, per-read output,
         and an optional Bracken abundance profile.
         """

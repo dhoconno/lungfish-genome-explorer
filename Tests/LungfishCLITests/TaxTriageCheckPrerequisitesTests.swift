@@ -54,7 +54,7 @@ final class TaxTriageCheckPrerequisitesTests: XCTestCase {
         let downLines = Subcommand.containerRuntimeLines(status: down, formatter: formatter)
         XCTAssertEqual(downLines.count, 2)
         XCTAssertTrue(downLines[0].contains("Container runtime: NOT AVAILABLE (Docker Desktop is not running)"), downLines[0])
-        XCTAssertTrue(downLines[1].contains("lungfish debug container"))
+        XCTAssertTrue(downLines[1].contains("`lungfish-cli debug container`"), downLines[1])
         XCTAssertFalse(downLines.joined().contains("Apple"))
 
         let noDocker = StubProbe(

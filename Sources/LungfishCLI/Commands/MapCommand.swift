@@ -30,7 +30,7 @@ struct MapCommand: AsyncParsableCommand {
         discussion: """
         Map sequencing reads or sequences to a reference genome using one of the managed read mappers.
         Produces a coordinate-sorted, indexed BAM file. Install the tools through the
-        read-mapping plugin pack (`lungfish conda install read-mapping`). BBMap is exposed
+        read-mapping plugin pack (`lungfish-cli conda install read-mapping`). BBMap is exposed
         from the required BBTools environment and is available once the managed toolchain
         is provisioned.
 

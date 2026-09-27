@@ -46,10 +46,10 @@ struct ExtractSequenceSubcommand: AsyncParsableCommand {
             that sequence is used.
 
             Examples:
-              lungfish extract sequence genome.fasta chr1:1000-2000
-              lungfish extract sequence genome.fasta chr1:1000-2000 --reverse-complement
-              lungfish extract sequence genome.fasta chr1:1-500 --flank 100
-              lungfish extract sequence genome.fasta seq1:1-100 -o region.fasta
+              lungfish-cli extract sequence genome.fasta chr1:1000-2000
+              lungfish-cli extract sequence genome.fasta chr1:1000-2000 --reverse-complement
+              lungfish-cli extract sequence genome.fasta chr1:1-500 --flank 100
+              lungfish-cli extract sequence genome.fasta seq1:1-100 -o region.fasta
             """
     )
 

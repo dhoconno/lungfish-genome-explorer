@@ -36,8 +36,8 @@ struct StatsSubcommand: AsyncParsableCommand {
             - Length distribution
 
             Examples:
-              lungfish analyze stats genome.fasta
-              lungfish analyze stats reads.fastq --per-sequence
+              lungfish-cli analyze stats genome.fasta
+              lungfish-cli analyze stats reads.fastq --per-sequence
             """
     )
 
@@ -210,8 +210,8 @@ struct FileValidateSubcommand: AsyncParsableCommand {
             Validate that a file is well-formed and conforms to format specifications.
 
             Examples:
-              lungfish analyze validate genome.fasta
-              lungfish analyze validate variants.vcf --strict
+              lungfish-cli analyze validate genome.fasta
+              lungfish-cli analyze validate variants.vcf --strict
             """
     )
 

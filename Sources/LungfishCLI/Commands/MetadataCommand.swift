@@ -21,10 +21,10 @@ struct MetadataCommand: AsyncParsableCommand {
             Folder-level metadata is stored in `samples.csv` at the folder root.
 
             Examples:
-              lungfish metadata get SampleA.lungfishfastq
-              lungfish metadata set SampleA.lungfishfastq --field sample_type --value "Nasopharyngeal swab"
-              lungfish metadata import ./RunFolder samples.csv
-              lungfish metadata export ./RunFolder
+              lungfish-cli metadata get SampleA.lungfishfastq
+              lungfish-cli metadata set SampleA.lungfishfastq --field sample_type --value "Nasopharyngeal swab"
+              lungfish-cli metadata import ./RunFolder samples.csv
+              lungfish-cli metadata export ./RunFolder
             """,
         subcommands: [
             MetadataGetSubcommand.self,
@@ -49,8 +49,8 @@ struct MetadataGetSubcommand: AsyncParsableCommand {
             the bundle's metadata.csv file.
 
             Examples:
-              lungfish metadata get SampleA.lungfishfastq
-              lungfish metadata get SampleA.lungfishfastq --format json
+              lungfish-cli metadata get SampleA.lungfishfastq
+              lungfish-cli metadata get SampleA.lungfishfastq --format json
             """
     )
 
@@ -153,9 +153,9 @@ struct MetadataSetSubcommand: AsyncParsableCommand {
             host, sample_role, patient_id, run_id, batch_id.
 
             Examples:
-              lungfish metadata set Sample.lungfishfastq --field sample_type --value "Blood"
-              lungfish metadata set Sample.lungfishfastq --field sample_role --value negative_control
-              lungfish metadata set Sample.lungfishfastq --field custom_notes --value "Re-extracted"
+              lungfish-cli metadata set Sample.lungfishfastq --field sample_type --value "Blood"
+              lungfish-cli metadata set Sample.lungfishfastq --field sample_role --value negative_control
+              lungfish-cli metadata set Sample.lungfishfastq --field custom_notes --value "Re-extracted"
             """
     )
 
@@ -249,8 +249,8 @@ struct MetadataImportSubcommand: AsyncParsableCommand {
             match rows to .lungfishfastq bundles in the folder.
 
             Examples:
-              lungfish metadata import ./RunFolder samplesheet.csv
-              lungfish metadata import ./RunFolder samplesheet.csv --sync-bundles
+              lungfish-cli metadata import ./RunFolder samplesheet.csv
+              lungfish-cli metadata import ./RunFolder samplesheet.csv --sync-bundles
             """
     )
 
@@ -344,9 +344,9 @@ struct MetadataExportSubcommand: AsyncParsableCommand {
             takes precedence over folder-level samples.csv).
 
             Examples:
-              lungfish metadata export ./RunFolder
-              lungfish metadata export ./RunFolder > samples.csv
-              lungfish metadata export ./RunFolder --format tsv
+              lungfish-cli metadata export ./RunFolder
+              lungfish-cli metadata export ./RunFolder > samples.csv
+              lungfish-cli metadata export ./RunFolder --format tsv
             """
     )
 
@@ -451,9 +451,9 @@ struct MetadataExportBioSampleSubcommand: AsyncParsableCommand {
             directly to NCBI's BioSample submission portal.
 
             Examples:
-              lungfish metadata export-biosample ./RunFolder
-              lungfish metadata export-biosample ./RunFolder > biosample.tsv
-              lungfish metadata export-biosample ./RunFolder --package environmental
+              lungfish-cli metadata export-biosample ./RunFolder
+              lungfish-cli metadata export-biosample ./RunFolder > biosample.tsv
+              lungfish-cli metadata export-biosample ./RunFolder --package environmental
             """
     )
 

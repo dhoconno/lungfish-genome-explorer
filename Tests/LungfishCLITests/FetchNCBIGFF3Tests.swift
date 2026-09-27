@@ -102,8 +102,8 @@ final class FetchNCBIGFF3Tests: XCTestCase {
             format: .gff3
         )
 
-        XCTAssertTrue(combined.contains("# lungfish fetch ncbi accession: MN908947.3"))
-        XCTAssertTrue(combined.contains("###\n# lungfish fetch ncbi accession: NC_045512.2"))
+        XCTAssertTrue(combined.contains("# lungfish-cli fetch ncbi accession: MN908947.3"))
+        XCTAssertTrue(combined.contains("###\n# lungfish-cli fetch ncbi accession: NC_045512.2"))
         XCTAssertTrue(combined.hasSuffix("\n"))
     }
 

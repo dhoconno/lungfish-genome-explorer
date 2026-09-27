@@ -13,13 +13,13 @@ extension BAMCommand {
     struct AdoptMappingSubcommand: AsyncParsableCommand {
         static let configuration = CommandConfiguration(
             commandName: "adopt-mapping",
-            abstract: "Attach a `lungfish map` result to a reference bundle as a new alignment track"
+            abstract: "Attach a `lungfish-cli map` result to a reference bundle as a new alignment track"
         )
 
         @Option(name: .customLong("bundle"), help: "Path to the reference bundle directory (.lungfishref)")
         var bundlePath: String
 
-        @Option(name: .customLong("mapping-result"), help: "Path to the mapping analysis directory produced by `lungfish map`")
+        @Option(name: .customLong("mapping-result"), help: "Path to the mapping analysis directory produced by `lungfish-cli map`")
         var mappingResultPath: String
 
         @Option(name: .customLong("name"), help: "Display name for the new alignment track")

@@ -21,7 +21,7 @@ struct CondaCommand: AsyncParsableCommand {
             Each tool is installed in its own isolated environment to prevent dependency
             conflicts. Tools are stored in \(managedStorageRootDescription()).
 
-            Use 'lungfish conda lock --pack <pack> --output lockfile.yml' to write
+            Use 'lungfish-cli conda lock --pack <pack> --output lockfile.yml' to write
             a Lungfish requested environment specification (JSON). This is not a
             resolved artifact lock; exact --from-lockfile reconstruction is unsupported.
             """,
@@ -342,7 +342,7 @@ extension CondaCommand {
                 let envs = try await manager.listEnvironments()
                 if envs.isEmpty {
                     print(formatter.info("No conda environments installed."))
-                    print("Use 'lungfish conda install <package>' to install tools.")
+                    print("Use 'lungfish-cli conda install <package>' to install tools.")
                 } else {
                     print(formatter.header("Conda Environments (\(envs.count))"))
                     for env in envs {

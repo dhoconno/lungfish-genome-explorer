@@ -22,11 +22,11 @@ struct SearchCommand: AsyncParsableCommand {
             are searched by default.
 
             Examples:
-              lungfish search genome.fasta ATGCGATCG
-              lungfish search genome.fasta --iupac "TATAWAWN"
-              lungfish search genome.fasta --regex "ATG(.{3}){10,50}T(AA|AG|GA)"
-              lungfish search genome.fasta GAATTC --max-mismatches 1
-              lungfish search genome.fasta GAATTC -o sites.bed
+              lungfish-cli search genome.fasta ATGCGATCG
+              lungfish-cli search genome.fasta --iupac "TATAWAWN"
+              lungfish-cli search genome.fasta --regex "ATG(.{3}){10,50}T(AA|AG|GA)"
+              lungfish-cli search genome.fasta GAATTC --max-mismatches 1
+              lungfish-cli search genome.fasta GAATTC -o sites.bed
             """
     )
 

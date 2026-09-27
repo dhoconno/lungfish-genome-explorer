@@ -50,9 +50,9 @@ public enum ClassificationPipelineError: Error, LocalizedError, Sendable {
         case .brackenFailed(let code, let stderr):
             return "bracken failed with exit code \(code): \(stderr)"
         case .kraken2NotInstalled:
-            return "kraken2 is not installed. Run: lungfish conda install --pack metagenomics"
+            return "kraken2 is not installed. Run: lungfish-cli conda install --pack metagenomics"
         case .brackenNotInstalled:
-            return "bracken is not installed. Run: lungfish conda install --pack metagenomics"
+            return "bracken is not installed. Run: lungfish-cli conda install --pack metagenomics"
         case .kreportNotProduced(let url):
             return "kraken2 did not produce a report file at \(url.path)"
         case .resultSidecarSaveFailed(let url, let reason):

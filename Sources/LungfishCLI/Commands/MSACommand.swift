@@ -2021,7 +2021,7 @@ extension MSACommand {
 
         private func execute(emit: (String) -> Void) throws {
             guard let action = MultipleSequenceAlignmentActionRegistry.action(id: actionID) else {
-                throw ValidationError("Unknown MSA action '\(actionID)'. Run `lungfish msa actions` to list supported actions.")
+                throw ValidationError("Unknown MSA action '\(actionID)'. Run `lungfish-cli msa actions` to list supported actions.")
             }
 
             switch globalOptions.outputFormat {
