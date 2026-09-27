@@ -650,6 +650,43 @@ final class PrimerDesignDialogStateTests: XCTestCase {
       options.gapExpansionOptions.requestedOptionNames, file: file, line: line)
   }
 
+  func testDefaultAnalysisNameIsUniqueWithinTheProjectAtDialogOpen() throws {
+    let project = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    let analyses = project.appendingPathComponent("Analyses")
+    try FileManager.default.createDirectory(at: analyses, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: project) }
+
+    XCTAssertEqual(PrimerDesignDialogState(projectURL: project).analysisName, "Primer analysis")
+    XCTAssertEqual(PrimerDesignDialogState().analysisName, "Primer analysis")
+
+    try FileManager.default.createDirectory(
+      at: analyses.appendingPathComponent("Primer analysis.lungfishprimeranalysis"), withIntermediateDirectories: false)
+    let second = PrimerDesignDialogState(projectURL: project)
+    XCTAssertEqual(second.analysisName, "Primer analysis 2")
+    XCTAssertNoThrow(try second.validatedDestinationURL())
+
+    try FileManager.default.createDirectory(
+      at: analyses.appendingPathComponent("Primer analysis 2.lungfishprimeranalysis"), withIntermediateDirectories: false)
+    let third = PrimerDesignDialogState(projectURL: project)
+    XCTAssertEqual(third.analysisName, "Primer analysis 3")
+    XCTAssertNoThrow(try third.validatedDestinationURL())
+  }
+
+  func testTypedNameCollisionIsStillBlocked() throws {
+    let project = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    let analyses = project.appendingPathComponent("Analyses")
+    try FileManager.default.createDirectory(at: analyses, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: project) }
+    try FileManager.default.createDirectory(
+      at: analyses.appendingPathComponent("Primer analysis.lungfishprimeranalysis"), withIntermediateDirectories: false)
+    let state = PrimerDesignDialogState(projectURL: project)
+    XCTAssertEqual(state.analysisName, "Primer analysis 2")
+    state.addInputs([URL(fileURLWithPath: "/input/mhc.fasta")])
+    state.analysisName = "Primer analysis"
+    XCTAssertThrowsError(try state.validatedDestinationURL())
+    XCTAssertEqual(state.validationMessage, "An analysis with this name already exists in the project. Enter a different name.")
+  }
+
   private func configuredState() -> PrimerDesignDialogState {
     let state = PrimerDesignDialogState(projectURL: FileManager.default.temporaryDirectory)
     state.analysisName = UUID().uuidString

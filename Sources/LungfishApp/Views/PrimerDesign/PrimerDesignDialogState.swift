@@ -48,7 +48,7 @@ final class PrimerDesignDialogState {
   private var inspectionGeneration = UUID()
   let projectURL: URL?
   var destinationURL: URL? { try? validatedDestinationURL() }
-  var analysisName = "Primer analysis"
+  var analysisName: String
   var grouping: PrimerAnalysisGrouping = .independent
   var productSizeMin = "100"
   var productSizeMax = "400"
@@ -200,7 +200,34 @@ final class PrimerDesignDialogState {
     !isRunning && validationMessage == nil && inputReadinessMessage == nil
   }
 
-  init(projectURL: URL? = nil) { self.projectURL = projectURL?.resolvingSymlinksInPath().standardizedFileURL }
+  static let defaultAnalysisName = "Primer analysis"
+
+  init(projectURL: URL? = nil) {
+    let resolvedProject = projectURL?.resolvingSymlinksInPath().standardizedFileURL
+    self.projectURL = resolvedProject
+    analysisName = Self.uniqueAnalysisName(base: Self.defaultAnalysisName, in: resolvedProject)
+  }
+
+  /// The first "<base>", "<base> 2", "<base> 3"... not already saved in the
+  /// project's Analyses folder, matching the FASTQ import "keep both" naming.
+  /// A typed collision is still rejected by `validatedDestinationURL()`.
+  static func uniqueAnalysisName(base: String, in projectURL: URL?) -> String {
+    guard let projectURL else { return base }
+    let parent = projectURL.appendingPathComponent(AnalysesFolder.directoryName, isDirectory: true)
+    let fm = FileManager.default
+    func exists(_ name: String) -> Bool {
+      let path = parent.appendingPathComponent(name + ".lungfishprimeranalysis").path
+      return fm.fileExists(atPath: path) || (try? fm.destinationOfSymbolicLink(atPath: path)) != nil
+    }
+    guard exists(base) else { return base }
+    var counter = 2
+    var uniqueName = "\(base) \(counter)"
+    while exists(uniqueName) {
+      counter += 1
+      uniqueName = "\(base) \(counter)"
+    }
+    return uniqueName
+  }
 
   /// GUI outputs are always direct children of the originating project's Analyses folder.
   /// Resolve the project once per check and reject even dangling links at the output boundary.
