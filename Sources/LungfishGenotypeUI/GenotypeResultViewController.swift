@@ -135,7 +135,7 @@ struct GenotypeKnownSelectionDiagnostics: Equatable {
 }
 
 @MainActor
-public final class GenotypeResultViewController: NSViewController {
+public final class GenotypeResultViewController: NSViewController, NSMenuItemValidation {
     typealias Lens = GenotypeResultViewportLens
     typealias GenotypeResultLoader = @Sendable (URL) async throws -> ONTGenotypeResultBundleData
 
@@ -1124,53 +1124,88 @@ public final class GenotypeResultViewController: NSViewController {
         return defaultSummaryViewMode(for: result)
     }
 
-    /// Per-call keyboard shortcuts used by the Review lens:
-    /// - `⌘R`: mark the currently selected sample's status as `reviewed`
-    /// - `⌘K`: mark as `confirmed`
-    /// - `⌘⇧F`: flag as `needsReview`
-    /// - `⌘⇧O`: open the Sample Detail sheet for the override editor
-    /// Returns true if the event was handled, allowing the responder chain
-    /// to continue otherwise.
-    public override func performKeyEquivalent(with event: NSEvent) -> Bool {
-        let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        let cmd: NSEvent.ModifierFlags = .command
-        let cmdShift: NSEvent.ModifierFlags = [.command, .shift]
-        if modifiers == cmd,
-           event.charactersIgnoringModifiers?.lowercased() == "f" {
-            return quickFilterBar.focusSearchField()
-                || super.performKeyEquivalent(with: event)
-        }
-        if modifiers.isEmpty,
-           event.charactersIgnoringModifiers == "\u{1b}",
-           !quickFilterSearchText.isEmpty {
-            quickFilterBar.clearSearch()
-            return true
-        }
-        // Review commands follow the selected call for synchronized miSeq
-        // presentations; legacy workflows retain their Review-lens gate.
+    // MARK: - Review Commands (menu items with key equivalents)
+
+    /// The sample the review commands act on, or nil when they are unavailable.
+    ///
+    /// Review commands follow the selected call for synchronized miSeq
+    /// presentations; legacy workflows retain their Review-lens gate.
+    ///
+    /// These commands used to live in a `performKeyEquivalent(with:)` override
+    /// on this view controller. AppKit dispatches key equivalents down the
+    /// view hierarchy from the window's content view and never to view
+    /// controllers, so ⌘R / ⌘K / ⇧⌘F / ⇧⌘O never fired from a real keypress.
+    /// They are now real `Tools > Genotype Review` menu items with a nil
+    /// target (see `MainMenu.swift`), dispatched through the responder chain
+    /// to the `@objc` actions below, the same pattern
+    /// `TaxTriageResultViewController.selectNextSample(_:)` uses.
+    var reviewCommandTargetSample: String? {
         let hasSelectedMiSeqCall =
             presentationPolicy?.appliesToHaplotypedMiSeq == true
                 && currentSelectedLocus != nil
-        guard (selectedLens == .review || hasSelectedMiSeqCall),
-              let animalId = currentSelectedSample else {
-            return super.performKeyEquivalent(with: event)
+        guard selectedLens == .review || hasSelectedMiSeqCall else { return nil }
+        return currentSelectedSample
+    }
+
+    /// `⌘R`: mark the currently selected sample's status as `reviewed`.
+    @objc public func markSelectedSampleReviewed(_ sender: Any?) {
+        guard let animalId = reviewCommandTargetSample else { return }
+        transitionSampleStatus(animalId: animalId, to: .reviewed)
+    }
+
+    /// `⌘K`: mark the currently selected sample's status as `confirmed`.
+    @objc public func markSelectedSampleConfirmed(_ sender: Any?) {
+        guard let animalId = reviewCommandTargetSample else { return }
+        transitionSampleStatus(animalId: animalId, to: .confirmed)
+    }
+
+    /// `⇧⌘F`: flag the currently selected sample as `needsReview`.
+    @objc public func flagSelectedSampleNeedsReview(_ sender: Any?) {
+        guard let animalId = reviewCommandTargetSample else { return }
+        transitionSampleStatus(animalId: animalId, to: .needsReview)
+    }
+
+    /// `⇧⌘O`: open the Sample Detail sheet for the override editor.
+    @objc public func openSelectedSampleDetail(_ sender: Any?) {
+        guard let animalId = reviewCommandTargetSample else { return }
+        presentSampleDetailSheet(forAnimal: animalId)
+    }
+
+    /// The review command selectors, in menu order.
+    public static let reviewCommandSelectors: [Selector] = [
+        #selector(GenotypeResultViewController.markSelectedSampleReviewed(_:)),
+        #selector(GenotypeResultViewController.markSelectedSampleConfirmed(_:)),
+        #selector(GenotypeResultViewController.flagSelectedSampleNeedsReview(_:)),
+        #selector(GenotypeResultViewController.openSelectedSampleDetail(_:)),
+    ]
+
+    /// `Edit > Find…` (⌘F) reaches this controller through the responder chain
+    /// when no text view owns the key focus; it moves focus into the quick
+    /// filter search field. Other find-panel actions are left alone.
+    @objc public func performFindPanelAction(_ sender: Any?) {
+        let tag = (sender as? NSMenuItem)?.tag ?? NSTextFinder.Action.showFindInterface.rawValue
+        guard tag == NSTextFinder.Action.showFindInterface.rawValue else { return }
+        _ = quickFilterBar.focusSearchField()
+    }
+
+    /// Escape clears the quick filter search when it holds text.
+    public override func cancelOperation(_ sender: Any?) {
+        guard !quickFilterSearchText.isEmpty else {
+            super.cancelOperation(sender)
+            return
         }
-        switch (event.charactersIgnoringModifiers, modifiers) {
-        case ("r", cmd):
-            transitionSampleStatus(animalId: animalId, to: .reviewed)
-            return true
-        case ("k", cmd):
-            transitionSampleStatus(animalId: animalId, to: .confirmed)
-            return true
-        case ("F", cmdShift):
-            transitionSampleStatus(animalId: animalId, to: .needsReview)
-            return true
-        case ("O", cmdShift):
-            presentSampleDetailSheet(forAnimal: animalId)
-            return true
-        default:
-            return super.performKeyEquivalent(with: event)
+        quickFilterBar.clearSearch()
+    }
+
+    public func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        guard let action = menuItem.action else { return true }
+        if Self.reviewCommandSelectors.contains(action) {
+            return reviewCommandTargetSample != nil
         }
+        if action == #selector(performFindPanelAction(_:)) {
+            return menuItem.tag == NSTextFinder.Action.showFindInterface.rawValue
+        }
+        return true
     }
 
     private func transitionSampleStatus(
