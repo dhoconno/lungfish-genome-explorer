@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import LungfishCore
 
 // MARK: - WorkflowRun
 
@@ -128,9 +129,28 @@ public struct WorkflowRun: Codable, Sendable, Identifiable, Equatable {
 
     // MARK: - System Info Helpers
 
+    /// The app identity recorded in provenance: `Lungfish <version> (<build>)`.
+    ///
+    /// The packaged app and the CLI inside it read both values from the
+    /// bundle's Info.plist. A bare `lungfish-cli` binary (SwiftPM build, or a
+    /// copied CLI whose embedded identity plist carries no version keys) has
+    /// no `CFBundleShortVersionString`, so the release version falls back to
+    /// ``LungfishAppVersion/short``, the same constant `lungfish-cli --version`
+    /// prints. Without a packaged build number the build is recorded as
+    /// `dev`; it was previously recorded as `Lungfish dev (0)`, which named
+    /// neither.
     public static var currentAppVersion: String {
-        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "dev"
-        let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "0"
+        appVersion(infoDictionary: Bundle.main.infoDictionary ?? [:])
+    }
+
+    /// `currentAppVersion` for an explicit Info.plist dictionary (testable).
+    public static func appVersion(infoDictionary: [String: Any]) -> String {
+        let plistVersion = (infoDictionary["CFBundleShortVersionString"] as? String)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let plistBuild = (infoDictionary["CFBundleVersion"] as? String)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let version = (plistVersion?.isEmpty == false) ? plistVersion! : LungfishAppVersion.short
+        let build = (plistBuild?.isEmpty == false) ? plistBuild! : "dev"
         return "Lungfish \(version) (\(build))"
     }
 
