@@ -57,9 +57,10 @@ operations:
       Read counts, length distribution, and quality statistics are all computed
       from the selected FASTQ data with no tunable inputs. The refresh runs
       `lungfish-cli fastq qc-summary` and writes its statistics into each bundle's
-      stored summary, so after a refresh Mean Q is the arithmetic mean of scores
-      rather than seqkit's error-probability average, and the charts cover every
-      read rather than the first 100,000.
+      stored summary, and the charts then cover every read rather than the first
+      100,000. Mean Q has one definition everywhere, the error-probability
+      average seqkit reports as AvgQual, and Q20 and Q30 are counted from bases
+      at import, so neither changes when the summary is refreshed.
 
   fastq.demultiplex-barcodes:
     title: Demultiplex Barcodes
@@ -136,6 +137,9 @@ operations:
         when_to_change: Choose Grouped Result when one library was sequenced across several files and its barcodes should be counted together.
         cli_flag: null
     cli_only:
+      - flag: --replace
+        default: "false"
+        effect: Deletes an existing, non-empty output directory before writing. Without it the command refuses to overwrite earlier results and names the directory. The window never replaces an earlier run and writes demux-2, demux-3, and so on instead.
       - flag: --overlap
         default: "3"
         effect: Sets the minimum number of barcode bases that must overlap the read for Cutadapt to consider a match.
@@ -239,6 +243,9 @@ operations:
         when_to_change: Choose Grouped Result when several files belong to the same library and you want one trimmed bundle.
         cli_flag: null
     cli_only:
+      - flag: --pairing
+        default: auto
+        effect: Says how to treat the input's records. interleaved keeps or drops adjacent mates together and lets fastp find adapters from the overlap of the two mates, single treats every record on its own, and auto reads the pairing the enclosing .lungfishfastq bundle records, then the read names. The window passes the bundle's own pairing, so a paired bundle keeps its mates together.
       - flag: --extra-args
         default: "empty"
         effect: Passes additional fastp arguments through verbatim after the resolved settings.
@@ -303,6 +310,9 @@ operations:
         when_to_change: Choose Grouped Result when several files belong to one library.
         cli_flag: null
     cli_only:
+      - flag: --pairing
+        default: auto
+        effect: Says how to treat the input's records. interleaved keeps or drops adjacent mates together and lets fastp find adapters from the overlap of the two mates, single treats every record on its own, and auto reads the pairing the enclosing .lungfishfastq bundle records, then the read names. The window passes the bundle's own pairing, so a paired bundle keeps its mates together.
       - flag: --force
         default: "false"
         effect: Overwrites an existing output file.
@@ -346,6 +356,9 @@ operations:
         when_to_change: Choose Grouped Result when several files belong to one library.
         cli_flag: null
     cli_only:
+      - flag: --pairing
+        default: auto
+        effect: Says how to treat the input's records. interleaved keeps or drops adjacent mates together and lets fastp find adapters from the overlap of the two mates, single treats every record on its own, and auto reads the pairing the enclosing .lungfishfastq bundle records, then the read names. The window passes the bundle's own pairing, so a paired bundle keeps its mates together.
       - flag: --force
         default: "false"
         effect: Overwrites an existing output file.
@@ -465,6 +478,9 @@ operations:
         when_to_change: Choose Grouped Result when several files belong to one library.
         cli_flag: null
     cli_only:
+      - flag: --pairing
+        default: auto
+        effect: Says how to treat the input's records. interleaved keeps or drops adjacent mates together and lets fastp find adapters from the overlap of the two mates, single treats every record on its own, and auto reads the pairing the enclosing .lungfishfastq bundle records, then the read names. The window passes the bundle's own pairing, so a paired bundle keeps its mates together.
       - flag: --force
         default: "false"
         effect: Overwrites an existing output file.
@@ -508,6 +524,9 @@ operations:
         when_to_change: Choose Grouped Result when several files belong to one library.
         cli_flag: null
     cli_only:
+      - flag: --pairing
+        default: auto
+        effect: Says how to treat the input's records. interleaved keeps or drops adjacent mates together, single treats every record on its own, and auto reads the pairing the enclosing .lungfishfastq bundle records, then the read names. The window passes the bundle's own pairing, so a paired bundle keeps its mates together.
       - flag: --force
         default: "false"
         effect: Overwrites an existing output file.
@@ -2465,7 +2484,20 @@ operations:
         effect: Passes options straight through to minimap2 untouched. Nothing in the app checks that they make sense.
         when_to_change: Use it only when a published protocol names a minimap2 flag the dialog does not expose.
         cli_flag: --extra-args
+      - label: Track name (--track-name)
+        control: text
+        default: the mapper's name followed by "Mapping", such as "minimap2 Mapping"
+        allowed: any text
+        effect: Names the alignment track the BAM becomes inside the reference bundle of the mapping result, the name every later track picker shows. The field sits in the dialog's Output Track section, and the name is recorded in the run's provenance.
+        when_to_change: Type a name that identifies the sample, such as HG002 minimap2, so two alignments stay apart in later dialogs.
+        cli_flag: --track-name
     cli_only:
+      - flag: --project
+        default: none
+        effect: Names the .lungfish project the run belongs to. Without --output-dir the result lands in that project's Analyses/<mapper>-<timestamp>/ folder, the same place and layout the window uses.
+      - flag: --no-viewer-bundle
+        default: "false"
+        effect: Leaves only the sorted BAM and its sidecar files, skipping the reference bundle copy with the alignment track attached that the window produces.
       - flag: --mapper
         default: minimap2
         effect: Chooses which of the four mappers runs, a choice the GUI makes for you through the menu item you click.
@@ -2594,7 +2626,20 @@ operations:
         effect: Passes options straight through to BWA-MEM2 untouched, with no checking.
         when_to_change: Use it only when a published protocol names a flag the dialog does not expose.
         cli_flag: --extra-args
+      - label: Track name (--track-name)
+        control: text
+        default: the mapper's name followed by "Mapping", such as "minimap2 Mapping"
+        allowed: any text
+        effect: Names the alignment track the BAM becomes inside the reference bundle of the mapping result, the name every later track picker shows. The field sits in the dialog's Output Track section, and the name is recorded in the run's provenance.
+        when_to_change: Type a name that identifies the sample, such as HG002 minimap2, so two alignments stay apart in later dialogs.
+        cli_flag: --track-name
     cli_only:
+      - flag: --project
+        default: none
+        effect: Names the .lungfish project the run belongs to. Without --output-dir the result lands in that project's Analyses/<mapper>-<timestamp>/ folder, the same place and layout the window uses.
+      - flag: --no-viewer-bundle
+        default: "false"
+        effect: Leaves only the sorted BAM and its sidecar files, skipping the reference bundle copy with the alignment track attached that the window produces.
       - flag: --mapper
         default: minimap2
         effect: Must be set to bwa-mem2 to select this mapper from the command line.
@@ -2715,7 +2760,20 @@ operations:
         effect: Passes options straight through to Bowtie2 untouched, with no checking.
         when_to_change: Use it only when a published protocol names a flag the dialog does not expose.
         cli_flag: --extra-args
+      - label: Track name (--track-name)
+        control: text
+        default: the mapper's name followed by "Mapping", such as "minimap2 Mapping"
+        allowed: any text
+        effect: Names the alignment track the BAM becomes inside the reference bundle of the mapping result, the name every later track picker shows. The field sits in the dialog's Output Track section, and the name is recorded in the run's provenance.
+        when_to_change: Type a name that identifies the sample, such as HG002 minimap2, so two alignments stay apart in later dialogs.
+        cli_flag: --track-name
     cli_only:
+      - flag: --project
+        default: none
+        effect: Names the .lungfish project the run belongs to. Without --output-dir the result lands in that project's Analyses/<mapper>-<timestamp>/ folder, the same place and layout the window uses.
+      - flag: --no-viewer-bundle
+        default: "false"
+        effect: Leaves only the sorted BAM and its sidecar files, skipping the reference bundle copy with the alignment track attached that the window produces.
       - flag: --mapper
         default: minimap2
         effect: Must be set to bowtie2 to select this mapper from the command line.
@@ -2835,7 +2893,20 @@ operations:
         effect: Passes options straight through to BBMap untouched, with no checking.
         when_to_change: Use it only when a published protocol names a flag the dialog does not expose.
         cli_flag: --extra-args
+      - label: Track name (--track-name)
+        control: text
+        default: the mapper's name followed by "Mapping", such as "minimap2 Mapping"
+        allowed: any text
+        effect: Names the alignment track the BAM becomes inside the reference bundle of the mapping result, the name every later track picker shows. The field sits in the dialog's Output Track section, and the name is recorded in the run's provenance.
+        when_to_change: Type a name that identifies the sample, such as HG002 minimap2, so two alignments stay apart in later dialogs.
+        cli_flag: --track-name
     cli_only:
+      - flag: --project
+        default: none
+        effect: Names the .lungfish project the run belongs to. Without --output-dir the result lands in that project's Analyses/<mapper>-<timestamp>/ folder, the same place and layout the window uses.
+      - flag: --no-viewer-bundle
+        default: "false"
+        effect: Leaves only the sorted BAM and its sidecar files, skipping the reference bundle copy with the alignment track attached that the window produces.
       - flag: --mapper
         default: minimap2
         effect: Must be set to bbmap to select this mapper from the command line.
@@ -2863,6 +2934,7 @@ operations:
       - "Inspector > Analysis > Export > Create Deduplicated Bundle"
       - "CLI: lungfish-cli markdup <path>"
       - "CLI: lungfish-cli bam markdup <path>"
+      - "CLI: lungfish-cli bundle mark-duplicates <bundle>"
     gating: []
     sources:
       - Sources/LungfishApp/Views/Inspector/Sections/ReadStyleSection.swift
@@ -2871,6 +2943,12 @@ operations:
       - docs/user-manual/reviews/fidelity-2026-09/cli-help/bam.txt
     settings: []
     cli_only:
+      - flag: --output
+        default: "<name>.markdup.bam beside the input"
+        effect: Chooses where the marked copy of a single BAM is written, a .bam path that is not the input. The input BAM is never changed unless --in-place is passed.
+      - flag: --in-place
+        default: "false"
+        effect: Overwrites the input BAM with the marked copy instead of writing a sibling file, which destroys the unmarked original, and prints a warning saying so.
       - flag: --force
         default: "false"
         effect: Runs duplicate marking again even when the alignment already carries duplicate flags, which the command otherwise treats as work already done.
@@ -2884,15 +2962,23 @@ operations:
         default: text
         effect: Prints the run summary as plain text or JSON.
     notes: >-
-      Neither button opens a dialog, so this operation has no settings of its own.
-      Mark Duplicates in Bundle Tracks marks every alignment track in the bundle
-      rather than only the selected one, and it marks in place: it flags duplicates
-      without deleting them, so a depth figure computed over all reads does not fall
-      until something excludes the flagged reads. Create Deduplicated Bundle, on the
-      Export tab, is the button that writes a separate copy with duplicates gone. Both
-      buttons are disabled while another duplicate-marking run is in flight, and the
-      bundle-level operation lock refuses a run while another operation holds the
-      bundle.
+      Neither button opens a dialog, so this operation has no settings of its
+      own. Mark Duplicates in Bundle Tracks first asks "Mark Duplicates in
+      Bundle Tracks?", then marks every alignment track in the bundle rather
+      than only the selected one, without changing the originals. Each
+      original track is kept and renamed "<name> [unmarked]", and a marked copy
+      named "<name> [dup-marked]" is added under alignments/marked/. A rerun
+      refuses with a message that the track already has a duplicate-marked
+      version. Duplicates are flagged, not deleted, so a depth figure computed
+      over all reads does not fall until something excludes the flagged reads.
+      Create Deduplicated Bundle, on the Export tab, writes a separate copy
+      with duplicates gone. Both buttons post a row in the Operations Panel,
+      can be cancelled there, and honour the bundle-level operation lock.
+      lungfish-cli bundle mark-duplicates does the same for a bundle from the
+      command line. lungfish-cli markdup and bam markdup given a BAM write
+      <name>.markdup.bam and its .bai beside the input by default, skip
+      *.markdup.bam files when scanning a directory, and treat an existing
+      marked copy as already marked unless --force is given.
 
   bam.primer-trim:
     title: Primer-trim BAM
@@ -3447,7 +3533,7 @@ operations:
     entry_points:
       - "Tools > Call Variants..."
       - "Inspector > Analysis > Variant Calling > Call Variants..."
-      - "CLI: lungfish-cli variants call --bundle <bundle> --alignment-track <track> --caller ivar --ivar-primer-trimmed"
+      - "CLI: lungfish-cli variants call --bundle <bundle> --alignment-track <track> --caller ivar [--ivar-primer-trimmed]"
     gating: [variant-calling]
     sources:
       - Sources/LungfishApp/Views/BAM/BAMVariantCallingCatalog.swift
@@ -3491,7 +3577,7 @@ operations:
         control: checkbox
         default: off, or on and locked when a primer-trim record is found beside the BAM
         allowed: on or off
-        effect: States that the primer bases have already been clipped out of this alignment. iVar assumes trimmed input, and the run stays blocked until this is set.
+        effect: States that the primer bases have already been clipped out of this alignment. iVar assumes trimmed input, and the run stays blocked until this is set. On the command line, a track LGE primer-trimmed itself is recognised from its primer-trim record, as in the dialog, so the flag is needed only for a BAM trimmed outside LGE.
         when_to_change: Set it once you have run Primer-trim BAM, or when you trimmed the BAM outside the app. Never set it for an untrimmed amplicon BAM.
         cli_flag: --ivar-primer-trimmed
       - label: Consensus allele frequency
@@ -3608,6 +3694,9 @@ operations:
         when_to_change: Use it when you need a Medaka option the dialog does not expose.
         cli_flag: --extra-args
     cli_only:
+      - flag: --platform
+        default: the platform recorded in the alignment's read groups (@RG PL)
+        effect: Tells Medaka which platform the reads came from, ont, hifi, or ilmn. The dialog shows no platform control for Medaka and always relies on the read groups.
       - flag: --format
         default: text
         effect: Prints the run summary as plain text, JSON, or a tab-separated table.
@@ -3707,7 +3796,7 @@ operations:
     entry_points:
       - "Tools > Call Variants..."
       - "Inspector > Analysis > Variant Calling > Call Variants..."
-      - "CLI: lungfish-cli variants call --bundle <bundle> --alignment-track <track> --caller clair3 --medaka-model <model-path>"
+      - "CLI: lungfish-cli variants call --bundle <bundle> --alignment-track <track> --caller clair3 [--platform ont|hifi|ilmn] [--medaka-model <model>]"
     gating: [variant-calling]
     sources:
       - Sources/LungfishApp/Views/BAM/BAMVariantCallingCatalog.swift
@@ -3744,12 +3833,19 @@ operations:
         effect: Removes calls with fewer reads than this after Clair3 finishes, using a bcftools view filter. The filter is skipped, and the skip recorded in provenance, when the VCF carries no depth tag.
         when_to_change: Raise it to drop calls at thinly covered positions. The window sends 10 by default.
         cli_flag: --min-depth
+      - label: Sequencing Platform
+        control: popup
+        default: Automatic (from read groups)
+        allowed: Automatic (from read groups), Oxford Nanopore, PacBio HiFi, Illumina
+        effect: Tells Clair3 which instrument made the reads, which decides the family of models it may use and the --platform value it runs with. Automatic reads the platform the mapping wrote into the BAM's read groups, and the run stops with a message asking for a platform when the read groups record none.
+        when_to_change: Choose a platform by hand only when a BAM made outside LGE records the wrong platform or none.
+        cli_flag: --platform
       - label: Clair3 Model
         control: text
-        default: empty, with the placeholder r1041_e82_400bps_sup_v5.0.0
-        allowed: a Clair3 model directory path, or an ONT model identifier
-        effect: Points Clair3 at the trained network it scores reads with. As with Medaka, the model has to match the pore chemistry and basecaller version of the run.
-        when_to_change: Always, since the field starts empty and Run stays disabled until you fill it.
+        default: empty, with the placeholder "Platform default"
+        allowed: empty, a Clair3 model name such as r941_prom_sup_g5014, or a model directory path
+        effect: Points Clair3 at the trained network it scores reads with. Left empty, LGE uses the model named in the read group's basecall_model description when there is one, else the model Clair3 ships for the platform. As with Medaka, the model has to match the pore chemistry and basecaller version of the run.
+        when_to_change: Name a model when you know the chemistry and basecaller of the run and the read groups do not record it.
         cli_flag: --medaka-model
       - label: Extra arguments
         control: text
@@ -3768,9 +3864,10 @@ operations:
     notes: >-
       Clair3 shares its model setting with Medaka, so switching between the two callers
       keeps whatever you typed even though the field label changes. The command built is
-      "run_clair3.sh --bam_fn=<bam> --ref_fn=<reference> --threads=<n> --platform=ont
+      "run_clair3.sh --bam_fn=<bam> --ref_fn=<reference> --threads=<n> --platform=<platform>
       --model_path=<model> --output=<directory>", with any extra arguments appended at
-      the end. The platform is hard-coded to ont. Lungfish Genome Explorer then reads
+      the end. The platform comes from Sequencing Platform, or from the BAM's read
+      groups when it is Automatic. Lungfish Genome Explorer then reads
       merge_output.vcf.gz back out of that output directory. Unlike the four other
       callers, Clair3's extra arguments go at the end of the command rather than near
       the front.
@@ -5037,8 +5134,8 @@ operations:
         control: checkbox
         default: "false"
         allowed: "true, false"
-        effect: Turns on SPAdes' --careful flag, which adds a mismatch and short indel correction pass after assembly. The run takes noticeably longer and the contigs carry fewer small errors.
-        when_to_change: Turn it on for a small genome where per-base accuracy matters more than wall time, such as a viral or plasmid assembly.
+        effect: Turns on SPAdes' --careful flag, which adds a mismatch and short indel correction pass after assembly. The run takes noticeably longer and the contigs carry fewer small errors. SPAdes rejects --careful in its isolate and metagenomic modes, so the box is disabled with the Isolate and Meta profiles, Isolate included as the default, and a caption beneath it says why. The command line refuses the same combination passed through --extra-args before anything runs.
+        when_to_change: Choose a profile that allows it, such as Plasmid, and turn it on for a small genome where per-base accuracy matters more than wall time.
         cli_flag: null
       - label: Skip error correction
         control: checkbox
@@ -5069,6 +5166,9 @@ operations:
         when_to_change: Never in this version. The combined option is locked with the reason "Combining multiple bundles into one assembly run is not yet supported; each bundle assembles separately."
         cli_flag: null
     cli_only:
+      - flag: --read-layout
+        default: auto
+        effect: Says how the records of a single input file relate, auto, single-end, interleaved, or mixed. auto reads the enclosing .lungfishfastq bundle's metadata, then the read names. SPAdes and MEGAHIT assemble a strictly interleaved file with --12 and SKESA with --use_paired_ends, and a mixed file is assembled as single reads. The sheet passes a paired bundle as interleaved pairs, and the result summary then reports the input as interleaved pairs.
       - flag: --paired
         default: "false"
         effect: Treats the two input files as the forward and reverse mates of one library. The sheet works this out from the file names instead.
@@ -5175,6 +5275,9 @@ operations:
         when_to_change: Never in this version, since the combined option is locked.
         cli_flag: null
     cli_only:
+      - flag: --read-layout
+        default: auto
+        effect: Says how the records of a single input file relate, auto, single-end, interleaved, or mixed. auto reads the enclosing .lungfishfastq bundle's metadata, then the read names. SPAdes and MEGAHIT assemble a strictly interleaved file with --12 and SKESA with --use_paired_ends, and a mixed file is assembled as single reads. The sheet passes a paired bundle as interleaved pairs, and the result summary then reports the input as interleaved pairs.
       - flag: --paired
         default: "false"
         effect: Treats the two input files as the forward and reverse mates of one library.
@@ -5267,6 +5370,9 @@ operations:
         when_to_change: Never in this version, since the combined option is locked.
         cli_flag: null
     cli_only:
+      - flag: --read-layout
+        default: auto
+        effect: Says how the records of a single input file relate, auto, single-end, interleaved, or mixed. auto reads the enclosing .lungfishfastq bundle's metadata, then the read names. SPAdes and MEGAHIT assemble a strictly interleaved file with --12 and SKESA with --use_paired_ends, and a mixed file is assembled as single reads. The sheet passes a paired bundle as interleaved pairs, and the result summary then reports the input as interleaved pairs.
       - flag: --paired
         default: "false"
         effect: Treats the two input files as the forward and reverse mates of one library.
@@ -6511,7 +6617,7 @@ operations:
         cli_flag: --param platform=<illumina|nanopore>
       - label: Scheme
         control: popup
-        default: the first scheme in alphabetical order, which is ARTIC SARS-CoV-2 V3 (Built-in)
+        default: none. The picker starts on "Choose a scheme…" and Run stays blocked until a scheme is chosen
         allowed: "the eight bundled SARS-CoV-2 schemes ARTIC SARS-CoV-2 V3, ARTIC SARS-CoV-2 V4, ARTIC SARS-CoV-2 V4.1, ARTIC SARS-CoV-2 V5.3.2, Midnight 1200 bp V1, NEB VarSkip Long v1, NEB VarSkip Short v1, QIAseq Direct SARS-CoV-2 with Booster A, plus any .lungfishprimers bundle in the project's Primer Schemes folder"
         effect: Names the set of PCR primers used to amplify the virus, so the pipeline knows where each amplicon starts and ends and can cut the primer sequence off the reads. Primer bases are copies of the primer rather than of the sample, so leaving them in fakes variant calls at the amplicon edges.
         when_to_change: Always match the scheme to the kit the wet-lab protocol used, because a mismatched scheme trims the wrong positions and leaves real primer sequence behind.
@@ -6990,3 +7096,508 @@ operations:
       bundle alongside the source bundle rather than in Extractions. Neither
       sheet exposes --line-width, and CLI --flank has no dialog counterpart
       in either sheet, which set 5' and 3' padding separately.
+
+  # --- PCR primer design (Part 10). Each operation lists the controls its
+  # chapter's Settings section documents. Every other control, engine by
+  # engine, is in appendices/primer-design-settings.md.
+  primer-design.primer3:
+    title: PCR Primer Design (Primer3)
+    entry_points:
+      - "Tools > PCR Primer Design > Primer3…"
+      - "CLI: lungfish-cli primers design primer3 --output <analysis-path> <inputs>"
+    gating: [pcr-primer-design]
+    sources:
+      - Sources/LungfishApp/Views/PrimerDesign/PrimerDesignDialog.swift
+      - Sources/LungfishApp/Views/PrimerDesign/PrimerDesignDialogState.swift
+      - Sources/LungfishWorkflow/PrimerDesign/Primer3DesignPipeline.swift
+      - Sources/LungfishCLI/Commands/PrimerDesignCommand.swift
+    settings:
+      - label: Records
+        control: checkbox
+        default: every record ticked
+        allowed: any subset of the records of a FASTA file or reference bundle
+        effect: Chooses which records become templates. Primer3 designs each ticked record separately.
+        when_to_change: Untick the rest for a design on one sequence.
+        cli_flag: --fasta-record
+      - label: Template row
+        control: popup
+        default: none, and Run stays disabled until a row is chosen
+        allowed: any row of the input alignment
+        effect: Chooses which alignment row Primer3 designs on. Target positions and reported positions are counted on that row.
+        when_to_change: Always, for an alignment input. Pick the allele whose coordinates you know.
+        cli_flag: --msa-template
+      - label: Assay
+        control: popup
+        default: PCR primers
+        allowed: "PCR primers, qPCR · intercalating dye, qPCR · internal hydrolysis probe"
+        effect: Chooses the rule set and loads its values into every field below, which stay editable. The two qPCR choices replace the product range, primer lengths, melting temperatures, GC limits, and complementarity thresholds.
+        when_to_change: Pick a qPCR assay only for quantitative PCR, and pick it before adjusting anything else.
+        cli_flag: --assay
+      - label: Product minimum (bp)
+        control: number
+        default: "100"
+        allowed: a whole number no larger than the product maximum
+        effect: Sets the shortest product Primer3 may return, counted from the first base of the forward primer to the last base of the reverse primer.
+        when_to_change: Raise it with the maximum when the product must span a long target.
+        cli_flag: --product-size-min
+      - label: Product maximum (bp)
+        control: number
+        default: "400"
+        allowed: a whole number no smaller than the product minimum
+        effect: Sets the longest product Primer3 may return. A target longer than this maximum is refused before the run.
+        when_to_change: Raise it to at least the target length plus room for both primers.
+        cli_flag: --product-size-max
+      - label: Candidate pairs
+        control: number
+        default: "5"
+        allowed: a whole number of 1 or more
+        effect: Sets how many primer pairs Primer3 returns for each template.
+        when_to_change: Raise it when you expect to discard several pairs after checking them.
+        cli_flag: --pair-count
+      - label: Amplify a specific region
+        control: checkbox
+        default: "off"
+        allowed: on or off
+        effect: Turns on a target every product must contain, with the forward primer before it and the reverse primer after it.
+        when_to_change: Turn it on whenever particular bases must be copied.
+        cli_flag: null
+      - label: Target start
+        control: number
+        default: none
+        allowed: a base on the template, counted from 1, no larger than Target end
+        effect: Sets the first base of the target on the template's own bases. Giving --target-start and --target-end on the command line turns the target on.
+        when_to_change: Set it a few bases outside the region you need read when you want margin.
+        cli_flag: --target-start
+      - label: Target end
+        control: number
+        default: none
+        allowed: a base on the template, counted from 1, no smaller than Target start
+        effect: Sets the last base of the target on the template's own bases.
+        when_to_change: Set it a few bases outside the region you need read when you want margin.
+        cli_flag: --target-end
+      - label: Require binding sites conserved across all alignment rows
+        control: checkbox
+        default: on whenever an alignment is among the inputs
+        allowed: on or off
+        effect: Stops Primer3 from placing an oligo over any alignment column where the rows disagree, where a row has a gap, or where a row carries an ambiguous base.
+        when_to_change: Turn it off to see the best pair for the template row alone.
+        cli_flag: --binding-site-policy
+      - label: Analysis name
+        control: text
+        default: Primer analysis, with a number added when that name is taken
+        allowed: any name not already used in the project
+        effect: Names the .lungfishprimeranalysis bundle written into the project's Analyses folder. A name already in use blocks Run.
+        when_to_change: Give each run a name that says what it designed.
+        cli_flag: --output
+    cli_only: []
+    notes: >-
+      --binding-site-policy takes exclude-variable-and-gapped-columns for on
+      and template-only for off. The Analysis name on the command line is the
+      last part of the --output path. The probe window, the probe Tm offset,
+      the probe poly-X maximum (3) and 5′ must-match pattern (hnnnn), the
+      fixed-oligo fields (--left-primer, --right-primer, --probe,
+      --force-left-end, --force-right-end), and the primer rules under
+      Advanced settings are documented in
+      appendices/primer-design-settings.md#primer3. Chapter:
+      10-primer-design/02.
+
+  primer-design.primer3-qpcr:
+    title: PCR Primer Design (Primer3), qPCR assays
+    entry_points:
+      - "Tools > PCR Primer Design > Primer3…"
+      - "CLI: lungfish-cli primers design primer3 --assay qpcr-probe|qpcr-dye --output <analysis-path> <inputs>"
+    gating: [pcr-primer-design]
+    sources:
+      - Sources/LungfishApp/Views/PrimerDesign/PrimerDesignDialog.swift
+      - Sources/LungfishApp/Views/PrimerDesign/PrimerDesignDialogState.swift
+      - Sources/LungfishWorkflow/PrimerDesign/Primer3DesignPipeline.swift
+      - Sources/LungfishCLI/Commands/PrimerDesignCommand.swift
+    settings:
+      - label: Assay
+        control: popup
+        default: PCR primers
+        allowed: "PCR primers, qPCR · intercalating dye, qPCR · internal hydrolysis probe"
+        effect: Loads a qPCR rule set into the fields below, replacing the product range, primer lengths, melting temperatures, GC limits, and complementarity thresholds. Products run 70 to 150 bases and primers 18 to 24 bases at 58, 60, and 62 °C.
+        when_to_change: Choose qpcr-dye for an intercalating-dye assay and qpcr-probe for a hydrolysis-probe assay, before adjusting anything else.
+        cli_flag: --assay
+      - label: Probe Tm at least this far above the primers (°C)
+        control: number
+        default: "5"
+        allowed: 0 or more
+        effect: Raises the probe's minimum melting temperature to the highest primer melting temperature plus this figure, so with the probe preset the effective probe minimum is 67 °C. The analysis records the value used.
+        when_to_change: Enter 0 to use the probe window exactly as typed.
+        cli_flag: --probe-min-tm-offset-over-primers
+    cli_only: []
+    notes: >-
+      The same dialog as primer-design.primer3, seen from the qPCR chapter.
+      The probe group also holds the probe window (64 to 70 °C, 20 to 30
+      bases, 40 to 80 percent GC), "Probe poly-X max (nt)" (default 3), and
+      "Probe 5′ must-match pattern" (default hnnnn, so the probe may not
+      begin with G). Chapter: 10-primer-design/04. All controls:
+      appendices/primer-design-settings.md#primer3.
+
+  primer-design.primalscheme3:
+    title: PCR Primer Design (PrimalScheme)
+    entry_points:
+      - "Tools > PCR Primer Design > PrimalScheme…"
+      - "CLI: lungfish-cli primers design primalscheme3 --output <analysis-path> <inputs>"
+    gating: [pcr-primer-design]
+    sources:
+      - Sources/LungfishApp/Views/PrimerDesign/PrimerDesignDialog.swift
+      - Sources/LungfishApp/Views/PrimerDesign/PrimerSchemeAdvancedOptionsView.swift
+      - Sources/LungfishWorkflow/PrimerDesign/PrimalScheme3DesignPipeline.swift
+      - Sources/LungfishCLI/Commands/PrimerDesignCommand.swift
+    settings:
+      - label: Output grouping
+        control: popup
+        default: One scheme per MSA
+        allowed: One scheme per MSA, Combined scheme from selected MSAs
+        effect: Designs each selected alignment on its own, or one panel across several alignments.
+        when_to_change: Choose Combined only when several genes must share one pair of reactions.
+        cli_flag: --grouping
+      - label: Minimum amplicon size (bp)
+        control: number
+        default: "360"
+        allowed: a whole number no larger than the target
+        effect: Sets the shortest amplicon the design may keep, measured on the design reference from the outer end of the forward primer to the outer end of the reverse primer.
+        when_to_change: Raise it with the target for long-read runs, and lower it for degraded DNA or short reads.
+        cli_flag: --amplicon-size-min
+      - label: Target amplicon size (bp)
+        control: number
+        default: "400"
+        allowed: 100 to 2,000 for PrimalScheme
+        effect: Gives the nominal amplicon length. Editing it resets any bound you have not edited to 90 and 110 percent of the new value. Selection does not favour the closest size.
+        when_to_change: Change the bounds rather than the target when you mean to change what is designed.
+        cli_flag: --amplicon-size
+      - label: Maximum amplicon size (bp)
+        control: number
+        default: "440"
+        allowed: a whole number no smaller than the target
+        effect: Sets the longest amplicon the design may keep, primers included.
+        when_to_change: Raise it to let an amplicon reach over a variable stretch with no usable primer site.
+        cli_flag: --amplicon-size-max
+      - label: Primer pools
+        control: number
+        default: "2"
+        allowed: a whole number of 1 or more
+        effect: Sets how many reactions PrimalScheme splits its primers across.
+        when_to_change: Keep 2 for a tiled scheme.
+        cli_flag: --pool-count
+      - label: Minimum base frequency
+        control: number
+        default: "0"
+        allowed: 0 to 1
+        effect: Sets how common a base must be at a site before PrimalScheme makes an oligo for it, so 0 gives every variant its own oligo.
+        when_to_change: Raise it, for example to 0.1, to drop oligos for variants carried by few sequences.
+        cli_flag: --minimum-base-frequency
+      - label: Backtrack when extending the scheme
+        control: checkbox
+        default: "off"
+        allowed: on or off
+        effect: Lets PrimalScheme revisit earlier amplicon choices when it cannot place the next one.
+        when_to_change: Turn it on when a design stops short of the end of the alignment.
+        cli_flag: --backtrack
+      - label: Use high-GC design settings
+        control: checkbox
+        default: "off"
+        allowed: on or off
+        effect: Switches PrimalScheme to its own settings for GC-rich targets.
+        when_to_change: Try it when a GC-rich target such as MHC leaves gaps.
+        cli_flag: --high-gc
+      - label: Analysis name
+        control: text
+        default: Primer analysis, with a number added when that name is taken
+        allowed: any name not already used in the project
+        effect: Names the .lungfishprimeranalysis bundle written into the project's Analyses folder. A name already in use blocks Run.
+        when_to_change: Give every run its own name.
+        cli_flag: --output
+    cli_only: []
+    notes: >-
+      Chapter: 10-primer-design/03. Every other control, including the
+      mispriming database, dimer score, and the combined-panel controls, is
+      in appendices/primer-design-settings.md#primalscheme.
+
+  primer-design.olivar:
+    title: PCR Primer Design (Olivar)
+    entry_points:
+      - "Tools > PCR Primer Design > Olivar…"
+      - "CLI: lungfish-cli primers design olivar --output <analysis-path> <inputs>"
+    gating: [pcr-primer-design]
+    sources:
+      - Sources/LungfishApp/Views/PrimerDesign/PrimerDesignDialog.swift
+      - Sources/LungfishApp/Views/PrimerDesign/PrimerSchemeAdvancedOptionsView.swift
+      - Sources/LungfishWorkflow/PrimerDesign/PrimerSchemeDesignPipeline.swift
+      - Sources/LungfishCLI/Commands/PrimerDesignCommand.swift
+    settings:
+      - label: Output grouping
+        control: popup
+        default: One scheme per MSA
+        allowed: One scheme per MSA, Combined scheme from selected MSAs
+        effect: Designs each selected alignment on its own, or one panel across several alignments.
+        when_to_change: Choose Combined only when several genes must share one pair of reactions.
+        cli_flag: --grouping
+      - label: Minimum amplicon size (bp)
+        control: number
+        default: "360"
+        allowed: 120 or more for Olivar
+        effect: Sets the shortest amplicon the design may keep.
+        when_to_change: Lower it for degraded DNA or short reads, keeping Olivar's floor of 120 in mind.
+        cli_flag: --amplicon-size-min
+      - label: Target amplicon size (bp)
+        control: number
+        default: "400"
+        allowed: a whole number between the two bounds
+        effect: Gives the nominal amplicon length. Editing it resets any bound you have not edited to 90 and 110 percent of the new value.
+        when_to_change: Change the bounds rather than the target when you mean to change what is designed.
+        cli_flag: --amplicon-size
+      - label: Maximum amplicon size (bp)
+        control: number
+        default: "440"
+        allowed: a whole number no smaller than the target
+        effect: Sets the longest amplicon the design may keep, primers included.
+        when_to_change: Raise it to let an amplicon reach over a variable stretch with no usable primer site.
+        cli_flag: --amplicon-size-max
+      - label: Search effort
+        control: number
+        default: "1"
+        allowed: 1 or more
+        effect: Multiplies how many candidate layouts Olivar tries.
+        when_to_change: Raise it to 2 or more when coverage falls short, at the cost of a longer run.
+        cli_flag: --effort
+      - label: Random seed
+        control: number
+        default: "10"
+        allowed: any whole number
+        effect: Fixes the starting point of Olivar's random search, so the same inputs give the same design.
+        when_to_change: Change it to see whether a different search finds a better layout, and record the value.
+        cli_flag: --seed
+      - label: Analysis name
+        control: text
+        default: Primer analysis, with a number added when that name is taken
+        allowed: any name not already used in the project
+        effect: Names the .lungfishprimeranalysis bundle written into the project's Analyses folder. A name already in use blocks Run.
+        when_to_change: Give every run its own name.
+        cli_flag: --output
+    cli_only:
+      - flag: --screen-against
+        default: none
+        effect: Builds a BLAST screening database from the chosen alignment bundles, reference bundles, or nucleotide FASTA files and records them in provenance. Repeatable.
+    notes: >-
+      Chapter: 10-primer-design/03. Every other control, including the
+      native risk weights and the primer-target binding ΔG, is in
+      appendices/primer-design-settings.md#olivar.
+
+  primer-design.varvamp:
+    title: PCR Primer Design (varVAMP), single and tiled modes
+    entry_points:
+      - "Tools > PCR Primer Design > varVAMP…"
+      - "CLI: lungfish-cli primers design varvamp --mode single|tiled --output <analysis-path> <inputs>"
+    gating: [pcr-primer-design]
+    sources:
+      - Sources/LungfishApp/Views/PrimerDesign/PrimerDesignDialog.swift
+      - Sources/LungfishApp/Views/PrimerDesign/PrimerSchemeAdvancedOptionsView.swift
+      - Sources/LungfishWorkflow/PrimerDesign/PrimerSchemeDesignPipeline.swift
+      - Sources/LungfishWorkflow/PrimerDesign/VarVAMPCoverageAdvisories.swift
+      - Sources/LungfishCLI/Commands/PrimerDesignCommand.swift
+    settings:
+      - label: Design mode
+        control: popup
+        default: Tiled amplicons
+        allowed: "Single amplicon, Tiled amplicons, qPCR / dPCR primers + probe"
+        effect: Chooses one pan-allele product, a tiled scheme, or a detection assay. The qPCR mode is primer-design.varvamp-qpcr.
+        when_to_change: Choose Single for one product and qPCR for a detection assay.
+        cli_flag: --mode
+      - label: Cumulative consensus threshold
+        control: text
+        default: blank, which lets varVAMP choose, and the saved analysis reports the value used
+        allowed: blank, or a fraction between 0 and 1
+        effect: Sets how much agreement a base needs before varVAMP's consensus writes it plainly rather than as an ambiguity code. The dialog labels the field "Cumulative consensus threshold (blank = native automatic)".
+        when_to_change: Lower it when coverage falls short.
+        cli_flag: --consensus-threshold
+      - label: Maximum primer ambiguities
+        control: number
+        default: "2"
+        allowed: 0 or more
+        effect: Limits how many ambiguity codes one primer may contain.
+        when_to_change: Raise it to 3 for more variable windows, or lower it to 0 or 1 for plain primers.
+        cli_flag: --maximum-primer-ambiguities
+      - label: Tiled overlap (bp)
+        control: number
+        default: "25"
+        allowed: a whole number of 0 or more
+        effect: Sets how many bases neighbouring amplicons must share. Shown in tiled mode only.
+        when_to_change: Raise it for extra safety against one amplicon failing, at the cost of more amplicons.
+        cli_flag: --tiled-overlap
+      - label: Minimum amplicon size (bp)
+        control: number
+        default: "360"
+        allowed: a whole number no larger than the target
+        effect: Sets the shortest amplicon the design may keep.
+        when_to_change: Lower it for degraded DNA or short reads.
+        cli_flag: --amplicon-size-min
+      - label: Target amplicon size (bp)
+        control: number
+        default: "400"
+        allowed: a whole number between the two bounds
+        effect: Gives the nominal amplicon length. Editing it resets any bound you have not edited to 90 and 110 percent of the new value.
+        when_to_change: Change the bounds rather than the target when you mean to change what is designed.
+        cli_flag: --amplicon-size
+      - label: Maximum amplicon size (bp)
+        control: number
+        default: "440"
+        allowed: a whole number no smaller than the target
+        effect: Sets the longest amplicon the design may keep, primers included.
+        when_to_change: Raise it to let an amplicon reach over a variable stretch with no usable primer site.
+        cli_flag: --amplicon-size-max
+      - label: Analysis name
+        control: text
+        default: Primer analysis, with a number added when that name is taken
+        allowed: any name not already used in the project
+        effect: Names the .lungfishprimeranalysis bundle written into the project's Analyses folder. A name already in use blocks Run.
+        when_to_change: Give every run its own name.
+        cli_flag: --output
+    cli_only:
+      - flag: --screen-against
+        default: none
+        effect: Builds a BLAST screening database from the chosen alignment bundles, reference bundles, or nucleotide FASTA files and records them in provenance. Repeatable.
+    notes: >-
+      Output grouping is shown dimmed for varVAMP, which designs one
+      alignment at a time. Chapter: 10-primer-design/03. Every other
+      control is in appendices/primer-design-settings.md#varvamp.
+
+  primer-design.varvamp-qpcr:
+    title: PCR Primer Design (varVAMP), qPCR and dPCR mode
+    entry_points:
+      - "Tools > PCR Primer Design > varVAMP…"
+      - "CLI: lungfish-cli primers design varvamp --mode qpcr --consensus-threshold <fraction> --output <analysis-path> <inputs>"
+    gating: [pcr-primer-design]
+    sources:
+      - Sources/LungfishApp/Views/PrimerDesign/PrimerDesignDialog.swift
+      - Sources/LungfishApp/Views/PrimerDesign/PrimerSchemeAdvancedOptionsView.swift
+      - Sources/LungfishWorkflow/PrimerDesign/PrimerSchemeDesignPipeline.swift
+      - Sources/LungfishWorkflow/PrimerDesign/PrimerScreeningDatabaseBuilder.swift
+      - Sources/LungfishCLI/Commands/PrimerDesignCommand.swift
+    settings:
+      - label: Design mode
+        control: popup
+        default: Tiled amplicons
+        allowed: "Single amplicon, Tiled amplicons, qPCR / dPCR primers + probe"
+        effect: The qPCR choice designs primers and a probe for a quantitative assay. The same primers and probe serve qPCR and dPCR.
+        when_to_change: Change it to the qPCR choice for any quantitative assay.
+        cli_flag: --mode
+      - label: Cumulative consensus threshold (required)
+        control: text
+        default: none, and Run stays disabled until a value is typed
+        allowed: a fraction between 0 and 1
+        effect: Sets how many of the sequences must agree before a consensus base is written plainly rather than as an ambiguity code.
+        when_to_change: Always, in qPCR mode.
+        cli_flag: --consensus-threshold
+      - label: Minimum amplicon size (bp)
+        control: number
+        default: "70"
+        allowed: a whole number no larger than the target
+        effect: Sets the shortest amplicon span, both primer sites included. The qPCR defaults are varVAMP's own qPCR bounds.
+        when_to_change: Rarely.
+        cli_flag: --amplicon-size-min
+      - label: Target amplicon size (bp)
+        control: number
+        default: "135"
+        allowed: a whole number between the two bounds
+        effect: Gives the nominal amplicon length in qPCR mode.
+        when_to_change: Rarely.
+        cli_flag: --amplicon-size
+      - label: Maximum amplicon size (bp)
+        control: number
+        default: "200"
+        allowed: a whole number no smaller than the target
+        effect: Sets the longest amplicon span, both primer sites included.
+        when_to_change: Raise it only with a reason, because a longer amplicon folds more and quantifies less evenly.
+        cli_flag: --amplicon-size-max
+      - label: qPCR test count
+        control: number
+        default: "50"
+        allowed: a whole number of 1 or more
+        effect: Sets how many of the best-scoring candidate amplicons varVAMP folds and tests for secondary structure.
+        when_to_change: Raise it to examine more candidates, at the cost of the run's slowest step.
+        cli_flag: --qpcr-test-count
+      - label: qPCR ΔG setting
+        control: number
+        default: "-3"
+        allowed: a number in kcal/mol
+        effect: Sets the free-energy cutoff below which a folded amplicon is rejected.
+        when_to_change: Lower it only as a last resort when nothing passes.
+        cli_flag: --qpcr-delta-g
+      - label: Maximum probe ambiguities (blank = native)
+        control: number
+        default: blank, which lets varVAMP derive the limit from the primer setting
+        allowed: blank, or 0 or more
+        effect: Limits how many ambiguity codes the probe may contain.
+        when_to_change: Set it to 0 when your supplier will not place a mixed base in a labelled probe.
+        cli_flag: --maximum-probe-ambiguities
+      - label: Add Sequences to Screen Against…
+        control: file
+        default: nothing chosen, and candidates are not checked for off-targets
+        allowed: alignment bundles, reference bundles, or nucleotide FASTA files
+        effect: Chooses sequences the primers must not amplify. LGE builds the BLAST database from them and records them in provenance. A disclosure below holds a prefix field for a database built outside LGE, and the two routes exclude each other.
+        when_to_change: Add the paralogs and relatives your assay must not detect.
+        cli_flag: --screen-against
+    cli_only: []
+    notes: >-
+      The qPCR result ranks assays by varVAMP penalty and selects the
+      lowest-penalty one, varVAMP_0. Chapter: 10-primer-design/04. Every
+      other control, including the qPCR probe constraints, is in
+      appendices/primer-design-settings.md#varvamp.
+
+  primer-analysis.order-export:
+    title: Export a primer order
+    entry_points:
+      - "Inspector > Export candidate pairs…"
+      - "Inspector > Export all reported assays…"
+      - "CLI: lungfish-cli primers analysis export-order <analysis> --scope <scope>"
+    gating: []
+    sources:
+      - Sources/LungfishApp/Views/PrimerAnalysis/PrimerOrderExportView.swift
+      - Sources/LungfishWorkflow/PrimerAnalysis/PrimerOrderExportService.swift
+      - Sources/LungfishCLI/Commands/PrimerAnalysisCommand.swift
+    settings:
+      - label: Order name
+        control: text
+        default: the analysis name followed by "candidate pairs order", "order", or "all reported assays order", depending on the button
+        allowed: any text
+        effect: Names the order folder written into Analyses and fills the order name column of every file in it.
+        when_to_change: Use a name your supplier and lab notebook will both recognise.
+        cli_flag: --name
+      - label: Order details
+        control: text
+        default: blank
+        allowed: any text in Requested by, Project label, Order reference, and Notes
+        effect: Adds purchasing details to the order metadata worksheet and to the CSV and JSON records. The dialog labels the group "Order details (optional)".
+        when_to_change: Fill them when the order goes through a core facility or a grant account.
+        cli_flag: --requested-by, --project, --order-reference, --notes
+    cli_only: []
+    notes: >-
+      export-order --scope help states which engines each scope applies to.
+      Chapter: 10-primer-design/05.
+
+  primer-analysis.scheme-from-analysis:
+    title: Save as Primer Scheme
+    entry_points:
+      - "Inspector > Save as Primer Scheme…"
+      - "CLI: lungfish-cli primers scheme-from-analysis <analysis> --output <scheme.lungfishprimers>"
+    gating: []
+    sources:
+      - Sources/LungfishApp/Views/PrimerAnalysis/PrimerSchemeExportView.swift
+      - Sources/LungfishWorkflow/Primers/PrimerSchemeFromAnalysisService.swift
+      - Sources/LungfishCLI/Commands/PrimerCommand.swift
+    settings:
+      - label: Scheme name
+        control: text
+        default: the analysis name, the result label, and the word scheme
+        allowed: any name not already used in Primer Schemes
+        effect: Names the .lungfishprimers bundle written into Primer Schemes. A name already used is refused rather than overwritten.
+        when_to_change: Shorten it, because the Primer Trim dialog shows it in a menu.
+        cli_flag: --output
+    cli_only: []
+    notes: >-
+      Works for PrimalScheme, Olivar, and tiled varVAMP designs, and stores
+      the design reference under attachments/. Chapter: 10-primer-design/05.
