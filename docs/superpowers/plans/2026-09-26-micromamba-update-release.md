@@ -30,13 +30,13 @@
 
 - [x] Check remote versions and release machine readiness.
 - [x] Update the five canonical version declarations and add `docs/release-notes/2026.9.51.md` against v2026.9.50.
-- [ ] Run focused regression tests, release authority validator, whitespace checks, and old-version scans; commit reviewed changes.
-- [ ] Run `python3 scripts/release/release.py package preview` then `python3 scripts/release/release.py publish preview`.
-- [ ] Verify the signed artifact, GitHub release, Beta feed, and Alpha bridge.
+- [x] Run focused regression tests, release authority validator, whitespace checks, and old-version scans; commit reviewed changes.
+- [x] Run `python3 scripts/release/release.py package preview` then `python3 scripts/release/release.py publish preview`.
+- [x] Verify the signed artifact, GitHub release, Beta feed, and Alpha bridge.
 
 ## Task 3: Stable 2026.9.52
 
-- [ ] Recheck version collisions; update canonical declarations and add Stable notes including Preview 2026.9.51 since Stable 2026.9.50.
+- [x] Recheck version collisions; update canonical declarations and add Stable notes including Preview 2026.9.51 since Stable 2026.9.50.
 - [ ] Commit and run `python3 scripts/release/release.py package stable` then `python3 scripts/release/release.py publish stable`.
 - [ ] Verify signed artifact, GitHub full release and Stable feed; close the resolved issue and retain concise release evidence.
 
@@ -58,3 +58,5 @@
 - Final independent review: no blocking findings. Signature context bound to running app, staged version check, and replacement metadata corrected during review.
 
 - Preview package exposed the existing quick/release filter equality contract. Both profiles now include dependency reconciliation; independent one-line review approved, and all 71 focused release Python tests pass. Exact-commit unit qualification is rerun after this configuration correction.
+
+- Preview v2026.9.51 published and independently verified at `6298619d8177a44e31955553706fc1fcb36f2643`, build 5441. Both app and DMG notarization accepted; actual final signed-app bootstrap reconciliation passes. Beta feed and legacy Alpha bridge verified by the coordinator.
