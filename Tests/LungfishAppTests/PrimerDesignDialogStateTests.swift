@@ -687,6 +687,38 @@ final class PrimerDesignDialogStateTests: XCTestCase {
     XCTAssertEqual(state.validationMessage, "An analysis with this name already exists in the project. Enter a different name.")
   }
 
+  func testChoosingIntercalatingDyeAppliesSharedDefaultsThatMatchTheCLI() throws {
+    let state = configuredState()
+    XCTAssertEqual(try state.primer3Options(), .preset(.pcr))
+    state.chemistry = .intercalatingDye
+    XCTAssertEqual(state.productSizeMin, "70")
+    XCTAssertEqual(state.primerMaxTm, "62")
+    XCTAssertEqual(state.primerMaxEndGC, "2")
+    let dialog = try state.primer3Options()
+    XCTAssertEqual(dialog, .preset(.qpcrDye))
+
+    let command = try PrimerDesignCommand.Primer3Subcommand.parse([
+      "--fasta-record", "/input/mhc.fasta@0", "--output", "/tmp/out.lungfishprimeranalysis", "--assay", "qpcr-dye",
+    ])
+    XCTAssertEqual(try command.makeOptions(), dialog)
+
+    // The preset only seeds the visible fields; edits still win.
+    state.primerMinTm = "59"
+    state.primerMaxSelfEndTh = ""
+    let edited = try state.primer3Options()
+    XCTAssertEqual(edited.primerMinTm, 59)
+    XCTAssertNil(edited.primerMaxSelfEndTh)
+    XCTAssertEqual(edited.assayMode, .qpcrDye)
+
+    state.chemistry = .pcr
+    XCTAssertEqual(try state.primer3Options(), .preset(.pcr))
+    state.primerMinTm = "55"
+    state.chemistry = .hydrolysisProbe
+    XCTAssertEqual(state.primerMinTm, "55", "PCR and probe share one preset, so switching keeps edits")
+    XCTAssertEqual(try state.primer3Options().assayMode, .qpcrProbe)
+    XCTAssertTrue(try state.primer3Options().pickInternalOligo)
+  }
+
   private func configuredState() -> PrimerDesignDialogState {
     let state = PrimerDesignDialogState(projectURL: FileManager.default.temporaryDirectory)
     state.analysisName = UUID().uuidString

@@ -1,6 +1,85 @@
 import Foundation
 
+/// The assay a Primer3 design is for. The GUI "Assay" picker and the CLI
+/// `--assay` flag select the same shared preset so both interfaces send
+/// Primer3 identical input for the same choice.
+public enum Primer3AssayMode: String, Codable, CaseIterable, Sendable {
+    case pcr
+    case qpcrDye = "qpcr-dye"
+    case qpcrProbe = "qpcr-probe"
+
+    /// Hydrolysis-probe assays ask Primer3 for an internal oligo with each pair.
+    public var picksInternalOligo: Bool { self == .qpcrProbe }
+}
+
+/// The per-assay starting values. Optional members map onto Primer3 settings
+/// LGE leaves at Primer3's own defaults for ordinary PCR; `nil` omits the
+/// line from the Boulder input so PCR designs are byte-for-byte unchanged.
+public struct Primer3AssayDefaults: Equatable, Sendable {
+    public let productSizeMin: Int
+    public let productSizeMax: Int
+    public let primerMinSize: Int
+    public let primerOptSize: Int
+    public let primerMaxSize: Int
+    public let primerMinTm: Double
+    public let primerOptTm: Double
+    public let primerMaxTm: Double
+    public let primerMinGC: Double
+    public let primerMaxGC: Double
+    public let pairMaxTmDifference: Double?
+    public let primerMaxEndGC: Int?
+    public let primerGCClamp: Int?
+    public let primerMaxPolyX: Int?
+    public let primerMaxSelfAnyTh: Double?
+    public let primerMaxSelfEndTh: Double?
+    public let pairMaxComplAnyTh: Double?
+    public let pairMaxComplEndTh: Double?
+
+    /// LGE's historical PCR defaults. Every optional rule stays at Primer3's
+    /// own default (PRIMER_PAIR_MAX_DIFF_TM 100, PRIMER_MAX_END_GC 5,
+    /// PRIMER_GC_CLAMP 0, PRIMER_MAX_POLY_X 5, *_ANY_TH 45, *_END_TH 35).
+    public static let pcr = Primer3AssayDefaults(
+        productSizeMin: 100, productSizeMax: 400,
+        primerMinSize: 18, primerOptSize: 20, primerMaxSize: 27,
+        primerMinTm: 57, primerOptTm: 60, primerMaxTm: 63,
+        primerMinGC: 20, primerMaxGC: 80,
+        pairMaxTmDifference: nil, primerMaxEndGC: nil, primerGCClamp: nil, primerMaxPolyX: nil,
+        primerMaxSelfAnyTh: nil, primerMaxSelfEndTh: nil, pairMaxComplAnyTh: nil, pairMaxComplEndTh: nil)
+
+    /// Intercalating-dye (SYBR Green style) qPCR rules. Sources: Bustin et al.
+    /// 2009, MIQE guidelines, Clin Chem, doi:10.1373/clinchem.2008.112797;
+    /// Thornton and Basu 2011, Biochem Mol Biol Educ, doi:10.1002/bmb.20461.
+    /// - 70 to 150 bp products amplify efficiently and melt as one peak.
+    /// - Tm 58/60/62 C with at most 1 C between the two primers keeps both
+    ///   primers annealing at the single 60 C two-step cycling temperature.
+    /// - 40 to 60 percent GC, 18 to 24 nt (optimum 20).
+    /// - At most 2 G or C in the last five 3' bases and a GC clamp of 1 so the
+    ///   3' end anchors without mispriming from a GC-rich end.
+    /// - Runs of at most 4 identical bases.
+    /// - Stricter complementarity than Primer3's defaults because a dye
+    ///   reports every double-stranded product, including primer-dimers. The
+    ///   thresholds are duplex melting temperatures in C. The 3'-end duplexes
+    ///   (SELF_END, PAIR_COMPL_END) are the ones polymerase can extend, so they
+    ///   drop from Primer3's 35 to 30. The any-position duplexes drop from 45
+    ///   to 40 so a stable internal duplex cannot seed a dimer at 60 C either.
+    public static let qpcrDye = Primer3AssayDefaults(
+        productSizeMin: 70, productSizeMax: 150,
+        primerMinSize: 18, primerOptSize: 20, primerMaxSize: 24,
+        primerMinTm: 58, primerOptTm: 60, primerMaxTm: 62,
+        primerMinGC: 40, primerMaxGC: 60,
+        pairMaxTmDifference: 1, primerMaxEndGC: 2, primerGCClamp: 1, primerMaxPolyX: 4,
+        primerMaxSelfAnyTh: 40, primerMaxSelfEndTh: 30, pairMaxComplAnyTh: 40, pairMaxComplEndTh: 30)
+
+    public static func defaults(for mode: Primer3AssayMode) -> Primer3AssayDefaults {
+        switch mode {
+        case .pcr, .qpcrProbe: .pcr
+        case .qpcrDye: .qpcrDye
+        }
+    }
+}
+
 public struct Primer3DesignOptions: Codable, Equatable, Sendable {
+    public let assayMode: Primer3AssayMode
     public let productSizeMin: Int
     public let productSizeMax: Int
     public let targetStart: Int?
@@ -15,8 +94,25 @@ public struct Primer3DesignOptions: Codable, Equatable, Sendable {
     public let primerMinGC: Double
     public let primerMaxGC: Double
     public let pickInternalOligo: Bool
+    /// PRIMER_PAIR_MAX_DIFF_TM. `nil` leaves Primer3's default.
+    public let pairMaxTmDifference: Double?
+    /// PRIMER_MAX_END_GC. `nil` leaves Primer3's default.
+    public let primerMaxEndGC: Int?
+    /// PRIMER_GC_CLAMP. `nil` leaves Primer3's default.
+    public let primerGCClamp: Int?
+    /// PRIMER_MAX_POLY_X. `nil` leaves Primer3's default.
+    public let primerMaxPolyX: Int?
+    /// PRIMER_MAX_SELF_ANY_TH. `nil` leaves Primer3's default.
+    public let primerMaxSelfAnyTh: Double?
+    /// PRIMER_MAX_SELF_END_TH. `nil` leaves Primer3's default.
+    public let primerMaxSelfEndTh: Double?
+    /// PRIMER_PAIR_MAX_COMPL_ANY_TH. `nil` leaves Primer3's default.
+    public let pairMaxComplAnyTh: Double?
+    /// PRIMER_PAIR_MAX_COMPL_END_TH. `nil` leaves Primer3's default.
+    public let pairMaxComplEndTh: Double?
 
     public init(
+        assayMode: Primer3AssayMode = .pcr,
         productSizeMin: Int,
         productSizeMax: Int,
         targetStart: Int?,
@@ -30,8 +126,17 @@ public struct Primer3DesignOptions: Codable, Equatable, Sendable {
         primerMaxTm: Double,
         primerMinGC: Double,
         primerMaxGC: Double,
-        pickInternalOligo: Bool
+        pickInternalOligo: Bool,
+        pairMaxTmDifference: Double? = nil,
+        primerMaxEndGC: Int? = nil,
+        primerGCClamp: Int? = nil,
+        primerMaxPolyX: Int? = nil,
+        primerMaxSelfAnyTh: Double? = nil,
+        primerMaxSelfEndTh: Double? = nil,
+        pairMaxComplAnyTh: Double? = nil,
+        pairMaxComplEndTh: Double? = nil
     ) {
+        self.assayMode = assayMode
         self.productSizeMin = productSizeMin
         self.productSizeMax = productSizeMax
         self.targetStart = targetStart
@@ -46,6 +151,83 @@ public struct Primer3DesignOptions: Codable, Equatable, Sendable {
         self.primerMinGC = primerMinGC
         self.primerMaxGC = primerMaxGC
         self.pickInternalOligo = pickInternalOligo
+        self.pairMaxTmDifference = pairMaxTmDifference
+        self.primerMaxEndGC = primerMaxEndGC
+        self.primerGCClamp = primerGCClamp
+        self.primerMaxPolyX = primerMaxPolyX
+        self.primerMaxSelfAnyTh = primerMaxSelfAnyTh
+        self.primerMaxSelfEndTh = primerMaxSelfEndTh
+        self.pairMaxComplAnyTh = pairMaxComplAnyTh
+        self.pairMaxComplEndTh = pairMaxComplEndTh
+    }
+
+    /// The options a fresh dialog or a bare CLI invocation produces for `mode`.
+    public static func preset(_ mode: Primer3AssayMode, targetStart: Int? = nil, targetEnd: Int? = nil,
+                              pairCount: Int = 5) -> Primer3DesignOptions {
+        let defaults = Primer3AssayDefaults.defaults(for: mode)
+        return Primer3DesignOptions(
+            assayMode: mode, productSizeMin: defaults.productSizeMin, productSizeMax: defaults.productSizeMax,
+            targetStart: targetStart, targetEnd: targetEnd, pairCount: pairCount,
+            primerMinSize: defaults.primerMinSize, primerOptSize: defaults.primerOptSize, primerMaxSize: defaults.primerMaxSize,
+            primerMinTm: defaults.primerMinTm, primerOptTm: defaults.primerOptTm, primerMaxTm: defaults.primerMaxTm,
+            primerMinGC: defaults.primerMinGC, primerMaxGC: defaults.primerMaxGC,
+            pickInternalOligo: mode.picksInternalOligo,
+            pairMaxTmDifference: defaults.pairMaxTmDifference, primerMaxEndGC: defaults.primerMaxEndGC,
+            primerGCClamp: defaults.primerGCClamp, primerMaxPolyX: defaults.primerMaxPolyX,
+            primerMaxSelfAnyTh: defaults.primerMaxSelfAnyTh, primerMaxSelfEndTh: defaults.primerMaxSelfEndTh,
+            pairMaxComplAnyTh: defaults.pairMaxComplAnyTh, pairMaxComplEndTh: defaults.pairMaxComplEndTh)
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case assayMode, productSizeMin, productSizeMax, targetStart, targetEnd, pairCount
+        case primerMinSize, primerOptSize, primerMaxSize, primerMinTm, primerOptTm, primerMaxTm
+        case primerMinGC, primerMaxGC, pickInternalOligo
+        case pairMaxTmDifference, primerMaxEndGC, primerGCClamp, primerMaxPolyX
+        case primerMaxSelfAnyTh, primerMaxSelfEndTh, pairMaxComplAnyTh, pairMaxComplEndTh
+    }
+
+    /// Records written before the assay mode existed decode as ordinary PCR.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            assayMode: try c.decodeIfPresent(Primer3AssayMode.self, forKey: .assayMode) ?? .pcr,
+            productSizeMin: try c.decode(Int.self, forKey: .productSizeMin),
+            productSizeMax: try c.decode(Int.self, forKey: .productSizeMax),
+            targetStart: try c.decodeIfPresent(Int.self, forKey: .targetStart),
+            targetEnd: try c.decodeIfPresent(Int.self, forKey: .targetEnd),
+            pairCount: try c.decode(Int.self, forKey: .pairCount),
+            primerMinSize: try c.decode(Int.self, forKey: .primerMinSize),
+            primerOptSize: try c.decode(Int.self, forKey: .primerOptSize),
+            primerMaxSize: try c.decode(Int.self, forKey: .primerMaxSize),
+            primerMinTm: try c.decode(Double.self, forKey: .primerMinTm),
+            primerOptTm: try c.decode(Double.self, forKey: .primerOptTm),
+            primerMaxTm: try c.decode(Double.self, forKey: .primerMaxTm),
+            primerMinGC: try c.decode(Double.self, forKey: .primerMinGC),
+            primerMaxGC: try c.decode(Double.self, forKey: .primerMaxGC),
+            pickInternalOligo: try c.decode(Bool.self, forKey: .pickInternalOligo),
+            pairMaxTmDifference: try c.decodeIfPresent(Double.self, forKey: .pairMaxTmDifference),
+            primerMaxEndGC: try c.decodeIfPresent(Int.self, forKey: .primerMaxEndGC),
+            primerGCClamp: try c.decodeIfPresent(Int.self, forKey: .primerGCClamp),
+            primerMaxPolyX: try c.decodeIfPresent(Int.self, forKey: .primerMaxPolyX),
+            primerMaxSelfAnyTh: try c.decodeIfPresent(Double.self, forKey: .primerMaxSelfAnyTh),
+            primerMaxSelfEndTh: try c.decodeIfPresent(Double.self, forKey: .primerMaxSelfEndTh),
+            pairMaxComplAnyTh: try c.decodeIfPresent(Double.self, forKey: .pairMaxComplAnyTh),
+            pairMaxComplEndTh: try c.decodeIfPresent(Double.self, forKey: .pairMaxComplEndTh))
+    }
+
+    /// The optional Primer3 settings this design pins, as Boulder `KEY=value`
+    /// lines, in a fixed order. Empty for ordinary PCR.
+    public var additionalBoulderSettings: [(key: String, value: String)] {
+        var lines: [(key: String, value: String)] = []
+        if let value = pairMaxTmDifference { lines.append(("PRIMER_PAIR_MAX_DIFF_TM", String(value))) }
+        if let value = primerMaxEndGC { lines.append(("PRIMER_MAX_END_GC", String(value))) }
+        if let value = primerGCClamp { lines.append(("PRIMER_GC_CLAMP", String(value))) }
+        if let value = primerMaxPolyX { lines.append(("PRIMER_MAX_POLY_X", String(value))) }
+        if let value = primerMaxSelfAnyTh { lines.append(("PRIMER_MAX_SELF_ANY_TH", String(value))) }
+        if let value = primerMaxSelfEndTh { lines.append(("PRIMER_MAX_SELF_END_TH", String(value))) }
+        if let value = pairMaxComplAnyTh { lines.append(("PRIMER_PAIR_MAX_COMPL_ANY_TH", String(value))) }
+        if let value = pairMaxComplEndTh { lines.append(("PRIMER_PAIR_MAX_COMPL_END_TH", String(value))) }
+        return lines
     }
 }
 
@@ -87,8 +269,8 @@ public struct Primer3DesignRequest: Sendable {
         self.selections = selections
         self.destinationURL = destinationURL
         self.options = options
-        self.invocation = invocation
         self.executableURL = executableURL
+        self.invocation = invocation
         self.expectedInputChecksums = expectedInputChecksums
     }
 }

@@ -72,6 +72,26 @@ final class PrimerDesignCommandTests: XCTestCase {
         XCTAssertThrowsError(try badExpansion.makeOptions())
     }
 
+    func testPrimer3AssayModeSelectsThePresetAndKeepsPickInternalOligo() throws {
+        let base = ["--fasta-record", "/tmp/mhc.fa@0", "--output", "/tmp/design.lungfishprimeranalysis"]
+        XCTAssertEqual(try PrimerDesignCommand.Primer3Subcommand.parse(base).makeOptions(), .preset(.pcr))
+        let dye = try PrimerDesignCommand.Primer3Subcommand.parse(base + ["--assay", "qpcr-dye"]).makeOptions()
+        XCTAssertEqual(dye, .preset(.qpcrDye))
+        let probe = try PrimerDesignCommand.Primer3Subcommand.parse(base + ["--assay", "qpcr-probe"]).makeOptions()
+        XCTAssertEqual(probe, .preset(.qpcrProbe))
+        XCTAssertTrue(probe.pickInternalOligo)
+        let oligo = try PrimerDesignCommand.Primer3Subcommand.parse(base + ["--pick-internal-oligo"]).makeOptions()
+        XCTAssertEqual(oligo.assayMode, .pcr)
+        XCTAssertTrue(oligo.pickInternalOligo)
+        let overridden = try PrimerDesignCommand.Primer3Subcommand.parse(
+            base + ["--assay", "qpcr-dye", "--primer-min-tm", "59", "--primer-max-poly-x", "3", "--pair-count", "2"]).makeOptions()
+        XCTAssertEqual(overridden.primerMinTm, 59)
+        XCTAssertEqual(overridden.primerMaxPolyX, 3)
+        XCTAssertEqual(overridden.pairCount, 2)
+        XCTAssertEqual(overridden.productSizeMax, 150)
+        XCTAssertThrowsError(try PrimerDesignCommand.Primer3Subcommand.parse(base + ["--assay", "sybr"]).makeOptions())
+    }
+
     func testPrimer3ParsesExplicitFASTAAndMSATemplateSelections() throws {
         let command = try PrimerDesignCommand.Primer3Subcommand.parse([
             "--fasta-record", "/tmp/mhc.fa@1",
