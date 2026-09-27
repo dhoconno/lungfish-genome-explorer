@@ -23,7 +23,8 @@ final class ONTNativeRealReadDemultiplexTests: XCTestCase {
     /// Three untrimmed reads from ENA PRJEB62796 (SQK-NBD114-96) plus the
     /// reverse complement of one, standing in for a read sequenced from the
     /// other strand. The built-in kit must assign all four to the barcode
-    /// their run folder names, with every read accounted for.
+    /// their run folder names (MinKNOW's barcode85 is the kit's NB85; the
+    /// pipeline names bundles by the kit id), with every read accounted for.
     func testONTNativeKitAssignsRealNBD114ReadsInBothOrientations() async throws {
         let tempDir = try makeTempDir()
         defer { try? FileManager.default.removeItem(at: tempDir.deletingLastPathComponent()) }
@@ -57,7 +58,7 @@ final class ONTNativeRealReadDemultiplexTests: XCTestCase {
         XCTAssertEqual(counts, ["NB85": 2, "NB89": 1, "NB91": 1])
         XCTAssertEqual(result.manifest.unassigned.readCount, 0)
 
-        let barcode85 = try XCTUnwrap(result.outputBundleURLs.first { $0.lastPathComponent == "barcode85.lungfishfastq" })
+        let barcode85 = try XCTUnwrap(result.outputBundleURLs.first { $0.lastPathComponent == "NB85.lungfishfastq" }, "bundles: \(result.outputBundleURLs.map(\.lastPathComponent))")
         let fastq = try XCTUnwrap(FASTQBundle.resolvePrimaryFASTQURL(for: barcode85))
         var trimmed: [String: Int] = [:]
         for try await record in FASTQReader(validateSequence: false).records(from: fastq) {
