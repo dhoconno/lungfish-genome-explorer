@@ -44,7 +44,7 @@ public struct TwelveSReferenceRecord: Equatable, Sendable {
         )
     }
 
-    private static func scientificName(from displayName: String) -> String? {
+    static func scientificName(from displayName: String) -> String? {
         guard let open = displayName.firstIndex(of: "("),
               let close = displayName.lastIndex(of: ")"),
               open < close else {
@@ -55,7 +55,7 @@ public struct TwelveSReferenceRecord: Equatable, Sendable {
         return text.isEmpty ? nil : text
     }
 
-    private static func commonName(from displayName: String) -> String? {
+    static func commonName(from displayName: String) -> String? {
         let prefix: Substring
         if let open = displayName.firstIndex(of: "(") {
             prefix = displayName[..<open]
@@ -113,7 +113,9 @@ public struct TwelveSReferenceIndex: Equatable, Sendable {
                 sequence: record.sequence,
                 metadata: metadata,
                 sourceHeader: record.sourceHeader,
-                alternateMatches: metadataEntry.alternateMatches
+                alternateMatches: metadataEntry.alternateMatches.isEmpty
+                    ? record.alternateMatches
+                    : metadataEntry.alternateMatches
             )
         })
     }
@@ -135,7 +137,8 @@ public struct TwelveSReferenceIndex: Equatable, Sendable {
                     displayName: parsed.displayName,
                     sequence: currentSequence,
                     metadata: metadata,
-                    sourceHeader: header
+                    sourceHeader: header,
+                    alternateMatches: alternateMatches(fromAlsoMatches: metadata["also_matches"])
                 )
             )
         }
@@ -157,6 +160,29 @@ public struct TwelveSReferenceIndex: Equatable, Sendable {
         }
         flush()
         return TwelveSReferenceIndex(records: records)
+    }
+
+    /// Alternate species that share the exact amplicon, read from the
+    /// `also_matches=` header field a deduplicated reference FASTA carries
+    /// (`Common name (Scientific name)` labels, comma separated). A
+    /// `.lungfish12sref` bundle's metadata TSV supplies taxonomy-enriched
+    /// alternates; a loose FASTA has only the header, so its alternates carry
+    /// the parsed names and the shared-amplicon reason.
+    static func alternateMatches(fromAlsoMatches raw: String?) -> [TwelveSAlternateMatch] {
+        guard let raw = raw?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty else { return [] }
+        var seen = Set<String>()
+        return raw
+            .split(separator: ",", omittingEmptySubsequences: true)
+            .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty && seen.insert($0).inserted }
+            .map { label in
+                TwelveSAlternateMatch(
+                    displayName: label,
+                    scientificName: TwelveSReferenceRecord.scientificName(from: label),
+                    commonName: TwelveSReferenceRecord.commonName(from: label),
+                    reason: "shared_exact_amplicon"
+                )
+            }
     }
 
     private static func parseHeader(_ header: String) -> (displayName: String, metadata: [String: String]) {
