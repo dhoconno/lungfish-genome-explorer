@@ -46,12 +46,27 @@ public final class BAMImportService: @unchecked Sendable {
 
     // MARK: - Import
 
+    /// How the in-bundle alignment copy is produced from the source file.
+    public enum SourceMaterialization: Sendable, Equatable {
+        /// `samtools sort` into the bundle, then `samtools index`: the default,
+        /// which accepts any SAM/BAM/CRAM whatever its order.
+        case sortAndIndex
+        /// The source is a coordinate-sorted BAM with its `.bai` beside it (a
+        /// mapping run's own output), so the copy is an APFS clone of both
+        /// files instead of a second sort. A clone shares the source's blocks
+        /// until either file changes, so a mapping result no longer stores its
+        /// BAM twice in full. Falls back to `sortAndIndex` when the source is
+        /// not a BAM or has no index.
+        case adoptCoordinateSorted
+    }
+
     /// Imports a BAM/CRAM file into a bundle.
     ///
     /// - Parameters:
     ///   - bamURL: URL to the BAM/CRAM file
     ///   - bundleURL: URL to the `.lungfishref` bundle directory
     ///   - name: Display name for the alignment track (defaults to filename)
+    ///   - materialization: See ``SourceMaterialization``.
     ///   - progressHandler: Progress callback (0.0-1.0, status message)
     /// - Returns: Import result with track info and statistics
     /// - Throws: `BAMImportError` on failure
@@ -59,6 +74,7 @@ public final class BAMImportService: @unchecked Sendable {
         bamURL: URL,
         bundleURL: URL,
         name: String? = nil,
+        materialization: SourceMaterialization = .sortAndIndex,
         progressHandler: (@Sendable (Double, String) -> Void)? = nil
     ) async throws -> ImportResult {
         let startTime = Date()
@@ -88,6 +104,7 @@ public final class BAMImportService: @unchecked Sendable {
             bundleURL: bundleURL,
             alignmentsDir: alignmentsDir,
             trackId: trackId,
+            materialization: materialization,
             progressHandler: progressHandler
         )
         let effectiveBAMURL = materialized.alignmentURL
@@ -227,6 +244,8 @@ public final class BAMImportService: @unchecked Sendable {
             wasSorted: wasSorted,
             sortInvocation: materialized.sortInvocation,
             indexInvocation: materialized.indexInvocation,
+            cloneStartedAt: materialized.cloneStartedAt,
+            cloneCompletedAt: materialized.cloneCompletedAt,
             startedAt: startTime,
             completedAt: Date(),
             explicitTrackName: name
@@ -349,8 +368,12 @@ public final class BAMImportService: @unchecked Sendable {
         let format: AlignmentFormat
         let indexWasCreated: Bool
         let wasSorted: Bool
-        let sortInvocation: TimedNativeToolResult
-        let indexInvocation: TimedNativeToolResult
+        /// `nil` when the copy was cloned from an already sorted, indexed source.
+        let sortInvocation: TimedNativeToolResult?
+        let indexInvocation: TimedNativeToolResult?
+        /// When the copy was cloned: the clone's own timing, for provenance.
+        let cloneStartedAt: Date?
+        let cloneCompletedAt: Date?
     }
 
     private struct TimedNativeToolResult {
@@ -375,8 +398,31 @@ public final class BAMImportService: @unchecked Sendable {
         bundleURL: URL,
         alignmentsDir: URL,
         trackId: String,
+        materialization: SourceMaterialization,
         progressHandler: (@Sendable (Double, String) -> Void)?
     ) async throws -> MaterializedAlignmentResult {
+        if materialization == .adoptCoordinateSorted,
+           sourceFormat == .bam,
+           let sourceIndexURL = existingIndexURL(besideBAM: sourceURL) {
+            progressHandler?(0.05, "Cloning sorted alignment into bundle...")
+            let outputURL = alignmentsDir.appendingPathComponent("\(trackId).sorted.bam")
+            let indexURL = URL(fileURLWithPath: outputURL.path + ".bai")
+            let startedAt = Date()
+            try cloneFile(from: sourceURL, to: outputURL)
+            try cloneFile(from: sourceIndexURL, to: indexURL)
+            return MaterializedAlignmentResult(
+                alignmentURL: outputURL,
+                indexURL: indexURL,
+                format: .bam,
+                indexWasCreated: false,
+                wasSorted: false,
+                sortInvocation: nil,
+                indexInvocation: nil,
+                cloneStartedAt: startedAt,
+                cloneCompletedAt: Date()
+            )
+        }
+
         let outputFormat: AlignmentFormat
         let outputExt: String
         switch sourceFormat {
@@ -451,8 +497,37 @@ public final class BAMImportService: @unchecked Sendable {
                 result: indexResult,
                 startedAt: indexStartedAt,
                 completedAt: indexCompletedAt
-            )
+            ),
+            cloneStartedAt: nil,
+            cloneCompletedAt: nil
         )
+    }
+
+    /// The `.bai` beside a BAM (`x.bam.bai` or `x.bai`), if present.
+    static func existingIndexURL(besideBAM bamURL: URL) -> URL? {
+        let candidates = [
+            URL(fileURLWithPath: bamURL.path + ".bai"),
+            bamURL.deletingPathExtension().appendingPathExtension("bai"),
+        ]
+        return candidates.first { FileManager.default.fileExists(atPath: $0.path) }
+    }
+
+    /// Clones `sourceURL` to `destinationURL` with `copyfile(3)`'s
+    /// `COPYFILE_CLONE`, an APFS copy-on-write clone that shares the source's
+    /// blocks, falling back to an ordinary copy on a filesystem that cannot
+    /// clone. Any existing destination is replaced.
+    static func cloneFile(from sourceURL: URL, to destinationURL: URL) throws {
+        if FileManager.default.fileExists(atPath: destinationURL.path) {
+            try FileManager.default.removeItem(at: destinationURL)
+        }
+        let status = Darwin.copyfile(sourceURL.path, destinationURL.path, nil, copyfile_flags_t(COPYFILE_CLONE))
+        guard status == 0 else {
+            let code = errno
+            importLogger.warning("copyfile clone failed (errno \(code)) for \(sourceURL.lastPathComponent); copying instead")
+            try? FileManager.default.removeItem(at: destinationURL)
+            try FileManager.default.copyItem(at: sourceURL, to: destinationURL)
+            return
+        }
     }
 
     private static func writeImportProvenance(
@@ -472,8 +547,10 @@ public final class BAMImportService: @unchecked Sendable {
         provenanceRelativePath: String,
         indexWasCreated: Bool,
         wasSorted: Bool,
-        sortInvocation: TimedNativeToolResult,
-        indexInvocation: TimedNativeToolResult,
+        sortInvocation: TimedNativeToolResult?,
+        indexInvocation: TimedNativeToolResult?,
+        cloneStartedAt: Date? = nil,
+        cloneCompletedAt: Date? = nil,
         startedAt: Date,
         completedAt: Date,
         explicitTrackName: String?
@@ -506,30 +583,48 @@ public final class BAMImportService: @unchecked Sendable {
             referenceInputs.append(reference)
         }
 
-        let sortStep = ProvenanceStep(
-            toolName: "samtools",
-            toolVersion: "unknown",
-            argv: sortInvocation.result.arguments,
-            inputs: [input] + referenceInputs,
-            outputs: [alignmentOutput],
-            exitStatus: Int(sortInvocation.result.exitCode),
-            wallTimeSeconds: sortInvocation.wallTimeSeconds,
-            stderr: nonEmpty(sortInvocation.result.stderr),
-            startedAt: sortInvocation.startedAt,
-            completedAt: sortInvocation.completedAt
-        )
-        let indexStep = ProvenanceStep(
-            toolName: "samtools",
-            toolVersion: "unknown",
-            argv: indexInvocation.result.arguments,
-            inputs: [alignmentOutput] + referenceInputs,
-            outputs: [indexOutput],
-            exitStatus: Int(indexInvocation.result.exitCode),
-            wallTimeSeconds: indexInvocation.wallTimeSeconds,
-            stderr: nonEmpty(indexInvocation.result.stderr),
-            startedAt: indexInvocation.startedAt,
-            completedAt: indexInvocation.completedAt
-        )
+        // Either samtools sorted and indexed the copy, or the copy is a clone
+        // of an already sorted, indexed source (a mapping run's own BAM).
+        var materializationSteps: [ProvenanceStep] = []
+        if let sortInvocation, let indexInvocation {
+            materializationSteps.append(ProvenanceStep(
+                toolName: "samtools",
+                toolVersion: "unknown",
+                argv: sortInvocation.result.arguments,
+                inputs: [input] + referenceInputs,
+                outputs: [alignmentOutput],
+                exitStatus: Int(sortInvocation.result.exitCode),
+                wallTimeSeconds: sortInvocation.wallTimeSeconds,
+                stderr: nonEmpty(sortInvocation.result.stderr),
+                startedAt: sortInvocation.startedAt,
+                completedAt: sortInvocation.completedAt
+            ))
+            materializationSteps.append(ProvenanceStep(
+                toolName: "samtools",
+                toolVersion: "unknown",
+                argv: indexInvocation.result.arguments,
+                inputs: [alignmentOutput] + referenceInputs,
+                outputs: [indexOutput],
+                exitStatus: Int(indexInvocation.result.exitCode),
+                wallTimeSeconds: indexInvocation.wallTimeSeconds,
+                stderr: nonEmpty(indexInvocation.result.stderr),
+                startedAt: indexInvocation.startedAt,
+                completedAt: indexInvocation.completedAt
+            ))
+        } else {
+            materializationSteps.append(ProvenanceStep(
+                toolName: "Lungfish.app",
+                toolVersion: appVersion,
+                argv: argv + ["--clone-sorted-alignment"],
+                inputs: [input],
+                outputs: [alignmentOutput, indexOutput],
+                exitStatus: 0,
+                wallTimeSeconds: cloneStartedAt.flatMap { start in cloneCompletedAt?.timeIntervalSince(start) },
+                stderr: nil,
+                startedAt: cloneStartedAt ?? startedAt,
+                completedAt: cloneCompletedAt ?? completedAt
+            ))
+        }
         let metadataStep = ProvenanceStep(
             toolName: "Lungfish.app",
             toolVersion: appVersion,
@@ -557,8 +652,8 @@ public final class BAMImportService: @unchecked Sendable {
                 ),
                 defaults: [
                     "name": .string(bamURL.deletingPathExtension().lastPathComponent),
-                    "sort": .boolean(true),
-                    "index": .boolean(true),
+                    "sort": .boolean(wasSorted),
+                    "index": .boolean(indexWasCreated),
                     "outputDirectory": .string("alignments"),
                 ],
                 resolvedDefaults: [
@@ -578,10 +673,15 @@ public final class BAMImportService: @unchecked Sendable {
             files: files,
             output: alignmentOutput,
             outputs: [alignmentOutput, indexOutput, metadataOutput],
-            steps: [sortStep, indexStep, metadataStep],
+            steps: materializationSteps + [metadataStep],
             wallTimeSeconds: completedAt.timeIntervalSince(startedAt),
             exitStatus: 0,
-            stderr: nonEmpty([sortInvocation.result.stderr, indexInvocation.result.stderr].filter { !$0.isEmpty }.joined(separator: "\n"))
+            stderr: nonEmpty(
+                [sortInvocation?.result.stderr, indexInvocation?.result.stderr]
+                    .compactMap { $0 }
+                    .filter { !$0.isEmpty }
+                    .joined(separator: "\n")
+            )
         )
         try ProvenanceWriter(signingProvider: nil).write(envelope, toSidecar: provenanceURL)
     }

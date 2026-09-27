@@ -264,6 +264,81 @@ final class BAMImportServiceTests: XCTestCase {
         }
     }
 
+    // MARK: - Adopting a sorted, indexed source
+
+    func testAdoptCoordinateSortedClonesTheBAMAndIndexInsteadOfResorting() async throws {
+        do {
+            _ = try await NativeToolRunner.shared.toolPath(for: .samtools)
+        } catch {
+            throw XCTSkip("samtools is not installed in the managed conda root")
+        }
+        let fixtureBAM = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Fixtures/sarscov2/test.paired_end.sorted.bam")
+        guard FileManager.default.fileExists(atPath: fixtureBAM.path) else {
+            throw XCTSkip("sarscov2 BAM fixture missing")
+        }
+        let bundleURL = tempDir.appendingPathComponent("adopt.lungfishref", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        try BundleManifest(
+            name: "Adopt",
+            identifier: "bundle.adopt",
+            source: SourceInfo(organism: "Virus", assembly: "MN908947.3", database: "Test")
+        ).save(to: bundleURL)
+
+        let result = try await BAMImportService.importBAM(
+            bamURL: fixtureBAM,
+            bundleURL: bundleURL,
+            name: "Adopted",
+            materialization: .adoptCoordinateSorted
+        )
+
+        XCTAssertFalse(result.wasSorted)
+        XCTAssertFalse(result.indexWasCreated)
+        let trackBAM = bundleURL.appendingPathComponent(result.trackInfo.sourcePath)
+        let trackBAI = bundleURL.appendingPathComponent(result.trackInfo.indexPath)
+        XCTAssertEqual(try Data(contentsOf: trackBAM), try Data(contentsOf: fixtureBAM), "a clone has the source's bytes")
+        XCTAssertEqual(try Data(contentsOf: trackBAI), try Data(contentsOf: fixtureBAM.appendingPathExtension("bai")))
+        XCTAssertGreaterThan(result.mappedReads, 0, "statistics still come from the adopted copy")
+        XCTAssertEqual(try BundleManifest.load(from: bundleURL).alignments.map(\.name), ["Adopted"])
+    }
+
+    func testAdoptCoordinateSortedFallsBackToSortingWithoutAnIndex() async throws {
+        do {
+            _ = try await NativeToolRunner.shared.toolPath(for: .samtools)
+        } catch {
+            throw XCTSkip("samtools is not installed in the managed conda root")
+        }
+        let fixtureBAM = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Fixtures/sarscov2/test.paired_end.sorted.bam")
+        guard FileManager.default.fileExists(atPath: fixtureBAM.path) else {
+            throw XCTSkip("sarscov2 BAM fixture missing")
+        }
+        // A copy without its .bai beside it.
+        let unindexed = tempDir.appendingPathComponent("unindexed.bam")
+        try FileManager.default.copyItem(at: fixtureBAM, to: unindexed)
+        XCTAssertNil(BAMImportService.existingIndexURL(besideBAM: unindexed))
+        XCTAssertNotNil(BAMImportService.existingIndexURL(besideBAM: fixtureBAM))
+
+        let bundleURL = tempDir.appendingPathComponent("fallback.lungfishref", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        try BundleManifest(
+            name: "Fallback",
+            identifier: "bundle.fallback",
+            source: SourceInfo(organism: "Virus", assembly: "MN908947.3", database: "Test")
+        ).save(to: bundleURL)
+
+        let result = try await BAMImportService.importBAM(
+            bamURL: unindexed,
+            bundleURL: bundleURL,
+            materialization: .adoptCoordinateSorted
+        )
+
+        XCTAssertTrue(result.wasSorted)
+        XCTAssertTrue(result.indexWasCreated)
+    }
+
     // MARK: - Progress Handler
 
     func testProgressHandlerCalledOnValidation() async {

@@ -109,6 +109,35 @@ final class MappingResultLayoutServiceTests: XCTestCase {
         )
     }
 
+    // The mapper's BAM at the result root is already coordinate-sorted and
+    // indexed, so the viewer copy is an APFS clone of it (same bytes, shared
+    // blocks) rather than a second `samtools sort` that stored the BAM twice
+    // in full. The layout (root BAM plus in-bundle track) is unchanged.
+    func testViewerBundleTrackIsACloneOfTheRootBAMNotASecondSort() async throws {
+        try await skipUnlessSamtoolsIsInstalled()
+        let scaffold = try makeScaffold()
+
+        let publishedOrNil = try await MappingResultLayoutService.publishViewerBundle(
+            result: scaffold.result,
+            request: scaffold.request
+        )
+        let publication = try XCTUnwrap(publishedOrNil)
+
+        let trackBAM = publication.viewerBundleURL.appendingPathComponent(publication.trackInfo.sourcePath)
+        let trackBAI = publication.viewerBundleURL.appendingPathComponent(publication.trackInfo.indexPath)
+        XCTAssertEqual(try Data(contentsOf: trackBAM), try Data(contentsOf: scaffold.result.bamURL))
+        XCTAssertEqual(try Data(contentsOf: trackBAI), try Data(contentsOf: scaffold.result.baiURL))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: scaffold.result.bamURL.path), "the root BAM stays")
+
+        let provenance = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf:
+            publication.viewerBundleURL.appendingPathComponent("alignments/\(publication.trackInfo.id).import.lungfish-provenance.json")
+        )) as? [String: Any])
+        let steps = try XCTUnwrap(provenance["steps"] as? [[String: Any]])
+        let argvs = steps.compactMap { $0["argv"] as? [String] }
+        XCTAssertTrue(argvs.contains { $0.contains("--clone-sorted-alignment") }, "provenance records the clone: \(argvs)")
+        XCTAssertFalse(argvs.contains { $0.contains("sort") && $0.first?.contains("samtools") == true }, "no second sort: \(argvs)")
+    }
+
     func testExplicitTrackNameIsAttachedAndRecorded() async throws {
         try await skipUnlessSamtoolsIsInstalled()
         let scaffold = try makeScaffold(outputTrackName: "HG002 minimap2")
