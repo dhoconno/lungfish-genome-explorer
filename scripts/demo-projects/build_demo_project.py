@@ -92,6 +92,7 @@ STRIP_SUFFIXES = (".lock",)
 #   ("sra", accession, platform)              SRA route: fetch sra download, then import fastq
 #   ("reference", source)                     lungfish-cli import fasta
 #   ("practice", source, dest)                copy into Practice Data/<dest>
+#   ("practice_dir", source, dest)            copy a whole folder into Practice Data/<dest>
 # ---------------------------------------------------------------------------
 
 PROJECTS: dict[str, dict] = {
@@ -187,6 +188,9 @@ PROJECTS: dict[str, dict] = {
             ("reference", "fx:human-mito/NC_012920.1.fasta"),
             ("practice", "fx:hg002-long-reads/ont-run/fastq_pass/barcode01/HG002_chrM_pass_barcode01_0.fastq.gz",
              "hg002-long-reads/ont-run/fastq_pass/barcode01/HG002_chrM_pass_barcode01_0.fastq.gz"),
+            ("reads", ["fx:nrg1-ont-barcoded/pooled/nrg1-pooled.fastq.gz"], "ont", "single"),
+            ("practice_dir", "fx:nrg1-ont-barcoded/ont-run", "nrg1-ont-barcoded/ont-run"),
+            ("practice", "fx:nrg1-ont-barcoded/nrg1-barcodes.csv", "nrg1-ont-barcoded/nrg1-barcodes.csv"),
         ],
     },
     "sarscov2-amplicons": {
@@ -263,14 +267,18 @@ PROJECTS: dict[str, dict] = {
     "twelve-s-metabarcoding": {
         "title": "12S Metabarcoding",
         "folder": "12S Metabarcoding.lungfish",
-        "summary": "Oriented human 12S amplicon reads and a five-species primate 12S reference, ready for 12S amplicon matching.",
+        "summary": "Oriented human 12S amplicon reads, a simulated human and macaque 12S mixture, and a primate 12S reference, ready for 12S amplicon matching.",
         "chapters": [
             "06-classification/10-twelve-s-metabarcoding",
         ],
         "steps": [
             ("reads", ["fx:primate-12s/HG002-12S-oriented.fastq"], "illumina", "single"),
+            ("reads", ["fx:primate-12s/SIMULATED-12S-mixture-oriented.fastq.gz"], "illumina", "single"),
             ("practice", "fx:primate-12s/primate-12s-dedup.fasta", "primate-12s/primate-12s-dedup.fasta"),
             ("practice", "fx:primate-12s/primate-12s-midori.tsv", "primate-12s/primate-12s-midori.tsv"),
+            ("practice", "fx:primate-12s/SIMULATED-12S-mixture.fastq.gz", "primate-12s/SIMULATED-12S-mixture.fastq.gz"),
+            ("practice", "fx:primate-12s/SIMULATED-12S-mixture.truth.tsv", "primate-12s/SIMULATED-12S-mixture.truth.tsv"),
+            ("practice", "fx:primate-12s/SIMULATED-12S-mixture.amplicons.fasta", "primate-12s/SIMULATED-12S-mixture.amplicons.fasta"),
         ],
     },
 }
@@ -297,6 +305,15 @@ def resolve_source(spec: str) -> pathlib.Path:
         if "hg002-" in rel:
             hint = " Run `bash docs/user-manual/build/scripts/fetch-media.sh` first."
         raise BuildError(f"missing fixture file {path}.{hint}")
+    return path
+
+
+def resolve_source_dir(spec: str) -> pathlib.Path:
+    root, _, rel = spec.partition(":")
+    base = {"fx": FIXTURES, "tests": TEST_FIXTURES}[root]
+    path = base / rel
+    if not path.is_dir():
+        raise BuildError(f"missing fixture folder {path}.")
     return path
 
 
@@ -444,6 +461,15 @@ def build_project(pid: str, args, runner: Runner, project_dir: pathlib.Path, sta
             out.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(src, out)
             log(f"== practice file {dest}")
+        elif kind == "practice_dir":
+            _, source, dest = step
+            src = resolve_source_dir(source)
+            out = project_dir / "Practice Data" / dest
+            if out.exists():
+                shutil.rmtree(out)
+            shutil.copytree(src, out, ignore=shutil.ignore_patterns(".*"))
+            count = sum(1 for p in out.rglob("*") if p.is_file())
+            log(f"== practice folder {dest} ({count} files)")
         else:
             raise BuildError(f"unknown step kind {kind}")
 
@@ -669,6 +695,11 @@ def chapter_operation(pid: str, project: pathlib.Path, outputs: pathlib.Path, ru
                         "--word-length", "12", "--db-mask", "dust", "--output", out], "orient", check=False)
         records = len(out.read_text().splitlines()) // 4 if out.exists() else 0
         check("03-reads/08 orient ONT reads against rCRS", r.returncode == 0 and records > 0, f"oriented={records}")
+        r = runner.run(["fastq", "import-ont", practice / "nrg1-ont-barcoded/ont-run/fastq_pass", "-o", outputs / "nrg1-import"],
+                       "import-ont-nrg1", check=False)
+        text = r.stdout + r.stderr
+        check("03-reads/07 import the six-barcode NRG1 run folder", r.returncode == 0 and "Total reads: 6000" in text,
+              (text.strip().splitlines() or [""])[-1][-200:])
     elif pid == "sarscov2-amplicons":
         out = outputs / "mapping-check"
         r = runner.run(["map", project / "Imports/SRR36291587.lungfishfastq/SRR36291587.fastq.gz",
@@ -723,6 +754,17 @@ def chapter_operation(pid: str, project: pathlib.Path, outputs: pathlib.Path, ru
         counts = outputs / "HG002-12S-oriented.lungfish12s"
         tail = " ".join((r.stdout + r.stderr).strip().splitlines()[-3:])
         check("06-classification/10 12S amplicon matching", r.returncode == 0 and counts.is_dir(), tail[-300:])
+        mixture = project / "Imports/SIMULATED-12S-mixture-oriented.lungfishfastq"
+        payload = next(mixture.glob("*.fastq.gz"))
+        r = runner.run(["fastq", "12s-match", payload, "--reference", practice / "primate-12s/primate-12s-dedup.fasta",
+                        "--output-dir", outputs, "--output-name", "SIMULATED-12S-mixture-oriented", "--matching-mode", "illumina-exact"],
+                       "12s-match-mixture", check=False)
+        samples = outputs / "SIMULATED-12S-mixture-oriented.lungfish12s/samples.tsv"
+        exact = ""
+        if samples.exists():
+            row = samples.read_text().splitlines()[1].split("\t")
+            exact = row[5]
+        check("06-classification/10 12S matching on the simulated mixture", r.returncode == 0 and exact == "1817", f"exact_match_reads={exact}")
         r = runner.run(["fastq", "12s-reference-bundle", "--dedup-fasta", practice / "primate-12s/primate-12s-dedup.fasta",
                         "--midori-metadata", practice / "primate-12s/primate-12s-midori.tsv",
                         "--output", outputs / "12S reference.lungfish12sref", "--name", "12S reference"],

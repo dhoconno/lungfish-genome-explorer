@@ -81,12 +81,25 @@ with five primate mitochondrial reference genomes (human, chimpanzee,
 gorilla, rhesus macaque, cynomolgus macaque).
 
 `primate-12s/` is a constructed teaching fixture cut from the two above it. It
-supports the 12S amplicon metabarcoding chapter with a five-species primate 12S
-reference sliced out of `primate-mito/`'s genomes and a human 12S amplicon read
-set selected out of `human-mito/`'s HG002 chrM reads. It is not a published 12S
-dataset, and its README says so and explains the trade-off. Deviating from the
-tier list is not at issue here because the fixture stays inside the human and
-primate comparative tiers it is built from.
+supports the 12S amplicon metabarcoding chapter with a six-record primate 12S
+reference sliced out of `primate-mito/`'s genomes (plus one rhesus record
+shared with the Japanese macaque genome committed there), a human 12S amplicon
+read set selected out of `human-mito/`'s HG002 chrM reads, and a SIMULATED
+human, rhesus, and cynomolgus mixture at known proportions made with wgsim
+from the same genomes, because no public 12S run with human and macaque reads
+at known proportions exists. It is not a published 12S dataset, and its README
+says so, records the simulator, seeds, and commands, and explains the
+trade-off. Deviating from the tier list is not at issue here because the
+fixture stays inside the human and primate comparative tiers it is built from.
+
+`nrg1-ont-barcoded/` is the human tier's barcoded Oxford Nanopore run. It
+supports the ONT-run chapter's import and demultiplexing with six samples of
+human NRG1 amplicons from ENA study PRJEB62796, sequenced with the Native
+Barcoding Kit 96 V14 and uploaded with the barcodes still on the reads, laid
+out as a `fastq_pass` run folder (1,000 reads per barcode in two chunk files,
+plus an `unclassified` folder) and as one pooled file for Demultiplex
+Barcodes. It exists because the `hg002-long-reads/` run folder has no barcodes
+left on its reads, so every demultiplex of it assigns zero.
 
 `demo-assets/` is a README pointing at the rhesus macaque tier's demo
 asset, the lab's own 30-sample MiSeq amplicon genotyping project. The

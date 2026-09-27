@@ -1,6 +1,6 @@
 # Long Reads and Assembly
 
-This is a demo project for Lungfish Genome Explorer (LGE), version {{VERSION}}. It holds the practice data for the manual's long-read and assembly chapters, already imported the way each chapter's Before you start section asks. No mapping, variant calling, or assembly has been run, so every result in the project will be one you made.
+This is a demo project for Lungfish Genome Explorer (LGE), version {{VERSION}}. It holds the practice data for the manual's long-read and assembly chapters, already imported the way each chapter's Before you start section asks. No mapping, variant calling, demultiplexing, or assembly has been run, so every result in the project will be one you made.
 
 ## What is inside
 
@@ -9,16 +9,21 @@ This is a demo project for Lungfish Genome Explorer (LGE), version {{VERSION}}. 
 | `Imports/HG002.chrM.lungfishfastq` | HG002 Illumina 2x250 mitochondrial reads, one paired bundle of 19,916 reads (9,958 pairs), for SPAdes, MEGAHIT, and SKESA |
 | `Imports/HG002.chrM.ont.lungfishfastq` | 950 HG002 mitochondrial reads from an Oxford Nanopore instrument, imported with the platform set to Oxford Nanopore |
 | `Imports/HG002.chrM.hifi.lungfishfastq` | HG002 mitochondrial PacBio HiFi reads, imported with the platform set to PacBio |
+| `Imports/nrg1-pooled.lungfishfastq` | 2,400 human NRG1 amplicon reads from a barcoded Oxford Nanopore run, 400 from each of six samples pooled with their native barcodes still on the reads, for Demultiplex Barcodes |
 | `Reference Sequences/NC_012920.1.lungfishref` | The human mitochondrial reference sequence (rCRS), for nanopore variant calling |
-| `Practice Data/hg002-long-reads/ont-run/` | A minimal Oxford Nanopore run folder, `fastq_pass/barcode01/`, for the import in Oxford Nanopore Runs |
+| `Practice Data/hg002-long-reads/ont-run/` | A minimal Oxford Nanopore run folder, `fastq_pass/barcode01/`, holding the 950 HG002 reads |
+| `Practice Data/nrg1-ont-barcoded/ont-run/` | A six-barcode Oxford Nanopore run folder, `fastq_pass/barcode85/` to `barcode91/` plus `unclassified/`, 1,000 reads per barcode in two chunk files each, for the import in Oxford Nanopore Runs |
+| `Practice Data/nrg1-ont-barcoded/nrg1-barcodes.csv` | The custom barcode definition naming the six native barcodes and their samples, for Demultiplex Barcodes |
 
-The `ont-run` folder is left as files because importing it is the procedure of Oxford Nanopore Runs. Keep its nested folders as they are, because the importer takes the barcode name from the folder.
+The two `ont-run` folders are left as files because importing them is the procedure of Oxford Nanopore Runs. Keep their nested folders as they are, because the importer takes the barcode name from the folder.
 
 ## Where the data came from
 
-All reads come from HG002 (NA24385), the Genome in a Bottle (GIAB) Ashkenazi son, sliced to the mitochondrial genome. The Illumina reads come from the NIST/GIAB 2x250 PCR-free alignment against GRCh38. The nanopore reads come from the GIAB and UCSC ultra-long Oxford Nanopore PromethION run, and the HiFi reads from the GIAB PacBio Sequel II CCS 15 kb and 20 kb run. The run folder holds the same 950 nanopore reads, laid out the way an Oxford Nanopore run folder is. The reference is NCBI RefSeq `NC_012920.1`, the revised Cambridge Reference Sequence.
+The HG002 reads come from HG002 (NA24385), the Genome in a Bottle (GIAB) Ashkenazi son, sliced to the mitochondrial genome. The Illumina reads come from the NIST/GIAB 2x250 PCR-free alignment against GRCh38. The nanopore reads come from the GIAB and UCSC ultra-long Oxford Nanopore PromethION run, and the HiFi reads from the GIAB PacBio Sequel II CCS 15 kb and 20 kb run. The HG002 run folder holds the same 950 nanopore reads, laid out the way an Oxford Nanopore run folder is. The reference is NCBI RefSeq `NC_012920.1`, the revised Cambridge Reference Sequence.
 
-GIAB reference materials and NCBI records are U.S. government work in the public domain, and the ultra-long nanopore data set is also released under CC0. Check your local rules before redistributing these files elsewhere. Cite Zook and colleagues (2019), Nature Biotechnology 37, 561 to 566, https://doi.org/10.1038/s41587-019-0074-6, Shafin and colleagues (2020), Nature Biotechnology 38, 1044 to 1053, https://doi.org/10.1038/s41587-020-0503-6, and Andrews and colleagues (1999), Nature Genetics 23, 147, https://doi.org/10.1038/13779.
+The NRG1 reads are six samples from ENA study PRJEB62796, human NRG1 gene amplicons from iPSC-derived progenitors, iPSC-derived macrophages, and monocytes, sequenced on a GridION with the Native Barcoding Kit 96 V14 (barcodes 85, 86, 87, 89, 90, and 91). The submitters uploaded the reads with the barcode and adapter sequences still attached, which is what makes a demultiplex on them succeed. Each barcode here is a random 1,000 reads of its run's 35,000.
+
+GIAB reference materials and NCBI records are U.S. government work in the public domain, and the ultra-long nanopore data set is also released under CC0. ENA records are free to reuse under the INSDC policy. Check your local rules before redistributing these files elsewhere. Cite Zook and colleagues (2019), Nature Biotechnology 37, 561 to 566, https://doi.org/10.1038/s41587-019-0074-6, Shafin and colleagues (2020), Nature Biotechnology 38, 1044 to 1053, https://doi.org/10.1038/s41587-020-0503-6, Andrews and colleagues (1999), Nature Genetics 23, 147, https://doi.org/10.1038/13779, and ENA study PRJEB62796, https://www.ebi.ac.uk/ena/browser/view/PRJEB62796.
 
 ## Chapters that use this project
 
@@ -34,4 +39,4 @@ Extracting Contigs starts from an assembly, so run MEGAHIT or SPAdes as Running 
 
 ## Before you run anything
 
-Plugin packs and databases are installed on your Mac, not stored in a project, so this download carries none. The assemblers need the Genome Assembly pack, and Medaka and Clair3 need the Variant Calling pack. Mapping the nanopore reads needs the Read Mapping pack. Install them from **Tools > Plugin Manager...** as the Plugin Packs chapter shows.
+Plugin packs and databases are installed on your Mac, not stored in a project, so this download carries none. The assemblers need the Genome Assembly pack, and Medaka and Clair3 need the Variant Calling pack. Mapping the nanopore reads needs the Read Mapping pack. Install them from **Tools > Plugin Manager...** as the Plugin Packs chapter shows. Demultiplexing with the Exact Bare Barcode engine needs no pack at all.
