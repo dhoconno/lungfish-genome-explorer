@@ -144,6 +144,29 @@ final class BAMVariantCallingPreflightTests: XCTestCase {
         }
     }
 
+    func testPreflightNoLongerRequiresAModelForClair3() async throws {
+        // Clair3 picks the platform's shipped model when none is named, so
+        // the preflight must not demand one.
+        let bundleURL = try createBundle(genomeMD5Checksum: nil)
+        let preflight = BAMVariantCallingPreflight(
+            bamReferenceReader: { _ in
+                [SAMParser.ReferenceSequence(name: "chr1", length: 20, md5: nil, assembly: nil, uri: nil, species: nil)]
+            },
+            bamHeaderReader: { _ in "@HD\tVN:1.6\n@SQ\tSN:chr1\tLN:20\n@RG\tID:rg1\tPL:ONT\n" }
+        )
+
+        let result = try await preflight.validate(
+            BundleVariantCallingRequest(
+                bundleURL: bundleURL,
+                alignmentTrackID: "aln-1",
+                caller: .clair3,
+                outputTrackName: "Sample BAM • Clair3"
+            )
+        )
+
+        XCTAssertEqual(result.detectedPlatform, .ont)
+    }
+
     func testPreflightBlocksMedakaWithoutOntModelMetadata() async throws {
         let bundleURL = try createBundle(genomeMD5Checksum: nil)
         let preflight = BAMVariantCallingPreflight(
@@ -194,8 +217,115 @@ final class BAMVariantCallingPreflightTests: XCTestCase {
             )
             XCTFail("Expected Medaka preflight to reject BAMs without verifiable ONT metadata")
         } catch let error as BAMVariantCallingPreflightError {
-            XCTAssertEqual(error, .medakaCouldNotVerifyONTMetadata)
+            XCTAssertEqual(error, .medakaCouldNotVerifyONTMetadata("ILLUMINA"))
         }
+    }
+
+    func testPreflightAcceptsMedakaWhenReadGroupsSayOntEvenThoughTheModelIsNotInTheHeader() async throws {
+        // LGE's own mapper writes `PL:ONT` and nothing about the basecaller,
+        // and a dorado BAM spells the model `dna_r10.4.1_e8.2_400bps_sup@v5.0.0`,
+        // never the medaka name. Requiring the medaka model string in the
+        // header therefore blocked every real alignment.
+        let bundleURL = try createBundle(genomeMD5Checksum: nil)
+        let preflight = BAMVariantCallingPreflight(
+            bamReferenceReader: { _ in
+                [SAMParser.ReferenceSequence(name: "chr1", length: 20, md5: nil, assembly: nil, uri: nil, species: nil)]
+            },
+            bamHeaderReader: { _ in
+                """
+                @HD\tVN:1.6\tSO:coordinate
+                @SQ\tSN:chr1\tLN:20
+                @RG\tID:rg1\tSM:HG002\tPL:ONT\tPU:run1
+                """
+            }
+        )
+
+        let result = try await preflight.validate(
+            BundleVariantCallingRequest(
+                bundleURL: bundleURL,
+                alignmentTrackID: "aln-1",
+                caller: .medaka,
+                outputTrackName: "Sample BAM • Medaka",
+                medakaModel: "r941_prom_sup_variant_g507"
+            )
+        )
+
+        XCTAssertEqual(result.detectedPlatform, .ont)
+    }
+
+    func testPreflightLetsMedakaRunWhenTheHeaderHasNoReadGroups() async throws {
+        // An imported BAM without @RG lines proves nothing either way, so
+        // the run proceeds and the platform stays undetected.
+        let bundleURL = try createBundle(genomeMD5Checksum: nil)
+        let preflight = BAMVariantCallingPreflight(
+            bamReferenceReader: { _ in
+                [SAMParser.ReferenceSequence(name: "chr1", length: 20, md5: nil, assembly: nil, uri: nil, species: nil)]
+            },
+            bamHeaderReader: { _ in "@HD\tVN:1.6\tSO:coordinate\n@SQ\tSN:chr1\tLN:20\n" }
+        )
+
+        let result = try await preflight.validate(
+            BundleVariantCallingRequest(
+                bundleURL: bundleURL,
+                alignmentTrackID: "aln-1",
+                caller: .medaka,
+                outputTrackName: "Sample BAM • Medaka",
+                medakaModel: "r941_prom_sup_variant_g507"
+            )
+        )
+
+        XCTAssertNil(result.detectedPlatform)
+    }
+
+    func testPreflightExplicitPlatformOverridesReadGroupsForMedaka() async throws {
+        let bundleURL = try createBundle(genomeMD5Checksum: nil)
+        let preflight = BAMVariantCallingPreflight(
+            bamReferenceReader: { _ in
+                [SAMParser.ReferenceSequence(name: "chr1", length: 20, md5: nil, assembly: nil, uri: nil, species: nil)]
+            },
+            bamHeaderReader: { _ in "@HD\tVN:1.6\n@SQ\tSN:chr1\tLN:20\n@RG\tID:rg1\tPL:ILLUMINA\n" }
+        )
+
+        let result = try await preflight.validate(
+            BundleVariantCallingRequest(
+                bundleURL: bundleURL,
+                alignmentTrackID: "aln-1",
+                caller: .medaka,
+                outputTrackName: "Sample BAM • Medaka",
+                medakaModel: "r941_prom_sup_variant_g507",
+                platform: .ont
+            )
+        )
+
+        XCTAssertEqual(result.detectedPlatform, .ilmn, "detection reports what the header says; the request's choice wins downstream")
+    }
+
+    func testPreflightDetectsPlatformAndBasecallerDescriptionsForClair3() async throws {
+        let bundleURL = try createBundle(genomeMD5Checksum: nil)
+        let preflight = BAMVariantCallingPreflight(
+            bamReferenceReader: { _ in
+                [SAMParser.ReferenceSequence(name: "chr1", length: 20, md5: nil, assembly: nil, uri: nil, species: nil)]
+            },
+            bamHeaderReader: { _ in
+                """
+                @HD\tVN:1.6\tSO:coordinate
+                @SQ\tSN:chr1\tLN:20
+                @RG\tID:rg1\tSM:HG002\tPL:PACBIO\tDS:READTYPE=CCS
+                """
+            }
+        )
+
+        let result = try await preflight.validate(
+            BundleVariantCallingRequest(
+                bundleURL: bundleURL,
+                alignmentTrackID: "aln-1",
+                caller: .clair3,
+                outputTrackName: "Sample BAM • Clair3"
+            )
+        )
+
+        XCTAssertEqual(result.detectedPlatform, .hifi)
+        XCTAssertEqual(result.readGroupDescriptions, ["READTYPE=CCS"])
     }
 
     func testPreflightAcceptsMedakaWhenBamHeaderProvesOntPlatformAndModel() async throws {

@@ -48,6 +48,9 @@ public struct BundleVariantCallingRequest: Sendable, Equatable {
     /// manifest" via `VariantCallingPloidyDefaults`; ignored by every other
     /// caller, none of which emits genotypes.
     public let ploidy: VariantCallingPloidy?
+    /// Sequencing platform for Medaka and Clair3. `nil` means "read it from
+    /// the alignment's `@RG PL:` tags"; ignored by the other callers.
+    public let platform: VariantCallingPlatform?
 
     public init(
         bundleURL: URL,
@@ -64,7 +67,8 @@ public struct BundleVariantCallingRequest: Sendable, Equatable {
         ivarMergeAFThreshold: Double = 0.25,
         ivarBadQualityThreshold: Int = 20,
         ivarIgnoreStrandBias: Bool = true,
-        ploidy: VariantCallingPloidy? = nil
+        ploidy: VariantCallingPloidy? = nil,
+        platform: VariantCallingPlatform? = nil
     ) {
         self.bundleURL = bundleURL
         self.alignmentTrackID = alignmentTrackID
@@ -81,6 +85,7 @@ public struct BundleVariantCallingRequest: Sendable, Equatable {
         self.ivarBadQualityThreshold = ivarBadQualityThreshold
         self.ivarIgnoreStrandBias = ivarIgnoreStrandBias
         self.ploidy = ploidy
+        self.platform = platform
     }
 }
 
