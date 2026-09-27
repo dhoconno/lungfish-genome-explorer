@@ -11,7 +11,23 @@ private struct TaxTriagePrerequisiteState {
     let nextflowAvailable: Bool
     let containerAvailable: Bool
     let containerName: String
+    let containerUnavailableMessage: String?
     let databases: [MetagenomicsDatabaseInfo]
+}
+
+/// Pure, testable mapping from the shared Docker daemon verdict to the
+/// wizard's prerequisite row. TaxTriage launches with `-profile docker`, so
+/// only the Docker daemon counts; Apple Containerization never does.
+struct TaxTriageContainerPrerequisite: Equatable {
+    let available: Bool
+    let label: String
+    let validationMessage: String?
+
+    init(status: PipelineContainerRuntimeStatus) {
+        available = status.available
+        label = status.label
+        validationMessage = status.available ? nil : status.unavailableMessage
+    }
 }
 
 private struct TaxTriagePrerequisiteToken: Sendable {
@@ -63,7 +79,7 @@ struct TaxTriageStandalonePresentation: Equatable {
 ///
 /// The wizard supports multi-sample input, platform selection, Kraken2 database
 /// path, assembly control, and advanced parameter tuning. Prerequisite checks
-/// for Nextflow and Docker/container runtime are shown at the top.
+/// for Nextflow and the Docker daemon are shown at the top.
 ///
 /// ## Multi-Sample Support
 ///
@@ -113,6 +129,7 @@ struct TaxTriageWizardSheet: View {
     @State private var nextflowAvailable: Bool? = nil
     @State private var containerAvailable: Bool? = nil
     @State private var containerName: String = "Checking..."
+    @State private var containerUnavailableMessage: String? = nil
     @State private var prerequisiteCheckGeneration: Int = 0
     @State private var prerequisiteCheckSession = AsyncValidationSession<Int, TaxTriagePrerequisiteState>()
 
@@ -127,17 +144,23 @@ struct TaxTriageWizardSheet: View {
     /// Notifies the shared shell whether the current configuration can run.
     var onRunnerAvailabilityChange: ((Bool) -> Void)?
 
+    /// Probe behind the Docker prerequisite row. The same probe backs
+    /// `lungfish-cli debug container`; tests inject a stub.
+    private let containerRuntimeProbe: any ContainerRuntimeProbing
+
     // MARK: - Initialization
 
     init(
         initialFiles: [URL] = [],
         embeddedInOperationsDialog: Bool = false,
         embeddedRunTrigger: Int = 0,
+        containerRuntimeProbe: any ContainerRuntimeProbing = SystemContainerRuntimeProbe(),
         onRun: ((TaxTriageConfig) -> Void)? = nil,
         onCancel: (() -> Void)? = nil,
         onRunnerAvailabilityChange: ((Bool) -> Void)? = nil
     ) {
         self.initialFiles = initialFiles
+        self.containerRuntimeProbe = containerRuntimeProbe
         self.embeddedInOperationsDialog = embeddedInOperationsDialog
         self.embeddedRunTrigger = embeddedRunTrigger
         self.onRun = onRun
@@ -345,7 +368,7 @@ struct TaxTriageWizardSheet: View {
             return "Nextflow is not installed"
         }
         if containerAvailable == false {
-            return "No container runtime available"
+            return containerUnavailableMessage ?? "\(PipelineContainerRuntimeStatus.runtimeName) is not running"
         }
         if nextflowAvailable == nil || containerAvailable == nil {
             return "Checking prerequisites..."
@@ -376,6 +399,7 @@ struct TaxTriageWizardSheet: View {
                     label: containerName,
                     available: containerAvailable
                 )
+                .help(containerUnavailableMessage ?? "TaxTriage runs its containers through \(PipelineContainerRuntimeStatus.runtimeName).")
             }
         }
     }
@@ -638,7 +662,12 @@ struct TaxTriageWizardSheet: View {
 
     // MARK: - Actions
 
-    /// Checks Nextflow and container runtime availability.
+    /// Checks Nextflow and Docker daemon availability.
+    ///
+    /// The pipeline launches with `-profile docker`, so the row reports the
+    /// Docker daemon through the same probe `lungfish-cli debug container`
+    /// uses. `NewContainerRuntimeFactory.createRuntime()` is not consulted:
+    /// it prefers Apple Containerization, which cannot run this pipeline.
     private func checkPrerequisites() {
         prerequisiteCheckGeneration += 1
         let generation = prerequisiteCheckGeneration
@@ -647,42 +676,34 @@ struct TaxTriageWizardSheet: View {
             generation: rawPrerequisiteToken.generation,
             identity: rawPrerequisiteToken.identity
         )
+        let probe = containerRuntimeProbe
 
         Task { @MainActor in
             let runner = NextflowRunner()
             let nfAvailable = await runner.isAvailable()
-
-            if let containerRT = await NewContainerRuntimeFactory.createRuntime() {
-                let name = await containerRT.displayName
-                let state = await loadPrerequisiteState(
-                    nextflowAvailable: nfAvailable,
-                    containerAvailable: true,
-                    containerName: "\(name): Available"
-                )
-                applyPrerequisiteState(state, for: prerequisiteToken)
-            } else {
-                let state = await loadPrerequisiteState(
-                    nextflowAvailable: nfAvailable,
-                    containerAvailable: false,
-                    containerName: "Container: Not found"
-                )
-                applyPrerequisiteState(state, for: prerequisiteToken)
-            }
+            let container = TaxTriageContainerPrerequisite(
+                status: await PipelineContainerRuntimeStatus.check(probe: probe)
+            )
+            let state = await loadPrerequisiteState(
+                nextflowAvailable: nfAvailable,
+                container: container
+            )
+            applyPrerequisiteState(state, for: prerequisiteToken)
         }
     }
 
     private func loadPrerequisiteState(
         nextflowAvailable: Bool,
-        containerAvailable: Bool,
-        containerName: String
+        container: TaxTriageContainerPrerequisite
     ) async -> TaxTriagePrerequisiteState {
         let registry = MetagenomicsDatabaseRegistry.shared
         let allDbs = (try? await registry.availableDatabases()) ?? []
         let kraken2Dbs = allDbs.filter { $0.tool == "kraken2" && $0.isDownloaded }
         return TaxTriagePrerequisiteState(
             nextflowAvailable: nextflowAvailable,
-            containerAvailable: containerAvailable,
-            containerName: containerName,
+            containerAvailable: container.available,
+            containerName: container.label,
+            containerUnavailableMessage: container.validationMessage,
             databases: kraken2Dbs
         )
     }
@@ -698,6 +719,7 @@ struct TaxTriageWizardSheet: View {
         nextflowAvailable = state.nextflowAvailable
         containerAvailable = state.containerAvailable
         containerName = state.containerName
+        containerUnavailableMessage = state.containerUnavailableMessage
         installedDatabases = state.databases
         selectedDatabaseName = ClassificationWizardSheet.databaseSelectionAfterRefresh(
             currentSelection: selectedDatabaseName,

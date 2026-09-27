@@ -6,6 +6,7 @@ import ArgumentParser
 import Foundation
 import XCTest
 @testable import LungfishCLI
+import LungfishWorkflow
 
 /// A probe whose answers are fixed by the test.
 private struct StubContainerRuntimeProbe: ContainerRuntimeProbing {
