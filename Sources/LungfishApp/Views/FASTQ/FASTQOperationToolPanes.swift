@@ -668,16 +668,22 @@ private struct FASTQOperationPrimarySettingsSection: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 if state.demultiplexEngine == .cutadapt {
-                    Picker("Location", selection: $state.demultiplexLocation) {
-                        Text("Both Ends").tag("bothends")
-                        Text("5' End").tag("fiveprime")
-                        Text("3' End").tag("threeprime")
-                    }
-                    .pickerStyle(.segmented)
-                    .lungfishHelp(LungfishHelpContent.fastqDemultiplexLocation)
-                    HStack(spacing: 12) {
-                        labeledCompactTextField("5' Distance", text: Self.intBinding(state, \.demultiplexMaxDistanceFrom5Prime), help: LungfishHelpContent.fastqDemultiplexDistance)
-                        labeledCompactTextField("3' Distance", text: Self.intBinding(state, \.demultiplexMaxDistanceFrom3Prime), help: LungfishHelpContent.fastqDemultiplexDistance)
+                    if state.demultiplexKitUsesPlatformConstruct {
+                        Text(FASTQOperationDialogState.demultiplexPlatformConstructCaption)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        Picker("Location", selection: $state.demultiplexLocation) {
+                            Text("Both Ends").tag("bothends")
+                            Text("5' End").tag("fiveprime")
+                            Text("3' End").tag("threeprime")
+                        }
+                        .pickerStyle(.segmented)
+                        .lungfishHelp(LungfishHelpContent.fastqDemultiplexLocation)
+                        HStack(spacing: 12) {
+                            labeledCompactTextField("5' Distance", text: Self.intBinding(state, \.demultiplexMaxDistanceFrom5Prime), help: LungfishHelpContent.fastqDemultiplexDistance)
+                            labeledCompactTextField("3' Distance", text: Self.intBinding(state, \.demultiplexMaxDistanceFrom3Prime), help: LungfishHelpContent.fastqDemultiplexDistance)
+                        }
                     }
                     HStack(spacing: 12) {
                         labeledCompactTextField("Error Rate", text: Self.doubleBinding(state, \.demultiplexErrorRate), help: LungfishHelpContent.fastqErrorRate)

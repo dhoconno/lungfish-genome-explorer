@@ -101,6 +101,18 @@ public struct BarcodeKitDefinition: Codable, Sendable, Equatable, Identifiable {
         try container.encode(barcodes, forKey: .barcodes)
     }
 
+    /// True for long-read kits whose cutadapt search uses the platform's full
+    /// adapter+barcode construct (ONT native, rapid, PCR and 16S kits, and
+    /// other symmetric or single-barcode ONT/PacBio kits). The demultiplexing
+    /// pipeline searches that construct at both read ends in both orientations
+    /// and, for symmetric kits, keeps only reads carrying the same barcode at
+    /// both ends. The barcode location and 5'/3' distance settings shape
+    /// anchored short-read adapter specs and do not apply to these kits.
+    public var searchesFullPlatformConstruct: Bool {
+        platform.readsCanBeReverseComplemented
+            && (pairingMode == .symmetric || pairingMode == .singleEnd)
+    }
+
     /// Returns the platform-specific adapter context for this kit.
     public var adapterContext: any PlatformAdapterContext {
         platform.adapterContext(kitType: kitType)

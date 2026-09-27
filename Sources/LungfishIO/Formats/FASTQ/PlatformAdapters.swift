@@ -24,21 +24,33 @@ public enum PlatformAdapters {
     /// Y-adapter bottom strand (reverse complement of top).
     public static let ontYAdapterBottom = "AGCAATACGTAACTGAACGAAGT"
 
-    /// Outer flank between Y-adapter and barcode on the 5' side (native barcoding).
-    /// Part of the ONT adapter construct, NOT a user primer.
-    public static let ontNativeOuterFlank5 = "AAGGTTAA"
+    /// Outer flank between the Y-adapter and the barcode at the 5' end of a
+    /// native-barcoded read (SQK-NBD104/114).
+    ///
+    /// Oxford Nanopore's chemistry technical document lists each native barcode
+    /// twice: a "forward" oligo `AAGGTTAA-barcode-CAGCACCT` and a "reverse"
+    /// oligo `GGTGCTG-barcode-TTAACCTTAGCAAT`. The published barcode sequence
+    /// is the same 24-mer in both. Basecalled reads present the *reverse*
+    /// arrangement at the 5' end: `...ATTGCT` (Y-adapter) `GGTGCTG` barcode
+    /// `TTAACCTT` insert. In 2,400 real SQK-NBD114-96 reads (ENA PRJEB62796)
+    /// the 8 bases before the barcode were closer to `GGTGCTG` in 1,375 reads
+    /// and to `AAGGTTAA` in 8, so this is the flank a demultiplexer must
+    /// search, not a user primer.
+    public static let ontNativeOuterFlank5 = "GGTGCTG"
 
-    /// Outer flank between barcode_RC and Y-adapter on the 3' side (RC of outer flank 5').
-    public static let ontNativeOuterFlank3 = "TTAACCTT"
+    /// Outer flank between the reverse-complemented barcode and the Y-adapter
+    /// at the 3' end (reverse complement of `ontNativeOuterFlank5`).
+    public static let ontNativeOuterFlank3 = "CAGCACC"
 
-    /// Native barcode 5' internal flank (constant across all native barcodes).
-    /// Sits between the barcode and the insert on the 5' side.
-    /// Typically a PCR primer start — used for primer trimming, NOT demultiplexing.
-    public static let ontNativeBarcodeFlank5 = "CAGCACCT"
+    /// Native barcode 5' inner flank: the constant 8-mer between the barcode
+    /// and the insert at the 5' end of a read (`TTAACCTT`, the tail of ONT's
+    /// "reverse" oligo). Constant across all native barcodes.
+    public static let ontNativeBarcodeFlank5 = "TTAACCTT"
 
-    /// Native barcode 3' internal flank (reverse complement of 5' flank).
-    /// Sits between the insert and the barcode on the 3' side.
-    public static let ontNativeBarcodeFlank3 = "AGGTGCTG"
+    /// Native barcode 3' inner flank: between the insert and the
+    /// reverse-complemented barcode at the 3' end (reverse complement of
+    /// `ontNativeBarcodeFlank5`).
+    public static let ontNativeBarcodeFlank3 = "AAGGTTAA"
 
     /// Rapid adapter (RAP-T), used in RBK, RAD, RPB kits.
     /// Includes the poly-T motor protein loading sequence.

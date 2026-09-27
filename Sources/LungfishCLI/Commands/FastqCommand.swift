@@ -2986,6 +2986,14 @@ struct FastqDemultiplexSubcommand: AsyncParsableCommand {
             Custom definitions can be CSV, TSV, or whitespace-delimited text:
               id,sequence[,secondary_sequence][,sample_name]
               FLD0001<TAB>GTATCGTCGT
+            A header line may name the columns instead, so id,sequence,sample_name
+            puts sample names in the third column.
+
+            Long-read kits (ONT native, rapid, PCR and 16S barcoding, PacBio) are
+            searched as the platform's full adapter and barcode construct at both
+            read ends in both orientations; a read is assigned only when both ends
+            carry the same barcode. --location and --max-distance-* do not apply
+            to those kits.
 
             Engines:
               cutadapt    Established fuzzy adapter matcher; supports error rate and indels.
@@ -3100,6 +3108,17 @@ struct FastqDemultiplexSubcommand: AsyncParsableCommand {
             throw ValidationError("Invalid demultiplexing engine '\(engine)'. Use: cutadapt or exact-bare")
         }
         let effectiveTrimBarcodes = demultiplexEngine == .exactBareBarcode ? false : !noTrim
+
+        if demultiplexEngine == .cutadapt, barcodeKit.searchesFullPlatformConstruct,
+           barcodeLocation != .bothEnds || maxDistanceFrom5Prime != 0 || maxDistanceFrom3Prime != 0 {
+            FileHandle.standardError.write(Data("""
+                Note: \(barcodeKit.displayName) is searched as the platform's full adapter and barcode \
+                construct at both read ends in both orientations, and a read is assigned only when both \
+                ends carry the same barcode. --location and --max-distance-5prime/3prime do not apply \
+                to this kit and are ignored.
+
+                """.utf8))
+        }
 
         let preparedFASTA = fastaInput
             ? try await FastqDemultiplexSequenceFormat.prepareFASTA(inputURL: inputURL, outputDirectory: outputURL)
