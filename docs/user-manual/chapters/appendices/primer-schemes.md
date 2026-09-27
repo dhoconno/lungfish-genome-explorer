@@ -33,7 +33,7 @@ An [amplicon](../../GLOSSARY.md#amplicon) protocol copies the target in overlapp
 
 Lungfish Genome Explorer (LGE) packages a primer scheme as a `.lungfishprimers` bundle. A [bundle](../../GLOSSARY.md#bundle) is a folder LGE treats as one item, as [What bundle means](../01-foundations/06-the-lungfish-project.md#what-bundle-means) explains. This one holds the primer coordinates, a [manifest](../../GLOSSARY.md#manifest) naming the protocol and the reference the coordinates were written against, and a record of where the scheme came from. The Primer Trim dialog and the Viral Recon wizard both read the bundle rather than a loose coordinate file, so the scheme name you pick cannot disagree with the coordinates the [primer trim](../../GLOSSARY.md#primer-trim) uses.
 
-This appendix covers the `.lungfishprimers` format, the schemes LGE ships, and building a scheme from a BED file. To pick a shipped scheme, read [Shipped schemes](#shipped-schemes) and stop there. To use a kit LGE does not ship, such as a human or macaque amplicon panel, follow [Building a scheme from a BED file](#building-a-scheme-from-a-bed-file).
+A scheme can come from three places. Eight ship inside the application, you can import one from a kit's BED file, and LGE's own design tools can save one from a tiled design, as [Designing a Tiled Amplicon Scheme](../10-primer-design/03-designing-a-tiled-amplicon-scheme.md) does. This appendix covers the format and all three routes. To pick a shipped scheme, read [Shipped schemes](#shipped-schemes) and stop there. To use a kit LGE does not ship, such as a human or macaque amplicon panel, follow [Building a scheme from a BED file](#building-a-scheme-from-a-bed-file). For one you designed in LGE, read [Saving a designed scheme](#saving-a-designed-scheme).
 
 ## Shipped schemes
 
@@ -75,7 +75,7 @@ MacaqueMHC-v1.lungfishprimers/
 
 `manifest.json`, `primers.bed`, and `PROVENANCE.md` are required. A bundle missing any of them is left out of the Primer Scheme menus without a message. The error appears only when you pick the bundle with **Choose Scheme...** or pass it to the command line, reading "Bundle is missing manifest.json.", "Bundle is missing primers.bed.", or "Bundle is missing PROVENANCE.md.". A manifest that is present but unreadable gives a message naming the parse failure instead. You meet these messages only if you assembled a bundle by hand, which works because the format is plain files, but the importer is the supported route.
 
-`primers.fasta` holds the primer sequences and is optional, because the coordinates plus the reference genome already say what each primer's sequence is. Both routes can add it. `attachments/` holds vendor documentation, source spreadsheets, or lab notes that should travel with the scheme, and only the command line can add it.
+`primers.fasta` holds the primer sequences and is optional, because the coordinates plus the reference genome already say what each primer's sequence is. Every route can add it. `attachments/` holds files that should travel with the scheme, vendor documentation, source spreadsheets or lab notes on an imported scheme, and on a designed scheme the [design reference](../../GLOSSARY.md#design-reference) the coordinates belong to. Both the command line and **Save as Primer Scheme…** write attachments, and only the import sheet cannot.
 
 `PROVENANCE.md` is the record you read yourself, and `provenance/` holds the machine-readable records, one per file the import wrote plus a `bundle.lungfish-provenance.json` for the run as a whole. [What the provenance records](#what-the-provenance-records) describes both.
 
@@ -116,6 +116,8 @@ A scheme whose names follow neither convention still imports. Names such as `pan
 
 The scheme has to name the same reference sequence as the alignment you trim. At trim time LGE compares the scheme's canonical and equivalent accessions with the sequence names in the alignment's header, first exactly and then ignoring a trailing version number and letter case, so `NC_045512` matches `NC_045512.2`. When nothing matches, the trim stops with an error that names the accessions the scheme expects and the names the alignment holds. The fix is to import the scheme again with the alignment's own sequence name as its canonical accession, or to override the match with `--target-reference` on the command line, as [Primer Trimming an Alignment](../04-alignments/03-primer-trimming.md) describes.
 
+For a designed scheme the match is easier to get right, because the sequence the coordinates belong to travels inside the bundle. Import `attachments/design-reference.fasta` as a reference bundle, map the reads to it, and the names agree by construction. Mapping to a different copy of the same gene, even the accession the design started from, shifts every position by however many bases the two differ by, and the trim then removes the wrong bases or none at all.
+
 ## Building a scheme from a BED file
 
 Both routes write the same bundle through the same code. The window route is complete for work inside a project. The command line adds attachments and suits a script.
@@ -151,6 +153,21 @@ The new scheme appears in the sidebar under **Primer Schemes**, without its `.lu
 
 The Inspector only displays a scheme. To change a field, import the scheme again under a new name, or open the bundle with **Show Package Contents** and edit `manifest.json` in a text editor.
 
+## Saving a designed scheme
+
+A tiled design made in LGE becomes a scheme without a BED file of its own. In the primer analysis viewer's Results tab, or in the Inspector's View tab, **Save as Primer Scheme…** writes `Primer Schemes/<scheme name>.lungfishprimers` into the same project, and `lungfish-cli primers scheme-from-analysis` writes the same bundle from the same code. [Save a tiled scheme as a primer scheme](../10-primer-design/05-reviewing-and-ordering-primers.md#save-a-tiled-scheme-as-a-primer-scheme) is the procedure.
+
+Only a tiled result can be saved. PrimalScheme, Olivar and tiled varVAMP designs qualify, and Primer3 candidate pairs and varVAMP qPCR assays do not, because they are alternatives rather than one scheme, which is what the disabled button's caption says. A result whose primers sit on more than one reference is saved one reference at a time.
+
+A designed scheme differs from an imported one in four ways.
+
+- Its manifest `source` reads `designed`, beside `built-in` for the shipped schemes and `imported` for the importer's.
+- Its `display_name` joins the analysis name, the engine and the result's mode, as in `Mamu-A1 tiled PrimalScheme · mamu-a1-panel`, and the **Scheme name** field sets the folder name.
+- It always carries `attachments/design-reference.fasta`, the sequence the engine designed on, with the description "Design reference the BED coordinates belong to. Map reads to this sequence before primer trimming."
+- Its canonical accession is that design reference's own name, which is the first alignment row's name for PrimalScheme and a generated name for the other two, such as `varVAMP_ambiguous_consensus`.
+
+That last point is the one to act on. An imported kit's coordinates belong to a database accession you can fetch, while a designed scheme's coordinates belong to whatever the engine designed on. For PrimalScheme that is the first alignment row without its gaps, so the scheme also records the row's internal identifier as an equivalent accession. For Olivar it is a reference Olivar generated, which is no single input sequence. For varVAMP it is an ambiguous consensus carrying IUPAC codes, which matches no real sequence at all, so a mapper scores those positions as mismatches. Import `attachments/design-reference.fasta` as a reference bundle and map your reads to it before trimming, as [Matching the scheme to your alignment](#matching-the-scheme-to-your-alignment) describes, and expect a low trim rate whenever reads went somewhere else instead.
+
 ## Manifest fields
 
 `manifest.json` is a [JSON](../../GLOSSARY.md#json) file, plain text holding named fields that a program reads directly. Its keys are [snake_case](../../GLOSSARY.md#snake-case), meaning lowercase words joined by underscores.
@@ -165,7 +182,7 @@ The Inspector only displays a scheme. To change a field, import the scheme again
 | `reference_accessions` | List of accession records, described below. |
 | `primer_count` | Number of primer rows in the BED. |
 | `amplicon_count` | Number of distinct amplicon names in BED column 4. |
-| `source` | `built-in` for the shipped schemes and `imported` for the importer's. |
+| `source` | `built-in` for the shipped schemes, `imported` for the importer's, and `designed` for one saved from an LGE design. |
 | `version` | Scheme version text. |
 | `created` | When the bundle was written. |
 | `imported` | When the scheme was imported into a project, a separate event from `created`. |
@@ -216,4 +233,6 @@ A second import to the same place does not overwrite the first. It stops with a 
 
 ## Next
 
-Go to [Primer Trimming an Alignment](../04-alignments/03-primer-trimming.md) to apply a scheme to a mapped alignment, or to [The Viral Recon Wizard](../04-alignments/05-viral-recon-wizard.md) to run one through the whole SARS-CoV-2 pipeline.
+Go to [Primer Trimming an Alignment](../04-alignments/03-primer-trimming.md) to apply a scheme to a mapped alignment, or to [The Viral Recon Wizard](../04-alignments/05-viral-recon-wizard.md) to run one through the whole SARS-CoV-2 pipeline. To design a scheme of your own rather than import one, see [Designing a Tiled Amplicon Scheme](../10-primer-design/03-designing-a-tiled-amplicon-scheme.md).
+
+A designed viral scheme's downstream is that trimming chapter and then [Calling Variants from Amplicons](../05-variants/01-calling-variants-from-amplicons.md). A designed MHC panel's downstream is [Running Amplicon MHC Genotyping](../09-genotyping/02-running-genotyping.md), which reads amplicons against an allele library and needs no primer scheme, so save a scheme there only if you also want the primer positions trimmed out of the reads first.
