@@ -1065,9 +1065,13 @@ public struct ProvenanceWriter: Sendable {
             throw error
         }
 
+        // The receipt names the destination as the caller spelled it, so an
+        // observer comparing against the URL it protected (`/var/x`, `/tmp/x`)
+        // recognises its own artifact; the state keys stay physical, and the
+        // snapshot canonicalises the reported URL before looking them up.
         let mutation = ProvenanceWriterMutation(
             kind: kind,
-            affectedURLs: [standardizedDestination],
+            affectedURLs: [destinationURL.standardizedFileURL],
             requiredPriorStates: [
                 standardizedDestination.path: priorState,
             ],

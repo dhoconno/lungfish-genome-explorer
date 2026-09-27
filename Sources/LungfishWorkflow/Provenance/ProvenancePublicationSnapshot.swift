@@ -78,7 +78,14 @@ public struct ProvenancePublicationRollbackWitness: Sendable {
 /// scientific data. Restore the snapshot if provenance publication fails.
 public struct ProvenancePublicationSnapshot {
     private struct Entry {
+        /// Physical path (CanonicalFilePath); the identity every receipt,
+        /// witness and filesystem operation uses.
         let originalURL: URL
+        /// The URL the caller passed, standardized. Results and errors report
+        /// this spelling so a caller that protected `/var/x` (or `/tmp/x`)
+        /// can match what comes back against what it asked for; with
+        /// `/private` prepended the same artifact would look foreign.
+        let reportedURL: URL
         let backupURL: URL?
         let initialState: ProvenancePublicationArtifactState
     }
@@ -107,6 +114,7 @@ public struct ProvenancePublicationSnapshot {
                 // Physical path, so a receipt for /tmp/x and a mutation reported
                 // at /private/tmp/x describe the same artifact (CanonicalFilePath).
                 let standardizedURL = url.canonicalFileURL
+                let reportedURL = url.standardizedFileURL
                 guard seen.insert(standardizedURL.path).inserted else {
                     continue
                 }
@@ -128,6 +136,7 @@ public struct ProvenancePublicationSnapshot {
                     capturedEntries.append(
                         Entry(
                             originalURL: standardizedURL,
+                            reportedURL: reportedURL,
                             backupURL: nil,
                             initialState: .missing
                         )
@@ -160,6 +169,7 @@ public struct ProvenancePublicationSnapshot {
                 capturedEntries.append(
                     Entry(
                         originalURL: standardizedURL,
+                        reportedURL: reportedURL,
                         backupURL: backupURL,
                         initialState: stateAfterCopy
                     )
@@ -373,7 +383,7 @@ public struct ProvenancePublicationSnapshot {
         for entry in entries {
             guard let expected = witness.states[entry.originalURL.path],
                   Self.statesMatch(expected, try Self.artifactState(at: entry.originalURL, fileManager: fileManager)) else {
-                changed.append(entry.originalURL)
+                changed.append(entry.reportedURL)
                 continue
             }
         }
@@ -401,7 +411,7 @@ public struct ProvenancePublicationSnapshot {
         for entry in entries.reversed() {
             guard let attemptedState = witness.states[entry.originalURL.path]
             else {
-                preservedExternalChanges.append(entry.originalURL)
+                preservedExternalChanges.append(entry.reportedURL)
                 continue
             }
             let preserved = try restoreByAtomicDetachment(
@@ -446,9 +456,11 @@ public struct ProvenancePublicationSnapshot {
         attemptedState: ProvenancePublicationArtifactState,
         afterArtifactDetached: ((URL) throws -> Void)?
     ) throws -> [URL] {
-        let quarantineURL = entry.originalURL.deletingLastPathComponent()
+        // Scratch names sit beside the artifact under the caller's spelling
+        // of its directory (the physical path names the same directory).
+        let quarantineURL = entry.reportedURL.deletingLastPathComponent()
             .appendingPathComponent(
-                ".\(entry.originalURL.lastPathComponent)"
+                ".\(entry.reportedURL.lastPathComponent)"
                     + ".provenance-rollback-\(UUID().uuidString)"
             )
         let detached = try Self.renameExclusivelyIfPresent(
@@ -457,7 +469,7 @@ public struct ProvenancePublicationSnapshot {
         )
         guard detached else {
             guard attemptedState == .missing else {
-                return [entry.originalURL]
+                return [entry.reportedURL]
             }
             return try restoreBackupExclusively(
                 entry,
@@ -466,7 +478,7 @@ public struct ProvenancePublicationSnapshot {
         }
 
         do {
-            try afterArtifactDetached?(entry.originalURL)
+            try afterArtifactDetached?(entry.reportedURL)
         } catch {
             _ = try? Self.renameExclusivelyIfPresent(
                 from: quarantineURL,
@@ -485,12 +497,12 @@ public struct ProvenancePublicationSnapshot {
                 to: entry.originalURL
             )
             if restored {
-                return [entry.originalURL]
+                return [entry.reportedURL]
             }
             // A later writer already recreated the public pathname. Keep the
             // displaced external artifact quarantined rather than deleting
             // either writer's data.
-            return [entry.originalURL, quarantineURL]
+            return [entry.reportedURL, quarantineURL]
         }
 
         return try restoreBackupExclusively(
@@ -505,9 +517,9 @@ public struct ProvenancePublicationSnapshot {
     ) throws -> [URL] {
         var preservedExternalChanges: [URL] = []
         if let backupURL = entry.backupURL {
-            let restoreCandidate = entry.originalURL.deletingLastPathComponent()
+            let restoreCandidate = entry.reportedURL.deletingLastPathComponent()
                 .appendingPathComponent(
-                    ".\(entry.originalURL.lastPathComponent)"
+                    ".\(entry.reportedURL.lastPathComponent)"
                         + ".provenance-restore-\(UUID().uuidString)"
                 )
             do {
@@ -520,7 +532,7 @@ public struct ProvenancePublicationSnapshot {
                     to: entry.originalURL
                 )
                 if !restored {
-                    preservedExternalChanges.append(entry.originalURL)
+                    preservedExternalChanges.append(entry.reportedURL)
                     try? fileManager.removeItem(at: restoreCandidate)
                 }
             } catch {
