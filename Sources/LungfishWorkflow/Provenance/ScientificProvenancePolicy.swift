@@ -192,6 +192,7 @@ public enum ScientificProvenancePolicy {
         "primers design primer3": dataWriting("cli.primers.design.primer3"),
         "primers design primalscheme3": dataWriting("cli.primers.design.primalscheme3"),
         "primers analysis annotated-reference": dataWriting("cli.primers.analysis.annotated-reference"),
+        "primers analysis export-order": dataWriting("cli.primers.analysis.export-order", writer: "PrimerOrderExportService"),
         "conda db download": dataWriting(
             "cli.conda.db.download",
             writer: "CanonicalMetagenomicsDatabaseInstallProvenanceWriter"

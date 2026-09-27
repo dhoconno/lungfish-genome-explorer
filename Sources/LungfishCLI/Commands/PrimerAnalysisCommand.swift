@@ -8,7 +8,8 @@ struct PrimerAnalysisCommand: ParsableCommand {
         commandName: "analysis",
         abstract: "Inspect saved primer analysis results",
         subcommands: [PrimerAnalysisInspectCommand.self, PrimerAnalysisHistoryCommand.self,
-                      PrimerAnalysisAuditCommand.self, PrimerAnalysisAnnotatedReferenceCommand.self]
+                      PrimerAnalysisAuditCommand.self, PrimerAnalysisAnnotatedReferenceCommand.self,
+                      PrimerAnalysisExportOrderCommand.self]
     )
 }
 
@@ -278,5 +279,105 @@ struct PrimerAnalysisAnnotatedReferenceCommand: AsyncParsableCommand {
             analysisURL: URL(fileURLWithPath: bundlePath), resultID: id,
             outputDirectory: URL(fileURLWithPath: outputDirectory), invocationArgv: CommandLine.arguments)
         print("Annotated reference written to \(output.path)")
+    }
+}
+
+struct PrimerAnalysisExportOrderCommand: AsyncParsableCommand {
+    enum Scope: String, ExpressibleByArgument, CaseIterable {
+        case candidatePairs = "candidate-pairs"
+        case selectedAssays = "selected-assays"
+        case allReportedAssays = "all-reported-assays"
+        case displayed
+    }
+
+    static let configuration = CommandConfiguration(
+        commandName: "export-order",
+        abstract: "Export a primer order (workbooks, CSV and order.json) from a saved analysis",
+        discussion: """
+            Writes the same order the Inspector's View tab exports: order.json, ordering.csv, \
+            primer-order.xlsx, template.xlsx and, for pooled orders, IDT-oPools.xlsx. \
+            The default scope follows the analysis: candidate-pairs for Primer3, \
+            selected-assays for Olivar and varVAMP, displayed for PrimalScheme.
+            """
+    )
+    @Argument(help: "Path to the saved .lungfishprimeranalysis bundle.") var bundlePath: String
+    @Option(name: .customLong("output"), help: "New order directory. It must not exist; its parent must.")
+    var outputPath: String
+    @Option(help: "Which saved oligos to order: \(Scope.allCases.map(\.rawValue).joined(separator: ", ")).")
+    var scope: Scope?
+    @Option(name: .customLong("candidate-pair-id"),
+            help: "Primer3 candidate pair UUID to include (repeatable; default all pairs).")
+    var candidatePairIDs: [String] = []
+    @Option(help: "Order name (default \"<analysis name> order\").") var name: String?
+    @Option(name: .customLong("requested-by"), help: "Who requested the order.") var requestedBy = ""
+    @Option(help: "Project the order belongs to.") var project = ""
+    @Option(name: .customLong("order-reference"), help: "Purchase or order reference.") var orderReference = ""
+    @Option(help: "Free-text order notes.") var notes = ""
+
+    func validate() throws {
+        if !candidatePairIDs.isEmpty, let scope, scope != .candidatePairs {
+            throw ValidationError("--candidate-pair-id applies only to --scope candidate-pairs.")
+        }
+        for id in candidatePairIDs where UUID(uuidString: id) == nil {
+            throw ValidationError("--candidate-pair-id \(id) is not a UUID.")
+        }
+        if let name, name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            throw ValidationError("--name must not be empty.")
+        }
+    }
+
+    func run() async throws {
+        let analysisURL = try Self.realURL(bundlePath, label: "The analysis bundle")
+        let destination = try Self.resolvedDestination(outputPath)
+        let snapshot = try PrimerAnalysisViewerSnapshot.load(from: analysisURL)
+        let resolvedScope = try orderScope(for: snapshot)
+        let selection = try PrimerOrderExportService.captureSelection(snapshot: snapshot, scope: resolvedScope)
+        let metadata = PrimerOrderMetadata(
+            name: name ?? PrimerOrderExportService.defaultOrderName(analysisURL: snapshot.bundle.url, scope: resolvedScope),
+            requestedBy: requestedBy, project: project, orderReference: orderReference, notes: notes)
+        let output = try await PrimerOrderExportService().export(selection: selection, metadata: metadata,
+            destinationURL: destination, invocationArgv: CommandLine.arguments)
+        print("Primer order written to \(output.path)")
+        let entries = try FileManager.default.contentsOfDirectory(atPath: output.path).sorted()
+        for entry in entries { print("  \(entry)") }
+    }
+
+    func orderScope(for snapshot: PrimerAnalysisViewerSnapshot) throws -> PrimerOrderScope {
+        switch scope {
+        case nil where !candidatePairIDs.isEmpty, .candidatePairs?:
+            guard !candidatePairIDs.isEmpty else { return PrimerOrderExportService.defaultScope(for: snapshot) }
+            return .primer3CandidatePairs(includedPairIDs: candidatePairIDs)
+        case nil: return PrimerOrderExportService.defaultScope(for: snapshot)
+        case .selectedAssays?: return .selectedAssays
+        case .allReportedAssays?: return .allReportedAssays
+        case .displayed?: return .displayed
+        }
+    }
+
+    /// The order directory is created by an exclusive rename beside its parent, so the parent
+    /// must already exist. Its path is resolved once here (for example /tmp to /private/tmp).
+    static func resolvedDestination(_ path: String) throws -> URL {
+        let requested = URL(fileURLWithPath: path).standardizedFileURL
+        let parent = try realURL(requested.deletingLastPathComponent().path, label: "The parent directory of --output")
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: parent.path, isDirectory: &isDirectory), isDirectory.boolValue else {
+            throw ValidationError("The parent directory of --output is not a directory: \(parent.path)")
+        }
+        let destination = parent.appendingPathComponent(requested.lastPathComponent, isDirectory: true)
+        guard (try? destination.checkResourceIsReachable()) != true,
+              (try? FileManager.default.attributesOfItem(atPath: destination.path)) == nil else {
+            throw ValidationError("--output already exists: \(destination.path)")
+        }
+        return destination
+    }
+
+    /// Saved bundles are opened without following symbolic links, so resolve the
+    /// path the user typed (for example /tmp or /var) to its physical location once.
+    static func realURL(_ path: String, label: String) throws -> URL {
+        guard let resolved = realpath(URL(fileURLWithPath: path).path, nil) else {
+            throw ValidationError("\(label) does not exist: \(path)")
+        }
+        defer { free(resolved) }
+        return URL(fileURLWithPath: String(cString: resolved))
     }
 }
