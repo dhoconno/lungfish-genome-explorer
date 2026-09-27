@@ -38,6 +38,21 @@ public struct BAMPrimerTrimProvenance: Codable, Sendable, Equatable {
     /// Lungfish version that produced the workflow output.
     public let workflowVersion: String
 
+    /// The sentence the Call Variants dialog and `lungfish variants call`
+    /// both show when this record stands in for the iVar primer-trim
+    /// attestation: "Primer-trimmed by Lungfish on <date> using <scheme>."
+    public var autoConfirmationMessage: String {
+        "Primer-trimmed by Lungfish on \(Self.timestampString(timestamp)) using \(primerScheme.bundleName)."
+    }
+
+    /// Renders `timestamp` the way the dialog's readiness banner does.
+    public static func timestampString(_ timestamp: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .short
+        return formatter.string(from: timestamp)
+    }
+
     /// Reproducible top-level command or workflow invocation.
     public let command: [String]
 

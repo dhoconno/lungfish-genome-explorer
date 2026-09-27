@@ -204,7 +204,7 @@ final class BAMVariantCallingDialogState {
                 return validationMessage
             }
             if let auto = autoConfirmedPrimerTrim {
-                return "Ready to run iVar. Primer-trimmed by Lungfish on \(autoConfirmedDateString(auto.timestamp)) using \(auto.primerScheme.bundleName)."
+                return "Ready to run iVar. \(auto.autoConfirmationMessage)"
             }
             return ivarPrimerTrimConfirmed
                 ? "Ready to run iVar on the primer-trimmed alignment."
@@ -512,9 +512,6 @@ final class BAMVariantCallingDialogState {
     /// Renders a primer-trim provenance timestamp for the readiness banner and
     /// the disabled-toggle caption.
     func autoConfirmedDateString(_ timestamp: Date) -> String {
-        let formatter = DateFormatter()
-        formatter.dateStyle = .medium
-        formatter.timeStyle = .short
-        return formatter.string(from: timestamp)
+        BAMPrimerTrimProvenance.timestampString(timestamp)
     }
 }

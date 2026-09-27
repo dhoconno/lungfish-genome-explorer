@@ -114,7 +114,7 @@ struct BAMVariantCallingToolPanes: View {
                     )
                     .disabled(true)
                     .lungfishHelp(LungfishHelpContent.bamVariantIvarPrimerTrim)
-                    Text("Primer-trimmed by Lungfish on \(state.autoConfirmedDateString(auto.timestamp)) using \(auto.primerScheme.bundleName).")
+                    Text(auto.autoConfirmationMessage)
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 } else {

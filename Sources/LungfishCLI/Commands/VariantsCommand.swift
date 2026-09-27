@@ -822,7 +822,10 @@ extension VariantsCommand {
         @Option(name: .customLong("min-depth"), help: "Minimum depth threshold")
         var minimumDepth: Int?
 
-        @Flag(name: .customLong("ivar-primer-trimmed"), help: "Confirm the BAM was primer-trimmed before iVar calling")
+        @Flag(
+            name: .customLong("ivar-primer-trimmed"),
+            help: "Confirm the BAM was primer-trimmed before iVar calling. Not needed for a track Lungfish primer-trimmed itself: its primer-trim record is read automatically, as the Call Variants dialog does."
+        )
         var ivarPrimerTrimConfirmed: Bool = false
 
         @Option(name: .customLong("medaka-model"), help: "Medaka: the variant model name, required (for example r941_prom_sup_variant_g507). Clair3: a model shipped with Clair3 by name (for example r941_prom_sup_g5014) or a model folder path; omit it to use the model matched to the platform.")
@@ -908,6 +911,13 @@ extension VariantsCommand {
             let resolvedPloidy = try parsePloidy(caller: resolvedCaller, advancedArguments: advancedArguments)
             let resolvedPlatform = try parsePlatform(caller: resolvedCaller)
             let initialTrackName = normalizedOutputTrackName(fallback: resolvedCaller.displayName)
+            let primerTrimAttestation = Self.resolveIvarPrimerTrimAttestation(
+                bundleURL: bundleURL,
+                alignmentTrackID: alignmentTrackID,
+                caller: resolvedCaller,
+                explicitlyConfirmed: ivarPrimerTrimConfirmed
+            )
+            let effectiveIvarPrimerTrimConfirmed = primerTrimAttestation.confirmed
             let initialRequest = BundleVariantCallingRequest(
                 bundleURL: bundleURL,
                 alignmentTrackID: alignmentTrackID,
@@ -916,7 +926,7 @@ extension VariantsCommand {
                 threads: globalOptions.effectiveThreads,
                 minimumAlleleFrequency: minimumAlleleFrequency,
                 minimumDepth: minimumDepth,
-                ivarPrimerTrimConfirmed: ivarPrimerTrimConfirmed,
+                ivarPrimerTrimConfirmed: effectiveIvarPrimerTrimConfirmed,
                 medakaModel: medakaModel,
                 advancedArguments: advancedArguments,
                 ivarConsensusAF: ivarConsensusAF,
@@ -928,6 +938,9 @@ extension VariantsCommand {
             )
 
             emitSimpleEvent(event: "runStart", progress: 0.0, message: "Starting \(resolvedCaller.displayName) variant calling", caller: resolvedCaller.rawValue, emit: emitEvent)
+            if let attestationMessage = primerTrimAttestation.message {
+                emitSimpleEvent(event: "primerTrimAttested", progress: 0.01, message: attestationMessage, caller: resolvedCaller.rawValue, emit: emitEvent)
+            }
             emitSimpleEvent(event: "preflightStart", progress: 0.02, message: "Checking bundle and alignment inputs", caller: resolvedCaller.rawValue, emit: emitEvent)
 
             do {
@@ -943,7 +956,7 @@ extension VariantsCommand {
                     threads: globalOptions.effectiveThreads,
                     minimumAlleleFrequency: minimumAlleleFrequency,
                     minimumDepth: minimumDepth,
-                    ivarPrimerTrimConfirmed: ivarPrimerTrimConfirmed,
+                    ivarPrimerTrimConfirmed: effectiveIvarPrimerTrimConfirmed,
                     medakaModel: medakaModel,
                     advancedArguments: advancedArguments,
                     ivarConsensusAF: ivarConsensusAF,
@@ -1019,7 +1032,10 @@ extension VariantsCommand {
 
                 emitSimpleEvent(event: "attachStart", progress: 0.90, message: "Attaching variant track to bundle", caller: resolvedCaller.rawValue, emit: emitEvent)
                 let workflowCompletedAt = Date()
-                let workflowCommand = variantCallCommand(finalTrackName: finalTrackName)
+                let workflowCommand = variantCallCommand(
+                    finalTrackName: finalTrackName,
+                    ivarPrimerTrimConfirmed: effectiveIvarPrimerTrimConfirmed
+                )
                 let workflowProvenance = VariantCallingWorkflowProvenance(
                     workflowName: "lungfish variants call",
                     workflowVersion: "lungfish-cli \(LungfishCLI.configuration.version)",
@@ -1029,7 +1045,8 @@ extension VariantsCommand {
                     parameters: variantCallParameters(
                         caller: resolvedCaller,
                         finalTrackName: finalTrackName,
-                        advancedArguments: advancedArguments
+                        advancedArguments: advancedArguments,
+                        ivarPrimerTrimConfirmed: effectiveIvarPrimerTrimConfirmed
                     ),
                     steps: pipelineResult.provenanceSteps + [
                         VariantCallingProvenanceStep(
@@ -1181,7 +1198,34 @@ extension VariantsCommand {
             return trimmed.isEmpty ? fallback : trimmed
         }
 
-        private func variantCallCommand(finalTrackName: String) -> [String] {
+        /// iVar's primer-trim attestation: the `--ivar-primer-trimmed` flag
+        /// when given, else the primer-trim provenance sidecar Lungfish
+        /// writes next to a track it trimmed (`PrimerTrimProvenanceLoader`),
+        /// which is what ticks the Call Variants dialog's box automatically.
+        /// Returns the effective confirmation and, when the sidecar supplied
+        /// it, the same sentence the dialog shows. Other callers pass the
+        /// flag through untouched.
+        static func resolveIvarPrimerTrimAttestation(
+            bundleURL: URL,
+            alignmentTrackID: String,
+            caller: ViralVariantCaller,
+            explicitlyConfirmed: Bool
+        ) -> (confirmed: Bool, message: String?) {
+            guard caller == .ivar, !explicitlyConfirmed else {
+                return (explicitlyConfirmed, nil)
+            }
+            guard let manifest = try? BundleManifest.load(from: bundleURL),
+                  let track = manifest.alignments.first(where: { $0.id == alignmentTrackID }) else {
+                return (false, nil)
+            }
+            let bamURL = bundleURL.appendingPathComponent(track.sourcePath)
+            guard let provenance = PrimerTrimProvenanceLoader.load(forBAMAt: bamURL) else {
+                return (false, nil)
+            }
+            return (true, provenance.autoConfirmationMessage)
+        }
+
+        private func variantCallCommand(finalTrackName: String, ivarPrimerTrimConfirmed: Bool) -> [String] {
             var command = [
                 CLICommandIdentity.executableName,
                 "variants",
@@ -1229,7 +1273,8 @@ extension VariantsCommand {
         private func variantCallParameters(
             caller: ViralVariantCaller,
             finalTrackName: String,
-            advancedArguments: [String]
+            advancedArguments: [String],
+            ivarPrimerTrimConfirmed: Bool
         ) -> [String: String] {
             [
                 "bundlePath": URL(fileURLWithPath: bundlePath).standardizedFileURL.path,
