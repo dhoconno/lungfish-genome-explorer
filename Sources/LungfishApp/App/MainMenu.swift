@@ -122,7 +122,10 @@ public final class MainMenu {
         let servicesItem = NSMenuItem(title: "Services", action: nil, keyEquivalent: "")
         let servicesMenu = NSMenu(title: "Services")
         servicesItem.submenu = servicesMenu
-        NSApp.servicesMenu = servicesMenu
+        // NSApplication.shared, not NSApp: a bare xctest process (one test per
+        // process under --parallel) has no application object yet, and the
+        // implicitly unwrapped NSApp traps.
+        NSApplication.shared.servicesMenu = servicesMenu
         appMenu.addItem(servicesItem)
 
         appMenu.addItem(.separator())
@@ -1068,7 +1071,7 @@ public final class MainMenu {
 
         // Set as app's window menu
         windowMenu.delegate = windowMenuDelegate
-        NSApp.windowsMenu = windowMenu
+        NSApplication.shared.windowsMenu = windowMenu
 
         windowMenuItem.submenu = windowMenu
         return windowMenuItem
@@ -1171,7 +1174,7 @@ public final class MainMenu {
         ).identifier = NSUserInterfaceItemIdentifier(MainMenuAccessibilityID.reportIssue)
 
         // Set as app's help menu
-        NSApp.helpMenu = helpMenu
+        NSApplication.shared.helpMenu = helpMenu
 
         helpMenuItem.submenu = helpMenu
         return helpMenuItem
