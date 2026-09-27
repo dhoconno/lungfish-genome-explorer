@@ -7,9 +7,9 @@ import Foundation
 import LungfishCore
 import LungfishIO
 
-enum MappingViewerBundlePreparer {
+public enum MappingViewerBundlePreparer {
 
-    static func prepareBaseBundle(
+    public static func prepareBaseBundle(
         sourceBundleURL: URL,
         viewerBundleURL: URL,
         fileManager: FileManager = .default

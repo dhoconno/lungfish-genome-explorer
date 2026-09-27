@@ -102,6 +102,10 @@ struct MappingWizardSheet: View {
     @State private var mixedSequenceFormats = false
     @State private var isInspectingInputs = false
     @State private var multiBundleRunMode: MultiBundleRunMode = .perBundle
+    /// The alignment track name the BAM is attached as (`--track-name`).
+    /// Starts as the default `"<Tool> Mapping"`; only a changed value is
+    /// recorded on the request so the copied CLI command stays minimal.
+    @State private var outputTrackNameText: String
 
     var onRun: ((MappingRunPlan) -> Void)?
     var onCancel: (() -> Void)?
@@ -130,6 +134,7 @@ struct MappingWizardSheet: View {
         let readGroup = Self.defaultReadGroup(sampleName: sampleName, modeID: initialModeID)
         _selectedModeID = State(initialValue: initialModeID)
         _threads = State(initialValue: ProcessInfo.processInfo.processorCount)
+        _outputTrackNameText = State(initialValue: MappingResultLayoutService.defaultTrackName(for: initialTool))
         _readGroupIDText = State(initialValue: readGroup.id)
         _readGroupSampleText = State(initialValue: readGroup.sampleName)
         _readGroupLibraryText = State(initialValue: readGroup.library)
@@ -289,7 +294,8 @@ struct MappingWizardSheet: View {
         includeSecondary: Bool,
         includeSupplementary: Bool,
         minimumMappingQuality: Int,
-        advancedArguments: [String]
+        advancedArguments: [String],
+        outputTrackName: String? = nil
     ) -> MappingRunPlan {
         func request(
             inputFASTQURLs: [URL],
@@ -315,7 +321,8 @@ struct MappingWizardSheet: View {
                 includeSecondary: includeSecondary,
                 includeSupplementary: includeSupplementary,
                 minimumMappingQuality: minimumMappingQuality,
-                advancedArguments: advancedArguments
+                advancedArguments: advancedArguments,
+                outputTrackName: outputTrackName
             )
         }
 
@@ -513,6 +520,8 @@ struct MappingWizardSheet: View {
             referenceSection
             Divider()
             modeSection
+            Divider()
+            outputTrackSection
             if bundleCount > 1 {
                 Divider()
                 MultiBundleRunModePicker(
@@ -695,6 +704,32 @@ struct MappingWizardSheet: View {
                     .font(.callout)
                     .foregroundStyle(compatibilityPresentation.color)
             }
+        }
+    }
+
+    static let outputTrackSectionTitle = "Output Track"
+    static let outputTrackFieldLabel = "Track name (--track-name)"
+
+    private var outputTrackSection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(Self.outputTrackSectionTitle)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(.secondary)
+            HStack {
+                Text(Self.outputTrackFieldLabel)
+                    .font(.system(size: 12))
+                    .frame(width: 150, alignment: .trailing)
+                TextField(
+                    MappingResultLayoutService.defaultTrackName(for: initialTool),
+                    text: $outputTrackNameText
+                )
+                .font(.system(size: 12, design: .monospaced))
+                .textFieldStyle(.roundedBorder)
+                .accessibilityIdentifier("mapping.outputTrackName")
+            }
+            Text("The BAM is attached to a copy of the reference bundle under this name; the same name is recorded in the run's provenance.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
         }
     }
 
@@ -939,10 +974,22 @@ struct MappingWizardSheet: View {
             includeSecondary: includeSecondary,
             includeSupplementary: includeSupplementary,
             minimumMappingQuality: minMappingQuality,
-            advancedArguments: advancedArguments()
+            advancedArguments: advancedArguments(),
+            outputTrackName: Self.explicitOutputTrackName(outputTrackNameText, tool: initialTool)
         )
 
         onRun?(plan)
+    }
+
+    /// The track name to record on the request: `nil` when the field is
+    /// blank or still the tool's default, so the run (and its copied CLI
+    /// command) carry `--track-name` only when the user changed it.
+    static func explicitOutputTrackName(_ text: String, tool: MappingTool) -> String? {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, trimmed != MappingResultLayoutService.defaultTrackName(for: tool) else {
+            return nil
+        }
+        return trimmed
     }
 
     private func advancedArguments() -> [String] {

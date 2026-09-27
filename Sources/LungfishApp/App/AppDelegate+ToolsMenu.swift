@@ -1408,23 +1408,16 @@ extension AppDelegate {
                 OperationCenter.shared.acknowledgeCancellation(id: opID)
                 return false
             }
-            if let bundleURL = Self.findSourceBundle(for: capturedRequest.inputFASTQURLs) {
-                let entry = AnalysisManifestEntry(
-                    tool: capturedRequest.tool.rawValue,
-                    analysisDirectoryName: Self.analysisManifestDirectoryName(
-                        for: capturedRequest.outputDirectory,
-                        projectURL: routeContext?.projectURL ?? capturedRequest.projectURL
-                    ),
-                    displayName: "\(capturedRequest.tool.displayName) Mapping",
-                    parameters: resolvedRequest.summaryParameters(),
-                    summary: "\(finalResult.mappedReads)/\(finalResult.totalReads) reads mapped",
-                    status: .completed
+            do {
+                // The same analysis-history record `lungfish-cli map` writes.
+                try MappingResultLayoutService.recordAnalysisManifest(
+                    originalInputURLs: capturedRequest.inputFASTQURLs,
+                    resolvedRequest: resolvedRequest,
+                    result: finalResult,
+                    projectURL: routeContext?.projectURL ?? capturedRequest.projectURL
                 )
-                do {
-                    try AnalysisManifestStore.recordAnalysis(entry, bundleURL: bundleURL)
-                } catch {
-                    appDelegateLogger.warning("Failed to record analysis manifest: \(error.localizedDescription, privacy: .public)")
-                }
+            } catch {
+                appDelegateLogger.warning("Failed to record analysis manifest: \(error.localizedDescription, privacy: .public)")
             }
 
             guard OperationCenter.shared.complete(
@@ -1543,68 +1536,27 @@ extension AppDelegate {
         split.refreshSidebarAndDisplayMappingResult(at: outputDirectory)
     }
 
+    /// Copies the reference bundle into the result directory with the BAM
+    /// attached as a track and rewrites the sidecars, through the same
+    /// `MappingResultLayoutService` that `lungfish-cli map` runs, so the
+    /// window and the copied CLI command leave an identical layout. Returns
+    /// `nil` when the reference is not inside a `.lungfishref` bundle.
     private func prepareMappingViewerBundleIfPossible(
         result: MappingResult,
         request: MappingRunRequest,
         opID: UUID
     ) async throws -> MappingResult? {
-        let inferredSourceBundleURL = ReferenceBundleSourceResolver.canonicalSourceBundleURL(
-            for: request.referenceFASTAURL,
-            projectURL: request.projectURL
-        )
-        let candidateSourceBundleURL = request.sourceReferenceBundleURL
-            ?? result.sourceReferenceBundleURL
-            ?? (inferredSourceBundleURL?.pathExtension.lowercased() == "lungfishref" ? inferredSourceBundleURL : nil)
-
-        guard let sourceBundleURL = candidateSourceBundleURL,
-              FileManager.default.fileExists(atPath: sourceBundleURL.path) else {
-            return nil
-        }
-
-        let viewerBundleURL = request.outputDirectory.appendingPathComponent(
-            sourceBundleURL.lastPathComponent,
-            isDirectory: true
-        )
-        let fm = FileManager.default
-        let candidateName = [
-            ".\(sourceBundleURL.deletingPathExtension().lastPathComponent)",
-            "candidate-\(UUID().uuidString)",
-            sourceBundleURL.pathExtension,
-        ].joined(separator: ".")
-        let candidateBundleURL = request.outputDirectory.appendingPathComponent(
-            candidateName,
-            isDirectory: true
-        )
-        defer {
-            if fm.fileExists(atPath: candidateBundleURL.path) {
-                try? fm.removeItem(at: candidateBundleURL)
-            }
-        }
-
         DispatchQueue.main.async { MainActor.assumeIsolated {
             _ = OperationCenter.shared.update(
                 id: opID,
                 progress: 0.93,
                 detail: "Preparing reference mapping viewer..."
             )
-            OperationCenter.shared.log(
-                id: opID,
-                level: .info,
-                message: "Preparing lightweight reference bundle for integrated BAM viewing."
-            )
         }}
-
-        try MappingViewerBundlePreparer.prepareBaseBundle(
-            sourceBundleURL: sourceBundleURL,
-            viewerBundleURL: candidateBundleURL,
-            fileManager: fm
-        )
-
-        _ = try await BAMImportService.importBAM(
-            bamURL: result.bamURL,
-            bundleURL: candidateBundleURL,
-            name: "\(request.tool.displayName) Mapping",
-            progressHandler: { fraction, message in
+        let publication = try await MappingResultLayoutService.publishViewerBundle(
+            result: result,
+            request: request,
+            progress: { fraction, message in
                 let progress = 0.93 + (fraction * 0.06)
                 DispatchQueue.main.async { MainActor.assumeIsolated {
                     _ = OperationCenter.shared.update(id: opID, progress: progress, detail: message)
@@ -1612,26 +1564,7 @@ extension AppDelegate {
                 }}
             }
         )
-
-        let preparedResult = result.withViewerBundle(
-            viewerBundleURL: viewerBundleURL,
-            sourceReferenceBundleURL: sourceBundleURL
-        )
-        try MappingViewerBundlePublicationService.publishCandidate(
-            candidateBundleURL: candidateBundleURL,
-            finalBundleURL: viewerBundleURL,
-            fileManager: fm
-        ) { publishedBundleURL, publicationPlan in
-            try MappingViewerBundlePublicationService.publish(
-                result: preparedResult,
-                resultDirectoryURL: request.outputDirectory,
-                sourceReferenceBundleURL: sourceBundleURL,
-                viewerBundleURL: publishedBundleURL,
-                fileManager: fm,
-                viewerPublicationPlan: publicationPlan
-            )
-        }
-        return preparedResult
+        return publication?.result
     }
 
 

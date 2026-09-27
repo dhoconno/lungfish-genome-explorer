@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import LungfishWorkflow
 
 /// Helper-mode entrypoint used by the GUI process to import BAM/CRAM/SAM files
 /// into an existing `.lungfishref` bundle in a subprocess.

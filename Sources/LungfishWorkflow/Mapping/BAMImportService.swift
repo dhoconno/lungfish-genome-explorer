@@ -5,11 +5,10 @@
 import Foundation
 import LungfishCore
 import LungfishIO
-import LungfishWorkflow
 import os.log
 
 /// Logger for BAM import operations
-private let importLogger = Logger(subsystem: LogSubsystem.app, category: "BAMImport")
+private let importLogger = Logger(subsystem: LogSubsystem.workflow, category: "BAMImport")
 
 // MARK: - BAMImportService
 
