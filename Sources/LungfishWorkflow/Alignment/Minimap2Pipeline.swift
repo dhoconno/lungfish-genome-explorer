@@ -350,7 +350,7 @@ public enum Minimap2PipelineError: Error, LocalizedError, Sendable {
     public var errorDescription: String? {
         switch self {
         case .minimap2NotInstalled:
-            return "minimap2 is not installed. Install the Alignment plugin pack from the Plugin Manager."
+            return "minimap2 is not installed. Install the Read Mapping plugin pack from the Plugin Manager."
         case .inputNotFound(let url):
             return "Input FASTQ not found: \(url.lastPathComponent)"
         case .referenceNotFound(let url):
@@ -393,7 +393,7 @@ public enum Minimap2PipelineError: Error, LocalizedError, Sendable {
 ///
 /// ## Tool Requirements
 ///
-/// - **minimap2**: Installed via the Alignment plugin pack (bioconda, runs via micromamba).
+/// - **minimap2**: Installed via the Read Mapping plugin pack (bioconda, runs via micromamba).
 /// - **samtools**: Bundled as a native tool (Tier 1, always available).
 public final class Minimap2Pipeline: @unchecked Sendable {
 
