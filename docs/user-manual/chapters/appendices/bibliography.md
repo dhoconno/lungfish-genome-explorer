@@ -144,7 +144,7 @@ micromamba        Mamba and micromamba package managers.
 
 Several entries above carry no author and no year, because the tool has neither a paper nor a stated release date. The Trim Galore DOI points to a Zenodo record, a software archive entry that covers every release of the program. The Deacon DOI resolves to a bioRxiv **[preprint](../../GLOSSARY.md#preprint)**, an article posted before peer review, so check whether your journal accepts one before you use it. A **[reference manager](../../GLOSSARY.md#reference-manager)** that requires a year takes `n.d.`, meaning no date, in that field.
 
-### One worked example
+### One finished reference
 
 Here is one finished reference, assembled from a table row and the command's own output, in a common author-date style. The command printed this line for the HG002 mapping run.
 
@@ -436,7 +436,7 @@ Lungfish Genome Explorer, version 2026.9.40, dependency set 2026.2.
 https://github.com/dhoconno/lungfish-genome-explorer
 ```
 
-That block is a usable default. In the author-date style of the worked example, with the year of the release you used, it reads like this.
+That block is a usable default. In the author-date style of the finished reference above, with the year of the release you used, it reads like this.
 
 ```
 Lungfish Genome Explorer. (2026). Version 2026.9.40, dependency set 2026.2.

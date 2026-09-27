@@ -68,7 +68,7 @@ On the first run Nextflow also downloads the pipeline's container images, the st
 
 ## Procedure
 
-The worked example runs TaxTriage once on both corneal samples against Standard-16.
+The example in this chapter runs TaxTriage once on both corneal samples against Standard-16.
 
 ### 1. Select both samples and check the prerequisites
 
@@ -116,11 +116,11 @@ Exclude host taxa hands the pipeline its `remove_taxids` option, which drops the
 
 ### 5. Run it and open the result
 
-Click **Run**. Watch the run in the [Operations Panel](../01-foundations/06-the-lungfish-project.md#the-operations-panel), which opens with **Operations > Show Operations Panel** (Cmd-Shift-P). Its row shows progress while the samples run one after the other, and reports the run complete when both are done. If a step failed and TaxTriage carried on without it, the row reads Completed with Warnings instead, as step 4 explains. On the test Mac the worked example took about 18 minutes, 11 for SRR12486983 and the rest for SRR12486989.
+Click **Run**. Watch the run in the [Operations Panel](../01-foundations/06-the-lungfish-project.md#the-operations-panel), which opens with **Operations > Show Operations Panel** (Cmd-Shift-P). Its row shows progress while the samples run one after the other, and reports the run complete when both are done. If a step failed and TaxTriage carried on without it, the row reads Completed with Warnings instead, as step 4 explains. On the test Mac the example run took about 18 minutes, 11 for SRR12486983 and the rest for SRR12486989.
 
 Then find the result in the sidebar. It lands under `Analyses/` in a new folder, as [Where results land](../01-foundations/06-the-lungfish-project.md#where-results-land) describes. LGE names it `taxtriage-batch-` followed by the date and time, such as `taxtriage-batch-2026-09-25T03-40-19`, with one subfolder per sample inside it. Click the folder and the TaxTriage [viewport](../../GLOSSARY.md#viewport) opens, the panel that fills the window and shows one result.
 
-Once the result is open, the Inspector's **Operation Details** section lists the settings the run used, including the database path, Max CPUs, Max Memory, Platform, Top Hits, and the runtime, 17m 39s for the worked example. Copy them from there into a methods section.
+Once the result is open, the Inspector's **Operation Details** section lists the settings the run used, including the database path, Max CPUs, Max Memory, Platform, Top Hits, and the runtime, 17m 39s for the example run. Copy them from there into a methods section.
 
 ## Settings
 
@@ -156,7 +156,7 @@ The viewport has a row of summary cards across the top, an organism table with a
 
 Every figure in this section comes from a run with LGE 2026.9.43. That release handed TaxTriage each bundle's reads as one file, so TaxTriage treated each read of a pair as a separate read. This release splits a paired bundle into its two mates first and runs TaxTriage on true pairs, so your own row counts, read counts, and scores will not match these exactly. The reasoning in this section does not change.
 
-For the worked example, Batch reads TaxTriage and Samples reads 2. Organisms counts the rows in the table, 322 while both samples are showing, and one organism found in both samples takes two rows.
+For the example run, Batch reads TaxTriage and Samples reads 2. Organisms counts the rows in the table, 322 while both samples are showing, and one organism found in both samples takes two rows.
 
 ### Choosing which samples to show
 
@@ -194,7 +194,7 @@ Rows arrive in TaxTriage's own order, highest TASS score first within each sampl
 
 Depth is an average over every position of the genome, so it can fall below one. A depth of 0.1× means the reads, laid end to end, would cover only a tenth of the genome, so most positions have no read at all.
 
-In the worked example each read of a pair counted on its own, as the start of this section explains. To compare its counts with the pairs [Running Kraken 2](02-running-kraken2.md) counts, halve them. SRR12486983's 4,819,760 pairs were 9,639,520 reads in that run.
+In the example run each read of a pair counted on its own, as the start of this section explains. To compare its counts with the pairs [Running Kraken 2](02-running-kraken2.md) counts, halve them. SRR12486983's 4,819,760 pairs were 9,639,520 reads in that run.
 
 Abundance and Reads come from different counts. Abundance is TaxTriage's figure, the reads it aligned to the organism divided by every read in the sample. The Reads cell is LGE's own count from the same file, which can count one read more than once when it aligns to several places. For HSV-1 in SRR12486983, TaxTriage's report gives 1,482,057 aligned reads, which is the 15.37% in the Abundance cell, and the Reads cell shows 1,972,047. Quote the figure you read and say where it came from.
 
@@ -208,15 +208,15 @@ LGE gives every row one of three labels. They are unrelated to the K2 Confidence
 | Medium | Below the pipeline's threshold, with a TASS score of 0.40 or more |
 | Low | A TASS score below 0.40 |
 
-In the worked example *Streptococcus agalactiae* reads High at 0.780. Hold the pointer over a Confidence or TASS Score cell to see a tooltip that states the rule behind that row's label.
+In the example run *Streptococcus agalactiae* reads High at 0.780. Hold the pointer over a Confidence or TASS Score cell to see a tooltip that states the rule behind that row's label.
 
 ### What the TASS score means
 
 The TASS score folds several measures into one value. They include how cleanly the reads map, whether they map to this organism rather than equally well to others, how evenly they spread along the reference, and whether Kraken 2 and the mapping step agree. It does not reward the number of reads as such. A few thousand reads that map cleanly and only to one organism, spread evenly along its genome, can score as high as millions.
 
-So the TASS score measures how confident TaxTriage is that an organism's DNA is really in the tube. It does not measure how much of the organism there is, and it is not a probability that the organism caused a disease. A harmless skin bacterium with clean, evenly spread reads can outscore a pathogen, and the worked example shows exactly that.
+So the TASS score measures how confident TaxTriage is that an organism's DNA is really in the tube. It does not measure how much of the organism there is, and it is not a probability that the organism caused a disease. A harmless skin bacterium with clean, evenly spread reads can outscore a pathogen, and the example run shows exactly that.
 
-### The worked example
+### The example run
 
 Here are the top rows for SRR12486983, the HSV-1 case, as the table shows them.
 
@@ -256,7 +256,7 @@ No single column picks out the pathogen. Read four things together.
 
 The viewport does not show TaxTriage's annotations, so open the pipeline's report, which TaxTriage calls its organism discovery report. Select a row and click **Open Report** in the action bar to open the report for that row's sample, `<sample>.odr.pdf`, or the HTML version when there is no PDF. The report files sit in each sample's `report` folder inside the result folder, which **Show in Finder** on the result's right-click menu in the sidebar reaches. The file `<sample>.odr.txt` there holds the same table as tab-separated text, which Numbers or Excel opens with one column per field.
 
-Its **Microbial Category** column sorts organisms into Primary, Opportunistic, Potential, Commensal, and Unknown. Primary marks a recognised pathogen. Opportunistic marks an organism that causes disease mainly in a weakened host, and Commensal one that normally lives harmlessly on the body. Unknown means TaxTriage has no annotation for it. In the worked example, Human alphaherpesvirus 1 and *Streptococcus agalactiae* are both Primary, and the high-scoring *Kocuria* and *Bradyrhizobium* rows are Unknown. The **High Consequence** column flags organisms of special public-health concern and reads False for both pathogens.
+Its **Microbial Category** column sorts organisms into Primary, Opportunistic, Potential, Commensal, and Unknown. Primary marks a recognised pathogen. Opportunistic marks an organism that causes disease mainly in a weakened host, and Commensal one that normally lives harmlessly on the body. Unknown means TaxTriage has no annotation for it. In the example run, Human alphaherpesvirus 1 and *Streptococcus agalactiae* are both Primary, and the high-scoring *Kocuria* and *Bradyrhizobium* rows are Unknown. The **High Consequence** column flags organisms of special public-health concern and reads False for both pathogens.
 
 This batch has no negative control, so it cannot show which organisms came from the laboratory. When you run your own samples, include one and give it the Negative Control or Extraction Blank role in the dialog. An organism present in the negative control is suspect in every sample of the batch, whatever its score in the specimens. LGE marks every such organism in the table with a warning sign and orange text, and its tooltip says it was detected in a negative control sample. The overview grid adds a Risk column for the same organisms.
 

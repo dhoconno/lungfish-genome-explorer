@@ -66,9 +66,9 @@ The genotyping chapters use this project strictly as a
 **genotyping-only example**. They cover sample import, mapping and markdup, and
 amplicon genotyping through to result review and pivot export. The
 haplotype-analysis section of those chapters is a **labeled
-placeholder**. There is no worked MHC haplotype-analysis example in
+placeholder**. There is no MHC haplotype-analysis example in
 this asset, and the chapters must not fabricate one. Mark that section
-clearly as a placeholder pending a suitable worked example. Do not describe haplotype analysis against screenshots of this project.
+clearly as a placeholder pending a suitable example. Do not describe haplotype analysis against screenshots of this project.
 
 ## Open question
 

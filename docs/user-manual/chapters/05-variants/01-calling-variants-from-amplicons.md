@@ -43,7 +43,7 @@ The other three are Medaka and Clair3, which [Nanopore Variant Calling](04-nanop
 
 ## Why you would do this
 
-The worked example is human. [HG002](../../GLOSSARY.md#hg002) is a consenting research participant whose DNA is distributed as a cell line, so laboratories everywhere sequence the same genome. The HG002 chromosome 20 slice holds Illumina reads from that cell line, mapped to a 500 kilobase stretch of chromosome 20. Calling variants on it asks which positions differ from the reference in this person, and the question has a checkable answer.
+The example in this chapter is human. [HG002](../../GLOSSARY.md#hg002) is a consenting research participant whose DNA is distributed as a cell line, so laboratories everywhere sequence the same genome. The HG002 chromosome 20 slice holds Illumina reads from that cell line, mapped to a 500 kilobase stretch of chromosome 20. Calling variants on it asks which positions differ from the reference in this person, and the question has a checkable answer.
 
 The fixture ships with a [benchmark VCF](../../GLOSSARY.md#benchmark-vcf), 961 calls the Genome in a Bottle consortium produced for HG002 by combining many sequencing platforms and callers. Those calls did not come from the fixture's reads, so they work as an outside answer key. Few real projects offer one, and learning to ask how a call set was checked is easiest where the checking is possible. Every clinical genetics pipeline and population study begins with this step.
 

@@ -73,7 +73,7 @@ the app's ONT import recognizes.
 `hbb-gene/` is the human tier's annotated-record fixture. It supports the
 sequence-viewing, annotation, extraction, and translation chapters with the
 RefSeqGene record for the human beta-globin locus, including the sickle
-cell disease worked example.
+cell disease example.
 
 `primate-mito/` is the primate comparative fixture. It supports the
 alignment chapter as unaligned input and the tree chapter as aligned input,

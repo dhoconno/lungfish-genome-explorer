@@ -36,7 +36,7 @@ Lungfish Genome Explorer (LGE) offers four design engines, Primer3, PrimalScheme
 
 ## Why you would do this
 
-You design primers when no published assay fits your target, when a published assay has stopped working because the target changed, or when you need a new kind of assay such as a quantitative one. The worked example in this part of the manual is a hard, realistic case. It is the rhesus macaque MHC class I gene *Mamu-A1*.
+You design primers when no published assay fits your target, when a published assay has stopped working because the target changed, or when you need a new kind of assay such as a quantitative one. The example used in this part of the manual is a hard, realistic case. It is the rhesus macaque MHC class I gene *Mamu-A1*.
 
 The [MHC](../../GLOSSARY.md#mhc), the major histocompatibility complex, is a cluster of immune genes and the most variable region of a vertebrate genome, as [What Is MHC Genotyping](../09-genotyping/01-what-is-mhc-genotyping.md#what-it-is) explains. *Mamu-A1* is one of its [class I](../../GLOSSARY.md#class-i-mhc) genes, and it is a difficult target for three reasons. It is highly polymorphic, meaning each [locus](../../GLOSSARY.md#locus) carries many [alleles](../../GLOSSARY.md#allele), alternative versions that differ at many positions. It is GC-rich, which makes primers bind too tightly and makes the DNA fold on itself. And it has paralogs, the genes *Mamu-A2*, *Mamu-A3*, *Mamu-A4*, and *Mamu-B*, which share long stretches of sequence with *Mamu-A1*, so a primer meant for one gene can copy another.
 

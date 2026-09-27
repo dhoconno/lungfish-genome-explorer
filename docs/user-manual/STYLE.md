@@ -21,6 +21,8 @@ Fourth, **no overused words or patterns.** The banned list lives in
 Sentence shapes such as "It's not X, it's Y" and "No X. No Y. Just Z" are
 banned too. A control whose label happens to be on the list is written in
 straight double quotes, which the linter exempts.
+Never write "worked example". Name the thing instead, such as the example
+run, the cornea sample, or the demo project.
 
 Fifth, **bullet lists are capped.** At most five items per list, at most
 two lists per H2 section. Longer enumerations become prose or a table.

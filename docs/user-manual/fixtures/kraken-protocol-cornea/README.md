@@ -1,7 +1,7 @@
 # Kraken protocol corneal samples fixture
 
 Two public human corneal tissue runs from the NCBI Sequence Read Archive,
-used as the worked example in the Kraken 2, TaxTriage, and BLAST
+used as the example in the Kraken 2, TaxTriage, and BLAST
 verification chapters. No reads are stored in this repository. Fetch them
 from the SRA as described below.
 

@@ -64,7 +64,7 @@ The counts in this chapter came from Kraken 2 version 2.17.1 and Bracken with th
 
 ## Procedure
 
-The worked example classifies the same reads twice, once against a small viral database and once against a general one, because the difference between the two answers is the most useful thing this chapter teaches.
+The example in this chapter classifies the same reads twice, once against a small viral database and once against a general one, because the difference between the two answers is the most useful thing this chapter teaches.
 
 ### 1. Download Viral and Standard-16
 
@@ -100,7 +100,7 @@ Now click the reads bundle again, reopen the dialog, choose **Standard-16** inst
 
 ### 4. Extract the reads of one taxon
 
-Once you have found the taxon you care about, you usually want its reads rather than its count, to map them to a reference, assemble them, or check them with [BLAST](../../GLOSSARY.md#blast). On the worked example that taxon is HSV-1, which the table names by its species, *Simplexvirus humanalpha1*.
+Once you have found the taxon you care about, you usually want its reads rather than its count, to map them to a reference, assemble them, or check them with [BLAST](../../GLOSSARY.md#blast). In the cornea sample that taxon is HSV-1, which the table names by its species, *Simplexvirus humanalpha1*.
 
 1. In the Viral result, type `humanalpha1` in the **Filter taxa…** field above the table, then click the *Simplexvirus humanalpha1* row. Selecting its wedge in the sunburst works too.
 
@@ -108,11 +108,11 @@ Once you have found the taxon you care about, you usually want its reads rather 
 
     <!-- SHOT: kraken2-extract-reads -->
 
-3. The Extract Reads dialog reads `Selected: 1 row` and gives an estimate of the reads the selection holds, `≈ 886,221 unique reads` on the worked example. It is the row's clade count, so it counts pairs, as the rest of this chapter does. Leave **Format** on FASTQ and **Destination** on Save as Bundle. The **Name** field arrives filled in as `kraken2_Simplexvirus_humanalpha1`.
+3. The Extract Reads dialog reads `Selected: 1 row` and gives an estimate of the reads the selection holds, `≈ 886,221 unique reads` for the cornea sample. It is the row's clade count, so it counts pairs, as the rest of this chapter does. Leave **Format** on FASTQ and **Destination** on Save as Bundle. The **Name** field arrives filled in as `kraken2_Simplexvirus_humanalpha1`.
 
 4. Click **Create Bundle**, which is what the run button reads while Save as Bundle is the destination.
 
-The new bundle appears in the project's top-level `Extractions` folder. It holds the reads assigned to the selected taxon and to every taxon beneath it, so extracting at a family row takes every genus and species in that family too. The bundle holds both mates of every pair, so on the worked example it held 1,772,442 reads, two for each of the 886,221 pairs. LGE adds a date, a time, and a short code to the name you left unchanged, so look for a bundle whose name starts with `kraken2_Simplexvirus_humanalpha1-`. Selecting several rows before clicking Extract FASTQ writes their reads into one bundle.
+The new bundle appears in the project's top-level `Extractions` folder. It holds the reads assigned to the selected taxon and to every taxon beneath it, so extracting at a family row takes every genus and species in that family too. The bundle holds both mates of every pair, so for the cornea sample it held 1,772,442 reads, two for each of the 886,221 pairs. LGE adds a date, a time, and a short code to the name you left unchanged, so look for a bundle whose name starts with `kraken2_Simplexvirus_humanalpha1-`. Selecting several rows before clicking Extract FASTQ writes their reads into one bundle.
 
 ## Settings
 
@@ -162,7 +162,7 @@ These controls change what you are looking at, not what was computed.
 
 ## Reading the results
 
-The taxonomy viewport stacks five parts. Along the top, a row of summary cards reports Total Reads, Classified, Unclassified, Species, Shannon H′, and Dominant when the run has just finished. When you reopen the result from the sidebar, the cards read Batch, Samples, Taxa, and Database instead. Shannon H′ is the Shannon diversity index, one number for how evenly reads spread across species, which is 0 when a single species holds them all and grows as the mix evens out. Dominant names the species with the most reads. For the worked example's Viral run, Dominant names *Simplexvirus humanalpha1* and Shannon H′ reads 0.011, close to the single-species floor. Below the cards runs the breadcrumb bar, naming the part of the tree the sunburst is centred on. The middle holds the sunburst on the left and the table on the right. The action bar runs along the bottom.
+The taxonomy viewport stacks five parts. Along the top, a row of summary cards reports Total Reads, Classified, Unclassified, Species, Shannon H′, and Dominant when the run has just finished. When you reopen the result from the sidebar, the cards read Batch, Samples, Taxa, and Database instead. Shannon H′ is the Shannon diversity index, one number for how evenly reads spread across species, which is 0 when a single species holds them all and grows as the mix evens out. Dominant names the species with the most reads. For the cornea sample's Viral run, Dominant names *Simplexvirus humanalpha1* and Shannon H′ reads 0.011, close to the single-species floor. Below the cards runs the breadcrumb bar, naming the part of the tree the sunburst is centred on. The middle holds the sunburst on the left and the table on the right. The action bar runs along the bottom.
 
 The sunburst draws the root at the centre and one ring per level of the tree outward, so a rank Kraken 2 reports between the standard ones, such as a realm between the root and a kingdom, like Duplodnaviria, or a subfamily between a family and a genus, like Alphaherpesvirinae, takes a ring of its own. Each wedge is sized by its share of the classified reads, and the centre states which denominator its percentage uses, all reads for the whole tree and classified reads once you zoom in. Taxa too small to draw are pooled into a paler wedge in their parent's colour, and hovering it names how many taxa and reads it holds. The table lists the same taxa as rows under the columns Sample, Taxon Name, Rank, Reads, Direct, Bracken, and **%**. Sample names which input a row came from, SRR12486983 here, and matters only on a multi-sample run. Rank is the taxon's level, such as family, genus, or species. A count beside the **Filter taxa…** field reports how many taxa the table holds while the field is empty.
 

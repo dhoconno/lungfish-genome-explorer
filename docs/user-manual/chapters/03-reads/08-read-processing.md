@@ -52,7 +52,7 @@ So reach for this chapter when a later tool refuses your reads because of their 
 
 ## Why you would do this
 
-The worked example is a slice of human chromosome 20 from HG002, a human genome from the Genome in a Bottle project whose true sequence is already known. The slice covers 500,001 bases, under one percent of the chromosome. Its two files hold 45,574 read pairs, which is 91,148 reads counted one mate at a time, most of them the full 250 bases long.
+The example in this chapter is a slice of human chromosome 20 from HG002, a human genome from the Genome in a Bottle project whose true sequence is already known. The slice covers 500,001 bases, under one percent of the chromosome. Its two files hold 45,574 read pairs, which is 91,148 reads counted one mate at a time, most of them the full 250 bases long.
 
 That combination is the case merging was invented for. [Library preparation](../../GLOSSARY.md#library-prep), the bench work that turns extracted DNA into something a sequencer can read, breaks the DNA at random into fragments a few hundred bases long. The sequencer then reads 250 bases inward from each end of a fragment, so the two mates point toward each other. The [insert size](../../GLOSSARY.md#insert-size) is the full length of the original fragment. When the insert is shorter than 500 bases, two 250-base reads must cover some of the same bases in the middle. On this fixture the average insert is about 371 bases, so the two reads together span 500 bases of a 371-base fragment and about 129 bases in the middle are read twice.
 

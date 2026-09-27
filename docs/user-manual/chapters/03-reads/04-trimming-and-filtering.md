@@ -104,7 +104,7 @@ fastp, bbduk, Cutadapt, and seqkit arrive with the [Required Setup pack](../../G
 
 ## Procedure
 
-The worked example runs the combined fastp pass on the imported bundle, then filters the result by length. The dialog follows the layout [Operation dialogs](../01-foundations/06-the-lungfish-project.md#operation-dialogs) describes, and one window, titled FASTQ/FASTA Operations, serves all six operations.
+This chapter's example runs the combined fastp pass on the imported bundle, then filters the result by length. The dialog follows the layout [Operation dialogs](../01-foundations/06-the-lungfish-project.md#operation-dialogs) describes, and one window, titled FASTQ/FASTA Operations, serves all six operations.
 
 ### The combined adapter and quality trim
 

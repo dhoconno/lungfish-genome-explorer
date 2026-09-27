@@ -31,7 +31,7 @@ Each sample arrives as a [GVCF](../../GLOSSARY.md#gvcf), a variant file that rec
 
 Most questions asked of a set of human samples are comparisons. Which relatives carry the patient's variant, which controls do not, which position differs between a tumour and a matched normal sample from the same patient. Each needs the same position evaluated in every sample, including samples where nothing was found. Per-sample VCFs cannot tell you whether a variant absent from sample B means B matched the reference or had no reads there. Joint genotyping answers that, because the GVCFs carry B's confidence at that position either way.
 
-The worked example uses the HG002 chromosome 20 slice, a 500 kilobase stretch of one human genome. It holds one sample, so it cannot show the comparison the step exists for. It does show every mechanical part of the run, and the command is identical for two samples or two hundred. Repeat `--gvcf` once per sample and nothing else changes.
+The example in this chapter uses the HG002 chromosome 20 slice, a 500 kilobase stretch of one human genome. It holds one sample, so it cannot show the comparison the step exists for. It does show every mechanical part of the run, and the command is identical for two samples or two hundred. Repeat `--gvcf` once per sample and nothing else changes.
 
 ## Before you start
 

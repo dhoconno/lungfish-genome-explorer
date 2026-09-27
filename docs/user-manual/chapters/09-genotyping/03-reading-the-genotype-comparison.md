@@ -49,7 +49,7 @@ The second is what each animal carries. That is the matrix column, read against 
 
 The third is what needs recording. A cell you doubt, a sample you have checked, and a note for the next reader all live in the window as annotations that travel with the bundle. They change nothing about the calls.
 
-The worked example is the Williams MiSeq project of 30 rhesus macaques and a 970-target allele library, which [What Is MHC Genotyping](01-what-is-mhc-genotyping.md#why-you-would-do-this) describes.
+The example in this chapter is the Williams MiSeq project of 30 rhesus macaques and a 970-target allele library, which [What Is MHC Genotyping](01-what-is-mhc-genotyping.md#why-you-would-do-this) describes.
 
 ## Before you start
 

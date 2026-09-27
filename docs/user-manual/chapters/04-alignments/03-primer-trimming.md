@@ -62,7 +62,7 @@ Install the `variant-calling` [plugin pack](../../GLOSSARY.md#plugin-pack), a th
 
 ## Procedure
 
-The worked example trims the minimap2 alignment with the built-in QIAseq Direct scheme, the scheme this library was prepared with.
+This example trims the minimap2 alignment with the built-in QIAseq Direct scheme, the scheme this library was prepared with.
 
 ### Open the dialog and pick a scheme
 

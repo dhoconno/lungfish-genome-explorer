@@ -45,7 +45,7 @@ A variant caller reports every position with any supporting evidence and leaves 
 
 A [hard filter](../../GLOSSARY.md#hard-filter) is the simplest judgement, a fixed list of arithmetic tests on the statistics the caller already wrote into each row's INFO column, with no model to train. GATK publishes a recommended list for human germline work, and LGE ships it as the default. For large projects GATK recommends Variant Quality Score Recalibration (VQSR), which learns thresholds from the data. On a single sample or a small cohort a hard filter catches the obvious problems and is easy to explain in a methods section.
 
-The worked example runs on the cohort VCF from the HG002 chromosome 20 slice, a 500 kilobase stretch of a Genome in a Bottle reference sample whose variants are known independently. On that file the filter marked 13 rows out of 1,026, 1.3 percent. Learning that it is only thirteen is itself the result, and you would not know without running the step.
+The example in this chapter runs on the cohort VCF from the HG002 chromosome 20 slice, a 500 kilobase stretch of a Genome in a Bottle reference sample whose variants are known independently. On that file the filter marked 13 rows out of 1,026, 1.3 percent. Learning that it is only thirteen is itself the result, and you would not know without running the step.
 
 ## Before you start
 

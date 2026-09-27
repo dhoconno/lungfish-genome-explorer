@@ -40,7 +40,7 @@ The clearest case is public health surveillance of sewage. One sample from a tre
 
 The same question arises away from sewage. A patient with a long infection can carry two lineages at once, and so can a sample contaminated with another sample's material in the laboratory. Whenever you want to know whether a sample is one thing or several, the proportions are the answer.
 
-Freyja is a SARS-CoV-2 tool by design, so this chapter uses a SARS-CoV-2 example rather than a human or macaque one. The worked example uses SRR36291587, a public sequencing run from one clinical sample rather than from sewage. It shows the mechanics on real data, but a clinical sample is normally one infection. [Reading the results](#reading-the-results) says which parts of the output a true wastewater sample would change.
+Freyja is a SARS-CoV-2 tool by design, so this chapter uses a SARS-CoV-2 example rather than a human or macaque one. The example in this chapter uses SRR36291587, a public sequencing run from one clinical sample rather than from sewage. It shows the mechanics on real data, but a clinical sample is normally one infection. [Reading the results](#reading-the-results) says which parts of the output a true wastewater sample would change.
 
 ## Before you start
 

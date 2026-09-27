@@ -167,3 +167,5 @@ gold
 # not AI-tell filler (docs/user-manual/chapters/06-classification/02-running-kraken2.md).
 # "comprehensive": only occurs in the product name "Twist Comprehensive
 # Viral Research Panel" (docs/user-manual/chapters/01-foundations/03-amplicon-vs-shotgun.md).
+# Owner preference 2026-09-27: never write "worked example".
+worked example

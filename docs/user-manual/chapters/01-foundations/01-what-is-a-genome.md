@@ -40,7 +40,7 @@ In practice, read every position as a sequence name and a number together, and n
 
 This chapter follows one human gene, HBB, and a single-base change in it that causes sickle cell disease. HBB encodes beta-globin, one of the two kinds of protein chain in hemoglobin, the molecule that carries oxygen in red blood cells.
 
-The worked example uses the NCBI record `NG_000007.3`. An [accession](../../GLOSSARY.md#accession) is the permanent identifier a database gives a record, and the `.3` after the dot is its version, which rises each time a curator revises the sequence. This record is a [RefSeqGene](../../GLOSSARY.md#refseqgene), a curated slice of a chromosome with its own positions starting at 1. It holds 81,706 bases of chromosome 11 covering the whole beta-globin cluster, eight genes side by side, including HBE1, HBG2, HBG1, HBD, and HBB. HBB occupies positions 70545 to 72152 of the record.
+The example in this chapter uses the NCBI record `NG_000007.3`. An [accession](../../GLOSSARY.md#accession) is the permanent identifier a database gives a record, and the `.3` after the dot is its version, which rises each time a curator revises the sequence. This record is a [RefSeqGene](../../GLOSSARY.md#refseqgene), a curated slice of a chromosome with its own positions starting at 1. It holds 81,706 bases of chromosome 11 covering the whole beta-globin cluster, eight genes side by side, including HBE1, HBG2, HBG1, HBD, and HBB. HBB occupies positions 70545 to 72152 of the record.
 
 <!-- SHOT: hbb-record-in-sequence-viewport -->
 

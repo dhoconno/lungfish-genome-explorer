@@ -35,7 +35,7 @@ Everything depends on one question. Which [reference bundle](../../GLOSSARY.md#r
 
 ## Why you would do this
 
-The worked example is human. HG002 is a consenting research participant whose DNA is distributed as a cell line, so laboratories everywhere sequence the same genome. The HG002 chromosome 20 slice carries a [benchmark VCF](../../GLOSSARY.md#benchmark-vcf), a call set built by the Genome in a Bottle consortium by combining many sequencing technologies and callers. A change several technologies agree on is far more likely to be real than one any single run reports, so the benchmark works as an answer key.
+The example in this chapter is human. HG002 is a consenting research participant whose DNA is distributed as a cell line, so laboratories everywhere sequence the same genome. The HG002 chromosome 20 slice carries a [benchmark VCF](../../GLOSSARY.md#benchmark-vcf), a call set built by the Genome in a Bottle consortium by combining many sequencing technologies and callers. A change several technologies agree on is far more likely to be real than one any single run reports, so the benchmark works as an answer key.
 
 [Calling Variants](01-calling-variants-from-amplicons.md) called variants on the fixture's own reads with bcftools and LoFreq, which gave 1,040 and 862 rows. Those numbers say what each caller reported, not which was right. Importing the benchmark puts the answer key in the same table, so every row has a third opinion beside it. A position all three agree on is solid. One only a single caller reports, with no benchmark row beside it, is not a call to build a conclusion on.
 

@@ -5,7 +5,7 @@ fetched with `rettype=gbwithparts` so the full gene, mRNA, CDS, and exon
 feature table is present rather than a bare sequence. Supports the
 sequence-viewing, annotation, extraction, and translation chapters.
 Sickle cell disease (HbS, Glu6Val at HBB codon 6, dbSNP rs334) is the
-worked example for why a reader would look at this record.
+example that shows why a reader would look at this record.
 
 ## Genome
 

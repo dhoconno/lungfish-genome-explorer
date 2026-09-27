@@ -95,7 +95,7 @@ Below Run Parameters sits a group headed **Haplotyping** with an **Analysis Mode
 
 <!-- SHOT: genotyping-analysis-mode -->
 
-Everything else already holds the value the worked example used. **Threads** arrives filled with your Mac's processor count. **Minimum supporting reads** starts at 1. The **Advanced Options** disclosure holds a minimap2 arguments field and a Keep Intermediates checkbox. The **Directory** group already points inside your project.
+Everything else already holds the value the Williams MiSeq run used. **Threads** arrives filled with your Mac's processor count. **Minimum supporting reads** starts at 1. The **Advanced Options** disclosure holds a minimap2 arguments field and a Keep Intermediates checkbox. The **Directory** group already points inside your project.
 
 <!-- SHOT: genotyping-advanced-options -->
 

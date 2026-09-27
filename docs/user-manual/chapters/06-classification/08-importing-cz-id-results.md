@@ -47,7 +47,7 @@ A CZ ID answer lives in a browser tab, in an account, and only while the service
 
 A long report is also hard to read as a table. In the taxonomy viewport the same rows become a chart sized by read count, so the two or three taxa that dominate stand apart from the many taxa carrying one or two reads.
 
-The worked example is a three-row taxon report from a SARS-CoV-2 respiratory sample, small enough to check every number by hand. It is viral because CZ ID is a pathogen-detection service.
+The example in this chapter is a three-row taxon report from a SARS-CoV-2 respiratory sample, small enough to check every number by hand. It is viral because CZ ID is a pathogen-detection service.
 
 ## Before you start
 

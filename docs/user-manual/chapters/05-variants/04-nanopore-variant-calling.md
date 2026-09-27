@@ -43,7 +43,7 @@ Neither caller finishes a run from inside LGE at present. This is a known defect
 
 ## Why you would do this
 
-The worked example is the human [mitochondrial genome](../../GLOSSARY.md#mitochondrial-genome), a circular chromosome 16,569 bases long that every cell carries in hundreds of copies. The HG002 long reads fixture holds nanopore reads from HG002, a Genome in a Bottle reference sample, filtered to the reads that map to the mitochondrion. Its 950 reads carry 4,348,051 bases, enough to stack about 262 reads over each position if spread evenly, which is deep coverage.
+The example in this chapter is the human [mitochondrial genome](../../GLOSSARY.md#mitochondrial-genome), a circular chromosome 16,569 bases long that every cell carries in hundreds of copies. The HG002 long reads fixture holds nanopore reads from HG002, a Genome in a Bottle reference sample, filtered to the reads that map to the mitochondrion. Its 950 reads carry 4,348,051 bases, enough to stack about 262 reads over each position if spread evenly, which is deep coverage.
 
 Mitochondrial DNA is a good teacher because part of the right answer is known in advance. The reference, `NC_012920.1`, is the revised Cambridge Reference Sequence (rCRS), assembled from one European individual. Nearly every other person differs from it at a set of near-universal positions, where that one individual carried the uncommon base, and at positions marking their [haplogroup](../../GLOSSARY.md#haplogroup), a branch of the human maternal family tree. A call set that misses those positions is broken, and you can check that without a benchmark file.
 

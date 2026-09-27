@@ -175,7 +175,7 @@ The remaining six are Inspector filters. **Minimum Exact Reads**, the **Attribut
 
 ## Reading the results
 
-The summary line above the table gives four figures, samples, exact reads, percent unresolved, and chimera candidates. The worked example reads:
+The summary line above the table gives four figures, samples, exact reads, percent unresolved, and chimera candidates. On the example run it reads:
 
 ```text
 1 samples | 110 exact reads | 36.4% unresolved | 0 chimera candidates
@@ -189,11 +189,11 @@ The species table has nine columns. **Sample**, **Scientific Name**, and **Commo
 
 **Refs** is how many reference records carry that species' name. A species can have several when the reference holds more than one 12S variant for it, and the number is neither good nor bad. **Alternates** is how many other species share the matched sequence. A nonzero value means the name is one of several the evidence allows, so treat that row with more caution and say so in a report.
 
-In the worked example the table shows one row, Homo sapiens, with 110 exact reads and 100.0 percent of the sample. The table lists only species with at least one read, so the chimpanzee, gorilla, and two macaques do not appear. An export, from the window or the command line, still lists them with 0 exact reads. One species holding every matched read while its close relatives hold none is what a single-species sample looks like.
+In the example run the table shows one row, Homo sapiens, with 110 exact reads and 100.0 percent of the sample. The table lists only species with at least one read, so the chimpanzee, gorilla, and two macaques do not appear. An export, from the window or the command line, still lists them with 0 exact reads. One species holding every matched read while its close relatives hold none is what a single-species sample looks like.
 
 When two species in the reference carry an identical 12S sequence, a read matching it is settled by abundance. LGE gives the read to whichever candidate has more unambiguous reads in that sample, and any lead wins by default, so one read can decide a call. The window has no control for this. On the command line, `--ambiguity-resolution conservative` requires the winner to hold at least twice the runner-up and at least ten reads, and leaves the read unresolved otherwise. Each move is written to `reassignments.tsv` inside the result bundle, and the summary line's exact-read count leaves moved reads out. If your question depends on telling two such species apart, the 12S amplicon cannot do it. The fixture's five sequences are all distinct, so it never triggers.
 
-In the Unresolved view, read **Reads** and **Chimera** together. **Sequence** is a label for the cluster, and **Bases** holds its DNA. **Samples** counts the samples that contributed reads. The worked example has 56 clusters holding 63 reads, all Not Detected. 51 hold one read, four hold two, and one holds four. Many single-read clusters and no chimeras is ordinary noise from reads that overlapped a target without containing it whole.
+In the Unresolved view, read **Reads** and **Chimera** together. **Sequence** is a label for the cluster, and **Bases** holds its DNA. **Samples** counts the samples that contributed reads. The example run has 56 clusters holding 63 reads, all Not Detected. 51 hold one read, four hold two, and one holds four. Many single-read clusters and no chimeras is ordinary noise from reads that overlapped a target without containing it whole.
 
 Click the information button at the right of the action bar for the provenance popover, which gives the analysis name, sample count, exact reads, unmatched percent, and creation time. LGE writes a [provenance](../../GLOSSARY.md#provenance) record beside every result, holding the command, the tool version, and a [checksum](../../GLOSSARY.md#checksum) of each file, and [Provenance and Reproducibility](../01-foundations/08-provenance-and-reproducibility.md#reading-the-results) shows how to read it.
 

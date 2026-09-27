@@ -204,8 +204,8 @@ table above, and the published order is the `nav` block of
 ## Prerequisite graph
 
 Chapters declare their prerequisites in frontmatter `prereqs`. The graph
-drawn for the original pilot, `05-variants/01`, is kept as the worked
-example.
+drawn for the original pilot, `05-variants/01`, is kept as the
+reference example.
 
 ```
 F01 → F02 → F03 → A01 → A03 → V01
