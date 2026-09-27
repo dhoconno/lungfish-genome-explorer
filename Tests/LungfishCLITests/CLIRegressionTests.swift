@@ -2540,7 +2540,7 @@ final class WorkflowCommandRegressionTests: XCTestCase {
             "--expected-output", expectedOutputURL.path,
             "--results-dir", resultsURL.path,
             "--bundle-path", bundleURL.path,
-            "--executor", "local",
+            "--executor", "docker",
             "--quiet",
         ])
 
@@ -2609,7 +2609,7 @@ final class WorkflowCommandRegressionTests: XCTestCase {
             "--expected-output", expectedReportURL.path,
             "--results-dir", resultsURL.path,
             "--bundle-path", bundleURL.path,
-            "--executor", "local",
+            "--executor", "docker",
             "--quiet",
         ])
 
@@ -2660,7 +2660,7 @@ final class WorkflowCommandRegressionTests: XCTestCase {
         XCTAssertEqual(provenance.exitStatus, 0)
         XCTAssertEqual(provenance.steps.first?.exitStatus, 0)
         XCTAssertEqual(provenance.steps.first?.stderr, "nextflow warning\n")
-        XCTAssertEqual(provenance.options.explicit["executor"], .string("local"))
+        XCTAssertEqual(provenance.options.explicit["executor"], .string("docker"))
         XCTAssertEqual(provenance.options.explicit["expectedOutputs"], .array([
             .file(expectedOutputURL.standardizedFileURL),
             .file(expectedReportURL.standardizedFileURL)

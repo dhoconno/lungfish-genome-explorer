@@ -74,6 +74,7 @@ final class GUIRegressionTests: XCTestCase {
             "Classification",
             "Genotyping",
             "Haplotype Definitions…",
+            "Genotype Review",
             "Call Variants…",
             "Search Online Databases",
             "Workflows",

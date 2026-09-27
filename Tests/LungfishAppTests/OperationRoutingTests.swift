@@ -995,34 +995,58 @@ final class OperationRoutingTests: XCTestCase {
             in: source
         )
 
-        // findSourceBundle must still walk up from the ORIGINAL request's
-        // input URLs, not the resolved (possibly materialized-to-temp-dir)
-        // ones.
-        XCTAssertTrue(
-            single.contains("Self.findSourceBundle(for: capturedRequest.inputFASTQURLs)"),
-            "findSourceBundle must resolve from capturedRequest (built from the original request), " +
-            "not resolvedRequest, since resolved files may live in a scratch temp directory outside any bundle"
-        )
+        // The manifest record is written by the shared
+        // MappingResultLayoutService.recordAnalysisManifest (the same call
+        // `lungfish-cli map` makes). The window must hand it the ORIGINAL
+        // request's input URLs for the bundle walk and the resolved request
+        // for the persisted parameters.
         let capturedAssign = try XCTUnwrap(single.range(of: "let capturedRequest = request\n"))
         XCTAssertFalse(
             single[capturedAssign.upperBound...].range(of: "let capturedRequest = resolvedRequest") != nil,
             "capturedRequest must be derived from the original request, not resolvedRequest"
         )
-
-        // The manifest's persisted parameters (including isPairedEnd) must
-        // come from resolvedRequest.summaryParameters(), which carries the
-        // pairedEnd value actually used by the pipeline run -- not from
-        // capturedRequest/request, whose pairedEnd is always the wizard's
-        // pre-resolve `false` placeholder.
         XCTAssertTrue(
-            single.contains("parameters: resolvedRequest.summaryParameters(),"),
+            single.contains("originalInputURLs: capturedRequest.inputFASTQURLs,"),
+            "recordAnalysisManifest must receive the original request's input URLs (built from capturedRequest), " +
+            "not resolvedRequest's, since resolved files may live in a scratch temp directory outside any bundle"
+        )
+        XCTAssertFalse(
+            single.contains("originalInputURLs: resolvedRequest.inputFASTQURLs"),
+            "the bundle walk must not start from resolvedRequest's (possibly materialized) input URLs"
+        )
+        XCTAssertTrue(
+            single.contains("resolvedRequest: resolvedRequest,"),
+            "recordAnalysisManifest must receive resolvedRequest so the manifest records the resolved run"
+        )
+
+        // Inside the service: findSourceBundle walks up from the original
+        // URLs, and the persisted parameters (including isPairedEnd) come
+        // from resolvedRequest.summaryParameters(), which carries the
+        // pairedEnd value actually used by the pipeline run -- not from the
+        // wizard's pre-resolve `false` placeholder.
+        let serviceSource = try String(
+            contentsOf: root.appendingPathComponent(
+                "Sources/LungfishWorkflow/Mapping/MappingResultLayoutService.swift"
+            ),
+            encoding: .utf8
+        )
+        let recorder = try sourceFunctionBody(
+            named: "public static func recordAnalysisManifest(",
+            endingBefore: "try AnalysisManifestStore.recordAnalysis(entry, bundleURL: bundleURL)",
+            in: serviceSource
+        )
+        XCTAssertTrue(
+            recorder.contains("findSourceBundle(for: originalInputURLs)"),
+            "findSourceBundle must resolve from the original input URLs, not the resolved request"
+        )
+        XCTAssertTrue(
+            recorder.contains("parameters: resolvedRequest.summaryParameters(),"),
             "AnalysisManifestEntry.parameters must be built from resolvedRequest.summaryParameters() " +
             "so the persisted manifest records the true isPairedEnd, not the wizard's placeholder"
         )
         XCTAssertFalse(
-            single.contains("parameters: capturedRequest.summaryParameters(),"),
-            "AnalysisManifestEntry.parameters must NOT be built from capturedRequest.summaryParameters() " +
-            "(that request's pairedEnd is always the pre-resolve wizard placeholder)"
+            recorder.contains("findSourceBundle(for: resolvedRequest.inputFASTQURLs)"),
+            "the bundle walk must not use resolvedRequest's (possibly materialized) input URLs"
         )
     }
 

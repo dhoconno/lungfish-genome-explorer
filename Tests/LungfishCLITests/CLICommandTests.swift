@@ -810,7 +810,7 @@ final class CLIErrorExtendedTests: XCTestCase {
         XCTAssertTrue(formatError.localizedDescription.contains("bam2"))
 
         let containerError = CLIError.containerUnavailable
-        XCTAssertTrue(containerError.localizedDescription.contains("macOS 26"))
+        XCTAssertTrue(containerError.localizedDescription.contains("Docker Desktop"))
 
         let validationError = CLIError.validationFailed(errors: ["Error A", "Error B"])
         XCTAssertTrue(validationError.localizedDescription.contains("Error A"))
