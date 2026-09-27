@@ -352,6 +352,7 @@ struct FASTQOperationCLIInvocationBuilder: Sendable {
             var arguments = ["length-filter", inputURL.path]
             if let min { arguments += ["--min", "\(min)"] }
             if let max { arguments += ["--max", "\(max)"] }
+            arguments += pairingArguments
             arguments += ["-o", outputTarget]
             return arguments
         case .searchText(let query, let field, let regex):

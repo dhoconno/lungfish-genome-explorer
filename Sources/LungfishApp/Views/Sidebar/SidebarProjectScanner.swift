@@ -205,14 +205,17 @@ enum SidebarProjectScanner {
             subtitle: subtitle
         )
 
-        // For FASTQ bundles, scan for demultiplexed child bundles inside demux/.
+        // For FASTQ bundles, scan for demultiplexed child bundles inside every
+        // demultiplex run directory (demux/, demux-2/, ...).
         if itemType == .fastqBundle {
-            let demuxDir = url.appendingPathComponent("demux", isDirectory: true)
+            let demuxDirs = FASTQBundle.demultiplexOutputDirectories(in: url)
 
-            // Load batch manifest first to build exclusion set (prevents duplicate nodes).
-            let batchManifest = FASTQBatchManifest.load(from: demuxDir)
+            // Load batch manifests first to build exclusion set (prevents duplicate nodes).
+            var batchManifests: [(directory: URL, manifest: FASTQBatchManifest)] = []
             var batchOutputURLs = Set<URL>()
-            if let manifest = batchManifest {
+            for demuxDir in demuxDirs {
+                guard let manifest = FASTQBatchManifest.load(from: demuxDir) else { continue }
+                batchManifests.append((demuxDir, manifest))
                 for record in manifest.operations {
                     for relativePath in record.outputBundlePaths {
                         batchOutputURLs.insert(
@@ -223,12 +226,19 @@ enum SidebarProjectScanner {
             }
 
             // Collect demux child bundles, excluding batch operation outputs.
+            // A child of a later run carries its run directory as a subtitle,
+            // since every run names its barcode bundles the same way.
             for childURL in collectDemuxChildBundles(in: url, excluding: batchOutputURLs) {
-                node.children.append(scanTree(from: childURL, isRoot: false))
+                var childNode = scanTree(from: childURL, isRoot: false)
+                if let runDirectory = demuxDirs.first(where: { childURL.path.hasPrefix($0.path + "/") }),
+                   runDirectory.lastPathComponent != FASTQBundle.demultiplexOutputDirectoryName {
+                    childNode.subtitle = runDirectory.lastPathComponent
+                }
+                node.children.append(childNode)
             }
 
             // Virtual batch group nodes from batch-operations.json.
-            if let manifest = batchManifest {
+            for (demuxDir, manifest) in batchManifests {
                 node.children.append(contentsOf: buildBatchGroupNodes(manifest: manifest, baseDirectory: demuxDir))
             }
 
@@ -537,13 +547,14 @@ enum SidebarProjectScanner {
 
     /// Collects child `.lungfishfastq` bundles from a parent bundle's `demux/` directory.
     ///
-    /// Recurses through the `demux/` tree, skipping `materialized/` (intermediate
-    /// full FASTQs used during processing). Returns bundles sorted alphabetically.
+    /// Recurses through every demultiplex run tree (`demux/`, `demux-2/`, ...),
+    /// skipping `materialized/` (intermediate full FASTQs used during
+    /// processing). Returns bundles in run order, sorted alphabetically
+    /// within each run.
     static func collectDemuxChildBundles(in bundleURL: URL, excluding: Set<URL> = []) -> [URL] {
-        let demuxDir = bundleURL.appendingPathComponent("demux", isDirectory: true)
+        let demuxDirs = FASTQBundle.demultiplexOutputDirectories(in: bundleURL)
         let fm = FileManager.default
-        var isDir: ObjCBool = false
-        guard fm.fileExists(atPath: demuxDir.path, isDirectory: &isDir), isDir.boolValue else {
+        guard !demuxDirs.isEmpty else {
             return []
         }
 
@@ -574,10 +585,15 @@ enum SidebarProjectScanner {
                 }
             }
         }
-        scan(demuxDir)
-        return results.sorted {
-            $0.lastPathComponent.localizedCaseInsensitiveCompare($1.lastPathComponent) == .orderedAscending
+        var ordered: [URL] = []
+        for demuxDir in demuxDirs {
+            results = []
+            scan(demuxDir)
+            ordered += results.sorted {
+                $0.lastPathComponent.localizedCaseInsensitiveCompare($1.lastPathComponent) == .orderedAscending
+            }
         }
+        return ordered
     }
 
     /// Builds virtual batch group nodes from a pre-loaded batch manifest.

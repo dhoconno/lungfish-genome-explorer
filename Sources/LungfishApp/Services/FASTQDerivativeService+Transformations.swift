@@ -28,8 +28,11 @@ extension FASTQDerivativeService {
         // with pairs runs as single reads (owner contract, FASTQInputLayout).
         let readLayout = resolvedReadLayout(of: sourceFASTQ, in: sourceBundleURL)
         let isInterleaved = readLayout.layout == .strictlyInterleaved
+        // The fastp trims partition their input by NAME (FastpPairedRunner),
+        // so they also run the pairs of a mixed file paired, as the CLI does.
+        let pairsByName = isInterleaved || readLayout.layout == .mixedMergedAndPairs
         if readLayout.layout == .mixedMergedAndPairs {
-            progress?("Input mixes merged reads and pairs; every record is treated as a single read")
+            progress?("Input mixes merged reads and pairs; positional tools treat every record as a single read, and the fastp trims pair records by name")
         }
 
         switch request {
@@ -129,30 +132,23 @@ extension FASTQDerivativeService {
             if let minLength, let maxLength, minLength > maxLength {
                 throw FASTQDerivativeError.invalidOperation("Minimum length cannot exceed maximum length.")
             }
-            if isInterleaved {
-                // Use bbduk for pair-aware length filtering
-                try await runPairedAwareFilter(
-                    sourceFASTQ: sourceFASTQ,
-                    outputFASTQ: outputFASTQ,
-                    minLength: minLength,
-                    maxLength: maxLength,
-                    provenanceCollector: provenanceCollector
-                )
-            } else {
-                var args = ["seq", "-j", String(toolThreadCount)]
-                if let minLength {
-                    args += ["-m", String(minLength)]
-                }
-                if let maxLength {
-                    args += ["-M", String(maxLength)]
-                }
-                args += [sourceFASTQ.path, "-o", outputFASTQ.path]
-                _ = try await runNativeTool(.seqkit, arguments: args, provenanceCollector: provenanceCollector)
-            }
+            // The same plan `lungfish-cli fastq length-filter` renders: bbduk
+            // interleaved=t keeps or drops both mates together, seqkit seq
+            // judges single reads.
+            let plan = FASTQLengthFilterPlan.make(
+                inputPath: sourceFASTQ.path,
+                outputPath: outputFASTQ.path,
+                minLength: minLength,
+                maxLength: maxLength,
+                pairAware: isInterleaved
+            )
+            try await runLengthFilterPlan(plan, provenanceCollector: provenanceCollector)
             return FASTQDerivativeOperation(
                 kind: .lengthFilter,
                 minLength: minLength,
-                maxLength: maxLength
+                maxLength: maxLength,
+                toolUsed: plan.tool.rawValue,
+                toolCommand: plan.toolCommand
             )
 
         case .searchText(let query, let field, let regex):
@@ -260,7 +256,7 @@ extension FASTQDerivativeService {
                 mode: mode,
                 adapterMode: adapterMode,
                 adapterSequence: adapterSequence,
-                isInterleaved: isInterleaved,
+                pairsByName: pairsByName,
                 provenanceCollector: provenanceCollector
             )
             return FASTQDerivativeOperation(
@@ -274,14 +270,15 @@ extension FASTQDerivativeService {
                 toolCommand: result.toolCommand
             )
 
-        case .qualityTrim(let threshold, let windowSize, let mode, _):
+        case .qualityTrim(let threshold, let windowSize, let mode, let extraArguments):
             let result = try await runFastpQualityTrim(
                 sourceFASTQ: sourceFASTQ,
                 outputFASTQ: outputFASTQ,
                 threshold: threshold,
                 windowSize: windowSize,
                 mode: mode,
-                isInterleaved: isInterleaved,
+                extraArguments: extraArguments,
+                pairsByName: pairsByName,
                 provenanceCollector: provenanceCollector
             )
             return FASTQDerivativeOperation(
@@ -302,7 +299,7 @@ extension FASTQDerivativeService {
                 sequenceR2: sequenceR2,
                 fastaFilename: fastaFilename,
                 sourceBundleURL: sourceBundleURL,
-                isInterleaved: isInterleaved,
+                pairsByName: pairsByName,
                 provenanceCollector: provenanceCollector
             )
             return FASTQDerivativeOperation(
@@ -321,7 +318,7 @@ extension FASTQDerivativeService {
                 outputFASTQ: outputFASTQ,
                 from5Prime: from5Prime,
                 from3Prime: from3Prime,
-                isInterleaved: isInterleaved,
+                pairsByName: pairsByName,
                 provenanceCollector: provenanceCollector
             )
             return FASTQDerivativeOperation(

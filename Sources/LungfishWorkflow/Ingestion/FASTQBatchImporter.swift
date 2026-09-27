@@ -2765,7 +2765,17 @@ public enum FASTQBatchImporter {
         }
 
         let requiredStats = try parseRequiredSeqkitStats(stdout: seqkitResult.stdout)
-        let seqkitMeta = requiredStats.metadata
+        // seqkit 2.13 prints Q20(%) and Q30(%) as whole percents (95, 91),
+        // while Refresh QC Summary counts every base (94.57, 91.28). Count
+        // the bases here too, so the cards read the same from both paths.
+        let seqkitMeta: SeqkitStatsMetadata
+        do {
+            let fractions = try await FASTQQualityFractions.scan(fastqURL)
+            seqkitMeta = exactQualityMetadata(seqkit: requiredStats.metadata, fractions: fractions)
+        } catch {
+            logger.warning("Exact Q20/Q30 count failed for \(fastqURL.lastPathComponent): \(error) — keeping seqkit's rounded values")
+            seqkitMeta = requiredStats.metadata
+        }
 
         // 2. Sampled distributions from first 100k reads (~1-2s).
         //    Extract a subset via seqkit head, then run FASTQStatisticsCollector
@@ -2835,6 +2845,20 @@ public enum FASTQBatchImporter {
         FASTQMetadataStore.save(metadata, for: fastqURL)
 
         logger.info("Statistics cached: \(seqkitMeta.numSeqs) reads, N50=\(requiredStats.n50ReadLength), Q30=\(String(format: "%.1f", seqkitMeta.q30Percentage))%, histogram bins=\(sampledHistogram.count), qPositions=\(perPositionQuality.count)")
+    }
+
+    /// The seqkit summary with Q20/Q30 taken from counted bases, when the
+    /// count covers the same bases seqkit summed. A count over a different
+    /// number of bases means the file changed underneath the two passes,
+    /// and seqkit's values stand.
+    static func exactQualityMetadata(
+        seqkit: SeqkitStatsMetadata,
+        fractions: FASTQQualityFractions
+    ) -> SeqkitStatsMetadata {
+        guard fractions.baseCount == seqkit.sumLen, fractions.baseCount > 0 else {
+            return seqkit
+        }
+        return seqkit.replacingQualityPercentages(with: fractions)
     }
 
     static func parseRequiredSeqkitStats(stdout: String) throws -> RequiredSeqkitStats {

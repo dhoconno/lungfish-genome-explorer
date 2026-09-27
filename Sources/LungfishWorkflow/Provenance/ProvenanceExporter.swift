@@ -809,9 +809,10 @@ public struct ProvenanceExporter: Sendable {
     private func exportSnakemakeConfig(_ run: WorkflowRun) -> String {
         var s = ""
         s += "outdir: results\n"
-        for input in run.primaryInputFiles {
-            let key = sanitize(input.filename.replacingOccurrences(of: ".", with: "_"))
-            s += "\(key): \(pythonDoubleQuoted(input.path))\n"
+        let graph = WorkflowExportGraph(run: run)
+        for name in graph.parameterFilenames {
+            guard let path = graph.parameterPath(for: name) else { continue }
+            s += "\(graph.parameterName(for: name)): \(pythonDoubleQuoted(path))\n"
         }
         return s
     }
@@ -998,26 +999,34 @@ public struct ProvenanceExporter: Sendable {
         s += " */\n\n"
         s += "nextflow.enable.dsl = 2\n\n"
 
-        // Parameters from input files
+        // The DAG is wired by file name: a process reads each input from the
+        // most recent earlier process that wrote a file of that name, and
+        // from a params channel when no earlier process wrote it. Chaining
+        // `.out` positionally (the previous renderer) handed every process
+        // exactly one channel, which Nextflow rejects at compile time for
+        // any process with two inputs.
+        let graph = WorkflowExportGraph(run: run)
+
+        // Parameters: every file the pipeline reads without an earlier
+        // process writing it, once each (a name recorded by several steps
+        // was declared once per step before, which Nextflow tolerates but a
+        // reader should not have to).
         s += "// Pipeline parameters\n"
-        let inputs = run.primaryInputFiles
-        for input in inputs {
-            let paramName = sanitize(input.filename.replacingOccurrences(of: ".", with: "_"))
-            s += "params.\(paramName) = \(groovySingleQuoted(input.filename))\n"
+        for name in graph.parameterFilenames {
+            s += "params.\(graph.parameterName(for: name)) = \(groovySingleQuoted(name))\n"
         }
         s += "params.outdir = './results'\n\n"
 
         // Process definitions
-        for (i, step) in run.steps.enumerated() {
-            let processName = "\(sanitize(step.toolName).uppercased())_\(i + 1)"
-
+        for node in graph.nodes {
+            let step = node.step
             s += "/*\n"
-            s += " * Step \(i + 1): \(step.toolName) \(step.toolVersion)\n"
+            s += " * Step \(node.index): \(step.toolName) \(step.toolVersion)\n"
             if let wallTime = step.wallTime {
                 s += " * Original wall time: \(formatDuration(wallTime))\n"
             }
             s += " */\n"
-            s += "process \(processName) {\n"
+            s += "process \(node.nextflowProcessName) {\n"
 
             if let image = step.containerImage {
                 s += "    container '\(image)'\n"
@@ -1025,56 +1034,59 @@ public struct ProvenanceExporter: Sendable {
 
             s += "    publishDir params.outdir, mode: 'copy'\n\n"
 
-            // Input
-            if !step.inputs.isEmpty {
+            if !node.inputFilenames.isEmpty {
                 s += "    input:\n"
-                for input in step.inputs {
-                    s += "    path \(groovySingleQuoted(input.filename))\n"
+                for input in node.inputFilenames {
+                    s += "    path \(groovySingleQuoted(input))\n"
                 }
                 s += "\n"
             }
 
-            // Output
-            if !step.outputs.isEmpty {
+            if !node.outputFilenames.isEmpty {
                 s += "    output:\n"
-                for output in step.outputs {
-                    s += "    path \(groovySingleQuoted(output.filename))\n"
+                for output in node.outputFilenames {
+                    s += "    path \(groovySingleQuoted(output))\n"
                 }
                 s += "\n"
             }
 
-            // Script
             s += "    script:\n"
-            s += "    \(groovyDoubleQuoted(portableCommand(step)))\n"
+            s += "    \(groovyDoubleQuoted(portableCommand(step)))\n\n"
+
+            // A stub lets `nextflow run -stub-run` walk the whole DAG without
+            // the tools or the data, which is how an export is checked
+            // before it is sent.
+            s += "    stub:\n"
+            if node.outputFilenames.isEmpty {
+                s += "    \"true\"\n"
+            } else {
+                let touch = "touch " + node.outputFilenames.map(shellEscape).joined(separator: " ")
+                s += "    \(groovyDoubleQuoted(touch))\n"
+            }
             s += "}\n\n"
         }
 
         // Workflow block
         s += "// Main workflow\n"
         s += "workflow {\n"
-
-        // Create input channels
-        for input in inputs {
-            let paramName = sanitize(input.filename.replacingOccurrences(of: ".", with: "_"))
-            let chName = "\(paramName)_ch"
-            s += "    \(chName) = Channel.fromPath(params.\(paramName))\n"
+        for name in graph.parameterFilenames {
+            let paramName = graph.parameterName(for: name)
+            s += "    \(paramName)_ch = channel.fromPath(params.\(paramName))\n"
         }
-        s += "\n"
-
-        // Chain processes
-        for (i, step) in run.steps.enumerated() {
-            let processName = "\(sanitize(step.toolName).uppercased())_\(i + 1)"
-            if i == 0 && !inputs.isEmpty {
-                let paramName = sanitize(inputs[0].filename.replacingOccurrences(of: ".", with: "_"))
-                s += "    \(processName)(\(paramName)_ch)\n"
-            } else if i > 0 {
-                let prevName = "\(sanitize(run.steps[i - 1].toolName).uppercased())_\(i)"
-                s += "    \(processName)(\(prevName).out)\n"
-            } else {
-                s += "    \(processName)()\n"
+        if !graph.parameterFilenames.isEmpty {
+            s += "\n"
+        }
+        for node in graph.nodes {
+            let arguments = node.inputFilenames.map { input -> String in
+                switch graph.source(of: input, before: node) {
+                case .process(let producer, let outputIndex):
+                    return "\(producer.nextflowProcessName).out[\(outputIndex)]"
+                case .parameter:
+                    return "\(graph.parameterName(for: input))_ch"
+                }
             }
+            s += "    \(node.nextflowProcessName)(\(arguments.joined(separator: ", ")))\n"
         }
-
         s += "}\n"
         return s
     }
@@ -1107,49 +1119,55 @@ public struct ProvenanceExporter: Sendable {
 
         s += "configfile: \"config.yaml\"\n\n"
 
-        // Collect all final outputs
-        let finalOutputs = run.steps.last?.outputs ?? []
+        let graph = WorkflowExportGraph(run: run)
+
         s += "rule all:\n"
         s += "    input:\n"
-        for output in finalOutputs {
-            s += "        \(pythonDoubleQuoted(output.path)),\n"
+        for output in graph.finalOutputPaths {
+            s += "        \(pythonDoubleQuoted(output)),\n"
         }
         s += "\n\n"
 
-        // Rule definitions
-        for (i, step) in run.steps.enumerated() {
-            let ruleName = "\(sanitize(step.toolName))_\(i + 1)"
+        for node in graph.nodes {
+            let step = node.step
+            let ruleName = node.snakemakeRuleName
 
-            s += "# Step \(i + 1): \(step.toolName) \(step.toolVersion)\n"
+            s += "# Step \(node.index): \(step.toolName) \(step.toolVersion)\n"
             if let wallTime = step.wallTime {
                 s += "# Original wall time: \(formatDuration(wallTime))\n"
             }
 
             s += "rule \(ruleName):\n"
 
-            // Input
-            s += "    input:\n"
-            for input in step.inputs {
-                s += "        \(pythonDoubleQuoted(input.path)),\n"
+            if !node.inputPaths.isEmpty {
+                s += "    input:\n"
+                for input in node.inputPaths {
+                    s += "        \(pythonDoubleQuoted(input)),\n"
+                }
             }
 
-            // Output
-            s += "    output:\n"
-            for output in step.outputs {
-                s += "        \(pythonDoubleQuoted(output.path)),\n"
+            // A step never produces its own input (samtools flagstat on a
+            // sorted BAM records the BAM among its outputs), and a rule
+            // whose output is its input is a cycle to Snakemake. A file
+            // several steps record as their output (an import wrapper and
+            // the tool it ran both claim the bundle it wrote) is ambiguous
+            // to Snakemake, so the earliest rule keeps it and the later
+            // rules stay as transcripts without that output.
+            if !node.uniqueOutputPaths.isEmpty {
+                s += "    output:\n"
+                for output in node.uniqueOutputPaths {
+                    s += "        \(pythonDoubleQuoted(output)),\n"
+                }
             }
 
-            // Log
             s += "    log:\n"
             s += "        \"logs/\(ruleName).log\"\n"
 
-            // Container
             if let image = step.containerImage {
                 s += "    singularity:\n"
                 s += "        \"docker://\(image)\"\n"
             }
 
-            // Shell
             s += "    shell:\n"
             let literalCommand = portableCommand(step).replacingOccurrences(of: "{", with: "{{")
                 .replacingOccurrences(of: "}", with: "}}")
@@ -1290,13 +1308,7 @@ public struct ProvenanceExporter: Sendable {
     }
 
     private func sanitize(_ name: String) -> String {
-        var s = name.replacingOccurrences(of: " ", with: "_")
-        s = s.replacingOccurrences(of: "-", with: "_")
-        s = s.filter { $0.isLetter || $0.isNumber || $0 == "_" }
-        if let first = s.first, first.isNumber {
-            s = "_" + s
-        }
-        return s.lowercased()
+        WorkflowExportGraph.sanitize(name)
     }
 
     private func groovySingleQuoted(_ value: String) -> String {

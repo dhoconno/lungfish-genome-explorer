@@ -438,7 +438,7 @@ lungfish-cli import fastq [<options>] [<input> ...] --project <project>
 | `<input>` | Directory containing sequencing reads, FASTQ paths, or unmapped ONT BAM paths. |
 | `--samplesheet <samplesheet>` | CSV sample sheet with sample,r1,r2 columns and optional metadata columns. |
 | `-p, --project <project>` | Path to `.lungfish` project directory. |
-| `--recipe <recipe>` | Processing recipe, one of `vsp2`, `wgs`, `hifi`, or `none`. The default is `none`. |
+| `--recipe <recipe>` | Processing recipe: a recipe id such as `vsp2-target-enrichment`, `illumina-amplicon-merge`, or `wastewater-metagenomics`, the alias `vsp2`, the built-in `wgs` or `hifi`, or `none`. The help lists every id that resolves. The default is `none`. |
 | `--quality-binning <quality-binning>` | Quality binning. `illumina4` keeps 7 quality levels, `eightLevel` about 21, and `none` keeps every score. The default is `none`. |
 | `--log-dir <log-dir>` | Directory for per-sample log files. |
 | `--dry-run` | List detected pairs without importing. |
@@ -1061,16 +1061,17 @@ lungfish-cli fastq subsample <input> [--proportion <proportion>] [--count <count
 Keeps reads between a minimum and a maximum length.
 
 ```text
-lungfish-cli fastq length-filter <input> [--min <min>] [--max <max>] --output <output> [--force] [--compress]
+lungfish-cli fastq length-filter <input> [--min <min>] [--max <max>] [--pairing <pairing>] --output <output> [--force] [--compress]
 ```
 
-Give `--min`, `--max`, or both. `--min` larger than `--max` is an error.
+Give `--min`, `--max`, or both. `--min` larger than `--max` is an error. On interleaved input the filter keeps or drops both mates of a pair together, through bbduk, so no read is left without its mate. Single reads go through seqkit.
 
 | Argument or flag | What it does |
 |---|---|
 | `<input>` | Input FASTQ file. |
 | `--min <min>` | Minimum read length. |
 | `--max <max>` | Maximum read length. |
+| `--pairing <pairing>` | How to treat the records, one of `interleaved`, `single`, or `auto`. The default is `auto`, which reads the pairing recorded by the enclosing bundle and then the read names. |
 
 ### `fastq trim`
 
@@ -1538,7 +1539,7 @@ lungfish-cli fastq import-ont ont-run/fastq_pass -o ont-imported
 Splits pooled reads into one bundle per barcode, using cutadapt or an exact matcher.
 
 ```text
-lungfish-cli fastq demultiplex <input> --kit <kit> --output <output> [--location <location>] [--max-distance-5prime <max-distance-5prime>] [--max-distance-3prime <max-distance-3prime>] [--error-rate <error-rate>] [--overlap <overlap>] [--engine <engine>] [--no-trim] [--discard-unassigned] [--threads <threads>]
+lungfish-cli fastq demultiplex <input> --kit <kit> --output <output> [--location <location>] [--max-distance-5prime <max-distance-5prime>] [--max-distance-3prime <max-distance-3prime>] [--error-rate <error-rate>] [--overlap <overlap>] [--engine <engine>] [--no-trim] [--discard-unassigned] [--threads <threads>] [--replace]
 ```
 
 The built-in kits are `truseq-single-a`, `truseq-single-b`, `truseq-ht-dual`, `nextera-xt-v2`, `idt-ud-indexes`, `fluidigm-access-array`, `pacbio-sequel-16-v3`, `pacbio-sequel-96-v2`, `pacbio-sequel-384-v1`, `m13-universal-primers`, `ont-nbd104`, `ont-nbd114`, `ont-nbd104-114`, `ont-nbd114-96`, `ont-pbc096`, `ont-rbk004`, `ont-rbk114-24`, `ont-rbk114-96`, `ont-16s114-24`, and `ont-rab204-214`. `--kit` also takes the path of your own barcode file, a CSV, TSV, or whitespace-separated text file with the columns `id,sequence`, optionally followed by `secondary_sequence` and `sample_name`. The `exact-bare` engine matches plain A, C, G, and T barcodes exactly anywhere in a read and on both strands, and never trims. Its own `--threads` flag has no effect, because the global `--threads` takes the value first. The command runs only inside a project, so run it from within your `.lungfish` project folder, and pass the FASTQ file rather than a `.lungfishfastq` bundle, which fails with a provenance error that is a [known defect](troubleshooting.md#known-defects-in-this-release).
@@ -1557,6 +1558,7 @@ The built-in kits are `truseq-single-a`, `truseq-single-b`, `truseq-ht-dual`, `n
 | `--no-trim` | Cutadapt only. Keep barcode sequences in output reads (exact-bare always preserves reads). |
 | `--discard-unassigned` | Discard reads that do not match any barcode. |
 | `--threads <threads>` | Cutadapt thread count. It has no effect, as the note above explains. The default is `4`. |
+| `--replace` | Delete an output directory that already holds files before writing. Without it the command refuses to overwrite earlier results and names the directory. |
 
 ### `fastq scout`
 

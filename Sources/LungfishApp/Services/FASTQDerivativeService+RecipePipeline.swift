@@ -39,6 +39,10 @@ extension FASTQDerivativeService {
     ) async throws -> (url: URL, stepResults: [RecipeStepResult]) {
         var currentURL = fastqURL
         var currentIsInterleaved = isInterleaved
+        // Set once a merge step has written merged singles ahead of the
+        // unmerged pairs: by-name tools (the fastp trims) still pair the
+        // file, positional ones (bbduk interleaved=t) must not.
+        var currentIsMixed = false
         let fm = FileManager.default
         var stepResults: [RecipeStepResult] = []
 
@@ -63,7 +67,7 @@ extension FASTQDerivativeService {
                     mode: step.qualityTrimMode ?? .cutRight,
                     adapterMode: step.adapterMode ?? .autoDetect,
                     adapterSequence: step.adapterSequence,
-                    isInterleaved: currentIsInterleaved
+                    pairsByName: currentIsInterleaved
                 )
                 currentURL = outputURL
 
@@ -76,7 +80,7 @@ extension FASTQDerivativeService {
                     threshold: step.qualityThreshold ?? 20,
                     windowSize: step.windowSize ?? 4,
                     mode: step.qualityTrimMode ?? .cutRight,
-                    isInterleaved: currentIsInterleaved
+                    pairsByName: currentIsInterleaved
                 )
                 currentURL = outputURL
 
@@ -91,7 +95,7 @@ extension FASTQDerivativeService {
                     sequenceR2: step.adapterSequenceR2,
                     fastaFilename: step.adapterFastaFilename,
                     sourceBundleURL: tempDir,
-                    isInterleaved: currentIsInterleaved
+                    pairsByName: currentIsInterleaved
                 )
                 currentURL = outputURL
 
@@ -103,7 +107,7 @@ extension FASTQDerivativeService {
                     outputFASTQ: outputURL,
                     from5Prime: step.trimFrom5Prime ?? 0,
                     from3Prime: step.trimFrom3Prime ?? 0,
-                    isInterleaved: currentIsInterleaved
+                    pairsByName: currentIsInterleaved
                 )
                 currentURL = outputURL
 
@@ -176,30 +180,23 @@ extension FASTQDerivativeService {
 
                 currentURL = outputURL
                 // Post-merge: data is mixed (merged singles + interleaved unmerged pairs).
-                // Downstream pair-aware tools (bbduk length filter) handle this mixed format
-                // correctly with interleaved=t.
+                // The fastp trims pair it by name; the length filter pairs by
+                // position and so runs it as single reads (owner contract,
+                // FASTQInputLayout).
                 currentIsInterleaved = true
+                currentIsMixed = true
 
             case .lengthFilter:
                 progress?(fraction, "Length filtering (\(index + 1)/\(steps.count))…")
-                if currentIsInterleaved {
-                    commandLine = "bbduk.sh interleaved=t minlen=\(step.minLength.map(String.init) ?? "none") maxlen=\(step.maxLength.map(String.init) ?? "none")"
-                    try await runPairedAwareFilter(
-                        sourceFASTQ: currentURL,
-                        outputFASTQ: outputURL,
-                        minLength: step.minLength,
-                        maxLength: step.maxLength
-                    )
-                } else {
-                    commandLine = "seqkit seq -m \(step.minLength.map(String.init) ?? "none") -M \(step.maxLength.map(String.init) ?? "none")"
-                    var seqkitArgs = ["seq", "-j", String(toolThreadCount), currentURL.path, "-o", outputURL.path]
-                    if let min = step.minLength { seqkitArgs += ["-m", String(min)] }
-                    if let max = step.maxLength { seqkitArgs += ["-M", String(max)] }
-                    let seqkitResult = try await runner.run(.seqkit, arguments: seqkitArgs)
-                    guard seqkitResult.isSuccess else {
-                        throw FASTQDerivativeError.invalidOperation("seqkit length filter failed: \(seqkitResult.stderr)")
-                    }
-                }
+                let plan = FASTQLengthFilterPlan.make(
+                    inputPath: currentURL.path,
+                    outputPath: outputURL.path,
+                    minLength: step.minLength,
+                    maxLength: step.maxLength,
+                    pairAware: currentIsInterleaved && !currentIsMixed
+                )
+                commandLine = plan.toolCommand
+                try await runLengthFilterPlan(plan, provenanceCollector: nil)
                 currentURL = outputURL
 
             case .humanReadScrub:

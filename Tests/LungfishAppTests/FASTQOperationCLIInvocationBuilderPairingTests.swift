@@ -41,6 +41,7 @@ final class FASTQOperationCLIInvocationBuilderPairingTests: XCTestCase {
         let requests: [FASTQDerivativeRequest] = [
             .subsampleProportion(0.1),
             .subsampleCount(1000),
+            .lengthFilter(min: 50, max: nil),
             .searchText(query: "frag1", field: .id, regex: false),
             .searchMotif(pattern: "GATTACA", regex: false),
             .deduplicate(preset: .exactPCR, substitutions: 0, optical: false, opticalDistance: 40),
@@ -204,12 +205,15 @@ final class FASTQOperationCLIInvocationBuilderPairingTests: XCTestCase {
         XCTAssertTrue(invocation.arguments.containsSequence(["--pairing", "interleaved"]))
     }
 
+    // `length-filter` joined the pair-aware subcommands (seqkit seq orphaned
+    // 1,856 mates on the HG002 fixture); reverse-complement rewrites every
+    // record on its own and never takes the flag.
     func testUnaffectedSubcommandsDoNotReceiveThePairingFlag() throws {
         let bundle = try InterleavedFASTQFixture.writeBundle(
             named: "length", in: root, pairCount: 2, naming: .identical, pairingMode: .interleaved
         )
         let launch = FASTQOperationLaunchRequest.derivative(
-            request: .lengthFilter(min: 30, max: nil),
+            request: .reverseComplement,
             inputURLs: [bundle.fastqURL],
             outputMode: .perInput
         )

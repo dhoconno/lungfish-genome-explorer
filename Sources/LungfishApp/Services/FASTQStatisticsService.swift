@@ -59,6 +59,23 @@ public enum FASTQStatisticsService {
                 gcPercentage: gcPercentage
             )
         }
+
+        /// The summary with Q20/Q30 from counted bases, when the count
+        /// covers the bases seqkit summed.
+        func replacingQuality(with fractions: FASTQQualityFractions) -> SeqkitSummary {
+            guard fractions.baseCount == sumLen, fractions.baseCount > 0 else { return self }
+            return SeqkitSummary(
+                numSeqs: numSeqs,
+                sumLen: sumLen,
+                minLen: minLen,
+                avgLen: avgLen,
+                maxLen: maxLen,
+                q20Percentage: fractions.q20Percentage,
+                q30Percentage: fractions.q30Percentage,
+                averageQuality: averageQuality,
+                gcPercentage: gcPercentage
+            )
+        }
     }
 
     public static func computeAndCache(
@@ -277,10 +294,11 @@ public enum FASTQStatisticsService {
         guard !summaries.isEmpty else {
             throw FASTQStatisticsServiceError.invalidSeqkitOutput
         }
-        guard summaries.count > 1 else {
-            return summaries[0]
-        }
-        return aggregateSeqkitSummaries(summaries)
+        let summary = summaries.count > 1 ? aggregateSeqkitSummaries(summaries) : summaries[0]
+        // seqkit 2.13 prints Q20(%) and Q30(%) as whole percents; the QC
+        // cards must show the same fractions Refresh QC Summary counts.
+        let fractions = try await FASTQQualityFractions.scan(fastqURLs)
+        return summary.replacingQuality(with: fractions)
     }
 
     private static func parseSeqkitSummaries(from stdout: String) throws -> [SeqkitSummary] {

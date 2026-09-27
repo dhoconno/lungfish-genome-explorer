@@ -336,6 +336,39 @@ final class ImportFastqCommandTests: XCTestCase {
         }
     }
 
+    // The help used to list `vsp2, wgs, hifi` while the recipe IDs that
+    // resolve read like `vsp2-target-enrichment`. The list is now generated
+    // from the registry, and every name it shows must resolve.
+    func testRecipeHelpListsEveryNameThatResolves() throws {
+        let recipes = RecipeRegistryV2.builtinRecipes()
+        XCTAssertFalse(recipes.isEmpty, "the bundled recipe files should load")
+        let names = ImportCommand.FastqSubcommand.availableRecipeNames(recipes: recipes)
+        XCTAssertTrue(names.contains("vsp2-target-enrichment"), names.joined(separator: ", "))
+        XCTAssertTrue(names.contains("illumina-amplicon-merge"), names.joined(separator: ", "))
+        XCTAssertTrue(names.contains("vsp2"), names.joined(separator: ", "))
+        XCTAssertTrue(names.contains("wgs"), names.joined(separator: ", "))
+        XCTAssertTrue(names.contains("hifi"), names.joined(separator: ", "))
+        XCTAssertEqual(names.count, Set(names).count, "no name is listed twice")
+        for name in names {
+            let resolved = try ImportCommand.FastqSubcommand.resolveImportRecipe(named: name, recipes: recipes)
+            XCTAssertTrue(
+                resolved.newRecipe != nil || resolved.legacyRecipe != nil,
+                "\(name) is listed in the help but does not resolve"
+            )
+        }
+    }
+
+    func testRecipeHelpIsRenderedFromTheRegistry() {
+        let help = ImportCommand.FastqSubcommand.helpMessage()
+            .split(whereSeparator: \.isWhitespace)
+            .joined(separator: " ")
+        for name in ImportCommand.FastqSubcommand.availableRecipeNames() {
+            XCTAssertTrue(help.contains(name), "help does not list \(name): \(help)")
+        }
+        XCTAssertTrue(help.contains("vsp2: alias of vsp2-target-enrichment"), help)
+        XCTAssertFalse(help.contains("Processing recipe: vsp2, wgs, hifi, none"), help)
+    }
+
     func testResolveImportRecipeAcceptsExactIlluminaAmpliconMergeID() throws {
         let resolved = try ImportCommand.FastqSubcommand.resolveImportRecipe(named: "illumina-amplicon-merge")
 

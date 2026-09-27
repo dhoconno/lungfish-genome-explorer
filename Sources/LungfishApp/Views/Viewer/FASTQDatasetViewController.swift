@@ -1624,7 +1624,7 @@ public final class FASTQDatasetViewController: NSViewController {
         progressIndicator.startAnimation(nil)
         setStatus("Computing quality report...")
 
-        let qrCliCmd = "seqkit stats -a -T \(url.path) && seqkit head -n 100000 \(url.path) | (sampled quality analysis)"
+        let qrCliCmd = "seqkit stats -a -T \(url.path) && (count Q20/Q30 bases) && seqkit head -n 100000 \(url.path) | (sampled quality analysis)"
         let opID = OperationCenter.shared.start(
             title: "Quality Report",
             detail: url.lastPathComponent,
@@ -1702,8 +1702,17 @@ public final class FASTQDatasetViewController: NSViewController {
                     _maxLen = row.maxLen
                     _medianLen = row.q2.map { Int($0) } ?? 0
                     _n50Len = row.n50.map { Int($0) } ?? 0
-                    _q20 = row.q20Percent ?? 0
-                    _q30 = row.q30Percent ?? 0
+                    // seqkit 2.13 prints Q20(%) and Q30(%) as whole
+                    // percents; count the bases so the cards match
+                    // Refresh QC Summary.
+                    let fractions = try await FASTQQualityFractions.scan(url)
+                    if fractions.baseCount == row.sumLen, fractions.baseCount > 0 {
+                        _q20 = fractions.q20Percentage
+                        _q30 = fractions.q30Percentage
+                    } else {
+                        _q20 = row.q20Percent ?? 0
+                        _q30 = row.q30Percent ?? 0
+                    }
                     _avgQual = row.avgQual ?? 0
                     _gc = row.gcPercent ?? 0
                     numSeqs = _numSeqs; sumLen = _sumLen; minLen = _minLen; avgLen = _avgLen

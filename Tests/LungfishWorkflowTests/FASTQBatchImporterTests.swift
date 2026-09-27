@@ -338,6 +338,28 @@ final class FASTQBatchImporterTests: XCTestCase {
         XCTAssertFalse(FASTQBatchImporter.bundleExists(for: pair, in: tmpDir))
     }
 
+    // seqkit 2.13 prints Q20(%) and Q30(%) as whole percents (95, 91) while
+    // Refresh QC Summary counts the bases (94.57, 91.28). Import stores the
+    // counted fractions, and keeps seqkit's values only when the count did
+    // not cover the bases seqkit summed.
+    func testExactQualityMetadataPrefersCountedFractionsOverSeqkitRounding() {
+        let seqkit = SeqkitStatsMetadata(
+            numSeqs: 91_148, sumLen: 22_662_846, minLen: 35, avgLen: 248.6, maxLen: 250,
+            q20Percentage: 95, q30Percentage: 91, averageQuality: 25.30, gcPercentage: 39.40
+        )
+        let fractions = FASTQQualityFractions(baseCount: 22_662_846, q20Count: 21_433_395, q30Count: 20_687_112)
+        let exact = FASTQBatchImporter.exactQualityMetadata(seqkit: seqkit, fractions: fractions)
+        XCTAssertEqual(exact.q20Percentage, fractions.q20Percentage)
+        XCTAssertEqual(exact.q30Percentage, fractions.q30Percentage)
+        XCTAssertEqual(exact.q20Percentage, 94.575, accuracy: 0.001)
+        XCTAssertEqual(exact.q30Percentage, 91.282, accuracy: 0.001)
+        XCTAssertEqual(exact.numSeqs, seqkit.numSeqs)
+        XCTAssertEqual(exact.averageQuality, seqkit.averageQuality)
+
+        let mismatched = FASTQQualityFractions(baseCount: 100, q20Count: 90, q30Count: 80)
+        XCTAssertEqual(FASTQBatchImporter.exactQualityMetadata(seqkit: seqkit, fractions: mismatched), seqkit)
+    }
+
     func testRequiredSeqkitStatsRejectsIncompleteOutput() {
         XCTAssertThrowsError(
             try FASTQBatchImporter.parseRequiredSeqkitStats(stdout: "file\tformat\nsample.fastq\tFASTQ\n")
