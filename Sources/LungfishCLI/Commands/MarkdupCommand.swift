@@ -18,11 +18,11 @@ struct MarkdupCommand: AsyncParsableCommand {
     /// Shared by `markdup` and `bam markdup` so both help pages describe the
     /// same output contract.
     static let outputBehaviourDiscussion = """
-        The input BAM is left untouched. The duplicate-marked copy is written beside it as
-        <name>.markdup.bam with a .bai index, or to --output for a single BAM. This matches the
+        The input BAM is left untouched. The duplicate-marked copy is written beside it as \
+        <name>.markdup.bam with a .bai index, or to --output for a single BAM. This matches the \
         app's Mark Duplicates, which keeps the original track as "[unmarked]".
 
-        Pass --in-place to overwrite the input BAM instead. WARNING: --in-place destroys the
+        Pass --in-place to overwrite the input BAM instead. WARNING: --in-place destroys the \
         unmarked original and cannot be undone.
         """
 
