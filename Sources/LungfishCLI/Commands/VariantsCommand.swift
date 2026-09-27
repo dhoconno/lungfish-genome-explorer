@@ -807,7 +807,7 @@ extension VariantsCommand {
         @Option(name: .customLong("bundle"), help: "Path to the reference bundle directory")
         var bundlePath: String
 
-        @Option(name: .customLong("alignment-track"), help: "Bundle alignment track identifier")
+        @Option(name: .customLong("alignment-track"), help: "Bundle alignment track identifier, or its display name when only one track has that name")
         var alignmentTrackID: String
 
         @Option(name: .customLong("caller"), help: "Variant caller: lofreq, ivar, medaka, bcftools, clair3")
@@ -886,6 +886,54 @@ extension VariantsCommand {
             _ = try await execute(runtime: .live(), emitEvent: emitter)
         }
 
+        /// Resolves `--alignment-track` against the bundle manifest.
+        ///
+        /// An unknown bundle or track is an input error (documented exit
+        /// status 3, `CLIError.inputFileNotFound` / `.validationFailed`), not
+        /// the generic failure the preflight used to surface. A display name
+        /// is accepted in place of the identifier when exactly one track
+        /// carries it.
+        static func resolveAlignmentTrackID(_ requested: String, bundleURL: URL) throws -> String {
+            guard FileManager.default.fileExists(atPath: bundleURL.path) else {
+                throw CLIError.inputFileNotFound(path: bundleURL.path)
+            }
+            let manifest: BundleManifest
+            do {
+                manifest = try BundleManifest.load(from: bundleURL)
+            } catch {
+                throw CLIError.validationFailed(errors: [
+                    "Could not read the bundle manifest at \(bundleURL.path): \(error.localizedDescription)",
+                ])
+            }
+            return try resolveAlignmentTrackID(requested, in: manifest)
+        }
+
+        static func resolveAlignmentTrackID(_ requested: String, in manifest: BundleManifest) throws -> String {
+            let trimmed = requested.trimmingCharacters(in: .whitespacesAndNewlines)
+            if manifest.alignments.contains(where: { $0.id == trimmed }) {
+                return trimmed
+            }
+            let exactNameMatches = manifest.alignments.filter { $0.name == trimmed }
+            let nameMatches = exactNameMatches.isEmpty
+                ? manifest.alignments.filter { $0.name.caseInsensitiveCompare(trimmed) == .orderedSame }
+                : exactNameMatches
+            if nameMatches.count == 1, let match = nameMatches.first {
+                return match.id
+            }
+            let available = manifest.alignments.map { "\($0.id) (\($0.name))" }
+            if nameMatches.count > 1 {
+                throw CLIError.validationFailed(errors: [
+                    "Alignment track name '\(trimmed)' matches \(nameMatches.count) tracks; use the identifier: "
+                        + nameMatches.map(\.id).joined(separator: ", "),
+                ])
+            }
+            throw CLIError.validationFailed(errors: [
+                available.isEmpty
+                    ? "Alignment track '\(trimmed)' not found: the bundle has no alignment tracks."
+                    : "Alignment track '\(trimmed)' not found. Available tracks: " + available.joined(separator: ", "),
+            ])
+        }
+
         func executeForTesting(
             runtime: VariantsCommand.Runtime = .live(),
             emit: @escaping (String) -> Void
@@ -907,10 +955,11 @@ extension VariantsCommand {
             let advancedArguments = try parseAdvancedOptions()
             let resolvedPloidy = try parsePloidy(caller: resolvedCaller, advancedArguments: advancedArguments)
             let resolvedPlatform = try parsePlatform(caller: resolvedCaller)
+            let resolvedAlignmentTrackID = try Self.resolveAlignmentTrackID(alignmentTrackID, bundleURL: bundleURL)
             let initialTrackName = normalizedOutputTrackName(fallback: resolvedCaller.displayName)
             let initialRequest = BundleVariantCallingRequest(
                 bundleURL: bundleURL,
-                alignmentTrackID: alignmentTrackID,
+                alignmentTrackID: resolvedAlignmentTrackID,
                 caller: resolvedCaller,
                 outputTrackName: initialTrackName,
                 threads: globalOptions.effectiveThreads,

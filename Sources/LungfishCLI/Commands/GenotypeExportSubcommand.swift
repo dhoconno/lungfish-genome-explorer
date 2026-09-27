@@ -39,7 +39,9 @@ private final class GenotypeExportDirectoryPublicationLock:
     static func acquire(
         in outputDirectory: URL
     ) throws -> GenotypeExportDirectoryPublicationLock {
-        let directory = outputDirectory.standardizedFileURL
+        // Physical path: the no-follow hierarchy walk below refuses symlinked
+        // components, and /tmp itself is one (ENOTDIR under /tmp otherwise).
+        let directory = outputDirectory.canonicalFileURL
         let directoryDescriptor: Int32
         do {
             directoryDescriptor = try NoFollowFileSystem

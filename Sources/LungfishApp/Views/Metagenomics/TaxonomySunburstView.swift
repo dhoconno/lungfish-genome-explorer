@@ -663,17 +663,20 @@ public class TaxonomySunburstView: NSView {
 
     // MARK: - Keyboard Interaction
 
-    /// Handles keyboard shortcuts for zoom navigation.
+    /// Handles keyboard navigation.
     ///
     /// - **Escape**: Zoom out one level (or deselect if already at root).
-    /// - **Cmd+0**: Zoom to root.
+    ///
+    /// ⌘0 is not handled here: it is the key equivalent of `View > Zoom to
+    /// Fit`, and AppKit resolves menu key equivalents before any `keyDown`,
+    /// so a `keyDown` case for ⌘0 could never fire. The menu item's
+    /// nil-target `zoomToFit(_:)` action reaches this view through the
+    /// responder chain instead (see ``zoomToFit(_:)``).
     public override func keyDown(with event: NSEvent) {
         guard tree != nil else {
             super.keyDown(with: event)
             return
         }
-
-        let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
 
         switch event.keyCode {
         case 53: // Escape
@@ -687,12 +690,17 @@ public class TaxonomySunburstView: NSView {
                 selectedNode = nil
             }
 
-        case 29 where modifiers == .command: // Cmd+0
-            zoomToRoot()
-
         default:
             super.keyDown(with: event)
         }
+    }
+
+    /// `View > Zoom to Fit` (⌘0) while the sunburst is the first responder:
+    /// returns to the full chart. Dispatched through the responder chain from
+    /// the nil-target menu item, ahead of the window controller's sequence
+    /// viewer handler, so ⌘0 does one thing per focused view.
+    @objc public func zoomToFit(_ sender: Any?) {
+        zoomToRoot()
     }
 
     // MARK: - Zoom Actions

@@ -61,17 +61,17 @@ struct PrimerDesignCommand: AsyncParsableCommand {
 
         // PRIMER_INTERNAL_* hydrolysis-probe rules. They apply only to qpcr-probe, the
         // one preset that asks Primer3 for an internal oligo.
-        @Option(name: .customLong("probe-min-tm"), help: "PRIMER_INTERNAL_MIN_TM. Preset default: 64 for qpcr-probe; unused otherwise.") var probeMinTm: Double?
-        @Option(name: .customLong("probe-opt-tm"), help: "PRIMER_INTERNAL_OPT_TM. Preset default: 67 for qpcr-probe; unused otherwise.") var probeOptTm: Double?
-        @Option(name: .customLong("probe-max-tm"), help: "PRIMER_INTERNAL_MAX_TM. Preset default: 70 for qpcr-probe; unused otherwise.") var probeMaxTm: Double?
-        @Option(name: .customLong("probe-min-size"), help: "PRIMER_INTERNAL_MIN_SIZE. Preset default: 20 for qpcr-probe; unused otherwise.") var probeMinSize: Int?
-        @Option(name: .customLong("probe-opt-size"), help: "PRIMER_INTERNAL_OPT_SIZE. Preset default: 25 for qpcr-probe; unused otherwise.") var probeOptSize: Int?
-        @Option(name: .customLong("probe-max-size"), help: "PRIMER_INTERNAL_MAX_SIZE. Preset default: 30 for qpcr-probe; unused otherwise.") var probeMaxSize: Int?
-        @Option(name: .customLong("probe-min-gc"), help: "PRIMER_INTERNAL_MIN_GC. Preset default: 40 for qpcr-probe; unused otherwise.") var probeMinGC: Double?
-        @Option(name: .customLong("probe-opt-gc"), help: "PRIMER_INTERNAL_OPT_GC_PERCENT. Preset default: 60 for qpcr-probe; unused otherwise.") var probeOptGC: Double?
-        @Option(name: .customLong("probe-max-gc"), help: "PRIMER_INTERNAL_MAX_GC. Preset default: 80 for qpcr-probe; unused otherwise.") var probeMaxGC: Double?
-        @Option(name: .customLong("probe-max-poly-x"), help: "PRIMER_INTERNAL_MAX_POLY_X. Preset default: 4 for qpcr-probe; unused otherwise.") var probeMaxPolyX: Int?
-        @Option(name: .customLong("probe-must-match-five-prime"), help: "PRIMER_INTERNAL_MUST_MATCH_FIVE_PRIME. Preset default: hnnnn for qpcr-probe, which forbids a 5' G next to the reporter dye. Pass an empty value to omit the tag.") var probeMustMatchFivePrime: String?
+        @Option(name: .customLong("probe-min-tm"), help: "PRIMER_INTERNAL_MIN_TM. Preset default: \(primer3PresetNumber(Primer3ProbeDefaults.hydrolysisProbe.probeMinTm)) for qpcr-probe; unused otherwise.") var probeMinTm: Double?
+        @Option(name: .customLong("probe-opt-tm"), help: "PRIMER_INTERNAL_OPT_TM. Preset default: \(primer3PresetNumber(Primer3ProbeDefaults.hydrolysisProbe.probeOptTm)) for qpcr-probe; unused otherwise.") var probeOptTm: Double?
+        @Option(name: .customLong("probe-max-tm"), help: "PRIMER_INTERNAL_MAX_TM. Preset default: \(primer3PresetNumber(Primer3ProbeDefaults.hydrolysisProbe.probeMaxTm)) for qpcr-probe; unused otherwise.") var probeMaxTm: Double?
+        @Option(name: .customLong("probe-min-size"), help: "PRIMER_INTERNAL_MIN_SIZE. Preset default: \(Primer3ProbeDefaults.hydrolysisProbe.probeMinSize) for qpcr-probe; unused otherwise.") var probeMinSize: Int?
+        @Option(name: .customLong("probe-opt-size"), help: "PRIMER_INTERNAL_OPT_SIZE. Preset default: \(Primer3ProbeDefaults.hydrolysisProbe.probeOptSize) for qpcr-probe; unused otherwise.") var probeOptSize: Int?
+        @Option(name: .customLong("probe-max-size"), help: "PRIMER_INTERNAL_MAX_SIZE. Preset default: \(Primer3ProbeDefaults.hydrolysisProbe.probeMaxSize) for qpcr-probe; unused otherwise.") var probeMaxSize: Int?
+        @Option(name: .customLong("probe-min-gc"), help: "PRIMER_INTERNAL_MIN_GC. Preset default: \(primer3PresetNumber(Primer3ProbeDefaults.hydrolysisProbe.probeMinGC)) for qpcr-probe; unused otherwise.") var probeMinGC: Double?
+        @Option(name: .customLong("probe-opt-gc"), help: "PRIMER_INTERNAL_OPT_GC_PERCENT. Preset default: \(primer3PresetNumber(Primer3ProbeDefaults.hydrolysisProbe.probeOptGC)) for qpcr-probe; unused otherwise.") var probeOptGC: Double?
+        @Option(name: .customLong("probe-max-gc"), help: "PRIMER_INTERNAL_MAX_GC. Preset default: \(primer3PresetNumber(Primer3ProbeDefaults.hydrolysisProbe.probeMaxGC)) for qpcr-probe; unused otherwise.") var probeMaxGC: Double?
+        @Option(name: .customLong("probe-max-poly-x"), help: "PRIMER_INTERNAL_MAX_POLY_X. Preset default: \(Primer3ProbeDefaults.hydrolysisProbe.probeMaxPolyX) for qpcr-probe; unused otherwise.") var probeMaxPolyX: Int?
+        @Option(name: .customLong("probe-must-match-five-prime"), help: "PRIMER_INTERNAL_MUST_MATCH_FIVE_PRIME. Preset default: \(Primer3ProbeDefaults.hydrolysisProbe.probeMustMatchFivePrime ?? "none") for qpcr-probe, which forbids a 5' G next to the reporter dye. Pass an empty value to omit the tag.") var probeMustMatchFivePrime: String?
         @Flag(name: .customLong("pick-internal-oligo"), help: "Ask Primer3 for an ordinary internal oligo. Implied by --assay qpcr-probe.") var pickInternalOligo = false
 
         // Fixed oligos, so Primer3 designs the partners for an oligo the caller
@@ -529,4 +529,11 @@ struct PrimerDesignCommand: AsyncParsableCommand {
             return args
         }
     }
+}
+
+/// Formats a preset value for `--help` the way the preset writes it to
+/// Primer3 (`67`, not `67.0`), so the help text and the applied default can
+/// never disagree.
+func primer3PresetNumber(_ value: Double) -> String {
+    value == value.rounded() ? String(Int(value)) : String(value)
 }

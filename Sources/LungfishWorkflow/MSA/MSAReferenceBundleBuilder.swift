@@ -885,7 +885,7 @@ public enum MSAReferenceBundleBuilder {
         for case let fileURL as URL in enumerator {
             let values = try fileURL.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey])
             guard values.isRegularFile == true else { continue }
-            let relativePath = String(fileURL.path.dropFirst(url.path.count + 1))
+            guard let relativePath = CanonicalFilePath.relativePath(of: fileURL, within: url) else { continue }
             let data = try Data(contentsOf: fileURL)
             records.append((
                 relativePath: relativePath,

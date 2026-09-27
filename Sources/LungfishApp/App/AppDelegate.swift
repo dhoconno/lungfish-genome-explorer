@@ -2559,8 +2559,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
     /// active MSA viewer to operate on (mirrors the guards in each
     /// ViewerViewController.zoom*() implementation).
     func canZoom(viewerController: ViewerViewController?) -> Bool {
-        viewerController?.referenceFrame != nil
-            || viewerController?.multipleSequenceAlignmentViewController != nil
+        ViewerZoomAvailability.canZoom(viewerController: viewerController)
     }
 
     @objc public func showWindowSizeDialog(_ sender: Any?) {

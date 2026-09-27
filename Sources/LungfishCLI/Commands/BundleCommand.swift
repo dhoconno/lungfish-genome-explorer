@@ -192,7 +192,8 @@ enum CLIMarkDuplicatesBundleSupport {
 
 // MARK: - Export Subcommand
 
-enum BundleExportFormat: String, ExpressibleByArgument {
+/// `CaseIterable` so the option's help lists every accepted value.
+enum BundleExportFormat: String, ExpressibleByArgument, CaseIterable {
     case container
 }
 
@@ -204,14 +205,18 @@ struct BundleExportSubcommand: AsyncParsableCommand {
             Exports a Lungfish bundle as a deterministic OCI layout tarball.
 
             Examples:
-              lungfish bundle export MyGenome.lungfishref --format container --output MyGenome.oci.tar
+              lungfish bundle export MyGenome.lungfishref --export-format container --output MyGenome.oci.tar
             """
     )
 
     @Argument(help: "Path to the source .lungfishref bundle")
     var bundlePath: String
 
-    @Option(name: .long, help: "Export format")
+    // `--export-format`, not `--format`: the program-wide `--format` (text,
+    // json, tsv) is parsed first and takes the value, so a subcommand option
+    // of the same name can never be reached. `provenance export`, `genotype
+    // export` and `fastq 12s-export` use the same spelling.
+    @Option(name: .customLong("export-format"), help: "Export format")
     var format: BundleExportFormat
 
     @Option(name: .shortAndLong, help: "Output tarball path")
@@ -347,6 +352,14 @@ struct BundleInfoSubcommand: AsyncParsableCommand {
                     ]
                 }
                 print(formatter.table(headers: chromHeaders, rows: chromRows))
+            }
+
+            if !manifest.alignments.isEmpty {
+                print("\n" + formatter.header("Alignment Tracks"))
+                print(formatter.table(
+                    headers: BundleAlignmentTrackListing.tableHeaders,
+                    rows: BundleAlignmentTrackListing.tableRows(manifest.alignments, formatter: formatter)
+                ))
             }
 
             if !manifest.annotations.isEmpty {
@@ -1131,11 +1144,7 @@ struct BundleListSubcommand: AsyncParsableCommand {
         if globalOptions.outputFormat == .json {
             let output = BundleListOutput(
                 files: tracks ? nil : listBundleFiles(bundleURL),
-                tracks: files ? nil : BundleTrackList(
-                    annotations: manifest.annotations.map { $0.id },
-                    variants: manifest.variants.map { $0.id },
-                    signals: manifest.tracks.map { $0.id }
-                )
+                tracks: files ? nil : BundleTrackList(manifest: manifest)
             )
             let handler = JSONOutputHandler()
             handler.writeData(output, label: nil)
@@ -1151,6 +1160,13 @@ struct BundleListSubcommand: AsyncParsableCommand {
         }
 
         if !files {
+            if !manifest.alignments.isEmpty {
+                print("\n" + formatter.header("Alignment Tracks"))
+                for line in BundleAlignmentTrackListing.listLines(manifest.alignments, formatter: formatter) {
+                    print("  \(line)")
+                }
+            }
+
             if !manifest.annotations.isEmpty {
                 print("\n" + formatter.header("Annotation Tracks"))
                 for track in manifest.annotations {
@@ -1195,9 +1211,44 @@ struct BundleListOutput: Codable {
     let tracks: BundleTrackList?
 }
 
+/// The alignment-track rows `bundle info` and `bundle list` print.
+///
+/// Alignment tracks were the one track kind both commands left out, so a
+/// bundle with mapped reads looked empty from the command line.
+enum BundleAlignmentTrackListing {
+    static let tableHeaders = ["ID", "Name", "Format", "Mapped Reads", "Path"]
+
+    static func tableRows(_ tracks: [AlignmentTrackInfo], formatter: TerminalFormatter) -> [[String]] {
+        tracks.map { track in
+            [
+                track.id,
+                track.name,
+                track.format.rawValue,
+                track.mappedReadCount.map { formatter.number(Int($0)) } ?? "-",
+                track.sourcePath,
+            ]
+        }
+    }
+
+    static func listLines(_ tracks: [AlignmentTrackInfo], formatter: TerminalFormatter) -> [String] {
+        tracks.map { track in
+            let reads = track.mappedReadCount.map { ", \(formatter.number(Int($0))) mapped reads" } ?? ""
+            return "\(track.id): \(track.name) (\(track.format.rawValue)\(reads)) \(track.sourcePath)"
+        }
+    }
+}
+
 /// Track listing for JSON output
 struct BundleTrackList: Codable {
+    let alignments: [String]
     let annotations: [String]
     let variants: [String]
     let signals: [String]
+
+    init(manifest: BundleManifest) {
+        alignments = manifest.alignments.map(\.id)
+        annotations = manifest.annotations.map(\.id)
+        variants = manifest.variants.map(\.id)
+        signals = manifest.tracks.map(\.id)
+    }
 }

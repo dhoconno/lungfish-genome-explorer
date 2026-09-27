@@ -21,6 +21,30 @@ final class GenotypingOutputDirectoryProjectBindingTests: XCTestCase {
         super.tearDown()
     }
 
+    /// `--project /tmp/X --output-dir /private/tmp/X/run` names a directory
+    /// inside the project; the check compares physical paths, not spellings.
+    func testOutputDirectoryInsideProjectIsAcceptedThroughASymlinkedSpelling() throws {
+        let project = root.appendingPathComponent("Study.lungfish", isDirectory: true)
+        try FileManager.default.createDirectory(at: project, withIntermediateDirectories: true)
+        let link = root.appendingPathComponent("link-to-study", isDirectory: true)
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: project)
+        let physicalProject = URL(fileURLWithPath: project.canonicalFilePath, isDirectory: true)
+
+        XCTAssertTrue(ONTBarcodeDemuxGenotypingPipeline.outputDirectory(
+            link.appendingPathComponent("Analyses/run-1", isDirectory: true),
+            isInsideProject: physicalProject
+        ))
+        XCTAssertTrue(ONTBarcodeDemuxGenotypingPipeline.outputDirectory(
+            physicalProject.appendingPathComponent("Analyses/run-1", isDirectory: true),
+            isInsideProject: link
+        ))
+        XCTAssertTrue(ONTBarcodeDemuxGenotypingPipeline.outputDirectory(link, isInsideProject: physicalProject))
+        XCTAssertFalse(ONTBarcodeDemuxGenotypingPipeline.outputDirectory(
+            root.appendingPathComponent("elsewhere/run-1", isDirectory: true),
+            isInsideProject: link
+        ))
+    }
+
     func testOutputDirectoryInsideProjectIsAccepted() {
         let project = root.appendingPathComponent("Study.lungfish", isDirectory: true)
         XCTAssertTrue(ONTBarcodeDemuxGenotypingPipeline.outputDirectory(

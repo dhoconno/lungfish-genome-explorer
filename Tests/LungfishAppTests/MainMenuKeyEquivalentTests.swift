@@ -1,0 +1,110 @@
+// MainMenuKeyEquivalentTests.swift - Every shortcut in the main menu does one thing
+// Copyright (c) 2026 Lungfish Contributors
+// SPDX-License-Identifier: MIT
+
+import AppKit
+import XCTest
+@testable import LungfishApp
+@testable import LungfishGenotypeUI
+
+@MainActor
+final class MainMenuKeyEquivalentTests: XCTestCase {
+    private struct Binding: Hashable {
+        let key: String
+        let modifiers: UInt
+    }
+
+    private func allItems(in menu: NSMenu) -> [NSMenuItem] {
+        menu.items.flatMap { item -> [NSMenuItem] in
+            [item] + (item.submenu.map(allItems(in:)) ?? [])
+        }
+    }
+
+    private func item(titled title: String, in menu: NSMenu) -> NSMenuItem? {
+        allItems(in: menu).first { $0.title == title }
+    }
+
+    /// The genotype review commands are real menu items with a nil target, so
+    /// AppKit dispatches ⌘R / ⌘K / ⇧⌘F / ⇧⌘O through the responder chain to
+    /// `GenotypeResultViewController` (a `performKeyEquivalent` override on a
+    /// view controller is never reached).
+    func testGenotypeReviewCommandsAreMenuItemsWithTheDocumentedShortcuts() throws {
+        let menu = MainMenu.createMainMenu()
+        let review = try XCTUnwrap(item(titled: "Genotype Review", in: menu))
+        let submenu = try XCTUnwrap(review.submenu)
+
+        let expected: [(String, String, NSEvent.ModifierFlags, Selector)] = [
+            ("Mark Sample Reviewed", "r", [.command], #selector(GenotypeResultViewController.markSelectedSampleReviewed(_:))),
+            ("Mark Sample Confirmed", "k", [.command], #selector(GenotypeResultViewController.markSelectedSampleConfirmed(_:))),
+            ("Flag Sample for Review", "f", [.command, .shift], #selector(GenotypeResultViewController.flagSelectedSampleNeedsReview(_:))),
+            ("Sample Detail\u{2026}", "o", [.command, .shift], #selector(GenotypeResultViewController.openSelectedSampleDetail(_:))),
+        ]
+        XCTAssertEqual(submenu.items.map(\.title), expected.map(\.0))
+        for (title, key, modifiers, action) in expected {
+            let item = try XCTUnwrap(submenu.items.first { $0.title == title }, title)
+            XCTAssertEqual(item.keyEquivalent, key, title)
+            XCTAssertEqual(item.keyEquivalentModifierMask, modifiers, title)
+            XCTAssertEqual(item.action, action, title)
+            XCTAssertNil(item.target, "\(title) must dispatch through the responder chain")
+        }
+        XCTAssertEqual(
+            expected.map(\.3),
+            GenotypeResultViewController.reviewCommandSelectors,
+            "menu order and the controller's validation list must agree"
+        )
+    }
+
+    /// No two menu items share a key equivalent, so each shortcut in the
+    /// menu bar does exactly one thing (⌘0 is Zoom to Fit alone; ⌥⌘N is New
+    /// Window for Current Project alone).
+    func testNoTwoMenuItemsShareAKeyEquivalent() {
+        let menu = MainMenu.createMainMenu()
+        var seen: [Binding: String] = [:]
+        for item in allItems(in: menu) where !item.keyEquivalent.isEmpty {
+            let binding = Binding(
+                key: item.keyEquivalent.lowercased(),
+                modifiers: item.keyEquivalentModifierMask.intersection(.deviceIndependentFlagsMask).rawValue
+            )
+            if let previous = seen[binding] {
+                XCTFail("'\(item.title)' shares its key equivalent with '\(previous)'")
+            }
+            seen[binding] = item.title
+        }
+
+        let zoomToFit = item(titled: "Zoom to Fit", in: menu)
+        XCTAssertEqual(zoomToFit?.keyEquivalent, "0")
+        XCTAssertEqual(zoomToFit?.keyEquivalentModifierMask, [.command])
+        let newWindow = item(titled: "New Window for Current Project", in: menu)
+        XCTAssertEqual(newWindow?.keyEquivalent, "n")
+        XCTAssertEqual(newWindow?.keyEquivalentModifierMask, [.command, .option])
+    }
+
+    /// The genotype matrix's own shortcuts must not collide with the menu
+    /// bar either: its false-negative command moved from ⌥⌘N (New Window for
+    /// Current Project) to ⌥⌘X.
+    func testGenotypeMatrixShortcutsDoNotCollideWithMenuBarShortcuts() {
+        let menu = MainMenu.createMainMenu()
+        let menuBindings = Set(allItems(in: menu).filter { !$0.keyEquivalent.isEmpty }.map {
+            Binding(
+                key: $0.keyEquivalent.lowercased(),
+                modifiers: $0.keyEquivalentModifierMask.intersection(.deviceIndependentFlagsMask).rawValue
+            )
+        })
+        let matrixModifiers: NSEvent.ModifierFlags = [.command, .option]
+        let state = GenotypeMatrixContextMenuBuilder.make(snapshot: .init(
+            selectionTargets: [],
+            capability: GenotypeMatrixReviewCapability.evaluate(
+                selection: [], evidence: .init(), reviews: [], comments: [], isWritable: false
+            ),
+            visibilityCapability: .empty,
+            keyModifierRawValue: matrixModifiers.rawValue
+        ))
+        let matrixKeys = state.items.filter { !$0.keyEquivalent.isEmpty }
+        XCTAssertFalse(matrixKeys.isEmpty)
+        for item in matrixKeys {
+            let binding = Binding(key: item.keyEquivalent.lowercased(), modifiers: matrixModifiers.rawValue)
+            XCTAssertFalse(menuBindings.contains(binding), "matrix '\(item.title)' (⌥⌘\(item.keyEquivalent.uppercased())) collides with a menu bar item")
+        }
+        XCTAssertEqual(matrixKeys.first { $0.command == .markFalseNegative }?.keyEquivalent, "x")
+    }
+}

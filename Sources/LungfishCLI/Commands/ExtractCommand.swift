@@ -125,7 +125,8 @@ struct ExtractSequenceSubcommand: AsyncParsableCommand {
         }
 
         if !globalOptions.quiet {
-            print(formatter.info(
+            // stderr: without -o the FASTA goes to stdout and must stay clean.
+            printStatusLine(formatter.info(
                 "Extracting \(region) from \(inputURL.lastPathComponent)..."
             ))
         }
@@ -317,7 +318,7 @@ struct ExtractSequenceSubcommand: AsyncParsableCommand {
             }
         } else {
             if !globalOptions.quiet && globalOptions.outputFormat == .text {
-                print(formatter.info("Extracted \(result.nucleotideSequence.count) bp:"))
+                printStatusLine(formatter.info("Extracted \(result.nucleotideSequence.count) bp:"))
             }
             print(fastaOutput, terminator: "")
         }

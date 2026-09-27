@@ -1458,37 +1458,30 @@ final class GenotypeResultViewportHaplotypeDefinitionSearchTests: GenotypeResult
             defer: false
         )
         window.contentView = controller.view
-        let commandF = try XCTUnwrap(NSEvent.keyEvent(
-            with: .keyDown,
-            location: .zero,
-            modifierFlags: [.command],
-            timestamp: 0,
-            windowNumber: window.windowNumber,
-            context: nil,
-            characters: "f",
-            charactersIgnoringModifiers: "f",
-            isARepeat: false,
-            keyCode: 3
-        ))
-
-        XCTAssertTrue(controller.performKeyEquivalent(with: commandF))
+        // Edit > Find… (⌘F) is the NSTextView.performFindPanelAction nil-target
+        // item tagged showFindInterface; it reaches the controller through the
+        // responder chain when no text view owns the key focus.
+        let findItem = NSMenuItem(
+            title: "Find…",
+            action: #selector(NSTextView.performFindPanelAction(_:)),
+            keyEquivalent: "f"
+        )
+        findItem.tag = NSTextFinder.Action.showFindInterface.rawValue
+        XCTAssertTrue(controller.validateMenuItem(findItem))
+        controller.performFindPanelAction(findItem)
         XCTAssertTrue(controller.testingQuickSearchIsFocused)
 
-        controller.testingSetQuickFilterSearchText("AnimalA")
-        let escape = try XCTUnwrap(NSEvent.keyEvent(
-            with: .keyDown,
-            location: .zero,
-            modifierFlags: [],
-            timestamp: 0,
-            windowNumber: window.windowNumber,
-            context: nil,
-            characters: "\u{1b}",
-            charactersIgnoringModifiers: "\u{1b}",
-            isARepeat: false,
-            keyCode: 53
-        ))
+        let nextMatchItem = NSMenuItem(
+            title: "Find Next",
+            action: #selector(NSTextView.performFindPanelAction(_:)),
+            keyEquivalent: "g"
+        )
+        nextMatchItem.tag = NSTextFinder.Action.nextMatch.rawValue
+        XCTAssertFalse(controller.validateMenuItem(nextMatchItem))
 
-        XCTAssertTrue(controller.performKeyEquivalent(with: escape))
+        controller.testingSetQuickFilterSearchText("AnimalA")
+        // Escape reaches the controller as NSResponder.cancelOperation(_:).
+        controller.cancelOperation(nil)
         XCTAssertEqual(controller.testingQuickSearchText, "")
         XCTAssertEqual(controller.testingVisibleMatrixSamples, ["AnimalA"])
     }

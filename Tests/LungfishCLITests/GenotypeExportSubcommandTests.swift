@@ -119,6 +119,39 @@ final class GenotypeExportSubcommandTests: XCTestCase {
         XCTAssertEqual(decoded.presentationColors?.first?.fillHex, "#008000")
     }
 
+    /// `genotype export --export-format csv` into a folder under /tmp (a
+    /// symlink to /private/tmp) used to fail with "The provenance publication
+    /// artifact no longer matches the transaction generation": receipts and
+    /// witnesses must agree on the physical path whichever spelling is given.
+    func testDelimitedExportSucceedsWhenTheOutputFolderIsReachedThroughASymlink() async throws {
+        let root = try temporaryDirectory(prefix: "genotype-symlink")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundle = try makeBundle(in: root)
+        let real = root.appendingPathComponent("real-output", isDirectory: true)
+        try FileManager.default.createDirectory(at: real, withIntermediateDirectories: true)
+        let link = root.appendingPathComponent("linked-output", isDirectory: true)
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: real)
+
+        for (bundlePath, outputDirectory) in [
+            (bundle.path, link),
+            (URL(fileURLWithPath: bundle.canonicalFilePath).path, link),
+            (bundle.path, URL(fileURLWithPath: real.canonicalFilePath, isDirectory: true)),
+        ] {
+            let csv = outputDirectory.appendingPathComponent("matrix-\(UUID().uuidString).csv")
+            let columns = try await GenotypeExportSubcommand.parse([
+                "--bundle", bundlePath,
+                "--export-format", "csv",
+                "--output", csv.path,
+            ]).runReturningResolvedColumns(managedPythonResolver: {
+                XCTFail("CSV must not resolve the XLSX runtime")
+                throw CocoaError(.fileNoSuchFile)
+            })
+            XCTAssertEqual(columns, ["S1", "S2"])
+            XCTAssertTrue(try String(contentsOf: csv, encoding: .utf8).hasPrefix("Sample,MHC-A H1,MHC-A H2\n"))
+            XCTAssertTrue(FileManager.default.fileExists(atPath: ProvenanceRecorder.fileSidecarURL(for: csv).path))
+        }
+    }
+
     func testCsvAndTsvExportsRemainOnTheNativeDelimitedPath() async throws {
         let root = try temporaryDirectory(prefix: "genotype-delimited")
         defer { try? FileManager.default.removeItem(at: root) }
@@ -816,7 +849,8 @@ final class GenotypeExportSubcommandTests: XCTestCase {
                             userInfo: [NSLocalizedDescriptionKey: "Injected pre-provenance failure"])
                     },
                     afterRollbackArtifactDetached: { detached in
-                        guard detached.standardizedFileURL == output.standardizedFileURL, !writerFired else { return }
+                        // The rollback hook reports the physical path (CanonicalFilePath); compare likewise.
+                        guard detached.canonicalFilePath == output.canonicalFilePath, !writerFired else { return }
                         writerFired = true
                         try late.write(to: output, options: .atomic)
                     })

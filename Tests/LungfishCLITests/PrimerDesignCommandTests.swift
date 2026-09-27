@@ -32,7 +32,7 @@ final class PrimerDesignCommandTests: XCTestCase {
     }
 
     func testPrimer3HelpDocumentsTheProbeOptionDefaults() throws {
-        let help = PrimerDesignCommand.Primer3Subcommand.helpMessage()
+        let help = PrimerDesignCommand.Primer3Subcommand.helpMessage(columns: 10_000)
         for flag in ["--probe-min-tm", "--probe-opt-tm", "--probe-max-tm",
                      "--probe-min-size", "--probe-opt-size", "--probe-max-size",
                      "--probe-min-gc", "--probe-opt-gc", "--probe-max-gc",
@@ -40,6 +40,20 @@ final class PrimerDesignCommandTests: XCTestCase {
             XCTAssertTrue(help.contains(flag), flag)
         }
         XCTAssertTrue(help.contains("qpcr-probe"))
+
+        // The documented defaults are derived from the preset the command
+        // applies, so they cannot drift (the poly-X help once said 4 while
+        // the preset applied 3).
+        let preset = Primer3ProbeDefaults.hydrolysisProbe
+        XCTAssertTrue(help.contains("PRIMER_INTERNAL_MAX_POLY_X. Preset default: \(preset.probeMaxPolyX) for qpcr-probe"))
+        XCTAssertTrue(help.contains("Preset default: 3 for qpcr-probe"))
+        XCTAssertFalse(help.contains("PRIMER_INTERNAL_MAX_POLY_X. Preset default: 4"))
+        XCTAssertTrue(help.contains("PRIMER_INTERNAL_OPT_TM. Preset default: \(primer3PresetNumber(preset.probeOptTm)) for qpcr-probe"))
+        XCTAssertTrue(help.contains("PRIMER_INTERNAL_MIN_SIZE. Preset default: \(preset.probeMinSize) for qpcr-probe"))
+        XCTAssertTrue(help.contains("PRIMER_INTERNAL_MAX_GC. Preset default: \(primer3PresetNumber(preset.probeMaxGC)) for qpcr-probe"))
+        XCTAssertTrue(help.contains("Preset default: \(preset.probeMustMatchFivePrime ?? "none") for qpcr-probe"))
+        XCTAssertEqual(primer3PresetNumber(67), "67")
+        XCTAssertEqual(primer3PresetNumber(62.5), "62.5")
     }
 
     /// Primer3 considers no pair when the target cannot fit inside the maximum product, so

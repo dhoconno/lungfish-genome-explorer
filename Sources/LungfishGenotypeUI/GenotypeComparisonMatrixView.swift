@@ -3918,7 +3918,17 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         return field.stringValue
     }
 
+    /// The matrix context-menu shortcuts (⌥⌘P / ⌥⌘X / ⌥⌘R / ⌥⌘M).
+    ///
+    /// AppKit forwards `performKeyEquivalent` to every view in the window's
+    /// hierarchy, not only the focused one, so this is gated on the matrix
+    /// (or one of its descendants) being the first responder. Without that
+    /// gate the matrix claimed its shortcuts from any control in the window,
+    /// and the main menu's own key equivalents never got a chance.
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        guard ownsKeyboardFocus else {
+            return super.performKeyEquivalent(with: event)
+        }
         let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         let state = makeContextMenuState()
         if let item = state.items.first(where: {
@@ -3929,6 +3939,23 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
             return performContextCommand(item.command)
         }
         return super.performKeyEquivalent(with: event)
+    }
+
+    /// True when the window's first responder is this view or one of its
+    /// descendants (the pinned or scrolling tables, the band, a cell editor).
+    var ownsKeyboardFocus: Bool {
+        guard let window else { return false }
+        guard let responder = window.firstResponder else { return false }
+        if responder === self { return true }
+        var view = responder as? NSView
+        if view == nil, let controller = responder as? NSViewController {
+            view = controller.viewIfLoaded
+        }
+        while let current = view {
+            if current === self { return true }
+            view = current.superview
+        }
+        return false
     }
 
     private func handlePinnedCellClick(row: Int, column: Int, modifiers: NSEvent.ModifierFlags) -> Bool {

@@ -45,6 +45,26 @@ public enum CanonicalFilePath {
     public static func url(for url: URL) -> URL {
         URL(fileURLWithPath: path(for: url), isDirectory: url.hasDirectoryPath)
     }
+
+    /// The path of `url` relative to `root`, comparing physical paths, or nil
+    /// when `url` is not `root` or below it. `root` itself yields `""`.
+    ///
+    /// Use this instead of `dropFirst(root.path.count + 1)`: a directory
+    /// enumerator started at `/tmp/x` yields `/private/tmp/x/...` URLs, and a
+    /// string-length cut then returns garbage such as `p/x/file`.
+    public static func relativePath(of url: URL, within root: URL) -> String? {
+        let rootPath = path(for: root)
+        let filePath = path(for: url)
+        if filePath == rootPath { return "" }
+        let prefix = rootPath == "/" ? "/" : rootPath + "/"
+        guard filePath.hasPrefix(prefix) else { return nil }
+        return String(filePath.dropFirst(prefix.count))
+    }
+
+    /// True when `url` is `root` or below it, comparing physical paths.
+    public static func isPath(_ url: URL, within root: URL) -> Bool {
+        relativePath(of: url, within: root) != nil
+    }
 }
 
 extension URL {

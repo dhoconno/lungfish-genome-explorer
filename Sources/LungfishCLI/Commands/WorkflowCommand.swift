@@ -483,6 +483,10 @@ struct RunSubcommand: AsyncParsableCommand {
             resume: resume,
             workDirectory: workDir.map { URL(fileURLWithPath: $0) }
         )
+        // Same gate the app applies (ViralReconWorkflowExecutionService):
+        // only Docker reaches a working run, so refuse conda/local before a
+        // run bundle is written rather than letting Nextflow fail later.
+        try Self.requireSupportedExecutor(request)
         let runBundleURL = try resolveRunBundleURL(workflowName: supportedWorkflow.name)
         let bundleCreatedAt = Date()
         try NFCoreRunBundleStore.write(
@@ -600,6 +604,16 @@ struct RunSubcommand: AsyncParsableCommand {
             )
         }
         print(runBundleURL.path)
+    }
+
+    /// Rejects an executor the nf-core run cannot use, with the message the
+    /// app shows for the same request.
+    static func requireSupportedExecutor(_ request: NFCoreRunRequest) throws {
+        do {
+            try request.validateExecutorSupported()
+        } catch {
+            throw ValidationError(error.localizedDescription)
+        }
     }
 
     private func requireExpectedOutputsForExecution() throws {

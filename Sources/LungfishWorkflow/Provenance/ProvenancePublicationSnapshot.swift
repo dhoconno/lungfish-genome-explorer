@@ -315,11 +315,16 @@ public struct ProvenancePublicationSnapshot {
             throw ProvenancePublicationSnapshotError.invalidRollbackWitness
         }
         var states = witness.states
-        for mutationURL in mutation.affectedURLs.map(\.canonicalFileURL) {
+        for reportedURL in mutation.affectedURLs {
+            // Receipts are keyed by physical path, but accept the spelling
+            // the writer reported (`/tmp/x` for `/private/tmp/x`) as well.
+            let mutationURL = reportedURL.canonicalFileURL
             guard let requiredPrior =
-                    mutation.requiredPriorStates[mutationURL.path],
+                    mutation.requiredPriorStates[mutationURL.path]
+                    ?? mutation.requiredPriorStates[reportedURL.standardizedFileURL.path],
                   let resulting =
-                    mutation.resultingStates[mutationURL.path],
+                    mutation.resultingStates[mutationURL.path]
+                    ?? mutation.resultingStates[reportedURL.standardizedFileURL.path],
                   let protectedEntry = entries.first(where: {
                       mutationURL.path == $0.originalURL.path
                           || Self.relativePathComponents(

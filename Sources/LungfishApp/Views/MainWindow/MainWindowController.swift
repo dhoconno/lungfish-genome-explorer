@@ -17,7 +17,7 @@ private let logger = Logger(subsystem: LogSubsystem.app, category: "MainWindowCo
 /// Manages the window lifecycle, toolbar, and coordinates between the
 /// sidebar, viewer, and inspector panels.
 @MainActor
-public class MainWindowController: NSWindowController {
+public class MainWindowController: NSWindowController, NSMenuItemValidation {
 
     /// The main split view controller
     public private(set) var mainSplitViewController: MainSplitViewController!
@@ -547,6 +547,20 @@ public class MainWindowController: NSWindowController {
 
     @objc public func zoomToFit(_ sender: Any?) {
         mainSplitViewController.activeFullSequenceViewerController?.zoomToFit()
+    }
+
+    /// The window controller answers the nil-target `View > Zoom` items
+    /// before `AppDelegate` in the responder chain, so it must validate them
+    /// with the same rule (`ViewerZoomAvailability`); otherwise they stay
+    /// enabled with no display open and do nothing.
+    public func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        guard let action = menuItem.action else { return true }
+        if ViewerZoomAvailability.zoomSelectors.contains(action) {
+            return ViewerZoomAvailability.canZoom(
+                viewerController: mainSplitViewController?.activeFullSequenceViewerController
+            )
+        }
+        return true
     }
 
     var hasUnsavedManualHaplotypeDraft: Bool {

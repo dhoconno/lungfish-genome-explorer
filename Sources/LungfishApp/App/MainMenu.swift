@@ -10,6 +10,7 @@ import LungfishCore
 import LungfishWorkflow
 import LungfishKit
 import LungfishTaxTriageUI
+import LungfishGenotypeUI
 import UniformTypeIdentifiers
 
 /// Builds the application's main menu bar programmatically.
@@ -761,6 +762,8 @@ public final class MainMenu {
             haplotypeDefinitionsItem.identifier = NSUserInterfaceItemIdentifier(MainMenuAccessibilityID.haplotypeDefinitions)
         }
 
+        toolsMenu.addItem(createGenotypeReviewMenuItem())
+
         toolsMenu.addItem(.separator())
 
         let callVariantsItem = toolsMenu.addItem(
@@ -927,6 +930,54 @@ public final class MainMenu {
             attributes: [.foregroundColor: NSColor.disabledControlTextColor]
         )
         return item
+    }
+
+    // MARK: - Genotype Review Submenu
+
+    /// The genotype review commands (`⌘R`, `⌘K`, `⇧⌘F`, `⇧⌘O`).
+    ///
+    /// These were previously implemented only as a
+    /// `GenotypeResultViewController.performKeyEquivalent` override, which
+    /// AppKit never reaches: key equivalents are dispatched down the view
+    /// hierarchy, not to view controllers. Real menu items with a nil target
+    /// reach the controller through the responder chain and auto-disable
+    /// (via its `validateMenuItem`) when no reviewable sample is selected,
+    /// matching the TaxTriage sample-stepping items in the View menu.
+    static func createGenotypeReviewMenuItem() -> NSMenuItem {
+        let reviewItem = NSMenuItem(title: "Genotype Review", action: nil, keyEquivalent: "")
+        reviewItem.identifier = NSUserInterfaceItemIdentifier(MainMenuAccessibilityID.genotypeReviewMenu)
+        let reviewMenu = NSMenu(title: reviewItem.title)
+
+        let reviewedItem = reviewMenu.addItem(
+            withTitle: "Mark Sample Reviewed",
+            action: #selector(GenotypeResultViewController.markSelectedSampleReviewed(_:)),
+            keyEquivalent: "r"
+        )
+        reviewedItem.keyEquivalentModifierMask = [.command]
+
+        let confirmedItem = reviewMenu.addItem(
+            withTitle: "Mark Sample Confirmed",
+            action: #selector(GenotypeResultViewController.markSelectedSampleConfirmed(_:)),
+            keyEquivalent: "k"
+        )
+        confirmedItem.keyEquivalentModifierMask = [.command]
+
+        let flagItem = reviewMenu.addItem(
+            withTitle: "Flag Sample for Review",
+            action: #selector(GenotypeResultViewController.flagSelectedSampleNeedsReview(_:)),
+            keyEquivalent: "f"
+        )
+        flagItem.keyEquivalentModifierMask = [.command, .shift]
+
+        let detailItem = reviewMenu.addItem(
+            withTitle: "Sample Detail\u{2026}",
+            action: #selector(GenotypeResultViewController.openSelectedSampleDetail(_:)),
+            keyEquivalent: "o"
+        )
+        detailItem.keyEquivalentModifierMask = [.command, .shift]
+
+        reviewItem.submenu = reviewMenu
+        return reviewItem
     }
 
     // MARK: - Operations Menu

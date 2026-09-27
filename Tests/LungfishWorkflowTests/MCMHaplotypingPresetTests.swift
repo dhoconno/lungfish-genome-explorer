@@ -3,6 +3,44 @@ import LungfishIO
 @testable import LungfishWorkflow
 
 final class MCMHaplotypingPresetTests: XCTestCase {
+    /// The embedded fallback exists so a bare `lungfish-cli` (no packaged
+    /// resources) reports a missing reference instead of crashing; it must
+    /// never drift from the packaged descriptor.
+    func testEmbeddedFallbackMatchesPackagedDescriptor() throws {
+        let packaged = try MCMHaplotypingPreset.loadBuiltInPreset(id: "mcm-mhc-miseq")
+        XCTAssertEqual(packaged, MCMHaplotypingPreset.embeddedMCMMHCmiseq)
+        XCTAssertEqual(MCMHaplotypingPreset.mcmMHCmiseq, packaged)
+    }
+
+    func testMissingDescriptorThrowsInsteadOfCrashing() {
+        XCTAssertThrowsError(
+            try MCMHaplotypingPreset.loadBuiltInPreset(id: "mcm-mhc-miseq", descriptorURL: nil)
+        ) { error in
+            XCTAssertEqual(error as? MCMHaplotypingPresetError, .missingBundledPreset("mcm-mhc-miseq"))
+        }
+        XCTAssertThrowsError(
+            try MCMHaplotypingPreset.loadBuiltInPreset(id: "unknown-preset")
+        ) { error in
+            XCTAssertEqual(error as? MCMHaplotypingPresetError, .missingBundledPreset("unknown-preset"))
+        }
+        XCTAssertNil(MCMHaplotypingPreset.preset(id: "unknown-preset"))
+    }
+
+    func testCorruptDescriptorThrowsInsteadOfCrashing() throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("MCMHaplotypingPresetTests-\(UUID().uuidString).preset.json")
+        try Data("{not json".utf8).write(to: url)
+        defer { try? FileManager.default.removeItem(at: url) }
+        XCTAssertThrowsError(
+            try MCMHaplotypingPreset.loadBuiltInPreset(id: "mcm-mhc-miseq", descriptorURL: url)
+        ) { error in
+            guard case .invalidBundledPreset(let id, _)? = error as? MCMHaplotypingPresetError else {
+                return XCTFail("unexpected error \(error)")
+            }
+            XCTAssertEqual(id, "mcm-mhc-miseq")
+        }
+    }
+
     func testBundledMCMReferenceBundleMatchesLockedMiSeqReference() throws {
         let preset = MCMHaplotypingPreset.mcmMHCmiseq
         let bundleURL = try preset.bundledReferenceBundleURL()

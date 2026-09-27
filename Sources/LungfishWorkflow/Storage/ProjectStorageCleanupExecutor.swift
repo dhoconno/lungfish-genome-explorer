@@ -2454,7 +2454,8 @@ public struct ProjectStorageCleanupExecutor: Sendable {
     }
 
     private func relativePath(_ url: URL, under root: URL) -> String {
-        String(url.path.dropFirst(root.path.count + 1))
+        CanonicalFilePath.relativePath(of: url, within: root)
+            ?? String(url.path.dropFirst(root.path.count + 1))
     }
 
     private func openDirectory(_ url: URL) throws -> Int32 {

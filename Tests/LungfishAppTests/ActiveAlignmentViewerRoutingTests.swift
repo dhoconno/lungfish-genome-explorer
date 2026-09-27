@@ -34,6 +34,37 @@ final class ActiveAlignmentViewerRoutingTests: XCTestCase {
         XCTAssertTrue(split.activeFullSequenceViewerController === root)
     }
 
+    /// The window controller answers the nil-target View > Zoom items ahead of
+    /// AppDelegate, so it must disable them when nothing zoomable is shown.
+    func testWindowControllerDisablesZoomItemsUntilADisplayIsOpen() throws {
+        let windowController = MainWindowController()
+        defer { windowController.close() }
+        let split = windowController.mainSplitViewController!
+        _ = split.view
+        let root = split.viewerController!
+        root.referenceFrame = nil
+
+        let actions = [
+            #selector(MainWindowController.zoomIn(_:)),
+            #selector(MainWindowController.zoomOut(_:)),
+            #selector(MainWindowController.zoomToFit(_:)),
+        ]
+        for action in actions {
+            let item = NSMenuItem(title: "Zoom", action: action, keyEquivalent: "")
+            XCTAssertFalse(windowController.validateMenuItem(item), NSStringFromSelector(action))
+        }
+
+        root.referenceFrame = frame(start: 50, end: 150)
+        for action in actions {
+            let item = NSMenuItem(title: "Zoom", action: action, keyEquivalent: "")
+            XCTAssertTrue(windowController.validateMenuItem(item), NSStringFromSelector(action))
+        }
+
+        // Unrelated items are left to their own validation.
+        let other = NSMenuItem(title: "Other", action: #selector(NSWindow.toggleFullScreen(_:)), keyEquivalent: "")
+        XCTAssertTrue(windowController.validateMenuItem(other))
+    }
+
     func testAppDelegateMenuValidationAndDispatchUseResolvedEmbeddedViewer() throws {
         let windowController = MainWindowController()
         defer { windowController.close() }

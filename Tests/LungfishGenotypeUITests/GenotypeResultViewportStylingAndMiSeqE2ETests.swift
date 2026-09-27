@@ -2358,20 +2358,15 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
         XCTAssertFalse(controller.testingCallEvidencePaneHidden)
         XCTAssertEqual(controller.testingCurrentCallEvidenceSample, "AnimalA")
         XCTAssertFalse(controller.testingSampleDetailRows(sample: "AnimalA").isEmpty)
-        let flag = try XCTUnwrap(NSEvent.keyEvent(
-            with: .keyDown,
-            location: .zero,
-            modifierFlags: [.command, .shift],
-            timestamp: 0,
-            windowNumber: 0,
-            context: nil,
-            characters: "F",
-            charactersIgnoringModifiers: "F",
-            isARepeat: false,
-            keyCode: 3
-        ))
-
-        XCTAssertTrue(controller.performKeyEquivalent(with: flag))
+        // Tools > Genotype Review > Flag Sample for Review (⇧⌘F) is a
+        // nil-target menu item; validation follows the selected call.
+        let flagItem = NSMenuItem(
+            title: "Flag Sample for Review",
+            action: #selector(GenotypeResultViewController.flagSelectedSampleNeedsReview(_:)),
+            keyEquivalent: ""
+        )
+        XCTAssertTrue(controller.validateMenuItem(flagItem))
+        controller.flagSelectedSampleNeedsReview(flagItem)
         let sidecar = try GenotypeAnnotationStore(
             bundleURL: bundleURL,
             author: "test",
@@ -2383,6 +2378,74 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
         XCTAssertEqual(controller.testingVisibleLensIdentifier, "summary")
     }
 
+
+    /// The review commands are nil-target Tools > Genotype Review menu
+    /// items (⌘R / ⌘K / ⇧⌘F / ⇧⌘O). `window.tryToPerform` is the same
+    /// responder-chain walk AppKit performs for such an item, so this proves
+    /// the real dispatch path reaches the controller, which a
+    /// `performKeyEquivalent` override on a view controller never did.
+    func testReviewMenuActionsReachTheControllerThroughTheResponderChain()
+        throws
+    {
+        let root = try TestTempDirectory.make(prefix: "ReviewMenuDispatch")
+        defer { TestTempDirectory.cleanup(root) }
+        let bundleURL = root.appendingPathComponent(
+            "result.lungfishgenotype",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(
+            at: bundleURL,
+            withIntermediateDirectories: true
+        )
+        let controller = makeMatrixAnnotationGuardedController()
+        _ = controller.view
+        controller.configure(result: makeResult(
+            bundleURL: bundleURL,
+            samples: [],
+            calls: [],
+            haplotypeAnalysis: makeUsableHaplotypedMiSeqAnalysis()
+        ))
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 1_000, height: 700),
+            styleMask: [.titled, .closable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentViewController = controller
+        window.makeKeyAndOrderFront(nil)
+        defer { window.orderOut(nil) }
+        _ = window.makeFirstResponder(controller.view)
+
+        let reviewed = #selector(GenotypeResultViewController.markSelectedSampleReviewed(_:))
+        let reviewedItem = NSMenuItem(title: "Mark Sample Reviewed", action: reviewed, keyEquivalent: "r")
+
+        // Nothing selected: the item is disabled and the action is a no-op.
+        XCTAssertFalse(controller.validateMenuItem(reviewedItem))
+        XCTAssertNil(controller.reviewCommandTargetSample)
+
+        controller.testingSelectCellEvidence(animalId: "AnimalA", locus: "MHC-A")
+        XCTAssertEqual(controller.reviewCommandTargetSample, "AnimalA")
+        XCTAssertTrue(controller.validateMenuItem(reviewedItem))
+        for selector in GenotypeResultViewController.reviewCommandSelectors {
+            XCTAssertTrue(
+                window.firstResponder?.responds(to: selector) == true
+                    || controller.responds(to: selector),
+                NSStringFromSelector(selector)
+            )
+        }
+
+        let handled = window.firstResponder?.tryToPerform(reviewed, with: reviewedItem) ?? false
+        XCTAssertTrue(handled, "the responder chain must reach the controller")
+
+        let sidecar = try GenotypeAnnotationStore(
+            bundleURL: bundleURL,
+            author: "test",
+            seedBuiltInSmartCohorts: true
+        ).sidecar
+        XCTAssertTrue(sidecar.sampleStatusFlags.contains {
+            $0.sample == "AnimalA" && $0.value == .reviewed
+        })
+    }
 
     func testHaplotypedMiSeqReconfigurationClearsReviewShortcutAuthority()
         throws
@@ -2432,22 +2495,16 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
                 sample: "BundleBAnimal"
             )
         ))
-        let flag = try XCTUnwrap(NSEvent.keyEvent(
-            with: .keyDown,
-            location: .zero,
-            modifierFlags: [.command, .shift],
-            timestamp: 0,
-            windowNumber: 0,
-            context: nil,
-            characters: "F",
-            charactersIgnoringModifiers: "F",
-            isARepeat: false,
-            keyCode: 3
-        ))
+        let flagItem = NSMenuItem(
+            title: "Flag Sample for Review",
+            action: #selector(GenotypeResultViewController.flagSelectedSampleNeedsReview(_:)),
+            keyEquivalent: ""
+        )
 
         XCTAssertNil(controller.testingCurrentSelectedSample)
         XCTAssertNil(controller.testingCurrentCallEvidenceSample)
-        XCTAssertFalse(controller.performKeyEquivalent(with: flag))
+        XCTAssertFalse(controller.validateMenuItem(flagItem))
+        controller.flagSelectedSampleNeedsReview(flagItem)
         let secondSidecar = try GenotypeAnnotationStore(
             bundleURL: secondURL,
             author: "test",
