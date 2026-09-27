@@ -12,7 +12,7 @@ sequence ID and the allele name in the description.
 |---|---|---|
 | `mamu-a1-panel.fasta` | 12 | Mamu-A1 alleles from 12 lineages, 2,920 to 2,943 bases, exon 1 to exon 8. Aligned, they are the input for a tiled amplicon scheme and for a single PCR assay across exons 2 and 3. |
 | `mamu-a1-001-lineage.fasta` | 4 | Mamu-A1*001 lineage alleles, the sequences a lineage-detection qPCR assay must detect. |
-| `mamu-class-i-exclusion.fasta` | 15 | Eleven other Mamu-A1 lineages plus the A2, A3, A4 and B paralogs, the sequences that assay must not detect. |
+| `mamu-class-i-exclusion.fasta` | 18 | Eleven other Mamu-A1 lineages plus the A2, A3, A4, A6, A7 and B paralogs, the sequences that assay must not detect. |
 
 | Accession | Allele | Length | Files |
 |---|---|---|---|
@@ -35,6 +35,11 @@ sequence ID and the allele name in the description.
 | LR699586.1 | Mamu-A3*13:02:01:01 | 2,933 | exclusion |
 | LR699723.1 | Mamu-A4*14:03:01:01 | 2,920 | exclusion |
 | LR699592.1 | Mamu-B*001:01:01:01 | 2,858 | exclusion |
+| LR743767.1 | Mamu-A6*01:07:01:01 | 2,961 | exclusion |
+| LR743771.1 | Mamu-A7*01:02:01:01 | 2,960 | exclusion |
+| LR743772.1 | Mamu-A7*01:03:01:01 | 2,960 | exclusion |
+
+The exclusion set covers every Mamu-A gene with a full-length genomic record in ENA. Mamu-A5 has none, and the number of Mamu-B genes differs between haplotypes, so one Mamu-B allele stands in for them.
 
 Twelve alleles is a teaching size. A working laboratory scheme would include every allele
 seen in the colony and published alleles from the same population of origin.

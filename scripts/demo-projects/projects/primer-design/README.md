@@ -8,7 +8,7 @@ This is a demo project for Lungfish Genome Explorer (LGE), version {{VERSION}}. 
 | --- | --- |
 | `Reference Sequences/mamu-a1-panel.lungfishref` | Twelve full-length genomic Mamu-A1 alleles from twelve lineages, 2,920 to 2,943 bases each, exon 1 to exon 8 |
 | `Reference Sequences/mamu-a1-001-lineage.lungfishref` | Four alleles of the Mamu-A1*001 lineage, the sequences a lineage-detection assay must detect |
-| `Reference Sequences/mamu-class-i-exclusion.lungfishref` | Eleven other Mamu-A1 lineages and the Mamu-A2, A3, A4 and B paralogs, the sequences that assay must not detect |
+| `Reference Sequences/mamu-class-i-exclusion.lungfishref` | Eleven other Mamu-A1 lineages and the Mamu-A2, A3, A4, A6, A7 and B paralogs, the sequences that assay must not detect |
 
 ## Where the data came from
 
