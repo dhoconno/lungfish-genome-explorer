@@ -205,6 +205,9 @@ public final class AlignmentDuplicateService: @unchecked Sendable {
         createdTrackIDs.reserveCapacity(tracks.count)
 
         for (index, track) in tracks.enumerated() {
+            // A cancelled run (the Operations Panel's Cancel button cancels the
+            // task) stops before the next track rather than marking every track.
+            try Task.checkCancellation()
             let baseProgress = Double(index) / Double(max(1, tracks.count))
             let nextProgress = Double(index + 1) / Double(max(1, tracks.count))
             progressHandler?(baseProgress, "Preparing \(track.name)...")

@@ -586,6 +586,107 @@ extension InspectorViewController {
         )
     }
 
+    // MARK: - Duplicate workflows
+
+    /// The two duplicate workflows the Read Style section offers, and the
+    /// words each one uses in its Operations Panel row and alerts.
+    enum DuplicateWorkflowKind: Equatable {
+        /// `samtools markdup` over every unmarked track, marked copies attached
+        /// alongside the originals.
+        case markDuplicates
+        /// A sibling bundle with duplicates removed from every track.
+        case createDeduplicatedBundle
+
+        var operationTitle: String {
+            switch self {
+            case .markDuplicates: return "Mark Duplicates in Bundle Tracks"
+            case .createDeduplicatedBundle: return "Create Deduplicated Bundle"
+            }
+        }
+
+        var startingDetail: String {
+            switch self {
+            case .markDuplicates: return "Marking duplicates..."
+            case .createDeduplicatedBundle: return "Creating deduplicated bundle..."
+            }
+        }
+
+        /// The CLI command that reproduces the run, for the row's Copy CLI Command.
+        func cliCommand(bundleURL: URL) -> String {
+            switch self {
+            case .markDuplicates:
+                return OperationCenter.buildCLICommand(subcommand: "bundle mark-duplicates", args: [bundleURL.path])
+            case .createDeduplicatedBundle:
+                return OperationCenter.buildCLICommand(subcommand: "bundle deduplicate-alignments", args: [bundleURL.path])
+            }
+        }
+
+        var failureAlertTitle: String {
+            switch self {
+            case .markDuplicates: return "Duplicate Marking Failed"
+            case .createDeduplicatedBundle: return "Deduplicated Bundle Failed"
+            }
+        }
+    }
+
+    /// The confirmation sheet for a duplicate workflow. The Mark Duplicates
+    /// title matches the "Mark Duplicates in Bundle Tracks" button that opens it.
+    static func duplicateWorkflowConfirmation(for kind: DuplicateWorkflowKind) -> InspectorWorkflowAlert {
+        switch kind {
+        case .markDuplicates:
+            return InspectorWorkflowAlert(
+                title: "Mark Duplicates in Bundle Tracks?",
+                message: "This runs samtools markdup for each unmarked alignment track in the current bundle and adds a duplicate-marked copy next to it. The original tracks are kept and renamed with an [unmarked] suffix; no files are deleted."
+            )
+        case .createDeduplicatedBundle:
+            return InspectorWorkflowAlert(
+                title: "Create Deduplicated Bundle?",
+                message: "This creates a sibling .lungfishref bundle with duplicate reads removed from all alignment tracks. The current bundle will not be modified."
+            )
+        }
+    }
+
+    /// The gate every duplicate workflow passes before it starts: the same
+    /// bundle lock the other bundle mutations respect. `.blocked` carries the
+    /// "Operation in Progress" alert the filtered-alignment workflow shows.
+    static func makeDuplicateWorkflowStartOutcome(
+        bundleURL: URL,
+        canStartBundleMutation: (URL) -> Bool = { OperationCenter.shared.canStartOperation(on: $0) },
+        activeBundleMutationTitle: (URL) -> String? = { OperationCenter.shared.activeLockHolder(for: $0)?.title }
+    ) -> DuplicateWorkflowStartOutcome {
+        guard canStartBundleMutation(bundleURL) else {
+            let message: String
+            if let title = activeBundleMutationTitle(bundleURL) {
+                message = "\"\(title)\" is currently running on this bundle. Please wait for it to finish."
+            } else {
+                message = "Another operation is currently running on this bundle. Please wait for it to finish."
+            }
+            return .blocked(InspectorWorkflowAlert(title: "Operation in Progress", message: message))
+        }
+        return .launch
+    }
+
+    /// Registers the Operations Panel row for a duplicate workflow, holding
+    /// the bundle's write lock for the run. `.refused` when another operation
+    /// took the lock between the gate and this call.
+    static func startDuplicateWorkflowOperation(
+        kind: DuplicateWorkflowKind,
+        bundleURL: URL,
+        routeContext: OperationRouteContext?,
+        center: OperationCenter = .shared,
+        onCancel: (@Sendable () -> Void)? = nil
+    ) -> OperationStartResult {
+        center.begin(
+            title: kind.operationTitle,
+            detail: kind.startingDetail,
+            operationType: .bamImport,
+            targetBundleURL: bundleURL,
+            cliCommand: kind.cliCommand(bundleURL: bundleURL),
+            routeContext: routeContext,
+            onCancel: onCancel
+        )
+    }
+
     /// Runs `samtools markdup` over every unmarked alignment track and attaches the marked
     /// copies alongside the originals, which are kept and renamed "[unmarked]".
     func runMarkDuplicatesWorkflow() {
@@ -597,65 +698,7 @@ extension InspectorViewController {
             presentSimpleAlert(title: "No Alignment Tracks", message: "This bundle has no alignment tracks to process.")
             return
         }
-
-        let confirm = NSAlert()
-        confirm.messageText = "Mark Duplicates in Alignment Tracks?"
-        confirm.informativeText = "This runs samtools markdup for each unmarked alignment track in the current bundle and adds a duplicate-marked copy next to it. The original tracks are kept and renamed with an [unmarked] suffix; no files are deleted."
-        confirm.alertStyle = .informational
-        confirm.addButton(withTitle: "Mark Duplicates")
-        confirm.addButton(withTitle: "Cancel")
-        guard let window = view.window ?? NSApp.keyWindow else { return }
-        confirm.beginSheetModal(for: window) { [weak self] confirmResponse in
-            guard confirmResponse == .alertFirstButtonReturn else { return }
-            MainActor.assumeIsolated {
-                guard let self, let split = self.parent as? MainSplitViewController else { return }
-
-                self.viewModel.readStyleSectionViewModel.isDuplicateWorkflowRunning = true
-                split.activityIndicator.show(message: "Marking duplicates...", style: .indeterminate)
-
-                Task(priority: .userInitiated) { [weak self] in
-                    do {
-                        let result = try await AlignmentDuplicateService.markDuplicatesInBundle(bundleURL: bundleURL)
-
-                        DispatchQueue.main.async { [weak self] in
-                            guard let self, let split = self.parent as? MainSplitViewController else { return }
-                            MainActor.assumeIsolated {
-                                self.viewModel.readStyleSectionViewModel.isDuplicateWorkflowRunning = false
-                                split.activityIndicator.hide()
-
-                                do {
-                                    try split.viewerController.displayBundle(at: result.bundleURL)
-                                    // Markdup sets SAM duplicate flag; keep duplicates hidden by default.
-                                    self.viewModel.readStyleSectionViewModel.showDuplicates = false
-                                    self.viewModel.readStyleSectionViewModel.onSettingsChanged?()
-                                    self.presentSimpleAlert(
-                                        title: "Duplicate Marking Complete",
-                                        message: "Processed \(result.processedTracks) alignment track\(result.processedTracks == 1 ? "" : "s"). Duplicate-marked tracks were added; the original tracks are kept with an [unmarked] suffix."
-                                    )
-                                } catch {
-                                    self.presentSimpleAlert(
-                                        title: "Reload Failed",
-                                        message: "Duplicate marking completed, but the bundle could not be reloaded: \(error.localizedDescription)"
-                                    )
-                                }
-                            }
-                        }
-                    } catch {
-                        DispatchQueue.main.async { [weak self] in
-                            guard let self, let split = self.parent as? MainSplitViewController else { return }
-                            MainActor.assumeIsolated {
-                                self.viewModel.readStyleSectionViewModel.isDuplicateWorkflowRunning = false
-                                split.activityIndicator.hide()
-                                self.presentSimpleAlert(
-                                    title: "Duplicate Marking Failed",
-                                    message: error.localizedDescription
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-        }
+        confirmAndLaunchDuplicateWorkflow(kind: .markDuplicates, bundleURL: bundleURL)
     }
 
     /// Creates a sibling deduplicated bundle by running `samtools markdup -r` on alignment tracks.
@@ -668,61 +711,169 @@ extension InspectorViewController {
             presentSimpleAlert(title: "No Alignment Tracks", message: "This bundle has no alignment tracks to process.")
             return
         }
+        confirmAndLaunchDuplicateWorkflow(kind: .createDeduplicatedBundle, bundleURL: sourceBundleURL)
+    }
 
+    private func confirmAndLaunchDuplicateWorkflow(kind: DuplicateWorkflowKind, bundleURL: URL) {
+        let confirmation = Self.duplicateWorkflowConfirmation(for: kind)
         let confirm = NSAlert()
-        confirm.messageText = "Create Deduplicated Bundle?"
-        confirm.informativeText = "This creates a sibling .lungfishref bundle with duplicate reads removed from all alignment tracks. The current bundle will not be modified."
+        confirm.messageText = confirmation.title
+        confirm.informativeText = confirmation.message
         confirm.alertStyle = .informational
-        confirm.addButton(withTitle: "Create Bundle")
+        confirm.addButton(withTitle: kind == .markDuplicates ? "Mark Duplicates" : "Create Bundle")
         confirm.addButton(withTitle: "Cancel")
         guard let window = view.window ?? NSApp.keyWindow else { return }
         confirm.beginSheetModal(for: window) { [weak self] confirmResponse in
             guard confirmResponse == .alertFirstButtonReturn else { return }
             MainActor.assumeIsolated {
-                guard let self, let split = self.parent as? MainSplitViewController else { return }
+                self?.launchDuplicateWorkflow(kind: kind, bundleURL: bundleURL)
+            }
+        }
+    }
 
-                self.viewModel.readStyleSectionViewModel.isDuplicateWorkflowRunning = true
-                split.activityIndicator.show(message: "Creating deduplicated bundle...", style: .indeterminate)
+    /// Runs a duplicate workflow through the OperationCenter like every other
+    /// bundle mutation: the project and bundle locks are checked first, the
+    /// run gets an Operations Panel row with progress and a Cancel button, and
+    /// the row is completed, failed, or marked cancelled when the work ends.
+    private func launchDuplicateWorkflow(kind: DuplicateWorkflowKind, bundleURL: URL) {
+        guard let split = parent as? MainSplitViewController else { return }
+        guard canWriteProjectOutputs(bundleURL: bundleURL, workflowName: kind.operationTitle) else { return }
+        switch Self.makeDuplicateWorkflowStartOutcome(bundleURL: bundleURL) {
+        case .blocked(let alert):
+            presentSimpleAlert(title: alert.title, message: alert.message)
+            return
+        case .launch:
+            break
+        }
 
-                Task(priority: .userInitiated) { [weak self] in
-                    do {
-                        let result = try await AlignmentDuplicateService.createDeduplicatedBundle(from: sourceBundleURL)
+        final class TaskHandle: @unchecked Sendable {
+            var task: Task<Void, Never>?
+        }
+        let handle = TaskHandle()
+        let operationID: UUID
+        switch Self.startDuplicateWorkflowOperation(
+            kind: kind,
+            bundleURL: bundleURL,
+            routeContext: operationRouteContext(for: bundleURL),
+            onCancel: { handle.task?.cancel() }
+        ) {
+        case .started(let id):
+            operationID = id
+        case .refused(let refusal):
+            presentSimpleAlert(title: "Operation in Progress", message: refusal.message)
+            return
+        }
 
-                        DispatchQueue.main.async { [weak self] in
-                            guard let self, let split = self.parent as? MainSplitViewController else { return }
-                            MainActor.assumeIsolated {
-                                self.viewModel.readStyleSectionViewModel.isDuplicateWorkflowRunning = false
-                                split.activityIndicator.hide()
-                                split.sidebarController.requestReloadFromFilesystem()
+        viewModel.readStyleSectionViewModel.isDuplicateWorkflowRunning = true
+        split.activityIndicator.show(message: kind.startingDetail, style: .indeterminate)
 
-                                do {
-                                    try split.viewerController.displayBundle(at: result.bundleURL)
-                                    self.presentSimpleAlert(
-                                        title: "Deduplicated Bundle Created",
-                                        message: "Processed \(result.processedTracks) alignment track\(result.processedTracks == 1 ? "" : "s"). New bundle: \(result.bundleURL.lastPathComponent)"
-                                    )
-                                } catch {
-                                    self.presentSimpleAlert(
-                                        title: "Open New Bundle Failed",
-                                        message: "Deduplicated bundle was created at \(result.bundleURL.path), but opening it failed: \(error.localizedDescription)"
-                                    )
-                                }
-                            }
-                        }
-                    } catch {
-                        DispatchQueue.main.async { [weak self] in
-                            guard let self, let split = self.parent as? MainSplitViewController else { return }
-                            MainActor.assumeIsolated {
-                                self.viewModel.readStyleSectionViewModel.isDuplicateWorkflowRunning = false
-                                split.activityIndicator.hide()
-                                self.presentSimpleAlert(
-                                    title: "Deduplicated Bundle Failed",
-                                    message: error.localizedDescription
-                                )
-                            }
-                        }
+        let progressHandler: @Sendable (Double, String) -> Void = { progress, message in
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    _ = OperationCenter.shared.updateWithLog(
+                        id: operationID,
+                        progress: max(0.01, min(0.99, progress)),
+                        detail: message
+                    )
+                }
+            }
+        }
+
+        handle.task = Task(priority: .userInitiated) { [weak self] in
+            do {
+                let result: AlignmentDuplicateService.WorkflowResult
+                switch kind {
+                case .markDuplicates:
+                    result = try await AlignmentDuplicateService.markDuplicatesInBundle(
+                        bundleURL: bundleURL,
+                        progressHandler: progressHandler
+                    )
+                case .createDeduplicatedBundle:
+                    result = try await AlignmentDuplicateService.createDeduplicatedBundle(
+                        from: bundleURL,
+                        progressHandler: progressHandler
+                    )
+                }
+
+                DispatchQueue.main.async { [weak self] in
+                    MainActor.assumeIsolated {
+                        self?.finishDuplicateWorkflow(kind: kind, operationID: operationID, result: result)
                     }
                 }
+            } catch is CancellationError {
+                DispatchQueue.main.async { [weak self] in
+                    MainActor.assumeIsolated {
+                        _ = OperationCenter.shared.acknowledgeCancellation(id: operationID)
+                        self?.resetDuplicateWorkflowUI()
+                    }
+                }
+            } catch {
+                let message = error.localizedDescription
+                DispatchQueue.main.async { [weak self] in
+                    MainActor.assumeIsolated {
+                        _ = OperationCenter.shared.fail(id: operationID, detail: message, errorMessage: message)
+                        self?.resetDuplicateWorkflowUI()
+                        self?.presentSimpleAlert(title: kind.failureAlertTitle, message: message)
+                    }
+                }
+            }
+        }
+    }
+
+    private func resetDuplicateWorkflowUI() {
+        viewModel.readStyleSectionViewModel.isDuplicateWorkflowRunning = false
+        (parent as? MainSplitViewController)?.activityIndicator.hide()
+    }
+
+    private func finishDuplicateWorkflow(
+        kind: DuplicateWorkflowKind,
+        operationID: UUID,
+        result: AlignmentDuplicateService.WorkflowResult
+    ) {
+        let trackCount = "\(result.processedTracks) alignment track\(result.processedTracks == 1 ? "" : "s")"
+        resetDuplicateWorkflowUI()
+        guard let split = parent as? MainSplitViewController else { return }
+
+        switch kind {
+        case .markDuplicates:
+            guard OperationCenter.shared.complete(
+                id: operationID,
+                detail: "Marked duplicates in \(trackCount).",
+                bundleURLs: [result.bundleURL]
+            ) else { return }
+            do {
+                try split.viewerController.displayBundle(at: result.bundleURL)
+                // Markdup sets SAM duplicate flag; keep duplicates hidden by default.
+                viewModel.readStyleSectionViewModel.showDuplicates = false
+                viewModel.readStyleSectionViewModel.onSettingsChanged?()
+                presentSimpleAlert(
+                    title: "Duplicate Marking Complete",
+                    message: "Processed \(trackCount). Duplicate-marked tracks were added; the original tracks are kept with an [unmarked] suffix."
+                )
+            } catch {
+                presentSimpleAlert(
+                    title: "Reload Failed",
+                    message: "Duplicate marking completed, but the bundle could not be reloaded: \(error.localizedDescription)"
+                )
+            }
+        case .createDeduplicatedBundle:
+            guard OperationCenter.shared.complete(
+                id: operationID,
+                detail: "Created \(result.bundleURL.lastPathComponent) from \(trackCount).",
+                bundleURLs: [result.bundleURL]
+            ) else { return }
+            split.sidebarController.requestReloadFromFilesystem()
+            do {
+                try split.viewerController.displayBundle(at: result.bundleURL)
+                presentSimpleAlert(
+                    title: "Deduplicated Bundle Created",
+                    message: "Processed \(trackCount). New bundle: \(result.bundleURL.lastPathComponent)"
+                )
+            } catch {
+                presentSimpleAlert(
+                    title: "Open New Bundle Failed",
+                    message: "Deduplicated bundle was created at \(result.bundleURL.path), but opening it failed: \(error.localizedDescription)"
+                )
             }
         }
     }
