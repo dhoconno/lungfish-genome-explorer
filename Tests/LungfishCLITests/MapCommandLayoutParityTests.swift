@@ -58,7 +58,7 @@ final class MapCommandLayoutParityTests: XCTestCase {
             try MappingResultLayoutScaffold.normalizedLayout(of: windowRun.projectRootURL, tool: .minimap2)
         )
 
-        let cliManifest = try BundleManifest.load(from: try XCTUnwrap(cliResult.viewerBundleURL))
+        let cliManifest = try BundleManifest.load(from: try XCTUnwrap(cliResult.result.viewerBundleURL))
         let windowManifest = try BundleManifest.load(from: windowPublication.viewerBundleURL)
         XCTAssertEqual(cliManifest.alignments.map(\.name), ["minimap2 Mapping"])
         XCTAssertEqual(cliManifest.alignments.map(\.name), windowManifest.alignments.map(\.name))
@@ -71,7 +71,8 @@ final class MapCommandLayoutParityTests: XCTestCase {
 
         let cliSidecar = try MappingResult.load(from: cliRun.analysisDirectoryURL)
         XCTAssertEqual(cliSidecar.viewerBundleURL?.lastPathComponent, "src.lungfishref")
-        XCTAssertEqual(cliSidecar, cliResult)
+        XCTAssertEqual(cliSidecar, cliResult.result)
+        XCTAssertEqual(cliResult.trackInfo?.id, cliManifest.alignments.first?.id, "the CLI reports the attached track id")
 
         for run in [windowRun, cliRun] {
             let history = AnalysisManifestStore.load(bundleURL: run.fastqBundleURL, projectURL: run.projectRootURL)
@@ -90,7 +91,7 @@ final class MapCommandLayoutParityTests: XCTestCase {
             skipViewerBundle: false
         )
         XCTAssertEqual(
-            try BundleManifest.load(from: try XCTUnwrap(namedResult.viewerBundleURL)).alignments.map(\.name),
+            try BundleManifest.load(from: try XCTUnwrap(namedResult.result.viewerBundleURL)).alignments.map(\.name),
             ["HG002 minimap2"]
         )
 
@@ -101,7 +102,8 @@ final class MapCommandLayoutParityTests: XCTestCase {
             originalInputURLs: skipped.request.inputFASTQURLs,
             skipViewerBundle: true
         )
-        XCTAssertNil(skippedResult.viewerBundleURL)
+        XCTAssertNil(skippedResult.result.viewerBundleURL)
+        XCTAssertNil(skippedResult.trackInfo)
         XCTAssertFalse(FileManager.default.fileExists(
             atPath: skipped.analysisDirectoryURL.appendingPathComponent("src.lungfishref").path
         ))
