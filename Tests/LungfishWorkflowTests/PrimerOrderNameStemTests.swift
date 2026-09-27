@@ -1,5 +1,5 @@
 import XCTest
-@testable import LungfishApp
+@testable import LungfishWorkflow
 
 /// Oligo names reach a vendor order sheet, so a name that stops mid-field reads as
 /// a different allele. These cover the naming contract directly.
