@@ -75,7 +75,7 @@ No plugin pack is needed, and the demo import takes well under a second.
 
 ## Procedure
 
-### 1. Open the importer
+### Open the importer
 
 Choose **File > Import Center...** (Cmd-Shift-I), click the **Classification Results** tab, and find the **NVD Results** card. Its file hint reads "NVD run folder containing *_blast_concatenated.csv(.gz)".
 
@@ -83,7 +83,7 @@ Choose **File > Import Center...** (Cmd-Shift-I), click the **Classification Res
 
 Click the card. A sheet titled **NVD Import** opens. It scans the run and reports what it found before anything is written.
 
-### 2. Point it at the run and read the preview
+### Point it at the run and read the preview
 
 Click **Browse...** and select the run directory, `nvd-demo/results` for the fixture. The hint under the path readout says "Select the top-level NVD run directory (containing 05_labkey_bundling/)", so pick the folder above `05_labkey_bundling/`, not that folder or the CSV inside it.
 
@@ -91,7 +91,7 @@ The **Preview** panel then lists **Experiment**, **Samples**, **Contigs**, and *
 
 <!-- SHOT: nvd-import-preview -->
 
-### 3. Import and open the result
+### Import and open the result
 
 Click **Run**. The button stays disabled until a folder is selected and the scan has finished without error. Watch the run in the [Operations Panel](../01-foundations/06-the-lungfish-project.md#the-operations-panel), which opens with **Operations > Show Operations Panel** (Cmd-Shift-P). The row is titled "NVD Import".
 
@@ -99,7 +99,7 @@ The result folder is named after the experiment identifier, so the demo results 
 
 <!-- SHOT: nvd-result-viewport -->
 
-### 4. Walk the viewport
+### Walk the viewport
 
 Four summary cards run across the top, labelled **Experiment**, **Samples**, **Contigs**, and **Hits**. For the demo results they read `100`, `3 samples`, `4 contigs`, and `10 hits`, the same numbers the preview showed.
 
@@ -109,7 +109,7 @@ Each top-level row is one contig showing its best BLAST match. Click the disclos
 
 Click a contig row to fill the detail pane. It shows the contig name, the sample, the organism with its rank, and six small badges labelled Identity, E-value, Bit Score, Mapped Reads, RPB, and Length. Below them a **Contig Alignment** section names the best hit and shows the reads that built the contig, stacked at the positions where they matched. Without an alignment file the section shows the heading and the best hit above an empty read view, as it does for the demo results.
 
-### 5. Verify a contig with BLAST
+### Verify a contig with BLAST
 
 This step needs a full NVD run, because it uses the sample's contig FASTA file.
 

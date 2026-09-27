@@ -61,13 +61,13 @@ Nothing needs installing. The window's import downloads each matched reference s
 
 ## Procedure
 
-### 1. Open the NAO-MGS Results card
+### Open the NAO-MGS Results card
 
 Choose **File > Import Center...** (Cmd-Shift-I) and click the **Classification Results** tab. The **NAO-MGS Results** card carries the tag NM, and its file hint reads `virus_hits_final.tsv.gz or _virus_hits.tsv.gz`. Click it, or drag the file onto it.
 
 <!-- SHOT: nao-mgs-import-card -->
 
-### 2. Choose the results and check the validation
+### Choose the results and check the validation
 
 A sheet titled **NAO-MGS Import** opens. Click **Browse...** and select the pipeline's output folder or the table itself. Pick the folder when you have the pipeline's whole output, since the importer then finds the right file. For the fixture, pick the downloaded file.
 
@@ -75,7 +75,7 @@ The **Validation** section checks the file's header, its first line of column na
 
 <!-- SHOT: nao-mgs-import-sheet -->
 
-### 3. Import and open the result
+### Import and open the result
 
 Click **Run**. LGE splits the table by sample, imports each sample, merges them, and looks up each numeric [taxonomy identifier](../../GLOSSARY.md#taxonomy-id) at NCBI to get an organism name. A taxonomy identifier is the number NCBI assigns to one taxon, so `28875` is Rotavirus A. Watch the run in the [Operations Panel](../01-foundations/06-the-lungfish-project.md#the-operations-panel), which opens with **Operations > Show Operations Panel** (Cmd-Shift-P).
 

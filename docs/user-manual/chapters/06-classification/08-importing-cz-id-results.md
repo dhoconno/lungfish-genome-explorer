@@ -67,7 +67,7 @@ No [plugin pack](../../GLOSSARY.md#plugin-pack) is needed, because the import on
 
 In the paths below, anything written as `/path/to/something` stands for wherever the file sits on your own machine.
 
-### 1. Choose the export CZ ID gave you
+### Choose the export CZ ID gave you
 
 CZ ID hands out its reports in three forms, and LGE accepts all three:
 
@@ -77,7 +77,7 @@ CZ ID hands out its reports in three forms, and LGE accepts all three:
 
 Given an archive or a folder, LGE finds the taxon report inside for you. Any unpacking happens in a temporary place and leaves nothing new beside your file.
 
-### 2. Open the Import Center card
+### Open the Import Center card
 
 Choose **File > Import Center...** (Cmd-Shift-I) and click the **Classification Results** tab. Find the **CZ-ID Results** card, whose file hint reads "taxon report TSV, .zip, or extracted folder".
 
@@ -85,7 +85,7 @@ Choose **File > Import Center...** (Cmd-Shift-I) and click the **Classification 
 
 Click the card. A sheet titled **CZ-ID Import** opens. Dragging your export onto the card opens the same sheet with the path already filled in.
 
-### 3. Point the sheet at the export and read the preview
+### Point the sheet at the export and read the preview
 
 1. Click **Browse...** in the **CZ-ID Export** section and select your report file, ZIP archive, or extracted folder.
 2. Wait for the status line to stop reading "Scanning CZ-ID export...". On a report this size the scan is momentary.
@@ -111,7 +111,7 @@ Click **Run**. The button stays disabled until a path is selected and the scan h
 
 The sheet's **Project Destination** readout names where the result will be written, `Classifications/<sample>.lungfishtax` inside the open project, with the sample's name filled in once the scan has read it.
 
-### 4. Find the result
+### Find the result
 
 Watch the run in the [Operations Panel](../01-foundations/06-the-lungfish-project.md#the-operations-panel), which opens with **Operations > Show Operations Panel** (Cmd-Shift-P). The row is titled "CZ-ID Import" and finishes with "Imported" and the sample name.
 
