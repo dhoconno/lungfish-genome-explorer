@@ -5085,8 +5085,11 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             reviewableRowCatalogPublication: reviewableRowCatalogPublication, completedAt: completedAt)
         try ONTGenotypeResultBundle.writeManifest(manifest, to: request.outputDirectory)
 
+        // Physical paths, like the up-front `outputDirectory(_:isInsideProject:)`
+        // check: `--project /tmp/X --output-dir /private/tmp/X/run` is inside
+        // the project, so the run still gets its Analyses metadata.
         if let projectURL = request.projectURL,
-           request.outputDirectory.standardizedFileURL.path.hasPrefix(projectURL.standardizedFileURL.path) {
+           Self.outputDirectory(request.outputDirectory, isInsideProject: projectURL) {
             try? AnalysesFolder.writeAnalysisMetadata(
                 AnalysesFolder.AnalysisMetadata(
                     tool: Self.analysisToolName(for: resolvedMode),

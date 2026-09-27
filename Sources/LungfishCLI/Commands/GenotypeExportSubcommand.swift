@@ -689,7 +689,10 @@ struct GenotypeExportSubcommand: AsyncParsableCommand {
         if let annotations {
             let annotationURL = URL(fileURLWithPath: annotations)
                 .standardizedFileURL
-            if annotationURL == bundleSidecarURL {
+            // Physical paths: `--annotations /private/tmp/.../annotations.json`
+            // names the bundle's own sidecar when `--bundle` was given as
+            // `/tmp/...`, and must take the snapshot-witnessed path.
+            if annotationURL.canonicalFilePath == bundleSidecarURL.canonicalFilePath {
                 let snapshot = try ONTGenotypeResultBundleData
                     .loadAnnotationSidecarSnapshot(forBundleAt: bundleURL)
                 guard let data = snapshot.data else {

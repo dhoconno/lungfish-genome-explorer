@@ -150,6 +150,31 @@ final class GenotypeExportSubcommandTests: XCTestCase {
             XCTAssertTrue(try String(contentsOf: csv, encoding: .utf8).hasPrefix("Sample,MHC-A H1,MHC-A H2\n"))
             XCTAssertTrue(FileManager.default.fileExists(atPath: ProvenanceRecorder.fileSidecarURL(for: csv).path))
         }
+
+        // `--annotations` naming the bundle's own sidecar under the other
+        // spelling (`/private/...` against a `/var/...` bundle, and the
+        // reverse) is the bundle sidecar, not an external file: the export
+        // succeeds and takes the snapshot-witnessed path either way.
+        let bundleSidecar = ONTGenotypeResultBundleData.annotationSidecarURL(forBundleAt: bundle)
+        for (bundlePath, annotationsPath) in [
+            (bundle.path, bundleSidecar.canonicalFilePath),
+            (bundle.canonicalFilePath, bundleSidecar.path),
+        ] {
+            XCTAssertNotEqual(bundlePath.hasPrefix("/private/"), annotationsPath.hasPrefix("/private/"),
+                              "the two spellings must differ for this case to mean anything")
+            let csv = real.appendingPathComponent("annotated-\(UUID().uuidString).csv")
+            let columns = try await GenotypeExportSubcommand.parse([
+                "--bundle", bundlePath,
+                "--export-format", "csv",
+                "--annotations", annotationsPath,
+                "--output", csv.path,
+            ]).runReturningResolvedColumns(managedPythonResolver: {
+                XCTFail("CSV must not resolve the XLSX runtime")
+                throw CocoaError(.fileNoSuchFile)
+            })
+            XCTAssertEqual(columns, ["S1", "S2"])
+            XCTAssertTrue(FileManager.default.fileExists(atPath: csv.path))
+        }
     }
 
     func testCsvAndTsvExportsRemainOnTheNativeDelimitedPath() async throws {

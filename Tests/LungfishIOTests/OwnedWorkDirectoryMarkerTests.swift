@@ -20,6 +20,52 @@ final class OwnedWorkDirectoryMarkerTests: XCTestCase {
         try? FileManager.default.removeItem(at: root)
     }
 
+    /// `fastq genotype-cohort --project /tmp/X.lungfish --output-dir
+    /// /private/tmp/X.lungfish/Analyses/run` binds the work directory with
+    /// the project spelled through the symlink and the parent spelled
+    /// physically. The containment guard compares physical paths, so the
+    /// same tree under either spelling is accepted; a parent that is really
+    /// outside the project is still refused.
+    func testProjectContainmentComparesPhysicalPathsAcrossSymlinkSpellings() throws {
+        let physicalRoot = URL(fileURLWithPath: root.canonicalFilePath, isDirectory: true)
+        let link = physicalRoot.deletingLastPathComponent()
+            .appendingPathComponent("link-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: physicalRoot)
+        defer { try? FileManager.default.removeItem(at: link) }
+        let projectThroughLink = link.appendingPathComponent("Example.lungfish", isDirectory: true)
+        let physicalParent = physicalRoot.appendingPathComponent("Example.lungfish/.tmp", isDirectory: true)
+        let process = OwnedProcessIdentity(processIdentifier: 8123, processStartTime: 9_876_543, bootSessionID: "boot-A")
+
+        func request(project: URL, parent: URL) -> OwnedWorkDirectoryCreationRequest {
+            OwnedWorkDirectoryCreationRequest(
+                projectURL: project, parentDirectoryURL: parent, prefix: "genotype-", runID: UUID(),
+                processIdentity: process, state: .active, lockRelativePath: "Analyses/.run.lock",
+                keepIntermediates: false, toolName: "lungfish-cli fastq genotype-cohort", toolVersion: "1")
+        }
+
+        // Project spelled through the link, parent spelled physically, and
+        // the reverse: both name the same tree.
+        let createdA = try OwnedWorkDirectoryMarkerStore.createDirectory(
+            request(project: projectThroughLink, parent: physicalParent))
+        XCTAssertEqual(createdA.deletingLastPathComponent().canonicalFilePath, physicalParent.canonicalFilePath)
+        let createdB = try OwnedWorkDirectoryMarkerStore.createDirectory(
+            request(project: URL(fileURLWithPath: project.canonicalFilePath, isDirectory: true),
+                    parent: projectThroughLink.appendingPathComponent(".tmp", isDirectory: true)))
+        XCTAssertEqual(createdB.deletingLastPathComponent().canonicalFilePath, physicalParent.canonicalFilePath)
+        // An existing directory adopted with mixed spellings is an exact child too.
+        let existing = physicalParent.appendingPathComponent("genotype-existing", isDirectory: true)
+        try FileManager.default.createDirectory(at: existing, withIntermediateDirectories: true)
+        XCTAssertNoThrow(try OwnedWorkDirectoryMarkerStore.bindExistingDirectory(
+            projectThroughLink.appendingPathComponent(".tmp/genotype-existing", isDirectory: true),
+            request: request(project: projectThroughLink, parent: physicalParent)))
+
+        // A sibling outside the project stays refused whichever spelling is used.
+        let outside = physicalRoot.appendingPathComponent("Elsewhere", isDirectory: true)
+        try FileManager.default.createDirectory(at: outside, withIntermediateDirectories: true)
+        XCTAssertThrowsError(try OwnedWorkDirectoryMarkerStore.createDirectory(
+            request(project: projectThroughLink, parent: outside)))
+    }
+
     func testCreationWritesSchemaTwoIdentityBoundMarker() throws {
         let runID = UUID()
         let process = OwnedProcessIdentity(

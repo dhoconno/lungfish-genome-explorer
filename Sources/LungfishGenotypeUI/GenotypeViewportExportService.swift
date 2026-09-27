@@ -242,10 +242,12 @@ struct GenotypeViewportExportService {
               !envelope.argv.isEmpty else {
             throw GenotypeViewportExportError.invalidProvenance(provenanceURL.path)
         }
-        let outputPath = outputURL.standardizedFileURL.path
+        // Physical paths (CanonicalFilePath): the CLI records the spelling it
+        // was given (`/tmp/...`), the viewport may hold `/private/tmp/...`.
+        let outputPath = outputURL.canonicalFilePath
         let outputPaths = Set(
             (envelope.outputs + envelope.steps.flatMap(\.outputs))
-                .map { URL(fileURLWithPath: $0.path).standardizedFileURL.path }
+                .map { URL(fileURLWithPath: $0.path).canonicalFilePath }
         )
         guard outputPaths.contains(outputPath) else {
             throw GenotypeViewportExportError.invalidProvenance(provenanceURL.path)
@@ -253,11 +255,11 @@ struct GenotypeViewportExportService {
         guard expectedInputURLs.isEmpty else {
             let inputPaths = Set(
                 (envelope.files + envelope.steps.flatMap(\.inputs))
-                    .map { URL(fileURLWithPath: $0.path).standardizedFileURL.path }
+                    .map { URL(fileURLWithPath: $0.path).canonicalFilePath }
             )
             for expectedInputURL in expectedInputURLs {
                 guard fileManager.fileExists(atPath: expectedInputURL.path),
-                      inputPaths.contains(expectedInputURL.standardizedFileURL.path) else {
+                      inputPaths.contains(expectedInputURL.canonicalFilePath) else {
                     throw GenotypeViewportExportError.invalidProvenance(provenanceURL.path)
                 }
             }

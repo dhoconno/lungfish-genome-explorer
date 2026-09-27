@@ -366,8 +366,11 @@ public enum OwnedWorkDirectoryMarkerStore {
 
         let projectURL = request.projectURL.standardizedFileURL
         let parentURL = request.parentDirectoryURL.standardizedFileURL
-        let projectPath = projectURL.path
-        guard parentURL.path == projectPath || parentURL.path.hasPrefix(projectPath + "/") else {
+        // Physical paths: a project bound as `/tmp/X.lungfish` and a parent
+        // spelled `/private/tmp/X.lungfish/Analyses` name the same tree. The
+        // no-follow walks below still open each by its own spelling and
+        // reject a parent reached through a symlink.
+        guard CanonicalFilePath.isPath(parentURL, within: projectURL) else {
             throw OwnedWorkDirectoryMarkerError.invalidRequest(
                 "parent is outside the bound project"
             )
@@ -549,9 +552,11 @@ public enum OwnedWorkDirectoryMarkerStore {
         let directoryURL = directoryURL.standardizedFileURL
         let parentURL = request.parentDirectoryURL.standardizedFileURL
         let projectURL = request.projectURL.standardizedFileURL
-        guard directoryURL.deletingLastPathComponent() == parentURL,
-              parentURL.path == projectURL.path
-                || parentURL.path.hasPrefix(projectURL.path + "/") else {
+        // Physical paths, as in `createDirectory`: the spellings may differ
+        // (`/tmp` against `/private/tmp`) while naming the same directories.
+        guard CanonicalFilePath.path(for: directoryURL.deletingLastPathComponent())
+                == CanonicalFilePath.path(for: parentURL),
+              CanonicalFilePath.isPath(parentURL, within: projectURL) else {
             throw OwnedWorkDirectoryMarkerError.invalidRequest(
                 "existing directory is not an exact child of the bound parent"
             )
