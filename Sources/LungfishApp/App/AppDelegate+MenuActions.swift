@@ -308,8 +308,9 @@ extension AppDelegate {
             debugLog("importVCFToBundle: No main window available")
             return
         }
-        let viewerController = originSplit.viewerController
-        let bundleURL = viewerController?.currentBundleURL
+        // Either display route, a mapping result's reference copy, or the sidebar's
+        // selected bundle; `currentBundleURL` alone is nil for all but `.sequence` mode.
+        let bundleURL = currentReferenceBundleURL(in: originController)
 
         guard let window = originController.window else {
             debugLog("importVCFToBundle: No main window available")
@@ -352,10 +353,9 @@ extension AppDelegate {
     @objc func importBAMToBundle(_ sender: Any?) {
         debugLog("importBAMToBundle: Menu action triggered")
 
-        // Require a bundle to be loaded
+        // Require a displayed or selected reference bundle
         guard let originController = activeMainWindowController(sender: sender),
-              let viewerController = originController.mainSplitViewController?.viewerController,
-              let bundleURL = viewerController.currentBundleURL else {
+              let bundleURL = currentReferenceBundleURL(in: originController) else {
             showAlert(title: "No Bundle Loaded", message: "Please open a reference genome bundle before importing alignments.")
             return
         }
