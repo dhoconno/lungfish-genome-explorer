@@ -229,13 +229,13 @@ struct TreeCommand: AsyncParsableCommand {
     struct RerootSubcommand: ParsableCommand {
         static let configuration = CommandConfiguration(
             commandName: "reroot",
-            abstract: "Re-root a .lungfishtree bundle and write a new bundle with provenance"
+            abstract: "Root a .lungfishtree bundle on the branch above a node (outgroup rooting) and write a new bundle with provenance"
         )
 
         @Option(name: .customLong("bundle"), help: "Input .lungfishtree bundle")
         var bundlePath: String
 
-        @Option(name: .customLong("on"), help: "Tip label, internal node label, or normalized node ID to root on")
+        @Option(name: .customLong("on"), help: "Tip label, internal node label, or normalized node ID of the outgroup; the new root splits the branch above it at its midpoint")
         var selector: String
 
         @Option(name: .customLong("output"), help: "Output .lungfishtree bundle path")

@@ -794,7 +794,7 @@ public final class PhylogeneticTreeViewController: NSViewController, NSTableView
         menu.addItem(copySubtreeItem)
 
         let rerootItem = NSMenuItem(
-            title: "Re-root Here",
+            title: "Root on Branch to Here",
             action: #selector(rerootSelectedNode(_:)),
             keyEquivalent: ""
         )
@@ -914,9 +914,21 @@ public final class PhylogeneticTreeViewController: NSViewController, NSTableView
                 operation: operation,
                 bundleURL: bundleURL,
                 nodeID: selectedNodeID,
-                nodeLabel: node.displayLabel
+                nodeLabel: node.displayLabel,
+                tipLabels: descendantTipLabels(of: node)
             )
         )
+    }
+
+    /// Tip display labels under `node` in tree (child) order; a tip returns itself.
+    private func descendantTipLabels(of node: PhylogeneticTreeNormalizedNode) -> [String] {
+        if node.isTip {
+            return [node.displayLabel]
+        }
+        return node.childIDs.flatMap { childID -> [String] in
+            guard let child = nodesByID[childID] else { return [] }
+            return descendantTipLabels(of: child)
+        }
     }
 
     private func selectedTipLabels() -> [String] {
@@ -1087,12 +1099,21 @@ extension PhylogeneticTreeViewController {
         public let bundleURL: URL
         public let nodeID: String
         public let nodeLabel: String
+        /// Display labels of the tips under the selected node, in tree order. A tip lists itself.
+        public let tipLabels: [String]
 
-        public init(operation: TreeBundleOperation, bundleURL: URL, nodeID: String, nodeLabel: String) {
+        public init(
+            operation: TreeBundleOperation,
+            bundleURL: URL,
+            nodeID: String,
+            nodeLabel: String,
+            tipLabels: [String] = []
+        ) {
             self.operation = operation
             self.bundleURL = bundleURL
             self.nodeID = nodeID
             self.nodeLabel = nodeLabel
+            self.tipLabels = tipLabels
         }
     }
 }

@@ -85,6 +85,8 @@ public struct PhylogeneticTreeBundle: Sendable, Equatable {
         var options = provenance.options
         options["on"] = selector
         options["resolvedNodeID"] = selected.id
+        // The new root sits at the midpoint of the branch above the selected node (outgroup rooting).
+        options["rooting"] = "branch-midpoint"
         return try writeDerivedBundle(
             newick: try PhylogeneticTreeRerooter(bundle: self).newick(rootedOn: selected),
             destinationURL: destinationURL,
@@ -271,6 +273,7 @@ public enum PhylogeneticTreeBundleError: Error, LocalizedError, Sendable, Equata
     case sqliteIndexFailed(String)
     case nodeNotFound(String)
     case ambiguousNodeLabel(String)
+    case cannotRootOnRootNode(String)
 
     public var errorDescription: String? {
         switch self {
@@ -290,6 +293,8 @@ public enum PhylogeneticTreeBundleError: Error, LocalizedError, Sendable, Equata
             return "Tree node not found: \(selector)"
         case .ambiguousNodeLabel(let label):
             return "Tree node label is ambiguous: \(label)"
+        case .cannotRootOnRootNode(let label):
+            return "Cannot root on the branch above \(label): it is already the root and has no branch above it. Select one of its child clades instead."
         }
     }
 }

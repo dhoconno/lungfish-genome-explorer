@@ -6,13 +6,15 @@ final class TreeBundleTransformArgvTests: XCTestCase {
     private func request(
         operation: PhylogeneticTreeViewController.TreeBundleOperation,
         nodeID: String = "node-7",
-        nodeLabel: String = "Clade A"
+        nodeLabel: String = "Clade A",
+        tipLabels: [String] = []
     ) -> PhylogeneticTreeViewController.TreeBundleOperationRequest {
         PhylogeneticTreeViewController.TreeBundleOperationRequest(
             operation: operation,
             bundleURL: URL(fileURLWithPath: "/proj/Phylogenetic Trees/source.lungfishtree", isDirectory: true),
             nodeID: nodeID,
-            nodeLabel: nodeLabel
+            nodeLabel: nodeLabel,
+            tipLabels: tipLabels
         )
     }
 
@@ -60,11 +62,43 @@ final class TreeBundleTransformArgvTests: XCTestCase {
         )
     }
 
-    func testOutputStemExtractSubtreeUsesNodeLabel() {
+    func testOutputStemExtractSubtreeUsesTipLabelsNotSupportValue() {
+        // An unlabeled internal node's display label is its support value ("100"); the bundle
+        // must be named from the tips it contains instead.
+        XCTAssertEqual(
+            TreeBundleTransformCommand.outputStem(for: request(
+                operation: .extractSubtree,
+                nodeLabel: "100",
+                tipLabels: ["RhesusMacaque_NC_005943.1", "CynomolgusMacaque_NC_012670.1"]
+            )),
+            "RhesusMacaque_NC_005943.1+CynomolgusMacaque_NC_012670.1-subtree"
+        )
+    }
+
+    func testOutputStemExtractSubtreeSummarisesLargeClades() {
+        XCTAssertEqual(
+            TreeBundleTransformCommand.outputStem(for: request(
+                operation: .extractSubtree,
+                nodeLabel: "95",
+                tipLabels: ["A", "B", "C", "D", "E"]
+            )),
+            "A+4-more-subtree"
+        )
+    }
+
+    func testOutputStemExtractSubtreeFallsBackToNodeLabelWithoutTips() {
         XCTAssertEqual(
             TreeBundleTransformCommand.outputStem(for: request(operation: .extractSubtree, nodeLabel: "Clade A")),
             "Clade A-subtree"
         )
+    }
+
+    func testSubtreeNameStemSanitisesPathCharacters() {
+        XCTAssertEqual(
+            TreeBundleTransformCommand.subtreeNameStem(tipLabels: ["hCoV-19/USA/1:2020", "B"], fallback: "x"),
+            "hCoV-19_USA_1_2020+B"
+        )
+        XCTAssertEqual(TreeBundleTransformCommand.subtreeNameStem(tipLabels: [], fallback: "  "), "clade")
     }
 
     func testTitleAndDetail() {

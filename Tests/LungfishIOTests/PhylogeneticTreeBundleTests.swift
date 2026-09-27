@@ -266,14 +266,81 @@ final class PhylogeneticTreeBundleTests: XCTestCase {
             try String(contentsOf: sourceBundleURL.appendingPathComponent("tree/primary.nwk"), encoding: .utf8),
             "((A:0.1,B:0.2)Clade:0.3,C:0.4);\n"
         )
+        // The branch above C (0.4) is split at its midpoint: C keeps 0.2, the other 0.2 is
+        // merged with the spliced old root's edge to Clade (0.3).
         XCTAssertEqual(
             try String(contentsOf: outputURL.appendingPathComponent("tree/primary.nwk"), encoding: .utf8),
-            "(C:0.0,(A:0.1,B:0.2)Clade:0.7);\n"
+            "(C:0.2,(A:0.1,B:0.2)Clade:0.5);\n"
         )
+        XCTAssertEqual(totalBranchLength(of: rerooted), totalBranchLength(of: sourceBundle), accuracy: 1e-9)
         let provenanceJSON = try jsonObject(at: outputURL.appendingPathComponent(".lungfish-provenance.json"))
         XCTAssertEqual(provenanceJSON["workflowName"] as? String, "phylogenetic-tree-reroot")
         XCTAssertEqual((provenanceJSON["input"] as? [String: Any])?["path"] as? String, sourceBundleURL.path)
         XCTAssertEqual((provenanceJSON["options"] as? [String: Any])?["on"] as? String, "C")
+        XCTAssertEqual((provenanceJSON["options"] as? [String: Any])?["rooting"] as? String, "branch-midpoint")
+    }
+
+    func testRerootOnRootNodeIsRejected() throws {
+        let sourceURL = try writeSource(name: "root-reject.nwk", contents: "((A:0.1,B:0.2)Clade:0.3,C:0.4)Root;")
+        let sourceBundleURL = workspaceURL.appendingPathComponent("RootReject.lungfishtree", isDirectory: true)
+        let sourceBundle = try PhylogeneticTreeBundleImporter.importTree(from: sourceURL, to: sourceBundleURL)
+        let rootID = try XCTUnwrap(sourceBundle.normalizedTree.nodes.first { $0.parentID == nil }?.id)
+
+        XCTAssertThrowsError(try sourceBundle.rerootedBundle(
+            on: rootID,
+            to: workspaceURL.appendingPathComponent("RootRejectOut.lungfishtree", isDirectory: true),
+            provenance: .init(toolName: "lungfish tree reroot", argv: [])
+        )) { error in
+            guard case PhylogeneticTreeBundleError.cannotRootOnRootNode = error else {
+                return XCTFail("Unexpected error: \(error)")
+            }
+        }
+    }
+
+    func testRerootOnCladeOfUnrootedTreeGivesBifurcatingRootWithSupportOnBothHalves() throws {
+        // Three-way (unrooted) root; rooting on the AB clade must leave the CD clade as the
+        // only other child, carrying its own support, with the AB support on the outgroup half.
+        let sourceURL = try writeSource(name: "unrooted-support.nwk", contents: "((A:0.1,B:0.2)95:0.3,(C:0.4,D:0.5)70:0.6,E:0.7);")
+        let sourceBundleURL = workspaceURL.appendingPathComponent("UnrootedSupport.lungfishtree", isDirectory: true)
+        let sourceBundle = try PhylogeneticTreeBundleImporter.importTree(from: sourceURL, to: sourceBundleURL)
+        let cladeID = try XCTUnwrap(nodeID(of: sourceBundle, withDescendantTips: ["A", "B"]))
+        let outputURL = workspaceURL.appendingPathComponent("UnrootedSupportRerooted.lungfishtree", isDirectory: true)
+
+        let rerooted = try sourceBundle.rerootedBundle(
+            on: cladeID,
+            to: outputURL,
+            provenance: .init(toolName: "lungfish tree reroot", argv: [])
+        )
+
+        XCTAssertEqual(
+            try String(contentsOf: outputURL.appendingPathComponent("tree/primary.nwk"), encoding: .utf8),
+            "((A:0.1,B:0.2)95:0.15,((C:0.4,D:0.5)70:0.6,E:0.7)95:0.15);\n"
+        )
+        XCTAssertEqual(totalBranchLength(of: rerooted), totalBranchLength(of: sourceBundle), accuracy: 1e-9)
+        let root = try XCTUnwrap(rerooted.normalizedTree.nodes.first { $0.parentID == nil })
+        XCTAssertEqual(root.childIDs.count, 2)
+    }
+
+    func testRerootSplicedOldRootInheritsSupportWhenOnwardNodeHasNone() throws {
+        // Rooted tree whose old root has two children; rooting on AB splices the old root so the
+        // CD side becomes a single edge carrying the summed length and the AB edge's support.
+        let sourceURL = try writeSource(name: "splice-support.nwk", contents: "((A:0.1,B:0.2)95:0.3,(C:0.4,D:0.5):0.6);")
+        let sourceBundleURL = workspaceURL.appendingPathComponent("SpliceSupport.lungfishtree", isDirectory: true)
+        let sourceBundle = try PhylogeneticTreeBundleImporter.importTree(from: sourceURL, to: sourceBundleURL)
+        let cladeID = try XCTUnwrap(nodeID(of: sourceBundle, withDescendantTips: ["A", "B"]))
+        let outputURL = workspaceURL.appendingPathComponent("SpliceSupportRerooted.lungfishtree", isDirectory: true)
+
+        let rerooted = try sourceBundle.rerootedBundle(
+            on: cladeID,
+            to: outputURL,
+            provenance: .init(toolName: "lungfish tree reroot", argv: [])
+        )
+
+        XCTAssertEqual(
+            try String(contentsOf: outputURL.appendingPathComponent("tree/primary.nwk"), encoding: .utf8),
+            "((A:0.1,B:0.2)95:0.15,(C:0.4,D:0.5)95:0.75);\n"
+        )
+        XCTAssertEqual(totalBranchLength(of: rerooted), totalBranchLength(of: sourceBundle), accuracy: 1e-9)
     }
 
     func testRerootOnTipKeepsEveryTipOnceAndTotalLength() throws {
@@ -293,9 +360,15 @@ final class PhylogeneticTreeBundleTests: XCTestCase {
         XCTAssertTrue(rerooted.manifest.isRooted)
         XCTAssertTrue(rerooted.normalizedTree.rooted)
         XCTAssertEqual(totalBranchLength(of: rerooted), totalBranchLength(of: sourceBundle), accuracy: 1e-9)
+        // Rooting on a tip splits its branch (0.0740422285) at the midpoint: the tip keeps half
+        // and the rest of the tree hangs from the other half, so the root is bifurcating.
         let gorilla = try XCTUnwrap(rerooted.normalizedTree.nodes.first { $0.displayLabel == "Gorilla_NC_011120.1" })
-        XCTAssertEqual(gorilla.branchLength, 0.0)
-        XCTAssertNotNil(rerooted.normalizedTree.nodes.first { $0.parentID == nil && $0.childIDs.contains(gorilla.id) })
+        XCTAssertEqual(try XCTUnwrap(gorilla.branchLength), 0.0740422285 / 2, accuracy: 1e-12)
+        let tipRoot = try XCTUnwrap(rerooted.normalizedTree.nodes.first { $0.parentID == nil && $0.childIDs.contains(gorilla.id) })
+        XCTAssertEqual(tipRoot.childIDs.count, 2)
+        let ingroupID = try XCTUnwrap(tipRoot.childIDs.first { $0 != gorilla.id })
+        let ingroup = try XCTUnwrap(rerooted.normalizedTree.nodes.first { $0.id == ingroupID })
+        XCTAssertEqual(try XCTUnwrap(ingroup.branchLength), 0.0740422285 / 2, accuracy: 1e-12)
         XCTAssertTrue(bundleContainsClade(rerooted, labels: ["Human_NC_012920.1", "Chimp_NC_001643.1"]))
         XCTAssertTrue(bundleContainsClade(rerooted, labels: ["RhesusMacaque_NC_005943.1", "CynomolgusMacaque_NC_012670.1"]))
 
@@ -325,10 +398,21 @@ final class PhylogeneticTreeBundleTests: XCTestCase {
         XCTAssertEqual(rerooted.manifest.tipCount, 5)
         XCTAssertTrue(rerooted.manifest.isRooted)
         XCTAssertEqual(totalBranchLength(of: rerooted), totalBranchLength(of: sourceBundle), accuracy: 1e-9)
+        // Outgroup rooting: the macaques sit on one side of a bifurcating root and the apes
+        // on the other, with the macaque stem (0.8982249461) split evenly between the halves.
         let root = try XCTUnwrap(rerooted.normalizedTree.nodes.first { $0.parentID == nil })
-        XCTAssertEqual(root.childIDs.count, 3)
+        XCTAssertEqual(root.childIDs.count, 2)
+        let macaqueCladeID = try XCTUnwrap(nodeID(of: rerooted, withDescendantTips: macaques))
+        let apeCladeID = try XCTUnwrap(nodeID(
+            of: rerooted,
+            withDescendantTips: ["Human_NC_012920.1", "Chimp_NC_001643.1", "Gorilla_NC_011120.1"]
+        ))
+        XCTAssertEqual(Set(root.childIDs), [macaqueCladeID, apeCladeID])
+        let macaqueClade = try XCTUnwrap(rerooted.normalizedTree.nodes.first { $0.id == macaqueCladeID })
+        let apeClade = try XCTUnwrap(rerooted.normalizedTree.nodes.first { $0.id == apeCladeID })
+        XCTAssertEqual(try XCTUnwrap(macaqueClade.branchLength), 0.8982249461 / 2, accuracy: 1e-12)
+        XCTAssertEqual(try XCTUnwrap(apeClade.branchLength), 0.8982249461 / 2, accuracy: 1e-12)
         XCTAssertTrue(bundleContainsClade(rerooted, labels: ["Human_NC_012920.1", "Chimp_NC_001643.1"]))
-        XCTAssertTrue(bundleContainsClade(rerooted, labels: ["Human_NC_012920.1", "Chimp_NC_001643.1", "Gorilla_NC_011120.1"]))
 
         let roundTrip = try PhylogeneticTreeBundleImporter.importTree(
             from: outputURL.appendingPathComponent("tree/primary.nwk"),
@@ -351,9 +435,11 @@ final class PhylogeneticTreeBundleTests: XCTestCase {
             provenance: .init(toolName: "lungfish tree reroot", argv: [])
         )
 
+        // The AB stem (0.3, support 90) is split at its midpoint; both halves describe the same
+        // bipartition, so both carry the 90. The old root is spliced into D's edge (0.5 + 0.6).
         XCTAssertEqual(
             try String(contentsOf: outputURL.appendingPathComponent("tree/primary.nwk"), encoding: .utf8),
-            "(A:0.1,B:0.2,(C:0.4,D:1.1)90:0.3);\n"
+            "((A:0.1,B:0.2)90:0.15,(C:0.4,D:1.1)90:0.15);\n"
         )
         XCTAssertEqual(tipLabels(of: rerooted), ["A", "B", "C", "D"])
         XCTAssertEqual(totalBranchLength(of: rerooted), totalBranchLength(of: sourceBundle), accuracy: 1e-9)
