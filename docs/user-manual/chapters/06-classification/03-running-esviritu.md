@@ -3,10 +3,10 @@ title: Running EsViritu
 chapter_id: 06-classification/03-running-esviritu
 audience: bench-scientist
 prereqs: [01-foundations/07-plugin-packs, 03-reads/01-importing-fastq, 06-classification/01-what-is-classification]
-estimated_reading_min: 19
-task: Detect viruses in a FASTQ bundle with EsViritu, read the coverage evidence its viewport reports, and audit one detection against the alignment it came from.
+estimated_reading_min: 22
+task: Survey a SARS-CoV-2 amplicon run with Kraken 2, detect its virus with EsViritu, read the coverage evidence the viewport reports, and audit one detection against the alignment it came from.
 tags: [classification, esviritu, viral, coverage, alignment]
-tools: [esviritu]
+tools: [esviritu, kraken2]
 parameters_refs: [classify.esviritu]
 entry_points:
   - "Tools > Classification > EsViritu..."
@@ -23,8 +23,10 @@ shots:
     caption: "The EsViritu viewport for SRR36291587 in the List Over Detail layout, with the detection table above and the alignment evidence for the selected row below, showing the coverage track across the SARS-CoV-2 genome."
   - id: esviritu-alignment-evidence
     caption: "The full alignment viewer filling the detail pane after a detection row is selected, showing the read pileup over the matched viral reference."
-illustrations: []
-glossary_refs: [accession, amplicon, bam, blast, consensus-sequence, coverage-breadth, depth, esviritu, fastp, fastq, inspector, interleaved-fastq, lineage, mapping, minimap2, paired-end, pangenome, pcr-duplicate, plugin-pack, provenance, checksum, read, read-merging, rpkmf, single-end, sparkline, taxon]
+illustrations:
+  - id: coverage-sparklines
+    brief: "Two coverage sparklines drawn one above the other at the same width, each summarising the same number of reads over one viral genome split into 100 windows. The upper line is even, every window between about a quarter and twice the mean depth, labelled 'reads tile the genome'. The lower line is flat at zero across most of its width with two or three tall spikes, labelled 'reads stacked on a few short stretches'. A shared caption states that both rows carry the same read count. Deep Ink lines on Cream, Creamsicle for the spikes' labels."
+glossary_refs: [accession, amplicon, bam, kraken2, mate, shotgun, unique-reads-deduplicated, blast, consensus-sequence, coverage-breadth, depth, esviritu, fastp, fastq, inspector, interleaved-fastq, lineage, mapping, minimap2, paired-end, pangenome, pcr-duplicate, plugin-pack, provenance, checksum, read, read-merging, rpkmf, single-end, sparkline, taxon]
 features_refs: []
 fixtures_refs: [sarscov2-srr36291587]
 brand_reviewed: false
@@ -33,7 +35,7 @@ lead_approved: false
 
 ## What it is
 
-[EsViritu](../../GLOSSARY.md#esviritu) is a virus detector. It takes the [reads](../../GLOSSARY.md#read) from a sequencing run, lines each one up against a curated collection of viral genomes, and reports which viruses drew reads and how thoroughly those reads covered each one. A read is one stretch of sequence the instrument produced, a few hundred bases long. The collection holds 19,925 curated viral assemblies across 63 families and nothing else, so it can tell close viral relatives apart and cannot find a bacterium at all. An assembly here is one virus's genome written out as whole sequence, and curated means the collection's authors chose and checked each entry by hand.
+[EsViritu](../../GLOSSARY.md#esviritu) is a virus detector. It takes the [reads](../../GLOSSARY.md#read) from a sequencing run, lines each one up against a curated collection of viral genomes, and reports which viruses drew reads and how thoroughly those reads covered each one. A read is the record a sequencer writes for one DNA fragment, and Illumina reads are usually 75 to 300 bases. The collection holds 19,925 curated viral assemblies across 63 families and nothing else, so it can tell close viral relatives apart and cannot find a bacterium at all. An assembly here is one virus's genome written out as whole sequence, and curated means the collection's authors chose and checked each entry by hand.
 
 Lining up is [mapping](../../GLOSSARY.md#mapping), which means recording, for each read, the position on a reference genome where it fits best. EsViritu maps every read against the whole collection at once with [minimap2](../../GLOSSARY.md#minimap2), which runs inside EsViritu, so you never install it or call it yourself. Mapping is slower than the table lookup a broad classifier uses, but once every read has a position you can ask where on the genome the reads landed, not merely how many there were.
 
@@ -51,6 +53,8 @@ Choose EsViritu over Kraken 2 when you need that coverage evidence for a virus, 
 
 This chapter works through the SRR36291587 SARS-CoV-2 reads, an [amplicon](../../GLOSSARY.md#amplicon) library of [paired-end](../../GLOSSARY.md#paired-end) Illumina reads from a human clinical specimen. An amplicon library is one where PCR copied a fixed set of target regions before sequencing, so it is deliberately enriched for one organism. A tiled amplicon protocol is designed to cover a whole genome, so you can see at once whether it did. The example is viral because EsViritu is viral by design and has nothing to say about any other kind of sample.
 
+EsViritu was built for [shotgun](../../GLOSSARY.md#shotgun) libraries, which read whatever DNA the sample held. An amplicon library works as input, and the procedure starts with the survey [What Is Read Classification](01-what-is-classification.md#what-this-parts-examples-use) recommends, a quick Kraken 2 run on the same reads. Two things about amplicon reads change how you read the result, and [Reading the results](#reading-the-results) points both out where they arise.
+
 ## Before you start
 
 You need a project open, as [The Lungfish Genome Explorer Project](../01-foundations/06-the-lungfish-project.md#procedure) shows.
@@ -59,47 +63,61 @@ Open the SARS-CoV-2 Amplicons demo project with **Help > Demo Projects…**, as 
 
 This chapter uses the sarscov2-srr36291587 fixture. Download its reads from the Sequence Read Archive as accession `SRR36291587`, following [Downloading Reads from the SRA](../03-reads/02-downloading-from-sra.md), and find the fixture's other files in [its fixture folder on GitHub](https://github.com/dhoconno/lungfish-genome-explorer/tree/v2026.9.40/Tests/Fixtures/sarscov2-srr36291587), as [Practice data for this manual](../01-foundations/06-the-lungfish-project.md#practice-data-for-this-manual) explains.
 
-Install the `metagenomics` [plugin pack](../../GLOSSARY.md#plugin-pack), a themed group of tools LGE installs on request, as [Plugin Packs](../01-foundations/07-plugin-packs.md#procedure) shows.
+Install the `metagenomics` [plugin pack](../../GLOSSARY.md#plugin-pack), a themed group of tools LGE installs on request, as [Plugin Packs](../01-foundations/07-plugin-packs.md#procedure) shows. It carries both Kraken 2 and EsViritu.
 
-Download the EsViritu Viral DB database from the Plugin Manager's Databases tab, as [The Databases tab](../01-foundations/07-plugin-packs.md#the-databases-tab) describes. It is the only database EsViritu uses, so there is nothing to choose at run time. The numbers in this chapter came from EsViritu 1.3.3 with database v3.2.4. Another version shifts the exact figures without changing what any of them mean.
+Download two databases from the Plugin Manager's Databases tab, as [The Databases tab](../01-foundations/07-plugin-packs.md#the-databases-tab) describes. The Kraken 2 **Viral** database serves the survey in the first procedure step, and [Running Kraken 2](02-running-kraken2.md#download-the-viral-and-standard-16-databases) already had you download it. The EsViritu Viral DB is the only database EsViritu uses, so there is nothing to choose at run time. The numbers in this chapter came from Kraken 2 2.17.1 with the Viral database dated 20260626, and from EsViritu 1.3.3 with database v3.2.4. Another version shifts the exact figures without changing what any of them mean.
 
 EsViritu needs reads of at least 100 bases. EsViritu 1.3.3 keeps a read's alignment only when it is at least 100 bases long (`alignLength >= 100` in its `minimap2_f` filter), so a run of shorter reads, such as 2x75 or 2x76 NextSeq data, finds nothing and ends without a detection table. LGE warns you before such a run. When the read statistics recorded at import show that every read is shorter than 100 bases, a banner at the foot of the dialog's **Sample** section gives the longest read length and says EsViritu will likely report no viruses for these reads. When only the median read is shorter than 100 bases, a softer note says those reads cannot count toward a detection. Neither turns Run off. If a short-read run goes ahead anyway, the failure message quotes EsViritu's own reason, such as "No reads aligned to the EsViritu DB", and adds the same short-read hint. That is why this chapter does not use the 76-base corneal sample from [Running Kraken 2](02-running-kraken2.md).
 
-The example run takes about six minutes on a fourteen-core Mac. Mapping is the slow step, so expect minutes where a Kraken 2 run against a small database takes seconds.
+The example EsViritu run takes about six minutes on a fourteen-core Mac, and the Kraken 2 survey before it about half a minute. Mapping is the slow step, so expect minutes where a Kraken 2 run against a small database takes seconds.
 
 ## Procedure
 
-### 1. Set up the run
+### Survey the reads with Kraken 2
 
-1. Click the FASTQ bundle holding the SRR36291587 reads in the project sidebar. A paired sample appears as one row, because LGE keeps the two mates together in one bundle.
+A broad survey first tells you what the reads hold, so the specialist run that follows has a question to answer.
 
-2. Choose **Tools > Classification > EsViritu...**. The FASTQ/FASTA Operations dialog opens with EsViritu selected, and it follows the layout [Operation dialogs](../01-foundations/06-the-lungfish-project.md#operation-dialogs) describes.
+Click the FASTQ bundle holding the SRR36291587 reads in the project sidebar. A paired sample appears as one row, because LGE keeps the two mates together in one bundle. Choose **Tools > Classification > Kraken2...**, pick **Viral** in the **Database** picker, leave every other setting as it is, and click **Run**, as [Running Kraken 2](02-running-kraken2.md#open-the-dialog-and-choose-a-database) shows. When the row finishes, open the new `kraken2-` result under `Analyses/` and read the summary cards and the table.
 
-3. Read the grey line under the name field in the **Sample** section. It reads "Checking read layout…" while LGE inspects the file, and the Run button stays off until the check finishes. For the SRR36291587 bundle it should then read **Interleaved paired-end reads**. The line is a report rather than a control, and [How LGE picks the input line](#how-lge-picks-the-input-line) explains all four wordings. If it reads **Single-end reads** when you expected pairs, close the dialog and check the selection in the sidebar.
+The Viral database classified 83,728 of the 85,199 read pairs, 98.27 percent, and left 1,471 pairs, 1.73 percent, unclassified. Every classified pair sits under the coronavirus family, and 83,591 pairs sit on the row Severe acute respiratory syndrome coronavirus 2, one level below the species *Betacoronavirus pandemicum*. That species name is the formal one the virus taxonomy now gives the group holding SARS-CoV-2, the same convention [Running Kraken 2](02-running-kraken2.md#reading-the-results) explains for HSV-1. Dominant names *Betacoronavirus pandemicum* and Shannon H′ reads 0.000, a single-species sample.
+
+Kraken 2 has answered what is in the tube. It cannot say how much of the viral genome the reads cover, how evenly, or which known genome they sit closest to. Those are the questions EsViritu answers next.
+
+### Run EsViritu
+
+1. Click the SRR36291587 bundle in the sidebar again and choose **Tools > Classification > EsViritu...**. The FASTQ/FASTA Operations dialog opens with EsViritu selected, and it follows the layout [Operation dialogs](../01-foundations/06-the-lungfish-project.md#operation-dialogs) describes.
+
+2. Read the grey line under the name field in the **Sample** section. It reads "Checking read layout…" while LGE inspects the file, and the Run button stays off until the check finishes. For the SRR36291587 bundle it should then read **Interleaved paired-end reads**. The line is a report rather than a control, and [How LGE picks the input line](#how-lge-picks-the-input-line) explains all four wordings. If it reads **Single-end reads** when you expected pairs, close the dialog and check the selection in the sidebar.
 
     <!-- SHOT: esviritu-dialog -->
 
-4. Check the **Database** section. It should show a green dot and read `EsViritu v3.2.4` with the installed size in brackets, where v3.2.4 is the database version, not the version of the EsViritu program. If it shows an amber dot and reads `Database not installed` instead, click **Download Database...** beside those words, which opens the Plugin Manager straight to its Databases tab.
+3. Check the **Database** section. It should show a green dot and read `EsViritu v3.2.4` with the installed size in brackets, where v3.2.4 is the database version, not the version of the EsViritu program. If it shows an amber dot and reads `Database not installed` instead, click **Download Database...** beside those words, which opens the Plugin Manager straight to its Databases tab.
 
     <!-- SHOT: esviritu-database-missing -->
 
-5. Leave **Enable quality filtering (fastp)** ticked and **Advanced Settings** collapsed for a first run. The Settings section covers both.
+4. Leave **Enable quality filtering (fastp)** ticked and **Advanced Settings** collapsed for a first run. The Settings section covers both.
 
     <!-- SHOT: esviritu-advanced-settings -->
 
-A note under the Database section may read "This system has limited RAM. EsViritu may run slowly with large databases. Consider closing other applications before running." It appears when the database is installed on a Mac with less than 8 GB of memory, and the run still finishes, only more slowly.
-
-### 2. Run it and open the result
-
-1. Click **Run**. Watch the run in the [Operations Panel](../01-foundations/06-the-lungfish-project.md#the-operations-panel), which opens with **Operations > Show Operations Panel** (Cmd-Shift-P).
-
-2. When the row completes, open the result. The result lands under `Analyses/` in a new folder, as [Where results land](../01-foundations/06-the-lungfish-project.md#where-results-land) describes. Its folder name starts with `esviritu-`, and double-clicking it opens the EsViritu viewport.
+5. Click **Run** and watch the run in the [Operations Panel](../01-foundations/06-the-lungfish-project.md#the-operations-panel), which opens with **Operations > Show Operations Panel** (Cmd-Shift-P). When the row completes, open the result. The result lands under `Analyses/` in a new folder, as [Where results land](../01-foundations/06-the-lungfish-project.md#where-results-land) describes. Its folder name starts with `esviritu-`, and double-clicking it opens the EsViritu viewport.
 
     <!-- SHOT: esviritu-result-viewport -->
 
+A note under the Database section may read "This system has limited RAM. EsViritu may run slowly with large databases. Consider closing other applications before running." It appears when the database is installed on a Mac with less than 8 GB of memory, and the run still finishes, only more slowly.
+
+### Importing an EsViritu result made elsewhere
+
+A colleague may have run EsViritu on another computer and sent you its output folder. LGE opens that folder in the same viewport.
+
+1. Choose **File > Import Center...** (Cmd-Shift-I) and click the **Classification Results** tab.
+2. Click **Import…** on the **EsViritu Results** card, whose file hint reads "EsViritu output directory".
+3. In the file picker, choose the EsViritu output folder and click **Open**. No sheet follows, and the import starts at once.
+
+LGE looks inside the folder for EsViritu's detection table, the file named `<sample>.detected_virus.info.tsv`, and takes the sample name from the part before `.detected_virus.info`. It copies the whole folder into the project as `Imports/esviritu-<name>`, where `<name>` is the folder's name with every character other than a letter, a digit, a hyphen, or an underscore turned into an underscore. A second import of a folder with the same name adds `-2`. An import has no alignment file unless the folder carried one, so the detail pane then shows the metric pills described under [The detail pane](#the-detail-pane) instead of the alignment viewer.
+
 ### How LGE picks the input line
 
-LGE sorts every input into one of four wordings, and each one decides how EsViritu reads the file. A [paired-end](../../GLOSSARY.md#paired-end) run reads each fragment from both ends, and LGE stores the two mates of a sample together in one bundle. The two reads from one fragment are called mates. Inside a bundle they usually sit in one [interleaved](../../GLOSSARY.md#interleaved-fastq) file, where each read is followed directly by its mate.
+LGE sorts every input into one of four wordings, and each one decides how EsViritu reads the file. The two [mates](../../GLOSSARY.md#mate) of a paired-end fragment usually sit in one [interleaved](../../GLOSSARY.md#interleaved-fastq) file, where each read is followed directly by its mate.
 
 When the input is two separate files, one per mate, LGE runs them as pairs. When it is one file, LGE reads the names of the first 100,000 reads and checks whether each read is followed by its mate. Two neighbouring reads count as mates when their names match and either carry first-read and second-read markers, such as `/1` and `/2` or Illumina's `1:N` and `2:N`, or are identical with no marker at all. LGE also reads the bundle's own records, which note whether an earlier step merged pairs. [Merging](../../GLOSSARY.md#read-merging) joins the two mates of a short fragment into one longer read wherever they overlap, so a merged read has no mate left.
 
@@ -134,9 +152,9 @@ If the Extra arguments text opens a quotation mark and never closes it, the Run 
 
 ## Reading the results
 
-The viewport is a detail pane on the left and a table of detections on the right, and the two sides can be swapped. The table's columns are Sample, Virus Name, Family, Reads, Unique Reads, RPKMF, Coverage, Identity, and Segment. A **Filter viruses...** field above them narrows the rows, with a count beside it reporting how many of the assemblies remain.
+The viewport is a detail pane on the left and a table of detections on the right, the layout the Inspector's **Panel Layout** control calls Detail | List, and [Comparing the result views](01-what-is-classification.md#comparing-the-result-views) describes that control. The table's columns are Sample, Virus Name, Family, Reads, Unique Reads, RPKMF, Coverage, Identity, and Segment. A **Filter viruses...** field above them narrows the rows, with a count beside it reporting how many of the assemblies remain.
 
-**Reads** is how many reads mapped to that virus. **Unique Reads** is how many of those mapped to that virus and to nothing else in the database, which matters because a read that fits three related viruses equally well is one observation, not three. [**RPKMF**](../../GLOSSARY.md#rpkmf) is reads per kilobase of reference per million filtered reads, an abundance figure that divides out both the genome's length and the library's size. Compare it between viruses in one run, or for one virus across runs of similar size, rather than against a fixed number. **Coverage** is the mean depth along the reference, written with an `x` for "times", with the sparkline drawn beside the number. **Identity** is the percent of bases in the mapped reads that match the reference.
+**Reads** is how many reads mapped to that virus, counting each mate of a pair on its own. **Unique Reads** is how many of those are left after LGE marks [duplicates](../../GLOSSARY.md#unique-reads-deduplicated), collapsing reads that start and end at the same place on the same strand, because copies of one original fragment are one observation. The column means the same in the TaxTriage, NAO-MGS, and NVD views. [**RPKMF**](../../GLOSSARY.md#rpkmf) is reads per kilobase of reference per million filtered reads, an abundance figure that divides out both the genome's length and the library's size. Its denominator is the reads that survived quality filtering, in millions. Compare it between viruses in one run, or for one virus across runs of similar size, rather than against a fixed number. **Coverage** is the mean depth along the reference, written with an `x` for "times", with the sparkline drawn beside the number. **Identity** is the percent of bases in the mapped reads that match the reference.
 
 [Depth](../../GLOSSARY.md#depth), also called coverage, is the number of reads covering one position, and [coverage breadth](../../GLOSSARY.md#coverage-breadth) is the share of positions with at least one read. The Coverage column reports mean depth, and the sparkline is where breadth shows. A high mean depth over a sparkline that sits at zero across most of its width means the reads stacked on a short stretch instead of tiling the genome, and the number alone would hide that. A column filter typed into the Coverage column matches on breadth as a percent, not on the depth the column shows, so a filter for depth above 500 can return nothing. This is a known defect, listed with its workaround in [Known defects in this release](../appendices/troubleshooting.md#known-defects-in-this-release).
 
@@ -155,11 +173,15 @@ Detecting viruses in the SRR36291587 reads with the default settings produced on
 | Identity | 99.7% in EsViritu's own report, shown in the table as 1.0% (see below) |
 | Segment | a dash, since this genome is one piece |
 
-The reference [accession](../../GLOSSARY.md#accession) behind that row is `OP400692.1`, a 29,808-base SARS-CoV-2 genome that the database files under the Omicron BQ.1.23 [lineage](../../GLOSSARY.md#lineage), a named branch of the virus's family tree. That is the closest genome the collection holds, not a claim about which lineage your sample belongs to.
+The reference [accession](../../GLOSSARY.md#accession) behind that row is `OP400692.1`, a 29,808-base SARS-CoV-2 genome that the database files under the Omicron BQ.1.23 [lineage](../../GLOSSARY.md#lineage), a named branch of the virus's family tree. That is the closest genome the collection holds, not a claim about which lineage your sample belongs to. The database holds 291 SARS-CoV-2 genomes that differ at only a few dozen positions, so a read fits many of them almost equally well, and the name on the row is the one that fitted best overall.
 
-EsViritu counts each mate as its own read, where [Running Kraken 2](02-running-kraken2.md) counts a pair once, so its figures count reads, not pairs. The Reads column shows 163,987 because LGE recounts it from the alignment, while EsViritu's own report counts 162,441, so quote the source you read. Compare EsViritu's figure with the number of reads that survived the quality filter, 170,180 of the bundle's 170,398. About 95 in every 100 surviving reads mapped to the virus, which is healthy for this library. In an amplicon library nearly all of them should be viral, because PCR enriched the target so heavily that little else remains.
+Only 4,486 of the 163,987 reads, 2.7 percent, count as unique, which would be alarming in a shotgun library. The reason is the amplicon design. Every read of one amplicon starts and ends at that amplicon's primers, as [Amplicon sequencing](../01-foundations/03-amplicon-vs-shotgun.md#amplicon-sequencing) explains, so reads copied from thousands of separate molecules share their start and end positions and duplicate marking collapses them. In an amplicon library a small unique share is expected and says nothing against the detection. In a shotgun library the same figure would mean most of the evidence came from a few fragments that PCR copied.
+
+EsViritu counts each mate as its own read, where Kraken 2 counts a pair once, so its figures count reads, not pairs. The Kraken 2 survey put 83,591 pairs on SARS-CoV-2, which is 167,182 mates, close to the EsViritu count. The Reads column shows 163,987 because LGE recounts it from the alignment, while EsViritu's own report counts 162,441, so quote the source you read. Compare EsViritu's figure with the number of reads that survived the quality filter, 170,180 of the bundle's 170,398. About 95 in every 100 surviving reads mapped to the virus, which is healthy for this library. In an amplicon library nearly all of them should be viral, because PCR enriched the target so heavily that little else remains.
 
 Now read the coverage evidence. EsViritu's report records that the detection covered 29,777 of the reference's 29,808 bases, a breadth of 99.90%, and it records the depth of each of 100 windows along the genome, which the sparkline draws. Judge the sparkline against the run's own mean depth, not against a fixed number. A thinnest window at a sizeable fraction of the mean is the ordinary unevenness of a tiled amplicon protocol. A window at a tiny fraction of the mean, or at zero, marks a stretch that went barely read. In this run the thinnest window sits about 319 reads deep, roughly a quarter of the 1259.4x mean, so the sparkline is an even track from one end to the other, which is what a real infection sequenced this way looks like.
+
+<!-- ILLUSTRATION: coverage-sparklines -->
 
 A sparkline with two or three tall spikes over long flat valleys means the reads piled onto a few short windows. The cause may be an off-target PCR product, a region conserved across a viral family, or PCR duplicates of one fragment, and the table cannot tell you which. [Auditing a detection against its reads](#auditing-a-detection-against-its-reads) shows how to tell them apart.
 
@@ -177,7 +199,9 @@ Selecting a detection row replaces the detail pane with the full alignment viewe
 
 <!-- SHOT: esviritu-alignment-evidence -->
 
-The alignment is the source of truth for everything above it. If a row claims two thousand reads and the viewer shows them spread along the reference, the call is real. If it shows one tall stack at a single position, you are looking at duplicates of one fragment, and the depth is inflated whatever the Coverage column says. The viewer's coverage track will look far shallower than the Coverage column, reaching about 77x at most on the example run against 1259.4x in the table, because reads marked as duplicates are hidden by default. Turn on **Include duplicate-marked reads** in the Inspector to see them all.
+The alignment is the source of truth for everything above it. If a row claims two thousand reads and the viewer shows them spread along the reference, the call is real. In a shotgun library, one tall stack at a single position means duplicates of one fragment, and the depth is inflated whatever the Coverage column says.
+
+An [amplicon](../../GLOSSARY.md#amplicon) library is the exception, and the example run is one. Reads from thousands of separate molecules of one amplicon share a start position, so duplicate marking flags nearly all of them, as the 2.7 percent unique share above showed. The viewer hides reads marked as duplicates by default, so its coverage track reaches about 77x at most on the example run against 1259.4x in the table. Here the tall, even stacks are the design of the protocol, not a warning. Turn on **Include duplicate-marked reads** in the Inspector to see them all.
 
 EsViritu maps against the shared [pangenome](../../GLOSSARY.md#pangenome) of its database rather than a reference in your project, so the [Inspector](../../GLOSSARY.md#inspector) reports how far LGE could check that reference. Open the Inspector with **View > Show Inspector** (Cmd-Opt-I) if it is hidden. For the example run the Inspector reports that the alignment evidence is ready and the reference is structurally validated. "Structurally validated reference" means the reference's sequence names and lengths match what the alignment expects. "BAM M5 validated reference" means the stored M5 checksums, a short fingerprint of each reference sequence, match as well, which is the stronger check. Both let the viewer mark mismatches and show the consensus. "No reference provided" means the database sequence could not be found, so those displays are off, and the fix is to confirm the database is still installed.
 
@@ -185,37 +209,50 @@ EsViritu maps against the shared [pangenome](../../GLOSSARY.md#pangenome) of its
 
 Right-click a detection row for **Extract Reads...**, which writes the reads that mapped to that virus as a new FASTQ bundle, and **BLAST Verify...**, which sends a sample of those reads over the internet to NCBI. [BLAST](../../GLOSSARY.md#blast) searches a sequence against NCBI's collection, and [BLAST Verification](06-blast-verification.md#reading-the-results) explains how to read percent identity, e-value, and query coverage. The menu also offers a **Look Up on NCBI** submenu that opens the matching record in your web browser, and copy commands for the virus name, the accession, or the whole row.
 
-Extract reads with the action bar's **Extract FASTQ** button, whose dialog [Running Kraken 2](02-running-kraken2.md#4-extract-the-reads-of-one-taxon) documents. The action bar also carries **BLAST Verify** and an **Export** menu for CSV, TSV, a clipboard summary, and the run record. LGE writes a [provenance](../../GLOSSARY.md#provenance) record beside every result, holding the command, the tool version, and a [checksum](../../GLOSSARY.md#checksum) of each file, and [Provenance and Reproducibility](../01-foundations/08-provenance-and-reproducibility.md#reading-the-results) shows how to read it.
+Extract reads with the action bar's **Extract FASTQ** button, whose dialog [Running Kraken 2](02-running-kraken2.md#extract-the-reads-of-one-taxon) documents. The action bar also carries **BLAST Verify** and an **Export** menu for CSV, TSV, a clipboard summary, and the run record.
 
 A batch result covering several samples adds a sample picker that narrows the table to the samples you choose. A cell showing three dots in the Unique Reads column is a value LGE has not stored yet. Sample metadata is edited as [Editing sample metadata](../03-reads/01-importing-fastq.md#editing-sample-metadata) describes.
 
 ## What good looks like
 
+The EsViritu viewport answers three questions of [The evidence checklist](01-what-is-classification.md#the-evidence-checklist) on screen. The Reads column says how many reads support the name, the sparkline says how they spread along the genome, and Unique Reads says how many of them are independent fragments. Controls and an independent method are yours to add.
+
 Read the sparkline before any number. An even track from one end to the other means the reads tile the genome, which supports saying the virus was present. Spikes over empty stretches mean the reads concentrated somewhere, and until you know where and why, you do not have a detection you can defend.
 
-Then compare Reads with Unique Reads. When the two are close, the reads matched this virus and nothing else in the database. When Unique Reads is a small fraction of Reads, most of the evidence is shared with relatives, and the honest statement is that something in that group is present. Related viruses appearing together with overlapping reads is normal in a collection that holds many close relatives on purpose.
+Then compare Reads with Unique Reads, remembering how the library was made. In a shotgun library the two should be close, and a small unique share means much of the evidence is copies of a few original fragments. In an amplicon library, like the example run at 2.7 percent, a small unique share is expected. Related viruses appearing together with overlapping reads is normal in a collection that holds many close relatives on purpose, and then the honest statement is that something in that group is present.
 
 Then read Identity from an exported table. An identity close to 100% means the database holds something very like your sample. A clearly lower identity means your reads come from a relative of the closest genome the database knows, which is a real finding, but the name on the row is then only approximate. The app sets no cut point, so weigh identity together with the sparkline and the unique reads.
 
 Then be careful what the row's name commits you to. The reference run's detection carries an Omicron BQ.1.23 genome, which says BQ.1.23 was the nearest neighbour among 19,925 assemblies, not that the sample is BQ.1.23. Even a close match across 29,808 bases leaves positions that differ. Assigning a lineage depends on which single-base differences the sample carries. For that, map the reads against a reference and call variants, as [Calling Variants from Amplicons](../05-variants/01-calling-variants-from-amplicons.md) covers.
 
-Then treat a thin detection as a hypothesis. A handful of reads with a spiky sparkline and low unique counts is a lead, not a result. Extract and BLAST those reads, or open the alignment and look at where they sit.
+Then treat a thin detection as a hypothesis. A handful of reads with a spiky sparkline and low unique counts is a lead, not a result. Extract and BLAST those reads, or open the alignment and look at where they sit. On an amplicon library, judge duplicates by the amplicon rule above rather than the shotgun one.
 
-Finally, remember the tool's boundary. An EsViritu result speaks about viruses in one curated collection and nothing else. Pair it with a broad survey, as [Running Kraken 2](02-running-kraken2.md) describes, when you need to know what else was in the tube.
+Finally, remember the tool's boundary. An EsViritu result speaks about viruses in one curated collection and nothing else, which is why the procedure opened with the Kraken 2 survey. The run's provenance record, which [Provenance and Reproducibility](../01-foundations/08-provenance-and-reproducibility.md#reading-the-results) shows how to read, holds the command and the database version for a methods section.
 
 ## On the command line
 
-This section is optional, and nothing later in this manual needs it. The `lungfish-cli` program ships inside LGE, and [Finding the program](../appendices/cli-reference.md#finding-the-program) shows how to run it.
+These commands repeat the procedure, as [Reading an On the command line block](../01-foundations/06-the-lungfish-project.md#reading-a-command-line-block) explains. Every flag of `conda classify` and `esviritu detect` is listed in [Classification](../appendices/cli-reference.md#classification) in the CLI Reference.
 
 ```bash
+PROJECT="$HOME/Documents/LGE Demo Projects/SARS-CoV-2 Amplicons.lungfish"
+
+# Survey the reads with Kraken 2 against the Viral database.
+lungfish-cli conda classify "$PROJECT/Imports/SRR36291587.lungfishfastq" \
+  --db Viral --profile --output-dir "$PROJECT/Analyses/kraken2-srr36291587"
+
+# Detect viruses with EsViritu.
 lungfish-cli esviritu detect \
-  --input /path/to/SRR36291587.lungfishfastq/SRR36291587.fastq.gz \
+  --input "$PROJECT/Imports/SRR36291587.lungfishfastq/SRR36291587.fastq.gz" \
   --sample SRR36291587 \
-  --output ./esviritu-out
+  --output "$PROJECT/Analyses/esviritu-srr36291587"
+
+# Import an EsViritu folder made elsewhere.
+lungfish-cli import esviritu "/path/to/esviritu-output" \
+  --output-dir "$PROJECT/Imports"
 ```
 
-Two differences from the dialog change results. The dialog pairs two mate files by their names, but the command runs two files as unpaired unless you pass `--paired` or `--read-format paired`. For a single file, `--read-format` takes `auto`, `unpaired`, `paired`, or `interleaved`, and its default `auto` makes the same choice the dialog's input line reports, so an interleaved file runs as pairs and a mixed or single-end file runs as unpaired. Without `--output`, results go to a new folder named `esviritu-` plus the sample name inside the current folder.
+Two differences from the dialog change results. The dialog pairs two mate files by their names, but the command runs two files as unpaired unless you pass `--paired` or `--read-format paired`. For a single file, `--read-format` takes `auto`, `unpaired`, `paired`, or `interleaved`, and its default `auto` makes the same choice the dialog's input line reports, so an interleaved file runs as pairs and a mixed or single-end file runs as unpaired. Without `--output`, results go to a new folder named `esviritu-` plus the sample name inside the current folder. In the import command, `/path/to/esviritu-output` stands for wherever the colleague's folder sits on your Mac.
 
 ## Next
 
-Continue to [Running TaxTriage](04-running-taxtriage.md) for confidence-scored pathogen detection across several samples at once, or go to [BLAST Verification](06-blast-verification.md) to check an EsViritu detection against NCBI before you rely on it.
+Continue to [Running TaxTriage](04-running-taxtriage.md), which returns to the corneal samples and scores bacteria as well as viruses across a batch. To check an EsViritu detection against NCBI first, go to [BLAST Verification](06-blast-verification.md). [Running Freyja](07-running-freyja.md) comes back to SRR36291587 to ask which lineages its reads hold.
