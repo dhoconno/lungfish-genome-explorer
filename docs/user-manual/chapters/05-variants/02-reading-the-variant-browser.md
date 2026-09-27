@@ -195,7 +195,7 @@ Seven controls sit in the drawer toolbar on the Variants tab, and the column-hea
 
 **Region / Genome.** Decides whether the table lists only variants inside the stretch the viewport shows or queries the whole reference. The default is Region, which keeps the table in step with what you are looking at and each query small. Switch to Genome when counting or filtering across the whole reference, which every count in this chapter assumes. This setting has no command-line flag.
 
-**Presets.** Opens the strip of one-click filter chips described in step 4. The default is no chip applied and the strip collapsed, so the table starts with every row of every loaded track. Use it whenever a common filter is all you need, and expect the button to hide when the window is too narrow or the tracks declare no `INFO` keys. This setting has no command-line flag.
+**Presets.** Opens the strip of one-click filter chips described in [Filter with the preset chips](#filter-with-the-preset-chips). The default is no chip applied and the strip collapsed, so the table starts with every row of every loaded track. Use it whenever a common filter is all you need, and expect the button to hide when the window is too narrow or the tracks declare no `INFO` keys. This setting has no command-line flag.
 
 **Profiles.** Applies a saved combination of chips, either one of the built-in `Clinical`, `Research`, `QC`, and `High Confidence` profiles or one you saved with `Save Current as Profile...`. The default is `No Profile`, so no combination is applied. Use it when you apply the same chips often, and remember that a saved profile stays on this Mac. This setting has no command-line flag.
 
