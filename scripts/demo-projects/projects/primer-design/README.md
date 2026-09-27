@@ -6,15 +6,15 @@ This is a demo project for Lungfish Genome Explorer (LGE), version {{VERSION}}. 
 
 | Item | What it is |
 | --- | --- |
-| `Reference Sequences/mamu-a1-panel.lungfishref` | Twelve full-length genomic Mamu-A1 alleles from twelve lineages, 2,920 to 2,943 bases each, exon 1 to exon 8 |
+| `Reference Sequences/mamu-a1-panel.lungfishref` | Twelve full-length genomic Mamu-A1 alleles from eleven lineages (two from the *001 lineage), 2,920 to 2,943 bases each, exon 1 to exon 8 |
 | `Reference Sequences/mamu-a1-001-lineage.lungfishref` | Four alleles of the Mamu-A1*001 lineage, the sequences a lineage-detection assay must detect |
-| `Reference Sequences/mamu-class-i-exclusion.lungfishref` | Eleven other Mamu-A1 lineages and the Mamu-A2, A3, A4, A6, A7 and B paralogs, the sequences that assay must not detect |
+| `Reference Sequences/mamu-class-i-exclusion.lungfishref` | 18 sequences, one allele from each of eleven other Mamu-A1 lineages plus seven paralog alleles from Mamu-A2, A3, A4, A6, A7 (two alleles) and B, the sequences that assay must not detect |
 
 ## Where the data came from
 
 Every sequence is a public genomic DNA record from rhesus macaque (Macaca mulatta), submitted to the INSDC by the Biomedical Primate Research Centre, Rijswijk, the Netherlands, in 2019. Each record keeps its ENA accession as the sequence name and its allele name in the description, for example `LR699574.1 Mamu-A1*001:01:01:01`. INSDC records are freely available under the ENA terms of use. Allele names follow the IPD-MHC nomenclature (Maccari et al. 2017, Nucleic Acids Research, doi:10.1093/nar/gkw1050).
 
-Twelve alleles is a teaching size. A laboratory designing a working scheme would include every allele seen in its colony.
+Twelve alleles is a teaching size, and the exclusion set is a teaching subset too. A laboratory designing a working scheme would include every allele seen in its colony, and a real exclusion set would hold alleles from every Mamu-A gene and from each of the several Mamu-B genes a haplotype can carry.
 
 ## Chapters that use this project
 

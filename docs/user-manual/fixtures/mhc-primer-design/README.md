@@ -10,8 +10,8 @@ sequence ID and the allele name in the description.
 
 | File | Records | What it is for |
 |---|---|---|
-| `mamu-a1-panel.fasta` | 12 | Mamu-A1 alleles from 12 lineages, 2,920 to 2,943 bases, exon 1 to exon 8. Aligned, they are the input for a tiled amplicon scheme and for a single PCR assay across exons 2 and 3. |
-| `mamu-a1-001-lineage.fasta` | 4 | Mamu-A1*001 lineage alleles, the sequences a lineage-detection qPCR assay must detect. |
+| `mamu-a1-panel.fasta` | 12 | Mamu-A1 alleles from 11 lineages (two from *001), 2,920 to 2,943 bases, exon 1 to exon 8. Aligned, they are the input for a tiled amplicon scheme and for a single PCR assay across exons 2 and 3. |
+| `mamu-a1-001-lineage.fasta` | 4 | Mamu-A1*001 lineage alleles, 2,933 to 2,960 bases, the sequences a lineage-detection qPCR assay must detect. |
 | `mamu-class-i-exclusion.fasta` | 18 | Eleven other Mamu-A1 lineages plus the A2, A3, A4, A6, A7 and B paralogs, the sequences that assay must not detect. |
 
 | Accession | Allele | Length | Files |
@@ -39,10 +39,24 @@ sequence ID and the allele name in the description.
 | LR743771.1 | Mamu-A7*01:02:01:01 | 2,960 | exclusion |
 | LR743772.1 | Mamu-A7*01:03:01:01 | 2,960 | exclusion |
 
-The exclusion set covers every Mamu-A gene with a full-length genomic record in ENA. Mamu-A5 has none, and the number of Mamu-B genes differs between haplotypes, so one Mamu-B allele stands in for them.
+The first field of an allele name is three digits for some genes and two for others, as in
+`Mamu-A1*001:01:01:01` beside `Mamu-A2*05:04:01:01`. That follows IPD-MHC, which sets the
+width for each gene, and is not a transcription error.
 
-Twelve alleles is a teaching size. A working laboratory scheme would include every allele
-seen in the colony and published alleles from the same population of origin.
+The four lineage alleles belong to one lineage but are three distinct proteins.
+`Mamu-A1*001:01:01:01` and `Mamu-A1*001:01:01:02` differ only outside the coding sequence,
+while `*001:05` and `*001:06` differ from them at the second field, which marks an amino acid
+change.
+
+The exclusion set covers every Mamu-A gene with a full-length genomic record in ENA. Mamu-A5 has none, and the number of Mamu-B genes differs between haplotypes, so one Mamu-B allele stands in for them.
+The exclusion set is a teaching subset. A real one would hold every allele of the A2 to A7
+genes seen in the colony and alleles from each of the several Mamu-B genes a haplotype can
+carry, so it is larger still.
+
+The panel takes one allele from each lineage, apart from the two *001 records, chosen for
+breadth across lineages rather than to match how often any colony carries them. Twelve
+alleles is a teaching size. A working laboratory scheme would include every allele seen in
+the colony and published alleles from the same population of origin.
 
 ## Licence and attribution
 
