@@ -47,7 +47,7 @@ Four programs do the work behind those six operations, which is why the settings
 | [cutadapt](../../GLOSSARY.md#cutadapt) | Primer trimming when you choose a FASTA file of primers |
 | [seqkit](../../GLOSSARY.md#seqkit) | The length filter |
 
-So what should you do with this? Trim only what quality control showed you was there, then measure what the trim cost, because every operation removes some real sequence along with the artefact.
+Trim only what quality control showed you was there, then measure what the trim cost, because every operation removes some real sequence along with the artefact.
 
 ## Why you would do this
 
@@ -59,42 +59,36 @@ This chapter works on a half-million-base slice of chromosome 20 from HG002, a h
 
 ## Choosing a tool
 
-This chapter holds two tool decisions. For adapters and low-quality ends, the question is whether to trim here, where you can measure what the trim removed, or at import. For primers, the question is what reads the data next, a program that reads FASTQ files or a mapper followed by a variant caller.
+Check whether your reads are short or long and amplicon or shotgun, as [Know your reads before you choose a tool](../01-foundations/02-sequencing-reads.md#know-your-reads-before-you-choose-a-tool) describes. For adapters and poor read ends, the choice is between trimming here, where you can measure the cost, and trimming at import. For primers, what matters is whether the next tool reads FASTQ or maps the reads for variant calling.
 
 ### Adapters and low-quality ends
 
-[fastp](../../GLOSSARY.md#fastp) runs behind four of the six operations. It reads each read once and applies every step you switched on during that single pass. Its quality trim slides a short window along the read and cuts where the average score in the window drops below the Threshold. Its Cut Right mode works like the sliding-window trim of Trimmomatic, an older trimmer that many published protocols name and that LGE does not offer. For adapters on [paired-end](../../GLOSSARY.md#paired-end) reads, fastp lines up the two mates of each pair. When the fragment was shorter than the reads, each mate runs past the start of the other, and that overhang can only be adapter, so fastp finds adapter without being told its sequence. On single-end reads there is no mate to compare, so fastp guesses the adapter from sequence that turns up at the ends of many reads. fastp was built for short reads from any organism and is fast. Its weak points are that auto-detection can miss a rare adapter, and that LGE does not report which adapter fastp settled on.
+**fastp** runs behind four of the six operations. Its quality trim cuts where the average score in a short sliding window drops below the Threshold. LGE hands fastp each read on its own, even from a paired bundle, so fastp guesses the adapter from sequence that turns up at the ends of many reads. fastp's own paired-end method, which lines up the two mates to find adapter, is not used. Auto-detection can miss a rare adapter, and LGE does not report which adapter fastp chose.
 
-fastp also trims poly-G tails on its own when the read names show a NextSeq or NovaSeq instrument, and LGE leaves that default in place. These instruments read the base G as the absence of light, so a read whose signal fades ends in a false run of Gs. LGE switches off fastp's own minimum-length and read-quality filters, which is why a trimmed bundle can hold one-base reads and why Filter by Read Length is a separate step.
-
-Trim Galore does the same two jobs, but LGE offers it only on the import sheet, as the Compression Tool choice described in [Importing Sequencing Reads](01-importing-fastq.md#choosing-a-tool). It recognises the adapter type from the reads, cuts poor bases from the 3' end, and drops reads left too short, all before the bundle exists. That suits a batch you already know needs a standard trim, and it leaves nothing to compare against afterwards.
+**Trim Galore** runs only on the import sheet, as [Importing Sequencing Reads](01-importing-fastq.md#choosing-a-tool) describes, and applies one standard trim before the bundle exists.
 
 | Tool | Built for | Choose it when | Choose something else when |
 |---|---|---|---|
-| fastp (this chapter) | Adapter and quality trimming of short reads | You want to trim and then measure the cost | You have long nanopore reads, which need no Illumina-style quality trim |
-| Trim Galore (import sheet) | A standard trim applied to every sample as it is stored | Quality control has already shown every sample needs the same trim | You want to see the reads first or change the trim settings |
+| fastp (this chapter) | Adapter and quality trimming of short reads | You want to trim and then measure the cost | You have long nanopore reads |
+| Trim Galore (import sheet) | One standard trim applied as reads are stored | Every sample is known to need the same trim | You want to see the reads first |
 
-For human or macaque whole-genome data headed for germline variant calling, trimming matters less than it seems. Barbitoff and Predeus (2024) found that adapter trimming made no measurable difference to the accuracy of germline calls on human whole-genome data and very little on exome data. The study is cited in [Method comparisons cited in the manual](../appendices/bibliography.md#method-comparisons-cited-in-the-manual). A default fastp pass is fine for such data and skipping it is defensible, while a harsh quality threshold costs real sequence, as [Reading the results](#reading-the-results) measures. The HG002 fixture uses fastp at its defaults, the right first choice for Illumina, Element, or MGI short reads. fastp and Trim Galore are cited in [Tools installed with every copy of LGE](../appendices/bibliography.md#tools-installed-with-every-copy-of-lge).
+For human or macaque whole-genome data headed for germline variant calling, a default fastp pass is fine and skipping it is defensible. Barbitoff and Predeus (2024) found that adapter trimming made no measurable difference to germline calls on human whole-genome data. Their result rests on mappers that [soft-clip](../../GLOSSARY.md#soft-clip) an unmatched read end, hiding leftover adapter. Bowtie2 in LGE aligns every read from end to end, so trim before mapping with Bowtie2. The HG002 fixture uses fastp at its defaults.
 
 ### Primers
 
-Three tools can remove primers, and the one that fits depends on the next step.
+**bbduk**, the Literal Sequence choice, breaks the one primer you type into short words and cuts matching sequence out of each read. Because it matches by sequence, a real variant plus a sequencing error inside the primer can let a primer through, and a known defect makes it drop a read whose primer sits at its 5' start.
 
-[bbduk](../../GLOSSARY.md#bbduk), the Literal Sequence choice, breaks the one primer you type into short words and cuts matching sequence out of each read. It is fast and needs no reference genome. It handles one primer per run, and because it matches by sequence, a real variant plus a sequencing error inside the primer can let a primer through. It currently removes a read whose primer sits at its 5' start instead of trimming it, a known defect described under [Primer trimming at the read level](#primer-trimming-at-the-read-level).
+**cutadapt**, the Reference FASTA choice, finds primers by alignment that tolerates a set share of wrong, missing, or extra bases. LGE runs it in linked mode, looking for the forward and reverse primer of one amplicon on the same read. It pairs primers by name, so the names must end in `_F` and `_R` or a variant that the [Primer Trimming settings](#primer-trimming) list, and it discards every read in which no primer pair was found.
 
-[cutadapt](../../GLOSSARY.md#cutadapt), the Reference FASTA choice, finds primers by alignment that tolerates a set share of mismatched, missing, or extra bases, rather than by exact words. LGE runs it in linked mode, which looks for the forward and reverse primer of one amplicon together on the same read. That fits a tiled scheme of dozens of primers when the next tool reads FASTQ rather than an alignment.
-
-[iVar](../../GLOSSARY.md#ivar) trims after mapping, in [Primer Trimming an Alignment](../04-alignments/03-primer-trimming.md). It reads a BED file of primer positions, works out which primer each mapped read starts in, and [soft-clips](../../GLOSSARY.md#soft-clip) those bases, leaving them in the file but hidden from a variant caller. It matches by position, so a variant inside the primer cannot hide it. LGE runs it with the option that keeps reads in which no primer was found, rather than discarding them. It needs the `variant-calling` plugin pack.
+**iVar** trims after mapping, in [Primer Trimming an Alignment](../04-alignments/03-primer-trimming.md). It reads a BED file, a plain table of each primer's start and end on the reference, and [soft-clips](../../GLOSSARY.md#soft-clip) the primer bases of each mapped read, leaving them in the file but hidden from a variant caller. It matches by position, so a variant inside the primer cannot hide it. With LGE's settings it also trims bases below quality 20 and drops reads left under 30 bases.
 
 | Tool | Built for | Choose it when | Choose something else when |
 |---|---|---|---|
-| bbduk, Literal Sequence | One known primer or oligo, no reference needed | A single primer sits at the 3' end of reads | The primer sits at the 5' start, until the known defect is fixed |
-| cutadapt, Reference FASTA | A whole primer scheme matched as forward and reverse pairs | The next tool reads FASTQ, not an alignment | The next step is mapping and variant calling |
-| iVar trim, after mapping | Amplicon data headed for variant calling or consensus | Any human, macaque, or viral amplicon panel you will call variants on | You need primer-free FASTQ for a tool that never maps |
+| bbduk, Literal Sequence | One known oligo, no reference needed | One primer sits at the 3' end, as where a read runs through a short fragment | The primer sits at the 5' start |
+| cutadapt, Reference FASTA | A primer scheme matched as forward and reverse pairs | The next tool reads FASTQ | The next step is mapping and variant calling |
+| iVar trim, after mapping | Amplicon data headed for variant calling | You will call variants on an amplicon panel | You need primer-free FASTQ for a tool that never maps |
 
-The HG002 fixture is shotgun data with no primers, so this chapter runs none of the three. For an amplicon panel headed for variant calling, map first and trim with iVar, which is how iVar was published and how the Viral Recon pipeline uses it. Cutadapt and iVar are cited in [Tool Bibliography](../appendices/bibliography.md), and bbduk under BBTools.
-
-So what should you do with this? Trim adapters and quality with fastp here, and remove primers after mapping unless the next tool reads FASTQ.
+The shotgun HG002 fixture has no primers, so this chapter runs none of the three. For an amplicon panel headed for variant calling, map first and trim with iVar, as the Viral Recon pipeline does. All five tools are cited in the [Tool Bibliography](../appendices/bibliography.md), bbduk under BBTools, and the Barbitoff study in [Method comparisons cited in the manual](../appendices/bibliography.md#method-comparisons-cited-in-the-manual).
 
 ## Before you start
 
@@ -158,7 +152,7 @@ An [amplicon](../../GLOSSARY.md#amplicon) protocol copies the target in overlapp
 
 The pane changes shape with **Primer Source**, and the two choices run different programs. Literal Sequence runs bbduk on one primer sequence you type, looking for exact matches of short words taken from the primer. A [k-mer](../../GLOSSARY.md#k-mer) is a stretch of exactly k bases, and [Running Kraken 2](../06-classification/02-running-kraken2.md#what-it-is) shows how tools match on them. The **k**, **mink**, and **hdist** fields tune that matching. Literal Sequence currently removes a read whose primer sits at its 5' start instead of trimming the primer off, so trim such primers after mapping instead. It still trims correctly when the primer sits at the 3' end of a read, because it cuts the match and everything after it. This is a known defect, listed with its workaround in [Known defects in this release](../appendices/troubleshooting.md#known-defects-in-this-release).
 
-Reference FASTA runs cutadapt in linked mode on a FASTA file of primers, which you choose under **Primer Reference** in the Inputs section. Linked mode looks for the forward and reverse primer of one amplicon as a pair on the same read, which is what a tiled scheme of dozens of primers needs. The bbduk fields disappear, and the pane reads "Select the primer reference FASTA in the Inputs section."
+Reference FASTA runs cutadapt in linked mode on a FASTA file of primers, which you choose under **Primer Reference** in the Inputs section. Linked mode looks for the forward and reverse primer of one amplicon as a pair on the same read, which is what a tiled scheme of dozens of primers needs. The primer names must follow the `_F` and `_R` pattern that [Primer Trimming](#primer-trimming) sets out, and reads with no primer pair are dropped. The bbduk fields disappear, and the pane reads "Select the primer reference FASTA in the Inputs section."
 
 The operation trims whatever sequence you give it, so a human amplicon panel works exactly as a viral one does. The HG002 reads are shotgun data with no primers in them, so this chapter has no worked primer-trimming result.
 
@@ -193,6 +187,8 @@ The names describe where the cut lands, not where the scan starts. Picture the r
 
 Threshold and Window Size must both be above 0. Otherwise the readiness line reads "Enter a positive quality threshold and window size."
 
+Two fastp behaviours sit outside these controls. fastp trims poly-G tails on its own when the read names show a NextSeq or NovaSeq instrument, and LGE leaves that in place. These instruments read the base G as the absence of light, so a read whose signal fades ends in a false run of Gs. LGE also switches off fastp's own minimum-length and read-quality filters, which is why a trimmed bundle can hold one-base reads and why Filter by Read Length is a separate step.
+
 ### Adapter settings (fastp Adapter + Quality Trim, Adapter Removal)
 
 **Adapter Mode.** Chooses whether fastp works out the adapter from the reads or uses a sequence you type, offering Auto-Detect and Manual Sequence. The default is Auto-Detect, which looks for sequence shared by many reads and is right whenever you do not know your kit's adapter. Use Manual Sequence when you know the exact adapter from the kit and auto-detection misses it. On the command line this is `--adapter`.
@@ -204,6 +200,8 @@ While Manual Sequence is chosen and the field is empty, the readiness line reads
 ### Primer Trimming
 
 **Primer Source.** Chooses between typing one primer and choosing a FASTA file that holds a whole primer set, offering Literal Sequence and Reference FASTA. The default is Literal Sequence, which runs bbduk. Pick Reference FASTA, which runs cutadapt, for a tiled amplicon scheme with dozens of primers. On the command line this is `--literal` or `--ref`.
+
+Reference FASTA pairs each forward primer with its reverse primer by name. A name counts as forward when it ends in `_F`, `-F`, `_FORWARD`, or `-FORWARD`, and as reverse when it ends in `_R`, `-R`, `_REVERSE`, or `-REVERSE`, in upper or lower case, and the part before the ending must match, so `amp1_F` pairs with `amp1_R`. Primers with any other ending, such as the `_LEFT` and `_RIGHT` of ARTIC schemes, are ignored, and a file with no pair at all makes the run fail with a message that no paired primers were found. Rename the records before you run. cutadapt then keeps only the reads in which it found a primer pair and discards the rest, so compare the read counts before and after.
 
 **Primer Sequence.** Holds the primer bbduk removes, written in A, C, G, T and the IUPAC ambiguity letters. It starts empty, and while it is empty the readiness line reads "Enter a literal primer sequence or switch to reference mode." Type the primer exactly as your primer order sheet gives it. On the command line this is `--literal`.
 
