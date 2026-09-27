@@ -2,6 +2,7 @@ import AppKit
 import XCTest
 import SwiftUI
 @testable import LungfishApp
+import LungfishWorkflow
 
 final class PrimerBindingInspectionTests: XCTestCase {
     func testReversePrimerComparisonUsesReverseComplement() {

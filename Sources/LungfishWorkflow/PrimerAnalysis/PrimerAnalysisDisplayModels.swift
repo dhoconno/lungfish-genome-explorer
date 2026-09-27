@@ -1,46 +1,95 @@
 import Foundation
-import LungfishWorkflow
 
-struct PrimalSchemeDisplayPrimer: Identifiable, Sendable {
-  let id: Int
-  var stableID: String = ""
-  let reference: String
-  let referenceLabel: String
-  let start: Int
-  let end: Int
-  let name: String
-  let pool: Int
-  var nativePool: String? = nil
-  var displayGroupLabel: String? = nil
-  var poolLabel: String { displayGroupLabel ?? nativePool.map { "Pool \($0)" }
+public struct PrimalSchemeDisplayPrimer: Identifiable, Sendable {
+  public let id: Int
+  public var stableID: String = ""
+  public let reference: String
+  public let referenceLabel: String
+  public let start: Int
+  public let end: Int
+  public let name: String
+  public let pool: Int
+  public var nativePool: String? = nil
+  public var displayGroupLabel: String? = nil
+  public var poolLabel: String { displayGroupLabel ?? nativePool.map { "Pool \($0)" }
     ?? (stableID.isEmpty ? "Pool \(pool)" : "Unpooled") }
-  let strand: String
-  let sequence: String
-  let referenceLength: Int
-  var role: PrimerOligoRole = .forward
-  var assayIDs: [String] = []
-  var candidateStatus: PrimerAssayStatus = .selected
-  var candidateRank: Int? = nil
+  public let strand: String
+  public let sequence: String
+  public let referenceLength: Int
+  public var role: PrimerOligoRole = .forward
+  public var assayIDs: [String] = []
+  public var candidateStatus: PrimerAssayStatus = .selected
+  public var candidateRank: Int? = nil
 
-  var reviewID: String { stableID.isEmpty ? String(id) : stableID }
+  public init(
+    id: Int,
+    stableID: String = "",
+    reference: String,
+    referenceLabel: String,
+    start: Int,
+    end: Int,
+    name: String,
+    pool: Int,
+    nativePool: String? = nil,
+    displayGroupLabel: String? = nil,
+    strand: String,
+    sequence: String,
+    referenceLength: Int,
+    role: PrimerOligoRole = .forward,
+    assayIDs: [String] = [],
+    candidateStatus: PrimerAssayStatus = .selected,
+    candidateRank: Int? = nil
+  ) {
+    self.id = id
+    self.stableID = stableID
+    self.reference = reference
+    self.referenceLabel = referenceLabel
+    self.start = start
+    self.end = end
+    self.name = name
+    self.pool = pool
+    self.nativePool = nativePool
+    self.displayGroupLabel = displayGroupLabel
+    self.strand = strand
+    self.sequence = sequence
+    self.referenceLength = referenceLength
+    self.role = role
+    self.assayIDs = assayIDs
+    self.candidateStatus = candidateStatus
+    self.candidateRank = candidateRank
+  }
 
-  var ambiguousBaseCount: Int { sequence.uppercased().filter { !"ACGT".contains($0) }.count }
-  var gcLabel: String {
+  public var reviewID: String { stableID.isEmpty ? String(id) : stableID }
+
+  public var ambiguousBaseCount: Int { sequence.uppercased().filter { !"ACGT".contains($0) }.count }
+  public var gcLabel: String {
     guard ambiguousBaseCount == 0 else { return "GC varies" }
     let gc = sequence.uppercased().filter { "GC".contains($0) }.count
     return String(format: "%.1f%% GC", Double(gc) * 100 / Double(sequence.count))
   }
 }
 
-struct PrimalSchemeDisplayResult: Identifiable, Sendable {
-  let id: String
-  let title: String
-  let primers: [PrimalSchemeDisplayPrimer]
-  let orderSheetURL: URL?
+public struct PrimalSchemeDisplayResult: Identifiable, Sendable {
+  public let id: String
+  public let title: String
+  public let primers: [PrimalSchemeDisplayPrimer]
+  public let orderSheetURL: URL?
+
+  public init(
+    id: String,
+    title: String,
+    primers: [PrimalSchemeDisplayPrimer],
+    orderSheetURL: URL?
+  ) {
+    self.id = id
+    self.title = title
+    self.primers = primers
+    self.orderSheetURL = orderSheetURL
+  }
 
   /// PrimalScheme3's ARTIC BED v3 coordinates are zero-based, half-open.
   /// Column five is a pool identifier, not a BED score.
-  static func parse(id: String, title: String, bed: Data, reference: Data, referenceLabels: [String: String] = [:], orderSheetURL: URL? = nil) throws -> Self {
+  public static func parse(id: String, title: String, bed: Data, reference: Data, referenceLabels: [String: String] = [:], orderSheetURL: URL? = nil) throws -> Self {
     func invalid(_ detail: String) -> NSError {
       NSError(domain: "PrimalSchemeDisplay", code: 1,
               userInfo: [NSLocalizedDescriptionKey: "Invalid stored scheme: " + detail])

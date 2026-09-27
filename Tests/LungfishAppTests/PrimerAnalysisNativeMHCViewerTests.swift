@@ -2,6 +2,7 @@ import AppKit
 import SwiftUI
 import XCTest
 @testable import LungfishApp
+import LungfishWorkflow
 
 /// Manual fixture verification of actual engine outputs; no fixtures are downloaded by this test.
 @MainActor

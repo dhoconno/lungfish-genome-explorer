@@ -1,7 +1,6 @@
 import Foundation
 import XCTest
-import LungfishWorkflow
-@testable import LungfishApp
+@testable import LungfishWorkflow
 
 final class PrimerDesignReviewTests: XCTestCase {
   func testPrimer3CandidatesRemainSeparateAndUseFullTemplateDenominator() {

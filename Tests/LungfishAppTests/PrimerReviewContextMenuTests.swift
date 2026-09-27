@@ -2,6 +2,7 @@ import SwiftUI
 import ViewInspector
 import XCTest
 @testable import LungfishApp
+import LungfishWorkflow
 
 @MainActor
 final class PrimerReviewContextMenuTests: XCTestCase {

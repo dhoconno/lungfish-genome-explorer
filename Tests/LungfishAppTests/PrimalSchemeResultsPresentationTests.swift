@@ -3,6 +3,7 @@ import SwiftUI
 import XCTest
 import ViewInspector
 @testable import LungfishApp
+import LungfishWorkflow
 
 final class PrimalSchemeResultsPresentationTests: XCTestCase {
   @MainActor

@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import LungfishIO
+import LungfishWorkflow
 
 struct PrimerAnalysisInspectorFile: Identifiable {
     var id: String { artifact.relativePath }

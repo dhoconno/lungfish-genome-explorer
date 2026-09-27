@@ -1,4 +1,5 @@
 import SwiftUI
+import LungfishWorkflow
 
 /// Each candidate retains its own saved template coordinates and exact oligo membership.
 struct Primer3TemplateReviewCard: View {

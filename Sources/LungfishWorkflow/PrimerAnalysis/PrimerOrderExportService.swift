@@ -3,16 +3,127 @@ import Darwin
 import Foundation
 import LungfishCore
 import LungfishIO
-import LungfishWorkflow
 
-enum PrimerOrderExportError: Error, LocalizedError {
+public enum PrimerOrderExportError: Error, LocalizedError {
   case invalid(String)
-  var errorDescription: String? { if case .invalid(let message) = self { return message }; return nil }
+  public var errorDescription: String? { if case .invalid(let message) = self { return message }; return nil }
 }
 
 /// Creates an ordering derivative of saved evidence, never a newly optimized scheme.
-struct PrimerOrderExportService: Sendable {
-  static func prepare(snapshot: PrimerAnalysisViewerSnapshot, selection: PrimerOrderSelection) throws -> [PrimerOrderOligo] {
+public struct PrimerOrderExportService: Sendable {
+  public init() {}
+
+  /// Captures a frozen order selection from a saved analysis. The GUI passes its live view
+  /// settings and MSA compatibility; the CLI uses the defaults. Nothing is redesigned.
+  public static func captureSelection(
+    snapshot: PrimerAnalysisViewerSnapshot, scope: PrimerOrderScope,
+    settings: PrimerAnalysisDisplaySettings = .init(), compatibilityReady: Bool = false,
+    compatibilitySummaries: [String: PrimerMSACompatibilitySummary] = [:], capturedAt: Date = Date()
+  ) throws -> PrimerOrderSelection {
+    let assayIDs: [String]?
+    let selectedPrimerIDs: [String]
+    var allReportedAssays = false
+    switch scope {
+    case .primer3CandidatePairs(let includedPairIDs):
+      guard snapshot.primer3Results != nil else {
+        throw PrimerOrderExportError.invalid(
+          "Candidate pairs can only be ordered from a Primer3 analysis. This analysis orders \(availableScopeDescription(snapshot)).")
+      }
+      let candidates = snapshot.designReview.filter { $0.presentation == .primer3Template && !$0.intervals.isEmpty }
+      let requested = try includedPairIDs.map { value -> UUID in
+        guard let id = UUID(uuidString: value) else {
+          throw PrimerOrderExportError.invalid("Candidate pair ID \(value) is not a UUID.")
+        }
+        return id
+      }
+      guard Set(requested).count == requested.count else {
+        throw PrimerOrderExportError.invalid("The candidate pair selection contains duplicates.")
+      }
+      let known = Set(candidates.compactMap { UUID(uuidString: $0.id) })
+      if let unknown = requested.first(where: { !known.contains($0) }) {
+        throw PrimerOrderExportError.invalid(
+          "Candidate pair \(unknown.uuidString) is not part of this saved analysis.")
+      }
+      // Pairs keep the saved candidate order, whatever order they were named in.
+      let included = candidates.filter { candidate in
+        UUID(uuidString: candidate.id).map { requested.contains($0) } ?? false
+      }
+      guard !included.isEmpty else {
+        throw PrimerOrderExportError.invalid("Include at least one candidate pair to export an order.")
+      }
+      // A Primer3 order names candidate pairs. Every oligo of an included pair is ordered.
+      assayIDs = included.map(\.id)
+      let roleOrder: [PrimerOligoRole: Int] = [.forward: 0, .probe: 1, .reverse: 2]
+      selectedPrimerIDs = included.flatMap { candidate in
+        candidate.primers.sorted { roleOrder[$0.role, default: 3] < roleOrder[$1.role, default: 3] }.map(\.id)
+      }
+    case .selectedAssays, .allReportedAssays:
+      guard let document = snapshot.primerSchemeResultsDocument else {
+        throw PrimerOrderExportError.invalid(
+          "Saved assays can only be ordered from an Olivar or varVAMP analysis. This analysis orders \(availableScopeDescription(snapshot)).")
+      }
+      allReportedAssays = scope == .allReportedAssays
+      // Normalized scheme orders are explicit assay selections from saved records.
+      // View filters only affect the viewport and must not redefine that membership.
+      let assays = document.results.flatMap { $0.targets.flatMap(\.assays) }
+        .filter { allReportedAssays || $0.status == .selected }
+      assayIDs = assays.map { $0.id.uuidString.lowercased() }
+      selectedPrimerIDs = try PrimerSchemeOrderSheet.rows(from: document,
+        selection: .selectedAssays(Set(assays.map(\.id)))).map(\.id)
+    case .displayed:
+      guard snapshot.primer3Results == nil, snapshot.primerSchemeResultsDocument == nil else {
+        throw PrimerOrderExportError.invalid(
+          "Displayed oligos can only be ordered from a PrimalScheme analysis. This analysis orders \(availableScopeDescription(snapshot)).")
+      }
+      if settings.filterByCompatibility && !compatibilityReady {
+        throw PrimerOrderExportError.invalid("Complete the MSA comparison before exporting the filtered order.")
+      }
+      let visibility = PrimerAnalysisVisibility(settings: settings, summaries: compatibilitySummaries,
+        compatibilityReady: compatibilityReady)
+      assayIDs = nil
+      selectedPrimerIDs = snapshot.designReview.filter { $0.presentation == .schemeReference }
+        .flatMap { visibility.visiblePrimers(in: $0).map(\.id) }
+      guard !selectedPrimerIDs.isEmpty else {
+        throw PrimerOrderExportError.invalid("Show at least one oligo to export an order.")
+      }
+    }
+    let isPrimer3 = snapshot.primer3Results != nil
+    return PrimerOrderSelection(capturedAt: capturedAt, analysisURL: snapshot.bundle.url,
+      manifest: snapshot.bundle.manifest, settings: settings, compatibilityReady: compatibilityReady,
+      compatibilitySummaries: compatibilityReady ? compatibilitySummaries : [:],
+      selectedPrimerIDs: selectedPrimerIDs, selectedAssayIDs: assayIDs,
+      includesAllReportedAssays: snapshot.primerSchemeResultsDocument == nil ? nil : allReportedAssays,
+      primer3CandidatePairs: isPrimer3 ? true : nil)
+  }
+
+  /// The scope a saved analysis orders when none is named: candidate pairs for Primer3,
+  /// selected assays for Olivar and varVAMP, displayed oligos for PrimalScheme.
+  public static func defaultScope(for snapshot: PrimerAnalysisViewerSnapshot) -> PrimerOrderScope {
+    if snapshot.primer3Results != nil {
+      return .primer3CandidatePairs(includedPairIDs: snapshot.designReview
+        .filter { $0.presentation == .primer3Template && !$0.intervals.isEmpty }.map(\.id))
+    }
+    return snapshot.primerSchemeResultsDocument != nil ? .selectedAssays : .displayed
+  }
+
+  /// The order name offered before the user edits it.
+  public static func defaultOrderName(analysisURL: URL, scope: PrimerOrderScope) -> String {
+    let suffix: String
+    switch scope {
+    case .primer3CandidatePairs: suffix = " candidate pairs order"
+    case .allReportedAssays: suffix = " all reported assays order"
+    case .selectedAssays, .displayed: suffix = " order"
+    }
+    return analysisURL.deletingPathExtension().lastPathComponent + suffix
+  }
+
+  private static func availableScopeDescription(_ snapshot: PrimerAnalysisViewerSnapshot) -> String {
+    if snapshot.primer3Results != nil { return "Primer3 candidate pairs" }
+    if snapshot.primerSchemeResultsDocument != nil { return "selected or all reported assays" }
+    return "displayed oligos"
+  }
+
+  public static func prepare(snapshot: PrimerAnalysisViewerSnapshot, selection: PrimerOrderSelection) throws -> [PrimerOrderOligo] {
     guard snapshot.bundle.url.standardizedFileURL == selection.analysisURL.standardizedFileURL,
       snapshot.bundle.manifest == selection.manifest,
       (snapshot.primer3Results == nil) != selection.isPrimer3CandidateSelection else {
@@ -111,11 +222,12 @@ struct PrimerOrderExportService: Sendable {
   /// A hard character cut used to end names mid-field, turning
   /// `LR699574.1_Mamu-A1_001_01_01_01_Macaca_mulatta_genomic_DNA` into
   /// `LR699574.1_Mamu-A1_001_0`, which reads as a different allele. Names are now
-  /// shortened by dropping whole underscore-separated fields from the end, so a
-  /// stem never stops inside a field unless one field alone exceeds the limit.
-  static let orderNameStemLimit = 24
+  /// shortened by dropping whole underscore- or hyphen-separated fields from the
+  /// end, so a stem never stops inside a field unless one field alone exceeds the
+  /// limit.
+  public static let orderNameStemLimit = 24
 
-  static func orderNameStem(_ title: String, recordID: String? = nil) -> String {
+  public static func orderNameStem(_ title: String, recordID: String? = nil) -> String {
     // A record ID is an accession like "LR699574.1"; an MSA row ID is an opaque
     // "row-000001-032f0085da", which identifies nothing a person recognizes.
     let candidate = [recordID, title].compactMap { value -> String? in
@@ -217,7 +329,7 @@ struct PrimerOrderExportService: Sendable {
     }
   }
 
-  func export(selection: PrimerOrderSelection, metadata: PrimerOrderMetadata, destinationURL: URL,
+  public func export(selection: PrimerOrderSelection, metadata: PrimerOrderMetadata, destinationURL: URL,
     invocationArgv: [String], progress: (@Sendable (Double, String) -> Void)? = nil,
     publish: (@Sendable (URL, URL) async throws -> Void)? = nil) async throws -> URL {
     let worker = Task.detached(priority: .userInitiated) {
@@ -343,11 +455,11 @@ struct PrimerOrderExportService: Sendable {
     return destination
   }
 
-  static func load(from url: URL) throws -> PrimerOrderDocument {
+  public static func load(from url: URL) throws -> PrimerOrderDocument {
     try loadSnapshot(from: url).document
   }
 
-  static func loadSnapshot(from url: URL) throws -> PrimerOrderViewerSnapshot {
+  public static func loadSnapshot(from url: URL) throws -> PrimerOrderViewerSnapshot {
     try Task.checkCancellation()
     guard let envelope = try ProvenanceEnvelopeReader.load(from: url), envelope.exitStatus == 0 else {
       throw PrimerOrderExportError.invalid("The primer order has no completed provenance.")

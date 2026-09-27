@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import LungfishIO
+import LungfishWorkflow
 
 struct PrimerAnalysisViewerView: View {
   private struct LoadIdentity: Hashable {

@@ -4,9 +4,8 @@ import Foundation
 import FoundationXML
 #endif
 import LungfishIO
-import LungfishWorkflow
+@testable import LungfishWorkflow
 import XCTest
-@testable import LungfishApp
 
 final class PrimerOrderSheetWriterTests: XCTestCase {
   private let spreadsheetNamespace = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"

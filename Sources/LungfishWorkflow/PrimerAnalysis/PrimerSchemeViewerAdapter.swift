@@ -1,18 +1,25 @@
 import Foundation
-import LungfishWorkflow
 
-struct PrimerSchemeViewerPresentation: Sendable {
-  let results: [PrimalSchemeDisplayResult]
-  let reviews: [PrimerTargetDesignReview]
+public struct PrimerSchemeViewerPresentation: Sendable {
+  public let results: [PrimalSchemeDisplayResult]
+  public let reviews: [PrimerTargetDesignReview]
+
+  public init(
+    results: [PrimalSchemeDisplayResult],
+    reviews: [PrimerTargetDesignReview]
+  ) {
+    self.results = results
+    self.reviews = reviews
+  }
 }
 
-enum PrimerSchemeViewerAdapter {
-  enum SourceProjection: Equatable, Sendable {
+public enum PrimerSchemeViewerAdapter {
+  public enum SourceProjection: Equatable, Sendable {
     case exact(start: Int, end: Int)
     case unavailable(String)
   }
 
-  static func adapt(document: PrimerSchemeResultsDocument) throws -> PrimerSchemeViewerPresentation {
+  public static func adapt(document: PrimerSchemeResultsDocument) throws -> PrimerSchemeViewerPresentation {
     var displayResults: [PrimalSchemeDisplayResult] = []
     var reviews: [PrimerTargetDesignReview] = []
     for result in document.results {
@@ -86,7 +93,8 @@ enum PrimerSchemeViewerAdapter {
         // any one assay, so the headline is the number of assays instead.
         let isQPCR = document.mode == .qpcr
         let assayCount = target.assays.count
-        reviews.append(.init(id: target.id.uuidString.lowercased(), label: target.label,
+        reviews.append(PrimerTargetDesignReview(
+          id: target.id.uuidString.lowercased(), label: target.label,
           referenceLength: target.referenceLength,
           coverageLabel: document.mode == .tiled
             ? "Generated reference spanned by tiled assays"
@@ -117,7 +125,7 @@ enum PrimerSchemeViewerAdapter {
     return .init(results: displayResults, reviews: reviews)
   }
 
-  static func project(
+  public static func project(
     oligo: PrimerSchemeOligo, through projection: PrimerBindingProjection
   ) -> SourceProjection {
     let overlapping = projection.blocks.filter { block in

@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import LungfishWorkflow
 
 /// Opens the published order only after its recorded output checksums have been verified.
 struct PrimerOrderResultView: View {

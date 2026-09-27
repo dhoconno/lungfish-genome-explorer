@@ -1,4 +1,5 @@
 import Foundation
+import LungfishWorkflow
 
 /// Shared navigation state for Overview and Results; scientific membership comes from saved review records.
 struct PrimerReviewSelection: Equatable, Sendable {

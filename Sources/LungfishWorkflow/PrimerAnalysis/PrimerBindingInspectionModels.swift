@@ -2,56 +2,104 @@ import CryptoKit
 import Foundation
 import LungfishCore
 import LungfishIO
-import LungfishWorkflow
 
-struct PrimerBindingRowComparison: Identifiable, Sendable {
-    let id: Int
-    let rowName: String
+public struct PrimerBindingRowComparison: Identifiable, Sendable {
+    public let id: Int
+    public let rowName: String
     /// Reference-oriented sequence, not an inferred experimental binding result.
-    let alignedSite: String
-    let status: String
-    let mismatchCount: Int?
+    public let alignedSite: String
+    public let status: String
+    public let mismatchCount: Int?
     /// Zero-based offsets in alignedSite, including reverse-strand comparisons mapped back to reference orientation.
-    let mismatchPositions: [Int]
+    public let mismatchPositions: [Int]
+
+    public init(
+      id: Int,
+      rowName: String,
+      alignedSite: String,
+      status: String,
+      mismatchCount: Int?,
+      mismatchPositions: [Int]
+    ) {
+      self.id = id
+      self.rowName = rowName
+      self.alignedSite = alignedSite
+      self.status = status
+      self.mismatchCount = mismatchCount
+      self.mismatchPositions = mismatchPositions
+    }
 }
 
-struct PrimerBindingInspectionPrimer: Identifiable, Sendable {
-    let id: String
-    let name: String
-    let sequence: String
-    let strand: String
-    let alignedStart: Int
-    let alignedEnd: Int
-    let contiguousReference: Bool
-    var unavailableReason: String? = nil
+public struct PrimerBindingInspectionPrimer: Identifiable, Sendable {
+    public let id: String
+    public let name: String
+    public let sequence: String
+    public let strand: String
+    public let alignedStart: Int
+    public let alignedEnd: Int
+    public let contiguousReference: Bool
+    public var unavailableReason: String? = nil
     /// Same saved-output identity used by the Overview and Results selection.
-    var reviewPrimerID: String = ""
+    public var reviewPrimerID: String = ""
+
+    public init(
+      id: String,
+      name: String,
+      sequence: String,
+      strand: String,
+      alignedStart: Int,
+      alignedEnd: Int,
+      contiguousReference: Bool,
+      unavailableReason: String? = nil,
+      reviewPrimerID: String = ""
+    ) {
+      self.id = id
+      self.name = name
+      self.sequence = sequence
+      self.strand = strand
+      self.alignedStart = alignedStart
+      self.alignedEnd = alignedEnd
+      self.contiguousReference = contiguousReference
+      self.unavailableReason = unavailableReason
+      self.reviewPrimerID = reviewPrimerID
+    }
 }
 
-struct PrimerBindingInspectionContext: Identifiable, Sendable {
-    let id: String
-    let title: String
-    let alignedFASTA: String
-    let annotations: [MultipleSequenceAlignmentBundle.AlignmentAnnotationRecord]
-    let primers: [PrimerBindingInspectionPrimer]
-    let unavailableReason: String?
+public struct PrimerBindingInspectionContext: Identifiable, Sendable {
+    public let id: String
+    public let title: String
+    public let alignedFASTA: String
+    public let annotations: [MultipleSequenceAlignmentBundle.AlignmentAnnotationRecord]
+    public let primers: [PrimerBindingInspectionPrimer]
+    public let unavailableReason: String?
 
-    struct Row: Sendable { let name: String; let sequence: [Character] }
-    let rows: [Row]
+    public struct Row: Sendable {
+        public let name: String
+        public let sequence: [Character]
+        public init(name: String, sequence: [Character]) { self.name = name; self.sequence = sequence }
+    }
+    public let rows: [Row]
 
-    func displayTrack(for primer: PrimerBindingInspectionPrimer, showIdentityDots: Bool) throws -> MSAReadOnlyPrimerTrack {
-        if let reason = primer.unavailableReason {
-            throw NSError(domain: "PrimerBindingInspection", code: 1,
-                userInfo: [NSLocalizedDescriptionKey: reason])
-        }
-        let intervals = annotations.first { $0.id == primer.id }?.alignedIntervals ?? []
-        let columns = intervals.flatMap { Array($0.start..<$0.end) }
-        return try MSAReadOnlyPrimerTrack.make(id: primer.id, name: primer.name, sequence: primer.sequence,
-            strand: primer.strand, columns: columns, showIdentityDots: showIdentityDots)
+    public init(
+      id: String,
+      title: String,
+      alignedFASTA: String,
+      annotations: [MultipleSequenceAlignmentBundle.AlignmentAnnotationRecord],
+      primers: [PrimerBindingInspectionPrimer],
+      unavailableReason: String?,
+      rows: [Row]
+    ) {
+      self.id = id
+      self.title = title
+      self.alignedFASTA = alignedFASTA
+      self.annotations = annotations
+      self.primers = primers
+      self.unavailableReason = unavailableReason
+      self.rows = rows
     }
 
     /// Only the selected primer is compared; no primers × rows result matrix is retained.
-    func comparisons(for primer: PrimerBindingInspectionPrimer) throws -> [PrimerBindingRowComparison] {
+    public func comparisons(for primer: PrimerBindingInspectionPrimer) throws -> [PrimerBindingRowComparison] {
         try rows.enumerated().map { index, row in
             try Task.checkCancellation()
             if let reason = primer.unavailableReason {
@@ -70,7 +118,7 @@ struct PrimerBindingInspectionContext: Identifiable, Sendable {
         let rows: [Entry]
     }
 
-    static func load(bundle: PrimerAnalysisBundle, schemes: [PrimalSchemeDisplayResult]) throws -> [Self] {
+    public static func load(bundle: PrimerAnalysisBundle, schemes: [PrimalSchemeDisplayResult]) throws -> [Self] {
         func read(_ path: String) throws -> Data {
             guard let artifact = bundle.manifest.artifacts.first(where: { $0.relativePath == path }) else {
                 throw PrimerAnalysisBundleError.invalidArtifact("Missing binding inspection artifact: " + path)
@@ -157,7 +205,7 @@ struct PrimerBindingInspectionContext: Identifiable, Sendable {
         return contexts
     }
 
-    static func loadNormalized(
+    public static func loadNormalized(
         bundle: PrimerAnalysisBundle, document: PrimerSchemeResultsDocument,
         projections: [String: PrimerBindingProjection]
     ) throws -> [Self] {
@@ -242,7 +290,7 @@ struct PrimerBindingInspectionContext: Identifiable, Sendable {
 
     /// Primer3 templates chosen from an alignment keep the column-to-template map, so each
     /// candidate oligo can be laid over every saved row. Single-sequence templates yield nothing.
-    static func loadPrimer3(bundle: PrimerAnalysisBundle, results: Primer3NormalizedResults) throws -> [Self] {
+    public static func loadPrimer3(bundle: PrimerAnalysisBundle, results: Primer3NormalizedResults) throws -> [Self] {
         func read(_ path: String) throws -> Data {
             guard let artifact = bundle.manifest.artifacts.first(where: { $0.relativePath == path }) else {
                 throw PrimerAnalysisBundleError.invalidArtifact("Missing Primer3 binding inspection artifact: " + path)
@@ -325,14 +373,14 @@ struct PrimerBindingInspectionContext: Identifiable, Sendable {
         return contexts
     }
 
-    static func isSafeDisplayHeader(_ value: String) -> Bool {
+    public static func isSafeDisplayHeader(_ value: String) -> Bool {
         !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             && value.unicodeScalars.allSatisfy {
                 !CharacterSet.controlCharacters.union(.newlines).contains($0)
             }
     }
 
-    static func parseFASTA(_ data: Data) throws -> [Row] {
+    public static func parseFASTA(_ data: Data) throws -> [Row] {
         guard let text = String(data: data, encoding: .utf8) else {
             throw PrimerAnalysisBundleError.invalidArtifact("Binding inspection FASTA is not UTF-8")
         }
@@ -359,7 +407,7 @@ struct PrimerBindingInspectionContext: Identifiable, Sendable {
     }
 
     /// Conservative positional comparison: indels and unknown bases are not guessed into matches.
-    static func compare(id: Int, name: String, row: [Character], lower: Int, upper: Int,
+    public static func compare(id: Int, name: String, row: [Character], lower: Int, upper: Int,
                         primer: String, strand: String, contiguousReference: Bool) -> PrimerBindingRowComparison {
         func result(_ site: String, _ status: String, _ mismatches: Int? = nil, positions: [Int] = []) -> PrimerBindingRowComparison {
             .init(id: id, rowName: name, alignedSite: site, status: status, mismatchCount: mismatches, mismatchPositions: positions)
