@@ -321,7 +321,12 @@ struct MapCommand: AsyncParsableCommand {
             outputTrackName: trackName
         )
         let readLayoutPlan = request.readLayoutPlan
+        // `--format json` prints one JSON document at the end; the text
+        // header, tables and carriage-return progress lines would corrupt it.
+        let printsText = globalOptions.outputFormat != .json
+        let showsProgress = !globalOptions.quiet && printsText
 
+        if printsText {
         print(formatter.header("Read Mapping"))
         print("")
         print(formatter.keyValueTable([
@@ -348,12 +353,13 @@ struct MapCommand: AsyncParsableCommand {
             ("Track name", noViewerBundle ? "none (no viewer bundle)" : MappingResultLayoutService.trackName(for: request)),
         ]))
         print("")
+        }
 
         let pipeline = ManagedMappingPipeline()
         let pipelineResult: MappingResult
         do {
             pipelineResult = try await pipeline.run(request: request, inputLayoutReason: layoutResolution.reason) { _, message in
-                if !globalOptions.quiet {
+                if showsProgress {
                     print(MapProgressLine.render(formatter.info(message), isTerminal: isatty(STDOUT_FILENO) == 1), terminator: "")
                     fflush(stdout)
                 }
@@ -366,56 +372,133 @@ struct MapCommand: AsyncParsableCommand {
         // reference bundle in the result directory with the BAM attached as
         // a track, the sidecars rewritten to point at it, and the run
         // recorded in the source bundle's analysis history.
-        let result = try await Self.publishLayout(
+        let published = try await Self.publishLayout(
             result: pipelineResult,
             request: request,
             originalInputURLs: inputURLs,
             skipViewerBundle: noViewerBundle,
             progress: { _, message in
-                if !globalOptions.quiet {
+                if showsProgress {
                     print(MapProgressLine.render(formatter.info(message), isTerminal: isatty(STDOUT_FILENO) == 1), terminator: "")
                     fflush(stdout)
                 }
             }
         )
+        let report = Report(published: published, request: request)
+
+        guard printsText else {
+            JSONOutputHandler().writeData(report, label: nil)
+            return
+        }
 
         print("")
         print("")
-
-        let mappingPct = result.totalReads > 0
-            ? String(format: "%.2f%%", Double(result.mappedReads) / Double(result.totalReads) * 100)
-            : "N/A"
-
         print(formatter.header("Results"))
         print("")
-        var rows: [(String, String)] = [
-            ("Total reads", String(result.totalReads)),
-            ("Mapped reads", "\(result.mappedReads) (\(mappingPct))"),
-            ("Unmapped reads", String(result.unmappedReads)),
-            ("Runtime", String(format: "%.1fs", result.wallClockSeconds)),
-            ("Sorted BAM", result.bamURL.path),
-            ("BAI", result.baiURL.path),
-        ]
-        if let viewerBundleURL = result.viewerBundleURL {
-            rows.append(("Viewer bundle", viewerBundleURL.path))
-            rows.append(("Track name", MappingResultLayoutService.trackName(for: request)))
-        }
-        print(formatter.keyValueTable(rows))
+        print(formatter.keyValueTable(report.textRows))
         print("")
+    }
+
+    /// What ``publishLayout(result:request:originalInputURLs:skipViewerBundle:progress:)``
+    /// left behind: the result the sidecars describe and, when a viewer
+    /// bundle was published, the alignment track the BAM was attached as.
+    struct PublishedLayout: Sendable, Equatable {
+        let result: MappingResult
+        let trackInfo: AlignmentTrackInfo?
+    }
+
+    /// The `map` command's report, printed as a table or, with
+    /// `--format json`, as one JSON document. `alignmentTrack` is the
+    /// track id and name a follow-up command (`variants call
+    /// --alignment-track`) takes; it is `nil` when no viewer bundle was
+    /// published.
+    struct Report: Codable, Equatable {
+        struct AlignmentTrack: Codable, Equatable {
+            let id: String
+            let name: String
+            /// Bundle-relative path of the attached BAM.
+            let sourcePath: String
+        }
+
+        let mapper: String
+        let mode: String
+        let sampleName: String
+        let inputFiles: [String]
+        let reference: String
+        let project: String?
+        /// The `Analyses/<mapper>-<timestamp>/` folder (or `--output-dir`).
+        let outputDirectory: String
+        let sortedBAM: String
+        let bamIndex: String
+        let totalReads: Int
+        let mappedReads: Int
+        let unmappedReads: Int
+        /// Mapped reads over total reads, or `nil` for an empty input.
+        let mappingRate: Double?
+        let runtimeSeconds: Double
+        let viewerBundle: String?
+        let sourceReferenceBundle: String?
+        let alignmentTrack: AlignmentTrack?
+
+        init(published: PublishedLayout, request: MappingRunRequest) {
+            let result = published.result
+            mapper = result.mapper.rawValue
+            mode = result.modeID
+            sampleName = request.sampleName
+            inputFiles = (request.originalInputFASTQURLs ?? request.inputFASTQURLs).map(\.path)
+            reference = request.referenceFASTAURL.path
+            project = request.projectURL?.path
+            outputDirectory = request.outputDirectory.path
+            sortedBAM = result.bamURL.path
+            bamIndex = result.baiURL.path
+            totalReads = result.totalReads
+            mappedReads = result.mappedReads
+            unmappedReads = result.unmappedReads
+            mappingRate = result.totalReads > 0 ? Double(result.mappedReads) / Double(result.totalReads) : nil
+            runtimeSeconds = result.wallClockSeconds
+            viewerBundle = result.viewerBundleURL?.path
+            sourceReferenceBundle = result.sourceReferenceBundleURL?.path
+            alignmentTrack = published.trackInfo.map {
+                AlignmentTrack(id: $0.id, name: $0.name, sourcePath: $0.sourcePath)
+            }
+        }
+
+        /// The rows of the text report's Results table.
+        var textRows: [(String, String)] {
+            let mappingPct = mappingRate.map { String(format: "%.2f%%", $0 * 100) } ?? "N/A"
+            var rows: [(String, String)] = [
+                ("Total reads", String(totalReads)),
+                ("Mapped reads", "\(mappedReads) (\(mappingPct))"),
+                ("Unmapped reads", String(unmappedReads)),
+                ("Runtime", String(format: "%.1fs", runtimeSeconds)),
+                ("Analysis folder", outputDirectory),
+                ("Sorted BAM", sortedBAM),
+                ("BAI", bamIndex),
+            ]
+            if let viewerBundle {
+                rows.append(("Viewer bundle", viewerBundle))
+            }
+            if let alignmentTrack {
+                rows.append(("Track name", alignmentTrack.name))
+                rows.append(("Track ID", alignmentTrack.id))
+            }
+            return rows
+        }
     }
 
     /// Runs the shared post-mapping layout: viewer bundle publication (unless
     /// skipped or the reference is not inside a `.lungfishref` bundle) and
     /// the analysis-history record. Returns the result the sidecars now
-    /// describe.
+    /// describe and the alignment track that was attached.
     static func publishLayout(
         result: MappingResult,
         request: MappingRunRequest,
         originalInputURLs: [URL],
         skipViewerBundle: Bool,
         progress: MappingResultLayoutService.ProgressHandler? = nil
-    ) async throws -> MappingResult {
+    ) async throws -> PublishedLayout {
         var finalResult = result
+        var trackInfo: AlignmentTrackInfo?
         if !skipViewerBundle {
             do {
                 if let publication = try await MappingResultLayoutService.publishViewerBundle(
@@ -424,6 +507,7 @@ struct MapCommand: AsyncParsableCommand {
                     progress: progress
                 ) {
                     finalResult = publication.result
+                    trackInfo = publication.trackInfo
                 }
             } catch {
                 throw CLIError.workflowFailed(
@@ -443,7 +527,7 @@ struct MapCommand: AsyncParsableCommand {
                 Data("warning: could not record the run in the source bundle's analysis history: \(error.localizedDescription)\n".utf8)
             )
         }
-        return finalResult
+        return PublishedLayout(result: finalResult, trackInfo: trackInfo)
     }
 
     /// The `--read-layout` values, mirroring `FASTQInputLayout` for one file.

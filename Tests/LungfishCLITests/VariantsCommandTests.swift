@@ -174,6 +174,118 @@ final class VariantsCommandTests: XCTestCase {
         XCTAssertEqual(capture.request?.advancedArguments, ["--call-indels", "--tag", "sample 1"])
     }
 
+    // The Call Variants dialog ticks the iVar primer-trim box itself when the
+    // track's BAM carries Lungfish's primer-trim provenance sidecar. The CLI
+    // reads the same record, so `--ivar-primer-trimmed` is only needed for a
+    // BAM trimmed elsewhere.
+    func testCallSubcommandReadsThePrimerTrimRecordForIVarWithoutTheFlag() async throws {
+        let bundleURL = try makeBundleOnDisk(withPrimerTrimSidecar: true)
+        let capture = CapturedVariantRequest()
+        let command = try VariantsCommand.CallSubcommand.parse([
+            "call",
+            "--bundle", bundleURL.path,
+            "--alignment-track", "aln-1",
+            "--caller", "ivar",
+            "--format", "json",
+        ])
+        let runtime = try makeRuntime(onPreflight: { request in
+            capture.request = request
+        })
+        var lines: [String] = []
+
+        _ = try await command.executeForTesting(runtime: runtime) { lines.append($0) }
+
+        XCTAssertEqual(capture.request?.ivarPrimerTrimConfirmed, true)
+        let logMessages = lines.compactMap(decodeCLIEvent).compactMap { event -> String? in
+            if case .log(_, let message) = event { return message }
+            return nil
+        }
+        let attested = logMessages.first { $0.contains("Primer-trimmed by Lungfish on") }
+        XCTAssertNotNil(attested, "the CLI should report the record it read, in the dialog's words: \(lines)")
+        XCTAssertTrue(attested?.contains("using ARTIC v4.1.") == true, attested ?? "")
+    }
+
+    func testCallSubcommandStillRequiresTheFlagForIVarWithoutARecord() async throws {
+        let bundleURL = try makeBundleOnDisk(withPrimerTrimSidecar: false)
+        let capture = CapturedVariantRequest()
+        let command = try VariantsCommand.CallSubcommand.parse([
+            "call",
+            "--bundle", bundleURL.path,
+            "--alignment-track", "aln-1",
+            "--caller", "ivar",
+            "--format", "json",
+        ])
+        let runtime = try makeRuntime(onPreflight: { request in
+            capture.request = request
+        })
+
+        _ = try await command.executeForTesting(runtime: runtime) { _ in }
+
+        XCTAssertEqual(capture.request?.ivarPrimerTrimConfirmed, false)
+    }
+
+    func testResolveIvarPrimerTrimAttestationKeepsTheFlagAndIgnoresOtherCallers() throws {
+        let bundleURL = try makeBundleOnDisk(withPrimerTrimSidecar: true)
+
+        let explicit = VariantsCommand.CallSubcommand.resolveIvarPrimerTrimAttestation(
+            bundleURL: bundleURL, alignmentTrackID: "aln-1", caller: .ivar, explicitlyConfirmed: true
+        )
+        XCTAssertTrue(explicit.confirmed)
+        XCTAssertNil(explicit.message, "an explicit flag needs no attestation message")
+
+        let lofreq = VariantsCommand.CallSubcommand.resolveIvarPrimerTrimAttestation(
+            bundleURL: bundleURL, alignmentTrackID: "aln-1", caller: .lofreq, explicitlyConfirmed: false
+        )
+        XCTAssertFalse(lofreq.confirmed)
+
+        let unknownTrack = VariantsCommand.CallSubcommand.resolveIvarPrimerTrimAttestation(
+            bundleURL: bundleURL, alignmentTrackID: "missing", caller: .ivar, explicitlyConfirmed: false
+        )
+        XCTAssertFalse(unknownTrack.confirmed)
+    }
+
+    private func makeBundleOnDisk(withPrimerTrimSidecar: Bool) throws -> URL {
+        let bundleURL = tempDir.appendingPathComponent("OnDisk.lungfishref", isDirectory: true)
+        let bamURL = bundleURL.appendingPathComponent("alignments/sample.sorted.bam")
+        try FileManager.default.createDirectory(at: bamURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("bam".utf8).write(to: bamURL)
+        let manifest = BundleManifest(
+            formatVersion: "1.0",
+            name: "OnDisk",
+            identifier: "bundle.ondisk",
+            source: SourceInfo(organism: "Virus", assembly: "TestAssembly", database: "Test"),
+            alignments: [
+                AlignmentTrackInfo(
+                    id: "aln-1",
+                    name: "Sample BAM",
+                    format: .bam,
+                    sourcePath: "alignments/sample.sorted.bam",
+                    indexPath: "alignments/sample.sorted.bam.bai"
+                )
+            ]
+        )
+        try manifest.save(to: bundleURL)
+        if withPrimerTrimSidecar {
+            let provenance = BAMPrimerTrimProvenance(
+                operation: "primer-trim",
+                primerScheme: BAMPrimerTrimProvenance.PrimerSchemeRef(
+                    bundleName: "ARTIC v4.1",
+                    bundleSource: "bundled",
+                    bundleVersion: "4.1",
+                    canonicalAccession: "MN908947.3"
+                ),
+                sourceBAMRelativePath: "alignments/source.bam",
+                ivarVersion: "1.4.4",
+                ivarTrimArgs: ["-e"],
+                timestamp: Date(timeIntervalSince1970: 1_700_000_000)
+            )
+            let encoder = JSONEncoder()
+            encoder.dateEncodingStrategy = .iso8601
+            try encoder.encode(provenance).write(to: PrimerTrimProvenanceLoader.sidecarURL(forBAMAt: bamURL))
+        }
+        return bundleURL
+    }
+
     func testCallSubcommandAcceptsBcftoolsCallerAndPassesRequestToRuntime() async throws {
         let capture = CapturedVariantRequest()
         let command = try VariantsCommand.CallSubcommand.parse([

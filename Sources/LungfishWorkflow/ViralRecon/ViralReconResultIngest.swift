@@ -117,9 +117,9 @@ public enum ViralReconResultIngest {
         // dropout view. A colliding name is therefore qualified by the source
         // directory rather than skipped.
         var usedRelativePaths: Set<String> = []
-        func copy(_ source: URL, role: String) throws -> String? {
+        func copy(_ source: URL, role: String, as preferredName: String? = nil) throws -> String? {
             guard fileManager.fileExists(atPath: source.path) else { return nil }
-            var name = source.lastPathComponent
+            var name = preferredName ?? source.lastPathComponent
             var relative = "\(role)/\(name)"
             if usedRelativePaths.contains(relative) {
                 let qualifier = source.deletingLastPathComponent().lastPathComponent
@@ -139,8 +139,13 @@ public enum ViralReconResultIngest {
         if let consensus = inventory.consensusFASTA {
             copied.consensus = try copy(consensus, role: "consensus")
         }
+        // The flat `lineage/` copy loses the folder that says which tool
+        // wrote a table, and Nextclade's is a bare `<sample>.csv`, so the
+        // copy's name carries the tool: `S1.csv` becomes `S1.nextclade.csv`.
         for lineage in inventory.lineageFiles {
-            if let relative = try copy(lineage, role: "lineage") {
+            let name = ViralReconLineageTool.classify(lineage, fileManager: fileManager)?
+                .qualifiedFileName(for: lineage)
+            if let relative = try copy(lineage, role: "lineage", as: name) {
                 copied.lineage.append(relative)
             }
         }

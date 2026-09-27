@@ -34,6 +34,35 @@ final class ViralReconDocumentStateBuilderTests: XCTestCase {
         XCTAssertEqual(section(of: "multiqc_report.html", in: rows), "Quality")
     }
 
+    // viralrecon writes Nextclade's table as a bare `<sample>.csv`; the row
+    // was labelled by that file name because nothing in it says "nextclade".
+    // The folder does, and a flat copy's header does.
+    func testNextcladeRowIsLabelledFromItsFolderOrHeaderNotItsFileName() throws {
+        let nextcladeByFolder = base.appendingPathComponent("variants/ivar/consensus/bcftools/nextclade/S1.csv")
+        let pangolinByFolder = base.appendingPathComponent("variants/ivar/consensus/bcftools/pangolin/S1.pangolin.csv")
+        let freyjaByFolder = base.appendingPathComponent("variants/freyja/demix/S1.demix.tsv")
+        let rows = ViralReconDocumentStateBuilder.rows(for: inventory(
+            lineage: [nextcladeByFolder, pangolinByFolder, freyjaByFolder]))
+
+        XCTAssertEqual(label(of: "S1.csv", in: rows), "Nextclade Clade")
+        XCTAssertEqual(label(of: "S1.pangolin.csv", in: rows), "Pangolin Lineage")
+        XCTAssertEqual(label(of: "S1.demix.tsv", in: rows), "Freyja Variant Mix")
+
+        // A bundle ingested before copies were named by tool: flat lineage/S1.csv.
+        let flat = FileManager.default.temporaryDirectory
+            .appendingPathComponent("vr-flat-\(UUID().uuidString)/lineage", isDirectory: true)
+        try FileManager.default.createDirectory(at: flat, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: flat.deletingLastPathComponent()) }
+        let flatNextclade = flat.appendingPathComponent("S1.csv")
+        try Data("seqName;clade;qc.overallStatus\nS1;21K;good\n".utf8).write(to: flatNextclade)
+        let flatRows = ViralReconDocumentStateBuilder.rows(forBundleAt: flat.deletingLastPathComponent())
+        XCTAssertEqual(label(of: "S1.csv", in: flatRows), "Nextclade Clade")
+    }
+
+    private func label(of fileName: String, in rows: [ViralReconDocumentRow]) -> String? {
+        rows.first { $0.fileURL.lastPathComponent == fileName }?.label
+    }
+
     func testVariantsAndProvenanceGetTheirOwnSections() {
         let rows = ViralReconDocumentStateBuilder.rows(for: inventory(
             variantVCF: base.appendingPathComponent("S1.vcf.gz"),

@@ -1525,11 +1525,91 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
     /// through `referenceBundleViewportController` and never sets `currentBundleURL`, while
     /// `.sequence` mode sets `currentBundleURL`/`currentReferenceBundle` directly. Every
     /// production `displayBundle(at:)` call site other than tests uses `.browse`, so the
-    /// viewport fallback is the common case, not a corner case.
-    private func currentReferenceBundleURL(for viewerController: ViewerViewController) -> URL? {
-        viewerController.currentReferenceBundle?.url
-            ?? viewerController.currentBundleURL
-            ?? viewerController.referenceBundleViewportController?.currentInput?.renderedBundleURL
+    /// viewport fallback is the common case, not a corner case. A displayed mapping
+    /// result resolves to its reference copy (the viewer bundle the BAM is attached
+    /// to), and when the viewer shows nothing that is a reference bundle, a single
+    /// reference bundle or mapping result selected in the sidebar counts.
+    ///
+    /// The Tools > Call Variants menu item and the VCF/BAM bundle imports all go
+    /// through this, so they agree on which bundle "the current bundle" is.
+    func currentReferenceBundleURL(
+        for viewerController: ViewerViewController,
+        sidebarSelection: [URL] = []
+    ) -> URL? {
+        Self.resolveReferenceBundleURL(
+            currentReferenceBundleURL: viewerController.currentReferenceBundle?.url,
+            currentBundleURL: viewerController.currentBundleURL,
+            referenceViewportRenderedBundleURL:
+                viewerController.referenceBundleViewportController?.currentInput?.renderedBundleURL,
+            mappingResultRenderedBundleURL:
+                viewerController.mappingResultController?.currentInput?.renderedBundleURL,
+            selectedBundleURLs: Self.referenceBundleCandidates(inSidebarSelection: sidebarSelection)
+        )
+    }
+
+    /// `currentReferenceBundleURL(for:sidebarSelection:)` for the active window,
+    /// including its sidebar selection.
+    func currentReferenceBundleURL(in controller: MainWindowController?) -> URL? {
+        guard let split = controller?.mainSplitViewController,
+              let viewerController = split.viewerController else { return nil }
+        return currentReferenceBundleURL(
+            for: viewerController,
+            sidebarSelection: split.sidebarController?.selectedFileURLs() ?? []
+        )
+    }
+
+    /// The displayed (or selected) reference bundle with its manifest loaded, for
+    /// callers that need a `ReferenceBundle` rather than a URL (the Call Variants
+    /// dialog). `nil` when nothing resolves or the manifest cannot be read.
+    func currentReferenceBundle(in controller: MainWindowController?) -> ReferenceBundle? {
+        guard let bundleURL = currentReferenceBundleURL(in: controller) else { return nil }
+        return Self.loadReferenceBundle(at: bundleURL)
+    }
+
+    /// Order of preference: what the viewer actually displays (either display
+    /// route, then a mapping result's reference copy), then a single sidebar
+    /// candidate. Several sidebar candidates are ambiguous and resolve to `nil`.
+    static func resolveReferenceBundleURL(
+        currentReferenceBundleURL: URL?,
+        currentBundleURL: URL?,
+        referenceViewportRenderedBundleURL: URL?,
+        mappingResultRenderedBundleURL: URL?,
+        selectedBundleURLs: [URL] = []
+    ) -> URL? {
+        let displayed = currentReferenceBundleURL
+            ?? currentBundleURL
+            ?? referenceViewportRenderedBundleURL
+            ?? mappingResultRenderedBundleURL
+        if let displayed, displayed.pathExtension.lowercased() == "lungfishref" {
+            return displayed
+        }
+        var unique: [URL] = []
+        for url in selectedBundleURLs.map(\.standardizedFileURL) where !unique.contains(url) {
+            unique.append(url)
+        }
+        return unique.count == 1 ? unique[0] : nil
+    }
+
+    /// The reference bundles a sidebar selection stands for: a selected
+    /// `.lungfishref` itself, or a selected mapping result's reference copy
+    /// (read from its `mapping-result.json`). Anything else contributes nothing.
+    static func referenceBundleCandidates(inSidebarSelection urls: [URL]) -> [URL] {
+        urls.compactMap { url in
+            if url.pathExtension.lowercased() == "lungfishref" {
+                return url
+            }
+            guard let result = try? MappingResult.load(from: url),
+                  let viewerBundleURL = result.viewerBundleURL,
+                  FileManager.default.fileExists(atPath: viewerBundleURL.path) else {
+                return nil
+            }
+            return viewerBundleURL
+        }
+    }
+
+    static func loadReferenceBundle(at bundleURL: URL) -> ReferenceBundle? {
+        guard let manifest = try? BundleManifest.load(from: bundleURL) else { return nil }
+        return ReferenceBundle(url: bundleURL, manifest: manifest)
     }
 
     /// Persists an Inspector or viewer-menu annotation edit to a reference bundle's
@@ -2365,15 +2445,23 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             return true
         }
 
-        // "Import BAM/CRAM Alignments..." and sample metadata require a loaded bundle
-        if menuItem.action == #selector(importBAMToBundle(_:))
-            || menuItem.action == #selector(importSampleMetadataToBundle(_:)) {
+        // "Import BAM/CRAM Alignments..." requires a displayed or selected reference
+        // bundle (either display route, or a mapping result's reference copy).
+        if menuItem.action == #selector(importBAMToBundle(_:)) {
+            return currentReferenceBundleURL(in: activeMainWindowController()) != nil
+        }
+
+        // Sample metadata requires a loaded bundle
+        if menuItem.action == #selector(importSampleMetadataToBundle(_:)) {
             let hasBundle = activeMainWindowController()?.mainSplitViewController?.viewerController?.currentBundleURL != nil
             return hasBundle
         }
 
         if menuItem.action == #selector(showBAMVariantCalling(_:)) {
-            let bundle = activeMainWindowController()?.mainSplitViewController?.viewerController?.currentReferenceBundle
+            // `currentReferenceBundle` is only set by the `.sequence` display route
+            // (and cleared by `clearBundleDisplay`), so checking it alone left the
+            // item disabled for every `.browse`-mode bundle and mapping result.
+            let bundle = currentReferenceBundle(in: activeMainWindowController())
             return canShowBAMVariantCalling(bundle: bundle)
         }
 

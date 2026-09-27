@@ -24,8 +24,7 @@ extension AppDelegate {
     @discardableResult
     func importBAMFromURL(_ url: URL) -> UUID? {
         guard let originController = activeMainWindowController(),
-              let viewerController = originController.mainSplitViewController?.viewerController,
-              let bundleURL = viewerController.currentBundleURL else {
+              let bundleURL = currentReferenceBundleURL(in: originController) else {
             showAlert(title: "No Bundle Loaded", message: "Please open a reference genome bundle before importing alignments.")
             return nil
         }
@@ -51,8 +50,10 @@ extension AppDelegate {
             showAlert(title: "No Project Open", message: "Please open a project before importing variants.")
             return nil
         }
-        let viewerController = originSplit.viewerController
-        let bundleURL = viewerController?.currentBundleURL
+        // `currentBundleURL` is nil for a `.browse`-mode reference bundle and for a
+        // mapping result, which sent every such VCF to a new variant-only bundle at
+        // the project root instead of attaching it to the displayed bundle.
+        let bundleURL = currentReferenceBundleURL(in: originController)
         if let bundleURL {
             guard canWriteProjectOutputs(
                 projectURL: ProjectTempDirectory.findProjectRoot(bundleURL),

@@ -93,9 +93,13 @@ extension AppDelegate {
     }
 
     @objc func showBAMVariantCalling(_ sender: Any?) {
-        guard let split = mainWindowController?.mainSplitViewController else { return }
+        let controller = activeMainWindowController(sender: sender)
+        guard let split = controller?.mainSplitViewController else { return }
+        // The same resolver the menu validation uses, so the dialog opens on the
+        // bundle the item was enabled for: the displayed reference bundle, a
+        // mapping result's reference copy, or the sidebar's selected bundle.
         split.inspectorController.presentVariantCallingDialog(
-            bundle: split.viewerController.currentReferenceBundle,
+            bundle: currentReferenceBundle(in: controller),
             preferredAlignmentTrackID: nil
         )
     }

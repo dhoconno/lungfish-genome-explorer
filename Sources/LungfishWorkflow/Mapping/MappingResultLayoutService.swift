@@ -132,10 +132,14 @@ public enum MappingResultLayoutService {
         } else {
             resolvedTrackName = trackName(for: request)
         }
+        // The mapper already wrote a coordinate-sorted, indexed BAM at the
+        // result root; the viewer copy is an APFS clone of it (shared blocks,
+        // not a second sort), so the result does not hold the BAM twice in full.
         let importResult = try await BAMImportService.importBAM(
             bamURL: result.bamURL,
             bundleURL: candidateBundleURL,
             name: resolvedTrackName,
+            materialization: .adoptCoordinateSorted,
             progressHandler: progress
         )
 

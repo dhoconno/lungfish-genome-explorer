@@ -57,6 +57,13 @@ enum FilteredAlignmentWorkflowStartOutcome: Equatable {
     case blocked(InspectorWorkflowAlert)
 }
 
+/// Whether a duplicate workflow (Mark Duplicates, Create Deduplicated Bundle)
+/// may start on its bundle, or the alert explaining the lock that blocks it.
+enum DuplicateWorkflowStartOutcome: Equatable {
+    case launch
+    case blocked(InspectorWorkflowAlert)
+}
+
 // MARK: - InspectorTab
 
 /// Tab selection for the inspector panel's segmented control.
