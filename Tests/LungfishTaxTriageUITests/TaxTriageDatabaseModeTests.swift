@@ -235,6 +235,32 @@ final class TaxTriageDatabaseModeTests: XCTestCase {
         XCTAssertEqual(table.testCellText(row: beta, columnID: "tt_confidence").primary, "High")
     }
 
+    /// The TASS Score header must describe the rule the cells apply (the
+    /// row's own TaxTriage call first, fixed bands only as a fallback), and
+    /// both TASS Score columns must share it.
+    func testTassScoreHeaderTooltipStatesTheThresholdRule() throws {
+        let tip = TaxTriageConfidenceBand.headerToolTip
+        XCTAssertTrue(tip.contains("TaxTriage's own High / Medium / Low call"))
+        XCTAssertTrue(tip.contains("threshold"))
+        XCTAssertTrue(tip.contains("High below 0.80"))
+        XCTAssertTrue(tip.contains("Rows without a call fall back to fixed bands"))
+        XCTAssertTrue(tip.contains("0.40 to 0.80 Medium"))
+
+        let fixture = try Fixture(writeSidecar: true)
+        defer { fixture.cleanUp() }
+        let vc = fixture.makeController()
+
+        let batchColumn = try XCTUnwrap(
+            vc.testBatchFlatTableView.testTableView.tableColumn(withIdentifier: NSUserInterfaceItemIdentifier("tt_tassScore"))
+        )
+        XCTAssertEqual(batchColumn.headerToolTip, tip)
+
+        let organismColumn = try XCTUnwrap(
+            vc.testOrganismTableView.testingTableView.tableColumn(withIdentifier: NSUserInterfaceItemIdentifier("tassScore"))
+        )
+        XCTAssertEqual(organismColumn.headerToolTip, tip)
+    }
+
     func testConfidenceBandFollowsTheLabelAndFallsBackToScoreBands() {
         XCTAssertEqual(TaxTriageConfidenceBand(label: "High", tassScore: 0.75), .high)
         XCTAssertEqual(TaxTriageConfidenceBand(label: "Medium", tassScore: 0.79), .medium)

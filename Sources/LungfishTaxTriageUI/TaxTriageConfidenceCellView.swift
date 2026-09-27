@@ -50,6 +50,15 @@ enum TaxTriageConfidenceBand: Equatable, Sendable {
         }
     }
 
+    /// Header tooltip for the TASS Score column. States the rule the cells
+    /// apply: TaxTriage's own confidence call wins, and the fixed bands are a
+    /// fallback for rows that carry no call.
+    static let headerToolTip =
+        "Taxonomic Assignment Specificity Score (0 to 1). Colour and the Confidence column follow "
+        + "TaxTriage's own High / Medium / Low call for the row, which applies its configured TASS "
+        + "threshold, so a row can be High below 0.80. Rows without a call fall back to fixed bands: "
+        + "0.80 or higher High, 0.40 to 0.80 Medium, below 0.40 Low."
+
     /// Tooltip for TASS Score and Confidence cells.
     static func toolTip(label: String?, tassScore: Double) -> String {
         let band = TaxTriageConfidenceBand(label: label, tassScore: tassScore)

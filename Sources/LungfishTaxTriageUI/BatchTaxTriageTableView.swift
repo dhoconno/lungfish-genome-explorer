@@ -271,7 +271,8 @@ public final class BatchTaxTriageTableView: BatchTableView<TaxTriageMetric> {
             // TASS Score sorts descending by default (defaultAscending: false) — highest score first.
             BatchColumnSpec(identifier: .tt_sample,          title: "Sample",          width: 130, minWidth: 70,  defaultAscending: true),
             BatchColumnSpec(identifier: .tt_organism,        title: "Organism",        width: 220, minWidth: 100, defaultAscending: true),
-            BatchColumnSpec(identifier: .tt_tassScore,       title: "TASS Score",      width: 90,  minWidth: 55,  defaultAscending: false),
+            BatchColumnSpec(identifier: .tt_tassScore,       title: "TASS Score",      width: 90,  minWidth: 55,  defaultAscending: false,
+                            toolTip: TaxTriageConfidenceBand.headerToolTip),
             BatchColumnSpec(identifier: .tt_reads,           title: "Reads",           width: 80,  minWidth: 50,  defaultAscending: false),
             BatchColumnSpec(identifier: .tt_uniqueReads,     title: "Unique Reads",    width: 90,  minWidth: 55,  defaultAscending: false),
             BatchColumnSpec(identifier: .tt_confidence,      title: "Confidence",      width: 90,  minWidth: 55,  defaultAscending: true),
