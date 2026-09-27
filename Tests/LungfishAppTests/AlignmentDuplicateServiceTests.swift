@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import XCTest
+import os
 @testable import LungfishApp
 @testable import LungfishCore
 @testable import LungfishIO
@@ -77,19 +78,36 @@ final class AlignmentDuplicateServiceTests: XCTestCase {
 
         XCTAssertEqual(result.processedTracks, 1)
         XCTAssertEqual(result.newTrackIds, ["marked-track"])
+        XCTAssertEqual(result.retainedTrackIds, ["aln-1"])
 
+        // The original track stays in the manifest, renamed, with its files untouched on disk.
         let manifest = try BundleManifest.load(from: fixture.bundleURL)
-        XCTAssertEqual(manifest.alignments.map(\.id), ["marked-track"])
-        XCTAssertEqual(manifest.alignments.first?.sourcePath, "alignments/marked/marked-track.bam")
-        XCTAssertEqual(manifest.alignments.first?.indexPath, "alignments/marked/marked-track.bam.bai")
-        XCTAssertEqual(manifest.alignments.first?.metadataDBPath, "alignments/marked/marked-track.stats.db")
-        XCTAssertEqual(manifest.alignments.first?.name, "Fixture BAM [dup-marked]")
+        XCTAssertEqual(manifest.alignments.map(\.id), ["aln-1", "marked-track"])
+        let original = try XCTUnwrap(manifest.alignments.first { $0.id == "aln-1" })
+        XCTAssertEqual(original.name, "Fixture BAM [unmarked]")
+        XCTAssertEqual(original.sourcePath, "alignments/source.bam")
+        XCTAssertEqual(original.indexPath, "alignments/source.bam.bai")
+        XCTAssertEqual(original.metadataDBPath, "alignments/source.stats.db")
+        XCTAssertEqual(try Data(contentsOf: fixture.sourceBAMURL), Data("bam".utf8))
+        XCTAssertEqual(
+            try Data(contentsOf: fixture.bundleURL.appendingPathComponent("alignments/source.bam.bai")),
+            Data("bai".utf8)
+        )
+        XCTAssertTrue(FileManager.default.fileExists(
+            atPath: fixture.bundleURL.appendingPathComponent("alignments/source.stats.db").path
+        ))
+
+        let marked = try XCTUnwrap(manifest.alignments.first { $0.id == "marked-track" })
+        XCTAssertEqual(marked.sourcePath, "alignments/marked/marked-track.bam")
+        XCTAssertEqual(marked.indexPath, "alignments/marked/marked-track.bam.bai")
+        XCTAssertEqual(marked.metadataDBPath, "alignments/marked/marked-track.stats.db")
+        XCTAssertEqual(marked.name, "Fixture BAM [dup-marked]")
 
         let invocations = await markdupPipeline.invocations
         XCTAssertEqual(invocations.map(\.removeDuplicates), [false])
         XCTAssertEqual(invocations.map(\.outputURL.lastPathComponent), ["aln-1.marked.bam"])
 
-        let metadataRelativePath = try XCTUnwrap(manifest.alignments.first?.metadataDBPath)
+        let metadataRelativePath = try XCTUnwrap(marked.metadataDBPath)
         let metadataURL = fixture.bundleURL.appendingPathComponent(metadataRelativePath)
         let metadataDB = try AlignmentMetadataDatabase.openForUpdate(at: metadataURL)
         XCTAssertEqual(metadataDB.getFileInfo("original_source_path"), fixture.sourceBAMURL.path)
@@ -100,6 +118,91 @@ final class AlignmentDuplicateServiceTests: XCTestCase {
         XCTAssertEqual(
             metadataDB.provenanceHistory().map { $0.subcommand },
             ["markdup"]
+        )
+    }
+
+    func testMarkDuplicatesRecordsDerivativeOnSourceMetadataWhenSourceHasDatabase() async throws {
+        let fixture = try DuplicateWorkflowFixture.make(rootURL: tempDir)
+        // Give the source track a real metadata database (with schema, as the importer makes
+        // it) so the back-reference can be written.
+        let sourceDBURL = fixture.bundleURL.appendingPathComponent("alignments/source.stats.db")
+        _ = try AlignmentMetadataDatabase.create(at: sourceDBURL)
+
+        _ = try await AlignmentDuplicateService.markDuplicatesInBundle(
+            bundleURL: fixture.bundleURL,
+            markdupPipeline: RecordingDuplicateMarkdupPipeline(),
+            attachmentService: PreparedAlignmentAttachmentService(
+                metadataCollector: DuplicateWorkflowMetadataCollector()
+            ),
+            trackIDProvider: { "marked-track" }
+        )
+
+        let sourceDB = try AlignmentMetadataDatabase.openForUpdate(at: sourceDBURL)
+        XCTAssertEqual(sourceDB.getFileInfo("duplicate_marked_track_id"), "marked-track")
+        XCTAssertEqual(sourceDB.getFileInfo("duplicate_marking_role"), "unmarked_source")
+    }
+
+    func testMarkDuplicatesRerunDoesNotStackAnotherMarkedCopy() async throws {
+        let fixture = try DuplicateWorkflowFixture.make(rootURL: tempDir)
+        let attachmentService = PreparedAlignmentAttachmentService(
+            metadataCollector: DuplicateWorkflowMetadataCollector()
+        )
+        let markdupPipeline = RecordingDuplicateMarkdupPipeline()
+        let trackCounter = OSAllocatedUnfairLock(initialState: 0)
+        let trackIDProvider: @Sendable () -> String = {
+            trackCounter.withLock { counter in
+                counter += 1
+                return "marked-\(counter)"
+            }
+        }
+
+        _ = try await AlignmentDuplicateService.markDuplicatesInBundle(
+            bundleURL: fixture.bundleURL,
+            markdupPipeline: markdupPipeline,
+            attachmentService: attachmentService,
+            trackIDProvider: trackIDProvider
+        )
+        let afterFirstRun = try BundleManifest.load(from: fixture.bundleURL)
+        XCTAssertEqual(afterFirstRun.alignments.map(\.id), ["aln-1", "marked-1"])
+        XCTAssertTrue(AlignmentDuplicateService.tracksPendingDuplicateMarking(in: afterFirstRun).isEmpty)
+
+        do {
+            _ = try await AlignmentDuplicateService.markDuplicatesInBundle(
+                bundleURL: fixture.bundleURL,
+                markdupPipeline: markdupPipeline,
+                attachmentService: attachmentService,
+                trackIDProvider: trackIDProvider
+            )
+            XCTFail("Expected the rerun to refuse when every track is already marked")
+        } catch let error as AlignmentDuplicateError {
+            guard case .allTracksAlreadyMarked = error else {
+                return XCTFail("Unexpected error: \(error)")
+            }
+        }
+
+        let afterSecondRun = try BundleManifest.load(from: fixture.bundleURL)
+        XCTAssertEqual(afterSecondRun.alignments.map(\.id), ["aln-1", "marked-1"])
+        XCTAssertEqual(afterSecondRun.alignments.map(\.name), ["Fixture BAM [unmarked]", "Fixture BAM [dup-marked]"])
+        let invocations = await markdupPipeline.invocations
+        XCTAssertEqual(invocations.count, 1, "markdup must not run again for already-marked tracks")
+    }
+
+    func testTracksPendingDuplicateMarkingOnlyIncludesUnprocessedSources() {
+        let manifest = BundleManifest(
+            formatVersion: "1.0",
+            name: "Pending",
+            identifier: "pending.bundle",
+            source: SourceInfo(organism: "Virus", assembly: "Fixture", database: "FixtureDB"),
+            genome: nil,
+            alignments: [
+                AlignmentTrackInfo(id: "fresh", name: "Fresh", sourcePath: "alignments/fresh.bam", indexPath: "alignments/fresh.bam.bai"),
+                AlignmentTrackInfo(id: "kept", name: "Old [unmarked]", sourcePath: "alignments/old.bam", indexPath: "alignments/old.bam.bai"),
+                AlignmentTrackInfo(id: "marked", name: "Old [dup-marked]", sourcePath: "alignments/marked/marked.bam", indexPath: "alignments/marked/marked.bam.bai"),
+            ]
+        )
+        XCTAssertEqual(
+            AlignmentDuplicateService.tracksPendingDuplicateMarking(in: manifest).map(\.id),
+            ["fresh"]
         )
     }
 

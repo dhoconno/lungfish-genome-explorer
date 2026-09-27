@@ -751,6 +751,16 @@ extension BundleManifest {
         )
     }
 
+    /// Returns a new manifest with an existing alignment track replaced (matched by `id`).
+    public func replacingAlignmentTrack(_ replacement: AlignmentTrackInfo) -> BundleManifest {
+        // Mutators reset the cached browser summary and bump the modified date.
+        copy(
+            modifiedDate: Date(),
+            alignments: alignments.map { $0.id == replacement.id ? replacement : $0 },
+            browserSummary: .some(nil)
+        )
+    }
+
     /// Returns a new manifest with the specified alignment track removed.
     public func removingAlignmentTrack(id: String) -> BundleManifest {
         // Mutators reset the cached browser summary and bump the modified date.

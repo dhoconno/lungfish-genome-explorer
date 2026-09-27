@@ -173,4 +173,22 @@ final class GenomicRegionEdgeCaseTests: XCTestCase {
         XCTAssertFalse(region.overlaps(singleBase),
             "Single base at [200,201) should not overlap [100,200)")
     }
+
+    // MARK: - plainDisplayString (1-based, no separators)
+
+    func testPlainDisplayStringIsOneBasedInclusiveWithoutSeparators() {
+        XCTAssertEqual(GenomicRegion(chromosome: "chr1", start: 999, end: 2000).plainDisplayString, "chr1:1000-2000")
+        XCTAssertEqual(GenomicRegion(chromosome: "chr1", start: 0, end: 1).plainDisplayString, "chr1:1-1")
+        XCTAssertEqual(GenomicRegion(chromosome: "chr1", start: 0, end: 0).plainDisplayString, "chr1:1")
+        XCTAssertEqual(
+            GenomicRegion.plainDisplayString(chromosome: "NC_012920.1", start: 0, end: 16569),
+            "NC_012920.1:1-16569"
+        )
+        XCTAssertEqual(GenomicRegion.displayCoordinateSystem, "1-based")
+    }
+
+    func testPlainDisplayStringMatchesDisplayStringUpToSeparators() {
+        let region = GenomicRegion(chromosome: "chr2", start: 1_234_567, end: 2_345_678)
+        XCTAssertEqual(region.displayString.replacingOccurrences(of: ",", with: ""), region.plainDisplayString)
+    }
 }

@@ -2099,7 +2099,7 @@ final class ViewerBundleRoutingTests: XCTestCase {
                 "Show in Inspector",
                 "Copy Node Label",
                 "Copy Subtree as Newick",
-                "Re-root Here",
+                "Root on Branch to Here",
                 "Collapse Clade",
                 "Extract Subtree as New Bundle…",
                 "Export Subtree…",
@@ -2132,6 +2132,7 @@ final class ViewerBundleRoutingTests: XCTestCase {
 
         XCTAssertEqual(requests.map(\.operation), [.reroot, .extractSubtree])
         XCTAssertEqual(requests.map(\.nodeLabel), ["90", "90"])
+        XCTAssertEqual(requests.map(\.tipLabels), [["A", "B"], ["A", "B"]])
         XCTAssertTrue(controller.testingCollapsedNodeLabels.contains("90"))
         XCTAssertTrue(controller.testingNodeContextMenuTitles.contains("Expand Clade"))
     }

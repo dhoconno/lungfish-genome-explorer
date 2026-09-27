@@ -98,6 +98,15 @@ public struct ExtractionResult: Sendable {
     /// Whether the sequence was reverse-complemented.
     public let isReverseComplement: Bool
 
+    /// The coordinate convention used by `fastaHeader` and `headerRegion` ("1-based").
+    /// `effectiveStart`/`effectiveEnd` themselves stay 0-based half-open.
+    public static let headerCoordinateSystem = GenomicRegion.displayCoordinateSystem
+
+    /// The effective span in the 1-based inclusive form written into `fastaHeader`.
+    public var headerRegion: String {
+        GenomicRegion.plainDisplayString(chromosome: chromosome, start: effectiveStart, end: effectiveEnd)
+    }
+
     public init(
         fastaHeader: String,
         nucleotideSequence: String,
@@ -172,7 +181,7 @@ public enum SequenceExtractor {
                 reverseComplement: request.reverseComplement,
                 sequenceProvider: sequenceProvider,
                 chromosomeLength: chromosomeLength,
-                sourceName: "\(chromosome):\(start)-\(end)"
+                sourceName: GenomicRegion.plainDisplayString(chromosome: chromosome, start: start, end: end)
             )
 
         case .annotation(let annotation):
@@ -407,8 +416,15 @@ public enum SequenceExtractor {
         annotationType: AnnotationType? = nil,
         featureOrientation: Bool = false
     ) -> String {
+        // Coordinates are written 1-based inclusive (the convention the ruler, the
+        // annotation drawer, Go to Location and the CLI region argument all use) and the
+        // bracket says so, so a reader can paste the span straight back into Go to Location.
+        // Internal storage stays 0-based half-open; see `GenomicRegion.displayString`.
         var parts = [name]
-        parts.append("[\(chromosome):\(start)-\(end)]")
+        parts.append(
+            "[\(GenomicRegion.plainDisplayString(chromosome: chromosome, start: start, end: end)), "
+            + "\(GenomicRegion.displayCoordinateSystem)]"
+        )
 
         if let type = annotationType {
             parts.append("[\(type.rawValue)]")

@@ -4239,7 +4239,7 @@ extension ViewerViewController {
 /// arguments and output naming. Separated from `ViewerViewController` so it is unit-testable
 /// without window/project state.
 enum TreeBundleTransformCommand {
-    /// The output bundle filename stem (no extension), e.g. "source-rerooted" / "Clade A-subtree".
+    /// The output bundle filename stem (no extension), e.g. "source-rerooted" / "Human+Chimp-subtree".
     /// Returns nil for operations that do not produce a bundle (e.g. `.collapse`).
     static func outputStem(for request: PhylogeneticTreeViewController.TreeBundleOperationRequest) -> String? {
         switch request.operation {
@@ -4247,10 +4247,38 @@ enum TreeBundleTransformCommand {
             let sourceStem = request.bundleURL.deletingPathExtension().lastPathComponent
             return "\(sourceStem)-rerooted"
         case .extractSubtree:
-            return "\(request.nodeLabel)-subtree"
+            return "\(subtreeNameStem(tipLabels: request.tipLabels, fallback: request.nodeLabel))-subtree"
         case .collapse:
             return nil
         }
+    }
+
+    /// Names an extracted clade from its tip labels rather than the internal node's display
+    /// label (which for an unlabeled node is its support value, giving "100-subtree"). Up to
+    /// `maxListedTips` tips are joined with "+"; larger clades list the first tip and a count.
+    static let maxListedTips = 3
+
+    static func subtreeNameStem(tipLabels: [String], fallback: String) -> String {
+        let tips = tipLabels
+            .map { sanitizedFileNameComponent($0) }
+            .filter { !$0.isEmpty }
+        guard let first = tips.first else {
+            let cleaned = sanitizedFileNameComponent(fallback)
+            return cleaned.isEmpty ? "clade" : cleaned
+        }
+        if tips.count <= maxListedTips {
+            return tips.joined(separator: "+")
+        }
+        return "\(first)+\(tips.count - 1)-more"
+    }
+
+    private static func sanitizedFileNameComponent(_ label: String) -> String {
+        label
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .map { character -> Character in
+                (character == "/" || character == ":") ? "_" : character
+            }
+            .reduce(into: "") { $0.append($1) }
     }
 
     /// CLI argv for the request, or nil if the operation does not map to a CLI transform.

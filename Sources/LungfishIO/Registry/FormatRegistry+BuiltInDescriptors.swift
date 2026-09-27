@@ -209,7 +209,10 @@ extension FormatRegistry {
             displayName: "BigBed",
             formatDescription: "Binary annotation format (detection only; in-process reader unavailable)",
             extensions: ["bb", "bigbed"],
-            magicBytes: Data([0x26, 0xfc, 0x8f, 0x87]), // BigBed magic (little-endian)
+            // BigBed signature 0x8789F2EB written little-endian (bbiFile.h bigBedSig); verified
+            // against TestData/TestGenome.lungfishref/annotations/genes.bb. It is not the BigWig
+            // magic with the last byte decremented, which is what this used to claim.
+            magicBytes: Data([0xeb, 0xf2, 0x89, 0x87]),
             capabilities: .annotations,
             supportsCompression: false,
             isBinary: true,

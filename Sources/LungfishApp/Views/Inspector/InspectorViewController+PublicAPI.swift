@@ -202,6 +202,15 @@ extension InspectorViewController {
             consensusPreview: String(manifest.consensus.prefix(160))
         )
         viewModel.documentSectionViewModel.updateMultipleSequenceAlignmentDocument(state)
+        // Pairwise identity table (same service as `lungfish-cli msa distance`). Reuse the
+        // model across refreshes of the same bundle so an expanded table keeps its result.
+        if viewModel.documentSectionViewModel.msaPairwiseIdentity?.bundleURL != bundle.url {
+            let pairwiseIdentity = MSAPairwiseIdentityInspectorModel(bundleURL: bundle.url)
+            pairwiseIdentity.onExportRequested = { [weak self] model in
+                self?.exportMSAPairwiseIdentityMatrixViaCLI(model)
+            }
+            viewModel.documentSectionViewModel.msaPairwiseIdentity = pairwiseIdentity
+        }
         updateProvenanceTarget(
             url: bundle.url,
             sidebarType: .multipleSequenceAlignmentBundle,

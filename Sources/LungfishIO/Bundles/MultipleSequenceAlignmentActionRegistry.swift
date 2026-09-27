@@ -608,8 +608,8 @@ public enum MultipleSequenceAlignmentActionRegistry {
                 outputContract: "Writes matrix output plus provenance sidecar or derived analysis bundle."
             ),
             status: .implemented,
-            accessibility: "Matrix result exposes sortable rows and selectable pairwise values.",
-            tests: "CLI tests cover identity and p-distance on deterministic fixtures."
+            accessibility: "MSA Inspector > Pairwise Identity: model picker, sortable pair table (Sequence A, Sequence B, value, sites), Copy TSV, and Export TSV… which runs msa distance through the Operation Center. Both surfaces use MSADistanceMatrix.",
+            tests: "CLI tests cover identity and p-distance on deterministic fixtures; MultipleSequenceAlignmentDistanceMatrixTests and MultipleSequenceAlignmentDocumentSectionTests assert the Inspector table and copied TSV match the CLI output."
         ),
         descriptor(
             "msa.display.linked-tree",

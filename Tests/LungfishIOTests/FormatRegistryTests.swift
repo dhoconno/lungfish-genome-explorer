@@ -177,6 +177,37 @@ final class FormatRegistryTests: XCTestCase {
         XCTAssertNotNil(importer, "GFF3 importer should be registered")
     }
 
+    /// The BigBed signature is 0x8789F2EB, stored little-endian as `eb f2 89 87`. A real
+    /// `.bb` file from the test data, copied without its extension, must be detected by magic.
+    func testBigBedMagicMatchesRealFileHeader() async throws {
+        let registry = FormatRegistry.shared
+        let bigbedDescriptor = await registry.descriptor(for: .bigbed)
+        let descriptor = try XCTUnwrap(bigbedDescriptor)
+        XCTAssertEqual(descriptor.magicBytes, Data([0xeb, 0xf2, 0x89, 0x87]))
+
+        // TestGenome's genes.bb is an empty placeholder; HepatitisB ships a real 26 KB BigBed.
+        let fixtureURL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+            .appendingPathComponent("TestData/HepatitisB.lungfishref/annotations/annotations.bb")
+        let fixtureSize = (try? FileManager.default.attributesOfItem(atPath: fixtureURL.path)[.size] as? Int) ?? 0
+        try XCTSkipUnless(fixtureSize > 0, "BigBed fixture not present")
+        let header = try Data(contentsOf: fixtureURL).prefix(4)
+        XCTAssertEqual(Data(header), Data([0xeb, 0xf2, 0x89, 0x87]), "fixture header must carry the BigBed signature")
+
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("bigbed-magic-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+        let extensionlessURL = tempDir.appendingPathComponent("genes-without-extension")
+        try FileManager.default.copyItem(at: fixtureURL, to: extensionlessURL)
+
+        let detected = await registry.detectFormat(url: extensionlessURL)
+        XCTAssertEqual(detected, .bigbed, "an extension-less BigBed file must be detected from its magic bytes")
+
+        let bigwigDescriptor = await registry.descriptor(for: .bigwig)
+        let bigwig = try XCTUnwrap(bigwigDescriptor)
+        XCTAssertEqual(bigwig.magicBytes, Data([0x26, 0xfc, 0x8f, 0x88]), "BigWig signature 0x888FFC26 little-endian")
+    }
+
     func testBigBedDescriptorDoesNotAdvertiseUnsupportedReader() async {
         let registry = FormatRegistry.shared
         let descriptor = await registry.descriptor(for: .bigbed)

@@ -942,11 +942,14 @@ public enum SequenceAnnotationTrackWorkflow {
             chromosome: chromosome,
             start: coordinates.start,
             end: coordinates.end,
-            name: "ORF_\(frame.rawValue)_\(coordinates.start)_\(coordinates.end)",
+            // The name shows the ORF's span 1-based inclusive, the convention the ruler, the
+            // annotation drawer and Go to Location use; BED start/end stay 0-based half-open.
+            name: "ORF_\(frame.rawValue)_\(coordinates.start + 1)_\(coordinates.end)",
             strand: frame.isReverse ? .reverse : .forward,
             type: AnnotationType.orf.rawValue,
             attributes: [
                 "frame": frame.rawValue,
+                "name_coordinate_system": "1-based",
                 "length_nt": String(end - start),
                 "length_aa": String(peptide.count),
                 "translation": peptide,

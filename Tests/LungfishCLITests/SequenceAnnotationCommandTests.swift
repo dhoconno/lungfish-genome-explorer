@@ -63,8 +63,11 @@ final class SequenceAnnotationCommandTests: XCTestCase {
         XCTAssertEqual(row.start, 3)
         XCTAssertEqual(row.end, 12)
         XCTAssertEqual(row.strand, "+")
+        // Storage is 0-based half-open [3, 12); the name shows the 1-based inclusive span 4-12.
+        XCTAssertEqual(row.name, "ORF_+1_4_12")
         let attributes = AnnotationDatabase.parseAttributes(try XCTUnwrap(row.attributes))
         XCTAssertEqual(attributes["frame"], "+1")
+        XCTAssertEqual(attributes["name_coordinate_system"], "1-based")
         XCTAssertEqual(attributes["length_nt"], "9")
         XCTAssertEqual(attributes["length_aa"], "3")
         XCTAssertEqual(attributes["genetic_code_table"], "1")

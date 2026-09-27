@@ -246,6 +246,8 @@ struct ExtractSequenceSubcommand: AsyncParsableCommand {
                 "effectiveStart": .integer(result.effectiveStart),
                 "effectiveEnd": .integer(result.effectiveEnd),
                 "coordinate_system": .string("0-based half-open"),
+                "headerRegion": .string(result.headerRegion),
+                "headerCoordinateSystem": .string("\(ExtractionResult.headerCoordinateSystem) inclusive"),
                 "reverseComplement": .boolean(reverseComplement),
                 "flank5": .integer(effectiveFlank5),
                 "flank3": .integer(effectiveFlank3),

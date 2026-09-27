@@ -446,7 +446,7 @@ final class SequenceExtractorTests: XCTestCase {
         )
 
         XCTAssertTrue(result.fastaHeader.contains("XP_001114420.3"))
-        XCTAssertTrue(result.fastaHeader.contains("[NC_041760.1:100-200]"))
+        XCTAssertTrue(result.fastaHeader.contains("[NC_041760.1:101-200, 1-based]"))
         XCTAssertTrue(result.fastaHeader.contains("[CDS]"))
         XCTAssertTrue(result.fastaHeader.contains("[strand: -]"))
         XCTAssertTrue(result.fastaHeader.contains("[reverse complement]"))
@@ -720,5 +720,64 @@ final class SequenceExtractorTests: XCTestCase {
         )
 
         XCTAssertEqual(result.nucleotideSequence, "ATGGC" + "ATAAT", "Join order (A then B), not genomic-ascending (B then A)")
+    }
+
+    // MARK: - 1-based header coordinates
+
+    func testRegionHeaderAndSourceNameAreOneBasedInclusive() throws {
+        // Internal 0-based half-open [10, 20) is the ruler's 1-based inclusive 11-20.
+        let result = try SequenceExtractor.extract(
+            request: ExtractionRequest(source: .region(chromosome: "chr1", start: 10, end: 20)),
+            sequenceProvider: makeProvider(),
+            chromosomeLength: chromLength
+        )
+
+        XCTAssertEqual(result.sourceName, "chr1:11-20")
+        XCTAssertEqual(result.fastaHeader, "chr1:11-20 [chr1:11-20, 1-based] [10 bp]")
+        XCTAssertEqual(result.headerRegion, "chr1:11-20")
+        XCTAssertEqual(ExtractionResult.headerCoordinateSystem, "1-based")
+        XCTAssertEqual(result.effectiveStart, 10, "storage stays 0-based half-open")
+        XCTAssertEqual(result.effectiveEnd, 20)
+    }
+
+    func testRegionHeaderReflectsFlankedSpanOneBased() throws {
+        // Ruler region 1,000-2,000 typed by a reader is stored as [999, 2000); with 5 bases of
+        // flank on each side the header must read 995-2005, never 994-2005.
+        let longGenome = String(repeating: "ACGT", count: 1000)
+        let provider: SequenceExtractor.SequenceProvider = { _, start, end in
+            let startIdx = longGenome.index(longGenome.startIndex, offsetBy: start)
+            let endIdx = longGenome.index(longGenome.startIndex, offsetBy: end)
+            return String(longGenome[startIdx..<endIdx])
+        }
+        let result = try SequenceExtractor.extract(
+            request: ExtractionRequest(
+                source: .region(chromosome: "chr", start: 999, end: 2000),
+                flank5Prime: 5,
+                flank3Prime: 5
+            ),
+            sequenceProvider: provider,
+            chromosomeLength: 4000
+        )
+
+        XCTAssertEqual(result.sourceName, "chr:1000-2000")
+        XCTAssertEqual(result.fastaHeader, "chr:1000-2000 [chr:995-2005, 1-based] [1011 bp]")
+    }
+
+    func testAnnotationHeaderIsOneBasedInclusive() throws {
+        let annotation = SequenceAnnotation(
+            type: .gene,
+            name: "TestGene",
+            chromosome: "chr1",
+            start: 0,
+            end: 12,
+            strand: .forward
+        )
+        let result = try SequenceExtractor.extract(
+            request: ExtractionRequest(source: .annotation(annotation)),
+            sequenceProvider: makeProvider(),
+            chromosomeLength: chromLength
+        )
+
+        XCTAssertTrue(result.fastaHeader.hasPrefix("TestGene [chr1:1-12, 1-based]"), result.fastaHeader)
     }
 }
