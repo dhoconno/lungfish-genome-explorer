@@ -118,7 +118,7 @@ public struct Primer3DesignPipeline: Sendable {
         let raw = try String(contentsOf: outputURL, encoding: .utf8)
         let parsed = try Primer3BoulderParser.parse(raw, expectedResultIDs: prepared.map(\.resultID))
         let enriched = zip(parsed, prepared).map { result, template in
-            Primer3TemplateResult(resultID: result.resultID, inputID: template.inputID, title: template.title, sourceKind: template.sourceKind.rawValue, sourceIndex: template.sourceIndex, sourceRecordID: template.sourceRecordID, templateSequence: template.sequence, alignmentToTemplate: template.alignmentToTemplate, excludedRegions: template.excludedRegions.map { .init(start: $0.lowerBound, end: $0.upperBound) }, pairs: result.pairs, error: result.error, explanation: result.explanation)
+            Primer3TemplateResult(resultID: result.resultID, inputID: template.inputID, title: template.title, sourceKind: template.sourceKind.rawValue, sourceIndex: template.sourceIndex, sourceRecordID: template.sourceRecordID, templateSequence: template.sequence, alignmentToTemplate: template.alignmentToTemplate, excludedRegions: template.excludedRegions.map { .init(start: $0.lowerBound, end: $0.upperBound) }, pairs: result.pairs, error: result.error, explanation: result.explanation, explanations: result.explanations)
         }
         for result in enriched {
             for pair in result.pairs {

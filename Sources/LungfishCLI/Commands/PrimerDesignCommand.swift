@@ -74,9 +74,50 @@ struct PrimerDesignCommand: AsyncParsableCommand {
         @Option(name: .customLong("probe-must-match-five-prime"), help: "PRIMER_INTERNAL_MUST_MATCH_FIVE_PRIME. Preset default: hnnnn for qpcr-probe, which forbids a 5' G next to the reporter dye. Pass an empty value to omit the tag.") var probeMustMatchFivePrime: String?
         @Flag(name: .customLong("pick-internal-oligo"), help: "Ask Primer3 for an ordinary internal oligo. Implied by --assay qpcr-probe.") var pickInternalOligo = false
 
+        // Fixed oligos, so Primer3 designs the partners for an oligo the caller
+        // already chose, for example one covering a discriminating column.
+        @Option(name: .customLong("left-primer"), help: "SEQUENCE_PRIMER. A forward primer to keep, 5'->3'. Primer3 designs the rest around it.") var leftPrimer: String?
+        @Option(name: .customLong("right-primer"), help: "SEQUENCE_PRIMER_REVCOMP. A reverse primer to keep, given 5'->3' as ordered; its reverse complement must occur in the template.") var rightPrimer: String?
+        @Option(name: .customLong("probe"), help: "SEQUENCE_INTERNAL_OLIGO. A hydrolysis probe to keep, 5'->3'.") var fixedProbe: String?
+        @Option(name: .customLong("force-left-end"), help: "SEQUENCE_FORCE_LEFT_END. 1-based template position the forward primer's 3' end must land on.") var forceLeftEnd: Int?
+        @Option(name: .customLong("force-right-end"), help: "SEQUENCE_FORCE_RIGHT_END. 1-based template position the reverse primer's 3' end must land on.") var forceRightEnd: Int?
+
+        @Option(name: .customLong("probe-min-tm-offset-over-primers"), help: "Raise the probe minimum Tm to the highest primer Tm plus this many C, so a hydrolysis probe is bound before extension reaches it. Default 5, varVAMP's QPROBE_TEMP_DIFF lower bound. Pass 0 to leave the probe window exactly as configured.") var probeMinTmOffsetOverPrimers: Double?
+
         func run() async throws {
             let output = try await execute(argv: CommandLine.arguments)
             print("Primer3 analysis written to \(output.path)")
+            Self.summaryLines(forAnalysisAt: output).forEach { print($0) }
+        }
+
+        /// Per-template pair counts and Primer3's EXPLAIN lines.
+        ///
+        /// A zero-pair run is why the per-oligo lines are printed. Primer3's
+        /// pair line counts only pairs built from primers that already passed
+        /// every single-oligo rule, so when a primer was too hot or a probe too
+        /// cold it reports "considered 0" and says nothing about the cause; the
+        /// left, right, and internal lines carry the real reason.
+        static func summaryLines(forAnalysisAt output: URL) -> [String] {
+            let url = output.appendingPathComponent("results/primer3-normalized-v1.json")
+            guard let data = try? Data(contentsOf: url),
+                  let results = try? JSONDecoder().decode(Primer3NormalizedResults.self, from: data) else {
+                return []
+            }
+            var lines: [String] = []
+            for result in results.results {
+                lines.append("\(result.title): \(result.pairs.count) candidate pair(s)")
+                if let error = result.error, !error.isEmpty {
+                    lines.append("  error: \(error)")
+                }
+                if let explanations = result.explanations, !explanations.isEmpty {
+                    for line in explanations.labelledLines {
+                        lines.append("  \(line.label): \(line.text)")
+                    }
+                } else if let explanation = result.explanation, !explanation.isEmpty {
+                    lines.append("  Pair: \(explanation)")
+                }
+            }
+            return lines
         }
 
         func executeForTesting(argv: [String]) async throws -> URL { try await execute(argv: argv) }
@@ -139,7 +180,15 @@ struct PrimerDesignCommand: AsyncParsableCommand {
                 primerMaxSelfEndTh: primerMaxSelfEndTh ?? defaults.primerMaxSelfEndTh,
                 pairMaxComplAnyTh: pairMaxComplAnyTh ?? defaults.pairMaxComplAnyTh,
                 pairMaxComplEndTh: pairMaxComplEndTh ?? defaults.pairMaxComplEndTh,
-                probe: resolvedProbeDefaults(defaults.probe))
+                probe: resolvedProbeDefaults(defaults.probe),
+                fixedOligos: Primer3FixedOligos(
+                    leftPrimer: leftPrimer, rightPrimer: rightPrimer, probe: fixedProbe,
+                    forceLeftEnd: forceLeftEnd, forceRightEnd: forceRightEnd),
+                // 0 disables the adjustment rather than demanding an equal Tm,
+                // which is what a caller asking for no offset means.
+                probeMinTmOffsetOverPrimers: (probeMinTmOffsetOverPrimers ?? Primer3DesignOptions.defaultProbeMinTmOffsetOverPrimers) > 0
+                    ? (probeMinTmOffsetOverPrimers ?? Primer3DesignOptions.defaultProbeMinTmOffsetOverPrimers)
+                    : nil)
             try Primer3DesignPipeline.validate(options)
             return options
         }
@@ -184,6 +233,24 @@ struct PrimerDesignCommand: AsyncParsableCommand {
                     "probeMustMatchFivePrime": probe.probeMustMatchFivePrime.map(ParameterValue.string) ?? .null,
                 ]) { _, new in new }
             }
+            // The effective probe window is recorded alongside the configured
+            // one, because the Tm offset may have raised it.
+            if let effective = options.effectiveProbe {
+                values.merge([
+                    "effectiveProbeMinTm": .number(effective.probeMinTm),
+                    "effectiveProbeOptTm": .number(effective.probeOptTm),
+                    "effectiveProbeMaxTm": .number(effective.probeMaxTm),
+                ]) { _, new in new }
+            }
+            values["probeMinTmOffsetOverPrimers"] = options.probeMinTmOffsetOverPrimers.map(ParameterValue.number) ?? .null
+            let fixed = options.fixedOligos
+            values.merge([
+                "fixedLeftPrimer": fixed.leftPrimer.map(ParameterValue.string) ?? .null,
+                "fixedRightPrimer": fixed.rightPrimer.map(ParameterValue.string) ?? .null,
+                "fixedProbe": fixed.probe.map(ParameterValue.string) ?? .null,
+                "forceLeftEnd": fixed.forceLeftEnd.map(ParameterValue.integer) ?? .null,
+                "forceRightEnd": fixed.forceRightEnd.map(ParameterValue.integer) ?? .null,
+            ]) { _, new in new }
             values.merge(baseExplicitOptions(options, selections: selections)) { _, new in new }
             return values
         }

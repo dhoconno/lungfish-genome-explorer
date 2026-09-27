@@ -80,6 +80,22 @@ final class PrimerDesignDialogPresenter {
         visibleOptions["assay"] = .string(state.chemistry.rawValue)
         visibleOptions["assayMode"] = .string(state.chemistry.assayMode.rawValue)
         visibleOptions["assayDefaultsSource"] = .string("shared Primer3AssayDefaults preset, editable in the dialog")
+        // Fixed oligos and the probe Tm offset are visible dialog controls, so
+        // they are recorded the same way the CLI records its flags.
+        let primer3Options = try state.primer3Options()
+        let fixed = primer3Options.fixedOligos
+        visibleOptions["fixedLeftPrimer"] = fixed.leftPrimer.map(ParameterValue.string) ?? .null
+        visibleOptions["fixedRightPrimer"] = fixed.rightPrimer.map(ParameterValue.string) ?? .null
+        visibleOptions["fixedProbe"] = fixed.probe.map(ParameterValue.string) ?? .null
+        visibleOptions["forceLeftEnd"] = fixed.forceLeftEnd.map(ParameterValue.integer) ?? .null
+        visibleOptions["forceRightEnd"] = fixed.forceRightEnd.map(ParameterValue.integer) ?? .null
+        visibleOptions["probeMinTmOffsetOverPrimers"] =
+          primer3Options.probeMinTmOffsetOverPrimers.map(ParameterValue.number) ?? .null
+        if let effective = primer3Options.effectiveProbe {
+          visibleOptions["effectiveProbeMinTm"] = .number(effective.probeMinTm)
+          visibleOptions["effectiveProbeOptTm"] = .number(effective.probeOptTm)
+          visibleOptions["effectiveProbeMaxTm"] = .number(effective.probeMaxTm)
+        }
       } else if state.engine == .primalScheme {
         visibleOptions["minimumBaseFrequency"] = .number(try state.primalSchemeOptions().minimumBaseFrequency)
         visibleOptions["minimumBaseFrequencySource"] = .string("visible GUI control")

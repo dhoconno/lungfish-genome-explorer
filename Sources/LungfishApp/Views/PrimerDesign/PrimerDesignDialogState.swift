@@ -95,6 +95,18 @@ final class PrimerDesignDialogState {
   var probeMinGC = PrimerDesignDialogState.text(Primer3ProbeDefaults.hydrolysisProbe.probeMinGC)
   var probeOptGC = PrimerDesignDialogState.text(Primer3ProbeDefaults.hydrolysisProbe.probeOptGC)
   var probeMaxGC = PrimerDesignDialogState.text(Primer3ProbeDefaults.hydrolysisProbe.probeMaxGC)
+  /// How far above the highest primer Tm the probe must melt. Blank or 0 leaves
+  /// the probe window exactly as edited above.
+  var probeMinTmOffsetOverPrimers =
+    PrimerDesignDialogState.text(Primer3DesignOptions.defaultProbeMinTmOffsetOverPrimers)
+  // Fixed oligos, so a user who has chosen an oligo (for example one covering a
+  // discriminating column) can have Primer3 design its partners. Empty fields
+  // send no SEQUENCE_* tag at all.
+  var fixedLeftPrimer = ""
+  var fixedRightPrimer = ""
+  var fixedProbe = ""
+  var forceLeftEnd = ""
+  var forceRightEnd = ""
   var advancedExpanded = false
   var schemeMode: PrimerSchemeMode = .tiled {
     didSet { updateVarVAMPMode(from: oldValue) }
@@ -829,7 +841,65 @@ final class PrimerDesignDialogState {
       // The probe window is now editable for the hydrolysis-probe assay. Its
       // starting values and the rules the dialog does not expose still come from
       // the shared preset, so an untouched dialog sends what `--assay qpcr-probe` sends.
-      probe: try probeOptions())
+      probe: try probeOptions(),
+      fixedOligos: try fixedOligoOptions(),
+      // Blank keeps the 5 C default; an explicit 0 disables the adjustment.
+      probeMinTmOffsetOverPrimers: try probeTmOffsetOption())
+  }
+
+  /// The probe Tm offset as edited. Blank means the default rather than "off",
+  /// so a user who never opens the field still gets a probe above the primers.
+  func probeTmOffsetOption() throws -> Double? {
+    let trimmed = probeMinTmOffsetOverPrimers.trimmingCharacters(in: .whitespacesAndNewlines)
+    if trimmed.isEmpty { return Primer3DesignOptions.defaultProbeMinTmOffsetOverPrimers }
+    let value = try nonnegativeNumber(trimmed, "Probe Tm offset over primers")
+    return value > 0 ? value : nil
+  }
+
+  /// The fixed oligos as edited, checked against the selected template.
+  ///
+  /// Validating here means the dialog reports "this primer is not in the
+  /// template" before any run starts, rather than leaving the user with an
+  /// empty result set and no explanation.
+  func fixedOligoOptions() throws -> Primer3FixedOligos {
+    let oligos = Primer3FixedOligos(
+      leftPrimer: fixedLeftPrimer,
+      rightPrimer: fixedRightPrimer,
+      probe: fixedProbe,
+      forceLeftEnd: try optionalPositiveInteger(forceLeftEnd, "Forward primer 3′ end position"),
+      forceRightEnd: try optionalPositiveInteger(forceRightEnd, "Reverse primer 3′ end position"))
+    guard !oligos.isEmpty else { return oligos }
+    for (label, sequence) in [
+      ("Forward primer", oligos.leftPrimer),
+      ("Reverse primer", oligos.rightPrimer),
+      ("Probe", oligos.probe),
+    ] {
+      guard let sequence else { continue }
+      guard sequence.allSatisfy({ "ACGT".contains($0) }) else {
+        throw invalid("\(label) must contain only A, C, G and T.")
+      }
+    }
+    return oligos
+  }
+
+  /// Where each fixed oligo sits on `template`, for the dialog to display, or
+  /// the reason it could not be placed.
+  ///
+  /// The dialog shows this so a user can confirm an oligo landed where they
+  /// meant it to, and in particular that a reverse primer given 5'->3' as
+  /// ordered was found on the reverse strand.
+  func fixedOligoPlacementSummary(template: String) -> String? {
+    guard let oligos = try? fixedOligoOptions(), !oligos.isEmpty else { return nil }
+    do {
+      let placements = try Primer3FixedOligoValidation.validate(oligos, template: template)
+      if placements.isEmpty { return nil }
+      return placements.map { placement in
+        let strand = placement.matchedReverseComplement ? "reverse strand" : "forward strand"
+        return "\(placement.role.displayName): \(placement.start)-\(placement.end) (\(strand), 3′ end \(placement.threePrimeEnd))"
+      }.joined(separator: "\n")
+    } catch {
+      return error.localizedDescription
+    }
   }
 
   private func optionalNonnegativeNumber(_ text: String, _ title: String) throws -> Double? {

@@ -94,7 +94,24 @@ struct Primer3ResultsView: View {
         }
 
       }
-      if let explanation = result.explanation, !explanation.isEmpty {
+      // The per-oligo lines say which single-oligo rule rejected everything,
+      // which the pair line cannot: it counts only pairs built from primers
+      // that already passed. A zero-pair run is explained here or nowhere.
+      if let explanations = result.explanations, !explanations.isEmpty {
+        DisclosureGroup("Primer3 explanation") {
+          VStack(alignment: .leading, spacing: 4) {
+            ForEach(explanations.labelledLines, id: \.label) { line in
+              HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Text("\(line.label):").font(.caption).foregroundStyle(.secondary)
+                Text(line.text).font(.system(.caption, design: .monospaced)).textSelection(.enabled)
+              }
+              .accessibilityElement(children: .combine)
+              .accessibilityLabel("\(line.label) explanation: \(line.text)")
+            }
+          }
+          .frame(maxWidth: .infinity, alignment: .leading)
+        }
+      } else if let explanation = result.explanation, !explanation.isEmpty {
         DisclosureGroup("Primer3 explanation") {
           Text(explanation).font(.system(.caption, design: .monospaced)).textSelection(.enabled)
         }
