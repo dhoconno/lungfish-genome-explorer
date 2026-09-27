@@ -3,7 +3,7 @@ title: Designing qPCR and dPCR Assays
 chapter_id: 10-primer-design/04-designing-qpcr-and-dpcr-assays
 audience: bench-scientist
 prereqs: [10-primer-design/01-what-is-primer-design, 10-primer-design/02-designing-a-pcr-assay, 02-sequences/04-aligning-sequences]
-estimated_reading_min: 22
+estimated_reading_min: 28
 task: Design a quantitative detection assay for the Mamu-A1*001 lineage with varVAMP and Primer3, find that it detects the whole gene family, then find the columns that separate the lineage and design an assay that uses one.
 tags: [primer-design, qpcr, dpcr, probe, varvamp, primer3, mhc, macaque, specificity]
 tools: [varvamp, primer3, mafft]

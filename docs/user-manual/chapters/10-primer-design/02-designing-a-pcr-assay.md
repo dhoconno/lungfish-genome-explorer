@@ -3,7 +3,7 @@ title: Designing a PCR Assay
 chapter_id: 10-primer-design/02-designing-a-pcr-assay
 audience: bench-scientist
 prereqs: [01-foundations/06-the-lungfish-project, 02-sequences/04-aligning-sequences, 10-primer-design/01-what-is-primer-design]
-estimated_reading_min: 16
+estimated_reading_min: 14
 task: Design one PCR primer pair with Primer3 across Mamu-A1 exons 2 and 3, first on a single allele and then on a twelve-allele alignment with conserved binding sites, and read the candidate pairs.
 tags: [primer-design, primer3, pcr, mhc, macaque, alignment]
 tools: [primer3]

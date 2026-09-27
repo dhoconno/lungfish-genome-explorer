@@ -3,7 +3,7 @@ title: What Is Primer Design
 chapter_id: 10-primer-design/01-what-is-primer-design
 audience: bench-scientist
 prereqs: [01-foundations/03-amplicon-vs-shotgun, 02-sequences/04-aligning-sequences, 09-genotyping/01-what-is-mhc-genotyping]
-estimated_reading_min: 18
+estimated_reading_min: 22
 task: Understand how PCR primers work, what makes a primer good or bad, why sequence variation and related genes complicate design, and which of LGE's four primer design engines fits which job.
 tags: [primer-design, pcr, qpcr, dpcr, primer, amplicon, tiling, mhc, macaque]
 tools: [primer3, primalscheme3, olivar, varvamp]
@@ -138,7 +138,7 @@ The finished design, with each primer's sequence, position and pool, is a [prime
 
 Ordinary PCR, also called end-point PCR because it is read once at the end, tells you what was copied. [Quantitative PCR](../../GLOSSARY.md#qpcr), qPCR or real-time PCR, measures the product after every cycle with a fluorescent signal. The more starting template a sample holds, the sooner its signal crosses a set threshold, and the cycle at which it crosses is the [Cq](../../GLOSSARY.md#cq). At perfect efficiency each tenfold increase in starting template moves Cq about 3.3 cycles earlier, since 2 to the power 3.3 is about 10.
 
-[Digital PCR](../../GLOSSARY.md#dpcr), dPCR, splits one reaction into thousands of tiny partitions, droplets or wells, so each holds either no template molecule or a few. After cycling, the instrument counts the partitions that lit up and works out the number of starting molecules directly, with no standard curve. Counting rather than timing changes four things.
+[Digital PCR](../../GLOSSARY.md#dpcr), dPCR, splits one reaction into thousands of tiny partitions, droplets or wells, so each holds either no template molecule or a few. After cycling, the instrument counts the partitions that lit up and works out the number of starting molecules directly, without the standard curve a qPCR run needs, which is the line a laboratory fits through the Cq values of known amounts of template. Counting rather than timing changes four things.
 
 - Efficiency and Cq do not apply, but partition occupancy does, and too much template saturates the partitions so the count no longer corrects properly.
 - Long genomic DNA distributes unevenly between partitions, so laboratories cut it with a restriction enzyme or shear it before loading.

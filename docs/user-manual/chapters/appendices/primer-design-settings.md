@@ -3,7 +3,7 @@ title: Primer Design Settings
 chapter_id: appendices/primer-design-settings
 audience: power-user
 prereqs: [10-primer-design/01-what-is-primer-design]
-estimated_reading_min: 18
+estimated_reading_min: 16
 task: Look up every control of the PCR Primer Design dialog, engine by engine, with its default, what it does, and its command-line flag.
 tags: [reference, primer-design, primer3, primalscheme, olivar, varvamp, settings]
 tools: [primer3, primalscheme3, olivar, varvamp]

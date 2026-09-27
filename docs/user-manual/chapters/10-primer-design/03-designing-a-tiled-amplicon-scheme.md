@@ -3,7 +3,7 @@ title: Designing a Tiled Amplicon Scheme
 chapter_id: 10-primer-design/03-designing-a-tiled-amplicon-scheme
 audience: bench-scientist
 prereqs: [10-primer-design/01-what-is-primer-design, 10-primer-design/02-designing-a-pcr-assay, 02-sequences/04-aligning-sequences]
-estimated_reading_min: 22
+estimated_reading_min: 21
 task: Design overlapping two-pool amplicons across a whole gene with PrimalScheme, Olivar and varVAMP, compare how each handles variation, and save one design as a primer scheme.
 tags: [primer-design, tiling, amplicon, primer-scheme, primalscheme, olivar, varvamp, mhc]
 tools: [primalscheme3, olivar, varvamp]
