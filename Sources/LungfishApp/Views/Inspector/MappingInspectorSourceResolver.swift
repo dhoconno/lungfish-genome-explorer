@@ -1,5 +1,6 @@
 import Foundation
 import LungfishIO
+import LungfishWorkflow
 
 enum MappingInspectorSourceResolver {
     static func resolve(

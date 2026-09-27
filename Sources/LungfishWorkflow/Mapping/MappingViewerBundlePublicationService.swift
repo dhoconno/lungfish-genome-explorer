@@ -3,12 +3,11 @@ import CryptoKit
 import Foundation
 import LungfishCore
 import LungfishIO
-import LungfishWorkflow
 import SQLite3
 
 private let mappingViewerSQLiteTransient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
 
-enum MappingViewerBundlePublicationError: Error, LocalizedError {
+public enum MappingViewerBundlePublicationError: Error, LocalizedError {
     case missingCanonicalProvenance(URL)
     case missingViewerBundle(URL)
     case invalidViewerPayloadPath(String)
@@ -20,7 +19,7 @@ enum MappingViewerBundlePublicationError: Error, LocalizedError {
     case publicationOwnershipConflict(String, String?)
     case rollbackFailed(URL, String)
 
-    var errorDescription: String? {
+    public var errorDescription: String? {
         switch self {
         case .missingCanonicalProvenance(let url):
             return "Canonical mapping provenance is missing at \(url.path)."
@@ -47,8 +46,8 @@ enum MappingViewerBundlePublicationError: Error, LocalizedError {
     }
 }
 
-struct MappingViewerBundlePublicationPlan {
-    let finalBundleURL: URL
+public struct MappingViewerBundlePublicationPlan {
+    public let finalBundleURL: URL
     fileprivate let bundleRoot: MappingViewerSecureBundleRoot
     fileprivate let payloads: [MappingViewerPlannedPayload]
     fileprivate let includesManifest: Bool
@@ -588,10 +587,10 @@ private final class MappingViewerSecureBundleRoot {
     }
 }
 
-enum MappingViewerBundlePublicationService {
+public enum MappingViewerBundlePublicationService {
     private static let mappingResultFilename = "mapping-result.json"
 
-    static func publishCandidate(
+    public static func publishCandidate(
         candidateBundleURL: URL,
         finalBundleURL: URL,
         fileManager: FileManager = .default,
@@ -606,7 +605,7 @@ enum MappingViewerBundlePublicationService {
         }
     }
 
-    static func publishCandidate(
+    public static func publishCandidate(
         candidateBundleURL: URL,
         finalBundleURL: URL,
         fileManager: FileManager = .default,
@@ -700,7 +699,7 @@ enum MappingViewerBundlePublicationService {
         }
     }
 
-    static func publish(
+    public static func publish(
         result: MappingResult,
         resultDirectoryURL: URL,
         sourceReferenceBundleURL: URL,
@@ -1090,7 +1089,11 @@ enum MappingViewerBundlePublicationService {
         }
         for variant in manifest.variants {
             let payloadIsOptional = variantPayloadIsOptional(variant)
-            if !payloadIsOptional || bundleRoot.payloadEntryExists(relativePath: variant.path) {
+            // A database-backed track's `path` may be the database itself;
+            // it is then listed once, below, as the database.
+            let pathIsDatabase = variant.path == variant.databasePath
+            if !pathIsDatabase,
+               !payloadIsOptional || bundleRoot.payloadEntryExists(relativePath: variant.path) {
                 specifications.append((variant.path, variantFormat(for: variant.path), .output))
             }
             if !variant.indexPath.isEmpty,
@@ -1675,7 +1678,8 @@ enum MappingViewerBundlePublicationService {
             func exists(_ relativePath: String) -> Bool {
                 fileManager.fileExists(atPath: root.appendingPathComponent(relativePath).path)
             }
-            if !payloadIsOptional || exists(variant.path) {
+            let pathIsDatabase = variant.path == variant.databasePath
+            if !pathIsDatabase, !payloadIsOptional || exists(variant.path) {
                 descriptors.append(try descriptor(
                     relativePath: variant.path,
                     format: variantFormat(for: variant.path),
@@ -1716,7 +1720,9 @@ enum MappingViewerBundlePublicationService {
     }
 
     private static func variantFormat(for path: String) -> FileFormat {
-        path.lowercased().hasSuffix(".bcf") ? .bcf : .vcf
+        let lowercased = path.lowercased()
+        if lowercased.hasSuffix(".db") || lowercased.hasSuffix(".sqlite") { return .sqlite }
+        return lowercased.hasSuffix(".bcf") ? .bcf : .vcf
     }
 
     /// `lungfish import vcf` (CLI, Import Center, and the auto-ingestor) keeps

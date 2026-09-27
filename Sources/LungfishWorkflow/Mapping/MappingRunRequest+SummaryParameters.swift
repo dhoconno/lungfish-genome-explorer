@@ -25,6 +25,7 @@ public extension MappingRunRequest {
             "minimumMappingQuality": .int(minimumMappingQuality),
             "extraArgs": .string(AdvancedCommandLineOptions.join(advancedArguments)),
             "compatibilityReadClassOverride": compatibilityReadClassOverride.map { .string($0.rawValue) } ?? .string(""),
+            "outputTrackName": .string(MappingResultLayoutService.trackName(for: self)),
         ]
         return parameters
     }

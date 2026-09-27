@@ -56,15 +56,36 @@ struct MapCommand: AsyncParsableCommand {
 
     @Option(
         name: [.customLong("output-dir"), .customShort("o")],
-        help: "Output directory (default: mapping-<id> next to input)"
+        help: "Output directory (default: Analyses/<mapper>-<timestamp>/ inside --project, else mapping-<id> next to input)"
     )
     var outputDir: String?
+
+    @Option(
+        name: .customLong("project"),
+        help: ArgumentHelp(
+            "The .lungfish project the run belongs to: without --output-dir the result lands in its Analyses/<mapper>-<timestamp>/ folder, exactly where the Map Reads window puts it",
+            discussion: "The run's scratch space and the project-relative paths in the result sidecars are bound to this project."
+        )
+    )
+    var project: String?
 
     @Option(
         name: .customLong("sample-name"),
         help: "Sample name for BAM read groups and output naming"
     )
     var sampleName: String?
+
+    @Option(
+        name: .customLong("track-name"),
+        help: "Name of the alignment track the BAM is attached as in the result's reference bundle copy (default: \"<Mapper> Mapping\")"
+    )
+    var trackName: String?
+
+    @Flag(
+        name: .customLong("no-viewer-bundle"),
+        help: "Leave only the BAM and sidecars: skip the reference bundle copy with the BAM attached that the Map Reads window produces"
+    )
+    var noViewerBundle: Bool = false
 
     @Option(name: .customLong("rg-id"), help: "BAM read-group ID (default: sample name)")
     var readGroupID: String?
@@ -143,15 +164,6 @@ struct MapCommand: AsyncParsableCommand {
             throw CLIExitCode.inputError.exitCode
         }
 
-        let outputDirectory: URL
-        if let outputDir {
-            outputDirectory = URL(fileURLWithPath: outputDir)
-        } else {
-            let runToken = String(UUID().uuidString.prefix(8))
-            outputDirectory = inputURLs.first!.deletingLastPathComponent()
-                .appendingPathComponent("mapping-\(runToken)")
-        }
-
         let referenceInputURL = URL(fileURLWithPath: reference)
         guard FileManager.default.fileExists(atPath: referenceInputURL.path) else {
             throw CLIError.inputFileNotFound(path: referenceInputURL.path)
@@ -165,6 +177,40 @@ struct MapCommand: AsyncParsableCommand {
             let valid = MappingTool.allCases.map(\.rawValue).joined(separator: ", ")
             print(formatter.error("Invalid mapper '\(mapper)'. Valid mappers: \(valid)"))
             throw CLIExitCode.inputError.exitCode
+        }
+
+        let projectURL: URL?
+        if let project {
+            let url = URL(fileURLWithPath: project, isDirectory: true).standardizedFileURL
+            var isDirectory: ObjCBool = false
+            guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory), isDirectory.boolValue else {
+                throw CLIError.inputFileNotFound(path: url.path)
+            }
+            projectURL = url
+        } else {
+            projectURL = nil
+        }
+
+        let outputDirectory: URL
+        if let outputDir {
+            outputDirectory = URL(fileURLWithPath: outputDir)
+        } else if let projectURL {
+            // The same Analyses/<mapper>-<timestamp>/ folder the window creates.
+            do {
+                outputDirectory = try MappingResultLayoutService.createAnalysisDirectory(
+                    tool: selectedTool,
+                    in: projectURL
+                )
+            } catch {
+                throw CLIError.outputWriteFailed(
+                    path: projectURL.appendingPathComponent("Analyses").path,
+                    reason: error.localizedDescription
+                )
+            }
+        } else {
+            let runToken = String(UUID().uuidString.prefix(8))
+            outputDirectory = inputURLs.first!.deletingLastPathComponent()
+                .appendingPathComponent("mapping-\(runToken)")
         }
 
         let selectedMode: MappingMode
@@ -214,7 +260,7 @@ struct MapCommand: AsyncParsableCommand {
                 throw CLIError.workflowFailed(reason: message)
             }
         } catch {
-            throw CLIError.workflowFailed(reason: error.localizedDescription)
+            throw CLIError.wrapping(error)
         }
         let executionInputURLs = resolvedInputs.inputURLs
         if resolvedInputs.didMaterialize {
@@ -261,6 +307,7 @@ struct MapCommand: AsyncParsableCommand {
             inputMaterializationStartedAt: resolvedInputs.materializationStartedAt,
             inputMaterializationEndedAt: resolvedInputs.materializationEndedAt,
             referenceFASTAURL: referenceURL,
+            projectURL: projectURL,
             outputDirectory: outputDirectory,
             sampleName: effectiveSampleName,
             readGroup: resolvedReadGroup,
@@ -270,7 +317,8 @@ struct MapCommand: AsyncParsableCommand {
             includeSupplementary: !noSupplementary,
             minimumMappingQuality: minMapQ,
             advancedArguments: advancedArguments,
-            inputLayout: layoutResolution.layout
+            inputLayout: layoutResolution.layout,
+            outputTrackName: trackName
         )
         let readLayoutPlan = request.readLayoutPlan
 
@@ -295,22 +343,41 @@ struct MapCommand: AsyncParsableCommand {
             ("Read group PL", resolvedReadGroup.platform),
             ("Read group PU", resolvedReadGroup.platformUnit),
             ("Extra arguments", advancedArguments.isEmpty ? "none" : AdvancedCommandLineOptions.join(advancedArguments)),
+            ("Project", projectURL?.path ?? "none"),
             ("Output", outputDirectory.path),
+            ("Track name", noViewerBundle ? "none (no viewer bundle)" : MappingResultLayoutService.trackName(for: request)),
         ]))
         print("")
 
         let pipeline = ManagedMappingPipeline()
-        let result: MappingResult
+        let pipelineResult: MappingResult
         do {
-            result = try await pipeline.run(request: request, inputLayoutReason: layoutResolution.reason) { _, message in
+            pipelineResult = try await pipeline.run(request: request, inputLayoutReason: layoutResolution.reason) { _, message in
                 if !globalOptions.quiet {
                     print("\r\(formatter.info(message))", terminator: "")
                     fflush(stdout)
                 }
             }
         } catch {
-            throw CLIError.workflowFailed(reason: error.localizedDescription)
+            throw CLIError.wrapping(error)
         }
+
+        // The same layout the Map Reads window leaves behind: a copy of the
+        // reference bundle in the result directory with the BAM attached as
+        // a track, the sidecars rewritten to point at it, and the run
+        // recorded in the source bundle's analysis history.
+        let result = try await Self.publishLayout(
+            result: pipelineResult,
+            request: request,
+            originalInputURLs: inputURLs,
+            skipViewerBundle: noViewerBundle,
+            progress: { _, message in
+                if !globalOptions.quiet {
+                    print("\r\(formatter.info(message))", terminator: "")
+                    fflush(stdout)
+                }
+            }
+        )
 
         print("")
         print("")
@@ -321,15 +388,62 @@ struct MapCommand: AsyncParsableCommand {
 
         print(formatter.header("Results"))
         print("")
-        print(formatter.keyValueTable([
+        var rows: [(String, String)] = [
             ("Total reads", String(result.totalReads)),
             ("Mapped reads", "\(result.mappedReads) (\(mappingPct))"),
             ("Unmapped reads", String(result.unmappedReads)),
             ("Runtime", String(format: "%.1fs", result.wallClockSeconds)),
             ("Sorted BAM", result.bamURL.path),
             ("BAI", result.baiURL.path),
-        ]))
+        ]
+        if let viewerBundleURL = result.viewerBundleURL {
+            rows.append(("Viewer bundle", viewerBundleURL.path))
+            rows.append(("Track name", MappingResultLayoutService.trackName(for: request)))
+        }
+        print(formatter.keyValueTable(rows))
         print("")
+    }
+
+    /// Runs the shared post-mapping layout: viewer bundle publication (unless
+    /// skipped or the reference is not inside a `.lungfishref` bundle) and
+    /// the analysis-history record. Returns the result the sidecars now
+    /// describe.
+    static func publishLayout(
+        result: MappingResult,
+        request: MappingRunRequest,
+        originalInputURLs: [URL],
+        skipViewerBundle: Bool,
+        progress: MappingResultLayoutService.ProgressHandler? = nil
+    ) async throws -> MappingResult {
+        var finalResult = result
+        if !skipViewerBundle {
+            do {
+                if let publication = try await MappingResultLayoutService.publishViewerBundle(
+                    result: result,
+                    request: request,
+                    progress: progress
+                ) {
+                    finalResult = publication.result
+                }
+            } catch {
+                throw CLIError.workflowFailed(
+                    reason: "Mapping finished, but the reference viewer bundle could not be published: \(error.localizedDescription)"
+                )
+            }
+        }
+        do {
+            try MappingResultLayoutService.recordAnalysisManifest(
+                originalInputURLs: originalInputURLs,
+                resolvedRequest: request,
+                result: finalResult,
+                projectURL: request.projectURL
+            )
+        } catch {
+            FileHandle.standardError.write(
+                Data("warning: could not record the run in the source bundle's analysis history: \(error.localizedDescription)\n".utf8)
+            )
+        }
+        return finalResult
     }
 
     /// The `--read-layout` values, mirroring `FASTQInputLayout` for one file.

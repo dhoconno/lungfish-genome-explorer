@@ -91,6 +91,10 @@ public struct MappingRunRequest: Sendable, Codable, Equatable {
     /// The resolved layout of `inputFASTQURLs`, or `nil` until the pipeline
     /// resolves it (``FASTQInputLayoutResolver``) after input materialization.
     public let inputLayout: FASTQInputLayout?
+    /// The name of the alignment track the BAM is attached as in the
+    /// mapping viewer bundle (`--track-name`); `nil` means
+    /// ``MappingResultLayoutService/defaultTrackName(for:)``.
+    public let outputTrackName: String?
 
     public init(
         tool: MappingTool,
@@ -112,7 +116,8 @@ public struct MappingRunRequest: Sendable, Codable, Equatable {
         minimumMappingQuality: Int = 0,
         advancedArguments: [String] = [],
         compatibilityReadClassOverride: MappingReadClass? = nil,
-        inputLayout: FASTQInputLayout? = nil
+        inputLayout: FASTQInputLayout? = nil,
+        outputTrackName: String? = nil
     ) {
         self.tool = tool
         self.modeID = modeID
@@ -134,6 +139,34 @@ public struct MappingRunRequest: Sendable, Codable, Equatable {
         self.advancedArguments = advancedArguments
         self.compatibilityReadClassOverride = compatibilityReadClassOverride
         self.inputLayout = inputLayout
+        let trimmedTrackName = outputTrackName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        self.outputTrackName = trimmedTrackName.isEmpty ? nil : trimmedTrackName
+    }
+
+    public func withOutputTrackName(_ outputTrackName: String?) -> MappingRunRequest {
+        MappingRunRequest(
+            tool: tool,
+            modeID: modeID,
+            inputFASTQURLs: inputFASTQURLs,
+            originalInputFASTQURLs: originalInputFASTQURLs,
+            inputMaterializationStartedAt: inputMaterializationStartedAt,
+            inputMaterializationEndedAt: inputMaterializationEndedAt,
+            referenceFASTAURL: referenceFASTAURL,
+            sourceReferenceBundleURL: sourceReferenceBundleURL,
+            projectURL: projectURL,
+            outputDirectory: outputDirectory,
+            sampleName: sampleName,
+            readGroup: readGroup,
+            pairedEnd: pairedEnd,
+            threads: threads,
+            includeSecondary: includeSecondary,
+            includeSupplementary: includeSupplementary,
+            minimumMappingQuality: minimumMappingQuality,
+            advancedArguments: advancedArguments,
+            compatibilityReadClassOverride: compatibilityReadClassOverride,
+            inputLayout: inputLayout,
+            outputTrackName: outputTrackName
+        )
     }
 
     public func withInputFASTQURLs(_ inputFASTQURLs: [URL], pairedEnd: Bool? = nil) -> MappingRunRequest {
@@ -157,7 +190,8 @@ public struct MappingRunRequest: Sendable, Codable, Equatable {
             minimumMappingQuality: minimumMappingQuality,
             advancedArguments: advancedArguments,
             compatibilityReadClassOverride: compatibilityReadClassOverride,
-            inputLayout: inputLayout
+            inputLayout: inputLayout,
+            outputTrackName: outputTrackName
         )
     }
 
@@ -182,7 +216,8 @@ public struct MappingRunRequest: Sendable, Codable, Equatable {
             minimumMappingQuality: minimumMappingQuality,
             advancedArguments: advancedArguments,
             compatibilityReadClassOverride: compatibilityReadClassOverride,
-            inputLayout: inputLayout
+            inputLayout: inputLayout,
+            outputTrackName: outputTrackName
         )
     }
 
@@ -207,7 +242,8 @@ public struct MappingRunRequest: Sendable, Codable, Equatable {
             minimumMappingQuality: minimumMappingQuality,
             advancedArguments: advancedArguments,
             compatibilityReadClassOverride: compatibilityReadClassOverride,
-            inputLayout: inputLayout
+            inputLayout: inputLayout,
+            outputTrackName: outputTrackName
         )
     }
 
@@ -232,7 +268,8 @@ public struct MappingRunRequest: Sendable, Codable, Equatable {
             minimumMappingQuality: minimumMappingQuality,
             advancedArguments: advancedArguments,
             compatibilityReadClassOverride: compatibilityReadClassOverride,
-            inputLayout: inputLayout
+            inputLayout: inputLayout,
+            outputTrackName: outputTrackName
         )
     }
 

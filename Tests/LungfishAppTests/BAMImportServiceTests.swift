@@ -347,7 +347,7 @@ final class BAMImportServiceTests: XCTestCase {
 
     func testImportCallsCleanupBeforeRethrowingManifestUpdateFailure() throws {
         let source = try String(
-            contentsOf: packageRoot().appendingPathComponent("Sources/LungfishApp/Services/BAMImportService.swift"),
+            contentsOf: packageRoot().appendingPathComponent("Sources/LungfishWorkflow/Mapping/BAMImportService.swift"),
             encoding: .utf8
         )
 
@@ -369,7 +369,7 @@ final class BAMImportServiceTests: XCTestCase {
 
     func testImportWritesCanonicalProvenanceBeforeManifestUpdate() throws {
         let source = try String(
-            contentsOf: packageRoot().appendingPathComponent("Sources/LungfishApp/Services/BAMImportService.swift"),
+            contentsOf: packageRoot().appendingPathComponent("Sources/LungfishWorkflow/Mapping/BAMImportService.swift"),
             encoding: .utf8
         )
 

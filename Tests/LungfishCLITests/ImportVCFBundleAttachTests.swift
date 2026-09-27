@@ -106,6 +106,84 @@ final class ImportVCFBundleAttachTests: XCTestCase {
         )
     }
 
+    /// The imported variants exist only as `variants/<track>.db`, so the
+    /// manifest track must name that file (not a `.bcf` placeholder that is
+    /// never written) and `bundle validate --check-integrity` must pass.
+    func testImportedTrackNamesTheDatabaseAndValidatesWithIntegrityCheck() async throws {
+        let vcfURL = try fixtureVCF()
+        let bundleURL = try makeReferenceBundle()
+        try await ImportCommand.VCFSubcommand.parse([
+            vcfURL.path, "--output-dir", bundleURL.path, "--quiet",
+        ]).run()
+
+        let track = try XCTUnwrap(try BundleManifest.load(from: bundleURL).variants.first)
+        XCTAssertEqual(track.path, "variants/test.db")
+        XCTAssertEqual(track.indexPath, "")
+        XCTAssertEqual(track.databasePath, "variants/test.db")
+        XCTAssertTrue(VCFBundleVariantImport.isDatabaseBackedTrack(track))
+        XCTAssertEqual(
+            VCFBundleVariantImport.requiredFiles(for: track).map(\.relativePath),
+            ["variants/test.db"]
+        )
+        for required in VCFBundleVariantImport.requiredFiles(for: track) {
+            XCTAssertTrue(
+                FileManager.default.fileExists(atPath: bundleURL.appendingPathComponent(required.relativePath).path),
+                required.relativePath
+            )
+        }
+
+        let validate = try BundleValidateSubcommand.parse([bundleURL.path, "--check-integrity", "--quiet"])
+        do {
+            try await validate.run()
+        } catch {
+            XCTFail("bundle validate --check-integrity must pass on a bundle with an imported VCF: \(error)")
+        }
+    }
+
+    /// Bundles written before the fix carry the `.bcf`/`.bcf.csi` placeholder
+    /// pair. They still load, are still recognised as database-backed, and
+    /// validate on the database alone.
+    func testLegacyBCFPlaceholderTrackStillReadsAndValidatesOnTheDatabase() async throws {
+        let vcfURL = try fixtureVCF()
+        let bundleURL = try makeReferenceBundle()
+        try await ImportCommand.VCFSubcommand.parse([
+            vcfURL.path, "--output-dir", bundleURL.path, "--quiet",
+        ]).run()
+
+        let manifestURL = bundleURL.appendingPathComponent(BundleManifest.filename)
+        var manifestJSON = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(contentsOf: manifestURL)) as? [String: Any]
+        )
+        var variants = try XCTUnwrap(manifestJSON["variants"] as? [[String: Any]])
+        variants[0]["path"] = "variants/test.bcf"
+        variants[0]["index_path"] = "variants/test.bcf.csi"
+        manifestJSON["variants"] = variants
+        try JSONSerialization.data(withJSONObject: manifestJSON, options: [.prettyPrinted])
+            .write(to: manifestURL)
+
+        let legacy = try XCTUnwrap(try BundleManifest.load(from: bundleURL).variants.first)
+        XCTAssertEqual(legacy.path, "variants/test.bcf")
+        XCTAssertTrue(VCFBundleVariantImport.isDatabaseBackedTrack(legacy))
+        XCTAssertEqual(
+            VCFBundleVariantImport.requiredFiles(for: legacy).map(\.relativePath),
+            ["variants/test.db"]
+        )
+        let validate = try BundleValidateSubcommand.parse([bundleURL.path, "--check-integrity", "--quiet"])
+        do {
+            try await validate.run()
+        } catch {
+            XCTFail("a legacy placeholder track must validate on its database: \(error)")
+        }
+
+        // A track that names no database keeps its payload mandatory.
+        let plain = VariantTrackInfo(id: "x", name: "x", path: "variants/x.bcf", indexPath: "variants/x.bcf.csi")
+        XCTAssertFalse(VCFBundleVariantImport.isDatabaseBackedTrack(plain))
+        XCTAssertEqual(
+            VCFBundleVariantImport.requiredFiles(for: plain).map(\.relativePath),
+            ["variants/x.bcf", "variants/x.bcf.csi"]
+        )
+    }
+
     func testReattachReplacesTrackInsteadOfDuplicating() async throws {
         let vcfURL = try fixtureVCF()
         let bundleURL = try makeReferenceBundle()
@@ -172,19 +250,36 @@ final class ImportVCFBundleAttachTests: XCTestCase {
 
     /// A manifest-only reference bundle whose single chromosome matches the
     /// sarscov2 fixture. Attaching variants reads only the manifest.
+    /// A reference bundle whose genome payload is the real sarscov2 fixture,
+    /// so `bundle validate --check-integrity` judges the variant track and
+    /// not a missing genome.
     private func makeReferenceBundle() throws -> URL {
+        let fixtures = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Fixtures/sarscov2")
+        let fixtureFASTA = fixtures.appendingPathComponent("genome.fasta")
+        guard FileManager.default.fileExists(atPath: fixtureFASTA.path) else {
+            throw XCTSkip("sarscov2 fixture genome missing at \(fixtureFASTA.path)")
+        }
         let bundleURL = tempDir.appendingPathComponent("Ref Bundle.lungfishref", isDirectory: true)
-        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        let genomeDir = bundleURL.appendingPathComponent("genome", isDirectory: true)
+        try FileManager.default.createDirectory(at: genomeDir, withIntermediateDirectories: true)
+        try FileManager.default.copyItem(at: fixtureFASTA, to: genomeDir.appendingPathComponent("sequence.fa"))
+        try FileManager.default.copyItem(
+            at: fixtures.appendingPathComponent("genome.fasta.fai"),
+            to: genomeDir.appendingPathComponent("sequence.fa.fai")
+        )
         let manifest = BundleManifest(
             name: "SARS-CoV-2",
             identifier: "org.lungfish.tests.vcf-attach",
             source: SourceInfo(organism: "SARS-CoV-2", assembly: "MT192765.1"),
             genome: GenomeInfo(
-                path: "genome/sequence.fa.gz",
-                indexPath: "genome/sequence.fa.gz.fai",
+                path: "genome/sequence.fa",
+                indexPath: "genome/sequence.fa.fai",
                 totalLength: 29_829,
                 chromosomes: [
-                    ChromosomeInfo(name: "MT192765.1", length: 29_829, offset: 0, lineBases: 70, lineWidth: 71, aliases: [])
+                    ChromosomeInfo(name: "MT192765.1", length: 29_829, offset: 120, lineBases: 80, lineWidth: 81, aliases: [])
                 ]
             )
         )

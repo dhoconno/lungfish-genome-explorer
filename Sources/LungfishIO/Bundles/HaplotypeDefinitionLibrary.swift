@@ -67,13 +67,50 @@ public struct HaplotypeDefinitionLibrary: Sendable {
             }
     }
 
+    /// The records a definition-set ID can resolve against.
+    ///
+    /// Bundle records are always present. With `includeProjectStore` the
+    /// bare definitions under the project's `Haplotype Definitions/` folder
+    /// (what `haplotypes import` writes and `haplotypes list` shows) are
+    /// added too, so a CLI run that names one of them resolves the same
+    /// definition the listing showed instead of "Unknown haplotype
+    /// definition set". A bare definition whose ID and assay also appear in
+    /// a bundle is shadowed by the bundle copy.
+    public func resolvableRecords(includeProjectStore: Bool) -> [HaplotypeDefinitionRecord] {
+        let bundleRecords = projectMHCReferenceBundleRecords()
+        guard includeProjectStore else {
+            return bundleRecords.sorted { lhs, rhs in
+                lhs.id.localizedStandardCompare(rhs.id) == .orderedAscending
+            }
+        }
+        let bundledKeys = Set(bundleRecords.map { "\($0.definitionSet.assayID)\u{1F}\($0.definitionSet.id)" })
+        let bareRecords = projectStoreRecords().map { record -> HaplotypeDefinitionRecord in
+            let key = "\(record.definitionSet.assayID)\u{1F}\(record.definitionSet.id)"
+            guard bundledKeys.contains(key) else { return record }
+            return HaplotypeDefinitionRecord(
+                scope: record.scope,
+                assayDisplayName: record.assayDisplayName,
+                definitionSet: record.definitionSet,
+                fileURL: record.fileURL,
+                isShadowed: true,
+                referenceBundleURL: nil,
+                referenceFASTAURL: nil
+            )
+        }
+        return (bundleRecords + bareRecords).sorted { lhs, rhs in
+            lhs.id.localizedStandardCompare(rhs.id) == .orderedAscending
+        }
+    }
+
     public func activeRecords(
         assayID: String? = nil,
         speciesCode: String? = nil,
         scope: HaplotypeDefinitionScope? = nil,
-        includeReferenceBundles: Bool = true
+        includeReferenceBundles: Bool = true,
+        includeProjectStore: Bool = false
     ) -> [HaplotypeDefinitionRecord] {
-        records(includeReferenceBundles: includeReferenceBundles).filter { record in
+        _ = includeReferenceBundles
+        return resolvableRecords(includeProjectStore: includeProjectStore).filter { record in
             guard !record.isShadowed else { return false }
             if let assayID, !assayID.isEmpty, record.definitionSet.assayID != assayID {
                 return false
@@ -90,8 +127,14 @@ public struct HaplotypeDefinitionLibrary: Sendable {
         }
     }
 
-    public func mergedRegistry(includeReferenceBundles: Bool = true) -> GenotypeHaplotypeDefinitionRegistry {
-        let active = activeRecords(includeReferenceBundles: includeReferenceBundles)
+    public func mergedRegistry(
+        includeReferenceBundles: Bool = true,
+        includeProjectStore: Bool = false
+    ) -> GenotypeHaplotypeDefinitionRegistry {
+        let active = activeRecords(
+            includeReferenceBundles: includeReferenceBundles,
+            includeProjectStore: includeProjectStore
+        )
         let grouped = Dictionary(grouping: active.map(\.definitionSet), by: \.assayID)
         let assays = grouped.keys.sorted().map { assayID in
             GenotypeHaplotypeAssay(

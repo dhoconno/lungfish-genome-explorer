@@ -3,6 +3,24 @@ import XCTest
 @testable import LungfishWorkflow
 
 final class GATKCommandTests: XCTestCase {
+    /// The sidecar's `toolVersion` must never be the "unknown" sentinel: a dry
+    /// run records the pack's pinned GATK version, and an executed run asks
+    /// the installed `gatk --version` first, falling back to the pin.
+    func testResolvedToolVersionNeverRecordsUnknown() async {
+        let pinned = GATKCLICommand.defaultToolVersion()
+        XCTAssertEqual(pinned, "4.6.2.0", "gatk-core lock pin")
+        XCTAssertNotEqual(pinned, "unknown")
+
+        let dryRun = await GATKCLICommand.resolvedToolVersion(execute: false)
+        XCTAssertEqual(dryRun, pinned)
+
+        XCTAssertNil(GATKInstalledToolVersion.normalized("unknown"))
+        XCTAssertNil(GATKInstalledToolVersion.normalized(" "))
+        XCTAssertEqual(GATKInstalledToolVersion.normalized("4.6.2.0"), "4.6.2.0")
+        XCTAssertEqual(GATKInstalledToolVersion.executable, "gatk")
+        XCTAssertEqual(GATKInstalledToolVersion.environment, "gatk-core")
+    }
+
     func testHaplotypeCallerDryRunPrintsConstructedCommand() async throws {
         let command = try GATKCLICommand.HaplotypeCallerSubcommand.parse([
             "haplotype-caller",

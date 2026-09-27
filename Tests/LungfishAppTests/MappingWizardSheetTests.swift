@@ -45,6 +45,79 @@ final class MappingWizardSheetTests: XCTestCase {
         XCTAssertEqual(MappingWizardSheet.readGroupSectionTitle, "Read Group")
         XCTAssertEqual(MappingWizardSheet.advancedSectionTitle, "Advanced Settings")
         XCTAssertEqual(MappingWizardSheet.extraArgumentsFieldTitle, "Extra arguments")
+        XCTAssertEqual(MappingWizardSheet.outputTrackSectionTitle, "Output Track")
+        XCTAssertEqual(MappingWizardSheet.outputTrackFieldLabel, "Track name (--track-name)")
+    }
+
+    /// The Output Track Name field: blank or the tool's default leaves the
+    /// request's `outputTrackName` nil (so the run and its copied CLI
+    /// command keep the default "<Tool> Mapping"); any other text is carried
+    /// on every request of the plan and surfaces as `--track-name`.
+    func testOutputTrackNameFieldFlowsIntoRequestsAndTheCLICommand() {
+        XCTAssertNil(MappingWizardSheet.explicitOutputTrackName("", tool: .minimap2))
+        XCTAssertNil(MappingWizardSheet.explicitOutputTrackName("   ", tool: .minimap2))
+        XCTAssertNil(MappingWizardSheet.explicitOutputTrackName("minimap2 Mapping", tool: .minimap2))
+        XCTAssertEqual(MappingWizardSheet.explicitOutputTrackName("minimap2 Mapping", tool: .bowtie2), "minimap2 Mapping")
+        XCTAssertEqual(MappingWizardSheet.explicitOutputTrackName("  HG002 minimap2 ", tool: .minimap2), "HG002 minimap2")
+
+        let plan = MappingWizardSheet.buildRunPlan(
+            bundleURLs: [bundleURL("SampleA"), bundleURL("SampleB")],
+            mode: .perBundle,
+            tool: .minimap2,
+            modeID: MappingMode.defaultShortRead.id,
+            referenceFASTAURL: URL(fileURLWithPath: "/tmp/proj/Reference Sequences/ref.lungfishref/genome/sequence.fa"),
+            sourceReferenceBundleURL: URL(fileURLWithPath: "/tmp/proj/Reference Sequences/ref.lungfishref"),
+            projectURL: URL(fileURLWithPath: "/tmp/proj"),
+            outputDirectory: URL(fileURLWithPath: "/tmp/proj/mapping-out", isDirectory: true),
+            runToken: "abc123",
+            readGroupIDText: "",
+            readGroupSampleText: "",
+            readGroupLibraryText: "",
+            readGroupPlatformText: "",
+            readGroupPlatformUnitText: "",
+            threads: 4,
+            includeSecondary: false,
+            includeSupplementary: true,
+            minimumMappingQuality: 0,
+            advancedArguments: [],
+            outputTrackName: "HG002 minimap2"
+        )
+        XCTAssertEqual(plan.requests.count, 2)
+        for request in plan.requests {
+            XCTAssertEqual(request.outputTrackName, "HG002 minimap2")
+            XCTAssertEqual(MappingResultLayoutService.trackName(for: request), "HG002 minimap2")
+            XCTAssertEqual(request.summaryParameters()["outputTrackName"], .string("HG002 minimap2"))
+            let arguments = MappingCLIInvocationBuilder.arguments(for: request)
+            XCTAssertEqual(arguments[arguments.firstIndex(of: "--track-name")! + 1], "HG002 minimap2")
+            XCTAssertEqual(arguments[arguments.firstIndex(of: "--project")! + 1], "/tmp/proj")
+        }
+
+        let defaultPlan = MappingWizardSheet.buildRunPlan(
+            bundleURLs: [bundleURL("SampleA")],
+            mode: .perBundle,
+            tool: .minimap2,
+            modeID: MappingMode.defaultShortRead.id,
+            referenceFASTAURL: URL(fileURLWithPath: "/tmp/proj/reference.fa"),
+            sourceReferenceBundleURL: nil,
+            projectURL: nil,
+            outputDirectory: URL(fileURLWithPath: "/tmp/proj/mapping-out", isDirectory: true),
+            runToken: "abc123",
+            readGroupIDText: "",
+            readGroupSampleText: "",
+            readGroupLibraryText: "",
+            readGroupPlatformText: "",
+            readGroupPlatformUnitText: "",
+            threads: 4,
+            includeSecondary: false,
+            includeSupplementary: true,
+            minimumMappingQuality: 0,
+            advancedArguments: []
+        )
+        let request = defaultPlan.requests[0]
+        XCTAssertNil(request.outputTrackName)
+        XCTAssertEqual(MappingResultLayoutService.trackName(for: request), "minimap2 Mapping")
+        XCTAssertFalse(MappingCLIInvocationBuilder.arguments(for: request).contains("--track-name"))
+        XCTAssertFalse(MappingCLIInvocationBuilder.arguments(for: request).contains("--project"))
     }
 
     func testAdvancedOptionsPlaceholderUsesRealToolSpecificOptions() {

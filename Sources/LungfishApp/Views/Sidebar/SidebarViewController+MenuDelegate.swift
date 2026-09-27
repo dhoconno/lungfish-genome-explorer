@@ -784,8 +784,16 @@ extension SidebarViewController: NSMenuDelegate {
             }
 
             for track in tracks {
+                // A database-backed track (every imported VCF) has no variant
+                // file beside its database: `path` is the database itself, or
+                // a legacy `.bcf` placeholder that was never written, and
+                // `indexPath` is empty. Only a track with a distinct payload
+                // file needs it removed here.
+                let databaseBacked = VCFBundleVariantImport.isDatabaseBackedTrack(track)
+
                 // Delete BCF file
-                if let bcfURL = validatedBundleMemberURL(
+                if !databaseBacked, !track.path.isEmpty,
+                   let bcfURL = validatedBundleMemberURL(
                     track.path,
                     field: "variants[\(track.id)].path",
                     critical: true
@@ -794,7 +802,8 @@ extension SidebarViewController: NSMenuDelegate {
                 }
 
                 // Delete CSI index file
-                if let csiURL = validatedBundleMemberURL(
+                if !databaseBacked, !track.indexPath.isEmpty,
+                   let csiURL = validatedBundleMemberURL(
                     track.indexPath,
                     field: "variants[\(track.id)].indexPath",
                     critical: true

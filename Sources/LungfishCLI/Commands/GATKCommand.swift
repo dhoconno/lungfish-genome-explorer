@@ -59,11 +59,30 @@ struct GATKCLICommand: AsyncParsableCommand {
         }
     }
 
+    /// The GATK version pinned by the gatk-core plugin pack's lock file.
     static func defaultToolVersion() -> String {
         PluginPack.builtInPack(id: "gatk-core")?
             .toolRequirements
             .first(where: { $0.environment == "gatk-core" })?
             .version ?? "unknown"
+    }
+
+    /// The GATK version to record in provenance.
+    ///
+    /// An executed run asks the installed `gatk --version` in the managed
+    /// gatk-core environment, so the sidecar names the binary that really
+    /// ran; the pinned lock version is the fallback when the probe cannot
+    /// answer (and the only answer for a dry run, which runs nothing).
+    static func resolvedToolVersion(
+        execute: Bool,
+        condaManager: CondaManager = .shared
+    ) async -> String {
+        let pinned = defaultToolVersion()
+        guard execute else { return pinned }
+        if let installed = await GATKInstalledToolVersion.probe(condaManager: condaManager) {
+            return installed
+        }
+        return pinned
     }
 
     static func defaultRuntimeIdentity() -> GATKRuntimeIdentity {
@@ -153,7 +172,7 @@ extension GATKCLICommand {
             try await executeForTesting(
                 emit: emit,
                 runner: ManagedGATKCommandRunner(),
-                toolVersion: GATKCLICommand.defaultToolVersion(),
+                toolVersion: await GATKCLICommand.resolvedToolVersion(execute: execute && !dryRun),
                 runtimeIdentity: GATKCLICommand.defaultRuntimeIdentity()
             )
         }
@@ -250,7 +269,7 @@ extension GATKCLICommand {
             try await executeForTesting(
                 emit: emit,
                 runner: ManagedGATKCommandRunner(),
-                toolVersion: GATKCLICommand.defaultToolVersion(),
+                toolVersion: await GATKCLICommand.resolvedToolVersion(execute: execute && !dryRun),
                 runtimeIdentity: GATKCLICommand.defaultRuntimeIdentity()
             )
         }
@@ -334,7 +353,7 @@ extension GATKCLICommand {
             try await executeForTesting(
                 emit: emit,
                 runner: ManagedGATKCommandRunner(),
-                toolVersion: GATKCLICommand.defaultToolVersion(),
+                toolVersion: await GATKCLICommand.resolvedToolVersion(execute: execute && !dryRun),
                 runtimeIdentity: GATKCLICommand.defaultRuntimeIdentity()
             )
         }
@@ -421,7 +440,7 @@ extension GATKCLICommand {
             try await executeForTesting(
                 emit: emit,
                 runner: ManagedGATKCommandRunner(),
-                toolVersion: GATKCLICommand.defaultToolVersion(),
+                toolVersion: await GATKCLICommand.resolvedToolVersion(execute: execute && !dryRun),
                 runtimeIdentity: GATKCLICommand.defaultRuntimeIdentity()
             )
         }
@@ -514,7 +533,7 @@ extension GATKCLICommand {
             try await executeForTesting(
                 emit: emit,
                 runner: ManagedGATKCommandRunner(),
-                toolVersion: GATKCLICommand.defaultToolVersion(),
+                toolVersion: await GATKCLICommand.resolvedToolVersion(execute: execute && !dryRun),
                 runtimeIdentity: GATKCLICommand.defaultRuntimeIdentity()
             )
         }
@@ -616,7 +635,7 @@ extension GATKCLICommand {
             try await executeForTesting(
                 emit: emit,
                 runner: ManagedGATKCommandRunner(),
-                toolVersion: GATKCLICommand.defaultToolVersion(),
+                toolVersion: await GATKCLICommand.resolvedToolVersion(execute: execute && !dryRun),
                 runtimeIdentity: GATKCLICommand.defaultRuntimeIdentity()
             )
         }
@@ -719,7 +738,7 @@ extension GATKCLICommand {
             try await executeForTesting(
                 emit: emit,
                 runner: ManagedGATKCommandRunner(),
-                toolVersion: GATKCLICommand.defaultToolVersion(),
+                toolVersion: await GATKCLICommand.resolvedToolVersion(execute: execute && !dryRun),
                 runtimeIdentity: GATKCLICommand.defaultRuntimeIdentity()
             )
         }
@@ -821,7 +840,7 @@ extension GATKCLICommand {
             try await executeForTesting(
                 emit: emit,
                 runner: ManagedGATKCommandRunner(),
-                toolVersion: GATKCLICommand.defaultToolVersion(),
+                toolVersion: await GATKCLICommand.resolvedToolVersion(execute: execute && !dryRun),
                 runtimeIdentity: GATKCLICommand.defaultRuntimeIdentity()
             )
         }
@@ -927,7 +946,7 @@ extension GATKCLICommand {
             try await executeForTesting(
                 emit: emit,
                 runner: ManagedGATKCommandRunner(),
-                toolVersion: GATKCLICommand.defaultToolVersion(),
+                toolVersion: await GATKCLICommand.resolvedToolVersion(execute: execute && !dryRun),
                 runtimeIdentity: GATKCLICommand.defaultRuntimeIdentity()
             )
         }
@@ -1027,7 +1046,7 @@ extension GATKCLICommand {
             try await executeForTesting(
                 emit: emit,
                 runner: ManagedGATKCommandRunner(),
-                toolVersion: GATKCLICommand.defaultToolVersion(),
+                toolVersion: await GATKCLICommand.resolvedToolVersion(execute: execute && !dryRun),
                 runtimeIdentity: GATKCLICommand.defaultRuntimeIdentity()
             )
         }

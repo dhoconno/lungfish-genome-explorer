@@ -1,6 +1,5 @@
 import Darwin
 import XCTest
-@testable import LungfishApp
 import LungfishCore
 @testable import LungfishIO
 import LungfishTestSupport
@@ -374,8 +373,10 @@ final class MappingViewerBundleProvenanceFinalizerTests: XCTestCase {
         try FileManager.default.createDirectory(at: sourceVariantsDir, withIntermediateDirectories: true)
         let databasePath = try XCTUnwrap(sentinelTrack.databasePath)
         try Data("variant-db".utf8).write(to: scaffold.sourceBundleURL.appendingPathComponent(databasePath))
+        // The track's `path` is the database itself; no `.bcf` file exists.
+        XCTAssertEqual(sentinelTrack.path, databasePath)
         XCTAssertFalse(FileManager.default.fileExists(
-            atPath: scaffold.sourceBundleURL.appendingPathComponent(sentinelTrack.path).path
+            atPath: scaffold.sourceBundleURL.appendingPathComponent("variants/HG002.benchmark.bcf").path
         ))
         try BundleManifest.load(from: scaffold.sourceBundleURL)
             .addingVariantTrack(sentinelTrack)
@@ -465,12 +466,12 @@ final class MappingViewerBundleProvenanceFinalizerTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: candidateBundle.path))
         let storedResult = try MappingResult.load(from: resultDirectory)
         XCTAssertEqual(storedResult.viewerBundleURL?.standardizedFileURL, finalBundle.standardizedFileURL)
-        let viewportInput = ReferenceBundleViewportInput.mappingResult(
-            result: storedResult,
-            resultDirectoryURL: resultDirectory,
-            provenance: MappingProvenance.load(from: resultDirectory)
+        // The viewport opens the copy the sidecars name, so both sidecars
+        // must agree on the published viewer bundle.
+        XCTAssertEqual(
+            MappingProvenance.load(from: resultDirectory)?.viewerBundlePath,
+            finalBundle.standardizedFileURL.path
         )
-        XCTAssertEqual(viewportInput.renderedBundleURL, finalBundle.standardizedFileURL)
 
         let viewerManifest = try BundleManifest.load(from: finalBundle)
         XCTAssertEqual(viewerManifest.alignments.map(\.name), ["minimap2 Mapping"])
@@ -496,9 +497,14 @@ final class MappingViewerBundleProvenanceFinalizerTests: XCTestCase {
 
     func testPublishSkipsLegacyBCFSentinelsForDatabaseBackedVariantTracks() throws {
         let fixture = try makeFixture()
-        let sentinelTrack = VCFBundleVariantImport.makeTrackInfo(
-            trackID: "benchmark",
-            vcfURL: tempDirectory.appendingPathComponent("benchmark.vcf.gz"),
+        // A track written before the fix: `.bcf`/`.bcf.csi` placeholders that
+        // never existed on disk, beside a real database.
+        let sentinelTrack = VariantTrackInfo(
+            id: "benchmark",
+            name: "benchmark",
+            path: "variants/benchmark.bcf",
+            indexPath: "variants/benchmark.bcf.csi",
+            databasePath: VCFBundleVariantImport.databaseRelativePath(trackID: "benchmark"),
             variantCount: 3
         )
         let databasePath = try XCTUnwrap(sentinelTrack.databasePath)
@@ -974,14 +980,31 @@ final class MappingViewerBundleProvenanceFinalizerTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: concurrentURL), concurrentData)
     }
 
-    func testToolsMenuUsesTransactionalMappingViewerPublicationService() throws {
-        let source = try String(
+    /// The window and `lungfish-cli map` publish the viewer bundle through
+    /// the one shared service (which is what calls the transactional
+    /// publication below), so neither surface can drift on the layout.
+    func testToolsMenuAndMapCommandPublishThroughTheSharedLayoutService() throws {
+        let appSource = try String(
             contentsOf: packageRoot().appendingPathComponent("Sources/LungfishApp/App/AppDelegate+ToolsMenu.swift"),
             encoding: .utf8
         )
+        let cliSource = try String(
+            contentsOf: packageRoot().appendingPathComponent("Sources/LungfishCLI/Commands/MapCommand.swift"),
+            encoding: .utf8
+        )
+        let serviceSource = try String(
+            contentsOf: packageRoot().appendingPathComponent("Sources/LungfishWorkflow/Mapping/MappingResultLayoutService.swift"),
+            encoding: .utf8
+        )
 
-        XCTAssertTrue(source.contains("try MappingViewerBundlePublicationService.publishCandidate("))
-        XCTAssertFalse(source.contains("Reference viewer bundle could not be prepared"))
+        XCTAssertTrue(appSource.contains("MappingResultLayoutService.publishViewerBundle("))
+        XCTAssertTrue(cliSource.contains("MappingResultLayoutService.publishViewerBundle("))
+        XCTAssertTrue(appSource.contains("MappingResultLayoutService.recordAnalysisManifest("))
+        XCTAssertTrue(cliSource.contains("MappingResultLayoutService.recordAnalysisManifest("))
+        XCTAssertFalse(appSource.contains("MappingViewerBundlePublicationService.publishCandidate("))
+        XCTAssertFalse(cliSource.contains("MappingViewerBundlePublicationService.publishCandidate("))
+        XCTAssertTrue(serviceSource.contains("try MappingViewerBundlePublicationService.publishCandidate("))
+        XCTAssertFalse(appSource.contains("Reference viewer bundle could not be prepared"))
     }
 
     func testPublishCandidateRestoresExistingBundleWhenFinalizationFails() throws {
@@ -1996,7 +2019,9 @@ final class MappingViewerBundleProvenanceFinalizerTests: XCTestCase {
     }
 
     private func packageRoot() -> URL {
+        // Tests/LungfishWorkflowTests/Mapping/<file> -> package root
         URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .deletingLastPathComponent()

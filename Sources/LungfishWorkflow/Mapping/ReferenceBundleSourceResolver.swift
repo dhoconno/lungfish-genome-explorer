@@ -1,10 +1,9 @@
 import Foundation
 import LungfishCore
 import LungfishIO
-import LungfishWorkflow
 
-enum ReferenceBundleSourceResolver {
-    static func canonicalSourceBundleURL(
+public enum ReferenceBundleSourceResolver {
+    public static func canonicalSourceBundleURL(
         for url: URL?,
         projectURL: URL?
     ) -> URL? {

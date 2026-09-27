@@ -26,8 +26,19 @@ public enum MappingCLIInvocationBuilder {
         if let preset = presetArgument(for: request) {
             arguments += ["--preset", preset]
         }
+        // `--project` binds the run to the project the window ran it in
+        // (temp scratch, project-relative sidecar paths) and, with the
+        // window's precomputed `--output-dir`, lands the same
+        // `Analyses/<tool>-<timestamp>/` layout: reference copy, attached
+        // BAM track, rewritten sidecars (`MappingResultLayoutService`).
+        if let projectURL = request.projectURL {
+            arguments += ["--project", projectURL.path]
+        }
         arguments += ["--output-dir", request.outputDirectory.path]
         arguments += ["--sample-name", request.sampleName]
+        if let trackName = request.outputTrackName {
+            arguments += ["--track-name", trackName]
+        }
         if let readGroup = request.readGroup {
             arguments += [
                 "--rg-id", readGroup.id,

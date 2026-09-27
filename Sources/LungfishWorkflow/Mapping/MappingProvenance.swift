@@ -44,10 +44,15 @@ public struct MappingProvenanceReadGroupParameters: Sendable, Codable, Equatable
 public struct MappingProvenanceParameters: Sendable, Codable, Equatable {
     public let extraArgs: String
     public let readGroup: MappingProvenanceReadGroupParameters
+    /// The alignment track name the run asked for (`--track-name`), or
+    /// `nil` when the default `"<Tool> Mapping"` applied. Absent in
+    /// sidecars written before the option existed.
+    public let outputTrackName: String?
 
-    public init(extraArgs: String, readGroup: MappingReadGroup) {
+    public init(extraArgs: String, readGroup: MappingReadGroup, outputTrackName: String? = nil) {
         self.extraArgs = extraArgs
         self.readGroup = MappingProvenanceReadGroupParameters(readGroup: readGroup)
+        self.outputTrackName = outputTrackName
     }
 }
 
@@ -110,6 +115,7 @@ public struct MappingProvenance: Sendable, Codable, Equatable {
         includeSecondary: Bool,
         includeSupplementary: Bool,
         advancedArguments: [String],
+        outputTrackName: String? = nil,
         inputFASTQURLs: [URL],
         referenceFASTAURL: URL,
         sourceReferenceBundleURL: URL? = nil,
@@ -150,7 +156,8 @@ public struct MappingProvenance: Sendable, Codable, Equatable {
         self.advancedArguments = advancedArguments
         self.parameters = MappingProvenanceParameters(
             extraArgs: AdvancedCommandLineOptions.join(advancedArguments),
-            readGroup: self.readGroup
+            readGroup: self.readGroup,
+            outputTrackName: outputTrackName
         )
         self.readClassHints = readClassHints.isEmpty
             ? Self.readClassHints(from: inputFASTQURLs)
@@ -194,6 +201,7 @@ public struct MappingProvenance: Sendable, Codable, Equatable {
             includeSecondary: includeSecondary,
             includeSupplementary: includeSupplementary,
             advancedArguments: advancedArguments,
+            outputTrackName: parameters.outputTrackName,
             inputFASTQURLs: self.inputFASTQURLs,
             referenceFASTAURL: self.referenceFASTAURL,
             sourceReferenceBundleURL: sourceReferenceBundlePath.map { URL(fileURLWithPath: $0) },
@@ -231,6 +239,7 @@ public struct MappingProvenance: Sendable, Codable, Equatable {
             includeSecondary: includeSecondary,
             includeSupplementary: includeSupplementary,
             advancedArguments: advancedArguments,
+            outputTrackName: parameters.outputTrackName,
             inputFASTQURLs: self.inputFASTQURLs,
             referenceFASTAURL: self.referenceFASTAURL,
             sourceReferenceBundleURL: sourceReferenceBundleURL,
@@ -341,6 +350,7 @@ public struct MappingProvenance: Sendable, Codable, Equatable {
             includeSecondary: persisted.includeSecondary,
             includeSupplementary: persisted.includeSupplementary,
             advancedArguments: persisted.advancedArguments,
+            outputTrackName: persisted.parameters?.outputTrackName,
             inputFASTQURLs: persisted.inputFASTQPaths.map { URL(fileURLWithPath: Self.resolvedPath(for: $0, relativeTo: directory)) },
             referenceFASTAURL: URL(fileURLWithPath: Self.resolvedPath(for: persisted.referenceFASTAPath, relativeTo: directory)),
             sourceReferenceBundleURL: persisted.sourceReferenceBundlePath.map {
@@ -400,6 +410,7 @@ public struct MappingProvenance: Sendable, Codable, Equatable {
             includeSecondary: request.includeSecondary,
             includeSupplementary: request.includeSupplementary,
             advancedArguments: request.advancedArguments,
+            outputTrackName: request.outputTrackName,
             inputFASTQURLs: request.inputFASTQURLs,
             referenceFASTAURL: request.referenceFASTAURL,
             sourceReferenceBundleURL: result.sourceReferenceBundleURL ?? request.sourceReferenceBundleURL,
