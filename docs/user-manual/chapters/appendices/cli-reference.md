@@ -1029,9 +1029,9 @@ lungfish-cli universal-search [<options>] <project-path>
 
 The window runs these operations from the FASTQ Operations sheet, which [Trimming and Filtering Reads](../03-reads/04-trimming-and-filtering.md), [Decontamination](../03-reads/05-decontamination.md), [Subsetting and Extraction](../03-reads/06-subsetting-and-extraction.md), and [Read Processing](../03-reads/08-read-processing.md) work through. [FASTQ](../../GLOSSARY.md#fastq) stores each read as four lines, a name, the bases, a separator, and one quality character per base. The flags below also use [Phred scores](../../GLOSSARY.md#phred-score), [k-mers](../../GLOSSARY.md#k-mer), [interleaved](../../GLOSSARY.md#interleaved-fastq) files that hold both [mates](../../GLOSSARY.md#paired-end) of each pair, [Shannon entropy](../../GLOSSARY.md#shannon-entropy), and [optical duplicates](../../GLOSSARY.md#optical-duplicate), each defined in the Glossary. Most of these commands read one FASTQ and write another. They share `-o` or `--output` for the output path, `--force` to overwrite an existing output, and `--compress` to gzip it, so those three are not repeated in every table below.
 
-Nine of them, `subsample`, `contaminant-filter`, `entropy-filter`, `scrub-human`, `deacon-ribo`, `sequence-filter`, `deduplicate`, `search-text`, and `search-motif`, also take `--pairing`. With `interleaved`, adjacent records are mates and are kept or dropped together, and with `single` every record stands alone. The default, `auto`, reads the pairing recorded by the `.lungfishfastq` bundle the input sits in, then inspects read names, recognising mates with identical names, `/1` and `/2` suffixes, or Casava descriptions. The window passes the bundle's own pairing, so a command run on the file inside a paired bundle keeps its mates together as the window does.
+Thirteen of them, `subsample`, `contaminant-filter`, `entropy-filter`, `scrub-human`, `deacon-ribo`, `sequence-filter`, `deduplicate`, `search-text`, `search-motif`, `trim`, `quality-trim`, `adapter-trim`, and `fixed-trim`, also take `--pairing`. With `interleaved`, adjacent records are mates and are kept or dropped together, and with `single` every record stands alone. The default, `auto`, reads the pairing recorded by the `.lungfishfastq` bundle the input sits in, then inspects read names, recognising mates with identical names, `/1` and `/2` suffixes, or Casava descriptions. The window passes the bundle's own pairing, so a command run on the file inside a paired bundle keeps its mates together as the window does.
 
-The recorded pairing is a claim the command checks against the records. A bundle written by a merge recipe holds merged single reads between the pairs that did not merge, and `interleaved` would pair such a file by position. On a mixed file the command therefore treats every record as a single read, warns on standard error, and records `readLayout` and `readLayoutReason` in provenance. `search-text` and `search-motif` match by read name, so they still return whole pairs and lone merged reads from a mixed file.
+The recorded pairing is a claim the command checks against the records. A bundle written by a merge recipe holds merged single reads between the pairs that did not merge, and `interleaved` would pair such a file by position. On a mixed file the command therefore treats every record as a single read, warns on standard error, and records `readLayout` and `readLayoutReason` in provenance. `search-text` and `search-motif` match by read name, so they still return whole pairs and lone merged reads from a mixed file. The four fastp commands sort a mixed file by read name as well, run its pairs through fastp as pairs and its merged reads one at a time, and write the pairs first.
 
 Run this from the folder holding the hg002-chr20 practice data. It trims adapters and low-quality ends from the first read file with fastp and writes a gzipped result.
 
@@ -1077,10 +1077,10 @@ Give `--min`, `--max`, or both. `--min` larger than `--max` is an error.
 Trims adapters and low-quality ends in one fastp pass.
 
 ```text
-lungfish-cli fastq trim <input> [--threshold <threshold>] [--window <window>] [--mode <mode>] [--adapter-trimming] [--no-adapter-trimming] [--adapter <adapter>] [--extra-args <extra-args>] --output <output> [--force] [--compress]
+lungfish-cli fastq trim <input> [--threshold <threshold>] [--window <window>] [--mode <mode>] [--adapter-trimming] [--no-adapter-trimming] [--adapter <adapter>] [--extra-args <extra-args>] [--pairing <pairing>] --output <output> [--force] [--compress]
 ```
 
-The window runs both mates of a paired bundle, while these commands take one file at a time. `--no-adapter-trimming` has no dialog counterpart. Leaving out `--adapter` is the dialog's Auto-Detect. `--mode cut-both` passes fastp's `--cut_front --cut_right`.
+The four fastp commands take one file at a time. On a paired bundle they run fastp on both mates together, so a read that trimming cuts to nothing takes its mate with it instead of leaving it orphaned, and fastp finds adapters from the overlap of the two mates. `--no-adapter-trimming` has no dialog counterpart. Leaving out `--adapter` is the dialog's Auto-Detect. `--mode cut-both` passes fastp's `--cut_front --cut_right`.
 
 | Argument or flag | What it does |
 |---|---|
@@ -1091,13 +1091,14 @@ The window runs both mates of a paired bundle, while these commands take one fil
 | `--adapter-trimming/--no-adapter-trimming` | Run fastp adapter trimming in the same pass. The default is `--adapter-trimming`. |
 | `--adapter <adapter>` | Adapter sequence (omit for auto-detect). |
 | `--extra-args <extra-args>` | Additional fastp arguments passed verbatim. |
+| `--pairing <pairing>` | How to treat the input's records, one of `interleaved`, `single`, or `auto`. The default is `auto`. |
 
 ### `fastq quality-trim`
 
 Trims low-quality ends with fastp, without adapter trimming.
 
 ```text
-lungfish-cli fastq quality-trim <input> [--threshold <threshold>] [--window <window>] [--mode <mode>] [--extra-args <extra-args>] --output <output> [--force] [--compress]
+lungfish-cli fastq quality-trim <input> [--threshold <threshold>] [--window <window>] [--mode <mode>] [--extra-args <extra-args>] [--pairing <pairing>] --output <output> [--force] [--compress]
 ```
 
 | Argument or flag | What it does |
@@ -1107,26 +1108,28 @@ lungfish-cli fastq quality-trim <input> [--threshold <threshold>] [--window <win
 | `--window <window>` | Sliding window size. The default is `4`. |
 | `--mode <mode>` | Trim mode, one of `cut-right`, `cut-front`, `cut-tail`, or `cut-both`. The default is `cut-right`. |
 | `--extra-args <extra-args>` | Additional fastp arguments passed verbatim. |
+| `--pairing <pairing>` | How to treat the input's records, one of `interleaved`, `single`, or `auto`. The default is `auto`. |
 
 ### `fastq adapter-trim`
 
 Removes adapter sequence with fastp.
 
 ```text
-lungfish-cli fastq adapter-trim <input> [--adapter <adapter>] --output <output> [--force] [--compress]
+lungfish-cli fastq adapter-trim <input> [--adapter <adapter>] [--pairing <pairing>] --output <output> [--force] [--compress]
 ```
 
 | Argument or flag | What it does |
 |---|---|
 | `<input>` | Input FASTQ file. |
 | `--adapter <adapter>` | Adapter sequence (omit for auto-detect). |
+| `--pairing <pairing>` | How to treat the input's records, one of `interleaved`, `single`, or `auto`. The default is `auto`. |
 
 ### `fastq fixed-trim`
 
 Removes a fixed number of bases from the start or end of every read.
 
 ```text
-lungfish-cli fastq fixed-trim <input> [--front <front>] [--tail <tail>] --output <output> [--force] [--compress]
+lungfish-cli fastq fixed-trim <input> [--front <front>] [--tail <tail>] [--pairing <pairing>] --output <output> [--force] [--compress]
 ```
 
 | Argument or flag | What it does |
@@ -1134,6 +1137,7 @@ lungfish-cli fastq fixed-trim <input> [--front <front>] [--tail <tail>] --output
 | `<input>` | Input FASTQ file. |
 | `--front <front>` | Bases to trim from 5' end. The default is `0`. |
 | `--tail <tail>` | Bases to trim from 3' end. The default is `0`. |
+| `--pairing <pairing>` | How to treat the input's records, one of `interleaved`, `single`, or `auto`. The default is `auto`. |
 
 ### `fastq primer-remove`
 
