@@ -49,7 +49,10 @@ struct FASTQOperationCLIInvocationBuilder: Sendable {
     /// verified against the records of `inputURL` (metadata of
     /// `metadataURL` as hints): a VSP2 bundle records `interleaved` while
     /// holding merged reads, and only a strictly interleaved file may ask
-    /// the CLI to pair by position. Mixed input is passed as `single`.
+    /// the CLI to pair by position. Mixed input is passed as `single`,
+    /// unless `pairsByName` says the subcommand partitions its input by
+    /// read name (the fastp trims), in which case it is passed as
+    /// `interleaved` so the pairs of a mixed file still run paired.
     ///
     /// A recorded `single_end` is verified the same way: only a single-end
     /// pairing the user chose at import settles it without reading the file
@@ -59,7 +62,8 @@ struct FASTQOperationCLIInvocationBuilder: Sendable {
     static func pairingArguments(
         for pairingMode: IngestionMetadata.PairingMode?,
         verifiedAgainst inputURL: URL?,
-        metadataFrom metadataURL: URL?
+        metadataFrom metadataURL: URL?,
+        pairsByName: Bool = false
     ) -> [String] {
         guard pairingMode == .interleaved || pairingMode == .singleEnd, let inputURL else {
             return pairingArguments(for: pairingMode)
@@ -67,7 +71,8 @@ struct FASTQOperationCLIInvocationBuilder: Sendable {
         let layout = FASTQInputLayoutResolver.resolve(fastqURL: inputURL, metadataFrom: metadataURL).layout
         switch layout {
         case .strictlyInterleaved: return ["--pairing", "interleaved"]
-        case .mixedMergedAndPairs, .singleEnd: return ["--pairing", "single"]
+        case .mixedMergedAndPairs: return ["--pairing", pairsByName ? "interleaved" : "single"]
+        case .singleEnd: return ["--pairing", "single"]
         case .pairedFiles: return []
         }
     }
@@ -98,6 +103,12 @@ struct FASTQOperationCLIInvocationBuilder: Sendable {
                         for: resolvedPairingMode,
                         verifiedAgainst: inputURLs.first,
                         metadataFrom: pairingMetadataURL ?? inputURLs.first
+                    ),
+                    byNamePairingArguments: Self.pairingArguments(
+                        for: resolvedPairingMode,
+                        verifiedAgainst: inputURLs.first,
+                        metadataFrom: pairingMetadataURL ?? inputURLs.first,
+                        pairsByName: true
                     )
                 )
             )
@@ -297,11 +308,17 @@ struct FASTQOperationCLIInvocationBuilder: Sendable {
         }
     }
 
+    /// - Parameter byNamePairingArguments: the `--pairing` arguments for a
+    ///   subcommand that partitions its input by read name (the fastp trims,
+    ///   which run the pairs of a mixed file paired and its unpaired reads
+    ///   single-end), as opposed to `pairingArguments` for a positional
+    ///   tool that must run a mixed file as single reads.
     private func fastqArguments(
         for request: FASTQDerivativeRequest,
         inputURLs: [URL],
         outputTarget: String,
-        pairingArguments: [String]
+        pairingArguments: [String],
+        byNamePairingArguments: [String]
     ) throws -> [String] {
         guard let inputURL = inputURLs.first else {
             return ["qc-summary", "--output", outputTarget]
@@ -355,6 +372,7 @@ struct FASTQOperationCLIInvocationBuilder: Sendable {
             case .fastaFile:
                 throw FASTQOperationExecutionError.unsupportedAdapterTrim("fastaFile mode is not encodable")
             }
+            arguments += byNamePairingArguments
             arguments += ["-o", outputTarget]
             return arguments
         case .qualityTrim(let threshold, let windowSize, let mode, let extraArguments):
@@ -363,8 +381,7 @@ struct FASTQOperationCLIInvocationBuilder: Sendable {
                 "--threshold", "\(threshold)",
                 "--window", "\(windowSize)",
                 "--mode", qualityTrimModeArgument(for: mode),
-                "-o", outputTarget,
-            ]
+            ] + byNamePairingArguments + ["-o", outputTarget]
             if !extraArguments.isEmpty {
                 arguments += ["--extra-args", AdvancedCommandLineOptions.join(extraArguments)]
             }
@@ -391,12 +408,14 @@ struct FASTQOperationCLIInvocationBuilder: Sendable {
             case .fastaFile:
                 throw FASTQOperationExecutionError.unsupportedAdapterTrim("fastaFile mode is not encodable")
             }
+            arguments += byNamePairingArguments
             arguments += ["-o", outputTarget]
             return arguments
         case .fixedTrim(let from5Prime, let from3Prime):
             var arguments = ["fixed-trim", inputURL.path]
             if from5Prime > 0 { arguments += ["--front", "\(from5Prime)"] }
             if from3Prime > 0 { arguments += ["--tail", "\(from3Prime)"] }
+            arguments += byNamePairingArguments
             arguments += ["-o", outputTarget]
             return arguments
         case .contaminantFilter(let mode, let referenceFasta, let kmerSize, let hammingDistance):

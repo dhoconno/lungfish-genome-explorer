@@ -460,6 +460,7 @@ extension FASTQDerivativeRequest {
             } else {
                 args.append("--no-adapter-trimming")
             }
+            args += pairingArgs
             args += ["-o", outputPath]
             return buildLungfishCommand(subcommand: "fastq trim", args: args)
 
@@ -475,22 +476,21 @@ extension FASTQDerivativeRequest {
                 "--threshold", String(threshold),
                 "--window", String(windowSize),
                 "--mode", modeString,
-                inputPath, "-o", outputPath,
-            ]
+            ] + pairingArgs + [inputPath, "-o", outputPath]
             if !extraArguments.isEmpty {
                 args += ["--extra-args", AdvancedCommandLineOptions.join(extraArguments)]
             }
             return buildLungfishCommand(subcommand: "fastq quality-trim", args: args)
 
         case .adapterTrim(_, let sequence, _, _):
-            var args = [inputPath, "-o", outputPath]
+            var args = pairingArgs + [inputPath, "-o", outputPath]
             if let sequence {
                 args += ["--adapter", sequence]
             }
             return buildLungfishCommand(subcommand: "fastq adapter-trim", args: args)
 
         case .fixedTrim(let from5Prime, let from3Prime):
-            var args = [inputPath, "-o", outputPath]
+            var args = pairingArgs + [inputPath, "-o", outputPath]
             if from5Prime > 0 { args += ["--front", String(from5Prime)] }
             if from3Prime > 0 { args += ["--tail", String(from3Prime)] }
             return buildLungfishCommand(subcommand: "fastq fixed-trim", args: args)

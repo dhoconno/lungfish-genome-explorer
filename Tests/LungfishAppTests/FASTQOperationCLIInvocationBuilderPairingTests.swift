@@ -206,15 +206,65 @@ final class FASTQOperationCLIInvocationBuilderPairingTests: XCTestCase {
 
     func testUnaffectedSubcommandsDoNotReceiveThePairingFlag() throws {
         let bundle = try InterleavedFASTQFixture.writeBundle(
-            named: "trim", in: root, pairCount: 2, naming: .identical, pairingMode: .interleaved
+            named: "length", in: root, pairCount: 2, naming: .identical, pairingMode: .interleaved
         )
         let launch = FASTQOperationLaunchRequest.derivative(
-            request: .fixedTrim(from5Prime: 5, from3Prime: 0),
+            request: .lengthFilter(min: 30, max: nil),
             inputURLs: [bundle.fastqURL],
             outputMode: .perInput
         )
         let invocation = try FASTQOperationCLIInvocationBuilder().buildInvocation(for: launch)
         XCTAssertFalse(invocation.arguments.contains("--pairing"))
+    }
+
+    /// The four fastp trims: `fastq trim` on the HG002 chr20 bundle lost 250
+    /// reads (240 orphaned mates) because fastp ran single-end. The builder
+    /// now passes the bundle's pairing so the CLI runs fastp paired.
+    private static let fastpRequests: [FASTQDerivativeRequest] = [
+        .fastpTrim(threshold: 20, windowSize: 4, mode: .cutRight, adapterMode: .autoDetect, adapterSequence: nil),
+        .qualityTrim(threshold: 20, windowSize: 4, mode: .cutRight),
+        .adapterTrim(mode: .autoDetect, sequence: nil, sequenceR2: nil, fastaFilename: nil),
+        .fixedTrim(from5Prime: 5, from3Prime: 0),
+    ]
+
+    func testFastpTrimsCarryInterleavedPairingFromBundleMetadata() throws {
+        let bundle = try InterleavedFASTQFixture.writeBundle(
+            named: "hg002-trim", in: root, pairCount: 4, naming: .identical, pairingMode: .interleaved
+        )
+        for request in Self.fastpRequests {
+            let launch = FASTQOperationLaunchRequest.derivative(
+                request: request, inputURLs: [bundle.fastqURL], outputMode: .perInput
+            )
+            let invocation = try FASTQOperationCLIInvocationBuilder().buildInvocation(for: launch, outputTargetPath: "/tmp/out.fastq.gz")
+            XCTAssertTrue(
+                invocation.arguments.containsSequence(["--pairing", "interleaved"]),
+                "\(invocation.arguments.first ?? "?"): \(invocation.arguments)"
+            )
+            XCTAssertEqual(invocation.arguments.suffix(2), ["-o", "/tmp/out.fastq.gz"], "\(invocation.arguments)")
+            let shown = request.cliCommand(inputPath: bundle.fastqURL.path, outputPath: "/tmp/out.fastq.gz", pairingMode: .interleaved)
+            XCTAssertTrue(shown.contains("--pairing interleaved"), shown)
+        }
+    }
+
+    func testFastpTrimsOnAMixedBundleAreToldInterleavedBecauseTheyPartitionByName() throws {
+        // A positional tool (subsample) is told `single` for a mixed file;
+        // the fastp trims partition the file by name, run its pairs paired
+        // and its unpaired reads single-end, so they are told `interleaved`
+        // and verify it against the records themselves.
+        let bundle = try InterleavedFASTQFixture.writeMixedBundle(
+            named: "vsp2-trim", in: root, pairCount: 6, mergedCount: 3, naming: .identical, pairingMode: .interleaved
+        )
+        for request in Self.fastpRequests + [.subsampleCount(10)] {
+            let launch = FASTQOperationLaunchRequest.derivative(
+                request: request, inputURLs: [bundle.fastqURL], outputMode: .perInput
+            )
+            let invocation = try FASTQOperationCLIInvocationBuilder().buildInvocation(for: launch)
+            let expected = invocation.arguments.first == "subsample" ? "single" : "interleaved"
+            XCTAssertTrue(
+                invocation.arguments.containsSequence(["--pairing", expected]),
+                "\(invocation.arguments.first ?? "?"): \(invocation.arguments)"
+            )
+        }
     }
 
     func testDisplayCommandCarriesTheSamePairingFlag() {
