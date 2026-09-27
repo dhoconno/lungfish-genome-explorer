@@ -612,6 +612,24 @@ public enum MultipleSequenceAlignmentActionRegistry {
             tests: "CLI tests cover identity and p-distance on deterministic fixtures."
         ),
         descriptor(
+            "msa.inspection.discriminating-sites",
+            "Discriminating Sites",
+            .inspection,
+            .p1,
+            "Find columns where every target sequence shares a base that the exclusion sequences do not, and the windows where several such columns cluster.",
+            "Design specificity into an assay rather than only conservation, by anchoring a primer 3' end or a probe on a column that separates the target lineage from everything it must not amplify.",
+            [.commandLine, .viewport, .inspector, .operationCenter],
+            createsOrModifiesScientificData: true,
+            requiresProvenance: true,
+            cli: .init(
+                command: "lungfish msa discriminating-sites <bundle.lungfishmsa> --exclusions <rows> | --exclusion-sequences <fasta|lungfishref> [--targets <rows>] [--target-mismatch-tolerance <n>] [--window-length <bp>] --output <path> --format json",
+                outputContract: "Writes a per-column TSV, a candidate-window TSV, and a JSON report, each with a provenance sidecar."
+            ),
+            status: .implemented,
+            accessibility: "The Inspector list exposes sortable columns and jump-to-column, and names each row as target or exclusion.",
+            tests: "Unit tests cover column scoring, tolerance, no-call handling, and windowing on a synthetic alignment; CLI tests cover the written tables and provenance."
+        ),
+        descriptor(
             "msa.display.linked-tree",
             "Linked Tree and Alignment",
             .display,

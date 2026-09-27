@@ -18,6 +18,7 @@ struct MSACommand: ParsableCommand {
             MaskSubcommand.self,
             TrimSubcommand.self,
             DistanceSubcommand.self,
+            DiscriminatingSitesSubcommand.self,
         ]
     )
 
@@ -2071,7 +2072,7 @@ extension MSACommand {
     }
 }
 
-private struct AlignedFASTARecord: Equatable {
+struct AlignedFASTARecord: Equatable {
     let name: String
     let sequence: String
 }
@@ -2300,7 +2301,7 @@ private struct MSATrimMetadata: Codable, Equatable {
 /// the shared `CLIEvent` wire format. `actionID`/`warningCount` are accepted
 /// for source compatibility but not part of the wire schema: no GUI caller
 /// ever read them (`CLIMSAActionRunner`'s callers all discard its result).
-private final class MSAActionCLIEventEmitter: @unchecked Sendable {
+final class MSAActionCLIEventEmitter: @unchecked Sendable {
     private let emitter: CLIEventEmitter
 
     init(
@@ -2334,7 +2335,7 @@ private final class MSAActionCLIEventEmitter: @unchecked Sendable {
     }
 }
 
-private func parseAlignedFASTA(at url: URL) throws -> [AlignedFASTARecord] {
+func parseAlignedFASTA(at url: URL) throws -> [AlignedFASTARecord] {
     let text = try String(contentsOf: url, encoding: .utf8)
     var records: [AlignedFASTARecord] = []
     var currentName: String?
@@ -3004,7 +3005,7 @@ private func fileRecord(at url: URL) throws -> MSAFileExportProvenance.FileRecor
     )
 }
 
-private func msaStandaloneFilePublicationSnapshot(
+func msaStandaloneFilePublicationSnapshot(
     for outputURL: URL,
     backupNamePrefix: String
 ) throws -> ProvenancePublicationSnapshot {
@@ -3023,7 +3024,7 @@ private func bundleDigest(from manifest: MultipleSequenceAlignmentBundle.Manifes
     return MultipleSequenceAlignmentBundle.sha256Hex(for: Data(digestSource.utf8))
 }
 
-private func writeJSON<T: Encodable>(_ value: T, to url: URL) throws {
+func writeJSON<T: Encodable>(_ value: T, to url: URL) throws {
     let encoder = JSONEncoder()
     encoder.dateEncodingStrategy = .iso8601
     encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
