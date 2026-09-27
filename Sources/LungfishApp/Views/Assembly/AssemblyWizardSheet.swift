@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import SwiftUI
+import LungfishIO
 import LungfishKit
 import LungfishWorkflow
 
@@ -765,13 +766,32 @@ struct AssemblyWizardSheet: View {
     }
 
     private var readLayoutSummary: String {
-        if effectiveReadType != .illuminaShortReads {
+        Self.readLayoutSummary(
+            readType: effectiveReadType,
+            pairedEndInfo: pairedEndInfo,
+            recordedPairingModes: inputFiles.map(FASTQPairingModeResolver.bundlePairingMode(for:))
+        )
+    }
+
+    /// The read-layout caption. A paired import is stored as ONE interleaved
+    /// file inside its bundle, so a single bundle whose metadata records
+    /// `interleaved` is captioned as pairs; `lungfish-cli assemble` verifies
+    /// the records before choosing `--12` / `--use_paired_ends`.
+    static func readLayoutSummary(
+        readType: AssemblyReadType,
+        pairedEndInfo: (forward: [URL], reverse: [URL], unpaired: [URL]),
+        recordedPairingModes: [IngestionMetadata.PairingMode?]
+    ) -> String {
+        if readType != .illuminaShortReads {
             return "Single-input long-read assembly"
         }
         if pairedEndInfo.forward.count == 1,
            pairedEndInfo.reverse.count == 1,
            pairedEndInfo.unpaired.isEmpty {
             return "Paired-end Illumina reads"
+        }
+        if recordedPairingModes.count == 1, recordedPairingModes.first == .interleaved {
+            return "Interleaved paired-end Illumina reads (pairs verified against the records at run time)"
         }
         return "Single-end or pre-grouped Illumina reads"
     }

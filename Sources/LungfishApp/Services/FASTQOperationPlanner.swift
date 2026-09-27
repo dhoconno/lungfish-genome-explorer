@@ -1113,7 +1113,8 @@ extension AssemblyRunRequest {
             minContigLength: minContigLength,
             selectedProfileID: selectedProfileID,
             extraArguments: extraArguments,
-            profileSelectionBasis: profileSelectionBasis
+            profileSelectionBasis: profileSelectionBasis,
+            inputLayout: inputLayout
         )
     }
 
@@ -1134,7 +1135,8 @@ extension AssemblyRunRequest {
             minContigLength: minContigLength,
             selectedProfileID: selectedProfileID,
             extraArguments: extraArguments,
-            profileSelectionBasis: profileSelectionBasis
+            profileSelectionBasis: profileSelectionBasis,
+            inputLayout: inputLayout
         )
     }
 
@@ -1158,7 +1160,8 @@ extension AssemblyRunRequest {
             minContigLength: minContigLength,
             selectedProfileID: selectedProfileID,
             extraArguments: extraArguments,
-            profileSelectionBasis: profileSelectionBasis
+            profileSelectionBasis: profileSelectionBasis,
+            inputLayout: inputLayout
         )
     }
 }

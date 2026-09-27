@@ -86,6 +86,15 @@ struct AssembleCommand: AsyncParsableCommand {
     @Flag(name: .customLong("paired"), help: "Treat the two input sequence files as paired-end mates")
     var pairedEnd: Bool = false
 
+    @Option(
+        name: .customLong("read-layout"),
+        help: ArgumentHelp(
+            "How the records of a single Illumina input file relate: auto, single-end, interleaved (every record is followed by its mate), or mixed (merged reads and interleaved pairs in one file) (default: auto)",
+            discussion: "auto reads the enclosing .lungfishfastq bundle's metadata, then scans read names (identical names, /1 /2, and Casava descriptions all count as mates). SPAdes and MEGAHIT assemble a strictly interleaved file with --12 and SKESA with --use_paired_ends; a mixed file is assembled as single reads because those flags pair records by position."
+        )
+    )
+    var readLayout: AssembleReadLayoutArgument = .auto
+
     @Option(name: [.customLong("memory-gb"), .customLong("memory")], help: "Memory budget in GB when the selected assembler supports it")
     var memoryGB: Int?
 
@@ -138,6 +147,15 @@ struct AssembleCommand: AsyncParsableCommand {
 
         if pairedEnd && inputURLs.count != 2 {
             print(formatter.error("Paired-end assembly requires exactly two sequence inputs."))
+            throw CLIExitCode.inputError.exitCode
+        }
+        if let readLayoutError = Self.validateReadLayoutOption(
+            readLayout,
+            tool: tool,
+            pairedEnd: pairedEnd,
+            inputCount: inputURLs.count
+        ) {
+            print(formatter.error(readLayoutError))
             throw CLIExitCode.inputError.exitCode
         }
 
@@ -240,6 +258,18 @@ struct AssembleCommand: AsyncParsableCommand {
             inputURL: inputURLs.first
         )
 
+        // Resolved on the materialized input with the ORIGINAL bundle's
+        // metadata as hints, the same way `map` does it, so a paired import
+        // stored as one interleaved file is assembled as pairs.
+        let layoutResolution = Self.resolveInputLayout(
+            tool: tool,
+            readType: resolvedReadType,
+            pairedEnd: pairedEnd,
+            explicit: readLayout.explicitLayout,
+            originalInputURLs: inputURLs,
+            executionInputURLs: executionInputURLs
+        )
+
         let request = AssemblyRunRequest(
             tool: tool,
             readType: resolvedReadType,
@@ -252,9 +282,14 @@ struct AssembleCommand: AsyncParsableCommand {
             minContigLength: minContigLength,
             selectedProfileID: resolvedProfile.profileID,
             extraArguments: advancedArguments,
-            profileSelectionBasis: resolvedProfile.basis
+            profileSelectionBasis: resolvedProfile.basis,
+            inputLayout: layoutResolution?.layout
         )
         let executionRequest = request.normalizedForExecution()
+
+        if let warning = Self.readLayoutWarning(for: executionRequest, resolution: layoutResolution) {
+            FileHandle.standardError.write(Data("warning: \(warning)\n".utf8))
+        }
 
         print(formatter.header("Managed Assembly"))
         print("")
@@ -262,7 +297,9 @@ struct AssembleCommand: AsyncParsableCommand {
             ("Assembler", tool.displayName),
             ("Read type", resolvedReadType.displayName),
             ("Inputs", inputURLs.map(\.lastPathComponent).joined(separator: ", ")),
-            ("Paired-end", pairedEnd ? "yes" : "no"),
+            ("Paired-end", executionRequest.readPairing.displayName),
+            ("Read layout", Self.readLayoutDescription(for: executionRequest, resolution: layoutResolution)),
+            ("Layout handling", executionRequest.readLayoutHandling.displayName),
             ("Threads", "\(executionRequest.threads)"),
             ("Memory", memoryGB.map { "\($0) GB" } ?? "default"),
             ("Profile", resolvedProfile.profileID ?? "default"),
@@ -307,7 +344,8 @@ struct AssembleCommand: AsyncParsableCommand {
                 startedAt: startedAt,
                 endedAt: Date(),
                 materializationStartedAt: materializationStartedAt,
-                materializationEndedAt: materializationEndedAt
+                materializationEndedAt: materializationEndedAt,
+                layoutResolution: layoutResolution
             )
         } catch {
             events.emitFailed(error.localizedDescription)
@@ -375,6 +413,99 @@ struct AssembleCommand: AsyncParsableCommand {
 
     static func parseExtraArgs(_ extraArgs: String, deprecatedAdvancedOptions: String) throws -> [String] {
         try AdvancedCommandLineOptions.parse(extraArgs) + AdvancedCommandLineOptions.parse(deprecatedAdvancedOptions)
+    }
+
+    /// The `--read-layout` values, mirroring `FASTQInputLayout` for one file
+    /// (the same spellings `map --read-layout` accepts).
+    enum AssembleReadLayoutArgument: String, ExpressibleByArgument, CaseIterable, Sendable {
+        case auto
+        case singleEnd = "single-end"
+        case interleaved
+        case mixed
+
+        /// The layout the caller stated, or `nil` for auto detection.
+        var explicitLayout: FASTQInputLayout? {
+            switch self {
+            case .auto: return nil
+            case .singleEnd: return .singleEnd
+            case .interleaved: return .strictlyInterleaved
+            case .mixed: return .mixedMergedAndPairs
+            }
+        }
+    }
+
+    /// Why an explicit `--read-layout` cannot apply, or `nil` when it can.
+    static func validateReadLayoutOption(
+        _ readLayout: AssembleReadLayoutArgument,
+        tool: AssemblyTool,
+        pairedEnd: Bool,
+        inputCount: Int
+    ) -> String? {
+        guard readLayout != .auto else { return nil }
+        if pairedEnd || inputCount != 1 {
+            return "--read-layout describes one input file; use --paired for two R1/R2 files."
+        }
+        if !Self.shortReadTools.contains(tool), readLayout != .singleEnd {
+            return "--read-layout \(readLayout.rawValue) applies to the short-read assemblers (spades, megahit, skesa); \(tool.displayName) assembles every record as a single read."
+        }
+        return nil
+    }
+
+    private static let shortReadTools: Set<AssemblyTool> = [.spades, .megahit, .skesa]
+
+    /// Resolves the layout of a single short-read input, or `nil` when the
+    /// run has nothing to resolve (two `--paired` files, a long-read
+    /// assembler, or pooled inputs, whose records are single by contract).
+    ///
+    /// A materialized scratch copy of a derived bundle carries no sidecar,
+    /// so the ORIGINAL input supplies the bundle metadata as hints (a VSP2
+    /// merge recipe in the lineage demotes strict to mixed).
+    static func resolveInputLayout(
+        tool: AssemblyTool,
+        readType: AssemblyReadType,
+        pairedEnd: Bool,
+        explicit: FASTQInputLayout?,
+        originalInputURLs: [URL],
+        executionInputURLs: [URL]
+    ) -> FASTQInputLayoutResolution? {
+        guard Self.shortReadTools.contains(tool),
+              readType == .illuminaShortReads,
+              !pairedEnd,
+              executionInputURLs.count == 1,
+              let executionURL = executionInputURLs.first else {
+            return nil
+        }
+        if let explicit {
+            return FASTQInputLayoutResolver.resolve(inputURLs: [executionURL], explicit: explicit)
+        }
+        let originalURL = originalInputURLs.first?.standardizedFileURL
+        let hintURL = originalURL == executionURL.standardizedFileURL ? nil : originalURL
+        return FASTQInputLayoutResolver.resolve(fastqURL: executionURL, metadataFrom: hintURL)
+    }
+
+    /// The `Read layout` table row: the layout and where the answer came from.
+    static func readLayoutDescription(
+        for request: AssemblyRunRequest,
+        resolution: FASTQInputLayoutResolution?
+    ) -> String {
+        guard let resolution else {
+            return request.effectiveInputLayout.displayName
+        }
+        return "\(resolution.layout.displayName) (\(resolution.source.rawValue))"
+    }
+
+    /// A warning when the records hold mates the assembler will not pair.
+    static func readLayoutWarning(
+        for request: AssemblyRunRequest,
+        resolution: FASTQInputLayoutResolution?
+    ) -> String? {
+        guard let resolution, resolution.layout == .mixedMergedAndPairs,
+              request.readLayoutHandling == .asSingle,
+              let inputURL = request.inputURLs.first else {
+            return nil
+        }
+        return "\(inputURL.lastPathComponent) holds merged reads and pairs (\(resolution.reason)) "
+            + "Every record is assembled as a single read so that mates are not paired by position."
     }
 
     private func warnIfDeprecatedAdvancedOptionsUsed() {
@@ -624,6 +755,7 @@ struct AssembleCommand: AsyncParsableCommand {
         materializationStartedAt: Date? = nil,
         materializationEndedAt: Date? = nil,
         stderr: String? = nil,
+        layoutResolution: FASTQInputLayoutResolution? = nil,
         writer: ProvenanceWriter = ProvenanceWriter()
     ) throws -> URL {
         let toolVersion = result.assemblerVersion ?? "unknown"
@@ -635,9 +767,19 @@ struct AssembleCommand: AsyncParsableCommand {
         )
         .argv(argv)
         .options(
-            explicit: assemblyExplicitOptions(for: request, originalInputURLs: originalInputURLs, executionInputURLs: executionInputURLs),
+            explicit: assemblyExplicitOptions(
+                for: request,
+                originalInputURLs: originalInputURLs,
+                executionInputURLs: executionInputURLs,
+                layoutResolution: layoutResolution
+            ),
             defaults: assemblyDefaultOptions(),
-            resolved: assemblyResolvedOptions(for: request, originalInputURLs: originalInputURLs, executionInputURLs: executionInputURLs)
+            resolved: assemblyResolvedOptions(
+                for: request,
+                originalInputURLs: originalInputURLs,
+                executionInputURLs: executionInputURLs,
+                layoutResolution: layoutResolution
+            )
         )
         .runtime(
             ProvenanceRuntimeIdentity(
@@ -746,6 +888,8 @@ struct AssembleCommand: AsyncParsableCommand {
             "readType": .null,
             "projectName": .null,
             "pairedEnd": .boolean(false),
+            "readPairing": .string(AssemblyReadPairing.single.rawValue),
+            "readLayout": .string("auto"),
             "threads": .null,
             "memoryGB": .null,
             "minContigLength": .null,
@@ -758,26 +902,37 @@ struct AssembleCommand: AsyncParsableCommand {
     private static func assemblyExplicitOptions(
         for request: AssemblyRunRequest,
         originalInputURLs: [URL],
-        executionInputURLs: [URL]
+        executionInputURLs: [URL],
+        layoutResolution: FASTQInputLayoutResolution?
     ) -> [String: ParameterValue] {
         assemblyResolvedOptions(
             for: request,
             originalInputURLs: originalInputURLs,
-            executionInputURLs: executionInputURLs
+            executionInputURLs: executionInputURLs,
+            layoutResolution: layoutResolution
         )
     }
 
+    /// `pairedEnd` says whether MATES REACHED THE ASSEMBLER AS PAIRS, for
+    /// R1/R2 files and for one interleaved file alike; `readPairing` says
+    /// which form they took and `readLayout*` how the layout was decided.
     private static func assemblyResolvedOptions(
         for request: AssemblyRunRequest,
         originalInputURLs: [URL],
-        executionInputURLs: [URL]
+        executionInputURLs: [URL],
+        layoutResolution: FASTQInputLayoutResolution?
     ) -> [String: ParameterValue] {
         [
             "assembler": .string(request.tool.rawValue),
             "readType": .string(request.readType.cliArgument),
             "projectName": .string(request.projectName),
             "outputDirectory": .file(request.outputDirectory),
-            "pairedEnd": .boolean(request.pairedEnd),
+            "pairedEnd": .boolean(request.readPairing.assemblesPairs),
+            "readPairing": .string(request.readPairing.rawValue),
+            "readLayout": .string(request.effectiveInputLayout.rawValue),
+            "readLayoutSource": layoutResolution.map { .string($0.source.rawValue) } ?? .null,
+            "readLayoutReason": layoutResolution.map { .string($0.reason) } ?? .null,
+            "readLayoutHandling": .string(request.readLayoutHandling.rawValue),
             "threads": .integer(request.threads),
             "memoryGB": request.memoryGB.map(ParameterValue.integer) ?? .null,
             "minContigLength": request.effectiveMinContigLength.map(ParameterValue.integer) ?? .null,
