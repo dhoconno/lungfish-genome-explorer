@@ -69,6 +69,33 @@ retitled Extracting Sequences, because it never compared sequences.
 placeholder stubs in `09-genotyping/01` to `03` are deleted under editorial
 rule 2.
 
+## Status (2026-09-27)
+
+The textbook revision made the manual one course from start to finish as
+well as a reference. Part 10, Primer Design, joined the nav menu and the
+scopes table with a settings appendix. Foundations now opens with the
+project chapter, which owns getting LGE, the release channels, the demo
+projects, the Tools menu map, and the convention every On the command line
+block follows. A downloadable demo project with finished results, Human
+Mapping and Variants (with results), replaced the project readers used to
+build from a script in Terminal, and the script-built project survives only
+as the screenshot project in the contributor notes of its fixture folder.
+
+The nav order changed while every file kept its path, as rule 1
+below requires. Foundations reads 06, 01, 02, 03, 04, 05, 07, 08.
+Alignments reads 01, 02, 04, 03, 05, so the shotgun chapters come
+together. Human Germline Variants (Experimental) follows Variants and opens
+with its reference-files chapter. Classification reads 01, 02, 03, 04, 06,
+10, 07, 08, 05, 09, so the runnable tools come before the imports. The
+part titles "Human Germline Variants (Experimental)" and "MHC Allele
+Genotyping" and the two assembly chapter titles are the ones every link
+uses.
+
+Three more rules from this revision are recorded in `STYLE.md`. Task
+chapters have no Troubleshooting section. Procedure headings are task
+phrases that name the tool. Percentages are written "95 percent" in prose
+and "95%" in tables and code.
+
 ## Chapter scopes
 
 Each row is a contract. A chapter covers its scope and nothing else, and it
@@ -81,9 +108,9 @@ is the only chapter that explains the topics in its last column in full.
 | 01-foundations/03-amplicon-vs-shotgun | Shotgun, amplicon, and enrichment libraries and why amplicon reads need primer trimming | Amplicon, primer, primer scheme concept, shotgun |
 | 01-foundations/04-alignment-files | What a BAM row records, CIGAR, indexes, coverage, pileup, strand | BAM, MAPQ, CIGAR and soft clips, depth and breadth, pileup, strand bias |
 | 01-foundations/05-variants-and-vcf | What a variant is and how to read a VCF file | VCF columns, QUAL, INFO, FORMAT, genotype notation, FILTER semantics |
-| 01-foundations/06-the-lungfish-project | The project, the window, and the app chrome every chapter assumes | Opening a project, practice data, sidebar folders, where results land, bundles, Import Center, operation dialogs and their shared settings, Inspector, Operations Panel |
-| 01-foundations/07-plugin-packs | Installing and managing packs, databases, experimental features, and container prerequisites | Plugin packs and pack ids, Required Setup, experimental features, databases, containers |
-| 01-foundations/08-provenance-and-reproducibility | Reading, signing, and verifying a provenance record | Provenance, checksum, the Inspector Provenance section |
+| 01-foundations/06-the-lungfish-project | Getting LGE, the project, the window, and the app chrome every chapter assumes | System requirements, release channels, first launch and updates, opening a project, demo projects and fixtures, sidebar folders, where results land, bundles and tracks, the Tools menu map, Import Center, operation dialogs and their shared settings, Inspector, Operations Panel, the On the command line path convention |
+| 01-foundations/07-plugin-packs | Installing and managing packs, databases, experimental features, specialized workflows, and container prerequisites | Plugin packs and pack ids, Required Setup, experimental features, turning on a specialized workflow, databases, the container runtime, offline pack installation |
+| 01-foundations/08-provenance-and-reproducibility | Reading, signing, and verifying a provenance record | Provenance, checksum, the Inspector Provenance section, reading a lineage |
 | 02-sequences/01-importing-and-viewing | Importing a reference and an annotation track and reading them in the sequence viewport | Sequence viewport, Go to Location, translation tool, manual annotation |
 | 02-sequences/02-downloading-from-ncbi | Downloading a record from NCBI or Pathoplexus as a reference bundle | Database Browser search, accession substitution |
 | 02-sequences/03-extracting-and-comparing | Extracting regions and features and marking open reading frames | Extract Sequence, Find ORFs |
@@ -100,7 +127,7 @@ is the only chapter that explains the topics in its last column in full.
 | 04-alignments/01-mapping-reads-to-a-reference | Running a mapper and reading the alignment statistics | Mapper choice, presets, read groups, Est. Coverage, Flag Statistics |
 | 04-alignments/02-reading-an-alignment | Reading the alignment viewport, its View Settings, and region extraction | Coverage curve, read display budget, Inspector Analysis tabs |
 | 04-alignments/03-primer-trimming | Primer-trimming a mapped alignment with iVar | Alignment-level primer trimming, trim rate |
-| 04-alignments/04-alignment-quality | Marking duplicates, filtering an alignment, exporting a deduplicated bundle | Duplicate marking, duplicate rate |
+| 04-alignments/04-alignment-quality | Marking duplicates without deleting the unmarked tracks, filtering an alignment, exporting a deduplicated bundle | Duplicate marking, duplicate rate |
 | 04-alignments/05-viral-recon-wizard | Running nf-core/viralrecon on SARS-CoV-2 amplicon reads | The Viral Recon wizard |
 | 05-variants/01-calling-variants-from-amplicons | Running bcftools, LoFreq, and iVar from the Call Variants dialog | Caller choice, the Call Variants dialog |
 | 05-variants/02-reading-the-variant-browser | The Variants tab and exporting rows with variants query | Table drawer, chips, Search Builder, caller comparison |
@@ -131,11 +158,17 @@ is the only chapter that explains the topics in its last column in full.
 | 09-genotyping/02-running-genotyping | Running the two MHC genotyping workflows | Genotyping dialogs, bbmerge and DRB merging |
 | 09-genotyping/03-reading-the-genotype-comparison | Reading and annotating the genotype matrix | Support status, percent basis, matrix filters |
 | 09-genotyping/04-haplotype-definitions-and-export | Exporting genotype results to Excel, CSV, TSV, and LabKey | Genotype export |
+| 10-primer-design/01-what-is-primer-design | What primer design answers and which engine to pick | Primer properties, melting temperature, GC clamp, primer dimers, degenerate bases and their cost, pools and tiling, qPCR and dPCR chemistry, in-silico versus bench checks, why MHC is a hard primer target |
+| 10-primer-design/02-designing-a-pcr-assay | Designing one conventional PCR assay with Primer3 | Primer3 procedure, template and target choice |
+| 10-primer-design/03-designing-a-tiled-amplicon-scheme | Designing a tiled amplicon scheme with PrimalScheme, Olivar, or varVAMP | Tiled scheme design, coverage of a variable target |
+| 10-primer-design/04-designing-qpcr-and-dpcr-assays | Designing qPCR and dPCR assays with a probe or an intercalating dye | Probe design, testing the lineage assay for specificity |
+| 10-primer-design/05-reviewing-and-ordering-primers | Reviewing a primer analysis, saving a scheme, and ordering oligos | The primer analysis viewer, Save as Primer Scheme, order export, bench validation |
 | appendices/cli-reference | Syntax and flags of every lungfish-cli command | Finding the program, every flag list |
 | appendices/file-formats | Structure of every file and bundle format | Bundle layouts, provenance sidecar schema, coordinate conventions |
 | appendices/keyboard-shortcuts | Every keyboard shortcut | Shortcut notation |
 | appendices/power-user-notes | Exact tool arguments and the limits on repeating a run | Wrapped-tool argument lists |
 | appendices/primer-schemes | The primer scheme bundle format and the shipped schemes | Shipped scheme catalogue |
+| appendices/primer-design-settings | Every setting of Primer3, PrimalScheme, Olivar, and varVAMP | Engine settings not used by a Part 10 procedure |
 | appendices/shared-projects | Project locks, read-only state, and bundle migration | Project locks |
 | appendices/tool-versions | Pinned versions of every tool, pipeline, and database | Version tables |
 | appendices/bibliography | Citing the tools a run used and citing LGE | Citations |
@@ -193,13 +226,23 @@ without leaving the app. These rules keep chapters retrievable.
 
 The chapter list, with each chapter's scope, is the `## Chapter scopes`
 table above, and the published order is the `nav` block of
-`build/mkdocs.yml`. The manual has three parts.
+`build/mkdocs.yml`. The nav menu has eleven sections after the home page,
+ten of chapters and one of reference appendices.
 
-| Part | Folders | Role |
+| Section | Folders | Role |
 |---|---|---|
-| I. Foundations | `01-foundations/` | Short concept and format primers that every Part II chapter assumes. |
-| II. Working with the app | `02-sequences/` through `09-genotyping/` | One folder per workflow domain. `06-classification/` and `06-human-germline-variants/` share a prefix by design. |
-| III. Reference | `appendices/` | Look-up material, including the CLI reference, file formats, tool versions, and troubleshooting. |
+| Foundations | `01-foundations/` | Getting LGE and the concept and format primers every later chapter assumes |
+| Sequences | `02-sequences/` | Reference sequences, extraction, multiple sequence alignment, and trees |
+| Reads (FASTQ) | `03-reads/` | Read import, download, quality control, and read-level processing |
+| Alignments | `04-alignments/` | Mapping, reading and checking alignments, primer trimming, Viral Recon |
+| Variants | `05-variants/` | Variant calling, the variants table, consensus, VCF import |
+| Human Germline Variants (Experimental) | `06-human-germline-variants/` | GATK germline calling. It shares the `06-` prefix with Classification by design |
+| Classification | `06-classification/` | Read classification, BLAST verification, 12S metabarcoding, result imports |
+| Assembly | `07-assembly/` | De novo assembly and contig extraction |
+| Workflows | `08-workflows/` | Provenance export and workflow packages. Numbering starts at 02 because the removed builder chapter was 01 |
+| MHC Allele Genotyping | `09-genotyping/` | Amplicon MHC genotyping and genotype export |
+| Primer Design | `10-primer-design/` | PCR, tiled amplicon, qPCR, and dPCR primer design |
+| Reference | `appendices/` and `GLOSSARY.md` | Look-up material, including the CLI reference, file formats, tool versions, troubleshooting, and the glossary |
 
 ## Prerequisite graph
 
@@ -224,6 +267,6 @@ download steps, and V01's `## Before you start` names each.
 
 | Decision | Detail |
 |---|---|
-| Foundations as short standalone pages | Web-first presentation favours short pages with stable anchors other chapters can deep-link to. Each foundations page takes 5 to 10 minutes and ends with a next pointer, and the PDF build assembles them in order. |
+| Foundations as short standalone pages | Web-first presentation favours short pages with stable anchors other chapters can deep-link to. Each foundations page ends with a next pointer, and the PDF build assembles them in nav order. The home page lists each page's reading time from its frontmatter. |
 | Schematic illustrations | Foundations chapters carry `<!-- ILLUSTRATION: id -->` markers paired with `illustrations.yaml`, which records the brief, palette, and size. Illustrations live in `assets/illustrations-imagegen/`. |
-| Tool-choice tables are Markdown tables | Three columns, "If your data is", "Use", and "Why", which render in both the web and PDF builds. |
+| Tool-choice tables are Markdown tables | Superseded on 2026-09-26 by the four-column table in `STYLE.md` (Tool, Built for, Choose it when, Choose something else when), which every Choosing a tool section uses. Markdown tables render in both the web and PDF builds. |
