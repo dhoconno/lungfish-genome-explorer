@@ -112,6 +112,9 @@ struct AssembleCommand: AsyncParsableCommand {
     @Option(name: .customLong("extra-arg"), parsing: .unconditionalSingleValue, help: "Additional assembler argument (repeatable)")
     var extraArg: [String] = []
 
+    @Flag(name: .customLong("json-events"), help: "Stream newline-delimited status and log events to stderr")
+    var jsonEvents = false
+
     @OptionGroup var globalOptions: GlobalOptions
 
     func run() async throws {
@@ -269,28 +272,51 @@ struct AssembleCommand: AsyncParsableCommand {
         ]))
         print("")
 
+        // Use the same newline-delimited event contract as the other workflows.
+        // stderr remains live even when stdout is block-buffered by a GUI pipe.
+        let events = CLIEventEmitter(enabled: jsonEvents) { line in
+            FileHandle.standardError.write(Data((line + "\n").utf8))
+        }
+        events.emitStart("Launching \(tool.displayName)")
+        let showHumanOutput = !jsonEvents && !globalOptions.quiet
         let result: AssemblyResult
         do {
-            result = try await ManagedAssemblyPipeline().run(request: executionRequest) { _, message in
-                if !globalOptions.quiet {
-                    print("\r\(formatter.info(message))", terminator: "")
+            result = try await ManagedAssemblyPipeline().run(
+                request: executionRequest,
+                onOutput: { line in
+                    events.emitLog(.info, line)
+                    if showHumanOutput { FileHandle.standardError.write(Data((line + "\n").utf8)) }
+                },
+                progress: { _, message in
+                    events.emitProgress(0, message: message)
+                    if showHumanOutput { FileHandle.standardError.write(Data((message + "\n").utf8)) }
                 }
-            }
+            )
         } catch {
+            events.emitFailed(error.localizedDescription)
             print(formatter.error(error.localizedDescription))
             throw CLIExitCode.workflowError.exitCode
         }
-        _ = try Self.writeProvenance(
-            request: executionRequest,
-            result: result,
-            originalInputURLs: inputURLs,
-            executionInputURLs: executionInputURLs,
-            argv: CommandLine.arguments,
-            startedAt: startedAt,
-            endedAt: Date(),
-            materializationStartedAt: materializationStartedAt,
-            materializationEndedAt: materializationEndedAt
-        )
+        do {
+            _ = try Self.writeProvenance(
+                request: executionRequest,
+                result: result,
+                originalInputURLs: inputURLs,
+                executionInputURLs: executionInputURLs,
+                argv: CommandLine.arguments,
+                startedAt: startedAt,
+                endedAt: Date(),
+                materializationStartedAt: materializationStartedAt,
+                materializationEndedAt: materializationEndedAt
+            )
+        } catch {
+            events.emitFailed(error.localizedDescription)
+            throw error
+        }
+        if result.outcome == .completedWithNoContigs {
+            events.emitLog(.warning, "Assembly completed, but no contigs were generated.")
+        }
+        events.emitComplete(outputs: [result.outputDirectory.path], message: "Assembly completed")
 
         if !globalOptions.quiet {
             print("")

@@ -1,6 +1,7 @@
 import Foundation
 import XCTest
 import LungfishKit
+import LungfishWorkflow
 @testable import LungfishApp
 
 @MainActor
@@ -43,6 +44,31 @@ final class PrimerDesignOperationTests: XCTestCase {
     XCTAssertEqual(center.items.first?.state, .running)
     XCTAssertEqual(center.items.first?.progress, 0.25)
     XCTAssertEqual(center.items.first?.detail, "Preparing saved alignment")
+    gate.continuation.finish()
+    await handle.task.value
+    XCTAssertEqual(center.items.first?.state, .completed)
+  }
+
+  func testNativeLogsAndExecutedCommandAreVisibleBeforeWorkerCompletes() async throws {
+    let center = OperationCenter()
+    let gate = AsyncStream<Void>.makeStream()
+    let output = URL(fileURLWithPath: "/tmp/streaming.lungfishprimeranalysis")
+    let handle = PrimerDesignOperation.start(center: center, title: "Native workflow",
+      destination: output, routeContext: nil, operation: { _ in
+        NativeProcessObservation.onEvent?(.started(argv: ["/path with spaces/python", "adapter.py"]))
+        NativeProcessObservation.onEvent?(.output(stream: .stdout, line: "Live native output"))
+        NativeProcessObservation.onEvent?(.output(stream: .stderr, line: "Native progress on stderr"))
+        for await _ in gate.stream { break }
+        return output
+      }, onResultSaved: { _ in })
+    for _ in 0..<100 {
+      if center.items.first?.logEntries.contains(where: { $0.message == "Native progress on stderr" }) == true { break }
+      try await Task.sleep(for: .milliseconds(2))
+    }
+    XCTAssertEqual(center.items.first?.state, .running)
+    XCTAssertEqual(center.items.first?.cliCommand, ["/path with spaces/python", "adapter.py"].map(shellEscape).joined(separator: " "))
+    XCTAssertTrue(center.items.first?.logEntries.contains(where: { $0.message == "Live native output" }) == true)
+    XCTAssertTrue(center.items.first?.logEntries.contains(where: { $0.message == "Native progress on stderr" && $0.level == .info }) == true)
     gate.continuation.finish()
     await handle.task.value
     XCTAssertEqual(center.items.first?.state, .completed)

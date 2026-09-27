@@ -110,8 +110,10 @@ public class SequenceViewerView: NSView {
     private var detachedEvidenceMonitorSources: [DispatchSourceFileSystemObject] = []
     private var detachedEvidenceMonitorGeneration = 0
     private var detachedEvidenceHashInFlight = false
+    private var detachedEvidenceMonitorCheckPending = false
 #if DEBUG
     private(set) var detachedEvidenceMonitorEventCount = 0
+    private var detachedEvidenceChecksumDidRunForTesting: (@Sendable () -> Void)?
 #endif
     
     /// Cached sequence data for the current visible region (for bundle mode)
@@ -1729,6 +1731,10 @@ public class SequenceViewerView: NSView {
     var testDetachedEvidenceMonitorEventCount: Int { detachedEvidenceMonitorEventCount }
     var testDetachedEvidenceFetchMessage: String? { detachedEvidenceFetchMessage }
 
+    func testSetDetachedEvidenceChecksumDidRun(_ hook: (@Sendable () -> Void)?) {
+        detachedEvidenceChecksumDidRunForTesting = hook
+    }
+
     func testInstallDetachedAlignmentFetchTasks(read: Task<Void, Never>?, depth: Task<Void, Never>?) {
         detachedReadFetchTask = read
         detachedDepthFetchTask = depth
@@ -2644,7 +2650,7 @@ public class SequenceViewerView: NSView {
                 queue: .main
             )
             monitor.setEventHandler { [weak self] in
-                self?.scheduleDetachedEvidenceMonitorCheck(generation: generation)
+                self?.scheduleDetachedEvidenceMonitorCheck(generation: generation, preserveEventWhileInFlight: true)
             }
             monitor.setCancelHandler { close(descriptor) }
             detachedEvidenceMonitorSources.append(monitor)
@@ -2656,24 +2662,39 @@ public class SequenceViewerView: NSView {
     private func stopDetachedEvidenceMonitors() {
         detachedEvidenceMonitorGeneration += 1
         detachedEvidenceHashInFlight = false
+        detachedEvidenceMonitorCheckPending = false
         detachedEvidenceMonitorSources.forEach { $0.cancel() }
         detachedEvidenceMonitorSources.removeAll()
     }
 
-    private func scheduleDetachedEvidenceMonitorCheck(generation: Int) {
+    private func scheduleDetachedEvidenceMonitorCheck(
+        generation: Int,
+        preserveEventWhileInFlight: Bool = false
+    ) {
         guard generation == detachedEvidenceMonitorGeneration,
               let source = detachedAlignmentSource else { return }
 #if DEBUG
         detachedEvidenceMonitorEventCount += 1
 #endif
-        guard !detachedEvidenceHashInFlight else { return }
+        guard !detachedEvidenceHashInFlight else {
+            if preserveEventWhileInFlight {
+                detachedEvidenceMonitorCheckPending = true
+            }
+            return
+        }
         detachedEvidenceHashInFlight = true
         let identityURL = source.identityURL
         let checks = expectedSnapshots(for: source).map { DetachedEvidenceSnapshotCheck(url: $0.0, expected: $0.1) }
+#if DEBUG
+        let checksumDidRunForTesting = detachedEvidenceChecksumDidRunForTesting
+#endif
         DispatchQueue.global(qos: .utility).async { [weak self] in
             let mismatch = checks.first { check in
                 return (try? Self.checksumSnapshot(check.url)) != check.expected
             }
+#if DEBUG
+            checksumDidRunForTesting?()
+#endif
             DispatchQueue.main.async {
                 self?.applyDetachedEvidenceMonitorCheck(
                     generation: generation,
@@ -2699,6 +2720,11 @@ public class SequenceViewerView: NSView {
             return
         }
         for check in checks { detachedResourceSignatures[check.url] = resourceSignature(for: check.url) }
+        if detachedEvidenceMonitorCheckPending {
+            detachedEvidenceMonitorCheckPending = false
+            scheduleDetachedEvidenceMonitorCheck(generation: generation)
+            return
+        }
         // The draw path treated the evidence as pending while this check ran
         // (and drew the "unavailable" badge). Redraw now that the signatures
         // are established — without this the badge sticks until an unrelated

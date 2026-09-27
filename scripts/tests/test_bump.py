@@ -709,6 +709,9 @@ class ChecksumTests(unittest.TestCase):
 
     def test_fills_digests_for_the_entries_that_changed(self):
         manifest = self._manifest()
+        manifest["bootstrap"]["micromamba"]["packagedSha256"] = {
+            "osx-arm64-adhoc": "c" * 64
+        }
         result = bump.fetch_checksums(
             manifest,
             self._fetcher(),
@@ -723,6 +726,7 @@ class ChecksumTests(unittest.TestCase):
         self.assertEqual(
             manifest["bootstrap"]["micromamba"]["sha256"]["osx-arm64"], "b" * 64
         )
+        self.assertNotIn("packagedSha256", manifest["bootstrap"]["micromamba"])
 
     def test_pinned_version_digest_is_used_when_pin_is_not_the_latest(self):
         """The reported defect: a held 2.0.5-0 must not take 2.9.0-0's digest."""

@@ -50,9 +50,12 @@ public struct Primer3DesignPipeline: Sendable {
         request: Primer3DesignRequest,
         progress: (@Sendable (Double, String) -> Void)? = nil
     ) async throws -> URL {
+        let observer = NativeProcessObservation.onEvent
         let task = Task.detached(priority: .userInitiated) {
-            try Task.checkCancellation()
-            return try await runDetached(request: request, progress: progress)
+            try await NativeProcessObservation.$onEvent.withValue(observer) {
+                try Task.checkCancellation()
+                return try await runDetached(request: request, progress: progress)
+            }
         }
         return try await withTaskCancellationHandler(operation: { try await task.value }, onCancel: { task.cancel() })
     }

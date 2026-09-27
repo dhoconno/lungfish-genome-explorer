@@ -65,40 +65,51 @@ final class SequenceViewerVariantTrackScanOffMainTests: XCTestCase {
         let bundle = ReferenceBundle(url: bundleURL, manifest: try BundleManifest.load(from: bundleURL))
         let viewer = SequenceViewerView(frame: NSRect(x: 0, y: 0, width: 400, height: 200))
 
-        // Hold the scan queue busy for a bit so any accidental main-thread work inside
-        // setReferenceBundle itself (not the detached scan) would show up as a stall here.
         let scanStarted = ThreadObservationBox()
+        let scanFinished = ThreadObservationBox()
         let releaseGate = DispatchSemaphore(value: 0)
         SequenceViewerView.variantTrackScanThreadingProbe = { [scanStarted] in
             scanStarted.record(isMainThread: Thread.isMainThread)
-            // Simulate a slow variant-database open (large cohort VCF) without needing to
-            // fabricate gigabytes of test data — the point under test is that this delay,
-            // wherever it happens, cannot be observed as main-actor unresponsiveness.
-            _ = releaseGate.wait(timeout: .now() + 2)
+            _ = releaseGate.wait(timeout: .now() + 15)
+            scanFinished.record(isMainThread: Thread.isMainThread)
         }
         defer { releaseGate.signal() }
 
-        let callStart = Date()
         viewer.setReferenceBundle(bundle)
-        let callElapsed = Date().timeIntervalSince(callStart)
 
-        // setReferenceBundle itself must return promptly — it only enqueues the scan, it does
-        // not wait for it. A synchronous scan on main would make this call itself take ~2s.
-        XCTAssertLessThan(callElapsed, 0.5, "setReferenceBundle blocked the caller for \(callElapsed)s")
+        // Assert causal ordering instead of elapsed wall time: under a parallel suite the
+        // scheduler may be slow, but the main actor must still run while the scan gate is held.
+        XCTAssertTrue(
+            waitUntil(timeout: 5) { scanStarted.fired },
+            "Variant track scan probe never started"
+        )
+        XCTAssertFalse(scanStarted.wasMainThread, "Variant track scan ran on the main thread")
+        XCTAssertFalse(scanFinished.fired, "Variant track scan returned before its release gate opened")
 
-        // A main-actor unit of work queued right after setReferenceBundle must run promptly,
-        // proving the main actor was never occupied by the scan.
         let mainActorProbeRan = ThreadObservationBox()
         DispatchQueue.main.async {
             mainActorProbeRan.record(isMainThread: Thread.isMainThread)
         }
-        let deadline = Date().addingTimeInterval(1.0)
-        while !mainActorProbeRan.fired && Date() < deadline {
-            RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.01))
-        }
-        XCTAssertTrue(mainActorProbeRan.fired, "A main-actor probe queued after setReferenceBundle did not run promptly — the main actor may be blocked")
+        XCTAssertTrue(
+            waitUntil(timeout: 5) { mainActorProbeRan.fired },
+            "A main-actor probe did not run while the background scan was held"
+        )
+        XCTAssertTrue(mainActorProbeRan.wasMainThread)
+        XCTAssertFalse(scanFinished.fired, "Variant track scan was not still held when the main-actor probe ran")
 
         releaseGate.signal()
+        XCTAssertTrue(
+            waitUntil(timeout: 5) { scanFinished.fired },
+            "Variant track scan did not leave its test gate"
+        )
+    }
+
+    private func waitUntil(timeout: TimeInterval, condition: () -> Bool) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while !condition() && Date() < deadline {
+            RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.01))
+        }
+        return condition()
     }
 
     // MARK: - Fixture

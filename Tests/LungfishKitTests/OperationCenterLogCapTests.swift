@@ -58,6 +58,25 @@ final class OperationCenterLogCapTests: XCTestCase {
         XCTAssertLessThanOrEqual(item.logEntries.count, OperationCenter.Item.maxRetainedLogEntries)
     }
 
+    func testCompletedWarningOutcomeSurvivesElidedMiddleWarning() {
+        let id = center.start(title: "Warning Op", detail: "starting")
+        for index in 0..<150 {
+            center.log(id: id, level: .info, message: "before \(index)")
+        }
+        center.log(id: id, level: .warning, message: "middle warning")
+        for index in 0..<3_000 {
+            center.log(id: id, level: .info, message: "after \(index)")
+        }
+        center.complete(id: id, detail: "Done")
+        let item = center.items.first!
+        XCTAssertFalse(item.logEntries.contains { $0.message == "middle warning" })
+        XCTAssertEqual(item.logEntryCount, 3_151)
+        XCTAssertEqual(item.warningCount, 1)
+        XCTAssertEqual(item.latestLogEntry?.message, "after 2999")
+        XCTAssertTrue(item.hasWarnings)
+        XCTAssertEqual(item.displayStateLabel, "Completed with Warnings")
+    }
+
     func testHasWarningsSeesRecentWarningsAfterElision() {
         let id = center.start(title: "Long Op With Late Warning", detail: "starting")
 

@@ -29,6 +29,58 @@ private final class ProgressRecorder: @unchecked Sendable {
 }
 
 final class FASTQOperationExecutionServiceTests: XCTestCase {
+    func testSequenceProcessingRestoresEachOriginalInputFormatBeforeImport() async throws {
+        let directory = try FASTQOperationTestHelper.makeTempDir(prefix: "FormatRestoration")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let fasta = try makeReferenceBundle(named: "sequences", in: directory,
+            records: [(id: "read", sequence: "ACGT")])
+        let fastq = directory.appendingPathComponent("reads.fastq")
+        try "@read\nACGT\n+\n!I!I\n".write(to: fastq, atomically: true, encoding: .utf8)
+        let operations: [FASTQDerivativeRequest] = [
+            .orient(referenceURL: directory.appendingPathComponent("reference.fasta"), wordLength: 12,
+                    dbMask: "dust", saveUnoriented: false, extraArguments: []),
+            .reverseComplement, .lengthFilter(min: 1, max: nil), .subsampleCount(1)
+        ]
+        for operation in operations {
+          for mode in [FASTQOperationOutputMode.perInput, .groupedResult] {
+            let runner = SpyCommandRunner { invocation, outputDirectory in
+                let outputIndex = try XCTUnwrap(invocation.arguments.firstIndex(where: { $0 == "--output" || $0 == "-o" }))
+                let outputURL = URL(fileURLWithPath: invocation.arguments[outputIndex + 1])
+                let inputURL = URL(fileURLWithPath: invocation.arguments[1])
+                try "@read\nACGT\n+\n!I!I\n".write(to: outputURL, atomically: true, encoding: .utf8)
+                try writeSyntheticProvenance(to: outputDirectory, name: "processing fixture",
+                    toolName: "fixture", toolVersion: "1", command: invocation.arguments,
+                    inputURL: inputURL, outputURL: outputURL,
+                    sidecarURL: ProvenanceRecorder.fileSidecarURL(for: outputURL))
+                return FASTQCLIExecutionResult(outputURLs: [outputURL])
+            }
+            let service = FASTQOperationExecutionService(commandRunner: runner)
+            let working = directory.appendingPathComponent("\(operation.operationKindString)-\(mode.rawValue)")
+            let result = try await service.execute(request: .derivative(request: operation,
+                inputURLs: [fasta, fastq], outputMode: mode), workingDirectory: working)
+            let outputs: [URL]
+            if let group = result.groupedContainerURL {
+                let entry = try XCTUnwrap(FASTQBatchManifest.load(from: group)?.operations.last)
+                outputs = entry.outputBundlePaths.map { group.appendingPathComponent($0) }
+            } else {
+                outputs = result.importedURLs
+            }
+            guard outputs.count == 2 else { return XCTFail("Expected one output per input for \(operation.operationKindString), \(mode)") }
+            XCTAssertEqual(outputs.map { SequenceFormat.from(url: $0) }, [.fasta, .fastq], operation.operationKindString)
+            XCTAssertEqual(try String(contentsOf: outputs[0], encoding: .utf8), ">read\nACGT\n")
+            XCTAssertEqual(try String(contentsOf: outputs[1], encoding: .utf8), "@read\nACGT\n+\n!I!I\n")
+            let provenance = try XCTUnwrap(ProvenanceRecorder.findProvenanceEnvelope(for: outputs[0])?.envelope)
+            XCTAssertTrue(provenance.steps.contains { $0.toolName == "SyntheticFASTQBridge.convertFASTAToFASTQ" })
+            XCTAssertTrue(provenance.steps.contains { $0.toolName == SequenceProcessingOutputNormalizer.normalizationToolName })
+            for step in provenance.steps {
+                for input in step.inputs where input.format == .fasta || input.format == .fastq {
+                    XCTAssertTrue(FileManager.default.fileExists(atPath: input.path), input.path)
+                }
+            }
+          }
+        }
+    }
+
     func testDefaultCLIRunnerCancelsRunningProcessWhenTaskIsCancelled() async throws {
         let tempDir = try FASTQOperationTestHelper.makeTempDir(prefix: "FASTQExecCLICancel")
         defer { try? FileManager.default.removeItem(at: tempDir) }
@@ -3485,6 +3537,7 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
                 subcommand: "assemble",
                 arguments: [
                     "/tmp/sample.fastq.gz",
+                    "--json-events",
                     "--assembler", "spades",
                     "--read-type", "illumina-short-reads",
                     "--project-name", "Demo",
@@ -3524,6 +3577,7 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
                 "/tmp/sample_R1.fastq.gz",
                 "/tmp/sample_R2.fastq.gz",
                 "--paired",
+                "--json-events",
                 "--assembler", "spades",
                 "--read-type", "illumina-short-reads",
                 "--project-name", "Demo",
@@ -3588,6 +3642,7 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
             invocation.arguments,
             [
                 "/tmp/sample.fastq.gz",
+                "--json-events",
                 "--assembler", "megahit",
                 "--read-type", "illumina-short-reads",
                 "--project-name", "Demo",
@@ -3624,6 +3679,7 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
             invocation.arguments,
             [
                 "/tmp/sample.fastq.gz",
+                "--json-events",
                 "--assembler", "hifiasm",
                 "--read-type", "pacbio-hifi",
                 "--project-name", "Demo",

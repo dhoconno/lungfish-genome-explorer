@@ -1299,6 +1299,13 @@ extension MainSplitViewController {
                     result = try await executionService.execute(
                         request: request,
                         workingDirectory: workingDirectory,
+                        logHandler: { level, message in
+                            DispatchQueue.main.async {
+                                MainActor.assumeIsolated {
+                                    OperationCenter.shared.log(id: opID, level: level, message: message)
+                                }
+                            }
+                        },
                         progress: { [weak self] fraction, message in
                             DispatchQueue.main.async {
                                 MainActor.assumeIsolated {

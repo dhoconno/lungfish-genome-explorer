@@ -1323,7 +1323,7 @@ final class OperationsMenuDelegate: NSObject, NSMenuDelegate {
             case .running:
                 statusSymbol = "play.circle"
                 statusAccessibility = "Running"
-                progressText = " (\(Int(op.progress * 100))%)"
+                progressText = " (\(op.displayProgressLabel))"
             case .cancelling:
                 statusSymbol = "stop.circle"
                 statusAccessibility = "Cancelling"

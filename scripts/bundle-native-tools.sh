@@ -163,6 +163,32 @@ verify_micromamba_checksum() {
     fi
 }
 
+verify_packaged_micromamba_checksum() {
+    local arch="$1"
+    local source_path="$2"
+    [ "$arch" = "arm64" ] || return
+
+    local expected
+    expected=$(jq -r '.bootstrap.micromamba.packagedSha256["osx-arm64-adhoc"] // empty' "$LOCK_MANIFEST")
+    if [ -z "$expected" ]; then
+        echo "Error: manifest lacks the deterministic osx-arm64 ad-hoc micromamba checksum" >&2
+        exit 66
+    fi
+
+    local staging_dir actual
+    staging_dir=$(mktemp -d)
+    cp "$source_path" "$staging_dir/micromamba"
+    /bin/bash "$PROJECT_ROOT/scripts/sanitize-bundled-tools.sh" --adhoc-seal "$staging_dir" >/dev/null
+    actual=$(shasum -a 256 "$staging_dir/micromamba" | cut -d' ' -f1)
+    rm -rf "$staging_dir"
+    if [ "$actual" != "$expected" ]; then
+        echo "Error: deterministic packaged micromamba checksum mismatch for osx-arm64" >&2
+        echo "  expected: $expected" >&2
+        echo "  actual:   $actual" >&2
+        exit 66
+    fi
+}
+
 download_micromamba() {
     local arch="$1"
     local output_path="$2"
@@ -188,6 +214,7 @@ download_micromamba() {
     chmod +x "$output_path"
 
     verify_micromamba_checksum "$arch" "$output_path"
+    verify_packaged_micromamba_checksum "$arch" "$output_path"
 }
 
 create_universal_micromamba() {

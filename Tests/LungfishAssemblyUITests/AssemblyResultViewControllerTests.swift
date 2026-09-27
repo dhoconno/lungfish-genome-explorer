@@ -80,6 +80,53 @@ final class AssemblyResultViewControllerTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(split.arrangedSubviews[1].frame.width, 320)
     }
 
+    func testLayoutPreferenceNotificationReordersVisiblePanesWithoutLosingSelectionOrFilter() async throws {
+        let vc = AssemblyResultViewController()
+        _ = vc.view
+        try await vc.configureForTesting(result: makeAssemblyResult())
+        vc.testContigTableView.setFilterText("contig_7")
+        try await vc.testSelectContig(named: "contig_7")
+
+        AssemblyPanelLayout.detailLeading.persist()
+
+        XCTAssertTrue(vc.testSplitView.isVertical)
+        XCTAssertTrue(vc.testSplitView.arrangedSubviews[0] === vc.testDetailContainer)
+        XCTAssertTrue(vc.testSplitView.arrangedSubviews[1] === vc.testTableContainer)
+        XCTAssertEqual(vc.testContigTableView.testSearchField.stringValue, "contig_7")
+        XCTAssertEqual(vc.testContigTableView.displayedRows.map(\.name), ["contig_7"])
+        XCTAssertEqual(vc.testDetailPane.currentHeaderText, "contig_7 annotated header")
+
+        AssemblyPanelLayout.listLeading.persist()
+
+        XCTAssertTrue(vc.testSplitView.isVertical)
+        XCTAssertTrue(vc.testSplitView.arrangedSubviews[0] === vc.testTableContainer)
+        XCTAssertTrue(vc.testSplitView.arrangedSubviews[1] === vc.testDetailContainer)
+        XCTAssertEqual(vc.testContigTableView.testSearchField.stringValue, "contig_7")
+        XCTAssertEqual(vc.testContigTableView.displayedRows.map(\.name), ["contig_7"])
+        XCTAssertEqual(vc.testDetailPane.currentHeaderText, "contig_7 annotated header")
+
+        AssemblyPanelLayout.stacked.persist()
+
+        XCTAssertFalse(vc.testSplitView.isVertical)
+        XCTAssertTrue(vc.testSplitView.arrangedSubviews[0] === vc.testTableContainer)
+        XCTAssertTrue(vc.testSplitView.arrangedSubviews[1] === vc.testDetailContainer)
+        XCTAssertEqual(vc.testContigTableView.testSearchField.stringValue, "contig_7")
+        XCTAssertEqual(vc.testContigTableView.displayedRows.map(\.name), ["contig_7"])
+        XCTAssertEqual(vc.testDetailPane.currentHeaderText, "contig_7 annotated header")
+    }
+
+    func testControllerDeallocatesAfterRegisteringForLayoutPreferenceNotifications() {
+        weak var weakController: AssemblyResultViewController?
+
+        autoreleasepool {
+            let controller = AssemblyResultViewController()
+            _ = controller.view
+            weakController = controller
+        }
+
+        XCTAssertNil(weakController)
+    }
+
     func testSingleSelectionProvidesPreviewColumnValue() async throws {
         let pasteboard = RecordingPasteboard()
         let vc = AssemblyResultViewController()

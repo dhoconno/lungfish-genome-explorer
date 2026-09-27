@@ -336,15 +336,23 @@ public enum AssemblyRunner {
             let executionRequest = materializationResult.request
 
             let pipeline = ManagedAssemblyPipeline()
-            let result = try await pipeline.run(request: executionRequest) { fraction, message in
-                DispatchQueue.main.async {
-                    MainActor.assumeIsolated {
-                        let scaledProgress = 0.05 + fraction * 0.85
-                        _ = OperationCenter.shared.update(id: opID, progress: scaledProgress, detail: message)
-                        OperationCenter.shared.log(id: opID, level: .info, message: message)
+            let result = try await pipeline.run(
+                request: executionRequest,
+                onOutput: { line in
+                    DispatchQueue.main.async {
+                        MainActor.assumeIsolated {
+                            OperationCenter.shared.log(id: opID, level: .info, message: line)
+                        }
+                    }
+                },
+                progress: { _, message in
+                    DispatchQueue.main.async {
+                        MainActor.assumeIsolated {
+                            _ = OperationCenter.shared.updateProgress(id: opID, evidence: nil, detail: message)
+                        }
                     }
                 }
-            }
+            )
 
             await performAssemblyOperationCenterUpdate {
                 _ = OperationCenter.shared.update(id: opID, progress: 0.92, detail: "Creating reference bundle...")

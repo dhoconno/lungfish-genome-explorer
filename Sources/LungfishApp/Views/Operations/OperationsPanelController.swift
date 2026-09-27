@@ -16,7 +16,7 @@ final class OperationsPanelController: NSWindowController {
 
     init() {
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 560, height: 400),
+            contentRect: NSRect(x: 0, y: 0, width: 900, height: 650),
             styleMask: [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered,
             defer: true
@@ -25,7 +25,7 @@ final class OperationsPanelController: NSWindowController {
         window.level = .normal
         window.isReleasedWhenClosed = false
         window.isRestorable = false
-        window.minSize = NSSize(width: 460, height: 250)
+        window.minSize = NSSize(width: 700, height: 530)
         window.center()
 
         super.init(window: window)
@@ -40,38 +40,35 @@ final class OperationsPanelController: NSWindowController {
     }
 }
 
-// MARK: - Expansion Section Identifiers
-
-/// Accessibility identifiers used to tag expansion sections in the title cell.
-/// NSView.tag is read-only on macOS 26, so we use accessibilityIdentifier instead.
-private enum ExpansionSectionID {
-    static let cliCommand = "ops-expansion-cli"
-    static let outputFiles = "ops-expansion-outputs"
-    static let logEntries = "ops-expansion-log"
-    static let errorBox = "ops-expansion-error"
-    static let failureReportPath = "ops-failure-report-path"
+@MainActor
+private final class OperationsPanelBackgroundView: NSView {
+    override var isOpaque: Bool { true }
+    override func draw(_ dirtyRect: NSRect) {
+        NSColor.windowBackgroundColor.setFill()
+        dirtyRect.fill()
+    }
 }
 
 // MARK: - OperationsPanelViewController
 
 @MainActor
-final class OperationsPanelViewController: NSViewController, NSTableViewDataSource, NSTableViewDelegate {
+final class OperationsPanelViewController: NSViewController, NSTableViewDataSource, NSTableViewDelegate, NSSplitViewDelegate {
 
     private let scrollView = NSScrollView()
     private let tableView = NSTableView()
     private let footerView = NSView()
+    private let splitView = NSSplitView()
+    private let inspector = OperationsLogInspector(frame: .zero)
     private var cancellables = Set<AnyCancellable>()
     private nonisolated(unsafe) var elapsedRefreshTimer: Timer?
 
     private var items: [OperationCenter.Item] = []
+    private var drawerIsOpen = false
+    private var drawerHeight: CGFloat = 349
     private var pendingRowReloadIDs: Set<UUID> = []
     private var pendingRowReloadTask: Task<Void, Never>?
 
-    /// Set of item IDs whose detail text is currently expanded.
-    private var expandedItemIDs: Set<UUID> = []
-
     private static let coalescedRowReloadDelay: Duration = .milliseconds(150)
-    private static let expandedLogEntryLimit = 200
 
     /// DateFormatter for log entry timestamps (HH:mm:ss).
     private static let logTimestampFormatter: DateFormatter = {
@@ -88,7 +85,7 @@ final class OperationsPanelViewController: NSViewController, NSTableViewDataSour
     }
 
     override func loadView() {
-        let container = NSView(frame: NSRect(x: 0, y: 0, width: 560, height: 400))
+        let container = OperationsPanelBackgroundView(frame: NSRect(x: 0, y: 0, width: 900, height: 650))
         view = container
 
         // Table setup
@@ -98,16 +95,29 @@ final class OperationsPanelViewController: NSViewController, NSTableViewDataSour
         setupFooter()
 
         // Layout
-        scrollView.translatesAutoresizingMaskIntoConstraints = false
+        // Supply valid initial geometry before attaching Auto Layout children.
+        // NSSplitView's delegate also enforces these minima during window resize,
+        // not only while the user drags the divider.
+        splitView.frame = NSRect(x: 0, y: 40, width: 900, height: 610)
+        scrollView.frame = NSRect(x: 0, y: 0, width: 900, height: 260)
+        inspector.frame = NSRect(x: 0, y: 261, width: 900, height: 349)
+        splitView.translatesAutoresizingMaskIntoConstraints = false
+        splitView.isVertical = false
+        splitView.dividerStyle = .thin
+        splitView.delegate = self
+        splitView.addArrangedSubview(scrollView)
+        splitView.addArrangedSubview(inspector)
+        inspector.isHidden = true
+        inspector.onClose = { [weak self] in self?.setDrawerOpen(false) }
         footerView.translatesAutoresizingMaskIntoConstraints = false
-        container.addSubview(scrollView)
+        container.addSubview(splitView)
         container.addSubview(footerView)
 
         NSLayoutConstraint.activate([
-            scrollView.topAnchor.constraint(equalTo: container.topAnchor),
-            scrollView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-            scrollView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-            scrollView.bottomAnchor.constraint(equalTo: footerView.topAnchor),
+            splitView.topAnchor.constraint(equalTo: container.topAnchor),
+            splitView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            splitView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            splitView.bottomAnchor.constraint(equalTo: footerView.topAnchor),
 
             footerView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
             footerView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
@@ -121,6 +131,8 @@ final class OperationsPanelViewController: NSViewController, NSTableViewDataSour
 
         items = OperationCenter.shared.items
         tableView.reloadData()
+        if !items.isEmpty { tableView.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false) }
+        refreshInspector()
         updateElapsedRefreshTimer()
 
         OperationCenter.shared.changes
@@ -142,20 +154,58 @@ final class OperationsPanelViewController: NSViewController, NSTableViewDataSour
         let width = max(titleColumn.minWidth, scrollView.contentSize.width - otherWidths - spacing)
         guard abs(titleColumn.width - width) > 0.5 else { return }
         titleColumn.width = width
-        refreshExpandedRowHeights()
     }
 
-    func tableViewColumnDidResize(_ notification: Notification) {
-        refreshExpandedRowHeights()
-    }
-
-    private func refreshExpandedRowHeights() {
-        let rows = IndexSet(items.indices.filter { expandedItemIDs.contains(items[$0].id) })
-        guard !rows.isEmpty else { return }
-        tableView.noteHeightOfRows(withIndexesChanged: rows)
-        if let column = tableView.tableColumns.firstIndex(where: { $0.identifier.rawValue == "title" }) {
-            tableView.reloadData(forRowIndexes: rows, columnIndexes: IndexSet(integer: column))
+    func splitView(_ splitView: NSSplitView, resizeSubviewsWithOldSize oldSize: NSSize) {
+        guard drawerIsOpen else {
+            scrollView.frame = splitView.bounds
+            return
         }
+        let available = max(0, splitView.bounds.height - splitView.dividerThickness)
+        let height = min(max(330, drawerHeight), max(0, available - 100))
+        let listHeight = available - height
+        scrollView.frame = NSRect(x: 0, y: 0, width: splitView.bounds.width, height: listHeight)
+        inspector.frame = NSRect(x: 0, y: listHeight + splitView.dividerThickness,
+                                 width: splitView.bounds.width, height: height)
+    }
+
+    func splitView(_ splitView: NSSplitView, constrainMinCoordinate proposedMinimumPosition: CGFloat, ofSubviewAt dividerIndex: Int) -> CGFloat {
+        100
+    }
+
+    func splitView(_ splitView: NSSplitView, constrainMaxCoordinate proposedMaximumPosition: CGFloat, ofSubviewAt dividerIndex: Int) -> CGFloat {
+        max(100, splitView.bounds.height - 330)
+    }
+
+    func splitViewDidResizeSubviews(_ notification: Notification) {
+        if drawerIsOpen { drawerHeight = inspector.frame.height }
+    }
+
+    private func setDrawerOpen(_ open: Bool) {
+        drawerIsOpen = open
+        inspector.isHidden = !open
+        splitView.adjustSubviews()
+        if open, tableView.selectedRow >= 0 { tableView.scrollRowToVisible(tableView.selectedRow) }
+        refreshInspector()
+        tableView.reloadData(forRowIndexes: IndexSet(integersIn: 0..<items.count), columnIndexes: IndexSet(integer: 0))
+    }
+
+    func tableViewSelectionDidChange(_ notification: Notification) {
+        refreshInspector()
+        tableView.reloadData(forRowIndexes: IndexSet(integersIn: 0..<items.count), columnIndexes: IndexSet(integer: 0))
+    }
+
+    private func refreshInspector() {
+        inspector.retainOperations(Set(items.map(\.id)))
+        guard tableView.selectedRow >= 0, tableView.selectedRow < items.count else {
+            inspector.display(nil)
+            return
+        }
+        let item = items[tableView.selectedRow]
+        let menu = NSMenu()
+        menu.addItem(withTitle: "Actions", action: nil, keyEquivalent: "")
+        populateActions(menu, for: item)
+        inspector.display(item, actions: menu)
     }
 
     static func commandTextHeight(_ command: String, columnWidth: CGFloat) -> CGFloat {
@@ -205,7 +255,6 @@ final class OperationsPanelViewController: NSViewController, NSTableViewDataSour
         case .removed(let ids):
             let removedSet = Set(ids)
             let pendingIDs = takePendingRowReloadIDs().subtracting(removedSet)
-            expandedItemIDs.subtract(removedSet)
             let removedRows = previousItems.enumerated()
                 .filter { removedSet.contains($0.element.id) }
                 .map(\.offset)
@@ -226,12 +275,21 @@ final class OperationsPanelViewController: NSViewController, NSTableViewDataSour
             reloadDataPreservingSelection(selectedIDs)
         }
 
+        if previousItems.isEmpty, !items.isEmpty, tableView.selectedRow < 0 {
+            tableView.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false)
+        }
+        switch change {
+        case .updated: break // The bounded refresh above also refreshes the inspector.
+        default: refreshInspector()
+        }
         updateElapsedRefreshTimer()
     }
 
     private func scheduleCoalescedRowReload(for id: UUID) {
         pendingRowReloadIDs.insert(id)
-        pendingRowReloadTask?.cancel()
+        // A stream may never become quiet. Keep the first deadline, accumulating
+        // dirty IDs without letting a noisy operation postpone other rows.
+        guard pendingRowReloadTask == nil else { return }
         pendingRowReloadTask = Task { @MainActor [weak self] in
             do {
                 try await Task.sleep(for: Self.coalescedRowReloadDelay)
@@ -273,13 +331,11 @@ final class OperationsPanelViewController: NSViewController, NSTableViewDataSour
             reloadDataPreservingSelection(selectedOperationIDs())
             return
         }
-        if expandedItemIDs.contains(id) {
-            tableView.noteHeightOfRows(withIndexesChanged: IndexSet(integer: row))
-        }
         tableView.reloadData(
             forRowIndexes: IndexSet(integer: row),
             columnIndexes: IndexSet(integersIn: 0..<tableView.numberOfColumns)
         )
+        if tableView.selectedRow == row { refreshInspector() }
     }
 
     private func reloadRows(for ids: Set<UUID>) {
@@ -288,25 +344,19 @@ final class OperationsPanelViewController: NSViewController, NSTableViewDataSour
             return
         }
         var rows = IndexSet()
-        var expandedRows = IndexSet()
         for (index, item) in items.enumerated() where ids.contains(item.id) {
             guard index < tableView.numberOfRows else {
                 reloadDataPreservingSelection(selectedOperationIDs())
                 return
             }
             rows.insert(index)
-            if expandedItemIDs.contains(item.id) {
-                expandedRows.insert(index)
-            }
         }
         guard !rows.isEmpty else { return }
-        if !expandedRows.isEmpty {
-            tableView.noteHeightOfRows(withIndexesChanged: expandedRows)
-        }
         tableView.reloadData(
             forRowIndexes: rows,
             columnIndexes: IndexSet(integersIn: 0..<tableView.numberOfColumns)
         )
+        if rows.contains(tableView.selectedRow) { refreshInspector() }
     }
 
     private func selectedOperationIDs() -> Set<UUID> {
@@ -351,9 +401,6 @@ final class OperationsPanelViewController: NSViewController, NSTableViewDataSour
         guard let elapsedColumnIndex = tableView.tableColumns.firstIndex(where: {
             $0.identifier.rawValue == "elapsed"
         }) else { return }
-        guard let etaColumnIndex = tableView.tableColumns.firstIndex(where: {
-            $0.identifier.rawValue == "eta"
-        }) else { return }
 
         var activeRows = IndexSet()
         for (index, item) in items.enumerated() where item.state.isActive {
@@ -362,57 +409,45 @@ final class OperationsPanelViewController: NSViewController, NSTableViewDataSour
         guard !activeRows.isEmpty else { return }
         tableView.reloadData(
             forRowIndexes: activeRows,
-            columnIndexes: IndexSet([elapsedColumnIndex, etaColumnIndex])
+            columnIndexes: IndexSet([elapsedColumnIndex, 0])
         )
+        inspector.updateLatest(at: Date())
     }
 
     // MARK: - Table Setup
 
     private func setupTableView() {
-        let typeColumn = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("type"))
-        typeColumn.title = "Type"
-        typeColumn.width = 80
-        typeColumn.minWidth = 60
-        tableView.addTableColumn(typeColumn)
-
         let titleColumn = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("title"))
         titleColumn.title = "Operation"
         titleColumn.width = 200
-        titleColumn.minWidth = 100
+        titleColumn.minWidth = 200
         tableView.addTableColumn(titleColumn)
 
         let progressColumn = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("progress"))
         progressColumn.title = "Progress"
-        progressColumn.width = 120
-        progressColumn.minWidth = 80
+        progressColumn.width = 170
+        progressColumn.minWidth = 135
         tableView.addTableColumn(progressColumn)
 
         let elapsedColumn = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("elapsed"))
-        elapsedColumn.title = "Elapsed"
-        elapsedColumn.width = 70
-        elapsedColumn.minWidth = 50
-        elapsedColumn.maxWidth = 90
+        elapsedColumn.title = "Time"
+        elapsedColumn.width = 120
+        elapsedColumn.minWidth = 90
+        elapsedColumn.maxWidth = 160
         tableView.addTableColumn(elapsedColumn)
-
-        let etaColumn = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("eta"))
-        etaColumn.title = "ETA"
-        etaColumn.width = 70
-        etaColumn.minWidth = 50
-        etaColumn.maxWidth = 90
-        tableView.addTableColumn(etaColumn)
 
         let actionColumn = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("action"))
         actionColumn.title = ""
-        actionColumn.width = 60
-        actionColumn.minWidth = 60
-        actionColumn.maxWidth = 60
+        actionColumn.width = 82
+        actionColumn.minWidth = 82
+        actionColumn.maxWidth = 82
         tableView.addTableColumn(actionColumn)
 
         tableView.columnAutoresizingStyle = .noColumnAutoresizing
         tableView.dataSource = self
         tableView.delegate = self
         tableView.usesAlternatingRowBackgroundColors = true
-        tableView.rowHeight = 36
+        tableView.rowHeight = 64
         tableView.headerView = NSTableHeaderView()
         tableView.setAccessibilityLabel("Operations table")
         tableView.setAccessibilityIdentifier("operations-table")
@@ -424,6 +459,8 @@ final class OperationsPanelViewController: NSViewController, NSTableViewDataSour
 
         scrollView.documentView = tableView
         scrollView.hasVerticalScroller = true
+        scrollView.hasHorizontalScroller = true
+        scrollView.autohidesScrollers = true
         scrollView.setAccessibilityIdentifier("operations-scroll-view")
     }
 
@@ -450,15 +487,23 @@ final class OperationsPanelViewController: NSViewController, NSTableViewDataSour
     @objc private func toggleDetailExpansion(_ sender: NSButton) {
         let row = tableView.row(for: sender)
         guard row >= 0, row < items.count else { return }
-        let itemID = items[row].id
-        if expandedItemIDs.contains(itemID) {
-            expandedItemIDs.remove(itemID)
-        } else {
-            expandedItemIDs.insert(itemID)
+        let close = drawerIsOpen && tableView.selectedRow == row
+        tableView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+        setDrawerOpen(!close)
+    }
+
+    @objc private func showResults(_ sender: NSButton) {
+        let row = tableView.row(for: sender)
+        guard items.indices.contains(row) else { return }
+        let item = items[row]
+        Task { @MainActor [weak self] in
+            guard !(await OperationResultNavigation.navigate(to: item)) else { return }
+            guard let window = self?.view.window else { return }
+            let alert = NSAlert()
+            alert.messageText = "Unable to show results"
+            alert.informativeText = "Open the operation’s project in the main viewer and make sure its result files are still available."
+            alert.beginSheetModal(for: window, completionHandler: nil)
         }
-        // Animate the row height change by telling the table to re-query heights.
-        tableView.noteHeightOfRows(withIndexesChanged: IndexSet(integer: row))
-        tableView.reloadData(forRowIndexes: IndexSet(integer: row), columnIndexes: IndexSet(integersIn: 0..<tableView.numberOfColumns))
     }
 
     @objc private func cancelItem(_ sender: NSButton) {
@@ -480,6 +525,12 @@ final class OperationsPanelViewController: NSViewController, NSTableViewDataSour
         guard let item = sender.representedObject as? OperationCenter.Item,
               let source = WorkflowOperationsWindowController.replaySourceBundleURL(for: item) else { return }
         WorkflowOperationsWindowController.showPreviousRun(at: source, routeContext: item.routeContext)
+    }
+
+    @objc private func contextRevealOutputs(_ sender: NSMenuItem) {
+        guard let id = sender.representedObject as? UUID,
+              let item = items.first(where: { $0.id == id }) else { return }
+        NSWorkspace.shared.activateFileViewerSelecting(item.outputURLs + item.bundleURLs)
     }
 
     @objc private func contextCopyCLICommand(_ sender: NSMenuItem) {
@@ -541,18 +592,6 @@ final class OperationsPanelViewController: NSViewController, NSTableViewDataSour
         OperationCenter.shared.clearItem(id: itemID)
     }
 
-    @objc private func viewLogFromButton(_ sender: NSButton) {
-        let row = tableView.row(for: sender)
-        guard row >= 0, row < items.count else { return }
-        viewLog(for: items[row])
-    }
-
-    @objc private func revealLogFromButton(_ sender: NSButton) {
-        let row = tableView.row(for: sender)
-        guard row >= 0, row < items.count else { return }
-        revealLog(for: items[row])
-    }
-
     // MARK: - Helpers
 
     private func viewLog(for item: OperationCenter.Item) {
@@ -611,70 +650,6 @@ final class OperationsPanelViewController: NSViewController, NSTableViewDataSour
         GitHubIssueOpener.open(url)
     }
 
-    /// Removes expansion-specific subviews (CLI command, log, error sections)
-    /// from a cell view being reused in collapsed state.
-    private func removeExpansionSubviews(from cell: NSTableCellView) {
-        let expansionIDs: Set<String> = [
-            ExpansionSectionID.cliCommand,
-            ExpansionSectionID.outputFiles,
-            ExpansionSectionID.logEntries,
-            ExpansionSectionID.errorBox,
-        ]
-        cell.subviews
-            .filter { expansionIDs.contains($0.accessibilityIdentifier()) }
-            .forEach { $0.removeFromSuperview() }
-    }
-
-    // MARK: - Expanded Row Height Calculation
-
-    /// Calculates the height for an expanded row based on its content.
-    private func expandedRowHeight(for item: OperationCenter.Item, columnWidth: CGFloat) -> CGFloat {
-        let textWidth = max(120, columnWidth - 28)
-        let detailBounds = (item.detail as NSString).boundingRect(
-            with: NSSize(width: textWidth, height: .greatestFiniteMagnitude),
-            options: [.usesLineFragmentOrigin, .usesFontLeading],
-            attributes: [.font: NSFont.systemFont(ofSize: 10)],
-            context: nil
-        )
-        let detailHeight = ceil(detailBounds.height)
-
-        var extraHeight: CGFloat = 0
-
-        // CLI command section
-        if let command = item.cliCommand {
-            extraHeight += 14 + 2 + Self.commandTextHeight(command, columnWidth: columnWidth) + 6 + 6
-        }
-
-        // Output files section
-        if !item.outputURLs.isEmpty {
-            let outputHeight = min(88, max(28, CGFloat(item.outputURLs.count) * 16))
-            extraHeight += 14 + 4 + outputHeight + 6
-        }
-
-        // Log entries section
-        if !item.logEntries.isEmpty {
-            // Label (14pt) + spacing (4pt) + scroll area (min 40, max 150) + spacing (6pt)
-            let visibleLogEntryCount = min(item.logEntries.count, Self.expandedLogEntryLimit)
-            let entryHeight = CGFloat(visibleLogEntryCount) * 16
-            let logAreaHeight = min(150, max(40, entryHeight))
-            extraHeight += 14 + 4 + logAreaHeight + 6
-        }
-
-        // Error section
-        if item.state == .failed, item.errorMessage != nil {
-            extraHeight += 40
-            if item.errorDetail != nil {
-                extraHeight += 36
-            }
-            if item.failureReportURL != nil {
-                extraHeight += 14
-            }
-        }
-
-        let total = 8 + 16 + 2 + detailHeight + extraHeight + 4
-        return max(44, total)
-    }
-
     // MARK: - NSTableViewDataSource
 
     func numberOfRows(in tableView: NSTableView) -> Int {
@@ -684,12 +659,7 @@ final class OperationsPanelViewController: NSViewController, NSTableViewDataSour
     // MARK: - NSTableViewDelegate
 
     func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
-        guard row < items.count else { return 36 }
-        let item = items[row]
-        guard expandedItemIDs.contains(item.id) else { return 36 }
-
-        let titleColumnWidth = tableView.tableColumn(withIdentifier: NSUserInterfaceItemIdentifier("title"))?.width ?? 220
-        return expandedRowHeight(for: item, columnWidth: titleColumnWidth)
+        64
     }
 
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
@@ -697,149 +667,120 @@ final class OperationsPanelViewController: NSViewController, NSTableViewDataSour
         let item = items[row]
 
         switch identifier.rawValue {
-        case "type":
-            let cell = reuseOrCreate(identifier: identifier, in: tableView)
-            let textField = cell.subviews.first as? NSTextField ?? {
-                let tf = NSTextField(labelWithString: "")
-                tf.translatesAutoresizingMaskIntoConstraints = false
-                cell.addSubview(tf)
-                NSLayoutConstraint.activate([
-                    tf.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 4),
-                    tf.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
-                ])
-                return tf
-            }()
-            textField.stringValue = item.operationType.rawValue
-            textField.font = .systemFont(ofSize: 11)
-            textField.textColor = .secondaryLabelColor
-            return cell
-
         case "title":
             return buildTitleCell(for: item, identifier: identifier, in: tableView)
 
         case "progress":
             let cell = reuseOrCreate(identifier: identifier, in: tableView)
-            let progressBar: NSProgressIndicator = cell.subviews.first(where: { $0 is NSProgressIndicator }) as? NSProgressIndicator ?? {
-                let pb = NSProgressIndicator()
-                pb.style = .bar
-                pb.isIndeterminate = false
-                pb.minValue = 0
-                pb.maxValue = 1
-                pb.translatesAutoresizingMaskIntoConstraints = false
-                cell.addSubview(pb)
+            let label: NSTextField = cell.viewWithTag(200) as? NSTextField ?? {
+                let label = NSTextField(wrappingLabelWithString: "")
+                label.tag = 200
+                label.font = .systemFont(ofSize: 13)
+                label.maximumNumberOfLines = 2
+                label.translatesAutoresizingMaskIntoConstraints = false
+                cell.addSubview(label)
                 NSLayoutConstraint.activate([
-                    pb.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 4),
-                    pb.trailingAnchor.constraint(equalTo: cell.trailingAnchor, constant: -4),
-                    pb.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
+                    label.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 23),
+                    label.trailingAnchor.constraint(equalTo: cell.trailingAnchor, constant: -4),
+                    label.topAnchor.constraint(equalTo: cell.topAnchor, constant: 6),
                 ])
-                return pb
+                return label
             }()
-            let statusLabel: NSTextField = cell.subviews.compactMap({ $0 as? NSTextField }).first ?? {
-                let tf = NSTextField(labelWithString: "")
-                tf.translatesAutoresizingMaskIntoConstraints = false
-                cell.addSubview(tf)
+            label.stringValue = item.displayProgressLabel
+            label.setAccessibilityIdentifier("operations-progress-\(item.id)")
+            label.setAccessibilityLabel(item.displayProgressLabel)
+            if let evidence = item.progressEvidence {
+                label.toolTip = "\(item.displayProgressLabel) · \(evidence.phase) · \(evidence.basis)"
+            } else { label.toolTip = item.displayProgressLabel }
+            label.setAccessibilityHelp(label.toolTip)
+            let status = Self.statusAppearance(for: item)
+            label.textColor = .labelColor
+            let symbol: NSImageView = cell.viewWithTag(201) as? NSImageView ?? {
+                let symbol = NSImageView()
+                symbol.tag = 201
+                symbol.translatesAutoresizingMaskIntoConstraints = false
+                cell.addSubview(symbol)
                 NSLayoutConstraint.activate([
-                    tf.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 4),
-                    tf.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
+                    symbol.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 4),
+                    symbol.topAnchor.constraint(equalTo: cell.topAnchor, constant: 8),
+                    symbol.widthAnchor.constraint(equalToConstant: 13),
+                    symbol.heightAnchor.constraint(equalToConstant: 13),
                 ])
-                return tf
+                symbol.setAccessibilityElement(false)
+                return symbol
             }()
-
-            switch item.state {
-            case .running:
-                progressBar.doubleValue = item.progress
-                progressBar.isHidden = false
-                statusLabel.isHidden = true
-            case .cancelling:
-                progressBar.isHidden = true
-                statusLabel.isHidden = false
-                statusLabel.stringValue = item.displayStateLabel
-                statusLabel.textColor = .secondaryLabelColor
-                statusLabel.font = .systemFont(ofSize: 11)
-            case .completed, .cancelled, .failed:
-                progressBar.isHidden = true
-                statusLabel.isHidden = false
-                statusLabel.stringValue = item.displayStateLabel
-                if item.state == .failed {
-                    statusLabel.textColor = .lungfishDanger
-                } else if item.state == .cancelled {
-                    statusLabel.textColor = .secondaryLabelColor
-                } else if item.hasWarnings {
-                    statusLabel.textColor = .systemOrange
-                } else {
-                    statusLabel.textColor = .systemGreen
-                }
-                statusLabel.font = .systemFont(ofSize: 11)
-            }
+            symbol.image = NSImage(systemSymbolName: status.symbol, accessibilityDescription: nil)
+            symbol.contentTintColor = status.color
+            let bar: NSProgressIndicator = cell.subviews.compactMap { $0 as? NSProgressIndicator }.first ?? {
+                let bar = NSProgressIndicator()
+                bar.style = .bar
+                bar.minValue = 0
+                bar.maxValue = 1
+                bar.translatesAutoresizingMaskIntoConstraints = false
+                cell.addSubview(bar)
+                NSLayoutConstraint.activate([
+                    bar.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 4),
+                    bar.trailingAnchor.constraint(equalTo: cell.trailingAnchor, constant: -4),
+                    bar.topAnchor.constraint(equalTo: label.bottomAnchor, constant: 4),
+                    bar.heightAnchor.constraint(equalToConstant: 5),
+                ])
+                return bar
+            }()
+            // Lifecycle text is always visible. Only evidence-backed work adds a bar.
+            bar.isIndeterminate = false
+            bar.isHidden = item.displayProgressFraction == nil || item.state != .running
+            bar.doubleValue = item.displayProgressFraction ?? 0
             return cell
 
         case "elapsed":
             let cell = reuseOrCreate(identifier: identifier, in: tableView)
-            let textField = cell.viewWithTag(400) as? NSTextField ?? {
-                let tf = NSTextField(labelWithString: "")
-                tf.tag = 400
-                tf.translatesAutoresizingMaskIntoConstraints = false
-                tf.alignment = .right
-                cell.addSubview(tf)
+            let label: NSTextField = cell.viewWithTag(400) as? NSTextField ?? {
+                let label = NSTextField(wrappingLabelWithString: "")
+                label.tag = 400
+                label.font = .systemFont(ofSize: 13)
+                label.maximumNumberOfLines = 3
+                label.translatesAutoresizingMaskIntoConstraints = false
+                cell.addSubview(label)
                 NSLayoutConstraint.activate([
-                    tf.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 4),
-                    tf.trailingAnchor.constraint(equalTo: cell.trailingAnchor, constant: -4),
-                    tf.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
+                    label.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 4),
+                    label.trailingAnchor.constraint(equalTo: cell.trailingAnchor, constant: -4),
+                    label.topAnchor.constraint(equalTo: cell.topAnchor, constant: 6),
                 ])
-                return tf
+                return label
             }()
-            textField.font = .monospacedDigitSystemFont(ofSize: 11, weight: .regular)
-
-            switch item.state {
-            case .running, .cancelling:
-                let elapsed = Date().timeIntervalSince(item.startedAt)
-                textField.stringValue = formatElapsedTime(elapsed)
-                textField.textColor = .secondaryLabelColor
-            case .completed, .cancelled, .failed:
-                let elapsed = (item.finishedAt ?? Date()).timeIntervalSince(item.startedAt)
-                textField.stringValue = formatElapsedTime(elapsed)
-                textField.textColor = .tertiaryLabelColor
+            let now = Date()
+            let elapsed = (item.finishedAt ?? now).timeIntervalSince(item.startedAt)
+            let prefix = item.state.isActive ? "Elapsed" : item.state == .completed ? "Took" : "Ran"
+            label.stringValue = "\(prefix) \(formatElapsedTime(elapsed))"
+            if let remaining = item.estimatedRemainingTime(at: now) {
+                label.stringValue += "\n≈\(formatElapsedTime(remaining)) remaining"
             }
-            return cell
-
-        case "eta":
-            let cell = reuseOrCreate(identifier: identifier, in: tableView)
-            let textField = cell.viewWithTag(410) as? NSTextField ?? {
-                let tf = NSTextField(labelWithString: "")
-                tf.tag = 410
-                tf.translatesAutoresizingMaskIntoConstraints = false
-                tf.alignment = .right
-                cell.addSubview(tf)
-                NSLayoutConstraint.activate([
-                    tf.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 4),
-                    tf.trailingAnchor.constraint(equalTo: cell.trailingAnchor, constant: -4),
-                    tf.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
-                ])
-                return tf
-            }()
-            textField.font = .monospacedDigitSystemFont(ofSize: 11, weight: .regular)
-
-            switch item.state {
-            case .running:
-                if item.progress > 0, item.progress < 1 {
-                    let elapsed = Date().timeIntervalSince(item.startedAt)
-                    let remaining = max(0, elapsed * (1 - item.progress) / item.progress)
-                    textField.stringValue = formatElapsedTime(remaining)
-                } else {
-                    textField.stringValue = "—"
-                }
-                textField.textColor = .secondaryLabelColor
-            case .cancelling:
-                textField.stringValue = "—"
-                textField.textColor = .tertiaryLabelColor
-            case .completed, .cancelled, .failed:
-                textField.stringValue = "—"
-                textField.textColor = .tertiaryLabelColor
-            }
+            label.textColor = .secondaryLabelColor
+            label.setAccessibilityLabel(label.stringValue)
             return cell
 
         case "action":
             let cell = reuseOrCreate(identifier: identifier, in: tableView)
+            let resultsButton = cell.viewWithTag(302) as? NSButton ?? {
+                let button = NSButton(title: "Results", target: self, action: #selector(showResults(_:)))
+                button.tag = 302
+                button.bezelStyle = .rounded
+                button.controlSize = .small
+                button.font = .systemFont(ofSize: 11)
+                button.translatesAutoresizingMaskIntoConstraints = false
+                cell.addSubview(button)
+                NSLayoutConstraint.activate([
+                    button.centerXAnchor.constraint(equalTo: cell.centerXAnchor),
+                    button.topAnchor.constraint(equalTo: cell.topAnchor, constant: 4),
+                ])
+                return button
+            }()
+            resultsButton.isEnabled = OperationResultNavigation.canNavigate(to: item)
+            resultsButton.setAccessibilityIdentifier("operations-results-\(item.id)")
+            resultsButton.setAccessibilityLabel("Show results for \(item.title)")
+            resultsButton.toolTip = resultsButton.isEnabled
+                ? "Show this operation’s results in the main viewer"
+                : "Results become available when the operation saves a viewable result"
             let cancelButton = cell.viewWithTag(300) as? NSButton ?? {
                 let btn = NSButton(title: "Cancel", target: self, action: #selector(cancelItem(_:)))
                 btn.tag = 300
@@ -851,7 +792,7 @@ final class OperationsPanelViewController: NSViewController, NSTableViewDataSour
                 cell.addSubview(btn)
                 NSLayoutConstraint.activate([
                     btn.centerXAnchor.constraint(equalTo: cell.centerXAnchor),
-                    btn.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
+                    btn.topAnchor.constraint(equalTo: cell.topAnchor, constant: 30),
                 ])
                 return btn
             }()
@@ -868,7 +809,7 @@ final class OperationsPanelViewController: NSViewController, NSTableViewDataSour
                 cell.addSubview(btn)
                 NSLayoutConstraint.activate([
                     btn.centerXAnchor.constraint(equalTo: cell.centerXAnchor),
-                    btn.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
+                    btn.topAnchor.constraint(equalTo: cell.topAnchor, constant: 30),
                 ])
                 return btn
             }()
@@ -897,504 +838,79 @@ final class OperationsPanelViewController: NSViewController, NSTableViewDataSour
 
     // MARK: - Title Cell Builder
 
-    /// Builds the title column cell, including expanded sections for CLI command,
-    /// log entries, and error display.
     private func buildTitleCell(
         for item: OperationCenter.Item,
         identifier: NSUserInterfaceItemIdentifier,
         in tableView: NSTableView
     ) -> NSTableCellView {
-        // Always create a fresh cell for expanded rows to avoid stale subviews.
-        // For collapsed rows, reuse is safe.
-        let isExpanded = expandedItemIDs.contains(item.id)
-        let cell: NSTableCellView
-        if isExpanded {
-            cell = NSTableCellView()
-            cell.identifier = identifier
-        } else {
-            cell = reuseOrCreate(identifier: identifier, in: tableView)
-            // Remove any expansion subviews left from a previously expanded state
-            removeExpansionSubviews(from: cell)
-        }
-
-        // Title field (tag 100)
-        let titleField = cell.viewWithTag(100) as? NSTextField ?? {
-            let tf = NSTextField(labelWithString: "")
-            tf.tag = 100
-            tf.translatesAutoresizingMaskIntoConstraints = false
-            tf.lineBreakMode = .byTruncatingTail
-            tf.maximumNumberOfLines = 1
-            cell.addSubview(tf)
+        let cell = reuseOrCreate(identifier: identifier, in: tableView)
+        let title = rowLabel(in: cell, tag: 100, top: 6, size: 13)
+        title.stringValue = item.title
+        title.toolTip = "\(item.operationType.rawValue): \(item.title)"
+        title.setAccessibilityIdentifier("operations-title-\(accessibilitySlug(for: item.title))")
+        let detail = rowLabel(in: cell, tag: 101, top: 23, size: 11)
+        detail.stringValue = item.state == .failed ? (item.errorMessage ?? item.detail) : item.detail
+        detail.textColor = item.state == .failed ? .lungfishDanger : .secondaryLabelColor
+        detail.toolTip = detail.stringValue
+        detail.setAccessibilityIdentifier("operations-detail-\(accessibilitySlug(for: item.title))")
+        let latest = rowLabel(in: cell, tag: 103, top: 42, size: 11)
+        latest.stringValue = OperationsLogInspector.latestLine(for: item)
+        latest.textColor = .secondaryLabelColor
+        latest.toolTip = item.latestLogEntry?.message
+        latest.setAccessibilityIdentifier("operations-latest-\(item.id)")
+        let button: NSButton = cell.viewWithTag(102) as? NSButton ?? {
+            let button = NSButton(title: "Log", target: self, action: #selector(toggleDetailExpansion(_:)))
+            button.tag = 102
+            button.bezelStyle = .rounded
+            button.controlSize = .small
+            button.font = .systemFont(ofSize: 11)
+            button.translatesAutoresizingMaskIntoConstraints = false
+            cell.addSubview(button)
             NSLayoutConstraint.activate([
-                tf.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 4),
-                tf.trailingAnchor.constraint(lessThanOrEqualTo: cell.trailingAnchor, constant: -22),
-                tf.topAnchor.constraint(equalTo: cell.topAnchor, constant: 2),
+                button.trailingAnchor.constraint(equalTo: cell.trailingAnchor, constant: -3),
+                button.topAnchor.constraint(equalTo: cell.topAnchor, constant: 4),
+                button.widthAnchor.constraint(equalToConstant: 70),
             ])
-            return tf
+            return button
         }()
-        titleField.stringValue = item.title
-        titleField.font = .systemFont(ofSize: 12, weight: .medium)
-        titleField.setAccessibilityIdentifier("operations-title-\(accessibilitySlug(for: item.title))")
-        titleField.setAccessibilityLabel(item.title)
-
-        // Detail field (tag 101)
-        let detailField = cell.viewWithTag(101) as? NSTextField ?? {
-            let tf = NSTextField(labelWithString: "")
-            tf.tag = 101
-            tf.translatesAutoresizingMaskIntoConstraints = false
-            tf.lineBreakMode = .byTruncatingTail
-            cell.addSubview(tf)
-            NSLayoutConstraint.activate([
-                tf.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 4),
-                tf.trailingAnchor.constraint(lessThanOrEqualTo: cell.trailingAnchor, constant: -22),
-                tf.topAnchor.constraint(equalTo: titleField.bottomAnchor, constant: 1),
-            ])
-            return tf
-        }()
-
-        // Disclosure toggle (tag 102)
-        let moreButton = cell.viewWithTag(102) as? NSButton ?? {
-            let btn = NSButton(title: "", target: self, action: #selector(toggleDetailExpansion(_:)))
-            btn.tag = 102
-            btn.setButtonType(.onOff)
-            btn.bezelStyle = .disclosure
-            btn.controlSize = .mini
-            btn.translatesAutoresizingMaskIntoConstraints = false
-            cell.addSubview(btn)
-            NSLayoutConstraint.activate([
-                btn.trailingAnchor.constraint(equalTo: cell.trailingAnchor, constant: -4),
-                btn.topAnchor.constraint(equalTo: cell.topAnchor, constant: 2),
-            ])
-            return btn
-        }()
-        moreButton.setAccessibilityLabel(isExpanded ? "Collapse operation details" : "Expand operation details")
-        moreButton.setAccessibilityIdentifier("operations-detail-toggle-\(item.id.uuidString)")
-        moreButton.setAccessibilityHelp("Shows or hides the CLI command, logs, and error details for this operation.")
-
-        let isMultiLine = item.detail.contains("\n") || item.detail.count > 60
-        let hasExpandableContent = isMultiLine || item.cliCommand != nil || !item.outputURLs.isEmpty || !item.logEntries.isEmpty
-            || !item.retryEvents.isEmpty || (item.state == .failed && item.errorMessage != nil)
-
-        if isExpanded {
-            detailField.stringValue = item.detail
-            detailField.lineBreakMode = .byWordWrapping
-            detailField.maximumNumberOfLines = 0
-            moreButton.state = .on
-            moreButton.isHidden = false
-
-            // Build expanded sections below the detail field
-            var lastAnchor = detailField.bottomAnchor
-
-            // CLI Command section
-            if let cmd = item.cliCommand {
-                let columnWidth = tableView.tableColumn(withIdentifier: identifier)?.width ?? 200
-                let section = buildCLICommandSection(command: cmd, columnWidth: columnWidth)
-                section.setAccessibilityIdentifier(ExpansionSectionID.cliCommand)
-                section.translatesAutoresizingMaskIntoConstraints = false
-                cell.addSubview(section)
-                NSLayoutConstraint.activate([
-                    section.topAnchor.constraint(equalTo: lastAnchor, constant: 6),
-                    section.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 4),
-                    section.trailingAnchor.constraint(equalTo: cell.trailingAnchor, constant: -4),
-                ])
-                lastAnchor = section.bottomAnchor
-            }
-
-            // Output files section
-            if !item.outputURLs.isEmpty {
-                let section = buildOutputFilesSection(outputURLs: item.outputURLs)
-                section.setAccessibilityIdentifier(ExpansionSectionID.outputFiles)
-                section.translatesAutoresizingMaskIntoConstraints = false
-                cell.addSubview(section)
-                let outputHeight = min(88, max(28, CGFloat(item.outputURLs.count) * 16))
-                NSLayoutConstraint.activate([
-                    section.topAnchor.constraint(equalTo: lastAnchor, constant: 6),
-                    section.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 4),
-                    section.trailingAnchor.constraint(equalTo: cell.trailingAnchor, constant: -4),
-                    section.heightAnchor.constraint(equalToConstant: outputHeight + 18),
-                ])
-                lastAnchor = section.bottomAnchor
-            }
-
-            // Log entries section
-            if !item.logEntries.isEmpty {
-                let section = buildLogEntriesSection(for: item)
-                section.setAccessibilityIdentifier(ExpansionSectionID.logEntries)
-                section.translatesAutoresizingMaskIntoConstraints = false
-                cell.addSubview(section)
-                let visibleLogEntryCount = min(item.logEntries.count, Self.expandedLogEntryLimit)
-                let entryHeight = CGFloat(visibleLogEntryCount) * 16
-                let logAreaHeight = min(150, max(40, entryHeight))
-                NSLayoutConstraint.activate([
-                    section.topAnchor.constraint(equalTo: lastAnchor, constant: 6),
-                    section.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 4),
-                    section.trailingAnchor.constraint(equalTo: cell.trailingAnchor, constant: -4),
-                    section.heightAnchor.constraint(equalToConstant: logAreaHeight + 18),
-                ])
-                lastAnchor = section.bottomAnchor
-            }
-
-            // Error section (for failed operations)
-            if item.state == .failed, let errorMsg = item.errorMessage {
-                let section = buildErrorSection(
-                    message: errorMsg,
-                    detail: item.errorDetail,
-                    reportURL: item.failureReportURL
-                )
-                section.setAccessibilityIdentifier(ExpansionSectionID.errorBox)
-                section.translatesAutoresizingMaskIntoConstraints = false
-                cell.addSubview(section)
-                NSLayoutConstraint.activate([
-                    section.topAnchor.constraint(equalTo: lastAnchor, constant: 6),
-                    section.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 4),
-                    section.trailingAnchor.constraint(equalTo: cell.trailingAnchor, constant: -4),
-                ])
-                lastAnchor = section.bottomAnchor
-            }
-        } else {
-            let collapsed = item.detail.replacingOccurrences(of: "\n", with: ", ")
-            detailField.stringValue = collapsed
-            detailField.lineBreakMode = .byTruncatingTail
-            detailField.maximumNumberOfLines = 1
-            moreButton.state = .off
-            moreButton.isHidden = !hasExpandableContent
-        }
-
-        detailField.toolTip = isMultiLine ? item.detail : nil
-        detailField.font = .systemFont(ofSize: 10)
-        detailField.textColor = .secondaryLabelColor
-        detailField.setAccessibilityIdentifier("operations-detail-\(accessibilitySlug(for: item.title))")
-        detailField.setAccessibilityLabel(detailField.stringValue)
-
+        button.setAccessibilityIdentifier("operations-detail-toggle-\(item.id.uuidString)")
+        let isOpen = drawerIsOpen && items.indices.contains(tableView.selectedRow) && items[tableView.selectedRow].id == item.id
+        button.title = isOpen ? "Hide Log" : "Log"
+        button.setAccessibilityLabel("\(isOpen ? "Hide" : "Show") log for \(item.title)")
+        button.toolTip = isOpen ? "Close the log drawer" : "Open the log drawer for this operation"
         return cell
     }
 
+    private func rowLabel(in cell: NSTableCellView, tag: Int, top: CGFloat, size: CGFloat, weight: NSFont.Weight = .regular) -> NSTextField {
+        if let label = cell.viewWithTag(tag) as? NSTextField { return label }
+        let label = NSTextField(labelWithString: "")
+        label.tag = tag
+        label.font = .systemFont(ofSize: size, weight: weight)
+        label.lineBreakMode = .byTruncatingTail
+        label.translatesAutoresizingMaskIntoConstraints = false
+        cell.addSubview(label)
+        NSLayoutConstraint.activate([
+            label.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 4),
+            label.trailingAnchor.constraint(equalTo: cell.trailingAnchor, constant: tag == 100 ? -78 : -4),
+            label.topAnchor.constraint(equalTo: cell.topAnchor, constant: top),
+        ])
+        return label
+    }
+
     private func accessibilitySlug(for value: String) -> String {
-        value
-            .lowercased()
-            .components(separatedBy: CharacterSet.alphanumerics.inverted)
-            .filter { !$0.isEmpty }
-            .joined(separator: "-")
+        value.lowercased().components(separatedBy: CharacterSet.alphanumerics.inverted)
+            .filter { !$0.isEmpty }.joined(separator: "-")
     }
 
-    // MARK: - Expanded Section Builders
-
-    /// Builds the CLI command display section with a grey background box and Copy button.
-    private func buildCLICommandSection(command: String, columnWidth: CGFloat) -> NSView {
-        let container = NSView()
-
-        let label = NSTextField(labelWithString: "CLI Command")
-        label.font = .systemFont(ofSize: 10, weight: .medium)
-        label.textColor = .secondaryLabelColor
-        label.translatesAutoresizingMaskIntoConstraints = false
-        container.addSubview(label)
-
-        // Grey background box for the command text
-        let box = NSView()
-        box.translatesAutoresizingMaskIntoConstraints = false
-        box.layer?.backgroundColor = NSColor.quaternaryLabelColor.cgColor
-        box.layer?.cornerRadius = 4
-        container.addSubview(box)
-
-        let commandField = NSTextField(labelWithString: command)
-        commandField.font = NSFont(name: "Menlo", size: 10) ?? .monospacedSystemFont(ofSize: 10, weight: .regular)
-        commandField.textColor = .labelColor
-        commandField.lineBreakMode = .byCharWrapping
-        commandField.maximumNumberOfLines = 0
-        commandField.isSelectable = true
-        commandField.translatesAutoresizingMaskIntoConstraints = false
-        commandField.applyLungfishHelp(LungfishHelpContent.operationCLIReplay)
-        box.addSubview(commandField)
-
-        let copyButton = NSButton(title: "Copy", target: self, action: #selector(copyCLIFromButton(_:)))
-        copyButton.bezelStyle = .rounded
-        copyButton.controlSize = .mini
-        copyButton.font = .systemFont(ofSize: 9)
-        copyButton.translatesAutoresizingMaskIntoConstraints = false
-        copyButton.applyLungfishHelp(LungfishHelpContent.operationCLIReplay)
-        container.addSubview(copyButton)
-
-        NSLayoutConstraint.activate([
-            label.topAnchor.constraint(equalTo: container.topAnchor),
-            label.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-
-            box.topAnchor.constraint(equalTo: label.bottomAnchor, constant: 2),
-            box.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-            box.trailingAnchor.constraint(equalTo: copyButton.leadingAnchor, constant: -4),
-            box.bottomAnchor.constraint(equalTo: container.bottomAnchor),
-
-            commandField.heightAnchor.constraint(equalToConstant: Self.commandTextHeight(command, columnWidth: columnWidth)),
-            commandField.topAnchor.constraint(equalTo: box.topAnchor, constant: 3),
-            commandField.leadingAnchor.constraint(equalTo: box.leadingAnchor, constant: 6),
-            commandField.trailingAnchor.constraint(equalTo: box.trailingAnchor, constant: -6),
-            commandField.bottomAnchor.constraint(equalTo: box.bottomAnchor, constant: -3),
-
-            copyButton.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-            copyButton.centerYAnchor.constraint(equalTo: box.centerYAnchor),
-            copyButton.widthAnchor.constraint(equalToConstant: 40),
-        ])
-
-        return container
-    }
-
-    /// Copies the CLI command for the row containing the sender button.
-    @objc private func copyCLIFromButton(_ sender: NSButton) {
-        let row = tableView.row(for: sender)
-        guard row >= 0, row < items.count, let cmd = items[row].cliCommand else { return }
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(cmd, forType: .string)
-    }
-
-    private func buildOutputFilesSection(outputURLs: [URL]) -> NSView {
-        let container = NSView()
-
-        let label = NSTextField(labelWithString: "Output Files")
-        label.font = .systemFont(ofSize: 10, weight: .medium)
-        label.textColor = .secondaryLabelColor
-        label.translatesAutoresizingMaskIntoConstraints = false
-        container.addSubview(label)
-
-        let box = NSView()
-        box.translatesAutoresizingMaskIntoConstraints = false
-        box.layer?.backgroundColor = NSColor.controlBackgroundColor.cgColor
-        box.layer?.cornerRadius = 4
-        container.addSubview(box)
-
-        let outputText = outputURLs.map(\.path).joined(separator: "\n")
-        let outputField = NSTextField(labelWithString: outputText)
-        outputField.font = NSFont(name: "Menlo", size: 9.5) ?? .monospacedSystemFont(ofSize: 9.5, weight: .regular)
-        outputField.textColor = .labelColor
-        outputField.lineBreakMode = .byTruncatingMiddle
-        outputField.maximumNumberOfLines = 4
-        outputField.isSelectable = true
-        outputField.translatesAutoresizingMaskIntoConstraints = false
-        outputField.setAccessibilityIdentifier("operations-output-files")
-        outputField.setAccessibilityLabel("Output files")
-        outputField.applyLungfishHelp(LungfishHelpContent.operationOutputFiles)
-        box.addSubview(outputField)
-
-        let revealButton = NSButton(title: "Reveal", target: self, action: #selector(revealOutputFromButton(_:)))
-        revealButton.bezelStyle = .rounded
-        revealButton.controlSize = .mini
-        revealButton.font = .systemFont(ofSize: 9)
-        revealButton.translatesAutoresizingMaskIntoConstraints = false
-        revealButton.setAccessibilityIdentifier("operations-output-reveal-button")
-        revealButton.setAccessibilityLabel("Reveal output file")
-        revealButton.applyLungfishHelp(LungfishHelpContent.operationOutputFiles)
-        container.addSubview(revealButton)
-
-        NSLayoutConstraint.activate([
-            label.topAnchor.constraint(equalTo: container.topAnchor),
-            label.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-
-            box.topAnchor.constraint(equalTo: label.bottomAnchor, constant: 2),
-            box.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-            box.trailingAnchor.constraint(equalTo: revealButton.leadingAnchor, constant: -4),
-            box.bottomAnchor.constraint(equalTo: container.bottomAnchor),
-
-            outputField.topAnchor.constraint(equalTo: box.topAnchor, constant: 3),
-            outputField.leadingAnchor.constraint(equalTo: box.leadingAnchor, constant: 6),
-            outputField.trailingAnchor.constraint(equalTo: box.trailingAnchor, constant: -6),
-            outputField.bottomAnchor.constraint(lessThanOrEqualTo: box.bottomAnchor, constant: -3),
-
-            revealButton.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-            revealButton.centerYAnchor.constraint(equalTo: box.centerYAnchor),
-            revealButton.widthAnchor.constraint(equalToConstant: 52),
-        ])
-
-        return container
-    }
-
-    @objc private func revealOutputFromButton(_ sender: NSButton) {
-        let row = tableView.row(for: sender)
-        guard row >= 0,
-              row < items.count,
-              let outputURL = items[row].outputURLs.first else { return }
-        NSWorkspace.shared.activateFileViewerSelecting([outputURL])
-    }
-
-    /// Builds the log entries section with a scrollable list of timestamped entries.
-    private func buildLogEntriesSection(for item: OperationCenter.Item) -> NSView {
-        let container = NSView()
-
-        let label = NSTextField(labelWithString: "Log")
-        label.font = .systemFont(ofSize: 10, weight: .medium)
-        label.textColor = .secondaryLabelColor
-        label.translatesAutoresizingMaskIntoConstraints = false
-        container.addSubview(label)
-
-        let viewButton = NSButton(title: "View Log", target: self, action: #selector(viewLogFromButton(_:)))
-        viewButton.bezelStyle = .rounded
-        viewButton.controlSize = .mini
-        viewButton.font = .systemFont(ofSize: 9)
-        viewButton.translatesAutoresizingMaskIntoConstraints = false
-        viewButton.setAccessibilityIdentifier("operations-log-view-button")
-        viewButton.setAccessibilityLabel("View operation log")
-        viewButton.applyLungfishHelp(LungfishHelpContent.operationDiagnosticLog)
-        container.addSubview(viewButton)
-
-        let revealButton = NSButton(title: "Reveal in Finder", target: self, action: #selector(revealLogFromButton(_:)))
-        revealButton.bezelStyle = .rounded
-        revealButton.controlSize = .mini
-        revealButton.font = .systemFont(ofSize: 9)
-        revealButton.translatesAutoresizingMaskIntoConstraints = false
-        revealButton.setAccessibilityIdentifier("operations-log-reveal-button")
-        revealButton.setAccessibilityLabel("Reveal operation log in Finder")
-        revealButton.applyLungfishHelp(LungfishHelpContent.operationDiagnosticLog)
-        container.addSubview(revealButton)
-
-        let logScrollView = NSScrollView()
-        logScrollView.translatesAutoresizingMaskIntoConstraints = false
-        logScrollView.hasVerticalScroller = true
-        logScrollView.autohidesScrollers = true
-        logScrollView.borderType = .bezelBorder
-        logScrollView.drawsBackground = true
-        logScrollView.backgroundColor = .textBackgroundColor
-        container.addSubview(logScrollView)
-
-        // Build attributed string with all log entries
-        let logText = NSMutableAttributedString()
-        let monoFont = NSFont(name: "Menlo", size: 9.5) ?? .monospacedSystemFont(ofSize: 9.5, weight: .regular)
-
-        let visibleEntries = Array(item.logEntries.suffix(Self.expandedLogEntryLimit))
-        for (index, entry) in visibleEntries.enumerated() {
-            let ts = Self.logTimestampFormatter.string(from: entry.timestamp)
-            let levelIndicator: String
-            let levelColor: NSColor
-            switch entry.level {
-            case .debug:
-                levelIndicator = "DBG"
-                levelColor = .systemGray
-            case .info:
-                levelIndicator = "INF"
-                levelColor = .secondaryLabelColor
-            case .warning:
-                levelIndicator = "WRN"
-                levelColor = .systemOrange
-            case .error:
-                levelIndicator = "ERR"
-                levelColor = .lungfishDanger
-            }
-
-            let line = "\(ts) [\(levelIndicator)] \(entry.message)"
-            let attrs: [NSAttributedString.Key: Any] = [
-                .font: monoFont,
-                .foregroundColor: entry.level == .error ? NSColor.lungfishDanger : levelColor,
-            ]
-            if index > 0 {
-                logText.append(NSAttributedString(string: "\n"))
-            }
-            logText.append(NSAttributedString(string: line, attributes: attrs))
+    static func statusAppearance(for item: OperationCenter.Item) -> (color: NSColor, symbol: String) {
+        switch item.state {
+        case .completed:
+            return item.hasWarnings ? (.systemOrange, "exclamationmark.triangle.fill") : (.systemGreen, "checkmark.circle.fill")
+        case .failed: return (.systemRed, "xmark.circle.fill")
+        case .running: return (.systemBlue, "arrow.trianglehead.2.clockwise.rotate.90")
+        case .cancelling: return (.systemOrange, "stop.circle")
+        case .cancelled: return (.secondaryLabelColor, "stop.circle.fill")
         }
-
-        let textView = NSTextView()
-        textView.isEditable = false
-        textView.isSelectable = true
-        textView.textStorage?.setAttributedString(logText)
-        textView.backgroundColor = .textBackgroundColor
-        textView.isVerticallyResizable = true
-        textView.isHorizontallyResizable = false
-        textView.autoresizingMask = [.width]
-        textView.textContainer?.widthTracksTextView = true
-        logScrollView.documentView = textView
-
-        NSLayoutConstraint.activate([
-            label.topAnchor.constraint(equalTo: container.topAnchor),
-            label.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-
-            revealButton.topAnchor.constraint(equalTo: container.topAnchor),
-            revealButton.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-            revealButton.widthAnchor.constraint(equalToConstant: 104),
-
-            viewButton.centerYAnchor.constraint(equalTo: revealButton.centerYAnchor),
-            viewButton.trailingAnchor.constraint(equalTo: revealButton.leadingAnchor, constant: -6),
-            viewButton.widthAnchor.constraint(equalToConstant: 64),
-
-            logScrollView.topAnchor.constraint(equalTo: label.bottomAnchor, constant: 2),
-            logScrollView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-            logScrollView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-            logScrollView.bottomAnchor.constraint(equalTo: container.bottomAnchor),
-        ])
-
-        return container
-    }
-
-    /// Builds the error display section with red background highlighting.
-    private func buildErrorSection(message: String, detail: String?, reportURL: URL? = nil) -> NSView {
-        let container = NSView()
-
-        let box = NSView()
-        box.translatesAutoresizingMaskIntoConstraints = false
-        box.layer?.backgroundColor = NSColor.lungfishDanger.withAlphaComponent(0.1).cgColor
-        box.layer?.cornerRadius = 4
-        box.layer?.borderWidth = 1
-        box.layer?.borderColor = NSColor.lungfishDanger.withAlphaComponent(0.3).cgColor
-        container.addSubview(box)
-
-        let errorLabel = NSTextField(labelWithString: message)
-        errorLabel.font = .systemFont(ofSize: 11, weight: .medium)
-        errorLabel.textColor = .lungfishDanger
-        errorLabel.lineBreakMode = .byWordWrapping
-        errorLabel.maximumNumberOfLines = 3
-        errorLabel.translatesAutoresizingMaskIntoConstraints = false
-        box.addSubview(errorLabel)
-
-        var constraints = [
-            box.topAnchor.constraint(equalTo: container.topAnchor),
-            box.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-            box.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-            box.bottomAnchor.constraint(equalTo: container.bottomAnchor),
-
-            errorLabel.topAnchor.constraint(equalTo: box.topAnchor, constant: 4),
-            errorLabel.leadingAnchor.constraint(equalTo: box.leadingAnchor, constant: 6),
-            errorLabel.trailingAnchor.constraint(equalTo: box.trailingAnchor, constant: -6),
-        ]
-
-        var lastLabelAnchor = errorLabel.bottomAnchor
-
-        if let detail {
-            let detailLabel = NSTextField(labelWithString: detail)
-            detailLabel.font = NSFont(name: "Menlo", size: 9) ?? .monospacedSystemFont(ofSize: 9, weight: .regular)
-            detailLabel.textColor = .lungfishDanger.withAlphaComponent(0.8)
-            detailLabel.lineBreakMode = .byWordWrapping
-            detailLabel.maximumNumberOfLines = 4
-            detailLabel.isSelectable = true
-            detailLabel.translatesAutoresizingMaskIntoConstraints = false
-            box.addSubview(detailLabel)
-            constraints.append(contentsOf: [
-                detailLabel.topAnchor.constraint(equalTo: errorLabel.bottomAnchor, constant: 2),
-                detailLabel.leadingAnchor.constraint(equalTo: box.leadingAnchor, constant: 6),
-                detailLabel.trailingAnchor.constraint(equalTo: box.trailingAnchor, constant: -6),
-            ])
-            lastLabelAnchor = detailLabel.bottomAnchor
-        }
-
-        // Tells the user (or an agent reading a screenshot) where the report
-        // already is, so diagnosis does not require the app to stay running.
-        if let reportURL {
-            let pathLabel = NSTextField(labelWithString: "Report: \(reportURL.path)")
-            pathLabel.font = NSFont(name: "Menlo", size: 9) ?? .monospacedSystemFont(ofSize: 9, weight: .regular)
-            pathLabel.textColor = .secondaryLabelColor
-            pathLabel.lineBreakMode = .byTruncatingMiddle
-            pathLabel.maximumNumberOfLines = 1
-            pathLabel.isSelectable = true
-            pathLabel.setAccessibilityIdentifier(ExpansionSectionID.failureReportPath)
-            pathLabel.translatesAutoresizingMaskIntoConstraints = false
-            box.addSubview(pathLabel)
-            constraints.append(contentsOf: [
-                pathLabel.topAnchor.constraint(equalTo: lastLabelAnchor, constant: 2),
-                pathLabel.leadingAnchor.constraint(equalTo: box.leadingAnchor, constant: 6),
-                pathLabel.trailingAnchor.constraint(equalTo: box.trailingAnchor, constant: -6),
-            ])
-            lastLabelAnchor = pathLabel.bottomAnchor
-        }
-
-        constraints.append(
-            lastLabelAnchor.constraint(equalTo: box.bottomAnchor, constant: -4)
-        )
-
-        NSLayoutConstraint.activate(constraints)
-        return container
     }
 
     // MARK: - Cell Reuse
@@ -1459,7 +975,8 @@ enum OperationLogDocument {
         if let finishedAt = item.finishedAt {
             lines.append("Finished: \(displayTimestamp(finishedAt))")
         }
-        lines.append("Progress: \(Int((item.progress * 100).rounded()))%")
+        lines.append("Progress: \(item.displayProgressLabel)")
+        lines.append("Log scope: bounded captured preview; exported snapshot includes retained entries only.")
 
         if !item.detail.isEmpty {
             lines.append("")
@@ -1544,6 +1061,16 @@ extension OperationsPanelViewController: NSMenuDelegate {
         guard clickedRow >= 0, clickedRow < items.count else { return }
         let item = items[clickedRow]
 
+        populateActions(menu, for: item)
+    }
+
+    private func populateActions(_ menu: NSMenu, for item: OperationCenter.Item) {
+        if !item.outputURLs.isEmpty || !item.bundleURLs.isEmpty {
+            let reveal = NSMenuItem(title: "Reveal Output Files", action: #selector(contextRevealOutputs(_:)), keyEquivalent: "")
+            reveal.target = self
+            reveal.representedObject = item.id
+            menu.addItem(reveal)
+        }
         if WorkflowOperationsWindowController.replaySourceBundleURL(for: item) != nil {
             let runAgain = NSMenuItem(title: "Run Again…", action: #selector(contextRunAgain(_:)), keyEquivalent: "")
             runAgain.target = self

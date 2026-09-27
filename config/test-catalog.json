@@ -147,7 +147,7 @@
         "workflow",
         "cli"
       ],
-      "filter": "^(LungfishCoreTests\\.(BundleManifestTests|GenomicRegionTests|RuntimeResourceLocatorTests|SequenceTests)|LungfishWorkflowTests\\.(BAMPrimerTrimProvenanceTests|MappingProvenanceTests|ScientificProvenancePolicyTests)|LungfishCLITests\\.ScientificCLIProvenanceCoverageTests)(/|$)",
+      "filter": "^(LungfishCoreTests\\.(BundleManifestTests|GenomicRegionTests|RuntimeResourceLocatorTests|SequenceTests)|LungfishWorkflowTests\\.(DependencyReconcilerTests|BAMPrimerTrimProvenanceTests|MappingProvenanceTests|ScientificProvenancePolicyTests)|LungfishCLITests\\.ScientificCLIProvenanceCoverageTests)(/|$)",
       "parallel": true,
       "workers": 4,
       "requireTools": false,
@@ -191,8 +191,8 @@
         "scripts.tests.test_full_suite_gate_tiers",
         "scripts.tests.test_gate_profile_evidence"
       ],
-      "filter": "^(LungfishCoreTests\\.(BundleManifestTests|GenomicRegionTests|RuntimeResourceLocatorTests|SequenceTests)|LungfishWorkflowTests\\.(BAMPrimerTrimProvenanceTests|MappingProvenanceTests|ScientificProvenancePolicyTests)|LungfishCLITests\\.ScientificCLIProvenanceCoverageTests)(/|$)",
-      "purpose": "Build qualification: compact core/provenance sentinels; full headless regression remains an explicit diagnostic. Candidate artifact checks are required separately by release.py."
+      "filter": "^(LungfishCoreTests\\.(BundleManifestTests|GenomicRegionTests|RuntimeResourceLocatorTests|SequenceTests)|LungfishWorkflowTests\\.(DependencyReconcilerTests|BAMPrimerTrimProvenanceTests|MappingProvenanceTests|ScientificProvenancePolicyTests)|LungfishCLITests\\.ScientificCLIProvenanceCoverageTests)(/|$)",
+      "purpose": "Build qualification: compact core/provenance and dependency reconciliation sentinels; full headless regression remains an explicit diagnostic. Candidate artifact checks are required separately by release.py."
     },
     "extended": {
       "collections": [

@@ -788,7 +788,7 @@ final class OperationsPanelTests: XCTestCase {
         OperationsMenuDelegate.shared.menuNeedsUpdate(operationsMenu)
 
         let statusItem = try XCTUnwrap(operationsMenu.items.first)
-        XCTAssertEqual(statusItem.title, "Cancel Reference download… (0%)")
+        XCTAssertEqual(statusItem.title, "Cancel Reference download… (Running)")
         XCTAssertEqual(statusItem.action, #selector(OperationsMenuActions.cancelOperation(_:)))
         XCTAssertTrue(statusItem.isEnabled)
         XCTAssertEqual(statusItem.representedObject as? UUID, operationID)
@@ -819,7 +819,7 @@ final class OperationsPanelTests: XCTestCase {
         OperationsMenuDelegate.shared.menuNeedsUpdate(operationsMenu)
 
         let statusItem = try XCTUnwrap(operationsMenu.items.first)
-        XCTAssertEqual(statusItem.title, "Find ORFs (0%)")
+        XCTAssertEqual(statusItem.title, "Find ORFs (Running)")
         XCTAssertNil(statusItem.action)
         XCTAssertFalse(statusItem.isEnabled)
         let cancelAllItem = try XCTUnwrap(
@@ -883,7 +883,7 @@ final class OperationsPanelTests: XCTestCase {
     }
 
     @MainActor
-    func testOperationsPanelDisplaysOutputFileExpansionSection() throws {
+    func testOperationsPanelKeepsOutputActionsAvailableWithoutDetailsCheckbox() throws {
         _ = NSApplication.shared
         OperationCenter.shared.cancelAll()
         OperationCenter.shared.clearCompleted()
@@ -906,24 +906,14 @@ final class OperationsPanelTests: XCTestCase {
             OperationCenter.shared.clearCompleted()
         }
 
-        let rowView = try expandOperationRow(operationID, in: controller)
-        let outputSection = try XCTUnwrap(
-            rowView.firstSubview(withAccessibilityIdentifier: "ops-expansion-outputs")
+        let inspector = try selectOperation(operationID, in: controller)
+        XCTAssertNil(inspector.firstSubview(withAccessibilityIdentifier: "operations-inspector-details-toggle"))
+        let actions = try XCTUnwrap(
+            inspector.firstSubview(withAccessibilityIdentifier: "operations-inspector-actions") as? NSPopUpButton
         )
-        XCTAssertTrue(outputSection.containsText("Output Files"))
-
-        let outputField = try XCTUnwrap(
-            outputSection.firstSubview(withAccessibilityIdentifier: "operations-output-files") as? NSTextField
-        )
-        XCTAssertEqual(outputField.stringValue, outputURL.path)
-        XCTAssertEqual(outputField.toolTip, "Reveal files written by this operation.")
-
-        let revealButton = try XCTUnwrap(
-            outputSection.firstSubview(withAccessibilityIdentifier: "operations-output-reveal-button") as? NSButton
-        )
-        XCTAssertEqual(revealButton.title, "Reveal")
-        XCTAssertFalse(revealButton.isHidden)
-        XCTAssertEqual(revealButton.toolTip, "Reveal files written by this operation.")
+        let reveal = try XCTUnwrap(actions.menu?.items.first { $0.title == "Reveal Output Files" })
+        XCTAssertNotNil(reveal.target)
+        XCTAssertNotNil(reveal.action)
     }
 
     @MainActor
@@ -968,30 +958,19 @@ final class OperationsPanelTests: XCTestCase {
             OperationCenter.shared.clearCompleted()
         }
 
-        let rowView = try expandOperationRow(operationID, in: controller)
-        let logSection = try XCTUnwrap(
-            rowView.firstSubview(withAccessibilityIdentifier: "ops-expansion-log")
+        let inspector = try selectOperation(operationID, in: controller)
+        let text = try XCTUnwrap(
+            inspector.firstSubview(withAccessibilityIdentifier: "operations-inspector-log-text") as? NSTextView
         )
-        XCTAssertTrue(logSection.containsText("Log"))
-        XCTAssertTrue(logSection.containsText("Kraken2 classifier started"))
-
-        let viewButton = try XCTUnwrap(
-            logSection.firstSubview(withAccessibilityIdentifier: "operations-log-view-button") as? NSButton
+        XCTAssertTrue(text.string.contains("Kraken2 classifier started"))
+        let actions = try XCTUnwrap(
+            inspector.firstSubview(withAccessibilityIdentifier: "operations-inspector-actions") as? NSPopUpButton
         )
-        XCTAssertEqual(viewButton.title, "View Log")
-        XCTAssertTrue(viewButton.isEnabled)
-        XCTAssertNotNil(viewButton.target)
-        XCTAssertNotNil(viewButton.action)
-        XCTAssertEqual(viewButton.toolTip, "Open local diagnostic logs for troubleshooting.")
-
-        let revealButton = try XCTUnwrap(
-            logSection.firstSubview(withAccessibilityIdentifier: "operations-log-reveal-button") as? NSButton
-        )
-        XCTAssertEqual(revealButton.title, "Reveal in Finder")
-        XCTAssertTrue(revealButton.isEnabled)
-        XCTAssertNotNil(revealButton.target)
-        XCTAssertNotNil(revealButton.action)
-        XCTAssertEqual(revealButton.toolTip, "Open local diagnostic logs for troubleshooting.")
+        for title in ["View Log", "Reveal Log in Finder"] {
+            let action = try XCTUnwrap(actions.menu?.items.first { $0.title == title })
+            XCTAssertNotNil(action.target)
+            XCTAssertNotNil(action.action)
+        }
     }
 
     @MainActor
@@ -1004,27 +983,18 @@ final class OperationsPanelTests: XCTestCase {
     }
 
     @MainActor
-    private func expandOperationRow(_ operationID: UUID, in controller: OperationsPanelController) throws -> NSView {
+    private func selectOperation(_ operationID: UUID, in controller: OperationsPanelController) throws -> NSView {
         let window = try XCTUnwrap(controller.window)
         let tableView = try XCTUnwrap(window.contentView?.firstSubview(of: NSTableView.self))
         drainOperationsPanelRunLoop(window)
-        tableView.reloadData()
-        tableView.layoutSubtreeIfNeeded()
-
-        let collapsedRow = try rowView(for: operationID, in: tableView)
-        collapsedRow.layoutSubtreeIfNeeded()
-        let toggle = try XCTUnwrap(
-            collapsedRow.firstSubview(withAccessibilityIdentifier: "operations-detail-toggle-\(operationID.uuidString)") as? NSButton
-        )
-
-        toggle.performClick(nil)
+        let row = try XCTUnwrap(OperationCenter.shared.items.firstIndex { $0.id == operationID })
+        tableView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
         drainOperationsPanelRunLoop(window)
-        tableView.reloadData()
-        tableView.layoutSubtreeIfNeeded()
-
-        let expandedRow = try rowView(for: operationID, in: tableView)
-        expandedRow.layoutSubtreeIfNeeded()
-        return expandedRow
+        let cell = try XCTUnwrap(tableView.view(atColumn: 0, row: row, makeIfNecessary: true))
+        let logButton = try XCTUnwrap(cell.viewWithTag(102) as? NSButton)
+        logButton.performClick(nil)
+        drainOperationsPanelRunLoop(window)
+        return try XCTUnwrap(window.contentView?.firstSubview(withAccessibilityIdentifier: "operations-log-inspector"))
     }
 
     @MainActor

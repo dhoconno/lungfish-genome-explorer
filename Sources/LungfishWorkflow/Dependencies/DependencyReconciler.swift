@@ -294,32 +294,61 @@ public extension ReconcilerServices {
     /// exclusively. If a second architecture is ever bundled, this must select the entry by the
     /// running architecture instead: verifying an x86_64 binary against the arm64 hash would
     /// fail every install rather than catching a real mismatch.
-    private static func installBundledMicromamba(condaManager: CondaManager, targetVersion: String) async throws {
-        guard let bundled = RuntimeResourceLocator.path("Tools/micromamba", in: .workflow) else {
+    static func installBundledMicromamba(
+        condaManager: CondaManager,
+        targetVersion: String,
+        bundledURL: URL? = RuntimeResourceLocator.path("Tools/micromamba", in: .workflow),
+        expectedSHA256: String? = ManagedToolLock.bundled.bootstrap?.micromamba.sha256?["osx-arm64"],
+        expectedPackagedSHA256: String? = ManagedToolLock.bundled.bootstrap?.micromamba.packagedSha256?["osx-arm64-adhoc"],
+        signedBundleValidator: (@Sendable (URL) -> Bool)? = nil,
+        versionProvider: (@Sendable (URL) async -> String?)? = nil
+    ) async throws {
+        guard let bundled = bundledURL else {
             throw CondaError.micromambaNotFound
         }
-        let expected = ManagedToolLock.bundled.bootstrap?.micromamba.sha256?["osx-arm64"]
-        if let expected, !expected.isEmpty {
-            let actual = try Self.sha256Hex(of: bundled)
-            guard actual == expected.lowercased() else {
-                throw CondaError.micromambaDownloadFailed(
-                    "bundled micromamba checksum \(actual) does not match the pinned \(expected)"
-                )
-            }
-        } else {
-            logger.info("Manifest pins no micromamba sha256 for osx-arm64; installing bundled binary unverified")
+        guard let expectedSHA256, !expectedSHA256.isEmpty else {
+            throw CondaError.micromambaDownloadFailed("manifest pins no micromamba sha256 for osx-arm64")
         }
-
+        let actual = try Self.sha256Hex(of: bundled)
+        let matchesUpstream = actual == expectedSHA256.lowercased()
+        let matchesPackaged = expectedPackagedSHA256.map { actual == $0.lowercased() } ?? false
+        let hasTrustedSignature = signedBundleValidator?(bundled)
+            ?? BundledMicromambaIntegrity.validatesDeveloperIDPackage(executableURL: bundled)
+        guard matchesUpstream || matchesPackaged || hasTrustedSignature else {
+            throw CondaError.micromambaDownloadFailed(
+                "bundled micromamba checksum \(actual) does not match a pinned source or packaged checksum and has no trusted app signature"
+            )
+        }
         let destination = await condaManager.micromambaPath
         try FileManager.default.createDirectory(
             at: destination.deletingLastPathComponent(),
             withIntermediateDirectories: true
         )
-        if FileManager.default.fileExists(atPath: destination.path) {
-            try FileManager.default.removeItem(at: destination)
+        let staged = destination.deletingLastPathComponent()
+            .appendingPathComponent(".micromamba-\(UUID().uuidString).staged")
+        defer { try? FileManager.default.removeItem(at: staged) }
+        try FileManager.default.copyItem(at: bundled, to: staged)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: staged.path)
+        guard try Self.sha256Hex(of: staged) == actual else {
+            throw CondaError.micromambaDownloadFailed("staged micromamba changed while it was copied")
         }
-        try FileManager.default.copyItem(at: bundled, to: destination)
-        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: destination.path)
+        let observedVersion = if let versionProvider {
+            await versionProvider(staged)
+        } else {
+            await readMicromambaVersion(at: staged)
+        }
+        guard let observedVersion,
+              !DependencyPlanner.needsBootstrapUpdate(installed: observedVersion, target: targetVersion) else {
+            throw CondaError.micromambaDownloadFailed(
+                "bundled micromamba does not report the pinned version \(targetVersion)"
+            )
+        }
+        if FileManager.default.fileExists(atPath: destination.path) {
+            _ = try FileManager.default.replaceItemAt(
+                destination, withItemAt: staged, options: .usingNewMetadataOnly)
+        } else {
+            try FileManager.default.moveItem(at: staged, to: destination)
+        }
         logger.info("Installed bundled micromamba \(targetVersion, privacy: .public) at \(destination.path, privacy: .public)")
     }
 
@@ -342,7 +371,7 @@ public extension ReconcilerServices {
     /// cooperative-pool thread starves every other task sharing it. stderr goes to the null
     /// device instead of a `Pipe`, because nothing drains a stderr pipe here and a child that
     /// fills the 64KB buffer would block forever writing to it.
-    private static func readMicromambaVersion(at path: URL) async -> String? {
+    static func readMicromambaVersion(at path: URL) async -> String? {
         guard FileManager.default.isExecutableFile(atPath: path.path) else { return nil }
         return await withCheckedContinuation { (continuation: CheckedContinuation<String?, Never>) in
             DispatchQueue.global(qos: .userInitiated).async {

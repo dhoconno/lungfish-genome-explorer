@@ -397,6 +397,121 @@ final class DependencyReconcilerTests: XCTestCase {
         XCTAssertEqual(saved.bootstrap?.micromambaVersion, "2.9.0-0")
     }
 
+    func testReconciliationAcceptsADeveloperIDSignedBundledMicromambaAfterSigningChangesItsHash() async throws {
+        let root = tmpRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let bundled = root.appendingPathComponent("signed-bundled-micromamba")
+        let bundledBytes = Data("developer-id-signed-micromamba".utf8)
+        try bundledBytes.write(to: bundled)
+
+        let condaRoot = root.appendingPathComponent("conda", isDirectory: true)
+        let existing = condaRoot.appendingPathComponent("bin/micromamba")
+        try FileManager.default.createDirectory(
+            at: existing.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("old runtime".utf8).write(to: existing)
+        try FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: existing.path)
+        let manager = CondaManager(
+            rootPrefix: condaRoot,
+            bundledMicromambaProvider: { nil },
+            bundledMicromambaVersionProvider: { nil }
+        )
+        let calls = Calls()
+        var serviceSet = services(calls: calls, envs: [:], micromambaVersion: "2.8.0")
+        serviceSet.installBootstrap = { targetVersion in
+            try await ReconcilerServices.installBundledMicromamba(
+                condaManager: manager,
+                targetVersion: targetVersion,
+                bundledURL: bundled,
+                expectedSHA256: String(repeating: "0", count: 64),
+                expectedPackagedSHA256: nil,
+                signedBundleValidator: { $0 == bundled },
+                versionProvider: { _ in "2.9.0" }
+            )
+        }
+        let reconciler = DependencyReconciler(
+            manifest: manifest(), storageRoot: root.appendingPathComponent("storage"), services: serviceSet,
+            appVersion: "x", operationCenter: nil
+        )
+
+        let plan = try await reconciler.currentPlan()
+        let result = try await reconciler.apply(plan, selection: .all(from: plan)) { _, _, _ in }
+
+        XCTAssertNil(result.failed["micromamba"])
+        XCTAssertEqual(try Data(contentsOf: existing), bundledBytes)
+        XCTAssertTrue(FileManager.default.isExecutableFile(atPath: existing.path))
+    }
+
+    func testRejectedBundledMicromambaLeavesTheInstalledRuntimeByteIdentical() async throws {
+        let root = tmpRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let bundled = root.appendingPathComponent("untrusted-bundled-micromamba")
+        try Data("untrusted replacement".utf8).write(to: bundled)
+
+        let condaRoot = root.appendingPathComponent("conda", isDirectory: true)
+        let installed = condaRoot.appendingPathComponent("bin/micromamba")
+        try FileManager.default.createDirectory(
+            at: installed.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let installedBytes = Data("known-good installed runtime".utf8)
+        try installedBytes.write(to: installed)
+        let manager = CondaManager(
+            rootPrefix: condaRoot,
+            bundledMicromambaProvider: { nil },
+            bundledMicromambaVersionProvider: { nil }
+        )
+        var serviceSet = services(calls: Calls(), envs: [:], micromambaVersion: "2.8.0")
+        serviceSet.installBootstrap = { targetVersion in
+            try await ReconcilerServices.installBundledMicromamba(
+                condaManager: manager,
+                targetVersion: targetVersion,
+                bundledURL: bundled,
+                expectedSHA256: String(repeating: "0", count: 64),
+                expectedPackagedSHA256: nil,
+                signedBundleValidator: { _ in false },
+                versionProvider: { _ in "2.9.0" }
+            )
+        }
+        let reconciler = DependencyReconciler(
+            manifest: manifest(), storageRoot: root.appendingPathComponent("storage"), services: serviceSet,
+            appVersion: "x", operationCenter: nil
+        )
+
+        let plan = try await reconciler.currentPlan()
+        let result = try await reconciler.apply(plan, selection: .all(from: plan)) { _, _, _ in }
+
+        XCTAssertNotNil(result.failed["micromamba"])
+        XCTAssertEqual(try Data(contentsOf: installed), installedBytes)
+
+        do {
+            try await ReconcilerServices.installBundledMicromamba(
+                condaManager: manager,
+                targetVersion: "2.9.0-0",
+                bundledURL: bundled,
+                expectedSHA256: nil,
+                expectedPackagedSHA256: nil,
+                signedBundleValidator: { _ in true },
+                versionProvider: { _ in "2.9.0" }
+            )
+            XCTFail("a missing upstream pin must fail closed")
+        } catch {}
+        XCTAssertEqual(try Data(contentsOf: installed), installedBytes)
+
+        do {
+            try await ReconcilerServices.installBundledMicromamba(
+                condaManager: manager,
+                targetVersion: "2.9.0-0",
+                bundledURL: bundled,
+                expectedSHA256: String(repeating: "0", count: 64),
+                expectedPackagedSHA256: nil,
+                signedBundleValidator: { _ in true },
+                versionProvider: { _ in "2.8.0" }
+            )
+            XCTFail("a trusted package with the wrong version must be rejected")
+        } catch {}
+        XCTAssertEqual(try Data(contentsOf: installed), installedBytes)
+    }
+
     func testOperationSinkReceivesParentAndChildOperations() async throws {
         let root = tmpRoot()
         let sink = RecordingSink()

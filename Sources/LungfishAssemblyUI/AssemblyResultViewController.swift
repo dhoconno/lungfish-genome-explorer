@@ -97,6 +97,12 @@ public final class AssemblyResultViewController: NSViewController {
         layoutSubviews()
         wireCallbacks()
         applyLayoutPreference()
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(layoutPreferenceDidChange),
+            name: .assemblyLayoutSwapRequested,
+            object: nil
+        )
         applyContentTypography()
         contentTypographyObservation = AssemblyContentTypographyObservation { [weak self] in
             self?.applyContentTypography()
@@ -286,6 +292,10 @@ public final class AssemblyResultViewController: NSViewController {
             minimumExtents: minimumExtents(for: layout),
             isViewInWindow: view.window != nil
         )
+    }
+
+    @objc private func layoutPreferenceDidChange() {
+        applyLayoutPreference()
     }
 
     private func scheduleInitialSplitValidationIfNeeded() {

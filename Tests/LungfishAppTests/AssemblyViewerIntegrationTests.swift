@@ -44,6 +44,49 @@ final class AssemblyViewerIntegrationTests: XCTestCase {
         XCTAssertNotNil(viewer.assemblyResultController?.onBlastVerification)
     }
 
+    func testViewerDisplayAssemblyResultKeepsSummaryAndFilterInsideWindowSafeAreaAfterResize() throws {
+        let viewer = ViewerViewController()
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 960, height: 640),
+            styleMask: [.titled, .resizable, .fullSizeContentView],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.toolbar = NSToolbar(identifier: "AssemblyViewerIntegrationTests")
+        window.toolbarStyle = .unified
+        window.contentViewController = viewer
+        defer { window.close() }
+
+        viewer.displayAssemblyResult(try makeAssemblyResult())
+
+        for size in [
+            NSSize(width: 960, height: 640),
+            NSSize(width: 720, height: 520),
+        ] {
+            window.setContentSize(size)
+            window.layoutIfNeeded()
+            viewer.view.layoutSubtreeIfNeeded()
+
+            let assemblyView = try XCTUnwrap(viewer.assemblyResultController?.view)
+            let summaryStrip = try XCTUnwrap(
+                descendant(in: assemblyView, accessibilityIdentifier: "assembly-result-summary-strip")
+            )
+            let filter = try XCTUnwrap(
+                descendant(in: assemblyView, accessibilityIdentifier: "assembly-result-search")
+            )
+            let safeAreaFrame = viewer.view.safeAreaLayoutGuide.frame
+            let summaryFrame = summaryStrip.convert(summaryStrip.bounds, to: viewer.view)
+            let filterFrame = filter.convert(filter.bounds, to: viewer.view)
+
+            XCTAssertGreaterThan(viewer.view.safeAreaInsets.top, 0)
+            XCTAssertLessThanOrEqual(summaryFrame.maxY, safeAreaFrame.maxY + 0.5)
+            XCTAssertGreaterThanOrEqual(summaryFrame.minY, safeAreaFrame.minY - 0.5)
+            XCTAssertLessThanOrEqual(filterFrame.maxY, safeAreaFrame.maxY + 0.5)
+            XCTAssertGreaterThanOrEqual(filterFrame.minY, safeAreaFrame.minY - 0.5)
+        }
+    }
+
     func testViewerDisplayAssemblyResultHostsAssemblyControllerForEmptyContigOutcome() async throws {
         let viewer = ViewerViewController()
         _ = viewer.view
@@ -111,5 +154,14 @@ final class AssemblyViewerIntegrationTests: XCTestCase {
             }
         }
         return nil
+    }
+
+    private func descendant(in root: NSView, accessibilityIdentifier: String) -> NSView? {
+        if root.accessibilityIdentifier() == accessibilityIdentifier {
+            return root
+        }
+        return root.subviews.lazy.compactMap {
+            self.descendant(in: $0, accessibilityIdentifier: accessibilityIdentifier)
+        }.first
     }
 }

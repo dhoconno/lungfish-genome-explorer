@@ -10,7 +10,8 @@ struct FASTQOperationProvenanceRehydrator: Sendable {
     ) -> [String: String] {
         var pathMap = [sourceURL.path: finalOutputURL.path]
         if let finalInputURL = finalInputFileForMaterializedProvenance(sourceInputURL: sourceInputURL),
-           let sourceEnvelope = loadSourceProvenanceEnvelope(for: sourceURL) {
+           let sourceEnvelope = loadSourceProvenanceEnvelope(for: sourceURL),
+           !isNormalizedSequenceEnvelope(sourceEnvelope) {
             for materializedPath in materializedInputPaths(in: sourceEnvelope) {
                 pathMap[materializedPath] = finalInputURL.path
             }
@@ -25,14 +26,13 @@ struct FASTQOperationProvenanceRehydrator: Sendable {
         finalOutputURL: URL,
         sourceInputURL: URL?
     ) throws -> ProvenanceEnvelope {
-        try ProvenanceRehydrator.rehydrateSelectedOutputs(
-            sourceDirectory: sourceURL.deletingLastPathComponent(),
-            finalDirectory: finalDirectory,
-            pathMap: operationPathMap(
-                sourceURL: sourceURL,
-                finalOutputURL: finalOutputURL,
-                sourceInputURL: sourceInputURL
-            )
+        var pathMap = operationPathMap(sourceURL: sourceURL, finalOutputURL: finalOutputURL,
+            sourceInputURL: sourceInputURL)
+        if let source = loadSourceProvenanceEnvelope(for: sourceURL), isNormalizedSequenceEnvelope(source) {
+            pathMap.merge(try retainNormalizationIntermediates(source, in: finalDirectory, excluding: sourceURL)) { _, new in new }
+        }
+        return try ProvenanceRehydrator.rehydrateSelectedOutputs(
+            sourceDirectory: sourceURL.deletingLastPathComponent(), finalDirectory: finalDirectory, pathMap: pathMap
         )
     }
 
@@ -45,12 +45,23 @@ struct FASTQOperationProvenanceRehydrator: Sendable {
         }
 
         let wrappingEnvelope = ProvenanceRecorder.loadEnvelope(from: referenceBundleURL)
+        var pathMap = [sourceURL.path: finalPayloadURL.path]
+        var normalizedStoredSourceURL: URL?
+        if let source = loadSourceProvenanceEnvelope(for: sourceURL), isNormalizedSequenceEnvelope(source) {
+            let storedSource = try retainedNormalizedSource(sourceURL, finalPayloadURL: finalPayloadURL, bundleURL: referenceBundleURL)
+            normalizedStoredSourceURL = storedSource
+            pathMap[sourceURL.path] = storedSource.path
+            pathMap.merge(try retainNormalizationIntermediates(source, in: referenceBundleURL, excluding: sourceURL)) { _, new in new }
+        }
         let rehydrated = try ProvenanceRehydrator.rehydrateSelectedOutputs(
             sourceDirectory: sourceURL.deletingLastPathComponent(),
             finalDirectory: referenceBundleURL,
-            pathMap: [sourceURL.path: finalPayloadURL.path]
+            pathMap: pathMap
         )
         guard let wrappingEnvelope else { return }
+        let finalDescriptor = ProvenanceFileDescriptor(path: finalPayloadURL.path,
+            checksumSHA256: try ProvenanceFileHasher.sha256(of: finalPayloadURL),
+            fileSize: try ProvenanceFileHasher.fileSize(of: finalPayloadURL), format: .fasta, role: .output)
         let merged = ProvenanceEnvelope(
             schemaVersion: rehydrated.schemaVersion,
             id: rehydrated.id,
@@ -59,16 +70,35 @@ struct FASTQOperationProvenanceRehydrator: Sendable {
             workflowVersion: rehydrated.workflowVersion,
             toolName: rehydrated.toolName,
             toolVersion: rehydrated.toolVersion,
+            githubReleaseVersion: rehydrated.githubReleaseVersion,
             tool: rehydrated.tool,
             argv: rehydrated.argv,
             durableReplayArgv: rehydrated.durableReplayArgv,
             reproducibleCommand: rehydrated.reproducibleCommand,
             options: rehydrated.options,
             runtimeIdentity: rehydrated.runtimeIdentity,
-            files: mergedProvenanceFiles(rehydrated.files, wrappingEnvelope.files),
-            output: rehydrated.output,
-            outputs: rehydrated.outputs,
-            steps: rehydrated.steps + wrappingEnvelope.steps,
+            files: mergedProvenanceFiles(rehydrated.files, try wrappingEnvelope.files.map {
+                try retainedWrappingDescriptor($0, sourceURL: sourceURL, storedSourceURL: normalizedStoredSourceURL)
+            }),
+            output: normalizedStoredSourceURL == nil ? rehydrated.output : finalDescriptor,
+            outputs: normalizedStoredSourceURL == nil || rehydrated.outputs.contains(where: { $0.path == finalPayloadURL.path })
+                ? rehydrated.outputs : rehydrated.outputs + [finalDescriptor],
+            steps: rehydrated.steps + (try wrappingEnvelope.steps.map { step in
+                ProvenanceStep(id: step.id, toolName: step.toolName, toolVersion: step.toolVersion,
+                    githubReleaseVersion: step.githubReleaseVersion, argv: step.argv,
+                    durableReplayArgv: normalizedStoredSourceURL.map { stored in
+                        (step.durableReplayArgv ?? step.argv).map { $0 == sourceURL.path ? stored.path : $0 }
+                    } ?? step.durableReplayArgv,
+                    reproducibleCommand: normalizedStoredSourceURL.map { stored in
+                        (step.durableReplayArgv ?? step.argv).map { $0 == sourceURL.path ? stored.path : $0 }
+                            .map(shellEscape).joined(separator: " ")
+                    } ?? step.reproducibleCommand,
+                    resolvedOptions: step.resolvedOptions, runtimeIdentity: step.runtimeIdentity,
+                    inputs: try step.inputs.map { try retainedWrappingDescriptor($0, sourceURL: sourceURL, storedSourceURL: normalizedStoredSourceURL) },
+                    outputs: step.outputs, exitStatus: step.exitStatus, wallTimeSeconds: step.wallTimeSeconds,
+                    peakMemoryBytes: step.peakMemoryBytes, stderr: step.stderr, dependsOn: step.dependsOn,
+                    startedAt: step.startedAt, completedAt: step.completedAt)
+            }),
             wallTimeSeconds: rehydrated.wallTimeSeconds,
             exitStatus: rehydrated.exitStatus,
             stderr: rehydrated.stderr,
@@ -76,6 +106,68 @@ struct FASTQOperationProvenanceRehydrator: Sendable {
             legacyWorkflowRun: nil
         )
         try ProvenanceWriter(signingProvider: nil).write(merged, to: referenceBundleURL)
+    }
+
+    private func isNormalizedSequenceEnvelope(_ envelope: ProvenanceEnvelope) -> Bool {
+        envelope.steps.contains { $0.toolName == SequenceProcessingOutputNormalizer.normalizationToolName }
+    }
+
+    /// Preserve consumed scientific bytes before execution-directory cleanup. Keeping
+    /// separate copies avoids relabeling synthetic FASTQ as the user's original FASTA.
+    private func retainNormalizationIntermediates(
+        _ envelope: ProvenanceEnvelope, in finalDirectory: URL, excluding sourceURL: URL
+    ) throws -> [String: String] {
+        let descriptors = envelope.files + envelope.outputs + envelope.steps.flatMap { $0.inputs + $0.outputs }
+        let folder = finalDirectory.appendingPathComponent("provenance-intermediates", isDirectory: true)
+        let rawSource = envelope.steps.last(where: { $0.toolName == SequenceProcessingOutputNormalizer.normalizationToolName })?.inputs.first
+        let artifactRoot = rawSource.map { URL(fileURLWithPath: $0.path).deletingLastPathComponent().standardizedFileURL.path + "/" }
+        var pathMap: [String: String] = [:]
+        for descriptor in descriptors {
+            let source = URL(fileURLWithPath: descriptor.path).standardizedFileURL
+            guard source != sourceURL.standardizedFileURL, pathMap[descriptor.path] == nil,
+                  descriptor.path.hasPrefix("/"),
+                  (artifactRoot.map { source.path.hasPrefix($0) } ?? false) || isMaterializedInputPath(source.path),
+                  !source.path.hasPrefix(finalDirectory.standardizedFileURL.path + "/"),
+                  (try? source.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true else { continue }
+            if let expectedHash = descriptor.checksumSHA256,
+               try ProvenanceFileHasher.sha256(of: source) != expectedHash {
+                throw SequenceProcessingOutputNormalizerError.sourceIntegrityMismatch(source)
+            }
+            if let expectedSize = descriptor.fileSize,
+               try ProvenanceFileHasher.fileSize(of: source) != expectedSize {
+                throw SequenceProcessingOutputNormalizerError.sourceIntegrityMismatch(source)
+            }
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            let destination = folder.appendingPathComponent("\(UUID().uuidString)-\(source.lastPathComponent)")
+            try FileManager.default.copyItem(at: source, to: destination)
+            pathMap[descriptor.path] = destination.path
+        }
+        return pathMap
+    }
+
+    private func retainedNormalizedSource(_ source: URL, finalPayloadURL: URL, bundleURL: URL) throws -> URL {
+        if try ProvenanceFileHasher.sha256(of: source) == ProvenanceFileHasher.sha256(of: finalPayloadURL) {
+            return finalPayloadURL
+        }
+        let folder = bundleURL.appendingPathComponent("provenance-intermediates", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let destination = folder.appendingPathComponent("\(UUID().uuidString)-\(source.lastPathComponent)")
+        try FileManager.default.copyItem(at: source, to: destination)
+        return destination
+    }
+
+    private func retainedWrappingDescriptor(
+        _ descriptor: ProvenanceFileDescriptor, sourceURL: URL, storedSourceURL: URL?
+    ) throws -> ProvenanceFileDescriptor {
+        guard let storedSourceURL, URL(fileURLWithPath: descriptor.path).standardizedFileURL == sourceURL.standardizedFileURL else {
+            return descriptor
+        }
+        return ProvenanceFileDescriptor(path: storedSourceURL.path,
+            checksumSHA256: try ProvenanceFileHasher.sha256(of: storedSourceURL),
+            fileSize: try ProvenanceFileHasher.fileSize(of: storedSourceURL),
+            format: descriptor.format, role: descriptor.role,
+            originPath: descriptor.originPath ?? descriptor.path,
+            sourceProvenancePath: descriptor.sourceProvenancePath)
     }
 
     private func loadSourceProvenanceEnvelope(for sourceURL: URL) -> ProvenanceEnvelope? {

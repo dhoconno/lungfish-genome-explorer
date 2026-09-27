@@ -194,7 +194,35 @@ public final class OperationCenter: ObservableObject {
         public let id: UUID
         public var title: String
         public var detail: String
+        /// Legacy compatibility value; not evidence of measured work or remaining time.
         public var progress: Double
+        public private(set) var progressEvidence: OperationProgressEvidence?
+        private var progressRate = OperationProgressRate()
+
+        fileprivate mutating func setProgressEvidence(_ evidence: OperationProgressEvidence?) {
+            progressEvidence = evidence
+            progressRate.record(evidence)
+        }
+
+        public var displayProgressFraction: Double? {
+            state.isActive ? progressEvidence?.validatedFraction : nil
+        }
+
+        /// Lifecycle stays visible even when a qualified percentage is available.
+        public var displayProgressLabel: String {
+            guard let fraction = displayProgressFraction, let evidence = progressEvidence else {
+                return displayStateLabel
+            }
+            let qualifier = evidence.basis == .estimated ? "≈" : ""
+            let scope = evidence.scope == .stage ? " of stage" : ""
+            return "\(displayStateLabel) · \(qualifier)\(Int((fraction * 100).rounded()))%\(scope)"
+        }
+
+        public func estimatedRemainingTime(at date: Date) -> TimeInterval? {
+            guard state == .running else { return nil }
+            return progressRate.remainingTime(at: date)
+        }
+
         public var state: State
         public var operationType: OperationType
         public var startedAt: Date
@@ -227,9 +255,13 @@ public final class OperationCenter: ObservableObject {
 
         /// The total number of log entries ever recorded for this operation,
         /// including ones ``appendLogEntryCapped(_:)`` has since elided from
-        /// ``logEntries``. Used only to compute the elision marker's count;
-        /// not itself displayed.
+        /// ``logEntries``. Also supports pending-line counts in the log inspector.
         fileprivate var totalLogEntryCount = 0
+        /// Lifetime count, including entries omitted from the bounded preview.
+        public var logEntryCount: Int { max(totalLogEntryCount, logEntries.count) }
+        public var latestLogEntry: OperationLogEntry? { logEntries.last }
+        /// Outcome evidence is retained independently of the preview cap.
+        public private(set) var warningCount = 0
 
         /// Entries kept from the start of the log when the cap is exceeded.
         fileprivate static let keepFirstLogEntries = 100
@@ -250,6 +282,7 @@ public final class OperationCenter: ObservableObject {
         fileprivate mutating func appendLogEntryCapped(_ entry: OperationLogEntry) {
             logEntries.append(entry)
             totalLogEntryCount += 1
+            if entry.level == .warning { warningCount += 1 }
             guard logEntries.count > Self.maxRetainedLogEntries else { return }
 
             let keepFirst = Self.keepFirstLogEntries
@@ -277,7 +310,7 @@ public final class OperationCenter: ObservableObject {
         public var failureReportURL: URL?
 
         public var hasWarnings: Bool {
-            logEntries.contains { $0.level == .warning }
+            warningCount > 0 || logEntries.contains { $0.level == .warning }
         }
 
         public var displayStateLabel: String {
@@ -672,10 +705,19 @@ public final class OperationCenter: ObservableObject {
         changes.send(.updated(id: id, index: index))
     }
 
+    /// Records the exact current native invocation once a workflow launches it.
+    public func setCommand(id: UUID, command: String) {
+        guard let index = items.firstIndex(where: { $0.id == id }),
+              items[index].state.isActive else { return }
+        items[index].cliCommand = command
+        changes.send(.updated(id: id, index: index))
+    }
+
     @discardableResult
     public func update(id: UUID, progress: Double, detail: String) -> Bool {
         guard let index = items.firstIndex(where: { $0.id == id }) else { return false }
         guard items[index].state == .running else { return false }
+        items[index].setProgressEvidence(nil)
         items[index].progress = max(0, min(1, progress))
         items[index].detail = detail
         changes.send(.updated(id: id, index: index))
@@ -696,6 +738,7 @@ public final class OperationCenter: ObservableObject {
     ) -> Bool {
         guard let index = items.firstIndex(where: { $0.id == id }) else { return false }
         guard items[index].state == .running else { return false }
+        items[index].setProgressEvidence(nil)
         items[index].progress = max(0, min(1, progress))
         items[index].detail = detail
 
@@ -711,6 +754,18 @@ public final class OperationCenter: ObservableObject {
         return true
     }
 
+    /// Records scoped, qualified progress. Passing nil clears previous evidence and ETA.
+    @discardableResult
+    public func updateProgress(id: UUID, evidence: OperationProgressEvidence?, detail: String) -> Bool {
+        guard let index = items.firstIndex(where: { $0.id == id }),
+              items[index].state == .running else { return false }
+        items[index].setProgressEvidence(evidence)
+        items[index].progress = evidence?.validatedFraction ?? 0
+        items[index].detail = detail
+        changes.send(.updated(id: id, index: index))
+        return true
+    }
+
     /// Updates resource usage observed for an operation.
     public func updateResourceStats(id: UUID, peakMemoryBytes: UInt64? = nil) {
         guard let index = items.firstIndex(where: { $0.id == id }) else { return }
@@ -721,50 +776,30 @@ public final class OperationCenter: ObservableObject {
         changes.send(.updated(id: id, index: index))
     }
 
-    /// Updates byte progress for an operation, computing the progress fraction automatically.
-    ///
-    /// The detail text is auto-generated as "X MB / Y GB · ETA Zm Ws" when enough
-    /// information is available. The ETA is derived from elapsed time and progress fraction.
-    ///
-    /// - Parameters:
-    ///   - id: The operation to update.
-    ///   - bytesDownloaded: Bytes transferred so far.
-    ///   - totalBytes: Total expected bytes (nil if unknown).
+    /// Records measured byte progress. Nil total means no new total; an explicitly
+    /// invalid total clears the previous denominator. ETA is presented separately
+    /// through `Item.estimatedRemainingTime(at:)`, so detail never contains a stale ETA.
     public func updateBytes(id: UUID, bytesDownloaded: Int64, totalBytes: Int64?) {
-        guard let index = items.firstIndex(where: { $0.id == id }) else { return }
+        guard let index = items.firstIndex(where: { $0.id == id }),
+              items[index].state == .running else { return }
         items[index].bytesDownloaded = bytesDownloaded
-        // Only update totalBytes if we now have a value (don't overwrite a known value with nil)
-        if let total = totalBytes {
-            items[index].totalBytes = total
-        }
-        let effectiveTotal = totalBytes ?? items[index].totalBytes
-        // Compute progress fraction
-        if let total = effectiveTotal, total > 0 {
-            items[index].progress = Double(bytesDownloaded) / Double(total)
-        }
-        // Auto-generate detail text with transferred/total sizes
+        if let totalBytes { items[index].totalBytes = totalBytes > 0 ? totalBytes : nil }
+        let effectiveTotal = items[index].totalBytes
+        let evidence = OperationProgressEvidence(
+            phase: "bytes", scope: .overall, basis: .measured,
+            completed: Double(bytesDownloaded), total: effectiveTotal.map(Double.init), unit: "bytes"
+        )
+        items[index].setProgressEvidence(evidence)
+        items[index].progress = evidence.validatedFraction ?? 0
         let formatter = ByteCountFormatter()
         formatter.countStyle = .file
         formatter.allowedUnits = [.useMB, .useGB]
         let downloaded = formatter.string(fromByteCount: bytesDownloaded)
-        // Base detail: "X MB" or "X MB / Y GB"
-        var detail: String
         if let total = effectiveTotal {
-            let totalStr = formatter.string(fromByteCount: total)
-            detail = "\(downloaded) / \(totalStr)"
+            items[index].detail = "\(downloaded) / \(formatter.string(fromByteCount: total))"
         } else {
-            detail = downloaded
+            items[index].detail = downloaded
         }
-        // Append ETA when we have enough elapsed time and meaningful progress
-        let elapsed = Date().timeIntervalSince(items[index].startedAt)
-        let progress = items[index].progress
-        if progress > 0.01 && elapsed > 2 {
-            let estimatedTotal = elapsed / progress
-            let remaining = estimatedTotal - elapsed
-            let etaStr = formatETAInterval(remaining)
-            detail += " · ETA \(etaStr)"
-        }
-        items[index].detail = detail
         changes.send(.updated(id: id, index: index))
     }
 
@@ -792,7 +827,9 @@ public final class OperationCenter: ObservableObject {
         delaySeconds: TimeInterval,
         message: String? = nil
     ) {
-        guard let index = items.firstIndex(where: { $0.id == id }) else { return }
+        guard let index = items.firstIndex(where: { $0.id == id }),
+              items[index].state == .running else { return }
+        items[index].setProgressEvidence(nil)
         let retry = OperationRetryMetadata(
             attempt: attempt,
             maxRetries: maxRetries,
@@ -1054,18 +1091,4 @@ public final class OperationCenter: ObservableObject {
         }
         changes.send(.updated(id: id, index: index))
     }
-}
-
-// MARK: - ETA Formatting
-
-/// Formats a time interval as a compact ETA string (e.g., "2m 30s", "45s", "<1s").
-private func formatETAInterval(_ interval: TimeInterval) -> String {
-    let secs = max(0, Int(interval))
-    if secs < 60 { return secs < 2 ? "<1s" : "\(secs)s" }
-    let m = secs / 60
-    let s = secs % 60
-    if m < 60 { return s > 0 ? "\(m)m \(s)s" : "\(m)m" }
-    let h = m / 60
-    let rem = m % 60
-    return rem > 0 ? "\(h)h \(rem)m" : "\(h)h"
 }

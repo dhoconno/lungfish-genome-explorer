@@ -1,5 +1,7 @@
 import csv
 import importlib
+import io
+import selectors
 import json
 import math
 import os
@@ -77,6 +79,40 @@ def base_request(root: Path, *, engine="olivar", mode="tiled", grouping="perInpu
             "workers": 1,
         },
     }
+
+
+class LiveDiagnosticsTests(unittest.TestCase):
+    def test_retained_log_and_live_pipe_receive_output_before_worker_exit(self):
+        with tempfile.TemporaryDirectory() as td:
+            retained = Path(td) / "native-stdout.txt"
+            script = """
+import sys
+from pathlib import Path
+sys.path.insert(0, sys.argv[1])
+from run import _LiveLogTee
+with Path(sys.argv[2]).open('w', encoding='utf-8') as log:
+    stream = _LiveLogTee(log, sys.stdout)
+    stream.write('first output\\n')
+    sys.stdin.readline()
+    stream.write('final tail')
+"""
+            process = subprocess.Popen([sys.executable, "-c", script, str(ADAPTER), str(retained)],
+                                       stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            try:
+                with selectors.DefaultSelector() as selector:
+                    selector.register(process.stdout, selectors.EVENT_READ)
+                    self.assertTrue(selector.select(timeout=2), "Live output must arrive before the worker exits")
+                self.assertIsNone(process.poll())
+                self.assertEqual(process.stdout.readline(), b"first output\n")
+                self.assertEqual(retained.read_text(), "first output\n")
+                stdout, stderr = process.communicate(input=b"continue\n", timeout=2)
+                self.assertEqual(process.returncode, 0, stderr.decode())
+                self.assertEqual(stdout, b"final tail")
+                self.assertEqual(retained.read_text(), "first output\nfinal tail")
+            finally:
+                if process.poll() is None:
+                    process.kill()
+                    process.communicate()
 
 
 class RequestContractTests(unittest.TestCase):
@@ -198,6 +234,27 @@ class ProvenanceRetentionTests(unittest.TestCase):
         request_path = root / "request.json"
         request_path.write_text(json.dumps(request), encoding="utf-8")
         return request, request_path
+
+    def test_adapter_forwards_both_native_streams_without_losing_retained_logs(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            _, request_path = self.write_request(root)
+            live_out, live_err = io.StringIO(), io.StringIO()
+
+            def succeed(request, stage, recorder):
+                recorder["runtime"] = self.fake_runtime()
+                print("live output")
+                print("live error", file=sys.stderr)
+                self.assertEqual(live_out.getvalue(), "live output\n")
+                self.assertEqual(live_err.getvalue(), "live error\n")
+                self.assertEqual((stage / "logs/native-stdout.txt").read_text(), "live output\n")
+                return [], recorder["runtime"], {"test": True}
+
+            with mock.patch("olivar_adapter.run_olivar", side_effect=succeed), \
+                    mock.patch("sys.stdout", live_out), mock.patch("sys.stderr", live_err):
+                output = adapter_run.execute(request_path)
+            self.assertEqual((output / "logs/native-stdout.txt").read_text(), "live output\n")
+            self.assertEqual((output / "logs/native-stderr.txt").read_text(), "live error\n")
 
     def test_failure_retains_caller_owned_runtime_and_attempted_event(self):
         with tempfile.TemporaryDirectory() as td:

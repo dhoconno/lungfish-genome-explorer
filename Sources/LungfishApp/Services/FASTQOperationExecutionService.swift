@@ -14,74 +14,44 @@ struct FASTQCLIExecutionResult: Sendable, Equatable {
 }
 
 typealias FASTQOperationProgressHandler = @Sendable (Double, String) -> Void
+typealias FASTQOperationLogHandler = @Sendable (OperationLogLevel, String) -> Void
 
 struct FASTQCLIProgressEvent: Sendable, Equatable {
     let progress: Double
     let message: String
 
     static func parse(_ line: String) throws -> FASTQCLIProgressEvent? {
-        let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard trimmed.hasPrefix("{"),
-              let data = trimmed.data(using: .utf8),
-              let payload = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              payload["event"] as? String == "progress",
-              let message = payload["message"] as? String else {
+        guard let event = try? CLIEventLineDecoder().decode(line: line) else { return nil }
+        switch event {
+        case let .progress(fraction, message):
+            return FASTQCLIProgressEvent(progress: fraction, message: message)
+        case let .start(message), let .log(_, message):
+            // Activity is useful even when the tool has no measurable denominator.
+            // The legacy callback's fraction is unspecified, not measured progress.
+            return FASTQCLIProgressEvent(progress: 0, message: message)
+        case .output, .complete, .failed:
             return nil
         }
-
-        let progress: Double
-        if let number = payload["progress"] as? NSNumber {
-            progress = number.doubleValue
-        } else if let value = payload["progress"] as? Double {
-            progress = value
-        } else {
-            return nil
-        }
-
-        return FASTQCLIProgressEvent(
-            progress: max(0, min(1, progress)),
-            message: message
-        )
     }
 }
 
 private final class FASTQCLIStderrCapture: @unchecked Sendable {
     private let lock = NSLock()
     private var capturedData = Data()
-    private var pendingText = ""
+    private var framer = ProcessOutputLineFramer()
 
-    func append(_ data: Data) -> [FASTQCLIProgressEvent] {
+    func append(_ data: Data) -> [CLIEvent] {
         guard !data.isEmpty else { return [] }
         lock.lock()
+        defer { lock.unlock() }
         capturedData.append(data)
-        guard let text = String(data: data, encoding: .utf8) else {
-            lock.unlock()
-            return []
-        }
-        pendingText += text
-
-        var events: [FASTQCLIProgressEvent] = []
-        while let newlineIndex = pendingText.firstIndex(of: "\n") {
-            let line = String(pendingText[..<newlineIndex])
-            pendingText.removeSubrange(...newlineIndex)
-            if let event = try? FASTQCLIProgressEvent.parse(line) {
-                events.append(event)
-            }
-        }
-        lock.unlock()
-        return events
+        return framer.append(data).compactMap { try? CLIEventLineDecoder().decode(line: $0) }
     }
 
-    func finish() -> [FASTQCLIProgressEvent] {
+    func finish() -> [CLIEvent] {
         lock.lock()
         defer { lock.unlock() }
-        guard !pendingText.isEmpty else { return [] }
-        let line = pendingText
-        pendingText.removeAll(keepingCapacity: true)
-        if let event = try? FASTQCLIProgressEvent.parse(line) {
-            return [event]
-        }
-        return []
+        return framer.finish().compactMap { try? CLIEventLineDecoder().decode(line: $0) }
     }
 
     var data: Data {
@@ -111,6 +81,26 @@ protocol FASTQOperationCommandRunning: Sendable {
         outputDirectory: URL,
         progress: @escaping FASTQOperationProgressHandler
     ) async throws -> FASTQCLIExecutionResult
+
+    func run(
+        invocation: FASTQCLIInvocation,
+        outputDirectory: URL,
+        logHandler: FASTQOperationLogHandler?,
+        progress: @escaping FASTQOperationProgressHandler
+    ) async throws -> FASTQCLIExecutionResult
+}
+
+extension FASTQOperationCommandRunning {
+    /// Existing runners may supply progress only. The concrete CLI runner implements
+    /// the separate log channel; preserving this default keeps older adapters usable.
+    func run(
+        invocation: FASTQCLIInvocation,
+        outputDirectory: URL,
+        logHandler: FASTQOperationLogHandler?,
+        progress: @escaping FASTQOperationProgressHandler
+    ) async throws -> FASTQCLIExecutionResult {
+        try await run(invocation: invocation, outputDirectory: outputDirectory, progress: progress)
+    }
 }
 
 /// Reports a named phase of the post-execution import so the Operations
@@ -276,6 +266,16 @@ struct FASTQOperationExecutionService {
         workingDirectory: URL,
         progress: @escaping FASTQOperationProgressHandler = { _, _ in }
     ) async throws -> FASTQOperationExecutionResult {
+        try await execute(request: request, workingDirectory: workingDirectory,
+                          logHandler: nil, progress: progress)
+    }
+
+    func execute(
+        request: FASTQOperationLaunchRequest,
+        workingDirectory: URL,
+        logHandler: FASTQOperationLogHandler?,
+        progress: @escaping FASTQOperationProgressHandler = { _, _ in }
+    ) async throws -> FASTQOperationExecutionResult {
         try validatePreResolutionTopologyIfNeeded(for: request)
 
         let fileManager = FileManager.default
@@ -336,6 +336,7 @@ struct FASTQOperationExecutionService {
 
             var invocations: [FASTQCLIInvocation] = []
             var outputURLs: [URL] = []
+            var outputSourceInputs: [URL] = []
 
             // The tool phase occupies the front half of the progress bar
             // (0...0.5); the import phase that follows takes 0.5...1.0.
@@ -387,6 +388,7 @@ struct FASTQOperationExecutionService {
                 let result = try await commandRunner.run(
                     invocation: invocation,
                     outputDirectory: executionDirectory,
+                    logHandler: logHandler,
                     // Rescale the CLI's own 0...1 progress into this plan's
                     // slice of the tool phase so a multi-sample batch advances
                     // monotonically instead of restarting the bar per sample.
@@ -397,6 +399,7 @@ struct FASTQOperationExecutionService {
                         progress(scaled, message)
                     }
                 )
+                let firstOutputIndex = outputURLs.count
                 if case .savont = executionPlan.resolvedRequest {
                     // Savont publishes one FASTA at the exact path reserved by this plan. The
                     // generic CLI runner also discovers pre-existing FASTQ bundles in the shared
@@ -410,6 +413,29 @@ struct FASTQOperationExecutionService {
                     outputURLs.append(contentsOf: planner.discoverOutputs(for: executionPlan, in: executionDirectory))
                 } else {
                     outputURLs.append(contentsOf: result.outputURLs)
+                }
+
+                // Restore the original scientific format while each output still
+                // has an unambiguous source plan. Execution may have used synthetic
+                // FASTQ; its filename must not determine the published bundle type.
+                if case .derivative(let operation, let inputs, _) = executionPlan.originalRequest,
+                   let firstInput = inputs.first {
+                    let formats = inputs.map { SequenceInputResolver.inputSequenceFormat(for: $0) }
+                    if let sourceFormat = formats.first ?? nil,
+                       formats.allSatisfy({ $0 == sourceFormat }) {
+                        let preferred = operation.outputSequenceFormat(sourceSequenceFormat: sourceFormat)
+                        for index in firstOutputIndex..<outputURLs.count {
+                            outputURLs[index] = try await SequenceProcessingOutputNormalizer.normalize(
+                                outputURL: outputURLs[index], preferredFormat: preferred
+                            )
+                        }
+                    }
+                    let planOutputCount = outputURLs.count - firstOutputIndex
+                    if inputs.count == 1 {
+                        outputSourceInputs.append(contentsOf: repeatElement(firstInput, count: planOutputCount))
+                    } else if inputs.count == planOutputCount {
+                        outputSourceInputs.append(contentsOf: inputs)
+                    }
                 }
             }
 
@@ -446,10 +472,14 @@ struct FASTQOperationExecutionService {
                 )
 
             case .perInput, .fixedBatch:
+                // Multi-output plans repeat their source identity so later results
+                // from a mixed batch cannot be associated with the next input.
+                let importRequest = outputSourceInputs.count == outputURLs.count && !outputSourceInputs.isEmpty
+                    ? request.replacingInputURLs(with: outputSourceInputs) : request
                 let importedURLs = try await directImporter.importOutputs(
                     at: outputURLs,
                     forResolvedRequest: resolvedRequest,
-                    originalRequest: request,
+                    originalRequest: importRequest,
                     outputDirectory: outputDirectory,
                     progress: { fraction, message in
                         progress(fraction, message)
@@ -713,7 +743,7 @@ private struct FASTQSourceResolverAdapter: FASTQOperationInputResolving {
         let outputURL = tempDirectory.appendingPathComponent(
             "synthetic-\(UUID().uuidString).fastq"
         )
-        try await SyntheticFASTQBridge.convertFASTAToFASTQ(
+        try await SequenceProcessingOutputNormalizer.prepareFASTQInput(
             inputURL: inputURL,
             outputURL: outputURL
         )
@@ -733,6 +763,16 @@ struct LungfishCLIProcessRunner: FASTQOperationCommandRunning {
         outputDirectory: URL,
         progress: @escaping FASTQOperationProgressHandler
     ) async throws -> FASTQCLIExecutionResult {
+        try await run(invocation: invocation, outputDirectory: outputDirectory,
+                      logHandler: nil, progress: progress)
+    }
+
+    func run(
+        invocation: FASTQCLIInvocation,
+        outputDirectory: URL,
+        logHandler: FASTQOperationLogHandler?,
+        progress: @escaping FASTQOperationProgressHandler
+    ) async throws -> FASTQCLIExecutionResult {
         guard let cliURL = cliURLProvider() else {
             throw LungfishCLIRunner.RunError.cliNotFound
         }
@@ -750,6 +790,23 @@ struct LungfishCLIProcessRunner: FASTQOperationCommandRunning {
         let stdoutTask = Task.detached(priority: .userInitiated) {
             stdout.fileHandleForReading.readDataToEndOfFile()
         }
+        let deliver: @Sendable (CLIEvent) -> Void = { event in
+            switch event {
+            case let .start(message):
+                progress(0, message)
+            case let .progress(fraction, message):
+                progress(fraction, message)
+            case let .log(level, message):
+                if let logHandler {
+                    logHandler(OperationLogLevel(rawValue: level.rawValue) ?? .info, message)
+                } else {
+                    // Compatibility for callers which have only one activity callback.
+                    progress(0, message)
+                }
+            case .output, .complete, .failed:
+                break
+            }
+        }
         let stderrCapture = FASTQCLIStderrCapture()
         let stderrTask = Task.detached(priority: .userInitiated) {
             let handle = stderr.fileHandleForReading
@@ -758,11 +815,11 @@ struct LungfishCLIProcessRunner: FASTQOperationCommandRunning {
                 if chunk.isEmpty { break }
                 let events = stderrCapture.append(chunk)
                 for event in events {
-                    progress(event.progress, event.message)
+                    deliver(event)
                 }
             }
             for event in stderrCapture.finish() {
-                progress(event.progress, event.message)
+                deliver(event)
             }
         }
 
@@ -780,8 +837,6 @@ struct LungfishCLIProcessRunner: FASTQOperationCommandRunning {
                         cancellationHandle.store(process)
                         cancellationHandle.terminateIfRequested(gracePeriod: 0)
                     } catch {
-                        stdout.fileHandleForWriting.closeFile()
-                        stderr.fileHandleForWriting.closeFile()
                         if cancellationHandle.isTerminationRequested || Task.isCancelled {
                             continuation.resume(throwing: LungfishCLIRunner.RunError.cancelled)
                         } else {
@@ -794,13 +849,15 @@ struct LungfishCLIProcessRunner: FASTQOperationCommandRunning {
             } onCancel: {
                 cancellationHandle.terminateProcessTree(gracePeriod: 0)
             }
-        } catch is CancellationError {
-            stdoutTask.cancel()
-            stderrTask.cancel()
-            throw LungfishCLIRunner.RunError.cancelled
         } catch {
-            stdoutTask.cancel()
-            stderrTask.cancel()
+            // Pre-launch cancellation and launch failure must close our writer ends,
+            // otherwise the reader tasks wait forever for EOF. Drain before returning
+            // so output callbacks cannot arrive after a terminal UI transition.
+            stdout.fileHandleForWriting.closeFile()
+            stderr.fileHandleForWriting.closeFile()
+            await stderrTask.value
+            _ = await stdoutTask.value
+            if error is CancellationError { throw LungfishCLIRunner.RunError.cancelled }
             throw error
         }
 
@@ -808,16 +865,13 @@ struct LungfishCLIProcessRunner: FASTQOperationCommandRunning {
         cancellationHandle.clear(process)
         stdout.fileHandleForWriting.closeFile()
         stderr.fileHandleForWriting.closeFile()
-        if wasCancelled {
-            stdoutTask.cancel()
-            stderrTask.cancel()
-            throw LungfishCLIRunner.RunError.cancelled
-        }
-
         await stderrTask.value
         let stderrData = stderrCapture.data
         let stdoutData = await stdoutTask.value
         _ = stdoutData
+        if wasCancelled || Task.isCancelled {
+            throw LungfishCLIRunner.RunError.cancelled
+        }
 
         if terminationStatus != 0 {
             let stderrText = String(

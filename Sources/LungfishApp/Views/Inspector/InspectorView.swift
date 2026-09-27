@@ -4,6 +4,7 @@
 
 import AppKit
 import SwiftUI
+import LungfishAssemblyUI
 import LungfishCore
 import LungfishIO
 import LungfishGenotypeUI
@@ -290,7 +291,9 @@ private struct InspectorReadStyleSection: View {
             Text("View Settings")
                 .font(LungfishInspectorStyle.sectionTitleFont)
 
-            if viewModel.contentMode == .genotype {
+            if viewModel.contentMode == .assembly {
+                AssemblyViewSettingsSection(viewModel: viewModel.documentSectionViewModel)
+            } else if viewModel.contentMode == .genotype {
                 GenotypeResultDisplaySection(viewModel: viewModel.genotypeResultDisplaySectionViewModel)
             } else {
             if viewModel.contentMode == .mapping {
@@ -303,7 +306,8 @@ private struct InspectorReadStyleSection: View {
                 subsectionContent
             }
 
-            if let capabilities = viewModel.readStyleSectionViewModel.classifierEvidenceCapabilities {
+            if viewModel.contentMode != .assembly,
+               let capabilities = viewModel.readStyleSectionViewModel.classifierEvidenceCapabilities {
                 ClassifierEvidenceInventorySection(capabilities: capabilities)
                 Divider()
             }
@@ -325,6 +329,36 @@ private struct InspectorReadStyleSection: View {
             }
         case .reads:
             ReadStyleSection(viewModel: viewModel.readStyleSectionViewModel)
+        }
+    }
+}
+
+private struct AssemblyViewSettingsSection: View {
+    @Bindable var viewModel: DocumentSectionViewModel
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Assembly Layout")
+                .font(LungfishInspectorStyle.sectionTitleFont)
+
+            Text("Choose how the contig list and sequence detail panes share the assembly viewer.")
+                .font(LungfishInspectorStyle.controlFont)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Picker("Layout", selection: Binding(
+                get: { viewModel.assemblyPanelLayout },
+                set: { newValue in
+                    viewModel.assemblyPanelLayout = newValue
+                    newValue.persist()
+                }
+            )) {
+                Text("Detail left, list right").tag(AssemblyPanelLayout.detailLeading)
+                Text("List left, detail right").tag(AssemblyPanelLayout.listLeading)
+                Text("List above detail").tag(AssemblyPanelLayout.stacked)
+            }
+            .pickerStyle(.radioGroup)
+            .labelsHidden()
         }
     }
 }

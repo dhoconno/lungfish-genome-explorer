@@ -34,6 +34,28 @@ from common import (
 )
 
 
+class _LiveLogTee:
+    """Keep exact retained diagnostics while forwarding activity to the caller."""
+
+    def __init__(self, retained, live):
+        self.retained = retained
+        self.live = live
+
+    def write(self, text):
+        count = self.retained.write(text)
+        self.retained.flush()
+        self.live.write(text)
+        self.live.flush()
+        return count
+
+    def flush(self):
+        self.retained.flush()
+        self.live.flush()
+
+    def __getattr__(self, name):
+        return getattr(self.retained, name)
+
+
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
@@ -386,7 +408,8 @@ def execute(request_path: Path) -> Path:
     environment, previous_environment = _controlled_environment(stage)
     try:
         with stdout_path.open("w", encoding="utf-8") as stdout, stderr_path.open("w", encoding="utf-8") as stderr:
-            with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+            with contextlib.redirect_stdout(_LiveLogTee(stdout, sys.stdout)), \
+                    contextlib.redirect_stderr(_LiveLogTee(stderr, sys.stderr)):
                 if request["engine"] == "olivar":
                     from olivar_adapter import run_olivar
                     results, runtime, resolution = run_olivar(request, stage, recorder)
