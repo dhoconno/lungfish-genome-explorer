@@ -931,7 +931,8 @@ extension BAMCommand {
     struct MarkdupSubcommand: AsyncParsableCommand {
         static let configuration = CommandConfiguration(
             commandName: "markdup",
-            abstract: "Mark PCR duplicates in BAM files using samtools markdup"
+            abstract: "Mark PCR duplicates in BAM files using samtools markdup",
+            discussion: MarkdupCommand.outputBehaviourDiscussion
         )
 
         @Argument(help: "Path to a BAM file or a directory containing BAMs")
@@ -942,6 +943,18 @@ extension BAMCommand {
 
         @Option(name: .customLong("sort-threads"), help: "Threads for samtools sort (default 4)")
         var sortThreads: Int = 4
+
+        @Option(
+            name: .customLong("output"),
+            help: "Write the marked BAM here instead of <name>.markdup.bam (single BAM input only)"
+        )
+        var outputPath: String?
+
+        @Flag(
+            name: .customLong("in-place"),
+            help: "Overwrite the input BAM with the marked copy. WARNING: destroys the unmarked original"
+        )
+        var inPlace: Bool = false
 
         @OptionGroup var globalOptions: TextAndJSONGlobalOptions
 
@@ -981,7 +994,9 @@ extension BAMCommand {
                     sortThreads: sortThreads,
                     quiet: resolvedGlobalOptions.quiet,
                     outputFormat: resolvedGlobalOptions.outputFormat,
-                    deduplicatedBundlePath: nil
+                    deduplicatedBundlePath: nil,
+                    outputPath: outputPath,
+                    inPlace: inPlace
                 ),
                 runtime: runtime,
                 emit: emit

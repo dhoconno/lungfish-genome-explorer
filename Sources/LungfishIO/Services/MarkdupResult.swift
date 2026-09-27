@@ -6,8 +6,11 @@ import Foundation
 
 /// Outcome of a markdup operation on a single BAM file.
 public struct MarkdupResult: Sendable {
-    /// Absolute path to the BAM that was processed (unchanged after in-place replacement).
+    /// Absolute path to the BAM that was read.
     public let bamURL: URL
+    /// Absolute path to the duplicate-marked BAM. Equal to `bamURL` when the
+    /// input was replaced in place or was already marked and left alone.
+    public let outputURL: URL
     /// True if the BAM already had a `@PG ID:samtools.markdup` header and was skipped.
     public let wasAlreadyMarkduped: Bool
     /// Total mapped reads after markdup (samtools view -c -F 0x004).
@@ -19,12 +22,14 @@ public struct MarkdupResult: Sendable {
 
     public init(
         bamURL: URL,
+        outputURL: URL? = nil,
         wasAlreadyMarkduped: Bool,
         totalReads: Int,
         duplicateReads: Int,
         durationSeconds: Double
     ) {
         self.bamURL = bamURL
+        self.outputURL = outputURL ?? bamURL
         self.wasAlreadyMarkduped = wasAlreadyMarkduped
         self.totalReads = totalReads
         self.duplicateReads = duplicateReads

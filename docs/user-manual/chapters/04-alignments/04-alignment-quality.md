@@ -168,7 +168,7 @@ Confirm the filter dropped what you expected and nothing more. Account for the d
 This section is optional, and nothing later in this manual needs it. The `lungfish-cli` program ships inside LGE, and [Finding the program](../appendices/cli-reference.md#finding-the-program) shows how to run it.
 
 ```bash
-# Mark duplicates in one BAM (in place).
+# Mark duplicates in one BAM. The marked copy lands beside it as HG002.sorted.markdup.bam.
 lungfish-cli markdup HG002.sorted.bam
 
 # Copy the bundle with duplicates removed from every track.
@@ -183,7 +183,7 @@ lungfish-cli bam filter \
   --mapped-only --primary-only --min-mapq 20 --exclude-marked-duplicates
 ```
 
-`--alignment-track` takes the track's identifier, a short string beginning `aln_`, which `lungfish-cli bundle list` prints for the bundle. One difference changes your files. `lungfish-cli markdup` replaces the BAM you point it at with the marked version and keeps no unmarked copy, while the Inspector button writes new tracks and deletes only the bundle's own copies. Copy your originals before a script marks a whole cohort. On the HG002 alignment the command reports `Total reads: 90990, duplicates: 1684`, where "reads" means mapped records, supplementary records included.
+`--alignment-track` takes the track's identifier, a short string beginning `aln_`, which `lungfish-cli bundle list` prints for the bundle. Both routes keep your unmarked reads. `lungfish-cli markdup` writes the marked version beside the BAM you point it at, as `<name>.markdup.bam`, and only `--in-place` overwrites the original. On the HG002 alignment the command reports `Total reads: 90990, duplicates: 1684`, where "reads" means mapped records, supplementary records included.
 
 ## Next
 

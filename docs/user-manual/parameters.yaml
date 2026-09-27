@@ -2889,6 +2889,12 @@ operations:
       - flag: --sort-threads
         default: "4"
         effect: Sets how many threads the sorting stages inside the duplicate-marking pipeline use, separately from the global thread count.
+      - flag: --output
+        default: "<name>.markdup.bam beside the input"
+        effect: Chooses where the marked copy of a single BAM is written. The input BAM is never changed unless --in-place is passed.
+      - flag: --in-place
+        default: "false"
+        effect: Overwrites the input BAM with the marked copy instead of writing a sibling file, which destroys the unmarked original.
       - flag: --deduplicated-bundle
         default: none
         effect: Writes a second reference bundle beside the first with the flagged duplicate reads actually removed, leaving the input alignment untouched. The top-level markdup command has this flag and the bam markdup subcommand does not.

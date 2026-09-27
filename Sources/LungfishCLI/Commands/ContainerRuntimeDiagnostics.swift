@@ -1,44 +1,13 @@
-// ContainerRuntimeDiagnostics.swift - Probes for `lungfish-cli debug container`
+// ContainerRuntimeDiagnostics.swift - Report for `lungfish-cli debug container`
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
+//
+// The probes themselves (`ContainerRuntimeProbing`, `SystemContainerRuntimeProbe`,
+// `PipelineContainerRuntimeStatus`) live in LungfishWorkflow so the app's
+// Nextflow wizards report the same Docker daemon verdict this command prints.
 
 import Foundation
 import LungfishWorkflow
-
-// MARK: - Probe protocol
-
-/// Result of asking the Docker daemon for its version.
-struct DockerDaemonProbe: Sendable, Equatable {
-    /// Whether `docker version` reached the daemon.
-    var reachable: Bool
-    /// Docker CLI (client) version, when the CLI ran at all.
-    var clientVersion: String?
-    /// Docker Engine (server) version, when the daemon answered.
-    var serverVersion: String?
-    /// One line explaining an unreachable daemon (stderr, timeout, ...).
-    var detail: String?
-}
-
-/// Result of checking the Apple Containerization runtime.
-struct AppleContainerProbe: Sendable, Equatable {
-    /// macOS 26 or later on Apple Silicon, where the framework can load.
-    var frameworkAvailable: Bool
-    /// The runtime initialised and reports itself ready.
-    var runtimeReady: Bool
-    /// One line explaining why the runtime is not ready.
-    var detail: String?
-}
-
-/// Everything `debug container` needs to know, behind a protocol so tests
-/// can inject a stub instead of running `docker`.
-protocol ContainerRuntimeProbing: Sendable {
-    /// Absolute path of the `docker` CLI, or `nil` when it is not installed.
-    func dockerCLIPath() -> String?
-    /// Asks the daemon for its version, giving up after `timeout` seconds.
-    func dockerDaemon(dockerPath: String, timeout: TimeInterval) async -> DockerDaemonProbe
-    /// Checks the Apple Containerization runtime.
-    func appleContainerRuntime() async -> AppleContainerProbe
-}
 
 // MARK: - Report
 
@@ -46,7 +15,7 @@ protocol ContainerRuntimeProbing: Sendable {
 struct ContainerRuntimeReport: Codable, Equatable, Sendable {
     /// Runtime that Nextflow pipelines (Viral Recon, TaxTriage) launch with
     /// (`-profile docker`).
-    static let pipelineRuntimeName = "Docker Desktop"
+    static let pipelineRuntimeName = PipelineContainerRuntimeStatus.runtimeName
 
     let dockerCLIPath: String?
     let dockerDaemonReachable: Bool
@@ -142,217 +111,5 @@ struct ContainerRuntimeReport: Codable, Equatable, Sendable {
         }
         lines.append(formatter.keyValueTable(appleRows))
         return lines
-    }
-}
-
-// MARK: - System probe
-
-/// The real probe: finds `docker`, runs `docker version` with a timeout, and
-/// tries to initialise the Apple Containerization runtime.
-struct SystemContainerRuntimeProbe: ContainerRuntimeProbing {
-    /// Locations Docker Desktop installs its CLI into. `which` covers an
-    /// interactive shell; these cover a CLI launched from the app, whose PATH
-    /// may be bare.
-    static let fallbackDockerPaths: [String] = [
-        "/usr/local/bin/docker",
-        "/opt/homebrew/bin/docker",
-        "/Applications/Docker.app/Contents/Resources/bin/docker",
-        NSHomeDirectory() + "/.docker/bin/docker",
-    ]
-
-    func dockerCLIPath() -> String? {
-        if let path = Self.which("docker") {
-            return path
-        }
-        let fileManager = FileManager.default
-        return Self.fallbackDockerPaths.first { fileManager.isExecutableFile(atPath: $0) }
-    }
-
-    func dockerDaemon(dockerPath: String, timeout: TimeInterval) async -> DockerDaemonProbe {
-        // `docker version` prints the client block even when the daemon is
-        // down, exits non-zero, and explains on stderr. One call gives the
-        // whole picture. The separator is not a tab: docker feeds templates
-        // containing `\t` through a tabwriter, which pads with spaces.
-        let format = "{{.Client.Version}}|{{if .Server}}{{.Server.Version}}{{end}}"
-        let result = await Self.run(
-            executable: dockerPath,
-            arguments: ["version", "--format", format],
-            timeout: timeout
-        )
-
-        let fields = result.stdout
-            .split(separator: "\n", omittingEmptySubsequences: true)
-            .first
-            .map { $0.split(separator: "|", omittingEmptySubsequences: false).map(String.init) } ?? []
-        let clientVersion = fields.first.flatMap { $0.isEmpty ? nil : $0 }
-        let serverVersion = fields.count > 1 && !fields[1].isEmpty ? fields[1] : nil
-
-        if result.timedOut {
-            return DockerDaemonProbe(
-                reachable: false,
-                clientVersion: clientVersion,
-                serverVersion: nil,
-                detail: "docker version did not answer within \(String(format: "%g", timeout)) s"
-            )
-        }
-        if result.exitCode == 0, let serverVersion {
-            return DockerDaemonProbe(
-                reachable: true,
-                clientVersion: clientVersion,
-                serverVersion: serverVersion,
-                detail: nil
-            )
-        }
-        let stderrLine = result.stderr
-            .split(separator: "\n", omittingEmptySubsequences: true)
-            .first
-            .map(String.init)
-        return DockerDaemonProbe(
-            reachable: false,
-            clientVersion: clientVersion,
-            serverVersion: nil,
-            detail: stderrLine ?? "docker version exited with status \(result.exitCode)"
-        )
-    }
-
-    func appleContainerRuntime() async -> AppleContainerProbe {
-        guard NewContainerRuntimeFactory.isAppleContainerizationAvailable() else {
-            return AppleContainerProbe(
-                frameworkAvailable: false,
-                runtimeReady: false,
-                detail: "requires macOS 26 or later on Apple Silicon"
-            )
-        }
-        if #available(macOS 26, *) {
-            do {
-                let runtime = try await AppleContainerRuntime()
-                let ready = await runtime.isAvailable()
-                return AppleContainerProbe(
-                    frameworkAvailable: true,
-                    runtimeReady: ready,
-                    detail: ready ? nil : "runtime initialised but reports unavailable"
-                )
-            } catch {
-                return AppleContainerProbe(
-                    frameworkAvailable: true,
-                    runtimeReady: false,
-                    detail: error.localizedDescription
-                )
-            }
-        }
-        return AppleContainerProbe(frameworkAvailable: false, runtimeReady: false, detail: nil)
-    }
-
-    // MARK: Process helpers
-
-    private static func which(_ tool: String) -> String? {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/which")
-        process.arguments = [tool]
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = FileHandle.nullDevice
-        do {
-            try process.run()
-            process.waitUntilExit()
-        } catch {
-            return nil
-        }
-        guard process.terminationStatus == 0 else { return nil }
-        let path = String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        return path.isEmpty ? nil : path
-    }
-
-    private struct ProcessResult {
-        var exitCode: Int32
-        var stdout: String
-        var stderr: String
-        var timedOut: Bool
-    }
-
-    private static func run(
-        executable: String,
-        arguments: [String],
-        timeout: TimeInterval
-    ) async -> ProcessResult {
-        await DiagnosticProcessRunner().run(
-            executable: executable,
-            arguments: arguments,
-            timeout: timeout
-        )
-    }
-
-    /// Runs one process with a watchdog, the same way `DockerRuntime` does.
-    /// Being an actor keeps the `Process` on one isolation domain, which is
-    /// what strict concurrency needs for the timeout task to capture it.
-    private actor DiagnosticProcessRunner {
-        func run(
-            executable: String,
-            arguments: [String],
-            timeout: TimeInterval
-        ) -> ProcessResult {
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: executable)
-            process.arguments = arguments
-            let stdoutPipe = Pipe()
-            let stderrPipe = Pipe()
-            process.standardOutput = stdoutPipe
-            process.standardError = stderrPipe
-
-            do {
-                try process.run()
-            } catch {
-                return ProcessResult(
-                    exitCode: -1,
-                    stdout: "",
-                    stderr: error.localizedDescription,
-                    timedOut: false
-                )
-            }
-
-            let timedOut = ProcessTimeoutFlag()
-            let watchdog = Task {
-                try await Task.sleep(for: .seconds(timeout))
-                if process.isRunning {
-                    timedOut.set()
-                    process.terminate()
-                }
-            }
-
-            // Drain both pipes before waiting so a chatty child cannot block
-            // on a full pipe buffer.
-            let stdoutData = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
-            let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
-            process.waitUntilExit()
-            watchdog.cancel()
-
-            return ProcessResult(
-                exitCode: process.terminationStatus,
-                stdout: String(decoding: stdoutData, as: UTF8.self)
-                    .trimmingCharacters(in: .whitespacesAndNewlines),
-                stderr: String(decoding: stderrData, as: UTF8.self)
-                    .trimmingCharacters(in: .whitespacesAndNewlines),
-                timedOut: timedOut.value
-            )
-        }
-    }
-}
-
-/// Thread-safe flag shared between the timeout timer and the termination handler.
-private final class ProcessTimeoutFlag: @unchecked Sendable {
-    private let lock = NSLock()
-    private var flag = false
-
-    func set() {
-        lock.lock()
-        flag = true
-        lock.unlock()
-    }
-
-    var value: Bool {
-        lock.lock()
-        defer { lock.unlock() }
-        return flag
     }
 }

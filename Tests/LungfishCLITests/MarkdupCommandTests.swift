@@ -15,6 +15,7 @@ final class MarkdupCommandTests: XCTestCase {
     private struct MarkdupJSONOutput: Decodable, Equatable {
         struct Result: Decodable, Equatable {
             let bamPath: String
+            let outputPath: String
             let wasAlreadyMarkduped: Bool
             let totalReads: Int
             let duplicateReads: Int
@@ -635,7 +636,12 @@ final class MarkdupCommandTests: XCTestCase {
         XCTAssertTrue(sortLines.allSatisfy { $0.contains("\t-o\t") })
         let markdupLine = try XCTUnwrap(pipelineLines.first { $0.hasPrefix("markdup\t") })
         XCTAssertFalse(markdupLine.contains("\t-\t"))
-        XCTAssertTrue(MarkdupService.isAlreadyMarkduped(bamURL: bamURL, samtoolsPath: samtools))
+        let markedURL = MarkdupCommand.defaultMarkedOutputURL(for: bamURL)
+        XCTAssertTrue(MarkdupService.isAlreadyMarkduped(bamURL: markedURL, samtoolsPath: samtools))
+        XCTAssertFalse(
+            MarkdupService.isAlreadyMarkduped(bamURL: bamURL, samtoolsPath: samtools),
+            "the input BAM is left unmarked unless --in-place is passed"
+        )
     }
 
     func testCliMarkdupWritesCanonicalProvenanceForBamOutput() async throws {
@@ -658,6 +664,7 @@ final class MarkdupCommandTests: XCTestCase {
                 let cmd = try MarkdupCommand.parse([
                     bamURL.path,
                     "--sort-threads", "3",
+                    "--in-place",
                     "-q",
                 ])
                 try await cmd.run()
@@ -674,9 +681,12 @@ final class MarkdupCommandTests: XCTestCase {
         XCTAssertEqual(envelope.options.explicit["path"]?.stringValue, bamURL.path)
         XCTAssertEqual(envelope.options.explicit["sortThreads"]?.integerValue, 3)
         XCTAssertEqual(envelope.options.explicit["quiet"]?.booleanValue, true)
+        XCTAssertEqual(envelope.options.explicit["inPlace"]?.booleanValue, true)
         XCTAssertNil(envelope.options.explicit["force"])
         XCTAssertNil(envelope.options.explicit["outputFormat"])
         XCTAssertEqual(envelope.options.defaults["sortThreads"]?.integerValue, 4)
+        XCTAssertEqual(envelope.options.defaults["inPlace"]?.booleanValue, false)
+        XCTAssertEqual(envelope.options.resolvedDefaults["inPlace"]?.booleanValue, true)
         XCTAssertEqual(envelope.options.resolvedDefaults["sortThreads"]?.integerValue, 3)
         XCTAssertEqual(envelope.options.resolvedDefaults["force"]?.booleanValue, false)
 
@@ -709,7 +719,7 @@ final class MarkdupCommandTests: XCTestCase {
         try writePipelineOnlySamtools(at: managedHome.samtoolsPath)
 
         try await withHomeDirectory(managedHome.home) {
-            let cmd = try MarkdupCommand.parse([bamURL.path, "-q"])
+            let cmd = try MarkdupCommand.parse([bamURL.path, "--in-place", "-q"])
             try await cmd.run()
         }
 
@@ -736,7 +746,7 @@ final class MarkdupCommandTests: XCTestCase {
 
         try await withEnvironment(["SAMTOOLS_FAIL_MARKDUP_COUNT": "1"]) {
             try await withHomeDirectory(managedHome.home) {
-                let cmd = try MarkdupCommand.parse([bamURL.path, "-q"])
+                let cmd = try MarkdupCommand.parse([bamURL.path, "--in-place", "-q"])
                 do {
                     try await cmd.run()
                     XCTFail("Expected post-replacement count failure")
@@ -768,7 +778,7 @@ final class MarkdupCommandTests: XCTestCase {
         try writePipelineOnlySamtools(at: managedHome.samtoolsPath)
 
         try await withHomeDirectory(managedHome.home) {
-            let cmd = try MarkdupCommand.parse([bamURL.path, "-q"])
+            let cmd = try MarkdupCommand.parse([bamURL.path, "--in-place", "-q"])
             try await cmd.run()
         }
 
@@ -776,7 +786,7 @@ final class MarkdupCommandTests: XCTestCase {
         try? FileManager.default.removeItem(at: ProvenanceRecorder.fileSidecarURL(for: baiURL))
 
         try await withHomeDirectory(managedHome.home) {
-            let cmd = try MarkdupCommand.parse([bamURL.path, "-q"])
+            let cmd = try MarkdupCommand.parse([bamURL.path, "--in-place", "-q"])
             try await cmd.run()
         }
 
@@ -830,7 +840,9 @@ final class MarkdupCommandTests: XCTestCase {
         )
 
         XCTAssertTrue(FileManager.default.fileExists(atPath: bamURL.path))
-        XCTAssertNotNil(ProvenanceRecorder.loadEnvelope(fromSidecar: ProvenanceRecorder.fileSidecarURL(for: bamURL)))
+        let markedURL = MarkdupCommand.defaultMarkedOutputURL(for: bamURL)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: markedURL.path))
+        XCTAssertNotNil(ProvenanceRecorder.loadEnvelope(fromSidecar: ProvenanceRecorder.fileSidecarURL(for: markedURL)))
     }
 
     func testCliMarkdupNaoMgsExistingAlreadyMarkedBamMissingIndexWritesIndexProvenance() async throws {
@@ -850,7 +862,7 @@ final class MarkdupCommandTests: XCTestCase {
         try writePipelineOnlySamtools(at: managedHome.samtoolsPath)
 
         try await withHomeDirectory(managedHome.home) {
-            let cmd = try MarkdupCommand.parse([bamURL.path, "-q"])
+            let cmd = try MarkdupCommand.parse([bamURL.path, "--in-place", "-q"])
             try await cmd.run()
         }
         XCTAssertTrue(MarkdupService.isAlreadyMarkduped(bamURL: bamURL, samtoolsPath: samtools))
@@ -903,10 +915,129 @@ final class MarkdupCommandTests: XCTestCase {
             try await cmd.run()
         }
 
+        let markedURL = MarkdupCommand.defaultMarkedOutputURL(for: bamURL)
+        XCTAssertEqual(markedURL.lastPathComponent, "test.markdup.bam")
         XCTAssertTrue(
-            MarkdupService.isAlreadyMarkduped(bamURL: bamURL, samtoolsPath: samtools),
-            "BAM should be marked after CLI run"
+            MarkdupService.isAlreadyMarkduped(bamURL: markedURL, samtoolsPath: samtools),
+            "marked copy should be written beside the input"
         )
+        XCTAssertTrue(FileManager.default.fileExists(atPath: markedURL.path + ".bai"))
+        XCTAssertFalse(
+            MarkdupService.isAlreadyMarkduped(bamURL: bamURL, samtoolsPath: samtools),
+            "input BAM must stay unmarked by default"
+        )
+    }
+
+    func testCliMarkdupInPlaceOverwritesInput() async throws {
+        let managedHome = try makeFunctionalManagedSamtoolsHome()
+        let samtools = managedHome.samtoolsPath.path
+        let dir = try makeTempDir()
+        defer {
+            try? FileManager.default.removeItem(at: dir)
+            try? FileManager.default.removeItem(at: managedHome.home)
+        }
+        let bamURL = dir.appendingPathComponent("test.bam")
+        try makeSyntheticBam(at: bamURL, samtools: samtools)
+
+        try await withHomeDirectory(managedHome.home) {
+            let cmd = try MarkdupCommand.parse([bamURL.path, "--in-place", "-q"])
+            try await cmd.run()
+        }
+
+        XCTAssertTrue(MarkdupService.isAlreadyMarkduped(bamURL: bamURL, samtoolsPath: samtools))
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: MarkdupCommand.defaultMarkedOutputURL(for: bamURL).path),
+            "--in-place writes no sibling copy"
+        )
+    }
+
+    func testCliMarkdupExplicitOutputPath() async throws {
+        let managedHome = try makeFunctionalManagedSamtoolsHome()
+        let samtools = managedHome.samtoolsPath.path
+        let dir = try makeTempDir()
+        defer {
+            try? FileManager.default.removeItem(at: dir)
+            try? FileManager.default.removeItem(at: managedHome.home)
+        }
+        let bamURL = dir.appendingPathComponent("test.bam")
+        try makeSyntheticBam(at: bamURL, samtools: samtools)
+        let outputURL = dir.appendingPathComponent("out/marked.bam")
+
+        var output: [String] = []
+        try await withHomeDirectory(managedHome.home) {
+            let cmd = try MarkdupCommand.parse([bamURL.path, "--output", outputURL.path])
+            _ = try await cmd.executeForTesting { output.append($0) }
+        }
+
+        XCTAssertTrue(MarkdupService.isAlreadyMarkduped(bamURL: outputURL, samtoolsPath: samtools))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: outputURL.path + ".bai"))
+        XCTAssertFalse(MarkdupService.isAlreadyMarkduped(bamURL: bamURL, samtoolsPath: samtools))
+        XCTAssertTrue(output.contains("Marked copy: \(outputURL.path)"), output.joined(separator: "\n"))
+
+        let sidecar = ProvenanceRecorder.fileSidecarURL(for: outputURL)
+        let envelope = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(fromSidecar: sidecar))
+        XCTAssertEqual(envelope.output?.path, outputURL.path)
+        XCTAssertEqual(envelope.options.explicit["output"]?.stringValue, outputURL.path)
+        XCTAssertTrue(envelope.argv.contains("--output"))
+        XCTAssertEqual(envelope.files.first { $0.role == .input }?.path, bamURL.path)
+    }
+
+    func testCliMarkdupRejectsConflictingOutputOptions() async throws {
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let bamURL = dir.appendingPathComponent("test.bam")
+        try Data([0]).write(to: bamURL)
+
+        func expectValidationError(_ arguments: [String], contains fragment: String) async {
+            do {
+                let cmd = try MarkdupCommand.parse(arguments)
+                _ = try await cmd.executeForTesting { _ in }
+                XCTFail("expected a validation error for \(arguments)")
+            } catch {
+                XCTAssertTrue("\(error)".contains(fragment), "\(error)")
+            }
+        }
+
+        await expectValidationError(
+            [bamURL.path, "--in-place", "--output", dir.appendingPathComponent("x.bam").path],
+            contains: "--output cannot be combined with --in-place"
+        )
+        await expectValidationError(
+            [bamURL.path, "--output", dir.appendingPathComponent("x.txt").path],
+            contains: "--output must end in .bam"
+        )
+        await expectValidationError(
+            [bamURL.path, "--output", bamURL.path],
+            contains: "pass --in-place"
+        )
+    }
+
+    func testCliMarkdupHelpWarnsAboutInPlace() {
+        for help in [MarkdupCommand.helpMessage(), BAMCommand.MarkdupSubcommand.helpMessage()] {
+            XCTAssertTrue(help.contains("--in-place"), help)
+            XCTAssertTrue(help.contains("--output"), help)
+            XCTAssertTrue(help.contains("WARNING"), help)
+            XCTAssertTrue(help.contains("<name>.markdup.bam"), help)
+        }
+    }
+
+    func testDirectoryScanSkipsEarlierMarkedCopiesUnlessInPlace() throws {
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let input = dir.appendingPathComponent("a.bam")
+        let marked = dir.appendingPathComponent("a.markdup.bam")
+        try Data([0]).write(to: input)
+        try Data([0]).write(to: marked)
+
+        XCTAssertEqual(
+            MarkdupCommand.collectBAMFiles(in: dir, skippingMarkedOutputs: true).map(\.lastPathComponent),
+            ["a.bam"]
+        )
+        XCTAssertEqual(
+            MarkdupCommand.collectBAMFiles(in: dir, skippingMarkedOutputs: false).map(\.lastPathComponent),
+            ["a.bam", "a.markdup.bam"]
+        )
+        XCTAssertEqual(MarkdupCommand.defaultMarkedOutputURL(for: input), marked)
     }
 
     func testCliBamMarkdupSingleBAM() async throws {
@@ -925,10 +1056,12 @@ final class MarkdupCommandTests: XCTestCase {
             try await cmd.run()
         }
 
+        let markedURL = MarkdupCommand.defaultMarkedOutputURL(for: bamURL)
         XCTAssertTrue(
-            MarkdupService.isAlreadyMarkduped(bamURL: bamURL, samtoolsPath: samtools),
-            "BAM should be marked after CLI run"
+            MarkdupService.isAlreadyMarkduped(bamURL: markedURL, samtoolsPath: samtools),
+            "bam markdup writes the marked copy beside the input, like the top-level command"
         )
+        XCTAssertFalse(MarkdupService.isAlreadyMarkduped(bamURL: bamURL, samtoolsPath: samtools))
     }
 
     func testCliMarkdupDirectory() async throws {
@@ -949,8 +1082,11 @@ final class MarkdupCommandTests: XCTestCase {
             try await cmd.run()
         }
 
-        XCTAssertTrue(MarkdupService.isAlreadyMarkduped(bamURL: bam1, samtoolsPath: samtools))
-        XCTAssertTrue(MarkdupService.isAlreadyMarkduped(bamURL: bam2, samtoolsPath: samtools))
+        for bam in [bam1, bam2] {
+            let marked = MarkdupCommand.defaultMarkedOutputURL(for: bam)
+            XCTAssertTrue(MarkdupService.isAlreadyMarkduped(bamURL: marked, samtoolsPath: samtools), marked.path)
+            XCTAssertFalse(MarkdupService.isAlreadyMarkduped(bamURL: bam, samtoolsPath: samtools), bam.path)
+        }
     }
 
     func testCliMarkdupSkipsAlreadyMarked() async throws {
@@ -964,21 +1100,25 @@ final class MarkdupCommandTests: XCTestCase {
         let bamURL = dir.appendingPathComponent("test.bam")
         try makeSyntheticBam(at: bamURL, samtools: samtools)
 
+        let markedURL = MarkdupCommand.defaultMarkedOutputURL(for: bamURL)
         try await withHomeDirectory(managedHome.home) {
             let cmd1 = try MarkdupCommand.parse([bamURL.path, "-q"])
             try await cmd1.run()
         }
-        let firstMtime = (try? FileManager.default.attributesOfItem(atPath: bamURL.path)[.modificationDate]) as? Date
+        let firstMtime = (try? FileManager.default.attributesOfItem(atPath: markedURL.path)[.modificationDate]) as? Date
 
         try await Task.sleep(nanoseconds: 1_100_000_000)
 
+        var results: [MarkdupResult] = []
         try await withHomeDirectory(managedHome.home) {
             let cmd2 = try MarkdupCommand.parse([bamURL.path, "-q"])
-            try await cmd2.run()
+            results = try await cmd2.executeForTesting { _ in }
         }
-        let secondMtime = (try? FileManager.default.attributesOfItem(atPath: bamURL.path)[.modificationDate]) as? Date
+        let secondMtime = (try? FileManager.default.attributesOfItem(atPath: markedURL.path)[.modificationDate]) as? Date
 
-        XCTAssertEqual(firstMtime, secondMtime, "File should not be rewritten on second run")
+        XCTAssertEqual(firstMtime, secondMtime, "Marked copy should not be rewritten on second run")
+        XCTAssertEqual(results.map(\.wasAlreadyMarkduped), [true])
+        XCTAssertEqual(results.map(\.outputURL), [markedURL])
     }
 
     func testCliMarkdupForceReruns() async throws {
@@ -992,11 +1132,12 @@ final class MarkdupCommandTests: XCTestCase {
         let bamURL = dir.appendingPathComponent("test.bam")
         try makeSyntheticBam(at: bamURL, samtools: samtools)
 
+        let markedURL = MarkdupCommand.defaultMarkedOutputURL(for: bamURL)
         try await withHomeDirectory(managedHome.home) {
             let cmd1 = try MarkdupCommand.parse([bamURL.path, "-q"])
             try await cmd1.run()
         }
-        let firstMtime = (try? FileManager.default.attributesOfItem(atPath: bamURL.path)[.modificationDate]) as? Date
+        let firstMtime = (try? FileManager.default.attributesOfItem(atPath: markedURL.path)[.modificationDate]) as? Date
 
         try await Task.sleep(nanoseconds: 1_100_000_000)
 
@@ -1004,9 +1145,10 @@ final class MarkdupCommandTests: XCTestCase {
             let cmd2 = try MarkdupCommand.parse([bamURL.path, "--force", "-q"])
             try await cmd2.run()
         }
-        let secondMtime = (try? FileManager.default.attributesOfItem(atPath: bamURL.path)[.modificationDate]) as? Date
+        let secondMtime = (try? FileManager.default.attributesOfItem(atPath: markedURL.path)[.modificationDate]) as? Date
 
-        XCTAssertNotEqual(firstMtime, secondMtime, "File SHOULD be rewritten on forced re-run")
+        XCTAssertNotEqual(firstMtime, secondMtime, "Marked copy SHOULD be rewritten on forced re-run")
+        XCTAssertFalse(MarkdupService.isAlreadyMarkduped(bamURL: bamURL, samtoolsPath: samtools))
     }
 
     func testCliMarkdupErrorsOnMissingFile() async throws {
@@ -1067,8 +1209,11 @@ final class MarkdupCommandTests: XCTestCase {
         XCTAssertEqual(result.exitCode, 0, "CLI bam markdup failed: \(result.stderr)")
         XCTAssertTrue(result.stdout.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
         XCTAssertTrue(
-            MarkdupService.isAlreadyMarkduped(bamURL: bamURL, samtoolsPath: samtools),
-            "BAM should be marked after CLI run"
+            MarkdupService.isAlreadyMarkduped(
+                bamURL: MarkdupCommand.defaultMarkedOutputURL(for: bamURL),
+                samtoolsPath: samtools
+            ),
+            "marked copy should be written beside the input"
         )
     }
 
@@ -1094,9 +1239,11 @@ final class MarkdupCommandTests: XCTestCase {
         )
         XCTAssertEqual(summary.processedBAMs, 1)
         XCTAssertEqual(summary.results.map(\.bamPath), [bamURL.path])
+        let markedURL = MarkdupCommand.defaultMarkedOutputURL(for: bamURL)
+        XCTAssertEqual(summary.results.map(\.outputPath), [markedURL.path])
         XCTAssertTrue(
-            MarkdupService.isAlreadyMarkduped(bamURL: bamURL, samtoolsPath: samtools),
-            "BAM should be marked after CLI run"
+            MarkdupService.isAlreadyMarkduped(bamURL: markedURL, samtoolsPath: samtools),
+            "marked copy should be written beside the input"
         )
     }
 

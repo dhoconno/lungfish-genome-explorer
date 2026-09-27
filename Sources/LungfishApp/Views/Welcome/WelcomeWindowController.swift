@@ -1265,8 +1265,8 @@ private struct RequiredSetupCard: View {
                     Text(status.pack.name)
                         .font(.title3.weight(.semibold))
                     Text(isReady
-                         ? "\(status.pack.name) and required data are installed. You can create a project or open an existing one."
-                         : "Lungfish needs a few third-party tools and required data before you can create or open a project.")
+                         ? "\(status.pack.name) and required data are installed. Analyses that need them are ready to run."
+                         : "Lungfish needs a few third-party tools and required data to run analyses. Projects open with the built-in viewers in the meantime.")
                         .font(.subheadline)
                         .foregroundStyle(Color.lungfishWelcomeSecondaryText)
                 }
