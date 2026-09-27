@@ -132,7 +132,7 @@ The two duplicate buttons open no dialog and have no settings. Everything below 
 
 **Keep reads with zero mismatches to reference.** Keeps only reads that match the reference perfectly, base for base. It is off by default, and must be for variant work, because it removes exactly the reads that carry the differences a caller looks for. Turn it on only for a strict identity check, such as confirming reads came from the exact sequence you think. On the command line this is `--exact-match`.
 
-**Minimum identity to reference (%).** Keeps only reads matching the reference at least this closely, measured as [percent identity](../../GLOSSARY.md#percent-identity) over the part of the read that aligned. It starts blank, which keeps every read, and is greyed out while zero-mismatch filtering is on. Set about 95 to shed clearly foreign reads, such as a contaminating organism, since the HG002 slice averages 99.4% identity. On the command line this is `--min-percent-identity`. Identity asks how well a read matches where it sits, while MAPQ asks how sure the mapper is that it sits in the right place, so a read can pass one and fail the other.
+**Minimum identity to reference (%).** Keeps only reads matching the reference at least this closely, measured as [percent identity](../../GLOSSARY.md#percent-identity) over the part of the read that aligned. It starts blank, which keeps every read, and is greyed out while zero-mismatch filtering is on. Set about 95 to shed clearly foreign reads, such as a contaminating organism, since the HG002 slice averages 99.4 percent identity. On the command line this is `--min-percent-identity`. Identity asks how well a read matches where it sits, while MAPQ asks how sure the mapper is that it sits in the right place, so a read can pass one and fail the other.
 
 **Name for New Alignment.** Names the filtered track, which is how you tell the two apart afterwards. It arrives filled from the current filters, reading "Mapped primary alignments" with the defaults and "Duplicate-marked reads hidden" with the settings recommended above, and rewrites itself as the filters change. Replace it with a name that records what you filtered on, and note that an empty field blocks the run. On the command line this is `--output-track-name`.
 
@@ -140,9 +140,9 @@ The two duplicate buttons open no dialog and have no settings. Everything below 
 
 ### What duplicate marking changed
 
-On the HG002 slice, marking flags 1,684 records, 1.85% of the 91,148 primary records. That low [duplicate rate](../../GLOSSARY.md#duplicate-rate) is what a PCR-free library should give. The total record count stays at 91,203, because marking sets a flag and deletes nothing.
+On the HG002 slice, marking flags 1,684 records, 1.85 percent of the 91,148 primary records. That low [duplicate rate](../../GLOSSARY.md#duplicate-rate) is what a PCR-free library should give. The total record count stays at 91,203, because marking sets a flag and deletes nothing.
 
-The Inspector's Est. Coverage does not fall after marking, because it counts every record. The viewport does change. Before marking, no read carried the duplicate flag, so **Include duplicate-marked reads** had nothing to hide. After marking, LGE sets it off, so the newly flagged duplicates drop out of the drawn reads and the coverage curve. Measured position by position, mean depth is 44.72x with every read and 43.90x without the duplicates, a drop of about 2%, which is what a 1.85% duplicate rate should cost. A shotgun library that loses about 20% of its depth this way was over-amplified, and its real depth was always the lower number.
+The Inspector's Est. Coverage does not fall after marking, because it counts every record. The viewport does change. Before marking, no read carried the duplicate flag, so **Include duplicate-marked reads** had nothing to hide. After marking, LGE sets it off, so the newly flagged duplicates drop out of the drawn reads and the coverage curve. Measured position by position, mean depth is 44.72x with every read and 43.90x without the duplicates, a drop of about 2 percent, which is what a 1.85 percent duplicate rate should cost. A shotgun library that loses about 20 percent of its depth this way was over-amplified, and its real depth was always the lower number.
 
 ### What filtering changed
 
@@ -158,7 +158,7 @@ Filtering the marked alignment with the settings recommended above leaves 89,107
 
 That is why only 144 low-MAPQ records appear here, although 401 records in the file sit below MAPQ 20. The other 257 were already counted as unmapped, supplementary, or duplicate. The filtered track's mean depth is 43.83x.
 
-Two figures in the filtered track are worth a glance. Its Mapped % reads 100.00%, as it must once unmapped reads are gone, so read its record count instead to see how much survived. Its properly paired share rises from 99.19% to 99.51%, because the filter mostly removed awkward reads.
+Two figures in the filtered track are worth a glance. Its Mapped % reads `100.00%`, as it must once unmapped reads are gone, so read its record count instead to see how much survived. Its properly paired share rises from 99.19 percent to 99.51 percent, because the filter mostly removed awkward reads.
 
 ### Where the outputs land
 
@@ -166,11 +166,11 @@ Inside the bundle, a filtered track's BAM goes to `alignments/filtered/`, a dupl
 
 ## What good looks like
 
-Confirm the depth is enough. A mean of 44.7x on this fixture is comfortable. Under about 10x on a shotgun library leaves too little evidence per position, and the fix is more sequencing, not a cleverer filter. Doubling the reads roughly doubles the depth. Depth is an average, so also check coverage breadth and look along the coverage curve for thin stretches, as [The coverage curve](02-reading-an-alignment.md#the-coverage-curve) describes. This slice covers 99.99% of its 500,001 bases.
+Confirm the depth is enough. A mean of 44.7x on this fixture is comfortable. Under about 10x on a shotgun library leaves too little evidence per position, and the fix is more sequencing, not a cleverer filter. Doubling the reads roughly doubles the depth. Depth is an average, so also check coverage breadth and look along the coverage curve for thin stretches, as [The coverage curve](02-reading-an-alignment.md#the-coverage-curve) describes. This slice covers 99.99 percent of its 500,001 bases.
 
-Confirm the duplicate rate matches the library design. Under about 5% on a PCR-free shotgun library, like this fixture's 1.85%, means plenty of distinct starting molecules. Above about 20% on shotgun data means over-amplification, and the depth to believe is the one after duplicates are excluded. Amplicon data runs very high by design, which is why it skips marking.
+Confirm the duplicate rate matches the library design. Under about 5 percent on a PCR-free shotgun library, like this fixture's 1.85 percent, means plenty of distinct starting molecules. Above about 20 percent on shotgun data means over-amplification, and the depth to believe is the one after duplicates are excluded. Amplicon data runs very high by design, which is why it skips marking.
 
-Confirm the placements are confident. On the HG002 slice, 87,759 of 91,203 records carry the maximum MAPQ of 60 and only 401 fall below 20. So 96% sit at the ceiling and under half a percent below this chapter's threshold. There is no published cutoff, so compare your run to this one. A well-matched reference puts most records at the ceiling. A large share at MAPQ 0 means reads fit several places equally, usually in repeats or near-identical duplicated sequence. LGE has no chart of the MAPQ spread. Click single reads and read MAPQ in the Selected Read panel, or turn the reads into a table with **Convert Mapped Reads to Annotations** on the **Annotations** tab and sort by MAPQ.
+Confirm the placements are confident. On the HG002 slice, 87,759 of 91,203 records carry the maximum MAPQ of 60 and only 401 fall below 20. So 96 percent sit at the ceiling and under half a percent below this chapter's threshold. There is no published cutoff, so compare your run to this one. A well-matched reference puts most records at the ceiling. A large share at MAPQ 0 means reads fit several places equally, usually in repeats or near-identical duplicated sequence. LGE has no chart of the MAPQ spread. Click single reads and read MAPQ in the Selected Read panel, or turn the reads into a table with **Convert Mapped Reads to Annotations** on the **Annotations** tab and sort by MAPQ.
 
 Confirm the filter dropped what you expected and nothing more. Account for the difference in record counts as the table above does. A filter that removes far more than the flags and thresholds explain usually had a setting stricter than intended, and zero-mismatch filtering is the usual culprit.
 

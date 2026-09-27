@@ -30,7 +30,7 @@ lead_approved: false
 
 ## What it is
 
-Oxford Nanopore (ONT) instruments produce long, error-prone [reads](../../GLOSSARY.md#read), a read being the string of letters the machine reports for one DNA molecule. The instrument measures an electrical current as a DNA strand is pulled through a protein pore, and a program called the [basecaller](../../GLOSSARY.md#basecaller) turns that current into letters.
+Oxford Nanopore (ONT) instruments produce long, error-prone [reads](../../GLOSSARY.md#read), a read being the record a sequencer writes for one DNA fragment, with its bases and a quality score for each base. The instrument measures an electrical current as a DNA strand is pulled through a protein pore, and a program called the [basecaller](../../GLOSSARY.md#basecaller) turns that current into letters.
 
 The basecaller is a neural network, a trained program that repeats the same mistake whenever it meets the same situation. So its errors cluster, and they cluster hardest at [homopolymers](../../GLOSSARY.md#homopolymer), runs of one base such as `AAAAAA`. The current barely changes while identical bases pass through the pore, so a run of six A bases is often read as five or seven.
 

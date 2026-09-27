@@ -66,7 +66,7 @@ Open the Human Mapping and Variants demo project with **Help > Demo Projects…*
 
 This chapter uses the hg002-chr20 fixture. Download `GRCh38.chr20.10.0-10.5Mb.fasta`, `HG002.chr20.10.0-10.5Mb_R1.fastq.gz`, and `HG002.chr20.10.0-10.5Mb_R2.fastq.gz` from [the hg002-chr20 fixture folder](https://github.com/dhoconno/lungfish-genome-explorer/tree/v2026.9.39/docs/user-manual/fixtures/hg002-chr20), as [Practice data for this manual](../01-foundations/06-the-lungfish-project.md#practice-data-for-this-manual) explains.
 
-You can also start from a BAM or CRAM file you already have, imported as [Importing an alignment somebody else made](01-mapping-reads-to-a-reference.md#importing-an-alignment-somebody-else-made) shows.
+You can also start from a BAM or CRAM file you already have, imported as [Importing an alignment somebody else made](01-mapping-reads-to-a-reference.md#import-an-alignment-somebody-else-made) shows.
 
 The viewport reads the BAM with `samtools`, which arrives with the [Required Setup pack](../../GLOSSARY.md#required-setup-pack), the pack the Welcome window offers to install the first time you open LGE. If that install has never finished, the whole track is blank at every position, coverage curve included. A real hole in the data is a gap in one stretch of an otherwise drawn curve.
 
@@ -100,7 +100,7 @@ The numbers in this section were measured from the fixture's mapped BAM with the
 
 Read the curve first. It answers the question that governs everything downstream, whether the reads arrived everywhere you need them.
 
-On this fixture the curve is a broad, even band. Mean depth across the slice is 44.7x, the deepest column reaches 79x, and 99.99% of the slice carries at least one read. Only 505 of the 500,001 positions fall below 10x, and only 31 carry no reads at all. So the slice is both broadly covered and deep, which are two separate findings.
+On this fixture the curve is a broad, even band. Mean depth across the slice is 44.7x, the deepest column reaches 79x, and 99.99 percent of the slice carries at least one read. Only 505 of the 500,001 positions fall below 10x, and only 31 carry no reads at all. So the slice is both broadly covered and deep, which are two separate findings.
 
 Roughly ten reads is the working line below which one sequencing error can outvote the truth. The arithmetic is worth doing once. At a depth of three, one misread base is a third of the evidence and the column looks like an even split. At a depth of twenty, the same misread base is one voice against nineteen and the column is unambiguous. Ten is where the second picture starts to hold. It is a convention rather than a law, raised for low-frequency work and lowered for a first look. A stretch under 10x is not where the caller will be wrong. It is where the caller cannot be confident either way. Ten is a floor for each single position. The figure of about 30x that genome projects quote is an average across the whole genome, set high so that nearly every position clears ten.
 
