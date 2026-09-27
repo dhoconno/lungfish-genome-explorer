@@ -32,7 +32,7 @@ lead_approved: false
 
 ## What it is
 
-Decontamination here is a computational step, not a bench one. It throws away sequencing reads you do not want before anything is computed from them. A [read](../../GLOSSARY.md#read) is one stretch of DNA reported by the sequencing instrument. [FASTQ](../../GLOSSARY.md#fastq) is the read file format [Importing Sequencing Reads](01-importing-fastq.md) introduces.
+Decontamination here is a computational step, not a bench one. It throws away sequencing reads you do not want before anything is computed from them. A [read](../../GLOSSARY.md#read) is the record a sequencer writes for one DNA fragment. [FASTQ](../../GLOSSARY.md#fastq) is the read file format [Importing Sequencing Reads](01-importing-fastq.md) introduces.
 
 There are two ways to recognise an unwanted read. The first compares it against a reference, a stored collection of sequence such as the human genome. The second needs no reference. A read made almost entirely of one short repeated unit carries little information whatever it came from, and a read identical to another read in the same file is usually a copy rather than an independent observation.
 
@@ -105,9 +105,9 @@ Open the Human Reads demo project with **Help > Demo Projects…**, as [Demo pro
 
 This chapter uses the hg002-chr20 fixture. Download `HG002.chr20.10.0-10.5Mb_R1.fastq.gz` and `HG002.chr20.10.0-10.5Mb_R2.fastq.gz` from [the hg002-chr20 fixture folder](https://github.com/dhoconno/lungfish-genome-explorer/tree/v2026.9.39/docs/user-manual/fixtures/hg002-chr20), as [Practice data for this manual](../01-foundations/06-the-lungfish-project.md#practice-data-for-this-manual) explains. The two files hold the reads from a half-megabase window of chromosome 20, small enough to run in seconds and low in repeat content. A [paired-end](../../GLOSSARY.md#paired-end) run gives two mates per DNA fragment, as [Importing Sequencing Reads](01-importing-fastq.md) explains. Import both files together as one bundle, as [Importing Sequencing Reads](01-importing-fastq.md) shows.
 
-The human-read-removal steps also use run SRR36291587, a SARS-CoV-2 amplicon run. Fetch it from the Sequence Read Archive as [Downloading Reads from the SRA](02-downloading-from-sra.md) shows.
+The human-read-removal steps use a second sample, because removing human reads from a human sample leaves nothing to look at. They use run SRR36291587, the SARS-CoV-2 amplicon run from a clinical swab that [Downloading Reads from the SRA](02-downloading-from-sra.md) fetches, where the patient's own DNA is the background rather than the subject. Fetch it as that chapter shows if you work in a project of your own.
 
-Every tool in this chapter arrives with the [Required Setup pack](../../GLOSSARY.md#required-setup-pack), the one pack LGE installs by itself, so there is nothing to install. The two Deacon indexes, Human Read Removal Data and Ribosomal RNA Removal Data, also arrive with it and do not appear on the Plugin Manager's Databases tab, as [The Databases tab](../01-foundations/07-plugin-packs.md#the-databases-tab) describes. Remove Contaminants needs no database, because its PhiX reference is a file bundled with BBTools.
+Every tool in this chapter arrives with the [Required Setup pack](../../GLOSSARY.md#required-setup-pack), which the Welcome window offers to install the first time you open LGE. The two Deacon indexes, Human Read Removal Data and Ribosomal RNA Removal Data, also arrive with it and do not appear on the Plugin Manager's Databases tab, as [The Databases tab](../01-foundations/07-plugin-packs.md#the-databases-tab) describes. Remove Contaminants needs no database, because its PhiX reference is a file bundled with BBTools.
 
 Each operation finishes in seconds on these fixtures, with Remove Human Reads the slowest because it first loads the human index into memory. The Deacon figures in this chapter came from Deacon 0.16.0.
 
@@ -147,9 +147,7 @@ Select the HG002 bundle and open each operation from its own item under **Tools 
 
 ### Remove Human Reads
 
-This operation has no controls of its own. The Remove Human Reads pane shows none of Deacon's matching settings, and only its Output Strategy, described at the end of this section, can be changed. It always uses the managed human index, panhuman-1, which Deacon's authors built from many human genome assemblies, so it recognises human variation that no single genome carries. They also report that accuracy drops on very short reads, such as the 50-base reads of older Illumina runs.
-
-Earlier releases of LGE removed human reads with NCBI's human read scrubber. The current release runs Deacon for this operation and for the two import recipes that remove human reads.
+This operation has no controls of its own. The Remove Human Reads pane shows none of Deacon's matching settings, and only its Output Strategy, described at the end of this section, can be changed. It always uses the managed human index, panhuman-1, which Deacon's authors built from many human genome assemblies, so it recognises human variation that no single genome carries. They also report that accuracy drops on very short reads, such as the 50-base reads of older Illumina runs. The two import recipes that remove human reads run Deacon with the same index.
 
 ### Remove ribosomal RNA sequences
 
@@ -159,7 +157,7 @@ The operation always runs Deacon against the managed ribosomal index. The Metage
 
 ### Remove Contaminants
 
-Two of these settings work on k-mers. A [k-mer](../../GLOSSARY.md#k-mer) is a stretch of exactly k bases, and [Running Kraken 2](../06-classification/02-running-kraken2.md#what-it-is) shows how tools match on them.
+Two of these settings work on k-mers. A [k-mer](../../GLOSSARY.md#k-mer) is a substring of exactly k bases, the unit many read tools match on, as [Three ways to match a read](../06-classification/01-what-is-classification.md#three-ways-to-match-a-read) shows.
 
 **Contaminant Mode.** Chooses what counts as a contaminant, offering PhiX and Custom Reference. [PhiX](../../GLOSSARY.md#phix) is the small control genome Illumina spikes into runs, and it is the default because some of it is in most Illumina data and none of it is biology. Choose Custom Reference to strip a cloning vector, carrier DNA, or any other added sequence, then choose its FASTA in the Inputs section. On the command line this is `--mode`.
 
@@ -191,7 +189,7 @@ A flowcell is the glass slide the sequencing happens on. An Illumina instrument 
 
 ### Output Strategy
 
-**Output Strategy.** Chooses whether several selected bundles get one output each or one pooled output. Leave it on Per Input, the default. [Trimming and Filtering](04-trimming-and-filtering.md#shared-settings) explains the two choices. This setting has no command-line flag.
+**Output Strategy.** Chooses whether several selected bundles get one output each or one pooled output. Leave it on Per Input, the default, and see [Operation dialogs](../01-foundations/06-the-lungfish-project.md#operation-dialogs) for the two choices. This setting has no command-line flag.
 
 Four of the five dialogs show this control. Remove ribosomal RNA sequences does not.
 
@@ -203,7 +201,7 @@ Each run's log, opened from its row in the Operations Panel, reports how many re
 
 Deacon reports what it kept, never what it dropped. Its log line starts with `Retained`, followed by the kept count over the input count and the kept share as a percentage.
 
-On the SRR36291587 reads, expect Deacon to keep nearly every read and call only a small share human. An [amplicon](../../GLOSSARY.md#amplicon) protocol copies the target in overlapping PCR pieces, and its [primer scheme](../../GLOSSARY.md#primer-scheme) lists where each primer binds, as [Amplicons and Shotgun Sequencing](../01-foundations/03-amplicon-vs-shotgun.md#amplicon-sequencing) explains. A [shotgun](../../GLOSSARY.md#shotgun) library is made from DNA broken at random, so reads land anywhere on the genome. SRR36291587 is an amplicon run, so it reads almost only the virus, and that is why the human share is small. A shotgun library from the same swab often comes back anywhere from half to nearly all human.
+On the SRR36291587 reads Deacon printed `Retained 170334/170398 sequences (99.962%)`. It kept 170,334 of the 170,398 reads and called 64 reads, 32 pairs, human. An [amplicon](../../GLOSSARY.md#amplicon) protocol copies the target in overlapping PCR pieces, and its [primer scheme](../../GLOSSARY.md#primer-scheme) lists where each primer binds, as [Amplicons and Shotgun Sequencing](../01-foundations/03-amplicon-vs-shotgun.md#amplicon-sequencing) explains. A [shotgun](../../GLOSSARY.md#shotgun) library is made from DNA broken at random, so reads land anywhere on the genome. SRR36291587 is an amplicon run, so it reads almost only the virus, and that is why the human share is small. A shotgun library from the same swab often comes back anywhere from half to nearly all human.
 
 Run on the HG002 bundle instead, Deacon printed `Retained 6/91148 sequences (0.007%)`. The printed 0.007 percent is what was kept, so 91,142 of the 91,148 reads, or 99.99 percent, were called human, on reads that are human. One operation on two samples spans almost the whole possible range, which is why a removal rate means something only once you know what the sample was.
 
@@ -229,8 +227,6 @@ Across its range on the same reads, the Entropy Threshold removed 16 reads at 0.
 
 ### Provenance
 
-LGE writes a [provenance](../../GLOSSARY.md#provenance) record beside every result, as [Provenance and Reproducibility](../01-foundations/08-provenance-and-reproducibility.md#reading-the-results) explains.
-
 A ribosomal run's sidecar and log name Deacon's thresholds differently, and nothing is wrong when they do. The sidecar records `absoluteThreshold` 1 and `relativeThreshold` 0, which are LGE's names, while Deacon's own log line prints the same settings as `abs_threshold` and `rel_threshold`.
 
 ## What good looks like
@@ -243,40 +239,41 @@ Check that the reference fits the sample. A ribosomal index applied to a DNA lib
 
 Check that you want the operation at all. In an amplicon run every fragment starts at the same designed position, so identical reads are the expected product rather than PCR artifacts, and removing them discards real depth. Remove duplicates from shotgun libraries, by marking them after mapping when the reads will be mapped, and leave amplicon runs alone.
 
+LGE records every run in the new bundle's [provenance](../../GLOSSARY.md#provenance), as [Provenance and Reproducibility](../01-foundations/08-provenance-and-reproducibility.md#reading-the-results) shows, including the thresholds Deacon used.
+
 ## On the command line
 
-This section is optional. [Finding the program](../appendices/cli-reference.md#finding-the-program) shows how to run `lungfish-cli`.
-
-The block runs all five operations. `reads.fastq.gz` stands for the FASTQ file of the SRR36291587 run. The other commands read the FASTQ file inside the HG002 bundle, so they reproduce the table above, and the first line stores its path in a shortcut name. Replace the path with your own, keeping the double quotes. A backslash at the end of a line continues the command on the next line.
+The block follows the convention in [Reading an On the command line block](../01-foundations/06-the-lungfish-project.md#reading-a-command-line-block), and [Read processing](../appendices/cli-reference.md#read-processing) in the CLI Reference lists every flag of these commands. The first command reads the SARS-CoV-2 run's file inside the Human Reads demo project, and the others read the HG002 bundle's file, so they reproduce the counts above. Each writes its output where you name it.
 
 ```bash
-READS="MyProject.lungfish/Imports/HG002.chr20.10.0-10.5Mb.lungfishfastq/HG002.chr20.10.0-10.5Mb.fastq.gz"
+PROJECT="$HOME/Documents/LGE Demo Projects/Human Reads.lungfish"
+READS="$PROJECT/Imports/HG002.chr20.10.0-10.5Mb.lungfishfastq/HG002.chr20.10.0-10.5Mb.fastq.gz"
 
 # Remove human reads with the managed Deacon index.
-lungfish-cli fastq scrub-human reads.fastq.gz \
-  --database-id deacon-panhuman --output reads.scrubbed.fastq
+lungfish-cli fastq scrub-human "$PROJECT/Imports/SRR36291587.lungfishfastq/SRR36291587.fastq.gz" \
+  --database-id deacon-panhuman --output "$HOME/Desktop/srr36291587.scrubbed.fastq"
 
 # Remove ribosomal reads, writing into a directory.
 lungfish-cli fastq deacon-ribo "$READS" \
-  --retain norrna --output ribo-filtered/
+  --retain norrna --output "$HOME/Desktop/ribo-filtered/"
 
 # Remove PhiX.
 lungfish-cli fastq contaminant-filter "$READS" \
-  --mode phix --kmer 31 --hdist 1 --output nophix.fastq
+  --mode phix --kmer 31 --hdist 1 --output "$HOME/Desktop/nophix.fastq"
 
 # Drop low-complexity reads at the default threshold.
 lungfish-cli fastq entropy-filter "$READS" \
-  --entropy 0.6 --window 50 --kmer 5 --output entropy.fastq
+  --entropy 0.6 --window 50 --kmer 5 --output "$HOME/Desktop/entropy.fastq"
 
 # Collapse exact duplicates.
 lungfish-cli fastq deduplicate "$READS" \
-  --subs 0 --output dedup.fastq
+  --subs 0 --output "$HOME/Desktop/dedup.fastq"
 ```
 
-Each command reads the pairing the bundle records, so given the file inside a paired bundle it keeps the mates together as the window does. `--pairing` overrides that choice. It takes `interleaved`, `single`, or `auto`, the default, which reads the bundle's record first and then the read names. A bundle written by a merge recipe holds merged single reads between the pairs that did not merge, and no tool can pair such a file by position. Every command checks the records before it pairs anything, so on a mixed file it treats each record as a single read, says so on standard error, and records the layout it found in provenance. `deacon-ribo` also accepts the two downloaded mate files, R1 then R2, and writes a filtered file for each into the directory you name.
+Each command reads the pairing the bundle records, so given the file inside a paired bundle it keeps the mates together as the window does. `--pairing` overrides that choice. It takes `interleaved`, `single`, or `auto`, the default, which reads the bundle's record first and then the read names. A bundle written by a merge recipe holds merged single reads between the pairs that did not merge, and no tool can pair such a file by position. Every command checks the records before it pairs anything, so on a mixed file it treats each record as a single read, says so on standard error, and records the layout it found in provenance. `deacon-ribo` also accepts the two original mate files, R1 then R2, and writes a filtered file for each into the directory you name.
 
 ## Next
 
 Most samples need one of these operations, not all five. Where two apply, remove host reads first, since that is the largest cut, then deal with duplicates if the library was a shotgun one, as [Choosing a tool](#choosing-a-tool) describes.
 
-Continue to [Subsetting and Extraction](06-subsetting-and-extraction.md) to take a smaller set of reads out of a bundle, or go to [Mapping Reads to a Reference](../04-alignments/01-mapping-reads-to-a-reference.md) once your reads are clean.
+Continue to [Subsetting and Extraction](06-subsetting-and-extraction.md) to take a smaller set of reads out of a bundle, the optional last step in [the order of read preparation](01-importing-fastq.md#the-order-of-read-preparation). When your reads are clean, [Mapping Reads to a Reference](../04-alignments/01-mapping-reads-to-a-reference.md) is where they go next.
