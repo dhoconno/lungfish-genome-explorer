@@ -343,6 +343,9 @@ public enum NativeTool: String, CaseIterable, Sendable {
     case lofreq
     case ivar
     case medaka
+    /// medaka's `medaka_variant` wrapper: haploid variant calling in
+    /// medaka 2.x, which dropped the `medaka variant` subcommand.
+    case medakaVariant
     case clair3
     case whatshap
     case freyja
@@ -377,6 +380,7 @@ public enum NativeTool: String, CaseIterable, Sendable {
         case .lofreq: return "lofreq"
         case .ivar: return "ivar"
         case .medaka: return "medaka"
+        case .medakaVariant: return "medaka_variant"
         case .clair3: return "run_clair3.sh"
         case .whatshap: return "whatshap"
         case .freyja: return "freyja"
@@ -463,6 +467,8 @@ public enum NativeTool: String, CaseIterable, Sendable {
             return .managed(environment: "ivar", executableName: "ivar")
         case .medaka:
             return .managed(environment: "medaka", executableName: "medaka")
+        case .medakaVariant:
+            return .managed(environment: "medaka", executableName: "medaka_variant")
         case .clair3:
             return .managed(environment: "clair3", executableName: "run_clair3.sh")
         case .whatshap:
@@ -530,7 +536,7 @@ public enum NativeTool: String, CaseIterable, Sendable {
         case .deacon: return "deacon"
         case .lofreq: return "lofreq"
         case .ivar: return "ivar"
-        case .medaka: return "medaka"
+        case .medaka, .medakaVariant: return "medaka"
         case .clair3: return "clair3"
         case .whatshap: return "whatshap"
         case .freyja: return "freyja"
@@ -583,7 +589,7 @@ public enum NativeTool: String, CaseIterable, Sendable {
             return "MIT License"
         case .ivar:
             return "GPL-3.0-or-later"
-        case .medaka:
+        case .medaka, .medakaVariant:
             return "MPL-2.0"
         case .clair3:
             return "BSD-3-Clause"
@@ -796,7 +802,7 @@ public actor NativeToolRunner {
 
         logger.info("Running \(tool.rawValue): \(resolvedArgs.joined(separator: " "))")
 
-        let effectiveEnvironment = bbToolsEnvironment(
+        let effectiveEnvironment = managedToolEnvironment(
             for: tool,
             overriding: environment
         )
@@ -860,15 +866,36 @@ public actor NativeToolRunner {
         return root
     }
 
-    private func bbToolsEnvironment(
+    /// The environment a managed tool runs under.
+    ///
+    /// Every conda environment's `bin` must lead `PATH` for the tool that
+    /// lives in it: `run_clair3.sh` is `exec python3 run_clair3.py`, which
+    /// then spawns `pypy3`, `parallel`, `samtools` and `whatshap` by bare
+    /// name, and `medaka_variant` calls `medaka`, `mini_align`, `minimap2`
+    /// and `bcftools` the same way. Under the app's inherited PATH those
+    /// resolve to the Mac's own python or to nothing ("pypy3: command not
+    /// found"). BBTools additionally needs its bundled JVM, so it keeps its
+    /// own layout.
+    private func managedToolEnvironment(
         for tool: NativeTool,
         overriding environment: [String: String]?
     ) -> [String: String]? {
-        guard tool.isBBToolsShellScript else { return environment }
-
         let existingPath = environment?["PATH"]
             ?? ProcessInfo.processInfo.environment["PATH"]
             ?? "/usr/bin:/bin:/usr/sbin:/sbin"
+
+        guard tool.isBBToolsShellScript else {
+            guard case .managed(let managedEnvironmentName, _) = tool.location else { return environment }
+            let binDirectory = CoreToolLocator.environmentURL(
+                named: managedEnvironmentName,
+                homeDirectory: homeDirectory,
+                appIdentity: appIdentity
+            ).appendingPathComponent("bin", isDirectory: true)
+            var merged = environment ?? [:]
+            merged["PATH"] = "\(binDirectory.path):\(existingPath)"
+            return merged
+        }
+
         var managedEnvironment = CoreToolLocator.bbToolsEnvironment(
             homeDirectory: homeDirectory,
             existingPath: existingPath,
@@ -1074,7 +1101,7 @@ public actor NativeToolRunner {
         _ = try requireProvenancePolicy(for: tool)
         let toolPath = try findTool(tool)
         let actualTimeout = timeout ?? defaultTimeout
-        let effectiveEnvironment = bbToolsEnvironment(
+        let effectiveEnvironment = managedToolEnvironment(
             for: tool,
             overriding: environment
         )
@@ -1419,11 +1446,11 @@ extension NativeToolRunner {
         logger.info("Running pipeline: \(stageNames)")
         let cancellationState = ProcessCancellationState()
         let logger = self.logger
-        // Resolved on the actor up front: `bbToolsEnvironment` reads immutable
+        // Resolved on the actor up front: `managedToolEnvironment` reads immutable
         // actor state (`homeDirectory`, `appIdentity`), so it cannot be called
         // from the detached task below.
         let stageEnvironments = stages.map {
-            bbToolsEnvironment(for: $0.tool, overriding: environment)
+            managedToolEnvironment(for: $0.tool, overriding: environment)
         }
 
         try Task.checkCancellation()
@@ -1608,7 +1635,7 @@ extension NativeToolRunner {
         let logger = self.logger
         // Resolved on the actor up front; see `runPipeline`.
         let stageEnvironments = stages.map {
-            bbToolsEnvironment(for: $0.tool, overriding: environment)
+            managedToolEnvironment(for: $0.tool, overriding: environment)
         }
 
         try Task.checkCancellation()
