@@ -98,13 +98,20 @@ test("em-dash flags em dashes in prose and headings but not in code", async () =
   assert.ok(messages.some((m) => /em dash/.test(m.reason)), "should flag at least one em dash");
 });
 
-test("bullet-cap flags >5-item list and >2 lists per H2 section", async () => {
+test("bullet-cap flags >5-item list and >2 lists per section", async () => {
   const messages = await lint("bad-bullet-cap.md");
   const reasons = messages.map((m) => m.reason).join("\n");
   // Per-list item cap: 6-item list fires
   assert.match(reasons, /6 items/);
-  // Per-H2 section cap: third list fires
-  assert.match(reasons, /3rd list in this H2 section/);
+  // Per-section cap: third list fires
+  assert.match(reasons, /3rd list in this section/);
+});
+
+test("bullet-cap counts lists per H3, not only per H2", async () => {
+  const messages = await lint("bullet-cap-h3.md");
+  const reasons = messages.map((m) => m.reason).join("\n");
+  // Two lists under each of two H3 subsections of one H2: nothing fires.
+  assert.doesNotMatch(reasons, /list in this section/);
 });
 
 test("semicolon flags semicolons in prose but not in code", async () => {
