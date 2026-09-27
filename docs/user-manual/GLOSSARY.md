@@ -84,7 +84,7 @@ Terms appear in alphabetical order. Each entry is a one-sentence definition, fol
 
 **bbduk**{#bbduk}. A read-filtering and trimming program from the BBTools suite that matches a supplied sequence against reads as k-mers, used in Lungfish Genome Explorer for read-level primer trimming with a literal primer sequence and for contaminant filtering. See also k-mer, Hamming distance, primer trim.
 
-**bbmerge**{#bbmerge}. The BBTools program that joins the two mates of a paired-end read into one longer fragment wherever they overlap, run automatically before mapping in an MHC genotyping workflow so that amplicons longer than a single mate can still be spanned end to end. See also read merging, paired-end, allele target.
+**BBMerge**{#bbmerge}. The BBTools program that joins the two mates of a paired-end read into one longer fragment wherever they overlap. Lungfish Genome Explorer runs it in the Merge Overlapping Pairs operation, and inside miSeq amplicon MHC genotyping when paired reads arrive without the Illumina Amplicon Merge import recipe, so that amplicons longer than a single mate can still be spanned end to end. See also read merging, paired-end, allele target.
 
 **BCF**{#bcf}. The compact binary form of VCF, holding the same rows and header but packed for machines. Lungfish Genome Explorer reads an imported BCF with a CSI index beside it, but stores the variant tracks it writes as a bgzip-compressed VCF with a tabix index under the bundle's `variants/` folder, alongside a SQLite sidecar that indexes the same rows. See also VCF, CSI, tabix.
 
@@ -174,7 +174,7 @@ Terms appear in alphabetical order. Each entry is a one-sentence definition, fol
 
 **Clumpify**{#clumpify}. A program from the BBTools suite that reorders reads so that reads sharing sequence content sit next to each other, and that can collapse those matching reads into one, which is what backs the Remove Duplicates operation in Lungfish Genome Explorer. See also PCR duplicate, optical duplicate, read clumping.
 
-**Clustering**{#clustering}. Grouping near-identical reads into representative consensus sequences before genotyping, used for full-length ONT MHC amplicons. See also pbAA, savONT.
+**Clustering**{#clustering}. Grouping near-identical reads into representative consensus sequences before genotyping, used for full-length ONT MHC amplicons. See also pbAA, Savont.
 
 **Codon**{#codon}. A run of three consecutive bases inside a protein-coding gene that together encode one amino acid. Three adjacent SNPs falling inside one codon describe one amino acid change, not three. iVar can group them into a single VCF row when given a GFF annotation. See also VCF.
 
@@ -311,6 +311,8 @@ Terms appear in alphabetical order. Each entry is a one-sentence definition, fol
 **FLAG (in a BAM)**{#flag}. A bitwise integer field in each BAM row encoding facts about the read in twelve canonical bits. Those bits are paired, properly paired, unmapped, mate unmapped, reverse strand, mate reverse strand, first of pair, second of pair, secondary alignment, low quality, duplicate, and supplementary alignment. The decoded value `99` is the sum of bits 1+2+32+64. See also BAM, supplementary alignment.
 
 **Flagstat**{#flagstat}. The per-category tally `samtools flagstat` produces by decoding the FLAG field of every record in a BAM, giving counts for total, primary, secondary, supplementary, mapped, properly paired, and singleton records, and shown in the alignment Inspector as a collapsed Flag Statistics list. See also FLAG, BAM, primary alignment.
+
+**Flow cell**{#flow-cell}. The consumable chip in a nanopore or Illumina instrument that holds the sample while it is read. Oxford Nanopore flow cells come in chemistry versions, such as R9 and R10, and the version shapes the reads' error rate. See also nanopore sequencing, basecaller.
 
 **Fluidigm sample barcode**{#fluidigm-sample-barcode}. The sample-identifying sequence that a library built with Fluidigm Access Array primers adds to each read next to the fixed CS1 and CS2 primer sequences. Lungfish Genome Explorer finds the two primers, reads the barcode beside them to assign the read to a sample, and splits one bulk Oxford Nanopore bundle into per-sample bundles of the insert lying between the two primers. See also barcode, demultiplex, amplicon.
 
@@ -528,7 +530,7 @@ Terms appear in alphabetical order. Each entry is a one-sentence definition, fol
 
 **minimap2**{#minimap2}. A general-purpose read mapper that finds, for each read, the reference position where it fits best, used inside Lungfish Genome Explorer both as a mapper you run directly and as the alignment step hidden inside EsViritu's viral detection. See also mapping, alignment, BAM.
 
-**Minimizer**{#minimizer}. The smallest k-mer within a sliding window of a sequence, picked as a compact fingerprint so a tool can match reads quickly without comparing every base. Kraken 2 classifies on minimizers and Deacon counts minimizer hits to flag host reads. See also Kraken 2, Deacon.
+**Minimizer**{#minimizer}. The k-mer that ranks first, by a fixed ordering, among each run of overlapping k-mers along a sequence, so two sequences that share a stretch pick the same minimizers there and a tool can find matches by comparing a few short words instead of every base. Kraken 2 classifies on minimizers, minimap2 finds candidate positions with them, and Deacon counts minimizer hits to flag host and ribosomal reads. See also k-mer, Kraken 2, Deacon.
 
 **MinKNOW**{#minknow}. The control software that runs an Oxford Nanopore sequencer, calls bases as the run proceeds, and writes the reads out as numbered FASTQ chunks under a `fastq_pass` folder, placing each barcode's reads in its own subfolder when the library was barcoded. See also basecaller, barcode, unclassified reads.
 
@@ -554,7 +556,7 @@ Terms appear in alphabetical order. Each entry is a one-sentence definition, fol
 
 **N50**{#n50}. A summary statistic for a set of assembled contigs, giving the length such that contigs of at least that length together hold half of the assembly's total bases. A higher N50 means a less fragmented assembly. Applied to a read set, as on the FASTQ viewport's N50 card, it is the read length at which reads that long or longer hold half of all sequenced bases. See also contig, assembly bundle.
 
-**Nanopore sequencing**{#nanopore-sequencing}. The Oxford Nanopore method that reads a DNA strand by drawing it through a protein pore and measuring how the ionic current changes as each stretch of bases passes through, which puts no ceiling on read length and yields reads tens of thousands of bases long, at the cost of a per-base error rate far higher than a short-read instrument's. Flye and hifiasm both accept these reads, and Flye accepts nothing else. See also basecaller, read length, circular consensus sequencing.
+**Nanopore sequencing**{#nanopore-sequencing}. The Oxford Nanopore method that reads a DNA strand by drawing it through a protein pore and measuring how the ionic current changes as each stretch of bases passes through, which puts no ceiling on read length and yields reads tens of thousands of bases long, at the cost of a per-base error rate far higher than a short-read instrument's. Flye and hifiasm both accept these reads, and in Lungfish Genome Explorer Flye is offered for nothing else. See also basecaller, read length, circular consensus sequencing.
 
 **NAO-MGS**{#nao-mgs}. A wastewater metagenomic surveillance pipeline from SecureBio that runs externally and whose `virus_hits_final.tsv(.gz)` output LGE imports (it does not run the pipeline) through `lungfish-cli nao-mgs import` or the Import Center, presenting one run's viral taxa in a sortable table with a taxon detail pane and BLAST verification workflow. See also BLAST.
 
@@ -594,7 +596,7 @@ Terms appear in alphabetical order. Each entry is a one-sentence definition, fol
 
 **Outgroup**{#outgroup}. A sequence included in a phylogenetic analysis because you are confident it falls outside the group under study, used to place the root so the rest of the tree can be read as a sequence of descent. See also rooting, topology, clade.
 
-**Overlap-layout-consensus**{#overlap-layout-consensus}. An assembly method that compares reads with each other to find where they overlap, lays the overlapping reads out in order, and takes the base most of them agree on at each position, the approach long-read assemblers such as Flye and hifiasm descend from. See also de Bruijn graph, assembly graph, contig.
+**Overlap-layout-consensus**{#overlap-layout-consensus}. An assembly method that compares reads with each other to find where they overlap, lays the overlapping reads out in order, and takes the base most of them agree on at each position, the approach long-read assemblers such as hifiasm descend from. Flye is not a classic example, because it combines read overlaps with a repeat graph in which each repeated stretch of the genome is collapsed into a single path. See also de Bruijn graph, assembly graph, contig.
 
 **Override**{#override}. A genotype call an analyst replaced by hand in the result window, stored in the result's annotation sidecar alongside the original call, the reason, and the author, so an exported workbook or LabKey file reports the reviewed call while still carrying the pipeline's own. See also audit log, genotype matrix, genotype result bundle.
 
@@ -608,7 +610,7 @@ Terms appear in alphabetical order. Each entry is a one-sentence definition, fol
 
 **Pathoplexus**{#pathoplexus}. An open pathogen-genome database LGE can search and import reference sequences from.
 
-**pbAA**{#pbaa}. A read-clustering tool that derives high-accuracy amplicon consensus sequences, one of the clustering options for full-length ONT MHC genotyping. See also clustering, savONT.
+**pbAA**{#pbaa}. A read-clustering tool that derives high-accuracy amplicon consensus sequences, run in Lungfish Genome Explorer as a separate operation whose saved output the full-length ONT MHC genotyping workflow can reuse, since that workflow itself always clusters with Savont. See also clustering, Savont.
 
 **PCR (Polymerase Chain Reaction)**{#pcr}. The laboratory reaction that makes millions of copies of one chosen stretch of DNA, using a pair of primers to mark where copying starts and stops, which is what produces the amplicons an amplicon sequencing run reads. See also amplicon, primer, PCR duplicate.
 
@@ -651,6 +653,8 @@ Terms appear in alphabetical order. Each entry is a one-sentence definition, fol
 **Positional argument**{#positional-argument}. A value typed at a fixed place in a command with no name in front of it, so its meaning comes from where it sits rather than from a label, which is how most commands take their input file. See also command-line flag, subcommand.
 
 **Post-install hook**{#post-install-hook}. A follow-up command a plugin pack declares for itself and LGE runs after the pack's tools are installed, such as downloading the lineage data a surveillance tool needs, with the count of hooks shown on the pack's card in the Plugin Manager. See also plugin pack.
+
+**Precision**{#precision}. The share of the organisms or variants a method reports that are truly present, so a method with low precision names things that are not there. A classifier that reports 100 organisms of which 90 are really in the sample has a precision of 90 percent. See also sensitivity, specificity.
 
 **Preprint**{#preprint}. An article posted to a public server such as bioRxiv before it has been through peer review, which is a legitimate citation for a tool whose paper never reached a journal, though some journals restrict how a preprint may be cited. See also citation, DOI.
 
@@ -784,7 +788,7 @@ Terms appear in alphabetical order. Each entry is a one-sentence definition, fol
 
 **samtools**{#samtools}. The standard toolkit for reading and writing alignment files, whose subcommands index a BAM, count its records, build a pileup, and call a consensus from one, and which Lungfish Genome Explorer installs and runs for you behind the alignment surfaces rather than asking you to type it. See also BAM, pileup, consensus sequence, mpileup.
 
-**savONT**{#savont}. A clustering option for full-length ONT MHC amplicons, an alternative to pbAA. See also clustering, pbAA.
+**Savont**{#savont}. The clustering program Lungfish Genome Explorer runs in Full-length ONT MHC genotyping to group each sample's near-identical long reads and turn every group into one counted consensus sequence, which is what the workflow then compares with the allele library. It also runs on its own as the Savont Clustering operation for any FASTQ, and it comes with the Full-length MHC Genotyping pack. See also clustering, consensus sequence, candidate allele.
 
 **Scaffold**{#scaffold}. A run of contigs an assembler has placed in order and orientation relative to one another using paired-end reads that bridge the gaps between them, written as one sequence in which each unresolved gap appears as a run of `N` characters of the estimated length. Lungfish Genome Explorer builds an assembly bundle from the contigs rather than the scaffolds, so a scaffold file sits in the run folder but is not what the assembly viewport shows. See also contig, paired-end, assembly bundle.
 
@@ -792,7 +796,7 @@ Terms appear in alphabetical order. Each entry is a one-sentence definition, fol
 
 **Secondary alignment**{#secondary-alignment}. An extra record reporting another place a read could plausibly have come from, marked by FLAG bit 256 and produced in quantity by repeated regions, which Lungfish Genome Explorer excludes from a mapping run's BAM by default because the duplicate rows inflate read counts. See also FLAG, primary alignment, supplementary alignment.
 
-**Sensitivity**{#sensitivity}. The share of the organisms or variants truly present in a sample that a method detects, so a method with low sensitivity misses things that are there. See also specificity, read classification.
+**Sensitivity**{#sensitivity}. The share of the organisms or variants truly present in a sample that a method detects, so a method with low sensitivity misses things that are there. See also specificity, precision, read classification.
 
 **seqkit**{#seqkit}. A general-purpose toolkit for FASTA and FASTQ manipulation, used in Lungfish Genome Explorer for the read-length filter and for several sequence statistics. See also FASTQ, read length.
 
@@ -838,7 +842,7 @@ Terms appear in alphabetical order. Each entry is a one-sentence definition, fol
 
 **Sparkline**{#sparkline}. A small chart drawn without axes or labels, sized to sit inside a strip rather than to be read precisely, of which LGE draws three under a FASTQ bundle's summary cards, labelled Length Dist., Q / Position, and Q Score Dist., with a click on any one opening the full-size chart in a popover. See also quality control, FASTQ.
 
-**Specificity**{#specificity}. The share of organisms or variants absent from a sample that a method correctly leaves out, so a method with low specificity reports things that are not there. See also sensitivity, read classification.
+**Specificity**{#specificity}. The share of organisms or variants absent from a sample that a method correctly leaves out. Because a sample lacks thousands of possible organisms, a method can score high specificity and still report many absent ones, which is why precision is the measure of how trustworthy its reported names are. See also sensitivity, precision, read classification.
 
 **Spike-in control**{#spike-in-control}. A known sequence added deliberately to a sequencing library so that its behaviour in the results reports on how the run itself performed, the commonest being the bacteriophage phiX genome that Illumina protocols add to improve the instrument's base calling. A handful of phiX reads turning up in a classification report is expected rather than a sign of contamination. See also read classification, Kraken 2.
 

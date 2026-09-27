@@ -24,7 +24,7 @@ shots:
   - id: genotyping-full-length-dialog
     caption: "The Workflow Operations dialog on Full-length ONT MHC genotyping, showing the Length Filter group with Min Length and Max Length, the Call Thresholds group with its Locus % field, the Haplotype Definition group, and the Advanced Options disclosure holding Orient Reference, Forward Primers, and Reverse Primers."
 illustrations: []
-glossary_refs: [adapter, allele, allele-target, amplicon, bam, bbmerge, bundle, cdna, clustering, cohort, consensus-sequence, fasta, fastq, genotype-result-bundle, haplotype, insert-size, ipd-mhc, locus, mhc, minimap2, miseq, nanopore-sequencing, operations-panel, paired-end, pbaa, plugin-pack, primer, provenance, read, read-merging, reference-bundle, retained-read, savont, wall-time, workflow-library]
+glossary_refs: [adapter, allele, allele-target, amplicon, bam, bbmerge, blast, bundle, cdna, clustering, cohort, consensus-sequence, fasta, fastq, genotype-result-bundle, haplotype, insert-size, ipd-mhc, locus, mhc, minimap2, miseq, nanopore-sequencing, operations-panel, paired-end, pbaa, plugin-pack, primer, provenance, read, read-merging, reference-bundle, retained-read, savont, wall-time, workflow-library]
 features_refs: []
 fixtures_refs: [mhc-simulated]
 brand_reviewed: false
@@ -83,7 +83,7 @@ Check that the **FASTQ Bundles** group lists the samples you selected. Below it,
 
 Under **Threads** and **Minimum supporting reads** in the **Run Parameters** group sits a line of grey text. On the Williams plate it reads **Illumina sample bundles**, and on a Nanopore plate it reads **ONT sample bundles**. The caption reports what LGE decided from the reads' own metadata, and the dialog has no control to change it. If it names the wrong platform, the platform recorded in the bundles when they were imported is wrong, so reimport those reads.
 
-One step happens automatically here, and without it a whole locus goes quietly missing. Before mapping, LGE joins the two mates of each read pair into one longer fragment wherever they overlap, using [bbmerge](../../GLOSSARY.md#bbmerge). This is [read merging](../../GLOSSARY.md#read-merging). There is nothing to click, which is why the heading says to leave it alone.
+One step happens automatically here, and without it a whole locus goes quietly missing. Before mapping, LGE joins the two mates of each read pair into one longer fragment wherever they overlap, using [BBMerge](../../GLOSSARY.md#bbmerge). This is [read merging](../../GLOSSARY.md#read-merging). There is nothing to click, which is why the heading says to leave it alone. Reads imported with the Illumina Amplicon Merge recipe arrive already merged, and the run skips this step.
 
 The reason is arithmetic. An Illumina run reads each DNA fragment from both ends, and each read is called a mate. The stretch between them is the [insert](../../GLOSSARY.md#insert-size). A 2x251 MiSeq kit reads up to 251 bases from each end, and once the primer and [adapter](../../GLOSSARY.md#adapter) bases, the synthetic sequence added in library preparation, are trimmed from its ends, one mate covers about 198 bases of the insert. That spans a 156-base class I amplicon but not a 244-base DRB amplicon. Because a read counts only when it covers its allele target end to end, every DRB allele would receive zero reads without merging.
 
@@ -109,7 +109,7 @@ On the author's Apple Silicon Mac the 30-sample Williams run took 329 seconds of
 
 Choose **Tools > Genotyping > Full-length ONT MHC genotyping...** when your reads are long Nanopore reads that each span a whole allele. The Reference, FASTQ Bundles, Report Name, Threads, and Directory groups work as above. Four things differ.
 
-First, reads are clustered before anything is compared to the library. [Clustering](../../GLOSSARY.md#clustering) groups near-identical reads and derives one consensus sequence from each group, and the consensus sequences are what get genotyped. Nanopore reads carry a higher per-base error rate than Illumina reads, so a true allele matched read by read would scatter into near-misses. LGE always clusters with [savONT](../../GLOSSARY.md#savont) on this route. [pbAA](../../GLOSSARY.md#pbaa), another clustering program, is a separate operation whose saved output this workflow can reuse.
+First, reads are clustered before anything is compared to the library. [Clustering](../../GLOSSARY.md#clustering) groups near-identical reads and derives one consensus sequence from each group, and the consensus sequences are what get genotyped. Nanopore reads carry a higher per-base error rate than Illumina reads, so a true allele matched read by read would scatter into near-misses. LGE always clusters with [Savont](../../GLOSSARY.md#savont) on this route. [pbAA](../../GLOSSARY.md#pbaa), another clustering program, is a separate operation whose saved output this workflow can reuse.
 
 Second, a **Length Filter** group holds **Min Length** and **Max Length**, which start at 2000 and 4000 bases and suit a full-length MHC amplicon of roughly 3,000 bases.
 
@@ -118,6 +118,8 @@ Third, a **Call Thresholds** group holds **Locus %**, and a **Haplotype Definiti
 <!-- SHOT: genotyping-full-length-dialog -->
 
 Fourth, the **Advanced Options** disclosure holds three optional file pickers, for an orientation reference and for forward and reverse primer sequences. LGE fills each one when it finds a suitable file in the project, so an empty field means it found none.
+
+The full-length workflow does not discard a consensus that matches no library allele. It reports it in one of three ways. A consensus close to a library allele becomes a candidate allele named after its closest library relative. A name ending `_nov` marks one with substituted bases, and the number before it counts them, so `_2nt_nov` means two differences. A name ending `_ext` or `_partial_ext` marks a consensus that matches a shorter library record, such as one holding only the protein-coding part of the gene, and runs past its ends. A consensus that aligns too little, too loosely, or equally well to two loci is kept as unnameable rather than forced into a name. A consensus with no usable minimap2 match at all is searched against the library with [BLAST](../../GLOSSARY.md#blast), a sequence search program, and one whose best hit covers at least 70 percent of it, over at least 1,000 bases, at 75 percent identity or more, is reported with that closest allele as a BLAST rescue. The workbook's Unmatched Alleles sheet lists every unmatched consensus with its closest match, and the bundle keeps them as the FASTA files `candidate_alleles.fasta`, `unnameable_unmatched_clusters.fasta`, and `deduplicated_unmatched_clusters.fasta`.
 
 ### 7. Find the result
 
