@@ -28,7 +28,7 @@ The native pipeline actually invokes BBMerge, minimap2, samtools, pysam, and ope
 
 ## Durable outputs
 
-All paths below are relative to `~/Desktop/lge-docs/LGE Manual Demo.lungfish`.
+All paths below are relative to `~/Desktop/lge-docs/LGE Manual Demo.lungfish`, the screenshot project that `../demo-project/` builds for contributors. Readers get the same inputs, already imported, in the MHC Genotyping demo project that **Help > Demo Projects…** downloads.
 
 - `Imports/SIMULATED-MHC-A-pairs.lungfishfastq`
 - `Imports/SIMULATED-MHC-B-pairs.lungfishfastq`
