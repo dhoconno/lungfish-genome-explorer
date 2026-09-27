@@ -220,7 +220,16 @@ struct FileValidateSubcommand: AsyncParsableCommand {
 
     @Flag(
         name: .customLong("strict"),
-        help: "Enable strict validation"
+        help: ArgumentHelp(
+            "Also reject readable but irregular files.",
+            discussion: """
+                FASTA: duplicate record names, empty records, characters outside the IUPAC \
+                nucleotide and protein alphabets. FASTQ: duplicate read identifiers, empty \
+                reads. VCF: data lines whose column count disagrees with the #CHROM header, \
+                and records that repeat an earlier CHROM, POS, REF and ALT. Other formats \
+                have no extra checks.
+                """
+        )
     )
     var strict: Bool = false
 
@@ -264,6 +273,11 @@ struct FileValidateSubcommand: AsyncParsableCommand {
                     if sequences.isEmpty {
                         errors.append("No sequences found")
                     }
+                    if strict {
+                        errors.append(contentsOf: StrictSequenceFileChecks.fastaIssues(
+                            records: sequences.map { (name: $0.name, sequence: $0.asString()) }
+                        ))
+                    }
 
                 case "fastq", "fq":
                     format = "FASTQ"
@@ -271,6 +285,11 @@ struct FileValidateSubcommand: AsyncParsableCommand {
                     let records = try await reader.readAll(from: url)
                     if records.isEmpty {
                         errors.append("No sequences found")
+                    }
+                    if strict {
+                        errors.append(contentsOf: StrictSequenceFileChecks.fastqIssues(
+                            records: records.map { (identifier: $0.identifier, sequence: $0.sequence) }
+                        ))
                     }
 
                 case "gb", "gbk", "genbank":
@@ -287,6 +306,9 @@ struct FileValidateSubcommand: AsyncParsableCommand {
                     format = "VCF"
                     let reader = VCFReader()
                     _ = try await reader.readAll(from: url)
+                    if strict {
+                        errors.append(contentsOf: try await StrictSequenceFileChecks.vcfIssues(at: url))
+                    }
 
                 case "bed":
                     format = "BED"
@@ -330,6 +352,107 @@ struct FileValidateSubcommand: AsyncParsableCommand {
         if !allValid {
             throw sawMissingInput ? CLIExitCode.inputError.exitCode : CLIExitCode.formatError.exitCode
         }
+    }
+}
+
+/// The extra checks `analyze validate --strict` runs on files that parsed.
+///
+/// A file can be readable and still irregular: a FASTA with two records of the
+/// same name, a FASTQ whose reads repeat an identifier, a VCF whose data lines
+/// carry a different number of columns from its `#CHROM` header. The plain
+/// validator accepts those; `--strict` reports them.
+enum StrictSequenceFileChecks {
+    /// Issues beyond this many are summarised as a count.
+    static let maxReportedIssues = 20
+
+    static func fastaIssues(records: [(name: String, sequence: String)]) -> [String] {
+        var issues: [String] = []
+        var seenNames: [String: Int] = [:]
+        for (index, record) in records.enumerated() {
+            let recordNumber = index + 1
+            let name = firstToken(record.name)
+            if let firstIndex = seenNames[name] {
+                issues.append("Record \(recordNumber) repeats the name '\(name)' of record \(firstIndex)")
+            } else {
+                seenNames[name] = recordNumber
+            }
+            if record.sequence.isEmpty {
+                issues.append("Record \(recordNumber) ('\(name)') has an empty sequence")
+            } else if let offending = record.sequence.first(where: { !isIUPACSequenceCharacter($0) }) {
+                issues.append("Record \(recordNumber) ('\(name)') contains '\(offending)', which is not an IUPAC nucleotide or amino acid code")
+            }
+        }
+        return capped(issues)
+    }
+
+    static func fastqIssues(records: [(identifier: String, sequence: String)]) -> [String] {
+        var issues: [String] = []
+        var seenIdentifiers: [String: Int] = [:]
+        for (index, record) in records.enumerated() {
+            let recordNumber = index + 1
+            let identifier = firstToken(record.identifier)
+            if let firstIndex = seenIdentifiers[identifier] {
+                issues.append("Read \(recordNumber) repeats the identifier '\(identifier)' of read \(firstIndex)")
+            } else {
+                seenIdentifiers[identifier] = recordNumber
+            }
+            if record.sequence.isEmpty {
+                issues.append("Read \(recordNumber) ('\(identifier)') has an empty sequence")
+            }
+        }
+        return capped(issues)
+    }
+
+    static func vcfIssues(at url: URL) async throws -> [String] {
+        var lines: [String] = []
+        for try await line in url.linesAutoDecompressing() {
+            lines.append(line)
+        }
+        return vcfIssues(lines: lines)
+    }
+
+    static func vcfIssues(lines: [String]) -> [String] {
+        var issues: [String] = []
+        var expectedColumns: Int?
+        var seenRecords: [String: Int] = [:]
+        for (index, rawLine) in lines.enumerated() {
+            let lineNumber = index + 1
+            let line = rawLine.hasSuffix("\r") ? String(rawLine.dropLast()) : rawLine
+            if line.isEmpty || line.hasPrefix("##") { continue }
+            let fields = line.split(separator: "\t", omittingEmptySubsequences: false)
+            if line.hasPrefix("#CHROM") {
+                expectedColumns = fields.count
+                continue
+            }
+            guard let expectedColumns else { continue }
+            if fields.count != expectedColumns {
+                issues.append("Line \(lineNumber) has \(fields.count) columns; the #CHROM header declares \(expectedColumns)")
+                continue
+            }
+            guard fields.count >= 5 else { continue }
+            let key = "\(fields[0])\t\(fields[1])\t\(fields[3])\t\(fields[4])"
+            if let firstLine = seenRecords[key] {
+                issues.append("Line \(lineNumber) repeats \(fields[0]):\(fields[1]) \(fields[3])>\(fields[4]) first seen on line \(firstLine)")
+            } else {
+                seenRecords[key] = lineNumber
+            }
+        }
+        return capped(issues)
+    }
+
+    private static func firstToken(_ text: String) -> String {
+        text.split(whereSeparator: { $0 == " " || $0 == "\t" }).first.map(String.init) ?? text
+    }
+
+    /// Letters cover every IUPAC nucleotide and amino acid code (including
+    /// ambiguity codes); `-` and `.` are gaps, `*` a translation stop.
+    private static func isIUPACSequenceCharacter(_ character: Character) -> Bool {
+        character.isLetter && character.isASCII || character == "-" || character == "*" || character == "."
+    }
+
+    private static func capped(_ issues: [String]) -> [String] {
+        guard issues.count > maxReportedIssues else { return issues }
+        return Array(issues.prefix(maxReportedIssues)) + ["... and \(issues.count - maxReportedIssues) more"]
     }
 }
 
