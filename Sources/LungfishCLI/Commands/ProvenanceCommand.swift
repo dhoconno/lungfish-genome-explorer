@@ -107,7 +107,7 @@ struct ProvenanceCommand: AsyncParsableCommand {
                 print("Signature: \(result.signatureURL.path)")
                 print("Public key: \(result.publicKeyURL.path)")
             } catch {
-                throw CLIError.workflowFailed(reason: error.localizedDescription)
+                throw CLIError.wrapping(error)
             }
         }
     }
@@ -164,7 +164,7 @@ struct ProvenanceCommand: AsyncParsableCommand {
             } catch let error as CLIError {
                 throw error
             } catch {
-                throw CLIError.workflowFailed(reason: error.localizedDescription)
+                throw CLIError.wrapping(error)
             }
         }
 

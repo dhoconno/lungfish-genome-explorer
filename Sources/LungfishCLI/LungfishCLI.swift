@@ -6,6 +6,7 @@ import ArgumentParser
 import Darwin
 import Foundation
 import LungfishCore
+import LungfishWorkflow
 
 /// Lungfish Genome Explorer Command-Line Interface
 ///
@@ -177,9 +178,27 @@ enum CLIError: Error, LocalizedError {
     case conversionFailed(reason: String)
     case validationFailed(errors: [String])
     case workflowFailed(reason: String)
+    /// A required external tool is not installed (documented exit status 126).
+    case missingTool(reason: String)
     case containerUnavailable
     case networkError(reason: String)
     case cancelled
+
+    /// The `CLIError` for a failure thrown by a pipeline: a
+    /// ``MissingToolError`` with a named tool becomes ``missingTool(reason:)``
+    /// (exit status 126, the documented "a required tool is missing"), and
+    /// anything else stays a generic ``workflowFailed(reason:)`` (64). Both
+    /// keep the pipeline's own message, which is printed with or without
+    /// `--debug`.
+    static func wrapping(_ error: Error) -> CLIError {
+        if let cliError = error as? CLIError {
+            return cliError
+        }
+        if let missing = error as? MissingToolError, missing.missingToolName != nil {
+            return .missingTool(reason: error.localizedDescription)
+        }
+        return .workflowFailed(reason: error.localizedDescription)
+    }
 
     var errorDescription: String? {
         switch self {
@@ -197,6 +216,8 @@ enum CLIError: Error, LocalizedError {
             return "Validation failed:\n" + errors.map { "  - \($0)" }.joined(separator: "\n")
         case .workflowFailed(let reason):
             return "Workflow execution failed: \(reason)"
+        case .missingTool(let reason):
+            return "Required tool is missing: \(reason)"
         case .containerUnavailable:
             return "Apple Containerization is not available. Requires macOS 26 or later."
         case .networkError(let reason):
@@ -220,6 +241,8 @@ enum CLIError: Error, LocalizedError {
             return .inputError
         case .workflowFailed:
             return .workflowError
+        case .missingTool:
+            return .dependency
         case .containerUnavailable:
             return .containerError
         case .networkError:
@@ -234,6 +257,12 @@ extension LungfishCLI {
     static func exitWithNormalizedError(_ error: Error) -> Never {
         if let cliError = validationCLIError(in: error) {
             exit(withCLIError: cliError)
+        }
+        // A pipeline's "tool not installed" error that reached the top level
+        // unwrapped still exits with the documented status 126 and its own
+        // message, whether or not --debug was given.
+        if let missing = error as? MissingToolError, missing.missingToolName != nil {
+            exit(withCLIError: .missingTool(reason: error.localizedDescription))
         }
         LungfishCLI.exit(withError: error)
     }

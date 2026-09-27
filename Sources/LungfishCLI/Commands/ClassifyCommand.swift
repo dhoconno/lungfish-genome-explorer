@@ -317,7 +317,7 @@ struct ClassifyCommand: AsyncParsableCommand {
             )
         } catch {
             failureContext.failureMessage = error.localizedDescription
-            throw CLIError.workflowFailed(reason: error.localizedDescription)
+            throw CLIError.wrapping(error)
         }
         let executionInputURLs = resolvedInputs.inputURLs
         let durableReplayArguments = CLISequenceInputMaterialization.durableReplayArgv(
@@ -529,7 +529,7 @@ struct ClassifyCommand: AsyncParsableCommand {
             if error is CLIError || error is ExitCode {
                 throw error
             }
-            throw CLIError.workflowFailed(reason: error.localizedDescription)
+            throw CLIError.wrapping(error)
         }
     }
 
