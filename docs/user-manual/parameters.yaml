@@ -1621,7 +1621,7 @@ operations:
     entry_points:
       - "File > Import Center... > Variants > VCF Variants"
       - "CLI: lungfish-cli import vcf <input.vcf.gz> --output-dir <project>"
-      - "CLI: lungfish-cli import vcf <input.vcf.gz> --output-dir <bundle.lungfishref> [--name <track>] [--import-profile <profile>]"
+      - "CLI: lungfish-cli import vcf <input.vcf.gz> --output-dir <bundle.lungfishref> [--name <track>] [--import-profile <profile>] [--replace <track-id>]"
     gating: []
     sources:
       - Sources/LungfishApp/Views/ImportCenter/ImportCenterViewModel.swift
@@ -1648,6 +1648,9 @@ operations:
       - flag: --import-profile
         default: auto
         effect: Sets the database import profile when attaching to a bundle, one of auto, low-memory, fast, or ultra-low-memory.
+      - flag: --replace
+        default: none, so a same-named VCF is added under the next free track id (calls, calls-2, calls-3)
+        effect: Replaces the existing variant track with this id instead of adding a new track. An id the bundle does not have exits 3. The Import Center asks the same question by name when a same-named track already exists.
       - flag: --format
         default: text
         effect: Accepted with the values text, json, and tsv, and ignored on this subcommand, which prints the same text summary whatever you pass (settled 2026-09-07).
@@ -6576,7 +6579,7 @@ operations:
         effect: Names a final output that must receive a provenance sidecar. Repeat it once per scientific output.
       - flag: --timeout
         default: none
-        effect: Rejected for an nf-core run with the message that timeouts are not supported for viralrecon yet.
+        effect: Refused for an nf-core run with exit status 3 and the message that timeouts are not supported for viralrecon yet. The help text states the limitation.
     notes: >-
       Viral Recon is SARS-CoV-2 only. The reference is hard-coded to the
       canonical accession and never offered as a control, and the executor is
@@ -6738,7 +6741,7 @@ operations:
         effect: Creates the run bundle and the command preview without launching the engine, and waives the expected-output requirement.
       - flag: --timeout
         default: none
-        effect: Accepted but not enforced by the local runner, and rejected for an nf-core run.
+        effect: Not supported yet, as the help text states. A local run accepts it without enforcing it, and an nf-core run refuses it with exit status 3.
       - flag: --format
         default: text
         effect: Chooses the output format of workflow run, list, and validate. The values are text, json, and tsv.

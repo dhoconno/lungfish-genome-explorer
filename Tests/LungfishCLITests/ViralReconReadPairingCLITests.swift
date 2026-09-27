@@ -267,6 +267,21 @@ final class ViralReconReadPairingCLITests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: runBundleURL.appendingPathComponent("inputs/\(ViralReconReadPairing.pairedSamplesheetFilename)").path))
         let provenance = try XCTUnwrap(ProvenanceEnvelopeReader.loadCanonical(from: runBundleURL))
         XCTAssertNotNil(provenance.options.explicit["readPairing"])
+
+        // The planned command names the samplesheet built from the bundle
+        // (staged under the run bundle's inputs/), never the bundle
+        // directory itself, and that samplesheet lists the bundle's reads.
+        let manifest = try NFCoreRunBundleStore.read(from: runBundleURL)
+        let stagedSamplesheet = runBundleURL.appendingPathComponent("inputs/samplesheet.csv")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: stagedSamplesheet.path), manifest.commandPreview)
+        XCTAssertEqual(manifest.params["input"].map(canonical), canonical(stagedSamplesheet.path), manifest.commandPreview)
+        XCTAssertFalse(manifest.commandPreview.contains(bundle.bundleURL.lastPathComponent), manifest.commandPreview)
+        XCTAssertTrue(manifest.commandPreview.contains("--input"), manifest.commandPreview)
+        XCTAssertTrue(manifest.commandPreview.contains("--platform illumina"), manifest.commandPreview)
+        let sheetRows = rows(try String(contentsOf: stagedSamplesheet, encoding: .utf8))
+        XCTAssertEqual(sheetRows.count, 1)
+        XCTAssertEqual(sheetRows[0][1], canonical(bundle.fastqURL.path), "fastq_1 is the bundle's interleaved file before the split")
+        XCTAssertEqual(sheetRows[0][2], "", "fastq_2 is filled in by the split at run time")
     }
 
     // MARK: - Input validation

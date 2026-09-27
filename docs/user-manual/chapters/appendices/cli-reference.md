@@ -382,7 +382,9 @@ Imports a VCF, or attaches it to a reference bundle as a variant track.
 lungfish-cli import vcf [<options>] <input-file>
 ```
 
-Point `--output-dir` at an existing `.lungfishref` bundle to attach the VCF as a new variant track, the same way the Import Center does. `--name` and `--import-profile` apply only when attaching. Pointed at a plain folder, the command validates the file, prints a summary, and copies the VCF, its index, and provenance records there.
+Point `--output-dir` at an existing `.lungfishref` bundle to attach the VCF as a new variant track, the same way the Import Center does. `--name`, `--import-profile`, and `--replace` apply only when attaching. Pointed at a plain folder, the command validates the file, prints a summary, and copies the VCF, its index, and provenance records there.
+
+The track id comes from the file name (`calls.vcf.gz` becomes `calls`), and a second import of a same-named file takes the next free id (`calls-2`, `calls-3`) so nothing is overwritten. Use `--replace <track-id>` to overwrite one existing track instead, and `bundle list <bundle> --tracks` to see the ids.
 
 | Argument or flag | What it does |
 |---|---|
@@ -390,6 +392,7 @@ Point `--output-dir` at an existing `.lungfishref` bundle to attach the VCF as a
 | `-o, --output-dir <output-dir>` | Output project directory, or an existing `.lungfishref` bundle to attach the variants to. The default is the current folder. |
 | `--name <name>` | Display name for the variant track when attaching to a `.lungfishref` bundle. The default is `filename`. |
 | `--import-profile <import-profile>` | Trades import speed against memory when attaching to a bundle. Takes `auto`, `low-memory`, `fast`, `ultra-low-memory`. The default is `auto`. |
+| `--replace <track-id>` | Replaces the existing variant track with this id instead of adding a new track. An id the bundle does not have exits 3. |
 
 ### `import msa`
 
@@ -3666,7 +3669,7 @@ Runs a Nextflow or Snakemake workflow. The one built-in nf-core workflow is nf-c
 lungfish-cli workflow run [<options>] <workflow>
 ```
 
-`--executor` applies only to the nf-core Viral Recon route and is ignored for a local `.nf` file or Snakefile. `--expected-output` names where a result will be fingerprinted and does not create the file. At least one is required for a run that executes, and without one the command exits 64, unless `--prepare-only` is given. `--memory` takes the engine's own style, such as `8.GB`. The local adapters do not enforce it, and nf-core maps it to `max_memory`. `--workdir` is Nextflow's `-work-dir`, and a local Snakemake run records it without passing it. `--resume` is recorded but has no effect on local Snakemake. `--repeat-from` is the command-line form of Run Again, and it refuses when the settings differ from the original run. `--timeout` is not enforced locally and is rejected for nf-core/viralrecon. A Snakemake launch becomes `snakemake --snakefile <path> --directory <results-dir> --cores N --config outdir=<results-dir>`. Local workflows use the managed Nextflow or Snakemake when installed and otherwise whatever is on `PATH`, and launching never installs a missing engine.
+`--executor` applies only to the nf-core Viral Recon route and is ignored for a local `.nf` file or Snakefile. `--expected-output` names where a result will be fingerprinted and does not create the file. At least one is required for a run that executes, and without one the command exits 64, unless `--prepare-only` is given. `--memory` takes the engine's own style, such as `8.GB`. The local adapters do not enforce it, and nf-core maps it to `max_memory`. `--workdir` is Nextflow's `-work-dir`, and a local Snakemake run records it without passing it. `--resume` is recorded but has no effect on local Snakemake. `--repeat-from` is the command-line form of Run Again, and it refuses when the settings differ from the original run. `--timeout` is not enforced locally, and an nf-core/viralrecon run refuses it with exit status 3. A Snakemake launch becomes `snakemake --snakefile <path> --directory <results-dir> --cores N --config outdir=<results-dir>`. Every run launches only the managed Nextflow or Snakemake from Required Setup. A copy found elsewhere on `PATH` is never used, and a missing engine exits 126 with a message naming Required Setup rather than installing it.
 
 | Argument or flag | What it does |
 |---|---|
@@ -3687,7 +3690,7 @@ lungfish-cli workflow run [<options>] <workflow>
 | `--resume` | Resume from last checkpoint. |
 | `--dry-run` | Validate workflow without executing. |
 | `--prepare-only` | Create the LGE run bundle and command preview without launching Nextflow. |
-| `--timeout <timeout>` | Maximum execution time in minutes. |
+| `--timeout <timeout>` | Maximum execution time in minutes. Not supported yet. An nf-core/viralrecon run refuses it with exit status 3, and a local workflow does not enforce it. |
 
 ### `run-headless`
 

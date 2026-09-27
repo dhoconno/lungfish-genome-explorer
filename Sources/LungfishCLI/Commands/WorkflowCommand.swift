@@ -18,7 +18,7 @@ struct WorkflowCommand: AsyncParsableCommand {
         discussion: """
             Run Nextflow and Snakemake workflows. Containerised steps run
             through Docker Desktop (-profile docker); check it with
-            `lungfish debug container` before launching.
+            `lungfish-cli debug container` before launching.
             """,
         subcommands: [
             RunSubcommand.self,
@@ -34,8 +34,8 @@ struct RunHeadlessSubcommand: AsyncParsableCommand {
         commandName: "run-headless",
         abstract: "Run a workflow quietly without the GUI",
         discussion: """
-            Thin alias for `lungfish workflow run --quiet <workflow> ...`.
-            Use `lungfish workflow run --help` for the full workflow run option set.
+            Thin alias for `lungfish-cli workflow run --quiet <workflow> ...`.
+            Use `lungfish-cli workflow run --help` for the full workflow run option set.
             """
     )
 
@@ -71,14 +71,14 @@ struct RunSubcommand: AsyncParsableCommand {
         discussion: """
             Run a Nextflow or Snakemake workflow with the specified parameters.
             Containerised steps run through Docker Desktop (-profile docker);
-            `lungfish debug container` reports whether the daemon is reachable.
+            `lungfish-cli debug container` reports whether the daemon is reachable.
             The only built-in nf-core workflow supported by this command is
             nf-core/viralrecon, also accepted as viralrecon.
 
             Examples:
-              lungfish workflow run pipeline.nf --param reads=data/*.fastq.gz
-              lungfish workflow run Snakefile --cpus 8 --memory 16.GB
-              lungfish workflow run nf-core/viralrecon --input samplesheet.csv --param platform=illumina
+              lungfish-cli workflow run pipeline.nf --param reads=data/*.fastq.gz
+              lungfish-cli workflow run Snakefile --cpus 8 --memory 16.GB
+              lungfish-cli workflow run nf-core/viralrecon --input samplesheet.csv --param platform=illumina
             """
     )
 
@@ -192,9 +192,16 @@ struct RunSubcommand: AsyncParsableCommand {
 
     @Option(
         name: .customLong("timeout"),
-        help: "Maximum execution time in minutes"
+        help: ArgumentHelp(
+            "Maximum execution time in minutes. Not supported yet: refused for nf-core/viralrecon (exit status 3) and not enforced for a local workflow.",
+            discussion: "Use the CI service's own limit, or the shell's `timeout`, to bound a run for now."
+        )
     )
     var timeout: Int?
+
+    /// Printed when `--timeout` is given for an nf-core run (exit status 3).
+    static let timeoutUnsupportedForViralRecon =
+        "--timeout is not supported for nf-core/viralrecon runs yet; bound the run with the CI service's limit or the shell's `timeout` instead."
 
     @OptionGroup var globalOptions: GlobalOptions
 
@@ -235,7 +242,9 @@ struct RunSubcommand: AsyncParsableCommand {
         if workflow.contains("nf-core") || isViralReconWorkflow {
             _ = try validateViralReconWorkflowName()
             if timeout != nil {
-                throw CLIError.workflowFailed(reason: "--timeout is not supported for nf-core/viralrecon runs yet")
+                // A refused option is an input error (documented exit status
+                // 3), not a failed workflow (64); the help text says so.
+                throw CLIError.validationFailed(errors: [Self.timeoutUnsupportedForViralRecon])
             }
             if let cpus {
                 workflowParams["max_cpus"] = String(cpus)
@@ -549,7 +558,41 @@ struct RunSubcommand: AsyncParsableCommand {
             return
         }
 
+        // The managed Nextflow must exist before the bundle is marked
+        // running: a missing engine is reported as such (exit 126, naming
+        // Required Setup) with the bundle recorded as failed, instead of
+        // launching whatever `nextflow` is on PATH and failing inside it.
         let processStartedAt = Date()
+        do {
+            try Self.nfCoreWorkflowProcessRunner.preflightEngine()
+        } catch {
+            let endedAt = Date()
+            try error.localizedDescription.write(
+                to: runBundleURL.appendingPathComponent("logs/stderr.log"), atomically: true, encoding: .utf8)
+            try NFCoreRunBundleStore.write(
+                request.manifest(
+                    createdAt: bundleCreatedAt,
+                    executionStatus: .failed,
+                    startedAt: processStartedAt,
+                    completedAt: endedAt,
+                    exitCode: CLIExitCode.dependency.rawValue,
+                    stderrLogPath: "logs/stderr.log"
+                ),
+                to: runBundleURL
+            )
+            try writeRunBundleProvenance(
+                request: request,
+                bundleURL: runBundleURL,
+                prepareOnly: false,
+                status: .failed,
+                exitCode: CLIExitCode.dependency.rawValue,
+                wallTime: endedAt.timeIntervalSince(processStartedAt),
+                stderr: error.localizedDescription,
+                readPairing: pairingDecisions,
+                effectiveSamplesheetURL: nil
+            )
+            throw error
+        }
         try NFCoreRunBundleStore.write(
             request.manifest(
                 createdAt: bundleCreatedAt,
@@ -1012,6 +1055,9 @@ struct NFCoreWorkflowProcessResult: Sendable, Equatable {
 }
 
 protocol NFCoreWorkflowProcessRunning: Sendable {
+    /// Confirms the engine can be launched before the run bundle is marked
+    /// running; throws a `MissingToolError` (exit 126) when it cannot.
+    func preflightEngine() throws
     /// Runs Nextflow with `arguments`; `environment` overlays the launch environment.
     func runNextflow(
         arguments: [String],
@@ -1020,15 +1066,32 @@ protocol NFCoreWorkflowProcessRunning: Sendable {
     ) async throws -> NFCoreWorkflowProcessResult
 }
 
+extension NFCoreWorkflowProcessRunning {
+    func preflightEngine() throws {}
+}
+
+/// Resolves the launch for a managed engine; injectable so tests can point
+/// the runner at an empty tool root without touching `~/.lungfish`.
+typealias WorkflowEngineLaunchResolver = @Sendable (_ executableName: String, _ homeDirectory: URL) throws -> WorkflowEngineLaunch
+
 struct ProcessNFCoreWorkflowProcessRunner: NFCoreWorkflowProcessRunning {
     var homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser
+    /// Only the managed Nextflow is ever launched: a copy on `PATH` is a
+    /// different version and is not a substitute (see `WorkflowEngineLaunch.resolveManaged`).
+    var resolveLaunch: WorkflowEngineLaunchResolver = { executableName, homeDirectory in
+        try WorkflowEngineLaunch.resolveManaged(executableName: executableName, homeDirectory: homeDirectory)
+    }
+
+    func preflightEngine() throws {
+        _ = try resolveLaunch("nextflow", homeDirectory)
+    }
 
     func runNextflow(
         arguments: [String],
         workingDirectory: URL,
         environment: [String: String]
     ) async throws -> NFCoreWorkflowProcessResult {
-        let launch = WorkflowEngineLaunch.resolve(executableName: "nextflow", homeDirectory: homeDirectory)
+        let launch = try resolveLaunch("nextflow", homeDirectory)
         let processEnvironment = launch.environment.merging(environment) { _, override in override }
         if launch.usesManagedExecutable {
             await CondaManager.shared.repairManagedLaunchers(environment: "nextflow")
@@ -1096,17 +1159,23 @@ protocol LocalWorkflowProcessRunning: Sendable {
 }
 
 extension LocalWorkflowProcessRunning {
+    /// The managed engine, or nil: a copy on `PATH` is never launched, so it
+    /// is never reported as the runtime either.
     func runtimeExecutableURL(named executableName: String) -> URL? {
-        WorkflowEngineLaunch.resolve(executableName: executableName,
+        try? WorkflowEngineLaunch.resolveManaged(executableName: executableName,
             homeDirectory: FileManager.default.homeDirectoryForCurrentUser).resolvedExecutableURL()
     }
 }
 
 struct ProcessLocalWorkflowProcessRunner: LocalWorkflowProcessRunning {
     var homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser
+    /// Managed engines only; see `ProcessNFCoreWorkflowProcessRunner.resolveLaunch`.
+    var resolveLaunch: WorkflowEngineLaunchResolver = { executableName, homeDirectory in
+        try WorkflowEngineLaunch.resolveManaged(executableName: executableName, homeDirectory: homeDirectory)
+    }
 
     func runtimeExecutableURL(named executableName: String) -> URL? {
-        WorkflowEngineLaunch.resolve(executableName: executableName, homeDirectory: homeDirectory).resolvedExecutableURL()
+        try? resolveLaunch(executableName, homeDirectory).resolvedExecutableURL()
     }
 
     func runWorkflow(
@@ -1114,7 +1183,7 @@ struct ProcessLocalWorkflowProcessRunner: LocalWorkflowProcessRunning {
         arguments: [String],
         workingDirectory: URL
     ) async throws -> LocalWorkflowProcessResult {
-        let launch = WorkflowEngineLaunch.resolve(executableName: executableName, homeDirectory: homeDirectory)
+        let launch = try resolveLaunch(executableName, homeDirectory)
         if launch.usesManagedExecutable {
             await CondaManager.shared.repairManagedLaunchers(environment: executableName)
         }

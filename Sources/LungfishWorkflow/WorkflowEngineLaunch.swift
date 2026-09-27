@@ -12,9 +12,13 @@ import LungfishCore
 /// up with `/usr/bin/env nextflow` therefore fails with exit status 127 even
 /// though Lungfish installed its own copy under the managed conda root. The
 /// engine is resolved the same way the in-process runners do it: the managed
-/// copy wins, and only when it is absent does the launch fall back to a `PATH`
-/// lookup. Either way the environment is widened so the engine and the tasks
-/// it spawns can find the managed conda tools and Docker Desktop's CLI.
+/// copy wins. ``resolve(executableName:homeDirectory:appIdentity:baseEnvironment:)``
+/// still describes a `PATH` lookup when the managed copy is absent, for
+/// availability probes and runtime evidence; the CLI launches only through
+/// ``resolveManaged(executableName:homeDirectory:appIdentity:baseEnvironment:)``,
+/// which refuses that fallback. Either way the environment is widened so the
+/// engine and the tasks it spawns can find the managed conda tools and Docker
+/// Desktop's CLI.
 public struct WorkflowEngineLaunch: Equatable, Sendable {
     /// The process to execute: the managed engine, or `/usr/bin/env` for a PATH lookup.
     public let executableURL: URL
@@ -117,5 +121,74 @@ public struct WorkflowEngineLaunch: Equatable, Sendable {
             argumentPrefix: [executableName],
             environment: environment
         )
+    }
+
+    /// The launch `lungfish-cli workflow run` actually uses: Lungfish's
+    /// managed copy of the engine, never a copy found on `PATH`.
+    ///
+    /// A `PATH` fallback (`~/miniforge3/bin/nextflow`, say) is a different,
+    /// unpinned version; nf-core/viralrecon then failed deep inside Nextflow
+    /// ("nf-schema requires Nextflow >=25.04.0") with no hint that the
+    /// managed engine was simply missing from this tool root (the Debug
+    /// channel's `~/.lungfish-debug`, for instance). The missing engine is a
+    /// ``MissingToolError``, so the CLI exits with the documented status 126
+    /// and names Required Setup. ``resolve(executableName:homeDirectory:appIdentity:baseEnvironment:)``
+    /// keeps the fallback for availability probes and runtime evidence only.
+    public static func resolveManaged(
+        executableName: String,
+        homeDirectory: URL,
+        appIdentity: LungfishAppIdentity = .current,
+        baseEnvironment: [String: String] = ProcessInfo.processInfo.environment
+    ) throws -> WorkflowEngineLaunch {
+        let launch = resolve(
+            executableName: executableName,
+            homeDirectory: homeDirectory,
+            appIdentity: appIdentity,
+            baseEnvironment: baseEnvironment
+        )
+        guard launch.usesManagedExecutable else {
+            throw WorkflowEngineNotInstalled(
+                executableName: executableName,
+                expectedPath: CoreToolLocator.executableURL(
+                    environment: executableName,
+                    executableName: executableName,
+                    homeDirectory: homeDirectory,
+                    appIdentity: appIdentity
+                ).standardizedFileURL.path
+            )
+        }
+        return launch
+    }
+}
+
+/// The managed workflow engine is not installed in this tool root.
+///
+/// Conforms to ``MissingToolError`` so `lungfish-cli` exits 126 with this
+/// message, whether or not a different copy of the engine is on `PATH`.
+public struct WorkflowEngineNotInstalled: Error, LocalizedError, MissingToolError, Equatable, Sendable {
+    public let executableName: String
+    /// Where the managed copy was expected.
+    public let expectedPath: String
+
+    public init(executableName: String, expectedPath: String) {
+        self.executableName = executableName
+        self.expectedPath = expectedPath
+    }
+
+    public var missingToolName: String? { executableName }
+
+    public var displayName: String {
+        switch executableName {
+        case "nextflow": return "Nextflow"
+        case "snakemake": return "Snakemake"
+        default: return executableName
+        }
+    }
+
+    public var errorDescription: String? {
+        "\(displayName) is not installed in Lungfish's managed tool root (expected \(expectedPath)). "
+            + "\(displayName) is part of LGE's Required Setup: in the app, open the Welcome window and click Install, "
+            + "or run `\(CLICommandIdentity.executableName) tools update --apply --yes --required-only`. "
+            + "A \(executableName) found elsewhere on PATH is not used."
     }
 }
