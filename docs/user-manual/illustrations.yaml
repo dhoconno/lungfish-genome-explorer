@@ -7,6 +7,12 @@
 # (see docs/user-manual/media.lock) and land at that path when you run
 # docs/user-manual/build/scripts/fetch-media.sh.
 #
+# status (optional): drawn = the asset matches the brief; commission = no
+# asset yet, draw from the brief; redraw = an asset exists but the brief
+# changed, so the old image no longer matches the chapter. Entries without a
+# status are drawn. Chapter frontmatter holds the full brief and wins when
+# the two differ.
+#
 # Brand palette:
 #   - Lungfish Creamsicle: #EE8B4F
 #   - Peach: #F6B088
@@ -16,6 +22,29 @@
 
 version: 0
 chapters:
+
+  # index.md is outside chapters/, and build/hooks/shots.py renders
+  # ILLUSTRATION markers only under chapters/, so this figure needs a hook
+  # change (or an inline image) before it can appear on the home page.
+  index:
+    illustrations:
+      - id: learning-paths
+        target_dimensions: 1600x800
+        asset: assets/illustrations-imagegen/index/learning-paths.png
+        status: commission
+        brief: >
+          The five reading paths of the home page drawn as chapter
+          chains on one canvas. A shared trunk runs left to right
+          through the Foundations part, then Reads, Alignments, and
+          Variants. From Variants, branches leave for Human Germline
+          Variants (Experimental), Classification, Assembly, MHC
+          Allele Genotyping, and Primer Design, each branch labelled
+          with the reading path that uses it (human short-read
+          variants, SARS-CoV-2 amplicons, clinical metagenome,
+          macaque MHC genotyping, designing primers). Chapters are
+          small rounded boxes with their nav titles. Lungfish
+          Creamsicle for the trunk, Peach for the branches, Deep Ink
+          for text and arrows, Cream background.
 
   01-foundations/01-what-is-a-genome:
     illustrations:
@@ -28,9 +57,14 @@ chapters:
       - id: position-coordinates
         target_dimensions: 1400x300
         asset: assets/illustrations-imagegen/01-foundations/01-what-is-a-genome/position-coordinates.png
+        status: redraw
         brief: >
-          SARS-CoV-2 MN908947.3 coordinate ruler with 1-based ticks at 1,
-          1000, 5000, 10000, and 29903.
+          A horizontal backbone for the record NG_000007.3 with
+          position ticks at 1, 20000, 40000, 60000, 70613, 81706.
+          Above the backbone, a callout showing total length 81,706
+          bases, and a second callout marking the HBB gene span
+          70545 to 72152. Use IBM Plex Mono for the numbers and
+          Lungfish Creamsicle for the backbone.
       - id: variant-notation
         target_dimensions: 1400x500
         asset: assets/illustrations-imagegen/01-foundations/01-what-is-a-genome/variant-notation.png
@@ -97,9 +131,18 @@ chapters:
       - id: coverage-histogram
         target_dimensions: 1400x350
         asset: assets/illustrations-imagegen/01-foundations/04-alignment-files/coverage-histogram.png
+        status: redraw
         brief: >
-          Coverage area histogram across a 2000-base region with one Peach
-          low-coverage trough called out.
+          A coverage histogram across a 2,000-base stretch of the
+          HG002 chromosome 20 slice, x axis labelled with slice
+          positions, y axis read depth from 0 to 80, the curve
+          wandering gently between about 30 and 60 around a dashed
+          line at the mean depth of 44.7, with one short trough
+          dropping below a dotted line at depth 10 and touching 0
+          for a few positions. Annotate the trough 'below 10 reads,
+          too thin to call' with a Peach highlight. Use a Lungfish
+          Creamsicle area fill on a Cream background, IBM Plex Mono
+          for the numbers.
       - id: pileup-view
         target_dimensions: 1000x700
         asset: assets/illustrations-imagegen/01-foundations/04-alignment-files/pileup-view.png
@@ -124,9 +167,15 @@ chapters:
       - id: allele-frequency-haploid-vs-diploid
         target_dimensions: 1400x600
         asset: assets/illustrations-imagegen/01-foundations/05-variants-and-vcf/allele-frequency-haploid-vs-diploid.png
+        status: drawn
         brief: >
-          Human diploid AF=0.5 as one of two alleles compared with viral
-          haploid AF=0.5 as half the read evidence.
+          Side-by-side schematic. Left: human diploid sample with
+          two copies of a chromosome, AF=0.5 means one of two
+          alleles carries the variant. Right: viral haploid sample
+          with one genome copy per virion but many virion copies in
+          the sample, AF=0.5 means half the read evidence supports
+          the variant. Use Deep Ink for chromosomes, Lungfish
+          Creamsicle for variant alleles.
       - id: filter-flag-cartoon
         target_dimensions: 1200x500
         asset: assets/illustrations-imagegen/01-foundations/05-variants-and-vcf/filter-flag-cartoon.png
@@ -134,6 +183,71 @@ chapters:
           Three VCF rows emphasizing FILTER=PASS, ft, and sb with a Deep Ink
           check mark, Peach warning triangles, and Lungfish-normalized filter
           names.
+
+      - id: variant-calling-routes
+        target_dimensions: 1400x1000
+        asset: assets/illustrations-imagegen/01-foundations/05-variants-and-vcf/variant-calling-routes.png
+        status: commission
+        brief: >
+          A decision tree read top to bottom, Deep Ink boxes and
+          connecting lines on Cream, each leaf a Lungfish Creamsicle
+          box naming a route and the chapter title that covers it in
+          IBM Plex Mono. First branch: 'Already have a VCF from
+          elsewhere?' yes leads to 'Import it (Importing Existing
+          VCFs)'. Otherwise branch on 'What is the question?':
+          'Which named MHC alleles does a macaque carry?' leads to
+          'MHC allele genotyping (What Is MHC Genotyping)', and
+          'Which mix of viral lineages is in the sample?' leads to
+          'Freyja (Running Freyja)'. The positional-variant branch
+          splits on instrument: 'Nanopore reads' leads to 'Clair3 or
+          Medaka (Nanopore Variant Calling)'. Short reads split on
+          ploidy. 'Two copies (human or macaque)' splits on scale:
+          'one sample, a first look' leads to 'bcftools (Calling
+          Variants)', 'publishable or a cohort' leads to
+          'HaplotypeCaller and joint genotyping (Reference Files for
+          GATK)'. 'Many copies or a mixture (virus, mitochondria,
+          tumour)' splits on library: 'SARS-CoV-2 amplicons' leads
+          to 'Viral Recon (The Viral Recon Wizard)', 'other amplicon
+          virus' leads to 'primer trim, then iVar (Calling
+          Variants)', 'shotgun, deep, mixed' leads to 'LoFreq
+          (Calling Variants)'. Nine leaves in all.
+
+  01-foundations/06-the-lungfish-project:
+    illustrations:
+      - id: mapping-result-layout
+        target_dimensions: 1400x700
+        asset: assets/illustrations-imagegen/01-foundations/06-the-lungfish-project/mapping-result-layout.png
+        status: commission
+        brief: >
+          Two folder trees side by side inside one project folder.
+          On the left, Reference Sequences/ holds
+          GRCh38.chr20.10.0-10.5Mb.lungfishref with only its
+          sequence, labelled 'untouched'. On the right,
+          Analyses/minimap2-<timestamp>/ holds the run's records and
+          a copy of the same reference bundle, and inside that copy
+          an alignments folder with the HG002 minimap2 track and a
+          variants folder with the HG002 bcftools and HG002 LoFreq
+          tracks. An arrow from the left bundle to the copy is
+          labelled 'copied at mapping time'. A caption line names
+          the copy 'the reference bundle inside the mapping result'.
+          Lungfish Creamsicle for folders, Peach for the tracks,
+          Deep Ink for labels and arrows, Cream background.
+      - id: where-derived-references-land
+        target_dimensions: 1400x600
+        asset: assets/illustrations-imagegen/01-foundations/06-the-lungfish-project/where-derived-references-land.png
+        status: commission
+        brief: >
+          Four labelled project folders in a row, each holding one
+          example .lungfishref bundle and a one-line note of how it
+          got there. Reference Sequences/ holds
+          GRCh38.chr20.10.0-10.5Mb (imported by you) and contig_1
+          (extracted from an assembly). Downloads/ holds NC_012920.1
+          (fetched from NCBI). Extractions/ holds a region cut out
+          of a reference. Analyses/ holds the reference copy inside
+          a mapping result and a primer-design export bundle. A
+          footer line reads 'Any of these works wherever a dialog
+          asks for a reference.' Lungfish Creamsicle for folders,
+          Deep Ink for text, Cream background.
 
   01-foundations/08-provenance-and-reproducibility:
     illustrations:
