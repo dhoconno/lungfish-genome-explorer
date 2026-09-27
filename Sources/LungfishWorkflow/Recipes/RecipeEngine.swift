@@ -185,8 +185,16 @@ public final class RecipeEngine: Sendable {
             // Emit a single step
             let label = step.label ?? type(of: executor).displayName
             plan.append(.singleStep(executor, label: label))
-            currentFormat = executor.outputFormat
+            currentFormat = Self.effectiveOutputFormat(for: executor, inputFormat: neededFormat)
             i += 1
+        }
+
+        // A recipe never hands three files back: the merged reads and the
+        // unmerged pairs are written to one mixed file (merged reads first,
+        // then R1 directly before its R2) so the bundle keeps every mate
+        // adjacent for clumpify, mappers, and classifiers.
+        if currentFormat == .merged {
+            plan.append(.formatConversion(from: .merged, to: .mixed))
         }
 
         return plan
@@ -340,6 +348,41 @@ public final class RecipeEngine: Sendable {
                     startedAt: currentOutput.startedAt,
                     completedAt: currentOutput.completedAt
                 ))
+                // A step that ran a second process (the length filter's
+                // pair-aware fastp pass) gets one record per process so the
+                // provenance replays every command. The read counts belong to
+                // the logical step above and are not repeated.
+                for invocation in currentOutput.supplementaryInvocations {
+                    let duration: TimeInterval
+                    if let startedAt = invocation.startedAt, let completedAt = invocation.completedAt {
+                        duration = completedAt.timeIntervalSince(startedAt)
+                    } else {
+                        duration = 0
+                    }
+                    stepRecords.append(RecipeStepResult(
+                        stepName: "\(stepLabel) (\(invocation.label))",
+                        tool: invocation.tool.executableName,
+                        toolVersion: await context.runner.getToolVersion(invocation.tool),
+                        commandLine: invocation.arguments.map(shellEscapeForRecipeCommand).joined(separator: " "),
+                        commandArguments: invocation.arguments,
+                        inputReadCount: nil,
+                        outputReadCount: nil,
+                        durationSeconds: duration,
+                        auxiliaryOutputPaths: [],
+                        logicalComponents: logicalComponents,
+                        executionOutputFiles: try invocation.outputFiles.map { outputURL in
+                            RecipeStepOutputFile(
+                                path: outputURL.path,
+                                checksumSHA256: try ProvenanceFileHasher.sha256(of: outputURL),
+                                sizeBytes: try ProvenanceFileHasher.fileSize(of: outputURL)
+                            )
+                        },
+                        exitStatus: invocation.exitStatus,
+                        stderr: invocation.stderr,
+                        startedAt: invocation.startedAt,
+                        completedAt: invocation.completedAt
+                    ))
+                }
                 previousReadCount = outputReadCount
             }
 
@@ -365,7 +408,7 @@ public final class RecipeEngine: Sendable {
         switch output.format {
         case .pairedR1R2:
             return try await reader.countRecords(in: output.r1)
-        case .interleaved, .single:
+        case .interleaved, .single, .mixed:
             return try await reader.countRecords(in: output.r1)
         case .merged:
             var count = try await reader.countRecords(in: output.r1)
@@ -382,24 +425,31 @@ public final class RecipeEngine: Sendable {
     // MARK: - Private helpers
 
     /// Returns the input format the executor actually expects, accounting for
-    /// ``SeqkitLengthFilterStep``'s ability to accept any single-stream format.
+    /// ``SeqkitLengthFilterStep``'s ability to take a single stream, an R1/R2
+    /// pair, or the three-file merged layout as it is.
+    ///
+    /// The merged layout is deliberately NOT flattened to `.single` first:
+    /// a per-record filter on a flattened file leaves the surviving mate of a
+    /// dropped read as a silent orphan and loses every pair's adjacency.
     private func effectiveInputFormat(
         for executor: any RecipeStepExecutor,
         currentFormat: RecipeFileFormat
     ) -> RecipeFileFormat {
-        // SeqkitLengthFilterStep accepts any single-stream format.
-        // If the current format is merged (or single/interleaved), route only r1
-        // by converting merged → single first.
-        if executor is SeqkitLengthFilterStep {
-            switch currentFormat {
-            case .single, .interleaved:
-                return .single
-            case .merged, .pairedR1R2:
-                // merged needs explicit conversion; pairedR1R2 needs interleave or concat
-                return .single
-            }
+        if let lengthFilter = executor as? SeqkitLengthFilterStep {
+            return lengthFilter.inputFormat(for: currentFormat)
         }
         return executor.inputFormat
+    }
+
+    /// Returns the format the executor produces for the input it was given.
+    static func effectiveOutputFormat(
+        for executor: any RecipeStepExecutor,
+        inputFormat: RecipeFileFormat
+    ) -> RecipeFileFormat {
+        if let lengthFilter = executor as? SeqkitLengthFilterStep {
+            return lengthFilter.outputFormat(for: inputFormat)
+        }
+        return executor.outputFormat
     }
 
     /// Returns whether the engine can convert between two ``RecipeFileFormat`` values.
@@ -407,7 +457,7 @@ public final class RecipeEngine: Sendable {
         switch (from, to) {
         case (.pairedR1R2, .interleaved): return true
         case (.interleaved, .pairedR1R2): return true
-        case (.merged, .single):          return true
+        case (.merged, .mixed):           return true
         case let (a, b) where a == b:    return true
         default:                          return false
         }
@@ -550,8 +600,8 @@ public final class RecipeEngine: Sendable {
         case (.interleaved, .pairedR1R2):
             return try await convertInterleavedToPaired(input: input, context: context)
 
-        case (.merged, .single):
-            return try await convertMergedToSingle(input: input, context: context)
+        case (.merged, .mixed):
+            return try await convertMergedToMixed(input: input, context: context)
 
         default:
             throw RecipeEngineError.incompatibleFormatChain(
@@ -647,22 +697,74 @@ public final class RecipeEngine: Sendable {
         return StepOutput(r1: outR1, r2: outR2, format: .pairedR1R2, tool: .reformat, arguments: result.arguments)
     }
 
-    /// Concatenates merged.fq.gz + unmerged_R1.fq.gz + unmerged_R2.fq.gz → single.fq.gz.
+    /// merged.fq.gz + unmerged_R1.fq.gz + unmerged_R2.fq.gz → one mixed file.
     ///
-    /// Since gzip files may be concatenated to produce a valid multi-stream gzip archive,
-    /// this operation simply appends the raw bytes of each non-nil input file.
-    private func convertMergedToSingle(
+    /// The old conversion appended the three gzip streams and called the
+    /// result single-end, which put every unmerged R1 before every unmerged
+    /// R2: no mate was next to its partner, clumpify reordered them as
+    /// singles, and mappers and classifiers saw each unmerged fragment twice.
+    /// The mixed file keeps the merged reads first and then each pair
+    /// adjacent (``FASTQPairInterleaver/writeMergedThenPairs(merged:unmergedR1:unmergedR2:to:)``).
+    private func convertMergedToMixed(
         input: StepInput,
         context: StepContext
     ) async throws -> StepOutput {
         let output = context.workspace.appendingPathComponent(
-            "\(context.sampleName)_single.fq.gz")
+            "\(context.sampleName)_mixed.fastq")
+        let counts = try await Self.writeMixedLayout(
+            merged: input.r1,
+            unmergedR1: input.r2,
+            unmergedR2: input.r3,
+            to: output
+        )
+        logger.info("Mixed layout written for \(context.sampleName, privacy: .public): \(counts.mergedReads) merged reads, \(counts.pairs) unmerged pairs")
+        return StepOutput(
+            r1: output,
+            format: .mixed,
+            readCount: counts.totalRecords,
+            mixedLayout: counts
+        )
+    }
 
-        let sources = [input.r1, input.r2, input.r3].compactMap { $0 }
+    /// Writes the ``RecipeFileFormat/mixed`` file for a merged layout and
+    /// returns its counts. With no unmerged files the merged reads are
+    /// copied on their own.
+    ///
+    /// Runs the byte copy off the calling executor; the output is plain FASTQ
+    /// because the storage step that follows reads, reorders, and compresses
+    /// it anyway.
+    static func writeMixedLayout(
+        merged: URL,
+        unmergedR1: URL?,
+        unmergedR2: URL?,
+        to output: URL
+    ) async throws -> RecipeMixedLayoutCounts {
+        try await Task.detached(priority: .utility) {
+            let counts = try Self.openSink(at: output) { sink in
+                try FASTQPairInterleaver.writeMergedThenPairs(
+                    merged: merged,
+                    unmergedR1: unmergedR1,
+                    unmergedR2: unmergedR2,
+                    to: sink
+                )
+            }
+            return RecipeMixedLayoutCounts(mergedReads: counts.mergedRecords, pairs: counts.pairs)
+        }.value
+    }
 
-        try Self.concatenateStreams(sources, to: output)
-
-        return StepOutput(r1: output, format: .single)
+    private static func openSink<T>(at output: URL, _ body: (FileHandle) throws -> T) throws -> T {
+        try? FileManager.default.removeItem(at: output)
+        FileManager.default.createFile(atPath: output.path, contents: nil)
+        let handle = try FileHandle(forWritingTo: output)
+        do {
+            let result = try body(handle)
+            try handle.close()
+            return result
+        } catch {
+            try? handle.close()
+            try? FileManager.default.removeItem(at: output)
+            throw error
+        }
     }
 
     static func concatenateStreams(_ sources: [URL], to output: URL) throws {

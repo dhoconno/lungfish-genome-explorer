@@ -20,6 +20,71 @@ public enum RecipeFileFormat: String, Codable, Sendable, Equatable {
     case merged
     /// Single-end reads in a single file.
     case single
+    /// One file holding the merged reads first, then every unmerged pair
+    /// with R1 immediately followed by its R2 mate (the layout a
+    /// `.lungfishfastq` bundle stores for a merge recipe, and the one
+    /// ``FASTQPairInterleaver/countMixed(interleaved:)`` classifies as
+    /// mixed). Produced only by the engine's `.merged` normalization.
+    case mixed
+}
+
+// MARK: - RecipeMixedLayoutCounts
+
+/// Record counts of a ``RecipeFileFormat/mixed`` file, by kind.
+public struct RecipeMixedLayoutCounts: Codable, Sendable, Equatable {
+    /// Merged reads, each standing alone.
+    public let mergedReads: Int
+    /// Unmerged fragments written as adjacent R1/R2 records.
+    public let pairs: Int
+    /// Records with no mate in the file (never written by the engine's
+    /// own conversion; kept so a step that must keep orphans can say so).
+    public let unpairedReads: Int
+
+    public init(mergedReads: Int, pairs: Int, unpairedReads: Int = 0) {
+        self.mergedReads = mergedReads
+        self.pairs = pairs
+        self.unpairedReads = unpairedReads
+    }
+
+    /// Total FASTQ records in the file.
+    public var totalRecords: Int { mergedReads + pairs * 2 + unpairedReads }
+}
+
+// MARK: - RecipeSupplementaryInvocation
+
+/// A second tool process a step ran beside its primary one, recorded as its
+/// own provenance step so every command that shaped the output is replayable.
+public struct RecipeSupplementaryInvocation: Sendable {
+    /// Short description appended to the step label, such as "unmerged pairs".
+    public let label: String
+    public let tool: NativeTool
+    public let arguments: [String]
+    public let exitStatus: Int?
+    public let stderr: String?
+    public let startedAt: Date?
+    public let completedAt: Date?
+    /// Files this invocation wrote, snapshotted before intermediate cleanup.
+    public let outputFiles: [URL]
+
+    public init(
+        label: String,
+        tool: NativeTool,
+        arguments: [String],
+        exitStatus: Int? = nil,
+        stderr: String? = nil,
+        startedAt: Date? = nil,
+        completedAt: Date? = nil,
+        outputFiles: [URL] = []
+    ) {
+        self.label = label
+        self.tool = tool
+        self.arguments = arguments
+        self.exitStatus = exitStatus
+        self.stderr = stderr
+        self.startedAt = startedAt
+        self.completedAt = completedAt
+        self.outputFiles = outputFiles
+    }
 }
 
 // MARK: - StepInput
@@ -71,13 +136,19 @@ public struct StepOutput: Sendable {
     public let startedAt: Date?
     /// Actual native tool process completion time.
     public let completedAt: Date?
+    /// Record counts by kind when `format` is ``RecipeFileFormat/mixed``.
+    public let mixedLayout: RecipeMixedLayoutCounts?
+    /// Further tool processes this step ran beside its primary one.
+    public let supplementaryInvocations: [RecipeSupplementaryInvocation]
 
     public init(r1: URL, r2: URL? = nil, r3: URL? = nil,
                 format: RecipeFileFormat, readCount: Int? = nil,
                 tool: NativeTool? = nil, arguments: [String]? = nil,
                 auxiliaryOutputs: [URL] = [], exitStatus: Int? = nil,
                 stderr: String? = nil, startedAt: Date? = nil,
-                completedAt: Date? = nil) {
+                completedAt: Date? = nil,
+                mixedLayout: RecipeMixedLayoutCounts? = nil,
+                supplementaryInvocations: [RecipeSupplementaryInvocation] = []) {
         self.r1 = r1
         self.r2 = r2
         self.r3 = r3
@@ -90,6 +161,8 @@ public struct StepOutput: Sendable {
         self.stderr = stderr
         self.startedAt = startedAt
         self.completedAt = completedAt
+        self.mixedLayout = mixedLayout
+        self.supplementaryInvocations = supplementaryInvocations
     }
 }
 
