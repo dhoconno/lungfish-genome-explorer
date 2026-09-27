@@ -3,7 +3,7 @@ title: Filtering, Selecting, and Metrics
 chapter_id: 06-human-germline-variants/03-filtering-selecting-and-metrics
 audience: power-user
 prereqs: [06-human-germline-variants/02-joint-genotyping]
-estimated_reading_min: 19
+estimated_reading_min: 12
 task: Flag the untrustworthy calls in a cohort VCF, pull out one sample or one variant class, normalize indels, export a table, and summarise the call set against a known-variant file.
 tags: [gatk, variantfiltration, selectvariants, variantstotable, metrics, cli]
 tools: [gatk]

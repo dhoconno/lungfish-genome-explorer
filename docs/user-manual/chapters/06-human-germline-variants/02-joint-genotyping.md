@@ -3,7 +3,7 @@ title: Joint Genotyping
 chapter_id: 06-human-germline-variants/02-joint-genotyping
 audience: power-user
 prereqs: [06-human-germline-variants/04-reference-packs, 06-human-germline-variants/01-haplotype-caller]
-estimated_reading_min: 17
+estimated_reading_min: 10
 task: Call a family trio as GVCFs and combine them into one cohort VCF with GATK joint genotyping from the command line.
 tags: [gatk, genotypegvcfs, combinegvcfs, genomicsdb, joint-genotyping, trio, cli]
 tools: [gatk, bcftools]

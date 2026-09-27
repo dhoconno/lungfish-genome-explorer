@@ -3,7 +3,7 @@ title: Short-Read Assembly (SPAdes, MEGAHIT, SKESA)
 chapter_id: 07-assembly/02-running-spades
 audience: bench-scientist
 prereqs: [01-foundations/07-plugin-packs, 03-reads/01-importing-fastq, 07-assembly/01-when-to-assemble]
-estimated_reading_min: 15
+estimated_reading_min: 12
 task: Assemble Illumina paired-end reads with SPAdes, MEGAHIT, or SKESA and read the contigs the run produces.
 tags: [assembly, spades, megahit, skesa, illumina, de-novo, contigs, n50]
 tools: [spades, megahit, skesa]

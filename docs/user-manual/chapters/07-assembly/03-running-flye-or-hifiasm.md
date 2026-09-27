@@ -3,7 +3,7 @@ title: Long-Read Assembly (Flye, hifiasm)
 chapter_id: 07-assembly/03-running-flye-or-hifiasm
 audience: bench-scientist
 prereqs: [07-assembly/01-when-to-assemble, 07-assembly/02-running-spades]
-estimated_reading_min: 15
+estimated_reading_min: 14
 task: Assemble Oxford Nanopore reads with Flye or PacBio HiFi reads with hifiasm, and read the resulting contig table.
 tags: [assembly, flye, hifiasm, nanopore, pacbio, long-read]
 tools: [flye, hifiasm]

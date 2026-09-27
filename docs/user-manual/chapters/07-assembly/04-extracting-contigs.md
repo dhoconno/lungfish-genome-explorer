@@ -3,7 +3,7 @@ title: Extracting Contigs
 chapter_id: 07-assembly/04-extracting-contigs
 audience: bench-scientist
 prereqs: [07-assembly/01-when-to-assemble, 07-assembly/02-running-spades]
-estimated_reading_min: 10
+estimated_reading_min: 7
 task: Pick contigs from an assembly and derive a new reference bundle from them.
 tags: [assembly, extract, contigs, reference]
 tools: []

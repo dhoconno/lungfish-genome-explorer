@@ -3,7 +3,7 @@ title: When to Assemble
 chapter_id: 07-assembly/01-when-to-assemble
 audience: bench-scientist
 prereqs: [01-foundations/02-sequencing-reads, 03-reads/01-importing-fastq]
-estimated_reading_min: 15
+estimated_reading_min: 14
 task: Decide whether a sample needs de novo assembly or reference mapping, and pick which of the five assemblers LGE ships fits your reads.
 tags: [assembly, spades, megahit, skesa, flye, hifiasm, de-novo]
 tools: []
@@ -77,7 +77,7 @@ Flye borrows from both families. It joins rough overlaps into draft pieces, buil
 
 ### Three questions
 
-**Does a reference fit my sample?** Judge this on the reads from your target organism, not the whole run, which may be mostly host. Take the reads [Kraken 2](../06-classification/02-running-kraken2.md) assigns to your target and map them in a trial run of [Mapping Reads to a Reference](../04-alignments/01-mapping-reads-to-a-reference.md), which reports the share that aligned. A [BLAST](../../GLOSSARY.md#blast) search of a few of them reports [percent identity](../../GLOSSARY.md#percent-identity), the share of matching positions, to the nearest genomes. If most target reads align closely, map, and otherwise assemble.
+**Does a reference fit my sample?** Judge this on the reads from your target organism, not the whole run, which may be mostly host. Take the reads Kraken 2 assigns to your target, as [Running Kraken 2](../06-classification/02-running-kraken2.md) shows, and map them in a trial run of [Mapping Reads to a Reference](../04-alignments/01-mapping-reads-to-a-reference.md), which reports the share that aligned. A [BLAST](../../GLOSSARY.md#blast) search of a few of them reports [percent identity](../../GLOSSARY.md#percent-identity), the share of matching positions, to the nearest genomes. If most target reads align closely, map, and otherwise assemble.
 
 **Are my reads short or long?** This is a hard constraint. Illumina reads, tens to a few hundred bases long, go to SPAdes, MEGAHIT, or SKESA. Oxford Nanopore reads, thousands to tens of thousands of bases, go to Flye or hifiasm, and PacBio HiFi reads, long and unusually accurate, go to hifiasm. Illumina and HiFi make well under one error per hundred bases. Nanopore reads make a few per hundred on older flow cells, the consumable chip the reads come from, and about one per hundred on current R10.4.1 flow cells. The MinKNOW run report names the flow cell, and recent basecallers write a model name such as `dna_r10.4.1` into each read's header. LGE takes one read type per run, so it offers no hybrid assembly, though outside LGE polishing a nanopore assembly with short reads of the same sample is standard practice.
 

@@ -3,7 +3,7 @@ title: Reference Files for GATK
 chapter_id: 06-human-germline-variants/04-reference-packs
 audience: power-user
 prereqs: [01-foundations/05-variants-and-vcf, 01-foundations/07-plugin-packs, 04-alignments/01-mapping-reads-to-a-reference]
-estimated_reading_min: 20
+estimated_reading_min: 13
 task: Map the GIAB trio for the GATK part, build the companion files GATK germline commands need beside a reference FASTA, and run base quality score recalibration.
 tags: [gatk, reference, known-sites, bqsr, sequence-dictionary, plugin-pack]
 tools: [gatk, samtools, bcftools]

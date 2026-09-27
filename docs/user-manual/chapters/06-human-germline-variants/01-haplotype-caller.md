@@ -3,7 +3,7 @@ title: HaplotypeCaller
 chapter_id: 06-human-germline-variants/01-haplotype-caller
 audience: power-user
 prereqs: [06-human-germline-variants/04-reference-packs, 01-foundations/05-variants-and-vcf, 05-variants/01-calling-variants-from-amplicons]
-estimated_reading_min: 18
+estimated_reading_min: 11
 task: Call germline SNVs and indels with GATK HaplotypeCaller from the Call Variants dialog or the command line.
 tags: [gatk, haplotypecaller, germline, experimental, cli, gui]
 tools: [gatk, whatshap]
