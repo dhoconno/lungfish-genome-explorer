@@ -1272,7 +1272,8 @@ private func regularFileRelativePaths(in bundleURL: URL) throws -> [String] {
     for case let fileURL as URL in enumerator {
         let values = try fileURL.resourceValues(forKeys: [.isRegularFileKey])
         guard values.isRegularFile == true else { continue }
-        let relative = String(fileURL.path.dropFirst(bundleURL.path.count + 1))
+        // Physical paths: under /tmp the enumerator yields /private/tmp URLs.
+        guard let relative = CanonicalFilePath.relativePath(of: fileURL, within: bundleURL) else { continue }
         paths.append(relative)
     }
     return paths

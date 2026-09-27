@@ -1,4 +1,5 @@
 import Foundation
+import LungfishIO
 import Security
 
 enum BundledMicromambaIntegrity {
@@ -42,7 +43,7 @@ enum BundledMicromambaIntegrity {
     }
 
     private static func isExpectedResource(_ executable: URL, in app: URL) -> Bool {
-        let relative = String(executable.path.dropFirst(app.path.count + 1))
+        guard let relative = CanonicalFilePath.relativePath(of: executable, within: app) else { return false }
         return relative == "Contents/Resources/LungfishGenomeBrowser_LungfishWorkflow.bundle/Contents/Resources/Tools/micromamba"
             || relative == "Contents/Resources/LungfishGenomeBrowser_LungfishWorkflow.bundle/Tools/micromamba"
     }

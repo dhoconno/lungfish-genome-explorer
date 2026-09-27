@@ -51,7 +51,8 @@ enum FastqDemultiplexSequenceFormat {
 
     static func publishFASTA(bundleURL: URL, toolPayload: URL, toolName: String, toolVersion: String) async throws -> ProvenanceEnvelope {
         let fasta = try await SequenceProcessingOutputNormalizer.normalize(outputURL: toolPayload, preferredFormat: .fasta)
-        let relativePayload = String(fasta.path.dropFirst(bundleURL.path.count + 1))
+        let relativePayload = CanonicalFilePath.relativePath(of: fasta, within: bundleURL)
+            ?? String(fasta.path.dropFirst(bundleURL.path.count + 1))
         let statistics = try await SyntheticFASTQBridge.placeholderStatistics(fromFASTQ: toolPayload)
         let operation = FASTQDerivativeOperation(kind: .demultiplex, toolUsed: toolName, toolVersion: toolVersion)
         let manifest = FASTQDerivedBundleManifest(

@@ -104,7 +104,7 @@ private func treeDirectoryChecksums(url: URL) throws -> [String: String] {
     for case let fileURL as URL in enumerator {
         let values = try fileURL.resourceValues(forKeys: [.isRegularFileKey])
         guard values.isRegularFile == true else { continue }
-        let relative = String(fileURL.path.dropFirst(url.path.count + 1))
+        guard let relative = CanonicalFilePath.relativePath(of: fileURL, within: url) else { continue }
         result[relative] = PhylogeneticTreeBundleImporter.sha256Hex(for: try Data(contentsOf: fileURL))
     }
     return result

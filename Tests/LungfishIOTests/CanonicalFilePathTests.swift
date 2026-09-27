@@ -16,6 +16,38 @@ final class CanonicalFilePathTests: XCTestCase {
         try? FileManager.default.removeItem(at: root)
     }
 
+    /// A directory enumerator started at a symlinked root (`/tmp/x`) yields
+    /// URLs on the physical path (`/private/tmp/x/...`); a string-length cut
+    /// against the root's spelling then produced garbage such as `p/x/file`.
+    func testRelativePathCompareByPhysicalPathThroughASymlinkedRoot() throws {
+        let nested = root.appendingPathComponent("bundle/sub", isDirectory: true)
+        try FileManager.default.createDirectory(at: nested, withIntermediateDirectories: true)
+        let file = nested.appendingPathComponent("tree.nwk")
+        try Data("(a,b);".utf8).write(to: file)
+        let link = root.deletingLastPathComponent().appendingPathComponent("CanonicalFilePathTests-link-\(UUID().uuidString)")
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: root)
+        defer { try? FileManager.default.removeItem(at: link) }
+
+        let bundleViaLink = link.appendingPathComponent("bundle", isDirectory: true)
+        let bundlePhysical = URL(fileURLWithPath: physicalRoot + "/bundle", isDirectory: true)
+        var enumerated: [String] = []
+        let enumerator = try XCTUnwrap(FileManager.default.enumerator(at: bundleViaLink, includingPropertiesForKeys: [.isRegularFileKey]))
+        for case let fileURL as URL in enumerator where try fileURL.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile == true {
+            enumerated.append(try XCTUnwrap(CanonicalFilePath.relativePath(of: fileURL, within: bundleViaLink)))
+            XCTAssertEqual(CanonicalFilePath.relativePath(of: fileURL, within: bundlePhysical), "sub/tree.nwk")
+        }
+        XCTAssertEqual(enumerated, ["sub/tree.nwk"])
+
+        XCTAssertEqual(CanonicalFilePath.relativePath(of: bundleViaLink, within: bundlePhysical), "")
+        XCTAssertNil(CanonicalFilePath.relativePath(of: root, within: bundleViaLink), "the parent is not inside the bundle")
+        XCTAssertNil(
+            CanonicalFilePath.relativePath(of: root.appendingPathComponent("bundle-copy/x"), within: bundleViaLink),
+            "a sibling whose name merely starts with the root is outside"
+        )
+        XCTAssertTrue(CanonicalFilePath.isPath(bundleViaLink.appendingPathComponent("missing/not-yet-written"), within: bundlePhysical))
+        XCTAssertFalse(CanonicalFilePath.isPath(root, within: bundleViaLink))
+    }
+
     func testExistingAndMissingFilesUnderPrivateTempShareThePhysicalPrefix() throws {
         // Foundation strips a leading /private only for paths that exist, so
         // an existing file and its not-yet-written sibling used to canonicalise

@@ -6,6 +6,7 @@ import Foundation
 import os.log
 import CryptoKit
 import LungfishCore
+import LungfishIO
 
 private let logger = Logger(subsystem: LogSubsystem.workflow, category: "MetagenomicsDBRegistry")
 
@@ -756,7 +757,8 @@ public actor MetagenomicsDatabaseRegistry {
                 try FileManager.default.createDirectory(at: stage, withIntermediateDirectories: true)
                 var pathMap = [source.path: final.path]
                 for output in receipt.outputs {
-                    let relative = String(output.path.dropFirst(source.path.count + 1))
+                    let relative = CanonicalFilePath.relativePath(of: URL(fileURLWithPath: output.path), within: source)
+                        ?? String(output.path.dropFirst(source.path.count + 1))
                     pathMap[output.path] = final.appendingPathComponent(relative).path
                 }
                 let relocated = try ProvenanceRehydrator.rehydrate(sourceDirectory: final, finalDirectory: stage, pathMap: pathMap)

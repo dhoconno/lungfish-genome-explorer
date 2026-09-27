@@ -1249,10 +1249,10 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
     }
 
     private static func projectRelativePath(_ url: URL, projectRoot: URL) -> String? {
-        let rootPath = projectRoot.standardizedFileURL.path
-        let path = url.standardizedFileURL.path
-        guard path.hasPrefix(rootPath + "/") else { return nil }
-        return String(path.dropFirst(rootPath.count + 1))
+        // Physical paths, so /tmp and /private/tmp spellings agree.
+        guard let relative = CanonicalFilePath.relativePath(of: url, within: projectRoot),
+              !relative.isEmpty else { return nil }
+        return relative
     }
 
     /// True when `outputDirectory` is the project itself or below it, so the
@@ -1260,9 +1260,9 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
     /// --output-dir <outside X>` is refused up front with
     /// ``ONTBarcodeDemuxGenotypingError/outputDirectoryOutsideProject(outputDirectory:projectURL:)``.
     public static func outputDirectory(_ outputDirectory: URL, isInsideProject projectURL: URL) -> Bool {
-        let rootPath = projectURL.standardizedFileURL.path
-        let path = outputDirectory.standardizedFileURL.path
-        return path == rootPath || path.hasPrefix(rootPath.hasSuffix("/") ? rootPath : rootPath + "/")
+        // Physical paths (CanonicalFilePath): `--project /tmp/X --output-dir
+        // /private/tmp/X/run` names a directory inside the project.
+        CanonicalFilePath.isPath(outputDirectory, within: projectURL)
     }
 
     private func recordFailedRunAndCleanupSupportDirectory(

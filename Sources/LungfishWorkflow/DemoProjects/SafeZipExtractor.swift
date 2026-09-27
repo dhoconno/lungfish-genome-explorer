@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import LungfishIO
 
 /// One entry from a ZIP archive's central directory.
 public struct ZipCentralDirectoryEntry: Sendable, Equatable {
@@ -110,7 +111,8 @@ public struct SafeZipExtractor: Sendable {
             let values = try url.resourceValues(forKeys: [.isSymbolicLinkKey])
             guard values.isSymbolicLink == true else { continue }
             let target = try fileManager.destinationOfSymbolicLink(atPath: url.path)
-            let relative = url.path.dropFirst(root.path.count).drop { $0 == "/" }
+            let relative = CanonicalFilePath.relativePath(of: url, within: root)
+                ?? String(url.path.dropFirst(root.path.count).drop { $0 == "/" })
             if target.hasPrefix("/") || target.hasPrefix("~") {
                 throw DemoProjectError.unsafeArchive("the symbolic link “\(relative)” points to the absolute path \(target)")
             }
