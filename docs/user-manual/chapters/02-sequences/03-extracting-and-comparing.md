@@ -5,7 +5,7 @@ audience: bench-scientist
 prereqs: [02-sequences/01-importing-and-viewing]
 estimated_reading_min: 14
 task: Cut one region or one feature out of a reference bundle as a new bundle, a FASTA file, or clipboard text, and mark candidate coding stretches with an ORF track.
-tags: [sequences, extract, region, copy, fasta, orf, hbb]
+tags: [sequences, extract, region, copy, fasta, orf, hbb, coordinates]
 tools: []
 parameters_refs: [sequence.find-orfs, sequence.extract-region]
 entry_points:
@@ -23,8 +23,8 @@ shots:
     caption: "The Find ORFs dialog with its Reading Frames, Translation, Output, and Options groups above the Run button."
 illustrations:
   - id: extraction-header-anatomy
-    brief: "An annotated breakdown of the FASTA header line '>NG_000007:70544-72152 [NG_000007:70544-72152] [1608 bp]'. Three labelled parts, the leading region name, the bracketed coordinate token, and the bracketed length token, each with a lead line to a short explanation. Below it a second variant of the same header carrying an extra '[reverse complement]' token, labelled as the token that appears only when the extraction was flipped. Use IBM Plex Mono for the header text, Lungfish Creamsicle for the lead lines and labels, Deep Ink for the explanatory text."
-glossary_refs: [annotation-track, bundle, cds, checksum, codon, exon, extraction, fasta, genetic-code, inspector, intron, open-reading-frame, provenance, reading-frame, reference-bundle, required-setup-pack, reverse-complement, sequence-viewport, sidebar, strand]
+    brief: "An annotated breakdown of the FASTA header line '>NG_000007:70545-72152 [NG_000007:70545-72152, 1-based] [1608 bp]'. Three labelled parts, the leading region name, the bracketed coordinate token with its '1-based' label, and the bracketed length token, each with a lead line to a short explanation. Below it a second variant of the same header carrying an extra '[reverse complement]' token, labelled as the token that appears only when the extraction was flipped. Use IBM Plex Mono for the header text, Lungfish Creamsicle for the lead lines and labels, Deep Ink for the explanatory text."
+glossary_refs: [annotation-track, bundle, cds, codon, coordinate, exon, extraction, fasta, genetic-code, half-open, inspector, intron, open-reading-frame, provenance, reading-frame, reference-bundle, required-setup-pack, reverse-complement, samtools, sequence-viewport, sidebar, strand, zero-based]
 features_refs: []
 fixtures_refs: [hbb-gene]
 brand_reviewed: false
@@ -45,29 +45,27 @@ In practice, right-click a feature when your piece already has a block drawn for
 
 ## Why you would do this
 
-The HBB gene record, `NG_000007`, is a downloaded stretch of human chromosome 11 that holds the whole beta-globin gene cluster, eight genes across 81,706 bases. Most questions you would ask of it concern one gene. HBB itself, the gene for the beta chain of adult hemoglobin, spans positions 70545 to 72152 of the record. That is 1,608 bases, about two percent of the file.
+The HBB gene record, `NG_000007`, is a stretch of human chromosome 11 that holds the whole beta-globin gene cluster, eight genes across 81,706 bases. [Importing and Viewing a Sequence](01-importing-and-viewing.md) brought it into the project. Most questions you would ask of it concern one gene. HBB itself, the gene for the beta chain of adult hemoglobin, spans positions 70545 to 72152 of the record. That is 1,608 bases, about two percent of the file.
 
-You might want HBB alone as a bundle so you can map reads against one gene rather than the whole cluster. You might want it as clipboard text to check a primer against it in an outside design tool. You might want only its coding sequence, the [CDS](../../GLOSSARY.md#cds), which is the part of a gene translated into protein, because the sickle cell change sits there. That change swaps one base in codon 7, `GAG` to `GTG`, counting the `ATG` start codon as codon 1. The cell removes the first amino acid, a methionine, from the finished protein, so the same position is amino acid 6 and the change is written Glu6Val. The glutamic acid there becomes a valine, and the protein clumps when oxygen runs low.
+You might want HBB alone as a bundle so you can map reads against one gene rather than the whole cluster. You might want it as clipboard text to check a primer against it in an outside design tool. You might want only its coding sequence, the [CDS](../../GLOSSARY.md#cds), which is the part of a gene translated into protein, because the sickle cell codon sits there, `GAG` at 70613-70615, as [Finding the sickle cell codon on paper](../01-foundations/01-what-is-a-genome.md#finding-the-sickle-cell-codon-on-paper) works out.
 
 Find ORFs answers a different question. On a sequence nobody has annotated, it shows where protein-coding stretches could be. On this record, which already carries curated genes, it shows how far a simple scan falls short of a real gene model.
 
 ## Before you start
 
-You need a project open, as [The Lungfish Genome Explorer Project](../01-foundations/06-the-lungfish-project.md#procedure) shows. This chapter uses the HBB gene fixture. Download `NG_000007.3.gb` from the [hbb-gene fixture folder](https://github.com/dhoconno/lungfish-genome-explorer/tree/v2026.9.40/docs/user-manual/fixtures/hbb-gene), as [Practice data for this manual](../01-foundations/06-the-lungfish-project.md#practice-data-for-this-manual) explains.
+You need a project open, as [The Lungfish Genome Explorer Project](../01-foundations/06-the-lungfish-project.md#procedure) shows. Open the Genes and Sequences demo project with **Help > Demo Projects…**, as [Demo projects](../01-foundations/06-the-lungfish-project.md#demo-projects) explains, and click the `NG_000007.3` bundle under `Reference Sequences` in the [sidebar](../../GLOSSARY.md#sidebar), the project list on the left of the window, so the record is on screen.
 
-Open the Genes and Sequences demo project with **Help > Demo Projects…**, as [Demo projects](../01-foundations/06-the-lungfish-project.md#demo-projects) explains. It already holds the `NG_000007.3` bundle this section imports, so click it in the sidebar and go to the procedure. To import the record yourself instead, follow the rest of this section.
+This chapter uses the HBB gene fixture. To build the bundle yourself instead, download `NG_000007.3.gb` from the [hbb-gene fixture folder](https://github.com/dhoconno/lungfish-genome-explorer/tree/v2026.9.40/docs/user-manual/fixtures/hbb-gene), as [Practice data for this manual](../01-foundations/06-the-lungfish-project.md#practice-data-for-this-manual) explains, and import it as [Importing and Viewing a Sequence](01-importing-and-viewing.md) describes. The `.3` in the file name is the record's version number. Inside the bundle the sequence is named `NG_000007`, without it.
 
-Import the record as [Importing and Viewing a Sequence](01-importing-and-viewing.md) describes, then click the new bundle in the [sidebar](../../GLOSSARY.md#sidebar), the project list on the left of the window, so the record is on screen. The `.3` in the file name is the record's version number, which the rest of this chapter leaves off.
+A new bundle is indexed by [samtools](../../GLOSSARY.md#samtools), which comes with the [Required Setup pack](../../GLOSSARY.md#required-setup-pack), the pack the Welcome window offers to install the first time you open LGE. Nothing else needs installing. Nothing here needs an internet connection, and every step finishes in a few seconds.
 
-The `samtools` program that indexes a new bundle arrives with the [Required Setup pack](../../GLOSSARY.md#required-setup-pack), the one pack LGE installs by itself, so there is nothing to install. Nothing here needs an internet connection, and every step finishes in a few seconds.
-
-## Procedure, cutting a region out
+## Procedure
 
 ### Extract the region the viewport is showing
 
 1. Type `70545-72152` into the location field at the left end of the ruler, the numbered strip across the top of the viewport, and press Return. The grey text `chr:start-end` in the empty field is a hint about the format. On a bundle holding one sequence you can leave the sequence name off, and **Sequence > Go to Location...** (Cmd-L) accepts the same text.
 
-2. Read the numbers the ruler settled on. This route cuts exactly what the viewport shows, and the viewport can frame a little more than you typed. A mouse selection does not narrow it. When you need exactly `70545-72152`, mark that range as a feature with **Sequence > Add Annotation...**, as [Adding one annotation by hand](01-importing-and-viewing.md#adding-one-annotation-by-hand) shows, and extract the new feature through the right-click route below, which cuts a feature's recorded span exactly.
+2. Read the numbers the ruler settled on. This route cuts exactly what the viewport shows, and the viewport can frame a little more than you typed. A mouse selection does not narrow it. When you need exactly `70545-72152`, mark that range as a feature with **Sequence > Add Annotation...**, as [Add an annotation by hand](01-importing-and-viewing.md#add-an-annotation-by-hand) shows, and extract the new feature through the right-click route below, which cuts a feature's recorded span exactly.
 
 3. Choose **Sequence > Extract Visible Region...** (Cmd-Shift-E). A sheet titled Extract Sequence opens with a scissors icon and a Source group naming the region.
 
@@ -77,23 +75,15 @@ The `samtools` program that indexes a new bundle arrives with the [Required Setu
 
 5. Watch the run in the [Operations Panel](../01-foundations/06-the-lungfish-project.md#the-operations-panel), which opens with **Operations > Show Operations Panel** (Cmd-Shift-P). Its row reads Extracting followed by the region's name.
 
-The new bundle appears in the project's `Extractions/` folder in the sidebar, which is the fixed home [Where results land](../01-foundations/06-the-lungfish-project.md#where-results-land) gives extracted regions. If LGE cannot tell which project the source belongs to, it writes to a folder named `Lungfish Extractions` in your Documents folder instead.
+The new bundle appears in the project's `Extractions/` folder in the sidebar. If LGE cannot tell which project the source belongs to, it writes to a folder named `Lungfish Extractions` in your Documents folder instead.
 
 ### Extract one annotated feature
 
-This route skips the framing, and it opens a different, simpler sheet.
+This route skips the framing, and it opens a different, simpler sheet. Right-click the `HBB` gene block in the annotation lane, the band of feature blocks drawn with the bases. On a trackpad with no second button, hold Control and click. Choose **Extract Sequence...**, and a sheet also titled Extract Sequence opens. Its header reads 1 selected, which counts the FASTA records it will write rather than bases. Choose **Save as Bundle** under Destination, leave the Name field holding `HBB`, and click **Create Bundle** at the bottom right. The button's label follows the destination you picked.
 
-1. Right-click the `HBB` gene block in the annotation lane, the band of feature blocks drawn with the bases. On a trackpad with no second button, hold Control and click.
+<!-- SHOT: hbb-annotation-context-menu -->
 
-    <!-- SHOT: hbb-annotation-context-menu -->
-
-2. Choose **Extract Sequence...**. A sheet also titled Extract Sequence opens. Its header reads 1 selected, which counts the FASTA records it will write rather than bases.
-
-3. Choose **Save as Bundle** under Destination, and leave the Name field holding `HBB`.
-
-4. Click **Create Bundle** at the bottom right. The button's label follows the destination you picked.
-
-Save as Bundle on this route builds the new reference bundle the way an imported FASTA is built, so it lands in the project's `Reference Sequences/` folder rather than in `Extractions/`.
+Save as Bundle on this route imports the extracted FASTA the way any FASTA is imported, so the new bundle lands in the project's `Reference Sequences/` folder rather than in `Extractions/`, and its Operations Panel row reads Reference Import.
 
 The bases come from the feature's recorded coordinates rather than from the screen, and they come out in the feature's own reading direction. A feature on the minus [strand](../../GLOSSARY.md#strand), the second of the two paired DNA chains, comes out reverse-complemented. A spliced CDS, mRNA, or transcript comes out with its [exons](../../GLOSSARY.md#exon), the pieces kept in the mature message, joined end to end and its [introns](../../GLOSSARY.md#intron), the pieces spliced out, left behind. Right-clicking the HBB CDS block therefore gives the spliced coding sequence, not the genomic span.
 
@@ -103,7 +93,7 @@ The same menu's **Copy** submenu skips the sheet and puts text straight on the c
 
 **Sequence > Copy Visible Region as FASTA** (Cmd-Shift-C) puts the bases the viewport is showing on the clipboard as FASTA text and opens nothing. It is the only item on the **Sequence** menu without three trailing dots, which on macOS signal that an item will ask you something first. Frame the region first, exactly as in the first procedure, and paste wherever you need it.
 
-## Procedure, marking open reading frames
+### Mark open reading frames
 
 A [reading frame](../../GLOSSARY.md#reading-frame) is the offset from which triplets are counted. Six exist. Frames +1, +2, and +3 start 0, 1, and 2 bases into the scanned range and read forward, and frames -1, -2, and -3 do the same on the [reverse complement](../../GLOSSARY.md#reverse-complement), the other strand read in its own direction.
 
@@ -119,7 +109,7 @@ Human genes almost always start with `ATG`, the codon for methionine. The codon 
 
 4. Click **Run**, and watch the Find ORFs row in the Operations Panel.
 
-When the row finishes, the viewport draws the new track beside the imported one. Click an ORF to select it and read its details. Open the [Inspector](../../GLOSSARY.md#inspector) with **View > Show Inspector** (Cmd-Opt-I) if it is hidden. Right-click an ORF to copy or extract it through the routes above. Removing a whole track you no longer want is covered in [Importing and Viewing a Sequence](01-importing-and-viewing.md).
+When the row finishes, the viewport draws the new track beside the imported one. Click an ORF to select it and read its details. Open the [Inspector](../../GLOSSARY.md#inspector) with **View > Show Inspector** (Cmd-Opt-I) if it is hidden. Right-click an ORF to copy or extract it through the routes above. Removing a whole track you no longer want is covered in [Remove a track](01-importing-and-viewing.md#remove-a-track).
 
 ## Settings
 
@@ -129,7 +119,7 @@ The sheet from **Sequence > Extract Visible Region...** holds the controls below
 
 **Action.** Chooses what Extract does with the bases, from a picker reading Copy as FASTA and New Bundle. Copy as FASTA is preselected, because a quick paste is the commonest use. Pick New Bundle when the piece will feed another LGE operation. This setting has no command-line flag.
 
-**Bundle Name.** Names the new bundle and appears only when Action is New Bundle. It arrives holding the region's name with the colon replaced by an underscore, such as `NG_000007_70544-72152`. Change it to a name you will recognise later, such as `HBB-gene`. This setting has no command-line flag.
+**Bundle Name.** Names the new bundle and appears only when Action is New Bundle. It arrives holding the region's name with the colon replaced by an underscore, such as `NG_000007_70545-72152`, whose numbers count from 1 like the ruler. Change it to a name you will recognise later, such as `HBB-gene`. This setting has no command-line flag.
 
 **5' Flank.** Adds this many extra bases before the region, on its 5' side, so the extraction carries context the framing left out. The default is 0, because the usual request is the region and nothing more. Raise it when the piece needs its surroundings, for example the promoter just upstream of a gene. On the command line this is `--flank-5`.
 
@@ -165,48 +155,51 @@ The sheet from **Sequence > Extract Visible Region...** holds the controls below
 
 ## Reading the results
 
+### Counting from one and from zero {#counting-from-one-and-from-zero}
+
+!!! note "The counting rule"
+    Every position LGE shows you, and every position it writes into a name it makes, counts from 1 with both ends included. Two things count from 0 with the end left out, a BED file and the `--start` and `--end` you type for `lungfish-cli sequence annotate-orfs`. Add 1 to a BED start before you type it into Go to Location, and subtract 1 from a start before you give it to `annotate-orfs`.
+
+The table shows the first three bases of a sequence written each way. [Coordinate](../../GLOSSARY.md#coordinate), [zero-based](../../GLOSSARY.md#zero-based), and [half-open](../../GLOSSARY.md#half-open) in the glossary define the terms.
+
+| Counting habit | Where you meet it | First three bases |
+|---|---|---|
+| From 1, both ends included | The record, the ruler, Go to Location, the drawer, GFF3, VCF, extraction headers, default bundle names, ORF names, `extract sequence` | `1-3` |
+| From 0, end left out | BED files, the `--start` and `--end` of `sequence annotate-orfs` | `0-3` (BED) |
+
+A count from 0 with the end left out gives the length by plain subtraction, 3 minus 0 is 3, which is why BED is written that way. A count from 1 with both ends included needs one more step, 3 minus 1 plus 1. [Standard annotation formats](../appendices/file-formats.md#standard-annotation-formats) works a BED row through the conversion.
+
 ### The FASTA header
 
 Every extraction writes its source coordinates into its own header line, so a loose file can always be traced back to the record it came from. The full header has this shape, where the bracketed tokens between the coordinates and the length appear only when they apply.
 
 ```text
->NAME [SEQUENCE:START-END] [TYPE] [strand: +] [reverse complement] [exons concatenated] [feature orientation] [LENGTH bp]
+>NAME [SEQUENCE:START-END, 1-based] [TYPE] [strand: +] [reverse complement] [exons concatenated] [feature orientation] [LENGTH bp]
 ```
 
-A visible-region extraction carries only the name, the coordinate token, and the length. The HBB gene span gives this header.
+A visible-region extraction carries only the name, the coordinate token, and the length. The HBB gene span gives this header, and the `1-based` label in the brackets names the counting habit.
 
 ```text
->NG_000007:70544-72152 [NG_000007:70544-72152] [1608 bp]
+>NG_000007:70545-72152 [NG_000007:70545-72152, 1-based] [1608 bp]
 ```
 
 <!-- ILLUSTRATION: extraction-header-anatomy -->
 
-A right-click extraction adds the feature's type, such as `gene` or `CDS`, and its strand. A minus-strand feature adds `[reverse complement]`, a spliced feature adds `[exons concatenated]`, and either one adds `[feature orientation]`, the sign that the bases read in the gene's own direction rather than along the plus strand.
+A right-click extraction starts with the feature's name, such as `HBB`, and adds the feature's type, such as `gene` or `CDS`, and its strand. A minus-strand feature adds `[reverse complement]`, a spliced feature adds `[exons concatenated]`, and either one adds `[feature orientation]`, the sign that the bases read in the gene's own direction rather than along the plus strand.
 
-The coordinate token gives the span actually cut, flanks included. Positions are written in two ways in this chapter, and the table shows the first three bases of a sequence written each way.
-
-| Counting habit | Where you meet it | First three bases |
-|---|---|---|
-| From 1, both ends included | The record, the ruler, Go to Location, the drawer, GFF3, `extract sequence` | `1-3` |
-| From 0, end left out | BED, the header's start, `annotate-orfs` | `0-3` |
-
-[Standard annotation formats](../appendices/file-formats.md#standard-annotation-formats) covers the two habits in more detail. The header's start follows the count-from-0 habit and its end reads the same either way, which is why a gene starting at 70545 prints as 70544. Add one to a printed start before you compare it with a position you typed, and trust the length token for how much sequence you got. Here 1608 is 72152 minus 70545 plus 1.
-
-Flanks change only the coordinate token. The sickle cell codon, 70613 to 70615, cut with 100 bases on each side, keeps its own name in front and reports the padded span in brackets.
+The coordinate token gives the span actually cut, flanks included, and the name in front keeps the span you asked for. Both count from 1, so either one goes straight back into Go to Location. The length token says how much sequence you got, here 1608, which is 72152 minus 70545 plus 1. The sickle cell codon, 70613 to 70615, cut with 100 bases on each side, keeps its own name in front and reports the padded span in brackets.
 
 ```text
->NG_000007:70612-70615 [NG_000007:70512-70715] [203 bp]
+>NG_000007:70613-70615 [NG_000007:70513-70715, 1-based] [203 bp]
 ```
 
 ### The new bundle
 
 A bundle extraction is a complete reference bundle rather than a loose FASTA, so it opens, maps, and extracts like any other. The files inside a `.lungfishref` bundle are listed in [The reference bundle](../appendices/file-formats.md#the-reference-bundle). A visible-region bundle also carries over the source bundle's annotation and variant tracks for the stretch it covers, so the HBB gene block appears in `HBB-gene` as well.
 
-LGE writes a [provenance](../../GLOSSARY.md#provenance) record beside every result, holding the command, the tool version, and a [checksum](../../GLOSSARY.md#checksum) of each file, and [Provenance and Reproducibility](../01-foundations/08-provenance-and-reproducibility.md#reading-the-results) shows how to read it.
-
 ### The ORF track
 
-Each ORF is named for its frame and its span, and it carries its frame, its length in nucleotides and in amino acids, its codon table, its translated protein, and whether it is partial. Scanning exactly 70545 to 72152 with Minimum ORF length at 300 gives one ORF, named `ORF_+1_70658_71060`. The two numbers in the name follow the same count-from-0 start as the FASTA header. The ORF covers 402 nucleotides, which is 134 codons counting the stop, and its protein begins `MKLVVRPWAGWYQGYKTGL`. Frame labels count from the start of the scanned range, so a scan that starts a base or two away finds the same ORF under a different frame label.
+Each ORF is named for its frame and its span, and it carries its frame, its length in nucleotides and in amino acids, its codon table, its translated protein, and whether it is partial. Scanning exactly 70545 to 72152 with Minimum ORF length at 300 gives one ORF, named `ORF_+1_70659_71060`. The two numbers in the name count from 1, like the ruler, so the ORF covers bases 70659 to 71060. That is 402 nucleotides, 134 codons counting the stop, and its protein begins `MKLVVRPWAGWYQGYKTGL`. Frame labels count from the start of the scanned range, so a scan that starts a base or two away finds the same ORF under a different frame label.
 
 Compare that with the record's curated CDS, which the GenBank file writes as `join(70595..70686,70817..71039,71890..72018)`. That notation lists one range per exon, counted from 1 with both ends included. Its three pieces add to 444 bases, which is 147 amino acids plus a stop codon.
 
@@ -229,7 +222,7 @@ The command-line route in the last section cuts a whole feature set at once. Run
 >HBB source=NG_000007:70545-72152 strand=+
 ```
 
-The HBB line matches the record's gene span exactly. `OR51AB1P` and `HBBP1` are pseudogenes, gene copies whose changes stop them from making a working protein. The bundle is a ready input for lining the cluster's genes up against each other.
+The HBB line matches the record's gene span exactly. `OR51AB1P` and `HBBP1` are pseudogenes, gene copies whose changes stop them from making a working protein. Like any bundle that holds several sequences, this one can go into the MAFFT alignment the next chapter runs.
 
 ## What good looks like
 
@@ -237,42 +230,38 @@ Read the length token in the header and confirm it is what you meant to cut, 160
 
 Confirm the new bundle landed where its route puts it, in `Extractions/` for the visible-region route and in `Reference Sequences/` for the right-click route.
 
-Confirm the first bases are the ones you expect. The HBB gene span opens `ACATTTGCTTCTGACACAACT`. The HBB CDS opens `ATG GTG CAT CTG ACT CCT GAG GAG` when split into triplets, which reads start (methionine), valine, histidine, leucine, threonine, proline, glutamic acid, glutamic acid. The seventh triplet, codon 7, is the `GAG` that the sickle cell change turns into `GTG`, and it is amino acid 6 once the first methionine is removed.
+Confirm the first bases are the ones you expect. The HBB gene span opens `ACATTTGCTTCTGACACAACT`. The HBB CDS opens `ATG GTG CAT CTG ACT CCT GAG GAG` when split into triplets, which reads start (methionine), valine, histidine, leucine, threonine, proline, glutamic acid, glutamic acid. The seventh triplet is the sickle cell codon.
 
-Confirm the provenance record names the source bundle you meant, because header coordinates mean nothing against the wrong reference.
+Confirm the extraction's [provenance](../../GLOSSARY.md#provenance) record, which [Provenance and Reproducibility](../01-foundations/08-provenance-and-reproducibility.md#reading-the-results) shows how to read, names the source bundle you meant, because header coordinates mean nothing against the wrong reference.
 
 For an ORF track, read the range on the line under the dialog's title before you click Run, then count the features. A scan of a small span that returns dozens of ORFs usually has its minimum length set too low. One that returns none on a span you know is coding usually has the wrong codon table, the wrong frames, or a one-base selection left over from a stray click.
 
 ## On the command line
 
-This section is optional, and nothing later in this manual needs it. The `lungfish-cli` program ships inside LGE, and [Finding the program](../appendices/cli-reference.md#finding-the-program) shows how to run it.
+The block below follows the convention in [Reading an On the command line block](../01-foundations/06-the-lungfish-project.md#reading-a-command-line-block). The flags of `extract sequence` are listed in [Sequence utilities](../appendices/cli-reference.md#sequence-utilities), and those of `bundle extract-annotations` and `sequence annotate-orfs` in [Reference bundles](../appendices/cli-reference.md#reference-bundles).
 
 ```bash
-# Replace ~/Documents/hbb-example.lungfish with your own project folder.
-# If you imported the record through the window, the bundle is named
-# NG_000007.3.lungfishref, so use that wherever HBB.lungfishref appears.
-# Cut the HBB gene span out of the imported bundle's sequence.
-# extract sequence reads FASTA only, so point it at the FASTA inside the bundle.
-# The double quotes hold the folder name "Reference Sequences" together.
-lungfish-cli extract sequence \
-  ~/Documents/hbb-example.lungfish/"Reference Sequences"/HBB.lungfishref/genome/sequence.fa.gz \
-  NG_000007:70545-72152 -o hbb-gene.fasta
+PROJECT="$HOME/Documents/LGE Demo Projects/Genes and Sequences.lungfish"
+HBB="$PROJECT/Reference Sequences/NG_000007.3.lungfishref"
+
+# Cut the HBB gene span. extract sequence reads FASTA only,
+# so point it at the FASTA inside the bundle.
+lungfish-cli extract sequence "$HBB/genome/sequence.fa.gz" \
+  NG_000007:70545-72152 -o "$HOME/Desktop/hbb-gene.fasta"
 
 # Pull every gene feature out of the imported track as its own record.
 lungfish-cli bundle extract-annotations \
-  --bundle ~/Documents/hbb-example.lungfish/"Reference Sequences"/HBB.lungfishref \
-  --track imported_annotations --feature-type gene \
-  --output-bundle ~/Documents/hbb-genes.lungfishref
+  --bundle "$HBB" --track imported_annotations --feature-type gene \
+  --output-bundle "$PROJECT/Extractions/hbb-genes.lungfishref"
 
-# Scan the HBB gene span for ORFs and store them as a named track.
-lungfish-cli sequence annotate-orfs \
-  ~/Documents/hbb-example.lungfish/"Reference Sequences"/HBB.lungfishref \
+# Scan the HBB gene span for ORFs. --start counts from 0, so 70545 becomes 70544.
+lungfish-cli sequence annotate-orfs "$HBB" \
   --sequence NG_000007 --start 70544 --end 72152 \
   --min-length 300 --track-name "HBB ORFs" --track-id hbb_orfs
 ```
 
-Three differences change results. `extract sequence` cuts exactly the range you name, counted from 1 with both ends included, so it never picks up the viewport's extra framing. `sequence annotate-orfs` counts `--start` and `--end` from 0 with the end excluded, which is why the block passes 70544 for a gene starting at 70545, and when you leave out the track options it names the track `ORFs` with the ID `orfs` rather than the window's prefilled values. `bundle extract-annotations` cuts each feature as one interval from its first coordinate to its last, so with `--feature-type CDS` the HBB record spans 70595 to 72018 with its introns included, unlike the spliced sequence the right-click route gives.
+Three differences change results. `extract sequence` cuts exactly the range you name, counted from 1 with both ends included, so it never picks up the viewport's extra framing, and it writes the same `[NG_000007:70545-72152, 1-based]` header the window does. `sequence annotate-orfs` counts `--start` and `--end` from 0 with the end left out, the one exception in the counting rule, and it still names the ORF `ORF_+1_70659_71060`, counted from 1. When you leave out its track options it names the track `ORFs` with the ID `orfs` rather than the window's prefilled values. `bundle extract-annotations` cuts each feature as one interval from its first coordinate to its last, so with `--feature-type CDS` the HBB record spans 70595 to 72018 with its introns included, unlike the spliced sequence the right-click route gives.
 
 ## Next
 
-Continue to [Aligning Sequences](04-aligning-sequences.md), which lines several sequences up column by column so the differences between them become visible.
+Continue to [Aligning Sequences](04-aligning-sequences.md), which lines several sequences up column by column so the differences between them become visible. It uses five primate mitochondrial genomes, one of them the human record from [Downloading from NCBI](02-downloading-from-ncbi.md).
