@@ -709,17 +709,12 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         applyLayoutPreference()
     }
 
-    private static func currentTaxTriagePanelLayout(
-        defaults: UserDefaults = .standard
-    ) -> MetagenomicsPanelLayout {
-        let hasExplicitLayout = defaults.object(forKey: MetagenomicsPanelLayout.defaultsKey) != nil
-        let hasLegacyLayout = defaults.object(forKey: MetagenomicsPanelLayout.legacyTableOnLeftKey) != nil
-        guard hasExplicitLayout || hasLegacyLayout else { return .stacked }
-        return MetagenomicsPanelLayout.current(defaults: defaults)
-    }
-
+    /// The panel layout this viewport uses. `MetagenomicsPanelLayout.current`
+    /// is the one source of truth shared with the Inspector's Panel Layout
+    /// picker, so a fresh install opens in the layout the picker shows as
+    /// selected (Detail | List) rather than a viewport-private default.
     private func currentPanelLayout() -> MetagenomicsPanelLayout {
-        Self.currentTaxTriagePanelLayout(defaults: layoutDefaults)
+        MetagenomicsPanelLayout.current(defaults: layoutDefaults)
     }
 
     private func defaultLeadingFraction(for layout: MetagenomicsPanelLayout) -> CGFloat {
@@ -5283,7 +5278,7 @@ final class TaxTriageOrganismTableView: NSView, NSTableViewDataSource, NSTableVi
         scoreCol.minWidth = 60
         scoreCol.maxWidth = 120
         scoreCol.sortDescriptorPrototype = NSSortDescriptor(key: "tassScore", ascending: false)
-        scoreCol.headerToolTip = "Taxonomic Assignment Specificity Score: >=0.80 high confidence, 0.40-0.80 medium confidence, <0.40 low confidence"
+        scoreCol.headerToolTip = TaxTriageConfidenceBand.headerToolTip
         tableView.addTableColumn(scoreCol)
 
         // Reads column

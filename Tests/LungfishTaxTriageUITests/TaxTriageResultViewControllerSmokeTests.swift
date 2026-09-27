@@ -70,10 +70,34 @@ final class TaxTriageResultViewControllerSmokeTests: XCTestCase {
         XCTAssertNotNil(vc.view)
     }
 
-    @MainActor func testDatabaseLoadDefaultsToStackedLayoutAndSelectsTopRow() throws {
+    /// A fresh install (no layout key written yet) must open in the layout the
+    /// Inspector's Panel Layout picker shows as selected. Both read
+    /// `MetagenomicsPanelLayout.current`, whose fallback is Detail | List.
+    @MainActor func testFreshInstallLayoutMatchesInspectorPickerDefault() {
         let suiteName = "TaxTriageLayoutTests.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
         defer { defaults.removePersistentDomain(forName: suiteName) }
+        XCTAssertNil(defaults.object(forKey: MetagenomicsPanelLayout.defaultsKey))
+        XCTAssertNil(defaults.object(forKey: MetagenomicsPanelLayout.legacyTableOnLeftKey))
+
+        let pickerDefault = MetagenomicsPanelLayout.current(defaults: defaults)
+        XCTAssertEqual(pickerDefault, .detailLeading)
+
+        let vc = TaxTriageResultViewController()
+        vc.layoutDefaults = defaults
+        _ = vc.view
+
+        XCTAssertEqual(vc.testSplitView.isVertical, pickerDefault != .stacked)
+        XCTAssertTrue(vc.testSplitView.arrangedSubviews[0] === vc.testLeftPaneContainer)
+        XCTAssertTrue(vc.testSplitView.arrangedSubviews[1] === vc.testRightPaneContainer)
+    }
+
+    @MainActor func testDatabaseLoadInStackedLayoutSelectsTopRow() throws {
+        let suiteName = "TaxTriageLayoutTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(MetagenomicsPanelLayout.stacked.rawValue, forKey: MetagenomicsPanelLayout.defaultsKey)
+        defaults.set(false, forKey: MetagenomicsPanelLayout.legacyTableOnLeftKey)
 
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("TaxTriageStackedDefault-\(UUID().uuidString)")
