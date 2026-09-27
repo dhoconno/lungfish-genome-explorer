@@ -25,7 +25,7 @@ shots:
   - id: contig-detail-pane
     caption: "The detail pane for the longest contig, showing its header, length, GC percent, rank, share of the assembly, and sequence."
 illustrations: []
-glossary_refs: [amplicon, assembly-bundle, assembly-graph, bundle, conda, contig, coverage, de-bruijn-graph, de-novo-assembly, error-correction, fastq, gc-content, k-mer, l50, mitochondrial-genome, n50, operations-panel, paired-end, plugin-pack, read, reference-bundle, scaffold, blast, inspector]
+glossary_refs: [hg002, amplicon, assembly-bundle, assembly-graph, bundle, conda, contig, coverage, de-bruijn-graph, de-novo-assembly, error-correction, fastq, gc-content, k-mer, l50, mitochondrial-genome, n50, operations-panel, paired-end, plugin-pack, read, reference-bundle, scaffold, blast, inspector]
 features_refs: []
 fixtures_refs: [human-mito]
 brand_reviewed: false
@@ -44,9 +44,9 @@ Lungfish Genome Explorer (LGE) runs SPAdes from an assembly sheet under **Tools 
 
 You assemble when you want the sequence itself rather than a list of differences from something already known. The clearest case is a genome with no good reference, such as a new bacterial isolate or a plasmid, a small circular DNA molecule that lives beside a bacterium's main chromosome. A second case is a genome you suspect has been rearranged, since a large insertion shows up plainly as an unexpected contig. A third is confirmation. If you believe a sample holds one organism and one contig comes back at the expected length, you have independent evidence.
 
-This chapter assembles reads from the [mitochondrial genome](../../GLOSSARY.md#mitochondrial-genome) of HG002, a widely studied human sample. Mitochondria carry a small circular chromosome of their own, 16,569 bases long in humans. That is small enough to assemble in seconds and large enough to be a real genome. The fixture is a [paired-end](../../GLOSSARY.md#paired-end) Illumina library, meaning each DNA fragment was read from both ends, holding 9,958 read pairs. The right answer is published, so you can see what each assembler gets right.
+This chapter assembles reads from the [mitochondrial genome](../../GLOSSARY.md#mitochondrial-genome) of [HG002](../../GLOSSARY.md#hg002), a benchmark human sample sequenced many times by many methods. Mitochondria carry a small circular chromosome of their own, 16,569 bases long in humans. That is small enough to assemble in seconds and large enough to be a real genome. The fixture is a [paired-end](../../GLOSSARY.md#paired-end) Illumina library, meaning each DNA fragment was read from both ends, holding 9,958 read pairs. The right answer is published, so you can see what each assembler gets right.
 
-Choose SPAdes for Illumina reads from one organism, and its Meta profile for a community. Choose SKESA when you prefer more contigs with fewer wrong joins, and MEGAHIT for a large community only if it completes on your Mac. [Choosing a tool](01-when-to-assemble.md#choosing-a-tool) compares all five assemblers in LGE and explains the de Bruijn graph method the three short-read tools share.
+Choose SPAdes for Illumina reads from one organism, and its Meta profile for a community. Choose SKESA when you prefer more contigs with fewer wrong joins, and MEGAHIT for a large community only if it completes on your Mac. [Choosing a tool](01-when-to-assemble.md#choosing-a-tool) compares all five assemblers in LGE and works a small example of the de Bruijn graph method the three short-read tools share.
 
 ## Before you start
 
