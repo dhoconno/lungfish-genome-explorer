@@ -68,7 +68,7 @@ For low-frequency or viral work, depth sets the floor. One study of targeted dee
 | Tool | Built for | Choose it when | Choose something else when |
 |---|---|---|---|
 | bcftools | Genotypes in diploid or haploid samples | The sample is a person, a macaque, or a clonal isolate | You need changes carried by a minority of reads, or the reads are nanopore |
-| LoFreq | Allele fractions in mixed populations | You look for minority variants in deep Illumina data | Coverage is thin, or the reads are from a nanopore run |
+| LoFreq | Allele frequencies in mixed populations | You look for minority variants in deep Illumina data | Coverage is thin, or the reads are from a nanopore run |
 | iVar | Primer-trimmed amplicon data | The run is an amplicon panel such as a SARS-CoV-2 scheme | The data are shotgun, or the primers are still on the reads |
 | Viral Recon | SARS-CoV-2 amplicon runs, from reads to lineage | You want the standard viral pipeline in one run | The sample is not viral, or Docker Desktop is not available |
 

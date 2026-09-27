@@ -9,7 +9,7 @@ tags: [variants, table-drawer, filter, presets, search-builder, source-column, i
 tools: [bcftools]
 parameters_refs: [variants.filter-table, variants.query]
 entry_points:
-  - "Open a reference bundle, then the table drawer's Variants tab"
+  - "Click a mapping result or reference bundle that holds variant tracks, then the table drawer's Variants tab"
   - "CLI: lungfish-cli variants query"
 shots:
   - id: variants-tab-twelve-columns
@@ -22,7 +22,11 @@ shots:
     caption: "The Inspector filled with one selected variant row, showing its identity, quality, track and caller settings, and every INFO key on its own line."
   - id: variants-source-column
     caption: "The Variant Track column separating the bcftools rows from the LoFreq rows in the aggregated table, sorted by position."
-illustrations: []
+  - id: variant-track-glyphs
+    caption: "The HG002 bcftools variant track in the genome viewport at position 250,527, a heterozygous 0/1 call drawn as a blue genotype cell, beside position 2,078, a homozygous 1/1 call drawn in indigo, with the summary bar of variant types above the genotype row."
+illustrations:
+  - id: lofreq-af-histogram
+    brief: "Two histograms side by side on a Cream background, x axis allele frequency from 0 to 1, y axis number of calls. Left, the HG002 LoFreq track's 862 calls, with one peak near 0.5 (heterozygous sites, one changed copy of two) and one near 1.0 (homozygous sites), labelled 'diploid person: two peaks'. Right, a sketch of a viral population's calls spread continuously across the range with most near 1.0 and a long low tail of minority changes, labelled 'virus population: a continuum'. Lungfish Creamsicle bars, Deep Ink axes, IBM Plex Mono labels."
 glossary_refs: [allele-depth, allele-frequency, bcftools, consequence, depth, coverage-breadth, filter, genotype, heterozygous, homozygous, indel, info, ivar, lofreq, phred-score, ploidy, provenance, ref-alt, reference-bundle, smart-filter-token, table-drawer, variant-caller, variant-track, vcf]
 features_refs: [viewport.variant-browser]
 fixtures_refs: [hg002-chr20]
@@ -38,7 +42,7 @@ The table lives in the [table drawer](../../GLOSSARY.md#table-drawer), a panel t
 
 A row of controls above the table decides what it shows. **Calls** and **Genotypes** switch between one row per variant and one row per sample. **Region** and **Genome** decide whether the table lists only the stretch the viewport shows or the whole reference. **Presets** opens a strip of one-click filter chips, and **Profiles** saves combinations of them. A pull-down reading **Auto**, **Haploid**, or **Diploid** tells the frequency chips how many copies of each chromosome the organism carries. **Query Builder...** opens a sheet that builds a query rule by rule, and **Clear** drops every filter. A gear button at the end chooses which columns show. There is no free-text query box, and the Query Builder is what replaces it.
 
-Everything the table does is display. Sorting, filtering, and hiding columns change what you see and never touch the VCF on disk. Writing a filtered subset out as a new file belongs to the command line, covered at the end of this chapter.
+Everything the table does is display. Sorting, filtering, and hiding columns change what you see and never touch the VCF on disk, the third of the [three kinds of filter](../01-foundations/05-variants-and-vcf.md#three-kinds-of-filter). Writing a filtered subset out as a new file belongs to the command line, covered at the end of this chapter. Writing `FILTER` flags into a human call set, so the judgement travels with the file, is a job for a hard filter such as GATK's, which [Filtering, Selecting, and Metrics](../06-human-germline-variants/03-filtering-selecting-and-metrics.md) covers.
 
 ## Why you would do this
 
@@ -50,9 +54,7 @@ There is a second reason. Two callers reading the same alignment disagree, and t
 
 You need a project open, as [The Lungfish Genome Explorer Project](../01-foundations/06-the-lungfish-project.md#procedure) shows.
 
-Open the Human Mapping and Variants demo project with **Help > Demo Projects…**, as [Demo projects](../01-foundations/06-the-lungfish-project.md#demo-projects) explains. It holds the reads and reference the two tracks are made from, so work through [Calling Variants](01-calling-variants-from-amplicons.md) in it first. To import the files yourself instead, follow the rest of this section.
-
-This chapter uses the HG002 chromosome 20 slice fixture, whose files are in the [hg002-chr20 fixture folder](https://github.com/dhoconno/lungfish-genome-explorer/tree/v2026.9.39/docs/user-manual/fixtures/hg002-chr20), as [Practice data for this manual](../01-foundations/06-the-lungfish-project.md#practice-data-for-this-manual) explains. What the chapter needs in the project is the two variant tracks those files lead to. Work through [Calling Variants](01-calling-variants-from-amplicons.md) first, which leaves a reference bundle carrying a bcftools track and a LoFreq track. Both are needed, because half of what this chapter teaches shows only when two tracks sit in one table.
+The chapter needs the `HG002 bcftools` and `HG002 LoFreq` tracks in one bundle, because half of what it teaches shows only when two tracks sit in one table. Either work through [Calling Variants](01-calling-variants-from-amplicons.md) in the Human Mapping and Variants demo project, which leaves both tracks in the reference bundle inside the mapping result, or open the Human Mapping and Variants (with results) demo project with **Help > Demo Projects…**, as [Demo projects](../01-foundations/06-the-lungfish-project.md#demo-projects) explains. That project already holds both tracks, made with the same defaults, and the benchmark track that [Importing Existing VCFs](06-importing-existing-vcfs.md) adds. Its mapping result is the row `minimap2-2026-09-25T00-00-00` under **Analyses**. The files behind both projects are in the [hg002-chr20 fixture folder](https://github.com/dhoconno/lungfish-genome-explorer/tree/v2026.9.39/docs/user-manual/fixtures/hg002-chr20), as [Practice data for this manual](../01-foundations/06-the-lungfish-project.md#practice-data-for-this-manual) explains.
 
 Nothing needs installing. The table reads files already inside the bundle.
 
@@ -60,15 +62,15 @@ Nothing needs installing. The table reads files already inside the bundle.
 
 The first two steps open the table and orient you in its columns. The next three cover selecting a row, filtering with chips, and filtering with the Query Builder. The last reads the two callers against each other.
 
-### Step 1. Open the Variants tab
+### Open the Variants tab
 
-Click the reference bundle in the project sidebar. The viewport fills with the bundle, and the table drawer opens along the bottom. Click the drawer's **Variants** tab.
+Click the `minimap2-` mapping result under **Analyses** in the sidebar. The mapping viewport opens with the reference bundle inside the mapping result in its lower pane, and the table drawer opens along the bottom of that pane. Click the drawer's **Variants** tab.
 
 Both tracks load into the one table at once, and the **Variant Track** column names the track each row came from. If the drawer does not open, or its Variants tab is empty, the variant calling has not finished. Watch the run in the [Operations Panel](../01-foundations/06-the-lungfish-project.md#the-operations-panel), which opens with **Operations > Show Operations Panel** (Cmd-Shift-P), and wait for its row to end with "Created variant track" and the track's name.
 
 <!-- SHOT: variants-tab-twelve-columns -->
 
-### Step 2. Read the columns
+### Read the columns
 
 Fifteen fixed columns run across the table, after an unlabelled column for bookmarking a row. Seven are the VCF's own standard columns. `Type` and `Samples` are worked out from each record. The rest are added by LGE.
 
@@ -85,26 +87,26 @@ Fifteen fixed columns run across the table, after an unlabelled column for bookm
 | `Quality` | From the VCF | The caller's confidence in the call, on the Phred scale described under Reading the results |
 | `Filter` | From the VCF | The caller's own pass or fail label for the row |
 | `Samples` | Worked out | How many sample columns hold a call at that position |
-| `Source` | Added by LGE | The track name again |
+| `Source` | Added by LGE | For a variant row, the track name again. The column is shared with the Annotations tab, where it names the file a feature came from |
 | `Gene / Protein` | Added by LGE | The gene or protein the change falls in, where an annotation supplies one |
 | `Consequence` | Added by LGE | A predicted protein effect such as `missense_variant`, where an annotation supplies one |
 | `AA Change` | Added by LGE | The amino-acid substitution, where an annotation supplies one |
 
 LGE reads only the first alternate allele on a row and gives the whole row that one type, so a row offering two alternates is counted once. Every substitution and indel count in this chapter follows that rule. `Quality` reads `.` on a track called with [iVar](../../GLOSSARY.md#ivar), an amplicon caller this fixture does not use, because iVar writes no quality there.
 
-Beyond the twelve, the table adds a column for each [`INFO`](../../GLOSSARY.md#info) key the loaded tracks carry, which are the extra per-variant measurements a caller records beside the call. Allele frequency, gene, and impact come first when present, and the rest follow in alphabetical order. Two keys matter here. `DP` is the read depth at the position, and `AF` is the [allele frequency](../../GLOSSARY.md#allele-frequency), the fraction of those reads carrying the change. The bcftools track fills seventeen `INFO` columns and the LoFreq track four, `AF`, `DP`, `DP4`, and `SB`. Only some names overlap, so each track leaves some columns empty.
+Beyond the fifteen, the table adds a column for each [`INFO`](../../GLOSSARY.md#info) key the loaded tracks carry, which are the extra per-variant measurements a caller records beside the call. Allele frequency, gene, and impact come first when present, and the rest follow in alphabetical order. Two keys matter here. `DP` is the read depth at the position, and `AF` is the [allele frequency](../../GLOSSARY.md#allele-frequency), the share of those reads carrying the change. The bcftools track fills seventeen `INFO` columns and the LoFreq track four, `AF`, `DP`, `DP4`, and `SB`. Only some names overlap, so each track leaves some columns empty.
 
 Click a header once to sort ascending and again for descending. Right-click a header for Size to Fit, sorting, and filter commands such as keeping rows equal to or above a value. To hide or reorder columns, click the gear button, whose tooltip reads "Column visibility and order". LGE remembers the visibility and order set there, but not column widths.
 
-### Step 3. Select a row and read the Inspector
+### Select a row and read the Inspector
 
-Click any row. The Inspector on the right fills with that one variant, one field to a line. A VCF packs its `INFO` values into one string of `key=value` pairs joined by semicolons, and the Inspector breaks it apart. It shows the identifier and type, the position, the alleles, the quality, the track and caller settings, any gene, consequence, and amino-acid change, a genotype summary where the file carries [genotypes](../../GLOSSARY.md#genotype), and every `INFO` key on its own line. For a bcftools row the `INFO` lines include `AD`, the reads supporting the reference and the alternate. **Zoom to Variant** and **Copy Info** buttons sit at the bottom.
+Click any row. The Inspector's **Selected Item** tab fills with that one variant, one field to a line. A VCF packs its `INFO` values into one string of `key=value` pairs joined by semicolons, and the Inspector breaks it apart. It shows the identifier and type, the position, the alleles, the quality, the track and caller settings, any gene, consequence, and amino-acid change, a genotype summary where the file carries [genotypes](../../GLOSSARY.md#genotype), and every `INFO` key on its own line. For a bcftools row the `INFO` lines include `AD`, the reads supporting the reference and the alternate. **Zoom to Variant** and **Copy Info** buttons sit at the bottom.
 
 Once the table has keyboard focus, the up and down arrow keys move the selection and the Inspector follows. VoiceOver, the screen reader built into macOS, announces the focused cell and its column, and the column headers work as buttons for sorting without a mouse.
 
 <!-- SHOT: variants-inspector-row -->
 
-### Step 4. Filter with the preset chips
+### Filter with the preset chips
 
 Click **Presets** in the toolbar above the table. A strip of chips unfolds, each one a saved filter rule this manual calls a [smart-filter token](../../GLOSSARY.md#smart-filter-token), grouped into four sections.
 
@@ -117,7 +119,7 @@ Click **Presets** in the toolbar above the table. A strip of chips unfolds, each
 
 A chip whose field the loaded tracks lack is shown dimmed and cannot be clicked, and its tooltip names what is missing. A section is left out only when none of its chips can be used. `High Impact` and `Moderate+` read an `IMPACT` field, an annotation program's own ranking of how severely a change is likely to affect the protein, written by programs such as SnpEff or VEP. `ClinVar Path.` reads a `CLNSIG` field from ClinVar, a public database of clinical judgements about variants. Neither caller here writes those fields, so those three chips stay dimmed. `Rare (<1%)` needs an `AF` key, which the LoFreq track supplies. `Bookmarked` keeps rows you flagged by hand and appears once you have bookmarked one.
 
-The three within-sample frequency chips, `Minor`, `Mixed`, and `Dominant`, appear only when the tracks carry genotypes and LGE takes the organism to be haploid, meaning it carries one copy of each chromosome. Allele fraction is a clean filter only then. In a haploid virus, a fraction near one half means a mixture of two populations. In a diploid human it means a routine [heterozygous](../../GLOSSARY.md#heterozygous) call, one copy changed and one not, so the same threshold says nothing. The **Auto / Haploid / Diploid** control in the same toolbar settles the question, and its Settings entry explains why Auto guesses wrong on this fixture. Set it to Diploid here, which is the truthful answer for a human sample. The three chips then dim, with the tooltip "Only available for haploid organisms".
+The chip group's name, Population / Frequency, is the app's label, but its `Minor`, `Mixed`, and `Dominant` chips read a within-sample share, the [allele frequency](../../GLOSSARY.md#allele-frequency) of reads at one position carrying the change, not how common a variant is in a population. [What AF means](../01-foundations/05-variants-and-vcf.md#what-af-means) sets the senses of `AF` side by side. The three chips appear only when the tracks carry genotypes and LGE takes the organism to be haploid, meaning it carries one copy of each chromosome. The read share is a clean filter only then. In a haploid virus, a fraction near one half means a mixture of two populations. In a diploid human it means a routine [heterozygous](../../GLOSSARY.md#heterozygous) call, one copy changed and one not, so the same threshold says nothing. The **Auto / Haploid / Diploid** control in the same toolbar settles the question, and its Settings entry explains why Auto guesses wrong on this fixture. Set it to Diploid here, which is the truthful answer for a human sample. The three chips then dim, with the tooltip "Only available for haploid organisms".
 
 Click a chip to apply it and click it again to remove it. Chips from different sections combine, so `PASS` and `DP ≥ 10` together keep only rows satisfying both. Inside three sets, picking one chip clears the others in that set. `SNV` and `Indel` form one set, `High Impact` and `Moderate+` another, and the three frequency chips the third.
 
@@ -127,7 +129,7 @@ Now the lesson this fixture exists to teach. The [FILTER](../../GLOSSARY.md#filt
 
 A **Profiles** pull-down in the toolbar, shown when the window is wide enough, saves assembling the same chips again. It offers four built-in combinations, `Clinical`, `Research`, `QC`, and `High Confidence`, each hidden when the tracks lack a field its chips need. `Save Current as Profile...` stores your own on this Mac, keyed to the bundle, so a profile does not travel with a bundle you copy. `No Profile` clears the selection.
 
-### Step 5. Filter with the Query Builder
+### Filter with the Query Builder
 
 For anything the chips cannot express, click **Query Builder...**, which reads **Edit Query...** once a filter is active, and **Query** or **Edit** in a narrow window. The Variant Query Builder sheet opens with one blank rule. Each rule picks a category, a field inside it, an operator, and a value, and the sheet writes the query text for you. Rules combine with **Match All**, meaning a row must satisfy every rule. Match All is the only logic the sheet offers, so there is no way to ask for either-or.
 
@@ -141,7 +143,7 @@ For anything the chips cannot express, click **Query Builder...**, which reads *
 | Sample/Genotype | A genotype, allele-frequency, and depth field for each sample the tracks declare |
 | INFO Field | Every `INFO` key the tracks carry |
 
-The population-database keys name public catalogues of how common a variant is across many people, and neither caller here writes them, so they find nothing on this fixture. The Sample/Genotype fields are named after your samples, so the sheet offers `HG002.GT`, `HG002.AF`, and `HG002.DP`. The dot marks a field belonging to one sample rather than to the whole variant.
+The population-database keys name public catalogues of how common a variant is across many people, and neither caller here writes them, so they find nothing on this fixture. The Sample/Genotype fields are named after your samples, and the bcftools track's one sample is named `HG002.chr20.10.0-10.5Mb`, after the read bundle the mapping took its sample name from. So the sheet offers `HG002.chr20.10.0-10.5Mb.GT`, `HG002.chr20.10.0-10.5Mb.AF`, and `HG002.chr20.10.0-10.5Mb.DP`. The last dot marks a field belonging to one sample rather than to the whole variant.
 
 The operators depend on the field. A Location rule takes only `=`, meaning "inside this range". A Filter rule takes only `=`. An INFO Field rule takes `=`, `~` (contains), `<`, `<=`, `>`, and `>=`. A genotype rule takes `=` and `!=`, and the per-sample `AF` and `DP` fields add the numeric comparisons.
 
@@ -155,19 +157,35 @@ A very large variant database, the file LGE builds from each track so the table 
 
 <!-- SHOT: variants-search-builder -->
 
-### Step 6. Read the two callers against each other
+### Read the two callers against each other
 
 LGE has no side-by-side comparison view and no intersection button. It gives you one table holding both call sets with a `Variant Track` column, which is enough to compare them by eye.
 
-Sort by `Position` ascending. Where both callers reported a coordinate, two rows land on adjacent lines with different `Variant Track` values. Rows only one caller reported sit alone. Read the `Variant Track` text rather than the viewport. The ticks the viewport draws on a variant track encode the genotype and the variant type, never the source file, so they cannot separate two callers.
+Sort by `Position` ascending. Where both callers reported a coordinate, two rows land on adjacent lines with different `Variant Track` values. Rows only one caller reported sit alone. Read the `Variant Track` text rather than the viewport. The marks the viewport draws on a variant track encode the genotype and the variant type, never the source file, as [The variant track in the viewport](#the-variant-track-in-the-viewport) shows, so they cannot separate two callers.
 
 <!-- SHOT: variants-source-column -->
 
 Coordinate 2078 shows a shared call. Use **Sequence > Go to Location...** (Cmd-L), type `chr20_10.0-10.5Mb:2078`, and click Go, with the scope control on **Region** so the table trims to what is on screen. Both callers report a reference `G` read as `A`. The bcftools row carries the genotype `1/1`, meaning both copies carry the change, with [allele depths](../../GLOSSARY.md#allele-depth) of 0 reference reads and 52 alternate reads, which the Inspector lists as `AD=0,52`. The LoFreq row carries no genotype and reports `AF` 1 instead. Every read carries the `A`, so this person has the change on both copies of chromosome 20, a [homozygous](../../GLOSSARY.md#homozygous) position, and the two callers agree in different notations.
 
-Coordinate 250527 shows the other common kind of call. LoFreq reports a reference `C` read as `T` with `AF` 0.571 at a depth of 63, so a little over half the reads carry the change. That is what a heterozygous position in a human sample looks like. The bcftools row there carries the genotype `0/1`, one copy changed and one not, with allele depths of 20 reference reads and 33 alternate reads. Again the two callers agree, one as a fraction and one as a genotype.
+Coordinate 250527 shows the other common kind of call. LoFreq reports a reference `C` read as `T` with `AF` 0.571 at a depth of 63, so a little over half the reads carry the change. That is what a heterozygous position in a human sample looks like. The bcftools row there carries the genotype `0/1`, one copy changed and one not, with allele depths of 20 reference reads and 33 alternate reads, a share of 0.62. The two shares differ because LoFreq counted all 63 reads while bcftools counted only the 53 bases read with a confident quality, as [The pileup at position 250,527](../04-alignments/02-reading-an-alignment.md#the-pileup-at-position-250527) in Reading an Alignment shows. Again the two callers agree, one as a frequency and one as a genotype.
 
 Where the callers disagree, the cause is mundane. Of the 1,040 bcftools rows, 181 are [indels](../../GLOSSARY.md#indel), and LoFreq called none, because LoFreq skips indels unless asked. That accounts for 180 of the 187 positions only bcftools reported. None of the 10 positions only LoFreq reported appears in the benchmark. The Call Variants dialog's Extra arguments field shows `--call-indels` as its placeholder, which is the flag LoFreq wants. Before concluding that one caller is wrong, check whether a difference in what each caller was looking for explains the gap.
+
+### Calls and genotypes
+
+The **Calls** and **Genotypes** switch at the left of the toolbar changes what one row means. In Calls, the default, a row is one variant, one line of the VCF. In Genotypes, which reads **GT** in a narrow window, a row is one sample's genotype at one variant, with the columns `Sample`, `Track`, `Variant`, `Chrom`, `Position`, `GT`, `Zygosity`, `AD`, `DP`, `GQ`, and `Allele Bal.`. `Zygosity` spells the genotype out as Het, Hom Alt, or Missing, and `GQ` is the caller's confidence in the genotype, on the Phred scale described under Reading the results. A sample reading `0/0`, the reference on both copies, gets no row of its own.
+
+With one sample per track, as here, the two views hold the same calls, so the switch matters for a VCF with several sample columns, such as a family called together. Each sample then gets its own line at each position, and sorting by `Position` puts one family's genotypes at a site on adjacent lines. The **Samples** tab lists the sample columns the loaded tracks declare, and the name there is the one the Query Builder and the command line expect. [Joint Genotyping](../06-human-germline-variants/02-joint-genotyping.md) reads a three-person call set this way.
+
+### The variant track in the viewport
+
+The genome viewport draws each variant track under the sequence, so a call can be found by eye before it is found in the table. Go to `chr20_10.0-10.5Mb:250527` with **Sequence > Go to Location...** (Cmd-L) and zoom in until single calls separate.
+
+<!-- SHOT: variant-track-glyphs -->
+
+Each track draws two layers. A thin summary bar at the top stacks the calls under each screen pixel by type, green for single-base substitutions, violet for insertions, and red for deletions, and its label at the left gives the number of calls in the track. Below it, each sample in the track gets a row, and each call is a small block as wide as its reference allele, coloured by genotype. In the default colour theme a heterozygous call such as the `0/1` at 250,527 is blue, a homozygous call such as the `1/1` at 2,078 is deep indigo, a reference call is light grey, and a missing call is near white. A haploid call such as iVar's bare `1` counts as homozygous. Hover a block for the variant and the sample's genotype, spelled out as HET or HOM_ALT, and click it to select the variant, which fills the Inspector's **Selected Item** tab. When more than 5,000 calls are in view, the genotype rows give way to the message "Zoom in to display genotypes" with the count, and only the summary bar is drawn.
+
+Read the colour with the position you already know. At 2,078 every read carried the change, and the block is indigo. At 250,527 about half did, and it is blue. Blue calls in a sample that carries one copy of its genome, or a human track with no blue at all, say the ploidy was set wrongly when the calls were made.
 
 ## Settings
 
@@ -183,7 +201,7 @@ Seven controls sit in the drawer toolbar on the Variants tab, and the column-hea
 
 **Query Builder....** Opens the Variant Query Builder sheet, the fullest way to compose a filter by hand on this tab. It opens with one blank rule, and every rule must hold, the only logic the query engine supports. Use it when a chip is not specific enough, such as a coordinate window or one sample's genotype, and expect it to be disabled on a very large variant database. Its query text is not in general accepted by the command line's `--filter` flag, so treat the two as separate grammars.
 
-**Auto / Haploid / Diploid.** Tells the three within-sample frequency chips how to read allele fractions, since a fraction means something different with one genome copy than with two. The default is Auto, which reads a [ploidy](../../GLOSSARY.md#ploidy) note from the bundle's metadata when there is one and otherwise treats any reference under 10 megabases as haploid, because viral and bacterial genomes are small. That guess suits a whole viral genome and is wrong for a slice of a human chromosome, this fixture's 500 kilobases included, so choose Diploid when reading part of a large genome and Haploid in the opposite case. This setting has no command-line flag.
+**Auto / Haploid / Diploid.** Tells the three within-sample frequency chips how to read an allele frequency, since the same share of reads means something different with one genome copy than with two. The default is Auto, which reads a [ploidy](../../GLOSSARY.md#ploidy) note from the bundle's metadata when there is one and otherwise treats any reference under 10 megabases as haploid, because viral and bacterial genomes are small. That guess suits a whole viral genome and is wrong for a slice of a human chromosome, this fixture's 500 kilobases included, so choose Diploid when reading part of a large genome and Haploid in the opposite case. This setting has no command-line flag.
 
 **Clear.** Drops every active filter at once, the chips and anything the Query Builder wrote, and returns the full table. It is hidden until a filter is active, so its presence is itself the sign that something is filtered. Reach for it first whenever a table looks emptier than it should. This setting has no command-line flag.
 
@@ -195,7 +213,9 @@ Take the `Filter` column first, because it decides whether later filters behave 
 
 Take `Quality` next. A [Phred score](../../GLOSSARY.md#phred-score) is a per-base quality on a logarithmic scale, where 20 means one wrong base in a hundred and 30 means one in a thousand, and a caller's `Quality` uses the same scale for the whole call. The two callers put their scores on scales that cannot be compared with each other, so read each track on its own. The bcftools rows run from 3.2 to 228.4, the commonest score is 225.4, and 12 of the 1,040 fall below 30. The LoFreq rows run from 73 to 2,478 and none fall below 30. The `Qual ≥ 30` chip applies the same threshold to both tracks, which is useful for finding a track's weakest rows and misleading for ranking one caller against the other. A healthy call set has most rows far above the threshold and a short tail near the bottom. A table that is mostly low scores says the alignment or the depth is the problem.
 
-Take depth third. [Depth](../../GLOSSARY.md#depth), also called coverage, is the number of reads covering one position, and [coverage breadth](../../GLOSSARY.md#coverage-breadth) is the share of positions with at least one read. Every bcftools row sits at a depth of 10 or more, because the Call Variants dialog's Minimum Depth of 10 removed shallower rows before the track was written. The bcftools rows average about 43 reads. Depth matters because an allele fraction means different things at different depths. Half the reads at a depth of 4 is two reads of evidence. Half the reads at a depth of 63 is more than thirty.
+Take depth third. [Depth](../../GLOSSARY.md#depth), also called coverage, is the number of reads covering one position, and [coverage breadth](../../GLOSSARY.md#coverage-breadth) is the share of positions with at least one read. Every bcftools row sits at a depth of 10 or more, because the Call Variants dialog's Minimum Depth of 10 removed shallower rows before the track was written. The bcftools rows average about 43 reads. Depth matters because an allele frequency means different things at different depths. Half the reads at a depth of 4 is two reads of evidence. Half the reads at a depth of 63 is more than thirty.
+
+<!-- ILLUSTRATION: lofreq-af-histogram -->
 
 Take [allele frequency](../../GLOSSARY.md#allele-frequency) last, which is where the tracks differ most in shape. Sort the LoFreq rows by the `AF` column and they split into 339 at or above 0.8, 517 between 0.2 and 0.8, and 6 below 0.2. That two-humped shape is what a diploid human sample should produce, with a heterozygous group near one half and a homozygous group near one. The bcftools track has no `AF` key, but its genotypes show the same two groups, 617 heterozygous `0/1` rows and 405 homozygous `1/1` rows, plus 18 `1/2` rows where the two copies carry different changes.
 
@@ -213,37 +233,33 @@ Third, check that quality and depth have the shape described above, most rows we
 
 Fourth, when two tracks are loaded, look for a mundane explanation of their disagreement before an interesting one. Here LoFreq's indel default explains nearly all of bcftools' extra positions. A disagreement no difference in caller behaviour explains is worth investigating.
 
-Fifth, know where each row came from. LGE writes a [provenance](../../GLOSSARY.md#provenance) record beside every result, holding the command, the tool version, and a [checksum](../../GLOSSARY.md#checksum) of each file, and [Provenance and Reproducibility](../01-foundations/08-provenance-and-reproducibility.md#reading-the-results) shows how to read it. The `Variant Track` column is not a link, so select the track in the project sidebar to read its record.
+Fifth, know where each row came from. Each track's [provenance](../../GLOSSARY.md#provenance) record, which [Provenance and Reproducibility](../01-foundations/08-provenance-and-reproducibility.md#reading-the-results) reads, names the caller, its version, and the thresholds applied.
 
 ## On the command line
 
-This section is optional, and nothing later in this manual needs it. The `lungfish-cli` program ships inside LGE, and [Finding the program](../appendices/cli-reference.md#finding-the-program) shows how to run it.
+The table cannot write a VCF. When a downstream tool needs your filtered rows as a file, `lungfish-cli variants query` reads the bundle's variant database, applies a filter expression, and writes the matching rows to a new VCF with a provenance record beside it. It reads only the first variant track in the bundle that has a database, first meaning the earliest one added, and there is no flag to pick another track. On the bundle Calling Variants builds, that is the bcftools track. Every flag of `variants query` is listed in [Calling variants](../appendices/cli-reference.md#calling-variants) in the CLI Reference.
 
-The table cannot write a VCF. When a downstream tool needs your filtered rows as a file, `lungfish-cli variants query` reads the bundle's variant database, applies a filter expression, and writes the matching rows to a new VCF with a provenance record beside it. It reads only the first variant track in the bundle that has a database, first meaning the earliest one added, and there is no flag to pick another track. On the bundle Calling Variants builds, that is the bcftools track.
+Its filter grammar is not the Query Builder's. The `--filter` flag accepts per-sample clauses of the form `Sample[<name>].<field>`, where the name is the one the **Samples** tab lists, `HG002.chr20.10.0-10.5Mb` here, and the field is `GT`, `AF`, or `DP`. `AF` is worked out from the allele depths rather than read from an `AF` tag. Query Builder clauses such as `filter=PASS`, and comparisons against `INFO` keys such as `DP>=10`, are rejected with "Unsupported smart-filter clause". A sample name that does not match exactly, such as `HG002` alone, is not an error. The command writes a VCF with no rows.
 
-Its filter grammar is not the Query Builder's. The `--filter` flag accepts per-sample clauses of the form `Sample[<name>].<field>`, where the name is the one the **Samples** tab lists, `HG002` here, and the field is `GT`, `AF`, or `DP`. `AF` is worked out from the allele depths rather than read from an `AF` tag. Query Builder clauses such as `filter=PASS`, and comparisons against `INFO` keys such as `DP>=10`, are rejected with "Unsupported smart-filter clause".
-
-The first line below stores the bundle's path in a shortcut name. Replace the path with your own, keeping the double quotes, which stop the space in `Reference Sequences` from splitting it.
+The block uses the Human Mapping and Variants (with results) demo project, whose mapping result has a fixed name, and follows the path convention in [Reading an On the command line block](../01-foundations/06-the-lungfish-project.md#reading-a-command-line-block). For your own run, put your own `minimap2-` folder in the `BUNDLE` line.
 
 ```bash
-BUNDLE="MyProject.lungfish/Reference Sequences/GRCh38.chr20.10.0-10.5Mb.lungfishref"
+PROJECT="$HOME/Documents/LGE Demo Projects/Human Mapping and Variants (with results).lungfish"
+BUNDLE="$PROJECT/Analyses/minimap2-2026-09-25T00-00-00/GRCh38.chr20.10.0-10.5Mb.lungfishref"
 
 # Heterozygous calls in the first track. 617 rows here.
 lungfish-cli variants query "$BUNDLE" \
-    --filter 'Sample[HG002].GT=0/1' \
+    --filter 'Sample[HG002.chr20.10.0-10.5Mb].GT=0/1' \
     --output heterozygous.vcf
 
 # Calls where at least half the reads carry the alternate. 755 rows here.
 lungfish-cli variants query "$BUNDLE" \
-    --filter 'Sample[HG002].AF>=0.5' \
+    --filter 'Sample[HG002.chr20.10.0-10.5Mb].AF>=0.5' \
     --output majority.vcf
-
-# Count what came out
-bcftools view -H majority.vcf | wc -l
 ```
 
-A haploid clause such as `Sample[HG002].GT=1` returns no rows on this bundle, because the track it reads holds diploid genotypes. `--limit` caps the export and defaults to 5000 rows, so raise it for a larger track.
+The row counts in the comments are the ones the release run gave. A haploid clause such as `Sample[HG002.chr20.10.0-10.5Mb].GT=1` returns no rows on this bundle, because the track it reads holds diploid genotypes. `--limit` caps the export and defaults to 5000 rows, so raise it for a larger track.
 
 ## Next
 
-Continue to [Nanopore Variant Calling](04-nanopore-variant-calling.md) for the callers built for long reads, or to [Extracting a Consensus Sequence](05-consensus-and-lineage.md) to turn an alignment into a sequence.
+Continue to [Nanopore Variant Calling](04-nanopore-variant-calling.md), which calls long reads with the callers built for them and reads their rows in this same table. [Extracting a Consensus Sequence](05-consensus-and-lineage.md) turns an alignment into a sequence, and [Importing Existing VCFs](06-importing-existing-vcfs.md) adds the benchmark as a third track to read against these two.
