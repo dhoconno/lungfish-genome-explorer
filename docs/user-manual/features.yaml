@@ -544,17 +544,24 @@ features:
   bam.markdup:
     title: Mark and remove duplicate reads
     entry_points:
+      - "Inspector > Mark Duplicates in Bundle Tracks"
+      - "CLI: lungfish bundle mark-duplicates"
       - "CLI: lungfish markdup"
       - "CLI: lungfish bam deduplicate-alignments"
     inputs: [reference-bundle, bundle-alignment-track]
     outputs: [bam, bai, alignment-track]
     viewport_class: alignment
     sources:
+      - Sources/LungfishWorkflow/Alignment/AlignmentDuplicateService.swift
       - Sources/LungfishCLI/Commands/MarkdupCommand.swift
       - Sources/LungfishCLI/Commands/BAMCommand.swift
     notes: >-
-      Marks PCR duplicates with samtools markdup and can write a new bundle with
-      duplicates removed from alignment tracks.
+      Marks PCR duplicates with samtools markdup. In a bundle the marking is
+      non-destructive: originals stay as "<name> [unmarked]" and marked
+      copies are added as "<name> [dup-marked]" under alignments/marked/, and
+      a second run is refused. The standalone markdup command still rewrites
+      its input BAM. deduplicate-alignments writes a new bundle with the
+      duplicates removed. Chapter: 04-alignments/04.
   bam.extract-reads:
     title: Extract reads by region
     entry_points:
@@ -1016,15 +1023,17 @@ features:
     title: Transform phylogenetic trees
     entry_points:
       - "CLI: lungfish tree extract-subtree"
-      - "CLI: lungfish tree infer reroot"
+      - "CLI: lungfish tree reroot"
     inputs: [lungfishtree]
     outputs: [lungfishtree, newick]
     viewport_class: none
     sources:
       - Sources/LungfishCLI/Commands/TreeCommand.swift
     notes: >-
-      Re-roots a tree, extracts a selected clade or subtree, and relabels tips
-      from bundle metadata, writing new bundles with provenance.
+      Roots a tree on the branch above a chosen node (outgroup rooting, as
+      the viewport's Root on Branch to Here does), extracts a selected clade
+      as a subtree named from its tip labels, and relabels tips from bundle
+      metadata, writing new bundles with provenance. Chapter: 02-sequences/05.
 
   # --- Workflows ---
   workflow.nextflow:
@@ -1190,5 +1199,138 @@ features:
       - Sources/LungfishWorkflow/Containers/ContainerImageRegistry.swift
       - Sources/LungfishCLI/Commands/DebugCommand.swift
     notes: >-
-      Runs Docker or Apptainer images in lightweight Linux VMs on Apple Silicon
-      via Apple Containerization for workflow steps that need them.
+      The Nextflow pipelines (Viral Recon, TaxTriage) run their containers
+      through Docker Desktop with -profile docker. debug container probes the
+      Docker CLI and daemon, exits 65 when the daemon is unreachable, and
+      reports the Apple Containerization runtime separately as not used by
+      pipelines. Owning section: 01-foundations/07 Tools that run in
+      containers.
+  primer-design.primer3:
+    title: Design a PCR or qPCR assay with Primer3
+    entry_points:
+      - "Tools > PCR Primer Design > Primer3…"
+      - "CLI: lungfish primers design primer3"
+    inputs: [reference-bundle, multiple-sequence-alignment, fasta]
+    outputs: [lungfishprimeranalysis]
+    viewport_class: none
+    sources:
+      - Sources/LungfishApp/Views/PrimerDesign/PrimerDesignDialog.swift
+      - Sources/LungfishApp/Views/PrimerDesign/PrimerDesignDialogState.swift
+      - Sources/LungfishApp/App/AppDelegate+PrimerDesign.swift
+      - Sources/LungfishWorkflow/PrimerDesign/Primer3DesignPipeline.swift
+      - Sources/LungfishWorkflow/PrimerDesign/Primer3DesignInput.swift
+      - Sources/LungfishWorkflow/PrimerDesign/Primer3FixedOligoValidation.swift
+      - Sources/LungfishCLI/Commands/PrimerDesignCommand.swift
+    notes: >-
+      Independent Primer3 designs per FASTA record or MSA row, with an assay
+      type of PCR, qPCR with a hydrolysis probe, or qPCR with an intercalating
+      dye (--assay pcr|qpcr-probe|qpcr-dye). Conserved design on an MSA
+      excludes variable columns. Fixed oligos (--left-primer, --right-primer,
+      --probe) and per-oligo explanation lines are supported. Chapters:
+      10-primer-design/02 and 04; settings in appendices/primer-design-settings.
+  primer-design.primalscheme3:
+    title: Design a tiled amplicon scheme with PrimalScheme
+    entry_points:
+      - "Tools > PCR Primer Design > PrimalScheme…"
+      - "CLI: lungfish primers design primalscheme3"
+    inputs: [reference-bundle, multiple-sequence-alignment, fasta]
+    outputs: [lungfishprimeranalysis]
+    viewport_class: none
+    sources:
+      - Sources/LungfishApp/Views/PrimerDesign/PrimerDesignDialog.swift
+      - Sources/LungfishWorkflow/PrimerDesign/PrimalScheme3DesignPipeline.swift
+      - Sources/LungfishWorkflow/PrimerDesign/PrimalScheme3CoverageContract.swift
+      - Sources/LungfishCLI/Commands/PrimerDesignCommand.swift
+    notes: >-
+      Tiled, overlapping amplicons in two alternating pools, run through
+      LGE's PrimalScheme 3 build. Chapter: 10-primer-design/03.
+  primer-design.olivar:
+    title: Design a tiled amplicon scheme with Olivar
+    entry_points:
+      - "Tools > PCR Primer Design > Olivar…"
+      - "CLI: lungfish primers design olivar"
+    inputs: [reference-bundle, multiple-sequence-alignment, fasta]
+    outputs: [lungfishprimeranalysis]
+    viewport_class: none
+    sources:
+      - Sources/LungfishApp/Views/PrimerDesign/PrimerSchemeAdvancedOptionsView.swift
+      - Sources/LungfishWorkflow/PrimerDesign/PrimerSchemeDesignPipeline.swift
+      - Sources/LungfishWorkflow/PrimerDesign/PrimerSchemeAdapterRunner.swift
+      - Sources/LungfishWorkflow/PrimerDesign/PrimerScreeningDatabaseBuilder.swift
+      - Sources/LungfishCLI/Commands/PrimerDesignCommand.swift
+    notes: >-
+      Variant-aware tiled design through the versioned LGE adapter. An
+      optional BLAST screen is built from chosen sequences
+      (--screen-against). Chapter: 10-primer-design/03.
+  primer-design.varvamp:
+    title: Design single, tiled, or qPCR assays with varVAMP
+    entry_points:
+      - "Tools > PCR Primer Design > varVAMP…"
+      - "CLI: lungfish primers design varvamp"
+    inputs: [multiple-sequence-alignment, fasta]
+    outputs: [lungfishprimeranalysis]
+    viewport_class: none
+    sources:
+      - Sources/LungfishApp/Views/PrimerDesign/PrimerSchemeAdvancedOptionsView.swift
+      - Sources/LungfishWorkflow/PrimerDesign/PrimerSchemeDesignPipeline.swift
+      - Sources/LungfishWorkflow/PrimerDesign/VarVAMPCoverageAdvisories.swift
+      - Sources/LungfishWorkflow/PrimerDesign/PrimerScreeningDatabaseBuilder.swift
+      - Sources/LungfishCLI/Commands/PrimerDesignCommand.swift
+    notes: >-
+      Degenerate primers from a consensus of the alignment, in single, tiled,
+      or qPCR mode. The qPCR result selects the lowest-penalty assay.
+      Chapters: 10-primer-design/03 and 04.
+  primer-analysis.review:
+    title: Review a primer analysis
+    entry_points:
+      - "Open a .lungfishprimeranalysis bundle from the sidebar"
+      - "CLI: lungfish primers analysis inspect"
+    inputs: [lungfishprimeranalysis]
+    outputs: []
+    viewport_class: none
+    sources:
+      - Sources/LungfishApp/Views/PrimerAnalysis/PrimerAnalysisViewerView.swift
+      - Sources/LungfishApp/Views/PrimerAnalysis/PrimerBindingInspectionView.swift
+      - Sources/LungfishApp/Views/Inspector/Sections/PrimerAnalysisDisplaySection.swift
+      - Sources/LungfishWorkflow/PrimerDesign/PrimerAnalysisNativeInspectionService.swift
+      - Sources/LungfishCLI/Commands/PrimerAnalysisCommand.swift
+    notes: >-
+      Overview, Results, and binding inspection against the input alignment,
+      with the Inspector's display and export controls. inspect verifies the
+      stored file checksums. Chapter: 10-primer-design/05.
+  primer-analysis.order-export:
+    title: Export a primer order
+    entry_points:
+      - "Inspector > Export candidate pairs…"
+      - "Inspector > Export all reported assays…"
+      - "CLI: lungfish primers analysis export-order"
+    inputs: [lungfishprimeranalysis]
+    outputs: [xlsx, csv, json]
+    viewport_class: none
+    sources:
+      - Sources/LungfishApp/Views/PrimerAnalysis/PrimerOrderExportView.swift
+      - Sources/LungfishApp/Views/MainWindow/MainSplitViewController+PrimerAnalysis.swift
+      - Sources/LungfishWorkflow/PrimerAnalysis/PrimerOrderExportService.swift
+      - Sources/LungfishWorkflow/PrimerDesign/PrimerSchemeOrderSheet.swift
+      - Sources/LungfishCLI/Commands/PrimerAnalysisCommand.swift
+    notes: >-
+      Writes order workbooks, a CSV, and order.json for the selected or all
+      reported assays. Chapter: 10-primer-design/05.
+  primer-analysis.scheme-from-analysis:
+    title: Save a designed scheme as a primer scheme bundle
+    entry_points:
+      - "Inspector > Save as Primer Scheme…"
+      - "CLI: lungfish primers scheme-from-analysis"
+    inputs: [lungfishprimeranalysis]
+    outputs: [lungfishprimers]
+    viewport_class: none
+    sources:
+      - Sources/LungfishApp/Views/PrimerAnalysis/PrimerSchemeExportView.swift
+      - Sources/LungfishApp/Views/MainWindow/MainSplitViewController+PrimerAnalysis.swift
+      - Sources/LungfishWorkflow/Primers/PrimerSchemeFromAnalysisService.swift
+      - Sources/LungfishCLI/Commands/PrimerCommand.swift
+    notes: >-
+      Saves a PrimalScheme, Olivar, or tiled varVAMP design to Primer
+      Schemes/<name>.lungfishprimers with its design reference under
+      attachments/, ready for BAM primer trimming. Chapters:
+      10-primer-design/05 and appendices/primer-schemes.
