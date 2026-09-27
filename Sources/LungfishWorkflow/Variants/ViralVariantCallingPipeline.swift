@@ -1034,15 +1034,18 @@ public struct ViralVariantCallingPipeline: Sendable {
                 IVarTSVToVCFConverter.Contig(name: chrom.name, length: Int(chrom.length))
             }
             let ivarVersion = await nativeToolVersion(for: .ivar)
-            let lungfishVersion = WorkflowRun.currentAppVersion
             let options = IVarTSVToVCFConverter.Options(
                 consensusAF: request.ivarConsensusAF,
                 mergeAFThreshold: request.ivarMergeAFThreshold,
                 badQualityThreshold: request.ivarBadQualityThreshold,
                 ignoreStrandBias: request.ivarIgnoreStrandBias,
-                sourceLine: "iVar \(ivarVersion) (TSV-to-VCF: Lungfish \(lungfishVersion))",
+                sourceLine: Self.ivarVCFSourceLine(
+                    ivarVersion: ivarVersion,
+                    lungfishVersion: WorkflowRun.currentAppVersion
+                ),
                 contigs: contigs,
-                gffMissingNote: gffURL == nil
+                gffMissingNote: gffURL == nil,
+                sampleName: Self.ivarVCFSampleName(for: preflight.alignmentTrack)
             )
             try IVarTSVToVCFConverter().convert(
                 tsvURL: tsvURL,
@@ -1569,6 +1572,30 @@ public struct ViralVariantCallingPipeline: Sendable {
             "-f", plan.referenceURL.path,
             plan.alignmentURL.path,
         ]
+    }
+
+    /// The `##source=` line of an iVar VCF. `lungfishVersion` is
+    /// `WorkflowRun.currentAppVersion`, which already reads
+    /// `Lungfish <version> (<build>)`, so it is not prefixed again (the
+    /// header used to read `Lungfish Lungfish 2026.9.52 (dev)`).
+    static func ivarVCFSourceLine(ivarVersion: String, lungfishVersion: String) -> String {
+        "iVar \(ivarVersion) (TSV-to-VCF: \(lungfishVersion))"
+    }
+
+    /// The sample column name of an iVar VCF: the alignment's `@RG SM:`
+    /// sample, which is what bcftools names its sample column from, else
+    /// the alignment track's name. iVar itself writes no VCF, and the
+    /// converter's default (the TSV's basename) named the column
+    /// `ivar.tsv-prefix` after the scratch prefix passed to `ivar variants`.
+    static func ivarVCFSampleName(for alignmentTrack: AlignmentTrackInfo) -> String {
+        let sampleNames = alignmentTrack.sampleNames
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        if let sample = sampleNames.first {
+            return sample
+        }
+        let trackName = alignmentTrack.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trackName.isEmpty ? alignmentTrack.id : trackName
     }
 
     private func ivarVariantArguments(plan: ViralVariantCallingExecutionPlan, gffURL: URL?) -> [String] {

@@ -717,6 +717,74 @@ final class ViralVariantCallingPipelineTests: XCTestCase {
         XCTAssertTrue(result.commandLine.contains("/envs/ivar/bin/ivar"))
     }
 
+    // The converter's default sample column is the TSV basename, which is the
+    // `ivar.tsv-prefix` scratch prefix the pipeline passes to `ivar variants`.
+    // The VCF should name the sample the way bcftools does: from `@RG SM:`.
+    func testIVarVCFNamesItsSampleColumnFromTheReadGroupSample() async throws {
+        let toolRunner = try makeFakeVariantToolRunner()
+        let pipeline = try makePipeline(
+            caller: .ivar,
+            toolRunner: toolRunner,
+            alignmentSampleNames: ["SRR36291587"]
+        )
+
+        let result = try await pipeline.run()
+
+        let vcf = try String(contentsOf: result.normalizedVCFURL, encoding: .utf8)
+        let header = try XCTUnwrap(vcf.split(separator: "\n").first { $0.hasPrefix("#CHROM") })
+        XCTAssertEqual(header.split(separator: "\t").last.map(String.init), "SRR36291587")
+        XCTAssertFalse(vcf.contains("ivar.tsv-prefix"))
+    }
+
+    func testIVarVCFSampleColumnFallsBackToTheTrackNameWithoutReadGroups() async throws {
+        let toolRunner = try makeFakeVariantToolRunner()
+        let pipeline = try makePipeline(caller: .ivar, toolRunner: toolRunner)
+
+        let result = try await pipeline.run()
+
+        let vcf = try String(contentsOf: result.normalizedVCFURL, encoding: .utf8)
+        let header = try XCTUnwrap(vcf.split(separator: "\n").first { $0.hasPrefix("#CHROM") })
+        XCTAssertEqual(header.split(separator: "\t").last.map(String.init), "Sample BAM")
+    }
+
+    // `WorkflowRun.currentAppVersion` already reads `Lungfish <version> (<build>)`;
+    // the source line used to prefix it with a second "Lungfish".
+    func testIVarVCFSourceLineNamesTheProductOnce() async throws {
+        let toolRunner = try makeFakeVariantToolRunner()
+        let pipeline = try makePipeline(caller: .ivar, toolRunner: toolRunner)
+
+        let result = try await pipeline.run()
+
+        let vcf = try String(contentsOf: result.normalizedVCFURL, encoding: .utf8)
+        let source = try XCTUnwrap(vcf.split(separator: "\n").first { $0.hasPrefix("##source=") })
+        XCTAssertFalse(source.contains("Lungfish Lungfish"), String(source))
+        XCTAssertTrue(source.contains("(TSV-to-VCF: \(WorkflowRun.currentAppVersion))"), String(source))
+    }
+
+    func testIVarVCFSampleNameHelperPrefersReadGroupSampleThenTrackNameThenID() {
+        let withSample = AlignmentTrackInfo(
+            id: "aln-1", name: "Track", format: .bam,
+            sourcePath: "a.bam", indexPath: "a.bam.bai", sampleNames: [" S1 ", "S2"]
+        )
+        XCTAssertEqual(ViralVariantCallingPipeline.ivarVCFSampleName(for: withSample), "S1")
+
+        let noSample = AlignmentTrackInfo(
+            id: "aln-2", name: "minimap2 Mapping", format: .bam,
+            sourcePath: "a.bam", indexPath: "a.bam.bai", sampleNames: [""]
+        )
+        XCTAssertEqual(ViralVariantCallingPipeline.ivarVCFSampleName(for: noSample), "minimap2 Mapping")
+
+        let blankName = AlignmentTrackInfo(
+            id: "aln-3", name: "  ", format: .bam, sourcePath: "a.bam", indexPath: "a.bam.bai"
+        )
+        XCTAssertEqual(ViralVariantCallingPipeline.ivarVCFSampleName(for: blankName), "aln-3")
+
+        XCTAssertEqual(
+            ViralVariantCallingPipeline.ivarVCFSourceLine(ivarVersion: "1.4.4", lungfishVersion: "Lungfish 2026.9.52 (dev)"),
+            "iVar 1.4.4 (TSV-to-VCF: Lungfish 2026.9.52 (dev))"
+        )
+    }
+
     func testAliasMatchedBamIsReheaderedToBundleChromosomesBeforeCallerExecution() async throws {
         let bundleURL = tempDir.appendingPathComponent("alias-bundle.lungfishref", isDirectory: true)
         let referenceURL = tempDir.appendingPathComponent("alias-reference.fa")
@@ -823,7 +891,8 @@ final class ViralVariantCallingPipelineTests: XCTestCase {
         sourceOrganism: String = "Virus",
         ploidy: VariantCallingPloidy? = nil,
         platform: VariantCallingPlatform? = nil,
-        detectedPlatform: VariantCallingPlatform? = nil
+        detectedPlatform: VariantCallingPlatform? = nil,
+        alignmentSampleNames: [String] = []
     ) throws -> ViralVariantCallingPipeline {
         let bundleURL = tempDir.appendingPathComponent("test.lungfishref", isDirectory: true)
         let referenceURL = tempDir.appendingPathComponent("reference.fa")
@@ -862,7 +931,8 @@ final class ViralVariantCallingPipelineTests: XCTestCase {
                     format: .bam,
                     sourcePath: "alignments/sample.sorted.bam",
                     indexPath: "alignments/sample.sorted.bam.bai",
-                    checksumSHA256: "bam-sha-256"
+                    checksumSHA256: "bam-sha-256",
+                    sampleNames: alignmentSampleNames
                 )
             ]
         )
