@@ -19,7 +19,7 @@ illustrations:
     brief: "A horizontal bar showing Phred score 0-40, with an example read sequence above and a per-base quality bar below using a single-hue Creamsicle quality ramp (lighter = lower quality). Annotate that Q20 = 1% error, Q30 = 0.1% error."
   - id: platform-read-length-comparison
     brief: "A horizontal scale comparing typical read lengths across platforms: Illumina (~150 bp short bar), PacBio HiFi (~15 kb medium bar), Oxford Nanopore (1-100 kb long variable bar). Use Lungfish Creamsicle for the bars, Deep Ink labels, IBM Plex Mono for length numbers."
-glossary_refs: [fastq, read, paired-end, single-end, interleaved-fastq, phred-score, read-length, insert-size, circular-consensus-sequencing, coverage, depth, n50, sra, variant-caller, simplex-read, duplex-read, fixture, bundle]
+glossary_refs: [fastq, read, paired-end, single-end, interleaved-fastq, phred-score, read-length, insert-size, circular-consensus-sequencing, coverage, depth, n50, sra, variant-caller, simplex-read, duplex-read, fixture, bundle, inspector, read-merging, amplicon, shotgun]
 features_refs: []
 fixtures_refs: [hg002-chr20, hg002-long-reads]
 brand_reviewed: false
@@ -114,7 +114,7 @@ Split the pair, lose one file, or reorder one of them, and every later step quie
 
 The [insert size](../../GLOSSARY.md#insert-size) is the length of the original fragment the two mates came from. When it is shorter than twice the read length, the mates overlap and read the same bases from both strands. With 250-base reads, that happens on any fragment under 500 bases. Insert size is measured after mapping, not from the FASTQ.
 
-A pair can also be written as one [interleaved FASTQ](../../GLOSSARY.md#interleaved-fastq) file, where the records alternate, read 1 of the first pair, read 2 of the first pair, read 1 of the second pair, and so on. LGE stores the two mates of a sample together in one bundle, as one interleaved file, and every operation still treats the sample as pairs. Merging overlapping mates into one longer read, and converting between two files and one interleaved file, are covered in [Read Processing](../03-reads/08-read-processing.md#merging-the-overlapping-pairs).
+A pair can also be written as one [interleaved FASTQ](../../GLOSSARY.md#interleaved-fastq) file, where the records alternate, read 1 of the first pair, read 2 of the first pair, read 1 of the second pair, and so on. LGE stores the two mates of a sample together in one bundle, as one interleaved file, and most operations still treat the sample as pairs. The chapters on trimming and read processing name the exceptions. Merging overlapping mates into one longer read, and converting between two files and one interleaved file, are covered in [Read Processing](../03-reads/08-read-processing.md#merging-the-overlapping-pairs).
 
 ## Phred quality scores
 
@@ -193,6 +193,28 @@ This read is 16,565 bases long. Across the fixture the HiFi reads average Q29, w
 ## How LGE shows a read set
 
 Importing reads, which [Importing Sequencing Reads](../03-reads/01-importing-fastq.md) covers, turns each sample into one item in the sidebar. A [bundle](../../GLOSSARY.md#bundle) is a folder LGE treats as one item, as [What bundle means](06-the-lungfish-project.md#what-bundle-means) explains. Click the bundle to open the FASTQ viewport, whose summary cards [Quality Control for Reads](../03-reads/03-quality-control.md#reading-the-results) explains card by card.
+
+## Know your reads before you choose a tool
+
+Every Choosing a tool section in this manual starts from a few facts about your reads. Check them once, when a bundle first appears, and most tool choices follow from them. LGE records or measures four of the five. The fifth, how the library was made, has to come from whoever made it.
+
+| Fact | Where LGE shows it | Why it matters |
+|---|---|---|
+| Platform | Platform on the Import FASTQ sheet, then Read Type in the Inspector | Tools built for short reads fail on long ones, and the reverse |
+| Read length | The Mean Length, Median Length, and N50 cards | Some trimmers and mappers suit one length range only |
+| Single, paired, or merged | The Pairing row of the Inspector's Ingestion group | Pairs place reads better, and merged reads have no mates |
+| Amplicon or shotgun | Not measured. The Strategy row for downloaded runs | Amplicon reads need primer trimming and must keep their duplicates |
+| A reference for the organism | Genome mode of the NCBI search | With a good reference you map, and without one you assemble |
+
+**Platform.** The Import FASTQ sheet fills its Platform control from the read headers, as [Importing Sequencing Reads](../03-reads/01-importing-fastq.md#settings) describes. After import, select the bundle and open the [Inspector](../../GLOSSARY.md#inspector), the panel on the right of the window, with **View > Show Inspector** (Cmd-Opt-I). In its Sample Metadata section the Read Type popup reads Auto, and the grey line under it names what LGE detected, Illumina short reads, ONT reads, or PacBio HiFi/CCS. The header of one record is a check as well, since an Illumina header names a flow cell and a nanopore header is a random identifier, as the records above show.
+
+**Read length.** The FASTQ viewport's summary cards show Mean Length, Median Length, and N50, and the Inspector's Dataset Statistics group adds Min Length and Max Length. Reads that all sit near one length of 300 bases or less are short reads. Lengths in the thousands mean nanopore or PacBio.
+
+**Single, paired, or merged.** The Inspector's Ingestion group has a Pairing row reading Single End, Paired End, or Interleaved. Interleaved is how LGE stores a matched pair, so Paired End and Interleaved both mean two mates per fragment. [Merged reads](../../GLOSSARY.md#read-merging) are pairs already joined into one read where the mates overlapped. A bundle made by Merge Overlapping Pairs ends in `-pairedEndMerge` and holds no pairs at all. A bundle imported with the VSP2 Target Enrichment or Wastewater metagenomics recipe holds merged reads and leftover pairs together, and the Ingestion group names the recipe and lists its steps.
+
+**Amplicon or shotgun.** An [amplicon](../../GLOSSARY.md#amplicon) library is copied from the sample by PCR with designed primers, and a [shotgun](../../GLOSSARY.md#shotgun) library is DNA broken at random. LGE cannot tell them apart. For a run downloaded from a public archive, the SRA Metadata or ENA Metadata group in the Inspector has a Strategy row reading, for example, AMPLICON or WGS. Otherwise ask the person who made the library, as [How to tell which prep your sample had](03-amplicon-vs-shotgun.md#how-to-tell-which-prep-your-sample-had) explains.
+
+**A reference for the organism.** A reference is a finished genome sequence for your species, such as GRCh38 for human or Mmul_10 for the rhesus macaque. To check another organism, choose **Tools > Search Online Databases > Search NCBI...** and set Mode to Genome, as [Downloading from NCBI](../02-sequences/02-downloading-from-ncbi.md) shows. When a good reference exists, the usual route is to map your reads to it. When none does, [When to Assemble](../07-assembly/01-when-to-assemble.md) is the place to start.
 
 ## What good looks like
 
