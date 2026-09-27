@@ -19,7 +19,7 @@ illustrations:
     brief: "A horizontal bar showing Phred score 0-40, with an example read sequence above and a per-base quality bar below using a single-hue Creamsicle quality ramp (lighter = lower quality). Annotate that Q20 = 1% error, Q30 = 0.1% error."
   - id: platform-read-length-comparison
     brief: "A horizontal scale comparing typical read lengths across platforms: Illumina (~150 bp short bar), PacBio HiFi (~15 kb medium bar), Oxford Nanopore (1-100 kb long variable bar). Use Lungfish Creamsicle for the bars, Deep Ink labels, IBM Plex Mono for length numbers."
-glossary_refs: [fastq, read, paired-end, single-end, interleaved-fastq, phred-score, read-length, insert-size, circular-consensus-sequencing, coverage, depth, n50, sra, variant-caller, simplex-read, duplex-read, fixture, bundle, inspector, read-merging, amplicon, shotgun]
+glossary_refs: [fastq, read, fragment, mate, read-pair, ploidy, pcr-duplicate, demo-project, paired-end, single-end, interleaved-fastq, phred-score, read-length, insert-size, circular-consensus-sequencing, coverage, depth, n50, sra, variant-caller, simplex-read, duplex-read, fixture, bundle, inspector, read-merging, amplicon, shotgun]
 features_refs: []
 fixtures_refs: [hg002-chr20, hg002-long-reads]
 brand_reviewed: false
@@ -28,11 +28,11 @@ lead_approved: false
 
 ## What it is
 
-A sequencing [read](../../GLOSSARY.md#read) is the record an instrument wrote down for one fragment of DNA, a string of letters beside a matching string of quality scores. The molecule itself was used up on the instrument, and the read is all that survives of it. One read is a short and noisy guess at what one piece of your sample said, noisy in the sense that it contains errors. A run produces millions of reads, and the analysis that follows compares the many reads covering one position until they agree on an answer.
+A sequencing [read](../../GLOSSARY.md#read) is the record a sequencer writes for one DNA [fragment](../../GLOSSARY.md#fragment), with its bases and a quality score for each base. A fragment is one piece of your sample's DNA as it went onto the instrument. The molecule itself was used up on the instrument, and the read is all that survives of it. One read is a short and noisy guess at what one piece of your sample said, noisy in the sense that it contains errors. A run produces millions of reads, and the analysis that follows compares the many reads covering one position until they agree on an answer.
 
 Reads arrive in a [FASTQ](../../GLOSSARY.md#fastq) file, the plain-text format that every read workflow in Lungfish Genome Explorer (LGE) starts from. Plain text means the file holds ordinary characters that any text editor can show. FASTQ spends exactly four lines on each read, a name, the bases, a separator, and one quality character per base. Nothing else is in the file. There is no header block, no index, and no note of which genome the reads came from.
 
-Three facts about a read set shape everything downstream. They are how many reads there are, how long they are, and how far you can trust each base. This chapter takes them in turn, using two [fixtures](../../GLOSSARY.md#fixture), the small practice data sets that ship with this manual. The HG002 chromosome 20 slice supplies short Illumina reads from a 500,001-base region of human chromosome 20. The HG002 long reads supply Oxford Nanopore and PacBio HiFi reads from the same person's mitochondrial DNA.
+Three facts about a read set shape everything downstream. They are how many reads there are, how long they are, and how far you can trust each base. This chapter takes them in turn, using two [fixtures](../../GLOSSARY.md#fixture), the public data sets this manual's chapters use. The HG002 chromosome 20 slice supplies short Illumina reads from a 500,001-base region of human chromosome 20. The HG002 long reads supply Oxford Nanopore and PacBio HiFi reads from the same person's mitochondrial DNA.
 
 The practical step is to learn to read one FASTQ record by eye, because every quality number LGE shows you is a summary of those four lines.
 
@@ -44,7 +44,9 @@ HG002 is a human genome from the Genome in a Bottle project, which supplies huma
 
 ## Before you start
 
-This chapter is reading only. It quotes the `hg002-chr20` and `hg002-long-reads` fixtures, so nothing needs to be downloaded or opened. To look at the reads on screen, open the Human Reads demo project with **Help > Demo Projects…**, as [Demo projects](06-the-lungfish-project.md#demo-projects) explains. It already holds the short reads as the `HG002.chr20.10.0-10.5Mb` bundle and the nanopore reads as `HG002.chrM.ont`. To bring in the short reads yourself instead, download `HG002.chr20.10.0-10.5Mb_R1.fastq.gz` and `HG002.chr20.10.0-10.5Mb_R2.fastq.gz` from the [hg002-chr20 folder](https://github.com/dhoconno/lungfish-genome-explorer/tree/v2026.9.39/docs/user-manual/fixtures/hg002-chr20), as [Practice data for this manual](06-the-lungfish-project.md#practice-data-for-this-manual) explains. The long reads are in the [hg002-long-reads folder](https://github.com/dhoconno/lungfish-genome-explorer/tree/v2026.9.39/docs/user-manual/fixtures/hg002-long-reads). Each folder's `README.md` holds the source and citation. Importing the files waits for [Importing Sequencing Reads](../03-reads/01-importing-fastq.md).
+This chapter is reading only. It quotes the `hg002-chr20` and `hg002-long-reads` fixtures, so nothing needs to be downloaded or opened. To look at the reads on screen, open the Human Reads [demo project](../../GLOSSARY.md#demo-project) as [The Lungfish Genome Explorer Project](06-the-lungfish-project.md#demo-projects) showed. It already holds the short reads as the `HG002.chr20.10.0-10.5Mb` bundle and the nanopore reads as `HG002.chrM.ont`.
+
+The raw files are listed in [Fixture files](06-the-lungfish-project.md#fixture-files), where the short reads are `HG002.chr20.10.0-10.5Mb_R1.fastq.gz` and `HG002.chr20.10.0-10.5Mb_R2.fastq.gz` in the [hg002-chr20 folder](https://github.com/dhoconno/lungfish-genome-explorer/tree/v2026.9.39/docs/user-manual/fixtures/hg002-chr20) and the long reads are in the [hg002-long-reads folder](https://github.com/dhoconno/lungfish-genome-explorer/tree/v2026.9.39/docs/user-manual/fixtures/hg002-long-reads). Each folder's `README.md` holds the source and citation. Importing the files is the subject of [Importing Sequencing Reads](../03-reads/01-importing-fastq.md).
 
 ## The four-line FASTQ record
 
@@ -86,7 +88,7 @@ Almost every FASTQ you meet is compressed with gzip, a standard format that shri
 
 ## Paired-end reads
 
-Most short-read Illumina protocols read each DNA fragment from both ends. That gives two reads per fragment, and each is called the mate of the other. Each mate starts at one end and runs inward, so the two may overlap in the middle, meet exactly, or stop short and leave a gap of unread bases. These are [paired-end](../../GLOSSARY.md#paired-end) reads. Because the mates start from opposite ends, they read opposite strands. The picture labels read 2 the reverse complement for that reason, meaning that to line it up with read 1 you reverse its order and swap each base for its partner, A for T and C for G.
+Most short-read Illumina protocols read each DNA fragment from both ends. That gives two reads per fragment, a [read pair](../../GLOSSARY.md#read-pair), and each is called the [mate](../../GLOSSARY.md#mate) of the other. Each mate starts at one end and runs inward, so the two may overlap in the middle, meet exactly, or stop short and leave a gap of unread bases. These are [paired-end](../../GLOSSARY.md#paired-end) reads. Because the mates start from opposite ends, they read opposite strands. The picture labels read 2 the reverse complement for that reason, meaning that to line it up with read 1 you reverse its order and swap each base for its partner, A for T and C for G.
 
 ![Paired-end DNA fragment with read 1 and read 2 pointing inward](../../assets/illustrations-imagegen/01-foundations/02-sequencing-reads/paired-end-reads.png)
 
@@ -108,13 +110,13 @@ The two mates need not be the same length. Each read is trimmed on its own, so 2
 
 Pairing is worth the second file for two reasons. A read that could fit two places in the genome can often be placed correctly, because its mate narrows down where it sits. And a [variant caller](../../GLOSSARY.md#variant-caller), the program that compares aligned reads to a reference and reports the differences, can count a pair as one observation. The two mates came from one fragment, so counting them as two would inflate the support for a call.
 
-Split the pair, lose one file, or reorder one of them, and every later step quietly degrades. The other arrangement is [single-end](../../GLOSSARY.md#single-end) sequencing, where each fragment is read from one end and each sample has one file.
+Split the pair, lose one file, or reorder one of them, and every later step quietly degrades. Some read operations keep both mates together, some can leave a mate on its own, and merging joins the two into one read, as [Which operations keep pairs](../03-reads/01-importing-fastq.md#which-operations-keep-pairs) sets out. The other arrangement is [single-end](../../GLOSSARY.md#single-end) sequencing, where each fragment is read from one end and each sample has one file.
 
 ### Overlapping mates and interleaved files
 
-The [insert size](../../GLOSSARY.md#insert-size) is the length of the original fragment the two mates came from. When it is shorter than twice the read length, the mates overlap and read the same bases from both strands. With 250-base reads, that happens on any fragment under 500 bases. Insert size is measured after mapping, not from the FASTQ.
+The [insert size](../../GLOSSARY.md#insert-size) is the length of the original fragment the two mates came from. When it is shorter than twice the read length, the mates overlap and read the same bases from both strands. With 250-base reads, that happens on any fragment under 500 bases. Insert size is usually measured after mapping, from where the two mates land, and can be estimated before mapping from pairs that overlap, as [Read Processing](../03-reads/08-read-processing.md#merging-the-overlapping-pairs) shows.
 
-A pair can also be written as one [interleaved FASTQ](../../GLOSSARY.md#interleaved-fastq) file, where the records alternate, read 1 of the first pair, read 2 of the first pair, read 1 of the second pair, and so on. LGE stores the two mates of a sample together in one bundle, as one interleaved file, and most operations still treat the sample as pairs. The chapters on trimming and read processing name the exceptions. Merging overlapping mates into one longer read, and converting between two files and one interleaved file, are covered in [Read Processing](../03-reads/08-read-processing.md#merging-the-overlapping-pairs).
+A pair can also be written as one [interleaved FASTQ](../../GLOSSARY.md#interleaved-fastq) file, where the records alternate, read 1 then read 2 of each pair, and that is how LGE stores the two mates of a sample inside one bundle. [Importing Sequencing Reads](../03-reads/01-importing-fastq.md) covers the storage details.
 
 ## Phred quality scores
 
@@ -190,43 +192,42 @@ The `ccs` in the header stands for [circular consensus sequencing](../../GLOSSAR
 
 This read is 16,565 bases long. Across the fixture the HiFi reads average Q29, with 97.6% of bases at Q30 or better and an N50 of 13,663 bases. The average is lower than the `~` characters suggest because it includes every weaker base at every read end. HiFi reaches most of nanopore's length at close to Illumina's per-base accuracy.
 
-## How LGE shows a read set
-
-Importing reads, which [Importing Sequencing Reads](../03-reads/01-importing-fastq.md) covers, turns each sample into one item in the sidebar. A [bundle](../../GLOSSARY.md#bundle) is a folder LGE treats as one item, as [What bundle means](06-the-lungfish-project.md#what-bundle-means) explains. Click the bundle to open the FASTQ viewport, whose summary cards [Quality Control for Reads](../03-reads/03-quality-control.md#reading-the-results) explains card by card.
-
 ## Know your reads before you choose a tool
 
-Every Choosing a tool section in this manual starts from a few facts about your reads. Check them once, when a bundle first appears, and most tool choices follow from them. LGE records or measures four of the five. The fifth, how the library was made, has to come from whoever made it.
+Every Choosing a tool section in this manual starts from a few facts about your reads. Check them once, when the reads first arrive, and most tool choices follow from them. Four can be read from the reads themselves or their archive record. Two, how the library was made and how many genome copies the organism carries, come from knowing the sample.
 
-| Fact | Where LGE shows it | Why it matters |
+| Fact | The usual answers | Why it matters |
 |---|---|---|
-| Platform | Platform on the Import FASTQ sheet, then Read Type in the Inspector | Tools built for short reads fail on long ones, and the reverse |
-| Read length | The Mean Length, Median Length, and N50 cards | Some trimmers and mappers suit one length range only |
-| Single, paired, or merged | The Pairing row of the Inspector's Ingestion group | Pairs place reads better, and merged reads have no mates |
-| Amplicon or shotgun | Not measured. The Strategy row for downloaded runs | Amplicon reads need primer trimming and must keep their duplicates |
-| A reference for the organism | Genome mode of the NCBI search | With a good reference you map, and without one you assemble |
+| Platform | Illumina, Oxford Nanopore, or PacBio HiFi | Tools built for short reads fail on long ones, and the reverse |
+| Read length | About 75 to 300 bases for short reads, thousands for long reads | Some trimmers and mappers suit one length range only |
+| Single, paired, or merged | One read per fragment, two mates, or mates already joined into one read | Pairs place reads better, and merged reads have no mates |
+| Amplicon or shotgun | Copied by PCR with designed primers, or DNA broken at random | Amplicon reads need primer trimming and keep their duplicates |
+| Haploid or diploid | One genome copy, as in a virus or bacterium, or two, as in a person or macaque | Decides whether a genotype-based or a frequency-based variant caller fits |
+| A reference for the organism | A finished genome such as GRCh38 for human or Mmul_10 for the rhesus macaque, or none | With a good reference you map, and without one you assemble |
 
-**Platform.** The Import FASTQ sheet fills its Platform control from the read headers, as [Importing Sequencing Reads](../03-reads/01-importing-fastq.md#settings) describes. After import, select the bundle and open the [Inspector](../../GLOSSARY.md#inspector), the panel on the right of the window, with **View > Show Inspector** (Cmd-Opt-I). In its Sample Metadata section the Read Type popup reads Auto, and the grey line under it names what LGE detected, Illumina short reads, ONT reads, or PacBio HiFi/CCS. The header of one record is a check as well, since an Illumina header names a flow cell and a nanopore header is a random identifier, as the records above show.
+**Platform and read length.** The header of one record settles the platform, since an Illumina header names a flow cell and a nanopore header is a random identifier, as the records above show. Reads that all sit near one length of 300 bases or less are short reads, and lengths in the thousands mean nanopore or PacBio.
 
-**Read length.** The FASTQ viewport's summary cards show Mean Length, Median Length, and N50, and the Inspector's Dataset Statistics group adds Min Length and Max Length. Reads that all sit near one length of 300 bases or less are short reads. Lengths in the thousands mean nanopore or PacBio.
+**Single, paired, or merged.** A paired run arrives as two files or one interleaved file, as [Paired-end reads](#paired-end-reads) explains. [Merged reads](../../GLOSSARY.md#read-merging) are pairs already joined into one longer read where the mates overlapped, so a merged set holds no pairs, or holds merged reads and leftover pairs together.
 
-**Single, paired, or merged.** The Inspector's Ingestion group has a Pairing row reading Single End, Paired End, or Interleaved. Interleaved is how LGE stores a matched pair, so Paired End and Interleaved both mean two mates per fragment. [Merged reads](../../GLOSSARY.md#read-merging) are pairs already joined into one read where the mates overlapped. A bundle made by Merge Overlapping Pairs ends in `-pairedEndMerge` and holds no pairs at all. A bundle imported with the VSP2 Target Enrichment or Wastewater metagenomics recipe holds merged reads and leftover pairs together, and the Ingestion group names the recipe and lists its steps.
+**Amplicon or shotgun.** An [amplicon](../../GLOSSARY.md#amplicon) library is copied from the sample by PCR with designed primers, and a [shotgun](../../GLOSSARY.md#shotgun) library is DNA broken at random. A [duplicate read](../../GLOSSARY.md#pcr-duplicate) is a copy of another read made from the same original fragment during PCR. A shotgun analysis marks duplicates so each fragment counts once, while every read of an amplicon library starts at a primer, so there the duplicates are the data, as [Alignment Quality](../04-alignments/04-alignment-quality.md) explains. Nothing in a FASTQ file says which preparation made it. A run downloaded from a public archive records it as its library strategy, AMPLICON or WGS for example, and otherwise ask the person who made the library, as [How to tell which prep your sample had](03-amplicon-vs-shotgun.md#how-to-tell-which-prep-your-sample-had) explains.
 
-**Amplicon or shotgun.** An [amplicon](../../GLOSSARY.md#amplicon) library is copied from the sample by PCR with designed primers, and a [shotgun](../../GLOSSARY.md#shotgun) library is DNA broken at random. LGE cannot tell them apart. For a run downloaded from a public archive, the SRA Metadata or ENA Metadata group in the Inspector has a Strategy row reading, for example, AMPLICON or WGS. Otherwise ask the person who made the library, as [How to tell which prep your sample had](03-amplicon-vs-shotgun.md#how-to-tell-which-prep-your-sample-had) explains.
+**Haploid or diploid.** [Ploidy](../../GLOSSARY.md#ploidy) is the number of copies of each chromosome an organism carries. A person or a macaque is diploid, so a real variant sits on one copy or both. A virus, a bacterium, or the mitochondrial genome is carried as one copy per genome, but a sample can hold many differing copies, so a change can appear in any share of the reads. [One copy or two](05-variants-and-vcf.md#one-copy-or-two) explains how this picks the variant caller.
 
-**A reference for the organism.** A reference is a finished genome sequence for your species, such as GRCh38 for human or Mmul_10 for the rhesus macaque. To check another organism, choose **Tools > Search Online Databases > Search NCBI...** and set Mode to Genome, as [Downloading from NCBI](../02-sequences/02-downloading-from-ncbi.md) shows. When a good reference exists, the usual route is to map your reads to it. When none does, [When to Assemble](../07-assembly/01-when-to-assemble.md) is the place to start.
+**A reference for the organism.** A reference is a finished genome sequence for your species. To check whether one exists for another organism, search NCBI in Genome mode, as [Downloading from NCBI](../02-sequences/02-downloading-from-ncbi.md) shows. When a good reference exists, the usual route is to map your reads to it. When none does, [When to Assemble](../07-assembly/01-when-to-assemble.md) is the place to start.
+
+Where LGE shows each of these facts for an imported read bundle, in the Inspector and on the summary cards, is listed in [Quality Control for Reads](../03-reads/03-quality-control.md).
 
 ## What good looks like
 
 Judge a read set on four numbers before trusting anything built from it. The first three come straight from the FASTQ.
 
-Read count is how many records the file holds. This fixture holds 45,574 pairs, enough for a 500,001-base slice but far too few for a whole genome. Human whole-genome sequencing usually aims for a mean depth of about 30, which means about 30 times the genome size in sequenced bases. Depth, the number of reads covering one position, is the fourth number below. A human genome is about 3.1 billion bases, so a whole-genome run needs about 93 billion bases, roughly 310 million pairs of 150-base reads. Too few reads and no later step rescues the result.
+Read count is how many records the file holds. This fixture holds 45,574 pairs, enough for a 500,001-base slice but far too few for a whole genome. How many reads a project needs follows from the depth it aims for, which [Coverage and the coverage track](04-alignment-files.md#coverage-and-the-coverage-track) works out for a human genome. Too few reads and no later step rescues the result.
 
 Read length should match the platform. Illumina reads are close to uniform, and this fixture's read 1 file averages 248.6 bases with 90.8% of reads at 249 or 250. A handful of much shorter reads were trimmed hard, which is expected. Lengths reaching thousands of bases mean nanopore or PacBio. A length pattern that disagrees with the kit you ran suggests the wrong files were imported.
 
 Mean quality should sit where the platform puts it. For Illumina, Q30 across the body of the read with a sagging tail is healthy, and a run averaging below Q20 over most of the read has failed. For current nanopore data, expect Q12 to Q20. For HiFi, expect Q30 and above.
 
-The fourth number is [depth](../../GLOSSARY.md#depth), also called [coverage](../../GLOSSARY.md#coverage), the number of reads covering one position. It decides whether a variant can be called, and it cannot be read from a FASTQ because it is measured after the reads are mapped to a reference, as [Coverage and the coverage track](04-alignment-files.md#coverage-and-the-coverage-track) explains.
+The fourth number is [depth](../../GLOSSARY.md#depth), the number of reads covering one reference position, also called [coverage](../../GLOSSARY.md#coverage). It decides whether a variant can be called, and it cannot be read from a FASTQ because it is measured after the reads are mapped to a reference, as [Coverage and the coverage track](04-alignment-files.md#coverage-and-the-coverage-track) explains.
 
 If any number strays far from what the platform and protocol lead you to expect, ask your sequencing provider for three figures before going further. They are the total reads passing filter, the percentage of bases at Q30 or above, and the expected insert size of the library.
 
@@ -234,4 +235,4 @@ Three habits are what this chapter is for. Read the four lines, keep paired file
 
 ## Next
 
-Continue to [Amplicons and Shotgun Sequencing](03-amplicon-vs-shotgun.md) to see the two main ways sample DNA is prepared before sequencing, and why the choice changes how you call variants.
+Continue to [Amplicons and Shotgun Sequencing](03-amplicon-vs-shotgun.md) to see the two main ways sample DNA is prepared before sequencing, and why the choice changes how you call variants. The order in which reads are usually cleaned and checked before mapping is set out in [The order of read preparation](../03-reads/01-importing-fastq.md#the-order-of-read-preparation), for when you reach Reads.
