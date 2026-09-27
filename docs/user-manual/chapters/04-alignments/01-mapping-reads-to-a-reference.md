@@ -306,7 +306,7 @@ lungfish-cli map "$PROJECT/Imports/HG002.chr20.10.0-10.5Mb.lungfishfastq" \
 
 With `--project`, the command writes the same result the window writes, a `minimap2-<timestamp>` folder under `Analyses/` holding the BAM and the reference bundle inside the mapping result with the `HG002 minimap2` track attached, and it prints the folder's path at the end. It reads the pairing from the read bundle, as the window does, so a bundle needs no `--paired`. Two loose FASTQ files do need `--paired`, because without it the command maps them as unrelated single reads. `--no-viewer-bundle` leaves out the reference bundle copy when you want only the BAM.
 
-The track's BAM sits inside the copy as `alignments/aln_` followed by eight letters and digits and `.sorted.bam`, such as `aln_93ACDFDA.sorted.bam`, and the mapper's own copy of the BAM stays at the top of the result folder as `HG002.chr20.10.0-10.5Mb.sorted.bam`. The eight characters, the track's identifier, differ on every run, and later command-line chapters take them from `lungfish-cli bundle list`.
+The track's BAM sits inside the copy as `alignments/aln_` followed by eight letters and digits and `.sorted.bam`, such as `aln_93ACDFDA.sorted.bam`, and the mapper's own copy of the BAM stays at the top of the result folder as `HG002.chr20.10.0-10.5Mb.sorted.bam`. The track's copy is an APFS clone of that file, a copy the Mac's file system shares with the original until one of them changes, so it takes almost no extra disk space and is not sorted a second time. The eight characters, the track's identifier, differ on every run, and later command-line chapters take them from `lungfish-cli bundle list` or from the `Track ID` line `lungfish-cli map` prints.
 
 ## Next
 
