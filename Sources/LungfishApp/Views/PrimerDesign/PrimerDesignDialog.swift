@@ -215,7 +215,7 @@ struct PrimerDesignDialog: View {
   /// extension reaches it, which is why its Tm range starts above the primer range.
   @ViewBuilder private var probeFields: some View {
     Text("Hydrolysis probe (internal oligo)").font(.subheadline.weight(.medium))
-    Text("Primer3 picks one internal oligo per pair. The probe melts above the primers so it is bound before extension reaches it. Poly-X and the 5′ must-match rule travel from the shared preset.")
+    Text("Primer3 picks one internal oligo per pair. The probe melts above the primers so it is bound before extension reaches it.")
       .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
     Text("Probe melting temperature (°C)").font(.caption).foregroundStyle(.secondary)
     HStack {
@@ -237,6 +237,12 @@ struct PrimerDesignDialog: View {
     }
     numberField("Probe Tm at least this far above the primers (°C)", $state.probeMinTmOffsetOverPrimers)
     Text("The probe minimum rises to the highest primer Tm plus this figure whenever the window above would allow a smaller gap. 5 °C is the standard lower bound. Enter 0 to use the window above exactly as entered.")
+      .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+    HStack(alignment: .top) {
+      numberField("Probe poly-X max (nt)", $state.probeMaxPolyX)
+      sequenceField("Probe 5′ must-match pattern", $state.probeMustMatchFivePrime)
+    }
+    Text("Runs of one base in the probe are capped at 3, tighter than the primers' 4, because a GC-rich probe with GGGG stacks into a structure that quenches the reporter. The pattern is five IUPAC letters for the probe's first five bases; hnnnn forbids a 5′ G next to the reporter dye. Leave it blank to drop the rule. On the command line these are --probe-max-poly-x and --probe-must-match-five-prime.")
       .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
   }
 

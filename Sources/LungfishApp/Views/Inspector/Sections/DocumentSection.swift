@@ -48,6 +48,9 @@ public final class DocumentSectionViewModel {
     /// Pairwise identity table for the active MSA bundle; nil when no writable MSA bundle is shown.
     var msaPairwiseIdentity: MSAPairwiseIdentityInspectorModel?
 
+    /// Discriminating-sites picker and tables for the active MSA bundle; nil when no writable MSA bundle is shown.
+    var msaDiscriminatingSites: MSADiscriminatingSitesInspectorModel?
+
     /// Tree bundle document state shown when a phylogenetic tree viewport is active.
     var phylogeneticTreeDocument: PhylogeneticTreeDocumentState?
 
@@ -264,6 +267,7 @@ public final class DocumentSectionViewModel {
         multipleSequenceAlignmentDocument = state
         guard state != nil else {
             msaPairwiseIdentity = nil
+            msaDiscriminatingSites = nil
             return
         }
 
@@ -739,7 +743,8 @@ public struct DocumentSection: View {
         } else if let multipleSequenceAlignmentDocument = viewModel.multipleSequenceAlignmentDocument {
             MultipleSequenceAlignmentDocumentSection(
                 state: multipleSequenceAlignmentDocument,
-                pairwiseIdentity: viewModel.msaPairwiseIdentity
+                pairwiseIdentity: viewModel.msaPairwiseIdentity,
+                discriminatingSites: viewModel.msaDiscriminatingSites
             )
         } else if let mhcReferenceBundleDocument = viewModel.mhcReferenceBundleDocument {
             MHCReferenceBundleDocumentSection(state: mhcReferenceBundleDocument)

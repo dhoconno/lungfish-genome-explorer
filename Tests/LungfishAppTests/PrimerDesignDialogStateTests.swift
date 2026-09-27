@@ -49,6 +49,47 @@ final class PrimerDesignDialogStateTests: XCTestCase {
     XCTAssertEqual(try state.primer3Options().probe, Primer3ProbeDefaults.hydrolysisProbe)
   }
 
+  /// The probe poly-X cap and the 5′ must-match rule are visible controls with the
+  /// same reach as the CLI's `--probe-max-poly-x` and `--probe-must-match-five-prime`:
+  /// edits flow into the options, a blank pattern omits the tag, and bad values are
+  /// refused by name.
+  func testProbePolyXAndMustMatchAreEditableAndValidated() throws {
+    let state = configuredState()
+    state.chemistry = .hydrolysisProbe
+    XCTAssertEqual(state.probeMaxPolyX, "3")
+    XCTAssertEqual(state.probeMustMatchFivePrime, "hnnnn")
+
+    state.probeMaxPolyX = "4"
+    state.probeMustMatchFivePrime = "HNNNN"
+    var probe = try XCTUnwrap(try state.primer3Options().probe)
+    XCTAssertEqual(probe.probeMaxPolyX, 4)
+    XCTAssertEqual(probe.probeMustMatchFivePrime, "HNNNN")
+
+    state.probeMustMatchFivePrime = " "
+    probe = try XCTUnwrap(try state.primer3Options().probe)
+    XCTAssertNil(probe.probeMustMatchFivePrime, "a blank pattern omits PRIMER_INTERNAL_MUST_MATCH_FIVE_PRIME")
+
+    state.probeMustMatchFivePrime = "hnnn"
+    XCTAssertThrowsError(try state.primer3Options()) { error in
+      XCTAssertTrue(error.localizedDescription.contains("Probe 5′ must-match pattern"), error.localizedDescription)
+    }
+    state.probeMustMatchFivePrime = "hnnnx"
+    XCTAssertThrowsError(try state.primer3Options())
+    state.probeMustMatchFivePrime = "hnnnn"
+    state.probeMaxPolyX = "-1"
+    XCTAssertThrowsError(try state.primer3Options()) { error in
+      XCTAssertTrue(error.localizedDescription.contains("Probe poly-X maximum"), error.localizedDescription)
+    }
+
+    // Switching chemistry and back reseeds both from the shared preset.
+    state.probeMaxPolyX = "5"
+    state.chemistry = .pcr
+    state.chemistry = .hydrolysisProbe
+    XCTAssertEqual(state.probeMaxPolyX, "3")
+    XCTAssertEqual(state.probeMustMatchFivePrime, "hnnnn")
+    XCTAssertEqual(try state.primer3Options().probe, Primer3ProbeDefaults.hydrolysisProbe)
+  }
+
   /// A target longer than the maximum product size leaves Primer3 nothing to consider, so
   /// the dialog must refuse it instead of producing an empty result that looks successful.
   func testTargetLongerThanMaximumProductSizeIsRejected() throws {

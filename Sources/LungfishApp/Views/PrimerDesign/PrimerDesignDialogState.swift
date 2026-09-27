@@ -95,6 +95,14 @@ final class PrimerDesignDialogState {
   var probeMinGC = PrimerDesignDialogState.text(Primer3ProbeDefaults.hydrolysisProbe.probeMinGC)
   var probeOptGC = PrimerDesignDialogState.text(Primer3ProbeDefaults.hydrolysisProbe.probeOptGC)
   var probeMaxGC = PrimerDesignDialogState.text(Primer3ProbeDefaults.hydrolysisProbe.probeMaxGC)
+  /// PRIMER_INTERNAL_MAX_POLY_X, the longest run of one base a probe may carry.
+  /// The preset caps it at 3, tighter than the primers' 4, so a GC-rich probe
+  /// cannot pick up a GGGG run. Mirrors the CLI's `--probe-max-poly-x`.
+  var probeMaxPolyX = String(Primer3ProbeDefaults.hydrolysisProbe.probeMaxPolyX)
+  /// PRIMER_INTERNAL_MUST_MATCH_FIVE_PRIME, five IUPAC letters the probe's 5′ end
+  /// must match. The preset's `hnnnn` forbids a 5′ G next to the reporter dye.
+  /// Blank omits the rule, as an empty `--probe-must-match-five-prime` does.
+  var probeMustMatchFivePrime = Primer3ProbeDefaults.hydrolysisProbe.probeMustMatchFivePrime ?? ""
   /// How far above the highest primer Tm the probe must melt. Blank or 0 leaves
   /// the probe window exactly as edited above.
   var probeMinTmOffsetOverPrimers =
@@ -758,15 +766,20 @@ final class PrimerDesignDialogState {
       probeMinGC = Self.text(probe.probeMinGC)
       probeOptGC = Self.text(probe.probeOptGC)
       probeMaxGC = Self.text(probe.probeMaxGC)
+      probeMaxPolyX = String(probe.probeMaxPolyX)
+      probeMustMatchFivePrime = probe.probeMustMatchFivePrime ?? ""
     }
   }
 
+  /// IUPAC letters Primer3 accepts in a must-match pattern.
+  private static let mustMatchLetters = Set("ACGTURYSWKMBDHVN")
+
   /// The probe window as edited in the dialog. Only the hydrolysis-probe assay has
-  /// an internal oligo, so other assays send no probe settings at all. Members not
-  /// exposed in the dialog (`probeMaxPolyX`, `probeMustMatchFivePrime`) keep the
-  /// shared preset's values, exactly as the CLI sends them.
+  /// an internal oligo, so other assays send no probe settings at all. Every member
+  /// is a visible control, so what is sent is what the dialog shows, exactly as the
+  /// CLI's `--probe-*` flags send it.
   func probeOptions() throws -> Primer3ProbeDefaults? {
-    guard let preset = Primer3AssayDefaults.defaults(for: chemistry.assayMode).probe else { return nil }
+    guard Primer3AssayDefaults.defaults(for: chemistry.assayMode).probe != nil else { return nil }
     let minimumTm = try finiteNumber(probeMinTm, "Minimum probe Tm")
     let optimumTm = try finiteNumber(probeOptTm, "Optimum probe Tm")
     let maximumTm = try finiteNumber(probeMaxTm, "Maximum probe Tm")
@@ -785,12 +798,19 @@ final class PrimerDesignDialogState {
     guard minimumGC >= 0, minimumGC <= optimumGC, optimumGC <= maximumGC, maximumGC <= 100 else {
       throw invalid("Probe GC percentages must be between 0 and 100, ordered minimum ≤ optimum ≤ maximum.")
     }
+    let polyX = try nonnegativeInteger(probeMaxPolyX, "Probe poly-X maximum")
+    let mustMatch = probeMustMatchFivePrime.trimmingCharacters(in: .whitespacesAndNewlines)
+    if !mustMatch.isEmpty {
+      guard mustMatch.count == 5, mustMatch.uppercased().allSatisfy(Self.mustMatchLetters.contains) else {
+        throw invalid("Probe 5′ must-match pattern must be five IUPAC letters, such as hnnnn, or blank to omit the rule.")
+      }
+    }
     return .init(
       probeMinTm: minimumTm, probeOptTm: optimumTm, probeMaxTm: maximumTm,
       probeMinSize: minimumSize, probeOptSize: optimumSize, probeMaxSize: maximumSize,
       probeMinGC: minimumGC, probeOptGC: optimumGC, probeMaxGC: maximumGC,
-      probeMaxPolyX: preset.probeMaxPolyX,
-      probeMustMatchFivePrime: preset.probeMustMatchFivePrime)
+      probeMaxPolyX: polyX,
+      probeMustMatchFivePrime: mustMatch.isEmpty ? nil : mustMatch)
   }
 
   func primer3Options() throws -> Primer3DesignOptions {

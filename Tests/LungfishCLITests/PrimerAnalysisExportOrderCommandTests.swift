@@ -87,6 +87,29 @@ final class PrimerAnalysisExportOrderCommandTests: XCTestCase {
     do { try await missingParent.run(); XCTFail("A missing parent must be refused") } catch {}
   }
 
+  /// `--scope displayed` is accepted by the parser for every engine, but only
+  /// PrimalScheme has display filters, so a Primer3 analysis must be refused with a
+  /// message naming the scope it does offer, and the help must say so up front.
+  func testDisplayedScopeIsRefusedForEnginesWithoutDisplayFilters() async throws {
+    let fixture = try makePrimer3Fixture(pairCount: 1)
+    defer { try? FileManager.default.removeItem(at: fixture.root) }
+    let output = fixture.root.appendingPathComponent("displayed-order")
+    let command = try PrimerAnalysisExportOrderCommand.parse([fixture.bundle.path, "--output", output.path,
+      "--scope", "displayed"])
+    do {
+      try await command.run()
+      XCTFail("displayed must be refused for a Primer3 analysis")
+    } catch {
+      XCTAssertTrue(error.localizedDescription.contains("PrimalScheme"), error.localizedDescription)
+      XCTAssertTrue(error.localizedDescription.contains("Primer3 candidate pairs"), error.localizedDescription)
+    }
+    XCTAssertFalse(FileManager.default.fileExists(atPath: output.path))
+
+    let help = PrimerAnalysisExportOrderCommand.helpMessage()
+    XCTAssertTrue(help.contains("displayed (PrimalScheme only)"), help)
+    XCTAssertTrue(help.contains("refused"), help)
+  }
+
   private func makePrimer3Fixture(pairCount: Int) throws -> (root: URL, bundle: URL) {
     let physical = try XCTUnwrap(realpath(FileManager.default.temporaryDirectory.path, nil))
     defer { free(physical) }

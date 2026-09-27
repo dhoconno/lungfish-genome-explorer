@@ -23,6 +23,16 @@ private enum MultipleSequenceAlignmentAccessibilityID {
     static let previousVariableButton = "multiple-sequence-alignment-previous-variable-button"
     static let nextVariableButton = "multiple-sequence-alignment-next-variable-button"
     static let colorScheme = "multiple-sequence-alignment-color-scheme"
+    static let discriminatingLegend = "multiple-sequence-alignment-discriminating-legend"
+}
+
+/// Shared tint for the Inspector's discriminating columns: a warm band under the
+/// selection accent, with solid ticks in the header and overview strip.
+private enum MSADiscriminatingSiteStyle {
+    static let columnBand = NSColor.systemOrange.withAlphaComponent(0.22)
+    static let marker = NSColor.systemOrange
+    static let targetRowLabel = NSColor.systemTeal
+    static let exclusionRowLabel = NSColor.systemOrange
 }
 
 private enum MSAAlignmentCanvasMetrics {
@@ -371,8 +381,11 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
     private var consensusDisplayOptions = MSAConsensusDisplayOptions()
     private var referenceRowID: String?
     private var residueIdentityDisplayMode: MSAResidueIdentityDisplayMode = .letters
+    /// Columns and row roles from the Inspector's Discriminating Sites section; nil draws nothing extra.
+    private var discriminatingSitesHighlight: MSADiscriminatingSitesHighlight?
 
     private let searchField = NSSearchField()
+    private let discriminatingLegendLabel = NSTextField(labelWithString: "")
     private let zoomOutButton = NSButton(title: "", target: nil, action: nil)
     private let zoomInButton = NSButton(title: "", target: nil, action: nil)
     private let fitColumnsButton = NSButton(title: "", target: nil, action: nil)
@@ -482,6 +495,8 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
         colorSchemeControl.selectedSegment = colorScheme.rawValue
         siteModeControl.selectedSegment = 0
         searchField.stringValue = ""
+        discriminatingSitesHighlight = nil
+        applyDiscriminatingHighlightToCanvasViews()
 
         configureCanvasViews()
         zoomToFit()
@@ -527,6 +542,8 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
         colorSchemeControl.selectedSegment = colorScheme.rawValue
         siteModeControl.selectedSegment = 0
         searchField.stringValue = ""
+        discriminatingSitesHighlight = nil
+        applyDiscriminatingHighlightToCanvasViews()
         configureCanvasViews()
         zoomToFit()
         refreshAnnotationDrawer()
@@ -648,6 +665,51 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
         configureCanvasViews()
     }
 
+    /// Tints the discriminating columns the Inspector found and names each bundle
+    /// row as a target or an exclusion in the gutter; `nil` clears both.
+    func applyDiscriminatingSitesHighlight(_ highlight: MSADiscriminatingSitesHighlight?) {
+        discriminatingSitesHighlight = highlight
+        applyDiscriminatingHighlightToCanvasViews()
+    }
+
+    /// Selects and centres one alignment column (1-based, as the reports print it),
+    /// switching back to all sites when the column is hidden by the variable-sites filter.
+    func focusAlignmentColumn(oneBased column: Int) {
+        let alignmentColumn = column - 1
+        guard columnSummaries.indices.contains(alignmentColumn), !alignmentRows.isEmpty else { return }
+        ensureColumnsAreDisplayed(alignmentColumn...alignmentColumn)
+        let row = selectedRowIndex ?? 0
+        select(rowRange: row...row, alignmentColumnRange: alignmentColumn...alignmentColumn)
+        if let displayColumn = displayedColumns.firstIndex(of: alignmentColumn) {
+            centerDisplayColumn(displayColumn)
+        }
+    }
+
+    private func applyDiscriminatingHighlightToCanvasViews() {
+        let columns = Set((discriminatingSitesHighlight?.columns ?? []).map { $0 - 1 })
+        alignmentMatrixView.highlightedAlignmentColumns = columns
+        comparisonHeaderView.highlightedAlignmentColumns = columns
+        primerHeaderView.highlightedAlignmentColumns = columns
+        columnHeaderView.highlightedAlignmentColumns = columns
+        overviewSignalView.highlightedAlignmentColumns = columns
+        var rolesByIndex: [Int: MSADiscriminatingSitesHighlight.RowRole] = [:]
+        if let roles = discriminatingSitesHighlight?.rowRolesByID {
+            for (index, rowID) in rowIDsByIndex.enumerated() {
+                if let role = roles[rowID] { rolesByIndex[index] = role }
+            }
+        }
+        rowGutterView.rowRolesByIndex = rolesByIndex
+        discriminatingLegendLabel.stringValue = discriminatingSitesHighlight?.legendText ?? ""
+        discriminatingLegendLabel.toolTip = discriminatingSitesHighlight?.legendText
+        discriminatingLegendLabel.isHidden = discriminatingSitesHighlight == nil
+        alignmentMatrixView.needsDisplay = true
+        comparisonHeaderView.needsDisplay = true
+        primerHeaderView.needsDisplay = true
+        columnHeaderView.needsDisplay = true
+        overviewSignalView.needsDisplay = true
+        rowGutterView.needsDisplay = true
+    }
+
     override func viewDidLayout() {
         super.viewDidLayout()
         updateViewportSize()
@@ -762,6 +824,14 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
         colorSchemeControl.setAccessibilityIdentifier(MultipleSequenceAlignmentAccessibilityID.colorScheme)
         colorSchemeControl.setAccessibilityLabel("Alignment color scheme")
 
+        discriminatingLegendLabel.font = NSFont.systemFont(ofSize: NSFont.smallSystemFontSize)
+        discriminatingLegendLabel.textColor = .systemOrange
+        discriminatingLegendLabel.lineBreakMode = .byTruncatingMiddle
+        discriminatingLegendLabel.isHidden = true
+        discriminatingLegendLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        discriminatingLegendLabel.setAccessibilityIdentifier(MultipleSequenceAlignmentAccessibilityID.discriminatingLegend)
+        discriminatingLegendLabel.setAccessibilityLabel("Discriminating sites legend")
+
         let toolbar = NSStackView(views: [
             searchField,
             zoomOutButton,
@@ -771,6 +841,7 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
             previousVariableButton,
             nextVariableButton,
             colorSchemeControl,
+            discriminatingLegendLabel,
         ])
         toolbar.orientation = .horizontal
         toolbar.alignment = .centerY
@@ -2502,6 +2573,21 @@ extension MultipleSequenceAlignmentViewController {
         alignmentRows.map(\.name)
     }
 
+    /// 1-based columns currently tinted as discriminating sites, in ascending order.
+    var testingDiscriminatingHighlightedColumns: [Int] {
+        alignmentMatrixView.highlightedAlignmentColumns.map { $0 + 1 }.sorted()
+    }
+
+    /// The legend shown in the toolbar while a highlight is active, or nil when hidden.
+    var testingDiscriminatingLegendText: String? {
+        discriminatingLegendLabel.isHidden ? nil : discriminatingLegendLabel.stringValue
+    }
+
+    /// The gutter labels with any target / exclusion role prefix applied.
+    var testingRowRoleLabels: [String] {
+        rowGutterView.testingRowRoleLabels
+    }
+
     var testingDisplayedAlignmentColumnCount: Int {
         displayedColumns.count
     }
@@ -2898,7 +2984,23 @@ private final class MSAAlignmentRowGutterView: NSView, NSViewToolTipOwner {
     var onRowDrag: ((Int) -> Void)?
     var contextMenuProvider: ((Int) -> NSMenu?)?
     var referenceRowIndex: Int?
+    /// Target / exclusion roles from the Inspector's discriminating-sites run, by row index.
+    var rowRolesByIndex: [Int: MSADiscriminatingSitesHighlight.RowRole] = [:]
     private var draggingRows = false
+
+    /// The label drawn for a row: the discriminating-sites role, then the reference
+    /// marker, then the name, so "Exclusion · Ref · seq2" reads role first.
+    func displayedRowLabel(rowIndex: Int, name: String) -> String {
+        var parts: [String] = []
+        if let role = rowRolesByIndex[rowIndex] { parts.append(role.rawValue) }
+        if rowIndex == referenceRowIndex { parts.append("Ref") }
+        parts.append(name)
+        return parts.joined(separator: " · ")
+    }
+
+    var testingRowRoleLabels: [String] {
+        rows.indices.map { displayedRowLabel(rowIndex: $0, name: rows[$0].name) }
+    }
 
     private func row(at point: NSPoint) -> Int? {
         let y = point.y + verticalOffset
@@ -3027,11 +3129,17 @@ private final class MSAAlignmentRowGutterView: NSView, NSViewToolTipOwner {
             height: inset.height
         )
         // Accession suffixes carry meaning, so trim the middle rather than the tail.
+        let labelColor: NSColor
+        switch rowRolesByIndex[rowIndex] {
+        case .target?: labelColor = MSADiscriminatingSiteStyle.targetRowLabel
+        case .exclusion?: labelColor = MSADiscriminatingSiteStyle.exclusionRowLabel
+        case nil: labelColor = rowIndex == referenceRowIndex ? .controlAccentColor : .labelColor
+        }
         drawText(
-            rowIndex == referenceRowIndex ? "Ref · \(name)" : name,
+            displayedRowLabel(rowIndex: rowIndex, name: name),
             in: nameRect,
-            color: rowIndex == referenceRowIndex ? .controlAccentColor : .labelColor,
-            font: DrawingFont.system(ofSize: 12, weight: rowIndex == referenceRowIndex ? .semibold : .regular),
+            color: labelColor,
+            font: DrawingFont.system(ofSize: 12, weight: rowIndex == referenceRowIndex || rowRolesByIndex[rowIndex] != nil ? .semibold : .regular),
             lineBreakMode: .byTruncatingMiddle
         )
         if let coordinateText {
@@ -3141,6 +3249,8 @@ private final class MSAAlignmentColumnHeaderView: NSView {
     var selectedAlignmentColumnRange: ClosedRange<Int>?
     var columnWidth = MSAAlignmentCanvasMetrics.defaultColumnWidth
     var numberingMode: MSAAlignmentNumberingMode = .both
+    /// 0-based alignment columns marked as discriminating sites.
+    var highlightedAlignmentColumns: Set<Int> = []
 
     private var columnSummaries: [MSAColumnSummary] = []
     private var consensusResidues: [Character] = []
@@ -3230,6 +3340,12 @@ private final class MSAAlignmentColumnHeaderView: NSView {
                     height: 3
                 ).fill()
             }
+            if highlightedAlignmentColumns.contains(alignmentColumn) {
+                MSADiscriminatingSiteStyle.columnBand.setFill()
+                NSRect(x: x, y: 0, width: columnWidth, height: bounds.height).fill()
+                MSADiscriminatingSiteStyle.marker.setFill()
+                NSRect(x: x, y: 0, width: max(1, columnWidth), height: 3).fill()
+            }
         }
 
         if numberingMode.showsAlignmentColumns, columnWidth < 10 {
@@ -3269,6 +3385,9 @@ private final class MSAAlignmentColumnHeaderView: NSView {
 }
 
 private final class MSAAlignmentOverviewSignalView: NSView {
+    /// 0-based alignment columns marked as discriminating sites.
+    var highlightedAlignmentColumns: Set<Int> = []
+
     private var columnSummaries: [MSAColumnSummary] = []
     private var displayedColumns: [Int] = []
     private var columnWidth = MSAAlignmentCanvasMetrics.defaultColumnWidth
@@ -3306,6 +3425,17 @@ private final class MSAAlignmentOverviewSignalView: NSView {
                 width: max(1, widthPerColumn),
                 height: bounds.height - 8
             ).fill()
+        }
+        if !highlightedAlignmentColumns.isEmpty {
+            MSADiscriminatingSiteStyle.marker.setFill()
+            for displayIndex in displayedColumns.indices where highlightedAlignmentColumns.contains(displayedColumns[displayIndex]) {
+                NSRect(
+                    x: CGFloat(displayIndex) * widthPerColumn,
+                    y: 1,
+                    width: max(2, widthPerColumn),
+                    height: bounds.height - 2
+                ).fill()
+            }
         }
 
         drawText(
@@ -3412,6 +3542,8 @@ private final class MSAAlignmentMatrixView: NSView {
     var selectedAlignmentColumnRange: ClosedRange<Int>?
     var annotationTracks: [MSAAlignmentAnnotationTrack] = []
     var columnWidth = MSAAlignmentCanvasMetrics.defaultColumnWidth
+    /// 0-based alignment columns tinted as discriminating sites.
+    var highlightedAlignmentColumns: Set<Int> = []
 
     private var rows: [MSAAlignmentSequence] = []
     private var columnSummaries: [MSAColumnSummary] = []
@@ -3627,6 +3759,10 @@ private final class MSAAlignmentMatrixView: NSView {
             let alignmentColumn = displayedColumns[displayColumn]
             guard let residue = consensusResidues[safe: alignmentColumn], residue != " " else { continue }
             let x = CGFloat(displayColumn) * columnWidth
+            if highlightedAlignmentColumns.contains(alignmentColumn) {
+                MSADiscriminatingSiteStyle.columnBand.setFill()
+                NSRect(x: x, y: 0, width: columnWidth, height: bounds.height).fill()
+            }
             if selectedAlignmentColumnRange?.contains(alignmentColumn) == true || selectedAlignmentColumn == alignmentColumn {
                 NSColor.controlAccentColor.withAlphaComponent(0.18).setFill()
                 NSRect(x: x, y: 0, width: columnWidth, height: bounds.height).fill()
@@ -3679,6 +3815,10 @@ private final class MSAAlignmentMatrixView: NSView {
                 let x = CGFloat(displayColumn) * columnWidth
                 let rect = residueRect(x: x, y: y + 3, width: columnWidth, height: rowHeight - 6)
 
+                if highlightedAlignmentColumns.contains(alignmentColumn) {
+                    MSADiscriminatingSiteStyle.columnBand.setFill()
+                    NSRect(x: x, y: y, width: columnWidth, height: rowHeight).fill()
+                }
                 if selectedAlignmentColumnRange?.contains(alignmentColumn) == true || selectedAlignmentColumn == alignmentColumn {
                     NSColor.controlAccentColor.withAlphaComponent(0.18).setFill()
                     NSRect(x: x, y: 0, width: columnWidth, height: bounds.height).fill()
@@ -3722,6 +3862,16 @@ private final class MSAAlignmentMatrixView: NSView {
             var binStart = visibleDisplayColumns.lowerBound
             while binStart < visibleDisplayColumns.upperBound {
                 let binEnd = min(binStart + displayColumnsPerBin, visibleDisplayColumns.upperBound)
+                if !highlightedAlignmentColumns.isEmpty,
+                   (binStart..<binEnd).contains(where: { highlightedAlignmentColumns.contains(displayedColumns[$0]) }) {
+                    MSADiscriminatingSiteStyle.columnBand.setFill()
+                    NSRect(
+                        x: CGFloat(binStart) * columnWidth,
+                        y: y,
+                        width: max(1, CGFloat(binEnd - binStart) * columnWidth),
+                        height: rowHeight
+                    ).fill()
+                }
                 if let color = aggregateDifferenceColor(rowIndex: rowIndex, displayColumns: binStart..<binEnd) {
                     color.setFill()
                     NSRect(

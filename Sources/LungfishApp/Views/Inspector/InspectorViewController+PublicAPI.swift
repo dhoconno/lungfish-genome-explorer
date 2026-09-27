@@ -211,6 +211,11 @@ extension InspectorViewController {
             }
             viewModel.documentSectionViewModel.msaPairwiseIdentity = pairwiseIdentity
         }
+        // Discriminating sites (same CLI as `lungfish-cli msa discriminating-sites`). Reused
+        // across refreshes of the same bundle so marked roles and a result survive.
+        if viewModel.documentSectionViewModel.msaDiscriminatingSites?.bundleURL != bundle.url {
+            viewModel.documentSectionViewModel.msaDiscriminatingSites = makeMSADiscriminatingSitesModel(for: bundle)
+        }
         updateProvenanceTarget(
             url: bundle.url,
             sidebarType: .multipleSequenceAlignmentBundle,

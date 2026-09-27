@@ -250,6 +250,49 @@ enum CLIMSAActionCommandBuilder {
         return args
     }
 
+    /// `msa discriminating-sites` arguments for the Inspector's Discriminating Sites
+    /// section. Options at their CLI defaults are still passed for tolerance and
+    /// window length, matching the CLI's own canonical argv, while the optional
+    /// selections are omitted when unset so the command reads like the manual's.
+    static func buildDiscriminatingSitesArguments(
+        request: MSADiscriminatingSitesRequest,
+        outputURL: URL,
+        windowsOutputURL: URL? = nil,
+        jsonOutputURL: URL? = nil,
+        force: Bool = true
+    ) -> [String] {
+        var args = ["msa", "discriminating-sites", request.bundleURL.path]
+        if let targets = request.targets, targets.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false {
+            args += ["--targets", targets]
+        }
+        if let exclusions = request.exclusions, exclusions.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false {
+            args += ["--exclusions", exclusions]
+        }
+        if let exclusionSequencesURL = request.exclusionSequencesURL {
+            args += ["--exclusion-sequences", exclusionSequencesURL.path]
+        }
+        if let template = request.template, template.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false {
+            args += ["--template", template]
+        }
+        args += ["--target-mismatch-tolerance", String(request.targetMismatchTolerance)]
+        if let minimum = request.minimumExclusionDifferences {
+            args += ["--min-exclusion-differences", String(minimum)]
+        }
+        args += ["--window-length", String(request.windowLength)]
+        args += ["--output", outputURL.path]
+        if let windowsOutputURL {
+            args += ["--windows-output", windowsOutputURL.path]
+        }
+        if let jsonOutputURL {
+            args += ["--json-output", jsonOutputURL.path]
+        }
+        if force {
+            args.append("--force")
+        }
+        args += ["--format", "json"]
+        return args
+    }
+
     static func displayCommand(arguments: [String]) -> String {
         guard let subcommand = arguments.first else {
             return OperationCenter.buildCLICommand(subcommand: "msa", args: [])

@@ -720,6 +720,20 @@ public class ViewerViewController: NSViewController {
             object: nil
         )
 
+        // Observers for the MSA Inspector's Discriminating Sites section
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleMSADiscriminatingSitesHighlightChanged(_:)),
+            name: .msaDiscriminatingSitesHighlightChanged,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleMSAFocusAlignmentColumnRequested(_:)),
+            name: .msaFocusAlignmentColumnRequested,
+            object: nil
+        )
+
         // Observer for extraction requests from inspector
         NotificationCenter.default.addObserver(
             self,
@@ -1128,6 +1142,19 @@ public class ViewerViewController: NSViewController {
         guard shouldAcceptScopedNotification(notification) else { return }
         guard let userInfo = notification.userInfo else { return }
         applyReadDisplaySettings(userInfo)
+    }
+
+    @objc private func handleMSADiscriminatingSitesHighlightChanged(_ notification: Notification) {
+        guard shouldAcceptScopedNotification(notification) else { return }
+        let highlight = notification.userInfo?[NotificationUserInfoKey.msaDiscriminatingSitesHighlight]
+            as? MSADiscriminatingSitesHighlight
+        multipleSequenceAlignmentViewController?.applyDiscriminatingSitesHighlight(highlight)
+    }
+
+    @objc private func handleMSAFocusAlignmentColumnRequested(_ notification: Notification) {
+        guard shouldAcceptScopedNotification(notification) else { return }
+        guard let column = notification.userInfo?[NotificationUserInfoKey.msaAlignmentColumn] as? Int else { return }
+        multipleSequenceAlignmentViewController?.focusAlignmentColumn(oneBased: column)
     }
 
     func applyReadDisplaySettings(_ userInfo: [AnyHashable: Any]) {

@@ -16,6 +16,65 @@ final class CLIMSAActionCommandBuilderTests: XCTestCase {
         )
     }
 
+    /// The Inspector's file-based run must spell the command the manual documents:
+    /// bundle, --exclusion-sequences, the two numeric options at their defaults,
+    /// --output, --force for a rerun, and JSON progress for the Operation Center.
+    func testDiscriminatingSitesFileExclusionsMatchTheDocumentedCLISpelling() {
+        let bundle = URL(fileURLWithPath: "/project/Analyses/Multiple Sequence Alignments/lineage.lungfishmsa")
+        let exclusions = URL(fileURLWithPath: "/project/Reference Sequences/exclusion.lungfishref")
+        let output = URL(fileURLWithPath: "/project/Analyses/lineage-discriminating-sites.tsv")
+        let request = MSADiscriminatingSitesRequest(bundleURL: bundle, exclusionSequencesURL: exclusions)
+        XCTAssertEqual(
+            CLIMSAActionCommandBuilder.buildDiscriminatingSitesArguments(request: request, outputURL: output),
+            [
+                "msa", "discriminating-sites", bundle.path,
+                "--exclusion-sequences", exclusions.path,
+                "--target-mismatch-tolerance", "0",
+                "--window-length", "25",
+                "--output", output.path,
+                "--force", "--format", "json",
+            ]
+        )
+    }
+
+    func testDiscriminatingSitesRowExclusionsPassEverySelectionAndOptionalOutputs() {
+        let bundle = URL(fileURLWithPath: "/project/panel.lungfishmsa")
+        let output = URL(fileURLWithPath: "/exports/sites.tsv")
+        let json = URL(fileURLWithPath: "/exports/report.json")
+        let windows = URL(fileURLWithPath: "/exports/windows.tsv")
+        let request = MSADiscriminatingSitesRequest(
+            bundleURL: bundle,
+            targets: "t1,t2",
+            exclusions: "x1,x2",
+            template: "t2",
+            targetMismatchTolerance: 1,
+            minimumExclusionDifferences: 1,
+            windowLength: 150
+        )
+        XCTAssertEqual(
+            CLIMSAActionCommandBuilder.buildDiscriminatingSitesArguments(
+                request: request, outputURL: output, windowsOutputURL: windows, jsonOutputURL: json, force: false
+            ),
+            [
+                "msa", "discriminating-sites", bundle.path,
+                "--targets", "t1,t2",
+                "--exclusions", "x1,x2",
+                "--template", "t2",
+                "--target-mismatch-tolerance", "1",
+                "--min-exclusion-differences", "1",
+                "--window-length", "150",
+                "--output", output.path,
+                "--windows-output", windows.path,
+                "--json-output", json.path,
+                "--format", "json",
+            ]
+        )
+        XCTAssertEqual(
+            MSADiscriminatingSitesRequest.defaultJSONOutputURL(for: output).path, "/exports/sites.json")
+        XCTAssertEqual(
+            MSADiscriminatingSitesRequest.defaultWindowsOutputURL(for: output).path, "/exports/sites.windows.tsv")
+    }
+
     func testAlignedSelectionExportUsesSupportedCommandAndExactScope() {
         let bundle = URL(fileURLWithPath: "/project/example.lungfishmsa")
         let output = URL(fileURLWithPath: "/exports/subalignment.fasta")

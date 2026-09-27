@@ -133,6 +133,22 @@ extension Notification.Name {
     /// "consensusUseAmbiguity" (Bool)
     public static let readDisplaySettingsChanged = Notification.Name("readDisplaySettingsChanged")
 
+    /// Posted by the MSA Inspector's Discriminating Sites section when the set of
+    /// columns to highlight in the alignment viewport changes, or when the highlight
+    /// is switched off.
+    ///
+    /// userInfo carries `NotificationUserInfoKey.msaDiscriminatingSitesHighlight`
+    /// (the app's highlight value) or omits it to clear the highlight, plus the
+    /// window state scope.
+    public static let msaDiscriminatingSitesHighlightChanged = Notification.Name("msaDiscriminatingSitesHighlightChanged")
+
+    /// Posted by the MSA Inspector to ask the alignment viewport to select and
+    /// centre one alignment column.
+    ///
+    /// userInfo carries `NotificationUserInfoKey.msaAlignmentColumn` (Int, 1-based)
+    /// plus the window state scope.
+    public static let msaFocusAlignmentColumnRequested = Notification.Name("msaFocusAlignmentColumnRequested")
+
 }
 
 // MARK: - Viewport Content Mode
@@ -452,6 +468,13 @@ public enum NotificationUserInfoKey {
 
     /// Key for native MSA residue identity display mode (String).
     public static let msaResidueIdentityDisplayMode = "msaResidueIdentityDisplayMode"
+
+    /// Key for the discriminating-sites highlight the MSA viewport should draw
+    /// (the app's `MSADiscriminatingSitesHighlight`; absent clears the highlight).
+    public static let msaDiscriminatingSitesHighlight = "msaDiscriminatingSitesHighlight"
+
+    /// Key for a 1-based MSA alignment column to select and centre (Int).
+    public static let msaAlignmentColumn = "msaAlignmentColumn"
 
     /// Key for strand-colored read backgrounds toggle (Bool).
     public static let showStrandColors = "showStrandColors"

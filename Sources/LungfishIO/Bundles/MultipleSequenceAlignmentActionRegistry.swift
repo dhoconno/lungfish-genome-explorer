@@ -626,8 +626,8 @@ public enum MultipleSequenceAlignmentActionRegistry {
                 outputContract: "Writes a per-column TSV, a candidate-window TSV, and a JSON report, each with a provenance sidecar."
             ),
             status: .implemented,
-            accessibility: "The Inspector list exposes sortable columns and jump-to-column, and names each row as target or exclusion.",
-            tests: "Unit tests cover column scoring, tolerance, no-call handling, and windowing on a synthetic alignment; CLI tests cover the written tables and provenance."
+            accessibility: "MSA Inspector > Discriminating Sites: an Exclusions picker (Rows in this alignment / Sequences from a file), a Target / Exclusion / Skip role per row, a project reference-bundle picker with Choose File…, Template, Target mismatch tolerance, Window length (bp), Exclusions that must differ, and Find Discriminating Sites, which runs msa discriminating-sites through the Operation Center and reads its JSON report back. Results: a sortable site table (Column, Template, Target, Differing, Exclusions) whose selection centres the column in the viewport, a Candidate windows table, Highlight in viewport, Copy TSV, Export TSV…, and Export JSON… (both re-run the CLI into the chosen destination). The viewport tints the columns, marks them in the header and overview strip, prefixes gutter names with Target or Exclusion, and shows a legend naming the exclusion source.",
+            tests: "Unit tests cover column scoring, tolerance, no-call handling, and windowing on a synthetic alignment; CLI tests cover the written tables and provenance; MSADiscriminatingSitesInspectorTests cover the Inspector model, the argv it builds against the CLI's own spelling, the viewport highlight and focus, and a real run on the Primer Design demo project when it is present."
         ),
         descriptor(
             "msa.display.linked-tree",

@@ -297,13 +297,21 @@ struct PrimerAnalysisExportOrderCommand: AsyncParsableCommand {
             Writes the same order the Inspector's View tab exports: order.json, ordering.csv, \
             primer-order.xlsx, template.xlsx and, for pooled orders, IDT-oPools.xlsx. \
             The default scope follows the analysis: candidate-pairs for Primer3, \
-            selected-assays for Olivar and varVAMP, displayed for PrimalScheme.
+            selected-assays for Olivar and varVAMP, displayed for PrimalScheme. \
+            Each scope belongs to one engine and is refused for the others rather than \
+            falling back: displayed needs PrimalScheme's display filters, which Primer3 \
+            and varVAMP qPCR analyses do not have, so name selected-assays, \
+            all-reported-assays or candidate-pairs for those.
             """
     )
     @Argument(help: "Path to the saved .lungfishprimeranalysis bundle.") var bundlePath: String
     @Option(name: .customLong("output"), help: "New order directory. It must not exist; its parent must.")
     var outputPath: String
-    @Option(help: "Which saved oligos to order: \(Scope.allCases.map(\.rawValue).joined(separator: ", ")).")
+    @Option(help: """
+        Which saved oligos to order: candidate-pairs (Primer3 only), selected-assays or \
+        all-reported-assays (Olivar and varVAMP only), displayed (PrimalScheme only). \
+        A scope the analysis engine does not have is refused with the scopes it does offer.
+        """)
     var scope: Scope?
     @Option(name: .customLong("candidate-pair-id"),
             help: "Primer3 candidate pair UUID to include (repeatable; default all pairs).")
