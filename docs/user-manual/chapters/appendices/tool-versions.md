@@ -113,14 +113,14 @@ None of these tools is on a machine that has not installed its pack. The lock pi
 | `multiple-sequence-alignment` | mafft | 7.526 | `mafft` | BSD-3-Clause | `mafft` |
 | `phylogenetics` | iqtree | 3.1.3 | `iqtree` | GPL-2.0-or-later | `iqtree3` |
 | `metagenomics` | kraken2 | 2.17.1 | `kraken2` | GPL-3.0-or-later | `kraken2`, `kraken2-build` |
-| `metagenomics` | bracken | 1.0.0 | `bracken` | GPL-3.0 | `bracken`, `bracken-build` |
+| `metagenomics` | bracken | 3.1, reports 3.0.1 | `bracken` | GPL-3.0 | `bracken`, `bracken-build` |
 | `metagenomics` | esviritu | 1.3.3 | `esviritu` | MIT | `EsViritu` |
 | `metagenomics` | ribodetector | 0.3.3 | `ribodetector` | GPL-3.0-or-later | `ribodetector_cpu` |
 | `wastewater-surveillance` | freyja | 2.0.3 | `freyja` | BSD-2-Clause | `freyja` |
 
 LoFreq 2.1.5 rejects `--version`, so a LoFreq provenance record can carry the text `Unrecognized command '--version'` where a version belongs. Take LoFreq's version from this table.
 
-The Bracken row needs care. The lock's version field reads 1.0.0 because that is the conda package the environment starts from, but the only build of that package for Apple Silicon Macs lacks Bracken's main program. LGE therefore builds Bracken from the upstream v3.1 source release into the same environment, and the lock records that release in a separate source-build entry. The Bracken that runs is release 3.1, so write 3.1 in a methods section, and check your provenance record if it prints a different string.
+The Bracken row needs care. The only conda build of Bracken for Apple Silicon Macs lacks Bracken's main program, so LGE builds Bracken from the upstream release 3.1 source code instead of installing it from conda. The lock file also carries a version field of 1.0.0 for Bracken, but that is only a fallback pin, and a fresh install never uses it. The `bracken` script in release 3.1 still reports its own version as 3.0.1, so Bracken's version flag and your provenance record both say 3.0.1. Write Bracken 3.1 in a methods section and add that it reports itself as 3.0.1, so a reader can match your text to your provenance record.
 
 Olivar and varVAMP joined the `pcr-primer-design` pack in release 2026.9.42, after the release these tables otherwise describe, without a change to the dependency set name. A copy of LGE older than 2026.9.42 has no Olivar or varVAMP row. Each of the two installs from an exact list of packages kept inside LGE, so every Mac receives the same builds.
 

@@ -132,6 +132,8 @@ Terms appear in alphabetical order. Each entry is a one-sentence definition, fol
 
 **camelCase**{#camel-case}. A way of spelling a multi-word name by running the words together and capitalising each one after the first, as in `schemaVersion`, which is the convention the alignment and tree bundle manifests use. See also snake_case, manifest, JSON.
 
+**Candidate allele**{#candidate-allele}. A consensus sequence from the full-length ONT MHC genotyping workflow that matches no allele in the library exactly and is given a provisional name built from its closest library allele, such as a name ending `_2nt_nov` for two substituted bases. See also allele, consensus sequence, Savont.
+
 **Canonical accession**{#canonical-accession}. The accession a primer scheme's coordinates were written against, marked `canonical` in the bundle manifest and the name an alignment's contig must match, directly or through an equivalent accession, for a trim to find its primers. See also accession, equivalent accession, primer scheme.
 
 **Capped database**{#capped-database}. A reference database deliberately shrunk to a target memory size by discarding most of its stored sequence fragments, so a machine too small to hold the full collection can still run the classifier against it. The cost falls on sensitivity, since a read the full collection would have named at species level is more often left unclassified or reported at a broader rank, and the loss is heaviest for whichever organism the sample is actually full of. See also Kraken 2, minimizer, read classification.
@@ -266,6 +268,8 @@ Terms appear in alphabetical order. Each entry is a one-sentence definition, fol
 
 **ENA (European Nucleotide Archive)**{#ena}. The European mirror of the SRA, hosted at EMBL-EBI, and one of three INSDC partners (with NCBI SRA and DDBJ) that share deposited sequencing data. LGE downloads SRA runs from ENA first because ENA serves pre-converted FASTQs directly, and falls back to the NCBI SRA Toolkit when ENA lists no FASTQ files for the run or a file it sends fails an integrity check. See also SRA.
 
+**End-to-end alignment**{#end-to-end-alignment}. An alignment in which every base of a read, from the first to the last, must be placed against the reference, so nothing is soft-clipped, which is Bowtie2's default mode and the reason a read with a damaged or foreign end scores lower under it than under a local aligner. See also local alignment, soft clip, mapper.
+
 **Environment variable**{#environment-variable}. A named value the shell hands to every program it starts, used by Lungfish Genome Explorer to relocate managed storage with `LUNGFISH_STORAGE_ROOT` and `LUNGFISH_CONDA_ROOT`, which it reads together, and to supply an NCBI account key with `NCBI_API_KEY`. See also continuous integration, conda.
 
 **Equivalent accession**{#equivalent-accession}. A second accession listed in a primer scheme manifest as naming the same sequence as the canonical one, so an alignment mapped to either identifier resolves against the same scheme. See also accession, canonical accession, alias map.
@@ -310,9 +314,13 @@ Terms appear in alphabetical order. Each entry is a one-sentence definition, fol
 
 **Fluidigm sample barcode**{#fluidigm-sample-barcode}. The sample-identifying sequence that a library built with Fluidigm Access Array primers adds to each read next to the fixed CS1 and CS2 primer sequences. Lungfish Genome Explorer finds the two primers, reads the barcode beside them to assign the read to a sample, and splits one bulk Oxford Nanopore bundle into per-sample bundles of the insert lying between the two primers. See also barcode, demultiplex, amplicon.
 
+**FM-index**{#fm-index}. A compressed, searchable copy of a whole genome built with the Burrows-Wheeler transform, which lets BWA-MEM2 and Bowtie2 find where a short stretch of a read occurs exactly in the genome without scanning it, at the price of a slow and memory-hungry index build. See also mapper, minimizer.
+
 **FORMAT (in a VCF)**{#format}. The ninth VCF column, declaring a colon-separated list of keys that describe the per-sample payload columns following it, such as the `GT:PL:AD` that bcftools writes. The column is optional, and LoFreq output has no FORMAT and no sample column at all. See also VCF, INFO.
 
 **Format registry**{#format-registry}. Lungfish Genome Explorer's internal catalog of the file formats it recognizes, holding for each one a display name, its filename extensions, whether the app can read it, whether the app can write it, and a category that decides where the format appears in a file picker. Two entries, BigWig and BigBed, are marked detection only, meaning the extension is recognized but no reader exists. See also BigWig, BigBed.
+
+**Frequency-based calling**{#frequency-based-calling}. Variant calling that asks whether a change appears in more reads than sequencing error would explain and reports the fraction of reads carrying it, as LoFreq and iVar do, rather than assigning a genotype, which suits virus populations, mixed infections, and tumours. See also genotype-based calling, allele frequency, LoFreq, iVar.
 
 **Freyja**{#freyja}. A tool that estimates the relative abundance of each viral lineage in a mixed sample (typically wastewater) by demixing the sample's variant and depth profiles against known lineage definitions, run in LGE through `lungfish-cli freyja demix`. See also lineage, consensus FASTA.
 
@@ -336,6 +344,8 @@ Terms appear in alphabetical order. Each entry is a one-sentence definition, fol
 
 **Genotype result bundle**{#genotype-result-bundle}. The folder an MHC genotyping run writes, carrying the `.lungfishgenotype` extension and holding the per-sample and per-allele read counts as CSV tables, an Excel workbook of the same figures, the run statistics, a sorted and indexed BAM of just the retained reads, and a provenance record of exactly how it was made. See also retained read, genotype matrix, provenance.
 
+**Genotype-based calling**{#genotype-based-calling}. Variant calling that asks which combination of alleles best explains the reads at a position, given the sample's ploidy, and writes a genotype such as `0/1`, as bcftools and GATK HaplotypeCaller do, which suits a person, a macaque, or a clonal isolate. See also frequency-based calling, genotype, ploidy.
+
 **GenotypeGVCFs**{#genotypegvcfs}. The GATK tool that turns combined per-sample GVCF evidence into finished genotype calls, deciding at each position which alleles each sample carries and how confident that call is, and the second and final step of every joint-genotyping run Lungfish Genome Explorer builds. See also GVCF, joint genotyping, CombineGVCFs, GenomicsDB.
 
 **Germline variant**{#germline}. A difference from the reference genome that a person inherited from their parents and therefore carries in every cell of their body, as opposed to a somatic variant that arose in one tissue during their lifetime, which is why a germline caller may assume every position carries the same fixed number of genome copies. See also variant-caller, ploidy, genotype.
@@ -349,6 +359,8 @@ Terms appear in alphabetical order. Each entry is a one-sentence definition, fol
 **Grounded answer**{#grounded-answer}. A reply from the AI assistant that rests on a lookup the assistant actually ran against your loaded data, so it names your bundle, your organism, and your coordinates, as opposed to one written from the model's general reading with nothing from your project in it. The status line naming a lookup while the assistant works is the first sign that a reply is grounded. See also AI assistant, bundle.
 
 **GTF (gene transfer format)**{#gtf}. An older relative of GFF3 that uses the same nine tab-separated columns with a different attribute syntax, which Lungfish Genome Explorer reads and converts on import. The format registry marks GTF read only, since the app never writes one back out. See also GFF, format registry.
+
+**Guide tree**{#guide-tree}. A quick, rough tree of which sequences look most alike that a progressive aligner such as MAFFT builds first and then uses to decide the order in which sequences join the alignment. See also progressive alignment, MAFFT, MSA.
 
 **GVCF (genomic VCF)**{#gvcf}. A VCF variant that records, at every position rather than only at variant sites, the confidence that the sample matches the reference, so per-sample GVCFs can later be combined and genotyped together. It is the form GATK HaplotypeCaller emits by default in LGE. See also VCF, joint genotyping, GenomicsDB.
 
@@ -408,6 +420,8 @@ Terms appear in alphabetical order. Each entry is a one-sentence definition, fol
 
 **IQ-TREE**{#iqtree}. A maximum-likelihood phylogenetic inference program with a built-in ModelFinder step and ultrafast bootstrap support estimation, used by LGE to produce `.lungfishtree` bundles from MSA bundles. See also MSA, phylogram, support value.
 
+**Iterative refinement**{#iterative-refinement}. The step in which an aligner repeatedly splits a finished alignment into two groups, realigns them, and keeps each change that improves the alignment score, correcting gaps placed badly early on. See also progressive alignment, MAFFT.
+
 **IUPAC ambiguity code**{#iupac-ambiguity-code}. A single letter standing for two or more possible bases at one position, defined by the International Union of Pure and Applied Chemistry so that uncertainty can be written inside a sequence rather than alongside it. `R` means A or G, `Y` means C or T, `M` means A or C, `K` means G or T, `S` means C or G, `W` means A or T, and `N` means any base at all. See also consensus sequence, consensus FASTA, pileup.
 
 **iVar**{#ivar}. A toolkit written for amplicon sequencing data that soft-clips primer bases out of an aligned BAM using a primer scheme's BED coordinates and can then call variants from the trimmed result, shipped inside Lungfish Genome Explorer's Variant Calling pack. See also primer trim, primer scheme, soft-clip, variant-caller.
@@ -458,6 +472,8 @@ Terms appear in alphabetical order. Each entry is a one-sentence definition, fol
 
 **Linkage**{#linkage}. Whether two changes sit on the same physical DNA molecule and so travel together, which read-level data can only show when one read spans both, so a caller that reports two changes at nearby positions is usually saying nothing at all about whether they are linked. See also phase, haplotype, phase set.
 
+**Local alignment**{#local-alignment}. An alignment that places the best-matching stretch of a read and may leave poorly matching ends unaligned as soft clips, which is how BWA-MEM2 aligns and what Bowtie2 does when given `--local`. See also end-to-end alignment, soft clip.
+
 **Local reassembly**{#local-reassembly}. The strategy a variant caller such as GATK HaplotypeCaller uses in stretches where the reads look unsettled, discarding the original alignment across that stretch, rebuilding the candidate sequences from the reads themselves, and rescoring every read against those candidates, which mainly repays its cost around indels because an aligner placing one read at a time often puts the same insertion in slightly different spots on different reads. See also variant-caller, indel, alignment.
 
 **Locus**{#locus}. The place on a chromosome where one particular gene sits, so that the alternative sequences a population carries at that place are its alleles. MHC genotyping reports one group of calls per locus, and which loci appear depends on the allele library a run used. See also allele, MHC, allele target.
@@ -486,7 +502,7 @@ Terms appear in alphabetical order. Each entry is a one-sentence definition, fol
 
 **MAPQ (mapping quality)**{#mapq}. A per-read confidence score in each BAM row, encoding how unambiguously the mapper placed the read at the recorded position. A value of 0 means no confidence (the read fits multiple places equally well), 60 is the maximum for most mappers and means the placement is well above the second-best alternative. See also BAM, mapper.
 
-**Mark duplicates**{#mark-duplicates}. The step that finds BAM rows sharing a start and end position, which are usually PCR copies of one original fragment, and flags the extras so a variant caller counts them once, run in LGE as `samtools markdup` through `lungfish-cli bam markdup`. The step is inappropriate for amplicon data, where every fragment is designed to start at the same place. See also BAM, FLAG.
+**Mark duplicates**{#mark-duplicates}. The step that finds BAM rows sharing a start and end position, which are usually PCR copies of one original fragment, and flags the extras so a variant caller counts them once, run in LGE as `samtools markdup` through `lungfish-cli markdup`, which `lungfish-cli bam markdup` also reaches. The step is inappropriate for amplicon data, where every fragment is designed to start at the same place. See also BAM, FLAG.
 
 **Materialization**{#materialization}. The step that rebuilds a virtual bundle's full read file from its stored manifest, run automatically as the first stage of any operation that needs the actual reads and cleared away when that operation ends, or performed deliberately with `lungfish-cli fastq materialize` when a program outside Lungfish Genome Explorer needs a plain FASTQ. See also virtual bundle, bundle.
 
@@ -519,6 +535,8 @@ Terms appear in alphabetical order. Each entry is a one-sentence definition, fol
 **MiSeq**{#miseq}. A benchtop Illumina sequencing instrument that reads each DNA fragment from both ends at up to about 250 bases per end, the usual platform for a short-amplicon MHC genotyping panel, and the reason such a run merges its read pairs before mapping so that amplicons longer than one read can still be spanned end to end. See also paired-end, read merging, amplicon.
 
 **Mitochondrial genome**{#mitochondrial-genome}. The small circular DNA molecule carried inside the mitochondrion, the compartment that supplies a cell's chemical energy, separate from the nuclear chromosomes and present in many copies per cell, the human one being the 16,569-base record `NC_012920.1` known as the revised Cambridge Reference Sequence. See also reference genome, accession.
+
+**ModelFinder**{#modelfinder}. The model-testing step inside IQ-TREE, run when the Model field reads `MFP`, that fits many substitution models to an alignment and keeps the one that best balances fit against the number of rates it must estimate. See also substitution model, maximum likelihood.
 
 **Modifier key**{#modifier-key}. A key that changes what another keypress means while it is held down, which on macOS means Command, Option (labelled Alt on some keyboards), Shift, and Control, and which Lungfish Genome Explorer combines with a key equivalent to form every keyboard shortcut it defines. See also key equivalent.
 
@@ -576,6 +594,8 @@ Terms appear in alphabetical order. Each entry is a one-sentence definition, fol
 
 **Outgroup**{#outgroup}. A sequence included in a phylogenetic analysis because you are confident it falls outside the group under study, used to place the root so the rest of the tree can be read as a sequence of descent. See also rooting, topology, clade.
 
+**Overlap-layout-consensus**{#overlap-layout-consensus}. An assembly method that compares reads with each other to find where they overlap, lays the overlapping reads out in order, and takes the base most of them agree on at each position, the approach long-read assemblers such as Flye and hifiasm descend from. See also de Bruijn graph, assembly graph, contig.
+
 **Override**{#override}. A genotype call an analyst replaced by hand in the result window, stored in the result's annotation sidecar alongside the original call, the reason, and the author, so an exported workbook or LabKey file reports the reviewed call while still carrying the pipeline's own. See also audit log, genotype matrix, genotype result bundle.
 
 ## P
@@ -626,6 +646,8 @@ Terms appear in alphabetical order. Each entry is a one-sentence definition, fol
 
 **Plugin pack**{#plugin-pack}. A themed group of related bioinformatics tools that LGE installs on demand into per-tool conda environments, named for the workflow it supports (for example, `read-mapping`, `variant-calling`, `assembly`). See also conda, micromamba.
 
+**Poly-G tail**{#poly-g-tail}. A false run of G bases at the end of a read from an Illumina NextSeq or NovaSeq instrument, which reads the absence of light as G and so writes G when a cluster's signal fades, and which fastp trims by default when the read names show one of those instruments. See also fastp, adapter.
+
 **Positional argument**{#positional-argument}. A value typed at a fixed place in a command with no name in front of it, so its meaning comes from where it sits rather than from a label, which is how most commands take their input file. See also command-line flag, subcommand.
 
 **Post-install hook**{#post-install-hook}. A follow-up command a plugin pack declares for itself and LGE runs after the pack's tools are installed, such as downloading the lineage data a surveillance tool needs, with the count of hooks shown on the pack's card in the Plugin Manager. See also plugin pack.
@@ -645,6 +667,8 @@ Terms appear in alphabetical order. Each entry is a one-sentence definition, fol
 **Process**{#process}. One running copy of a program, which macOS starts, gives a number to, and ends when the program quits, so one application opened twice is two processes and a command-line tool that finishes is a process that no longer exists. See also process id, project lock, shell.
 
 **Process id**{#process-id}. The number macOS gives one running process, written `pid` in a project lock record and in Lungfish Genome Explorer's lock messages, which identifies that one run rather than the program in general. Typing the number into Activity Monitor's search field is how a reader checks whether the process is still running. See also process, project lock, stale lock.
+
+**Progressive alignment**{#progressive-alignment}. A way of building a multiple sequence alignment by joining the most similar sequences first and adding the rest in guide-tree order, which is fast but never moves a gap once placed. See also guide tree, iterative refinement, MSA.
 
 **Project**{#project}. A `.lungfish` directory bundle that holds every input, output, bundle, and provenance record for one LGE analysis, with a top-level layout of `Imports/`, `Downloads/`, `Reference Sequences/`, `Primer Schemes/`, `Extractions/`, `Haplotype Definitions/`, and `Analyses/`, plus a hidden `.project.db` catalog and a `metadata.json`. Only the app creates the project store, so a folder built by `lungfish-cli` alone opens read only. See also bundle, sidebar, project lock.
 
@@ -768,6 +792,8 @@ Terms appear in alphabetical order. Each entry is a one-sentence definition, fol
 
 **Secondary alignment**{#secondary-alignment}. An extra record reporting another place a read could plausibly have come from, marked by FLAG bit 256 and produced in quantity by repeated regions, which Lungfish Genome Explorer excludes from a mapping run's BAM by default because the duplicate rows inflate read counts. See also FLAG, primary alignment, supplementary alignment.
 
+**Sensitivity**{#sensitivity}. The share of the organisms or variants truly present in a sample that a method detects, so a method with low sensitivity misses things that are there. See also specificity, read classification.
+
 **seqkit**{#seqkit}. A general-purpose toolkit for FASTA and FASTQ manipulation, used in Lungfish Genome Explorer for the read-length filter and for several sequence statistics. See also FASTQ, read length.
 
 **Sequence dictionary**{#sequence-dictionary}. A small `.dict` file written beside a reference FASTA listing every contig in it with that contig's length and checksum, which GATK requires before it will read the reference and which Lungfish Genome Explorer does not create for you, so a first GATK run against a bare FASTA fails naming the missing file. See also FASTA, reference genome, contig.
@@ -812,7 +838,11 @@ Terms appear in alphabetical order. Each entry is a one-sentence definition, fol
 
 **Sparkline**{#sparkline}. A small chart drawn without axes or labels, sized to sit inside a strip rather than to be read precisely, of which LGE draws three under a FASTQ bundle's summary cards, labelled Length Dist., Q / Position, and Q Score Dist., with a click on any one opening the full-size chart in a popover. See also quality control, FASTQ.
 
+**Specificity**{#specificity}. The share of organisms or variants absent from a sample that a method correctly leaves out, so a method with low specificity reports things that are not there. See also sensitivity, read classification.
+
 **Spike-in control**{#spike-in-control}. A known sequence added deliberately to a sequencing library so that its behaviour in the results reports on how the run itself performed, the commonest being the bacteriophage phiX genome that Illumina protocols add to improve the instrument's base calling. A handful of phiX reads turning up in a classification report is expected rather than a sign of contamination. See also read classification, Kraken 2.
+
+**Splice-aware mapper**{#splice-aware-mapper}. A mapper that can split one read across an intron, placing its two halves on exons that lie far apart in the genome, which RNA sequencing needs and which Lungfish Genome Explorer offers for long reads through minimap2's Spliced CDS/cDNA preset. See also mapper, intron, mapping preset.
 
 **Spliced feature**{#spliced-feature}. An annotated feature built from several separate pieces of sequence with the intervening stretches left out, which a single start and a single end cannot record, so LGE preserves the original GenBank location string alongside it. See also GFF, GenBank, exon.
 
@@ -885,6 +915,8 @@ Terms appear in alphabetical order. Each entry is a one-sentence definition, fol
 **Transformer**{#transformer}. A piece of code inside Lungfish Genome Explorer that rewrites a bundle manifest from one schema version into another, so a bundle written by an older release can be brought up to the current layout. `lungfish-cli project migrate` reports a bundle as unsupported when no transformer exists for its schema version, and leaves it untouched rather than guessing. See also bundle migration, schema version, manifest.
 
 **Transition to transversion ratio**{#transition-transversion-ratio}. The count of substitutions that swapped a base for the other one of the same chemical shape, meaning A for G or C for T, divided by the count that swapped between shapes, written `TITV` in Picard's metrics output. Genuine human variation runs at roughly 2 to 3 because transitions arise more readily in biology, while random sequencing error has no such preference and produces a ratio near 0.5, which makes the figure a fast check on whether a call set is real. See also SNV, dbSNP, novel variant.
+
+**Trim Galore**{#trim-galore}. An adapter and quality trimmer that Lungfish Genome Explorer offers only on the import sheet, as the "Trim Galore --clumpify" Compression Tool, where it recognises common adapter types from the reads, cuts low-quality bases from the 3' end, drops reads left too short, and reorders the survivors for compression before the bundle is written. See also read clumping, adapter, fastp.
 
 **TSV (tab-separated values)**{#tsv}. A plain text table whose columns are separated by tab characters, one row per line, readable by any spreadsheet and by most analysis scripts, and the format `lungfish-cli gatk variants-to-table` writes when it flattens a VCF for use outside the genomics tools. See also VCF, CSV.
 

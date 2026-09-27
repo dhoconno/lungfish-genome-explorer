@@ -104,13 +104,13 @@ Rows carrying a project page rather than a DOI belong to tools that never publis
 | Snakemake | 10.12688/f1000research.29032.2 |
 | BBTools | <https://sourceforge.net/projects/bbmap/> |
 | fastp | 10.1093/bioinformatics/bty560 |
-| Deacon | <https://github.com/bede/deacon> |
+| Deacon | 10.1101/2025.06.09.658732 |
 | SAMtools | 10.1093/gigascience/giab008 |
 | BCFtools | 10.1093/gigascience/giab008 |
 | HTSlib | 10.1093/gigascience/giab008 |
 | SeqKit | 10.1371/journal.pone.0163962 |
 | Cutadapt | 10.14806/ej.17.1.200 |
-| Trim Galore | <https://github.com/FelixKrueger/TrimGalore> |
+| Trim Galore | 10.5281/zenodo.5127898 |
 | VSEARCH | 10.7717/peerj.2584 |
 | pigz | <https://zlib.net/pigz/> |
 | SRA Tools | <https://github.com/ncbi/sra-tools> |
@@ -126,13 +126,13 @@ Nextflow          Di Tommaso P, Chatzou M, Floden EW, et al. Nextflow enables re
 Snakemake         Moelder F, Jablonski KP, Letcher B, et al. Sustainable data analysis with Snakemake. F1000Research. 2021.
 BBTools           Bushnell B. BBTools software package. Joint Genome Institute.
 fastp             Chen S, Zhou Y, Chen Y, Gu J. fastp: an ultra-fast all-in-one FASTQ preprocessor. Bioinformatics. 2018.
-Deacon            Deacon host-depletion toolkit.
+Deacon            Constantinides B, Lees J, Crook DW. Deacon: fast sequence filtering and contaminant depletion. bioRxiv. 2025.
 SAMtools          Danecek P, Bonfield JK, Liddle J, et al. Twelve years of SAMtools and BCFtools. GigaScience. 2021.
 BCFtools          Danecek P, Bonfield JK, Liddle J, et al. Twelve years of SAMtools and BCFtools. GigaScience. 2021.
 HTSlib            Danecek P, Bonfield JK, Liddle J, et al. Twelve years of SAMtools and BCFtools. GigaScience. 2021.
 SeqKit            Shen W, Le S, Li Y, Hu F. SeqKit: a cross-platform and ultrafast toolkit for FASTA/Q file manipulation. PLOS ONE. 2016.
 Cutadapt          Martin M. Cutadapt removes adapter sequences from high-throughput sequencing reads. EMBnet.journal. 2011.
-Trim Galore       Krueger F. Trim Galore. Babraham Bioinformatics.
+Trim Galore       Krueger F. Trim Galore. Zenodo.
 VSEARCH           Rognes T, Flouri T, Nichols B, Quince C, Mahe F. VSEARCH: a versatile open source tool for metagenomics. PeerJ. 2016.
 pigz              Adler M. pigz: a parallel implementation of gzip.
 SRA Tools         NCBI Sequence Read Archive Toolkit.
@@ -142,7 +142,7 @@ openpyxl          openpyxl, a Python library to read and write Excel 2010 files.
 micromamba        Mamba and micromamba package managers.
 ```
 
-Several entries above carry no author and no year, because the tool has neither a paper nor a stated release date. A **[reference manager](../../GLOSSARY.md#reference-manager)** that requires a year takes `n.d.`, meaning no date, in that field.
+Several entries above carry no author and no year, because the tool has neither a paper nor a stated release date. The Trim Galore DOI points to a Zenodo record, a software archive entry that covers every release of the program. The Deacon DOI resolves to a bioRxiv **[preprint](../../GLOSSARY.md#preprint)**, an article posted before peer review, so check whether your journal accepts one before you use it. A **[reference manager](../../GLOSSARY.md#reference-manager)** that requires a year takes `n.d.`, meaning no date, in that field.
 
 ### One worked example
 
@@ -162,13 +162,25 @@ Bioinformatics. https://doi.org/10.1093/bioinformatics/bty191
 A software tool with no paper follows the same shape with `n.d.` for the year and the project page in place of the DOI.
 
 ```
-Krueger F. (n.d.). Trim Galore. Babraham Bioinformatics.
-https://github.com/FelixKrueger/TrimGalore
+Adler M. (n.d.). pigz: a parallel implementation of gzip.
+https://zlib.net/pigz/
 ```
 
 A citation without a DOI is normal for software and journals accept it. Match the punctuation to whatever style your own journal asks for, and the fields above are all you need.
 
 Remember to cite three rows that are easy to miss. pysam reads the BAM files that produce a viewport's coverage and depth readouts, openpyxl writes the genotyping workbooks, and micromamba is the package manager that installed every other tool named in this appendix. If a number in your figure came out of a genotyping workbook or a coverage readout, one of those three helped produce it.
+
+Two BBTools programs have papers of their own, which you may cite beside the BBTools entry. BBMerge runs Merge Overlapping Pairs, and BBMap is the BBTools read aligner. Cite the BBMerge paper when your run merged read pairs, and the BBMap report when your run used BBMap.
+
+| Program | DOI or project page |
+|---|---|
+| BBMerge | 10.1371/journal.pone.0185056 |
+| BBMap | <https://www.osti.gov/biblio/1241166> |
+
+```
+BBMerge           Bushnell B, Rood J, Singer E. BBMerge – Accurate paired shotgun read merging via overlap. PLOS ONE. 2017.
+BBMap             Bushnell B. BBMap: a fast, accurate, splice-aware aligner. Lawrence Berkeley National Laboratory report LBNL-7065E. 2014.
+```
 
 ## Tools installed by a plugin pack
 
@@ -185,6 +197,8 @@ Cite only the tools your own sidecar names, not the whole table. The command's o
 | BLAST+ | full-length-mhc-genotyping | 10.1186/1471-2105-10-421 |
 | Primer3 | pcr-primer-design | 10.1093/nar/gks596 |
 | PrimalScheme | pcr-primer-design | 10.1038/nprot.2017.066 |
+| Olivar | pcr-primer-design | 10.1038/s41467-024-49957-9 |
+| varVAMP | pcr-primer-design | 10.1038/s41467-025-60175-9 |
 | LoFreq | variant-calling | 10.1093/nar/gks918 |
 | iVar | variant-calling | 10.1186/s13059-018-1618-7 |
 | Medaka | variant-calling | <https://github.com/nanoporetech/medaka> |
@@ -197,10 +211,10 @@ Cite only the tools your own sidecar names, not the whole table. The command's o
 | Flye | assembly | 10.1038/s41587-019-0072-8 |
 | hifiasm | assembly | 10.1038/s41592-020-01056-5 |
 | MAFFT | multiple-sequence-alignment | 10.1093/molbev/mst010 |
-| IQ-TREE | phylogenetics | 10.1093/molbev/msaa015 |
+| IQ-TREE | phylogenetics | 10.1093/molbev/msag117 |
 | Kraken 2 | metagenomics | 10.1186/s13059-019-1891-0 |
 | Bracken | metagenomics | 10.7717/peerj-cs.104 |
-| EsViritu | metagenomics | <https://github.com/cmmr/EsViritu> |
+| EsViritu | metagenomics | 10.1038/s41467-023-42064-1 |
 | RiboDetector | metagenomics | 10.1093/nar/gkac112 |
 | Freyja | wastewater-surveillance | 10.1038/s41586-022-05049-6 |
 
@@ -216,6 +230,8 @@ Savont        Savont read clustering toolkit.
 BLAST+        Camacho C, Coulouris G, Avagyan V, et al. BLAST+: architecture and applications. BMC Bioinformatics. 2009.
 Primer3       Untergasser A, Cutcutache I, Koressaar T, et al. Primer3, new capabilities and interfaces. Nucleic Acids Research. 2012.
 PrimalScheme  Quick J, Grubaugh ND, Pullan ST, et al. Multiplex PCR method for MinION and Illumina sequencing of Zika and other virus genomes directly from clinical samples. Nature Protocols. 2017.
+Olivar        Wang MX, Lou EG, Sapoval N, et al. Olivar: towards automated variant aware primer design for multiplex tiled amplicon sequencing of pathogens. Nature Communications. 2024.
+varVAMP       Fuchs J, Kleine J, Schemmerer M, et al. varVAMP: degenerate primer design for tiled full genome sequencing and qPCR. Nature Communications. 2025.
 LoFreq        Wilm A, Aw PPK, Bertrand D, et al. LoFreq: a sequence-quality aware, ultra-sensitive variant caller. Nucleic Acids Research. 2012.
 iVar          Grubaugh ND, Gangavarapu K, Quick J, et al. An amplicon-based sequencing framework for accurately measuring intrahost virus diversity using PrimalSeq and iVar. Genome Biology. 2019.
 Medaka        Oxford Nanopore Technologies. Medaka sequence correction and consensus toolkit.
@@ -228,21 +244,71 @@ SKESA         Souvorov A, Agarwala R, Lipman DJ. SKESA: strategic k-mer extensio
 Flye          Kolmogorov M, Yuan J, Lin Y, Pevzner PA. Assembly of long, error-prone reads using repeat graphs. Nature Biotechnology. 2019.
 hifiasm       Cheng H, Concepcion GT, Feng X, Zhang H, Li H. Haplotype-resolved de novo assembly using phased assembly graphs with hifiasm. Nature Methods. 2021.
 MAFFT         Katoh K, Standley DM. MAFFT multiple sequence alignment software version 7: improvements in performance and usability. Molecular Biology and Evolution. 2013.
-IQ-TREE       Minh BQ, Schmidt HA, Chernomor O, et al. IQ-TREE 2: new models and efficient methods for phylogenetic inference in the genomic era. Molecular Biology and Evolution. 2020.
+IQ-TREE       Wong TKF, Ly-Trong N, Ren H, et al. IQ-TREE 3: phylogenomic inference software using complex evolutionary models. Molecular Biology and Evolution. 2026.
 Kraken 2      Wood DE, Lu J, Langmead B. Improved metagenomic analysis with Kraken 2. Genome Biology. 2019.
 Bracken       Lu J, Breitwieser FP, Thielen P, Salzberg SL. Bracken: estimating species abundance in metagenomics data. PeerJ Computer Science. 2017.
-EsViritu      EsViritu read mapping and reporting for viral genomes.
+EsViritu      Tisza M, Javornik Cregeen S, Avadhanula V, et al. Wastewater sequencing reveals community and variant dynamics of the collective human virome. Nature Communications. 2023.
 RiboDetector  Deng ZL, Munch PC, Mreches R, McHardy AC. Rapid and accurate identification of ribosomal RNA sequences via deep learning. Nucleic Acids Research. 2022.
 Freyja        Karthikeyan S, Levy JI, De Hoff P, et al. Wastewater sequencing reveals early cryptic SARS-CoV-2 variant transmission. Nature. 2022.
 ```
 
-Three rows need a note, and each note names one paper you cite and one you may add beside it. A secondary citation is a second reference kept alongside the first for the original method, and both go in your reference list when you use one.
+Five rows need a note, and most notes name one paper you cite and one you may add beside it. A secondary citation is a second reference kept alongside the first for the original method, and both go in your reference list when you use one.
 
 BWA-MEM2 is what LGE installs, so cite the 2019 architecture paper above. Keep Li and Durbin 2009 (`10.1093/bioinformatics/btp324`) as the secondary citation for the underlying Burrows-Wheeler algorithm, the text-indexing method BWA uses to search a genome quickly, which is what a reviewer asking where the method came from wants.
 
 MAFFT is version 7, so the 2013 paper is the one to cite. Katoh and colleagues 2002 (`10.1093/nar/gkf436`) is the secondary citation for the original method.
 
-LGE installs IQ-TREE 3.1.3, and IQ-TREE 3 had not published its own paper when this release was built, so the IQ-TREE 2 paper above is correct for now. Check <http://www.iqtree.org> for a version 3 paper before you submit, since one may have appeared since.
+LGE installs IQ-TREE 3.1.3, so cite the 2026 IQ-TREE 3 paper above. Minh and colleagues 2020 (`10.1093/molbev/msaa015`), the IQ-TREE 2 paper, is the secondary citation for the tree search and model machinery that version 3 builds on.
+
+PrimalScheme in LGE is `3.3.0+lge.5`, a build LGE maintains on top of PrimalScheme 3. Cite Quick and colleagues 2017 above for the method, and add Kent and colleagues 2024 (`10.1101/2024.12.20.629611`), the PrimalScheme 3 preprint. State in your methods that an LGE build of version 3.3.0 was used.
+
+EsViritu has no paper of its own. The 2023 wastewater study above is the paper that introduced it, so cite that study, and name <https://github.com/cmmr/EsViritu> as the software page.
+
+### Assembler modes with their own papers
+
+Three assembler modes in LGE were published separately from the assembler itself, and hifiasm's mode for Nanopore reads has its own paper too. Cite the mode's paper beside the assembler's when your run used it.
+
+| Mode in LGE | Paper | DOI |
+|---|---|---|
+| SPAdes Meta profile | metaSPAdes | 10.1101/gr.213959.116 |
+| SPAdes Plasmid profile | plasmidSPAdes | 10.1093/bioinformatics/btw493 |
+| Flye Metagenome mode | metaFlye | 10.1038/s41592-020-00971-x |
+| hifiasm on Nanopore reads | hifiasm (ONT) | 10.1038/s41586-026-10105-6 |
+
+```
+metaSPAdes     Nurk S, Meleshko D, Korobeynikov A, Pevzner PA. metaSPAdes: a new versatile metagenomic assembler. Genome Research. 2017.
+plasmidSPAdes  Antipov D, Hartwick N, Shen M, Raiko M, Lapidus A, Pevzner PA. plasmidSPAdes: assembling plasmids from whole genome sequencing data. Bioinformatics. 2016.
+metaFlye       Kolmogorov M, Bickhart DM, Behsaz B, et al. metaFlye: scalable long-read metagenome assembly using repeat graphs. Nature Methods. 2020.
+hifiasm (ONT)  Cheng H, Qu H, McKenzie S, et al. Efficient near-telomere-to-telomere assembly of nanopore simplex reads. Nature. 2026.
+```
+
+## Method papers
+
+Some choices inside a tool come from their own papers. Cite the tool's row above in every case, and add a paper from this table only when your methods section names the option it describes, such as a MAFFT strategy or an IQ-TREE support test.
+
+| Method | Tool | Where LGE exposes it | DOI |
+|---|---|---|---|
+| FFT-NS progressive alignment | MAFFT | Strategy FFT-NS-2, and Automatic | 10.1093/nar/gkf436 |
+| G-INS-i, L-INS-i, and E-INS-i | MAFFT | Strategy of the same name | 10.1093/nar/gki198 |
+| PartTree | MAFFT | Strategy PartTree | 10.1093/bioinformatics/btl592 |
+| ModelFinder | IQ-TREE | Model `MFP`, the default | 10.1038/nmeth.4285 |
+| Ultrafast bootstrap (UFBoot2) | IQ-TREE | Ultrafast Bootstrap | 10.1093/molbev/msx281 |
+| SH-aLRT | IQ-TREE | SH-aLRT | 10.1093/sysbio/syq010 |
+| SADDLE primer dimer optimisation | Olivar | Every Olivar design | 10.1038/s41467-022-29500-4 |
+| PrimalScheme 3 | PrimalScheme | Every PrimalScheme design | 10.1101/2024.12.20.629611 |
+
+```
+MAFFT 2002     Katoh K, Misawa K, Kuma K, Miyata T. MAFFT: a novel method for rapid multiple sequence alignment based on fast Fourier transform. Nucleic Acids Research. 2002.
+MAFFT 2005     Katoh K, Kuma K, Toh H, Miyata T. MAFFT version 5: improvement in accuracy of multiple sequence alignment. Nucleic Acids Research. 2005.
+PartTree       Katoh K, Toh H. PartTree: an algorithm to build an approximate tree from a large number of unaligned sequences. Bioinformatics. 2007.
+ModelFinder    Kalyaanamoorthy S, Minh BQ, Wong TKF, von Haeseler A, Jermiin LS. ModelFinder: fast model selection for accurate phylogenetic estimates. Nature Methods. 2017.
+UFBoot2        Hoang DT, Chernomor O, von Haeseler A, Minh BQ, Vinh LS. UFBoot2: improving the ultrafast bootstrap approximation. Molecular Biology and Evolution. 2018.
+SH-aLRT        Guindon S, Dufayard JF, Lefort V, Anisimova M, Hordijk W, Gascuel O. New algorithms and methods to estimate maximum-likelihood phylogenies: assessing the performance of PhyML 3.0. Systematic Biology. 2010.
+SADDLE         Xie NG, Wang MX, Song P, et al. Designing highly multiplex PCR primer sets with Simulated Annealing Design using Dimer Likelihood Estimation (SADDLE). Nature Communications. 2022.
+PrimalScheme3  Kent C, Smith AD, Tyson J, et al. PrimalScheme: open-source community resources for low-cost viral genome sequencing. bioRxiv. 2024.
+```
+
+The PrimalScheme 3 entry is a preprint, so check whether your journal accepts one before you use it.
 
 ## Pinned external pipelines
 
@@ -251,16 +317,52 @@ A pipeline runs many separate tools in a fixed order, so citing one commits you 
 | Pipeline | DOI or project page |
 |---|---|
 | nf-core/viralrecon | 10.5281/zenodo.3901628 |
-| TaxTriage | <https://github.com/jhuapl-bio/taxtriage> |
+| TaxTriage | 10.1093/bioinformatics/btag119 |
 
 ```
 nf-core/viralrecon  Patel H, Varona S, Monzon S, et al. nf-core/viralrecon: assembly and intrahost/low-frequency variant calling for viral samples.
-TaxTriage           TaxTriage, a Nextflow pipeline for pathogen identification from metagenomic reads. Johns Hopkins University Applied Physics Laboratory.
+TaxTriage           Merritt B, Ratcliff JD, Ta S, Osis G, Mauldin MR, Thielen PM. TaxTriage: an open-source metagenomic sequencing data analysis pipeline enabling putative pathogen detection. Bioinformatics. 2026.
 ```
 
-Neither entry carries a year, so use `n.d.` and the pinned release number. Cite the pipeline itself, cite the Nextflow paper from the first table, and then cite the pipeline's own component tools. Each nf-core pipeline, nf-core being a community collection of Nextflow pipelines, states its citation requirements in the CITATIONS file at the top of its own repository, and for viralrecon 3.0.0 that file names every tool the run touched.
+The viralrecon entry carries no year, so use `n.d.` and the pinned release number for it. Cite the pipeline itself, cite the Nextflow paper from the first table, and then cite the pipeline's own component tools. Each nf-core pipeline, nf-core being a community collection of Nextflow pipelines, states its citation requirements in the CITATIONS file at the top of its own repository, and for viralrecon 3.0.0 that file names every tool the run touched.
 
 Four tools reach a result only inside these pipelines, in [containers](../../GLOSSARY.md#container) the pipeline manages rather than through LGE's own installation. A container is a packaged copy of a program with everything it needs to run. BEDTools, MultiQC, Pangolin, and Nextclade are the four, and a viralrecon run's CITATIONS file lists all four, so a viralrecon methods section names them. Their citations are Quinlan and Hall 2010 for BEDTools (`10.1093/bioinformatics/btq033`), Ewels and colleagues 2016 for MultiQC (`10.1093/bioinformatics/btw354`), O'Toole and colleagues 2021 for Pangolin (`10.1093/ve/veab064`), and Aksamentov and colleagues 2021 for Nextclade (`10.21105/joss.03773`). LGE does not install, version, or manage any of the four.
+
+## Imported classification results
+
+LGE imports results from three classification tools it never runs. Cite the tool that produced the result you imported, and name the service or pipeline version your collaborator used.
+
+| Tool | DOI or project page |
+|---|---|
+| CZ ID (published as IDseq) | 10.1093/gigascience/giaa111 |
+| NAO-MGS | <https://github.com/securebio/nao-mgs-workflow> |
+| NVD | <https://github.com/dholab/nvd> |
+
+```
+CZ ID    Kalantar KL, Carvalho T, de Bourcy CFA, et al. IDseq, an open source cloud-based pipeline and analysis service for metagenomic pathogen detection and monitoring. GigaScience. 2020.
+NAO-MGS  SecureBio. NAO-MGS workflow.
+NVD      O'Connor laboratory. NVD novel virus detection pipeline.
+```
+
+NAO-MGS and NVD have no paper, so use `n.d.` for their year. Grimm and colleagues 2025 (`10.1016/j.lanmic.2025.101187`), a study from the team behind NAO-MGS, estimates how early wastewater sequencing can detect a new virus, and you may cite it beside the workflow when your methods discuss detection limits.
+
+## Method comparisons cited in the manual
+
+A few chapters cite a published comparison of tools, rather than a tool, to explain a choice. LGE runs none of these, so they never appear in a provenance record, and you cite them only if your own methods section makes the same argument.
+
+| Study | Question it answers | DOI |
+|---|---|---|
+| Barbitoff and Predeus 2024 | Does read trimming change germline variant calls? | 10.12688/f1000research.145486.1 |
+| Van Poelvoorde and colleagues 2021 | Which callers find low-frequency SARS-CoV-2 variants? | 10.3389/fmicb.2021.747458 |
+| Bassano and colleagues 2023 | Which callers handle mixed variants in wastewater? | 10.1099/mgen.0.000933 |
+| Hall and colleagues 2024 | Which callers work best on bacterial Nanopore reads? | 10.7554/eLife.98300 |
+
+```
+Barbitoff       Barbitoff YA, Predeus AV. Negligible effects of read trimming on the accuracy of germline short variant calling in the human genome. F1000Research. 2024.
+Van Poelvoorde  Van Poelvoorde LAE, Delcourt T, Coucke W, et al. Strategy and performance evaluation of low-frequency variant calling for SARS-CoV-2 using targeted deep Illumina sequencing. Frontiers in Microbiology. 2021.
+Bassano         Bassano I, Ramachandran VK, Khalifa MS, et al. Evaluation of variant calling algorithms for wastewater-based epidemiology using mixed populations of SARS-CoV-2 variants in synthetic and wastewater samples. Microbial Genomics. 2023.
+Hall            Hall MB, Wick RR, Judd LM, et al. Benchmarking reveals superiority of deep learning variant callers on bacterial nanopore sequence data. eLife. 2024.
+```
 
 ## Reference databases
 
