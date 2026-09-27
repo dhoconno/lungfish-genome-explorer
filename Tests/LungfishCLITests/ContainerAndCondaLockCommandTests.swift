@@ -8,15 +8,25 @@ final class ContainerAndCondaLockCommandTests: XCTestCase {
         let help = BundleCommand.helpMessage()
         XCTAssertTrue(help.contains("export"))
 
-        let parsed = try BundleCommand.parseAsRoot([
+        // Parsed from the real root so the program-wide `--format` (text, json,
+        // tsv) cannot shadow the export option, which is why it is spelled
+        // `--export-format`.
+        let parsed = try LungfishCLI.parseAsRoot([
+            "bundle",
             "export",
             "/tmp/example.lungfishref",
-            "--format", "container",
+            "--export-format", "container",
             "--output", "/tmp/example.oci.tar",
             "--plugin-pack", "read-mapping",
         ])
 
         XCTAssertTrue(parsed is BundleExportSubcommand)
+        XCTAssertEqual((parsed as? BundleExportSubcommand)?.format, .container)
+
+        let exportHelp = BundleExportSubcommand.helpMessage()
+        XCTAssertTrue(exportHelp.contains("--export-format"))
+        XCTAssertTrue(exportHelp.contains("container"))
+        XCTAssertFalse(exportHelp.contains("--format container"))
     }
 
     func testCondaLockAndInstallFromLockfileParse() throws {

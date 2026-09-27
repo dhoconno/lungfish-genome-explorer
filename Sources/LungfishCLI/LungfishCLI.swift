@@ -85,8 +85,15 @@ struct LungfishCLI: AsyncParsableCommand {
 
     @OptionGroup var globalOptions: GlobalOptions
 
+    /// Rewrites `--format` to `--export-format` for the subcommands that
+    /// have an export format of their own. The program-wide `--format`
+    /// (text, json, tsv) is parsed first and would otherwise take the value,
+    /// which is why those subcommands declare `--export-format`.
     static func normalizedArgumentsForParsing(_ arguments: [String]) -> [String] {
         if arguments.starts(with: ["fastq", "12s-export"]) {
+            return rewriteExportFormatFlag(in: arguments, startingAt: 2)
+        }
+        if arguments.starts(with: ["bundle", "export"]) {
             return rewriteExportFormatFlag(in: arguments, startingAt: 2)
         }
         guard let provenanceIndex = arguments.firstIndex(of: "provenance") else {

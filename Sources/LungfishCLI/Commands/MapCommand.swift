@@ -354,7 +354,7 @@ struct MapCommand: AsyncParsableCommand {
         do {
             pipelineResult = try await pipeline.run(request: request, inputLayoutReason: layoutResolution.reason) { _, message in
                 if !globalOptions.quiet {
-                    print("\r\(formatter.info(message))", terminator: "")
+                    print(MapProgressLine.render(formatter.info(message), isTerminal: isatty(STDOUT_FILENO) == 1), terminator: "")
                     fflush(stdout)
                 }
             }
@@ -373,7 +373,7 @@ struct MapCommand: AsyncParsableCommand {
             skipViewerBundle: noViewerBundle,
             progress: { _, message in
                 if !globalOptions.quiet {
-                    print("\r\(formatter.info(message))", terminator: "")
+                    print(MapProgressLine.render(formatter.info(message), isTerminal: isatty(STDOUT_FILENO) == 1), terminator: "")
                     fflush(stdout)
                 }
             }
@@ -559,4 +559,15 @@ struct MapCommand: AsyncParsableCommand {
         return name
     }
 
+}
+
+/// One progress line of `lungfish-cli map`.
+///
+/// On a terminal each update overwrites the previous one (carriage return, no
+/// newline). Redirected to a file or a pipe there is nothing to overwrite, so
+/// updates ran together on one line; there each update is its own line.
+enum MapProgressLine {
+    static func render(_ text: String, isTerminal: Bool) -> String {
+        isTerminal ? "\r\(text)" : "\(text)\n"
+    }
 }

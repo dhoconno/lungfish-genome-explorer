@@ -249,7 +249,7 @@ Reproducing a run months later means installing the same tools at the same versi
 
 `lungfish-cli conda lock --pack <name> --output <file>` writes the requested environment specification, meaning what was asked for, not what was installed, so it does not guarantee an identical rebuild. Its companion `conda install --from-lockfile` refuses by design, as its own help says, because exact reconstruction is not supported.
 
-`lungfish-cli bundle export --format container` is meant to write a bundle as an [OCI layout](../../GLOSSARY.md#oci-layout) container image, but the command cannot be run. This is a known defect, listed with its workaround in [Known defects in this release](troubleshooting.md#known-defects-in-this-release).
+`lungfish-cli bundle export --export-format container` writes a bundle as an [OCI layout](../../GLOSSARY.md#oci-layout) container image.
 
 ## Shared workstations
 

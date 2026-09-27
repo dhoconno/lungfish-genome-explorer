@@ -799,18 +799,18 @@ The output defaults to `<source>-deduplicated.lungfishref`, with a number added 
 
 ### `bundle export`
 
-Is meant to package a bundle as a container image tarball in the standard OCI layout.
+Packages a bundle as a container image tarball in the standard OCI layout.
 
 ```text
-lungfish-cli bundle export <bundle-path> --format <format> --output <output> [--plugin-pack <plugin-pack> ...] [--quiet]
+lungfish-cli bundle export <bundle-path> --export-format <export-format> --output <output> [--plugin-pack <plugin-pack> ...] [--quiet]
 ```
 
-In this release the command cannot run. Its own `--format` flag is taken by the global `--format`, so `--format container` is rejected and leaving it out fails as missing. This is a known defect, listed with its workaround in [Known defects in this release](troubleshooting.md#known-defects-in-this-release).
+The option is spelled `--export-format` because `--format` is the program-wide output format (`text`, `json`, or `tsv`). At the command line `--format container` is accepted as well and rewritten to `--export-format`, as `provenance export` and `fastq 12s-export` already do.
 
 | Argument or flag | What it does |
 |---|---|
 | `<bundle-path>` | Path to the source `.lungfishref` bundle. |
-| `--format <format>` | Export format. The only value is `container`. |
+| `--export-format <export-format>` | Export format. The only value is `container`. |
 | `-o, --output <output>` | Output tarball path. |
 | `--plugin-pack <plugin-pack>` | Plugin pack ID to pin into the exported image metadata. |
 | `-q, --quiet` | Suppress non-essential output. |
@@ -951,7 +951,7 @@ lungfish-cli analyze validate <files> ... [--strict]
 | Argument or flag | What it does |
 |---|---|
 | `<files>` | Input file(s) to validate. |
-| `--strict` | Enable strict validation. |
+| `--strict` | Also reject readable but irregular files. For FASTA that means duplicate record names, empty records, and characters outside the IUPAC nucleotide and protein alphabets. For FASTQ it means duplicate read identifiers and empty reads. For VCF it means data lines whose column count disagrees with the `#CHROM` header, and records that repeat an earlier CHROM, POS, REF, and ALT. Other formats have no extra checks. |
 
 ### `translate`
 
@@ -4296,7 +4296,7 @@ Four operations have no command-line route. Attaching an annotation file, such a
 
 ## Known defects
 
-This is a known defect, listed with its workaround in [Known defects in this release](troubleshooting.md#known-defects-in-this-release). The command-line defects there include the shadowed `--threads` and `--format` flags, `bundle export`, and experimental packs that `conda install` cannot reach.
+This is a known defect, listed with its workaround in [Known defects in this release](troubleshooting.md#known-defects-in-this-release). The command-line defects there include the shadowed `--threads` and `--format` flags and experimental packs that `conda install` cannot reach.
 
 ## Next
 
