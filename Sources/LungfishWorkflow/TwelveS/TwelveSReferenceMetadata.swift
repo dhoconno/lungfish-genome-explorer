@@ -47,6 +47,7 @@ public struct TwelveSReferenceMetadataEntry: Equatable, Sendable {
 public struct TwelveSReferenceMetadataIndex: Equatable, Sendable {
     public let entries: [TwelveSReferenceMetadataEntry]
     private let entriesBySequenceSHA256: [String: TwelveSReferenceMetadataEntry]
+    private let entriesByScientificName: [String: [TwelveSReferenceMetadataEntry]]
 
     public init(entries: [TwelveSReferenceMetadataEntry]) {
         self.entries = entries
@@ -55,10 +56,29 @@ public struct TwelveSReferenceMetadataIndex: Equatable, Sendable {
             indexed[entry.sequenceSHA256] = entry
         }
         self.entriesBySequenceSHA256 = indexed
+        self.entriesByScientificName = Dictionary(
+            grouping: entries.filter { nonEmpty($0.scientificName) != nil },
+            by: { normalizedKey($0.scientificName) }
+        )
     }
 
     public func entry(sequenceSHA256: String) -> TwelveSReferenceMetadataEntry? {
         entriesBySequenceSHA256[sequenceSHA256]
+    }
+
+    /// The entry for a scientific name when the table answers it without
+    /// ambiguity. Several rows may carry the same species (one per distinct
+    /// amplicon); they agree on taxid, so the first is returned. Rows that
+    /// share a name but disagree on taxid make the name ambiguous, and `nil`
+    /// comes back rather than a guess.
+    public func entry(scientificName: String) -> TwelveSReferenceMetadataEntry? {
+        let key = normalizedKey(scientificName)
+        guard !key.isEmpty, let candidates = entriesByScientificName[key], let first = candidates.first else {
+            return nil
+        }
+        let taxids = Set(candidates.compactMap { nonEmpty($0.taxid) })
+        guard taxids.count <= 1 else { return nil }
+        return first
     }
 
     public static func load(from url: URL) throws -> TwelveSReferenceMetadataIndex {

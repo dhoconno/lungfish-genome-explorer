@@ -107,10 +107,18 @@ public enum TwelveSTaxonGroupResolver {
         text.split { !$0.isLetter && !$0.isNumber }.map { String($0).lowercased() }
     }
 
+    /// Genera whose names alone place a taxon in Mammal. Used only when the
+    /// reference carries no `taxon_group` (a loose FASTA); a
+    /// `.lungfish12sref` bundle's metadata table supplies the group. Old
+    /// World and New World monkeys sit alongside the great apes so macaques,
+    /// baboons, and vervets used as 12S references resolve like human,
+    /// chimpanzee, and gorilla do.
     private static let mammalGenera: Set<String> = [
-        "balaenoptera", "bos", "canis", "capra", "cervus", "delphinus", "equus", "felis",
-        "gorilla", "homo", "mus", "odocoileus", "ovis", "pan", "panthera", "phocoena",
-        "pongo", "puma", "rattus", "sus", "tragelaphus", "tursiops",
+        "aotus", "balaenoptera", "bos", "callithrix", "canis", "capra", "cercocebus",
+        "cervus", "chlorocebus", "delphinus", "equus", "felis", "gorilla", "homo",
+        "hylobates", "macaca", "mandrillus", "mus", "nomascus", "odocoileus", "ovis",
+        "pan", "panthera", "papio", "phocoena", "pongo", "puma", "rattus", "saimiri",
+        "sus", "theropithecus", "tragelaphus", "tursiops",
     ]
 
     private static let fishGenera: Set<String> = [
@@ -133,9 +141,10 @@ public enum TwelveSTaxonGroupResolver {
     ]
 
     private static let mammalTokens: Set<String> = [
-        "ape", "bat", "bongo", "cat", "cattle", "chimpanzee", "cow", "deer", "dog",
-        "goat", "horse", "human", "mammal", "monkey", "pig", "primate", "rat", "seal",
-        "sheep", "wolf",
+        "ape", "baboon", "bat", "bongo", "bonobo", "cat", "cattle", "chimpanzee", "cow",
+        "deer", "dog", "gibbon", "goat", "horse", "human", "macaque", "mammal", "mangabey",
+        "marmoset", "monkey", "orangutan", "pig", "primate", "rat", "seal", "sheep",
+        "vervet", "wolf",
     ]
 
     private static let fishTokens: Set<String> = [

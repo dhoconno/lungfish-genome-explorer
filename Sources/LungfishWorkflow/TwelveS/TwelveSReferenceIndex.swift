@@ -44,6 +44,40 @@ public struct TwelveSReferenceRecord: Equatable, Sendable {
         )
     }
 
+    /// A copy of this record carrying `entry`'s taxonomy.
+    ///
+    /// A sequence match copies every non-empty table column and the table's
+    /// alternate matches. A name match copies only the species-level fields
+    /// (names, taxid, group, taxonomy, name source), since the rest of the
+    /// row (length, hash, alternates) describes a different sequence.
+    func enriched(with entry: TwelveSReferenceMetadataEntry, matchedBySequence: Bool) -> TwelveSReferenceRecord {
+        var metadata = self.metadata
+        if matchedBySequence {
+            for (key, value) in entry.metadata where !value.isEmpty {
+                metadata[key] = value
+            }
+        } else {
+            if let scientificName = entry.scientificName { metadata["scientific_name"] = scientificName }
+            if let commonName = entry.commonName, Self.nonEmpty(metadata["common_name"]) == nil {
+                metadata["common_name"] = commonName
+            }
+        }
+        if let taxid = entry.taxid { metadata["taxid"] = taxid }
+        if let taxonGroup = entry.taxonGroup { metadata["taxon_group"] = taxonGroup }
+        if let taxonomy = entry.taxonomy { metadata["taxonomy"] = taxonomy }
+        if let nameSource = entry.nameSource { metadata["name_source"] = nameSource }
+        return TwelveSReferenceRecord(
+            targetID: targetID,
+            displayName: displayName,
+            sequence: sequence,
+            metadata: metadata,
+            sourceHeader: sourceHeader,
+            alternateMatches: matchedBySequence && !entry.alternateMatches.isEmpty
+                ? entry.alternateMatches
+                : alternateMatches
+        )
+    }
+
     static func scientificName(from displayName: String) -> String? {
         guard let open = displayName.firstIndex(of: "("),
               let close = displayName.lastIndex(of: ")"),
@@ -93,30 +127,29 @@ public struct TwelveSReferenceIndex: Equatable, Sendable {
         return try index.enriched(with: TwelveSReferenceMetadataIndex.load(from: metadataURL))
     }
 
+    /// Fills taxid, taxon group, taxonomy, and name source from the metadata
+    /// table.
+    ///
+    /// A record is matched by sequence SHA-256 first: that is how a
+    /// `.lungfish12sref` bundle pairs its FASTA with its table, and it also
+    /// carries the table's alternate matches, which describe that exact
+    /// amplicon. When the sequence is unknown to the table (a loose FASTA
+    /// whose amplicons were trimmed or deduplicated differently) but the
+    /// header carries the scientific name, the taxonomy fields come from the
+    /// table's row for that species instead. Alternates stay the record's
+    /// own in that case, because the table's alternates belong to a
+    /// different sequence.
     public func enriched(with metadataIndex: TwelveSReferenceMetadataIndex) -> TwelveSReferenceIndex {
         TwelveSReferenceIndex(records: records.map { record in
-            guard let sequenceSHA = record.metadata["sequence_sha256"],
-                  let metadataEntry = metadataIndex.entry(sequenceSHA256: sequenceSHA) else {
-                return record
+            if let sequenceSHA = record.metadata["sequence_sha256"],
+               let metadataEntry = metadataIndex.entry(sequenceSHA256: sequenceSHA) {
+                return record.enriched(with: metadataEntry, matchedBySequence: true)
             }
-            var metadata = record.metadata
-            for (key, value) in metadataEntry.metadata where !value.isEmpty {
-                metadata[key] = value
+            if let scientificName = record.target.scientificName,
+               let metadataEntry = metadataIndex.entry(scientificName: scientificName) {
+                return record.enriched(with: metadataEntry, matchedBySequence: false)
             }
-            if let taxid = metadataEntry.taxid { metadata["taxid"] = taxid }
-            if let taxonGroup = metadataEntry.taxonGroup { metadata["taxon_group"] = taxonGroup }
-            if let taxonomy = metadataEntry.taxonomy { metadata["taxonomy"] = taxonomy }
-            if let nameSource = metadataEntry.nameSource { metadata["name_source"] = nameSource }
-            return TwelveSReferenceRecord(
-                targetID: record.targetID,
-                displayName: record.displayName,
-                sequence: record.sequence,
-                metadata: metadata,
-                sourceHeader: record.sourceHeader,
-                alternateMatches: metadataEntry.alternateMatches.isEmpty
-                    ? record.alternateMatches
-                    : metadataEntry.alternateMatches
-            )
+            return record
         })
     }
 
