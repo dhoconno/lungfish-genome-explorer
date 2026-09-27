@@ -653,7 +653,7 @@ private struct FASTQOperationPrimarySettingsSection: View {
                     }
                     .lungfishHelp(LungfishHelpContent.fastqBarcodeKit)
                 } else {
-                    Text("Select a barcode definition CSV, TSV, or whitespace-delimited text file in the Inputs section. Columns: id,sequence[,secondary_sequence][,sample_name].")
+                    Text("Select a barcode definition CSV, TSV, or whitespace-delimited text file in the Inputs section. Columns: id,sequence[,secondary_sequence][,sample_name], or a header line naming the columns (id,sequence,sample_name).")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }

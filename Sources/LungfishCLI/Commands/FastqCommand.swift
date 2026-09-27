@@ -301,7 +301,7 @@ private let barcodeKitIDsHelpText = BarcodeKitRegistry.builtinKits()
     .joined(separator: ", ")
 
 private let barcodeDefinitionFormatHelpText = """
-Custom definitions can be CSV, TSV, or whitespace text with columns id,sequence[,secondary_sequence][,sample_name]; header optional. Example: FLD0001<TAB>GTATCGTCGT.
+Custom definitions can be CSV, TSV, or whitespace text with columns id,sequence[,secondary_sequence][,sample_name]; a header line may name the columns instead (id,sequence,sample_name). Example: FLD0001<TAB>GTATCGTCGT.
 """
 
 private let barcodeKitHelpText = """
