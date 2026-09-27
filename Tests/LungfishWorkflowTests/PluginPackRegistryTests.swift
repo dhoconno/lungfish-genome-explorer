@@ -28,6 +28,22 @@ final class PluginPackRegistryTests: XCTestCase {
         )
     }
 
+    /// Projects open with the built-in viewers before any install
+    /// (WelcomeWindowController), so the pack must not claim to gate
+    /// creating or opening a project. The fallback pack (lock manifest
+    /// unreadable) leads with the same sentence.
+    func testRequiredSetupPackDescriptionSaysItGatesAnalysesNotProjects() {
+        let pack = PluginPack.requiredSetupPack
+        XCTAssertEqual(pack.description, PluginPack.requiredSetupDescription)
+        XCTAssertTrue(pack.description.contains("run analyses"), pack.description)
+        XCTAssertFalse(pack.description.lowercased().contains("create or open"), pack.description)
+
+        struct LockUnavailable: Error {}
+        let fallback = PluginPack.makeRequiredSetupPack { throw LockUnavailable() }
+        XCTAssertTrue(fallback.description.hasPrefix(PluginPack.requiredSetupDescription), fallback.description)
+        XCTAssertFalse(fallback.description.lowercased().contains("create or open"), fallback.description)
+    }
+
     func testRequiredSetupPackDefinesPerToolChecks() {
         let pack = PluginPack.requiredSetupPack
         let environments = pack.toolRequirements.map(\.environment)

@@ -436,11 +436,17 @@ public extension PluginPack {
         }
     }
 
+    /// What the required setup pack is for. Projects open with the built-in
+    /// viewers before anything is installed; the pack gates analyses, not
+    /// project creation or opening.
+    static let requiredSetupDescription =
+        "Needed to run analyses. Projects open with the built-in viewers before it is installed."
+
     private static func requiredSetupPack(from lock: ManagedToolLock) -> PluginPack {
         return PluginPack(
             id: lock.packID,
             name: lock.displayName,
-            description: "Needed before you can create or open a project",
+            description: requiredSetupDescription,
             sfSymbol: "checklist",
             packages: lock.tools.map(\.environment),
             category: "Required Setup",
@@ -455,7 +461,7 @@ public extension PluginPack {
         PluginPack(
             id: "lungfish-tools",
             name: "Third-Party Tools",
-            description: "Needed before you can create or open a project. The managed tool lock manifest could not be loaded: \(loadError.localizedDescription)",
+            description: "\(requiredSetupDescription) The managed tool lock manifest could not be loaded: \(loadError.localizedDescription)",
             sfSymbol: "exclamationmark.triangle",
             packages: ["managed-tool-lock-manifest"],
             category: "Required Setup",
