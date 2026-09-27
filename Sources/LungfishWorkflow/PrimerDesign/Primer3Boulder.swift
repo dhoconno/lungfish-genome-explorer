@@ -13,6 +13,20 @@ enum Primer3BoulderWriter {
                 guard end <= template.sequence.count else { throw Primer3DesignError.invalidRequest("target exceeds template \(template.title)") }
                 lines.append("SEQUENCE_TARGET=\(start - 1),\(end - start + 1)")
             }
+            // Fixed oligos and forced ends are validated against this exact
+            // template first, so an oligo that is absent fails with a clear
+            // message instead of looking like a thermodynamic rejection.
+            let fixed = options.fixedOligos
+            if !fixed.isEmpty {
+                _ = try Primer3FixedOligoValidation.validate(fixed, template: maskedTemplate)
+                if let left = fixed.leftPrimer { lines.append("SEQUENCE_PRIMER=\(left)") }
+                if let right = fixed.rightPrimer { lines.append("SEQUENCE_PRIMER_REVCOMP=\(right)") }
+                if let probe = fixed.probe { lines.append("SEQUENCE_INTERNAL_OLIGO=\(probe)") }
+                // PRIMER_FIRST_BASE_INDEX is 0 below, so the 1-based positions
+                // the caller gave are converted here.
+                if let end = fixed.forceLeftEnd { lines.append("SEQUENCE_FORCE_LEFT_END=\(end - 1)") }
+                if let end = fixed.forceRightEnd { lines.append("SEQUENCE_FORCE_RIGHT_END=\(end - 1)") }
+            }
             lines += [
                 "PRIMER_TASK=generic",
                 "PRIMER_FIRST_BASE_INDEX=0",
@@ -75,7 +89,12 @@ enum Primer3BoulderParser {
                 let product = try integer(try required(fields, "PRIMER_PAIR_\(index)_PRODUCT_SIZE"), "product size")
                 pairs.append(Primer3Pair(id: UUID(), left: left, right: right, internalOligo: internalOligo, productSize: product))
             }
-            return Primer3TemplateResult(resultID: expectedID, inputID: UUID(), title: "", sourceKind: "", sourceIndex: 0, sourceRecordID: "", templateSequence: "", alignmentToTemplate: nil, excludedRegions: [], pairs: pairs, error: fields["PRIMER_ERROR"], explanation: fields["PRIMER_PAIR_EXPLAIN"])
+            return Primer3TemplateResult(resultID: expectedID, inputID: UUID(), title: "", sourceKind: "", sourceIndex: 0, sourceRecordID: "", templateSequence: "", alignmentToTemplate: nil, excludedRegions: [], pairs: pairs, error: fields["PRIMER_ERROR"], explanation: fields["PRIMER_PAIR_EXPLAIN"],
+                                          explanations: Primer3Explanations(
+                                            left: fields["PRIMER_LEFT_EXPLAIN"],
+                                            right: fields["PRIMER_RIGHT_EXPLAIN"],
+                                            internalOligo: fields["PRIMER_INTERNAL_EXPLAIN"],
+                                            pair: fields["PRIMER_PAIR_EXPLAIN"]))
         }
     }
 

@@ -110,7 +110,9 @@ final class Primer3DesignPipelineTests: XCTestCase {
         XCTAssertEqual(window.probeMinGC, 40)
         XCTAssertEqual(window.probeOptGC, 60)
         XCTAssertEqual(window.probeMaxGC, 80)
-        XCTAssertEqual(window.probeMaxPolyX, 4)
+        // 3, not the primers' 4: a probe is GC-rich by design, so a 4-base cap
+        // readily admits GGGG, and a G run quenches the reporter dye.
+        XCTAssertEqual(window.probeMaxPolyX, 3)
         XCTAssertEqual(window.probeMustMatchFivePrime, "hnnnn")
         // The whole probe window sits at least 5 and at most 10 C above the primers.
         XCTAssertGreaterThanOrEqual(window.probeOptTm - probe.primerOptTm, 5)
@@ -136,10 +138,12 @@ final class Primer3DesignPipelineTests: XCTestCase {
         }
         let probe = try Primer3BoulderWriter.makeInput(templates: [template], options: .preset(.qpcrProbe))
         for line in ["PRIMER_PICK_INTERNAL_OLIGO=1", "PRIMER_PRODUCT_SIZE_RANGE=70-150",
-                     "PRIMER_INTERNAL_MIN_TM=64.0", "PRIMER_INTERNAL_OPT_TM=67.0", "PRIMER_INTERNAL_MAX_TM=70.0",
+                     // The configured 64 C minimum is raised to primerMaxTm + 5 = 67 C,
+                     // so the probe is bound before extension reaches it.
+                     "PRIMER_INTERNAL_MIN_TM=67.0", "PRIMER_INTERNAL_OPT_TM=67.0", "PRIMER_INTERNAL_MAX_TM=70.0",
                      "PRIMER_INTERNAL_MIN_SIZE=20", "PRIMER_INTERNAL_OPT_SIZE=25", "PRIMER_INTERNAL_MAX_SIZE=30",
                      "PRIMER_INTERNAL_MIN_GC=40.0", "PRIMER_INTERNAL_OPT_GC_PERCENT=60.0", "PRIMER_INTERNAL_MAX_GC=80.0",
-                     "PRIMER_INTERNAL_MAX_POLY_X=4", "PRIMER_INTERNAL_MUST_MATCH_FIVE_PRIME=hnnnn"] {
+                     "PRIMER_INTERNAL_MAX_POLY_X=3", "PRIMER_INTERNAL_MUST_MATCH_FIVE_PRIME=hnnnn"] {
             XCTAssertTrue(probe.contains(line + "\n"), line)
         }
         XCTAssertTrue(probe.hasSuffix("PRIMER_EXPLAIN_FLAG=1\n=\n"))
@@ -181,7 +185,10 @@ final class Primer3DesignPipelineTests: XCTestCase {
         {"productSizeMin":100,"productSizeMax":400,"pairCount":5,"primerMinSize":18,"primerOptSize":20,"primerMaxSize":27,"primerMinTm":57,"primerOptTm":60,"primerMaxTm":63,"primerMinGC":20,"primerMaxGC":80,"pickInternalOligo":false}
         """.utf8)
         let older = try JSONDecoder().decode(Primer3DesignOptions.self, from: legacy)
-        XCTAssertEqual(older, .preset(.pcr))
+        // A record written before the probe Tm offset existed decodes with it
+        // absent, so reloading it cannot silently move its probe window.
+        XCTAssertNil(older.probeMinTmOffsetOverPrimers)
+        XCTAssertEqual(older, .preset(.pcr, probeMinTmOffsetOverPrimers: nil))
     }
 
     func testBoulderRecordUsesOneBasedInclusiveTargetAndAllResolvedOptions() throws {

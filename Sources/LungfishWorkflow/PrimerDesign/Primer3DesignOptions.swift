@@ -63,12 +63,18 @@ public struct Primer3ProbeDefaults: Codable, Equatable, Sendable {
 
     /// Probe Tm 64/67/70 C sits 5 to 10 C above the 58/60/62 C primer window.
     /// Sizes 20/25/30 nt and GC 40/60/80 percent mirror LGE's varVAMP probe
-    /// defaults, and runs are capped at 4 identical bases as for the primers.
+    /// defaults.
+    ///
+    /// Runs are capped at 3 identical bases rather than the primers' 4. A
+    /// probe is GC-rich by design, so a 4-base cap readily admits GGGG; a G
+    /// run stacks into a guanine quadruplex that both quenches the reporter
+    /// dye and resists denaturation, so the probe reports poorly even when its
+    /// Tm and GC look right.
     public static let hydrolysisProbe = Primer3ProbeDefaults(
         probeMinTm: 64, probeOptTm: 67, probeMaxTm: 70,
         probeMinSize: 20, probeOptSize: 25, probeMaxSize: 30,
         probeMinGC: 40, probeOptGC: 60, probeMaxGC: 80,
-        probeMaxPolyX: 4, probeMustMatchFivePrime: "hnnnn")
+        probeMaxPolyX: 3, probeMustMatchFivePrime: "hnnnn")
 }
 
 /// The per-assay starting values. Optional members map onto Primer3 settings
@@ -106,7 +112,9 @@ public struct Primer3AssayDefaults: Equatable, Sendable {
         primerGCClamp: Int?, primerMaxPolyX: Int?,
         primerMaxSelfAnyTh: Double?, primerMaxSelfEndTh: Double?,
         pairMaxComplAnyTh: Double?, pairMaxComplEndTh: Double?,
-        probe: Primer3ProbeDefaults? = nil
+        probe: Primer3ProbeDefaults? = nil,
+        fixedOligos: Primer3FixedOligos = .none,
+        probeMinTmOffsetOverPrimers: Double? = Primer3DesignOptions.defaultProbeMinTmOffsetOverPrimers
     ) {
         self.productSizeMin = productSizeMin
         self.productSizeMax = productSizeMax
@@ -225,6 +233,13 @@ public struct Primer3DesignOptions: Codable, Equatable, Sendable {
     /// The PRIMER_INTERNAL_* probe rules. `nil` emits no PRIMER_INTERNAL_* line, so
     /// PCR and intercalating-dye Boulder input is unchanged.
     public let probe: Primer3ProbeDefaults?
+    /// Oligos the caller fixed, so Primer3 designs their partners.
+    public let fixedOligos: Primer3FixedOligos
+    /// How far above the highest primer Tm the probe must melt, in C. LGE
+    /// raises PRIMER_INTERNAL_MIN_TM to `primerMaxTm + offset` when the preset
+    /// would otherwise allow a smaller gap. `nil` disables the adjustment and
+    /// leaves the probe window exactly as configured.
+    public let probeMinTmOffsetOverPrimers: Double?
 
     public init(
         assayMode: Primer3AssayMode = .pcr,
@@ -250,7 +265,9 @@ public struct Primer3DesignOptions: Codable, Equatable, Sendable {
         primerMaxSelfEndTh: Double? = nil,
         pairMaxComplAnyTh: Double? = nil,
         pairMaxComplEndTh: Double? = nil,
-        probe: Primer3ProbeDefaults? = nil
+        probe: Primer3ProbeDefaults? = nil,
+        fixedOligos: Primer3FixedOligos = .none,
+        probeMinTmOffsetOverPrimers: Double? = Primer3DesignOptions.defaultProbeMinTmOffsetOverPrimers
     ) {
         self.assayMode = assayMode
         self.productSizeMin = productSizeMin
@@ -276,11 +293,20 @@ public struct Primer3DesignOptions: Codable, Equatable, Sendable {
         self.pairMaxComplAnyTh = pairMaxComplAnyTh
         self.pairMaxComplEndTh = pairMaxComplEndTh
         self.probe = probe
+        self.fixedOligos = fixedOligos
+        self.probeMinTmOffsetOverPrimers = probeMinTmOffsetOverPrimers
     }
+
+    /// varVAMP's QPROBE_TEMP_DIFF lower bound, and the standard figure for a
+    /// hydrolysis probe: the probe must already be bound when polymerase
+    /// reaches it, so it melts 5 to 10 C above the primers.
+    public static let defaultProbeMinTmOffsetOverPrimers: Double = 5
 
     /// The options a fresh dialog or a bare CLI invocation produces for `mode`.
     public static func preset(_ mode: Primer3AssayMode, targetStart: Int? = nil, targetEnd: Int? = nil,
-                              pairCount: Int = 5) -> Primer3DesignOptions {
+                              pairCount: Int = 5, fixedOligos: Primer3FixedOligos = .none,
+                              probeMinTmOffsetOverPrimers: Double? = Primer3DesignOptions.defaultProbeMinTmOffsetOverPrimers)
+    -> Primer3DesignOptions {
         let defaults = Primer3AssayDefaults.defaults(for: mode)
         return Primer3DesignOptions(
             assayMode: mode, productSizeMin: defaults.productSizeMin, productSizeMax: defaults.productSizeMax,
@@ -293,7 +319,8 @@ public struct Primer3DesignOptions: Codable, Equatable, Sendable {
             primerGCClamp: defaults.primerGCClamp, primerMaxPolyX: defaults.primerMaxPolyX,
             primerMaxSelfAnyTh: defaults.primerMaxSelfAnyTh, primerMaxSelfEndTh: defaults.primerMaxSelfEndTh,
             pairMaxComplAnyTh: defaults.pairMaxComplAnyTh, pairMaxComplEndTh: defaults.pairMaxComplEndTh,
-            probe: defaults.probe)
+            probe: defaults.probe, fixedOligos: fixedOligos,
+            probeMinTmOffsetOverPrimers: probeMinTmOffsetOverPrimers)
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -302,7 +329,7 @@ public struct Primer3DesignOptions: Codable, Equatable, Sendable {
         case primerMinGC, primerMaxGC, pickInternalOligo
         case pairMaxTmDifference, primerMaxEndGC, primerGCClamp, primerMaxPolyX
         case primerMaxSelfAnyTh, primerMaxSelfEndTh, pairMaxComplAnyTh, pairMaxComplEndTh
-        case probe
+        case probe, fixedOligos, probeMinTmOffsetOverPrimers
     }
 
     /// Records written before the assay mode existed decode as ordinary PCR.
@@ -332,7 +359,37 @@ public struct Primer3DesignOptions: Codable, Equatable, Sendable {
             primerMaxSelfEndTh: try c.decodeIfPresent(Double.self, forKey: .primerMaxSelfEndTh),
             pairMaxComplAnyTh: try c.decodeIfPresent(Double.self, forKey: .pairMaxComplAnyTh),
             pairMaxComplEndTh: try c.decodeIfPresent(Double.self, forKey: .pairMaxComplEndTh),
-            probe: try c.decodeIfPresent(Primer3ProbeDefaults.self, forKey: .probe))
+            probe: try c.decodeIfPresent(Primer3ProbeDefaults.self, forKey: .probe),
+            fixedOligos: try c.decodeIfPresent(Primer3FixedOligos.self, forKey: .fixedOligos) ?? .none,
+            // Records written before the offset existed decode with it absent,
+            // which preserves their original probe window exactly.
+            probeMinTmOffsetOverPrimers: try c.decodeIfPresent(Double.self, forKey: .probeMinTmOffsetOverPrimers))
+    }
+
+    /// The probe window actually sent to Primer3.
+    ///
+    /// The qpcr-probe preset allows primers up to 62 C and probes from 64 C, a
+    /// 2 C gap. That is too small: a hydrolysis probe must already be bound
+    /// when polymerase reaches it, so it needs to melt 5 to 10 C above the
+    /// primers (varVAMP's QPROBE_TEMP_DIFF uses 5 C as its lower bound). When
+    /// `probeMinTmOffsetOverPrimers` is set, the probe minimum is raised to
+    /// `primerMaxTm + offset` if the configured minimum sits below it, and the
+    /// optimum and maximum are carried up with it so the window stays ordered
+    /// and non-empty. Lowering a probe minimum is never done here, so a caller
+    /// who deliberately asked for a hotter probe keeps it.
+    public var effectiveProbe: Primer3ProbeDefaults? {
+        guard let probe else { return nil }
+        guard let offset = probeMinTmOffsetOverPrimers else { return probe }
+        let required = primerMaxTm + offset
+        guard probe.probeMinTm < required else { return probe }
+        return Primer3ProbeDefaults(
+            probeMinTm: required,
+            probeOptTm: max(probe.probeOptTm, required),
+            probeMaxTm: max(probe.probeMaxTm, max(probe.probeOptTm, required)),
+            probeMinSize: probe.probeMinSize, probeOptSize: probe.probeOptSize, probeMaxSize: probe.probeMaxSize,
+            probeMinGC: probe.probeMinGC, probeOptGC: probe.probeOptGC, probeMaxGC: probe.probeMaxGC,
+            probeMaxPolyX: probe.probeMaxPolyX,
+            probeMustMatchFivePrime: probe.probeMustMatchFivePrime)
     }
 
     /// The optional Primer3 settings this design pins, as Boulder `KEY=value`
@@ -347,7 +404,7 @@ public struct Primer3DesignOptions: Codable, Equatable, Sendable {
         if let value = primerMaxSelfEndTh { lines.append(("PRIMER_MAX_SELF_END_TH", String(value))) }
         if let value = pairMaxComplAnyTh { lines.append(("PRIMER_PAIR_MAX_COMPL_ANY_TH", String(value))) }
         if let value = pairMaxComplEndTh { lines.append(("PRIMER_PAIR_MAX_COMPL_END_TH", String(value))) }
-        if let probe {
+        if let probe = effectiveProbe {
             lines += [
                 ("PRIMER_INTERNAL_MIN_TM", String(probe.probeMinTm)),
                 ("PRIMER_INTERNAL_OPT_TM", String(probe.probeOptTm)),
@@ -366,6 +423,63 @@ public struct Primer3DesignOptions: Codable, Equatable, Sendable {
         }
         return lines
     }
+}
+
+/// Oligos the caller fixes, so Primer3 designs the rest of the assay around
+/// them instead of searching the whole template.
+///
+/// This is what lets a designer act on a discriminating column: pin an oligo
+/// that covers it, or force a primer's 3' end onto it, and let Primer3 pick the
+/// partners. Each sequence maps onto a SEQUENCE_* tag, all verified accepted by
+/// the bundled libprimer3 2.6.1:
+///   - `leftPrimer`    -> SEQUENCE_PRIMER
+///   - `rightPrimer`   -> SEQUENCE_PRIMER_REVCOMP
+///   - `probe`         -> SEQUENCE_INTERNAL_OLIGO
+///   - `forceLeftEnd`  -> SEQUENCE_FORCE_LEFT_END
+///   - `forceRightEnd` -> SEQUENCE_FORCE_RIGHT_END
+public struct Primer3FixedOligos: Codable, Equatable, Sendable {
+    /// The forward primer, 5'->3', as it would be ordered.
+    public let leftPrimer: String?
+    /// The reverse primer, 5'->3' as it would be ordered. Primer3 expects this
+    /// orientation for SEQUENCE_PRIMER_REVCOMP, so it is not reverse
+    /// complemented before being written; its reverse complement is what must
+    /// occur in the template.
+    public let rightPrimer: String?
+    /// The hydrolysis probe, 5'->3'.
+    public let probe: String?
+    /// 1-based template position a left primer's 3' end must land on.
+    public let forceLeftEnd: Int?
+    /// 1-based template position a right primer's 3' end must land on.
+    public let forceRightEnd: Int?
+
+    public var isEmpty: Bool {
+        leftPrimer == nil && rightPrimer == nil && probe == nil
+            && forceLeftEnd == nil && forceRightEnd == nil
+    }
+
+    public init(
+        leftPrimer: String? = nil,
+        rightPrimer: String? = nil,
+        probe: String? = nil,
+        forceLeftEnd: Int? = nil,
+        forceRightEnd: Int? = nil
+    ) {
+        self.leftPrimer = Self.normalized(leftPrimer)
+        self.rightPrimer = Self.normalized(rightPrimer)
+        self.probe = Self.normalized(probe)
+        self.forceLeftEnd = forceLeftEnd
+        self.forceRightEnd = forceRightEnd
+    }
+
+    /// Uppercases and trims, and treats an empty field as absent so a blank GUI
+    /// field or `--left-primer ""` does not emit a tag Primer3 would reject.
+    static func normalized(_ value: String?) -> String? {
+        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines).uppercased(),
+              !trimmed.isEmpty else { return nil }
+        return trimmed
+    }
+
+    public static let none = Primer3FixedOligos()
 }
 
 public enum Primer3BindingSitePolicy: String, Codable, Equatable, Sendable {
