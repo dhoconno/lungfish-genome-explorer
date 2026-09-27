@@ -3,8 +3,43 @@ import LungfishCore
 import LungfishIO
 
 public struct MCMHaplotypingPreset: Codable, Equatable, Sendable {
-    public static let mcmMHCmiseq = loadBuiltInPreset(resourceName: "mcm-mhc-miseq")
+    /// The built-in MCM MHC miSeq preset.
+    ///
+    /// Loaded from the packaged `mcm-mhc-miseq.preset.json`. A `lungfish-cli`
+    /// built by SwiftPM outside the app bundle finds no packaged resources
+    /// (see `RuntimeResourceLocator`), so the embedded copy answers instead;
+    /// the preset's reference bundle and specialist prompt still resolve
+    /// lazily and throw ``MCMHaplotypingPresetError`` when they are missing,
+    /// which is how `--preset` reports the problem instead of crashing.
+    public static let mcmMHCmiseq: MCMHaplotypingPreset = {
+        (try? loadBuiltInPreset(id: embeddedMCMMHCmiseq.id)) ?? embeddedMCMMHCmiseq
+    }()
     public static let builtInPresets: [MCMHaplotypingPreset] = [mcmMHCmiseq]
+
+    /// The `mcm-mhc-miseq.preset.json` descriptor, embedded so a missing
+    /// resource degrades to a thrown error rather than a crash.
+    /// `MCMHaplotypingPresetTests` keeps it identical to the packaged file.
+    static let embeddedMCMMHCmiseq = MCMHaplotypingPreset(
+        id: "mcm-mhc-miseq",
+        displayName: "MCM MHC miSeq",
+        version: "2026-06-19.4",
+        referenceBundleResourceName: "MCM-MHC-miSeq-20260617",
+        referenceBundleResourceExtension: "lungfishmhcref",
+        referenceBundleResourceSubdirectory: "MCMHaplotyping",
+        referenceFASTASHA256: "13134729eba56d42479e251b53299152d823947a0bc2c64fb82a61023e1b6561",
+        referenceFASTARecordCount: 189,
+        haplotypeAssayID: "MHC-exon2-miSeq",
+        haplotypeSpeciesCode: "MCM",
+        haplotypeDefinitionSetID: "mcm-mhc-miseq-20260617",
+        aiDiscoveryPromptTemplateID: "lungfish.ai-haplotyping.mcm-mhc-miseq-specialist.discovery",
+        aiRefinementPromptTemplateID: "lungfish.ai-haplotyping.mcm-mhc-miseq-specialist.refinement",
+        aiPromptTemplateVersion: "2026-06-19.4",
+        aiPromptResourceName: "mcm-mhc-haplotyping-specialist-prompt",
+        aiPromptResourceExtension: "md",
+        aiPromptResourceSubdirectory: "MCMHaplotyping",
+        aiOpenAIModel: "gpt-5.5",
+        aiReasoningEffort: "medium"
+    )
 
     public let id: String
     public let displayName: String
@@ -49,14 +84,24 @@ public struct MCMHaplotypingPreset: Codable, Equatable, Sendable {
         )?.standardizedFileURL
     }
 
-    private static func loadBuiltInPreset(resourceName: String) -> MCMHaplotypingPreset {
+    /// Loads a built-in preset descriptor from the packaged resources.
+    ///
+    /// - Throws: ``MCMHaplotypingPresetError/missingBundledPreset(_:)`` when
+    ///   the descriptor is not packaged with this executable, or
+    ///   ``MCMHaplotypingPresetError/invalidBundledPreset(_:_:)`` when it does
+    ///   not decode.
+    public static func loadBuiltInPreset(id: String) throws -> MCMHaplotypingPreset {
+        try loadBuiltInPreset(id: id, descriptorURL: builtInPresetDescriptorURL(id: id))
+    }
+
+    static func loadBuiltInPreset(id: String, descriptorURL: URL?) throws -> MCMHaplotypingPreset {
+        guard let descriptorURL else {
+            throw MCMHaplotypingPresetError.missingBundledPreset(id)
+        }
         do {
-            guard let url = builtInPresetDescriptorURL(id: resourceName) else {
-                throw MCMHaplotypingPresetError.missingBundledPreset(resourceName)
-            }
-            return try JSONDecoder().decode(MCMHaplotypingPreset.self, from: Data(contentsOf: url))
+            return try JSONDecoder().decode(MCMHaplotypingPreset.self, from: Data(contentsOf: descriptorURL))
         } catch {
-            preconditionFailure("Invalid built-in amplicon genotyping preset \(resourceName): \(error)")
+            throw MCMHaplotypingPresetError.invalidBundledPreset(id, error.localizedDescription)
         }
     }
 
@@ -205,6 +250,7 @@ public typealias AmpliconGenotypingPreset = MCMHaplotypingPreset
 
 public enum MCMHaplotypingPresetError: Error, LocalizedError, Sendable, Equatable {
     case missingBundledPreset(String)
+    case invalidBundledPreset(String, String)
     case missingBundledReferenceBundle(String)
     case missingBundledSpecialistPrompt(String)
     case unknownPreset(String)
@@ -215,6 +261,8 @@ public enum MCMHaplotypingPresetError: Error, LocalizedError, Sendable, Equatabl
         switch self {
         case .missingBundledPreset(let id):
             return "Bundled amplicon genotyping preset descriptor \(id) was not found."
+        case .invalidBundledPreset(let id, let detail):
+            return "Bundled amplicon genotyping preset descriptor \(id) could not be read: \(detail)"
         case .missingBundledReferenceBundle(let id):
             return "Bundled MCM MHC miSeq reference bundle for preset \(id) was not found."
         case .missingBundledSpecialistPrompt(let id):
