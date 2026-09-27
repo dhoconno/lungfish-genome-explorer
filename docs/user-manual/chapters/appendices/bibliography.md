@@ -38,13 +38,14 @@ Name the [dependency set](../../GLOSSARY.md#dependency-set), the named list of t
 
 ## What the bibliography command prints
 
-No window in LGE prints a citation list, so this step uses the command line. This section is optional, and nothing later in this manual needs it. The `lungfish-cli` program ships inside LGE, and [Finding the program](cli-reference.md#finding-the-program) shows how to run it. [Before you type anything](cli-reference.md#before-you-type-anything) shows how to open Terminal and move it into your project folder. Run this from there, replacing the example path with your own result folder.
+No window in LGE prints a citation list, so this step uses the command line. The `lungfish-cli` program ships inside LGE, and [Finding the program](cli-reference.md#finding-the-program) shows how to run it. [Reading an On the command line block](../01-foundations/06-the-lungfish-project.md#reading-a-command-line-block) explains Terminal, the `PROJECT` line, and paths. The example reads the mapping result that ships finished in the Human Mapping and Variants (with results) demo project, which **Help > Demo Projects…** downloads. Replace the result folder with your own to read one of your runs.
 
 ```bash
-lungfish-cli provenance bibliography ./Analyses/mapping-HG002
+PROJECT="$HOME/Documents/LGE Demo Projects/Human Mapping and Variants (with results).lungfish"
+lungfish-cli provenance bibliography "$PROJECT/Analyses/minimap2-2026-09-25T00-00-00"
 ```
 
-A path beginning with `./` is read from the folder you are in. HG002 is the widely used human reference sample this manual takes its human examples from.
+HG002 is the widely used human reference sample this manual takes its human examples from, and `minimap2-2026-09-25T00-00-00` is the mapping result's folder under `Analyses/`.
 
 Point the command at a [bundle](../../GLOSSARY.md#bundle), a folder LGE treats as one item, or at any output folder. The command finds the provenance record inside it, trying the `.lungfish-provenance.json` at the top of the folder first and then the `provenance/` subfolder.
 
@@ -52,10 +53,10 @@ Then it walks the steps that sidecar recorded. For each step it takes the record
 
 Matching works in three tiers, and the third is where it goes wrong. An exact name match wins first. Failing that, a name that contains the other wins, which is why `samtools sort` matches SAMtools. Failing that, a single shared word is enough, which is loose enough to reach a wrong entry entirely. Every step whose name matches contributes one citation, with duplicates removed and the list sorted by tool name. Every step whose name matches nothing is listed separately under a heading of its own.
 
-On a minimap2 mapping run of the HG002 chromosome 20 reads, two citations come back.
+On that minimap2 mapping run of the HG002 chromosome 20 reads, two citations come back.
 
 ```
-Bibliography for bundle: /Users/you/Documents/HG002-project/Analyses/mapping-HG002
+Bibliography for bundle: /Users/you/Documents/LGE Demo Projects/Human Mapping and Variants (with results).lungfish/Analyses/minimap2-2026-09-25T00-00-00
 
 - minimap2: Li H. Minimap2: pairwise alignment for nucleotide sequences. Bioinformatics. 2018. DOI: 10.1093/bioinformatics/bty191 https://github.com/lh3/minimap2
 - SAMtools: Danecek P, Bonfield JK, Liddle J, et al. Twelve years of SAMtools and BCFtools. GigaScience. 2021. DOI: 10.1093/gigascience/giab008 https://www.htslib.org/
@@ -80,15 +81,13 @@ The command's [exit status](../../GLOSSARY.md#exit-status), the number a script 
 
 The alias table is smaller than the tool set LGE ships, so a missing citation is common rather than exceptional. Five causes account for what you will see. Only the fifth means anything is wrong with what you would publish.
 
-The first is a tool that is genuinely absent from the alias table. Broadly, most assembly and variant-calling tools are missing, along with several classification tools. By name, that is every assembler (SPAdes, MEGAHIT, SKESA, Flye, and hifiasm), most GATK steps, Clair3, WhatsHap, Freyja, BLAST, Bracken, EsViritu, RiboDetector, Savont, TaxTriage, Primer3, PrimalScheme, pysam, and openpyxl. A run using any of them prints the tool under the unmatched heading. A SPAdes assembly, for instance, prints `- spades 4.3.0` as the only line under that heading. Take the citation for those from the tables below and add it by hand.
+The first is a tool that is genuinely absent from the alias table. Broadly, most assembly and variant-calling tools are missing, along with several classification tools. By name, that is every assembler (SPAdes, MEGAHIT, SKESA, Flye, and hifiasm), most GATK steps, Clair3, WhatsHap, Freyja, BLAST, Bracken, EsViritu, RiboDetector, Savont, TaxTriage, Primer3, PrimalScheme, Olivar, varVAMP, pysam, and openpyxl. A run using any of them prints the tool under the unmatched heading. A SPAdes assembly, for instance, prints `- spades 4.3.0` as the only line under that heading. Take the citation for those from the tables below and add it by hand.
 
 The second is a recorded step name that does not resemble the tool it ran. GATK steps are recorded as `gatk-haplotype-caller`, `gatk-bqsr`, and similar, and Freyja as `lungfish freyja demix`. Add those citations by hand.
 
 The third is LGE's own steps, recorded under names beginning `lungfish`, such as `lungfish extract reads`. No citation is owed for those beyond citing LGE once, though a few of them wrongly print one, as the fifth cause below describes. The fourth is your own scripts, which need a citation you supply.
 
-The fifth is the one to watch, because here the command recognises too much rather than too little. That third matching tier, a single shared word, reaches a wrong entry for many step names, and the result is a complete and confident citation for a tool that never ran. The step `trim_galore` prints an iVar citation, because it shares the word `trim` with iVar's recorded name `ivar trim`. The step `gatk-variants-to-table` also prints iVar, sharing `variants` with `ivar variants`. And `gatk-variant-filtration` prints a Medaka citation, sharing `variant` with `medaka variant`. Trim Galore installs with every copy of LGE, so this is reachable without any plugin pack. Others follow the same pattern. `gatk-select-variants` and LGE's own consensus and alignment-trimming steps also print iVar, LGE's variant database import prints Medaka, its QC summary steps print MultiQC, its tree reroot, relabel, and subtree steps print IQ-TREE, and a step named `gzip` prints HTSlib. Check every printed citation against the tools your run really used, delete any that do not belong, and take the right one from the tables below.
-
-The wrong-citation case is a known defect, listed with its workaround in [Known defects in this release](troubleshooting.md#known-defects-in-this-release).
+The fifth is the one to watch, because here the command recognises too much rather than too little. Its loosest matching tier can pair a step with a wrong entry through a single shared word, and then it prints a complete and confident citation for a tool that never ran. That is a known defect, and the steps it affects are listed with the workaround in [Known defects in this release](troubleshooting.md#known-defects-in-this-release). Check every printed citation against the tools your run really used, delete any that do not belong, and take the right one from the tables below.
 
 Three more entries print an older paper than the one to cite. The command prints Li and Durbin 2009 for BWA-MEM2, the 2002 MAFFT paper, and the 2015 IQ-TREE paper, while the tables below give the paper for the version LGE installs.
 
@@ -392,7 +391,9 @@ qPCR or dPCR assay.
 | Saiki and colleagues 1988 | PCR with a heat-stable polymerase | 10.1126/science.2448875 |
 | SantaLucia 1998 | Nearest-neighbour melting temperature parameters | 10.1073/pnas.95.4.1460 |
 | Kwok and colleagues 1990 | How primer mismatches at the 3′ end and inside a primer affect yield | 10.1093/nar/18.4.999 |
+| Newton and colleagues 1989 (ARMS) | Allele-specific primers with a deliberate extra mismatch near the 3′ end | 10.1093/nar/17.7.2503 |
 | Holland and colleagues 1991 | Hydrolysis probe detection by the polymerase's 5′ nuclease | 10.1073/pnas.88.16.7276 |
+| Kutyavin and colleagues 2000 | Short minor-groove-binder (MGB) probes that discriminate a single mismatch | 10.1093/nar/28.2.655 |
 | Bustin and colleagues 2009 (MIQE) | What a qPCR report must include | 10.1373/clinchem.2008.112797 |
 | Huggett and colleagues 2013 (digital MIQE) | What a dPCR report must include | 10.1373/clinchem.2013.206375 |
 | Thornton and Basu 2011 | qPCR primer rules for intercalating-dye assays | 10.1002/bmb.20461 |
@@ -403,7 +404,9 @@ qPCR or dPCR assay.
 Saiki      Saiki RK, Gelfand DH, Stoffel S, et al. Primer-directed enzymatic amplification of DNA with a thermostable DNA polymerase. Science. 1988.
 SantaLucia SantaLucia J. A unified view of polymer, dumbbell, and oligonucleotide DNA nearest-neighbor thermodynamics. Proceedings of the National Academy of Sciences USA. 1998.
 Kwok       Kwok S, Kellogg DE, McKinney N, et al. Effects of primer-template mismatches on the polymerase chain reaction: human immunodeficiency virus type 1 model studies. Nucleic Acids Research. 1990.
+Newton     Newton CR, Graham A, Heptinstall LE, et al. Analysis of any point mutation in DNA. The amplification refractory mutation system (ARMS). Nucleic Acids Research. 1989.
 Holland    Holland PM, Abramson RD, Watson R, Gelfand DH. Detection of specific polymerase chain reaction product by utilizing the 5'-3' exonuclease activity of Thermus aquaticus DNA polymerase. Proceedings of the National Academy of Sciences USA. 1991.
+Kutyavin   Kutyavin IV, Afonina IA, Mills A, et al. 3'-minor groove binder-DNA probes increase sequence specificity at PCR extension temperatures. Nucleic Acids Research. 2000.
 MIQE       Bustin SA, Benes V, Garson JA, et al. The MIQE guidelines: minimum information for publication of quantitative real-time PCR experiments. Clinical Chemistry. 2009.
 dMIQE      Huggett JF, Foy CA, Benes V, et al. The digital MIQE guidelines: Minimum Information for Publication of Quantitative Digital PCR Experiments. Clinical Chemistry. 2013.
 Thornton   Thornton B, Basu C. Real-time PCR (qPCR) primer design using free online software. Biochemistry and Molecular Biology Education. 2011.
@@ -421,7 +424,7 @@ Your provenance sidecar is the authoritative list. Cite what it names and nothin
 
 1. Run `lungfish-cli provenance bibliography` against the result folder, as above, and read both the citation list and the unmatched heading below it. Both halves are tools that ran.
 
-2. In the Operations Panel, find the run's row. The copied command names the main tool, though not helpers such as SAMtools. To see the same run as a command, right-click its row and choose Copy CLI Command, as [The Operations Panel](../01-foundations/06-the-lungfish-project.md#the-operations-panel) describes.
+2. In the Operations Panel, right-click the run's row and choose **Copy CLI Command**, as [The Operations Panel](../01-foundations/06-the-lungfish-project.md#the-operations-panel) describes. The pasted command names the main tool but not helpers such as SAMtools.
 
 3. Open the sidecar itself. It is the file named `.lungfish-provenance.json` beside your result, or inside the bundle's `provenance/` folder. Finder hides names beginning with a dot, so press Cmd-Shift-period in the Finder window to show them. It is plain text, so any text editor opens it, and the `toolName` entries are the tools that ran.
 
@@ -429,21 +432,21 @@ Routes 2 and 3 need no terminal, and route 3 is the one that gives the same comp
 
 ## Citing LGE itself
 
-LGE has no published paper and no DOI of its own, so the citation is the project page together with the version string. Include the dependency set, because that is what lets somebody else install the same tool versions.
+LGE has no published paper and no DOI of its own, so the citation is the project page together with the version string. Include the dependency set, because that is what lets somebody else install the same tool versions. In the blocks below, replace `<version>` with your LGE version, `<dependency set>` with its dependency set, and `<year>` with the year of that release.
 
 ```
-Lungfish Genome Explorer, version 2026.9.40, dependency set 2026.2.
+Lungfish Genome Explorer, version <version>, dependency set <dependency set>.
 https://github.com/dhoconno/lungfish-genome-explorer
 ```
 
-That block is a usable default. In the author-date style of the finished reference above, with the year of the release you used, it reads like this.
+That block is a usable default. In the author-date style of the finished references above, it reads like this.
 
 ```
-Lungfish Genome Explorer. (2026). Version 2026.9.40, dependency set 2026.2.
+Lungfish Genome Explorer. (<year>). Version <version>, dependency set <dependency set>.
 https://github.com/dhoconno/lungfish-genome-explorer
 ```
 
-To read your own version rather than the one printed here, open **Lungfish Genome Explorer > About Lungfish Genome Explorer**, which needs no terminal. From a terminal, `lungfish-cli --version` prints the same number and nothing else, reporting `2026.9.40` for this release. Both the version and the dependency set are recorded in every provenance sidecar, so a reader who has your sidecar can recover them without asking you.
+To read your version, open **Lungfish Genome Explorer > About Lungfish Genome Explorer**, which needs no terminal. From a terminal, `lungfish-cli --version` prints the same number and nothing else, and `lungfish-cli version --tools` prints the dependency set too. Both are recorded in every provenance sidecar, so a reader who has your sidecar can recover them without asking you.
 
 ## Using this with a methods section
 
