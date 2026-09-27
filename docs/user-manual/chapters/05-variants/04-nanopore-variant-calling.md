@@ -38,6 +38,7 @@ Short-read callers assume each base's quality score is an independent estimate o
 
 The answer is a caller trained on the same basecaller output you feed it. Lungfish Genome Explorer (LGE) offers two in the Call Variants dialog. [Medaka](../../GLOSSARY.md#medaka) is Oxford Nanopore's own tool and takes a trained model by name, a model being a file of learned error patterns. [Clair3](../../GLOSSARY.md#clair3) is a deep-learning caller from a separate group and takes a path to a folder of model files. Neither guesses the model for you, so find out which basecaller and pore chemistry produced your reads before you open the dialog.
 
+<!-- PENDING-FIX: medaka/clair3 -->
 Neither caller finishes a run from inside LGE at present. This is a known defect, listed with its workaround in [Known defects in this release](../appendices/troubleshooting.md#known-defects-in-this-release). This chapter teaches the dialog, the model choice, and how to judge nanopore calls, using a call set made by running Clair3 directly, which [On the command line](#on-the-command-line) shows.
 
 ## Why you would do this
@@ -50,18 +51,20 @@ Long-read calling on mitochondrial DNA is also real work. Mitochondrial disease 
 
 ## Choosing a tool
 
-Choosing between the two long-read callers comes down to how many copies of the genome your sample carries and which instrument made the reads. Both are neural-network callers, trained on reads whose true variants were already known, so that they learn to tell a real change from a basecalling error. Both need a model that matches your reads.
+Check which basecaller and pore chemistry made your reads, as [Know your reads before you choose a tool](../01-foundations/02-sequencing-reads.md#know-your-reads-before-you-choose-a-tool) shows, because both callers need a model that matches them. The choice between the two then follows from how many copies of the genome your sample carries. Both are neural-network callers, trained on reads whose true variants were already known, so that they learn to tell a real change from a basecalling error.
 
-**Clair3** first runs a fast network over a summary of the pileup at every candidate position, then sends only the hard positions to a slower network that looks at the individual reads. It was built for germline calling in diploid samples such as a person, from long reads, and it writes genotypes such as `0/1` and `1/1`. Its models cover nanopore, PacBio HiFi, and Illumina reads, and LGE tells Clair3 which of those platforms made the reads from the platform recorded on the imported read bundle. For a haploid genome, such as a bacterium or a virus, typing `--haploid_precise` or `--haploid_sensitive` in Extra arguments switches it to one-copy calling. A comparison on bacterial nanopore data placed Clair3 among the most accurate callers tested ([Hall and colleagues, 2024](https://doi.org/10.7554/eLife.98300)).
+**Clair3** first runs a fast network over a summary of the pileup at every candidate position, then sends only the hard positions to a slower network that looks at the individual reads. It was built for germline calling in diploid samples such as a person, from long reads, and it writes genotypes such as `0/1` and `1/1`. Its models cover nanopore, PacBio HiFi, and Illumina reads, and LGE tells Clair3 which platform made the reads from the platform recorded on the imported read bundle. For a haploid genome, such as a bacterium or a virus, type `--haploid_precise` in Extra arguments, the free-text field near the bottom of the dialog, so that Clair3 reports only changes carried by nearly every read. A comparison on bacterial nanopore data placed Clair3 among the most accurate callers tested ([Hall and colleagues, 2024](https://doi.org/10.7554/eLife.98300)), and the ARTIC pipeline for viral amplicon sequencing replaced Medaka with Clair3 in 2024 because Medaka discarded long insertions and deletions.
 
-**Medaka** is Oxford Nanopore's own tool, and its variant caller is described by its authors as haploid variant calling with neural networks. It reads nanopore reads only, and each of its models is named for the pore chemistry, the instrument speed, and the basecaller version it was trained on. Only models whose names carry `variant` are built for calling against a reference. Because Medaka assumes one copy of the genome, it cannot report a [heterozygous](../../GLOSSARY.md#heterozygous) site in a diploid sample, where one chromosome copy carries a change and the other does not. It has no published paper, only its code repository.
+**Medaka** is Oxford Nanopore's own tool, and its authors describe its variant caller as haploid calling with neural networks. It reads nanopore reads only. Each model name records the pore type, the motor enzyme that feeds DNA through the pore, the speed the DNA moves, and the basecaller mode and version the model was trained on, and only models whose names carry `variant` are built for calling against a reference. Because Medaka assumes one copy of the genome, it cannot report a [heterozygous](../../GLOSSARY.md#heterozygous) site in a diploid sample, where one chromosome copy carries a change and the other does not. On a bacterial or viral genome it makes a reasonable second opinion.
+
+Neither caller finds minority variants. A haploid call reports what nearly every read carries, and a diploid call expects a change in half the reads or all of them, so a change in 10 percent of a viral population fits neither. LGE has no caller for minority variants in nanopore data.
 
 | Tool | Built for | Choose it when | Choose something else when |
 |---|---|---|---|
-| Clair3 | Diploid germline calling from long reads | The sample is a person or a macaque, or the reads are PacBio HiFi | The sample is haploid and you want a caller built for one copy only |
-| Medaka | Haploid calling from nanopore reads | The sample is a virus or bacterium sequenced on a nanopore instrument | The sample is diploid, or the reads are not from a nanopore instrument |
+| Clair3 | Germline calling from long reads, diploid unless told otherwise | The sample is a person or a macaque, or, with `--haploid_precise`, a bacterium or virus | You need minority variants, which no LGE caller finds in nanopore data |
+| Medaka | Haploid calling from nanopore reads | You want a second opinion on a bacterial or viral call set | The sample is diploid, or the reads are not from a nanopore instrument |
 
-This chapter's call set comes from Clair3, the caller built for human samples, run with `--include_all_ctgs` so that it also calls the mitochondrion. Its genotype column still carries information on a molecule with one sequence, where `0/1` marks a possible mixture, as [Reading the results](#reading-the-results) explains. For a human or macaque nuclear genome on long reads, use Clair3. For a viral or bacterial genome on nanopore reads, use Medaka, or Clair3 with a haploid flag. Never use LoFreq or iVar on nanopore reads, for the homopolymer reason given in [What it is](#what-it-is). The citation for Clair3 and the project page for Medaka are in [Tools installed by a plugin pack](../appendices/bibliography.md#tools-installed-by-a-plugin-pack).
+This chapter's call set comes from Clair3 in its default diploid mode, run with `--include_all_ctgs` so that it also calls the mitochondrion. A mitochondrion carries one sequence, but `--haploid_precise` reports only changes in nearly every read and so would hide a mixed position. Diploid mode keeps such a position as a `0/1` row, a flag for a possible mixture of mitochondrial sequences or for basecall noise, as [Reading the results](#reading-the-results) explains. For a human or macaque nuclear genome on long reads, use Clair3. For a bacterial or viral genome on nanopore reads, use Clair3 with `--haploid_precise` and check it with Medaka. Never use LoFreq or iVar on nanopore reads, for the homopolymer reason given in [What it is](#what-it-is). Clair3 and Medaka are cited in [Tools installed by a plugin pack](../appendices/bibliography.md#tools-installed-by-a-plugin-pack), and the ARTIC release notes in [Other works cited in the manual](../appendices/bibliography.md#other-works-cited-in-the-manual).
 
 ## Before you start
 
@@ -111,7 +114,7 @@ The Readiness line reads the model back before you commit. With the field empty 
 
 <!-- SHOT: medaka-model-field -->
 
-Name the output track and click **Run**. At present the run stops with an error and its row in the [Operations Panel](../01-foundations/06-the-lungfish-project.md#the-operations-panel) turns red, so no track is added. The two callers read their input differently. For Medaka, LGE rebuilds a FASTQ from the alignment keeping only each read's primary record. Clair3 is handed the BAM itself and skips secondary and supplementary records on its own. So both see the same 950 reads. Either way the finished VCF is sorted, compressed with [bgzip](../../GLOSSARY.md#bgzip), indexed with [tabix](../../GLOSSARY.md#tabix), and added to the bundle as a variant track.
+Name the output track and click **Run**. <!-- PENDING-FIX: medaka/clair3 --> At present the run stops with an error and its row in the [Operations Panel](../01-foundations/06-the-lungfish-project.md#the-operations-panel) turns red, so no track is added. The two callers read their input differently. For Medaka, LGE rebuilds a FASTQ from the alignment keeping only each read's primary record. Clair3 is handed the BAM itself and skips secondary and supplementary records on its own. So both see the same 950 reads. Either way the finished VCF is sorted, compressed with [bgzip](../../GLOSSARY.md#bgzip), indexed with [tabix](../../GLOSSARY.md#tabix), and added to the bundle as a variant track.
 
 ## Settings
 
@@ -164,6 +167,7 @@ Depth puts the rest in context. The mean depth across all 16,569 bases is 236, w
 
 Four checks are worth making.
 
+<!-- PENDING-FIX: medaka/clair3 -->
 First, check that the run finished. Inside LGE it does not at present, so the working route is the direct Clair3 run below.
 
 Second, read the row count against the region and the FILTER column. This run gave 44 rows across 16,569 bases, 27 of them `PASS`. Ten to sixty `PASS` rows is right for a human mitochondrion, since a person differs from the reference at a few dozen positions. Single digits would mean a broken alignment or the wrong reference. Several hundred would mean the model does not match the basecaller and homopolymer noise is coming through.
@@ -176,6 +180,7 @@ Fourth, read the provenance. LGE writes a [provenance](../../GLOSSARY.md#provena
 
 This section is optional, and nothing later in this manual needs it. The `lungfish-cli` program ships inside LGE, and [Finding the program](../appendices/cli-reference.md#finding-the-program) shows how to run it.
 
+<!-- PENDING-FIX: medaka/clair3 -->
 The first block reproduces the procedure with `lungfish-cli`, and the calling step stops with the defect described above. The second is the direct Clair3 run that produced this chapter's call set.
 
 ```bash
