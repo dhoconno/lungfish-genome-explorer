@@ -96,7 +96,7 @@ A primer does not need a perfect match to bind. What matters is where the mismat
 
 The practical rules follow. Keep the 3′ end, roughly the last three to five bases, on sequence every target shares. If some variation must fall inside a primer, put it toward the 5′ end. And never assume a primer designed on one allele will work on the next one.
 
-The *Mamu-A1* example shows the problem in numbers. Designed on `LR699574.1` alone, Primer3's best pair for exons 2 and 3 put the forward primer at bases 88 to 107 in intron 1 and the reverse primer at bases 1,013 to 1,033 in intron 3. Those sites are not shared by all 12 panel alleles, so on some alleles the pair would carry mismatches and could fail. [Designing on an alignment](#designing-on-an-alignment) shows what changed when the same design ran on all 12.
+The *Mamu-A1* example shows the problem in numbers. Designed on `LR699574.1` alone, Primer3's best pair for exons 2 and 3 put the forward primer at bases 89 to 107 in intron 1 and the reverse primer at bases 1,014 to 1,033 in intron 3. Those sites are not shared by all 12 panel alleles, so on some alleles the pair would carry mismatches and could fail. [Designing on an alignment](#designing-on-an-alignment) shows what changed when the same design ran on all 12.
 
 ## Designing on an alignment
 
@@ -106,7 +106,7 @@ To find sites every target shares, you need every target side by side. That is a
 
 A column is **conserved** when every row carries the same base there. A column is **variable** when rows disagree, and **gapped** when some rows carry a [gap](../../GLOSSARY.md#gap), a placeholder for an insertion in another sequence. A primer placed entirely on conserved columns matches every sequence in the alignment.
 
-Primer3 in LGE can design on one row of an alignment while reading the others. With "Require binding sites conserved across all alignment rows" turned on, the default for alignment input, it treats every variable or gapped column as off limits for primers and probes. On the 12-allele panel that excluded 328 single columns. The best pair moved as a result. The forward primer now sits at bases 177 to 195, still in intron 1, and the reverse primer at 1,104 to 1,125, further into intron 3, giving a 948-base product. Both primers now match all 12 alleles exactly. The price is fewer choices, since Primer3 considered 177 candidate pairs on the alignment where it had considered 374 on the single sequence.
+Primer3 in LGE can design on one row of an alignment while reading the others. With "Require binding sites conserved across all alignment rows" turned on, the default for alignment input, it treats every variable or gapped column as off limits for primers and probes. On the 12-allele panel that excluded 328 single columns. The best pair moved as a result. The forward primer now sits at bases 178 to 195, still in intron 1, and the reverse primer at 1,105 to 1,125, further into intron 3, giving a 948-base product. Both primers now match all 12 alleles exactly. The price is fewer choices, since Primer3 considered 177 candidate pairs on the alignment where it had considered 374 on the single sequence.
 
 A conserved site in your alignment is only as good as the alignment. Twelve alleles are a teaching size. A working design includes every allele seen in your colony, and published alleles from the same population, because a site conserved across 12 may vary in the 13th.
 
