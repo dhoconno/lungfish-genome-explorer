@@ -306,13 +306,18 @@ public struct PrimerSchemeDesignPipeline: Sendable {
             try? FileManager.default.removeItem(at: staging)
             throw error
         }
+        // The chosen sources have become a concrete database, so they are consumed
+        // here: leaving both set would trip the "one or the other" validation that
+        // guards the user's own request. Provenance still records what was screened.
         var resolved = options
         if var olivar = resolved.olivar {
             olivar.blastDatabasePath = database.prefix
+            olivar.screeningSourcePaths = []
             resolved.olivar = olivar
         }
         if var varvamp = resolved.varvamp {
             varvamp.blastDatabasePath = database.prefix
+            varvamp.screeningSourcePaths = []
             resolved.varvamp = varvamp
         }
         return .init(options: resolved, database: database, stagingRoot: staging)
