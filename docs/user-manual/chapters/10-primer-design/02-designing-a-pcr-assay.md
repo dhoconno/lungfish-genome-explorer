@@ -7,6 +7,7 @@ estimated_reading_min: 14
 task: Design one PCR primer pair with Primer3 across Mamu-A1 exons 2 and 3, first on a single allele and then on a twelve-allele alignment with conserved binding sites, and read the candidate pairs.
 tags: [primer-design, primer3, pcr, mhc, macaque, alignment]
 tools: [primer3]
+parameters_refs: [primer-design.primer3]
 entry_points:
   - "Tools > PCR Primer Design > Primer3…"
   - "CLI: lungfish-cli primers design primer3"
@@ -21,7 +22,7 @@ shots:
     caption: "The Binding inspection view of the single-allele analysis compared against the twelve-allele alignment, showing the rows that mismatch the forward primer of Pair 1 and the mismatch table beneath."
 illustrations: []
 glossary_refs: [primer, pcr, amplicon, exon, intron, allele, mhc, ipd-mhc, msa, alignment-column, gc-content, melting-temperature, oligo, paralog, fasta, reference-bundle, plugin-pack, operations-panel, sidebar, inspector, provenance]
-features_refs: []
+features_refs: [primer-design.primer3]
 fixtures_refs: [mhc-primer-design]
 brand_reviewed: false
 lead_approved: false
@@ -95,13 +96,17 @@ The Primer3 settings sit in three places. The input section holds the template c
 
 **Assay.** Chooses the kind of assay and loads its rules into the fields below. The default is "PCR primers", the right choice for an end-point PCR whose product you will sequence or run on a gel. Choose one of the two qPCR assays only for quantitative PCR, which [Designing qPCR and dPCR Assays](04-designing-qpcr-and-dpcr-assays.md) covers. On the command line this is `--assay`.
 
-**Product minimum (bp)** and **Product maximum (bp)**. Set the shortest and longest product Primer3 may return, counted from the first base of the forward primer to the last base of the reverse primer. The defaults are 100 and 400 bases. Raise the maximum to at least the target length plus room for both primers, which is why this chapter uses 1,100. On the command line these are `--product-size-min` and `--product-size-max`.
+**Product minimum (bp).** Sets the shortest product Primer3 may return, counted from the first base of the forward primer to the last base of the reverse primer. The default is 100 bases. Lower it only when the region you need is shorter than that. On the command line this is `--product-size-min`.
+
+**Product maximum (bp).** Sets the longest product Primer3 may return, counted the same way. The default is 400 bases. Raise it to at least the target length plus room for both primers, which is why this chapter uses 1,100. On the command line this is `--product-size-max`.
 
 **Candidate pairs.** Sets how many primer pairs Primer3 returns for each template. The default is 5, enough to have a choice without a long list to read. Raise it when you expect to discard several pairs after checking them. On the command line this is `--pair-count`.
 
 **Amplify a specific region.** Turns on a target that every product must contain, with the forward primer before it and the reverse primer after it. The default is off, which lets Primer3 place the product anywhere on the template. Turn it on whenever particular bases must be copied, as the two exons must be here. This switch has no command-line flag, because giving the two target flags turns it on.
 
-**Target start** and **Target end**. Set the first and last base of the target, counted from 1 on the template's own bases, and the end may not be smaller than the start. There is no default. Set them a few bases outside the region you need read when you want margin, because the bases immediately next to a sequencing primer are the least reliable ones in a Sanger read. On the command line these are `--target-start` and `--target-end`.
+**Target start.** Sets the first base of the target, counted from 1 on the template's own bases. There is no default. Set it a few bases before the region you need read when you want margin, because the bases immediately next to a sequencing primer are the least reliable ones in a Sanger read. On the command line this is `--target-start`.
+
+**Target end.** Sets the last base of the target, counted the same way, and it may not be smaller than the start. There is no default. Set it a few bases past the region you need read, for the same reason. On the command line this is `--target-end`.
 
 **Require binding sites conserved across all alignment rows.** Stops Primer3 from placing a primer over any alignment column where the rows disagree, where any row has a gap, or where a row carries an ambiguous base. It is on by default, because a primer on a variable column will mismatch some of the aligned sequences. Turn it off to see the best pair for the template row alone. On the command line this is `--binding-site-policy`, with `exclude-variable-and-gapped-columns` for on and `template-only` for off.
 

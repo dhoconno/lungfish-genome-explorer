@@ -26,7 +26,7 @@ illustrations:
   - id: qpcr-standard-curve
     brief: "A standard curve with the log of input template on the x axis over four tenfold dilutions and the quantification cycle Cq on the y axis, points falling on a straight line of slope about minus 3.3, each tenfold step marked as 3.3 cycles. Annotate the slope and print the relation efficiency equals 10 to the power of minus one over slope, minus 1, with minus 3.3 giving 100 percent. Keep it a plain two-axis plot in the brand palette with no red, amber or green."
 glossary_refs: [allele, alignment-column, amplicon, amplicon-dropout, blast, class-i-mhc, consensus-sequence, cq, degenerate-base, dpcr, exon, gap, gc-clamp, gc-content, hydrolysis-probe, intercalating-dye, intron, ipd-mhc, iupac-ambiguity-code, locus, melting-temperature, mhc, msa, oligo, paralog, pcr, pcr-ssp, primer, primer-dimer, primer-pool, primer-scheme, primer-trim, probe, qpcr, reverse-complement, tiling, plugin-pack]
-features_refs: []
+features_refs: [primer-design.primer3, primer-design.primalscheme3, primer-design.olivar, primer-design.varvamp]
 fixtures_refs: [mhc-primer-design]
 brand_reviewed: false
 lead_approved: false

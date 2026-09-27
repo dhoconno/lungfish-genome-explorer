@@ -7,6 +7,7 @@ estimated_reading_min: 21
 task: Design overlapping two-pool amplicons across a whole gene with PrimalScheme, Olivar and varVAMP, compare how each handles variation, and save one design as a primer scheme.
 tags: [primer-design, tiling, amplicon, primer-scheme, primalscheme, olivar, varvamp, mhc]
 tools: [primalscheme3, olivar, varvamp]
+parameters_refs: [primer-design.primalscheme3, primer-design.olivar, primer-design.varvamp]
 entry_points:
   - "Tools > PCR Primer Design > PrimalScheme…"
   - "Tools > PCR Primer Design > Olivar…"
@@ -29,7 +30,7 @@ shots:
     caption: "The Save as Primer Scheme sheet for the varVAMP threshold 0.8 analysis, showing the summary line, the Coordinate reference name and statement, and the Scheme name field."
 illustrations: []
 glossary_refs: [amplicon, primer, primer-pool, primer-scheme, primer-trim, tiling, msa, alignment-column, consensus-sequence, degenerate-base, design-reference, iupac-ambiguity-code, bed, mhc, allele, exon, intron, bundle, reference-bundle, inspector, operations-panel, plugin-pack, read-length, mapping, blast, oligo]
-features_refs: [bam.primer-trim]
+features_refs: [bam.primer-trim, primer-design.primalscheme3, primer-design.olivar, primer-design.varvamp, primer-analysis.scheme-from-analysis]
 fixtures_refs: [mhc-primer-design]
 brand_reviewed: false
 lead_approved: false
@@ -144,7 +145,9 @@ The line under the three size fields restates the span that will be saved, which
 
 **Use high-GC design settings.** Switches PrimalScheme to its own settings for GC-rich targets. It is off by default. Try it when a GC-rich target such as MHC leaves gaps with the standard settings. On the command line this is `--high-gc`.
 
-**Search effort** and **Random seed** are Olivar's two tuning levers. Search effort multiplies how many candidate layouts Olivar tries, and defaults to 1. Random seed fixes the starting point of its random search so the same inputs give the same design, and defaults to 10. Raise the effort or change the seed when coverage falls short, and record the seed you used. On the command line these are `--effort` and `--seed`.
+**Search effort.** Multiplies how many candidate layouts Olivar tries. The default is 1. Raise it when coverage falls short, at the cost of a longer run. On the command line this is `--effort`.
+
+**Random seed.** Fixes the starting point of Olivar's random search, so the same inputs give the same design. The default is 10. Change it to try a different layout when coverage falls short, and record the seed you used. On the command line this is `--seed`.
 
 **Design mode.** Chooses between varVAMP's "Single amplicon", "Tiled amplicons" and "qPCR / dPCR primers + probe". The default is Tiled amplicons. Choose Single for one pan-allele product and qPCR for a detection assay, which [Designing qPCR and dPCR Assays](04-designing-qpcr-and-dpcr-assays.md) covers. On the command line this is `--mode`.
 

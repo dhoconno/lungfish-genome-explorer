@@ -7,6 +7,7 @@ estimated_reading_min: 28
 task: Design a quantitative detection assay for the Mamu-A1*001 lineage with varVAMP and Primer3, find that it detects the whole gene family, then find the columns that separate the lineage and design an assay that uses one.
 tags: [primer-design, qpcr, dpcr, probe, varvamp, primer3, mhc, macaque, specificity]
 tools: [varvamp, primer3, mafft]
+parameters_refs: [primer-design.varvamp-qpcr, primer-design.primer3-qpcr]
 entry_points:
   - "Tools > PCR Primer Design > varVAMP…"
   - "Tools > PCR Primer Design > Primer3…"
@@ -25,14 +26,14 @@ shots:
   - id: qpcr-varvamp-offtarget-warning
     caption: "The Overview card of the varVAMP qPCR analysis run against the exclusion set, showing the orange warning that varVAMP_0 could produce off-targets."
   - id: qpcr-discriminating-sites
-    caption: "The MSA viewport on the lineage alignment with the exclusion sequences added, the eleven discriminating columns highlighted, and the Inspector's Discriminating Sites list beside it."
+    caption: "The MSA viewport on the four-row lineage alignment with the eleven discriminating columns tinted, gutter names prefixed Target, and the legend Discriminating sites 11 columns, Target rows 4, Exclusion sequences 18 from mamu-class-i-exclusion above the rows, beside the Inspector's Discriminating Sites section and its site table."
   - id: qpcr-primer3-fixed-oligo
     caption: "The Keep these oligos group of the Primer3 dialog, with the anchored reverse primer typed into Reverse primer (as ordered) and the GC clamp field set to 0."
 illustrations:
   - id: probe-geometry
     brief: "One amplicon drawn as a horizontal line with the forward primer arrow at the left pointing right and the reverse primer arrow at the right pointing left. A probe sits between them on the same strand the forward primer's polymerase reads, 4 to 15 bases from the primer, labelled with its reporter dye at the 5 prime end and quencher at the 3 prime end, and annotated that its Tm sits at least 5 C above both primers and that its 5 prime base is never a G. Add a second small panel showing the polymerase reaching the probe and cutting it, freeing the reporter. Brand palette, probe in the viewport's purple."
 glossary_refs: [amplicon, primer, primer-pool, pcr, pcr-ssp, msa, alignment-column, consensus-sequence, degenerate-base, iupac-ambiguity-code, gc-content, gc-clamp, exon, intron, allele, mhc, class-i-mhc, ipd-mhc, blast, probe, hydrolysis-probe, intercalating-dye, qpcr, dpcr, cq, melting-temperature, plugin-pack, operations-panel, sidebar, inspector, specificity]
-features_refs: []
+features_refs: [primer-design.varvamp, primer-design.primer3, msa.inspection.discriminating-sites]
 fixtures_refs: [mhc-primer-design]
 brand_reviewed: false
 lead_approved: false
@@ -132,7 +133,11 @@ varVAMP's mode and threshold sit in "Scheme settings", its probe rules in "Advan
 
 **Cumulative consensus threshold (required).** Sets how much agreement a base needs before varVAMP's consensus writes it plainly rather than as an ambiguity code. There is no default in qPCR mode and Run stays disabled until you type one, unlike the other two modes. Read it as how many of your sequences must agree, so 0.99 on four sequences means all four. On the command line this is `--consensus-threshold`.
 
-**Minimum, Target and Maximum amplicon size (bp).** Set the shortest, nominal and longest amplicon span, both primer sites included. In qPCR mode the defaults are 70, 135 and 200, varVAMP's own qPCR bounds rather than the 360, 400 and 440 the other modes use. Raise the maximum only with a reason, because a longer amplicon folds more and quantifies less evenly. On the command line these are `--amplicon-size-min`, `--amplicon-size` and `--amplicon-size-max`.
+**Minimum amplicon size (bp).** Sets the shortest amplicon span, both primer sites included. In qPCR mode the default is 70, varVAMP's own qPCR minimum rather than the 360 the other modes use. On the command line this is `--amplicon-size-min`.
+
+**Target amplicon size (bp).** Gives the nominal amplicon length. In qPCR mode the default is 135, where the other modes use 400. On the command line this is `--amplicon-size`.
+
+**Maximum amplicon size (bp).** Sets the longest amplicon span, both primer sites included. In qPCR mode the default is 200, varVAMP's own qPCR maximum rather than the 440 the other modes use. Raise it only with a reason, because a longer amplicon folds more and quantifies less evenly. On the command line this is `--amplicon-size-max`.
 
 **qPCR test count.** Sets how many of the best-scoring candidate amplicons varVAMP folds and tests for secondary structure. The default is 50, and raising it examines more candidates at the cost of the run's slowest step. On the command line this is `--qpcr-test-count`.
 
@@ -148,7 +153,7 @@ Both presets take their primer rules from the qPCR literature, the MIQE guidelin
 
 **Probe Tm at least this far above the primers (°C).** Raises the probe's minimum melting temperature to the highest primer melting temperature plus this figure. The default is 5, the lower bound varVAMP enforces, and it matters because the probe window's 64 °C floor and the 62 °C primer ceiling would otherwise allow a gap of only 2 °C. With this preset the effective probe minimum becomes 67 °C, which the saved analysis records. Enter 0 to use the window exactly as typed. On the command line this is `--probe-min-tm-offset-over-primers`.
 
-The rest of the probe window, 64 to 70 °C, 20 to 30 bases and 40 to 80 percent GC, is editable in the same group, and two rules are set for you. Runs of one base in a probe are capped at 3, tighter than the primers' 4, because a GC-rich probe with a run of four G stacks into a structure that both quenches the reporter and resists melting, and the probe may not begin with a G at its 5′ end, since a G next to the reporter quenches it.
+The rest of the probe window, 64 to 70 °C, 20 to 30 bases and 40 to 80 percent GC, is editable in the same group, and so are two more probe rules. The field "Probe poly-X max (nt)" caps runs of one base in a probe at 3, tighter than the primers' 4, because a GC-rich probe with a run of four G stacks into a structure that both quenches the reporter and resists melting. The field "Probe 5′ must-match pattern" holds `hnnnn`, which keeps a G off the probe's 5′ end, since a G next to the reporter quenches it. Clear the pattern to leave that rule out.
 
 varVAMP's own probe rules sit in the "qPCR probe constraints" group, and LGE sends every one on every qPCR run. Two of them matter for reading its results. varVAMP requires the probe to melt 5 to 10 °C above the primers, unlike Primer3's window, and to sit 4 to 15 bases from the primer on its own strand, because the polymerase must reach it while extending. [Primer Design Settings](../appendices/primer-design-settings.md#varvamp) carries the rest.
 
@@ -254,9 +259,19 @@ lungfish-cli msa discriminating-sites \
   --output "$PROJECT/Analyses/mamu-a1-001-discriminating-sites.tsv"
 ```
 
-The MSA Inspector runs the same analysis and highlights the columns in the viewport, naming each row as a target or an exclusion.
+The window runs the same command from the alignment's [Inspector](../../GLOSSARY.md#inspector).
+
+1. Click `mamu-a1-001-lineage` under **Analyses > Multiple Sequence Alignments** in the sidebar, and open the Inspector with **View > Show Inspector** (Cmd-Opt-I) if it is hidden.
+2. On the Inspector's **Bundle** tab, click the triangle of the **Discriminating Sites** section to expand it.
+3. Set **Exclusions** to **Sequences from a file**, open the menu beside it, which reads **Choose...** until you pick, and choose the `mamu-class-i-exclusion` reference bundle. **Choose File...** picks a FASTA file from outside the project instead. The other choice, **Rows in this alignment**, treats some of the alignment's own rows as the exclusions.
+4. Under **Target rows**, leave every row set to **Target**. Each row has a menu of roles, **Target** or **Skip** here, plus **Exclusion** when the exclusions are rows of the alignment, and **All Targets** sets every row back to Target. Leave **Template** on **First target**, the row whose positions the report counts along, **Target mismatch tolerance** at 0, **Window length (bp)** at 25, and **Exclusions that must differ** blank, which means all of them.
+5. Click **Find Discriminating Sites**. The run appears in the [Operations Panel](../01-foundations/06-the-lungfish-project.md#the-operations-panel) like any other and leaves the same provenance record the command does.
 
 <!-- SHOT: qpcr-discriminating-sites -->
+
+The section then lists the sites in a table with the columns **Column**, the alignment column, **Template**, the position on the template row, **Target**, the target base, **Differing**, how many exclusion sequences carry another base, and **Exclusions**, which names them. Below it a **Candidate windows** table groups clustered sites into windows of the length you set. **Copy TSV** copies the site table, and **Export TSV...** and **Export JSON...** run the command again into a file you name. With **Highlight in viewport** on, the viewport tints the reported columns and prefixes each row name in the left margin with `Target ·` or `Exclusion ·`. Clicking a row of the site table moves the viewport to that column.
+
+The exclusion sequences came from a file, so the viewport still draws only the alignment's four rows. A legend above them names the exclusions instead, reading `Discriminating sites: 11 columns · Target rows 4 · Exclusion sequences 18 from mamu-class-i-exclusion`.
 
 On the demo's four targets and eighteen exclusions it finds eleven discriminating columns, and only three of them fall in the coding exons this chapter has been looking at.
 

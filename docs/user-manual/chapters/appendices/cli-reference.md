@@ -2920,7 +2920,7 @@ lungfish-cli msa distance [<options>] <bundle-path> --output <output>
 
 ### `msa discriminating-sites`
 
-Finds the alignment columns where every target sequence shares a base that the exclusion sequences lack, the columns a lineage-specific primer or probe can rest on. Explained in [Designing qPCR and dPCR Assays](../10-primer-design/04-designing-qpcr-and-dpcr-assays.md).
+Finds the alignment columns where every target sequence shares a base that the exclusion sequences lack, the columns a lineage-specific primer or probe can rest on. In the window, the Discriminating Sites section of the alignment's Inspector runs this command and highlights the columns in the viewport. Explained in [Designing qPCR and dPCR Assays](../10-primer-design/04-designing-qpcr-and-dpcr-assays.md#find-the-columns-that-discriminate).
 
 ```text
 lungfish-cli msa discriminating-sites [<options>] <bundle-path> --output <output>

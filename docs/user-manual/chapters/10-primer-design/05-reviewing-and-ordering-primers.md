@@ -7,6 +7,7 @@ estimated_reading_min: 20
 task: Review a saved primer analysis in LGE, check each oligo against the alignment, save a tiled design as a primer scheme, export an order for a supplier, and validate the assay at the bench.
 tags: [primer-design, primer-analysis, primer-order, primer-scheme, qpcr, validation, mhc]
 tools: [primer3, primalscheme3, olivar, varvamp]
+parameters_refs: [primer-analysis.order-export, primer-analysis.scheme-from-analysis]
 entry_points:
   - "Sidebar > Analyses > a .lungfishprimeranalysis bundle"
   - "Inspector > View > Export candidate pairs… / Export displayed primer order… / Export selected assays…"
@@ -30,7 +31,7 @@ shots:
     caption: "The Export Candidate Pairs sheet for the Mamu-A1 exon 2-3 PCR Primer3 conserved analysis, with the order name field, the optional order details, and the oligo preview."
 illustrations: []
 glossary_refs: [amplicon, primer, primer-scheme, primer-trim, primer-pool, primer-analysis-bundle, bed, fasta, csv, msa, iupac-ambiguity-code, degenerate-base, design-reference, consensus-sequence, provenance, checksum, inspector, operations-panel, sidebar, reference-bundle, annotation-track, bundle, manifest, oligo, probe, pcr, qpcr, cq, melting-temperature, xlsx]
-features_refs: []
+features_refs: [primer-analysis.review, primer-analysis.order-export, primer-analysis.scheme-from-analysis]
 fixtures_refs: [mhc-primer-design]
 brand_reviewed: false
 lead_approved: false

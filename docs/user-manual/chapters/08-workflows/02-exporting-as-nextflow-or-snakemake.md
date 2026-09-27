@@ -51,7 +51,7 @@ A shell script is a plain text file of terminal commands run top to bottom. [Nex
 
 The export covers one artifact, meaning one file or bundle a tool made, not the whole project. LGE collects every earlier step that fed into the artifact you select, back through the imports that brought the first files into the project.
 
-Every target is a faithful record of what ran rather than a portable pipeline. The commands carry the absolute file paths of the machine that ran them, so they need their paths edited before they run anywhere else. The Nextflow and Snakemake files need more than that, as [What good looks like](#what-good-looks-like) explains.
+Every target is a faithful record of what ran rather than a portable pipeline. The commands carry the absolute file paths of the machine that ran them, so they need their paths edited before they run anywhere else. The Nextflow and Snakemake exports are valid pipelines for their engines, so each engine can check one and walk through its steps before anything runs, as [What good looks like](#what-good-looks-like) shows.
 
 ## Why you would do this
 
@@ -139,11 +139,11 @@ Three terms appear in the table. A conda environment is the private folder a too
 
 | File | What it holds on the HG002 mapping result |
 |---|---|
-| `main.nf` | A header naming the run, the LGE version, start time, host, and user. One `params` line per file read or written, named from the file name. One process per recorded step, here ten, from `LUNGFISH_IMPORT_FASTA_1`, `BGZIP_2`, and `SAMTOOLS_3` for the reference import, through `CLUMPIFYSH_4` and `LUNGFISH_IMPORT_FASTQ_5` for the read import, to `MINIMAP2_6` and `SAMTOOLS_7` to `SAMTOOLS_10` for the mapping. Each carries a comment naming the tool, its version, and the step's duration, then the exact command. |
+| `main.nf` | A header naming the run, the LGE version, start time, and host. One `params` line for each file the run started from, named from the file name and declared once. One process per recorded step, here ten, from `LUNGFISH_IMPORT_FASTA_1`, `BGZIP_2`, and `SAMTOOLS_3` for the reference import, through `CLUMPIFYSH_4` and `LUNGFISH_IMPORT_FASTQ_5` for the read import, to `MINIMAP2_6` and `SAMTOOLS_7` to `SAMTOOLS_10` for the mapping. Each carries a comment naming the tool, its version, and the step's duration, then the exact command, then a `stub:` block that only creates empty copies of the step's output files. A closing `workflow` block feeds each process the files it reads, from the earlier process that wrote a file of that name or from a `params` input. |
 | `nextflow.config` | An `errorStrategy = 'terminate'` line and `docker.enabled = true`, with no cluster settings. |
 | `containers/manifest.json` | The tool, version, image, and image digest for each step that ran in a container. An empty list here, because every tool came from a conda environment. |
-| `Snakefile` | The same header, a usage comment `snakemake --cores 8 --use-singularity`, a `rule all` naming the final outputs, and one rule per step with its log under `logs/`. |
-| `config.yaml` | The same file-name keys as the Nextflow parameters, mapped to the recorded paths, plus `outdir: results`. |
+| `Snakefile` | The same header, a usage comment `snakemake --cores 8 --use-singularity`, a `rule all` naming every final output, and one rule per step with its log under `logs/`. A file two steps both recorded, such as a bundle an import wrapper and the tool it ran both wrote, belongs to the earlier rule only, so no two rules claim one output. |
+| `config.yaml` | The same file-name keys as the Nextflow parameters, each once, mapped to the recorded paths, plus `outdir: results`. |
 | `run.sh` | `set -euo pipefail`, one `INPUT_n` variable per input with its SHA-256 checksum, `OUTDIR`, and each command in order with its tool version. |
 | `reproduce.py` | The same in Python, with inputs in an `INPUTS` dictionary keyed by file name. |
 | `methods.md` | A draft marked "This is an automatically-generated draft. Read it before submitting.", a Computational Analysis section naming each successful step's tool and version, a Tool Versions table, an Input Files list with checksums, and a Reproducibility paragraph. |
@@ -167,7 +167,17 @@ The `provenance/` folder is populated. It is what backs any claim you make about
 
 The tool versions and input file names look right, and none reads `unknown`, which is what LGE writes when it never recorded a version. The HG002 result has none.
 
-If the recipient will run a Nextflow or Snakemake export, have it checked by its own engine first. The Nextflow export fails Nextflow's check, which stops at the calls that link the steps, and the Snakemake export fails Snakemake's, which finds two rules claiming the same output. This is a known defect, listed with its workaround in [Known defects in this release](../appendices/troubleshooting.md#known-defects-in-this-release). The Methods Section and Full Provenance targets are ready to use as written. The Shell Script and Python Script targets run once their paths point at files on the recipient's machine.
+If the recipient will run a Nextflow or Snakemake export, have it checked by its own engine first. Three checks need no data and no tools, only the engine, and each should finish without an error.
+
+```bash
+cd "$HOME/Desktop/minimap2-2026-09-25T00-00-00-provenance-nextflow"
+nextflow lint main.nf
+nextflow run main.nf -stub-run
+```
+
+`nextflow lint` reads the pipeline and reports mistakes in how it is written. `-stub-run` runs every process's `stub:` block in place of its command, so it walks the whole chain in order and creates empty output files, which proves the steps are linked correctly without running a tool. For a Snakemake export, `snakemake -n` from its folder is the dry run, and it lists the jobs Snakemake would run and in what order. On a mapping run of the same shape as the demo's, the release candidate's export passed `nextflow lint` with no errors, `-stub-run` completed all ten processes, and `snakemake -n` planned the run.
+
+Passing these checks means the pipeline is well formed, not that it will run as it stands. Each command still names the files and tool locations of the Mac that made it, so a real run needs those paths pointed at the recipient's own copies first, as the Shell Script and Python Script targets do. The Methods Section and Full Provenance targets are ready to use as written.
 
 ## On the command line
 
