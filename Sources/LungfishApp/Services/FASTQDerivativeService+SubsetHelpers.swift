@@ -95,38 +95,23 @@ extension FASTQDerivativeService {
         }
     }
 
-    /// Pair-aware length filtering for interleaved PE data using bbduk.
-    ///
-    /// bbduk with `interleaved=t` removes/keeps both mates as a pair.
-    func runPairedAwareFilter(
-        sourceFASTQ: URL,
-        outputFASTQ: URL,
-        minLength: Int?,
-        maxLength: Int?,
-        provenanceCollector: FASTQDerivativeNativeProvenanceCollector? = nil
+    /// Runs a length filter rendered by ``FASTQLengthFilterPlan``, the plan
+    /// `lungfish-cli fastq length-filter` runs too: bbduk `interleaved=t`
+    /// removes or keeps both mates as a pair, seqkit judges single reads.
+    func runLengthFilterPlan(
+        _ plan: FASTQLengthFilterPlan,
+        provenanceCollector: FASTQDerivativeNativeProvenanceCollector?
     ) async throws {
-        var args = [
-            "in=\(sourceFASTQ.path)",
-            "out=\(outputFASTQ.path)",
-            "interleaved=t",
-        ]
-        if let minLength {
-            args.append("minlen=\(minLength)")
-        }
-        if let maxLength {
-            args.append("maxlen=\(maxLength)")
-        }
-
-        let env = await bbToolsEnvironment()
+        let env = plan.isPairAware ? await bbToolsEnvironment() : nil
         let result = try await runNativeTool(
-            .bbduk,
-            arguments: args,
+            plan.tool,
+            arguments: plan.arguments,
             environment: env,
-            timeout: 1800,
+            timeout: plan.timeout,
             provenanceCollector: provenanceCollector
         )
         guard result.isSuccess else {
-            throw FASTQDerivativeError.invalidOperation("bbduk length filter failed: \(result.stderr)")
+            throw FASTQDerivativeError.invalidOperation("\(plan.tool.executableName) length filter failed: \(result.stderr)")
         }
     }
 

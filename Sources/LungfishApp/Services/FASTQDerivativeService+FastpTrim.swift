@@ -17,68 +17,84 @@ extension FASTQDerivativeService {
         let toolCommand: String
     }
 
+    /// The fastp operation a derivative request asks for, or nil when the
+    /// request is not a fastp trim. The window renders it through
+    /// ``FastpTrimOptions`` exactly as `lungfish-cli fastq trim` and its
+    /// siblings do, which the parity tests assert.
+    static func fastpTrimOperation(
+        for request: FASTQDerivativeRequest,
+        sourceBundleURL: URL
+    ) throws -> FastpTrimOperation? {
+        switch request {
+        case .fastpTrim(let threshold, let windowSize, let mode, let adapterMode, let adapterSequence):
+            return .combined(
+                threshold: threshold,
+                window: windowSize,
+                mode: mode,
+                adapterTrimming: adapterMode != .fastaFile,
+                adapterSequence: adapterMode == .specified ? adapterSequence : nil
+            )
+        case .qualityTrim(let threshold, let windowSize, let mode, _):
+            return .quality(threshold: threshold, window: windowSize, mode: mode)
+        case .adapterTrim(let adapterMode, let sequence, let sequenceR2, let fastaFilename):
+            return try adapterTrimOperation(
+                mode: adapterMode,
+                sequence: sequence,
+                sequenceR2: sequenceR2,
+                fastaFilename: fastaFilename,
+                sourceBundleURL: sourceBundleURL
+            )
+        case .fixedTrim(let from5Prime, let from3Prime):
+            return .fixed(front: from5Prime, tail: from3Prime)
+        default:
+            return nil
+        }
+    }
+
+    private static func adapterTrimOperation(
+        mode: FASTQAdapterMode,
+        sequence: String?,
+        sequenceR2: String?,
+        fastaFilename: String?,
+        sourceBundleURL: URL
+    ) throws -> FastpTrimOperation {
+        switch mode {
+        case .autoDetect:
+            return .adapter(sequence: nil, sequenceR2: nil, adapterFastaPath: nil)
+        case .specified:
+            return .adapter(sequence: sequence, sequenceR2: sequenceR2, adapterFastaPath: nil)
+        case .fastaFile:
+            var fastaPath: String?
+            if let fastaFilename,
+               let fastaURL = try? FASTQBundle.validatedBundleMemberURL(
+                for: fastaFilename,
+                in: sourceBundleURL,
+                field: "adapterTrim.fastaFilename"
+               ) {
+                fastaPath = fastaURL.path
+            }
+            return .adapter(sequence: nil, sequenceR2: nil, adapterFastaPath: fastaPath)
+        }
+    }
+
     func runFastpQualityTrim(
         sourceFASTQ: URL,
         outputFASTQ: URL,
         threshold: Int,
         windowSize: Int,
         mode: FASTQQualityTrimMode,
-        isInterleaved: Bool = false,
+        extraArguments: [String] = [],
+        pairsByName: Bool = false,
         provenanceCollector: FASTQDerivativeNativeProvenanceCollector? = nil
     ) async throws -> FastpResult {
-        // For interleaved PE data, fastp needs separate R1/R2 outputs
-        let r1Output: URL
-        let r2Output: URL?
-        if isInterleaved {
-            r1Output = outputFASTQ.deletingLastPathComponent().appendingPathComponent("fastp_R1.fastq")
-            r2Output = outputFASTQ.deletingLastPathComponent().appendingPathComponent("fastp_R2.fastq")
-        } else {
-            r1Output = outputFASTQ
-            r2Output = nil
-        }
-
-        var args = [
-            "-i", sourceFASTQ.path,
-            "-o", r1Output.path,
-            "-w", String(toolThreadCount),
-            "-W", String(windowSize),
-            "-M", String(threshold),
-            "--disable_adapter_trimming",
-            "--disable_quality_filtering",
-            "--disable_length_filtering",
-            "--json", "/dev/null",
-            "--html", "/dev/null",
-        ]
-        if isInterleaved, let r2 = r2Output {
-            args.append("--interleaved_in")
-            args += ["--out2", r2.path]
-        }
-
-        switch mode {
-        case .cutRight: args.append("--cut_right")
-        case .cutFront: args.append("--cut_front")
-        case .cutTail: args.append("--cut_tail")
-        case .cutBoth:
-            args.append("--cut_front")
-            args.append("--cut_right")
-        }
-
-        let result = try await runNativeTool(.fastp, arguments: args, provenanceCollector: provenanceCollector)
-        guard result.isSuccess else {
-            throw FASTQDerivativeError.invalidOperation("fastp quality trim failed: \(result.stderr)")
-        }
-
-        // Re-interleave R1+R2 into the final output
-        if isInterleaved, let r2 = r2Output {
-            try await reinterleaveFastpOutput(
-                r1: r1Output,
-                r2: r2,
-                output: outputFASTQ,
-                provenanceCollector: provenanceCollector
-            )
-        }
-
-        return FastpResult(toolCommand: "fastp \(args.joined(separator: " "))")
+        try await runFastpTrim(
+            .quality(threshold: threshold, window: windowSize, mode: mode),
+            extraArguments: extraArguments,
+            sourceFASTQ: sourceFASTQ,
+            outputFASTQ: outputFASTQ,
+            pairsByName: pairsByName,
+            provenanceCollector: provenanceCollector
+        )
     }
 
     func runFastpCombinedTrim(
@@ -89,70 +105,22 @@ extension FASTQDerivativeService {
         mode: FASTQQualityTrimMode,
         adapterMode: FASTQAdapterMode,
         adapterSequence: String?,
-        isInterleaved: Bool = false,
+        pairsByName: Bool = false,
         provenanceCollector: FASTQDerivativeNativeProvenanceCollector? = nil
     ) async throws -> FastpResult {
-        let r1Output: URL
-        let r2Output: URL?
-        if isInterleaved {
-            r1Output = outputFASTQ.deletingLastPathComponent().appendingPathComponent("fastp_R1.fastq")
-            r2Output = outputFASTQ.deletingLastPathComponent().appendingPathComponent("fastp_R2.fastq")
-        } else {
-            r1Output = outputFASTQ
-            r2Output = nil
-        }
-
-        var args = [
-            "-i", sourceFASTQ.path,
-            "-o", r1Output.path,
-            "-w", String(toolThreadCount),
-            "-W", String(windowSize),
-            "-M", String(threshold),
-            "--disable_quality_filtering",
-            "--disable_length_filtering",
-            "--json", "/dev/null",
-            "--html", "/dev/null",
-        ]
-        if isInterleaved, let r2 = r2Output {
-            args.append("--interleaved_in")
-            args += ["--out2", r2.path]
-        }
-
-        switch adapterMode {
-        case .autoDetect:
-            break
-        case .specified:
-            if let adapterSequence {
-                args += ["--adapter_sequence", adapterSequence]
-            }
-        case .fastaFile:
-            args.append("--disable_adapter_trimming")
-        }
-
-        switch mode {
-        case .cutRight: args.append("--cut_right")
-        case .cutFront: args.append("--cut_front")
-        case .cutTail: args.append("--cut_tail")
-        case .cutBoth:
-            args.append("--cut_front")
-            args.append("--cut_right")
-        }
-
-        let result = try await runNativeTool(.fastp, arguments: args, provenanceCollector: provenanceCollector)
-        guard result.isSuccess else {
-            throw FASTQDerivativeError.invalidOperation("fastp combined trim failed: \(result.stderr)")
-        }
-
-        if isInterleaved, let r2 = r2Output {
-            try await reinterleaveFastpOutput(
-                r1: r1Output,
-                r2: r2,
-                output: outputFASTQ,
-                provenanceCollector: provenanceCollector
-            )
-        }
-
-        return FastpResult(toolCommand: "fastp \(args.joined(separator: " "))")
+        try await runFastpTrim(
+            .combined(
+                threshold: threshold,
+                window: windowSize,
+                mode: mode,
+                adapterTrimming: adapterMode != .fastaFile,
+                adapterSequence: adapterMode == .specified ? adapterSequence : nil
+            ),
+            sourceFASTQ: sourceFASTQ,
+            outputFASTQ: outputFASTQ,
+            pairsByName: pairsByName,
+            provenanceCollector: provenanceCollector
+        )
     }
 
     func runFastpAdapterTrim(
@@ -163,69 +131,22 @@ extension FASTQDerivativeService {
         sequenceR2: String?,
         fastaFilename: String?,
         sourceBundleURL: URL,
-        isInterleaved: Bool = false,
+        pairsByName: Bool = false,
         provenanceCollector: FASTQDerivativeNativeProvenanceCollector? = nil
     ) async throws -> FastpResult {
-        let r1Output: URL
-        let r2Output: URL?
-        if isInterleaved {
-            r1Output = outputFASTQ.deletingLastPathComponent().appendingPathComponent("fastp_R1.fastq")
-            r2Output = outputFASTQ.deletingLastPathComponent().appendingPathComponent("fastp_R2.fastq")
-        } else {
-            r1Output = outputFASTQ
-            r2Output = nil
-        }
-
-        var args = [
-            "-i", sourceFASTQ.path,
-            "-o", r1Output.path,
-            "-w", String(toolThreadCount),
-            "--disable_quality_filtering",
-            "--disable_length_filtering",
-            "--json", "/dev/null",
-            "--html", "/dev/null",
-        ]
-        if isInterleaved, let r2 = r2Output {
-            args.append("--interleaved_in")
-            args += ["--out2", r2.path]
-        }
-
-        switch mode {
-        case .autoDetect:
-            break // fastp auto-detects by default
-        case .specified:
-            if let sequence {
-                args += ["--adapter_sequence", sequence]
-            }
-            if let sequenceR2 {
-                args += ["--adapter_sequence_r2", sequenceR2]
-            }
-        case .fastaFile:
-            if let fastaFilename,
-               let fastaURL = try? FASTQBundle.validatedBundleMemberURL(
-                for: fastaFilename,
-                in: sourceBundleURL,
-                field: "adapterTrim.fastaFilename"
-               ) {
-                args += ["--adapter_fasta", fastaURL.path]
-            }
-        }
-
-        let result = try await runNativeTool(.fastp, arguments: args, provenanceCollector: provenanceCollector)
-        guard result.isSuccess else {
-            throw FASTQDerivativeError.invalidOperation("fastp adapter trim failed: \(result.stderr)")
-        }
-
-        if isInterleaved, let r2 = r2Output {
-            try await reinterleaveFastpOutput(
-                r1: r1Output,
-                r2: r2,
-                output: outputFASTQ,
-                provenanceCollector: provenanceCollector
-            )
-        }
-
-        return FastpResult(toolCommand: "fastp \(args.joined(separator: " "))")
+        try await runFastpTrim(
+            try Self.adapterTrimOperation(
+                mode: mode,
+                sequence: sequence,
+                sequenceR2: sequenceR2,
+                fastaFilename: fastaFilename,
+                sourceBundleURL: sourceBundleURL
+            ),
+            sourceFASTQ: sourceFASTQ,
+            outputFASTQ: outputFASTQ,
+            pairsByName: pairsByName,
+            provenanceCollector: provenanceCollector
+        )
     }
 
     func runFastpFixedTrim(
@@ -233,56 +154,61 @@ extension FASTQDerivativeService {
         outputFASTQ: URL,
         from5Prime: Int,
         from3Prime: Int,
-        isInterleaved: Bool = false,
+        pairsByName: Bool = false,
         provenanceCollector: FASTQDerivativeNativeProvenanceCollector? = nil
     ) async throws -> FastpResult {
-        let r1Output: URL
-        let r2Output: URL?
-        if isInterleaved {
-            r1Output = outputFASTQ.deletingLastPathComponent().appendingPathComponent("fastp_R1.fastq")
-            r2Output = outputFASTQ.deletingLastPathComponent().appendingPathComponent("fastp_R2.fastq")
-        } else {
-            r1Output = outputFASTQ
-            r2Output = nil
-        }
+        try await runFastpTrim(
+            .fixed(front: from5Prime, tail: from3Prime),
+            sourceFASTQ: sourceFASTQ,
+            outputFASTQ: outputFASTQ,
+            pairsByName: pairsByName,
+            provenanceCollector: provenanceCollector
+        )
+    }
 
-        var args = [
-            "-i", sourceFASTQ.path,
-            "-o", r1Output.path,
-            "-w", String(toolThreadCount),
-            "--disable_adapter_trimming",
-            "--disable_quality_filtering",
-            "--disable_length_filtering",
-            "--json", "/dev/null",
-            "--html", "/dev/null",
-        ]
-        if isInterleaved, let r2 = r2Output {
-            args.append("--interleaved_in")
-            args += ["--out2", r2.path]
-        }
-
-        if from5Prime > 0 {
-            args += ["--trim_front1", String(from5Prime)]
-        }
-        if from3Prime > 0 {
-            args += ["--trim_tail1", String(from3Prime)]
-        }
-
-        let result = try await runNativeTool(.fastp, arguments: args, provenanceCollector: provenanceCollector)
-        guard result.isSuccess else {
-            throw FASTQDerivativeError.invalidOperation("fastp fixed trim failed: \(result.stderr)")
-        }
-
-        if isInterleaved, let r2 = r2Output {
-            try await reinterleaveFastpOutput(
-                r1: r1Output,
-                r2: r2,
-                output: outputFASTQ,
-                provenanceCollector: provenanceCollector
+    /// Runs one fastp trim through ``FastpPairedRunner``, the implementation
+    /// behind `lungfish-cli fastq trim` and its siblings, so the window and
+    /// the CLI keep the same reads: paired input is partitioned by name and
+    /// fastp runs in its paired mode (both mates kept or dropped together,
+    /// read 2 adapters detected), the unpaired reads of a mixed file run
+    /// single-end, and the output is interleaved again. The old
+    /// `--interleaved_in` run kept 90,622 reads on the HG002 fixture where
+    /// the CLI kept 90,556.
+    ///
+    /// - Parameter pairsByName: `true` when adjacent records may be mates
+    ///   (a strictly interleaved or mixed input); every record of the file
+    ///   is then scanned by name before fastp runs.
+    private func runFastpTrim(
+        _ operation: FastpTrimOperation,
+        extraArguments: [String] = [],
+        sourceFASTQ: URL,
+        outputFASTQ: URL,
+        pairsByName: Bool,
+        provenanceCollector: FASTQDerivativeNativeProvenanceCollector?
+    ) async throws -> FastpResult {
+        let plan = try await Task.detached(priority: .utility) {
+            try FastpReadLayoutPlan.resolve(inputURL: sourceFASTQ, pairAware: pairsByName)
+        }.value
+        let options = FastpTrimOptions.options(for: operation, extraArguments: extraArguments)
+        let outcome: FastpPairedRunOutcome
+        do {
+            outcome = try await FastpPairedRunner.run(
+                inputURL: sourceFASTQ,
+                outputPath: outputFASTQ.path,
+                plan: plan,
+                options: options,
+                detectPairedAdapters: operation.detectsPairedAdapters,
+                failureLabel: operation.failureLabel,
+                stepNamePrefix: "lungfish fastq \(operation.subcommandName)",
+                runner: runner,
+                execute: { tool, arguments in
+                    try await self.runNativeTool(tool, arguments: arguments, provenanceCollector: provenanceCollector)
+                }
             )
+        } catch let error as FastpPairedRunError {
+            throw FASTQDerivativeError.invalidOperation(error.message)
         }
-
-        return FastpResult(toolCommand: "fastp \(args.joined(separator: " "))")
+        return FastpResult(toolCommand: "fastp \(outcome.nativeArguments.joined(separator: " "))")
     }
 
     /// Re-interleaves split R1/R2 fastp output back into a single interleaved file

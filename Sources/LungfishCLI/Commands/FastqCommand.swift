@@ -155,35 +155,24 @@ struct FastqTrimSubcommand: AsyncParsableCommand {
         )
     }
 
+    /// The operation the window and this subcommand both render through
+    /// ``FastpTrimOptions``.
+    func trimOperation() throws -> FastpTrimOperation {
+        .combined(
+            threshold: threshold,
+            window: windowSize,
+            mode: try parseQualityTrimMode(mode),
+            adapterTrimming: adapterTrimming,
+            adapterSequence: adapterSequence
+        )
+    }
+
     /// The fastp arguments other than the input and output flags.
     func fastpOptions() throws -> [String] {
-        var args = [
-            "-W", String(windowSize),
-            "-M", String(threshold),
-            "--disable_quality_filtering",
-            "--disable_length_filtering",
-            "--json", "/dev/null",
-            "--html", "/dev/null",
-        ]
-
-        if !adapterTrimming {
-            args.append("--disable_adapter_trimming")
-        } else if let adapterSequence {
-            args += ["--adapter_sequence", adapterSequence]
-        }
-
-        switch mode {
-        case "cut-right": args.append("--cut_right")
-        case "cut-front": args.append("--cut_front")
-        case "cut-tail": args.append("--cut_tail")
-        case "cut-both":
-            args.append("--cut_front")
-            args.append("--cut_right")
-        default:
-            throw ValidationError("Invalid trim mode: \(mode). Use: cut-right, cut-front, cut-tail, cut-both")
-        }
-        args += try AdvancedCommandLineOptions.parse(extraArgs)
-        return args
+        FastpTrimOptions.options(
+            for: try trimOperation(),
+            extraArguments: try AdvancedCommandLineOptions.parse(extraArgs)
+        )
     }
 
     private func writeProvenance(
@@ -287,6 +276,14 @@ func bbToolsEnvironment(runner: NativeToolRunner) async -> [String: String] {
         }
     }
     return env
+}
+
+/// Parses a `--mode` token (`cut-right`, `cut-front`, `cut-tail`, `cut-both`).
+func parseQualityTrimMode(_ token: String) throws -> FASTQQualityTrimMode {
+    guard let mode = FASTQQualityTrimMode(cliToken: token) else {
+        throw ValidationError("Invalid trim mode: \(token). Use: \(FASTQQualityTrimMode.cliTokens.joined(separator: ", "))")
+    }
+    return mode
 }
 
 func validateInput(_ path: String) throws -> URL {
@@ -519,7 +516,22 @@ struct FastqLengthFilterSubcommand: AsyncParsableCommand {
     @Option(name: .customLong("max"), help: "Maximum read length")
     var maxLength: Int?
 
+    @OptionGroup var pairing: FASTQPairingOptions
+
     @OptionGroup var output: OutputOptions
+
+    /// The command this run executes: bbduk `interleaved=t` when the input
+    /// pairs (both mates kept or dropped together), `seqkit seq` for
+    /// single reads. The window's in-process filter renders the same plan.
+    func plan(inputURL: URL, decision: FASTQPairingDecision) -> FASTQLengthFilterPlan {
+        FASTQLengthFilterPlan.make(
+            inputPath: inputURL.path,
+            outputPath: output.output,
+            minLength: minLength,
+            maxLength: maxLength,
+            pairAware: decision.pairAware
+        )
+    }
 
     func run() async throws {
         let inputURL = try validateInput(input)
@@ -534,19 +546,28 @@ struct FastqLengthFilterSubcommand: AsyncParsableCommand {
         }
         let runner = NativeToolRunner.shared
 
-        var args = ["seq"]
-        if let minLength { args += ["-m", String(minLength)] }
-        if let maxLength { args += ["-M", String(maxLength)] }
-        args += [inputURL.path, "-o", output.output]
+        // seqkit seq judges every record alone and orphaned 1,856 mates of
+        // the HG002 fixture. bbduk interleaved=t pairs by position, so only
+        // a strictly interleaved input runs pair-aware (mixed input runs as
+        // single reads, FASTQPairingOptions).
+        let pairingDecision = pairing.resolvePairing(inputURL: inputURL)
+        let plan = plan(inputURL: inputURL, decision: pairingDecision)
 
         let startedAt = Date()
-        let result = try await runner.run(.seqkit, arguments: args)
+        let result: NativeToolResult
+        if plan.isPairAware {
+            let env = await bbToolsEnvironment(runner: runner)
+            result = try await runner.run(plan.tool, arguments: plan.arguments, environment: env, timeout: plan.timeout)
+        } else {
+            result = try await runner.run(plan.tool, arguments: plan.arguments, timeout: plan.timeout)
+        }
         guard result.isSuccess else {
-            throw CLIError.conversionFailed(reason: "seqkit seq failed: \(result.stderr)")
+            throw CLIError.conversionFailed(reason: "\(plan.tool.executableName) length filter failed: \(result.stderr)")
         }
         var cliArguments = ["length-filter"]
         if let minLength { cliArguments += ["--min", String(minLength)] }
         if let maxLength { cliArguments += ["--max", String(maxLength)] }
+        cliArguments += pairing.cliArguments
         cliArguments += [inputURL.path, "--output", output.output]
         if output.force {
             cliArguments.append("--force")
@@ -557,9 +578,9 @@ struct FastqLengthFilterSubcommand: AsyncParsableCommand {
         let outputURL = URL(fileURLWithPath: output.output)
         try await recordFASTQNativeToolProvenance(
             workflowName: "lungfish fastq length-filter",
-            nativeTool: .seqkit,
+            nativeTool: plan.tool,
             cliArguments: cliArguments,
-            nativeArguments: args,
+            nativeArguments: plan.arguments,
             result: result,
             inputURLs: [inputURL],
             outputURLs: [outputURL],
@@ -568,12 +589,19 @@ struct FastqLengthFilterSubcommand: AsyncParsableCommand {
                 "output": .file(outputURL),
                 "min": minLength.map(ParameterValue.integer) ?? .null,
                 "max": maxLength.map(ParameterValue.integer) ?? .null,
+                "pairing": pairing.provenanceValue,
+                "interleaved": .boolean(plan.isPairAware),
+                "readLayout": pairingDecision.readLayoutProvenanceValue,
+                "readLayoutReason": pairingDecision.readLayoutReasonProvenanceValue,
                 "force": .boolean(output.force),
                 "compress": .boolean(output.compress)
             ],
             defaults: [
                 "min": .null,
                 "max": .null,
+                "pairing": FASTQPairingOptions.provenanceDefault,
+                "interleaved": .boolean(false),
+                "readLayout": FASTQPairingOptions.readLayoutProvenanceDefault,
                 "force": .boolean(false),
                 "compress": .boolean(false)
             ],
@@ -714,30 +742,18 @@ struct FastqQualityTrimSubcommand: AsyncParsableCommand {
         )
     }
 
+    /// The operation the window and this subcommand both render through
+    /// ``FastpTrimOptions``.
+    func trimOperation() throws -> FastpTrimOperation {
+        .quality(threshold: threshold, window: windowSize, mode: try parseQualityTrimMode(mode))
+    }
+
     /// The fastp arguments other than the input and output flags.
     func fastpOptions() throws -> [String] {
-        var args = [
-            "-W", String(windowSize),
-            "-M", String(threshold),
-            "--disable_adapter_trimming",
-            "--disable_quality_filtering",
-            "--disable_length_filtering",
-            "--json", "/dev/null",
-            "--html", "/dev/null",
-        ]
-
-        switch mode {
-        case "cut-right": args.append("--cut_right")
-        case "cut-front": args.append("--cut_front")
-        case "cut-tail": args.append("--cut_tail")
-        case "cut-both":
-            args.append("--cut_front")
-            args.append("--cut_right")
-        default:
-            throw ValidationError("Invalid trim mode: \(mode). Use: cut-right, cut-front, cut-tail, cut-both")
-        }
-        args += try AdvancedCommandLineOptions.parse(extraArgs)
-        return args
+        FastpTrimOptions.options(
+            for: try trimOperation(),
+            extraArguments: try AdvancedCommandLineOptions.parse(extraArgs)
+        )
     }
 
     func provenanceRunForTesting(
@@ -852,57 +868,6 @@ func recordFASTQNativeToolProvenance(
         stderr: result.stderr,
         status: result.isSuccess ? .completed : .failed,
         outputDirectory: firstOutputURL.deletingLastPathComponent()
-    )
-}
-
-struct FASTQGzipProvenanceResult {
-    let command: [String]
-    let inputURL: URL
-    let outputURL: URL
-    let exitCode: Int32
-    let wallTime: TimeInterval
-    let stderr: String?
-}
-
-func gzipCompressFASTQ(
-    sourceURL: URL,
-    outputURL: URL,
-    failureDescription: String
-) throws -> FASTQGzipProvenanceResult {
-    if FileManager.default.fileExists(atPath: outputURL.path) {
-        try FileManager.default.removeItem(at: outputURL)
-    }
-    FileManager.default.createFile(atPath: outputURL.path, contents: nil)
-    let outputHandle = try FileHandle(forWritingTo: outputURL)
-    defer { try? outputHandle.close() }
-
-    let process = Process()
-    let command = ["/usr/bin/gzip", "-c", sourceURL.path]
-    let stderrPipe = Pipe()
-    let startedAt = Date()
-    process.executableURL = URL(fileURLWithPath: "/usr/bin/gzip")
-    process.arguments = Array(command.dropFirst())
-    process.standardOutput = outputHandle
-    process.standardError = stderrPipe
-    try process.run()
-    process.waitUntilExit()
-    let stderr = String(
-        decoding: stderrPipe.fileHandleForReading.readDataToEndOfFile(),
-        as: UTF8.self
-    )
-    let wallTime = Date().timeIntervalSince(startedAt)
-    guard process.terminationReason == .exit, process.terminationStatus == 0 else {
-        let detail = stderr.trimmingCharacters(in: .whitespacesAndNewlines)
-        let suffix = detail.isEmpty ? "" : ": \(detail)"
-        throw CLIError.conversionFailed(reason: "gzip failed while compressing \(failureDescription) \(outputURL.path)\(suffix)")
-    }
-    return FASTQGzipProvenanceResult(
-        command: command,
-        inputURL: sourceURL,
-        outputURL: outputURL,
-        exitCode: process.terminationStatus,
-        wallTime: wallTime,
-        stderr: stderr
     )
 }
 
@@ -1366,18 +1331,15 @@ struct FastqAdapterTrimSubcommand: AsyncParsableCommand {
 
     @OptionGroup var output: OutputOptions
 
+    /// The operation the window and this subcommand both render through
+    /// ``FastpTrimOptions``.
+    var trimOperation: FastpTrimOperation {
+        .adapter(sequence: adapterSequence, sequenceR2: nil, adapterFastaPath: nil)
+    }
+
     /// The fastp arguments other than the input and output flags.
     var fastpOptions: [String] {
-        var args = [
-            "--disable_quality_filtering",
-            "--disable_length_filtering",
-            "--json", "/dev/null",
-            "--html", "/dev/null",
-        ]
-        if let adapterSequence {
-            args += ["--adapter_sequence", adapterSequence]
-        }
-        return args
+        FastpTrimOptions.options(for: trimOperation)
     }
 
     func run() async throws {
@@ -1475,17 +1437,14 @@ struct FastqFixedTrimSubcommand: AsyncParsableCommand {
     /// applies `--trim_front1` and `--trim_tail1` to read 2 as well unless
     /// `--trim_front2`/`--trim_tail2` are given, so a paired run trims both
     /// mates alike.
+    /// The operation the window and this subcommand both render through
+    /// ``FastpTrimOptions``.
+    var trimOperation: FastpTrimOperation {
+        .fixed(front: front, tail: tail)
+    }
+
     var fastpOptions: [String] {
-        var args = [
-            "--disable_adapter_trimming",
-            "--disable_quality_filtering",
-            "--disable_length_filtering",
-            "--json", "/dev/null",
-            "--html", "/dev/null",
-        ]
-        if front > 0 { args += ["--trim_front1", String(front)] }
-        if tail > 0 { args += ["--trim_tail1", String(tail)] }
-        return args
+        FastpTrimOptions.options(for: trimOperation)
     }
 
     func run() async throws {
