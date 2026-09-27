@@ -3467,14 +3467,18 @@ public class DatabaseBrowserViewModel: ObservableObject {
             )
         }
 
+        // seqkit 2.13 prints Q20(%) and Q30(%) as whole percents; count the
+        // bases so the cards match Refresh QC Summary.
+        let fractions = try await FASTQQualityFractions.scan(fastqURL)
+        let countedBases = fractions.baseCount == row.sumLen && fractions.baseCount > 0
         return SeqkitSummary(
             numSeqs: row.numSeqs,
             sumLen: row.sumLen,
             minLen: row.minLen,
             avgLen: row.avgLen,
             maxLen: row.maxLen,
-            q20: row.q20Percent ?? 0,
-            q30: row.q30Percent ?? 0,
+            q20: countedBases ? fractions.q20Percentage : row.q20Percent ?? 0,
+            q30: countedBases ? fractions.q30Percentage : row.q30Percent ?? 0,
             avgQual: row.avgQual ?? 0,
             gcPercent: row.gcPercent ?? 0
         )
