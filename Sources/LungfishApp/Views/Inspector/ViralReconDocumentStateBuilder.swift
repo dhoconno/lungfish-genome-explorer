@@ -161,12 +161,12 @@ enum ViralReconDocumentStateBuilder {
         return rows
     }
 
+    /// Labels by the tool that wrote the table, read from its folder, its
+    /// file name, or its header (`ViralReconLineageTool.classify`), since
+    /// viralrecon's Nextclade table is a bare `<sample>.csv` whose name says
+    /// nothing about the tool.
     private static func lineageLabel(for url: URL) -> String {
-        let name = url.lastPathComponent.lowercased()
-        if name.contains("pangolin") { return "Pangolin Lineage" }
-        if name.contains("nextclade") { return "Nextclade Clade" }
-        if name.contains("demix") || name.contains("freyja") { return "Freyja Variant Mix" }
-        return url.lastPathComponent
+        ViralReconLineageTool.classify(url)?.rowLabel ?? url.lastPathComponent
     }
 
     private static func reportLabel(for url: URL) -> String {

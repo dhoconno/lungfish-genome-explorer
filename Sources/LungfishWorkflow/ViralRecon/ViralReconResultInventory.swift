@@ -53,12 +53,19 @@ public struct ViralReconResultInventory: Sendable, Equatable {
         let consensusRoot = "variants/ivar/consensus/bcftools"
         let consensus = existing("\(consensusRoot)/\(sampleName).consensus.fa")
 
+        // The lineage folders hold one table per sample of the whole batch
+        // (`<sample>.pangolin.csv`, Nextclade's bare `<sample>.csv`,
+        // `<sample>.demix.tsv`), so only this sample's tables are taken;
+        // copying the folders wholesale gave every sample every sample's
+        // lineage files.
         var lineage: [URL] = []
         for relative in ["\(consensusRoot)/pangolin", "\(consensusRoot)/nextclade", "variants/freyja/demix"] {
             let directory = resultsDirectory.appendingPathComponent(relative, isDirectory: true)
             let contents = (try? fileManager.contentsOfDirectory(at: directory,
                                                                 includingPropertiesForKeys: nil)) ?? []
-            lineage.append(contentsOf: contents.filter { !$0.hasDirectoryPath })
+            lineage.append(contentsOf: contents.filter {
+                !$0.hasDirectoryPath && fileBelongs(toSample: sampleName, $0)
+            })
         }
 
         var reports: [URL] = []

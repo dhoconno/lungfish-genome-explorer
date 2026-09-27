@@ -207,6 +207,47 @@ final class ViralReconResultIngestTests: XCTestCase {
         XCTAssertEqual(metadata?["isBatch"] as? Bool, true)
     }
 
+    // A two-sample run: each ingested sample gets only its own lineage
+    // tables, and the flat `lineage/` copy of Nextclade's bare `<sample>.csv`
+    // is named after the tool so the Inspector can still label it.
+    func testBatchLineageFilesAreCopiedPerSampleAndNamedByTool() throws {
+        let consensusRoot = "variants/ivar/consensus/bcftools"
+        for relative in ["variants/bowtie2/S2.sorted.bam",
+                         "\(consensusRoot)/S2.consensus.fa",
+                         "\(consensusRoot)/pangolin/S1.pangolin.csv",
+                         "\(consensusRoot)/pangolin/S2.pangolin.csv",
+                         "\(consensusRoot)/nextclade/S1.csv",
+                         "\(consensusRoot)/nextclade/S2.csv"] {
+            let url = results.appendingPathComponent(relative)
+            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
+                                                    withIntermediateDirectories: true)
+            try Data().write(to: url)
+        }
+        let project = root.appendingPathComponent("P4.lungfish", isDirectory: true)
+        try FileManager.default.createDirectory(at: project, withIntermediateDirectories: true)
+
+        let ingested = try ViralReconResultIngest.ingestBatch(
+            resultsDirectory: results,
+            sampleNames: ["S1", "S2"],
+            referenceBundleURL: referenceBundle,
+            projectURL: project)
+
+        XCTAssertEqual(ingested.count, 2)
+        for entry in ingested {
+            let sample = entry.inventory.sampleName
+            XCTAssertEqual(
+                entry.inventory.lineageFiles.map(\.lastPathComponent).sorted(),
+                ["\(sample).csv", "\(sample).pangolin.csv"],
+                "\(sample) should see only its own lineage tables"
+            )
+            let copied = try FileManager.default.contentsOfDirectory(
+                at: entry.bundleDirectory.appendingPathComponent("lineage", isDirectory: true),
+                includingPropertiesForKeys: nil
+            ).map(\.lastPathComponent).sorted()
+            XCTAssertEqual(copied, ["\(sample).nextclade.csv", "\(sample).pangolin.csv"])
+        }
+    }
+
     func testEachBatchSampleFindsItsOwnOutputs() throws {
         let project = root.appendingPathComponent("P3.lungfish", isDirectory: true)
         try FileManager.default.createDirectory(at: project, withIntermediateDirectories: true)
