@@ -42,8 +42,10 @@ the fixture README).
    regions, the human mitochondrial genome and reads, and a human gene
    GenBank record.
 2. **Rhesus macaque.** The lab's own MiSeq amplicon genotyping project, kept
-   outside the repo as a demo asset under `~/Desktop/lge-docs`. A
-   genotyping-only example, with a haplotyping placeholder.
+   outside the repo as a demo asset under `~/Desktop/lge-docs`, as the
+   "at scale" genotyping-only example. The reproducible genotyping and
+   haplotyping example is `mhc-simulated/` (cynomolgus macaque alleles from
+   public INSDC records, with a small MCM haplotype definition set).
 3. **Primate comparative.** Mitochondrial genomes of human, chimpanzee,
    gorilla, rhesus, and cynomolgus macaque, for the alignment and tree
    chapters.
@@ -57,6 +59,19 @@ the fixture README).
 supports the mapping, alignment-reading, variant-calling, and
 variant-browser chapters with a 500 kb GRCh38 chromosome 20 slice, matching
 HG002 Illumina reads, and the GIAB benchmark VCF over that slice.
+
+`giab-trio-chr20/` extends `hg002-chr20/` to the GIAB Ashkenazi family. It
+holds HG003 (father) and HG004 (mother) Illumina reads over the same 500 kb
+chromosome 20 slice, sliced the same way from the same GIAB BAMs, with their
+GIAB benchmark VCFs, so the joint-genotyping chapter can genotype a real
+three-sample trio. Its four FASTQ files live in the pinned manual-media repo
+like `hg002-chr20/`'s; the benchmarks and scripts are committed.
+
+`mhc-simulated/` also carries `mhc-simulated-mcm-teaching.lungfishhaplotypedef.json`,
+a three-region MCM haplotype definition set limited to the fixture's three
+alleles, each assigned to the haplotype its public INSDC record names. The
+MHC Genotyping demo project ships it as a `.lungfishmhcref` bundle so the
+genotyping chapters can run deterministic haplotyping.
 
 `human-mito/` is the human tier's assembly fixture. It pairs the rCRS human
 mitochondrial reference with HG002 reads sliced to chrM, and supports the

@@ -8,9 +8,13 @@ This is a demo project for Lungfish Genome Explorer (LGE), version {{VERSION}}. 
 | --- | --- |
 | `Imports/SIMULATED-MHC-A-pairs.lungfishfastq` | Simulated sample A, 204 read pairs imported as interleaved mates |
 | `Imports/SIMULATED-MHC-B-pairs.lungfishfastq` | Simulated sample B, 172 read pairs imported as interleaved mates |
-| `Reference Sequences/SIMULATED-MHC-annotated-reference.lungfishref` | The three-allele library, with gene and allele names on each record, the reference the genotyping dialog lists |
+| `Reference Sequences/SIMULATED-MHC-annotated-reference.lungfishref` | The three-allele library, with gene and allele names on each record, the reference the genotyping dialog lists for a genotyping-only run |
+| `Reference allele databases/SIMULATED-MHC-MCM-teaching.lungfishmhcref` | The same three alleles bundled with a small MCM haplotype definition set (M4 at MHC-A, M7 at MHC-DR, M1 at MHC-DP), the reference to pick for a Deterministic haplotyping run |
+| `Haplotype Definitions/mhc-simulated-mcm-teaching.lungfishhaplotypedef.json` | The definition set as a bare JSON file, the form the Haplotype Definitions window imports and exports |
 
 Each bundle holds one sample, which is the rule that keeps samples apart in a genotyping run.
+
+The haplotype definition set is a teaching set. It knows one haplotype per region because the reference holds one allele per region, so every call it makes has the homozygous shape, and it is not a definition of the MCM M1 to M7 haplotypes. Each allele's haplotype comes from the `/haplotype` qualifier of its own public INSDC record (OR823640 M4, OR823568 M7, OR823525 M1, Karl, Prall, Wiseman and O'Connor, submitted 2023).
 
 ## Where the data came from
 

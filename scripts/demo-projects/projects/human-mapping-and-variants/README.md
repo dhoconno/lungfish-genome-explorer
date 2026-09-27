@@ -10,12 +10,16 @@ This is a demo project for Lungfish Genome Explorer (LGE), version {{VERSION}}. 
 | `Reference Sequences/GRCh38.chr20.10.0-10.5Mb.lungfishref` | The matching 500,001-base slice of GRCh38 chromosome 20 as a reference bundle, the reference the mapper reads |
 | `Practice Data/hg002-chr20/GRCh38.chr20.10.0-10.5Mb.fasta` | The same reference as a plain FASTA with its `.fai` index, for the GATK chapters that run in Terminal |
 | `Practice Data/hg002-chr20/HG002.chr20.10.0-10.5Mb.benchmark.vcf.gz` | The GIAB benchmark variant calls over the slice with their `.tbi` index, for Importing Existing VCFs and the GATK chapters |
+| `Imports/HG003.chr20.10.0-10.5Mb.lungfishfastq` | HG003, the father, over the same slice, 40,797 pairs (81,594 reads), for Joint Genotyping |
+| `Imports/HG004.chr20.10.0-10.5Mb.lungfishfastq` | HG004, the mother, over the same slice, 44,856 pairs (89,712 reads), for Joint Genotyping |
+| `Practice Data/giab-trio-chr20/HG003.chr20.10.0-10.5Mb.benchmark.vcf.gz` | The GIAB benchmark calls for HG003 over the slice, with `.tbi`, 1,090 records |
+| `Practice Data/giab-trio-chr20/HG004.chr20.10.0-10.5Mb.benchmark.vcf.gz` | The GIAB benchmark calls for HG004 over the slice, with `.tbi`, 939 records |
 
-The reference slice's sequence is named `chr20_10.0-10.5Mb`, and its coordinates run from 1 to 500,001. The benchmark VCF was shifted to the same coordinates, so it lines up with the slice without any conversion.
+The reference slice's sequence is named `chr20_10.0-10.5Mb`, and its coordinates run from 1 to 500,001. All three benchmark VCFs were shifted to the same coordinates, so they line up with the slice without any conversion.
 
 ## Where the data came from
 
-The reads come from HG002 (NA24385), the Genome in a Bottle (GIAB) Ashkenazi son, sliced from the NIST/GIAB 2x250 PCR-free alignment of HG002 against GRCh38 over `chr20:10,000,000-10,500,000`. The reference is that stretch of UCSC hg38 chromosome 20, whose sequence is identical to GRCh38. The benchmark calls are the GIAB NISTv4.2.1 small-variant benchmark for HG002 against GRCh38, cut to the same stretch.
+The reads come from the Genome in a Bottle (GIAB) Ashkenazi trio, HG002 (NA24385, the son), HG003 (NA24149, the father) and HG004 (NA24143, the mother), sliced from the NIST/GIAB 2x250 PCR-free alignments of each against GRCh38 over `chr20:10,000,000-10,500,000` and downsampled the same way (65 percent of pairs, seed 42). The reference is that stretch of UCSC hg38 chromosome 20, whose sequence is identical to GRCh38. The benchmark calls are the GIAB NISTv4.2.1 small-variant benchmarks for each of the three against GRCh38, cut to the same stretch.
 
 GIAB reference materials are U.S. government work in the public domain, and the UCSC hg38 download is freely redistributable. Check your local rules before redistributing these files elsewhere. Cite Zook and colleagues (2019), An open resource for accurately benchmarking small variant and reference calls, Nature Biotechnology 37, 561 to 566, https://doi.org/10.1038/s41587-019-0074-6.
 

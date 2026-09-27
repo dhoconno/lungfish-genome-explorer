@@ -1,0 +1,6 @@
+# Scratch downloads and intermediate BAMs from fetch.sh.
+cache/
+
+# The four FASTQ files (34 MB together) live in the pinned manual-media repo,
+# like hg002-chr20/. fetch-media.sh places them back here.
+*.fastq.gz

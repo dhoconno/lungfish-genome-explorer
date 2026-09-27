@@ -1,0 +1,51 @@
+{
+  "id": "mhc-simulated-mcm-teaching",
+  "assayID": "SIMULATED-MHC-three-amplicon",
+  "displayName": "MCM haplotypes for the mhc-simulated reference (teaching set)",
+  "speciesName": "Mauritian cynomolgus macaque",
+  "speciesCode": "MCM",
+  "prefix": "MHC",
+  "schemaVersion": 1,
+  "changeNote": "Teaching set limited to the three alleles in SIMULATED-MHC-reference. Each allele's haplotype is the /haplotype qualifier of its public INSDC record (OR823640 M4, OR823568 M7, OR823525 M1; Karl, Prall, Wiseman, O'Connor, MCM MHC region pangenome, submitted 2023-11-15). See README.md.",
+  "locusDefinitions": [
+    {
+      "locus": "MHC-A",
+      "sourceLocus": "Mafa-A",
+      "haplotypes": [
+        {
+          "name": "M4",
+          "diagnosticAlleles": ["Mafa-G_02:31:01:01"],
+          "primaryAlleles": ["Mafa-G_02:31:01:01"],
+          "evidenceWeights": {"Mafa-G_02:31:01:01": 1},
+          "minimumMatches": 1
+        }
+      ]
+    },
+    {
+      "locus": "MHC-DR",
+      "sourceLocus": "MHC-DRB",
+      "haplotypes": [
+        {
+          "name": "M7",
+          "diagnosticAlleles": ["Mafa-DRB_W001:03:01:01"],
+          "primaryAlleles": ["Mafa-DRB_W001:03:01:01"],
+          "evidenceWeights": {"Mafa-DRB_W001:03:01:01": 1},
+          "minimumMatches": 1
+        }
+      ]
+    },
+    {
+      "locus": "MHC-DP",
+      "sourceLocus": "MHC-DP",
+      "haplotypes": [
+        {
+          "name": "M1",
+          "diagnosticAlleles": ["Mafa-DPA1_07:02:01:01"],
+          "primaryAlleles": ["Mafa-DPA1_07:02:01:01"],
+          "evidenceWeights": {"Mafa-DPA1_07:02:01:01": 1},
+          "minimumMatches": 1
+        }
+      ]
+    }
+  ]
+}

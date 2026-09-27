@@ -92,6 +92,14 @@ STRIP_SUFFIXES = (".lock",)
 #   ("sra", accession, platform)              SRA route: fetch sra download, then import fastq
 #   ("reference", source)                     lungfish-cli import fasta
 #   ("practice", source, dest)                copy into Practice Data/<dest>
+#   ("mhc-reference-bundle", definition, fasta, name)
+#                                             lungfish-cli haplotypes import (the bare
+#                                             definition lands in Haplotype Definitions/),
+#                                             then bundle-create + bundle-install, which
+#                                             puts <name>.lungfishmhcref under
+#                                             Reference allele databases/. The genotyping
+#                                             dialog and the pipeline read definitions only
+#                                             from .lungfishmhcref bundles.
 # ---------------------------------------------------------------------------
 
 PROJECTS: dict[str, dict] = {
@@ -141,7 +149,7 @@ PROJECTS: dict[str, dict] = {
     "human-mapping-and-variants": {
         "title": "Human Mapping and Variants",
         "folder": "Human Mapping and Variants.lungfish",
-        "summary": "HG002 reads and the matching 500 kb GRCh38 chromosome 20 reference bundle, with the GIAB benchmark VCF, ready for mapping, variant calling, and the GATK chapters.",
+        "summary": "HG002 reads and the matching 500 kb GRCh38 chromosome 20 reference bundle, with the GIAB benchmark VCF and the parents HG003 and HG004 over the same slice, ready for mapping, variant calling, and the GATK chapters including joint genotyping of the trio.",
         "chapters": [
             "01-foundations/04-alignment-files",
             "01-foundations/05-variants-and-vcf",
@@ -165,6 +173,15 @@ PROJECTS: dict[str, dict] = {
             ("practice", "fx:hg002-chr20/GRCh38.chr20.10.0-10.5Mb.fasta.fai", "hg002-chr20/GRCh38.chr20.10.0-10.5Mb.fasta.fai"),
             ("practice", "fx:hg002-chr20/HG002.chr20.10.0-10.5Mb.benchmark.vcf.gz", "hg002-chr20/HG002.chr20.10.0-10.5Mb.benchmark.vcf.gz"),
             ("practice", "fx:hg002-chr20/HG002.chr20.10.0-10.5Mb.benchmark.vcf.gz.tbi", "hg002-chr20/HG002.chr20.10.0-10.5Mb.benchmark.vcf.gz.tbi"),
+            # The GIAB parents over the same slice, for the joint-genotyping chapter.
+            ("reads", ["fx:giab-trio-chr20/HG003.chr20.10.0-10.5Mb_R1.fastq.gz",
+                       "fx:giab-trio-chr20/HG003.chr20.10.0-10.5Mb_R2.fastq.gz"], "illumina", "paired"),
+            ("reads", ["fx:giab-trio-chr20/HG004.chr20.10.0-10.5Mb_R1.fastq.gz",
+                       "fx:giab-trio-chr20/HG004.chr20.10.0-10.5Mb_R2.fastq.gz"], "illumina", "paired"),
+            ("practice", "fx:giab-trio-chr20/HG003.chr20.10.0-10.5Mb.benchmark.vcf.gz", "giab-trio-chr20/HG003.chr20.10.0-10.5Mb.benchmark.vcf.gz"),
+            ("practice", "fx:giab-trio-chr20/HG003.chr20.10.0-10.5Mb.benchmark.vcf.gz.tbi", "giab-trio-chr20/HG003.chr20.10.0-10.5Mb.benchmark.vcf.gz.tbi"),
+            ("practice", "fx:giab-trio-chr20/HG004.chr20.10.0-10.5Mb.benchmark.vcf.gz", "giab-trio-chr20/HG004.chr20.10.0-10.5Mb.benchmark.vcf.gz"),
+            ("practice", "fx:giab-trio-chr20/HG004.chr20.10.0-10.5Mb.benchmark.vcf.gz.tbi", "giab-trio-chr20/HG004.chr20.10.0-10.5Mb.benchmark.vcf.gz.tbi"),
         ],
     },
     "long-reads-and-assembly": {
@@ -230,7 +247,7 @@ PROJECTS: dict[str, dict] = {
     "mhc-genotyping": {
         "title": "MHC Genotyping",
         "folder": "MHC Genotyping.lungfish",
-        "summary": "Two simulated macaque MHC amplicon samples and a three-allele annotated reference, ready for amplicon genotyping and export.",
+        "summary": "Two simulated macaque MHC amplicon samples, a three-allele annotated reference, and a small MCM haplotype definition bundle, ready for amplicon genotyping, haplotyping, and export.",
         "chapters": [
             "09-genotyping/01-what-is-mhc-genotyping",
             "09-genotyping/02-running-genotyping",
@@ -241,6 +258,8 @@ PROJECTS: dict[str, dict] = {
             ("reads", ["fx:mhc-simulated/SIMULATED-MHC-A-pairs.fastq"], "illumina", "interleaved"),
             ("reads", ["fx:mhc-simulated/SIMULATED-MHC-B-pairs.fastq"], "illumina", "interleaved"),
             ("reference", "fx:mhc-simulated/SIMULATED-MHC-annotated-reference.gb"),
+            ("mhc-reference-bundle", "fx:mhc-simulated/mhc-simulated-mcm-teaching.lungfishhaplotypedef.json",
+             "fx:mhc-simulated/SIMULATED-MHC-reference.fasta", "SIMULATED-MHC-MCM-teaching"),
         ],
     },
     "primer-design": {
@@ -294,7 +313,7 @@ def resolve_source(spec: str) -> pathlib.Path:
     path = base / rel
     if not path.is_file():
         hint = ""
-        if "hg002-" in rel:
+        if "hg002-" in rel or "giab-trio-" in rel:
             hint = " Run `bash docs/user-manual/build/scripts/fetch-media.sh` first."
         raise BuildError(f"missing fixture file {path}.{hint}")
     return path
@@ -444,6 +463,27 @@ def build_project(pid: str, args, runner: Runner, project_dir: pathlib.Path, sta
             out.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(src, out)
             log(f"== practice file {dest}")
+        elif kind == "mhc-reference-bundle":
+            _, definition, fasta, name = step
+            src = resolve_source(definition)
+            dst = staging / fixture_name(definition) / src.name
+            link_or_copy(src, dst)
+            fasta_src = resolve_source(fasta)
+            fasta_dst = staging / fixture_name(fasta) / fasta_src.name
+            link_or_copy(fasta_src, fasta_dst)
+            definition_set = json.loads(src.read_text())
+            log(f"== haplotype definition {src.name} -> {name}.lungfishmhcref")
+            runner.run(["haplotypes", "import", dst, "--project", project_dir,
+                        "--change-note", f"Definition set shipped with the {spec['title']} demo project"],
+                       f"haplotype-definition-{src.name}")
+            bundle = staging / fixture_name(definition) / f"{name}.lungfishmhcref"
+            runner.run(["haplotypes", "bundle-create", "--definition", definition_set["id"],
+                        "--assay", definition_set["assayID"], "--species", definition_set["speciesCode"],
+                        "--reference-fasta", fasta_dst, "--output", bundle, "--name", name,
+                        "--default-definition", definition_set["id"], "--project", project_dir, "--force"],
+                       f"mhc-bundle-create-{name}")
+            runner.run(["haplotypes", "bundle-install", bundle, "--project", project_dir],
+                       f"mhc-bundle-install-{name}")
         else:
             raise BuildError(f"unknown step kind {kind}")
 
@@ -714,6 +754,26 @@ def chapter_operation(pid: str, project: pathlib.Path, outputs: pathlib.Path, ru
             expected = sorted([("A", 120), ("A", 80), ("A", 4), ("B", 12), ("B", 60), ("B", 100)])
             check("09-genotyping/02 same run on the bundle's sequences as FASTA", r.returncode == 0 and counts == expected,
                   str(counts))
+        # Deterministic haplotyping against the shipped .lungfishmhcref bundle.
+        # No --project here: with one, the pipeline binds its work directory to
+        # the project and refuses an output folder outside it.
+        mhcref = project / "Reference allele databases/SIMULATED-MHC-MCM-teaching.lungfishmhcref"
+        result = outputs / "SIMULATED-MHC-haplotypes.lungfishgenotype"
+        r = runner.run(["fastq", "genotype-cohort", *bundles, "--reference", mhcref,
+                        "--mode", "illumina-paired", "--read-type", "illumina", "--output-dir", result,
+                        "--output-name", "SIMULATED-MHC-haplotypes", "--threads", "2", "--min-support", "1"],
+                       "genotype-cohort-haplotypes", check=False)
+        analysis = result / "SIMULATED-MHC-haplotypes.haplotype-analysis.json"
+        calls = []
+        if analysis.exists():
+            for sample in json.loads(analysis.read_text()).get("samples", []):
+                for call in sample.get("calls", []):
+                    calls.append((sample["sample"].replace("SIMULATED-MHC-", "").replace("-pairs", ""),
+                                  call["locus"], call["haplotype1"], call["haplotype2"]))
+        expected_calls = sorted([(s, locus, hap, "-") for s in ("A", "B")
+                                 for locus, hap in (("MHC-A", "M4"), ("MHC-DR", "M7"), ("MHC-DP", "M1"))])
+        check("09-genotyping/02 deterministic haplotyping with the shipped MCM teaching bundle",
+              r.returncode == 0 and sorted(calls) == expected_calls, str(sorted(calls)))
     elif pid == "twelve-s-metabarcoding":
         bundle = project / "Imports/HG002-12S-oriented.lungfishfastq"
         payload = next(bundle.glob("*.fastq.gz"))
