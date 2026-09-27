@@ -29,13 +29,13 @@ GIAB reference materials and NCBI records are U.S. government work in the public
 
 {{CHAPTERS}}
 
-Extracting Contigs starts from an assembly, so run MEGAHIT or SPAdes as Running SPAdes shows first.
+Extracting Contigs starts from an assembly, so run SPAdes as Short-Read Assembly (SPAdes, MEGAHIT, SKESA) shows, or Flye as Long-Read Assembly (Flye, hifiasm) shows, first.
 
 ## A first step to try
 
 1. Open this project with **File > Open Project Folder...**.
 2. Click `HG002.chrM` under `Imports` in the sidebar to select it.
-3. Choose **Tools > Assembly > SPAdes...** and carry on with Running SPAdes from its procedure. The run takes well under a minute.
+3. Choose **Tools > Assembly > SPAdes...** and carry on with the procedure of Short-Read Assembly (SPAdes, MEGAHIT, SKESA). The run takes well under a minute.
 
 ## Before you run anything
 

@@ -559,9 +559,13 @@ features:
       Marks PCR duplicates with samtools markdup. In a bundle the marking is
       non-destructive: originals stay as "<name> [unmarked]" and marked
       copies are added as "<name> [dup-marked]" under alignments/marked/, and
-      a second run is refused. The standalone markdup command still rewrites
-      its input BAM. deduplicate-alignments writes a new bundle with the
-      duplicates removed. Chapter: 04-alignments/04.
+      a second run is refused. The Inspector run posts an Operations Panel
+      row, honours the bundle lock, and can be cancelled. The standalone
+      markdup and bam markdup commands are non-destructive too, writing
+      <name>.markdup.bam and its .bai beside the input unless --output names
+      another path, and only --in-place overwrites the input, with a
+      warning. deduplicate-alignments writes a new bundle with the duplicates
+      removed. Chapter: 04-alignments/04.
   bam.extract-reads:
     title: Extract reads by region
     entry_points:
@@ -989,7 +993,39 @@ features:
     notes: >-
       Adds column annotations, builds consensus sequences, extracts rows and
       columns, creates masked or trimmed derivatives, and computes identity or
-      p-distance matrices.
+      p-distance matrices. The MSA Inspector's Pairwise Identity section shows
+      the identity matrix as a sortable table with Copy TSV and Export TSV,
+      running msa distance behind the scenes.
+  msa.inspection.discriminating-sites:
+    title: Find discriminating sites in an alignment
+    entry_points:
+      - "Inspector > Discriminating Sites > Find Discriminating Sites"
+      - "CLI: lungfish msa discriminating-sites"
+    inputs: [lungfishmsa, lungfishref, fasta]
+    outputs: [tsv, json]
+    viewport_class: sequence
+    sources:
+      - Sources/LungfishApp/Views/Inspector/Sections/MultipleSequenceAlignmentDocumentSection.swift
+      - Sources/LungfishApp/Views/Inspector/Sections/MSADiscriminatingSitesInspectorModel.swift
+      - Sources/LungfishApp/Views/Inspector/InspectorViewController+MSADiscriminatingSites.swift
+      - Sources/LungfishApp/Services/MSADiscriminatingSitesRequest.swift
+      - Sources/LungfishWorkflow/MSA/DiscriminatingSitesAnalysis.swift
+      - Sources/LungfishWorkflow/MSA/DiscriminatingSitesExclusionAligner.swift
+      - Sources/LungfishWorkflow/MSA/DiscriminatingSitesReportFormatter.swift
+      - Sources/LungfishCLI/Commands/MSADiscriminatingSitesSubcommand.swift
+    notes: >-
+      Finds alignment columns where every target row differs from every
+      exclusion sequence, with gaps and IUPAC codes counted as no-call.
+      Exclusions come from rows in the alignment or from sequences in a file
+      or bundle ("Choose..." / "Choose File..."), and each row gets a role of
+      Target, Exclusion, or Skip. Controls include Template ("First target"),
+      Target mismatch tolerance (0), Window length (bp) (25), and Exclusions
+      that must differ (blank = All). Results are a site table and a
+      Candidate windows table with Copy TSV, Export TSV..., and Export
+      JSON..., and "Highlight in viewport" marks the columns and labels the
+      gutter "Target · name" / "Exclusion · name". With file-based
+      exclusions the viewport draws only the alignment's rows and names the
+      exclusions in the toolbar legend. Chapter: 10-primer-design/04.
   tree.infer:
     title: Infer phylogenetic trees
     entry_points:

@@ -48,22 +48,24 @@ The four lineage alleles belong to one lineage but are three distinct proteins.
 while `*001:05` and `*001:06` differ from them at the second field, which marks an amino acid
 change.
 
-The exclusion set covers every Mamu-A gene with a full-length genomic record in ENA. Mamu-A5 has none, and the number of Mamu-B genes differs between haplotypes, so one Mamu-B allele stands in for them.
-The exclusion set is a teaching subset. A real one would hold every allele of the A2 to A7
-genes seen in the colony and alleles from each of the several Mamu-B genes a haplotype can
-carry, so it is larger still.
+The exclusion paralogs are a teaching subset. The set holds one allele each of Mamu-A2, A3,
+A4 and A6, two of Mamu-A7, and a single Mamu-B allele standing in for the Mamu-B genes. A real
+exclusion set would add Mamu-A5, more Mamu-A6 alleles, and alleles from each of the several
+Mamu-B loci a haplotype can carry, together with every allele of these genes seen in the
+colony, so it is larger still.
 
-The panel takes one allele from each lineage, apart from the two *001 records, chosen for
-breadth across lineages rather than to match how often any colony carries them. Twelve
+The panel holds 12 alleles from 11 lineages, one allele from each lineage apart from the two
+`*001:01` records, chosen for breadth across lineages rather than to match how often any
+colony carries them. Twelve
 alleles is a teaching size. A working laboratory scheme would include every allele seen in
 the colony and published alleles from the same population of origin.
 
 ## Licence and attribution
 
 INSDC records are freely available under the ENA terms of use
-(https://www.ebi.ac.uk/about/terms-of-use). Allele names follow the IPD-MHC NHP nomenclature;
-cite IPD-MHC as the nomenclature authority (Maccari et al. 2017, Nucleic Acids Research,
-doi:10.1093/nar/gkw1050).
+(https://www.ebi.ac.uk/about/terms-of-use). Allele names follow the IPD-MHC NHP nomenclature.
+Cite IPD-MHC as the nomenclature authority (Maccari et al. 2017, Nucleic Acids Research,
+https://doi.org/10.1093/nar/gkw1050).
 
 ## Reproduce
 

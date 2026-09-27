@@ -33,7 +33,7 @@ Three facts decide whether a shortcut does anything at all, and reading them fir
 
 A shortcut acts on the window that has focus. Focus means the window or pane you clicked most recently, so clicking a sequence display and then pressing an arrow key moves that display rather than the sidebar beside it. Every table below states the window or pane that must have focus before its rows work.
 
-A greyed menu item is disabled, and its shortcut does nothing until the item is enabled. Nothing happens and no message appears. LGE greys items out on purpose whenever the command has nothing to act on, so **Zoom Reset (10kb)** is disabled until a sequence is on screen and **Cancel All Operations** is disabled until something is running.
+A greyed menu item is disabled, and its shortcut does nothing until the item is enabled. Nothing happens and no message appears. LGE greys items out on purpose whenever the command has nothing to act on, so the four zoom commands are disabled until a sequence or an alignment is on screen and **Cancel All Operations** is disabled until something is running.
 
 One part of the Tools menu is gated further. A Genotyping tool shows "(not enabled)" after its name, in grey, until you turn it on in the [Workflow Library](../../GLOSSARY.md#workflow-library). Choosing it, or pressing its shortcut, asks whether to open the Workflow Library rather than starting the tool, as [Turning on a specialized workflow](../01-foundations/07-plugin-packs.md#turning-on-a-specialized-workflow) shows.
 
@@ -110,7 +110,7 @@ The panels that frame the main viewport, plus the zoom commands. These need a pr
 
 The Sidebar and Inspector rows change their own titles as you use them. When the panel is showing, the menu reads **Hide Sidebar** or **Hide Inspector** instead, and the same shortcut does the hiding. The shortcut never changes.
 
-The four zoom commands act on the viewport. **Zoom Reset (10kb)** is greyed out whenever no sequence, alignment, or assembly display is open. The other three stay available but do nothing when no such display is open.
+The four zoom commands act on the viewport. All four are greyed out whenever nothing zoomable is on screen, meaning no sequence display and no multiple sequence alignment, such as while a read bundle or a classifier result is selected. In the taxonomy sunburst, **Zoom to Fit** returns to the full chart, as [Inside a classifier result window](#inside-a-classifier-result-window) describes.
 
 | Action | Shortcut | Origin |
 |---|---|---|
@@ -175,6 +175,15 @@ This row works whenever a project window is in front.
 
 The Plugin Manager installs and removes [plugin packs](../../GLOSSARY.md#plugin-pack). B is not a mnemonic.
 
+The **Genotype Review** submenu of the Tools menu holds four more. They act on the genotype result window described in [Inside the genotype result window](#inside-the-genotype-result-window), and they stay greyed out until a sample is selected there.
+
+| Action | Shortcut | Origin |
+|---|---|---|
+| Mark Sample Reviewed | Cmd-R | LGE's own |
+| Mark Sample Confirmed | Cmd-K | LGE's own |
+| Flag Sample for Review | Cmd-Shift-F | LGE's own |
+| Sample Detail… | Cmd-Shift-O | LGE's own |
+
 Nothing else in the Tools menu has a shortcut, including **Call Variants...**, **Workflow Library...**, **Haplotype Definitions...**, the **Search Online Databases** submenu, and every individual tool.
 
 ## Operations menu
@@ -234,13 +243,15 @@ A multiple sequence alignment, meaning several sequences stacked so that matchin
 
 ## Inside the genotype result window
 
-The genotype result window shows the alleles LGE [called](../../GLOSSARY.md#call) for each sample. With its quick filter search field focused, Escape clears the field.
+The genotype result window shows the alleles LGE [called](../../GLOSSARY.md#call) for each sample. Cmd-F, which is **Edit > Find...**, moves the cursor into its quick filter search field, and with that field focused, Escape clears it.
 
-The comparison matrix inside that window, where each cell is one allele in one sample, takes four shortcuts, all of them holding Cmd and Opt together. Click a cell first. Cmd-Opt-P marks the selected cell a false positive, Cmd-Opt-N marks it a false negative, Cmd-Opt-R clears the review mark, and Cmd-Opt-M adds or edits a comment on the selection. These four also appear on the matrix's right-click menu.
+The four **Genotype Review** commands in the Tools menu work once a sample is selected in the window's Review lens, or a call is selected in a MiSeq result, and stay greyed out otherwise. Cmd-R marks the sample reviewed, Cmd-K marks it confirmed, Cmd-Shift-F flags it for review, and Cmd-Shift-O opens its Sample Detail sheet.
+
+The comparison matrix inside that window, where each cell is one allele in one sample, takes four shortcuts, all of them holding Cmd and Opt together. They work only while the matrix has keyboard focus, so click a cell first. Cmd-Opt-P marks the selected cell a false positive, Cmd-Opt-X marks it a false negative, Cmd-Opt-R clears the review mark, and Cmd-Opt-M adds or edits a comment on the selection. These four also appear on the matrix's right-click menu.
 
 ## Inside a classifier result window
 
-The TaxTriage sample shortcuts live in the View menu, listed above. In the taxonomy sunburst, the circular chart of nested organism groups, Escape steps back up one level, from the group you zoomed into to the broader group around it, and Cmd-0 returns to the full chart in one press. Click the chart first.
+The TaxTriage sample shortcuts live in the View menu, listed above. In the taxonomy sunburst, the circular chart of nested organism groups, Escape steps back up one level, from the group you zoomed into to the broader group around it, and Cmd-0 returns to the full chart in one press. Cmd-0 there is **View > Zoom to Fit**, which LGE hands to the chart. Click the chart first.
 
 ## Inside the sidebar
 
@@ -299,7 +310,7 @@ Sorted by the final key, letters and numbers first in alphabetical order with De
 |---|---|---|
 | Cmd-0 | Zoom to Fit | View menu, sequence and BAM alignment viewports, coordinate ruler |
 | Cmd-0 | Zoom to fit | Classifier read viewer |
-| Cmd-0 | Return to the full chart | Taxonomy sunburst |
+| Cmd-0 | Zoom to Fit, returning to the full chart | View menu, taxonomy sunburst |
 | Cmd-Opt-0 | Content Text Size, Default | View menu |
 | Cmd-Shift-0 | All Samples | View menu, TaxTriage result window |
 | Cmd-1 | Zoom Reset (10kb) | View menu, coordinate ruler |
@@ -317,7 +328,8 @@ Sorted by the final key, letters and numbers first in alphabetical order with De
 | Escape | Cancel read load or clear selection | Sequence and BAM alignment viewports |
 | Escape | Clear the quick filter field | Genotype quick filter field |
 | Escape | Step back up one level | Taxonomy sunburst |
-| Cmd-F | Find... | Edit menu |
+| Cmd-F | Find... | Edit menu, genotype result window's quick filter field |
+| Cmd-Shift-F | Flag Sample for Review | Tools menu, Genotype Review |
 | Cmd-Opt-F | Focus Viewer | View menu |
 | Ctrl-Cmd-F | Enter Full Screen | View menu |
 | Ctrl-Cmd-Opt-F | Restore Side Panes | View menu |
@@ -328,17 +340,19 @@ Sorted by the final key, letters and numbers first in alphabetical order with De
 | Cmd-Opt-H | Hide Others | Application menu |
 | Cmd-Opt-I | Show Inspector | View menu |
 | Cmd-Shift-I | Import Center... | File menu |
+| Cmd-K | Mark Sample Confirmed | Tools menu, Genotype Review |
 | Cmd-L | Go to Location... | Sequence menu |
 | Cmd-M | Minimize | Window menu |
 | Cmd-Opt-M | Add or edit a comment | Genotype comparison matrix |
 | Cmd-N | New Project | File menu |
 | Cmd-Opt-N | New Window for Current Project | Window menu |
-| Cmd-Opt-N | Mark the cell a false negative | Genotype comparison matrix |
 | Cmd-Shift-N | New Folder | Sidebar right-click menu |
 | Cmd-O | Open Project Folder... | File menu |
+| Cmd-Shift-O | Sample Detail… | Tools menu, Genotype Review |
 | Cmd-Opt-P | Mark the cell a false positive | Genotype comparison matrix |
 | Cmd-Shift-P | Show Operations Panel | Operations menu |
 | Cmd-Q | Quit Lungfish Genome Explorer | Application menu |
+| Cmd-R | Mark Sample Reviewed | Tools menu, Genotype Review |
 | Cmd-Opt-R | Clear the review mark | Genotype comparison matrix |
 | Cmd-Shift-R | Reverse Complement... | Sequence menu |
 | Ctrl-Cmd-S | Show Sidebar | View menu |
@@ -347,6 +361,7 @@ Sorted by the final key, letters and numbers first in alphabetical order with De
 | Cmd-V | Paste | Edit menu |
 | Cmd-W | Close | File menu |
 | Cmd-X | Cut | Edit menu |
+| Cmd-Opt-X | Mark the cell a false negative | Genotype comparison matrix |
 | Cmd-Z | Undo | Edit menu |
 | Cmd-Shift-Z | Redo | Edit menu |
 | Cmd-comma | Settings... | Application menu |

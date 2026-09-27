@@ -12,9 +12,9 @@ This is a demo project for Lungfish Genome Explorer (LGE), version {{VERSION}}. 
 
 ## Where the data came from
 
-Every sequence is a public genomic DNA record from rhesus macaque (Macaca mulatta), submitted to the INSDC by the Biomedical Primate Research Centre, Rijswijk, the Netherlands, in 2019. Each record keeps its ENA accession as the sequence name and its allele name in the description, for example `LR699574.1 Mamu-A1*001:01:01:01`. INSDC records are freely available under the ENA terms of use. Allele names follow the IPD-MHC nomenclature (Maccari et al. 2017, Nucleic Acids Research, doi:10.1093/nar/gkw1050).
+Every sequence is a public genomic DNA record from rhesus macaque (Macaca mulatta), submitted to the INSDC by the Biomedical Primate Research Centre, Rijswijk, the Netherlands, in 2019. Each record keeps its ENA accession as the sequence name and its allele name in the description, for example `LR699574.1 Mamu-A1*001:01:01:01`. INSDC records are freely available under the ENA terms of use. Allele names follow the IPD-MHC nomenclature (Maccari et al. 2017, Nucleic Acids Research, https://doi.org/10.1093/nar/gkw1050).
 
-Twelve alleles is a teaching size, and the exclusion set is a teaching subset too. A laboratory designing a working scheme would include every allele seen in its colony, and a real exclusion set would hold alleles from every Mamu-A gene and from each of the several Mamu-B genes a haplotype can carry.
+The panel's alleles were chosen for breadth across lineages rather than for how often a colony carries them. Twelve alleles is a teaching size, and the exclusion set is a teaching subset too. A laboratory designing a working scheme would include every allele seen in its colony, and a real exclusion set would add Mamu-A5, more Mamu-A6 alleles, and alleles from each of the several Mamu-B loci a haplotype can carry.
 
 ## Chapters that use this project
 

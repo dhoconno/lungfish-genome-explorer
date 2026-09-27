@@ -398,6 +398,7 @@ qPCR or dPCR assay.
 | Huggett and colleagues 2013 (digital MIQE) | What a dPCR report must include | 10.1373/clinchem.2013.206375 |
 | Thornton and Basu 2011 | qPCR primer rules for intercalating-dye assays | 10.1002/bmb.20461 |
 | Maccari and colleagues 2017 (IPD-MHC 2.0) | Non-human MHC allele names, including the Mamu-A1 example | 10.1093/nar/gkw1050 |
+| de Groot and colleagues 2012 | The naming rules for macaque MHC alleles, under which the older name `Mamu-A*01` became `Mamu-A1*001` | 10.1007/s00251-012-0617-1 |
 | Chu and colleagues 2007 | The SIV Gag CM9 and Tat epitopes that Mamu-A1*001 presents, and its use in CTL vaccine studies | 10.4049/jimmunol.178.2.944 |
 
 ```
@@ -411,6 +412,7 @@ MIQE       Bustin SA, Benes V, Garson JA, et al. The MIQE guidelines: minimum in
 dMIQE      Huggett JF, Foy CA, Benes V, et al. The digital MIQE guidelines: Minimum Information for Publication of Quantitative Digital PCR Experiments. Clinical Chemistry. 2013.
 Thornton   Thornton B, Basu C. Real-time PCR (qPCR) primer design using free online software. Biochemistry and Molecular Biology Education. 2011.
 IPD-MHC    Maccari G, Robinson J, Ballingall K, et al. IPD-MHC 2.0: an improved inter-species database for the study of the major histocompatibility complex. Nucleic Acids Research. 2017.
+de Groot   de Groot NG, Otting N, Robinson J, et al. Nomenclature report on the major histocompatibility complex genes and alleles of Great Ape, Old and New World monkey species. Immunogenetics. 2012.
 Chu        Chu F, Lou Z, Chen YW, et al. First glimpse of the peptide presentation by rhesus macaque MHC class I: crystal structures of Mamu-A*01 complexed with two immunogenic SIV epitopes and insights into CTL escape. Journal of Immunology. 2007.
 ```
 
