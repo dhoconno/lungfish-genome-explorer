@@ -252,7 +252,7 @@ lungfish-cli extract sequence "$HBB/genome/sequence.fa.gz" \
 # Pull every gene feature out of the imported track as its own record.
 lungfish-cli bundle extract-annotations \
   --bundle "$HBB" --track imported_annotations --feature-type gene \
-  --output-bundle "$PROJECT/Extractions/hbb-genes.lungfishref"
+  --output-bundle "$PROJECT/Reference Sequences/hbb-genes.lungfishref"
 
 # Scan the HBB gene span for ORFs. --start counts from 0, so 70545 becomes 70544.
 lungfish-cli sequence annotate-orfs "$HBB" \
