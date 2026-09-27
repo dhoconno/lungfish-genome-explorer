@@ -1,7 +1,7 @@
 ---
 title: Aligning Sequences
 chapter_id: 02-sequences/04-aligning-sequences
-audience: analyst
+audience: bench-scientist
 prereqs: [01-foundations/01-what-is-a-genome, 02-sequences/01-importing-and-viewing]
 estimated_reading_min: 24
 task: Align a set of related sequences with MAFFT, read the alignment in the alignment viewport, and export the result.
@@ -24,7 +24,9 @@ shots:
 illustrations:
   - id: msa-column-homology
     caption: "Three sequences before and after alignment, showing how MAFFT inserts gaps so homologous bases share a column."
-glossary_refs: [msa, mafft, alignment-column, gap, conservation, consensus-sequence, homologous, fasta, accession, mitochondrial-genome, p-distance, percent-identity, plugin-pack, provenance, checksum, bundle, sidebar, inspector, operations-panel, import-center, variable-site, reverse-complement]
+  - id: mafft-progressive-alignment
+    brief: "How a progressive aligner builds an alignment, in three panels read left to right. Panel 1 is a guide tree over three short DNA sequences labelled A, B, and C, with A and B joined first because they look most alike. Panel 2 shows A and B aligned as a pair with one gap placed in B, then C added to that fixed pair, so C must fit around the gap already there. Panel 3 shows one round of iterative refinement, the alignment split into the group A and B against C, realigned, and kept because it scores better, with a caption noting that plain progressive alignment would never have moved the early gap. Use IBM Plex Mono for the bases, Deep Ink for letters and labels, Lungfish Creamsicle for the tree branches and the moved gap, Warm Grey for the discarded arrangement."
+glossary_refs: [msa, mafft, guide-tree, progressive-alignment, iterative-refinement, local-alignment, alignment-column, gap, conservation, consensus-sequence, homologous, fasta, accession, mitochondrial-genome, p-distance, percent-identity, plugin-pack, provenance, checksum, bundle, sidebar, inspector, operations-panel, import-center, variable-site, reverse-complement]
 features_refs: []
 fixtures_refs: [primate-mito]
 brand_reviewed: false
@@ -43,7 +45,7 @@ Once the rectangle exists, a column is something you can count. A residue is one
 
 Lungfish Genome Explorer (LGE) aligns with [MAFFT](../../GLOSSARY.md#mafft), a widely used alignment program, and stores the result as a `.lungfishmsa` [bundle](../../GLOSSARY.md#bundle). A bundle is a folder that the Finder shows as one file, so you can copy, move, and back it up like any other file. The alignment bundle holds the aligned sequences, the unaligned input they came from, and a record of how the run was made. In practice, build the alignment first, check its columns, and only then hand it to whatever comes next.
 
-A [consensus sequence](../../GLOSSARY.md#consensus-sequence) is one sequence built from the alignment by writing down each column's most common residue. Where the rows agree too weakly, it writes a mask character such as `N` instead of a base. LGE draws the consensus as a row pinned above the sequences, so you can see at a glance where each row departs from the majority.
+A [consensus sequence](../../GLOSSARY.md#consensus-sequence) is one sequence built from the alignment by writing down each column's most common residue. Where the rows agree too weakly, it writes a mask character such as `N` instead of a base. LGE draws the consensus as a row pinned above the sequences, so you can see at a glance where each row departs from the majority. This is the consensus of an alignment of finished sequences. A consensus built from reads stacked on a reference is a different thing, which [Extracting a Consensus Sequence](../05-variants/05-consensus-and-lineage.md) covers.
 
 ## Why you would do this
 
@@ -59,29 +61,31 @@ The five are human, chimpanzee, gorilla, rhesus macaque, and cynomolgus macaque.
 | `RhesusMacaque_NC_005943.1` | `NC_005943.1` | Rhesus macaque | 16,564 |
 | `CynomolgusMacaque_NC_012670.1` | `NC_012670.1` | Cynomolgus macaque | 16,575 |
 
+The human row is the same record, `NC_012920.1`, that [Downloading from NCBI](02-downloading-from-ncbi.md) fetched into the project, here under a label that also names the species.
+
 The gorilla is the shortest at 16,412 bases and the cynomolgus macaque the longest at 16,575, a spread of 163 bases. No two are the same length, so none of them can be compared position by position until they are aligned. Their relationships are settled science, which makes them a good teaching set. You know before you start that the two macaques should look most alike, and that the human and the chimpanzee should look more alike than either looks to a macaque. An alignment that says otherwise is telling you something went wrong with the run, not something new about primates.
 
-Alignment is also the step most later work depends on. Column-by-column conservation is how you find a stretch steady enough to design a primer against. Column-by-column disagreement is what tree building reads. A pairwise identity matrix, which asks how similar every pair of sequences is, is computed straight off the aligned columns. None of those questions can be asked of unaligned sequences.
+Alignment is also the step most later work depends on. Column-by-column conservation is how you find a stretch steady enough to design a primer against, which [Designing on an alignment](../10-primer-design/01-what-is-primer-design.md#designing-on-an-alignment) builds on. Column-by-column disagreement is what tree building reads. A pairwise identity matrix, which asks how similar every pair of sequences is, is computed straight off the aligned columns. None of those questions can be asked of unaligned sequences.
 
 ## Choosing a tool
 
 If you hold raw reads rather than finished sequences, this is not your chapter, and [Know your reads before you choose a tool](../01-foundations/02-sequencing-reads.md#know-your-reads-before-you-choose-a-tool) shows how to tell. MAFFT is the only aligner in LGE, so the choice is among its six strategies. How many sequences you have, whether they share the same start and end, and whether long stretches in some have no counterpart in the others decide it.
 
-Every MAFFT strategy starts the same way. It builds a guide tree, a quick sketch of which sequences look most alike, and then aligns in the tree's order, joining the two most similar sequences first and adding the rest one group at a time. That is called progressive alignment. It is fast, but a gap placed early is never moved, even when a sequence added later shows the gap belongs elsewhere. Iterative refinement repairs some of this by repeatedly splitting the alignment in two, realigning the halves, and keeping any change that scores better.
+Every MAFFT strategy starts the same way. It builds a [guide tree](../../GLOSSARY.md#guide-tree), a quick sketch of which sequences look most alike, and then aligns in the tree's order, joining the two most similar sequences first and adding the rest one group at a time. That is called [progressive alignment](../../GLOSSARY.md#progressive-alignment). It is fast, but a gap placed early is never moved, even when a sequence added later shows the gap belongs elsewhere. [Iterative refinement](../../GLOSSARY.md#iterative-refinement) repairs some of this by repeatedly splitting the alignment in two, realigning the halves, and keeping any change that scores better.
 
-The three strategies whose names end in INS-i also compare every pair of sequences in full before aligning. A global pairwise alignment lines up two sequences from first base to last, so `TTGC` set against `ACGTTGCA` becomes `---TTGC-`, padded with gaps at both ends. A local pairwise alignment keeps only the best matching stretch, the shared `TTGC`, and ignores the unmatched ends. Scoring every pair makes these three strategies accurate and slow. MAFFT's manual recommends them for fewer than about 200 sequences, which is what "a small set" means in the rest of this section.
+<!-- ILLUSTRATION: mafft-progressive-alignment -->
+
+The three strategies whose names end in INS-i also compare every pair of sequences in full before aligning. A global pairwise alignment lines up two sequences from first base to last, so `TTGC` set against `ACGTTGCA` becomes `---TTGC-`, padded with gaps at both ends. A [local pairwise alignment](../../GLOSSARY.md#local-alignment) keeps only the best matching stretch, the shared `TTGC`, and ignores the unmatched ends. Scoring every pair makes these three strategies accurate and slow. MAFFT's manual recommends them for fewer than about 200 sequences, which is what "a small set" means in the rest of this section.
 
 **Automatic** passes MAFFT its `--auto` option, which looks only at how many sequences there are and how long the longest is. In MAFFT 7.526, fewer than 100 sequences with none longer than 3,000 bases get L-INS-i, and fewer than 500 with none longer than 10,000 bases get FFT-NS-i, a middle strategy with two refinement rounds that is not in the Strategy menu. Larger inputs get FFT-NS-2 or a faster variant. Automatic cannot see ragged ends, and MAFFT's log in the run's Operations Panel row names the strategy it picked.
 
-**L-INS-i** uses local pairwise alignments and full refinement. It suits a small set that shares one alignable region but differs at the ends, such as macaque MHC allele sequences where some records are complete and others stop short. Its authors call it probably the most accurate of the six.
+**L-INS-i** uses local pairwise alignments and full refinement. It suits a small set that shares one alignable region but differs at the ends, such as macaque MHC allele sequences where some records are complete and others stop short. Its authors call it probably the most accurate of the six. The twelve Mamu-A1 alleles of the `mamu-a1-panel` that [Designing a PCR Assay](../10-primer-design/02-designing-a-pcr-assay.md) aligns are such a set, and Automatic already picks L-INS-i for them, because there are fewer than 100 and none reaches 3,000 bases.
 
 **G-INS-i** uses global pairwise alignments and full refinement. It assumes every sequence covers the same region end to end, as complete mitochondrial genomes do, and it handles ragged ends badly. On sequences thousands of bases long, expect far longer run times and heavier memory use than Automatic.
 
 **E-INS-i** scores gaps so that long unalignable stretches between conserved blocks cost little. It suits genomic copies of a gene whose introns differ in length, introns being the stretches cut out of the RNA before it is read into protein.
 
-**FFT-NS-2** skips the all-pairs comparison and the refinement. It spots similar segments with a fast Fourier transform, a mathematical shortcut, builds the guide tree twice, and aligns progressively. It handles thousands of sequences but places gaps less well where sequences are distant.
-
-**PartTree** builds its guide tree without comparing every pair, trading the most accuracy for speed on tens of thousands of sequences.
+The last two strategies, FFT-NS-2 and PartTree, skip the all-pairs comparison to stay fast on large sets, and the table covers them. FFT-NS-2 finds similar segments with a fast Fourier transform, a mathematical shortcut, and builds its guide tree twice.
 
 | Strategy | Built for | Choose it when | Choose something else when |
 |---|---|---|---|
@@ -89,10 +93,10 @@ The three strategies whose names end in INS-i also compare every pair of sequenc
 | L-INS-i | A small set with ragged ends | Records share one core region but start or stop in different places | You have hundreds of sequences or more |
 | G-INS-i | A small set aligned end to end | Every record covers the same full region | Some records are partial |
 | E-INS-i | A small set with long unalignable stretches | Conserved blocks sit between regions of very different length | The sequences line up along their whole length |
-| FFT-NS-2 | Hundreds to thousands of sequences | Speed matters more than the last few gaps | A small set can afford L-INS-i or G-INS-i |
-| PartTree | Tens of thousands of sequences | Nothing slower will finish | A subsample of a few thousand would answer the question |
+| FFT-NS-2 | Hundreds to thousands of sequences, no refinement | Speed matters more than the last few gaps | A small set can afford L-INS-i or G-INS-i |
+| PartTree | Tens of thousands of sequences, guide tree without all pairs | Nothing slower will finish | A subsample of a few thousand would answer the question |
 
-This chapter leaves Strategy on Automatic. Each primate genome is longer than 10,000 bases, so MAFFT runs FFT-NS-2, and the known primate relationships still come back cleanly in [Reading the results](#reading-the-results). Choose G-INS-i when you want the careful method for complete genomes and can wait. For several dozen macaque MHC class I genomic sequences, try G-INS-i, or E-INS-i when intron lengths differ a lot. For complete alleles mixed with partial records, use L-INS-i. For thousands of human mitochondrial genomes, leave Automatic on. MAFFT itself is cited in the [Tool Bibliography](../appendices/bibliography.md#tools-installed-by-a-plugin-pack), and the papers describing its FFT, INS-i, and PartTree methods are listed under [Method papers](../appendices/bibliography.md#method-papers).
+This chapter leaves Strategy on Automatic. Each primate genome is longer than 10,000 bases, so MAFFT runs FFT-NS-2. The five complete genomes are the textbook case for G-INS-i, and it is worth knowing what it costs. On a 14-core Apple M4 Pro Mac, Automatic finished in about 8 seconds and G-INS-i in about 43. The G-INS-i alignment came out 2 columns narrower, and its pairwise identities put the pairs in the same order, the two macaques first at 0.925. Automatic is kept because it already recovers the known relationships in a fifth of the time. Choose G-INS-i for complete genomes when a methods section calls for the careful method. For several dozen macaque MHC class I genomic sequences, try G-INS-i, or E-INS-i when intron lengths differ a lot. For complete alleles mixed with partial records, use L-INS-i. For thousands of human mitochondrial genomes, leave Automatic on. MAFFT itself is cited in the [Tool Bibliography](../appendices/bibliography.md#tools-installed-by-a-plugin-pack), and the papers describing its FFT, INS-i, and PartTree methods are listed under [Method papers](../appendices/bibliography.md#method-papers).
 
 ## Before you start
 
@@ -119,9 +123,13 @@ Import the FASTA the way [Importing and Viewing a Sequence](01-importing-and-vie
 
 5. Watch the run in the [Operations Panel](../01-foundations/06-the-lungfish-project.md#the-operations-panel), which opens with **Operations > Show Operations Panel** (Cmd-Shift-P). When it finishes, click the new bundle under `Analyses/Multiple Sequence Alignments/` to open the alignment viewport.
 
-The bundle is named after the input, so this run writes `Analyses/Multiple Sequence Alignments/primate-mito.lungfishmsa`. Run it again and LGE adds a counter, giving `primate-mito-2.lungfishmsa`, so the first result is never overwritten. The dialog has no Output Strategy choice, because MAFFT always writes one alignment. LGE writes a [provenance](../../GLOSSARY.md#provenance) record beside every result, holding the command, the tool version, and a [checksum](../../GLOSSARY.md#checksum) of each file, and [Provenance and Reproducibility](../01-foundations/08-provenance-and-reproducibility.md#reading-the-results) shows how to read it.
+The bundle is named after the input, so this run writes `Analyses/Multiple Sequence Alignments/primate-mito.lungfishmsa`. Run it again and LGE adds a counter, giving `primate-mito-2.lungfishmsa`, so the first result is never overwritten. The dialog has no Output Strategy choice, because MAFFT always writes one alignment.
 
 A multi-sequence FASTA file opened from the sidebar also lists its sequences as table rows. Select some of those rows, right-click them, and choose **Align with MAFFT...** to open the same dialog with those sequences already chosen. The alignment viewport does not offer that item, because realigning sequences that already carry gaps is a different job from aligning raw sequences. When a run's input already contains gaps, LGE records a warning that the result is unreliable and that the gaps should be removed first.
+
+### Export the alignment {#exporting-an-alignment}
+
+Right-click inside the alignment and choose **Export Alignment...**. The Export Alignment sheet opens, and its controls are described under [Export Alignment sheet](#export-alignment-sheet) in Settings. Keep the gaps whenever the file goes to another alignment or tree program, since the gaps are what line the columns up, and pick the Format that program reads, such as PHYLIP for many tree builders. Remove them only for a tool that expects plain sequences, such as a BLAST search. LGE's own primer design engines read the `.lungfishmsa` bundle directly, gaps and all, as [Designing on an alignment](../10-primer-design/01-what-is-primer-design.md#designing-on-an-alignment) explains, so a primer design in LGE needs no export at all.
 
 ### Import an alignment built elsewhere
 
@@ -179,13 +187,13 @@ These nine controls change what you see and never change the bundle on disk. Num
 
 **Destination.** Chooses where the export goes, from Save as Bundle, Save to File..., and Copy to Clipboard. The default is Save to File..., which writes a plain file anywhere on disk. Choose Save as Bundle when the result feeds another LGE step, and Copy to Clipboard for a quick paste into a message or notebook. This setting has no command-line flag.
 
-**Sequences.** Decides whether the export keeps the gap characters, from Aligned FASTA (keep gaps) and Unaligned FASTA (remove gaps). The default keeps gaps, so the receiving program sees the same columns you did. Remove gaps when the destination wants plain sequences at their original lengths, such as a BLAST search or a primer design tool. On the command line this is `--output-format` for a file export and `--output-kind` for a bundle export.
+**Sequences.** Decides whether the export keeps the gap characters, from Aligned FASTA (keep gaps) and Unaligned FASTA (remove gaps). The default keeps gaps, so the receiving program sees the same columns you did. Remove gaps when the destination wants plain sequences at their original lengths, such as a BLAST search or an outside tool that expects plain sequences, never for LGE's own primer design, which reads the alignment bundle directly. On the command line this is `--output-format` on `msa export` for a file, and `--output-kind` on `msa extract` for a bundle.
 
 **Format.** Picks the file format of a file export, from `aligned-fasta`, `phylip`, `nexus`, `clustal`, `stockholm`, `a2m`, and `a3m`, and appears only for Save to File... with gaps kept. The default is `aligned-fasta`, which every alignment reader accepts. Change it to match the program that will read the file, since a tree builder that wants PHYLIP will not accept FASTA. On the command line this is `--output-format`.
 
 **Scope.** Chooses whether the export covers the whole alignment or only the rows and columns you selected, and appears only when a selection exists. The default is Selected subalignment whenever rows are selected, with live counts in the labels such as Selected subalignment (3 rows) and Entire alignment (5). Switch to Entire alignment when the selection was only for looking and you want every row. On the command line this is `--rows` and `--columns`.
 
-**Bundle name.** Names the new bundle and appears only for Save as Bundle. The default is the current alignment name, and the Create Bundle button stays greyed out while the field is blank. Change it whenever the export is a subset, so the name says what the subset is. On the command line this is `--name`.
+**Bundle name.** Names the new bundle and appears only for Save as Bundle. The default is the current alignment name, and the Create Bundle button stays greyed out while the field is blank. Change it whenever the export is a subset, so the name says what the subset is. On the command line this is `--name` on `msa extract`.
 
 The Multiple Sequence Alignments import card has no settings.
 
@@ -211,7 +219,9 @@ The consensus row is 17,247 characters long with 479 of them masked as `N` at th
 
 ### Pairwise identity
 
-The clearest single check is a pairwise identity matrix, which reports for every pair of rows the fraction of compared positions at which they agree. It is the same arithmetic as [percent identity](../../GLOSSARY.md#percent-identity), taken across the whole alignment. No window in LGE draws this matrix. It comes from the command `lungfish-cli msa distance`, shown at the end of this chapter, and the numbers below are its output on the primate bundle.
+The clearest single check is a pairwise identity matrix, which reports for every pair of rows the fraction of compared positions at which they agree. It is the same arithmetic as [percent identity](../../GLOSSARY.md#percent-identity), taken across the whole alignment, and a position where either row has a gap is left out of that pair's count.
+
+With the alignment open, the Inspector's **Bundle** tab holds a **Pairwise Identity** section. Open the [Inspector](../../GLOSSARY.md#inspector) with **View > Show Inspector** (Cmd-Opt-I) if it is hidden, and click the section's triangle to expand it. LGE computes the matrix and lists every pair as a row with Sequence A, Sequence B, Identity, and Sites columns, sorted with the most alike pair first. Sites is the number of positions compared for that pair. A popup above the table switches between Identity and p-distance, the share of compared positions that differ. **Copy TSV** puts the whole matrix on the clipboard as tab-separated text, and **Export TSV…** writes it to a file with a provenance record through the Operations Panel. Both give the same table `lungfish-cli msa distance` writes, and the line under the table says so.
 
 The two macaques come out at 0.926, or 92.6 percent identical, the highest pair in the matrix. Human and chimpanzee come out at 0.913, and human and gorilla at 0.894. Human against either macaque falls to about 0.789.
 
@@ -241,36 +251,34 @@ Confirm the column count sits within about 10 percent of the longest input, as 1
 
 Confirm the conservation overview strip is mostly tall bars. Every column that is not variable, 12,194 of the 17,247 here or about 70 percent, has a conservation of 1, so most of the strip should sit at or near full height, broken by shorter stretches. The strip packs many columns into each bar at full width, so expect a mostly tall strip rather than an exact count. An even wash of low bars across the whole width means the rows are not meaningfully aligned.
 
-Confirm the pairwise identities put the pairs in the order biology predicts, as the two macaques lead this matrix at 0.926. When they do not, suspect the inputs before the aligner.
+Confirm the pairwise identities put the pairs in the order biology predicts. The Pairwise Identity section of the Inspector's Bundle tab lists the most alike pair first, and here that is the two macaques at 0.926. When they do not lead, suspect the inputs before the aligner.
+
+The alignment's [provenance](../../GLOSSARY.md#provenance) record, which [Provenance and Reproducibility](../01-foundations/08-provenance-and-reproducibility.md#reading-the-results) shows how to read, names the MAFFT version and the strategy MAFFT reported.
 
 When a run does go wrong, the input is usually the cause. Sequences in mixed orientation align as though unrelated, and **Direction Adjustment** fixes that. Sequences from different genes, or of wildly different lengths, give mostly-gap alignments, so check a few names and lengths before blaming the run. Very distantly related sequences sit at the edge of what Automatic handles well, and **L-INS-i** buys accuracy at the cost of time. If none of that explains it, expand the run's row in the Operations Panel, which holds MAFFT's own log.
 
 ## On the command line
 
-This section is optional, and nothing later in this manual needs it. The `lungfish-cli` program ships inside LGE, and [Finding the program](../appendices/cli-reference.md#finding-the-program) shows how to run it.
-
-The block aligns the fixture, writes the identity matrix quoted above, and exports the alignment for a tree program. It assumes the fixture sits in your Downloads folder and the project is a `.lungfish` folder you already created.
+The block below follows the convention in [Reading an On the command line block](../01-foundations/06-the-lungfish-project.md#reading-a-command-line-block), and every flag of these commands is listed in [Multiple sequence alignments and trees](../appendices/cli-reference.md#multiple-sequence-alignments-and-trees) in the CLI Reference. It aligns the fixture, writes the identity matrix quoted above, and exports the alignment for a tree program.
 
 ```bash
+PROJECT="$HOME/Documents/LGE Demo Projects/Genes and Sequences.lungfish"
+MSA="$PROJECT/Analyses/Multiple Sequence Alignments/primate-mito.lungfishmsa"
+
 # Align the five genomes into the project.
-lungfish-cli align mafft ~/Downloads/primate-mito.fasta \
-  --project ~/Documents/primates.lungfish \
-  --name primate-mito \
-  --strategy auto
+lungfish-cli align mafft "$PROJECT/Practice Data/primate-mito/primate-mito.fasta" \
+  --project "$PROJECT" --name primate-mito --strategy auto
 
 # Write the pairwise identity matrix as a table.
-lungfish-cli msa distance \
-  ~/Documents/primates.lungfish/Analyses/"Multiple Sequence Alignments"/primate-mito.lungfishmsa \
-  --output primate-mito-identity.tsv
+lungfish-cli msa distance "$MSA" --output "$HOME/Desktop/primate-mito-identity.tsv"
 
 # Export the alignment as PHYLIP for a tree program.
-lungfish-cli msa export \
-  ~/Documents/primates.lungfish/Analyses/"Multiple Sequence Alignments"/primate-mito.lungfishmsa \
-  --output-format phylip --output primate-mito.phy
+lungfish-cli msa export "$MSA" \
+  --output-format phylip --output "$HOME/Desktop/primate-mito.phy"
 ```
 
 One default differs from the app. The export sheet keeps gaps by default, but `msa export` defaults to plain `fasta`, which strips them, so an aligned FASTA export on the command line needs `--output-format aligned-fasta` written out.
 
 ## Next
 
-Continue to [Building Trees](05-building-trees.md), which takes this alignment and infers a family tree of the five primates from it with IQ-TREE.
+Continue to [Building Trees](05-building-trees.md), which takes this alignment and infers a family tree of the five primates from it with IQ-TREE. The Primer Design part returns to alignments, and designs primers directly on one in [What Is Primer Design](../10-primer-design/01-what-is-primer-design.md).
