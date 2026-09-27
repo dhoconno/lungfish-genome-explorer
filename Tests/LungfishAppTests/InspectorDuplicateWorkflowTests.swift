@@ -53,15 +53,17 @@ final class InspectorDuplicateWorkflowTests: XCTestCase {
 
     func testStartRegistersALockHoldingRowWithProgressAndCancel() {
         let center = OperationCenter()
-        final class CancelFlag: @unchecked Sendable { var cancelled = false }
-        let flag = CancelFlag()
+        // OperationCenter.cancel(id:) hands onCancel to a global queue, so the
+        // worker is reached asynchronously; wait for it rather than asserting
+        // a flag on the next line (a race the parallel gate loses under load).
+        let cancelReachedWorker = expectation(description: "onCancel reaches the worker")
 
         let start = InspectorViewController.startDuplicateWorkflowOperation(
             kind: .markDuplicates,
             bundleURL: bundleURL,
             routeContext: nil,
             center: center,
-            onCancel: { flag.cancelled = true }
+            onCancel: { cancelReachedWorker.fulfill() }
         )
         guard case .started(let id) = start else {
             return XCTFail("expected the row to start")
@@ -90,7 +92,7 @@ final class InspectorDuplicateWorkflowTests: XCTestCase {
         XCTAssertTrue(center.updateWithLog(id: id, progress: 0.4, detail: "Sample: Sorting..."))
         XCTAssertEqual(center.items.first { $0.id == id }?.detail, "Sample: Sorting...")
         center.cancel(id: id)
-        XCTAssertTrue(flag.cancelled)
+        wait(for: [cancelReachedWorker], timeout: 5)
         XCTAssertTrue(center.acknowledgeCancellation(id: id))
         XCTAssertEqual(center.items.first { $0.id == id }?.state, .cancelled)
         XCTAssertTrue(center.canStartOperation(on: bundleURL), "the lock is released once the run ends")
