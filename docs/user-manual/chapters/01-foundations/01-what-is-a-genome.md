@@ -3,8 +3,8 @@ title: What Is a Genome
 chapter_id: 01-foundations/01-what-is-a-genome
 audience: bench-scientist
 prereqs: []
-estimated_reading_min: 8
-task: Understand what a genome and a reference genome are, how a position on a reference is named, and why the same base gets different numbers on different references.
+estimated_reading_min: 11
+task: Understand what a genome and a reference genome are, how a reference is stored, how a position on a reference is named, and why the same base gets different numbers on different references.
 tags: [foundations, genome, reference, coordinates, annotation, hbb]
 tools: []
 parameters_refs: []
@@ -17,7 +17,7 @@ illustrations:
     brief: "Side-by-side schematic showing a linear chromosome (with two ends labelled 5' and 3') above a circular genome (closed loop, position 1 marked at the top). Use Lungfish Creamsicle for the genome backbone, Deep Ink labels."
   - id: position-coordinates
     brief: "A horizontal backbone for the record NG_000007.3 with position ticks at 1, 20000, 40000, 60000, 70613, 81706. Above the backbone, a callout showing total length 81,706 bases, and a second callout marking the HBB gene span 70545 to 72152. Use IBM Plex Mono for the numbers and Lungfish Creamsicle for the backbone."
-glossary_refs: [reference-genome, coordinate, contig-reference, accession, refseqgene, codon, cds, exon]
+glossary_refs: [genome, reference-genome, assembly, de-novo-assembly, coordinate, contig-reference, accession, refseqgene, codon, cds, exon, fasta, genbank, gff, bed, zero-based, demo-project, mitochondrial-genome]
 features_refs: []
 fixtures_refs: [hbb-gene]
 brand_reviewed: false
@@ -26,15 +26,19 @@ lead_approved: false
 
 ## What it is
 
-A genome is the complete set of genetic instructions an organism carries, written in DNA as a string of four bases, A, C, G, and T. A human genome is about 3.1 billion bases long. It is split across 23 pairs of chromosomes, the long DNA molecules a cell packs its genome into, with one copy of each pair inherited from each parent. Lungfish Genome Explorer (LGE) is a macOS application for reading and comparing this kind of data.
+A [genome](../../GLOSSARY.md#genome) is the complete set of genetic instructions an organism carries, written in DNA as a string of four bases, A, C, G, and T. A human genome is about 3.1 billion bases long. It is split across 23 pairs of chromosomes, the long DNA molecules a cell packs its genome into, with one copy of each pair inherited from each parent. Lungfish Genome Explorer (LGE) is a macOS application for reading and comparing this kind of data.
 
-No two people have exactly the same genome, so there is no single human sequence to read positions off. Instead, the field agrees on a [reference genome](../../GLOSSARY.md#reference-genome), one specific sequence that everyone measures against. A sample is then described by where its sequence differs from the reference. The human reference is published as an assembly, a complete reconstruction of the genome released under a numbered name by the Genome Reference Consortium. The current one is GRCh38.
+No two people have exactly the same genome, so there is no single human sequence to read positions off. Instead, the field agrees on a [reference genome](../../GLOSSARY.md#reference-genome), one specific sequence that everyone measures against. A sample is then described by where its sequence differs from the reference. The human reference is published as an [assembly](../../GLOSSARY.md#assembly), a complete reconstruction of the genome released under a numbered name by the Genome Reference Consortium. The current one is GRCh38.
 
 A reference is a set of named sequences. In a human assembly each chromosome is one named sequence. Tools call each named sequence a [contig](../../GLOSSARY.md#contig-reference), short for contiguous sequence, and the name matters because every later file points back to it.
 
-A [coordinate](../../GLOSSARY.md#coordinate) is a position on one of those named sequences, written as the name, a colon, and a number, such as `chr11:5227002`. Positions here are 1-based, meaning the first base is position 1 rather than 0. A range such as `NG_000007.3:70613-70615` is inclusive, so it holds both end positions and everything between. That is three bases, the end minus the start plus one. A few file formats count from 0 instead, and [Amplicon sequencing](03-amplicon-vs-shotgun.md#amplicon-sequencing) names the one you will meet first. If a start position in a table ever looks one lower than the record says, a count from 0 is the likeliest reason.
+A [coordinate](../../GLOSSARY.md#coordinate) is a position on one of those named sequences, written as the name, a colon, and a number, such as `chr11:5227002`. Positions here are 1-based, meaning the first base is position 1 rather than 0. A range such as `NG_000007.3:70613-70615` is inclusive, so it holds both end positions and everything between. That is three bases, the end minus the start plus one. A few file formats count from 0 instead, the [BED](../../GLOSSARY.md#bed) table of regions being the one you will meet most, as [Counting from one and from zero](../02-sequences/03-extracting-and-comparing.md#counting-from-one-and-from-zero) explains. If a start position in a table ever looks one lower than the record says, a count from 0 is the likeliest reason.
 
 In practice, read every position as a sequence name and a number together, and never as a number alone.
+
+### The two senses of assembly
+
+This chapter uses "assembly" in the reference sense, one named and versioned build of a genome such as GRCh38. Later chapters, starting with [When to Assemble](../07-assembly/01-when-to-assemble.md), also use the word for a computing step, [de novo assembly](../../GLOSSARY.md#de-novo-assembly), which rebuilds long sequences from a sample's own overlapping reads with no reference at all. The result of that step is called an assembly too, so read the word by its context.
 
 ## Why you would do this
 
@@ -42,13 +46,19 @@ This chapter follows one human gene, HBB, and a single-base change in it that ca
 
 The example in this chapter uses the NCBI record `NG_000007.3`. An [accession](../../GLOSSARY.md#accession) is the permanent identifier a database gives a record, and the `.3` after the dot is its version, which rises each time a curator revises the sequence. This record is a [RefSeqGene](../../GLOSSARY.md#refseqgene), a curated slice of a chromosome with its own positions starting at 1. It holds 81,706 bases of chromosome 11 covering the whole beta-globin cluster, eight genes side by side, including HBE1, HBG2, HBG1, HBD, and HBB. HBB occupies positions 70545 to 72152 of the record.
 
+<!-- ILLUSTRATION: position-coordinates -->
+
 <!-- SHOT: hbb-record-in-sequence-viewport -->
 
-The picture shows the record open in LGE, with the bases in one strip and the gene features drawn beneath them. [Importing and Viewing a Sequence](../02-sequences/01-importing-and-viewing.md) shows how to import the record and jump to a coordinate on it. To open the record without importing it, download the Genes and Sequences demo project with **Help > Demo Projects…**, as [Demo projects](06-the-lungfish-project.md#demo-projects) explains, and click `NG_000007.3` under `Reference Sequences`.
+The picture shows the record open in LGE, with the bases in one strip and the gene features drawn beneath them.
+
+## Before you start
+
+This chapter is reading only, and nothing in it has to be run. To look at the HBB record on screen, open the Genes and Sequences [demo project](../../GLOSSARY.md#demo-project) as [The Lungfish Genome Explorer Project](06-the-lungfish-project.md#demo-projects) showed, and click `NG_000007.3` under `Reference Sequences`. Importing the record yourself and jumping to a coordinate on it is the subject of [Importing and Viewing a Sequence](../02-sequences/01-importing-and-viewing.md).
+
+## Finding the sickle cell codon
 
 A gene is rarely one unbroken run of coding bases. The [CDS](../../GLOSSARY.md#cds), short for coding sequence, is the part of a gene translated into protein. In HBB it is split across three [exons](../../GLOSSARY.md#exon), separated by introns, which are stretches cut out of the gene's message before the protein is made. The record writes the CDS as `join(70595..70686,70817..71039,71890..72018)`, three ranges stitched together in order.
-
-### Finding the sickle cell codon on paper
 
 A [codon](../../GLOSSARY.md#codon) is three consecutive bases that together specify one amino acid. Translation starts at the first base of the CDS, position 70595, and reads three bases at a time. Codon number n therefore starts at 70595 plus 3 times (n minus 1). The first exon's coding part ends at 70686, which leaves room for 30 whole codons, so the first few codons need no jump across an intron.
 
@@ -68,7 +78,23 @@ The cell cuts the starting methionine off the finished protein, so the mature ch
 
 Codon 7 starts at 70595 plus 18, which is 70613, and reads `GAG`, the codon for glutamate. The sickle cell change replaces its middle base, the A at position 70614, with a T. The codon becomes `GTG`, which specifies valine, and the protein becomes hemoglobin S. A person with the change on both copies of chromosome 11 has sickle cell disease. A person with it on one copy carries sickle cell trait and is usually healthy.
 
-That one base gives the rest of the chapter something concrete to count. The same base carries a different number on each reference you count along, and the next sections show why.
+That one base gives the rest of the chapter something concrete to count. The same base carries a different number on each reference you count along, and the sections after the next one show why.
+
+## How a reference is stored
+
+A reference reaches you as a file, and three formats cover nearly every one you will meet. They differ in whether they hold the bases, the features, or both.
+
+| Format | What it holds | Usual file endings |
+|---|---|---|
+| [FASTA](../../GLOSSARY.md#fasta) | Bases only, one record per named sequence | `.fa`, `.fasta`, `.fna` |
+| [GenBank](../../GLOSSARY.md#genbank) | Bases and features together, with curator notes, in one record | `.gb`, `.gbk`, `.genbank`, `.gbff` |
+| [GFF3](../../GLOSSARY.md#gff) | Features only, one per line, pointing at a sequence stored elsewhere | `.gff`, `.gff3` |
+
+A FASTA record is a header line that starts with `>` followed by the bases on the lines below it. The first word after the `>` is the sequence name, so a record that opens `>NG_000007.3` creates a sequence named `NG_000007.3`, and that name becomes the contig name every later file points back to. A FASTA file can hold one record or thousands, such as one per chromosome.
+
+A GenBank record carries the same bases together with a list of features, each with a type such as gene, exon, or CDS and a location on the sequence. The `join(70595..70686,70817..71039,71890..72018)` above is GenBank's way of writing a feature that comes in pieces. The `NG_000007.3` record in the demo project arrived as GenBank, which is why its genes and exons appear beneath the bases.
+
+A GFF3 file is a table of features with nine tab-separated columns, among them the sequence name, the feature type, its start and end counted from 1 and inclusive, and its strand. It holds no bases, so it only means something beside the FASTA whose sequence names it uses. LGE turns an imported GenBank record into a FASTA with a GFF3 track of its features, and it can attach a GFF3 file you bring to a FASTA you already have, as [Importing and Viewing a Sequence](../02-sequences/01-importing-and-viewing.md) shows.
 
 ## Linear, circular, and segmented genomes
 
@@ -76,7 +102,7 @@ Genomes come in different physical shapes. Human chromosomes are linear, with tw
 
 ![Side-by-side schematic contrasting a linear chromosome and a circular genome](../../assets/illustrations-imagegen/01-foundations/01-what-is-a-genome/linear-vs-circular-genomes.png)
 
-Analysis tools treat every reference as linear. LGE, like the programs it runs to line reads up against a reference and report differences, opens a circular genome at the curators' chosen start and lays it out as a line. This is a simplification of the real molecule. A read that crosses the join between the last base and base 1 therefore appears as two pieces, one at the far end and one at the start. The effect matters mostly for circular genomes such as the mitochondrial genome and bacterial chromosomes.
+Analysis tools treat every reference as linear. LGE, like the programs it runs to line reads up against a reference and report differences, opens a circular genome at the curators' chosen start and lays it out as a line. This is a simplification of the real molecule. A read that crosses the join between the last base and base 1 therefore appears as two pieces, one at the far end and one at the start. The effect matters mostly for circular genomes such as the mitochondrial genome and bacterial chromosomes. An assembler meets the same join from the other side and can return a circular genome trimmed, overlapped, or walked twice, as [When to Assemble](../07-assembly/01-when-to-assemble.md#circular-genomes-trimmed-overlapped-or-walked-twice) explains.
 
 RNA genomes look the same as DNA genomes in LGE. Sequencing instruments read DNA, so an RNA sample is copied into DNA in the lab first, and references store RNA genomes with T wherever the molecule itself carries U.
 
@@ -114,4 +140,4 @@ If a check fails, suspect the input before the app. The usual cause is a file wi
 
 ## Next
 
-To import the HBB record and go to the sickle cell codon yourself, see [Importing and Viewing a Sequence](../02-sequences/01-importing-and-viewing.md). To learn what FASTQ files are and how raw sequencing output relates to a reference, continue to [Sequencing Reads](02-sequencing-reads.md).
+Continue to [Sequencing Reads](02-sequencing-reads.md) to learn what FASTQ files are and how raw sequencing output relates to a reference. To import the HBB record and go to the sickle cell codon yourself first, see [Importing and Viewing a Sequence](../02-sequences/01-importing-and-viewing.md).
