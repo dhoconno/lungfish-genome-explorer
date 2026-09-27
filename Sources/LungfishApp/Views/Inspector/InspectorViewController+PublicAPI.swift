@@ -728,14 +728,22 @@ extension InspectorViewController {
     }
 
     private func genotypeSummaryRows(_ result: ONTGenotypeResultBundleData) -> [(String, String)] {
-        [
+        Self.genotypeSummaryRows(result)
+    }
+
+    /// The summary rows. A run that merged read pairs counts its input in
+    /// fragments (one per molecule), the same unit every retention
+    /// percentage divides by, and the labels say so.
+    static func genotypeSummaryRows(_ result: ONTGenotypeResultBundleData) -> [(String, String)] {
+        let countsFragments = result.stats.totalInputReadsUnit == "fragments"
+        return [
             ("Samples", "\(result.sampleCount)"),
             ("Calls", "\(result.callCount)"),
-            ("Total Reads", formatInteger(result.stats.totalInputReads)),
+            (countsFragments ? "Total Fragments" : "Total Reads", formatInteger(result.stats.totalInputReads)),
             ("Retained Reads", formatInteger(result.stats.retainedUniqueReads)),
             ("Assigned Retained", formatInteger(result.stats.assignedUniqueRetainedReads)),
             ("Unassigned Retained", formatInteger(result.stats.unassignedUniqueRetainedReads)),
-            ("Retained %", formatPercent(result.stats.retainedUniquePercentOfTotalReads)),
+            (countsFragments ? "Retained % of Fragments" : "Retained %", formatPercent(result.stats.retainedUniquePercentOfTotalReads)),
             ("Created", result.manifest.createdAt ?? "Unknown"),
         ]
     }
@@ -916,11 +924,11 @@ extension InspectorViewController {
         // the Selected Item tab explicitly when they want to inspect a call.
     }
 
-    private func formatInteger(_ value: Int?) -> String {
+    private static func formatInteger(_ value: Int?) -> String {
         value.map { $0.formatted(.number) } ?? "Unavailable"
     }
 
-    private func formatPercent(_ value: Double?) -> String {
+    private static func formatPercent(_ value: Double?) -> String {
         guard let value else { return "Unavailable" }
         return "\(String(format: "%.2f", value))%"
     }

@@ -1143,6 +1143,78 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
         XCTAssertEqual(preparation["internalMergePerformed"] as? Bool, true)
     }
 
+    /// The run denominator handed to the retained-read filter used to sum
+    /// each sample's raw record count, so a run of merged pairs reported
+    /// `overall_unique_retained_percent` at half of every sample's value
+    /// (376 fragments over 752 mate records). It now sums the same
+    /// fragment-denominated `totalPairs` the per-sample percentages use, and
+    /// says so.
+    func testRunIlluminaModeCountsTheRunDenominatorInFragments() async throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let condaRoot = root.appendingPathComponent("conda", isDirectory: true)
+        let bundledMicromamba = try makeFakeONTGenotypingCondaRoot(at: condaRoot)
+        let referenceFASTA = root.appendingPathComponent("reference.fa")
+        let outputDirectory = root.appendingPathComponent("miseq-fragments.lungfishgenotype", isDirectory: true)
+        try """
+        >A1_063_01
+        ACGTACGT
+        >14_M1_DQA1_24_03
+        ACGTACGT
+        >14_M1_DQB1_18_01_01
+        ACGTACGT
+        >14_M2M6_DQB1_06g:14_M_DQB1_06_01_01
+        ACGTACGT
+        >14_M4_DQB1_06_08
+        ACGTACGT
+
+        """.write(to: referenceFASTA, atomically: true, encoding: .utf8)
+
+        // DW001 holds 3 unmerged pairs (6 mate records); DW002 one merged read.
+        let unmerged = try makeInterleavedPairFASTQBundle(root: root, name: "DW001", sequence: "ACGTACGT", fragments: 3)
+        let premerged = try makeMergedFASTQBundle(root: root, name: "DW002", sequence: "ACGTACGT")
+
+        let request = ONTBarcodeDemuxGenotypingRunRequest(
+            inputFASTQURLs: [unmerged.bundleURL, premerged.bundleURL],
+            referenceSourceURL: referenceFASTA,
+            outputDirectory: outputDirectory,
+            outputName: "miseq-fragments",
+            analysisName: "MiSeqFragments",
+            threads: 2,
+            sortThreads: 1,
+            minSupport: 1,
+            keepIntermediates: true,
+            mode: .illuminaPaired,
+            readType: .illumina
+        )
+
+        _ = try await ONTBarcodeDemuxGenotypingPipeline(
+            condaManager: CondaManager(
+                rootPrefix: condaRoot,
+                bundledMicromambaProvider: { bundledMicromamba },
+                bundledMicromambaVersionProvider: { "test-micromamba" }
+            )
+        ).run(request)
+
+        let manifestURL = outputDirectory
+            .appendingPathComponent(".amplicon-genotyping", isDirectory: true)
+            .appendingPathComponent("inputs", isDirectory: true)
+            .appendingPathComponent("illumina-sample-manifest.json")
+        let manifest = try jsonObject(at: manifestURL)
+        XCTAssertEqual(manifest["inputReadCount"] as? Int, 4, "3 merged fragments + 1 pre-merged read")
+        XCTAssertEqual(manifest["inputReadCountUnit"] as? String, "fragments")
+        XCTAssertEqual(manifest["inputRecordCount"] as? Int, 7, "6 mate records + 1 pre-merged read")
+        let samples = try XCTUnwrap(manifest["samples"] as? [[String: Any]])
+        XCTAssertEqual(samples.map { $0["totalPairs"] as? Int }, [3, 1])
+        XCTAssertEqual(samples.map { $0["readCount"] as? Int }, [6, 1])
+        XCTAssertEqual(
+            samples.map { $0["totalPairs"] as? Int }.compactMap { $0 }.reduce(0, +),
+            manifest["inputReadCount"] as? Int,
+            "the run denominator is the sum of the per-sample denominators"
+        )
+    }
+
     func testImportedPlainFASTACompletesAmpliconPipelineAndRealWorkbook() async throws {
         let python = ProcessInfo.processInfo.environment["LUNGFISH_TEST_OPENPYXL_PYTHON"]
             ?? (try? runPython(["-c", "import openpyxl, sys; print(sys.executable)"]))?
