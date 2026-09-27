@@ -17,9 +17,9 @@ shots:
   - id: tools-mapping-submenu
     caption: "The Tools menu with its Mapping submenu open, listing the minimap2, BWA-MEM2, Bowtie2, BBMap, and Viral Recon items."
   - id: call-variants-dialog-medaka
-    caption: "The Call Variants dialog with Medaka selected in the tool sidebar, showing the two-column layout and the Medaka Settings section holding its single empty Medaka Model field."
+    caption: "The Call Variants dialog with Medaka selected in the tool sidebar, showing the two-column layout and the Medaka Settings section holding its single empty Medaka Model field and the caption beneath it."
   - id: medaka-model-field
-    caption: "The Medaka Model field with a model identifier typed in, the Readiness line naming that model back, and the Run button enabled."
+    caption: "The Clair3 section of the Call Variants dialog with the Sequencing Platform menu on Automatic (from read groups), r941_prom_sup_g5014 typed into the Clair3 Model field, and the Readiness line naming that model back."
 illustrations: []
 glossary_refs: [checksum, allele-frequency, amplicon, basecaller, bgzip, clair3, depth, filter, genotype, haplogroup, heterozygous, homopolymer, indel, ivar, lofreq, medaka, mitochondrial-genome, phred-score, plugin-pack, primer-scheme, provenance, read, shotgun, supplementary-alignment, tabix, variant-caller]
 features_refs: [variants.call]
@@ -36,10 +36,9 @@ The basecaller is a neural network, a trained program that repeats the same mist
 
 Short-read callers assume each base's quality score is an independent estimate of how likely that base is wrong. On nanopore data the errors are correlated along the read, and their shape changes with every new basecaller version and pore chemistry, the version of the physical pore, named like R9.4.1 or R10.4.1. Run [LoFreq](../../GLOSSARY.md#lofreq) or [iVar](../../GLOSSARY.md#ivar) on nanopore reads and the output fills with false calls at every homopolymer.
 
-The answer is a caller trained on the same basecaller output you feed it. Lungfish Genome Explorer (LGE) offers two in the Call Variants dialog. [Medaka](../../GLOSSARY.md#medaka) is Oxford Nanopore's own tool and takes a trained model by name, a model being a file of learned error patterns. [Clair3](../../GLOSSARY.md#clair3) is a deep-learning caller from a separate group and takes a path to a folder of model files. Neither guesses the model for you, so find out which basecaller and pore chemistry produced your reads before you open the dialog.
+The answer is a caller trained on the same basecaller output you feed it. Lungfish Genome Explorer (LGE) offers two in the Call Variants dialog. [Medaka](../../GLOSSARY.md#medaka) is Oxford Nanopore's own tool and takes a trained model by name, a model being a file of learned error patterns. [Clair3](../../GLOSSARY.md#clair3) is a deep-learning caller from a separate group and takes a model by name or as a folder of model files, falling back to a general model for the instrument when you name none. Neither can tell which model matches your reads, so find out which basecaller and pore chemistry produced them before you open the dialog.
 
-<!-- PENDING-FIX: medaka/clair3 -->
-Neither caller finishes a run from inside LGE at present. This is a known defect, listed with its workaround in [Known defects in this release](../appendices/troubleshooting.md#known-defects-in-this-release). This chapter teaches the dialog, the model choice, and how to judge nanopore calls, using a call set made by running Clair3 directly, which [On the command line](#on-the-command-line) shows.
+This chapter maps the reads, runs both callers from the Call Variants dialog, and judges nanopore calls against what is already known about the sample.
 
 ## Why you would do this
 
@@ -64,7 +63,7 @@ Neither caller finds minority variants. A haploid call reports what nearly every
 | Clair3 | Germline calling from long reads, diploid unless told otherwise | The sample is a person or a macaque, or, with `--haploid_precise`, a bacterium or virus | You need minority variants, which no LGE caller finds in nanopore data |
 | Medaka | Haploid calling from nanopore reads | You want a second opinion on a bacterial or viral call set | The sample is diploid, or the reads are not from a nanopore instrument |
 
-This chapter's call set comes from Clair3 in its default diploid mode, run with `--include_all_ctgs` so that it also calls the mitochondrion. A mitochondrion carries one sequence, but `--haploid_precise` reports only changes in nearly every read and so would hide a mixed position. Diploid mode keeps such a position as a `0/1` row, a flag for a possible mixture of mitochondrial sequences or for basecall noise, as [Reading the results](#reading-the-results) explains. For a human or macaque nuclear genome on long reads, use Clair3. For a bacterial or viral genome on nanopore reads, use Clair3 with `--haploid_precise` and check it with Medaka. Never use LoFreq or iVar on nanopore reads, for the homopolymer reason given in [What it is](#what-it-is). Clair3 and Medaka are cited in [Tools installed by a plugin pack](../appendices/bibliography.md#tools-installed-by-a-plugin-pack), and the ARTIC release notes in [Other works cited in the manual](../appendices/bibliography.md#other-works-cited-in-the-manual).
+This chapter's main call set comes from Clair3 in its default diploid mode. LGE always passes Clair3 `--include_all_ctgs`, which makes it call a sequence such as the mitochondrion that is not a standard human chromosome. A mitochondrion carries one sequence, but `--haploid_precise` reports only changes in nearly every read and so would hide a mixed position. Diploid mode keeps such a position as a `0/1` row, a flag for a possible mixture of mitochondrial sequences or for basecall noise, as [Reading the results](#reading-the-results) explains. For a human or macaque nuclear genome on long reads, use Clair3. For a bacterial or viral genome on nanopore reads, use Clair3 with `--haploid_precise` and check it with Medaka. Never use LoFreq or iVar on nanopore reads, for the homopolymer reason given in [What it is](#what-it-is). Clair3 and Medaka are cited in [Tools installed by a plugin pack](../appendices/bibliography.md#tools-installed-by-a-plugin-pack), and the ARTIC release notes in [Other works cited in the manual](../appendices/bibliography.md#other-works-cited-in-the-manual).
 
 ## Before you start
 
@@ -80,41 +79,49 @@ Install the `variant-calling` [plugin pack](../../GLOSSARY.md#plugin-pack), a th
 
 ## Procedure
 
-### Step 1. Map the reads with the Oxford Nanopore preset
+### Map the reads with the Oxford Nanopore preset
 
-Select the read bundle and choose **Tools > Mapping > minimap2...**. Choose the mitochondrial bundle as the reference and **Oxford Nanopore** as the preset, which tunes minimap2 for long reads with several percent error. Never choose **Short-read** for nanopore data. [Mapping Reads to a Reference](../04-alignments/01-mapping-reads-to-a-reference.md) covers the rest of the wizard.
+1. Select the `HG002.chrM.ont` read bundle and choose **Tools > Mapping > minimap2...**.
+2. Choose the `NC_012920.1` bundle as the reference and **Oxford Nanopore** as the preset, which tunes minimap2 for long reads with several percent error. Never choose **Short-read** for nanopore data.
+3. Type `HG002 ONT minimap2` in the **Track name** field, and click **Run**. [Mapping Reads to a Reference](../04-alignments/01-mapping-reads-to-a-reference.md) covers the rest of the dialog.
 
 <!-- SHOT: tools-mapping-submenu -->
 
 On the fixture the run places all 950 reads and writes 1,210 records. The extra 260 are [supplementary alignments](../../GLOSSARY.md#supplementary-alignment), pieces of one read placed in different spots. They are normal on a circular genome, because a read that runs off the end at position 16,569 and continues at position 1 is split in two.
 
-### Step 2. Primer-trim only if the reads are amplicon
+### Primer-trim only if the reads are amplicon
 
 The fixture reads are [shotgun](../../GLOSSARY.md#shotgun), from DNA broken at random, so skip this step. If your own run is [amplicon](../../GLOSSARY.md#amplicon) sequenced, primer-trim the alignment with the matching [primer scheme](../../GLOSSARY.md#primer-scheme) before calling, as [Primer Trimming an Alignment](../04-alignments/03-primer-trimming.md) shows. The Call Variants dialog checks for trimming only for iVar, so nothing reminds you for Medaka or Clair3.
 
-### Step 3. Open the Call Variants dialog and pick an ONT caller
+### Open the Call Variants dialog and pick an ONT caller
 
-Select the reference bundle and choose **Tools > Call Variants...**. The dialog opens on the first eligible alignment track, so check the Alignment Track menu. The tool sidebar lists six callers, and only Medaka and Clair3 suit nanopore reads.
+Click the new `minimap2-` mapping result under **Analyses**, then in the Inspector's **Analysis** tab click **Variant Calling** and **Call Variants...**, as [Calling Variants](01-calling-variants-from-amplicons.md#open-the-call-variants-dialog) shows. The dialog opens on the first eligible alignment track, so check the Alignment Track menu. The tool sidebar lists six callers, and only Medaka and Clair3 suit nanopore reads.
 
-Click **Medaka**. The right pane shows **Overview**, **Thresholds**, **Medaka Settings** holding one empty field labelled `Medaka Model` with the placeholder `r1041_e82_400bps_sup_v5.0.0`, then **Extra arguments** and **Readiness**.
+Click **Medaka**. The right pane shows **Overview**, **Thresholds**, **Medaka Settings** holding one empty field labelled `Medaka Model` with the placeholder `r1041_e82_400bps_sup_variant_v5.0.0`, then **Extra arguments** and **Readiness**. A caption under the field reads "A medaka variant model named for the pore, instrument and basecaller, such as r941_prom_sup_variant_g507."
 
 <!-- SHOT: call-variants-dialog-medaka -->
 
-Clicking **Clair3** shows the same layout with the field labelled `Clair3 Model`. The two fields are one stored setting. Type a Medaka model name, click **Clair3**, and the name is still there under the new label, with Run enabled. Medaka wants a model name. Clair3 wants the path of a folder of model files. Read the field every time you switch callers.
+Click **Clair3**. Its section holds a **Sequencing Platform** menu, which starts on "Automatic (from read groups)" and reads the platform the mapping recorded, and a `Clair3 Model` field whose grey placeholder reads "Platform default". The two model fields are one stored setting under two labels. Type a Medaka model name, click **Clair3**, and the name is still there. Read the field every time you switch callers.
 
-The Thresholds fields filter every caller's output, as [Calling Variants](01-calling-variants-from-amplicons.md#step-2-read-the-dialog-before-you-change-anything) explains. For these two callers LGE removes rows whose allele fraction or depth falls below the fields after the caller runs.
+The Thresholds fields filter every caller's output, as [Read the dialog before you change anything](01-calling-variants-from-amplicons.md#read-the-dialog-before-you-change-anything) explains. For these two callers LGE removes rows whose allele frequency or depth falls below the fields after the caller runs.
 
-### Step 4. Type the model and run
+### Call with Clair3
 
-The model field is plain text with no list behind it. Two facts about the sequencing run decide the model, the instrument and the pore chemistry, and both are printed in the run report that MinKNOW, the software that runs the instrument, writes at the end of a run. Ask your sequencing facility for it if you did not run the instrument.
+Two facts about the sequencing run decide the model, the instrument and the pore chemistry, and both are printed in the run report that MinKNOW, the software that runs the instrument, writes at the end of a run. Ask your sequencing facility for it if you did not run the instrument. The fixture reads came off a PromethION, one of Oxford Nanopore's instruments, using R9.4.1 pores and the most accurate basecalling mode, called sup.
 
-The fixture reads came off a PromethION, one of Oxford Nanopore's instruments, using R9.4.1 pores. The matching Medaka model is `r941_prom_sup_variant_g507`, whose name reads back those facts. Medaka publishes consensus models, which polish an assembled sequence, and variant models, and only variant models, whose names carry `variant`, are built for calling against a reference. The placeholder is a consensus model for a newer chemistry, an example of the format rather than a value to copy.
-
-The Readiness line reads the model back before you commit. With the field empty it says "Provide the ONT/basecaller model required by Medaka." and Run stays disabled. With a model typed it says "Ready to run Medaka with model r941_prom_sup_variant_g507." Clair3 shows its own pair of messages. Read that line rather than the field. For Clair3 on this fixture, type the model folder's full path written out from the top of the disk, such as `/Users/yourname/.lungfish/conda/envs/clair3/bin/models/r941_prom_sup_g5014` with your own user name, because the field does not expand the `~` shorthand, and type `--include_all_ctgs` in Extra arguments, since Clair3 otherwise skips a sequence such as `NC_012920.1` that is not a standard human chromosome. When you switch callers, clear the model field and type the value the new caller wants.
+1. With **Clair3** selected, type `r941_prom_sup_g5014` in the `Clair3 Model` field, the Clair3 model trained on that chemistry. The field takes a model's name or the full path of a model folder.
+2. Read the Readiness line, which names the model back, "Ready to run Clair3 with model r941_prom_sup_g5014" followed by where the platform came from.
+3. Replace the output name with `HG002 ONT Clair3` and click **Run**.
 
 <!-- SHOT: medaka-model-field -->
 
-Name the output track and click **Run**. <!-- PENDING-FIX: medaka/clair3 --> At present the run stops with an error and its row in the [Operations Panel](../01-foundations/06-the-lungfish-project.md#the-operations-panel) turns red, so no track is added. The two callers read their input differently. For Medaka, LGE rebuilds a FASTQ from the alignment keeping only each read's primary record. Clair3 is handed the BAM itself and skips secondary and supplementary records on its own. So both see the same 950 reads. Either way the finished VCF is sorted, compressed with [bgzip](../../GLOSSARY.md#bgzip), indexed with [tabix](../../GLOSSARY.md#tabix), and added to the bundle as a variant track.
+Left empty, the field hands Clair3 the general model it ships for the platform. On this fixture that run wrote 23 rows where the matched model wrote 43, so a model named for the chemistry is worth the lookup.
+
+### Call with Medaka for a second opinion
+
+Open the dialog again and click **Medaka**. Clear the model field and type `r941_prom_sup_variant_g507`, the Medaka variant model for the same chemistry. Medaka publishes consensus models, which polish an assembled sequence, and variant models, and only variant models, whose names carry `variant`, are built for calling against a reference. The placeholder is a consensus model for a newer chemistry, an example of the format rather than a value to copy. Check that the Readiness line reads "Ready to run Medaka with model r941_prom_sup_variant_g507." With the field empty it reads "Provide the ONT/basecaller model required by Medaka." and Run stays disabled. Replace the output name with `HG002 ONT Medaka` and click **Run**.
+
+The two callers read their input differently. For Medaka, LGE rebuilds a FASTQ from the alignment keeping only each read's primary record. Clair3 is handed the BAM itself and skips secondary and supplementary records on its own. So both see the same 950 reads. Either way the finished VCF is sorted, compressed with [bgzip](../../GLOSSARY.md#bgzip), indexed with [tabix](../../GLOSSARY.md#tabix), and added to the reference bundle inside the mapping result as a variant track. Each call took under two minutes on a recent Mac.
 
 ## Settings
 
@@ -122,44 +129,50 @@ Every control the dialog shows for Medaka and Clair3 is below.
 
 **Alignment Track.** Chooses which alignment the caller reads, and the alignment is only read, never rewritten. The default is the first eligible BAM track in the bundle, one with its index present, rather than the track you clicked. Change it when the bundle holds more than one alignment. On the command line this is `--alignment-track`.
 
-**Output Variant Track Name.** Names the variant track the run creates, and the name fills the Variant Track column of the Variants tab. The default joins the alignment and caller names, such as "ONT minimap2 • Medaka", and a name already in use gets a number added. Change it when you want a clearer label. On the command line this is `--name`.
+**Output Variant Track Name.** Names the variant track the run creates, and the name fills the Variant Track column of the Variants tab. The default joins the alignment and caller names, such as "HG002 ONT minimap2 • Medaka", and a name already in use gets a number added. Change it when you want a clearer label. On the command line this is `--name`.
 
-**Minimum Allele Frequency.** Removes rows where fewer than this fraction of reads carry the change, where [allele frequency](../../GLOSSARY.md#allele-frequency) is that fraction. The default is 0.05, applied after the caller runs using Medaka's `INFO/AF` or Clair3's per-sample `AF`. Raise it to drop low-fraction calls, which on nanopore data are often basecall noise. On the command line this is `--min-af`.
+**Minimum Allele Frequency.** Removes rows where fewer than this share of reads carry the change, where [allele frequency](../../GLOSSARY.md#allele-frequency) is that share. The default is 0.05, applied after the caller runs using Medaka's `INFO/SR` read counts or Clair3's per-sample `AF`. Raise it to drop low-frequency calls, which on nanopore data are often basecall noise. On the command line this is `--min-af`.
 
 **Minimum Depth.** Removes rows at positions covered by fewer reads than this. [Depth](../../GLOSSARY.md#depth), also called coverage, is the number of reads covering one position. The default is 10, about the thinnest evidence worth calling on, applied after the caller runs. Raise it when coverage is deep and you want only well-supported calls. On the command line this is `--min-depth`.
 
 **Medaka Model.** Names the trained model Medaka scores the reads against, its only control in the dialog. It defaults to empty, and Run stays disabled until you fill it, because the model encodes the error pattern the caller corrects for. Set it from your run report every time, and choose a model whose name carries `variant`. On the command line this is `--medaka-model`.
 
-**Clair3 Model.** Points Clair3 at the folder of trained model files it scores reads with, its only control in the dialog. It defaults to empty, and Run stays disabled until you fill it. Give it a full path, since Clair3's models are folders inside its own environment, and match the model to your pore chemistry. On the command line this is `--medaka-model`, because both callers share one stored setting.
+**Sequencing Platform.** Tells Clair3 which instrument made the reads, which decides the family of models it may use. The default, "Automatic (from read groups)", reads the platform the mapping wrote into the BAM, `ONT` for a run mapped with the Oxford Nanopore preset. Choose Oxford Nanopore, PacBio HiFi, or Illumina by hand only when a BAM made outside LGE records the wrong platform or none. On the command line this is `--platform`, which takes `ont`, `hifi`, or `ilmn`.
 
-**Extra arguments.** Passes text straight to the caller without LGE checking it, placed right after the word `variant` for Medaka and at the very end of the command for Clair3. The default is empty, which is right for almost every run. Use it for an option the dialog does not show, such as `--include_all_ctgs`, which makes Clair3 call on a contig whose name is not a standard human chromosome. On the command line this is `--extra-args`.
+**Clair3 Model.** Names the trained model Clair3 scores reads with, or gives the full path of a folder of model files. It defaults to empty, which uses the general model Clair3 ships for the platform. Type the model for your pore chemistry and basecaller whenever one exists, as the fixture's `r941_prom_sup_g5014` does. On the command line this is `--medaka-model`, because both callers share one stored setting.
+
+**Extra arguments.** Passes text straight to the caller without LGE checking it, placed right after the word `variant` for Medaka and at the very end of the command for Clair3. The default is empty, which is right for almost every run. Use it for an option the dialog does not show, such as `--haploid_precise`, which makes Clair3 report only changes carried by nearly every read on a bacterial or viral genome. On the command line this is `--extra-args`.
 
 ## Reading the results
 
-The rows appear on the **Variants** tab of the table drawer, which [Reading the Variants Table](02-reading-the-variant-browser.md#what-it-is) covers. What follows is how to judge nanopore rows in particular, read against a Clair3 call set on the fixture alignment made by running Clair3 directly.
+The rows appear on the **Variants** tab of the table drawer, which [Reading the Variants Table](02-reading-the-variant-browser.md#what-it-is) covers. What follows is how to judge nanopore rows in particular, read against the `HG002 ONT Clair3` track.
 
 A [Phred score](../../GLOSSARY.md#phred-score) is a per-base quality on a logarithmic scale, where 20 means one wrong base in a hundred and 30 means one in a thousand. The fixture reads average Phred 7.9, about one wrong base in six. That is the average the FASTQ viewport's Mean Q card shows, made by turning each score into its chance of error, averaging those chances, and converting back, so the few very bad bases pull it down. A plain arithmetic mean of the same scores gives about 24, so the two kinds of average are not comparable.
 
-That run produced 44 rows. Each row's QUAL, the caller's confidence in the whole call, uses the same Phred scale. Take the [FILTER](../../GLOSSARY.md#filter) column first. Clair3 writes `PASS` when its own quality score clears its threshold and `LowQual` when it does not, which on this run falls between 1.78, the highest `LowQual` row, and 2.58, the lowest `PASS` row. Treat a `LowQual` row as a position worth a second look rather than a call, and do not delete it.
+The Clair3 track holds 43 rows. Clair3 wrote 44, and LGE's threshold filter removed one below 0.05 or 10. Each row's QUAL, the caller's confidence in the whole call, uses the same Phred scale. Take the [FILTER](../../GLOSSARY.md#filter) column first. Clair3 writes `PASS` when its own quality score clears its threshold and `LowQual` when it does not, which on this run falls between 1.78, the highest `LowQual` row, and 2.58, the lowest `PASS` row. Treat a `LowQual` row as a position worth a second look rather than a call, and do not delete it.
 
 | Count | Covers | Value |
 | --- | --- | --- |
-| Total rows | all rows | 44 |
+| Total rows | all rows | 43 |
 | `PASS` rows | all rows | 27 |
-| `LowQual` rows | all rows | 17 |
-| Single-base substitutions | all rows | 18 |
+| `LowQual` rows | all rows | 16 |
+| Single-base substitutions | all rows | 17 |
 | Insertions and deletions | all rows | 26 |
 | Substitutions among the `PASS` rows | `PASS` only | 14 |
 | `PASS` rows reading `1/1` | `PASS` only | 23 |
 | `PASS` rows reading `0/1` | `PASS` only | 4 |
 
-More [insertions and deletions](../../GLOSSARY.md#indel) than substitutions would be alarming on Illumina data and is expected here. A miscounted homopolymer is a length error, so it is written as an insertion or a deletion, and that is why 13 of the 17 `LowQual` rows are indels.
+More [insertions and deletions](../../GLOSSARY.md#indel) than substitutions would be alarming on Illumina data and is expected here. A miscounted homopolymer is a length error, so it is written as an insertion or a deletion, and that is why 13 of the 16 `LowQual` rows are indels.
 
 The substitutions are where the biology is checkable. The 14 `PASS` substitutions land at positions 263, 456, 750, 1438, 4336, 4769, 6800, 8557, 8860, 9028, 14229, 15175, 15326, and 16304. Six of those, 263, 750, 1438, 4769, 8860, and 15326, are the near-universal differences from the rCRS. Three more, 4336, 15175, and 16304, are haplogroup markers. PhyloTree, the standard reference tree of human mitochondrial haplogroups, lists both sets. Recovering them from 950 nanopore reads shows the alignment and the model were both right.
 
-A [genotype](../../GLOSSARY.md#genotype) of `0/1` means one of the two chromosome copies carries the change and `1/1` means both do. Mitochondrial DNA is not inherited as two copies, so read `1/1` here as nearly every molecule carrying the change and `0/1` as a mixture. Position 9028 is a `0/1` row, a reference `C` read as `T` at a depth of 239 with an allele frequency of 0.31 and a quality of 4.38. A real mixture of mitochondrial sequences in one person, called heteroplasmy, exists, but 4.38 means roughly a one in three chance the call is wrong, so on nanopore data this row is more likely basecall noise. Check it against a second caller before believing it.
+A [genotype](../../GLOSSARY.md#genotype) of `0/1` means one of the two chromosome copies carries the change and `1/1` means both do. Mitochondrial DNA is not inherited as two copies, so read `1/1` here as nearly every molecule carrying the change and `0/1` as a mixture. Two of the `PASS` substitutions are `0/1` rows. Position 9028 is a reference `C` read as `T` at a depth of 239 with an allele frequency of 0.31 and a quality of 4.38, and position 14229 is a `C` read as `T` at a depth of 189 with an allele frequency of 0.42 and a quality of 6.04. A real mixture of mitochondrial sequences in one person, called heteroplasmy, exists, but a quality of 4.38 means roughly a one in three chance the call is wrong.
 
-`PASS` is not a promise of high quality. The 27 `PASS` rows run from 2.58 to 27.69, and only the strongest eleven reach 21 or above. Position 14229, one of the `PASS` substitutions, carries 6.04. Read the quality row by row.
+A second platform settles it. The same person's Illumina reads in the human mitochondrial fixture, 19,916 reads at a mean depth of 295, carry the reference `C` on every read at both positions, 242 reads at 9028 and 275 at 14229. So both `0/1` rows are nanopore basecall errors, and the other twelve `PASS` substitutions are all in the Illumina reads too. [Extracting a Consensus Sequence](05-consensus-and-lineage.md#a-sequence-worth-reading-the-human-mitochondrion) builds that Illumina consensus.
+
+The Medaka track reads differently. It holds 107 rows, every one `PASS` and every genotype a bare haploid `1`, because Medaka calls one copy and filters its own output. Of those rows, 94 are insertions or deletions, far more than Clair3's 26, which is the homopolymer noise a haploid caller has no second copy to explain. Its 13 substitutions share 12 positions with Clair3's `PASS` substitutions, leave out 9028 and 14229, and add 6173 at a quality of 0.65. The agreement on the twelve is the useful part of a second opinion. The indels are the reason to prefer Clair3 on a human sample.
+
+`PASS` is not a promise of high quality. The 27 `PASS` rows in the Clair3 track run from 2.58 to 27.69, and only the strongest eleven reach 21 or above. Read the quality row by row.
 
 Depth puts the rest in context. The mean depth across all 16,569 bases is 236, with no position under 10. An error that happens in one read out of six rarely repeats in the same direction across two hundred reads, which is why the substitution calls hold up despite noisy reads. A thin nanopore run gives far less.
 
@@ -167,59 +180,42 @@ Depth puts the rest in context. The mean depth across all 16,569 bases is 236, w
 
 Four checks are worth making.
 
-<!-- PENDING-FIX: medaka/clair3 -->
-First, check that the run finished. Inside LGE it does not at present, so the working route is the direct Clair3 run below.
+First, read the row count against the region and the FILTER column. This run gave 43 rows across 16,569 bases, 27 of them `PASS`. Ten to sixty `PASS` rows is right for a human mitochondrion, since a person differs from the reference at a few dozen positions. Single digits would mean a broken alignment or the wrong reference. Several hundred would mean the model does not match the basecaller and homopolymer noise is coming through.
 
-Second, read the row count against the region and the FILTER column. This run gave 44 rows across 16,569 bases, 27 of them `PASS`. Ten to sixty `PASS` rows is right for a human mitochondrion, since a person differs from the reference at a few dozen positions. Single digits would mean a broken alignment or the wrong reference. Several hundred would mean the model does not match the basecaller and homopolymer noise is coming through.
+Second, check the substitutions against biology you already know. On human mitochondrial DNA the near-universal positions above should appear in any correct call set. On other genomes, use a position you have independent evidence for, from another platform or an earlier assay.
 
-Third, check the substitutions against biology you already know. On human mitochondrial DNA the near-universal positions above should appear in any correct call set. On other genomes, use a position you have independent evidence for, from another platform or an earlier assay.
+Third, check every `0/1` row and every low-quality `PASS` row against a second source before you report it, as 9028 and 14229 show. A second platform is the strongest check, and a second caller the next best.
 
-Fourth, read the provenance. LGE writes a [provenance](../../GLOSSARY.md#provenance) record beside every result, holding the command, the tool version, and a [checksum](../../GLOSSARY.md#checksum) of each file, and [Provenance and Reproducibility](../01-foundations/08-provenance-and-reproducibility.md#reading-the-results) shows how to read it. The model string is recorded there, which proves which model produced which file.
+Fourth, read the provenance, the record [Provenance and Reproducibility](../01-foundations/08-provenance-and-reproducibility.md#reading-the-results) reads. The model name is recorded there, which proves which model produced which file.
 
 ## On the command line
 
-This section is optional, and nothing later in this manual needs it. The `lungfish-cli` program ships inside LGE, and [Finding the program](../appendices/cli-reference.md#finding-the-program) shows how to run it.
-
-<!-- PENDING-FIX: medaka/clair3 -->
-The first block reproduces the procedure with `lungfish-cli`, and the calling step stops with the defect described above. The second is the direct Clair3 run that produced this chapter's call set.
+The block reproduces the procedure in the Long Reads and Assembly demo project, following the path convention in [Reading an On the command line block](../01-foundations/06-the-lungfish-project.md#reading-a-command-line-block). Every flag of `map` and `variants call` is listed in [Mapping and alignment tracks](../appendices/cli-reference.md#mapping-and-alignment-tracks) and [Calling variants](../appendices/cli-reference.md#calling-variants) in the CLI Reference. Put your own mapping result folder and track identifier, which `ls` shows at the start of the BAM's file name, in the `BUNDLE` and `--alignment-track` lines.
 
 ```bash
-# Import the reads with the platform set, and the reference
-lungfish-cli import-fastq HG002.chrM.ont.fastq.gz \
-    --platform ont --project ONT.lungfish
-lungfish-cli import fasta NC_012920.1.fasta \
-    --name "Human mitochondrion rCRS" -o ONT.lungfish
-BUNDLE="ONT.lungfish/Reference Sequences/Human_mitochondrion_rCRS.lungfishref"
+PROJECT="$HOME/Documents/LGE Demo Projects/Long Reads and Assembly.lungfish"
 
-# Map with the Oxford Nanopore preset and attach the result to the bundle
-lungfish-cli map ONT.lungfish/Imports/HG002.chrM.ont.lungfishfastq \
-    --reference NC_012920.1.fasta --preset map-ont \
-    --sample-name HG002-chrM-ONT -o mapping
-lungfish-cli bam adopt-mapping --bundle "$BUNDLE" \
-    --mapping-result mapping \
-    --name "ONT minimap2" --track-id ont-minimap2
+lungfish-cli map "$PROJECT/Imports/HG002.chrM.ont.lungfishfastq" \
+  --reference "$PROJECT/Reference Sequences/NC_012920.1.lungfishref" \
+  --project "$PROJECT" --mapper minimap2 --preset map-ont \
+  --track-name "HG002 ONT minimap2"
 
-# Call with Clair3, giving the model as a folder path
+BUNDLE="$PROJECT/Analyses/minimap2-2026-09-27T11-30-50/NC_012920.1.lungfishref"
+ls "$BUNDLE/alignments"
+
 lungfish-cli variants call --bundle "$BUNDLE" \
-    --alignment-track ont-minimap2 --caller clair3 \
-    --medaka-model ~/.lungfish/conda/envs/clair3/bin/models/r941_prom_sup_g5014 \
-    --min-af 0.05 --min-depth 10 --name "ONT Clair3"
+  --alignment-track aln_73BBA826 --caller clair3 \
+  --medaka-model r941_prom_sup_g5014 \
+  --min-af 0.05 --min-depth 10 --name "HG002 ONT Clair3"
+
+lungfish-cli variants call --bundle "$BUNDLE" \
+  --alignment-track aln_73BBA826 --caller medaka \
+  --medaka-model r941_prom_sup_variant_g507 \
+  --min-af 0.05 --min-depth 10 --name "HG002 ONT Medaka"
 ```
 
-```bash
-# The working route. First copy the alignment's BAM, its index, and the
-# reference FASTA into the folder you run this from.
-ENV=~/.lungfish/conda/envs/clair3
-export PATH="$ENV/bin:$PATH"
-run_clair3.sh \
-    --bam_fn=ont.bam --ref_fn=ref.fasta \
-    --threads=8 --platform=ont \
-    --model_path="$ENV/bin/models/r941_prom_sup_g5014" \
-    --output=clair3-out --include_all_ctgs
-```
-
-`--include_all_ctgs` is needed because Clair3 skips any contig whose name is not a standard human chromosome, and `NC_012920.1` is not one. List `$ENV/bin/models` to see which models your copy has. The window always passes your Mac's processor count as the thread count, where the command line lets `--threads` set it.
+For Clair3, `--medaka-model` takes a model name or a model folder path, and leaving it off uses the model Clair3 ships for the platform, which `--platform` sets and the BAM's read groups supply by default. The window always passes your Mac's processor count as the thread count, where the command line lets `--threads` set it.
 
 ## Next
 
-[Reading the Variants Table](02-reading-the-variant-browser.md) covers the table the rows appear in. [Extracting a Consensus Sequence](05-consensus-and-lineage.md) turns an alignment into a sequence.
+Continue to [Extracting a Consensus Sequence](05-consensus-and-lineage.md), which turns an alignment into a sequence and builds the Illumina mitochondrial consensus this chapter checked its calls against. [Reading the Variants Table](02-reading-the-variant-browser.md) covers the table the rows appear in.
