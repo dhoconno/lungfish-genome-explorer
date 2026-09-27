@@ -319,6 +319,7 @@ class ReleaseSmokeTests(unittest.TestCase):
             self.assertIn("PASS lungfish-cli-tools", result.stdout)
             self.assertIn("PASS lungfish-cli-qc-summary", result.stdout)
             self.assertIn("PASS micromamba", result.stdout)
+            self.assertIn("PASS signed-bootstrap-reconciliation", result.stdout)
 
     def test_smoke_test_rejects_generic_local_absolute_paths(self):
         leak_markers = [
@@ -548,14 +549,18 @@ class ReleaseSmokeTests(unittest.TestCase):
         )
 
         micromamba = tools / "micromamba"
-        micromamba.write_text("#!/bin/sh\necho micromamba 1.0\n", encoding="utf-8")
+        micromamba.write_text("#!/bin/sh\necho 1.0\n", encoding="utf-8")
         os.chmod(micromamba, 0o755)
         (tools / "tool-versions.json").write_text(
             '{"tools":[{"name": "micromamba", "version": "1.0"}]}\n', encoding="utf-8"
         )
         (tools / "VERSIONS.txt").write_text("- micromamba: 1.0\n", encoding="utf-8")
         (managed_tools / "third-party-tools-lock.json").write_text(
-            '{"bootstrap":{"micromamba":{"version":"1.0","sha256":{}}}}\n',
+            '{"dependencySet":"test-set","packID":"lungfish-tools",'
+            '"bootstrap":{"micromamba":{"version":"1.0","sha256":'
+            '{"osx-arm64":"0000000000000000000000000000000000000000000000000000000000000000"}}},'
+            '"tools":[{"id":"samtools","environment":"samtools",'
+            '"packageSpec":"bioconda::samtools=1.0=build_0"}]}\n',
             encoding="utf-8",
         )
 
@@ -605,6 +610,44 @@ case "$1" in
     printf '{"inputs":[]}\n' >"$output"
     printf '{"workflowName":"lungfish fastq qc-summary"}\n' >"$output.lungfish-provenance.json"
     printf '{"workflowName":"lungfish fastq qc-summary"}\n' >"$(dirname "$output")/.lungfish-provenance.json"
+    ;;
+  tools)
+    if [ "${2:-}" != "update" ]; then
+      exit 2
+    fi
+    action="${3:-}"
+    storage=""
+    while [ "$#" -gt 0 ]; do
+      if [ "$1" = "--storage-root" ]; then
+        storage="$2"
+        break
+      fi
+      shift
+    done
+    if [ -z "$storage" ] || [ -z "${LUNGFISH_CONDA_ROOT:-}" ]; then
+      exit 2
+    fi
+    if [ "$action" = "--plan" ]; then
+      if [ -x "$LUNGFISH_CONDA_ROOT/bin/micromamba" ]; then
+        bootstrap=null
+        status=0
+      else
+        bootstrap='{"targetVersion":"1.0"}'
+        status=10
+      fi
+      printf '{"bootstrapUpdate":%s,"databaseUpdates":[],"estimatedDownloadBytes":0,"installEnvironments":[],"pipelinePrefetch":[],"preservedEnvironments":[],"reinstallEnvironments":[],"removeEnvironments":[],"targetDependencySet":"test-set"}\n' "$bootstrap"
+      exit "$status"
+    fi
+    if [ "$action" != "--apply" ]; then
+      exit 2
+    fi
+    mkdir -p "$LUNGFISH_CONDA_ROOT/bin" "$storage/provenance/dependencies"
+    source_tool="$(dirname "$0")/../Resources/LungfishGenomeBrowser_LungfishWorkflow.bundle/Tools/micromamba"
+    cp "$source_tool" "$LUNGFISH_CONDA_ROOT/bin/micromamba"
+    chmod 755 "$LUNGFISH_CONDA_ROOT/bin/micromamba"
+    printf '{"schemaVersion":1,"dependencySet":"test-set","bootstrap":{"micromambaVersion":"1.0"}}\n' >"$storage/dependency-receipt.json"
+    printf '{"workflowName":"dependency-reconcile","exitStatus":0,"steps":[{"toolName":"micromamba","toolVersion":"1.0","exitStatus":0,"argv":["bootstrap","micromamba"]}]}\n' >"$storage/provenance/dependencies/test.lungfish-provenance.json"
+    printf '{"plan":{},"result":{"succeeded":["micromamba"],"failed":{},"receipt":{"dependencySet":"test-set"}}}\n'
     ;;
   *)
     exit 2

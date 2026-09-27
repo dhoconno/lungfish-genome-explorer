@@ -29,6 +29,7 @@ shift
 PORTABILITY_ONLY=0
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PORTABILITY_SCANNER="${SCRIPT_DIR}/release/scan-release-portability.py"
+SIGNED_BOOTSTRAP_SMOKE="${SCRIPT_DIR}/release/smoke_signed_bootstrap.py"
 ALLOWED_SWIFTPM_FALLBACK="/private/var/tmp/lungfish-release-swiftpm/no-allowed-fallback"
 
 while [ "$#" -gt 0 ]; do
@@ -92,6 +93,11 @@ fi
 
 if [ ! -f "$PORTABILITY_SCANNER" ]; then
     echo "portability scanner missing or not executable" >&2
+    exit 69
+fi
+
+if [ ! -f "$SIGNED_BOOTSTRAP_SMOKE" ]; then
+    echo "signed bootstrap smoke helper missing" >&2
     exit 69
 fi
 
@@ -324,6 +330,8 @@ fi
 run_test micromamba "$TOOLS_DIR/micromamba" --version
 run_test lungfish-cli-version "$CLI_BIN" --version
 run_test lungfish-cli-tools "$CLI_BIN" version --tools
+run_test signed-bootstrap-reconciliation \
+    "$RELEASE_PYTHON" "$SIGNED_BOOTSTRAP_SMOKE" "$APP_PATH"
 
 FASTQ_INPUT="$TMP_DIR/smoke.fastq"
 QC_OUTPUT="$TMP_DIR/qc-summary.json"

@@ -312,7 +312,8 @@ def _apply_bootstrap(manifest, candidate, log, only, hold):
     micromamba["version"] = latest
     # The recorded digest belongs to the old binary; fetch_checksums refills it.
     micromamba["sha256"] = {}
-    log.append(f"{entry_id}: {old} -> {latest} (sha256 cleared, refetch required)")
+    micromamba.pop("packagedSha256", None)
+    log.append(f"{entry_id}: {old} -> {latest} (source and packaged sha256 cleared, refetch required)")
     return True
 
 
@@ -499,7 +500,10 @@ def fetch_checksums(manifest, fetcher, changed=None):
         except Exception as exc:
             results["micromamba"] = f"error: {type(exc).__name__}: {exc}"
         else:
-            micromamba.setdefault("sha256", {})[MICROMAMBA_ARCH] = digest
+            sha256 = micromamba.setdefault("sha256", {})
+            if sha256.get(MICROMAMBA_ARCH) != digest:
+                micromamba.pop("packagedSha256", None)
+            sha256[MICROMAMBA_ARCH] = digest
             results["micromamba"] = digest
 
     return results

@@ -276,6 +276,18 @@ public struct MicromambaSpec: Sendable, Codable, Hashable {
     public let version: String
     /// Keyed by platform ("osx-arm64").
     public let sha256: [String: String]?
+    /// Deterministic hashes produced by committed packaging transforms.
+    public let packagedSha256: [String: String]?
+
+    public init(
+        version: String,
+        sha256: [String: String]?,
+        packagedSha256: [String: String]? = nil
+    ) {
+        self.version = version
+        self.sha256 = sha256
+        self.packagedSha256 = packagedSha256
+    }
 }
 
 /// Bootstrap-time pins (currently just micromamba itself).
