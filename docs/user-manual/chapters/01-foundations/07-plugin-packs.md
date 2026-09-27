@@ -216,7 +216,7 @@ SILVA and Greengenes are built on your Mac rather than downloaded ready-made, wh
 
 Choose the EsViritu Viral DB when viruses are the whole question, and the Kraken 2 Viral database when you want viruses reported alongside everything else Kraken 2 covers.
 
-Three more reference sets handle human and background sequence, and they do not appear on this tab. The Human Read Removal Data and Ribosomal RNA Removal Data entries are prebuilt indexes that Deacon uses to remove human reads and ribosomal RNA reads, and both arrive with the Third-Party Tools pack. The Human Read Scrubber Database, used by NCBI's human read scrubber, is about 1 GB and is downloaded the first time an operation needs it.
+Two more reference sets handle human and background sequence, and they do not appear on this tab. The Human Read Removal Data and Ribosomal RNA Removal Data entries are prebuilt indexes that Deacon uses to remove human reads and ribosomal RNA reads, and both arrive with the Third-Party Tools pack. Earlier releases also listed a Human Read Scrubber Database for NCBI's human read scrubber. LGE no longer uses it, and a request that names it runs Deacon with the Human Read Removal Data instead.
 
 ### What a missing tool looks like
 
