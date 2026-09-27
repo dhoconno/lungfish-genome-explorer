@@ -10,6 +10,9 @@ struct PrimalSchemeResultsView: View {
   var reviewTargets: [PrimerTargetDesignReview] = []
   var selection: Binding<PrimerReviewSelection?> = .constant(nil)
   var onInspectSelection: () -> Void = {}
+  /// Why the scheme cannot be saved for trimming, or nil when it can.
+  var schemeExportUnavailableReason: String? = nil
+  var onSaveAsPrimerScheme: (() -> Void)? = nil
   @State private var selectedResultID: String?
   @State private var localSelection: PrimerReviewSelection?
 
@@ -62,6 +65,13 @@ struct PrimalSchemeResultsView: View {
         Text("This saved analysis has no saved ordering worksheet. Use Export selected assays… in Inspector → View to create an order; the native primer records remain available in the Inspector’s Files tab.")
           .font(.caption).foregroundStyle(.secondary)
           .accessibilityIdentifier("primerAnalysisViewer.orderSheetUnavailable")
+      }
+      if let onSaveAsPrimerScheme {
+        Button("Save as Primer Scheme…", action: onSaveAsPrimerScheme)
+          .disabled(schemeExportUnavailableReason != nil)
+          .help(schemeExportUnavailableReason
+            ?? "Writes a .lungfishprimers bundle for primer trimming into this project’s Primer Schemes folder. The sheet states which reference the coordinates belong to.")
+          .accessibilityIdentifier("primerAnalysisViewer.saveScheme")
       }
       Group {
         if let selectedTarget, selectedTarget.sourceResultID == result.id {

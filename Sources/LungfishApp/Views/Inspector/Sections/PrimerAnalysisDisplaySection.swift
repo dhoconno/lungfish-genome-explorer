@@ -1,5 +1,6 @@
 import SwiftUI
 import LungfishKit
+import LungfishWorkflow
 
 /// Presentation controls for a verified saved scheme; the session retains every source oligo.
 struct PrimerAnalysisDisplaySection: View {
@@ -9,12 +10,88 @@ struct PrimerAnalysisDisplaySection: View {
     @State private var areIndividualControlsExpanded = false
     @State private var orderDraft: PrimerOrderDraft?
     @State private var orderExportError: String?
+    @State private var isSchemeExportPresented = false
 
     private var target: PrimerTargetDesignReview? {
         session.targets.first { $0.id == selectedTargetID } ?? session.targets.first
     }
 
     var body: some View {
+        Group {
+            if session.hasPrimer3Candidates { primer3Body } else { schemeBody }
+        }
+        .font(LungfishInspectorStyle.controlFont)
+        .toggleStyle(.checkbox)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityIdentifier("primerAnalysisDisplay.section")
+        .sheet(item: $orderDraft) { draft in
+            PrimerOrderExportSheet(draft: draft, onCancel: { orderDraft = nil }, onExport: { frozenDraft, metadata in
+                guard let export = session.onOrderExportRequested else {
+                    orderExportError = "The originating project is no longer available for this order."
+                    orderDraft = nil
+                    return
+                }
+                orderDraft = nil
+                export(frozenDraft, metadata)
+            })
+        }
+        .sheet(isPresented: $isSchemeExportPresented) {
+            PrimerSchemeExportSheet(candidates: session.schemeExportCandidates,
+                analysisName: session.analysisName,
+                onCancel: { isSchemeExportPresented = false },
+                onSave: { candidate, name in
+                    isSchemeExportPresented = false
+                    session.onSchemeExportRequested?(candidate, name)
+                })
+        }
+    }
+
+    /// Primer3 pairs are independent alternatives, so the only controls are which pairs to order.
+    private var primer3Body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .firstTextBaseline) {
+                Text("Primer3 candidates").font(LungfishInspectorStyle.sectionTitleFont)
+                Spacer(minLength: 8)
+                Button("Include all") { session.reset() }
+                    .accessibilityIdentifier("primerAnalysisDisplay.reset")
+            }
+            Text("\(session.includedPrimer3Candidates.count) of \(session.primer3Candidates.count) candidate pairs included")
+                .monospacedDigit()
+                .accessibilityIdentifier("primerAnalysisDisplay.count")
+                .help("Candidate pairs included in the next order export. The viewport always shows every candidate.")
+            Button("Export candidate pairs…") {
+                do {
+                    orderExportError = nil
+                    orderDraft = try session.makeOrderDraft()
+                } catch {
+                    orderExportError = error.localizedDescription
+                }
+            }
+            .disabled(session.orderExportUnavailableReason != nil)
+            .accessibilityIdentifier("primerAnalysisDisplay.exportOrder")
+            .help(session.orderExportUnavailableReason
+                ?? "Exports the forward, reverse and probe oligos of every included candidate pair. Each pair is a separate order group.")
+            if let error = orderExportError {
+                Text(error).font(.caption).foregroundStyle(Color.lungfishDangerFallback).textSelection(.enabled)
+            }
+            Text("Each pair is an alternative design, not part of a scheme, so the order has no pools and no IDT oPools workbook.")
+                .font(.caption).foregroundStyle(.secondary)
+            Divider()
+            ForEach(session.primer3Candidates) { candidate in
+                Toggle(isOn: Binding(
+                    get: { !session.settings.hiddenPrimerIDs.contains(candidate.id) },
+                    set: { session.setPrimer3CandidateIncluded(candidate.id, included: $0) })) {
+                    Text(candidate.label).lineLimit(2).help(candidate.label)
+                }
+                .accessibilityIdentifier("primerAnalysisDisplay.candidate.\(candidate.id)")
+                .help("Include this candidate pair in the next order export.")
+            }
+            Divider()
+            schemeExportControls
+        }
+    }
+
+    private var schemeBody: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .firstTextBaseline) {
                 Text("Primer display").font(LungfishInspectorStyle.sectionTitleFont)
@@ -55,6 +132,7 @@ struct PrimerAnalysisDisplaySection: View {
             if let error = orderExportError {
                 Text(error).font(.caption).foregroundStyle(Color.lungfishDangerFallback).textSelection(.enabled)
             }
+            schemeExportControls
 
             Divider()
             Toggle("Forward oligos (+)", isOn: $session.settings.showForward)
@@ -79,20 +157,20 @@ struct PrimerAnalysisDisplaySection: View {
                 referenceControls(target)
             }
         }
-        .font(LungfishInspectorStyle.controlFont)
-        .toggleStyle(.checkbox)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .accessibilityIdentifier("primerAnalysisDisplay.section")
-        .sheet(item: $orderDraft) { draft in
-            PrimerOrderExportSheet(draft: draft, onCancel: { orderDraft = nil }, onExport: { frozenDraft, metadata in
-                guard let export = session.onOrderExportRequested else {
-                    orderExportError = "The originating project is no longer available for this order."
-                    orderDraft = nil
-                    return
-                }
-                orderDraft = nil
-                export(frozenDraft, metadata)
-            })
+    }
+
+    /// Present for every result type so the refusal reason is visible where the action is expected.
+    private var schemeExportControls: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Button("Save as Primer Scheme…") { isSchemeExportPresented = true }
+                .disabled(session.schemeExportUnavailableReason != nil)
+                .accessibilityIdentifier("primerAnalysisDisplay.saveScheme")
+                .help(session.schemeExportUnavailableReason
+                    ?? "Writes a .lungfishprimers bundle for primer trimming into this project’s Primer Schemes folder.")
+            if let reason = session.schemeExportUnavailableReason, session.onSchemeExportRequested != nil {
+                Text(reason).font(.caption).foregroundStyle(.secondary)
+                    .accessibilityIdentifier("primerAnalysisDisplay.saveSchemeUnavailable")
+            }
         }
     }
 
