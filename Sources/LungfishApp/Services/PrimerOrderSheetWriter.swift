@@ -276,16 +276,25 @@ enum PrimerOrderSheetWriter {
     try document.xmlData.write(to: root.appendingPathComponent("xl/worksheets/sheet2.xml"), options: .withoutOverwriting)
   }
 
+  /// "Synthesis scale", "Purification" and "Modifications" are written blank, for
+  /// the same reason PrimalScheme's ordering-v1.csv carries them blank: a vendor
+  /// form needs the columns, and LGE has no basis to choose their values. Keeping
+  /// both sheets' column sets aligned means one order workflow, not two.
   private static let csvHeader = ["Pool name", "Oligo name", "Sequence (5′–3′)", "Length (nt)", "Scheme",
     "Pool number", "Primer ID", "Target ID", "Source result ID", "Reference ID", "Amplicon IDs (JSON)",
     "Start (1-based inclusive)", "End (1-based inclusive)", "Strand", "Compatible rows", "Assessable rows",
     "Unassessed rows", "Total alignment rows", "Observed MSA compatibility (%)", "Order name",
     "Requested by", "Project", "Order reference", "Order notes", "Source oligo ID", "Oligo role",
-    "Candidate status", "Assay IDs (JSON)", "Native pool"]
+    "Candidate status", "Assay IDs (JSON)", "Native pool",
+    "Synthesis scale", "Purification", "Modifications"]
+
+  /// Columns a vendor fills in, written blank by LGE.
+  static let vendorSuppliedColumns = ["Synthesis scale", "Purification", "Modifications"]
 
   // Keep the two-column order details compact while fitting the identity mapping below.
   private static let metadataColumnWidths: [Double] = [43, 62, 48, 14, 28, 14, 72, 72, 64, 64, 72, 22,
-    22, 12, 18, 18, 18, 22, 26, 36, 28, 28, 28, 62, 72, 18, 20, 72, 20]
+    22, 12, 18, 18, 18, 22, 26, 36, 28, 28, 28, 62, 72, 18, 20, 72, 20,
+    18, 18, 22]
 
   private static func metadataRowHeight(_ row: MetadataRow) -> Double {
     let font = row.header
@@ -311,7 +320,7 @@ enum PrimerOrderSheetWriter {
 
   private static func oligoRow(_ oligo: PrimerOrderOligo, metadata: PrimerOrderMetadata) -> [String] {
     let compatibility = oligo.compatibility
-    return [oligo.poolName, oligo.name, oligo.sequence, String(oligo.sequence.count), oligo.schemeLabel,
+    var row: [String] = [oligo.poolName, oligo.name, oligo.sequence, String(oligo.sequence.count), oligo.schemeLabel,
       oligo.pool.map(String.init) ?? "", oligo.primerID, oligo.targetID, oligo.sourceResultID, oligo.referenceID,
       json(oligo.ampliconIDs),
       String(oligo.start + 1), String(oligo.end), oligo.strand,
@@ -321,6 +330,9 @@ enum PrimerOrderSheetWriter {
       metadata.project, metadata.orderReference, metadata.notes, oligo.sourceOligoID ?? "",
       oligo.oligoRole?.rawValue ?? "", oligo.candidateStatus?.rawValue ?? "",
       json(oligo.assayIDs ?? []), oligo.nativePool ?? ""]
+    // A vendor fills these in; LGE has no basis to choose their values.
+    row.append(contentsOf: vendorSuppliedColumns.map { _ in "" })
+    return row
   }
 
   private static func csv(oligos: [PrimerOrderOligo], metadata: PrimerOrderMetadata) -> String {

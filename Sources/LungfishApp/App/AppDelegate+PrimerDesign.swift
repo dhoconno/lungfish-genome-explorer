@@ -29,10 +29,13 @@ extension AppDelegate {
       canRun: canRun,
       routeContext: OperationRouteContext(projectURL: projectURL, windowStateScope: controller.projectSession.windowStateScope),
       onShowOperations: { [weak self] in self?.showOperationsPanel(nil) },
-      onResultSaved: { [weak controller] _ in
+      onResultSaved: { [weak controller] output in
         guard (controller?.projectSession.projectURL ?? controller?.mainSplitViewController?.sidebarController?.currentProjectURL)?
           .standardizedFileURL == projectURL.standardizedFileURL else { return }
-        controller?.mainSplitViewController?.sidebarController?.requestReloadFromFilesystem(notifyUnchangedSelectionRefresh: false)
+        // Open the finished analysis, as the other tools' results do. This
+        // reloads the sidebar and then selects the new bundle, which is what
+        // makes the viewer display it.
+        controller?.mainSplitViewController?.refreshSidebarAndSelectDerivedURL(output)
       })
   }
 }

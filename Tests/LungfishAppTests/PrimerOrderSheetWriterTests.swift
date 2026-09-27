@@ -204,6 +204,41 @@ final class PrimerOrderSheetWriterTests: XCTestCase {
       compatibilitySummaries: [:], selectedPrimerIDs: oligos.map(\.primerID))
   }
 
+  /// PrimalScheme's ordering-v1.csv carries blank Synthesis scale, Purification and
+  /// Modifications columns. The order CSV lacked them, so the two order routes gave
+  /// a vendor different forms for the same job.
+  func testOrderCSVCarriesTheSameVendorColumnsAsThePrimalSchemeSheet() async throws {
+    let directory = try temporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let oligos = [oligo("primer-1", pool: "Pool_1")]
+    _ = try await PrimerOrderSheetWriter.write(oligos: oligos, metadata: .init(),
+      selection: selection(oligos), to: directory)
+    let csv = try String(contentsOf: directory.appendingPathComponent("ordering.csv"), encoding: .utf8)
+    let lines = csv.components(separatedBy: "\r\n").filter { !$0.isEmpty }
+    let header = lines[0]
+    for column in PrimerOrderSheetWriter.vendorSuppliedColumns {
+      XCTAssertTrue(header.contains("\"\(column)\""), "missing \(column) in: \(header)")
+    }
+    // The vendor supplies these values, so LGE writes them blank rather than guessing.
+    XCTAssertTrue(lines[1].hasSuffix("\"\",\"\",\"\""), lines[1])
+    // Every row must still line up with the header.
+    let headerCount = header.components(separatedBy: "\",\"").count
+    for row in lines.dropFirst() {
+      XCTAssertEqual(row.components(separatedBy: "\",\"").count, headerCount, row)
+    }
+  }
+
+  /// The same column names appear in PrimalScheme's own sheet, so one vendor form
+  /// covers both routes.
+  func testVendorColumnNamesMatchPrimalSchemeOrderSheetExactly() throws {
+    let bed = Data("ref\t10\t30\tscheme_1_LEFT\t1\t+\tACGTACGTAC\n".utf8)
+    let csv = String(decoding: try PrimalSchemeOrderSheet.csv(fromBED: bed), as: UTF8.self)
+    let header = csv.components(separatedBy: "\r\n")[0]
+    for column in PrimerOrderSheetWriter.vendorSuppliedColumns {
+      XCTAssertTrue(header.contains(column), "PrimalScheme header lacks \(column): \(header)")
+    }
+  }
+
   private func temporaryDirectory() throws -> URL {
     let url = FileManager.default.temporaryDirectory.appendingPathComponent("primer-order-writer-test-\(UUID().uuidString)")
     try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
