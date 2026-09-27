@@ -79,7 +79,12 @@ final class MappingResultLayoutServiceTests: XCTestCase {
         XCTAssertEqual(publication.sourceReferenceBundleURL.standardizedFileURL, scaffold.sourceBundleURL.standardizedFileURL)
         let manifest = try BundleManifest.load(from: publication.viewerBundleURL)
         XCTAssertEqual(manifest.alignments.map(\.name), ["minimap2 Mapping"])
-        XCTAssertEqual(manifest.alignments.first, publication.trackInfo)
+        // `addedDate` loses sub-second precision in the manifest, so compare
+        // the identifying fields rather than the whole value.
+        XCTAssertEqual(manifest.alignments.first?.id, publication.trackInfo.id)
+        XCTAssertEqual(manifest.alignments.first?.sourcePath, publication.trackInfo.sourcePath)
+        XCTAssertEqual(manifest.alignments.first?.indexPath, publication.trackInfo.indexPath)
+        XCTAssertEqual(manifest.alignments.first?.metadataDBPath, publication.trackInfo.metadataDBPath)
         XCTAssertEqual(manifest.originBundlePath, "@/Reference Sequences/src.lungfishref")
         XCTAssertTrue(publication.trackInfo.sourcePath.hasPrefix("alignments/aln_"))
         XCTAssertTrue(publication.trackInfo.sourcePath.hasSuffix(".sorted.bam"))
@@ -170,10 +175,16 @@ final class MappingResultLayoutServiceTests: XCTestCase {
         XCTAssertEqual(entry.tool, "minimap2")
         XCTAssertEqual(entry.displayName, "minimap2 Mapping")
         XCTAssertEqual(entry.summary, "1/1 reads mapped")
+        // The same name AppDelegate records: what AnalysisManifestStore
+        // derives for a directory inside the project's Analyses folder.
         XCTAssertEqual(
             entry.analysisDirectoryName,
-            "Analyses/\(scaffold.analysisDirectoryURL.lastPathComponent)"
+            MappingResultLayoutService.analysisManifestDirectoryName(
+                for: scaffold.analysisDirectoryURL,
+                projectURL: scaffold.projectRootURL
+            )
         )
+        XCTAssertEqual(entry.analysisDirectoryName, scaffold.analysisDirectoryURL.lastPathComponent)
         XCTAssertEqual(entry.parameters["outputTrackName"], .string("minimap2 Mapping"))
 
         XCTAssertNil(MappingResultLayoutService.findSourceBundle(for: [scaffold.projectRootURL.appendingPathComponent("loose.fq")]))
