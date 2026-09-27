@@ -217,4 +217,93 @@ final class PrimerSchemeCommandsTests: XCTestCase {
         XCTAssertTrue(names.contains("olivar"))
         XCTAssertTrue(names.contains("varvamp"))
     }
+
+    // MARK: - Off-target screening sources
+
+    /// `--screen-against` is the non-terminal route to off-target screening: the
+    /// user names sequences and LGE builds the database, so the chosen paths must
+    /// reach the options as screening sources, not as a database prefix.
+    func testVarVAMPScreenAgainstCarriesSourcesAndLeavesTheDatabasePrefixUnset() throws {
+        let root = try makeScreeningFixtures()
+        let command = try VarVAMPDesignCommand.parse([
+            "--msa", "/tmp/a.lungfishmsa",
+            "--output", "/tmp/result.lungfishprimeranalysis",
+            "--screen-against", root.appendingPathComponent("exclusion.fasta").path,
+            "--screen-against", root.appendingPathComponent("second.fna").path,
+        ])
+        let options = try command.makeOptions()
+        XCTAssertEqual(options.varvamp?.screeningSourcePaths, [
+            root.appendingPathComponent("exclusion.fasta").path,
+            root.appendingPathComponent("second.fna").path,
+        ])
+        XCTAssertNil(options.varvamp?.blastDatabasePath)
+        XCTAssertTrue(options.varvamp?.suppliedOptionNames.contains("screeningSourcePaths") == true)
+    }
+
+    func testOlivarScreenAgainstCarriesSources() throws {
+        let root = try makeScreeningFixtures()
+        let command = try OlivarDesignCommand.parse([
+            "--msa", "/tmp/a.lungfishmsa",
+            "--output", "/tmp/result.lungfishprimeranalysis",
+            "--screen-against", root.appendingPathComponent("exclusion.fasta").path,
+        ])
+        let options = try command.makeOptions()
+        XCTAssertEqual(options.olivar?.screeningSourcePaths,
+                       [root.appendingPathComponent("exclusion.fasta").path])
+        XCTAssertNil(options.olivar?.blastDatabasePath)
+        XCTAssertTrue(options.olivar?.suppliedOptionNames.contains("screeningSourcePaths") == true)
+    }
+
+    /// Building a database and reusing an existing one are different routes to the
+    /// same engine option, so asking for both is a mistake, not a merge.
+    func testScreenAgainstAndBlastDatabaseAreMutuallyExclusive() throws {
+        let root = try makeScreeningFixtures()
+        let fasta = root.appendingPathComponent("exclusion.fasta").path
+        let varvamp = try VarVAMPDesignCommand.parse([
+            "--msa", "/tmp/a.lungfishmsa", "--output", "/tmp/r.lungfishprimeranalysis",
+            "--screen-against", fasta, "--blast-database", "/tmp/db/existing",
+        ])
+        XCTAssertThrowsError(try varvamp.makeOptions()) { error in
+            XCTAssertTrue("\(error)".contains("not both"), "\(error)")
+        }
+        let olivar = try OlivarDesignCommand.parse([
+            "--msa", "/tmp/a.lungfishmsa", "--output", "/tmp/r.lungfishprimeranalysis",
+            "--screen-against", fasta, "--blast-database", "/tmp/db/existing",
+        ])
+        XCTAssertThrowsError(try olivar.makeOptions()) { error in
+            XCTAssertTrue("\(error)".contains("not both"), "\(error)")
+        }
+    }
+
+    func testScreenAgainstRejectsDocumentsThatAreNotSequenceSources() throws {
+        let root = try makeScreeningFixtures()
+        let command = try VarVAMPDesignCommand.parse([
+            "--msa", "/tmp/a.lungfishmsa", "--output", "/tmp/r.lungfishprimeranalysis",
+            "--screen-against", root.appendingPathComponent("screen.nin").path,
+        ])
+        XCTAssertThrowsError(try command.makeOptions()) { error in
+            XCTAssertTrue("\(error)".contains("--screen-against"), "\(error)")
+        }
+    }
+
+    func testDesignHelpExplainsThatLGEBuildsTheScreeningDatabase() {
+        for help in [VarVAMPDesignCommand.helpMessage(), OlivarDesignCommand.helpMessage()] {
+            XCTAssertTrue(help.contains("--screen-against"), help)
+            XCTAssertTrue(help.contains("makeblastdb"), help)
+        }
+    }
+
+    /// `--screen-against` validates the chosen documents, so the fixtures must be
+    /// real files on disk.
+    private func makeScreeningFixtures() throws -> URL {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        addTeardownBlock { try? FileManager.default.removeItem(at: root) }
+        try Data(">exclusion\nACGTACGTACGT\n".utf8)
+            .write(to: root.appendingPathComponent("exclusion.fasta"))
+        try Data(">second\nTTGACCGTAGGC\n".utf8)
+            .write(to: root.appendingPathComponent("second.fna"))
+        try Data("not-a-sequence".utf8).write(to: root.appendingPathComponent("screen.nin"))
+        return root
+    }
 }

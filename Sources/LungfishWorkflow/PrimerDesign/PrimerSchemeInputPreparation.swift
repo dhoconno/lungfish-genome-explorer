@@ -250,6 +250,26 @@ enum PrimerSchemeInputPreparation {
                      originalToStoredPaths: originalMappings)
     }
 
+    /// Copies the screening FASTA LGE generated into the run's scratch area so it
+    /// is published with the analysis as the record of what was screened against.
+    static func retainingScreeningFASTA(
+        _ prepared: PrimerSchemePreparedAuxiliaryInputs, fastaURL: URL, scratchRoot: URL
+    ) throws -> PrimerSchemePreparedAuxiliaryInputs {
+        let relativePath = "auxiliary-inputs/screening/screening-sources.fasta"
+        let destination = scratchRoot.appendingPathComponent(relativePath)
+        try FileManager.default.createDirectory(
+            at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.copyItem(at: fastaURL, to: destination)
+        var artifacts = prepared.artifacts
+        artifacts.append(.init(sourceURL: destination, relativePath: relativePath,
+                               role: "screeningSequences", format: "fasta"))
+        var originalMappings = prepared.originalToStoredPaths
+        originalMappings[fastaURL.path] = relativePath
+        return .init(options: prepared.options, artifacts: artifacts,
+                     executedToStoredPaths: prepared.executedToStoredPaths,
+                     originalToStoredPaths: originalMappings)
+    }
+
     static func regularFiles(in url: URL) throws -> [URL] {
         let values = try url.resourceValues(forKeys: [.isSymbolicLinkKey, .isRegularFileKey, .isDirectoryKey])
         guard values.isSymbolicLink != true else {

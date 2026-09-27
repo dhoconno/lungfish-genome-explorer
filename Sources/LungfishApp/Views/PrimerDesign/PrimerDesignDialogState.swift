@@ -121,6 +121,9 @@ final class PrimerDesignDialogState {
   var olivarSeed = "10"
   var olivarEffort = "1"
   var olivarBlastDatabasePath = ""
+  /// Project sequences to screen Olivar candidates against. LGE builds the BLAST
+  /// database from these, so the user never needs a database of their own.
+  var olivarScreeningSources: [PrimerScreeningSource] = []
   var olivarRiskExtremeGC = "1"
   var olivarRiskLowComplexity = "1"
   var olivarRiskNonSpecificity = "1"
@@ -139,6 +142,9 @@ final class PrimerDesignDialogState {
   var varVAMPSchemeName = "varVAMP"
   var varVAMPCompatiblePrimersPath = ""
   var varVAMPBlastDatabasePath = ""
+  /// Project sequences to screen varVAMP candidates against. LGE builds the BLAST
+  /// database from these, so the user never needs a database of their own.
+  var varVAMPScreeningSources: [PrimerScreeningSource] = []
   var varVAMPTerminalMaskingThreshold = "0.5"
   var varVAMPPrimerTmMinimum = "56"
   var varVAMPPrimerTmOptimum = "60"
@@ -464,12 +470,14 @@ final class PrimerDesignDialogState {
         maximumPrimerLength: try positiveInteger(olivarMaximumPrimerLength, "Maximum primer length"),
         checkVariants: olivarCheckVariants, seed: try integer(olivarSeed, "Random seed"),
         effort: try positiveInteger(olivarEffort, "Search effort"),
-        blastDatabasePath: optionalPath(olivarBlastDatabasePath), riskWeights: riskWeights,
+        blastDatabasePath: optionalPath(olivarBlastDatabasePath),
+        screeningSourcePaths: olivarScreeningSources.map(\.url.path),
+        riskWeights: riskWeights,
         suppliedOptionNames: Set([
           "minimumVariantFrequency", "degenerate", "align", "temperatureC", "salinityM",
           "maximumDimerDeltaG", "minimumGC", "maximumGC", "minimumComplexity",
           "maximumPrimerLength", "checkVariants", "seed", "effort", "blastDatabasePath", "riskWeights",
-        ]))
+        ] + (olivarScreeningSources.isEmpty ? [] : ["screeningSourcePaths"])))
       options = .init(engine: .olivar, mode: .tiled, grouping: resolvedGrouping,
         nominalAmpliconLength: sizes.target, minimumAmpliconLength: sizes.minimum,
         maximumAmpliconLength: sizes.maximum,
@@ -538,12 +546,14 @@ final class PrimerDesignDialogState {
         qpcrTestCount: qPCR ? try positiveInteger(varVAMPQPCRTestCount, "qPCR test count") : 50,
         qpcrDeltaG: qPCR ? try integer(varVAMPQPCRDeltaG, "qPCR ΔG threshold") : -3,
         schemeName: varVAMPSchemeName, compatiblePrimersPath: optionalPath(varVAMPCompatiblePrimersPath),
-        blastDatabasePath: optionalPath(varVAMPBlastDatabasePath), configOverrides: overrides,
+        blastDatabasePath: optionalPath(varVAMPBlastDatabasePath),
+        screeningSourcePaths: varVAMPScreeningSources.map(\.url.path),
+        configOverrides: overrides,
         suppliedOptionNames: Set(Set([
           "cumulativeConsensusThreshold", "maximumPrimerAmbiguities", "maximumProbeAmbiguities",
           "tiledOverlap", "reportCount", "qpcrTestCount", "qpcrDeltaG", "schemeName",
           "compatiblePrimersPath", "blastDatabasePath", "configOverrides",
-        ]).filter { name in
+        ] + (varVAMPScreeningSources.isEmpty ? [] : ["screeningSourcePaths"])).filter { name in
           if name == "reportCount" { return schemeMode == .single }
           if name == "tiledOverlap" { return schemeMode == .tiled }
           if ["maximumProbeAmbiguities", "qpcrTestCount", "qpcrDeltaG"].contains(name) { return qPCR }
@@ -842,6 +852,37 @@ final class PrimerDesignDialogState {
                         _ title: String) throws -> PrimerSchemeIntRange {
     .init(minimum: try nonnegativeInteger(minimum, "\(title) minimum"),
       maximum: try nonnegativeInteger(maximum, "\(title) maximum"))
+  }
+
+  /// Screening sources for the engine now selected. Olivar and varVAMP keep
+  /// separate lists so switching engines does not silently move a selection.
+  var screeningSources: [PrimerScreeningSource] {
+    engine == .olivar ? olivarScreeningSources : varVAMPScreeningSources
+  }
+
+  /// Adds chosen project documents, ignoring duplicates and unsupported files.
+  /// Returns the names it could not use so the dialog can explain them.
+  @discardableResult
+  func addScreeningSources(_ urls: [URL]) -> [String] {
+    var rejected: [String] = []
+    var current = screeningSources
+    for url in urls {
+      guard let source = PrimerScreeningSource.classify(url.standardizedFileURL) else {
+        rejected.append(url.lastPathComponent)
+        continue
+      }
+      if !current.contains(source) { current.append(source) }
+    }
+    setScreeningSources(current)
+    return rejected
+  }
+
+  func removeScreeningSource(_ source: PrimerScreeningSource) {
+    setScreeningSources(screeningSources.filter { $0 != source })
+  }
+
+  private func setScreeningSources(_ sources: [PrimerScreeningSource]) {
+    if engine == .olivar { olivarScreeningSources = sources } else { varVAMPScreeningSources = sources }
   }
 
   private func optionalPath(_ text: String) -> String? {

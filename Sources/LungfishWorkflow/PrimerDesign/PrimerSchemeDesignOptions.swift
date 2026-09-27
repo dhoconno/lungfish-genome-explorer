@@ -202,6 +202,10 @@ public struct OlivarDesignOptions: Codable, Equatable, Sendable {
     public var forwardPrefix: String
     public var reversePrefix: String
     public var blastDatabasePath: String?
+    /// Project sequences LGE screens against. When set, LGE builds the nucleotide
+    /// BLAST database itself and fills in `blastDatabasePath` before execution, so
+    /// this and an existing prefix are mutually exclusive.
+    public var screeningSourcePaths: [String]
     public var riskWeights: OlivarRiskWeights
     public var suppliedOptionNames: Set<String>
 
@@ -212,6 +216,7 @@ public struct OlivarDesignOptions: Codable, Equatable, Sendable {
                 maximumPrimerLength: Int = 36, checkVariants: Bool = false,
                 seed: Int = 10, effort: Int = 1, forwardPrefix: String = "",
                 reversePrefix: String = "", blastDatabasePath: String? = nil,
+                screeningSourcePaths: [String] = [],
                 riskWeights: OlivarRiskWeights = .init(), suppliedOptionNames: Set<String> = []) {
         self.minimumVariantFrequency = minimumVariantFrequency; self.degenerate = degenerate
         self.align = align; self.temperatureC = temperatureC; self.salinityM = salinityM
@@ -220,10 +225,15 @@ public struct OlivarDesignOptions: Codable, Equatable, Sendable {
         self.maximumPrimerLength = maximumPrimerLength; self.checkVariants = checkVariants
         self.seed = seed; self.effort = effort; self.forwardPrefix = forwardPrefix
         self.reversePrefix = reversePrefix; self.blastDatabasePath = blastDatabasePath
+        self.screeningSourcePaths = screeningSourcePaths
         self.riskWeights = riskWeights; self.suppliedOptionNames = suppliedOptionNames
     }
 
     func validate() throws {
+        guard blastDatabasePath == nil || screeningSourcePaths.isEmpty else {
+            throw PrimerSchemeDesignError.invalidRequest(
+                "Choose either sequences to screen against or an existing BLAST database prefix, not both.")
+        }
         guard minimumVariantFrequency.isFinite, (0...1).contains(minimumVariantFrequency),
               !align, temperatureC.isFinite, salinityM.isFinite, salinityM >= 0,
               maximumDimerDeltaG.isFinite, minimumGC.isFinite, maximumGC.isFinite,
@@ -247,10 +257,16 @@ public struct OlivarDesignOptions: Codable, Equatable, Sendable {
          "riskWeights": .object(riskWeights.json)]
     }
 
+    /// `json` is the adapter wire contract, which rejects unknown keys, so the
+    /// screening sources appear only in provenance.
     var provenance: ParameterValue {
-        let resolved = json.mapValues(\.parameterValue)
-        return .dictionary(["supplied": .dictionary(resolved.filter { suppliedOptionNames.contains($0.key) }),
-                            "resolved": .dictionary(resolved)])
+        var resolved = json.mapValues(\.parameterValue)
+        resolved["screeningSourcePaths"] = .array(screeningSourcePaths.map(ParameterValue.string))
+        var supplied = resolved.filter { suppliedOptionNames.contains($0.key) }
+        if !screeningSourcePaths.isEmpty {
+            supplied["screeningSourcePaths"] = resolved["screeningSourcePaths"]!
+        }
+        return .dictionary(["supplied": .dictionary(supplied), "resolved": .dictionary(resolved)])
     }
 }
 
@@ -388,6 +404,10 @@ public struct VarVAMPDesignOptions: Codable, Equatable, Sendable {
     public var schemeName: String
     public var compatiblePrimersPath: String?
     public var blastDatabasePath: String?
+    /// Project sequences LGE screens against. When set, LGE builds the nucleotide
+    /// BLAST database itself and fills in `blastDatabasePath` before execution, so
+    /// this and an existing prefix are mutually exclusive.
+    public var screeningSourcePaths: [String]
     public var configOverrides: VarVAMPConfigOverrides
     public var suppliedOptionNames: Set<String>
 
@@ -396,6 +416,7 @@ public struct VarVAMPDesignOptions: Codable, Equatable, Sendable {
                 tiledOverlap: Int = 25, reportCount: Int? = nil, qpcrTestCount: Int = 50,
                 qpcrDeltaG: Int = -3, schemeName: String = "varVAMP",
                 compatiblePrimersPath: String? = nil, blastDatabasePath: String? = nil,
+                screeningSourcePaths: [String] = [],
                 configOverrides: VarVAMPConfigOverrides = .init(),
                 suppliedOptionNames: Set<String> = []) {
         self.cumulativeConsensusThreshold = cumulativeConsensusThreshold
@@ -404,11 +425,17 @@ public struct VarVAMPDesignOptions: Codable, Equatable, Sendable {
         self.tiledOverlap = tiledOverlap; self.reportCount = reportCount
         self.qpcrTestCount = qpcrTestCount; self.qpcrDeltaG = qpcrDeltaG
         self.schemeName = schemeName; self.compatiblePrimersPath = compatiblePrimersPath
-        self.blastDatabasePath = blastDatabasePath; self.configOverrides = configOverrides
+        self.blastDatabasePath = blastDatabasePath
+        self.screeningSourcePaths = screeningSourcePaths
+        self.configOverrides = configOverrides
         self.suppliedOptionNames = suppliedOptionNames
     }
 
     func validate(mode: PrimerSchemeMode) throws {
+        guard blastDatabasePath == nil || screeningSourcePaths.isEmpty else {
+            throw PrimerSchemeDesignError.invalidRequest(
+                "Choose either sequences to screen against or an existing BLAST database prefix, not both.")
+        }
         if let threshold = cumulativeConsensusThreshold {
             guard threshold.isFinite, threshold > 0, threshold <= 1 else {
                 throw PrimerSchemeDesignError.invalidRequest("varVAMP cumulative consensus threshold must be finite and in (0, 1].")
@@ -446,10 +473,16 @@ public struct VarVAMPDesignOptions: Codable, Equatable, Sendable {
          "configOverrides": .object(configOverrides.json)]
     }
 
+    /// `json` is the adapter wire contract, which rejects unknown keys, so the
+    /// screening sources appear only in provenance.
     var provenance: ParameterValue {
-        let resolved = json.mapValues(\.parameterValue)
-        return .dictionary(["supplied": .dictionary(resolved.filter { suppliedOptionNames.contains($0.key) }),
-                            "resolved": .dictionary(resolved)])
+        var resolved = json.mapValues(\.parameterValue)
+        resolved["screeningSourcePaths"] = .array(screeningSourcePaths.map(ParameterValue.string))
+        var supplied = resolved.filter { suppliedOptionNames.contains($0.key) }
+        if !screeningSourcePaths.isEmpty {
+            supplied["screeningSourcePaths"] = resolved["screeningSourcePaths"]!
+        }
+        return .dictionary(["supplied": .dictionary(supplied), "resolved": .dictionary(resolved)])
     }
 }
 

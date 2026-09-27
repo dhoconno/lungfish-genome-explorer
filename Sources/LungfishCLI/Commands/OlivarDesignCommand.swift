@@ -42,6 +42,8 @@ struct OlivarDesignCommand: AsyncParsableCommand {
     @Option(name: .customLong("reverse-prefix")) var reversePrefix = ""
     @Option(name: .customLong("blast-database"), help: "BLAST nucleotide database prefix; all concrete component files are snapshotted.")
     var blastDatabasePath: String?
+    @Option(name: .customLong("screen-against"), help: "Sequences to screen candidate oligos against: a .lungfishmsa (ungapped rows), .lungfishref, or nucleotide FASTA. LGE builds the BLAST database with makeblastdb. Repeatable; mutually exclusive with --blast-database.")
+    var screenAgainstPaths: [String] = []
     @Option(name: .customLong("risk-extreme-gc")) var riskExtremeGC = 1.0
     @Option(name: .customLong("risk-low-complexity")) var riskLowComplexity = 1.0
     @Option(name: .customLong("risk-non-specificity")) var riskNonSpecificity = 1.0
@@ -56,6 +58,10 @@ struct OlivarDesignCommand: AsyncParsableCommand {
         case "combined": resolvedGrouping = .combined
         default: throw ValidationError("--grouping must be independent or combined.")
         }
+        guard blastDatabasePath == nil || screenAgainstPaths.isEmpty else {
+            throw ValidationError("Pass either --screen-against or --blast-database, not both.")
+        }
+        try validateScreeningSources(screenAgainstPaths)
         var inferred: Set<String> = [
             minimumVariantFrequency != 0.01 ? "minimumVariantFrequency" : nil,
             degenerate ? "degenerate" : nil,
@@ -70,6 +76,7 @@ struct OlivarDesignCommand: AsyncParsableCommand {
             effort != 1 ? "effort" : nil, !forwardPrefix.isEmpty ? "forwardPrefix" : nil,
             !reversePrefix.isEmpty ? "reversePrefix" : nil,
             blastDatabasePath != nil ? "blastDatabasePath" : nil,
+            screenAgainstPaths.isEmpty ? nil : "screeningSourcePaths",
             [riskExtremeGC, riskLowComplexity, riskNonSpecificity, riskVariation,
              riskSensitivity, riskCombination].contains(where: { $0 != 1 }) ? "riskWeights" : nil,
         ].compactMap { $0 }.reduce(into: Set<String>()) { $0.insert($1) }
@@ -92,6 +99,9 @@ struct OlivarDesignCommand: AsyncParsableCommand {
             maximumPrimerLength: maximumPrimerLength, checkVariants: checkVariants,
             seed: seed, effort: effort, forwardPrefix: forwardPrefix,
             reversePrefix: reversePrefix, blastDatabasePath: blastDatabasePath,
+            screeningSourcePaths: screenAgainstPaths.map {
+                URL(fileURLWithPath: $0).standardizedFileURL.path
+            },
             riskWeights: .init(
                 extremeGC: riskExtremeGC, lowComplexity: riskLowComplexity,
                 nonSpecificity: riskNonSpecificity, variation: riskVariation,
@@ -148,6 +158,7 @@ struct OlivarDesignCommand: AsyncParsableCommand {
             "--maximum-primer-length": ["maximumPrimerLength"], "--check-variants": ["checkVariants"],
             "--seed": ["seed"], "--effort": ["effort"], "--forward-prefix": ["forwardPrefix"],
             "--reverse-prefix": ["reversePrefix"], "--blast-database": ["blastDatabasePath"],
+            "--screen-against": ["screeningSourcePaths"],
             "--risk-extreme-gc": ["riskWeights"], "--risk-low-complexity": ["riskWeights"],
             "--risk-non-specificity": ["riskWeights"], "--risk-variation": ["riskWeights"],
             "--risk-sensitivity": ["riskWeights"], "--risk-combination": ["riskWeights"],
@@ -179,6 +190,17 @@ func defaultMinimum(for nominal: Int) -> Int {
 
 func defaultMaximum(for nominal: Int) -> Int {
     Int((Double(nominal) * 1.1).rounded())
+}
+
+/// Screening sources are project sequence documents, not BLAST databases. Reject
+/// anything LGE cannot read here so the error names the flag the user typed.
+func validateScreeningSources(_ paths: [String]) throws {
+    for path in paths {
+        let url = URL(fileURLWithPath: path).standardizedFileURL
+        guard PrimerScreeningSource.classify(url) != nil else {
+            throw ValidationError("--screen-against accepts .lungfishmsa, .lungfishref, or nucleotide FASTA: \(path)")
+        }
+    }
 }
 
 func primerSchemeInputs(_ paths: [String]) throws -> [URL] {

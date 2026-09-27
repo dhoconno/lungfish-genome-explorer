@@ -30,6 +30,8 @@ struct VarVAMPDesignCommand: AsyncParsableCommand {
     @Option(name: .customLong("scheme-name")) var schemeName = "varVAMP"
     @Option(name: .customLong("compatible-primers")) var compatiblePrimersPath: String?
     @Option(name: .customLong("blast-database")) var blastDatabasePath: String?
+    @Option(name: .customLong("screen-against"), help: "Sequences to screen candidate oligos against: a .lungfishmsa (ungapped rows), .lungfishref, or nucleotide FASTA. LGE builds the BLAST database with makeblastdb. Repeatable; mutually exclusive with --blast-database.")
+    var screenAgainstPaths: [String] = []
 
     @Option(name: .customLong("terminal-masking-threshold")) var terminalMaskingThreshold: Double?
     @Option(name: .customLong("primer-tm-min")) var primerTmMin: Double?
@@ -97,6 +99,10 @@ struct VarVAMPDesignCommand: AsyncParsableCommand {
         guard grouping == "independent" else {
             throw ValidationError("varVAMP supports only --grouping independent.")
         }
+        guard blastDatabasePath == nil || screenAgainstPaths.isEmpty else {
+            throw ValidationError("Pass either --screen-against or --blast-database, not both.")
+        }
+        try validateScreeningSources(screenAgainstPaths)
         let overrides = VarVAMPConfigOverrides(
             terminalMaskingThreshold: terminalMaskingThreshold,
             primerTemperature: try doubleTriplet(primerTmMin, primerTmOpt, primerTmMax, "primer Tm"),
@@ -134,6 +140,7 @@ struct VarVAMPDesignCommand: AsyncParsableCommand {
             schemeName != "varVAMP" ? "schemeName" : nil,
             compatiblePrimersPath != nil ? "compatiblePrimersPath" : nil,
             blastDatabasePath != nil ? "blastDatabasePath" : nil,
+            screenAgainstPaths.isEmpty ? nil : "screeningSourcePaths",
         ].compactMap { $0 }.reduce(into: Set<String>()) { $0.insert($1) }
         if [terminalMaskingThreshold, primerTmMin, primerTmOpt, primerTmMax,
             primerGCMin, primerGCOpt, primerGCMax, primerHairpin,
@@ -170,8 +177,11 @@ struct VarVAMPDesignCommand: AsyncParsableCommand {
             tiledOverlap: tiledOverlap, reportCount: reportCount,
             qpcrTestCount: qpcrTestCount, qpcrDeltaG: qpcrDeltaG,
             schemeName: schemeName, compatiblePrimersPath: compatiblePrimersPath,
-            blastDatabasePath: blastDatabasePath, configOverrides: overrides,
-            suppliedOptionNames: allSupplied)
+            blastDatabasePath: blastDatabasePath,
+            screeningSourcePaths: screenAgainstPaths.map {
+                URL(fileURLWithPath: $0).standardizedFileURL.path
+            },
+            configOverrides: overrides, suppliedOptionNames: allSupplied)
         let bounds = Self.ampliconBounds(
             mode: resolvedMode, nominal: ampliconSize,
             minimum: ampliconSizeMin, maximum: ampliconSizeMax)
@@ -240,6 +250,7 @@ struct VarVAMPDesignCommand: AsyncParsableCommand {
             "--qpcr-test-count": ["qpcrTestCount"], "--qpcr-delta-g": ["qpcrDeltaG"],
             "--scheme-name": ["schemeName"], "--compatible-primers": ["compatiblePrimersPath"],
             "--blast-database": ["blastDatabasePath"],
+            "--screen-against": ["screeningSourcePaths"],
         ]
         let configPrefixes = ["--terminal-", "--primer-", "--probe-", "--qprimer-",
                               "--amplicon-gc-", "--amplicon-deletion-", "--pcr-"]

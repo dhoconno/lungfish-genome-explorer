@@ -115,8 +115,21 @@ public struct PrimerSchemeDesignPipeline: Sendable {
             let prepared = try PrimerSchemeInputPreparation.prepare(
                 inputURLs: request.inputURLs, inputIDs: request.inputIDs,
                 expectedInputChecksums: request.expectedInputChecksums, scratchRoot: scratch)
-            let auxiliary = try PrimerSchemeInputPreparation.prepareAuxiliaryInputs(
-                options: request.options, scratchRoot: scratch)
+            // Build the screening database before auxiliary snapshotting so the
+            // generated prefix travels through the same component verification an
+            // existing user-supplied prefix does.
+            let screening = try await buildScreeningDatabase(
+                options: request.options, python: python, progress: progress)
+            defer { if let screening { try? FileManager.default.removeItem(at: screening.stagingRoot) } }
+            let effectiveOptions = screening?.options ?? request.options
+            var auxiliary = try PrimerSchemeInputPreparation.prepareAuxiliaryInputs(
+                options: effectiveOptions, scratchRoot: scratch)
+            if let screening {
+                // Retain the exact screened sequences beside the copied database
+                // components so the saved analysis explains what was screened.
+                auxiliary = try PrimerSchemeInputPreparation.retainingScreeningFASTA(
+                    auxiliary, fastaURL: screening.database.fastaURL, scratchRoot: scratch)
+            }
             let adapter = scratch.appendingPathComponent("adapter", isDirectory: true)
             try PrimerSchemeAdapterResources.copyV1(from: try adapterSourceProvider(), to: adapter)
             let adapterDigest = try PrimerSchemeAdapterResources.directorySHA256(adapter)
@@ -202,25 +215,30 @@ public struct PrimerSchemeDesignPipeline: Sendable {
                     ($0.adapterInputURL.path, $0.adapterInputRelativePath)
                 })
                 pathMap.merge(auxiliary.executedToStoredPaths) { _, new in new }
+                var adapterOptions: [String: ParameterValue] = [
+                    "adapterVersion": .string(Self.adapterVersion),
+                    "adapterSHA256": .string(adapterDigest),
+                    "adapterArgv": .array(execution.argv.map(ParameterValue.string)),
+                    "adapterEnvironment": .dictionary(environment.mapValues(ParameterValue.string)),
+                    "adapterResolvedOptions": .dictionary(
+                        rebaseJSON(
+                            verified.document.resolvedOptions,
+                            mappings: auxiliary.executedToStoredPaths
+                        ).mapValues(\.parameterValue)),
+                    "executedToStoredInputPaths": .dictionary(pathMap.mapValues(ParameterValue.string)),
+                    "originalToStoredAuxiliaryInputPaths": .dictionary(
+                        auxiliary.originalToStoredPaths.mapValues(ParameterValue.string)),
+                    "explicitPythonOverride": request.executableURL.map {
+                        ParameterValue.string($0.path)
+                    } ?? .null,
+                ]
+                if let screening {
+                    adapterOptions.merge(screening.database.provenanceOptions) { _, new in new }
+                }
                 let augmented = PrimerAnalysisWrapperInvocation(
                     argv: request.invocation.argv, callerVersion: request.invocation.callerVersion,
-                    explicitOptions: request.invocation.explicitOptions.merging([
-                        "adapterVersion": .string(Self.adapterVersion),
-                        "adapterSHA256": .string(adapterDigest),
-                        "adapterArgv": .array(execution.argv.map(ParameterValue.string)),
-                        "adapterEnvironment": .dictionary(environment.mapValues(ParameterValue.string)),
-                        "adapterResolvedOptions": .dictionary(
-                            rebaseJSON(
-                                verified.document.resolvedOptions,
-                                mappings: auxiliary.executedToStoredPaths
-                            ).mapValues(\.parameterValue)),
-                        "executedToStoredInputPaths": .dictionary(pathMap.mapValues(ParameterValue.string)),
-                        "originalToStoredAuxiliaryInputPaths": .dictionary(
-                            auxiliary.originalToStoredPaths.mapValues(ParameterValue.string)),
-                        "explicitPythonOverride": request.executableURL.map {
-                            .string($0.path)
-                        } ?? .null,
-                    ]) { _, new in new },
+                    explicitOptions: request.invocation.explicitOptions
+                        .merging(adapterOptions) { _, new in new },
                     runtimeIdentity: execution.runtime)
                 let bundle = try writer.write(.init(
                     analysisID: request.analysisID, runID: request.runID,
@@ -247,6 +265,64 @@ public struct PrimerSchemeDesignPipeline: Sendable {
         } catch {
             throw error
         }
+    }
+
+    struct PreparedScreening {
+        let options: PrimerSchemeDesignOptions
+        let database: PrimerScreeningDatabase
+        let stagingRoot: URL
+    }
+
+    /// Builds the off-target screening database the user asked for, if any.
+    ///
+    /// BLAST rejects whitespace in every path it is handed, and project folders
+    /// routinely contain spaces, so the database is built under a private
+    /// whitespace-free staging root. `prepareAuxiliaryInputs` then copies the
+    /// components into the analysis scratch area, and the staging root is removed.
+    private func buildScreeningDatabase(
+        options: PrimerSchemeDesignOptions, python: URL, progress: Progress?
+    ) async throws -> PreparedScreening? {
+        let paths = options.olivar?.screeningSourcePaths ?? options.varvamp?.screeningSourcePaths ?? []
+        guard !paths.isEmpty else { return nil }
+        let sources = try paths.map { path -> PrimerScreeningSource in
+            let url = URL(fileURLWithPath: path).standardizedFileURL
+            guard let source = PrimerScreeningSource.classify(url) else {
+                throw PrimerScreeningDatabaseError.unsupportedSource(url.lastPathComponent)
+            }
+            return source
+        }
+        progress?(0.07, "Building the off-target screening database…")
+        let environmentPrefix = python.deletingLastPathComponent().deletingLastPathComponent()
+        let staging = Self.screeningStagingRoot()
+        let builder = PrimerScreeningDatabaseBuilder(resolveExecutable: {
+            try PrimerScreeningDatabaseBuilder.executable(inEnvironmentPrefix: environmentPrefix)
+        })
+        let database: PrimerScreeningDatabase
+        do {
+            database = try await builder.build(sources: sources, stagingRoot: staging, progress: { _, message in
+                progress?(0.08, message)
+            })
+        } catch {
+            try? FileManager.default.removeItem(at: staging)
+            throw error
+        }
+        var resolved = options
+        if var olivar = resolved.olivar {
+            olivar.blastDatabasePath = database.prefix
+            resolved.olivar = olivar
+        }
+        if var varvamp = resolved.varvamp {
+            varvamp.blastDatabasePath = database.prefix
+            resolved.varvamp = varvamp
+        }
+        return .init(options: resolved, database: database, stagingRoot: staging)
+    }
+
+    /// A private whitespace-free root, since BLAST cannot read a path with spaces.
+    private static func screeningStagingRoot() -> URL {
+        URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+            .appendingPathComponent("lge-primer-screening-" + UUID().uuidString.lowercased(),
+                                    isDirectory: true)
     }
 
     private func preflight(_ request: PrimerSchemeDesignRequest) throws {

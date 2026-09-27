@@ -1,8 +1,10 @@
+import AppKit
 import SwiftUI
 import LungfishWorkflow
 
 struct PrimerSchemeAdvancedOptionsView: View {
   @Bindable var state: PrimerDesignDialogState
+  @State private var rejectedScreeningNames: [String]?
 
   var body: some View {
     VStack(alignment: .leading, spacing: 14) {
@@ -46,7 +48,7 @@ struct PrimerSchemeAdvancedOptionsView: View {
         field("Sensitivity", $state.olivarRiskSensitivity)
         field("Combination", $state.olivarRiskCombination)
       }
-      field("Local nucleotide BLAST database prefix (optional)", $state.olivarBlastDatabasePath)
+      offTargetScreening
       Text("Olivar minimum variant frequency keeps upstream --min-var semantics. The target size is nominal; requested minimum and maximum are the enforced full-span bounds.")
         .font(.caption).foregroundStyle(.secondary)
     }
@@ -75,7 +77,7 @@ struct PrimerSchemeAdvancedOptionsView: View {
         field("Scheme name", $state.varVAMPSchemeName)
         field("Compatible-primer input path (optional)", $state.varVAMPCompatiblePrimersPath)
       }
-      field("Local nucleotide BLAST database prefix (optional)", $state.varVAMPBlastDatabasePath)
+      offTargetScreening
       Text("Primer constraints").font(.subheadline.weight(.medium))
       HStack {
         field("Length minimum", $state.varVAMPPrimerSizeMinimum)
@@ -158,6 +160,90 @@ struct PrimerSchemeAdvancedOptionsView: View {
         field("Amplicon GC maximum (%)", $state.varVAMPAmpliconGCMaximum)
         field("qPCR primer difference", $state.varVAMPQPrimerDifference)
       }
+    }
+  }
+
+  /// Off-target screening by chosen sequences. LGE builds the BLAST database, so
+  /// the user picks project documents instead of needing a database of their own.
+  /// An existing database prefix stays available as an advanced alternative.
+  private var offTargetScreening: some View {
+    let usesExistingPrefix = !existingPrefix.wrappedValue.trimmingCharacters(in: .whitespaces).isEmpty
+    return VStack(alignment: .leading, spacing: 8) {
+      Text("Off-target screening").font(.subheadline.weight(.medium))
+      Text("Choose sequences that primers must not amplify. LGE builds a nucleotide BLAST database from them with makeblastdb and records the sequences in provenance.")
+        .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+      if state.screeningSources.isEmpty {
+        Text("No screening sequences chosen. Candidates are not checked for off-targets.")
+          .font(.caption).foregroundStyle(.secondary)
+      } else {
+        VStack(alignment: .leading, spacing: 4) {
+          ForEach(state.screeningSources, id: \.url) { source in
+            HStack(spacing: 6) {
+              Image(systemName: icon(for: source.kind)).foregroundStyle(.secondary)
+              Text(source.displayName).font(.callout)
+              Spacer(minLength: 8)
+              Button {
+                state.removeScreeningSource(source)
+              } label: { Image(systemName: "minus.circle.fill") }
+                .buttonStyle(.borderless)
+                .accessibilityLabel("Remove \(source.displayName) from off-target screening")
+            }
+          }
+        }
+        .accessibilityIdentifier("primerDesign.screeningSources")
+      }
+      HStack(spacing: 8) {
+        Button("Add Sequences to Screen Against…") { chooseScreeningSources() }
+          .disabled(usesExistingPrefix)
+        if !state.screeningSources.isEmpty {
+          Text("\(state.screeningSources.count) source\(state.screeningSources.count == 1 ? "" : "s")")
+            .font(.caption).foregroundStyle(.secondary)
+        }
+      }
+      if let rejected = rejectedScreeningNames, !rejected.isEmpty {
+        Text("Skipped \(rejected.joined(separator: ", ")): choose an alignment bundle, reference bundle, or nucleotide FASTA.")
+          .font(.caption).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
+      }
+      DisclosureGroup("Use an existing BLAST database instead") {
+        VStack(alignment: .leading, spacing: 6) {
+          field("Local nucleotide BLAST database prefix", existingPrefix)
+            .disabled(!state.screeningSources.isEmpty)
+          Text(state.screeningSources.isEmpty
+            ? "Advanced alternative for a database you already built outside LGE. Its component files are snapshotted into the analysis."
+            : "Remove the chosen screening sequences to use an existing database prefix instead.")
+            .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+        }.padding(.top, 6)
+      }
+    }
+  }
+
+  private var existingPrefix: Binding<String> {
+    state.engine == .olivar ? $state.olivarBlastDatabasePath : $state.varVAMPBlastDatabasePath
+  }
+
+  private func icon(for kind: PrimerScreeningSource.Kind) -> String {
+    switch kind {
+    case .alignmentBundle: "square.stack.3d.up"
+    case .referenceBundle: "text.book.closed"
+    case .fasta: "doc.plaintext"
+    }
+  }
+
+  private func chooseScreeningSources() {
+    let panel = NSOpenPanel()
+    panel.title = "Choose sequences to screen against"
+    panel.message = "Pick alignment bundles, reference bundles, or nucleotide FASTA files."
+    panel.canChooseFiles = true
+    panel.canChooseDirectories = true
+    panel.allowsMultipleSelection = true
+    panel.treatsFilePackagesAsDirectories = false
+    if let projectURL = state.projectURL { panel.directoryURL = projectURL }
+    // begin(completionHandler:) keeps AppKit responsive; runModal would block the
+    // app on a nested run loop. See the macOS API rules.
+    panel.begin { response in
+      guard response == .OK else { return }
+      let rejected = state.addScreeningSources(panel.urls)
+      rejectedScreeningNames = rejected.isEmpty ? nil : rejected
     }
   }
 
