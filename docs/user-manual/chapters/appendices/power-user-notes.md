@@ -249,7 +249,7 @@ An offline pack copies a pack's installed environments, with a checksum for ever
 
 `lungfish-cli conda lock --pack <name> --output <file>` writes the requested environment specification, meaning what was asked for, not what was installed, so it does not guarantee an identical rebuild. Its companion `conda install --from-lockfile` refuses by design, as its own help says, because exact reconstruction is not supported.
 
-`lungfish-cli bundle export --format container` is meant to write a bundle as an [OCI layout](../../GLOSSARY.md#oci-layout) container image, but the command cannot be run. This is a known defect, listed with its workaround in [Known defects in this release](troubleshooting.md#known-defects-in-this-release).
+`lungfish-cli bundle export --export-format container` writes a bundle as an [OCI layout](../../GLOSSARY.md#oci-layout) container image, a single tarball that gives byte-identical output each time the same bundle is exported. Its `--plugin-pack` flag writes the IDs of the packs you name into the image metadata, which records which packs the data was made with but does not carry the tools themselves.
 
 ## Shared workstations
 

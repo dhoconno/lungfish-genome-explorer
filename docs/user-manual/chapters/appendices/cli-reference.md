@@ -450,7 +450,7 @@ lungfish-cli import fastq [<options>] [<input> ...] --project <project>
 | `<input>` | Directory containing sequencing reads, FASTQ paths, or unmapped ONT BAM paths. |
 | `--samplesheet <samplesheet>` | CSV sample sheet with sample,r1,r2 columns and optional metadata columns. |
 | `-p, --project <project>` | Path to `.lungfish` project directory. |
-| `--recipe <recipe>` | Processing recipe, one of `vsp2`, `wgs`, `hifi`, or `none`. The default is `none`. |
+| `--recipe <recipe>` | Processing recipe, a recipe id such as `vsp2-target-enrichment`, `illumina-amplicon-merge`, or `wastewater-metagenomics`, the alias `vsp2`, the built-in `wgs` or `hifi`, or `none`. `lungfish-cli import fastq --help` lists every id that resolves, your saved recipes included. The default is `none`. |
 | `--quality-binning <quality-binning>` | Quality binning. `illumina4` keeps 7 quality levels, `eightLevel` about 21, and `none` keeps every score. The default is `none`. |
 | `--log-dir <log-dir>` | Directory for per-sample log files. |
 | `--dry-run` | List detected pairs without importing. |
@@ -828,18 +828,18 @@ The command runs samtools markdup on each unmarked track and attaches each resul
 
 ### `bundle export`
 
-Is meant to package a bundle as a container image tarball in the standard OCI layout.
+Packages a bundle as a deterministic container image tarball in the standard OCI layout, which [Sharing and inspecting bundles](file-formats.md#sharing-and-inspecting-bundles) describes.
 
 ```text
-lungfish-cli bundle export <bundle-path> --format <format> --output <output> [--plugin-pack <plugin-pack> ...] [--quiet]
+lungfish-cli bundle export <bundle-path> --export-format <export-format> --output <output> [--plugin-pack <plugin-pack> ...] [--quiet]
 ```
 
-The command cannot run. Its own `--format` flag is taken by the global `--format`, so `--format container` is rejected and leaving it out fails as missing. This is a known defect, listed with its workaround in [Known defects in this release](troubleshooting.md#known-defects-in-this-release).
+The option is spelled `--export-format` because `--format` is the program-wide output format (`text`, `json`, or `tsv`). The command also accepts `--format container` and reads it as `--export-format container`, as `provenance export` and `fastq 12s-export` do.
 
 | Argument or flag | What it does |
 |---|---|
 | `<bundle-path>` | Path to the source `.lungfishref` bundle. |
-| `--format <format>` | Export format. The only value is `container`. |
+| `--export-format <export-format>` | Export format. The only value is `container`. |
 | `-o, --output <output>` | Output tarball path. |
 | `--plugin-pack <plugin-pack>` | Plugin pack ID to pin into the exported image metadata. |
 | `-q, --quiet` | Suppress non-essential output. |
@@ -982,11 +982,11 @@ lungfish-cli analyze validate <files> ... [--strict]
 | Argument or flag | What it does |
 |---|---|
 | `<files>` | Input file(s) to validate. |
-| `--strict` | Enable strict validation. |
+| `--strict` | Also reject files that parse but are irregular. For FASTA that means duplicate record names, empty records, and characters outside the IUPAC nucleotide and protein alphabets. For FASTQ it means duplicate read identifiers and empty reads. For VCF it means data lines whose column count disagrees with the `#CHROM` header line, and records that repeat an earlier CHROM, POS, REF, and ALT. Other formats get no extra checks. A file that fails any check makes the command exit with status 5, and a missing file with status 3. |
 
 ### `translate`
 
-Translates a nucleotide FASTA into protein. Frames 1 to 3 read the forward strand and 4 to 6 the reverse complement, and all six are translated unless you pick one. Explained in [Importing and Viewing a Sequence](../02-sequences/01-importing-and-viewing.md).
+Translates a nucleotide FASTA into protein. Frames 1 to 3 read the forward strand and 4 to 6 the reverse complement, and all six are translated unless you pick one. Without `--output` the protein FASTA goes to standard output and the status line to standard error. Explained in [Importing and Viewing a Sequence](../02-sequences/01-importing-and-viewing.md).
 
 ```text
 lungfish-cli translate [<options>] <input>
@@ -1004,7 +1004,7 @@ lungfish-cli translate [<options>] <input>
 
 ### `search`
 
-Finds an exact sequence, an IUPAC motif, or a regular expression in a FASTA and writes the hits as BED rows. Both strands are searched unless you add `--forward-only`.
+Finds an exact sequence, an IUPAC motif, or a regular expression in a FASTA and writes the hits as BED rows. Both strands are searched unless you add `--forward-only`. Without `--output` the BED rows go to standard output and the status lines to standard error, so a redirect captures only the hits.
 
 ```text
 lungfish-cli search [<options>] <input> <pattern>
@@ -1029,7 +1029,7 @@ Pulls one region out of a FASTA, written as `name:start-end` counted from 1 with
 lungfish-cli extract sequence [<options>] <input> <region>
 ```
 
-The input must end in `.fa`, `.fasta`, `.fna`, or `.faa`. The header of the extracted record names the region you asked for and, in brackets, the span actually written, both counted from 1, so `chrT:10-20 --flank 2` gives `>chrT:10-20 [chrT:8-22, 1-based] [15 bp]`. An `--output` path ending in `.lungfishref` writes a reference bundle instead of a FASTA file. Without `--output` the record goes to the screen after two progress lines, so give `--output`, or add `--quiet`, when you want a clean FASTA file.
+The input must end in `.fa`, `.fasta`, `.fna`, or `.faa`. The header of the extracted record names the region you asked for and, in brackets, the span actually written, both counted from 1, so `chrT:10-20 --flank 2` gives `>chrT:10-20 [chrT:8-22, 1-based] [15 bp]`. An `--output` path ending in `.lungfishref` writes a reference bundle instead of a FASTA file. Without `--output` the record goes to standard output and the two progress lines go to standard error, so `lungfish-cli extract sequence ... > region.fa` writes a clean FASTA file.
 
 | Argument or flag | What it does |
 |---|---|
@@ -1062,9 +1062,9 @@ lungfish-cli universal-search [<options>] <project-path>
 
 The window runs these operations from the FASTQ/FASTA Operations window, which [Trimming and Filtering Reads](../03-reads/04-trimming-and-filtering.md), [Decontamination](../03-reads/05-decontamination.md), [Subsetting and Extraction](../03-reads/06-subsetting-and-extraction.md), and [Read Processing](../03-reads/08-read-processing.md) work through. [FASTQ](../../GLOSSARY.md#fastq) stores each read as four lines, a name, the bases, a separator, and one quality character per base. The flags below also use [Phred scores](../../GLOSSARY.md#phred-score), [k-mers](../../GLOSSARY.md#k-mer), [interleaved](../../GLOSSARY.md#interleaved-fastq) files that hold both [mates](../../GLOSSARY.md#paired-end) of each pair, [Shannon entropy](../../GLOSSARY.md#shannon-entropy), and [optical duplicates](../../GLOSSARY.md#optical-duplicate), each defined in the Glossary. Most of these commands read one FASTQ and write another. They share `-o` or `--output` for the output path, `--force` to overwrite an existing output, and `--compress` to gzip it, so those three are not repeated in every table below.
 
-Thirteen of them also take `--pairing`. They are the four fastp trimmers, `trim`, `quality-trim`, `adapter-trim`, and `fixed-trim`, and `subsample`, `contaminant-filter`, `entropy-filter`, `scrub-human`, `deacon-ribo`, `sequence-filter`, `deduplicate`, `search-text`, and `search-motif`. With `interleaved`, adjacent records are mates and are kept or dropped together, and with `single` every record stands alone. The default, `auto`, reads the pairing recorded by the `.lungfishfastq` bundle the input sits in, then inspects read names, recognising mates with identical names, `/1` and `/2` suffixes, or Casava descriptions. The window passes the bundle's own pairing, so a command run on the file inside a paired bundle keeps its mates together as the window does.
+Fourteen of them also take `--pairing`. They are the four fastp trimmers, `trim`, `quality-trim`, `adapter-trim`, and `fixed-trim`, and `subsample`, `length-filter`, `contaminant-filter`, `entropy-filter`, `scrub-human`, `deacon-ribo`, `sequence-filter`, `deduplicate`, `search-text`, and `search-motif`. With `interleaved`, adjacent records are mates and are kept or dropped together, and with `single` every record stands alone. The default, `auto`, reads the pairing recorded by the `.lungfishfastq` bundle the input sits in, then inspects read names, recognising mates with identical names, `/1` and `/2` suffixes, or Casava descriptions. The window passes the bundle's own pairing, so a command run on the file inside a paired bundle keeps its mates together as the window does.
 
-The recorded pairing is a claim the command checks against the records. A bundle written by a merge recipe holds merged single reads between the pairs that did not merge, and `interleaved` would pair such a file by position. On a mixed file the command therefore treats every record as a single read, warns on standard error, and records `readLayout` and `readLayoutReason` in provenance. `search-text` and `search-motif` match by read name, so they still return whole pairs and lone merged reads from a mixed file.
+The recorded pairing is a claim the command checks against the records. A bundle written by a merge recipe holds merged single reads between the pairs that did not merge, and `interleaved` would pair such a file by position. On a mixed file the command therefore treats every record as a single read, warns on standard error, and records `readLayout` and `readLayoutReason` in provenance. `search-text` and `search-motif` match by read name, so they still return whole pairs and lone merged reads from a mixed file. The four fastp trimmers sort a mixed file by read name instead, run its pairs through fastp as pairs and its merged reads one at a time, and write the pairs first.
 
 Run this from the folder holding the hg002-chr20 practice data. It trims adapters and low-quality ends from the first read file with fastp and writes a gzipped result.
 
@@ -1094,16 +1094,17 @@ lungfish-cli fastq subsample <input> [--proportion <proportion>] [--count <count
 Keeps reads between a minimum and a maximum length. Explained in [Trimming and Filtering Reads](../03-reads/04-trimming-and-filtering.md).
 
 ```text
-lungfish-cli fastq length-filter <input> [--min <min>] [--max <max>] --output <output> [--force] [--compress]
+lungfish-cli fastq length-filter <input> [--min <min>] [--max <max>] [--pairing <pairing>] --output <output> [--force] [--compress]
 ```
 
-Give `--min`, `--max`, or both. `--min` larger than `--max` is an error.
+Give `--min`, `--max`, or both. `--min` larger than `--max` is an error. On an interleaved file the command runs bbduk, which keeps or drops both mates of a pair together, so no read is left without its mate. Single reads, and a file that mixes merged reads with pairs, go through seqkit one record at a time. The window's length filter runs the same plan, so the two routes give the same counts.
 
 | Argument or flag | What it does |
 |---|---|
 | `<input>` | Input FASTQ file. |
 | `--min <min>` | Minimum read length. |
 | `--max <max>` | Maximum read length. |
+| `--pairing <pairing>` | How to treat the input's records, one of `interleaved`, `single`, or `auto`. The default is `auto`. |
 
 ### `fastq trim`
 
@@ -1113,7 +1114,7 @@ Trims adapters and low-quality ends in one fastp pass. Explained in [Trimming an
 lungfish-cli fastq trim <input> [--threshold <threshold>] [--window <window>] [--mode <mode>] [--adapter-trimming] [--no-adapter-trimming] [--adapter <adapter>] [--extra-args <extra-args>] [--pairing <pairing>] --output <output> [--force] [--compress]
 ```
 
-Each of the four trimmers takes one file. On an interleaved file, which holds both mates of every pair, `--pairing` keeps mates together, so a pair is trimmed as a pair and kept or dropped together, as the window does for a paired bundle. `--no-adapter-trimming` has no dialog counterpart. Leaving out `--adapter` is the dialog's Auto-Detect. `--mode cut-both` passes fastp's `--cut_front --cut_right`.
+Each of the four trimmers takes one file. On an interleaved file, which holds both mates of every pair, the command splits the mates and runs fastp on both together, so a read that trimming cuts to nothing takes its mate with it, and fastp also finds adapters from the overlap of the two mates. The window runs the same code on a paired bundle, so the two routes keep the same reads. `--no-adapter-trimming` has no dialog counterpart. Leaving out `--adapter` is the dialog's Auto-Detect. `--mode cut-both` passes fastp's `--cut_front --cut_right`.
 
 | Argument or flag | What it does |
 |---|---|
@@ -1572,7 +1573,7 @@ lungfish-cli fastq import-ont ont-run/fastq_pass -o ont-imported
 Splits pooled reads into one bundle per barcode, using cutadapt or an exact matcher. Explained in [Oxford Nanopore Runs](../03-reads/07-ont-runs.md).
 
 ```text
-lungfish-cli fastq demultiplex <input> --kit <kit> --output <output> [--location <location>] [--max-distance-5prime <max-distance-5prime>] [--max-distance-3prime <max-distance-3prime>] [--error-rate <error-rate>] [--overlap <overlap>] [--engine <engine>] [--no-trim] [--discard-unassigned] [--threads <threads>]
+lungfish-cli fastq demultiplex <input> --kit <kit> --output <output> [--location <location>] [--max-distance-5prime <max-distance-5prime>] [--max-distance-3prime <max-distance-3prime>] [--error-rate <error-rate>] [--overlap <overlap>] [--engine <engine>] [--no-trim] [--discard-unassigned] [--threads <threads>] [--replace]
 ```
 
 The built-in kits are `truseq-single-a`, `truseq-single-b`, `truseq-ht-dual`, `nextera-xt-v2`, `idt-ud-indexes`, `fluidigm-access-array`, `pacbio-sequel-16-v3`, `pacbio-sequel-96-v2`, `pacbio-sequel-384-v1`, `m13-universal-primers`, `ont-nbd104`, `ont-nbd114`, `ont-nbd104-114`, `ont-nbd114-96`, `ont-pbc096`, `ont-rbk004`, `ont-rbk114-24`, `ont-rbk114-96`, `ont-16s114-24`, and `ont-rab204-214`. `--kit` also takes the path of your own barcode file, a CSV, TSV, or whitespace-separated text file with the columns `id,sequence`, optionally followed by `secondary_sequence` and `sample_name`. A header line may name the columns instead, so a file headed `id,sequence,sample_name` carries sample names in its third column and the per-barcode bundles are named after them. The long-read kits, meaning the Oxford Nanopore native, rapid, PCR, and 16S barcoding kits and the PacBio kits, are searched as the platform's whole adapter and barcode construct at both ends of each read in both orientations, and a read is assigned only when both ends carry the same barcode. `--location` and the two `--max-distance` flags do not apply to those kits, and the command prints a note on standard error and ignores them. A read with a barcode at one end only joins the unassigned reads, which `--discard-unassigned` drops. The `exact-bare` engine matches plain A, C, G, and T barcodes exactly anywhere in a read and on both strands, and never trims. Its own `--threads` flag has no effect, because the global `--threads` takes the value first. The command runs only inside a project, so run it from within your `.lungfish` project folder, and pass the FASTQ file rather than a `.lungfishfastq` bundle, which fails with a provenance error that is a [known defect](troubleshooting.md#known-defects-in-this-release).
@@ -1591,6 +1592,7 @@ The built-in kits are `truseq-single-a`, `truseq-single-b`, `truseq-ht-dual`, `n
 | `--no-trim` | Cutadapt only. Keep barcode sequences in output reads (exact-bare always preserves reads). |
 | `--discard-unassigned` | Discard reads that do not match any barcode. |
 | `--threads <threads>` | Cutadapt thread count. It has no effect, as the note above explains. The default is `4`. |
+| `--replace` | Delete an output directory that already holds files, then write. Without it the command refuses to overwrite earlier results, names the directory, and lists what it holds. |
 
 ### `fastq scout`
 
@@ -1677,7 +1679,7 @@ Its own `--threads` flag has no effect, because the global `--threads` takes the
 
 ## Mapping and alignment tracks
 
-The window covers this ground with **Tools > Mapping**, which [Mapping Reads to a Reference](../04-alignments/01-mapping-reads-to-a-reference.md) works through. A [BAM](../../GLOSSARY.md#bam) file holds one row per aligned read, with an index beside it that lets a viewer jump to any position. [SAM](../../GLOSSARY.md#sam) is the plain-text form of the same records. The flags below also use [MAPQ](../../GLOSSARY.md#mapq) and [soft clips](../../GLOSSARY.md#soft-clip), each defined in the Glossary. An [alignment track](../../GLOSSARY.md#alignment-track) is one named BAM attached to a reference bundle. Commands that act on a track take its id, such as `aln_A0B7A1D5`, not its display name. `lungfish-cli bundle info <bundle> --format json` prints the bundle's manifest, whose `alignments` list gives each track's `id` beside its `name`.
+The window covers this ground with **Tools > Mapping**, which [Mapping Reads to a Reference](../04-alignments/01-mapping-reads-to-a-reference.md) works through. A [BAM](../../GLOSSARY.md#bam) file holds one row per aligned read, with an index beside it that lets a viewer jump to any position. [SAM](../../GLOSSARY.md#sam) is the plain-text form of the same records. The flags below also use [MAPQ](../../GLOSSARY.md#mapq) and [soft clips](../../GLOSSARY.md#soft-clip), each defined in the Glossary. An [alignment track](../../GLOSSARY.md#alignment-track) is one named BAM attached to a reference bundle. Commands that act on a track take its id, such as `aln_A0B7A1D5`, and only `variants call` also accepts a display name. `map` prints the id of the track it attaches, and `lungfish-cli bundle info <bundle> --format json` prints the bundle's manifest, whose `alignments` list gives each track's `id` beside its `name`.
 
 Run this from the folder holding the hg002-chr20 practice data, in a project you made with **File > New Project** and then closed. It imports the chromosome 20 slice as a reference bundle, then maps the read pair to it with minimap2. With `--project`, the result lands where the window puts it, in a new `Analyses/minimap2-<timestamp>/` folder holding the BAM and a copy of the reference bundle with the BAM attached as the track `HG002 minimap2`. That copy is the reference bundle inside the mapping result, which [Where results land](../01-foundations/06-the-lungfish-project.md#where-results-land) describes, and the bundle under `Reference Sequences/` is left unchanged.
 
@@ -1689,7 +1691,7 @@ lungfish-cli map HG002.chr20.10.0-10.5Mb_R1.fastq.gz HG002.chr20.10.0-10.5Mb_R2.
   --paired --sample-name HG002 --project "$PROJECT" --track-name "HG002 minimap2"
 ```
 
-The command prints the result folder, the BAM, and the reference copy it wrote, which it calls the viewer bundle.
+The command ends with a Results table. It gives the read counts, the `Analysis folder` it wrote, the `Sorted BAM` and its index, the reference copy it calls the `Viewer bundle`, and the `Track name` and `Track ID` of the attached track. The track id is what `variants call --alignment-track` takes. With the program-wide `--format json`, the same report comes as one JSON document whose `alignmentTrack` object holds the track's `id`, `name`, and `sourcePath`.
 
 ### `map`
 
@@ -1864,17 +1866,17 @@ Marks PCR duplicates in one BAM, or in every BAM in a folder, with samtools mark
 lungfish-cli markdup [<options>] <path>
 ```
 
-<!-- PENDING-FIX: markdup-cli-non-destructive -->
-This command marks duplicates in place and has no output flag, so it changes your input rather than writing something new. Keep a copy of the original first, for example by duplicating the BAM in the Finder. For an alignment track inside a reference bundle, `bundle mark-duplicates` is the safer route, because it keeps the original track and adds a marked copy beside it, as the window does.
-<!-- /PENDING-FIX -->
+The command leaves the input BAM untouched. It writes the duplicate-marked copy beside the input as `<name>.markdup.bam` with its `.bai` index, so `HG002.sorted.bam` gains a sibling `HG002.sorted.markdup.bam`. This matches **Mark Duplicates in Bundle Tracks** in the window, which keeps the original track as "[unmarked]". `--output` sends the marked copy of a single BAM somewhere else. `--in-place` overwrites the input instead, which destroys the unmarked original and cannot be undone, as the help text warns. For an alignment track inside a reference bundle, `bundle mark-duplicates` is the route that also registers the marked copy as a track.
 
-It takes one BAM or a folder of them, reruns on an already-marked BAM only with `--force`, and prints a line such as "Processed 1 BAM file (0 already marked)". `--sort-threads` is separate from the global `--threads`.
+It takes one BAM or a folder of them. On a folder it skips the `*.markdup.bam` copies an earlier run wrote. A BAM that already carries duplicate marks, or whose `.markdup.bam` copy already exists, counts as already marked and is left alone unless you pass `--force`. The command prints a line such as "Processed 1 BAM file (0 already marked)", then one "Marked copy" line naming each file it wrote. `--sort-threads` is separate from the global `--threads`.
 
 | Argument or flag | What it does |
 |---|---|
 | `<path>` | Path to a BAM file or a directory containing BAMs. |
 | `--force` | Re-run markdup even if already marked. |
 | `--sort-threads <sort-threads>` | Threads for samtools sort. The default is `4`. |
+| `--output <output>` | Write the marked BAM here instead of `<name>.markdup.bam`. Single BAM input only. The path must end in `.bam` and must not be the input. |
+| `--in-place` | Overwrite the input BAM with the marked copy. This destroys the unmarked original. It cannot be combined with `--output`. |
 | `--deduplicated-bundle <deduplicated-bundle>` | Create a sibling `.lungfishref` bundle with duplicate reads removed. |
 | `--format <format>` | Output format, one of `text` or `json`. The default is `text`. |
 
@@ -1883,25 +1885,25 @@ It takes one BAM or a folder of them, reruns on an already-marked BAM only with 
 Marks PCR duplicates with samtools markdup, without the `--deduplicated-bundle` option of the top-level `markdup`. Explained in [Alignment Quality](../04-alignments/04-alignment-quality.md).
 
 ```text
-lungfish-cli bam markdup <path> [--force] [--sort-threads <sort-threads>]
+lungfish-cli bam markdup <path> [--force] [--sort-threads <sort-threads>] [--output <output>] [--in-place]
 ```
 
-<!-- PENDING-FIX: markdup-cli-non-destructive -->
-Like `markdup`, it rewrites the BAM in place, and `bundle mark-duplicates` is the route that keeps the original.
-<!-- /PENDING-FIX -->
+Like `markdup`, it writes `<name>.markdup.bam` beside the input and leaves the input alone unless you pass `--in-place`.
 
 | Argument or flag | What it does |
 |---|---|
 | `<path>` | Path to a BAM file or a directory containing BAMs. |
 | `--force` | Re-run markdup even if already marked. |
 | `--sort-threads <sort-threads>` | Threads for samtools sort. The default is `4`. |
+| `--output <output>` | Write the marked BAM here instead of `<name>.markdup.bam`. Single BAM input only. |
+| `--in-place` | Overwrite the input BAM with the marked copy. This destroys the unmarked original. |
 | `--format <format>` | Output format, one of `text` or `json`. The default is `text`. |
 
 ## Calling variants
 
 The window covers this ground with the Call Variants dialog, which [Calling Variants](../05-variants/01-calling-variants-from-amplicons.md) and [Nanopore Variant Calling](../05-variants/04-nanopore-variant-calling.md) work through. A [VCF](../../GLOSSARY.md#vcf) is a tab-separated file with one row per position where the sample differs from the reference. Calling always works on an alignment track inside a reference bundle, which for a mapping result is the reference bundle inside the mapping result, and never on a loose BAM. `variants phase` prints the command it would run and stops. Add `--execute` to run it through the managed tools and write provenance at the final location, or `--dry-run` to print and save the plan explicitly. Neither switch is repeated in its table.
 
-This continues the mapping example in [Mapping and alignment tracks](#mapping-and-alignment-tracks). Replace `minimap2-<timestamp>` with the folder that run created, and `aln_A0B7A1D5` with the track id `bundle info --format json` prints for `HG002 minimap2`. The thresholds are the ones the dialog sends.
+This continues the mapping example in [Mapping and alignment tracks](#mapping-and-alignment-tracks). Replace `minimap2-<timestamp>` with the folder that run created, and `aln_A0B7A1D5` with the `Track ID` that `map` printed for `HG002 minimap2`. `bundle info --format json` prints it too. The thresholds are the ones the dialog sends.
 
 ```bash
 PROJECT="$HOME/Documents/My Project.lungfish"
@@ -1919,17 +1921,17 @@ Runs a variant caller on one alignment track and attaches the calls as a variant
 lungfish-cli variants call [<options>] --bundle <bundle> --alignment-track <alignment-track> --caller <caller>
 ```
 
-`--alignment-track` takes the track's id, not its display name. The command has no default thresholds. Leave out `--min-af` and `--min-depth` and iVar uses 0.05 and 10, while the other callers run with no threshold filter. Given either flag, LGE removes rows below it after LoFreq, bcftools, Medaka, or Clair3 finish, with a `bcftools view -i` step, and iVar applies it natively. The window always sends 0.05 and 10, so pass `--min-af 0.05 --min-depth 10` to reproduce a window run. `--ploidy` applies to bcftools alone and takes `1` or `2`. Leave it out and LGE derives the value from the bundle's organism metadata as the dialog does, falling back to `1`. A `--ploidy` inside `--extra-args` for bcftools is refused. The `--ivar-*` flags reach iVar only, and iVar's strand-bias filter is off by default because amplicon reads at one site all start from the same primer.
+`--alignment-track` takes the track's id, or its display name when exactly one track carries that name. A name shared by several tracks, or a track the bundle does not hold, stops the command with exit status 3 and a message listing the tracks the bundle does hold. The command has no default thresholds. Leave out `--min-af` and `--min-depth` and iVar uses 0.05 and 10, while the other callers run with no threshold filter. Given either flag, LGE removes rows below it after LoFreq, bcftools, Medaka, or Clair3 finish, with a `bcftools view -i` step, and iVar applies it natively. The window always sends 0.05 and 10, so pass `--min-af 0.05 --min-depth 10` to reproduce a window run. `--ploidy` applies to bcftools alone and takes `1` or `2`. Leave it out and LGE derives the value from the bundle's organism metadata as the dialog does, falling back to `1`. A `--ploidy` inside `--extra-args` for bcftools is refused. The `--ivar-*` flags reach iVar only, and iVar's strand-bias filter is off by default because amplicon reads at one site all start from the same primer. iVar needs primer-trimmed reads. On a track that LGE primer-trimmed itself, the command reads the primer-trim record beside the BAM and confirms the trim on its own, as the Call Variants dialog does, so `--ivar-primer-trimmed` is needed only for a BAM trimmed outside LGE. `--platform` applies to Medaka and Clair3 only and is refused with any other caller.
 
 | Argument or flag | What it does |
 |---|---|
 | `--bundle <bundle>` | Path to the reference bundle directory. |
-| `--alignment-track <alignment-track>` | Bundle alignment track identifier. |
+| `--alignment-track <alignment-track>` | Bundle alignment track identifier, or its display name when only one track has that name. |
 | `--caller <caller>` | Variant caller, one of `lofreq`, `ivar`, `medaka`, `bcftools`, or `clair3`. |
 | `--name, --output-track-name <name>` | Display name for the created variant track. |
 | `--min-af <min-af>` | Minimum allele frequency threshold. |
 | `--min-depth <min-depth>` | Minimum depth threshold. |
-| `--ivar-primer-trimmed` | Confirm the BAM was primer-trimmed before iVar calling. |
+| `--ivar-primer-trimmed` | Confirm the BAM was primer-trimmed before iVar calling. Not needed for a track LGE primer-trimmed, whose primer-trim record is read automatically. |
 | `--medaka-model <medaka-model>` | For Medaka, the variant model name, which is required, such as `r941_prom_sup_variant_g507`. For Clair3, a model shipped with Clair3 by name, such as `r941_prom_sup_g5014`, or a model folder path. Leave it out for Clair3 to use the model matched to the platform. |
 | `--platform <platform>` | Sequencing platform for Medaka and Clair3, one of `ont`, `hifi`, or `ilmn`. The default is the platform recorded in the alignment's read groups (`@RG PL`). |
 | `--ivar-consensus-af <ivar-consensus-af>` | Allele frequency threshold above which an iVar haplotype counts as consensus. The default is `0.75`. |
@@ -3132,7 +3134,7 @@ With `--assay qpcr-probe`, LGE also raises the probe's minimum Tm to at least 5 
 | `--probe-min-gc <probe-min-gc>` | Lowest probe GC percentage, `PRIMER_INTERNAL_MIN_GC`. The default is `40` for `qpcr-probe`, unused otherwise. |
 | `--probe-opt-gc <probe-opt-gc>` | Preferred probe GC percentage, `PRIMER_INTERNAL_OPT_GC_PERCENT`. The default is `60` for `qpcr-probe`, unused otherwise. |
 | `--probe-max-gc <probe-max-gc>` | Highest probe GC percentage, `PRIMER_INTERNAL_MAX_GC`. The default is `80` for `qpcr-probe`, unused otherwise. |
-| `--probe-max-poly-x <probe-max-poly-x>` | Longest run of one base allowed in the probe, `PRIMER_INTERNAL_MAX_POLY_X`. The preset applies `3` for `qpcr-probe`, unused otherwise, although the help text says 4. |
+| `--probe-max-poly-x <probe-max-poly-x>` | Longest run of one base allowed in the probe, `PRIMER_INTERNAL_MAX_POLY_X`. The default is `3` for `qpcr-probe`, unused otherwise. |
 | `--probe-must-match-five-prime <probe-must-match-five-prime>` | `PRIMER_INTERNAL_MUST_MATCH_FIVE_PRIME`. The default is `hnnnn` for `qpcr-probe`, which forbids a G at the probe's 5′ end next to the reporter dye. Pass an empty value to leave the rule out. |
 | `--pick-internal-oligo` | Ask Primer3 for an ordinary internal oligo. `--assay qpcr-probe` turns it on. |
 | `--left-primer <left-primer>` | `SEQUENCE_PRIMER`. A forward primer to keep, written 5′ to 3′. Primer3 designs the rest around it. |
@@ -3322,7 +3324,7 @@ The output folder holds `order.json`, `ordering.csv`, `primer-order.xlsx`, and `
 |---|---|
 | `<bundle-path>` | Path to the saved `.lungfishprimeranalysis` bundle. |
 | `--output <output>` | New order folder. It must not exist yet, and its parent must. |
-| `--scope <scope>` | Which saved oligos to order, one of `candidate-pairs`, `selected-assays`, `all-reported-assays`, or `displayed`. |
+| `--scope <scope>` | Which saved oligos to order. `candidate-pairs` applies to Primer3 only, `selected-assays` and `all-reported-assays` to Olivar and varVAMP only, and `displayed` to PrimalScheme only. A scope the analysis's engine does not have is refused with a message naming the scopes it offers, and nothing is written. |
 | `--candidate-pair-id <candidate-pair-id>` | A Primer3 candidate pair UUID to include. Repeatable. The default is every pair. |
 | `--name <name>` | Order name. The default is the analysis name followed by "order". |
 | `--requested-by <requested-by>` | Who requested the order. |
@@ -3908,15 +3910,15 @@ Runs a Nextflow or Snakemake workflow. The one built-in nf-core workflow is nf-c
 lungfish-cli workflow run [<options>] <workflow>
 ```
 
-`--executor` applies only to the nf-core Viral Recon route and is ignored for a local `.nf` file or Snakefile. It accepts `docker`, `conda`, and `local`, but only `docker` reaches a working run, because the value is passed to Nextflow as its profile. The pipeline defines no `local` profile, so that value stops before any work, and LGE never sets up Nextflow's conda support, so `conda` cannot be relied on. The window offers no executor choice and refuses anything but Docker. The pipeline's containers run through Docker Desktop, which [Tools that run in containers](../01-foundations/07-plugin-packs.md#tools-that-run-in-containers) covers. `--expected-output` names where a result will be fingerprinted and does not create the file. At least one is required for a run that executes, and without one the command exits 64, unless `--prepare-only` is given. `--memory` takes the engine's own style, such as `8.GB`. The local adapters do not enforce it, and nf-core maps it to `max_memory`. `--workdir` is Nextflow's `-work-dir`, and a local Snakemake run records it without passing it. `--resume` is recorded but has no effect on local Snakemake. `--repeat-from` is the command-line form of Run Again, and it refuses when the settings differ from the original run. `--timeout` is not enforced locally and is rejected for nf-core/viralrecon. A Snakemake launch becomes `snakemake --snakefile <path> --directory <results-dir> --cores N --config outdir=<results-dir>`. Local workflows use the managed Nextflow or Snakemake when installed and otherwise whatever is on `PATH`, and launching never installs a missing engine.
+`--executor` applies only to the nf-core Viral Recon route and is ignored for a local `.nf` file or Snakefile. It parses `docker`, `conda`, and `local`, but the command refuses `conda` and `local` before it writes a run bundle, with the message "The conda executor is not supported. Use Docker." (or the same for `local`), exactly as the window does. Docker is the only executor that reaches a working run. The pipeline's containers run through Docker Desktop, which [Tools that run in containers](../01-foundations/07-plugin-packs.md#tools-that-run-in-containers) covers. `--expected-output` names where a result will be fingerprinted and does not create the file. At least one is required for a run that executes, and without one the command exits 64, unless `--prepare-only` is given. `--memory` takes the engine's own style, such as `8.GB`. The local adapters do not enforce it, and nf-core maps it to `max_memory`. `--workdir` is Nextflow's `-work-dir`, and a local Snakemake run records it without passing it. `--resume` is recorded but has no effect on local Snakemake. `--repeat-from` is the command-line form of Run Again, and it refuses when the settings differ from the original run. `--timeout` is not enforced locally and is rejected for nf-core/viralrecon. A Snakemake launch becomes `snakemake --snakefile <path> --directory <results-dir> --cores N --config outdir=<results-dir>`. Local workflows use the managed Nextflow or Snakemake when installed and otherwise whatever is on `PATH`, and launching never installs a missing engine.
 
 | Argument or flag | What it does |
 |---|---|
 | `<workflow>` | Workflow file (`*.nf` or a `Snakefile`), or `nf-core/viralrecon`. |
 | `--repeat-from <repeat-from>` | Validate an original local run bundle before starting a fresh attempt. |
 | `--results-dir <results-dir>` | Output directory for results. The default is `./results`. |
-| `--executor <executor>` | Execution profile for nf-core workflows, one of `docker`, `conda`, or `local`. The default is `docker`, the only value that reaches a working run. |
-| `--input <input>` | Input file selected for the workflow. Repeat for multiple inputs. |
+| `--executor <executor>` | Execution profile for nf-core workflows. The default and only accepted value is `docker`. `conda` and `local` still parse but are refused. |
+| `--input <input>` | Input file selected for the workflow. Repeat for multiple inputs. For nf-core/viralrecon this is either one samplesheet CSV or one or more `.lungfishfastq` bundles or FASTQ files, from which the command builds the samplesheet the wizard would build. |
 | `--expected-output <expected-output>` | Final output bundle or file path. Required for executed runs and repeatable for every scientific output that must receive provenance. |
 | `--bundle-root <bundle-root>` | Directory where the `.lungfishrun` bundle should be created. |
 | `--bundle-path <bundle-path>` | Exact `.lungfishrun` bundle path to create or update. |
@@ -4559,7 +4561,7 @@ Four operations have no command-line route. Attaching an annotation file, such a
 
 ## Known defects
 
-The command-line faults this release is known to have, including the shadowed `--threads` and `--format` flags, `bundle export`, and the experimental packs that `conda install` cannot reach, are listed with their workarounds in [Known defects in this release](troubleshooting.md#known-defects-in-this-release).
+The command-line faults this release is known to have, including the shadowed `--threads` and `--format` flags and the experimental packs that `conda install` cannot reach, are listed with their workarounds in [Known defects in this release](troubleshooting.md#known-defects-in-this-release).
 
 ## Next
 

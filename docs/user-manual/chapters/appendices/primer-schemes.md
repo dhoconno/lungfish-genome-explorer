@@ -106,9 +106,9 @@ In a [tiling](../../GLOSSARY.md#tiling) scheme, meaning one whose amplicons over
 
 ### How LGE counts primers and amplicons
 
-LGE counts every non-empty row that does not begin with `#` as one primer. It counts amplicons by removing the ending `_LEFT` or `_RIGHT` from each name in column 4 and counting the distinct names left.
+LGE counts every non-empty row that does not begin with `#` as one primer. It counts amplicons by removing the role tag `_LEFT`, `_RIGHT`, or `_PROBE` from each name in column 4, together with anything that follows the tag, and counting the distinct names left. A spare primer named `nCoV-2019_2_LEFT_alt1` and a designed variant named `d01afd1e_1_LEFT_2` therefore count as the same amplicon as their plain `_LEFT` partner.
 
-After removing that ending it also drops a dash followed by one or two digits, so a spare primer named `QIAseq_221-2_LEFT` counts as the same amplicon as `QIAseq_221_LEFT`. The dash must come before `_LEFT` or `_RIGHT`, as it does in the QIAseq scheme. The other shipped schemes name spare primers with suffixes such as `_LEFT_alt1`, which this rule would count as separate amplicons, so their manifest counts came from the tool that built them rather than from this rule. A name such as `QIAseq_221_LEFT-1`, or a dash followed by three or more digits, counts as an amplicon of its own and inflates the count without a warning.
+After removing the tag it also drops a dash followed by one or two digits, so a spare primer named `QIAseq_221-2_LEFT` counts as the same amplicon as `QIAseq_221_LEFT`. The dash must come before the tag, as it does in the QIAseq scheme. A name such as `QIAseq_221_LEFT-1`, or a dash followed by three or more digits, counts as an amplicon of its own and inflates the count without a warning. The manifests of the shipped schemes were written by the tools that built them rather than by this rule, and the NEB VarSkip Long manifest still reads 29 amplicons for a primer file that defines 25.
 
 A scheme whose names follow neither convention still imports. Names such as `panel_fwd_01` and `panel_rev_01` give an amplicon count equal to the primer count, which is the sign the naming did not parse. Rename column 4 to the `NAME_LEFT` and `NAME_RIGHT` form in a text editor and import again. The Inspector shows the two counts side by side, so a count you did not expect points at the names rather than the coordinates.
 
@@ -157,7 +157,7 @@ The Inspector only displays a scheme. To change a field, import the scheme again
 
 A tiled design made in LGE becomes a scheme without a BED file of its own. In the primer analysis viewer's Results tab, or in the Inspector's View tab, **Save as Primer Scheme…** writes `Primer Schemes/<scheme name>.lungfishprimers` into the same project, and `lungfish-cli primers scheme-from-analysis` writes the same bundle from the same code. [Save a tiled scheme as a primer scheme](../10-primer-design/05-reviewing-and-ordering-primers.md#save-a-tiled-scheme-as-a-primer-scheme) is the procedure.
 
-Only a tiled result can be saved. PrimalScheme, Olivar and tiled varVAMP designs qualify, and Primer3 candidate pairs and varVAMP qPCR assays do not, because they are alternatives rather than one scheme, which is what the disabled button's caption says. A result whose primers sit on more than one reference is saved one reference at a time.
+Only a tiled result can be saved. PrimalScheme, Olivar and tiled varVAMP designs qualify, and Primer3 candidate pairs and varVAMP qPCR assays do not, because they are alternatives rather than one scheme, which is what the disabled button's caption says. A result whose primers sit on more than one reference, such as a combined PrimalScheme panel, is refused, because a bundle names one reference, so save each single-reference result instead. Probe oligos are left out of the BED, because trimming applies to primers only, and a note in the result says how many were left out.
 
 A designed scheme differs from an imported one in four ways.
 

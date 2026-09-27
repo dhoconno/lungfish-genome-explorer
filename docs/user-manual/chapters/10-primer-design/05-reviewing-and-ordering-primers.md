@@ -122,7 +122,7 @@ A tiled scheme becomes useful a second time after sequencing, when its primer po
 
 The operation writes the bundle into `Primer Schemes/`, and the Primer Trim dialog lists it under In This Project. Read the coordinate reference carefully, because it is the sequence the engine designed on, the first alignment row for PrimalScheme, Olivar's generated reference, or varVAMP's ambiguous consensus. Reads must be mapped to that sequence, which the bundle carries as `attachments/design-reference.fasta`, before the scheme can trim them, as [Matching the scheme to your alignment](../appendices/primer-schemes.md#matching-the-scheme-to-your-alignment) explains, and [Saving a designed scheme](../appendices/primer-schemes.md#saving-a-designed-scheme) documents the bundle.
 
-The button is disabled for results that are not tiled schemes, and the reason appears beside it. For Primer3 it reads that candidate pairs are alternatives rather than a tiled scheme, and a varVAMP qPCR result is refused the same way. A result whose primers sit on more than one reference has to be saved one reference at a time, and a design with no selected primers, or one whose oligo names repeat, is refused too.
+The button is disabled for results that are not tiled schemes, and the reason appears beside it. For Primer3 it reads that candidate pairs are alternatives rather than a tiled scheme, and a varVAMP qPCR result is refused the same way. A result whose primers sit on more than one reference is refused, so save each single-reference result instead, and a design with no selected primers, or one whose oligo names repeat, is refused too.
 
 ### Export an order
 
