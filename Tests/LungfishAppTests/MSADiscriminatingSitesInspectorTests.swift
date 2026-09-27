@@ -123,6 +123,16 @@ final class MSADiscriminatingSitesInspectorTests: XCTestCase {
         ])
         XCTAssertTrue(argv.contains("--exclusion-sequences"))
         XCTAssertFalse(argv.contains("--exclusions"))
+
+        // A row still carrying the Exclusion role from the rows mode is left out of
+        // the targets too, so the CLI default cannot sweep it back in.
+        let carried = makeModel()
+        carried.setRole(.exclusion, for: carried.rows[3])
+        carried.exclusionSource = .file
+        carried.exclusionFileURL = exclusions
+        XCTAssertEqual(try carried.makeRequest().targets, "t1,t2,x1")
+        carried.setRole(.target, for: carried.rows[3])
+        XCTAssertNil(try carried.makeRequest().targets)
     }
 
     func testValidationRejectsBadNumbersWithTheControlName() {

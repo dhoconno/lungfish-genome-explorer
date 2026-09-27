@@ -240,9 +240,16 @@ final class MSADiscriminatingSitesInspectorModel {
             exclusionSequencesURL = exclusionFileURL
         }
 
-        // The CLI's default target set is every row not named as an exclusion, so
-        // `--targets` is only needed when some rows are skipped.
-        let targetNames = skippedRows.isEmpty ? nil : targets.map(argumentName(for:)).joined(separator: ",")
+        // The CLI's default target set is every row not named by --exclusions, so
+        // `--targets` is only needed when a row is left out of both roles. With
+        // exclusions from a file every non-target row is left out, including one
+        // still carrying the Exclusion role from the rows mode.
+        let leftOutRows: [RowOption]
+        switch exclusionSource {
+        case .rows: leftOutRows = skippedRows
+        case .file: leftOutRows = rows.filter { role(of: $0) != .target }
+        }
+        let targetNames = leftOutRows.isEmpty ? nil : targets.map(argumentName(for:)).joined(separator: ",")
         var template: String?
         if let templateRowID, let templateRow = targets.first(where: { $0.id == templateRowID }),
            templateRow.id != targets[0].id {
