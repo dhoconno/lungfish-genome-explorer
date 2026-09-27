@@ -1820,13 +1820,15 @@ Marks PCR duplicates in one BAM, or in every BAM in a folder, with samtools mark
 lungfish-cli markdup [<options>] <path>
 ```
 
-This command marks duplicates in place and has no output flag, so it changes your input rather than writing something new. Keep a copy of the original first, for example by duplicating the BAM in the Finder. It takes one BAM or a folder of them, reruns on an already-marked BAM only with `--force`, and prints a line such as "Processed 1 BAM file (0 already marked)". `--sort-threads` is separate from the global `--threads`.
+This command leaves the input BAM untouched and writes the marked copy beside it as `<name>.markdup.bam` with its `.bai` index, the same way the Mark Duplicates button keeps the original track as "[unmarked]". Pass `--output` to choose where a single marked BAM goes, or `--in-place` to overwrite the input, which keeps no unmarked copy. It takes one BAM or a folder of them, reruns on an already-marked BAM only with `--force`, and prints a line such as "Processed 1 BAM file (0 already marked)" followed by one "Marked copy" line per file written. `--sort-threads` is separate from the global `--threads`.
 
 | Argument or flag | What it does |
 |---|---|
 | `<path>` | Path to a BAM file or a directory containing BAMs. |
 | `--force` | Re-run markdup even if already marked. |
 | `--sort-threads <sort-threads>` | Threads for samtools sort. The default is `4`. |
+| `--output <output>` | Write the marked BAM here instead of `<name>.markdup.bam`. Single BAM input only. |
+| `--in-place` | Overwrite the input BAM with the marked copy. This destroys the unmarked original. |
 | `--deduplicated-bundle <deduplicated-bundle>` | Create a sibling `.lungfishref` bundle with duplicate reads removed. |
 | `--format <format>` | Output format, one of `text` or `json`. The default is `text`. |
 
@@ -1835,16 +1837,18 @@ This command marks duplicates in place and has no output flag, so it changes you
 Marks PCR duplicates with samtools markdup, without the `--deduplicated-bundle` option of the top-level `markdup`.
 
 ```text
-lungfish-cli bam markdup <path> [--force] [--sort-threads <sort-threads>]
+lungfish-cli bam markdup <path> [--force] [--sort-threads <sort-threads>] [--output <output>] [--in-place]
 ```
 
-Like `markdup`, it rewrites the BAM in place.
+Like `markdup`, it writes `<name>.markdup.bam` beside the input unless you pass `--in-place`.
 
 | Argument or flag | What it does |
 |---|---|
 | `<path>` | Path to a BAM file or a directory containing BAMs. |
 | `--force` | Re-run markdup even if already marked. |
 | `--sort-threads <sort-threads>` | Threads for samtools sort. The default is `4`. |
+| `--output <output>` | Write the marked BAM here instead of `<name>.markdup.bam`. Single BAM input only. |
+| `--in-place` | Overwrite the input BAM with the marked copy. This destroys the unmarked original. |
 | `--format <format>` | Output format, one of `text` or `json`. The default is `text`. |
 
 ## Calling variants

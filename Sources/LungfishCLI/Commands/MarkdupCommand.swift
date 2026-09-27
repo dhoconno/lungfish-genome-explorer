@@ -11,8 +11,23 @@ import LungfishWorkflow
 struct MarkdupCommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "markdup",
-        abstract: "Mark PCR duplicates in BAM files using samtools markdup"
+        abstract: "Mark PCR duplicates in BAM files using samtools markdup",
+        discussion: MarkdupCommand.outputBehaviourDiscussion
     )
+
+    /// Shared by `markdup` and `bam markdup` so both help pages describe the
+    /// same output contract.
+    static let outputBehaviourDiscussion = """
+        The input BAM is left untouched. The duplicate-marked copy is written beside it as
+        <name>.markdup.bam with a .bai index, or to --output for a single BAM. This matches the
+        app's Mark Duplicates, which keeps the original track as "[unmarked]".
+
+        Pass --in-place to overwrite the input BAM instead. WARNING: --in-place destroys the
+        unmarked original and cannot be undone.
+        """
+
+    /// Suffix inserted before `.bam` for the default marked copy.
+    static let markedOutputSuffix = ".markdup"
 
     struct ExecutionInput: Sendable {
         let path: String
@@ -21,6 +36,30 @@ struct MarkdupCommand: AsyncParsableCommand {
         let quiet: Bool
         let outputFormat: OutputFormat
         let deduplicatedBundlePath: String?
+        /// Explicit destination for the marked BAM (single BAM input only).
+        let outputPath: String?
+        /// Overwrite the input BAM instead of writing a marked copy.
+        let inPlace: Bool
+
+        init(
+            path: String,
+            force: Bool,
+            sortThreads: Int,
+            quiet: Bool,
+            outputFormat: OutputFormat,
+            deduplicatedBundlePath: String?,
+            outputPath: String? = nil,
+            inPlace: Bool = false
+        ) {
+            self.path = path
+            self.force = force
+            self.sortThreads = sortThreads
+            self.quiet = quiet
+            self.outputFormat = outputFormat
+            self.deduplicatedBundlePath = deduplicatedBundlePath
+            self.outputPath = outputPath
+            self.inPlace = inPlace
+        }
     }
 
     struct Runtime {
@@ -47,6 +86,18 @@ struct MarkdupCommand: AsyncParsableCommand {
         help: "Create a sibling .lungfishref bundle with duplicate reads removed"
     )
     var deduplicatedBundlePath: String?
+
+    @Option(
+        name: .customLong("output"),
+        help: "Write the marked BAM here instead of <name>.markdup.bam (single BAM input only)"
+    )
+    var outputPath: String?
+
+    @Flag(
+        name: .customLong("in-place"),
+        help: "Overwrite the input BAM with the marked copy. WARNING: destroys the unmarked original"
+    )
+    var inPlace: Bool = false
 
     @OptionGroup var globalOptions: TextAndJSONGlobalOptions
 
@@ -78,6 +129,7 @@ struct MarkdupCommand: AsyncParsableCommand {
         guard input.sortThreads >= 1 else {
             throw ValidationError("--sort-threads must be >= 1")
         }
+        try validateOutputOptions(input)
         if let deduplicatedBundlePath = input.deduplicatedBundlePath {
             try await createDeduplicatedBundle(
                 input: input,
@@ -89,6 +141,48 @@ struct MarkdupCommand: AsyncParsableCommand {
         let results = try await runtime.execute(input, emit)
         emitResults(results, for: input, emit: emit)
         return results
+    }
+
+    /// Rejects option combinations that have no sensible meaning before any
+    /// samtools process starts.
+    static func validateOutputOptions(_ input: ExecutionInput) throws {
+        if input.inPlace, input.outputPath != nil {
+            throw ValidationError("--output cannot be combined with --in-place")
+        }
+        if let outputPath = input.outputPath {
+            guard outputPath.hasSuffix(".bam") else {
+                throw ValidationError("--output must end in .bam: \(outputPath)")
+            }
+            let outputURL = URL(fileURLWithPath: outputPath).standardizedFileURL
+            let inputURL = URL(fileURLWithPath: input.path).standardizedFileURL
+            if outputURL.path == inputURL.path {
+                throw ValidationError("--output is the input BAM; pass --in-place to overwrite it")
+            }
+        }
+    }
+
+    /// Where the marked BAM for `bamURL` lands under the given options.
+    static func markedOutputURL(for bamURL: URL, input: ExecutionInput) -> URL {
+        if input.inPlace {
+            return bamURL
+        }
+        if let outputPath = input.outputPath {
+            return URL(fileURLWithPath: outputPath)
+        }
+        return defaultMarkedOutputURL(for: bamURL)
+    }
+
+    /// `<dir>/<stem>.markdup.bam` beside the input.
+    static func defaultMarkedOutputURL(for bamURL: URL) -> URL {
+        let stem = bamURL.deletingPathExtension().lastPathComponent
+        return bamURL
+            .deletingLastPathComponent()
+            .appendingPathComponent(stem + markedOutputSuffix + ".bam")
+    }
+
+    /// True for a file this command wrote as a default marked copy.
+    static func isDefaultMarkedOutput(_ url: URL) -> Bool {
+        url.lastPathComponent.hasSuffix(markedOutputSuffix + ".bam")
     }
 
     private func makeExecutionInput(
@@ -106,7 +200,9 @@ struct MarkdupCommand: AsyncParsableCommand {
             sortThreads: sortThreads,
             quiet: resolvedGlobalOptions.quiet,
             outputFormat: resolvedGlobalOptions.outputFormat,
-            deduplicatedBundlePath: deduplicatedBundlePath
+            deduplicatedBundlePath: deduplicatedBundlePath,
+            outputPath: outputPath,
+            inPlace: inPlace
         )
     }
 
@@ -148,6 +244,9 @@ struct MarkdupCommand: AsyncParsableCommand {
         }
 
         if isDir.boolValue {
+            guard input.outputPath == nil else {
+                throw ValidationError("--output needs a single BAM input, not a directory: \(inputURL.path)")
+            }
             try materializeNaoMgsBamsIfNeeded(
                 at: inputURL,
                 samtoolsPath: samtoolsPath,
@@ -156,7 +255,7 @@ struct MarkdupCommand: AsyncParsableCommand {
             )
 
             emitIfNeeded(input, line: "Scanning \(inputURL.path) for BAM files...", emit: emit)
-            let bamURLs = collectBAMFiles(in: inputURL)
+            let bamURLs = collectBAMFiles(in: inputURL, skippingMarkedOutputs: !input.inPlace)
             return try await markdupBAMsUsingSharedPipeline(
                 bamURLs,
                 commandInput: input,
@@ -177,7 +276,10 @@ struct MarkdupCommand: AsyncParsableCommand {
         )
     }
 
-    private static func collectBAMFiles(in dirURL: URL) -> [URL] {
+    /// BAMs under `dirURL`, sorted. With `skippingMarkedOutputs` the
+    /// `<name>.markdup.bam` copies an earlier run wrote are left out so a
+    /// forced rerun does not stack `.markdup.markdup.bam` on top of them.
+    static func collectBAMFiles(in dirURL: URL, skippingMarkedOutputs: Bool) -> [URL] {
         let fm = FileManager.default
         guard let enumerator = fm.enumerator(
             at: dirURL,
@@ -189,6 +291,9 @@ struct MarkdupCommand: AsyncParsableCommand {
 
         var bamURLs: [URL] = []
         for case let fileURL as URL in enumerator where fileURL.pathExtension == "bam" {
+            if skippingMarkedOutputs, isDefaultMarkedOutput(fileURL) {
+                continue
+            }
             bamURLs.append(fileURL)
         }
         return bamURLs.sorted {
@@ -246,16 +351,34 @@ struct MarkdupCommand: AsyncParsableCommand {
         let inputDescriptor = ProvenanceFileDescriptor(
             fileRecord: ProvenanceRecorder.fileRecord(url: bamURL, format: .bam, role: .input)
         )
-        if !commandInput.force && MarkdupService.isAlreadyMarkduped(bamURL: bamURL, samtoolsPath: samtoolsPath) {
-            let indexInvocation = try ensureFreshIndex(bamURL: bamURL, samtoolsPath: samtoolsPath)
+        let outputURL = markedOutputURL(for: bamURL, input: commandInput)
+
+        // Work already done: the input carries markdup flags, or (when not
+        // in place) the marked copy from an earlier run is already there.
+        // Either way only the index is refreshed, which keeps a rerun over a
+        // folder idempotent.
+        let alreadyMarkedURL: URL? = {
+            guard !commandInput.force else { return nil }
+            if MarkdupService.isAlreadyMarkduped(bamURL: bamURL, samtoolsPath: samtoolsPath) {
+                return bamURL
+            }
+            if outputURL != bamURL,
+               fm.fileExists(atPath: outputURL.path),
+               MarkdupService.isAlreadyMarkduped(bamURL: outputURL, samtoolsPath: samtoolsPath) {
+                return outputURL
+            }
+            return nil
+        }()
+        if let markedURL = alreadyMarkedURL {
+            let indexInvocation = try ensureFreshIndex(bamURL: markedURL, samtoolsPath: samtoolsPath)
             let total = (try? MarkdupService.countReads(
-                bamURL: bamURL,
+                bamURL: markedURL,
                 accession: nil,
                 flagFilter: 0x004,
                 samtoolsPath: samtoolsPath
             )) ?? 0
             let nonDup = (try? MarkdupService.countReads(
-                bamURL: bamURL,
+                bamURL: markedURL,
                 accession: nil,
                 flagFilter: 0x404,
                 samtoolsPath: samtoolsPath
@@ -263,13 +386,14 @@ struct MarkdupCommand: AsyncParsableCommand {
             return (
                 MarkdupResult(
                     bamURL: bamURL,
+                    outputURL: markedURL,
                     wasAlreadyMarkduped: true,
                     totalReads: total,
                     duplicateReads: max(0, total - nonDup),
                     durationSeconds: Date().timeIntervalSince(startedAt)
                 ),
                 try indexInvocation.map { invocation in
-                    let baiURL = URL(fileURLWithPath: bamURL.path + ".bai")
+                    let baiURL = URL(fileURLWithPath: markedURL.path + ".bai")
                     return MarkdupPipelineRunRecord(
                         input: inputDescriptor,
                         outputs: [try ProvenanceFileDescriptor.file(url: baiURL, role: .index)],
@@ -279,10 +403,16 @@ struct MarkdupCommand: AsyncParsableCommand {
             )
         }
 
-        let tempBamURL = URL(fileURLWithPath: bamURL.path + ".markdup.tmp")
+        if outputURL != bamURL {
+            try fm.createDirectory(
+                at: outputURL.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+        }
+        let tempBamURL = URL(fileURLWithPath: outputURL.path + ".markdup.tmp")
         let tempBaiURL = URL(fileURLWithPath: tempBamURL.path + ".bai")
-        let finalBaiURL = URL(fileURLWithPath: bamURL.path + ".bai")
-        let finalCsiURL = URL(fileURLWithPath: bamURL.path + ".csi")
+        let finalBaiURL = URL(fileURLWithPath: outputURL.path + ".bai")
+        let finalCsiURL = URL(fileURLWithPath: outputURL.path + ".csi")
 
         try? fm.removeItem(at: tempBamURL)
         try? fm.removeItem(at: tempBaiURL)
@@ -310,7 +440,13 @@ struct MarkdupCommand: AsyncParsableCommand {
 
             try? fm.removeItem(at: finalBaiURL)
             try? fm.removeItem(at: finalCsiURL)
-            _ = try fm.replaceItemAt(bamURL, withItemAt: tempBamURL)
+            if fm.fileExists(atPath: outputURL.path) {
+                // In place, or --force over an earlier marked copy: swap
+                // atomically so a crash never leaves a half-written BAM.
+                _ = try fm.replaceItemAt(outputURL, withItemAt: tempBamURL)
+            } else {
+                try fm.moveItem(at: tempBamURL, to: outputURL)
+            }
             committedOutput = true
             if fm.fileExists(atPath: tempBaiURL.path) {
                 try fm.moveItem(at: tempBaiURL, to: finalBaiURL)
@@ -321,23 +457,24 @@ struct MarkdupCommand: AsyncParsableCommand {
             }
 
             let total = try MarkdupService.countReads(
-                bamURL: bamURL,
+                bamURL: outputURL,
                 accession: nil,
                 flagFilter: 0x004,
                 samtoolsPath: samtoolsPath
             )
             let nonDup = try MarkdupService.countReads(
-                bamURL: bamURL,
+                bamURL: outputURL,
                 accession: nil,
                 flagFilter: 0x404,
                 samtoolsPath: samtoolsPath
             )
 
-            let bamOutput = try ProvenanceFileDescriptor.file(url: bamURL, format: .bam, role: .output)
+            let bamOutput = try ProvenanceFileDescriptor.file(url: outputURL, format: .bam, role: .output)
             let baiOutput = try ProvenanceFileDescriptor.file(url: finalBaiURL, role: .index)
             let invocations = await runner.snapshot()
             let result = MarkdupResult(
                 bamURL: bamURL,
+                outputURL: outputURL,
                 wasAlreadyMarkduped: false,
                 totalReads: total,
                 duplicateReads: max(0, total - nonDup),
@@ -365,7 +502,7 @@ struct MarkdupCommand: AsyncParsableCommand {
                 let invocations = await runner.snapshot()
                 try? await recordMarkdupFailureProvenance(
                     input: inputDescriptor,
-                    bamURL: bamURL,
+                    bamURL: outputURL,
                     baiURL: finalBaiURL,
                     invocations: invocations,
                     commandInput: commandInput,
@@ -712,6 +849,12 @@ struct MarkdupCommand: AsyncParsableCommand {
         if input.force {
             argv.append("--force")
         }
+        if input.inPlace {
+            argv.append("--in-place")
+        }
+        if let outputPath = input.outputPath {
+            argv += ["--output", outputPath]
+        }
         if input.quiet {
             argv.append("--quiet")
         }
@@ -727,6 +870,8 @@ struct MarkdupCommand: AsyncParsableCommand {
             "sortThreads": .integer(4),
             "quiet": .boolean(false),
             "outputFormat": .string(OutputFormat.text.rawValue),
+            "inPlace": .boolean(false),
+            "output": .null,
         ]
     }
 
@@ -737,6 +882,8 @@ struct MarkdupCommand: AsyncParsableCommand {
             "sortThreads": .integer(input.sortThreads),
             "quiet": .boolean(input.quiet),
             "outputFormat": .string(input.outputFormat.rawValue),
+            "inPlace": .boolean(input.inPlace),
+            "output": input.outputPath.map(ParameterValue.string) ?? .null,
         ]
     }
 
@@ -758,6 +905,12 @@ struct MarkdupCommand: AsyncParsableCommand {
         }
         if let deduplicatedBundlePath = input.deduplicatedBundlePath {
             options["deduplicatedBundle"] = .string(deduplicatedBundlePath)
+        }
+        if input.inPlace {
+            options["inPlace"] = .boolean(true)
+        }
+        if let outputPath = input.outputPath {
+            options["output"] = .string(outputPath)
         }
         return options
     }
@@ -832,6 +985,9 @@ struct MarkdupCommand: AsyncParsableCommand {
         emit("Processed \(processed) BAM file\(processed == 1 ? "" : "s") (\(skipped) already marked)")
         emit("Total reads: \(totalReads), duplicates: \(totalDups)")
         emit(String(format: "Elapsed: %.1fs", totalTime))
+        for result in results where result.outputURL != result.bamURL {
+            emit("Marked copy: \(result.outputURL.path)")
+        }
     }
 
     private static func emitResults(
@@ -873,6 +1029,7 @@ struct MarkdupCommand: AsyncParsableCommand {
             results: results.map {
                 JSONOutput.Result(
                     bamPath: $0.bamURL.path,
+                    outputPath: $0.outputURL.path,
                     wasAlreadyMarkduped: $0.wasAlreadyMarkduped,
                     totalReads: $0.totalReads,
                     duplicateReads: $0.duplicateReads,
@@ -890,6 +1047,7 @@ struct MarkdupCommand: AsyncParsableCommand {
     private struct JSONOutput: Encodable {
         struct Result: Encodable {
             let bamPath: String
+            let outputPath: String
             let wasAlreadyMarkduped: Bool
             let totalReads: Int
             let duplicateReads: Int
