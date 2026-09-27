@@ -4,6 +4,17 @@
 
 import Foundation
 
+// MARK: - Status lines
+
+/// Writes a status or progress line to standard error.
+///
+/// Commands that can print their data to standard output (`extract sequence`,
+/// `search`, `translate` without `-o`) must keep stdout for data only, or a
+/// redirected `lungfish-cli extract sequence ... > region.fa` is not a FASTA.
+func printStatusLine(_ text: String) {
+    FileHandle.standardError.write(Data((text + "\n").utf8))
+}
+
 // MARK: - CLI Output Protocol
 
 /// Protocol for CLI output handlers

@@ -114,7 +114,8 @@ struct TranslateCommand: AsyncParsableCommand {
         }
 
         if !globalOptions.quiet {
-            print(formatter.info(
+            // stderr: without -o the protein FASTA goes to stdout and must stay clean.
+            printStatusLine(formatter.info(
                 "Translating \(inputURL.lastPathComponent) using \(codonTable.name) code (table \(codonTable.id))..."
             ))
         }

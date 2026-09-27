@@ -117,7 +117,8 @@ struct SearchCommand: AsyncParsableCommand {
 
         if !globalOptions.quiet {
             let patternType = useRegex ? "regex" : (useIUPAC ? "IUPAC" : "exact")
-            print(formatter.info(
+            // stderr: without -o the matches go to stdout and must stay clean.
+            printStatusLine(formatter.info(
                 "Searching \(inputURL.lastPathComponent) for \(patternType) pattern '\(pattern)'..."
             ))
         }
@@ -232,7 +233,7 @@ struct SearchCommand: AsyncParsableCommand {
             }
         } else {
             if !globalOptions.quiet && globalOptions.outputFormat == .text {
-                print(formatter.info("Found \(allMatches.count) match(es):"))
+                printStatusLine(formatter.info("Found \(allMatches.count) match(es):"))
             }
             if globalOptions.outputFormat == .text || globalOptions.outputFormat == .tsv {
                 print(outputText, terminator: "")
