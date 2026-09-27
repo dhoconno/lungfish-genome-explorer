@@ -25,11 +25,11 @@ struct FastqCommand: AsyncParsableCommand {
             paired-end utilities.
 
             Examples:
-              lungfish fastq subsample --proportion 0.1 reads.fastq -o subset.fastq
-              lungfish fastq quality-trim --threshold 20 reads.fastq -o trimmed.fastq
-              lungfish fastq contaminant-filter --mode phix reads.fastq -o clean.fastq
-              lungfish fastq entropy-filter --entropy 0.6 reads.fastq -o complex.fastq
-              lungfish fastq error-correct reads.fastq -o corrected.fastq
+              lungfish-cli fastq subsample --proportion 0.1 reads.fastq -o subset.fastq
+              lungfish-cli fastq quality-trim --threshold 20 reads.fastq -o trimmed.fastq
+              lungfish-cli fastq contaminant-filter --mode phix reads.fastq -o clean.fastq
+              lungfish-cli fastq entropy-filter --entropy 0.6 reads.fastq -o complex.fastq
+              lungfish-cli fastq error-correct reads.fastq -o corrected.fastq
             """,
         subcommands: [
             FastqSubsampleSubcommand.self,
@@ -72,6 +72,7 @@ struct FastqCommand: AsyncParsableCommand {
             FastqOrientSubcommand.self,
             FastqScrubHumanSubcommand.self,
             FastqSequenceFilterSubcommand.self,
+            FastqRiboDetectorSubcommand.self,
             FastqDeaconRiboSubcommand.self,
             FastqReverseComplementSubcommand.self,
             FastqTranslateSubcommand.self,
@@ -2960,9 +2961,9 @@ struct FastqDemultiplexSubcommand: AsyncParsableCommand {
                           searches reverse complements, and preserves reads.
 
             Examples:
-              lungfish fastq demultiplex reads.fastq.gz --kit truseq-single-a -o demux-out/
-              lungfish fastq demultiplex reads.fastq.gz --kit fluidigm-access-array -o demux-out/ --engine exact-bare
-              lungfish fastq demultiplex reads.fastq.gz --kit custom.csv -o demux-out/ --location bothends
+              lungfish-cli fastq demultiplex reads.fastq.gz --kit truseq-single-a -o demux-out/
+              lungfish-cli fastq demultiplex reads.fastq.gz --kit fluidigm-access-array -o demux-out/ --engine exact-bare
+              lungfish-cli fastq demultiplex reads.fastq.gz --kit custom.csv -o demux-out/ --location bothends
             """
     )
 
@@ -3890,9 +3891,9 @@ struct FastqImportONTSubcommand: AsyncParsableCommand {
             directory (e.g., fastq_pass/barcode01/).
 
             Examples:
-              lungfish fastq import-ont fastq_pass/ -o imported/
-              lungfish fastq import-ont fastq_pass/barcode13/ -o imported/
-              lungfish fastq import-ont fastq_pass/ -o imported/ --include-unclassified
+              lungfish-cli fastq import-ont fastq_pass/ -o imported/
+              lungfish-cli fastq import-ont fastq_pass/barcode13/ -o imported/
+              lungfish-cli fastq import-ont fastq_pass/ -o imported/ --include-unclassified
             """
     )
 
