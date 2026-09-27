@@ -171,21 +171,31 @@ public actor TaxTriagePipeline {
     private let homeDirectoryProvider: @Sendable () -> URL
     private let appIdentity: LungfishAppIdentity
 
+    /// Probe behind every container-runtime verdict this pipeline gives: the
+    /// CLI's `check-prerequisites`, the wizard's prerequisite row, and the
+    /// run's own Docker preflight all go through
+    /// ``PipelineContainerRuntimeStatus/check(probe:timeout:)`` with it.
+    private let containerRuntimeProbe: any ContainerRuntimeProbing
+
     /// Creates a TaxTriage pipeline.
     ///
-    /// - Parameter processManager: Process manager for spawning processes (default: shared).
+    /// - Parameters:
+    ///   - processManager: Process manager for spawning processes (default: shared).
+    ///   - containerRuntimeProbe: Docker daemon probe; tests inject a stub.
     public init(
         processManager: ProcessManager = .shared,
         condaManager: CondaManager = .shared,
         homeDirectoryProvider: @escaping @Sendable () -> URL = {
             FileManager.default.homeDirectoryForCurrentUser
         },
-        appIdentity: LungfishAppIdentity = .current
+        appIdentity: LungfishAppIdentity = .current,
+        containerRuntimeProbe: any ContainerRuntimeProbing = SystemContainerRuntimeProbe()
     ) {
         self.processManager = processManager
         self.condaManager = condaManager
         self.homeDirectoryProvider = homeDirectoryProvider
         self.appIdentity = appIdentity
+        self.containerRuntimeProbe = containerRuntimeProbe
     }
 
     // MARK: - Prerequisite Checks
@@ -194,7 +204,10 @@ public actor TaxTriagePipeline {
     ///
     /// Verifies:
     /// - Nextflow is installed and in PATH
-    /// - A container runtime (Docker or Apple Containerization) is available
+    /// - The Docker daemon answers, because the pipeline launches with
+    ///   `-profile docker`. Apple Containerization is deliberately not
+    ///   consulted: it can be ready and still not run a single pipeline
+    ///   container, so it must never make this check pass.
     ///
     /// - Returns: A ``PrerequisiteStatus`` describing the state of each requirement.
     public func checkPrerequisites() async -> PrerequisiteStatus {
@@ -216,18 +229,14 @@ public actor TaxTriagePipeline {
             }
         }
 
-        let containerRuntime = await ContainerRuntimeFactory.createRuntime()
-        let containerAvailable = containerRuntime != nil
-        var containerName: String?
-        if let runtime = containerRuntime {
-            containerName = await runtime.displayName
-        }
+        let runtimeStatus = await PipelineContainerRuntimeStatus.check(probe: containerRuntimeProbe)
 
         return PrerequisiteStatus(
             nextflowInstalled: nextflowAvailable,
             nextflowVersion: nextflowVersion,
-            containerRuntimeAvailable: containerAvailable,
-            containerRuntimeName: containerName
+            containerRuntimeAvailable: runtimeStatus.available,
+            containerRuntimeName: runtimeStatus.available ? PipelineContainerRuntimeStatus.runtimeName : nil,
+            containerRuntimeDetail: runtimeStatus.available ? nil : runtimeStatus.unavailableMessage
         )
     }
 
@@ -1624,22 +1633,17 @@ public actor TaxTriagePipeline {
         }
     }
 
+    /// Whether the Docker daemon answers right now, by the same probe the
+    /// CLI check and the wizard row use, so all three agree on one verdict.
+    /// `environment` is the launch environment the pipeline will run with
+    /// and is kept for logging; the probe finds `docker` on its own.
     private func dockerDaemonAvailable(environment: [String: String]) async -> Bool {
-        guard let dockerPath = processManager.findExecutable(named: "docker") else {
-            logger.warning("Docker CLI executable not found in PATH")
-            return false
+        let status = await PipelineContainerRuntimeStatus.check(probe: containerRuntimeProbe)
+        if !status.available {
+            let detail = status.detail ?? status.unavailableMessage
+            logger.warning("Docker daemon unavailable: \(detail, privacy: .public)")
         }
-        do {
-            let result = try await processManager.runAndWait(
-                executable: dockerPath,
-                arguments: ["info"],
-                workingDirectory: FileManager.default.temporaryDirectory,
-                environment: environment
-            )
-            return result.exitCode == 0
-        } catch {
-            return false
-        }
+        return status.available
     }
 
     nonisolated func buildLaunchMetadata(
@@ -1785,11 +1789,30 @@ public struct PrerequisiteStatus: Sendable {
     /// Nextflow version string, or nil if not installed.
     public let nextflowVersion: String?
 
-    /// Whether a container runtime (Docker or Apple Containerization) is available.
+    /// Whether the Docker daemon, the runtime the pipeline launches with,
+    /// answers. Apple Containerization never satisfies this.
     public let containerRuntimeAvailable: Bool
 
-    /// Name of the detected container runtime, or nil if none found.
+    /// Name of the runtime when available (`Docker Desktop`), or nil.
     public let containerRuntimeName: String?
+
+    /// One line saying why the runtime is unavailable (not installed, not
+    /// running), or nil when it is available.
+    public let containerRuntimeDetail: String?
+
+    public init(
+        nextflowInstalled: Bool,
+        nextflowVersion: String?,
+        containerRuntimeAvailable: Bool,
+        containerRuntimeName: String?,
+        containerRuntimeDetail: String? = nil
+    ) {
+        self.nextflowInstalled = nextflowInstalled
+        self.nextflowVersion = nextflowVersion
+        self.containerRuntimeAvailable = containerRuntimeAvailable
+        self.containerRuntimeName = containerRuntimeName
+        self.containerRuntimeDetail = containerRuntimeDetail
+    }
 
     /// Whether all prerequisites are met.
     public var allSatisfied: Bool {
@@ -1808,6 +1831,8 @@ public struct PrerequisiteStatus: Sendable {
 
         if containerRuntimeAvailable {
             lines.append("Container runtime: \(containerRuntimeName ?? "available")")
+        } else if let containerRuntimeDetail {
+            lines.append("Container runtime: NOT AVAILABLE (\(containerRuntimeDetail))")
         } else {
             lines.append("Container runtime: NOT AVAILABLE")
         }

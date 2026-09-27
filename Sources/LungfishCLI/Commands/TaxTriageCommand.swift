@@ -549,13 +549,34 @@ extension TaxTriageCommand {
 
         @OptionGroup var globalOptions: GlobalOptions
 
+        /// Injection point for tests; the default runs `docker version`, the
+        /// same probe the app's wizard row and `debug container` use.
+        nonisolated(unsafe) static var containerRuntimeProbe: any ContainerRuntimeProbing = SystemContainerRuntimeProbe()
+
+        /// The container-runtime lines of the report. The verdict is the
+        /// Docker daemon's alone, matching the wizard row and `debug
+        /// container`: Apple Containerization cannot run the pipeline, so it
+        /// never turns this line green.
+        static func containerRuntimeLines(status: PrerequisiteStatus, formatter: TerminalFormatter) -> [String] {
+            if status.containerRuntimeAvailable {
+                let name = status.containerRuntimeName ?? PipelineContainerRuntimeStatus.runtimeName
+                return [formatter.success("Container runtime: \(name) (running)")]
+            }
+            let detail = status.containerRuntimeDetail
+                ?? "\(PipelineContainerRuntimeStatus.runtimeName) is not available"
+            return [
+                formatter.error("Container runtime: NOT AVAILABLE (\(detail))"),
+                formatter.info("  Install and start Docker Desktop, then run `lungfish debug container`"),
+            ]
+        }
+
         func run() async throws {
             let formatter = TerminalFormatter(useColors: globalOptions.useColors)
 
             print(formatter.header("TaxTriage Prerequisites"))
             print("")
 
-            let pipeline = TaxTriagePipeline.shared
+            let pipeline = TaxTriagePipeline(containerRuntimeProbe: Self.containerRuntimeProbe)
             let status = await pipeline.checkPrerequisites()
 
             // Nextflow
@@ -569,15 +590,8 @@ extension TaxTriageCommand {
                 ))
             }
 
-            // Container runtime
-            if status.containerRuntimeAvailable {
-                let name = status.containerRuntimeName ?? "available"
-                print(formatter.success("Container runtime: \(name)"))
-            } else {
-                print(formatter.error("Container runtime: NOT AVAILABLE"))
-                print(formatter.info(
-                    "  Install and start Docker Desktop, then run `lungfish debug container`"
-                ))
+            for line in Self.containerRuntimeLines(status: status, formatter: formatter) {
+                print(line)
             }
 
             print("")

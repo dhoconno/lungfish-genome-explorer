@@ -1473,13 +1473,72 @@ final class TaxTriagePipelineTests: XCTestCase {
 
         let pipeline = TaxTriagePipeline(
             homeDirectoryProvider: { tempHome },
-            appIdentity: .preview
+            appIdentity: .preview,
+            containerRuntimeProbe: PrerequisiteProbeStub.dockerRunning
         )
         let status = await pipeline.checkPrerequisites()
 
         XCTAssertTrue(status.nextflowInstalled)
         XCTAssertEqual(status.nextflowVersion, "24.10.0")
     }
+
+    // MARK: - Container runtime verdict follows the shared Docker probe
+
+    /// The CLI check, the wizard row, and the run preflight all read
+    /// `PipelineContainerRuntimeStatus.check` through the injected probe, so
+    /// an Apple Containerization runtime that is ready must not make the
+    /// prerequisite pass while the Docker daemon is down.
+    func testCheckPrerequisitesReportsDockerOnlyAndIgnoresAppleRuntime() async throws {
+        let tempHome = try makeTempDirectory(prefix: "taxtriage-probe-home")
+        defer { try? FileManager.default.removeItem(at: tempHome) }
+
+        let daemonDownAppleReady = PrerequisiteProbeStub(
+            dockerPath: "/usr/local/bin/docker",
+            daemon: DockerDaemonProbe(
+                reachable: false,
+                clientVersion: "28.3.2",
+                serverVersion: nil,
+                detail: "Cannot connect to the Docker daemon"
+            ),
+            apple: AppleContainerProbe(frameworkAvailable: true, runtimeReady: true, detail: nil)
+        )
+        let down = await TaxTriagePipeline(
+            homeDirectoryProvider: { tempHome },
+            appIdentity: .preview,
+            containerRuntimeProbe: daemonDownAppleReady
+        ).checkPrerequisites()
+        XCTAssertFalse(down.containerRuntimeAvailable)
+        XCTAssertNil(down.containerRuntimeName)
+        XCTAssertEqual(down.containerRuntimeDetail, "Docker Desktop is not running")
+        XCTAssertFalse(down.allSatisfied)
+        XCTAssertEqual(daemonDownAppleReady.recorder.appleCallCount, 0, "Apple runtime must not be consulted")
+        XCTAssertTrue(down.summary.contains("Container runtime: NOT AVAILABLE (Docker Desktop is not running)"))
+
+        let noDocker = PrerequisiteProbeStub(
+            dockerPath: nil,
+            daemon: DockerDaemonProbe(reachable: false, clientVersion: nil, serverVersion: nil, detail: nil),
+            apple: AppleContainerProbe(frameworkAvailable: true, runtimeReady: true, detail: nil)
+        )
+        let missing = await TaxTriagePipeline(
+            homeDirectoryProvider: { tempHome },
+            appIdentity: .preview,
+            containerRuntimeProbe: noDocker
+        ).checkPrerequisites()
+        XCTAssertFalse(missing.containerRuntimeAvailable)
+        XCTAssertEqual(missing.containerRuntimeDetail, "Docker Desktop is not installed")
+        XCTAssertTrue(noDocker.recorder.recordedTimeouts.isEmpty, "no CLI means nothing to run")
+
+        let running = await TaxTriagePipeline(
+            homeDirectoryProvider: { tempHome },
+            appIdentity: .preview,
+            containerRuntimeProbe: PrerequisiteProbeStub.dockerRunning
+        ).checkPrerequisites()
+        XCTAssertTrue(running.containerRuntimeAvailable)
+        XCTAssertEqual(running.containerRuntimeName, PipelineContainerRuntimeStatus.runtimeName)
+        XCTAssertNil(running.containerRuntimeDetail)
+        XCTAssertTrue(running.summary.contains("Container runtime: Docker Desktop"))
+    }
+
 
     // MARK: - Multi-Sample Batch Tests (Phase 1)
 
@@ -1766,5 +1825,56 @@ private actor SerialTaxTriageRecorder {
 
     func record(_ config: TaxTriageConfig) {
         recordedCalls.append(config)
+    }
+}
+
+// MARK: - Container runtime probe stub
+
+/// A probe whose answers are fixed by the test, so `checkPrerequisites`
+/// never runs `docker` or the Apple runtime.
+struct PrerequisiteProbeStub: ContainerRuntimeProbing {
+    var dockerPath: String?
+    var daemon: DockerDaemonProbe
+    var apple: AppleContainerProbe
+    let recorder = PrerequisiteProbeRecorder()
+
+    static let dockerRunning = PrerequisiteProbeStub(
+        dockerPath: "/usr/local/bin/docker",
+        daemon: DockerDaemonProbe(reachable: true, clientVersion: "28.3.2", serverVersion: "28.3.2", detail: nil),
+        apple: AppleContainerProbe(frameworkAvailable: false, runtimeReady: false, detail: nil)
+    )
+
+    func dockerCLIPath() -> String? { dockerPath }
+
+    func dockerDaemon(dockerPath: String, timeout: TimeInterval) async -> DockerDaemonProbe {
+        recorder.record(timeout)
+        return daemon
+    }
+
+    func appleContainerRuntime() async -> AppleContainerProbe {
+        recorder.appleConsulted()
+        return apple
+    }
+}
+
+final class PrerequisiteProbeRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var timeouts: [TimeInterval] = []
+    private var appleCalls = 0
+
+    func record(_ timeout: TimeInterval) {
+        lock.lock(); timeouts.append(timeout); lock.unlock()
+    }
+
+    func appleConsulted() {
+        lock.lock(); appleCalls += 1; lock.unlock()
+    }
+
+    var recordedTimeouts: [TimeInterval] {
+        lock.lock(); defer { lock.unlock() }; return timeouts
+    }
+
+    var appleCallCount: Int {
+        lock.lock(); defer { lock.unlock() }; return appleCalls
     }
 }
