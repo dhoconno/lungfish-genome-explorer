@@ -44,9 +44,13 @@ The picture is the alignment viewport, and it has three bands stacked from top t
 
 [Depth](../../GLOSSARY.md#depth), also called coverage, is the number of reads covering one position, and [coverage breadth](../../GLOSSARY.md#coverage-breadth) is the share of positions with at least one read. Keep the two apart. A reference can be 100 percent covered at a depth of one.
 
+### The three zoom tiers
+
 The viewport draws three different pictures depending on how far you are zoomed in, and it swaps between them on its own. Call them the coverage tier, the bar tier, and the base tier. LGE picks the tier from how many bases of reference each screen pixel holds, a figure the status bar at the bottom of the window prints as bases per pixel. Above 2 bases per pixel you see the coverage curve alone, with the message "Zoom in to view individual mapped reads (<= 2.0 bp/px)" where the reads would be. Between 2 and 0.6 the reads appear as plain bars. Below 0.6 each read shows its bases, and below 0.25 matching bases turn from dots into letters too.
 
 <!-- ILLUSTRATION: alignment-zoom-tiers -->
+
+### Strand colour and soft clips
 
 Two things in the picture carry meaning you have to know to see. Reads are tinted by [strand](../../GLOSSARY.md#strand), pale blue for a read that aligned as sequenced and pale pink for one that aligned as its reverse complement. Roughly half of any healthy pile is pink, since sequencing reads both strands, and the colour alone says nothing about whether a read is good. The second is soft clipping. A [soft clip](../../GLOSSARY.md#soft-clip) is a stretch at a read end that stays in the file but is left out of the pileup, written as `S` in the read's [CIGAR](../../GLOSSARY.md#cigar) string, as [The CIGAR string](../01-foundations/04-alignment-files.md#the-cigar-string) explains. LGE draws those stretches lightened at the read's ends rather than hiding them.
 
