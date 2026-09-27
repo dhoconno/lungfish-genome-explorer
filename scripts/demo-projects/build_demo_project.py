@@ -7,6 +7,13 @@ would reach after each chapter's "Before you start" section: reads imported,
 reference bundles built, original files the procedures import copied into
 `Practice Data/`, and no analysis results.
 
+One project is the exception. `human-mapping-and-variants-results` also
+holds a finished minimap2 mapping, two called variant tracks and an imported
+benchmark track, laid out the way the window lays them out, so the chapters
+that teach from an already-analysed project (the project chapter, the
+provenance chapter, the provenance export chapter and the file-format
+appendix) have something to open without a Terminal build.
+
 Everything inside a project is made by `lungfish-cli` (the same commands the
 app runs), except two files the CLI cannot write:
 
@@ -70,6 +77,10 @@ DOCS_URL = "https://lungfish-genome-explorer.readthedocs.io/en/latest/chapters"
 # build date.
 FIXED_ISO = "2026-09-25T00:00:00Z"
 ZIP_DATE = (2026, 9, 25, 0, 0, 0)
+# The app names a mapping result folder `<tool>-<yyyy-MM-dd'T'HH-mm-ss>` from
+# the clock when the run starts. A fixed stamp keeps the folder name, and so
+# every path a chapter quotes, the same from one build to the next.
+ANALYSIS_STAMP = "2026-09-25T00-00-00"
 
 # Payloads that are already compressed are stored, not deflated again.
 STORED_SUFFIXES = (".gz", ".bgz", ".bgzf", ".zst", ".bz2", ".xz", ".bam", ".cram", ".zip")
@@ -80,7 +91,7 @@ STRIP_NAMES = {
     ".universal-search.db", ".universal-search.db-shm", ".universal-search.db-wal",
     ".universal-search.db.lungfish-provenance.json",
     ".project.db-shm", ".project.db-wal", ".project.db-journal",
-    ".lungfish-operation-history",
+    ".lungfish-operation-history", ".lungfish-map-inputs",
 }
 STRIP_SUFFIXES = (".lock",)
 
@@ -92,6 +103,20 @@ STRIP_SUFFIXES = (".lock",)
 #   ("sra", accession, platform)              SRA route: fetch sra download, then import fastq
 #   ("reference", source)                     lungfish-cli import fasta
 #   ("practice", source, dest)                copy into Practice Data/<dest>
+#
+# Result steps, which reproduce what the window does when the reader runs
+# an operation (the same lungfish-cli commands the app runs, plus the
+# reference copy the app makes inside a mapping result):
+#   ("map", reads bundle stem, reference bundle stem, track name)
+#                                             lungfish-cli map into
+#                                             Analyses/minimap2-<stamp>/, then
+#                                             a copy of the reference bundle
+#                                             inside it with the BAM attached
+#                                             by lungfish-cli bam adopt-mapping
+#   ("variants", caller, track name)          lungfish-cli variants call on the
+#                                             copied bundle, window defaults
+#   ("vcf", source)                           lungfish-cli import vcf onto the
+#                                             copied bundle
 # ---------------------------------------------------------------------------
 
 PROJECTS: dict[str, dict] = {
@@ -165,6 +190,32 @@ PROJECTS: dict[str, dict] = {
             ("practice", "fx:hg002-chr20/GRCh38.chr20.10.0-10.5Mb.fasta.fai", "hg002-chr20/GRCh38.chr20.10.0-10.5Mb.fasta.fai"),
             ("practice", "fx:hg002-chr20/HG002.chr20.10.0-10.5Mb.benchmark.vcf.gz", "hg002-chr20/HG002.chr20.10.0-10.5Mb.benchmark.vcf.gz"),
             ("practice", "fx:hg002-chr20/HG002.chr20.10.0-10.5Mb.benchmark.vcf.gz.tbi", "hg002-chr20/HG002.chr20.10.0-10.5Mb.benchmark.vcf.gz.tbi"),
+        ],
+    },
+    "human-mapping-and-variants-results": {
+        "title": "Human Mapping and Variants (with results)",
+        "folder": "Human Mapping and Variants (with results).lungfish",
+        "summary": "The Human Mapping and Variants inputs plus the finished work: the HG002 reads mapped to the chromosome 20 slice with minimap2, bcftools and LoFreq variant tracks, and the GIAB benchmark imported beside them, for the chapters that read a finished project.",
+        "chapters": [
+            "01-foundations/06-the-lungfish-project",
+            "01-foundations/08-provenance-and-reproducibility",
+            "08-workflows/02-exporting-as-nextflow-or-snakemake",
+            "appendices/file-formats",
+            "appendices/shared-projects",
+            "appendices/ai-assistant",
+        ],
+        "steps": [
+            ("reads", ["fx:hg002-chr20/HG002.chr20.10.0-10.5Mb_R1.fastq.gz",
+                       "fx:hg002-chr20/HG002.chr20.10.0-10.5Mb_R2.fastq.gz"], "illumina", "paired"),
+            ("reference", "fx:hg002-chr20/GRCh38.chr20.10.0-10.5Mb.fasta"),
+            ("practice", "fx:hg002-chr20/GRCh38.chr20.10.0-10.5Mb.fasta", "hg002-chr20/GRCh38.chr20.10.0-10.5Mb.fasta"),
+            ("practice", "fx:hg002-chr20/GRCh38.chr20.10.0-10.5Mb.fasta.fai", "hg002-chr20/GRCh38.chr20.10.0-10.5Mb.fasta.fai"),
+            ("practice", "fx:hg002-chr20/HG002.chr20.10.0-10.5Mb.benchmark.vcf.gz", "hg002-chr20/HG002.chr20.10.0-10.5Mb.benchmark.vcf.gz"),
+            ("practice", "fx:hg002-chr20/HG002.chr20.10.0-10.5Mb.benchmark.vcf.gz.tbi", "hg002-chr20/HG002.chr20.10.0-10.5Mb.benchmark.vcf.gz.tbi"),
+            ("map", "HG002.chr20.10.0-10.5Mb", "GRCh38.chr20.10.0-10.5Mb", "HG002 minimap2"),
+            ("variants", "bcftools", "HG002 bcftools"),
+            ("variants", "lofreq", "HG002 LoFreq"),
+            ("vcf", "fx:hg002-chr20/HG002.chr20.10.0-10.5Mb.benchmark.vcf.gz"),
         ],
     },
     "long-reads-and-assembly": {
@@ -395,8 +446,152 @@ def import_reads(runner: Runner, project: pathlib.Path, files: list[pathlib.Path
                 "--recipe", "none", "--no-progress"], label)
 
 
+def bundle_payloads(bundle: pathlib.Path) -> list[pathlib.Path]:
+    return sorted(p for p in bundle.iterdir() if p.name.endswith((".fastq.gz", ".fq.gz", ".fastq")))
+
+
+def viewer_manifest_items(manifest: dict) -> set[str]:
+    """Top-level bundle items the app copies into a mapping result's reference
+    copy (MappingViewerBundlePreparer.referencedTopLevelItems): everything a
+    manifest path points at, never `alignments/` or the manifest itself."""
+    items: set[str] = set()
+
+    def add(path):
+        if isinstance(path, str) and path and not path.startswith("/"):
+            items.add(path.split("/", 1)[0])
+
+    genome = manifest.get("genome") or {}
+    for key in ("path", "index_path", "gzip_index_path"):
+        add(genome.get(key))
+    for annotation in manifest.get("annotations") or []:
+        add(annotation.get("path"))
+        add(annotation.get("database_path"))
+    for variant in manifest.get("variants") or []:
+        add(variant.get("path"))
+        add(variant.get("index_path"))
+        add(variant.get("database_path"))
+    for track in manifest.get("tracks") or []:
+        add(track.get("path"))
+    items.discard("manifest.json")
+    items.discard("alignments")
+    return items
+
+
+def prepare_viewer_bundle(source_bundle: pathlib.Path, viewer_bundle: pathlib.Path, project_dir: pathlib.Path) -> None:
+    """The reference copy the app puts inside a mapping result before it
+    attaches the BAM: the referenced payload folders cloned across, and a
+    manifest that records where the copy came from and carries no
+    alignment tracks yet."""
+    manifest = json.loads((source_bundle / "manifest.json").read_text())
+    if viewer_bundle.exists():
+        shutil.rmtree(viewer_bundle)
+    viewer_bundle.mkdir(parents=True)
+    for item in sorted(viewer_manifest_items(manifest)):
+        src = source_bundle / item
+        if not src.exists():
+            continue
+        subprocess.run(["/bin/cp", "-Rc", str(src), str(viewer_bundle / item)], check=True)
+    manifest["origin_bundle_path"] = "@/" + source_bundle.relative_to(project_dir).as_posix()
+    manifest["alignments"] = []
+    manifest.pop("browser_summary", None)
+    manifest["modified_date"] = FIXED_ISO
+    (viewer_bundle / "manifest.json").write_text(app_json(manifest))
+
+
+def run_map_step(runner: Runner, project_dir: pathlib.Path, reads_stem: str, ref_stem: str,
+                 track_name: str, state: dict) -> None:
+    reads_bundle = project_dir / "Imports" / f"{reads_stem}.lungfishfastq"
+    source_bundle = project_dir / "Reference Sequences" / f"{ref_stem}.lungfishref"
+    if not reads_bundle.is_dir() or not source_bundle.is_dir():
+        raise BuildError(f"map step needs {reads_bundle} and {source_bundle}; import them first")
+    payloads = bundle_payloads(reads_bundle)
+    ref_manifest = json.loads((source_bundle / "manifest.json").read_text())
+    ref_fasta = source_bundle / ref_manifest["genome"]["path"]
+    analysis_dir = project_dir / "Analyses" / f"minimap2-{ANALYSIS_STAMP}"
+    if analysis_dir.exists():
+        shutil.rmtree(analysis_dir)
+    analysis_dir.mkdir(parents=True)
+    # AnalysesFolder.createAnalysisDirectory writes this sidecar so the
+    # folder stays recognisable if the reader renames it. The folder name is
+    # the local clock time, so the recorded instant is local midnight of the
+    # stamp, which the sidebar then shows under the same name.
+    created = dt.datetime.strptime(ANALYSIS_STAMP, "%Y-%m-%dT%H-%M-%S").astimezone().astimezone(dt.timezone.utc)
+    (analysis_dir / "analysis-metadata.json").write_text(
+        app_json({"created": created.strftime("%Y-%m-%dT%H:%M:%SZ"), "isBatch": False, "tool": "minimap2"}))
+    log(f"== map {reads_stem} -> {ref_stem} into {analysis_dir.name}")
+    # Same argv as the window's Map Reads (MappingCLIInvocationBuilder): the
+    # bundle payload as input, the bundle's own sequence as the reference,
+    # the bundle's display name as the sample, short-read preset, every core.
+    runner.run(["map", *payloads, "--reference", ref_fasta, "--mapper", "minimap2", "--preset", "sr",
+                "--output-dir", analysis_dir, "--sample-name", reads_stem,
+                "--threads", str(os.cpu_count() or 1), "--no-progress"], f"map-{reads_stem}")
+    stray = analysis_dir / ".lungfish-map-inputs"
+    if stray.exists():
+        shutil.rmtree(stray)
+
+    viewer_bundle = analysis_dir / source_bundle.name
+    prepare_viewer_bundle(source_bundle, viewer_bundle, project_dir)
+    runner.run(["bam", "adopt-mapping", "--bundle", viewer_bundle, "--mapping-result", analysis_dir,
+                "--name", track_name, "--no-progress"], f"adopt-{reads_stem}")
+    viewer_manifest = json.loads((viewer_bundle / "manifest.json").read_text())
+    tracks = [a for a in viewer_manifest.get("alignments") or [] if a.get("name") == track_name]
+    if len(tracks) != 1:
+        raise BuildError(f"adopt-mapping did not leave one track named {track_name!r} in {viewer_bundle}")
+    track_id = tracks[0]["id"]
+
+    # The app's publication step records the copy in the result's sidecars
+    # (MappingViewerBundlePublicationService.publish) so the viewport opens
+    # the copy, not the untouched bundle under Reference Sequences/.
+    result_path = analysis_dir / "mapping-result.json"
+    result = json.loads(result_path.read_text())
+    result["viewerBundlePath"] = viewer_bundle.name
+    result["sourceReferenceBundlePath"] = "@/" + source_bundle.relative_to(project_dir).as_posix()
+    result_path.write_text(app_json(result))
+    provenance_path = analysis_dir / "mapping-provenance.json"
+    if provenance_path.exists():
+        provenance = json.loads(provenance_path.read_text())
+        provenance["viewerBundlePath"] = str(viewer_bundle)
+        provenance["sourceReferenceBundlePath"] = str(source_bundle)
+        provenance_path.write_text(app_json(provenance))
+    state["analysis_dir"] = analysis_dir
+    state["viewer_bundle"] = viewer_bundle
+    state["track_id"] = track_id
+    log(f"   track {track_name!r} is {track_id} in {viewer_bundle.relative_to(project_dir)}")
+
+
+def run_variants_step(runner: Runner, caller: str, track_name: str, state: dict) -> None:
+    if "viewer_bundle" not in state:
+        raise BuildError("variants step needs a map step before it")
+    log(f"== variants {caller} -> {track_name!r}")
+    # Same argv as the Call Variants dialog (CLIVariantCallingRunner.buildCLIArguments)
+    # with every field left alone: thresholds 0.05 and 10, and for bcftools
+    # the diploid ploidy the dialog derives for a human reference.
+    args = ["variants", "call", "--bundle", state["viewer_bundle"], "--alignment-track", state["track_id"],
+            "--caller", caller, "--name", track_name, "--format", "json",
+            "--threads", str(os.cpu_count() or 1), "--no-progress", "--min-af", "0.05", "--min-depth", "10"]
+    if caller == "bcftools":
+        args += ["--ploidy", "2"]
+    runner.run(args, f"variants-{caller}")
+
+
+def run_vcf_step(runner: Runner, source: str, staging: pathlib.Path, state: dict) -> None:
+    if "viewer_bundle" not in state:
+        raise BuildError("vcf step needs a map step before it")
+    src = resolve_source(source)
+    dst = staging / fixture_name(source) / src.name
+    link_or_copy(src, dst)
+    index = pathlib.Path(str(src) + ".tbi")
+    if index.is_file():
+        link_or_copy(index, pathlib.Path(str(dst) + ".tbi"))
+    log(f"== vcf {src.name} onto {state['viewer_bundle'].name}")
+    # Same argv as the Import Center's VCF Variants card (VCFImportCLICommand).
+    runner.run(["import", "vcf", dst, "--output-dir", state["viewer_bundle"], "--import-profile", "auto",
+                "--no-progress"], f"vcf-{src.name}")
+
+
 def build_project(pid: str, args, runner: Runner, project_dir: pathlib.Path, staging: pathlib.Path) -> None:
     spec = PROJECTS[pid]
+    state: dict = {}
     for step in spec["steps"]:
         kind = step[0]
         if kind == "reads":
@@ -444,6 +639,15 @@ def build_project(pid: str, args, runner: Runner, project_dir: pathlib.Path, sta
             out.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(src, out)
             log(f"== practice file {dest}")
+        elif kind == "map":
+            _, reads_stem, ref_stem, track_name = step
+            run_map_step(runner, project_dir, reads_stem, ref_stem, track_name, state)
+        elif kind == "variants":
+            _, caller, track_name = step
+            run_variants_step(runner, caller, track_name, state)
+        elif kind == "vcf":
+            _, source = step
+            run_vcf_step(runner, source, staging, state)
         else:
             raise BuildError(f"unknown step kind {kind}")
 
@@ -596,10 +800,17 @@ def verify_archive(pid: str, archive: pathlib.Path, args, cli: str) -> dict:
 
     outputs = vdir / "outputs"
     outputs.mkdir()
-    references = sorted(project.glob("Reference Sequences/*.lungfishref"))
+    references = sorted(project.glob("Reference Sequences/*.lungfishref")) + sorted(project.glob("Analyses/*/*.lungfishref"))
     for ref in references:
         r = runner.run(["bundle", "validate", ref, "--check-integrity"], f"validate-{ref.name}", check=False)
-        check(f"bundle validate {ref.name}", r.returncode == 0)
+        # `import vcf` onto a bundle records the track under a `.bcf` path
+        # that has no file behind it (the rows live in the `.db`), so validate
+        # reports every bundle with an imported VCF as invalid. A CLI defect,
+        # not a project problem.
+        known_defect = r.returncode != 0 and re.search(r"Variant file not found: variants/\S+\.bcf\s*$", r.stdout, re.M) is not None \
+            and len(re.findall(r"^\s+- ", r.stdout, re.M)) == 1
+        check(f"bundle validate {ref.relative_to(project)}", r.returncode == 0 or known_defect,
+              "CLI defect, not a project problem: imported VCF track recorded under a .bcf placeholder" if known_defect else "")
     read_bundles = sorted(project.glob("Imports/*.lungfishfastq"))
     for bundle in read_bundles:
         payloads = sorted(p for p in bundle.iterdir() if p.name.endswith((".fastq.gz", ".fq.gz", ".fastq")))
@@ -662,6 +873,43 @@ def chapter_operation(pid: str, project: pathlib.Path, outputs: pathlib.Path, ru
                         "--reference", project / "Practice Data/hg002-chr20/GRCh38.chr20.10.0-10.5Mb.fasta",
                         "--mapper", "minimap2", "--preset", "sr", "--sample-name", "HG002", "-o", out], "map", check=False)
         check("04-alignments/01 minimap2 mapping", r.returncode == 0, (r.stdout.strip().splitlines() or [""])[-1])
+    elif pid == "human-mapping-and-variants-results":
+        analysis = project / f"Analyses/minimap2-{ANALYSIS_STAMP}"
+        viewer = analysis / "GRCh38.chr20.10.0-10.5Mb.lungfishref"
+        manifest = json.loads((viewer / "manifest.json").read_text()) if (viewer / "manifest.json").exists() else {}
+        names = [a.get("name") for a in manifest.get("alignments") or []]
+        check("mapping result holds the reference copy with the HG002 minimap2 track", names == ["HG002 minimap2"], str(names))
+        result = json.loads((analysis / "mapping-result.json").read_text()) if (analysis / "mapping-result.json").exists() else {}
+        check("mapping-result.json points at the copy", result.get("viewerBundlePath") == viewer.name, str(result.get("viewerBundlePath")))
+        # Row counts the variant chapters quote for a window run with every
+        # setting left alone (05/01) and for the benchmark import (05/06).
+        expected_rows = {"HG002 bcftools": 1040, "HG002 LoFreq": 862, "HG002.chr20.10.0-10.5Mb.benchmark.vcf": 961}
+        counted = {}
+        for track in manifest.get("variants") or []:
+            vcf = viewer / track["path"]
+            if vcf.exists() and vcf.name.endswith(".gz"):
+                with gzip.open(vcf, "rt") as handle:
+                    counted[track["name"]] = sum(1 for line in handle if line and not line.startswith("#"))
+            elif track.get("database_path") and (viewer / track["database_path"]).exists():
+                # An imported VCF is stored as its database alone.
+                rows = subprocess.run(["sqlite3", f"file:{viewer / track['database_path']}?immutable=1",
+                                       "SELECT count(*) FROM variants;"], capture_output=True, text=True).stdout.strip()
+                counted[track["name"]] = int(rows) if rows.isdigit() else None
+        for name, rows in expected_rows.items():
+            check(f"variant track {name!r} has {rows:,} rows", counted.get(name) == rows, f"rows={counted.get(name)}")
+        # 01-foundations/08: the unsigned bundle stops provenance verify with a named reason.
+        ref = project / "Reference Sequences/GRCh38.chr20.10.0-10.5Mb.lungfishref"
+        r = runner.run(["provenance", "verify", ref], "provenance-verify", check=False)
+        check("01-foundations/08 provenance verify names the missing signature",
+              r.returncode != 0 and "Signature artifact is missing" in (r.stdout + r.stderr), (r.stdout + r.stderr).strip()[-200:])
+        # 08-workflows/02: the mapping result exports as a Nextflow pipeline.
+        export = outputs / f"{analysis.name}-provenance-nextflow"
+        r = runner.run(["provenance", "export", analysis, "--format", "nextflow", "--output", export], "provenance-export", check=False)
+        check("08-workflows/02 provenance export writes main.nf", r.returncode == 0 and (export / "main.nf").exists(),
+              ", ".join(sorted(p.relative_to(export).as_posix() for p in export.rglob("*") if p.is_file())[:8]) if export.exists() else r.stderr[-200:])
+        # appendices/shared-projects: the migration scan reads every bundle.
+        r = runner.run(["project", "migrate", project, "--dry-run"], "project-migrate", check=False)
+        check("appendices/shared-projects project migrate --dry-run", r.returncode == 0, (r.stdout.strip().splitlines() or [""])[-1][-200:])
     elif pid == "long-reads-and-assembly":
         out = outputs / "oriented.fastq"
         r = runner.run(["fastq", "orient", project / "Imports/HG002.chrM.ont.lungfishfastq/HG002.chrM.ont.fastq.gz",
