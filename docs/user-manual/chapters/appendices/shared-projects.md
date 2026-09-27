@@ -13,11 +13,11 @@ entry_points:
   - "CLI: lungfish-cli project migrate"
 shots:
   - id: shared-projects-read-only-banner
-    caption: "The copied demo project opened with Open Read-Only after the lock alert, with (Read Only) after the project name in the window title. This Preview shows no yellow banner."
+    caption: "A copy of a demo project opened with Open Read-Only after the lock alert, with (Read Only) after the project name in the window title and no banner."
 illustrations: []
 glossary_refs: [advisory-lock, bundle, bundle-migration, checksum, exit-status, host-name, json, manifest, process, process-id, project, project-lock, project-store, provenance, schema-version, stale-lock, transformer, viewport]
 features_refs: []
-fixtures_refs: [demo-project]
+fixtures_refs: [hg002-chr20]
 brand_reviewed: false
 lead_approved: false
 ---
@@ -50,7 +50,7 @@ The third is a different worry. Older bundles still open, because LGE reads old 
 
 ## Before you start
 
-You need a project open, as [The Lungfish Genome Explorer Project](../01-foundations/06-the-lungfish-project.md#procedure) shows. The examples use the demo project, which is built in LGE rather than downloaded, as [Practice data for this manual](../01-foundations/06-the-lungfish-project.md#practice-data-for-this-manual) explains. They assume it sits at `~/Desktop/lge-docs/LGE Manual Demo.lungfish`.
+You need a project open, as [The Lungfish Genome Explorer Project](../01-foundations/06-the-lungfish-project.md#procedure) shows. The examples use the Human Mapping and Variants (with results) demo project, which **Help > Demo Projects…** downloads, as [Demo projects](../01-foundations/06-the-lungfish-project.md#demo-projects) explains. It holds a reference bundle and a finished mapping result, so it has bundles for the migration report to read.
 
 The first half of this appendix is done in the window. The second half is typed in Terminal, because the window has no controls for taking a lock, releasing one, or migrating bundles on demand.
 
@@ -92,9 +92,13 @@ A folder built only with `lungfish-cli` and never opened in the app has no [proj
 
 ## Before you type anything
 
-This section is optional, and nothing in the window-only sections needs it. The `lungfish-cli` program ships inside LGE, and [Finding the program](cli-reference.md#finding-the-program) shows how to run it.
+The `lungfish-cli` program ships inside LGE, and [Finding the program](cli-reference.md#finding-the-program) shows how to run it. The commands below follow [Reading an On the command line block](../01-foundations/06-the-lungfish-project.md#reading-a-command-line-block). Set `PROJECT` once to your practice copy of the project, with double quotes because the folder name holds spaces, and every command after it names the project as `"$PROJECT"`.
 
-A backslash before a space in a path, as in `LGE\ Manual\ Demo.lungfish`, keeps the space inside one folder name. Dragging a folder from Finder onto a Terminal window types its path with the backslashes in place.
+```bash
+PROJECT="$HOME/Documents/LGE Demo Projects/Human Mapping and Variants (with results) copy.lungfish"
+```
+
+That is the name Finder gives the duplicate that Cmd-D makes beside the demo project. Point `PROJECT` at a copy, not at the project you work in.
 
 ## Locking a project from the command line
 
@@ -110,7 +114,7 @@ LGE sorts every lock into one of four states.
 Take a lock with `project lock` and the project's path. It works from any folder, because the path names the project.
 
 ```bash
-lungfish-cli project lock ~/Desktop/lge-docs/LGE\ Manual\ Demo.lungfish --mode exclusive
+lungfish-cli project lock "$PROJECT" --mode exclusive
 ```
 
 On success it prints the project path, the lock file path, and the mode, and returns [exit status](../../GLOSSARY.md#exit-status) 0, the number that means success. Adding `--format json` prints the record itself, whose fields are these.
@@ -141,7 +145,7 @@ A lock taken from the command line is a note that maintenance is under way, not 
 Release a lock with `project unlock`, which also works from any folder.
 
 ```bash
-lungfish-cli project unlock ~/Desktop/lge-docs/LGE\ Manual\ Demo.lungfish
+lungfish-cli project unlock "$PROJECT"
 ```
 
 Without `--force`, the command removes only a lock held by its own process, or a stale lock held by the current user on this Mac. Anything else is refused with exit status 1 and a message beginning "Refusing to remove lock at", naming the owner and ending "pass --force to override". Same user on the same Mac is not enough while the owning process is still running.
@@ -157,16 +161,18 @@ Unlocking a project that has no lock prints `No project lock found:` with the pa
 `project migrate` walks a project, reads the manifest of every bundle it finds, and reports the schema version of each. Run it with `--dry-run` first, which reports without changing anything.
 
 ```bash
-lungfish-cli project migrate ~/Desktop/lge-docs/LGE\ Manual\ Demo.lungfish --dry-run
+lungfish-cli project migrate "$PROJECT" --dry-run
 ```
 
-The report ends with one line per bundle. Lines like these appear on the demo project, which also lists its other bundles.
+The report names the project, says whether this was a dry run, and counts the bundles it inspected, then ends with one line per bundle. On the Human Mapping and Variants (with results) demo project it finds two reference bundles, the one under `Reference Sequences/` and the copy inside the mapping result, and both are current.
 
 ```text
-- Analyses/Multiple Sequence Alignments/Primate-mitochondria.lungfishmsa: unreadable (report-only)
-- Phylogenetic Trees/Primate mitochondria.lungfishtree: unreadable (report-only)
-- Reference Sequences/HBB.lungfishref: current (none)
-- Reference Sequences/chr20_10.0-10.5Mb.lungfishref: migration-available (dry-run-synthesize-browser-summary)
+Bundles inspected: 2
+Current: 2
+Unsupported: 0
+Migrated: 0
+- Analyses/minimap2-2026-09-25T00-00-00/GRCh38.chr20.10.0-10.5Mb.lungfishref: current (none)
+- Reference Sequences/GRCh38.chr20.10.0-10.5Mb.lungfishref: current (none)
 ```
 
 The scan treats as a bundle any folder whose extension begins with `lungfish` and which contains a `manifest.json`, so it reaches alignments, trees, and primer schemes as well as reference bundles. Each line ends with a status and, in parentheses, the action taken or planned.
@@ -184,10 +190,10 @@ Read these per-bundle lines rather than the counts printed above them, which do 
 Drop `--dry-run` to perform the migration.
 
 ```bash
-lungfish-cli project migrate ~/Desktop/lge-docs/LGE\ Manual\ Demo.lungfish
+lungfish-cli project migrate "$PROJECT"
 ```
 
-The eligible bundle's line then reads `migrated (synthesized-browser-summary)`. Inside that bundle, in a hidden `.lungfish/migrations/` folder, the run leaves two timestamped files, a `.manifest.json.backup` holding the manifest as it was and a `.project-migrate-provenance.json` recording the change. The original manifest is copied to the backup before anything else and the new manifest is put in place last, so an interrupted run leaves the old manifest untouched. A second dry run reports the bundle as `current`, so the command is safe to run twice.
+On a project made by an older LGE, a bundle that a dry run reported as `migration-available (dry-run-synthesize-browser-summary)` then reads `migrated (synthesized-browser-summary)`. On the demo project nothing changes, because every bundle is already current. Inside that bundle, in a hidden `.lungfish/migrations/` folder, the run leaves two timestamped files, a `.manifest.json.backup` holding the manifest as it was and a `.project-migrate-provenance.json` recording the change. The original manifest is copied to the backup before anything else and the new manifest is put in place last, so an interrupted run leaves the old manifest untouched. A second dry run reports the bundle as `current`, so the command is safe to run twice.
 
 Unsupported bundles are reported and never rewritten, and their action reads `dry-run-report` or `report-only`. Rewriting scientific data would mean knowing the old layout exactly and keeping the original recoverable, so until a transformer exists for a schema version, LGE reports the gap rather than guessing.
 
