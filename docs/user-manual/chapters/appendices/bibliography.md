@@ -252,7 +252,7 @@ RiboDetector  Deng ZL, Munch PC, Mreches R, McHardy AC. Rapid and accurate ident
 Freyja        Karthikeyan S, Levy JI, De Hoff P, et al. Wastewater sequencing reveals early cryptic SARS-CoV-2 variant transmission. Nature. 2022.
 ```
 
-Five rows need a note, and most notes name one paper you cite and one you may add beside it. A secondary citation is a second reference kept alongside the first for the original method, and both go in your reference list when you use one.
+Six rows need a note, and most notes name one paper you cite and one you may add beside it. A secondary citation is a second reference kept alongside the first for the original method, and both go in your reference list when you use one.
 
 BWA-MEM2 is what LGE installs, so cite the 2019 architecture paper above. Keep Li and Durbin 2009 (`10.1093/bioinformatics/btp324`) as the secondary citation for the underlying Burrows-Wheeler algorithm, the text-indexing method BWA uses to search a genome quickly, which is what a reviewer asking where the method came from wants.
 
@@ -263,6 +263,8 @@ LGE installs IQ-TREE 3.1.3, so cite the 2026 IQ-TREE 3 paper above. Minh and col
 PrimalScheme in LGE is `3.3.0+lge.5`, a build LGE maintains on top of PrimalScheme 3. Cite Quick and colleagues 2017 above for the method, and add Kent and colleagues 2024 (`10.1101/2024.12.20.629611`), the PrimalScheme 3 preprint. State in your methods that an LGE build of version 3.3.0 was used.
 
 EsViritu has no paper of its own. The 2023 wastewater study above is the paper that introduced it, so cite that study, and name <https://github.com/cmmr/EsViritu> as the software page.
+
+Medaka has no published paper, only its code repository. Cite the project page above, use `n.d.` for the year, and give the version your provenance record names.
 
 ### Assembler modes with their own papers
 
@@ -355,13 +357,27 @@ A few chapters cite a published comparison of tools, rather than a tool, to expl
 | Barbitoff and Predeus 2024 | Does read trimming change germline variant calls? | 10.12688/f1000research.145486.1 |
 | Van Poelvoorde and colleagues 2021 | Which callers find low-frequency SARS-CoV-2 variants? | 10.3389/fmicb.2021.747458 |
 | Bassano and colleagues 2023 | Which callers handle mixed variants in wastewater? | 10.1099/mgen.0.000933 |
-| Hall and colleagues 2024 | Which callers work best on bacterial Nanopore reads? | 10.7554/eLife.98300 |
+| Hall and colleagues 2024 | Which callers work best on bacterial nanopore reads? | 10.7554/eLife.98300 |
 
 ```
 Barbitoff       Barbitoff YA, Predeus AV. Negligible effects of read trimming on the accuracy of germline short variant calling in the human genome. F1000Research. 2024.
 Van Poelvoorde  Van Poelvoorde LAE, Delcourt T, Coucke W, et al. Strategy and performance evaluation of low-frequency variant calling for SARS-CoV-2 using targeted deep Illumina sequencing. Frontiers in Microbiology. 2021.
 Bassano         Bassano I, Ramachandran VK, Khalifa MS, et al. Evaluation of variant calling algorithms for wastewater-based epidemiology using mixed populations of SARS-CoV-2 variants in synthetic and wastewater samples. Microbial Genomics. 2023.
 Hall            Hall MB, Wick RR, Judd LM, et al. Benchmarking reveals superiority of deep learning variant callers on bacterial nanopore sequence data. eLife. 2024.
+```
+
+## Other works cited in the manual
+
+Two more sources back a statement in a chapter without being a tool LGE runs or a comparison of tools. DeepVariant is a deep-learning variant caller that LGE does not ship, named in [HaplotypeCaller](../06-human-germline-variants/01-haplotype-caller.md#choosing-a-tool) as the other caller common in human germline studies. The ARTIC fieldbioinformatics pipeline is widely used for viral amplicon sequencing on nanopore instruments. Its release notes for version 1.5.1, published in November 2024, record that it dropped Medaka for Clair3 because Medaka discarded long insertions and deletions, and the code of that release runs Clair3 with `--haploid_precise`, both of which [Nanopore Variant Calling](../05-variants/04-nanopore-variant-calling.md#choosing-a-tool) cites. By default that release masks any position covered by fewer than 20 reads in the consensus, the depth [Extracting a Consensus Sequence](../05-variants/05-consensus-and-lineage.md#choosing-a-tool) cites.
+
+| Work | Cited for | DOI or project page |
+|---|---|---|
+| DeepVariant, Poplin and colleagues 2018 | A caller LGE does not ship | 10.1038/nbt.4235 |
+| ARTIC fieldbioinformatics release notes, version 1.5.1 | Clair3 replacing Medaka, and the masking depth of 20 | <https://github.com/artic-network/fieldbioinformatics/releases/tag/v1.5.1> |
+
+```
+DeepVariant  Poplin R, Chang PC, Alexander D, et al. A universal SNP and small-indel variant caller using deep neural networks. Nature Biotechnology. 2018.
+ARTIC        ARTIC Network. fieldbioinformatics v1.5.1 release notes. 2024.
 ```
 
 ## Reference databases
