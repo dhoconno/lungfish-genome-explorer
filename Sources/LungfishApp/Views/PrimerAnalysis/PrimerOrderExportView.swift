@@ -35,6 +35,7 @@ struct PrimerOrderExportView: View {
     private var isNormalizedAssaySelection: Bool { model.draft.selection.selectedAssayIDs != nil }
 
     private var title: String {
+        if model.draft.selection.isPrimer3CandidateSelection { return "Export Candidate Pairs" }
         guard isNormalizedAssaySelection else { return "Export Displayed Primer Order" }
         return model.draft.selection.includesAllReportedAssays == true
             ? "Export All Reported Assays" : "Export Selected Assays"
@@ -120,6 +121,9 @@ struct PrimerOrderExportView: View {
     }
 
     private var selectionExplanation: String {
+        if model.draft.selection.isPrimer3CandidateSelection {
+            return "This order contains the forward, reverse and probe oligos of every included Primer3 candidate pair. Each pair is an alternative design and its own order group, not a pool."
+        }
         guard isNormalizedAssaySelection else {
             return "This is the displayed set captured when this sheet opened, across all schemes and references. Display changes made later do not change this order."
         }

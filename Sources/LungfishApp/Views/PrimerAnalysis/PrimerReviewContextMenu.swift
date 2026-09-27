@@ -54,10 +54,9 @@ struct PrimerReviewContextMenu: View {
       }
       Divider()
       Button("Inspect Primer") { inspect(clicked) }
-      if target.presentation != .primer3Template {
-        Button("Inspect in Alignment") { inspectBinding(clicked) }
-          .disabled(!actions.bindingPrimerIDs.contains(primer.id) || actions.onInspectBinding == nil)
-      }
+      // Primer3 candidates designed from an alignment carry binding contexts too.
+      Button("Inspect in Alignment") { inspectBinding(clicked) }
+        .disabled(!actions.bindingPrimerIDs.contains(primer.id) || actions.onInspectBinding == nil)
       Menu("Copy") {
         Button("Copy Name") { copy(primer.name, clicked: clicked) }
         Button("Copy Coordinates") { copy(PrimerReviewClipboard.coordinates(primer, in: target), clicked: clicked) }
@@ -98,7 +97,7 @@ struct PrimerReviewContextMenu: View {
         : "\($0.count) associated oligos" } ?? "Primer correspondence unavailable")
       Divider()
       Button("Inspect Amplicon") { inspect(clicked) }
-      if target.presentation != .primer3Template, let members {
+      if let members {
         let inspectable = members.filter { actions.bindingPrimerIDs.contains($0.id) }
         if !inspectable.isEmpty {
           Menu("Inspect Primer in Alignment") {

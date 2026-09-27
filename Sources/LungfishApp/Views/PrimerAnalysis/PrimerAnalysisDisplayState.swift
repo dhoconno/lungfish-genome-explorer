@@ -118,6 +118,10 @@ final class PrimerAnalysisDisplaySession {
     }
   }
   private(set) var targets: [PrimerTargetDesignReview]
+  /// Primer3 candidate pairs, one review per pair. They never take part in scheme display filters.
+  private(set) var primer3Candidates: [PrimerTargetDesignReview] = []
+  /// Saved results that can become a `.lungfishprimers` scheme, with refusals explained.
+  private(set) var schemeExportCandidates: [PrimerSchemeFromAnalysisCandidate] = []
   private(set) var compatibilitySummaries: [String: PrimerMSACompatibilitySummary] = [:]
   private(set) var isComputingCompatibility = false
   private(set) var compatibilityReady = false
@@ -129,15 +133,44 @@ final class PrimerAnalysisDisplaySession {
   @ObservationIgnored private var preferenceKey: String?
   @ObservationIgnored private var sourceSnapshot: PrimerAnalysisViewerSnapshot?
   var onOrderExportRequested: (@MainActor (PrimerOrderDraft, PrimerOrderMetadata) -> Void)?
+  /// Saves one exportable result as a primer scheme named by the user.
+  var onSchemeExportRequested: (@MainActor (PrimerSchemeFromAnalysisCandidate, String) -> Void)?
 
   init(targets: [PrimerTargetDesignReview] = [], bindingContexts: [PrimerBindingInspectionContext] = [],
        preferences: PrimerAnalysisDisplayPreferences? = nil) {
     self.targets = targets.filter { $0.presentation == .schemeReference }
+    self.primer3Candidates = targets.filter { $0.presentation == .primer3Template && !$0.intervals.isEmpty }
     self.bindingContexts = bindingContexts
     self.preferences = preferences
   }
 
-  var isAvailable: Bool { !targets.isEmpty }
+  /// Scheme results expose display filters; Primer3 results expose candidate ordering only.
+  var isAvailable: Bool { !targets.isEmpty || hasPrimer3Candidates }
+  var hasPrimer3Candidates: Bool { !primer3Candidates.isEmpty }
+  var hasSchemeDisplayControls: Bool { !targets.isEmpty }
+
+  /// Candidate pairs the user has not excluded from the next order. Hidden IDs are pair IDs.
+  var includedPrimer3Candidates: [PrimerTargetDesignReview] {
+    primer3Candidates.filter { !settings.hiddenPrimerIDs.contains($0.id) }
+  }
+
+  func setPrimer3CandidateIncluded(_ id: String, included: Bool) {
+    if included { settings.hiddenPrimerIDs.remove(id) } else { settings.hiddenPrimerIDs.insert(id) }
+  }
+
+  var schemeExportUnavailableReason: String? {
+    if sourceSnapshot == nil { return "Wait for a verified saved analysis." }
+    if schemeExportCandidates.isEmpty {
+      return hasPrimer3Candidates
+        ? "Primer3 candidate pairs are alternatives, not a tiled scheme, so they cannot become a primer-trimming scheme."
+        : "This analysis has no tiled scheme result to save."
+    }
+    if onSchemeExportRequested == nil { return "Open this analysis in its project to save a primer scheme." }
+    if !schemeExportCandidates.contains(where: \.isExportable) {
+      return schemeExportCandidates.first?.refusalReason
+    }
+    return nil
+  }
   var hasBindingContexts: Bool { bindingContexts.contains { $0.unavailableReason == nil && !$0.primers.isEmpty } }
   var totalCount: Int { targets.reduce(0) { $0 + $1.primers.count } }
   var visibleCount: Int { targets.reduce(0) { $0 + visibility.visiblePrimers(in: $1).count } }
@@ -149,6 +182,9 @@ final class PrimerAnalysisDisplaySession {
   var orderExportUnavailableReason: String? {
     if !isAvailable || sourceSnapshot == nil { return "Wait for a verified saved analysis." }
     if onOrderExportRequested == nil { return "Open this analysis in its project to export an order." }
+    if hasPrimer3Candidates {
+      return includedPrimer3Candidates.isEmpty ? "Include at least one candidate pair to export an order." : nil
+    }
     // Normalized scheme orders are explicit assay selections from saved records.
     // View filters only affect the viewport and must not redefine that membership.
     if sourceSnapshot?.primerSchemeResultsDocument != nil { return nil }
@@ -160,6 +196,7 @@ final class PrimerAnalysisDisplaySession {
   }
 
   var hasNormalizedSchemeResults: Bool { sourceSnapshot?.primerSchemeResultsDocument != nil }
+  var analysisName: String { sourceSnapshot?.bundle.url.deletingPathExtension().lastPathComponent ?? "" }
   var hasReportedAlternatives: Bool {
     sourceSnapshot?.primerSchemeResultsDocument?.results.contains {
       $0.targets.contains { $0.assays.contains { $0.status == .alternative } }
@@ -171,7 +208,15 @@ final class PrimerAnalysisDisplaySession {
     guard let snapshot = sourceSnapshot else { throw PrimerOrderExportError.invalid("The saved analysis is unavailable.") }
     let assayIDs: [String]?
     let selectedPrimerIDs: [String]
-    if let document = snapshot.primerSchemeResultsDocument {
+    if hasPrimer3Candidates {
+      // A Primer3 order names candidate pairs. Every oligo of an included pair is ordered.
+      let included = includedPrimer3Candidates
+      assayIDs = included.map(\.id)
+      let roleOrder: [PrimerOligoRole: Int] = [.forward: 0, .probe: 1, .reverse: 2]
+      selectedPrimerIDs = included.flatMap { candidate in
+        candidate.primers.sorted { roleOrder[$0.role, default: 3] < roleOrder[$1.role, default: 3] }.map(\.id)
+      }
+    } else if let document = snapshot.primerSchemeResultsDocument {
       let assays = document.results.flatMap { $0.targets.flatMap(\.assays) }
         .filter { allReportedAssays || $0.status == .selected }
       assayIDs = assays.map { $0.id.uuidString.lowercased() }
@@ -185,11 +230,12 @@ final class PrimerAnalysisDisplaySession {
       manifest: snapshot.bundle.manifest, settings: settings, compatibilityReady: compatibilityReady,
       compatibilitySummaries: compatibilityReady ? compatibilitySummaries : [:],
       selectedPrimerIDs: selectedPrimerIDs, selectedAssayIDs: assayIDs,
-      includesAllReportedAssays: snapshot.primerSchemeResultsDocument == nil ? nil : allReportedAssays)
+      includesAllReportedAssays: snapshot.primerSchemeResultsDocument == nil ? nil : allReportedAssays,
+      primer3CandidatePairs: hasPrimer3Candidates ? true : nil)
     return PrimerOrderDraft(selection: selection,
       oligos: try PrimerOrderExportService.prepare(snapshot: snapshot, selection: selection),
       defaultName: snapshot.bundle.url.deletingPathExtension().lastPathComponent
-        + (allReportedAssays ? " all reported assays order" : " order"))
+        + (hasPrimer3Candidates ? " candidate pairs order" : allReportedAssays ? " all reported assays order" : " order"))
   }
 
   func isVisible(_ primer: PrimerReviewPrimer, in target: PrimerTargetDesignReview) -> Bool {
@@ -200,6 +246,9 @@ final class PrimerAnalysisDisplaySession {
     cancel()
     sourceSnapshot = snapshot
     targets = snapshot.primer3Results == nil ? snapshot.designReview.filter { $0.presentation == .schemeReference } : []
+    primer3Candidates = snapshot.primer3Results == nil ? []
+      : snapshot.designReview.filter { $0.presentation == .primer3Template && !$0.intervals.isEmpty }
+    schemeExportCandidates = snapshot.schemeExportCandidates
     bindingContexts = snapshot.inspectableBindingContexts
     compatibilitySummaries = [:]
     compatibilityReady = false
@@ -259,6 +308,8 @@ final class PrimerAnalysisDisplaySession {
     cancel()
     sourceSnapshot = nil
     targets = []
+    primer3Candidates = []
+    schemeExportCandidates = []
     bindingContexts = []
     compatibilitySummaries = [:]
     compatibilityReady = false

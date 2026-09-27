@@ -14,8 +14,12 @@ enum PrimerOrderExportError: Error, LocalizedError {
 struct PrimerOrderExportService: Sendable {
   static func prepare(snapshot: PrimerAnalysisViewerSnapshot, selection: PrimerOrderSelection) throws -> [PrimerOrderOligo] {
     guard snapshot.bundle.url.standardizedFileURL == selection.analysisURL.standardizedFileURL,
-      snapshot.bundle.manifest == selection.manifest, snapshot.primer3Results == nil else {
+      snapshot.bundle.manifest == selection.manifest,
+      (snapshot.primer3Results == nil) != selection.isPrimer3CandidateSelection else {
       throw PrimerOrderExportError.invalid("The source analysis changed. Reopen it and capture a new order.")
+    }
+    if let primer3 = snapshot.primer3Results {
+      return try preparePrimer3(results: primer3, snapshot: snapshot, selection: selection)
     }
     if let document = snapshot.primerSchemeResultsDocument {
       return try prepareNormalized(document: document, snapshot: snapshot, selection: selection)
@@ -53,6 +57,59 @@ struct PrimerOrderExportService: Sendable {
         start: primer.start, end: primer.end, strand: primer.strand, ampliconIDs: primer.ampliconIDs,
         compatibility: selection.compatibilityReady ? selection.compatibilitySummaries[primer.id] : nil)
     }
+  }
+
+  /// Primer3 pairs are independent candidates. Each ordered pair becomes its own order group,
+  /// and its oligos are named after the template and candidate number because Primer3 names none.
+  private static func preparePrimer3(
+    results: Primer3NormalizedResults, snapshot: PrimerAnalysisViewerSnapshot, selection: PrimerOrderSelection
+  ) throws -> [PrimerOrderOligo] {
+    guard let pairIDs = selection.selectedAssayIDs, !pairIDs.isEmpty,
+      Set(pairIDs).count == pairIDs.count else {
+      throw PrimerOrderExportError.invalid("Include at least one candidate pair for this order.")
+    }
+    let reviews = Dictionary(uniqueKeysWithValues: snapshot.designReview
+      .filter { $0.presentation == .primer3Template }.map { ($0.id, $0) })
+    var oligos: [PrimerOrderOligo] = []
+    for result in results.results {
+      let templateOrdinal = result.sourceIndex + 1
+      for (index, pair) in result.pairs.enumerated() where pairIDs.contains(pair.id.uuidString) {
+        guard let review = reviews[pair.id.uuidString] else {
+          throw PrimerOrderExportError.invalid("A captured candidate pair is not part of the saved analysis.")
+        }
+        let members: [(Primer3Oligo, String, PrimerOligoRole)] = [(pair.left, "LEFT", .forward)]
+          + (pair.internalOligo.map { [($0, "PROBE", .probe)] } ?? []) + [(pair.right, "RIGHT", .reverse)]
+        for (oligo, tag, role) in members {
+          guard let primer = review.primers.first(where: { $0.id == oligo.id.uuidString }),
+            !oligo.sequence.isEmpty, oligo.sequence.utf8.allSatisfy({ "ACGTRYSWKMBDHVNacgtryswkmbdhvn".utf8.contains($0) }),
+            oligo.start >= 0, oligo.end > oligo.start, oligo.end <= review.referenceLength else {
+            throw PrimerOrderExportError.invalid("A candidate oligo has no verified sequence or coordinates.")
+          }
+          let stem = Self.orderNameStem(result.title)
+          oligos.append(.init(primerID: primer.id, targetID: review.id, sourceResultID: result.resultID.uuidString,
+            schemeLabel: result.title, poolName: "Template_\(templateOrdinal)_Candidate_\(index + 1)", pool: nil,
+            referenceID: result.sourceRecordID, name: "\(stem)_P\(index + 1)_\(tag)",
+            sequence: oligo.sequence.uppercased(), start: oligo.start, end: oligo.end, strand: primer.strand,
+            ampliconIDs: [pair.id.uuidString],
+            compatibility: selection.compatibilityReady ? selection.compatibilitySummaries[primer.id] : nil,
+            sourceOligoID: oligo.id.uuidString.lowercased(), oligoRole: role, candidateStatus: .alternative,
+            assayIDs: [pair.id.uuidString.lowercased()], nativePool: nil))
+        }
+      }
+    }
+    guard oligos.map(\.primerID) == selection.selectedPrimerIDs,
+      Set(pairIDs) == Set(oligos.flatMap { $0.ampliconIDs }) else {
+      throw PrimerOrderExportError.invalid("The order does not match the captured candidate pairs.")
+    }
+    return oligos
+  }
+
+  /// Vendor sheets need short, file-safe names. Template titles can be long FASTA headers.
+  static func orderNameStem(_ title: String) -> String {
+    let permitted = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-_."))
+    let cleaned = String(title.unicodeScalars.map { permitted.contains($0) ? Character($0) : "_" })
+    let stem = String(cleaned.prefix(24)).trimmingCharacters(in: CharacterSet(charactersIn: "_"))
+    return stem.isEmpty ? "Template" : stem
   }
 
   private static func prepareNormalized(
@@ -176,7 +233,9 @@ struct PrimerOrderExportService: Sendable {
     progress?(0.35, "Creating the order workbook and detailed CSV…")
     let receipt = try await PrimerOrderSheetWriter.write(oligos: oligos, metadata: metadata, selection: selection, to: staged)
     let normalizedSelection = selection.selectedAssayIDs != nil
-    let sequenceSemantics = normalizedSelection
+    let sequenceSemantics = selection.isPrimer3CandidateSelection
+      ? "Exact saved Primer3 oligos in 5prime-to-3prime orientation from the included candidate pairs; each pair is an independent alternative, not a member of a scheme or pool."
+      : normalizedSelection
       ? "Exact saved oligos in 5prime-to-3prime orientation from the explicit saved assay selection; no new design optimization, pooling or assay validation."
       : "Exact saved oligos in 5prime-to-3prime orientation from the captured displayed subset; no new design optimization or assay validation."
     let document = PrimerOrderDocument(schemaVersion: 1, metadata: metadata, selection: selection, oligos: oligos,
@@ -204,7 +263,8 @@ struct PrimerOrderExportService: Sendable {
     let inputs = try files.filter { $0.path.hasPrefix(source.path + "/") || $0.lastPathComponent == "template.xlsx" }
       .map { try descriptor($0, role: .input) }
     let outputs = try files.map { try descriptor($0, role: .output) }
-    var builder = ProvenanceRunBuilder(workflowName: normalizedSelection
+    var builder = ProvenanceRunBuilder(workflowName: selection.isPrimer3CandidateSelection
+      ? "Export Primer3 candidate pairs" : normalizedSelection
       ? "Export saved primer assays" : "Export displayed primer order", workflowVersion: WorkflowRun.currentAppVersion,
       toolName: "LGE primer ordering", toolVersion: WorkflowRun.currentAppVersion)
       .argv(argv).options(explicit: options, defaults: ["sequenceOrientation": .string("saved-5prime-to-3prime"),
@@ -295,7 +355,14 @@ struct PrimerOrderExportService: Sendable {
       "selectedCount": .integer(selection.selectedPrimerIDs.count), "deduplicate": .boolean(false),
       "sequenceOrientation": .string("saved-5prime-to-3prime"), "publication": .string("exclusive-atomic"),
       "scope": .string("displayed-oligos-across-all-schemes-and-references")]
-    if let assayIDs = selection.selectedAssayIDs {
+    if selection.isPrimer3CandidateSelection, let pairIDs = selection.selectedAssayIDs {
+      options["scope"] = .string("primer3-candidate-pairs")
+      options["selectedCandidatePairIDs"] = .array(pairIDs.map(ParameterValue.string))
+      options["candidatePairsAreAlternatives"] = .boolean(true)
+      options["idtOPoolsWorkbook"] = .boolean(false)
+      options["sourceNormalizedResult"] = .string(
+        final.appendingPathComponent("source-analysis/results/primer3-normalized-v1.json").path)
+    } else if let assayIDs = selection.selectedAssayIDs {
       options["scope"] = .string(selection.includesAllReportedAssays == true
         ? "all-reported-assays" : "selected-assays")
       options["selectedAssayIDs"] = .array(assayIDs.map(ParameterValue.string))

@@ -80,6 +80,26 @@ final class PrimerSchemeImportServiceTests: XCTestCase {
         XCTAssertTrue(recordsBEDOutput)
     }
 
+    func testAmpliconCountFoldsNumberedAndAltSparePrimersIntoTheirAmplicon() throws {
+        let url = tempDir.appendingPathComponent("designed.bed")
+        let content = """
+            ref\t209\t232\td01afd1e_1_LEFT_1\t1\t+\tACT
+            ref\t207\t232\td01afd1e_1_LEFT_2\t1\t+\tCCA
+            ref\t600\t622\td01afd1e_1_RIGHT_1\t1\t-\tGGT
+            ref\t650\t672\tnCoV-2019_2_LEFT\t2\t+\tGGT
+            ref\t655\t677\tnCoV-2019_2_LEFT_alt1\t2\t+\tGGT
+            ref\t900\t922\tnCoV-2019_2_RIGHT\t2\t-\tGGT
+            ref\t950\t972\tQIAseq_3_LEFT\t1\t+\tGGT
+            ref\t955\t977\tQIAseq_3-2_LEFT\t1\t+\tGGT
+            ref\t1200\t1222\tQIAseq_3_RIGHT\t1\t-\tGGT
+            ref\t1300\t1322\tqpcr_4_PROBE_1\t1\t+\tGGT
+            """
+        try content.write(to: url, atomically: true, encoding: .utf8)
+        let counts = try PrimerSchemeImportService.parseCounts(bedURL: url)
+        XCTAssertEqual(counts.primerCount, 10)
+        XCTAssertEqual(counts.ampliconCount, 4)
+    }
+
     private func writeSampleBED() throws -> URL {
         let url = tempDir.appendingPathComponent("primers.bed")
         let content = """

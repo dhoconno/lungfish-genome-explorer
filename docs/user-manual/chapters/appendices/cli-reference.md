@@ -2937,7 +2937,7 @@ lungfish-cli tree relabel --bundle <bundle> --column <column> --output <output>
 
 ## Primer schemes and primer design
 
-[Primer Scheme Bundles](primer-schemes.md) covers the `.lungfishprimers` format that `primers import` writes. The `primers design` and `primers analysis` commands have no chapter of their own.
+[Primer Scheme Bundles](primer-schemes.md) covers the `.lungfishprimers` format that `primers import` and `primers scheme-from-analysis` write. The `primers design` and `primers analysis` commands have no chapter of their own.
 
 Run this from the folder holding the human-mito practice data. It asks Primer3 for primer pairs around bases 3,400 to 3,600 of the human mitochondrial genome.
 
@@ -2964,6 +2964,23 @@ lungfish-cli primers import --bed <bed> [--fasta <fasta>] --output <output> [--p
 | `--display-name <display-name>` | Human-readable scheme name. Defaults to the output stem. |
 | `--equivalent-accession <equivalent-accession>` | Additional equivalent reference accession. Repeatable. |
 | `--attachment <attachment>` | Extra documentation file to copy under attachments/. Repeatable. |
+
+### `primers scheme-from-analysis`
+
+Saves a designed tiled scheme from a `.lungfishprimeranalysis` bundle as a `.lungfishprimers` bundle for primer trimming. [Saving a designed scheme](primer-schemes.md#saving-a-designed-scheme) explains which reference the coordinates belong to for each engine and which results are refused.
+
+```text
+lungfish-cli primers scheme-from-analysis <analysis-path> [--result-id <result-id>] [--output <output>] [--project <project>] [--display-name <display-name>] [--list]
+```
+
+| Argument or flag | What it does |
+|---|---|
+| `<analysis-path>` | Path to the saved `.lungfishprimeranalysis` bundle. |
+| `--result-id <result-id>` | Result UUID from `--list`. Required when more than one result can be saved. |
+| `--output <output>` | Output `.lungfishprimers` bundle name or path. Required unless `--list` is given. |
+| `--project <project>` | Optional LGE project. Relative output is written under Primer Schemes/. |
+| `--display-name <display-name>` | Human-readable scheme name. Defaults to the analysis and result names. |
+| `--list` | Print every result in the analysis and whether it can be saved, then exit. |
 
 ### `primers design primer3`
 

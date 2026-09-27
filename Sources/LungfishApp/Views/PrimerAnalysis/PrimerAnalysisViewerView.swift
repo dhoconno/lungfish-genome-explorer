@@ -19,6 +19,7 @@ struct PrimerAnalysisViewerView: View {
   @State private var retryGeneration: UInt64 = 0
   @State private var selection: PrimerReviewSelection?
   @State private var resultInspectionGeneration = 0
+  @State private var isSchemeExportPresented = false
 
   init(bundleURL: URL, onLoadStateChanged: @escaping @MainActor (PrimerAnalysisViewerModel.State) -> Void = { _ in },
        onExportRequested: ((PrimerAnalysisExportSelection, PrimerAnalysisExportKind) -> Void)? = nil) {
@@ -110,7 +111,8 @@ struct PrimerAnalysisViewerView: View {
       if visibleSection == .binding {
         PrimerBindingInspectionView(contexts: bindingContexts, selectedReviewPrimerID: selection?.primerID,
           visibility: displaySession.visibility, reviewTargets: snapshot.designReview,
-          identityDots: Binding(get: { displaySession.settings.showIdentityDots }, set: { displaySession.settings.showIdentityDots = $0 }))
+          identityDots: Binding(get: { displaySession.settings.showIdentityDots }, set: { displaySession.settings.showIdentityDots = $0 }),
+          emptyMessage: snapshot.bindingUnavailableExplanation)
           .padding(20)
           .frame(maxWidth: .infinity, maxHeight: .infinity)
       } else {
@@ -121,7 +123,9 @@ struct PrimerAnalysisViewerView: View {
           case .overview: overview(snapshot)
           case .results:
             if let results = snapshot.primer3Results { Primer3ResultsView(results: results, bundleURL: snapshot.bundle.url, reviewTargets: snapshot.designReview, selection: $selection, onInspectSelection: { resultInspectionGeneration &+= 1 }) }
-            else if !snapshot.primalSchemeResults.isEmpty { PrimalSchemeResultsView(results: snapshot.primalSchemeResults, engineDescription: snapshot.toolProvenance.first?.toolName ?? "PrimalScheme3", presentsReportedAssays: snapshot.primerSchemeResultsDocument != nil, reviewTargets: snapshot.designReview, selection: $selection, onInspectSelection: { resultInspectionGeneration &+= 1 }) }
+            else if !snapshot.primalSchemeResults.isEmpty { PrimalSchemeResultsView(results: snapshot.primalSchemeResults, engineDescription: snapshot.toolProvenance.first?.toolName ?? "PrimalScheme3", presentsReportedAssays: snapshot.primerSchemeResultsDocument != nil, reviewTargets: snapshot.designReview, selection: $selection, onInspectSelection: { resultInspectionGeneration &+= 1 },
+              schemeExportUnavailableReason: displaySession.schemeExportUnavailableReason,
+              onSaveAsPrimerScheme: { isSchemeExportPresented = true }) }
             else { Text("Native scheme outputs are preserved in the Inspector’s Files tab.").foregroundStyle(.secondary) }
           case .binding: EmptyView()
           }
@@ -137,6 +141,15 @@ struct PrimerAnalysisViewerView: View {
     }
     .onChange(of: snapshot.availableSections, initial: true) { _, _ in
       selectedSection = snapshot.visibleSection(selectedSection)
+    }
+    .sheet(isPresented: $isSchemeExportPresented) {
+      PrimerSchemeExportSheet(candidates: snapshot.schemeExportCandidates,
+        analysisName: snapshot.bundle.url.deletingPathExtension().lastPathComponent,
+        onCancel: { isSchemeExportPresented = false },
+        onSave: { candidate, name in
+          isSchemeExportPresented = false
+          displaySession.onSchemeExportRequested?(candidate, name)
+        })
     }
     .onChange(of: displaySession.settings) { _, _ in reconcileVisibleSelection(snapshot) }
     .onChange(of: displaySession.compatibilityReady) { _, _ in reconcileVisibleSelection(snapshot) }

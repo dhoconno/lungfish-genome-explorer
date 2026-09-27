@@ -73,7 +73,7 @@ The worked example trims the minimap2 alignment with the built-in QIAseq Direct 
 
     <!-- SHOT: primer-trim-scheme-menu -->
 
-The **Choose Scheme...** button beside the menu opens a scheme stored outside the project, such as a `.lungfishprimers` folder a collaborator sent you. To build a scheme LGE does not ship, see [Primer Schemes](../appendices/primer-schemes.md).
+The **Choose Scheme...** button beside the menu opens a scheme stored outside the project, such as a `.lungfishprimers` folder a collaborator sent you. To build a scheme LGE does not ship, see [Primer Schemes](../appendices/primer-schemes.md). A tiled scheme you designed inside LGE can be saved from its primer analysis with **Save as Primer Scheme...**, as [Saving a designed scheme](../appendices/primer-schemes.md#saving-a-designed-scheme) describes, and it then appears under In This Project. Its coordinates belong to the sequence the design engine used, which that section names, so map the reads to that sequence first.
 
 ### Set the target and run
 

@@ -14,6 +14,14 @@ public struct PrimerSchemeImportRequest: Sendable {
     public let argv: [String]
     public let workflowName: String
     public let toolVersion: String
+    /// Manifest description, for example which reference a designed scheme's coordinates belong to.
+    public let description: String?
+    /// Manifest source tag. Imports write "imported"; designs saved from an analysis write "designed".
+    public let source: String?
+    /// Attachment descriptions keyed by the attachment file name.
+    public let attachmentDescriptions: [String: String]
+    /// Present when the BED was derived from a saved primer analysis rather than supplied by the user.
+    public let derivation: PrimerSchemeDerivation?
 
     public init(
         bedURL: URL,
@@ -26,8 +34,16 @@ public struct PrimerSchemeImportRequest: Sendable {
         equivalentAccessions: [String],
         argv: [String],
         workflowName: String,
-        toolVersion: String
+        toolVersion: String,
+        description: String? = nil,
+        source: String? = nil,
+        attachmentDescriptions: [String: String] = [:],
+        derivation: PrimerSchemeDerivation? = nil
     ) {
+        self.description = description
+        self.source = source
+        self.attachmentDescriptions = attachmentDescriptions
+        self.derivation = derivation
         self.bedURL = bedURL
         self.fastaURL = fastaURL
         self.attachments = attachments
@@ -39,6 +55,28 @@ public struct PrimerSchemeImportRequest: Sendable {
         self.argv = argv
         self.workflowName = workflowName
         self.toolVersion = toolVersion
+    }
+}
+
+/// Where a designed scheme came from. Recorded in both provenance forms so the
+/// bundle can be traced back to the exact saved result.
+public struct PrimerSchemeDerivation: Sendable {
+    public let analysisURL: URL
+    public let resultID: UUID
+    public let resultLabel: String
+    public let engine: String
+    public let referenceStatement: String
+    /// Saved analysis files the BED and reference were derived from.
+    public let sourceArtifactURLs: [URL]
+    public let notes: [String]
+    /// The design's own amplicon count, which outranks folding BED names.
+    public let ampliconCount: Int
+
+    public init(analysisURL: URL, resultID: UUID, resultLabel: String, engine: String, referenceStatement: String,
+                sourceArtifactURLs: [URL], notes: [String], ampliconCount: Int) {
+        self.analysisURL = analysisURL; self.resultID = resultID; self.resultLabel = resultLabel
+        self.engine = engine; self.referenceStatement = referenceStatement
+        self.sourceArtifactURLs = sourceArtifactURLs; self.notes = notes; self.ampliconCount = ampliconCount
     }
 }
 
@@ -136,19 +174,22 @@ public enum PrimerSchemeImportService {
                 schemaVersion: 1,
                 name: safeName,
                 displayName: request.displayName?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty ?? safeName,
-                description: nil,
+                description: request.description?.nilIfEmpty,
                 organism: nil,
                 referenceAccessions: references,
                 primerCount: parsedBED.primerCount,
-                ampliconCount: parsedBED.ampliconCount,
-                source: "imported",
+                ampliconCount: request.derivation?.ampliconCount ?? parsedBED.ampliconCount,
+                source: request.source?.nilIfEmpty ?? "imported",
                 sourceURL: nil,
                 version: nil,
                 created: started,
                 imported: Date(),
                 attachments: request.attachments.isEmpty
                     ? nil
-                    : request.attachments.map { .init(path: "attachments/\($0.lastPathComponent)", description: nil) }
+                    : request.attachments.map {
+                        .init(path: "attachments/\($0.lastPathComponent)",
+                              description: request.attachmentDescriptions[$0.lastPathComponent])
+                    }
             )
             try writeJSON(manifest, to: bundleURL.appendingPathComponent("manifest.json"))
             try writeMarkdownProvenance(
@@ -251,12 +292,18 @@ public enum PrimerSchemeImportService {
         )
     }
 
-    private static func normalizedAmpliconName(_ raw: String) -> String {
+    /// Folds every oligo of one amplicon onto the amplicon name. The role tag
+    /// (`_LEFT`, `_RIGHT`, `_PROBE`) and anything after it are dropped, so the
+    /// designed variants `NAME_1_LEFT_1` and `NAME_1_LEFT_2`, and ARTIC spares
+    /// such as `NAME_1_LEFT_alt1`, all count as amplicon `NAME_1`.
+    private static let roleTagPattern = try! NSRegularExpression(
+        pattern: "^(.*)_(LEFT|RIGHT|PROBE)(?:_[A-Za-z0-9]+)*$")
+
+    static func normalizedAmpliconName(_ raw: String) -> String {
         var name = raw
-        if name.hasSuffix("_LEFT") {
-            name = String(name.dropLast("_LEFT".count))
-        } else if name.hasSuffix("_RIGHT") {
-            name = String(name.dropLast("_RIGHT".count))
+        let range = NSRange(location: 0, length: (raw as NSString).length)
+        if let match = roleTagPattern.firstMatch(in: raw, range: range) {
+            name = (raw as NSString).substring(with: match.range(at: 1))
         }
         if let dashIndex = name.lastIndex(of: "-"),
            name.distance(from: dashIndex, to: name.endIndex) <= 3,
@@ -280,19 +327,37 @@ public enum PrimerSchemeImportService {
         started: Date
     ) throws {
         let command = request.argv.map(shellEscape).joined(separator: " ")
-        let text = """
-        # PROVENANCE
-
-        Workflow: \(request.workflowName)
-        Version: \(request.toolVersion)
-        Command: \(command)
-        Started: \(ISO8601DateFormatter().string(from: started))
-        BED source: \(request.bedURL.path)
-        FASTA source: \(request.fastaURL?.path ?? "not provided")
-        Output bundle: \(bundleURL.path)
-        Reference accession: \(canonicalAccession)
-        Exit status: 0
-        """
+        var lines = [
+            "# PROVENANCE", "",
+            "Workflow: \(request.workflowName)",
+            "Version: \(request.toolVersion)",
+            "Command: \(command)",
+            "Started: \(ISO8601DateFormatter().string(from: started))",
+        ]
+        if let derivation = request.derivation {
+            lines += [
+                "Source analysis: \(derivation.analysisURL.path)",
+                "Source result: \(derivation.resultLabel) (\(derivation.resultID.uuidString))",
+                "Design engine: \(derivation.engine)",
+                "BED source: derived from the saved analysis result",
+                "FASTA source: derived from the saved analysis result",
+            ]
+        } else {
+            lines += [
+                "BED source: \(request.bedURL.path)",
+                "FASTA source: \(request.fastaURL?.path ?? "not provided")",
+            ]
+        }
+        lines += [
+            "Output bundle: \(bundleURL.path)",
+            "Reference accession: \(canonicalAccession)",
+        ]
+        if let derivation = request.derivation {
+            lines.append("Coordinate reference: \(canonicalAccession). \(derivation.referenceStatement)")
+            lines += derivation.notes.map { "Note: \($0)" }
+        }
+        lines.append("Exit status: 0")
+        let text = lines.joined(separator: "\n")
         try text.write(to: bundleURL.appendingPathComponent("PROVENANCE.md"), atomically: true, encoding: .utf8)
     }
 
@@ -312,7 +377,9 @@ public enum PrimerSchemeImportService {
             request.fastaURL == nil ? nil : bundleURL.appendingPathComponent("primers.fasta"),
             bundleURL.appendingPathComponent("PROVENANCE.md"),
         ].compactMap { $0 } + copiedAttachmentURLs
-        let inputURLs = [request.bedURL, request.fastaURL].compactMap { $0 } + request.attachments
+        let inputURLs = request.derivation.map { derivation in
+            [derivation.analysisURL.appendingPathComponent(PrimerAnalysisManifest.filename)] + derivation.sourceArtifactURLs
+        } ?? [request.bedURL, request.fastaURL].compactMap { $0 } + request.attachments
         let inputDescriptors = try inputURLs.map {
             try ProvenanceFileDescriptor.file(
                 url: $0,
@@ -338,6 +405,10 @@ public enum PrimerSchemeImportService {
             "displayName": .string(displayName),
             "fastaIncluded": .boolean(request.fastaURL != nil),
             "attachmentCount": .integer(request.attachments.count),
+            "sourceAnalysis": request.derivation.map { .file($0.analysisURL) } ?? .null,
+            "sourceResultID": request.derivation.map { .string($0.resultID.uuidString) } ?? .null,
+            "designEngine": request.derivation.map { .string($0.engine) } ?? .null,
+            "coordinateReference": .string(request.derivation?.referenceStatement ?? "as supplied in the BED"),
         ]
         let defaults: [String: ParameterValue] = [
             "fasta": .null,
@@ -345,6 +416,10 @@ public enum PrimerSchemeImportService {
             "equivalentAccessions": .array([]),
             "fastaIncluded": .boolean(false),
             "attachmentCount": .integer(0),
+            "sourceAnalysis": .null,
+            "sourceResultID": .null,
+            "designEngine": .null,
+            "coordinateReference": .string("as supplied in the BED"),
         ]
         let step = StepExecution(
             toolName: request.workflowName,

@@ -13,6 +13,8 @@ struct PrimerBindingInspectionView: View {
     var visibility = PrimerAnalysisVisibility()
     var reviewTargets: [PrimerTargetDesignReview] = []
     var identityDots: Binding<Bool>? = nil
+    /// Shown instead of the generic fallback when the saved result has nothing to compare against.
+    var emptyMessage: String? = nil
     @State private var selectedContextID: String?
     @State private var selectedPrimerID: String?
     @State private var localIdentityDots = true
@@ -77,8 +79,9 @@ struct PrimerBindingInspectionView: View {
                     Text(fallback).foregroundStyle(.secondary)
                 }
             } else {
-                Text("Alignment binding inspection is available for stored PrimalScheme results with a verified input alignment and reference mapping.")
+                Text(emptyMessage ?? "Alignment binding inspection is available for saved PrimalScheme, Olivar, varVAMP and Primer3 results that were designed from an alignment with a verified reference mapping.")
                     .foregroundStyle(.secondary)
+                    .accessibilityIdentifier("primerAnalysisViewer.bindingUnavailable")
             }
         }.onAppear {
             adoptReviewSelection()

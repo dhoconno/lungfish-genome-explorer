@@ -46,7 +46,9 @@ struct PrimerAnalysisInspectorBundleSection: View {
                         ("Order reference", order.metadata.orderReference), ("Notes", order.metadata.notes)], id: \.0) { label, value in
                         if !value.isEmpty { LabeledContent(label, value: value).textSelection(.enabled) }
                     }
-                    Text("Displayed oligos captured from the Inspector. Original design retained; this subset has not been redesigned or validated as a complete scheme.")
+                    Text(order.selection.isPrimer3CandidateSelection
+                        ? "Primer3 candidate pairs captured from the Inspector. Each pair is an alternative design; the order is not a scheme."
+                        : "Displayed oligos captured from the Inspector. Original design retained; this subset has not been redesigned or validated as a complete scheme.")
                         .foregroundStyle(.secondary)
                 } else {
                     LabeledContent("Grouping", value: document.grouping)

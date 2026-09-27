@@ -240,6 +240,91 @@ struct PrimerBindingInspectionContext: Identifiable, Sendable {
         return contexts
     }
 
+    /// Primer3 templates chosen from an alignment keep the column-to-template map, so each
+    /// candidate oligo can be laid over every saved row. Single-sequence templates yield nothing.
+    static func loadPrimer3(bundle: PrimerAnalysisBundle, results: Primer3NormalizedResults) throws -> [Self] {
+        func read(_ path: String) throws -> Data {
+            guard let artifact = bundle.manifest.artifacts.first(where: { $0.relativePath == path }) else {
+                throw PrimerAnalysisBundleError.invalidArtifact("Missing Primer3 binding inspection artifact: " + path)
+            }
+            let bytes = try Data(contentsOf: bundle.artifactURL(forRelativePath: path))
+            guard UInt64(bytes.count) == artifact.byteSize,
+                  SHA256.hash(data: bytes).map({ String(format: "%02x", $0) }).joined() == artifact.sha256.lowercased() else {
+                throw PrimerAnalysisBundleError.integrityMismatch(path)
+            }
+            return bytes
+        }
+        var contexts: [Self] = []
+        for result in results.results where result.sourceKind == "msa" && !result.pairs.isEmpty {
+            try Task.checkCancellation()
+            guard let map = result.alignmentToTemplate,
+                  let input = bundle.manifest.inputs.first(where: { $0.id == result.inputID }) else { continue }
+            let prefix = "source-inputs/\(result.inputID.uuidString)/"
+            guard let alignedPath = input.artifactPaths.first(where: {
+                      $0.hasPrefix(prefix) && $0.hasSuffix("/alignment/primary.aligned.fasta") }),
+                  let rowsPath = input.artifactPaths.first(where: {
+                      $0.hasPrefix(prefix) && $0.hasSuffix("/metadata/rows.json") }) else { continue }
+            let rows = try parseFASTA(read(alignedPath))
+            let metadata = try JSONDecoder().decode([MultipleSequenceAlignmentBundle.Row].self, from: read(rowsPath))
+            guard Set(rows.map { $0.sequence.count }).count == 1, rows.count == metadata.count,
+                  rows[0].sequence.count == map.count, result.sourceIndex >= 0, result.sourceIndex < rows.count,
+                  metadata.allSatisfy({ isSafeDisplayHeader($0.displayName) }) else {
+                throw PrimerAnalysisBundleError.invalidArtifact("Primer3 alignment rows disagree with the saved template map")
+            }
+            let template = rows[result.sourceIndex]
+            let ungappedColumns = template.sequence.indices.filter { template.sequence[$0] != "-" && template.sequence[$0] != "." }
+            guard ungappedColumns.count == result.templateSequence.utf8.count,
+                  ungappedColumns.enumerated().allSatisfy({ map[$0.element] == $0.offset }) else {
+                throw PrimerAnalysisBundleError.invalidArtifact("Primer3 template map does not describe the saved template row")
+            }
+            let displayRows = rows.enumerated().map { index, row in
+                Row(name: metadata[index].displayName, sequence: row.sequence)
+            }
+            let displayFASTA = displayRows.map { ">\($0.name)\n\(String($0.sequence))\n" }.joined()
+            let contextID = result.resultID.uuidString.lowercased()
+            var primers: [PrimerBindingInspectionPrimer] = []
+            var annotations: [MultipleSequenceAlignmentBundle.AlignmentAnnotationRecord] = []
+            for (pairIndex, pair) in result.pairs.enumerated() {
+                let oligos = [(pair.left, "Forward"), (pair.right, "Reverse")]
+                    + (pair.internalOligo.map { [($0, "Probe")] } ?? [])
+                for (oligo, role) in oligos {
+                    guard oligo.start >= 0, oligo.end > oligo.start, oligo.end <= ungappedColumns.count else {
+                        throw PrimerAnalysisBundleError.invalidArtifact("Primer3 oligo coordinates exceed the template")
+                    }
+                    let columns = Array(ungappedColumns[oligo.start..<oligo.end])
+                    var intervals: [AnnotationInterval] = []
+                    var intervalStart = columns[0], previous = columns[0]
+                    for column in columns.dropFirst() {
+                        if column != previous + 1 {
+                            intervals.append(.init(start: intervalStart, end: previous + 1))
+                            intervalStart = column
+                        }
+                        previous = column
+                    }
+                    intervals.append(.init(start: intervalStart, end: previous + 1))
+                    let strand = oligo.orientation == .forward ? "+" : "-"
+                    let name = "Candidate \(pairIndex + 1) · \(role) primer"
+                    let primerID = contextID + ":" + oligo.id.uuidString.lowercased()
+                    annotations.append(.init(id: primerID, origin: .source, rowID: "inspection-row-\(result.sourceIndex)",
+                        rowName: metadata[result.sourceIndex].displayName, sourceSequenceName: template.name,
+                        sourceFilePath: alignedPath, sourceTrackID: "primer3-candidate-\(pairIndex + 1)",
+                        sourceTrackName: "Candidate \(pairIndex + 1)", sourceAnnotationID: primerID,
+                        name: name, type: "primer_bind", strand: strand,
+                        sourceIntervals: [.init(start: oligo.start, end: oligo.end)], alignedIntervals: intervals,
+                        qualifiers: ["sequence_5prime_to_3prime": [oligo.sequence]],
+                        note: "Saved template binding footprint projected into the alignment; not evidence of binding on every row.",
+                        projection: nil, warnings: []))
+                    primers.append(.init(id: primerID, name: name, sequence: oligo.sequence, strand: strand,
+                        alignedStart: columns[0], alignedEnd: columns[columns.count - 1] + 1,
+                        contiguousReference: intervals.count == 1, reviewPrimerID: oligo.id.uuidString))
+                }
+            }
+            contexts.append(.init(id: contextID, title: result.title, alignedFASTA: displayFASTA,
+                annotations: annotations, primers: primers, unavailableReason: nil, rows: displayRows))
+        }
+        return contexts
+    }
+
     static func isSafeDisplayHeader(_ value: String) -> Bool {
         !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             && value.unicodeScalars.allSatisfy {
