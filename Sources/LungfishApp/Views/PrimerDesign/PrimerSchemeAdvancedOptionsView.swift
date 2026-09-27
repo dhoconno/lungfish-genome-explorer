@@ -31,8 +31,13 @@ struct PrimerSchemeAdvancedOptionsView: View {
       HStack {
         field("Temperature (°C)", $state.olivarTemperatureC)
         field("Salinity (M)", $state.olivarSalinityM)
-        field("Maximum dimer ΔG", $state.olivarMaximumDimerDeltaG)
+        // Olivar's dG_max bounds how tightly a primer may bind its own target,
+        // which is what limits primer length and stability. It is not a dimer
+        // threshold, and calling it one sent readers looking for the wrong effect.
+        field("Maximum primer-target binding ΔG (--dG-max)", $state.olivarMaximumDimerDeltaG)
       }
+      Text("Maximum primer-target binding ΔG bounds each primer's own binding free energy, which is how Olivar limits primer length and stability. It is not a primer-dimer threshold.")
+        .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
       HStack {
         field("Random seed", $state.olivarSeed)
         field("Search effort", $state.olivarEffort)

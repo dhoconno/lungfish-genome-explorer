@@ -30,7 +30,11 @@ struct OlivarDesignCommand: AsyncParsableCommand {
     @Flag(name: .customLong("degenerate")) var degenerate = false
     @Option(name: .customLong("temperature-c")) var temperatureC = 60.0
     @Option(name: .customLong("salinity-m")) var salinityM = 0.18
-    @Option(name: .customLong("maximum-dimer-delta-g")) var maximumDimerDeltaG = -11.8
+    // Olivar calls this dG_max: the maximum free energy of a primer binding its own
+    // target, which is how it bounds primer length and stability. It is not a
+    // primer-dimer limit. The flag name is kept for compatibility.
+    @Option(name: .customLong("maximum-dimer-delta-g"), help: "Olivar dG_max: maximum primer-target binding free energy, which bounds primer length and stability. Not a primer-dimer threshold.")
+    var maximumDimerDeltaG = -11.8
     @Option(name: .customLong("minimum-gc")) var minimumGC = 0.2
     @Option(name: .customLong("maximum-gc")) var maximumGC = 0.75
     @Option(name: .customLong("minimum-complexity")) var minimumComplexity = 0.4

@@ -83,6 +83,18 @@ final class PrimerDesignDialogState {
   var primerMaxSelfEndTh = ""
   var pairMaxComplAnyTh = ""
   var pairMaxComplEndTh = ""
+  // PRIMER_INTERNAL_* hydrolysis-probe rules. These were CLI-only, so a GUI user
+  // could not adjust the probe window at all. They apply to the hydrolysis-probe
+  // assay and are seeded from the same shared preset the CLI sends.
+  var probeMinTm = PrimerDesignDialogState.text(Primer3ProbeDefaults.hydrolysisProbe.probeMinTm)
+  var probeOptTm = PrimerDesignDialogState.text(Primer3ProbeDefaults.hydrolysisProbe.probeOptTm)
+  var probeMaxTm = PrimerDesignDialogState.text(Primer3ProbeDefaults.hydrolysisProbe.probeMaxTm)
+  var probeMinSize = String(Primer3ProbeDefaults.hydrolysisProbe.probeMinSize)
+  var probeOptSize = String(Primer3ProbeDefaults.hydrolysisProbe.probeOptSize)
+  var probeMaxSize = String(Primer3ProbeDefaults.hydrolysisProbe.probeMaxSize)
+  var probeMinGC = PrimerDesignDialogState.text(Primer3ProbeDefaults.hydrolysisProbe.probeMinGC)
+  var probeOptGC = PrimerDesignDialogState.text(Primer3ProbeDefaults.hydrolysisProbe.probeOptGC)
+  var probeMaxGC = PrimerDesignDialogState.text(Primer3ProbeDefaults.hydrolysisProbe.probeMaxGC)
   var advancedExpanded = false
   var schemeMode: PrimerSchemeMode = .tiled {
     didSet { updateVarVAMPMode(from: oldValue) }
@@ -722,6 +734,51 @@ final class PrimerDesignDialogState {
     primerMaxSelfEndTh = Self.text(defaults.primerMaxSelfEndTh)
     pairMaxComplAnyTh = Self.text(defaults.pairMaxComplAnyTh)
     pairMaxComplEndTh = Self.text(defaults.pairMaxComplEndTh)
+    // The probe window reseeds with the rest of the preset, so switching assays
+    // never leaves probe rules from a different assay behind.
+    if let probe = defaults.probe {
+      probeMinTm = Self.text(probe.probeMinTm)
+      probeOptTm = Self.text(probe.probeOptTm)
+      probeMaxTm = Self.text(probe.probeMaxTm)
+      probeMinSize = String(probe.probeMinSize)
+      probeOptSize = String(probe.probeOptSize)
+      probeMaxSize = String(probe.probeMaxSize)
+      probeMinGC = Self.text(probe.probeMinGC)
+      probeOptGC = Self.text(probe.probeOptGC)
+      probeMaxGC = Self.text(probe.probeMaxGC)
+    }
+  }
+
+  /// The probe window as edited in the dialog. Only the hydrolysis-probe assay has
+  /// an internal oligo, so other assays send no probe settings at all. Members not
+  /// exposed in the dialog (`probeMaxPolyX`, `probeMustMatchFivePrime`) keep the
+  /// shared preset's values, exactly as the CLI sends them.
+  func probeOptions() throws -> Primer3ProbeDefaults? {
+    guard let preset = Primer3AssayDefaults.defaults(for: chemistry.assayMode).probe else { return nil }
+    let minimumTm = try finiteNumber(probeMinTm, "Minimum probe Tm")
+    let optimumTm = try finiteNumber(probeOptTm, "Optimum probe Tm")
+    let maximumTm = try finiteNumber(probeMaxTm, "Maximum probe Tm")
+    guard minimumTm <= optimumTm, optimumTm <= maximumTm else {
+      throw invalid("Probe temperatures must be ordered minimum ≤ optimum ≤ maximum.")
+    }
+    let minimumSize = try positiveInteger(probeMinSize, "Minimum probe length")
+    let optimumSize = try positiveInteger(probeOptSize, "Optimum probe length")
+    let maximumSize = try positiveInteger(probeMaxSize, "Maximum probe length")
+    guard minimumSize <= optimumSize, optimumSize <= maximumSize else {
+      throw invalid("Probe lengths must be ordered minimum ≤ optimum ≤ maximum.")
+    }
+    let minimumGC = try finiteNumber(probeMinGC, "Minimum probe GC percentage")
+    let optimumGC = try finiteNumber(probeOptGC, "Optimum probe GC percentage")
+    let maximumGC = try finiteNumber(probeMaxGC, "Maximum probe GC percentage")
+    guard minimumGC >= 0, minimumGC <= optimumGC, optimumGC <= maximumGC, maximumGC <= 100 else {
+      throw invalid("Probe GC percentages must be between 0 and 100, ordered minimum ≤ optimum ≤ maximum.")
+    }
+    return .init(
+      probeMinTm: minimumTm, probeOptTm: optimumTm, probeMaxTm: maximumTm,
+      probeMinSize: minimumSize, probeOptSize: optimumSize, probeMaxSize: maximumSize,
+      probeMinGC: minimumGC, probeOptGC: optimumGC, probeMaxGC: maximumGC,
+      probeMaxPolyX: preset.probeMaxPolyX,
+      probeMustMatchFivePrime: preset.probeMustMatchFivePrime)
   }
 
   func primer3Options() throws -> Primer3DesignOptions {
@@ -769,9 +826,10 @@ final class PrimerDesignDialogState {
       primerMaxSelfEndTh: try optionalNonnegativeNumber(primerMaxSelfEndTh, "Self complementarity (3′ end) threshold"),
       pairMaxComplAnyTh: try optionalNonnegativeNumber(pairMaxComplAnyTh, "Pair complementarity (any) threshold"),
       pairMaxComplEndTh: try optionalNonnegativeNumber(pairMaxComplEndTh, "Pair complementarity (3′ end) threshold"),
-      // The probe window is not editable here, so it travels straight from the
-      // shared preset and the GUI sends what `--assay qpcr-probe` sends.
-      probe: Primer3AssayDefaults.defaults(for: chemistry.assayMode).probe)
+      // The probe window is now editable for the hydrolysis-probe assay. Its
+      // starting values and the rules the dialog does not expose still come from
+      // the shared preset, so an untouched dialog sends what `--assay qpcr-probe` sends.
+      probe: try probeOptions())
   }
 
   private func optionalNonnegativeNumber(_ text: String, _ title: String) throws -> Double? {

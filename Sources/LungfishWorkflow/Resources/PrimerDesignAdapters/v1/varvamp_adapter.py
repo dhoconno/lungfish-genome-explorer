@@ -279,6 +279,30 @@ def _metadata(row: dict[str, str], excluded: set[str]) -> dict[str, Any]:
     return {key: value for key, value in row.items() if key not in excluded}
 
 
+def _read_qpcr_penalties(native_dir: Path) -> dict[str, tuple[float, int]]:
+    """Return each qPCR assay's varVAMP penalty and its row order in qpcr_design.tsv.
+
+    varVAMP writes this table best-first. Both values are returned so ties fall back
+    to varVAMP's own ordering rather than to an assay's name or position.
+    """
+    design_path = native_dir / "qpcr_design.tsv"
+    if not design_path.is_file():
+        return {}
+    penalties: dict[str, tuple[float, int]] = {}
+    with design_path.open(newline="", encoding="utf-8") as handle:
+        for index, row in enumerate(csv.DictReader(handle, delimiter="\t")):
+            name = row.get("qpcr_scheme")
+            if not name or name in penalties:
+                continue
+            try:
+                penalty = float(row["penalty"])
+            except (KeyError, TypeError, ValueError):
+                # Without a usable penalty, the table's own order still stands.
+                penalty = float("inf")
+            penalties[name] = (penalty, index)
+    return penalties
+
+
 def normalize_varvamp_outputs(
     native_dir: Path,
     *,
@@ -312,7 +336,27 @@ def normalize_varvamp_outputs(
         groups.setdefault(row[group_field], []).append(row)
     if not groups:
         raise AdapterError("no_feasible_design", "varVAMP produced no assays", {"target": label})
-    ordered_names = sorted(groups, key=lambda name: (amplicon_bed.get(name, {}).get("start", 0), name))
+    if mode == "qpcr":
+        # varVAMP ranks qPCR assays by penalty and reports them best-first in
+        # qpcr_design.tsv (varVAMP_0 is its top choice). Sorting by position would
+        # make the leftmost assay rank 1, and rank 1 is what LGE marks "selected",
+        # so a worse assay could be presented as the chosen one and exported by
+        # "Export selected assays". Preserve varVAMP's own order, and fall back to
+        # the penalty column if the table is ever reordered upstream.
+        design_penalties = _read_qpcr_penalties(native_dir)
+        table_order = {name: index for index, name in enumerate(dict.fromkeys(row[group_field] for row in rows))}
+        ordered_names = sorted(
+            groups,
+            key=lambda name: (
+                design_penalties.get(name, (float("inf"), table_order.get(name, 0))),
+                table_order.get(name, 0),
+                name,
+            ),
+        )
+    else:
+        # A tiled scheme is one panel, so reading order along the reference is the
+        # useful order and every assay is selected.
+        ordered_names = sorted(groups, key=lambda name: (amplicon_bed.get(name, {}).get("start", 0), name))
     for rank, assay_name in enumerate(ordered_names, 1):
         amp = amplicon_bed.get(assay_name)
         if amp is None:

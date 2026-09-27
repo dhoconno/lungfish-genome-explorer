@@ -210,6 +210,33 @@ struct PrimerDesignDialog: View {
     }
   }
 
+  /// The PRIMER_INTERNAL_* hydrolysis-probe window, matching the CLI's `--probe-*`
+  /// flags. A probe must melt above its primers so it is already bound when
+  /// extension reaches it, which is why its Tm range starts above the primer range.
+  @ViewBuilder private var probeFields: some View {
+    Text("Hydrolysis probe (internal oligo)").font(.subheadline.weight(.medium))
+    Text("Primer3 picks one internal oligo per pair. The probe melts above the primers so it is bound before extension reaches it. Poly-X and the 5′ must-match rule travel from the shared preset.")
+      .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+    Text("Probe melting temperature (°C)").font(.caption).foregroundStyle(.secondary)
+    HStack {
+      numberField("Minimum", $state.probeMinTm)
+      numberField("Optimum", $state.probeOptTm)
+      numberField("Maximum", $state.probeMaxTm)
+    }
+    Text("Probe length (nt)").font(.caption).foregroundStyle(.secondary)
+    HStack {
+      numberField("Minimum", $state.probeMinSize)
+      numberField("Optimum", $state.probeOptSize)
+      numberField("Maximum", $state.probeMaxSize)
+    }
+    Text("Probe GC (%)").font(.caption).foregroundStyle(.secondary)
+    HStack {
+      numberField("Minimum", $state.probeMinGC)
+      numberField("Optimum", $state.probeOptGC)
+      numberField("Maximum", $state.probeMaxGC)
+    }
+  }
+
   private var advancedSection: some View {
     DisclosureGroup("Advanced settings", isExpanded: $state.advancedExpanded) {
       VStack(alignment: .leading, spacing: 14) {
@@ -244,6 +271,10 @@ struct PrimerDesignDialog: View {
             numberField("Pair, any", $state.pairMaxComplAnyTh)
             numberField("Pair, 3′ end", $state.pairMaxComplEndTh)
           }
+          // Only the hydrolysis-probe assay asks Primer3 for an internal oligo, so
+          // the probe window is shown only for that assay. These reseed with the
+          // preset whenever the assay changes.
+          if state.chemistry == .hydrolysisProbe { probeFields }
         } else if state.engine == .primalScheme {
           numberField("Minimum base frequency", $state.minimumBaseFrequency)
           Text("PrimalScheme's native per-base minimum frequency. The historical GUI default remains 0.")
