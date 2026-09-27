@@ -231,12 +231,38 @@ public enum ProjectTempDirectory {
             return directory
         }
 
-        let base = FileManager.default.temporaryDirectory
+        let base = systemTemporaryDirectory()
         let dirName = "\(prefix)\(UUID().uuidString)"
         let dirURL = base.appendingPathComponent(dirName, isDirectory: true)
         try FileManager.default.createDirectory(at: dirURL, withIntermediateDirectories: true)
         logger.debug("Created temp directory: \(dirURL.path, privacy: .public)")
         return dirURL
+    }
+
+    /// The system scratch root for a run with no project context.
+    ///
+    /// `FileManager.temporaryDirectory` ignores `TMPDIR` on macOS (it always
+    /// answers the per-user `/var/folders/.../T`), while the managed tools
+    /// this scratch feeds (micromamba, samtools, the variant callers) are
+    /// launched with the caller's `TMPDIR`. Honouring the variable here keeps
+    /// every workspace of one CLI run under the directory the user pointed
+    /// at, which is what `variants call` and the other `.systemOnly` callers
+    /// document. An unset, empty, or unusable `TMPDIR` falls back to the
+    /// per-user directory.
+    public static func systemTemporaryDirectory(
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> URL {
+        if let raw = environment["TMPDIR"]?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !raw.isEmpty {
+            let candidate = URL(fileURLWithPath: raw, isDirectory: true).standardizedFileURL
+            var isDirectory: ObjCBool = false
+            if FileManager.default.fileExists(atPath: candidate.path, isDirectory: &isDirectory),
+               isDirectory.boolValue,
+               FileManager.default.isWritableFile(atPath: candidate.path) {
+                return candidate
+            }
+        }
+        return FileManager.default.temporaryDirectory
     }
 
     // MARK: - TempOriginMarker
