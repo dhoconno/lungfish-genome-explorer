@@ -225,7 +225,7 @@ While both are 0 the readiness line reads "Enter at least one fixed trim amount.
 
 **Max Length.** Sets the longest read kept, in bases. It starts empty, meaning no upper bound, which is right for Illumina data because the instrument already caps read length. Set it on long-read data when reads far above the expected size appear, which are usually concatemers, several copies of one fragment joined end to end, or [chimeras](../../GLOSSARY.md#chimera), two unrelated fragments joined into one read. [Oxford Nanopore Runs](07-ont-runs.md#after-import) uses it that way. On the command line this is `--max`.
 
-A minimum larger than the maximum makes the readiness line read "Minimum read length cannot exceed maximum read length." On a paired bundle the window drops both mates of a pair when either one falls outside the bounds, so the output stays paired. The command-line `fastq length-filter` does not, as [On the command line](#on-the-command-line) explains.
+A minimum larger than the maximum makes the readiness line read "Minimum read length cannot exceed maximum read length." On a paired bundle the filter drops both mates of a pair when either one falls outside the bounds, so the output stays paired. The command-line `fastq length-filter` runs the same bbduk command and does the same.
 
 ### Shared settings
 
@@ -243,28 +243,28 @@ Click the bundle to open the FASTQ viewport, whose summary cards [Quality Contro
 
 | Measure | Imported bundle | After fastp Adapter + Quality Trim | After Filter by Read Length, minimum 50 |
 |---|---|---|---|
-| Reads | 91,148 | 90,622 | 86,412 |
-| Pairs | 45,574 | 45,311 | 43,206 |
-| Bases | 22,662,846 | 20,241,620 | 19,842,752 |
-| Mean read length | 248.6 bases | 223.4 bases | 229.6 bases |
+| Reads | 91,148 | 90,556 | 86,410 |
+| Pairs | 45,574 | 45,278 | 43,205 |
+| Bases | 22,662,846 | 20,236,175 | 19,841,490 |
+| Mean read length | 248.6 bases | 223.5 bases | 229.6 bases |
 | Shortest read | 35 bases | 1 base | 50 bases |
 
-Read the table from left to right. The trim kept 90,622 of 91,148 reads, which is 99.42 percent, so it removed 263 whole pairs outright. Bases fell to 89.3 percent of the original, so the trim cost about a tenth of the sequence while costing almost no reads.
+Read the table from left to right. The trim kept 90,556 of 91,148 reads, which is 99.35 percent, so it removed 296 whole pairs outright. fastp judges the two mates of a pair together, so when trimming leaves one mate with nothing its partner goes with it, and every read that survives still sits next to its mate. Bases fell to 89.3 percent of the original, so the trim cost about a tenth of the sequence while costing almost no reads.
 
 The gap between those two survival figures is the sign of a healthy trim. Reads kept and bases kept differ by about ten percentage points, which means the trim took a tail off many reads rather than removing many reads. The mean length says the same thing in a different unit. The average read lost about 25 bases, the low-quality tail the Phred scores had already flagged.
 
-The shortest read shows the cost. It falls from 35 bases to 1. A one-base read is a read whose quality collapsed near its start, cut back to almost nothing and kept, because LGE switches off fastp's own length filter. That is why the length filter exists and why it runs after the trim. At a 50-base minimum it removed 4,210 reads, 2,105 whole pairs, because it drops both mates when either one is too short. It kept 95.35 percent of the reads it was given and 94.8 percent of the original 91,148.
+The shortest read shows the cost. It falls from 35 bases to 1. A one-base read is a read whose quality collapsed near its start, cut back to almost nothing and kept, because LGE switches off fastp's own length filter. That is why the length filter exists and why it runs after the trim. At a 50-base minimum it removed 4,146 reads, 2,073 whole pairs, because it drops both mates when either one is too short. It kept 95.42 percent of the reads it was given and 94.8 percent of the original 91,148.
 
 Four more runs on the same bundle show what the settings do.
 
 | Operation and setting | Reads kept | Bases kept |
 |---|---|---|
-| Adapter Removal alone | 91,148 | 22,642,578 |
+| Adapter Removal alone | 91,148 | 22,641,285 |
 | Quality Trim alone, Threshold 20 | 90,658 | 20,264,772 |
 | Quality Trim, Threshold 30 | 87,834 | 16,595,750 |
 | Trim Fixed Bases, 5' Trim of 10 | 91,148 | 21,751,366 |
 
-Adapter Removal kept every read and removed 20,268 bases of adapter from 772 reads, under 1 percent of the reads, found by lining up the two mates of each pair. [Subsetting and Extraction](06-subsetting-and-extraction.md#select-reads-by-sequence) finds a similar share, 518 reads, when it searches the reads for the Illumina TruSeq adapter directly. So these reads do carry adapter, at a frequency too low to matter for mapping and too low for fastp to guess from single reads. Quality Trim alone kept 36 more reads than the combined operation and about 23,000 more bases, the adapter the combined pass also took. Ten more points of threshold, Q30 instead of Q20, cost a further 3.67 million bases of real human sequence, 18 percent of what the Q20 trim had left. Trim Fixed Bases removed exactly 911,480 bases, ten bases times 91,148 reads, and kept every read.
+Adapter Removal kept every read and removed 21,561 bases of adapter from 829 reads, under 1 percent of the reads, found by lining up the two mates of each pair. [Subsetting and Extraction](06-subsetting-and-extraction.md#select-reads-by-sequence) finds a similar share, 518 reads, when it searches the reads for the Illumina TruSeq adapter directly. So these reads do carry adapter, at a frequency too low to matter for mapping and too low for fastp to guess from single reads. Quality Trim alone kept 102 more reads than the combined operation and about 29,000 more bases, mostly the adapter the combined pass also took. Ten more points of threshold, Q30 instead of Q20, cost a further 3.67 million bases of real human sequence, 18 percent of what the Q20 trim had left. Trim Fixed Bases removed exactly 911,480 bases, ten bases times 91,148 reads, and kept every read.
 
 To see the same run as a command, right-click its row and choose Copy CLI Command, as [The Operations Panel](../01-foundations/06-the-lungfish-project.md#the-operations-panel) describes.
 
@@ -274,7 +274,7 @@ Compare the trimmed bundle's cards and charts against the input's. The viewport 
 
 **The quality chart.** The chart labelled Q / Position plots quality along the read. After a trim at a Threshold of 20 it should no longer dip below Q20 at the read end, where Q20 is the same Phred score of 20.
 
-**Read survival.** For typical Illumina data expect 90 percent or more of reads to survive a quality trim, and this example's 99.42 percent sits well inside that. Survival below about 70 percent means the Threshold is too harsh for the data. Lower it rather than accept the loss.
+**Read survival.** For typical Illumina data expect 90 percent or more of reads to survive a quality trim, and this example's 99.35 percent sits well inside that. Survival below about 70 percent means the Threshold is too harsh for the data. Lower it rather than accept the loss.
 
 **Bases against reads.** Reads surviving while bases fall is a trim working correctly. Reads and bases falling together in similar proportion means whole reads are being discarded, which points at a Threshold set for cleaner data than you have.
 
@@ -305,13 +305,9 @@ lungfish-cli fastq trim "$READS" \
   --threshold 20 --window 4 --mode cut-right \
   --output "$HOME/Desktop/hg002.trim.fastq"
 
-# Drop everything under 50 bases, last of all.
+# Drop everything under 50 bases, last of all, keeping mates together.
 lungfish-cli fastq length-filter "$HOME/Desktop/hg002.trim.fastq" \
-  --min 50 --output "$HOME/Desktop/hg002.trim.len50.fastq"
-
-# Put the pairs back together after the command-line length filter.
-lungfish-cli fastq repair "$HOME/Desktop/hg002.trim.len50.fastq" \
-  --output "$HOME/Desktop/hg002.trim.len50.repaired.fastq"
+  --min 50 --pairing interleaved --output "$HOME/Desktop/hg002.trim.len50.fastq"
 
 # Primer trimming at the dialog's k. The sequence is illustrative only.
 lungfish-cli fastq primer-remove "$READS" \
@@ -320,7 +316,7 @@ lungfish-cli fastq primer-remove "$READS" \
   --output "$HOME/Desktop/hg002.primer.fastq"
 ```
 
-Three command-line behaviours differ from the window and change results. `fastq trim` reads the bundle's pairing, splits the pairs into two files, and runs fastp on them as a pair, which also lets fastp look for read 2's own adapter, so it kept 90,556 reads and 20,236,175 bases where the window kept 90,622. `fastq length-filter` judges every read on its own, so on a paired file it can keep one mate and drop the other. On this file it kept 88,266 reads, 1,856 of them mates whose partner was dropped, and every record after the first dropped mate sat beside the wrong partner. `fastq repair` fixes that, writing the 43,205 complete pairs first and the 1,856 single reads after them, as [Repairing paired-end files](08-read-processing.md#repairing-paired-end-files) explains. For primer trimming, `fastq primer-remove` defaults `--kmer` to 23 where the dialog's **k** defaults to 15, so pass `--kmer 15` to match a dialog run, and `--ref` alone runs bbduk on the primer file, while the dialog's Reference FASTA choice runs cutadapt, so add `--engine cutadapt-linked` to match the window.
+The trim and the length filter give the window's numbers. `fastq trim` reads the bundle's pairing, splits the pairs into two files, and runs fastp on them as a pair, the same code the window runs, so it keeps 90,556 reads and 20,236,175 bases. The trimmed file sits outside any bundle, so `--pairing interleaved` states that its records alternate between mates rather than leaving `fastq length-filter` to work that out from the read names. It then runs bbduk, which keeps or drops both mates together, and keeps 86,410 reads, 43,205 whole pairs with no read left without its mate. Two primer-trimming behaviours differ from the window and change results. `fastq primer-remove` defaults `--kmer` to 23 where the dialog's **k** defaults to 15, so pass `--kmer 15` to match a dialog run, and `--ref` alone runs bbduk on the primer file, while the dialog's Reference FASTA choice runs cutadapt, so add `--engine cutadapt-linked` to match the window.
 
 ## Next
 

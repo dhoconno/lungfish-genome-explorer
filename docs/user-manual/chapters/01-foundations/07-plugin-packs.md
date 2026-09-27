@@ -44,7 +44,7 @@ A [plugin pack](../../GLOSSARY.md#plugin-pack) is a themed group of related tool
 
 Names in this typeface, such as `read-mapping`, are the ids LGE uses for a pack. On screen the same pack shows a plain title, Read Mapping, and the table in [The packs, and what is in them](#the-packs-and-what-is-in-them) pairs every id with its title.
 
-One pack is not optional. The Third-Party Tools pack sits in the Plugin Manager's Required Setup section, which is why other chapters call it the [Required Setup pack](../../GLOSSARY.md#required-setup-pack). It holds the seventeen everyday programs that most analyses in LGE rely on. `samtools` and `bcftools`, which sort and query alignment and variant files, are in it. So are `fastp` and `Deacon`, which trim reads and remove human reads from a sample, BBMap, a general-purpose read mapper that sits inside the entry labelled `bbtools`, and Nextflow, the program that runs multi-step pipelines. The Welcome window offers to install it the first time you open LGE, with an **Install** button on its Required Setup card, and nothing is installed until you click it. You can also install it from the Plugin Manager. Every task chapter assumes it is there.
+One pack is not optional. The Third-Party Tools pack sits in the Plugin Manager's Required Setup section, which is why other chapters call it the [Required Setup pack](../../GLOSSARY.md#required-setup-pack). It holds the seventeen everyday programs that most analyses in LGE rely on, and its card describes it as "Needed to run analyses. Projects open with the built-in viewers before it is installed." `samtools` and `bcftools`, which sort and query alignment and variant files, are in it. So are `fastp` and `Deacon`, which trim reads and remove human reads from a sample, BBMap, a general-purpose read mapper that sits inside the entry labelled `bbtools`, and Nextflow, the program that runs multi-step pipelines. The Welcome window offers to install it the first time you open LGE, with an **Install** button on its Required Setup card, and nothing is installed until you click it. You can also install it from the Plugin Manager. Every task chapter assumes it is there.
 
 Installation is handled by [conda](../../GLOSSARY.md#conda), a package manager that installs scientific software along with the shared code it depends on. LGE drives conda through [micromamba](../../GLOSSARY.md#micromamba), a small, fast version of it, and you never touch either one. Every tool lands in a [managed environment](../../GLOSSARY.md#managed-environment) of its own, a private folder holding that tool and its shared code, so two tools that want different versions of the same code never collide. The whole collection sits in LGE's storage folder, a hidden folder in your home folder, with the tools in its `conda` folder and the databases in its `databases` folder. The `~` stands for your home folder. A Stable copy of LGE uses `~/.lungfish-stable` and a Preview copy uses `~/.lungfish`, as [Release channels](06-the-lungfish-project.md#release-channels) explains. The storage folder sits outside every project and every project shares it, so you install a pack once and every project sees it. When both copies of LGE live on one Mac, each keeps its own folder but the same tool or database is stored on disk only once. Tool packages are downloaded into a cache both copies share, `~/.lungfish-shared/conda/pkgs`, and a database the other copy already holds is copied as an APFS clone, which takes seconds and no extra space, instead of being downloaded again. The command line inside an app bundle uses that app's folder, so the Preview app's `lungfish-cli` sees what the Preview app installed.
 
@@ -109,14 +109,13 @@ The workflow's menu item now appears in ordinary type and opens its dialog. Thre
 
 ### Tools that run in containers
 
-<!-- PENDING-CODE: container-runtime -->
 A [container](../../GLOSSARY.md#container) is a packaged copy of a program together with everything it needs to run, so the program behaves the same on every machine. A few published pipelines run each of their steps inside containers, and LGE runs those containers through [Docker](../../GLOSSARY.md#docker) Desktop, a separate free application from Docker, Inc. The Plugin Manager does not install Docker Desktop. Download it from the Docker website and install it like any other Mac application.
 
 Two pipelines in this manual need it, the Viral Recon SARS-CoV-2 pipeline and the TaxTriage classification pipeline. Their chapters say so in `## Before you start`. Workflows you add from the Workflow Library may need it too, and the Workflow Library shows which ones do. No other chapter needs Docker Desktop.
 
 Start Docker Desktop before you click Run on one of these pipelines. It is running when its whale icon sits in the menu bar at the top right of the screen, and clicking the whale shows its status. TaxTriage tries to start Docker Desktop itself and waits up to 90 seconds for it. A run that still cannot reach Docker stops with a message saying Docker Desktop is not running, and [Containers and pipelines will not start](../appendices/troubleshooting.md#containers-and-pipelines-will-not-start) covers what to check next.
 
-macOS 26 also has a container system of Apple's own, Apple Containerization. LGE's pipelines do not use it. The TaxTriage dialog's prerequisite line can name Apple's runtime as available, so check for the Docker whale in the menu bar instead of trusting that line.
+macOS 26 also has a container system of Apple's own, Apple Containerization. LGE's pipelines do not use it, and LGE never counts it when it checks whether a pipeline can run. The TaxTriage dialog's prerequisite row names Docker Desktop followed by Running, Not running, or Not installed, and only Running lets the run start.
 
 To check from Terminal, `lungfish-cli debug container` reports whether the Docker program and the Docker background service it talks to are reachable, with their versions, and lists Apple Containerization separately as not used by pipelines. It exits with status 65 when Docker cannot be reached, the code the [CLI Reference](../appendices/cli-reference.md#exit-status) lists for a container problem.
 
@@ -124,7 +123,6 @@ To check from Terminal, `lungfish-cli debug container` reports whether the Docke
 Docker (used by pipelines)
 ✓ Docker daemon reachable
 ```
-<!-- /PENDING-CODE -->
 
 ### Install a pack without internet access
 

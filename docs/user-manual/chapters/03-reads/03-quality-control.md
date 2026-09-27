@@ -102,8 +102,8 @@ The nine cards are measured from the reads, so none of them can be edited. The t
 | Median Length | The length of the middle read once every read is sorted by length | 250 bp |
 | N50 | The length at which reads that long or longer hold half of all bases | 250 bp |
 | Mean Q | The average base quality on the Phred scale, averaged through error probabilities | 25.3 |
-| Q20 | The percentage of bases scoring 20 or higher | 95.0% at import, 94.6% after refresh |
-| Q30 | The percentage of bases scoring 30 or higher | 91.0% at import, 91.3% after refresh |
+| Q20 | The percentage of bases scoring 20 or higher | 94.6% |
+| Q30 | The percentage of bases scoring 30 or higher | 91.3% |
 | GC | The percentage of bases that are G or C | 39.4% |
 
 The cards shorten large numbers. Reads shows 91.1K, where K means thousand, and Bases shows 22.66 Mb, where Mb means million bases. Open the [Inspector](../../GLOSSARY.md#inspector) with **View > Show Inspector** (Cmd-Opt-I) if it is hidden. Its Dataset Statistics section gives the same measurements under slightly longer labels, with Read Count as an exact number, Mean Length to a tenth of a base, and two values no card shows, Min Length and Max Length.
@@ -124,7 +124,7 @@ A mean below the median means a tail of shorter reads is pulling the average dow
 
 A [Phred score](../../GLOSSARY.md#phred-score) is a per-base quality on a logarithmic scale, where 20 means one wrong base in a hundred and 30 means one in a thousand.
 
-Q20 and Q30 are the percentages of bases scoring at or above 20 and 30. They answer the question you usually care about, which is how much of the data you can trust. This fixture reads 95.0% and 91.0%, which is healthy for Illumina. [What good looks like](#what-good-looks-like) gives the threshold to judge a Q30 figure against.
+Q20 and Q30 are the percentages of bases scoring at or above 20 and 30. They answer the question you usually care about, which is how much of the data you can trust. This fixture reads 94.6% and 91.3%, which is healthy for Illumina. [What good looks like](#what-good-looks-like) gives the threshold to judge a Q30 figure against.
 
 ### GC
 
@@ -137,7 +137,7 @@ Mean Q is the average base quality of the whole bundle. On this fixture it reads
 !!! note "Why Mean Q sits below most of the scores"
     A Phred score cannot be averaged in only one way. A score of Q30 stands for an error probability of 1 in 1,000, and Q10 stands for 1 in 10. Average the two scores and you get Q20. Average the probabilities they stand for, 0.001 and 0.1, and you get 0.0505, which converts back to about Q13. LGE takes the second route everywhere, on the card at import, after Refresh QC Summary, in the Reads tab, and in `lungfish-cli fastq qc-summary`. It is the same average `seqkit` reports as AvgQual. It is the more cautious answer, because a bad base is far more wrong than a good base is right, so a few terrible bases raise the true error rate sharply. A plain average of this fixture's scores would come out much higher, so a figure from another program may not match LGE's until you know which average it used.
 
-Q20 and Q30 can shift by a few tenths of a percent after a refresh, as the table shows. At import they come from `seqkit`, which reports them as whole percentages, and the refresh measures them to a tenth.
+Import and a refresh give the same Q20 and Q30, because both count every base against the threshold. On this fixture the stored values are 94.575% and 91.282%, and the cards round them to one decimal place.
 
 ### The three charts
 

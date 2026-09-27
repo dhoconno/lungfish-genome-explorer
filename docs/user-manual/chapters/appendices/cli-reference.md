@@ -2650,6 +2650,7 @@ lungfish-cli assemble [<options>] <fastq-files> ...
 | `-o, --output, --output-dir <output>` | Output directory. |
 | `--project-name, --name <project-name>` | Project name for the assembly. |
 | `--paired` | Treat the two input sequence files as paired-end mates. |
+| `--read-layout <read-layout>` | How the records of a single Illumina input file relate, one of `auto`, `single-end`, `interleaved` (every record is followed by its mate), or `mixed` (merged reads and interleaved pairs in one file). The default is `auto`, which reads the bundle's record and then the read names. SPAdes and MEGAHIT get an interleaved file as pairs with `--12` and SKESA with `--use_paired_ends`, and a mixed file runs as single reads. It cannot be combined with `--paired`. |
 | `--memory-gb, --memory <memory-gb>` | Memory budget in GB when the selected assembler supports it. |
 | `--min-contig-length <min-contig-length>` | Minimum contig length when the selected assembler supports it. |
 | `--profile <profile>` | Curated assembler profile, such as meta-sensitive or nano-hq. |

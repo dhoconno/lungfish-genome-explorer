@@ -158,13 +158,13 @@ The Analyses group at the top of the sidebar is built from the project's own rec
 
 ### Where results land
 
-An analysis never changes the files you gave it. Most analyses write a new result under `Analyses/`. A few add a new track to the reference bundle they were run on, as the table below shows. The one operation that changes a file you gave it is the command-line `lungfish-cli markdup`, which rewrites the BAM file it is pointed at, so run it on a copy.
+An analysis never changes the files you gave it. Most analyses write a new result under `Analyses/`. A few add a new track to the reference bundle they were run on, as the table below shows. Even the command-line `lungfish-cli markdup` writes its marked copy beside the BAM it is pointed at, and only its `--in-place` flag overwrites the original.
 
 A run by a named tool, such as a mapper, an assembler, or a classifier, gets its own folder named `<tool>-<timestamp>`. The angle brackets stand for values LGE fills in, so a real folder is named something like `minimap2-2026-09-25T00-00-00`, the tool name followed by the date and time of the run. A run that processes several samples as one batch adds the word `batch`, as in `kraken2-batch-2026-09-04T14-12-33`. If two runs claim the same second, the later one adds a counter, as in `-2`. You never type these names yourself.
 
 A read operation, such as trimming or removing human reads, writes one new read bundle straight into `Analyses/`. Its name joins the input's name to the operation's name, so trimming the `HG002.chr20.10.0-10.5Mb` reads with fastp produces `HG002.chr20.10.0-10.5Mb-fastpTrim`. Run the same operation on the same input again and LGE adds a counter, giving `HG002.chr20.10.0-10.5Mb-fastpTrim-2`, so an earlier result is never overwritten.
 
-A mapping result needs one more sentence, because every alignment and variant chapter builds on it. Mapping reads to a reference writes a folder such as `Analyses/minimap2-<timestamp>/` holding the run's records and a copy of the reference bundle you mapped to. The alignment is attached to that copy as a track, and the bundle you picked under `Reference Sequences/` is left exactly as it was. This manual calls the copy **the reference bundle inside the mapping result**. Every later step on the alignment, such as calling variants, filtering, or marking duplicates, adds its tracks to that copy. In the demo project the result is the row `minimap2-2026-09-25T00-00-00` under Analyses, and the copy inside it is named `GRCh38.chr20.10.0-10.5Mb`, after the bundle it was copied from. The sidebar shows the result as one row. Clicking it opens the mapping viewport, and the copy lives inside the result's folder on disk.
+A mapping result needs one more sentence, because every alignment and variant chapter builds on it. Mapping reads to a reference writes a folder such as `Analyses/minimap2-<timestamp>/` holding the run's records, the sorted BAM and its index at the top of the folder, named `<sample>.sorted.bam`, and a copy of the reference bundle you mapped to. The alignment is attached to that copy as a track, stored inside it as `alignments/aln_<id>.sorted.bam`, and the bundle you picked under `Reference Sequences/` is left exactly as it was. This manual calls the copy **the reference bundle inside the mapping result**. Every later step on the alignment, such as calling variants, filtering, or marking duplicates, adds its tracks to that copy. In the demo project the result is the row `minimap2-2026-09-25T00-00-00` under Analyses, and the copy inside it is named `GRCh38.chr20.10.0-10.5Mb`, after the bundle it was copied from. The sidebar shows the result as one row. Clicking it opens the mapping viewport, and the copy lives inside the result's folder on disk.
 
 <!-- ILLUSTRATION: mapping-result-layout -->
 
@@ -177,7 +177,8 @@ Other results have a fixed home of their own. Each chapter names the exact folde
 | Primer-trim, filter, or mark duplicates on an alignment | A new alignment track inside the same bundle. Duplicate marking keeps the original tracks, renamed with `[unmarked]`, and adds the marked copies, named with `[dup-marked]` |
 | Create Deduplicated Bundle | A new sibling bundle ending in `-deduplicated.lungfishref`, with the source untouched |
 | Extract reads from an alignment | `alignment-read-extractions/` inside the mapping result's folder |
-| Extract a region or feature from a reference, or reads from a classification result | `Extractions/` |
+| **Extract Visible Region...** saved as a new bundle, or reads from a classification result | `Extractions/` |
+| Right-click a feature, choose **Extract Sequence...**, and save it as a bundle | `Reference Sequences/` |
 | Extract Contigs from an assembly | `Reference Sequences/` |
 | Multiple sequence alignment | `Analyses/Multiple Sequence Alignments/` |
 | Tree | `Phylogenetic Trees/` |
@@ -186,6 +187,7 @@ Other results have a fixed home of their own. Each chapter names the exact folde
 | Imported NAO-MGS results | `Analyses/naomgs-<name>/` |
 | Imported CZ ID results | `Classifications/<sample>.lungfishtax` |
 | Oxford Nanopore run folder | `Imports/<run name>/`, one read bundle per barcode |
+| Demultiplex Barcodes | A `demux/` folder inside the source read bundle, one read bundle per barcode. A rerun writes `demux-2/`, then `demux-3/`, and keeps the earlier runs |
 | Primer design results and the bundles exported from them | `Analyses/` |
 | Save as Primer Scheme | `Primer Schemes/<name>.lungfishprimers` |
 
@@ -388,7 +390,7 @@ A second, separate window, the Document Inspector, lists the descriptive metadat
 
 The Operations Panel tracks every long-running job as it happens, such as a download, a mapping, a variant call, or a classification. Open it with **Operations > Show Operations Panel** (Cmd-Shift-P). It opens in a window of its own.
 
-Each job gets a row showing its type, its name, a progress bar, and the elapsed time. Behind every button, LGE runs an established command-line tool such as minimap2 or Kraken 2, so every job has a command behind it. Click the disclosure triangle at the left of a row to expand it. The expanded row shows the command LGE built, buttons to view or reveal the log file, and the log as the tool writes it.
+Each job gets a row showing its type, its name, a progress bar, and the elapsed time. Behind every button, LGE runs an established command-line tool such as minimap2 or Kraken 2, so every job has a command behind it. Click the **Log** button at the right of a row to open the details pane below the list. The pane shows the command LGE built under **Command**, then the log as the tool writes it, with a **Follow latest** checkbox that keeps the newest line in view. The row's button then reads **Hide Log**, and clicking it closes the pane.
 
 <!-- SHOT: operations-panel-row -->
 

@@ -59,9 +59,7 @@ The first four sections import onto an existing bundle, the path you want. The l
 
 ### Open the bundle the variants belong to
 
-<!-- PENDING-FIX: vcf-import-open-bundle -->
-Click the `minimap2-` mapping result under **Analyses** in the sidebar, and wait for the lower pane to show the `chr20_10.0-10.5Mb` sequence and ruler. The reference bundle inside the mapping result is now the open bundle, and the benchmark will attach to it beside the two caller tracks. This step decides where the variants go, and there is no later chance to change it.
-<!-- /PENDING-FIX -->
+Click the `minimap2-` mapping result under **Analyses** in the sidebar, and wait for the lower pane to show the `chr20_10.0-10.5Mb` sequence and ruler. The Import Center attaches a VCF to the bundle on display, and for a mapping result that is the reference bundle inside it, so the benchmark will land beside the two caller tracks. Selecting a single reference bundle or mapping result in the sidebar without opening it works the same way. This step decides where the variants go, and there is no later chance to change it.
 
 The bundle from Calling Variants is the right one, because the benchmark's positions count along the same 500 kilobase slice, named `chr20_10.0-10.5Mb`. LGE does not check that a VCF's coordinates belong to the open sequence, and it does not shift positions to fit, so the check is yours. If the VCF names a sequence differently from the bundle, for example with or without a `chr` prefix or a version suffix, LGE renames it to the bundle's name when it can match them, and the `Chrom` column shows the bundle's name.
 
@@ -91,7 +89,7 @@ The rows appear on the **Variants** tab of the [table drawer](../../GLOSSARY.md#
 
 ### Import with no bundle open
 
-Import a VCF with no reference bundle in the viewport and an alert appears titled **Name Imported Variant Bundle**. Its message names the project folder the bundle will be saved into, and a text field holds the VCF's base name. Buttons read Create and Cancel.
+Import a VCF with no reference bundle or mapping result on display or selected in the sidebar, and an alert appears titled **Name Imported Variant Bundle**. Its message names the project folder the bundle will be saved into, and a text field holds the VCF's base name. Buttons read Create and Cancel.
 
 <!-- SHOT: name-imported-variant-bundle -->
 

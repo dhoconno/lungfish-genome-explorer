@@ -137,7 +137,7 @@ Keep all three together. On the command line, running `replay.sh` with a new out
 
 ### CSV, TSV, and LabKey files
 
-A CSV or TSV export writes a header row reading `Sample` and then `<locus> H1` and `<locus> H2` for each locus, and one row per sample. On the demo result the header reads `Sample,MHC-A H1,MHC-A H2,MHC-DP H1,MHC-DP H2,MHC-DR H1,MHC-DR H2`, and each sample's row reads `M4`, `M1`, and `M7` in the H1 columns with the H2 columns left empty where the run wrote a dash. It carries calls rather than read counts, so use the Excel report or the LabKey `allele_read_counts.csv` for counts.
+A CSV or TSV export writes a header row reading `Sample` and then `<locus> H1` and `<locus> H2` for each locus, and one row per sample. On the demo result the header reads `Sample,MHC-A H1,MHC-A H2,MHC-DP H1,MHC-DP H2,MHC-DR H1,MHC-DR H2`, and each sample's row reads `M4`, `M1`, and `M7` in the H1 columns and the same names again in the H2 columns, because a locus called with one matched haplotype is homozygous. Every export follows that rule, the workbook's Effective H2, this table, and the LabKey files alike. A `-` in H2 appears only where an analyst marked the second haplotype absent, and a `?` where it is unresolved. It carries calls rather than read counts, so use the Excel report or the LabKey `allele_read_counts.csv` for counts.
 
 A genotype-only result, such as the demo run with Genotyping only chosen, still exports a table, with allele names in place of haplotypes. Its header names the allele loci, `MHC-DPA1 H1`, `MHC-DRB H1`, `MHC-G H1`, and their H2 columns, and on the demo each H1 holds the sample's one allele at that locus, such as `Mafa-G_02:31:01:01|OR823640`, with H2 empty.
 
@@ -185,9 +185,7 @@ lungfish-cli genotype export-labkey --bundle "$RESULT" \
 
 One default differs from the window. The window's Percent Basis starts on Source Locus, which the command line spells `viewed-locus`, but `export-pivot-xlsx` starts on `sample-retained`. Pass `--percent-basis viewed-locus` to match the window, as above.
 
-<!-- PENDING-FIX: symlink-path-compare -->
-Write the exports to an ordinary folder such as Documents. An output path that passes through a symbolic link, such as a folder under `/tmp`, currently makes `genotype export` stop with "The provenance publication artifact no longer matches the transaction generation".
-<!-- /PENDING-FIX -->
+Any folder you can write to works as the output, including one reached through a symbolic link, a pointer file that stands for another folder, such as `/tmp`, which macOS keeps at `/private/tmp`.
 
 ## Next
 

@@ -76,11 +76,11 @@ The example in this chapter runs TaxTriage once on both corneal samples against 
 
 2. Choose **Tools > Classification > TaxTriage...**. The window that opens is titled FASTQ/FASTA Operations, with TaxTriage already chosen in its tool sidebar and its settings beside it. The dialog follows the layout [Operation dialogs](../01-foundations/06-the-lungfish-project.md#operation-dialogs) describes.
 
-3. Read the **Prerequisites** row at the top of the TaxTriage settings. It carries one indicator labelled **Nextflow** and a second that names a container runtime it found, followed by the word Available, or reads Container, Not found, when it found none. A green dot means the item is ready and an orange dot means it is missing, and a spinner means the check is still running. On macOS 26 the second indicator can name Apple Containerization as Available even when Docker Desktop is missing, because the check looks for Apple's runtime first, while the pipeline runs only through Docker. So check for the Docker whale in the menu bar as well, as [Tools that run in containers](../01-foundations/07-plugin-packs.md#tools-that-run-in-containers) shows.
+3. Read the **Prerequisites** row at the top of the TaxTriage settings. It carries one indicator labelled **Nextflow** and a second that names Docker Desktop followed by Running, Not running, or Not installed. A green dot means the item is ready and an orange dot means it is missing, and a spinner means the check is still running. The check asks Docker itself, so Apple's own container system never turns this dot green, as [Tools that run in containers](../01-foundations/07-plugin-packs.md#tools-that-run-in-containers) explains.
 
     <!-- SHOT: taxtriage-dialog -->
 
-4. If either dot is orange, **Run** stays disabled and the line under the **Run** button reads "Complete the classifier settings to continue." An orange dot beside **Nextflow** means the Required Setup pack is missing or broken, so open **Tools > Plugin Manager...** and install it from the Required Setup section, as [Plugin Packs](../01-foundations/07-plugin-packs.md#procedure) shows. An orange container dot means no runtime was found, so install Docker Desktop. In either case reopen the dialog afterwards, because the check runs when the settings appear.
+4. If either dot is orange, **Run** stays disabled and the line under the **Run** button reads "Complete the classifier settings to continue." An orange dot beside **Nextflow** means the Required Setup pack is missing or broken, so open **Tools > Plugin Manager...** and install it from the Required Setup section, as [Plugin Packs](../01-foundations/07-plugin-packs.md#procedure) shows. An orange Docker Desktop dot means Docker Desktop is not installed or not running, so install it or start it. In either case reopen the dialog afterwards, because the check runs when the settings appear.
 
 ### Check the samples
 
@@ -324,7 +324,7 @@ lungfish-cli import taxtriage "/path/to/taxtriage-output" \
   --output-dir "$PROJECT/Imports"
 ```
 
-A passing check ends with the line `All prerequisites met. Ready to run TaxTriage.` Like the dialog, it can name Apple Containerization as the runtime, so confirm Docker Desktop is running as well. `$HOME/.lungfish/databases/kraken2` is where the Plugin Manager installs Kraken 2 databases for the Preview build, and the Stable build uses `$HOME/.lungfish-stable` instead.
+A passing check reports `Container runtime: Docker Desktop (running)` and ends with the line `All prerequisites met. Ready to run TaxTriage.` Like the dialog, it asks Docker alone, and when Docker cannot be reached it prints `Container runtime: NOT AVAILABLE` with the reason and exits with status 126. `$HOME/.lungfish/databases/kraken2` is where the Plugin Manager installs Kraken 2 databases for the Preview build, and the Stable build uses `$HOME/.lungfish-stable` instead.
 
 `--remove-taxids` is the command-line form of **Exclude host taxa**. The command line fills in no default, so pass it yourself for every human sample. The `fastq_2` column stays empty because each bundle holds both reads of a pair in one file, and LGE splits that file into its two mates before the run, as the dialog does. For a single sample, `--input` with a FASTQ file or a `.lungfishfastq` bundle and `--sample` with its name replace `--samplesheet`, and `--input2` adds the second file of a pair stored as two files. The samplesheet has no role column, so sample roles have no command-line equivalent.
 

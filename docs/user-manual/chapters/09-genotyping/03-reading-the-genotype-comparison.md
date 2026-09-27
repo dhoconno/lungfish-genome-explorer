@@ -87,7 +87,7 @@ Nothing you do in the matrix changes the result. The help behind the question-ma
 
 ### Judge the depth of the whole run {#qc-status}
 
-Open the Inspector's Bundle tab. Its **Run Summary** section gives the whole run's Samples, Calls, Total Reads, Retained Reads, and Retained %, and its **QC Status** section counts the samples in each status. Read these before any column, because a blank cell in a thin sample means nothing.
+Open the Inspector's Bundle tab. Its **Run Summary** section gives the whole run's Samples, Calls, Total Reads, Retained Reads, and Retained %, with Total Reads and Retained % reading **Total Fragments** and **Retained % of Fragments** on a run that merged read pairs, and its **QC Status** section counts the samples in each status. Read these before any column, because a blank cell in a thin sample means nothing.
 
 LGE gives each sample one of three statuses. **OK** means at least 1,000 retained reads and at least 20 passed alignments. **Low Support** means the sample has reads but falls under one of those two numbers. **Review** means it has no calls, no retained reads, or no passed alignments. LGE defines no other cutoff. The status is a label for sample depth, not the read checks of [Quality Control for Reads](../03-reads/03-quality-control.md), and the next step shows each sample's own figures.
 
