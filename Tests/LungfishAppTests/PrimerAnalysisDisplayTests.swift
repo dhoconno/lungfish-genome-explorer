@@ -1,5 +1,6 @@
 import XCTest
 @testable import LungfishApp
+import LungfishWorkflow
 
 @MainActor
 final class PrimerAnalysisDisplayTests: XCTestCase {

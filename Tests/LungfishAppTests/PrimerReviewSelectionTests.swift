@@ -1,5 +1,6 @@
 import XCTest
 @testable import LungfishApp
+import LungfishWorkflow
 
 final class PrimerReviewSelectionTests: XCTestCase {
   func testSelectingAlternativePrimerKeepsPrimerAndExactAmpliconIdentity() {

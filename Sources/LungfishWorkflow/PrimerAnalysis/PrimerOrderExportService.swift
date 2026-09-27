@@ -3,16 +3,17 @@ import Darwin
 import Foundation
 import LungfishCore
 import LungfishIO
-import LungfishWorkflow
 
-enum PrimerOrderExportError: Error, LocalizedError {
+public enum PrimerOrderExportError: Error, LocalizedError {
   case invalid(String)
-  var errorDescription: String? { if case .invalid(let message) = self { return message }; return nil }
+  public var errorDescription: String? { if case .invalid(let message) = self { return message }; return nil }
 }
 
 /// Creates an ordering derivative of saved evidence, never a newly optimized scheme.
-struct PrimerOrderExportService: Sendable {
-  static func prepare(snapshot: PrimerAnalysisViewerSnapshot, selection: PrimerOrderSelection) throws -> [PrimerOrderOligo] {
+public struct PrimerOrderExportService: Sendable {
+  public init() {}
+
+  public static func prepare(snapshot: PrimerAnalysisViewerSnapshot, selection: PrimerOrderSelection) throws -> [PrimerOrderOligo] {
     guard snapshot.bundle.url.standardizedFileURL == selection.analysisURL.standardizedFileURL,
       snapshot.bundle.manifest == selection.manifest,
       (snapshot.primer3Results == nil) != selection.isPrimer3CandidateSelection else {
@@ -105,7 +106,7 @@ struct PrimerOrderExportService: Sendable {
   }
 
   /// Vendor sheets need short, file-safe names. Template titles can be long FASTA headers.
-  static func orderNameStem(_ title: String) -> String {
+  public static func orderNameStem(_ title: String) -> String {
     let permitted = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-_."))
     let cleaned = String(title.unicodeScalars.map { permitted.contains($0) ? Character($0) : "_" })
     let stem = String(cleaned.prefix(24)).trimmingCharacters(in: CharacterSet(charactersIn: "_"))
@@ -177,7 +178,7 @@ struct PrimerOrderExportService: Sendable {
     }
   }
 
-  func export(selection: PrimerOrderSelection, metadata: PrimerOrderMetadata, destinationURL: URL,
+  public func export(selection: PrimerOrderSelection, metadata: PrimerOrderMetadata, destinationURL: URL,
     invocationArgv: [String], progress: (@Sendable (Double, String) -> Void)? = nil,
     publish: (@Sendable (URL, URL) async throws -> Void)? = nil) async throws -> URL {
     let worker = Task.detached(priority: .userInitiated) {
@@ -303,11 +304,11 @@ struct PrimerOrderExportService: Sendable {
     return destination
   }
 
-  static func load(from url: URL) throws -> PrimerOrderDocument {
+  public static func load(from url: URL) throws -> PrimerOrderDocument {
     try loadSnapshot(from: url).document
   }
 
-  static func loadSnapshot(from url: URL) throws -> PrimerOrderViewerSnapshot {
+  public static func loadSnapshot(from url: URL) throws -> PrimerOrderViewerSnapshot {
     try Task.checkCancellation()
     guard let envelope = try ProvenanceEnvelopeReader.load(from: url), envelope.exitStatus == 0 else {
       throw PrimerOrderExportError.invalid("The primer order has no completed provenance.")

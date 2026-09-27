@@ -1,34 +1,33 @@
-import AppKit
+import CoreText
 import CryptoKit
 import Darwin
 import Foundation
 #if canImport(FoundationXML)
 import FoundationXML
 #endif
-import LungfishWorkflow
 
 /// Writes ordering derivatives from frozen, verified saved oligos. No design runtime is used.
-enum PrimerOrderSheetWriter {
-  struct Command: Codable, Sendable {
-    let argv: [String]
-    let toolVersion: String
-    let workingDirectory: String
-    let stderr: String
-    let exitStatus: Int32
-    let startedAt: Date
-    let completedAt: Date
+public enum PrimerOrderSheetWriter {
+  public struct Command: Codable, Sendable {
+    public let argv: [String]
+    public let toolVersion: String
+    public let workingDirectory: String
+    public let stderr: String
+    public let exitStatus: Int32
+    public let startedAt: Date
+    public let completedAt: Date
   }
 
-  struct Receipt: Sendable {
-    let templateSHA256: String
-    let commands: [Command]
+  public struct Receipt: Sendable {
+    public let templateSHA256: String
+    public let commands: [Command]
   }
 
   private static let templateSHA256 = "06011c8a0c29ef15aefb91fe7d7ce0af00e7dabbd5fab82dc726608b2ae962b4"
   private static let outputNames = ["template.xlsx", "ordering.csv", "IDT-oPools.xlsx", "primer-order.xlsx", "template-parts", "upload-parts", "workbook-parts"]
   private static let spreadsheetNamespace = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
 
-  static func write(oligos: [PrimerOrderOligo], metadata: PrimerOrderMetadata,
+  public static func write(oligos: [PrimerOrderOligo], metadata: PrimerOrderMetadata,
                     selection: PrimerOrderSelection, to directory: URL) async throws -> Receipt {
     try Task.checkCancellation()
     guard !oligos.isEmpty, oligos.count < 1_048_576,
@@ -289,24 +288,40 @@ enum PrimerOrderSheetWriter {
 
   private static func metadataRowHeight(_ row: MetadataRow) -> Double {
     let font = row.header
-      ? NSFont(name: "Calibri-Bold", size: 11) ?? NSFont(name: "Arial-BoldMT", size: 11) ?? NSFont.boldSystemFont(ofSize: 11)
-      : NSFont(name: "Calibri", size: 11) ?? NSFont(name: "Arial", size: 11) ?? NSFont.systemFont(ofSize: 11)
-    let paragraph = NSMutableParagraphStyle()
-    paragraph.lineBreakMode = .byWordWrapping
-    let attributes: [NSAttributedString.Key: Any] = [.font: font, .paragraphStyle: paragraph]
-    let lineHeight = ceil(font.ascender - font.descender + font.leading)
+      ? namedFont("Calibri-Bold") ?? namedFont("Arial-BoldMT") ?? CTFontCreateUIFontForLanguage(.emphasizedSystem, 11, nil)
+      : namedFont("Calibri") ?? namedFont("ArialMT") ?? CTFontCreateUIFontForLanguage(.system, 11, nil)
+    guard let font else { return row.header ? 30 : 20 }
+    var lineBreak = CTLineBreakMode.byWordWrapping
+    let paragraph = withUnsafeBytes(of: &lineBreak) { bytes in
+      var setting = CTParagraphStyleSetting(spec: .lineBreakMode, valueSize: bytes.count, value: bytes.baseAddress!)
+      return CTParagraphStyleCreate(&setting, 1)
+    }
+    let attributes = [kCTFontAttributeName as NSAttributedString.Key: font,
+                      kCTParagraphStyleAttributeName as NSAttributedString.Key: paragraph] as [NSAttributedString.Key: Any]
+    // Each laid-out line occupies ascent + descent + leading, as in a font-leading text layout.
+    let fontLineHeight = CTFontGetAscent(font) + CTFontGetDescent(font) + CTFontGetLeading(font)
+    let lineHeight = ceil(fontLineHeight)
     var contentHeight = lineHeight
     for (column, value) in row.values.enumerated() {
       // Excel widths use default-font digit units (about 5.25 pt); reserve cell padding.
       let width = max(1, metadataColumnWidths[column] * 5.25 - 10)
-      let bounds = (value as NSString).boundingRect(with: NSSize(width: width, height: .greatestFiniteMagnitude),
-        options: [.usesLineFragmentOrigin, .usesFontLeading], attributes: attributes)
+      let text = NSAttributedString(string: value, attributes: attributes)
+      let framesetter = CTFramesetterCreateWithAttributedString(text as CFAttributedString)
+      let frame = CTFramesetterCreateFrame(framesetter, CFRange(location: 0, length: 0),
+        CGPath(rect: CGRect(x: 0, y: 0, width: width, height: 1_000_000), transform: nil), nil)
+      let wrappedLines = CFArrayGetCount(CTFrameGetLines(frame))
       let hardLines = value.replacingOccurrences(of: "\r\n", with: "\n")
         .replacingOccurrences(of: "\r", with: "\n").components(separatedBy: "\n").count
-      contentHeight = max(contentHeight, ceil(bounds.height), CGFloat(hardLines) * lineHeight)
+      contentHeight = max(contentHeight, ceil(CGFloat(wrappedLines) * fontLineHeight), CGFloat(hardLines) * lineHeight)
     }
     let minimum = row.header && contentHeight > lineHeight ? 30.0 : 20.0
     return min(409, max(minimum, Double(ceil(contentHeight)) + 6))
+  }
+
+  /// A missing font must not silently substitute a different face with different metrics.
+  private static func namedFont(_ postScriptName: String) -> CTFont? {
+    let font = CTFontCreateWithName(postScriptName as CFString, 11, nil)
+    return CTFontCopyPostScriptName(font) as String == postScriptName ? font : nil
   }
 
   private static func oligoRow(_ oligo: PrimerOrderOligo, metadata: PrimerOrderMetadata) -> [String] {

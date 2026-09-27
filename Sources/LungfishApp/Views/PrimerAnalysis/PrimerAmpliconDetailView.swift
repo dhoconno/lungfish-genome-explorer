@@ -1,4 +1,5 @@
 import SwiftUI
+import LungfishWorkflow
 
 /// Uses verified saved membership only. Selected variant sets are not paired by their suffixes.
 struct PrimerAmpliconDetailView: View {

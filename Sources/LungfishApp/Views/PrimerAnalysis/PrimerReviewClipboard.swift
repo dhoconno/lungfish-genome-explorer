@@ -1,4 +1,5 @@
 import Foundation
+import LungfishWorkflow
 
 /// Read-only clipboard representations of saved oligos. Reverse primers are already
 /// stored in synthesis orientation; copying never reverse-complements them.

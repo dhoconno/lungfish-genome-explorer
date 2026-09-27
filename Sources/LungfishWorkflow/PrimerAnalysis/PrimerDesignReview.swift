@@ -1,61 +1,144 @@
 import Foundation
-import LungfishWorkflow
 
-struct PrimerReviewInterval: Identifiable, Sendable {
-  let id: String
-  let start: Int
-  let end: Int
-  let pool: Int?
+public struct PrimerReviewInterval: Identifiable, Sendable {
+  public let id: String
+  public let start: Int
+  public let end: Int
+  public let pool: Int?
   /// Native scientific pool identity. `pool` is only a visual lane group.
-  var nativePool: String? = nil
-  var poolLabel: String? = nil
-  var candidateStatus: PrimerAssayStatus = .selected
-  var rank: Int? = nil
-  var name: String = "Amplicon"
-  var primerIDs: [String] = []
-  var sizeLabel: String = "Reference span, including primers"
-  var length: Int { end - start }
+  public var nativePool: String? = nil
+  public var poolLabel: String? = nil
+  public var candidateStatus: PrimerAssayStatus = .selected
+  public var rank: Int? = nil
+  public var name: String = "Amplicon"
+  public var primerIDs: [String] = []
+  public var sizeLabel: String = "Reference span, including primers"
+
+  public init(
+    id: String,
+    start: Int,
+    end: Int,
+    pool: Int?,
+    nativePool: String? = nil,
+    poolLabel: String? = nil,
+    candidateStatus: PrimerAssayStatus = .selected,
+    rank: Int? = nil,
+    name: String = "Amplicon",
+    primerIDs: [String] = [],
+    sizeLabel: String = "Reference span, including primers"
+  ) {
+    self.id = id
+    self.start = start
+    self.end = end
+    self.pool = pool
+    self.nativePool = nativePool
+    self.poolLabel = poolLabel
+    self.candidateStatus = candidateStatus
+    self.rank = rank
+    self.name = name
+    self.primerIDs = primerIDs
+    self.sizeLabel = sizeLabel
+  }
+  public var length: Int { end - start }
 }
 
-struct PrimerReviewPrimer: Identifiable, Sendable {
-  let id: String
-  let name: String
-  let start: Int
-  let end: Int
-  let strand: String
-  let pool: Int?
-  var poolLabel: String? = nil
-  var role: PrimerOligoRole = .forward
-  var candidateStatus: PrimerAssayStatus = .selected
-  var rank: Int? = nil
-  var nativePool: String? = nil
-  var sequence: String = ""
-  var ampliconIDs: [String] = []
+public struct PrimerReviewPrimer: Identifiable, Sendable {
+  public let id: String
+  public let name: String
+  public let start: Int
+  public let end: Int
+  public let strand: String
+  public let pool: Int?
+  public var poolLabel: String? = nil
+  public var role: PrimerOligoRole = .forward
+  public var candidateStatus: PrimerAssayStatus = .selected
+  public var rank: Int? = nil
+  public var nativePool: String? = nil
+  public var sequence: String = ""
+  public var ampliconIDs: [String] = []
+
+  public init(
+    id: String,
+    name: String,
+    start: Int,
+    end: Int,
+    strand: String,
+    pool: Int?,
+    poolLabel: String? = nil,
+    role: PrimerOligoRole = .forward,
+    candidateStatus: PrimerAssayStatus = .selected,
+    rank: Int? = nil,
+    nativePool: String? = nil,
+    sequence: String = "",
+    ampliconIDs: [String] = []
+  ) {
+    self.id = id
+    self.name = name
+    self.start = start
+    self.end = end
+    self.strand = strand
+    self.pool = pool
+    self.poolLabel = poolLabel
+    self.role = role
+    self.candidateStatus = candidateStatus
+    self.rank = rank
+    self.nativePool = nativePool
+    self.sequence = sequence
+    self.ampliconIDs = ampliconIDs
+  }
 }
 
-struct PrimerTargetDesignReview: Identifiable, Sendable {
-  enum Presentation: Equatable, Sendable {
+public struct PrimerTargetDesignReview: Identifiable, Sendable {
+  public enum Presentation: Equatable, Sendable {
     case schemeReference
     case primer3Template
   }
-  let id: String
-  let label: String
-  let referenceLength: Int
-  let coverageLabel: String
-  let coveredBases: Int?
-  var coveragePercent: Double? { coveredBases.map { Double($0) * 100 / Double(referenceLength) } }
-  let intervals: [PrimerReviewInterval]
-  let primers: [PrimerReviewPrimer]
-  let notes: [String]
+  public let id: String
+  public let label: String
+  public let referenceLength: Int
+  public let coverageLabel: String
+  public let coveredBases: Int?
+  public var coveragePercent: Double? { coveredBases.map { Double($0) * 100 / Double(referenceLength) } }
+  public let intervals: [PrimerReviewInterval]
+  public let primers: [PrimerReviewPrimer]
+  public let notes: [String]
   /// Visible explanations of how the engine reached this coverage.
-  var advisories: [PrimerSchemeCoverageAdvisory] = []
-  var sourceResultID: String = ""
-  var referenceID: String = ""
-  var presentation: Presentation = .schemeReference
+  public var advisories: [PrimerSchemeCoverageAdvisory] = []
+  public var sourceResultID: String = ""
+  public var referenceID: String = ""
+  public var presentation: Presentation = .schemeReference
+
+  public init(
+    id: String,
+    label: String,
+    referenceLength: Int,
+    coverageLabel: String,
+    coveredBases: Int?,
+    intervals: [PrimerReviewInterval],
+    primers: [PrimerReviewPrimer],
+    notes: [String],
+    advisories: [PrimerSchemeCoverageAdvisory] = [],
+    sourceResultID: String = "",
+    referenceID: String = "",
+    presentation: Presentation = .schemeReference
+  ) {
+    self.id = id
+    self.label = label
+    self.referenceLength = referenceLength
+    self.coverageLabel = coverageLabel
+    self.coveredBases = coveredBases
+    self.intervals = intervals
+    self.primers = primers
+    self.notes = notes
+    self.advisories = advisories
+    self.sourceResultID = sourceResultID
+    self.referenceID = referenceID
+    self.presentation = presentation
+  }
 }
 
-enum PrimerDesignReview {
-  static func coveredBases(_ intervals: [PrimerReviewInterval]) -> Int {
+public enum PrimerDesignReview {
+  public static func coveredBases(_ intervals: [PrimerReviewInterval]) -> Int {
     var total = 0
     var end = 0
     for interval in intervals.sorted(by: { $0.start < $1.start }) {
@@ -64,7 +147,7 @@ enum PrimerDesignReview {
     return total
   }
 
-  static func primalScheme(id: String, label: String, reference: Data, amplicons: Data?,
+  public static func primalScheme(id: String, label: String, reference: Data, amplicons: Data?,
                           primers: [PrimalSchemeDisplayPrimer], labels: [String: String]) throws -> [PrimerTargetDesignReview] {
     func invalid() -> NSError { NSError(domain: "PrimerDesignReview", code: 1,
       userInfo: [NSLocalizedDescriptionKey: "Stored amplicon coordinates or reference sequence are invalid."]) }
@@ -115,7 +198,7 @@ enum PrimerDesignReview {
     }
   }
 
-  static func primer3(_ normalized: Primer3NormalizedResults) -> [PrimerTargetDesignReview] {
+  public static func primer3(_ normalized: Primer3NormalizedResults) -> [PrimerTargetDesignReview] {
     normalized.results.flatMap { result -> [PrimerTargetDesignReview] in
       if result.pairs.isEmpty {
         return [.init(id: result.resultID.uuidString, label: result.title, referenceLength: result.templateSequence.utf8.count,

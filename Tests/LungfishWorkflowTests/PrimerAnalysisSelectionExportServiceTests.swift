@@ -4,7 +4,6 @@ import XCTest
 import LungfishCore
 import LungfishIO
 @testable import LungfishWorkflow
-@testable import LungfishApp
 
 final class PrimerAnalysisSelectionExportServiceTests: XCTestCase {
   func testPrimerFASTARetainsStoredReverseOligoOrientationAndAlternatives() throws {

@@ -1,6 +1,7 @@
 import AppKit
 import Foundation
 import SwiftUI
+import LungfishWorkflow
 
 struct PrimalSchemeResultsView: View {
   @Environment(\.primerAnalysisVisibility) private var visibility

@@ -3,42 +3,43 @@ import Darwin
 import Foundation
 import LungfishCore
 import LungfishIO
-import LungfishWorkflow
 
-enum PrimerAnalysisExportSelection: Sendable, Equatable, Codable {
+public enum PrimerAnalysisExportSelection: Sendable, Equatable, Codable {
   case primer(targetID: String, primerID: String)
   case amplicon(targetID: String, ampliconID: String)
   case pool(sourceResultID: String, pool: Int)
   case nativePool(sourceResultID: String, pool: String)
 }
 
-enum PrimerAnalysisExportKind: String, Sendable, Equatable, Codable {
+public enum PrimerAnalysisExportKind: String, Sendable, Equatable, Codable {
   case primerFASTA
   case referenceAmplicon
 }
 
-enum PrimerAnalysisSelectionExportError: Error, LocalizedError {
+public enum PrimerAnalysisSelectionExportError: Error, LocalizedError {
   case unavailable(String)
-  var errorDescription: String? {
+  public var errorDescription: String? {
     switch self { case .unavailable(let message): return message }
   }
 }
 
 /// Publishes derivatives of immutable saved design evidence. Selection identities
 /// are resolved again at execution; UI coordinates and sequences are never inputs.
-struct PrimerAnalysisSelectionExportService: Sendable {
-  struct Record: Sendable, Codable {
-    let name: String
-    let description: String
-    let sequence: String
+public struct PrimerAnalysisSelectionExportService: Sendable {
+  public init() {}
+
+  public struct Record: Sendable, Codable {
+    public let name: String
+    public let description: String
+    public let sequence: String
   }
 
-  struct Prepared: Sendable {
-    let records: [Record]
-    let annotationBED: String?
-    let options: [String: ParameterValue]
-    let sourcePaths: [String]
-    var fasta: String { records.map { ">\($0.name) \($0.description)\n\($0.sequence)\n" }.joined() }
+  public struct Prepared: Sendable {
+    public let records: [Record]
+    public let annotationBED: String?
+    public let options: [String: ParameterValue]
+    public let sourcePaths: [String]
+    public var fasta: String { records.map { ">\($0.name) \($0.description)\n\($0.sequence)\n" }.joined() }
   }
 
   private struct SelectionDocument: Codable {
@@ -53,7 +54,7 @@ struct PrimerAnalysisSelectionExportService: Sendable {
     let retainedSourceArtifacts: [String]
   }
 
-  func export(
+  public func export(
     analysisURL: URL, selection: PrimerAnalysisExportSelection, kind: PrimerAnalysisExportKind,
     destinationURL: URL, invocationArgv: [String],
     progress: (@Sendable (Double, String) -> Void)? = nil,
@@ -67,7 +68,7 @@ struct PrimerAnalysisSelectionExportService: Sendable {
     return try await withTaskCancellationHandler { try await worker.value } onCancel: { worker.cancel() }
   }
 
-  static func prepare(snapshot: PrimerAnalysisViewerSnapshot, selection: PrimerAnalysisExportSelection,
+  public static func prepare(snapshot: PrimerAnalysisViewerSnapshot, selection: PrimerAnalysisExportSelection,
                       kind: PrimerAnalysisExportKind) throws -> Prepared {
     func unavailable(_ text: String) -> PrimerAnalysisSelectionExportError { .unavailable(text) }
     let targets: [PrimerTargetDesignReview]
@@ -331,7 +332,7 @@ struct PrimerAnalysisSelectionExportService: Sendable {
     return destinationURL
   }
 
-  static func publishExclusively(stagedURL: URL, destinationURL: URL) throws {
+  public static func publishExclusively(stagedURL: URL, destinationURL: URL) throws {
     try Task.checkCancellation()
     try requireAbsent(destinationURL)
     let status = stagedURL.path.withCString { source in destinationURL.path.withCString { destination in

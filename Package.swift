@@ -191,6 +191,7 @@ let package = Package(
                 .copy("Resources/Recipes"),
                 .copy("Resources/ONTGenotyping"),
                 .copy("Resources/PrimerDesignAdapters"),
+                .copy("Resources/PrimerOrdering"),
                 .copy("Resources/DemoProjects")
             ]
         ),
@@ -401,7 +402,6 @@ let package = Package(
                 .copy("Resources/HelpBook/Lungfish.help"),
                 .copy("Resources/Images"),
                 .copy("Resources/PrimerSchemes"),
-                .copy("Resources/PrimerOrdering"),
             ]
         ),
         .testTarget(

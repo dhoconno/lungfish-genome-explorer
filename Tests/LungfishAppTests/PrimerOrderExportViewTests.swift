@@ -4,6 +4,7 @@ import XCTest
 import LungfishIO
 import ViewInspector
 @testable import LungfishApp
+import LungfishWorkflow
 
 @MainActor
 final class PrimerOrderExportViewTests: XCTestCase {

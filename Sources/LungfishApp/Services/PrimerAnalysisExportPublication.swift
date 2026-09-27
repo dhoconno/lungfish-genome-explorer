@@ -1,5 +1,6 @@
 import Foundation
 import LungfishKit
+import LungfishWorkflow
 
 /// Publication and terminal Operations state must share one actor turn. Otherwise
 /// a cancellation accepted after rename can hide an already published result.

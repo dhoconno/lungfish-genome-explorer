@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import LungfishWorkflow
 
 private final class PrimerAnalysisHostingController: NSHostingController<PrimerAnalysisViewerView> {
     var installationID = UUID()
