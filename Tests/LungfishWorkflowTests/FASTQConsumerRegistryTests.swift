@@ -96,6 +96,18 @@ final class FASTQConsumerRegistryTests: XCTestCase {
         XCTAssertEqual(FASTQConsumerRegistry.declaration(for: "viralrecon.illumina")?.handling(for: .mixedMergedAndPairs), .asSingle)
     }
 
+    /// RiboDetector takes R1/R2 (`-i R1 R2 -o out1 out2`) and keeps or drops
+    /// a fragment's mates together, so a strictly interleaved file is split
+    /// for it rather than judged record by record; a mixed file stays single.
+    func testRiboDetectorRunsPairedOnInterleavedInput() throws {
+        let declaration = try XCTUnwrap(FASTQConsumerRegistry.declaration(for: "fastq.ribodetector"))
+        XCTAssertEqual(declaration.handling(for: .strictlyInterleaved), .asPairs)
+        XCTAssertEqual(declaration.handling(for: .pairedFiles), .asPairs)
+        XCTAssertEqual(declaration.handling(for: .mixedMergedAndPairs), .asSingle)
+        XCTAssertEqual(declaration.handling(for: .singleEnd), .asSingle)
+        XCTAssertTrue(declaration.mixedRationale.contains("-i R1 R2"))
+    }
+
     /// The fastp trims run paired on interleaved input and partition a mixed
     /// file by name (FastpPairedRunner), so neither layout runs as single
     /// reads any more; a file with no mates still does.
