@@ -2420,7 +2420,7 @@ private struct ImportArtifactConflictError: Error, LocalizedError {
 
 private func copyImportArtifactIfNeeded(from sourceURL: URL, to destinationURL: URL) throws -> Bool {
     let fileManager = FileManager.default
-    if sourceURL.standardizedFileURL.path == destinationURL.standardizedFileURL.path {
+    if sourceURL.canonicalFilePath == destinationURL.canonicalFilePath {
         return false
     }
 

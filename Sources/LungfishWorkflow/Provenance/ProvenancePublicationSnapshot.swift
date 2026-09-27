@@ -104,7 +104,9 @@ public struct ProvenancePublicationSnapshot {
         var capturedEntries: [Entry] = []
         do {
             for (index, url) in urls.enumerated() {
-                let standardizedURL = url.standardizedFileURL
+                // Physical path, so a receipt for /tmp/x and a mutation reported
+                // at /private/tmp/x describe the same artifact (CanonicalFilePath).
+                let standardizedURL = url.canonicalFileURL
                 guard seen.insert(standardizedURL.path).inserted else {
                     continue
                 }
@@ -203,7 +205,7 @@ public struct ProvenancePublicationSnapshot {
         guard witness.snapshotID == snapshotID else {
             throw ProvenancePublicationSnapshotError.invalidRollbackWitness
         }
-        let destination = destinationURL.standardizedFileURL
+        let destination = destinationURL.canonicalFileURL
         guard entries.contains(where: {
             $0.originalURL.path == destination.path
         }), let expectedPrior = witness.states[destination.path] else {
@@ -313,7 +315,7 @@ public struct ProvenancePublicationSnapshot {
             throw ProvenancePublicationSnapshotError.invalidRollbackWitness
         }
         var states = witness.states
-        for mutationURL in mutation.affectedURLs.map(\.standardizedFileURL) {
+        for mutationURL in mutation.affectedURLs.map(\.canonicalFileURL) {
             guard let requiredPrior =
                     mutation.requiredPriorStates[mutationURL.path],
                   let resulting =
@@ -785,8 +787,8 @@ public struct ProvenancePublicationSnapshot {
         of descendantURL: URL,
         below rootURL: URL
     ) -> [String]? {
-        let rootPath = rootURL.standardizedFileURL.path
-        let descendantPath = descendantURL.standardizedFileURL.path
+        let rootPath = rootURL.canonicalFilePath
+        let descendantPath = descendantURL.canonicalFilePath
         let prefix = rootPath.hasSuffix("/") ? rootPath : rootPath + "/"
         guard descendantPath.hasPrefix(prefix) else { return nil }
         let relativePath = String(descendantPath.dropFirst(prefix.count))

@@ -312,7 +312,47 @@ public enum PrimerSchemeAdapterResultLoader {
     /// symlink (`/tmp` -> `/private/tmp`, for instance) reads back differently from the
     /// path LGE launched. Compare both sides fully resolved so only real mismatches fail.
     static func canonicalPath(_ url: URL) -> String {
-        url.resolvingSymlinksInPath().standardizedFileURL.path
+        url.canonicalFilePath
+    }
+
+    /// Checks the runtime the adapter reports against the one LGE launched and
+    /// names the first mismatch precisely. These checks run after the native
+    /// tool has already finished, so every message says so and says what to do:
+    /// a copied tool root has to carry the verification records of the pinned
+    /// package, and a root reached through another path is the same runtime.
+    static func runtimeIdentityViolation(
+        runtime: PrimerSchemeAdapterProvenance.Runtime, engine: PrimerSchemeEngine,
+        executableURL: URL, expectedDistribution: String
+    ) -> String? {
+        let tool = engine.rawValue
+        let succeeded = "The native \(tool) run itself succeeded; its provenance could not be verified."
+        let expectedExecutable = Self.canonicalPath(executableURL)
+        let expectedPrefix = Self.canonicalPath(
+            executableURL.deletingLastPathComponent().deletingLastPathComponent())
+        if runtime.sourceVerification.isEmpty {
+            return "Adapter provenance lacks upstream source verification: the adapter recorded no verified "
+                + "\(tool) source files under \(runtime.environmentPrefix). \(succeeded) "
+                + "A tool root copied without the pinned package's conda-meta records cannot be verified; "
+                + "run against the installed tool root or reinstall the pcr-primer-design plugin pack."
+        }
+        let reportedExecutable = Self.canonicalPath(URL(fileURLWithPath: runtime.pythonExecutable))
+        if reportedExecutable != expectedExecutable {
+            return "Adapter provenance names Python \(reportedExecutable) but LGE launched \(expectedExecutable). "
+                + "\(succeeded) The \(tool) environment must be the one LGE resolved for this run; "
+                + "check LUNGFISH_CONDA_ROOT and the plugin pack installation."
+        }
+        let reportedPrefix = Self.canonicalPath(URL(fileURLWithPath: runtime.environmentPrefix))
+        if reportedPrefix != expectedPrefix {
+            return "Adapter provenance names environment \(reportedPrefix) but LGE launched from \(expectedPrefix). "
+                + "\(succeeded) The \(tool) environment must be the one LGE resolved for this run; "
+                + "check LUNGFISH_CONDA_ROOT and the plugin pack installation."
+        }
+        if runtime.distribution != expectedDistribution {
+            return "Adapter provenance records \(tool) distribution \(runtime.distribution) but LGE pins "
+                + "\(expectedDistribution). \(succeeded) Reinstall the pcr-primer-design plugin pack so the "
+                + "pinned package is present."
+        }
+        return nil
     }
 
     public static func loadVerified(
