@@ -33,9 +33,9 @@ Three facts decide whether a shortcut does anything at all, and reading them fir
 
 A shortcut acts on the window that has focus. Focus means the window or pane you clicked most recently, so clicking a sequence display and then pressing an arrow key moves that display rather than the sidebar beside it. Every table below states the window or pane that must have focus before its rows work.
 
-A greyed menu item is disabled, and its shortcut does nothing until the item is enabled. Nothing happens and no message appears. LGE greys items out on purpose whenever the command has nothing to act on, so **Zoom In** is disabled until a sequence is on screen and **Cancel All Operations** is disabled until something is running.
+A greyed menu item is disabled, and its shortcut does nothing until the item is enabled. Nothing happens and no message appears. LGE greys items out on purpose whenever the command has nothing to act on, so **Zoom Reset (10kb)** is disabled until a sequence is on screen and **Cancel All Operations** is disabled until something is running.
 
-One part of the Tools menu is gated further. A Genotyping tool shows "(not enabled)" after its name until you turn it on in the [Workflow Library](../../GLOSSARY.md#workflow-library).
+One part of the Tools menu is gated further. A Genotyping tool shows "(not enabled)" after its name, in grey, until you turn it on in the [Workflow Library](../../GLOSSARY.md#workflow-library). Choosing it, or pressing its shortcut, asks whether to open the Workflow Library rather than starting the tool, as [Turning on a specialized workflow](../01-foundations/07-plugin-packs.md#turning-on-a-specialized-workflow) shows.
 
 Your work is saved as you go. There is no Save command and no Cmd-S in LGE, because every change is written to the project folder the moment you make it. Nothing sits in memory waiting to be saved, and closing a window loses nothing.
 
@@ -43,7 +43,7 @@ Your work is saved as you go. There is no Save command and no Cmd-S in LGE, beca
 
 Each shortcut is written with the modifier keys first and the key equivalent last, joined by hyphens, so Cmd-Shift-P means hold Command and Shift together and then press P. You can press the modifiers in any order. All of them need to be down before the final key goes down.
 
-Symbol keys are named by the key a US keyboard prints on them, so you never have to guess whether Shift is part of the combination. Cmd-comma is the comma key. Cmd-plus and Cmd-minus are the equals key and the hyphen key, pressed with Command and no Shift, because LGE accepts the unshifted key in both places. Cmd-right bracket and Cmd-left bracket are the `]` and `[` keys. Cmd-? needs Shift, so it is written Cmd-Shift-slash wherever it appears. An arrow key can also be the final key, as in Cmd-Shift-Right Arrow. Pressing Cmd-Shift-hyphen, which types an underscore, also works anywhere Cmd-minus does.
+Symbol keys are named by the key a US keyboard prints on them, so you never have to guess whether Shift is part of the combination. Cmd-comma is the comma key. Cmd-plus and Cmd-minus are the equals key and the hyphen key, pressed with Command and no Shift, because LGE accepts the unshifted key in both places. Cmd-right bracket and Cmd-left bracket are the `]` and `[` keys. Cmd-? needs Shift, so it is written Cmd-Shift-slash wherever it appears. An arrow key can also be the final key, as in Cmd-Shift-Right Arrow. Inside the sequence viewport and the classifier read viewer, Cmd-Shift-hyphen, which types an underscore, also works in place of Cmd-minus.
 
 Menu titles appear in **bold** when the text names them, and the bold form is the exact title the app prints, ellipsis included. That matters in one place only, the Customizing shortcuts section at the end, where an exact match is what makes a remapping work.
 
@@ -60,7 +60,7 @@ The leftmost menu, named for the app itself, holds the commands that act on the 
 | Hide Others | Cmd-Opt-H | Standard macOS |
 | Quit Lungfish Genome Explorer | Cmd-Q | Standard macOS |
 
-The same menu also carries **About**, **Check for Updates...**, and **Show All**, and none of the three has a shortcut.
+The same menu also carries **About**, **Check for Updates...**, and **Show All**, and none of the three has a shortcut. [Getting LGE](../01-foundations/06-the-lungfish-project.md#getting-lge) explains what Check for Updates does and when it is available.
 
 Pressing Cmd-Q while operations are running, such as an import that has not finished, opens a sheet titled "Quit with 1 Operation Running?", or the count of operations. Return chooses **Don't Quit**, the safe default. Click **Cancel Operations and Quit** to cancel the running operations and quit.
 
@@ -110,7 +110,7 @@ The panels that frame the main viewport, plus the zoom commands. These need a pr
 
 The Sidebar and Inspector rows change their own titles as you use them. When the panel is showing, the menu reads **Hide Sidebar** or **Hide Inspector** instead, and the same shortcut does the hiding. The shortcut never changes.
 
-The four zoom commands act on the viewport and are greyed out whenever no sequence, alignment, or assembly display is open.
+The four zoom commands act on the viewport. **Zoom Reset (10kb)** is greyed out whenever no sequence, alignment, or assembly display is open. The other three stay available but do nothing when no such display is open.
 
 | Action | Shortcut | Origin |
 |---|---|---|
@@ -206,7 +206,7 @@ This row works whenever LGE is the front application.
 |---|---|---|
 | Lungfish Genome Explorer Help | Cmd-Shift-slash (Cmd-?) | Standard macOS |
 
-Press Command, Shift, and the slash key together, which is what a question mark takes on a US keyboard. The other Help items open documents rather than commands and carry no shortcuts. They are **Getting Started**, **VCF Variants Guide**, **AI Assistant Guide**, **Documentation**, **Release Notes**, and **Report an Issue...**.
+Press Command, Shift, and the slash key together, which is what a question mark takes on a US keyboard. The other Help items open documents rather than commands and carry no shortcuts. They are **Getting Started**, **Demo Projects…**, **VCF Variants Guide**, **AI Assistant Guide**, **Documentation**, **Release Notes**, and **Report an Issue...**. **Demo Projects…** opens the list of downloadable practice projects that [Demo projects](../01-foundations/06-the-lungfish-project.md#demo-projects) describes.
 
 ## Inside the sequence viewport
 
@@ -218,9 +218,15 @@ The Escape key does one of two things, decided by whether the sequencing reads o
 
 The coordinate ruler above the sequence takes Cmd-0 for zoom to fit and Cmd-1 for the 10 kilobase reset, matching the View menu.
 
-## Inside the alignment viewport
+## Inside the BAM alignment viewport
 
-In a classifier result window, the compact read viewer, a small alignment display of the reads behind one hit, takes Cmd-plus, Cmd-minus, and Cmd-0 for zoom in, zoom out, and zoom to fit. Click into that viewer first. It offers the same three commands on a right-click menu, so you can see them without remembering them, and it accepts the equals key for plus and the underscore or hyphen key for minus.
+The BAM alignment viewport is the sequence viewport of a reference bundle that carries alignment tracks, such as the reference bundle inside a mapping result that [Reading an Alignment](../04-alignments/02-reading-an-alignment.md) opens. It is the same display, so every key in [Inside the sequence viewport](#inside-the-sequence-viewport) works here too. Click into the display first. The left and right arrows pan by 100 bases, the up and down arrows zoom, Cmd-plus, Cmd-minus, and Cmd-0 zoom in, zoom out, and zoom to fit, and Cmd-C and Cmd-A copy and select. Escape is most useful here, because this is where reads load. While they are being fetched Escape cancels the load, and otherwise it clears the selection.
+
+The read displays inside the TaxTriage, EsViritu, and NVD result windows are this same viewport, so the same keys apply there.
+
+## Inside the classifier read viewer
+
+The NAO-MGS result window shows the reads behind one hit in a compact read viewer, a small alignment display of its own. It takes Cmd-plus, Cmd-minus, and Cmd-0 for zoom in, zoom out, and zoom to fit. Click into that viewer first. It offers the same three commands on a right-click menu, beside **Center View Here**, so you can see them without remembering them, and it accepts the equals key for plus and the underscore or hyphen key for minus. Pinching on a trackpad zooms it too.
 
 ## Inside the MSA viewport
 
@@ -254,7 +260,7 @@ No two menu-bar shortcuts share a key combination.
 
 ## Mouse and trackpad
 
-Shortcuts are not the only way to drive LGE. Scrolling moves the viewport along the sequence, pinching on a trackpad zooms the MSA viewport, and right-clicking almost anything in the sidebar or a result table opens a context menu of the operations that apply to it. When a shortcut slips your mind, the menu bar prints it, and a context menu prints the ones that belong to it.
+Shortcuts are not the only way to drive LGE. Scrolling moves the viewport along the sequence, pinching on a trackpad zooms the sequence, MSA, and classifier read viewports, holding Cmd or Opt while scrolling zooms the sequence viewport, and right-clicking almost anything in the sidebar or a result table opens a context menu of the operations that apply to it. When a shortcut slips your mind, the menu bar prints it, and a context menu prints the ones that belong to it.
 
 ## Memorizing combinations
 
@@ -270,8 +276,8 @@ Escape does a different job in each window.
 
 | Where | What Escape does |
 |---|---|
-| Sequence viewport, reads loading | Cancels the read load |
-| Sequence viewport, nothing loading | Clears the current selection |
+| Sequence or BAM alignment viewport, reads loading | Cancels the read load |
+| Sequence or BAM alignment viewport, nothing loading | Clears the current selection |
 | Position field of the coordinate ruler | Restores the display and leaves the field |
 | Genotype quick filter field | Clears the field |
 | Taxonomy sunburst, zoomed in | Steps back up one level |
@@ -291,9 +297,9 @@ Sorted by the final key, letters and numbers first in alphabetical order with De
 
 | Shortcut | Action | Where |
 |---|---|---|
-| Cmd-0 | Zoom to Fit | View menu, sequence viewport, coordinate ruler |
-| Cmd-0 | Zoom to fit | Alignment viewport |
-| Cmd-0 | Zoom to the centre | Taxonomy sunburst |
+| Cmd-0 | Zoom to Fit | View menu, sequence and BAM alignment viewports, coordinate ruler |
+| Cmd-0 | Zoom to fit | Classifier read viewer |
+| Cmd-0 | Return to the full chart | Taxonomy sunburst |
 | Cmd-Opt-0 | Content Text Size, Default | View menu |
 | Cmd-Shift-0 | All Samples | View menu, TaxTriage result window |
 | Cmd-1 | Zoom Reset (10kb) | View menu, coordinate ruler |
@@ -308,7 +314,7 @@ Sorted by the final key, letters and numbers first in alphabetical order with De
 | Cmd-Delete | Move to Trash | Sidebar right-click menu |
 | Delete | Move to Trash | Sidebar list |
 | Cmd-Shift-E | Extract Visible Region... | Sequence menu |
-| Escape | Cancel read load or clear selection | Sequence viewport |
+| Escape | Cancel read load or clear selection | Sequence and BAM alignment viewports |
 | Escape | Clear the quick filter field | Genotype quick filter field |
 | Escape | Step back up one level | Taxonomy sunburst |
 | Cmd-F | Find... | Edit menu |
@@ -344,14 +350,14 @@ Sorted by the final key, letters and numbers first in alphabetical order with De
 | Cmd-Z | Undo | Edit menu |
 | Cmd-Shift-Z | Redo | Edit menu |
 | Cmd-comma | Settings... | Application menu |
-| Cmd-plus | Zoom In | View menu, sequence viewport, alignment viewport |
+| Cmd-plus | Zoom In | View menu, sequence and BAM alignment viewports, classifier read viewer |
 | Cmd-Opt-plus | Content Text Size, Larger | View menu |
-| Cmd-minus | Zoom Out | View menu, sequence viewport, alignment viewport |
+| Cmd-minus | Zoom Out | View menu, sequence and BAM alignment viewports, classifier read viewer |
 | Cmd-Opt-minus | Content Text Size, Smaller | View menu |
 | Cmd-left bracket | Previous Sample | View menu, TaxTriage result window |
 | Cmd-right bracket | Next Sample | View menu, TaxTriage result window |
 | Cmd-Shift-slash | Lungfish Genome Explorer Help | Help menu |
-| Arrow keys | Pan sideways, zoom up and down | Sequence viewport |
+| Arrow keys | Pan sideways, zoom up and down | Sequence and BAM alignment viewports |
 | Arrow keys | Move the selection, Shift extends it | MSA viewport |
 | Opt-Right Arrow | Expand the selected row recursively | Taxonomy table |
 | Cmd-Shift-Right Arrow | Expand All | View menu, taxonomy table |
