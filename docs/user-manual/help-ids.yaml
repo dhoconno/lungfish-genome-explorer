@@ -496,13 +496,13 @@ menu.Tools.PluginManager:
 
 menu.File.NewProject:
   chapter: 01-foundations/06-the-lungfish-project
-  anchor: the-welcome-window
+  anchor: first-launch-and-the-welcome-window
   scope: menu
   description: File > New Project (Cmd-N)
 
 menu.File.Open:
   chapter: 01-foundations/06-the-lungfish-project
-  anchor: the-welcome-window
+  anchor: procedure
   scope: menu
   description: File > Open Project Folder... (Cmd-O)
 
@@ -605,10 +605,10 @@ settings.General:
   description: General application settings.
 
 settings.AIServices:
-  chapter: index
-  anchor: ""
+  chapter: appendices/ai-assistant
+  anchor: settings
   scope: dialog
-  description: AI Services settings (currently scoped to VCF analysis).
+  description: AI Services settings for the Inspector's Assistant tab (bring-your-own-key providers).
 
 # === Operations panel ===
 
@@ -617,6 +617,12 @@ operations.Panel:
   anchor: the-operations-panel
   scope: viewport
   description: Operations Panel; running, completed, and failed jobs with logs and provenance.
+
+operations.Panel.FailedRow:
+  chapter: appendices/troubleshooting
+  anchor: start-here-at-the-failed-row
+  scope: viewport
+  description: A failed Operations Panel row; copy its failure report first.
 
 operations.Panel.ProvenanceDisclosure:
   chapter: 01-foundations/08-provenance-and-reproducibility
