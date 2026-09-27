@@ -3372,14 +3372,14 @@ operations:
         when_to_change: Turn it on when a very deep pile makes scrolling sluggish.
         cli_flag: null
       - label: Maximum rows
-        control: slider with number field
+        control: slider
         default: "75"
         allowed: 10 to 2,000 in steps of 10
         effect: Sets how many rows of stacked reads are drawn when Limit visible rows is on.
         when_to_change: Raise it to see more of a deep pile at once, or lower it when redrawing feels slow.
         cli_flag: null
       - label: Maximum displayed depth
-        control: slider with number field
+        control: slider
         default: "500"
         allowed: 50 to 5,000 in steps of 50 (shown as a depth, such as 500x)
         effect: Regions of the window deeper than this are sampled down to about this depth, and every other region shows every read. A banner says so whenever sampling happens. Depth, coverage, and the consensus always use every read.
@@ -3758,7 +3758,7 @@ operations:
         when_to_change: Raise it to drop calls at thinly covered positions. The window sends 10 by default.
         cli_flag: --min-depth
       - label: Ploidy
-        control: segmented (Haploid, Diploid)
+        control: radio
         default: derived from the bundle's organism metadata, and Haploid when nothing identifies the organism
         allowed: Haploid or Diploid
         effect: Passes --ploidy 1 or --ploidy 2 to bcftools call, which decides whether heterozygous genotypes such as 0/1 can be written. The caption under the control names the evidence the default came from, and the value used is recorded in provenance.
