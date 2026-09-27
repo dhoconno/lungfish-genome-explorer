@@ -23,13 +23,13 @@ shots:
   - id: ncbi-results-download-selected
     caption: "The results list with the NC_012920.1 record ticked and the primary button reading Download Selected instead of Search."
   - id: ncbi-bundle-in-sidebar
-    caption: "The downloaded NC_012920 reference bundle under the project's Downloads folder, open with sequence version NC_012920.1 and its NCBI GFF3 Annotations track."
+    caption: "The downloaded NC_012920.1 reference bundle under the project's Downloads folder, open with its NCBI GFF3 Annotations track drawn below the bases."
   - id: pathoplexus-pane
     caption: "The Pathoplexus pane after the access and benefit sharing notice is accepted, showing the organism chips above the shared query field."
 illustrations:
   - id: ncbi-accession-anatomy
     caption: "How an NCBI accession decomposes into prefix, number, and version, and which download path handles each kind."
-glossary_refs: [accession, reference-genome, reference-bundle, gff, refseq, mitochondrial-genome, assembly, required-setup-pack, inspector, provenance, checksum, insdc, pathoplexus, sra]
+glossary_refs: [accession, reference-genome, reference-bundle, gff, refseq, mitochondrial-genome, assembly, required-setup-pack, inspector, provenance, insdc, pathoplexus, sra, contig-reference, samtools]
 features_refs: [fetch.ncbi, database.pathoplexus]
 fixtures_refs: [human-mito]
 brand_reviewed: false
@@ -46,7 +46,7 @@ An annotation is a labelled feature on a sequence, such as a gene or a stretch t
 
 The same dialog also searches two other collections. The Sequence Read Archive holds raw reads, the short stretches a sequencing machine produces, and [Pathoplexus](../../GLOSSARY.md#pathoplexus) holds pathogen genomes that may never have reached NCBI.
 
-Download each reference once, with its annotations and its version number, and reuse that one bundle in every later chapter.
+Download each reference once, with its annotations and its version number, and point every later step at that one bundle.
 
 ## Why you would do this
 
@@ -54,7 +54,7 @@ This chapter downloads the human mitochondrial genome, `NC_012920.1`. A [mitocho
 
 The record is the revised Cambridge Reference Sequence, usually shortened to rCRS, and human mitochondrial studies number their positions against it. It is also densely annotated for its size. Its 16,569 bases hold 13 protein-coding genes, 22 transfer RNA genes, and 2 ribosomal RNA genes, so nearly every base sits inside a labelled feature. That makes it a clear first look at what an annotation track is for.
 
-The accession begins with `NC_`, which marks it as [RefSeq](../../GLOSSARY.md#refseq), the reviewed collection in which NCBI staff keep one curated record per sequence. Ordinary GenBank records are whatever submitters deposited, and one gene may have hundreds of them. A RefSeq record at a fixed version does not change, which is why this chapter can promise you exact numbers. Later chapters map reads to this reference, extract regions from it, and call variants against it.
+The accession begins with `NC_`, which marks it as [RefSeq](../../GLOSSARY.md#refseq), the reviewed collection in which NCBI staff keep one curated record per sequence. Ordinary GenBank records are whatever submitters deposited, and one gene may have hundreds of them. A RefSeq record at a fixed version does not change, which is why this chapter can promise you exact numbers. The same record comes back later in the manual. It is the human row of the primate alignment in [Aligning Sequences](04-aligning-sequences.md), the reference [Nanopore Variant Calling](../05-variants/04-nanopore-variant-calling.md) calls against, and the known answer the assembly chapters check their contigs against.
 
 ## Before you start
 
@@ -64,7 +64,7 @@ This chapter uses the human-mito fixture. Nothing needs downloading from it, bec
 
 The Genes and Sequences demo project, which **Help > Demo Projects…** opens as [Demo projects](../01-foundations/06-the-lungfish-project.md#demo-projects) explains, holds the same frozen `NC_012920.1.fasta` under `Practice Data/human-mito`. The download itself is the procedure, so run it in that project or in any other.
 
-You also need an internet connection, since every step talks to a public server. The `samtools` program that indexes the downloaded sequence arrives with the [Required Setup pack](../../GLOSSARY.md#required-setup-pack), the one pack LGE installs by itself, so there is nothing to install. Docker Desktop is not needed. On a typical connection the download finishes in well under a minute.
+You also need an internet connection, since every step talks to a public server. The [samtools](../../GLOSSARY.md#samtools) program that indexes the downloaded sequence comes with the [Required Setup pack](../../GLOSSARY.md#required-setup-pack), the pack the Welcome window offers to install the first time you open LGE. Nothing else needs installing. On a typical connection the download finishes in well under a minute.
 
 One habit is worth forming now. Type the version suffix, the `.1` in `NC_012920.1`, every time. Curators revise records and the version number goes up when they do, so a bare accession can give you a different sequence from the one a colleague downloaded last year.
 
@@ -94,88 +94,89 @@ There is no separate import step, because the download builds the bundle itself.
 
 The query field and its scope popup are shared by every pane of the dialog. The Advanced Search Filters panel below them changes with the pane and, on the GenBank & Genomes pane, with **Mode**. The entries are grouped by pane. Organism, Host, and Sequence Length appear on both panes and have an entry in each group, while the scope popup behaves the same on both and has one entry.
 
+The procedure touches only **Mode**, **Include GFF3 Annotations**, and the query field, so read the first four entries now and the filters when a search returns too much. Only two settings have a command-line counterpart, and neither is on `fetch genome`, the command this chapter's block uses. Mode matches `--db` on `lungfish-cli fetch search`, and Organism matches `--organism` on the same command. Every other setting exists only in the dialog.
+
 ### The GenBank & Genomes pane
 
-**Mode.** Chooses which NCBI collection the search reads, where Nucleotide holds single records, Genome holds whole [assemblies](../../GLOSSARY.md#assembly) with every chromosome of an organism, and Virus reaches NCBI's virus collection with filters of its own. The default is Nucleotide, the collection that holds single-molecule records such as this chapter's mitochondrial genome. Switch to Genome for a whole human or macaque reference, and to Virus for a curated set of viral records. On the command line this is `--db`.
+**Mode.** Chooses which NCBI collection the search reads, where Nucleotide holds single records, Genome holds whole [assemblies](../../GLOSSARY.md#assembly) with every chromosome of an organism, and Virus reaches NCBI's virus collection with filters of its own. The default is Nucleotide, the collection that holds single-molecule records such as this chapter's mitochondrial genome. Switch to Genome for a whole human or macaque reference, and to Virus for a curated set of viral records. On the command line this is `--db` on `fetch search`, which offers nucleotide and genome but no virus choice.
 
-**RefSeq Only.** Keeps only RefSeq records, the reviewed subset, and appears only in Nucleotide and Virus modes. The default is off, so every deposited record comes back. Turn it on when you want one reviewed sequence per organism, and leave it off when you are after one submitter's sequence, which RefSeq will not hold. This setting has no command-line flag.
+**RefSeq Only.** Keeps only RefSeq records, the reviewed subset, and appears only in Nucleotide and Virus modes. The default is off, so every deposited record comes back. Turn it on when you want one reviewed sequence per organism, and leave it off when you are after one submitter's sequence, which RefSeq will not hold.
 
-**Include GFF3 Annotations.** Fetches the record's GFF3 feature table and builds the bundle's annotation track from it, and like RefSeq Only it appears only in Nucleotide and Virus modes. The default is on, because the GFF3 table is NCBI's standard feature set and a bundle with annotations works everywhere a bare one does. Turn it off when you want the features exactly as the GenBank record lists them, since LGE then builds the track from the record's own feature table and still builds the bundle. This setting has no command-line flag.
+**Include GFF3 Annotations.** Fetches the record's GFF3 feature table and builds the bundle's annotation track from it, and like RefSeq Only it appears only in Nucleotide and Virus modes. The default is on, because the GFF3 table is NCBI's standard feature set and a bundle with annotations works everywhere a bare one does. Turn it off when you want the features exactly as the GenBank record lists them, since LGE then builds the track from the record's own feature table and still builds the bundle.
 
-**(search scope).** Limits the query text to one field of each record, through the unlabelled popup at the left end of the query field, among All Fields, Accession, Organism, Title, BioProject (NCBI's identifier for one study), and Author. The default is All Fields, which suits a search word whose place in the record you do not yet know. Choose Accession when you already hold the identifier, so a common word in some other record's title cannot swamp the results. This setting has no command-line flag.
+**(search scope).** Limits the query text to one field of each record, through the unlabelled popup at the left end of the query field, among All Fields, Accession, Organism, Title, BioProject (NCBI's identifier for one study), and Author. The default is All Fields, which suits a search word whose place in the record you do not yet know. Choose Accession when you already hold the identifier, so a common word in some other record's title cannot swamp the results.
 
-**Organism.** In Nucleotide and Genome modes, adds an organism name to the query so that only records from that species or group come back. The default is empty, because most searches start from an accession or a title. Fill it with a name such as `Homo sapiens` when your query word, a gene name for instance, occurs in many species. On the command line this is `--organism`.
+**Organism.** In Nucleotide and Genome modes, adds an organism name to the query so that only records from that species or group come back. The default is empty, because most searches start from an accession or a title. Fill it with a name such as `Homo sapiens` when your query word, a gene name for instance, occurs in many species. On the command line this is `--organism` on `fetch search`.
 
-**Location.** Adds a place name to the query, matching where the sample was collected. The default is empty, because references are rarely found by collection site. Fill it when you are gathering sequences from one region. This setting has no command-line flag.
+**Location.** Adds a place name to the query, matching where the sample was collected. The default is empty, because references are rarely found by collection site. Fill it when you are gathering sequences from one region.
 
-**Gene.** Adds a gene symbol to the query, so that only records annotated with that gene come back. The default is empty, which lets whole genomes and single genes come back together. Fill it, for example with `MT-CO1`, when you want one gene rather than whole genomes. This setting has no command-line flag.
+**Gene.** Adds a gene symbol to the query, so that only records annotated with that gene come back. The default is empty, which lets whole genomes and single genes come back together. Fill it, for example with `MT-CO1`, when you want one gene rather than whole genomes.
 
-**Author.** Adds an author name to the query, matching the people credited on the submission. The default is empty, since a record's authors are rarely how you find it. Fill it when you want the sequences behind one paper. This setting has no command-line flag.
+**Author.** Adds an author name to the query, matching the people credited on the submission. The default is empty, since a record's authors are rarely how you find it. Fill it when you want the sequences behind one paper.
 
-**Journal.** Adds a journal name to the query, matching where the record was published. The default is empty, for the same reason as Author. Fill it together with Author to pin down one publication. This setting has no command-line flag.
+**Journal.** Adds a journal name to the query, matching where the record was published. The default is empty, for the same reason as Author. Fill it together with Author to pin down one publication.
 
-**Molecule Type.** Keeps only records of one molecule type, such as Genomic DNA or mRNA, where mRNA is the spliced RNA copy a cell makes from a gene. The default is Any, so nothing is excluded before you have seen what came back. Choose mRNA for a gene's spliced transcript, or Genomic DNA for the gene as it sits in the genome with its introns. This setting has no command-line flag.
+**Molecule Type.** Keeps only records of one molecule type, such as Genomic DNA or mRNA, where mRNA is the spliced RNA copy a cell makes from a gene. The default is Any, so nothing is excluded before you have seen what came back. Choose mRNA for a gene's spliced transcript, or Genomic DNA for the gene as it sits in the genome with its introns.
 
-**Sequence Length.** On this pane, keeps only records whose length in bases falls between the Min and Max you type. Both boxes start empty, so no length limit applies. Type a Min of 16000 to keep complete human mitochondrial genomes and drop the many partial ones. This setting has no command-line flag.
+**Sequence Length.** On this pane, keeps only records whose length in bases falls between the Min and Max you type. Both boxes start empty, so no length limit applies. Type a Min of 16000 to keep complete human mitochondrial genomes and drop the many partial ones.
 
-**Publication Date.** Keeps only records published between the From and To dates you type. Both boxes start empty, so the whole history of the database is searched. Set From to leave out older records that newer ones have replaced. This setting has no command-line flag.
+**Publication Date.** Keeps only records published between the From and To dates you type. Both boxes start empty, so the whole history of the database is searched. Set From to leave out older records that newer ones have replaced.
 
-**Sequence Properties.** Keeps only records carrying every feature type you tick, among Has CDS, Has Gene, Has Source, Has tRNA, and Has rRNA, where CDS is a protein-coding stretch and Source is the record's description of its sample. Nothing is ticked by default, so records without annotations still appear. Tick Has CDS when you need protein-coding regions and a bare sequence is no use to you. This setting has no command-line flag.
+**Sequence Properties.** Keeps only records carrying every feature type you tick, among Has CDS, Has Gene, Has Source, Has tRNA, and Has rRNA, where CDS is a protein-coding stretch and Source is the record's description of its sample. Nothing is ticked by default, so records without annotations still appear. Tick Has CDS when you need protein-coding regions and a bare sequence is no use to you.
 
 The next five filters replace the ones above when **Mode** is set to Virus.
 
-**Host.** In Virus mode, keeps only records whose sample came from that host, such as `Homo sapiens`. The default is empty, so isolates from every host come back. Fill it to separate human isolates from animal ones for a virus that crosses between species. This setting has no command-line flag.
+**Host.** In Virus mode, keeps only records whose sample came from that host, such as `Homo sapiens`. The default is empty, so isolates from every host come back. Fill it to separate human isolates from animal ones for a virus that crosses between species.
 
-**Geographic Location.** In Virus mode, keeps only records collected in that place. The default is empty, so every place is included. Fill it when you are building a regional set of viral genomes. This setting has no command-line flag.
+**Geographic Location.** In Virus mode, keeps only records collected in that place. The default is empty, so every place is included. Fill it when you are building a regional set of viral genomes.
 
-**Completeness.** In Virus mode, keeps only complete genomes or only partial ones, offering Any, Complete, and Partial. The default is Any, which returns both kinds. Choose Complete when partial sequences would leave gaps in an alignment. This setting has no command-line flag.
+**Completeness.** In Virus mode, keeps only complete genomes or only partial ones, offering Any, Complete, and Partial. The default is Any, which returns both kinds. Choose Complete when partial sequences would leave gaps in an alignment.
 
-**Released Since.** In Virus mode, keeps only records released on or after the date you type, written as year, month, and day (`YYYY-MM-DD`). The default is empty, so the whole collection is searched. Fill it when you are adding new records to a set you downloaded earlier. This setting has no command-line flag.
+**Released Since.** In Virus mode, keeps only records released on or after the date you type, written as year, month, and day (`YYYY-MM-DD`). The default is empty, so the whole collection is searched. Fill it when you are adding new records to a set you downloaded earlier.
 
-**Annotated Only.** In Virus mode, keeps only records that carry gene annotations. The default is off, so records without annotations still appear. Turn it on when later steps need gene positions rather than sequence alone. This setting has no command-line flag.
+**Annotated Only.** In Virus mode, keeps only records that carry gene annotations. The default is off, so records without annotations still appear. Turn it on when later steps need gene positions rather than sequence alone.
 
 ### The Pathoplexus pane
 
-**Organism.** On this pane, the row of organism buttons above the query field chooses which pathogen's collection is searched. The default is Mpox virus, and choosing another organism clears the current results because Pathoplexus keeps one collection per organism. Change it whenever you move to a different pathogen, since one search cannot span them all. This setting has no command-line flag.
+**Organism.** On this pane, the row of organism buttons above the query field chooses which pathogen's collection is searched. The default is Mpox virus, and choosing another organism clears the current results because Pathoplexus keeps one collection per organism. Change it whenever you move to a different pathogen, since one search cannot span them all.
 
-**Country.** Keeps only records whose sample was collected in that country. The default is empty, so every country is included. Fill it when you are building a national or regional set. This setting has no command-line flag.
+**Country.** Keeps only records whose sample was collected in that country. The default is empty, so every country is included. Fill it when you are building a national or regional set.
 
-**Host.** On this pane, keeps only records whose sample came from that host species. The default is empty, so every host is included. Fill it to separate human cases from animal samples. This setting has no command-line flag.
+**Host.** On this pane, keeps only records whose sample came from that host species. The default is empty, so every host is included. Fill it to separate human cases from animal samples.
 
-**Clade.** Keeps only records assigned to that clade, a named branch of the pathogen's family tree. The default is empty, so every branch is included. Fill it when one clade is your subject and the rest are background. This setting has no command-line flag.
+**Clade.** Keeps only records assigned to that clade, a named branch of the pathogen's family tree. The default is empty, so every branch is included. Fill it when one clade is your subject and the rest are background.
 
-**Lineage.** Keeps only records assigned to that lineage, a finer division inside a clade. The default is empty, so every lineage is included. Fill it when you are following one descendant group. This setting has no command-line flag.
+**Lineage.** Keeps only records assigned to that lineage, a finer division inside a clade. The default is empty, so every lineage is included. Fill it when you are following one descendant group.
 
-**Nucleotide Mutations.** Keeps only records carrying every base change you list, each written as reference base, position, and new base, such as `C180T`, with commas between entries. The default is empty, so no mutation filter applies. Fill it when you are following one defining change through a population. This setting has no command-line flag.
+**Nucleotide Mutations.** Keeps only records carrying every base change you list, each written as reference base, position, and new base, such as `C180T`, with commas between entries. The default is empty, so no mutation filter applies. Fill it when you are following one defining change through a population.
 
-**Amino Acid Mutations.** Keeps only records carrying every protein change you list, each written as a gene name and a change, such as `GP:440G`, with commas between entries. The default is empty, so no protein filter applies. Fill it when the change you care about is in a protein, such as a known antibody-escape site. This setting has no command-line flag.
+**Amino Acid Mutations.** Keeps only records carrying every protein change you list, each written as a gene name and a change, such as `GP:440G`, with commas between entries. The default is empty, so no protein filter applies. Fill it when the change you care about is in a protein, such as a known antibody-escape site.
 
-**Collection Date.** Keeps only records whose sample was collected between the From and To dates, which is the sampling date and not the publication date. Both boxes start empty, so every date is included. Set it when you are studying one season or one outbreak. This setting has no command-line flag.
+**Collection Date.** Keeps only records whose sample was collected between the From and To dates, which is the sampling date and not the publication date. Both boxes start empty, so every date is included. Set it when you are studying one season or one outbreak.
 
-**Sequence Length.** On this pane, keeps only records whose length in bases falls between the Min and Max you type. Both boxes start empty, so no length limit applies. Set a Min to drop fragments too short to be worth aligning. This setting has no command-line flag.
+**Sequence Length.** On this pane, keeps only records whose length in bases falls between the Min and Max you type. Both boxes start empty, so no length limit applies. Set a Min to drop fragments too short to be worth aligning.
 
-**INSDC Source.** Keeps records by whether they also sit in [INSDC](../../GLOSSARY.md#insdc), the shared system of the American, European, and Japanese sequence databases, offering Any, INSDC Only, and Non-INSDC Only. The default is Any, which mixes both kinds. Choose Non-INSDC Only for records deposited to Pathoplexus alone, which no NCBI search can find. This setting has no command-line flag.
+**INSDC Source.** Keeps records by whether they also sit in [INSDC](../../GLOSSARY.md#insdc), the shared system of the American, European, and Japanese sequence databases, offering Any, INSDC Only, and Non-INSDC Only. The default is Any, which mixes both kinds. Choose Non-INSDC Only for records deposited to Pathoplexus alone, which no NCBI search can find.
 
 ## Reading the results
 
-The new bundle is named `NC_012920`, without the `.1`. LGE names a downloaded bundle from the accession line of the GenBank record, and that line carries no version. The version is still kept inside the bundle, where the Inspector shows it. Download the same record a second time and the new copy is named `NC_012920_1`, so the first is never overwritten. That `_1` is a copy counter LGE adds to keep the two names apart, not a version number, and the copy's Version row still reads `NC_012920.1`.
+The new bundle is named `NC_012920.1`, the accession with its version, because LGE names a downloaded bundle from the record's VERSION line. The sequence inside it is named `NC_012920`, without the version, because that name comes from the record's LOCUS line, and Go to Location accepts either spelling. Download the same record a second time and the new copy is named `NC_012920.1_1`, so the first is never overwritten. That `_1` is a copy counter LGE adds to keep the two names apart, not a version number. [Bundle and contig names by route](../appendices/file-formats.md#bundle-and-contig-names-by-route) compares these names with the ones an import or the command line gives.
 
 The viewport shows the sequence with its annotation track below the bases. The track is named NCBI GFF3 Annotations when LGE built it from NCBI's GFF3 table. If that fetch fails, or comes back with no features, LGE falls back to the feature table inside the GenBank record and names the track NCBI GenBank Annotations instead. Nothing warns you when that happens. Both tracks work everywhere a track is used, but the two sources can label the same feature differently, so the track name tells you which one you are reading.
 
-Select the bundle and look at the Inspector's **Document** tab, which LGE brings forward by itself after a download. Open the [Inspector](../../GLOSSARY.md#inspector) with **View > Show Inspector** (Cmd-Opt-I) if it is hidden. The rows worth reading for this record are these.
+Select the bundle and look at the Inspector's **Bundle** tab. Open the [Inspector](../../GLOSSARY.md#inspector) with **View > Show Inspector** (Cmd-Opt-I) if it is hidden. The rows worth reading for this record are these.
 
 | Group | Row | What it holds | This record |
 |---|---|---|---|
+| Source | Accession | The accession with its version, as NCBI served it | `NC_012920.1` |
 | Source | Database | The service the record came from | NCBI |
-| Source | Accession | The accession the bundle is named from | `NC_012920` |
 | Source | Downloaded | The date of the download | the day you ran it |
 | Genome | Total Length | The sequence length, rounded to one decimal place | 16.6 Kb, which is 16,569 bases rounded |
 | Genome | Chromosomes | How many separate sequences the bundle holds, of any kind, so a mitochondrial genome counts here too | 1 |
 | Genome | Annotations | How many tracks, and how many features across them | 1 track, with its feature count |
-| Record | Version | The accession with its version, as NCBI served it | `NC_012920.1` |
+| Record | Accession | The accession from the record's own ACCESSION line, which carries no version | `NC_012920` |
+| Record | Version | The accession with its version, from the VERSION line | `NC_012920.1` |
 | Record | Topology | Whether the molecule is a line or a circle | circular |
-
-LGE writes a [provenance](../../GLOSSARY.md#provenance) record beside every result, holding the command, the tool version, and a [checksum](../../GLOSSARY.md#checksum) of each file, and [Provenance and Reproducibility](../01-foundations/08-provenance-and-reproducibility.md#reading-the-results) shows how to read it.
 
 ## What good looks like
 
@@ -189,11 +190,13 @@ Confirm the annotations. Features should draw below the bases, the Annotations r
 
 Confirm the folder. The bundle should sit under the project's `Downloads/` folder, which keeps records fetched from the internet apart from files you brought in from your own disk. If it is missing, look at the download's row in the Operations Panel. A failed run turns its row red, and [Start here, at the failed row](../appendices/troubleshooting.md#start-here-at-the-failed-row) explains what to copy from it.
 
+The download's [provenance](../../GLOSSARY.md#provenance) record, which [Provenance and Reproducibility](../01-foundations/08-provenance-and-reproducibility.md#reading-the-results) shows how to read, names the accession you asked for and the one NCBI returned, so a substituted record shows there too.
+
 ## When a download returns a different accession
 
 NCBI keeps two collections that matter here. The nucleotide collection holds one record per molecule, such as `NC_012920.1`. The assembly collection holds whole genomes, and its accessions begin with `GCF_` for RefSeq assemblies or `GCA_` for GenBank ones. The assembly collection has no record for a single nucleotide accession. Ask it for one anyway and it returns the assembly that contains that sequence, which may name the sequence differently.
 
-The bases then match, but the name does not, and anything that finds a sequence by its name fails against a bundle that looks entirely healthy. The best-known case is a SARS-CoV-2 genome that comes back under its RefSeq accession, which [Primer Scheme Bundles](../appendices/primer-schemes.md) covers.
+The bases then match, but the name does not, and anything that finds a sequence by its name fails against a bundle that looks entirely healthy. The best-known case is a SARS-CoV-2 genome that comes back under its RefSeq accession, `NC_045512.2` in place of `MN908947.3`. The primer schemes that ship with LGE list both names, as [Primer Trimming an Alignment](../04-alignments/03-primer-trimming.md) notes, so the trap bites a scheme you imported yourself and other tools that match a sequence by its name. [Primer Scheme Bundles](../appendices/primer-schemes.md) covers how a scheme names its reference.
 
 ![How an NCBI accession decomposes into prefix, number, and version](../../assets/illustrations-imagegen/02-sequences/02-downloading-from-ncbi/ncbi-accession-anatomy.png)
 
@@ -219,16 +222,15 @@ What arrives is a `.lungfishref` bundle like the one this chapter's procedure pr
 
 ## On the command line
 
-This section is optional, and nothing later in this manual needs it. The `lungfish-cli` program ships inside LGE, and [Finding the program](../appendices/cli-reference.md#finding-the-program) shows how to run it.
-
-The command below reproduces the procedure. Run it from inside your project folder, and it builds the same reference bundle under `Downloads/`.
+The block below follows the convention in [Reading an On the command line block](../01-foundations/06-the-lungfish-project.md#reading-a-command-line-block), and every flag of `fetch genome` is listed in [Downloading records](../appendices/cli-reference.md#downloading-records) in the CLI Reference. It builds a reference bundle for the same record under the project's `Downloads/` folder.
 
 ```bash
-lungfish-cli fetch genome NC_012920.1 --output-dir Downloads
+PROJECT="$HOME/Documents/LGE Demo Projects/Genes and Sequences.lungfish"
+lungfish-cli fetch genome NC_012920.1 --output-dir "$PROJECT/Downloads"
 ```
 
-Two differences change what you get. The command names the bundle `NC_012920.1`, with the version, because it reads the name from the sequence's own header line rather than from the GenBank accession line. It also builds the annotation track only from NCBI's GFF3 table, under a different track name, and it has no GenBank fallback, so when the GFF3 fetch fails it prints a warning and builds the bundle without annotations.
+Two differences change what you get. The command names both the bundle and the sequence inside it `NC_012920.1`, because it reads the name from the sequence's own FASTA header line, where the window names the sequence `NC_012920` from the LOCUS line. It also builds the annotation track only from NCBI's GFF3 table, as a track named `genes` with the ID `annotations`, and it has no GenBank fallback, so when the GFF3 fetch fails it prints a warning and builds the bundle without annotations.
 
 ## Next
 
-Continue to [Extracting Sequences](03-extracting-and-comparing.md) to cut a region out of the reference you just downloaded.
+Continue to [Extracting Sequences](03-extracting-and-comparing.md), which returns to the HBB record from [Importing and Viewing a Sequence](01-importing-and-viewing.md) and cuts one gene out of it. The mitochondrial record you just downloaded comes back as the human row in [Aligning Sequences](04-aligning-sequences.md).
