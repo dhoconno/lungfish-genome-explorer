@@ -2087,10 +2087,9 @@ private let supportedAlignmentExportFormats: Set<String> = [
     "a3m",
 ]
 
-private let supportedMSADistanceModels: Set<String> = [
-    "identity",
-    "p-distance",
-]
+/// The `--model` spellings accepted by `msa distance`; the computation itself lives in
+/// `MSADistanceMatrix` (LungfishIO) so the MSA Inspector shows the same numbers.
+private let supportedMSADistanceModels: Set<String> = Set(MSADistanceModel.allCases.map(\.rawValue))
 
 private struct MSAFileExportProvenance: Codable, Equatable {
     struct RuntimeIdentity: Codable, Equatable {
@@ -2528,59 +2527,19 @@ private func ungappedRecords(_ records: [AlignedFASTARecord]) -> [AlignedFASTARe
     }
 }
 
+/// Delegates to the shared `MSADistanceMatrix` so the CLI TSV and the MSA Inspector's
+/// pairwise table are computed by one implementation.
 private func formatDistanceMatrix(records: [AlignedFASTARecord], model: String) throws -> String {
     try validateRectangular(records)
-    let header = "row\t" + records.map(\.name).joined(separator: "\t")
-    let rows = try records.map { lhs in
-        let values = try records.map { rhs in
-            try formatDistanceValue(pairwiseDistanceValue(lhs: lhs, rhs: rhs, model: model))
-        }
-        return ([lhs.name] + values).joined(separator: "\t")
-    }
-    return ([header] + rows).joined(separator: "\n") + "\n"
-}
-
-private func pairwiseDistanceValue(
-    lhs: AlignedFASTARecord,
-    rhs: AlignedFASTARecord,
-    model: String
-) throws -> Double {
-    let lhsCharacters = Array(lhs.sequence.uppercased())
-    let rhsCharacters = Array(rhs.sequence.uppercased())
-    guard lhsCharacters.count == rhsCharacters.count else {
-        throw ValidationError("Selected MSA rows do not have equal aligned lengths.")
-    }
-
-    var comparable = 0
-    var matches = 0
-    for index in lhsCharacters.indices {
-        let left = lhsCharacters[index]
-        let right = rhsCharacters[index]
-        if isAlignmentGap(left) || isAlignmentGap(right) {
-            continue
-        }
-        comparable += 1
-        if left == right {
-            matches += 1
-        }
-    }
-    guard comparable > 0 else {
-        return Double.nan
-    }
-
-    let identity = Double(matches) / Double(comparable)
-    switch model {
-    case "identity":
-        return identity
-    case "p-distance":
-        return 1 - identity
-    default:
+    guard let distanceModel = MSADistanceModel(rawValue: model) else {
         throw ValidationError("Unsupported MSA distance model '\(model)'.")
     }
-}
-
-private func formatDistanceValue(_ value: Double) -> String {
-    value.isNaN ? "nan" : String(format: "%.6f", value)
+    let alignedRecords = records.map { MSAAlignedRecord(name: $0.name, sequence: $0.sequence) }
+    do {
+        return try MSADistanceMatrix(records: alignedRecords, model: distanceModel).tsv
+    } catch let error as MSADistanceMatrixError {
+        throw ValidationError(error.localizedDescription)
+    }
 }
 
 private func validateRectangular(_ records: [AlignedFASTARecord]) throws {

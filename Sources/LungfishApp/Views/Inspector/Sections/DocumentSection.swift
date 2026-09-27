@@ -45,6 +45,9 @@ public final class DocumentSectionViewModel {
     /// MSA bundle document state shown when a multiple sequence alignment viewport is active.
     var multipleSequenceAlignmentDocument: MultipleSequenceAlignmentDocumentState?
 
+    /// Pairwise identity table for the active MSA bundle; nil when no writable MSA bundle is shown.
+    var msaPairwiseIdentity: MSAPairwiseIdentityInspectorModel?
+
     /// Tree bundle document state shown when a phylogenetic tree viewport is active.
     var phylogeneticTreeDocument: PhylogeneticTreeDocumentState?
 
@@ -259,7 +262,10 @@ public final class DocumentSectionViewModel {
     /// Updates the view model with MSA-document data and clears other document modes.
     func updateMultipleSequenceAlignmentDocument(_ state: MultipleSequenceAlignmentDocumentState?) {
         multipleSequenceAlignmentDocument = state
-        guard state != nil else { return }
+        guard state != nil else {
+            msaPairwiseIdentity = nil
+            return
+        }
 
         mappingDocument = nil
         assemblyDocument = nil
@@ -731,7 +737,10 @@ public struct DocumentSection: View {
         } else if let phylogeneticTreeDocument = viewModel.phylogeneticTreeDocument {
             PhylogeneticTreeDocumentSection(state: phylogeneticTreeDocument)
         } else if let multipleSequenceAlignmentDocument = viewModel.multipleSequenceAlignmentDocument {
-            MultipleSequenceAlignmentDocumentSection(state: multipleSequenceAlignmentDocument)
+            MultipleSequenceAlignmentDocumentSection(
+                state: multipleSequenceAlignmentDocument,
+                pairwiseIdentity: viewModel.msaPairwiseIdentity
+            )
         } else if let mhcReferenceBundleDocument = viewModel.mhcReferenceBundleDocument {
             MHCReferenceBundleDocumentSection(state: mhcReferenceBundleDocument)
         } else if let primerSchemeDocument = viewModel.primerSchemeDocument {

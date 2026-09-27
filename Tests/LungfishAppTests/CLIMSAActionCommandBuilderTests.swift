@@ -1,7 +1,21 @@
 import XCTest
 @testable import LungfishApp
+import LungfishIO
 
 final class CLIMSAActionCommandBuilderTests: XCTestCase {
+    func testDistanceMatrixExportUsesMSADistanceWithModelAndForce() {
+        let bundle = URL(fileURLWithPath: "/project/example.lungfishmsa")
+        let output = URL(fileURLWithPath: "/exports/example-identity.tsv")
+        XCTAssertEqual(
+            CLIMSAActionCommandBuilder.buildDistanceArguments(bundleURL: bundle, model: .identity, outputURL: output),
+            ["msa", "distance", bundle.path, "--model", "identity", "--output", output.path, "--force", "--format", "json"]
+        )
+        XCTAssertEqual(
+            CLIMSAActionCommandBuilder.buildDistanceArguments(bundleURL: bundle, model: .pDistance, outputURL: output, force: false),
+            ["msa", "distance", bundle.path, "--model", "p-distance", "--output", output.path, "--format", "json"]
+        )
+    }
+
     func testAlignedSelectionExportUsesSupportedCommandAndExactScope() {
         let bundle = URL(fileURLWithPath: "/project/example.lungfishmsa")
         let output = URL(fileURLWithPath: "/exports/subalignment.fasta")

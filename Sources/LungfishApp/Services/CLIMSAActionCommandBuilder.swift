@@ -1,4 +1,5 @@
 import Foundation
+import LungfishIO
 import LungfishKit
 
 enum CLIMSAActionCommandBuilder {
@@ -218,6 +219,30 @@ enum CLIMSAActionCommandBuilder {
         if let iqtreePath, iqtreePath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false {
             args += ["--iqtree-path", iqtreePath]
         }
+        if force {
+            args.append("--force")
+        }
+        args += ["--format", "json"]
+        return args
+    }
+
+    /// `msa distance` arguments for the Inspector's pairwise identity export. Rows and columns
+    /// are never restricted here: the Inspector table always shows the whole alignment.
+    static func buildDistanceArguments(
+        bundleURL: URL,
+        model: MSADistanceModel,
+        outputURL: URL,
+        force: Bool = true
+    ) -> [String] {
+        var args = [
+            "msa",
+            "distance",
+            bundleURL.path,
+            "--model",
+            model.rawValue,
+            "--output",
+            outputURL.path,
+        ]
         if force {
             args.append("--force")
         }
