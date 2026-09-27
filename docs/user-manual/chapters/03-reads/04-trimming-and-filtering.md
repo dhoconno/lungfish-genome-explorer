@@ -44,7 +44,7 @@ Four programs do the work behind those six operations, which is why the settings
 |---|---|
 | [fastp](../../GLOSSARY.md#fastp) | Quality trimming, adapter removal, and fixed-base trimming |
 | [bbduk](../../GLOSSARY.md#bbduk) | Primer trimming when you type a primer sequence |
-| [cutadapt](../../GLOSSARY.md#cutadapt) | Primer trimming when you choose a FASTA file of primers |
+| [Cutadapt](../../GLOSSARY.md#cutadapt) | Primer trimming when you choose a FASTA file of primers |
 | [seqkit](../../GLOSSARY.md#seqkit) | The length filter |
 
 Trim only what quality control showed you was there, then measure what the trim cost, because every operation removes some real sequence along with the artefact.
@@ -78,14 +78,14 @@ For human or macaque whole-genome data headed for germline variant calling, a de
 
 **bbduk**, the Literal Sequence choice, breaks the one primer you type into short words and cuts matching sequence out of each read. Because it matches by sequence, a real variant plus a sequencing error inside the primer can let a primer through, and a known defect makes it drop a read whose primer sits at its 5' start.
 
-**cutadapt**, the Reference FASTA choice, finds primers by alignment that tolerates a set share of wrong, missing, or extra bases. LGE runs it in linked mode, looking for the forward and reverse primer of one amplicon on the same read. It pairs primers by name, so the names must end in `_F` and `_R` or a variant that the [Primer Trimming settings](#primer-trimming) list, and it discards every read in which no primer pair was found.
+**Cutadapt**, the Reference FASTA choice, finds primers by alignment that tolerates a set share of wrong, missing, or extra bases. LGE runs it in linked mode, looking for the forward and reverse primer of one amplicon on the same read. It pairs primers by name, so the names must end in `_F` and `_R` or a variant that the [Primer Trimming settings](#primer-trimming) list, and it discards every read in which no primer pair was found.
 
 **iVar** trims after mapping, in [Primer Trimming an Alignment](../04-alignments/03-primer-trimming.md). It reads a BED file, a plain table of each primer's start and end on the reference, and [soft-clips](../../GLOSSARY.md#soft-clip) the primer bases of each mapped read, leaving them in the file but hidden from a variant caller. It matches by position, so a variant inside the primer cannot hide it. With LGE's settings it also trims bases below quality 20 and drops reads left under 30 bases.
 
 | Tool | Built for | Choose it when | Choose something else when |
 |---|---|---|---|
 | bbduk, Literal Sequence | One known oligo, no reference needed | One primer sits at the 3' end, as where a read runs through a short fragment | The primer sits at the 5' start |
-| cutadapt, Reference FASTA | A primer scheme matched as forward and reverse pairs | The next tool reads FASTQ | The next step is mapping and variant calling |
+| Cutadapt, Reference FASTA | A primer scheme matched as forward and reverse pairs | The next tool reads FASTQ | The next step is mapping and variant calling |
 | iVar trim, after mapping | Amplicon data headed for variant calling | You will call variants on an amplicon panel | You need primer-free FASTQ for a tool that never maps |
 
 The shotgun HG002 fixture has no primers, so this chapter runs none of the three. For an amplicon panel headed for variant calling, map first and trim with iVar, as the Viral Recon pipeline does. All five tools are cited in the [Tool Bibliography](../appendices/bibliography.md), bbduk under BBTools, and the Barbitoff study in [Method comparisons cited in the manual](../appendices/bibliography.md#method-comparisons-cited-in-the-manual).
@@ -100,7 +100,7 @@ This chapter uses the hg002-chr20 fixture. Download `HG002.chr20.10.0-10.5Mb_R1.
 
 A [paired-end](../../GLOSSARY.md#paired-end) run gives two mates per DNA fragment, as [Importing Sequencing Reads](01-importing-fastq.md) explains. Import both files as one sample by following [Importing Sequencing Reads](01-importing-fastq.md), so a single `HG002.chr20.10.0-10.5Mb` bundle appears in the sidebar.
 
-fastp, bbduk, cutadapt, and seqkit arrive with the [Required Setup pack](../../GLOSSARY.md#required-setup-pack), the one pack LGE installs by itself, so there is nothing to install. Reading [Quality Control for Reads](03-quality-control.md) first helps, because its summary cards are how you judge whether a trim helped.
+fastp, bbduk, Cutadapt, and seqkit arrive with the [Required Setup pack](../../GLOSSARY.md#required-setup-pack), the one pack LGE installs by itself, so there is nothing to install. Reading [Quality Control for Reads](03-quality-control.md) first helps, because its summary cards are how you judge whether a trim helped.
 
 ## Procedure
 
@@ -152,7 +152,7 @@ An [amplicon](../../GLOSSARY.md#amplicon) protocol copies the target in overlapp
 
 The pane changes shape with **Primer Source**, and the two choices run different programs. Literal Sequence runs bbduk on one primer sequence you type, looking for exact matches of short words taken from the primer. A [k-mer](../../GLOSSARY.md#k-mer) is a stretch of exactly k bases, and [Running Kraken 2](../06-classification/02-running-kraken2.md#what-it-is) shows how tools match on them. The **k**, **mink**, and **hdist** fields tune that matching. Literal Sequence currently removes a read whose primer sits at its 5' start instead of trimming the primer off, so trim such primers after mapping instead. It still trims correctly when the primer sits at the 3' end of a read, because it cuts the match and everything after it. This is a known defect, listed with its workaround in [Known defects in this release](../appendices/troubleshooting.md#known-defects-in-this-release).
 
-Reference FASTA runs cutadapt in linked mode on a FASTA file of primers, which you choose under **Primer Reference** in the Inputs section. Linked mode looks for the forward and reverse primer of one amplicon as a pair on the same read, which is what a tiled scheme of dozens of primers needs. The primer names must follow the `_F` and `_R` pattern that [Primer Trimming](#primer-trimming) sets out, and reads with no primer pair are dropped. The bbduk fields disappear, and the pane reads "Select the primer reference FASTA in the Inputs section."
+Reference FASTA runs Cutadapt in linked mode on a FASTA file of primers, which you choose under **Primer Reference** in the Inputs section. Linked mode looks for the forward and reverse primer of one amplicon as a pair on the same read, which is what a tiled scheme of dozens of primers needs. The primer names must follow the `_F` and `_R` pattern that [Primer Trimming](#primer-trimming) sets out, and reads with no primer pair are dropped. The bbduk fields disappear, and the pane reads "Select the primer reference FASTA in the Inputs section."
 
 The operation trims whatever sequence you give it, so a human amplicon panel works exactly as a viral one does. The HG002 reads are shotgun data with no primers in them, so this chapter has no worked primer-trimming result.
 
@@ -199,9 +199,9 @@ While Manual Sequence is chosen and the field is empty, the readiness line reads
 
 ### Primer Trimming
 
-**Primer Source.** Chooses between typing one primer and choosing a FASTA file that holds a whole primer set, offering Literal Sequence and Reference FASTA. The default is Literal Sequence, which runs bbduk. Pick Reference FASTA, which runs cutadapt, for a tiled amplicon scheme with dozens of primers. On the command line this is `--literal` or `--ref`.
+**Primer Source.** Chooses between typing one primer and choosing a FASTA file that holds a whole primer set, offering Literal Sequence and Reference FASTA. The default is Literal Sequence, which runs bbduk. Pick Reference FASTA, which runs Cutadapt, for a tiled amplicon scheme with dozens of primers. On the command line this is `--literal` or `--ref`.
 
-Reference FASTA pairs each forward primer with its reverse primer by name. A name counts as forward when it ends in `_F`, `-F`, `_FORWARD`, or `-FORWARD`, and as reverse when it ends in `_R`, `-R`, `_REVERSE`, or `-REVERSE`, in upper or lower case, and the part before the ending must match, so `amp1_F` pairs with `amp1_R`. Primers with any other ending, such as the `_LEFT` and `_RIGHT` of ARTIC schemes, are ignored, and a file with no pair at all makes the run fail with a message that no paired primers were found. Rename the records before you run. cutadapt then keeps only the reads in which it found a primer pair and discards the rest, so compare the read counts before and after.
+Reference FASTA pairs each forward primer with its reverse primer by name. A name counts as forward when it ends in `_F`, `-F`, `_FORWARD`, or `-FORWARD`, and as reverse when it ends in `_R`, `-R`, `_REVERSE`, or `-REVERSE`, in upper or lower case, and the part before the ending must match, so `amp1_F` pairs with `amp1_R`. Primers with any other ending, such as the `_LEFT` and `_RIGHT` of ARTIC schemes, are ignored, and a file with no pair at all makes the run fail with a message that no paired primers were found. Rename the records before you run. Cutadapt then keeps only the reads in which it found a primer pair and discards the rest, so compare the read counts before and after.
 
 **Primer Sequence.** Holds the primer bbduk removes, written in A, C, G, T and the IUPAC ambiguity letters. It starts empty, and while it is empty the readiness line reads "Enter a literal primer sequence or switch to reference mode." Type the primer exactly as your primer order sheet gives it. On the command line this is `--literal`.
 

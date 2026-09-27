@@ -169,7 +169,7 @@ For files and sample sheets the picker lists the first three recipes below plus 
 
 - **VSP2 Target Enrichment** cleans viral target-enrichment reads for [Running EsViritu](../06-classification/03-running-esviritu.md).
 - **Wastewater metagenomics** cleans wastewater reads for the classifiers in [What Is Read Classification](../06-classification/01-what-is-classification.md).
-- **Illumina Amplicon Merge** joins overlapping mates into single reads and drops every pair that does not merge. MHC amplicon genotyping does not need it, as [Read Processing](08-read-processing.md#merging-for-mhc-amplicon-genotyping) explains.
+- **Illumina Amplicon Merge** joins overlapping mates into single reads and drops every pair that does not merge. It is the import route for MiSeq MHC amplicon pairs, as [What Is MHC Genotyping](../09-genotyping/01-what-is-mhc-genotyping.md#choosing-a-tool) explains.
 - **Split by Fluidigm sample barcodes** splits a nanopore run into one bundle per sample, as [Oxford Nanopore Runs](07-ont-runs.md) describes.
 - **Demultiplex full-length MHC ONT amplicons with PacBio barcodes** splits a nanopore amplicon run into one bundle per sample, as [Oxford Nanopore Runs](07-ont-runs.md) describes.
 

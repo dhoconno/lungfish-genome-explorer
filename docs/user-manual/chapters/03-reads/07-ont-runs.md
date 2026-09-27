@@ -85,7 +85,7 @@ This chapter uses the hg002-long-reads fixture. Download the `ont-run` folder fr
 ont-run/fastq_pass/barcode01/HG002_chrM_pass_barcode01_0.fastq.gz
 ```
 
-Demultiplexing, the sorting of reads into samples by barcode, runs through [cutadapt](../../GLOSSARY.md#cutadapt), a program that finds a short known sequence inside a read. cutadapt arrives with the [Required Setup pack](../../GLOSSARY.md#required-setup-pack), the one pack LGE installs by itself, so there is nothing to install.
+Demultiplexing, the sorting of reads into samples by barcode, runs through [Cutadapt](../../GLOSSARY.md#cutadapt), a program that finds a short known sequence inside a read. cutadapt arrives with the [Required Setup pack](../../GLOSSARY.md#required-setup-pack), the one pack LGE installs by itself, so there is nothing to install.
 
 The fixture imports in a few seconds, and a real 24-barcode run takes longer in proportion to its size. Watch the run in the [Operations Panel](../01-foundations/06-the-lungfish-project.md#the-operations-panel), which opens with **Operations > Show Operations Panel** (Cmd-Shift-P).
 
