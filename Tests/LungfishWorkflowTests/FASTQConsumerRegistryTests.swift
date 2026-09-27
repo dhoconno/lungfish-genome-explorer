@@ -89,6 +89,11 @@ final class FASTQConsumerRegistryTests: XCTestCase {
         // fastq_1/fastq_2 (TaxTriagePipeline+ReadLayout) instead of running it
         // single-end; a mixed file still runs single-end.
         XCTAssertEqual(FASTQConsumerRegistry.declaration(for: "classify.taxtriage")?.handling(for: .strictlyInterleaved), .splitToR1R2)
+        // Viral Recon splits a strictly interleaved bundle file into gzip
+        // fastq_1/fastq_2 inside the run (ViralReconReadPairing); a mixed
+        // file still runs single-end.
+        XCTAssertEqual(FASTQConsumerRegistry.declaration(for: "viralrecon.illumina")?.handling(for: .strictlyInterleaved), .splitToR1R2)
+        XCTAssertEqual(FASTQConsumerRegistry.declaration(for: "viralrecon.illumina")?.handling(for: .mixedMergedAndPairs), .asSingle)
     }
 
     /// The fastp trims run paired on interleaved input and partition a mixed

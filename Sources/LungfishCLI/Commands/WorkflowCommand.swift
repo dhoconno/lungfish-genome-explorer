@@ -109,7 +109,10 @@ struct RunSubcommand: AsyncParsableCommand {
     @Option(
         name: .customLong("input"),
         parsing: .singleValue,
-        help: "Input file selected for the workflow; repeat for multiple inputs"
+        help: ArgumentHelp(
+            "Input file selected for the workflow; repeat for multiple inputs",
+            discussion: "For nf-core/viralrecon: one samplesheet.csv, or one or more .lungfishfastq bundles or FASTQ files, from which the same samplesheet the app writes is built. A strictly interleaved Illumina bundle file is split into gzip R1/R2 inside the run so viralrecon gets fastq_1 and fastq_2; a file that mixes merged reads with pairs runs single-end with a warning."
+        )
     )
     var input: [String] = []
 
@@ -460,8 +463,8 @@ struct RunSubcommand: AsyncParsableCommand {
         guard let supportedWorkflow = NFCoreSupportedWorkflowCatalog.workflow(named: normalizedWorkflow) else {
             throw CLIError.workflowFailed(reason: "Unsupported nf-core workflow: \(workflow)")
         }
-        guard input.count == 1 else {
-            throw CLIError.workflowFailed(reason: "Exactly one --input samplesheet is required for nf-core/viralrecon")
+        guard !input.isEmpty else {
+            throw CLIError.workflowFailed(reason: "nf-core/viralrecon needs one --input samplesheet.csv, or one or more --input .lungfishfastq bundles or FASTQ files")
         }
 
         let inputURLs = input.map { URL(fileURLWithPath: $0).standardizedFileURL }
@@ -472,14 +475,47 @@ struct RunSubcommand: AsyncParsableCommand {
         try requireExpectedOutputsForExecution()
         let outputURL = URL(fileURLWithPath: resultsDir).standardizedFileURL
         let expectedOutputURLs = expectedOutput.map { URL(fileURLWithPath: $0).standardizedFileURL }
+        let runBundleURL = try resolveRunBundleURL(workflowName: supportedWorkflow.name)
+
+        // The app hands over a samplesheet it built from the chosen bundles;
+        // a bare CLI call may hand over the bundles and get the same
+        // samplesheet. Either way the Illumina rows are read back so the
+        // read pairing decisions below are made from the same data.
+        var params = workflowParams
+        let resolvedInputs: ViralReconCLIInputs.Resolved
+        do {
+            resolvedInputs = try ViralReconCLIInputs.resolve(
+                inputURLs: inputURLs,
+                runBundleURL: runBundleURL,
+                params: &params
+            )
+        } catch let error as ViralReconCLIInputs.InputError {
+            throw CLIError.workflowFailed(reason: error.localizedDescription)
+        } catch let error as ViralReconReadPairing.PairingError {
+            throw CLIError.workflowFailed(reason: error.localizedDescription)
+        }
+        let callerSamplesheetURL = resolvedInputs.samplesheetURL
+
+        // Read pairing (Illumina): a strictly interleaved bundle file is split
+        // into R1/R2 inside the run so viralrecon sees fastq_1 AND fastq_2;
+        // the decision for every row is recorded before anything else runs.
+        var pairingDecisions = resolvedInputs.illuminaSamples.map(ViralReconReadPairing.decisions(for:)) ?? []
+        let decisionsURL = runBundleURL
+            .appendingPathComponent("inputs", isDirectory: true)
+            .appendingPathComponent(ViralReconReadPairing.decisionsFilename)
+        if !pairingDecisions.isEmpty {
+            try ViralReconReadPairing.writeDecisions(pairingDecisions, to: decisionsURL)
+            reportReadPairing(pairingDecisions, formatter: formatter)
+        }
+
         let request = NFCoreRunRequest(
             workflow: supportedWorkflow,
             version: version,
             executor: executor,
-            inputURLs: inputURLs,
+            inputURLs: [callerSamplesheetURL],
             outputDirectory: outputURL,
             expectedOutputURLs: expectedOutputURLs,
-            params: workflowParams,
+            params: params,
             resume: resume,
             workDirectory: workDir.map { URL(fileURLWithPath: $0) }
         )
@@ -487,7 +523,6 @@ struct RunSubcommand: AsyncParsableCommand {
         // only Docker reaches a working run, so refuse conda/local before a
         // run bundle is written rather than letting Nextflow fail later.
         try Self.requireSupportedExecutor(request)
-        let runBundleURL = try resolveRunBundleURL(workflowName: supportedWorkflow.name)
         let bundleCreatedAt = Date()
         try NFCoreRunBundleStore.write(
             request.manifest(createdAt: bundleCreatedAt, executionStatus: .prepared),
@@ -506,7 +541,9 @@ struct RunSubcommand: AsyncParsableCommand {
                 status: .completed,
                 exitCode: 0,
                 wallTime: Date().timeIntervalSince(bundleCreatedAt),
-                stderr: nil
+                stderr: nil,
+                readPairing: pairingDecisions,
+                effectiveSamplesheetURL: nil
             )
             print(runBundleURL.path)
             return
@@ -555,19 +592,88 @@ struct RunSubcommand: AsyncParsableCommand {
                 try? FileManager.default.removeItem(at: stagingRoot.root)
             }
         }
-        let stagedRequest = try NFCoreLaunchStaging.stage(request, in: stagingRoot.root)
+
+        // Split interleaved pairs now, inside the run: the mate files are
+        // large, so they live under the whitespace-free staging root (the
+        // samplesheet schema rejects a FASTQ path with a space) and go away
+        // with it. The samplesheet viralrecon reads is kept in the bundle.
+        var launchRequest = request
+        var effectiveSamplesheetURL: URL?
+        if let samples = resolvedInputs.illuminaSamples, pairingDecisions.contains(where: \.needsSplit) {
+            let splitRoot = stagingRoot.root.appendingPathComponent(
+                ViralReconReadPairing.splitDirectoryName,
+                isDirectory: true
+            )
+            let quiet = globalOptions.quiet
+            let prepared: ViralReconPreparedIlluminaSamples
+            do {
+                prepared = try await ViralReconReadPairing.prepareIlluminaSamples(
+                    samples,
+                    splitRoot: splitRoot,
+                    progress: { message in
+                        if !quiet { print(message) }
+                    }
+                )
+            } catch let error as ViralReconReadPairing.PairingError {
+                try NFCoreRunBundleStore.write(
+                    request.manifest(
+                        createdAt: bundleCreatedAt,
+                        executionStatus: .failed,
+                        startedAt: processStartedAt,
+                        completedAt: Date(),
+                        exitCode: 1
+                    ),
+                    to: runBundleURL
+                )
+                try writeRunBundleProvenance(
+                    request: request,
+                    bundleURL: runBundleURL,
+                    prepareOnly: false,
+                    status: .failed,
+                    exitCode: 1,
+                    wallTime: Date().timeIntervalSince(processStartedAt),
+                    stderr: error.localizedDescription,
+                    readPairing: pairingDecisions,
+                    effectiveSamplesheetURL: nil
+                )
+                throw CLIError.workflowFailed(reason: error.localizedDescription)
+            }
+            pairingDecisions = prepared.decisions
+            try ViralReconReadPairing.writeDecisions(pairingDecisions, to: decisionsURL)
+            let pairedSamplesheetURL = try ViralReconSamplesheetBuilder.writeIlluminaSamplesheet(
+                samples: prepared.samples,
+                in: runBundleURL.appendingPathComponent("inputs", isDirectory: true),
+                filename: ViralReconReadPairing.pairedSamplesheetFilename
+            )
+            effectiveSamplesheetURL = pairedSamplesheetURL
+            reportReadPairing(pairingDecisions, formatter: formatter)
+            launchRequest = NFCoreRunRequest(
+                workflow: request.workflow,
+                version: request.version,
+                executor: request.executor,
+                inputURLs: [pairedSamplesheetURL],
+                outputDirectory: request.outputDirectory,
+                expectedOutputURLs: request.expectedOutputURLs,
+                params: request.params,
+                resume: request.resume,
+                workDirectory: request.workDirectory,
+                presentationMode: request.presentationMode
+            )
+        }
+
+        let stagedRequest = try NFCoreLaunchStaging.stage(launchRequest, in: stagingRoot.root)
         // Newer nf-core releases express resource caps as Nextflow's
         // process.resourceLimits instead of --max_cpus / --max_memory.
         let resourcePlan = try NFCoreResourceLimits.plan(for: stagedRequest, in: launchScratch)
-        let launchRequest = resourcePlan.request
-        var launchArguments = resourcePlan.nextflowArguments(base: launchRequest.nextflowArguments)
-        if launchRequest.workDirectory == nil {
+        let plannedRequest = resourcePlan.request
+        var launchArguments = resourcePlan.nextflowArguments(base: plannedRequest.nextflowArguments)
+        if plannedRequest.workDirectory == nil {
             launchArguments += ["-work-dir", scratchWorkDirectory.path]
         }
         let processResult = try await Self.nfCoreWorkflowProcessRunner.runNextflow(
             arguments: launchArguments,
             workingDirectory: launchScratch,
-            environment: launchRequest.launchEnvironment
+            environment: plannedRequest.launchEnvironment
         )
         try writeProcessLogs(processResult, to: runBundleURL.appendingPathComponent("logs", isDirectory: true))
         let processCompletedAt = Date()
@@ -591,7 +697,9 @@ struct RunSubcommand: AsyncParsableCommand {
             status: processResult.exitCode == 0 ? .completed : .failed,
             exitCode: processResult.exitCode,
             wallTime: processCompletedAt.timeIntervalSince(processStartedAt),
-            stderr: processResult.standardError
+            stderr: processResult.standardError,
+            readPairing: pairingDecisions,
+            effectiveSamplesheetURL: effectiveSamplesheetURL
         )
         if processResult.exitCode != 0 {
             throw CLIError.workflowFailed(
@@ -604,6 +712,21 @@ struct RunSubcommand: AsyncParsableCommand {
             )
         }
         print(runBundleURL.path)
+    }
+
+    /// Prints one line per samplesheet row saying how viralrecon gets its
+    /// reads. Warnings (a mixed file that must run single-end) go to stderr
+    /// even under --quiet, the same way the fastq subcommands report a
+    /// pairing fallback.
+    private func reportReadPairing(_ decisions: [ViralReconReadPairingDecision], formatter: TerminalFormatter) {
+        for decision in decisions {
+            if !globalOptions.quiet {
+                print(formatter.info("Read pairing: \(decision.summary)"))
+            }
+            if let warning = decision.warning {
+                FileHandle.standardError.write(Data("Warning: \(warning)\n".utf8))
+            }
+        }
     }
 
     /// Rejects an executor the nf-core run cannot use, with the message the
@@ -701,7 +824,9 @@ struct RunSubcommand: AsyncParsableCommand {
         status: RunStatus,
         exitCode: Int32,
         wallTime: TimeInterval,
-        stderr: String?
+        stderr: String?,
+        readPairing: [ViralReconReadPairingDecision] = [],
+        effectiveSamplesheetURL: URL? = nil
     ) throws {
         let command = [CLICommandIdentity.executableName] + request.cliArguments(
             bundlePath: bundleURL,
@@ -729,6 +854,12 @@ struct RunSubcommand: AsyncParsableCommand {
         }
         if let workDirectory = request.workDirectory {
             parameters["workDirectory"] = .file(workDirectory)
+        }
+        if !readPairing.isEmpty {
+            parameters["readPairing"] = .array(readPairing.map(\.provenanceValue))
+        }
+        if let effectiveSamplesheetURL {
+            parameters["effectiveSamplesheet"] = .file(effectiveSamplesheetURL)
         }
 
         let step = StepExecution(

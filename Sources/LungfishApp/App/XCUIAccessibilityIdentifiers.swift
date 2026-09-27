@@ -254,6 +254,7 @@ enum ProjectStorageAccessibilityID {
 enum ViralReconAccessibilityID {
     static let root = "viral-recon-root"
     static let inputSummary = "viral-recon-input-summary"
+    static let readLayoutNote = "viral-recon-read-layout-note"
     static let platformPicker = "viral-recon-platform-picker"
     static let primerPicker = "viral-recon-primer-picker"
     static let minimumMappedReadsStepper = "viral-recon-minimum-mapped-reads-stepper"

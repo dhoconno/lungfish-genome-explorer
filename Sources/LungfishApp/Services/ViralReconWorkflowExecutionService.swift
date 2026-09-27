@@ -105,6 +105,7 @@ final class ViralReconWorkflowExecutionService {
                 operationCenter.acknowledgeCancellation(id: operationID)
             } else if processResult.exitCode == 0 {
                 operationCenter.log(id: operationID, level: .info, message: "Viral Recon completed")
+                let readPairing = logReadPairing(bundleURL: bundleURL, operationID: operationID)
                 await ingestResults(
                     for: persistedRequest,
                     bundleURL: bundleURL,
@@ -113,7 +114,7 @@ final class ViralReconWorkflowExecutionService {
                 )
                 _ = operationCenter.complete(
                     id: operationID,
-                    detail: completionDetail(for: persistedRequest, bundleURL: bundleURL),
+                    detail: completionDetail(for: persistedRequest, bundleURL: bundleURL, readPairing: readPairing),
                     bundleURLs: [bundleURL]
                 )
             } else {
@@ -567,8 +568,42 @@ final class ViralReconWorkflowExecutionService {
         "\(request.platform.rawValue) · \(request.samples.count) sample(s) · \(referenceDisplayName(request.reference))"
     }
 
-    private func completionDetail(for request: ViralReconRunRequest, bundleURL: URL) -> String {
-        "Viral Recon completed. Output: \(request.outputDirectory.path). Run bundle: \(bundleURL.path)"
+    private func completionDetail(
+        for request: ViralReconRunRequest,
+        bundleURL: URL,
+        readPairing: [ViralReconReadPairingDecision] = []
+    ) -> String {
+        var detail = "Viral Recon completed. Output: \(request.outputDirectory.path). Run bundle: \(bundleURL.path)"
+        if let summary = ViralReconReadPairing.summaryLine(for: readPairing) {
+            detail += ". \(summary)"
+        }
+        return detail
+    }
+
+    /// The read pairing decisions the CLI recorded for this run, logged on
+    /// the operation row (a mixed file that ran single-end is a warning).
+    ///
+    /// The split of interleaved pairs into fastq_1/fastq_2 happens inside
+    /// `lungfish-cli workflow run nf-core/viralrecon`, which writes
+    /// `inputs/read-pairing.json` in the run bundle; the app reads that back
+    /// so the run summary states the decision as well as the provenance.
+    static func readPairingDecisions(in bundleURL: URL) -> [ViralReconReadPairingDecision] {
+        let url = bundleURL
+            .appendingPathComponent("inputs", isDirectory: true)
+            .appendingPathComponent(ViralReconReadPairing.decisionsFilename)
+        return ViralReconReadPairing.loadDecisions(from: url) ?? []
+    }
+
+    private func logReadPairing(bundleURL: URL, operationID: UUID) -> [ViralReconReadPairingDecision] {
+        let decisions = Self.readPairingDecisions(in: bundleURL)
+        for decision in decisions {
+            operationCenter.log(
+                id: operationID,
+                level: decision.warning == nil ? .info : .warning,
+                message: "Read pairing: \(decision.warning ?? decision.summary)"
+            )
+        }
+        return decisions
     }
 
     private func failureDetail(exitCode: Int32, stderrTail: String) -> String {

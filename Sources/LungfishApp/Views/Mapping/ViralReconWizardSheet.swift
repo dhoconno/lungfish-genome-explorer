@@ -13,6 +13,10 @@ struct ViralReconWizardSheet: View {
 
     @State private var resolvedInputs: [ViralReconResolvedInput] = []
     @State private var inputError: String?
+    /// One caption per Illumina input saying how viralrecon will get its
+    /// reads (interleaved pairs split into R1/R2, or single-end with why).
+    /// Resolved off the main thread; the split itself happens in the run.
+    @State private var readLayoutNotes: [ReadLayoutNote] = []
     @State private var selectedPlatformOverride: PlatformOverride = .illumina
 
     @State private var primerOptions: [PrimerOption] = []
@@ -49,6 +53,24 @@ struct ViralReconWizardSheet: View {
     enum AdvancedParameterParse: Equatable {
         case success([String: String])
         case failure(String)
+    }
+
+    /// A read-layout caption for the Inputs section.
+    struct ReadLayoutNote: Equatable, Identifiable {
+        let id: String
+        let text: String
+        let isWarning: Bool
+    }
+
+    /// Captions for the Illumina inputs, from the same decisions the run makes.
+    nonisolated static func readLayoutNotes(for decisions: [ViralReconReadPairingDecision]) -> [ReadLayoutNote] {
+        decisions.map { decision in
+            ReadLayoutNote(
+                id: decision.sampleName + decision.sourceFASTQURLs.map(\.path).joined(),
+                text: decision.warning ?? decision.summary,
+                isWarning: decision.warning != nil
+            )
+        }
     }
 
     static func visibleControls(platformDetected: Bool) -> [VisibleControl] {
@@ -203,6 +225,12 @@ struct ViralReconWizardSheet: View {
                     Text("Platform: \(effectivePlatform.displayName)")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                    ForEach(readLayoutNotes) { note in
+                        Text(note.text)
+                            .font(.caption)
+                            .foregroundStyle(note.isWarning ? Color.lungfishOrangeFallback : Color.secondary)
+                            .accessibilityIdentifier(ViralReconAccessibilityID.readLayoutNote)
+                    }
                 }
             }
         }
@@ -397,11 +425,29 @@ struct ViralReconWizardSheet: View {
             )
             resolvedInputs = resolved
             inputError = nil
+            refreshReadLayoutNotes(for: resolved)
         } catch {
             resolvedInputs = []
+            readLayoutNotes = []
             inputError = Self.describeInputError(error)
         }
         buildError = nil
+    }
+
+    /// Resolves each Illumina input's read layout off the main thread (the
+    /// scan reads up to 100k records of a gzip file) and shows the result as
+    /// a caption. Nanopore inputs carry no mates and get no caption.
+    private func refreshReadLayoutNotes(for resolved: [ViralReconResolvedInput]) {
+        readLayoutNotes = []
+        guard resolved.contains(where: { $0.platform == .illumina }) else { return }
+        Task {
+            let notes = await Task.detached(priority: .utility) { () -> [ReadLayoutNote] in
+                guard let samples = try? ViralReconInputResolver.makeSamples(from: resolved) else { return [] }
+                return Self.readLayoutNotes(for: ViralReconReadPairing.decisions(for: samples))
+            }.value
+            guard resolvedInputs == resolved else { return }
+            readLayoutNotes = notes
+        }
     }
 
     private func performRun() {

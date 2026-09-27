@@ -322,15 +322,15 @@ public enum FASTQConsumerRegistry {
                 mixedRationale: "Reads are matched record by record in process; each mate counts on its own."
             ),
             FASTQConsumerDeclaration(
-                consumerID: "viralrecon.illumina",
+                consumerID: ViralReconReadPairing.consumerID,
                 displayName: "Viral Recon (Illumina samplesheet)",
                 handling: [
                     .singleEnd: .asSingle,
-                    .strictlyInterleaved: .asSingle,
+                    .strictlyInterleaved: .splitToR1R2,
                     .mixedMergedAndPairs: .asSingle,
                     .pairedFiles: .asPairs,
                 ],
-                mixedRationale: "ViralReconSamplesheetBuilder fills fastq_2 only for a second file; any single file is a single-end row."
+                mixedRationale: "viralrecon reads pairs only as samplesheet fastq_1/fastq_2. ViralReconReadPairing resolves a single file's layout through FASTQInputLayoutResolver inside the run (GUI operation and `workflow run nf-core/viralrecon` alike), splits a strictly interleaved file into gzip R1/R2 with FASTQPairInterleaver.deinterleave and writes both columns; two files are a paired row; a mixed or single-end file stays a single-end row with a warning, because a positional split would mis-pair it."
             ),
         ]
     }
