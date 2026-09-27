@@ -680,8 +680,10 @@ final class PrimerDesignDialogState {
   private static func text(_ value: Double?) -> String { value.map(text) ?? "" }
 
   /// Choosing an assay seeds its shared preset into the visible fields. The
-  /// user can still edit every value afterwards. PCR and the hydrolysis
-  /// probe share one preset, so switching between them keeps edits.
+  /// user can still edit every value afterwards. Each assay now has its own
+  /// preset, so any change of chemistry reseeds the visible primer rules; the
+  /// hydrolysis probe's PRIMER_INTERNAL_* rules are not editable in the dialog
+  /// and always travel from the shared preset, exactly as the CLI sends them.
   private func applyAssayDefaults(from oldChemistry: PrimerDesignChemistry) {
     let defaults = Primer3AssayDefaults.defaults(for: chemistry.assayMode)
     guard defaults != Primer3AssayDefaults.defaults(for: oldChemistry.assayMode) else { return }
@@ -749,7 +751,10 @@ final class PrimerDesignDialogState {
       primerMaxSelfAnyTh: try optionalNonnegativeNumber(primerMaxSelfAnyTh, "Self complementarity (any) threshold"),
       primerMaxSelfEndTh: try optionalNonnegativeNumber(primerMaxSelfEndTh, "Self complementarity (3′ end) threshold"),
       pairMaxComplAnyTh: try optionalNonnegativeNumber(pairMaxComplAnyTh, "Pair complementarity (any) threshold"),
-      pairMaxComplEndTh: try optionalNonnegativeNumber(pairMaxComplEndTh, "Pair complementarity (3′ end) threshold"))
+      pairMaxComplEndTh: try optionalNonnegativeNumber(pairMaxComplEndTh, "Pair complementarity (3′ end) threshold"),
+      // The probe window is not editable here, so it travels straight from the
+      // shared preset and the GUI sends what `--assay qpcr-probe` sends.
+      probe: Primer3AssayDefaults.defaults(for: chemistry.assayMode).probe)
   }
 
   private func optionalNonnegativeNumber(_ text: String, _ title: String) throws -> Double? {

@@ -63,7 +63,90 @@ final class Primer3DesignPipelineTests: XCTestCase {
         XCTAssertNil(pcr.primerMaxPolyX); XCTAssertNil(pcr.primerMaxSelfEndTh); XCTAssertNil(pcr.pairMaxComplEndTh)
         let probe = Primer3DesignOptions.preset(.qpcrProbe)
         XCTAssertTrue(probe.pickInternalOligo)
-        XCTAssertEqual(probe.productSizeMin, pcr.productSizeMin)
+        // The probe assay is a qPCR assay, so it takes the dye primer rules, not PCR's.
+        XCTAssertEqual(probe.productSizeMin, dye.productSizeMin)
+        XCTAssertNil(pcr.probe)
+        XCTAssertNil(dye.probe)
+    }
+
+    /// A hydrolysis probe must melt above the primers to be bound before extension
+    /// reaches it. The preset used to fall back to PCR, which sent no PRIMER_INTERNAL_*
+    /// rule at all and let Primer3 pick a probe at its own 60 C default.
+    func testProbeQPCRPresetSendsPrimerRulesAndAProbeWindowAboveThem() {
+        let probe = Primer3DesignOptions.preset(.qpcrProbe)
+        let dye = Primer3DesignOptions.preset(.qpcrDye)
+        XCTAssertEqual(probe.assayMode, .qpcrProbe)
+        XCTAssertTrue(probe.pickInternalOligo)
+
+        // Primer rules identical to the dye preset.
+        for (probeValue, dyeValue) in [(probe.productSizeMin, dye.productSizeMin),
+                                       (probe.productSizeMax, dye.productSizeMax),
+                                       (probe.primerMinSize, dye.primerMinSize),
+                                       (probe.primerOptSize, dye.primerOptSize),
+                                       (probe.primerMaxSize, dye.primerMaxSize)] {
+            XCTAssertEqual(probeValue, dyeValue)
+        }
+        XCTAssertEqual(probe.primerMinTm, dye.primerMinTm)
+        XCTAssertEqual(probe.primerOptTm, dye.primerOptTm)
+        XCTAssertEqual(probe.primerMaxTm, dye.primerMaxTm)
+        XCTAssertEqual(probe.primerMinGC, dye.primerMinGC)
+        XCTAssertEqual(probe.primerMaxGC, dye.primerMaxGC)
+        XCTAssertEqual(probe.pairMaxTmDifference, dye.pairMaxTmDifference)
+        XCTAssertEqual(probe.primerMaxEndGC, dye.primerMaxEndGC)
+        XCTAssertEqual(probe.primerGCClamp, dye.primerGCClamp)
+        XCTAssertEqual(probe.primerMaxPolyX, dye.primerMaxPolyX)
+        XCTAssertEqual(probe.primerMaxSelfAnyTh, dye.primerMaxSelfAnyTh)
+        XCTAssertEqual(probe.primerMaxSelfEndTh, dye.primerMaxSelfEndTh)
+        XCTAssertEqual(probe.pairMaxComplAnyTh, dye.pairMaxComplAnyTh)
+        XCTAssertEqual(probe.pairMaxComplEndTh, dye.pairMaxComplEndTh)
+
+        guard let window = probe.probe else { return XCTFail("The probe preset must carry probe rules.") }
+        XCTAssertEqual(window.probeMinTm, 64)
+        XCTAssertEqual(window.probeOptTm, 67)
+        XCTAssertEqual(window.probeMaxTm, 70)
+        XCTAssertEqual(window.probeMinSize, 20)
+        XCTAssertEqual(window.probeOptSize, 25)
+        XCTAssertEqual(window.probeMaxSize, 30)
+        XCTAssertEqual(window.probeMinGC, 40)
+        XCTAssertEqual(window.probeOptGC, 60)
+        XCTAssertEqual(window.probeMaxGC, 80)
+        XCTAssertEqual(window.probeMaxPolyX, 4)
+        XCTAssertEqual(window.probeMustMatchFivePrime, "hnnnn")
+        // The whole probe window sits at least 5 and at most 10 C above the primers.
+        XCTAssertGreaterThanOrEqual(window.probeOptTm - probe.primerOptTm, 5)
+        XCTAssertLessThanOrEqual(window.probeOptTm - probe.primerOptTm, 10)
+        XCTAssertGreaterThan(window.probeMinTm, probe.primerMaxTm)
+    }
+
+    func testBoulderInputAddsInternalOligoTagsOnlyForTheProbePreset() throws {
+        let template = Primer3PreparedTemplate(
+            inputID: UUID(), resultID: UUID(), title: "mhc", sequence: String(repeating: "ACGT", count: 80),
+            sourceURL: URL(fileURLWithPath: "/tmp/mhc.fa"), sourceIndex: 0, sourceRecordID: "mhc",
+            sourceKind: .fasta, bindingSitePolicy: .templateOnly, alignmentToTemplate: nil, excludedRegions: [])
+        // PRIMER_PICK_INTERNAL_OLIGO is always present, so check the rule tags only.
+        for mode in [Primer3AssayMode.pcr, .qpcrDye] {
+            let text = try Primer3BoulderWriter.makeInput(templates: [template], options: .preset(mode))
+            for key in ["PRIMER_INTERNAL_MIN_TM", "PRIMER_INTERNAL_OPT_TM", "PRIMER_INTERNAL_MAX_TM",
+                        "PRIMER_INTERNAL_MIN_SIZE", "PRIMER_INTERNAL_OPT_SIZE", "PRIMER_INTERNAL_MAX_SIZE",
+                        "PRIMER_INTERNAL_MIN_GC", "PRIMER_INTERNAL_OPT_GC_PERCENT", "PRIMER_INTERNAL_MAX_GC",
+                        "PRIMER_INTERNAL_MAX_POLY_X", "PRIMER_INTERNAL_MUST_MATCH_FIVE_PRIME"] {
+                XCTAssertFalse(text.contains(key), "\(mode.rawValue) \(key)")
+            }
+            XCTAssertTrue(text.contains("PRIMER_PICK_INTERNAL_OLIGO=0\n"), mode.rawValue)
+        }
+        let probe = try Primer3BoulderWriter.makeInput(templates: [template], options: .preset(.qpcrProbe))
+        for line in ["PRIMER_PICK_INTERNAL_OLIGO=1", "PRIMER_PRODUCT_SIZE_RANGE=70-150",
+                     "PRIMER_INTERNAL_MIN_TM=64.0", "PRIMER_INTERNAL_OPT_TM=67.0", "PRIMER_INTERNAL_MAX_TM=70.0",
+                     "PRIMER_INTERNAL_MIN_SIZE=20", "PRIMER_INTERNAL_OPT_SIZE=25", "PRIMER_INTERNAL_MAX_SIZE=30",
+                     "PRIMER_INTERNAL_MIN_GC=40.0", "PRIMER_INTERNAL_OPT_GC_PERCENT=60.0", "PRIMER_INTERNAL_MAX_GC=80.0",
+                     "PRIMER_INTERNAL_MAX_POLY_X=4", "PRIMER_INTERNAL_MUST_MATCH_FIVE_PRIME=hnnnn"] {
+            XCTAssertTrue(probe.contains(line + "\n"), line)
+        }
+        XCTAssertTrue(probe.hasSuffix("PRIMER_EXPLAIN_FLAG=1\n=\n"))
+        // The probe rules survive a round trip, so saved analyses reload them.
+        let decoded = try JSONDecoder().decode(
+            Primer3DesignOptions.self, from: JSONEncoder().encode(Primer3DesignOptions.preset(.qpcrProbe)))
+        XCTAssertEqual(decoded, Primer3DesignOptions.preset(.qpcrProbe))
     }
 
     func testBoulderInputAddsDyeRulesOnlyForTheDyePreset() throws {

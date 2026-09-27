@@ -27,6 +27,28 @@ final class PrimerDesignDialogStateTests: XCTestCase {
     XCTAssertNil(state.validationMessage)
   }
 
+  /// The dialog must send the same hydrolysis-probe preset the CLI sends for
+  /// `--assay qpcr-probe`, including the PRIMER_INTERNAL_* window the probe needs.
+  func testHydrolysisProbeChemistrySendsTheSharedProbePreset() throws {
+    let state = configuredState()
+    state.chemistry = .hydrolysisProbe
+    let options = try state.primer3Options()
+    XCTAssertEqual(options.assayMode, .qpcrProbe)
+    XCTAssertTrue(options.pickInternalOligo)
+    XCTAssertEqual(options.probe, Primer3ProbeDefaults.hydrolysisProbe)
+    XCTAssertEqual(options, Primer3DesignOptions.preset(.qpcrProbe, pairCount: options.pairCount))
+
+    // Switching chemistry reseeds the primer rules and drops the probe window.
+    state.chemistry = .pcr
+    let pcr = try state.primer3Options()
+    XCTAssertNil(pcr.probe)
+    XCTAssertEqual(pcr.productSizeMax, Primer3AssayDefaults.pcr.productSizeMax)
+    state.chemistry = .intercalatingDye
+    XCTAssertNil(try state.primer3Options().probe)
+    state.chemistry = .hydrolysisProbe
+    XCTAssertEqual(try state.primer3Options().probe, Primer3ProbeDefaults.hydrolysisProbe)
+  }
+
   /// A target longer than the maximum product size leaves Primer3 nothing to consider, so
   /// the dialog must refuse it instead of producing an empty result that looks successful.
   func testTargetLongerThanMaximumProductSizeIsRejected() throws {
@@ -734,9 +756,11 @@ final class PrimerDesignDialogStateTests: XCTestCase {
     XCTAssertEqual(try state.primer3Options(), .preset(.pcr))
     state.primerMinTm = "55"
     state.chemistry = .hydrolysisProbe
-    XCTAssertEqual(state.primerMinTm, "55", "PCR and probe share one preset, so switching keeps edits")
+    XCTAssertEqual(state.primerMinTm, "58",
+      "The probe assay has its own preset now, so switching to it reseeds the primer rules")
     XCTAssertEqual(try state.primer3Options().assayMode, .qpcrProbe)
     XCTAssertTrue(try state.primer3Options().pickInternalOligo)
+    XCTAssertEqual(try state.primer3Options().probe, Primer3ProbeDefaults.hydrolysisProbe)
   }
 
   private func configuredState() -> PrimerDesignDialogState {

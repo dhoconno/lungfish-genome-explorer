@@ -37,27 +37,41 @@ struct PrimerDesignCommand: AsyncParsableCommand {
         @Option(name: .customLong("primer3-path"), help: "Optional exact primer3_core executable path.")
         var executablePath: String?
         @Option(name: .customLong("assay"), help: "Assay preset, as in the GUI: pcr, qpcr-dye, or qpcr-probe. Omitted values below take the preset's defaults.") var assay = "pcr"
-        @Option(name: .customLong("product-size-min"), help: "Preset default: 100 for pcr, 70 for qpcr-dye.") var productSizeMin: Int?
-        @Option(name: .customLong("product-size-max"), help: "Preset default: 400 for pcr, 150 for qpcr-dye.") var productSizeMax: Int?
+        @Option(name: .customLong("product-size-min"), help: "Preset default: 100 for pcr, 70 for qpcr-dye and qpcr-probe.") var productSizeMin: Int?
+        @Option(name: .customLong("product-size-max"), help: "Preset default: 400 for pcr, 150 for qpcr-dye and qpcr-probe.") var productSizeMax: Int?
         @Option(name: .customLong("target-start"), help: "Optional 1-based inclusive target start; requires --target-end.") var targetStart: Int?
         @Option(name: .customLong("target-end"), help: "Optional 1-based inclusive target end; requires --target-start.") var targetEnd: Int?
         @Option(name: .customLong("pair-count")) var pairCount = 5
         @Option(name: .customLong("primer-min-size"), help: "Preset default: 18.") var primerMinSize: Int?
         @Option(name: .customLong("primer-opt-size"), help: "Preset default: 20.") var primerOptSize: Int?
-        @Option(name: .customLong("primer-max-size"), help: "Preset default: 27 for pcr, 24 for qpcr-dye.") var primerMaxSize: Int?
-        @Option(name: .customLong("primer-min-tm"), help: "Preset default: 57 for pcr, 58 for qpcr-dye.") var primerMinTm: Double?
+        @Option(name: .customLong("primer-max-size"), help: "Preset default: 27 for pcr, 24 for qpcr-dye and qpcr-probe.") var primerMaxSize: Int?
+        @Option(name: .customLong("primer-min-tm"), help: "Preset default: 57 for pcr, 58 for qpcr-dye and qpcr-probe.") var primerMinTm: Double?
         @Option(name: .customLong("primer-opt-tm"), help: "Preset default: 60.") var primerOptTm: Double?
-        @Option(name: .customLong("primer-max-tm"), help: "Preset default: 63 for pcr, 62 for qpcr-dye.") var primerMaxTm: Double?
-        @Option(name: .customLong("primer-min-gc"), help: "Preset default: 20 for pcr, 40 for qpcr-dye.") var primerMinGC: Double?
-        @Option(name: .customLong("primer-max-gc"), help: "Preset default: 80 for pcr, 60 for qpcr-dye.") var primerMaxGC: Double?
-        @Option(name: .customLong("pair-max-tm-difference"), help: "PRIMER_PAIR_MAX_DIFF_TM. Preset default: Primer3's own for pcr, 1 for qpcr-dye.") var pairMaxTmDifference: Double?
-        @Option(name: .customLong("primer-max-end-gc"), help: "PRIMER_MAX_END_GC. Preset default: Primer3's own for pcr, 2 for qpcr-dye.") var primerMaxEndGC: Int?
-        @Option(name: .customLong("primer-gc-clamp"), help: "PRIMER_GC_CLAMP. Preset default: Primer3's own for pcr, 1 for qpcr-dye.") var primerGCClamp: Int?
-        @Option(name: .customLong("primer-max-poly-x"), help: "PRIMER_MAX_POLY_X. Preset default: Primer3's own for pcr, 4 for qpcr-dye.") var primerMaxPolyX: Int?
-        @Option(name: .customLong("primer-max-self-any-th"), help: "PRIMER_MAX_SELF_ANY_TH. Preset default: Primer3's own for pcr, 40 for qpcr-dye.") var primerMaxSelfAnyTh: Double?
-        @Option(name: .customLong("primer-max-self-end-th"), help: "PRIMER_MAX_SELF_END_TH. Preset default: Primer3's own for pcr, 30 for qpcr-dye.") var primerMaxSelfEndTh: Double?
-        @Option(name: .customLong("pair-max-compl-any-th"), help: "PRIMER_PAIR_MAX_COMPL_ANY_TH. Preset default: Primer3's own for pcr, 40 for qpcr-dye.") var pairMaxComplAnyTh: Double?
-        @Option(name: .customLong("pair-max-compl-end-th"), help: "PRIMER_PAIR_MAX_COMPL_END_TH. Preset default: Primer3's own for pcr, 30 for qpcr-dye.") var pairMaxComplEndTh: Double?
+        @Option(name: .customLong("primer-max-tm"), help: "Preset default: 63 for pcr, 62 for qpcr-dye and qpcr-probe.") var primerMaxTm: Double?
+        @Option(name: .customLong("primer-min-gc"), help: "Preset default: 20 for pcr, 40 for qpcr-dye and qpcr-probe.") var primerMinGC: Double?
+        @Option(name: .customLong("primer-max-gc"), help: "Preset default: 80 for pcr, 60 for qpcr-dye and qpcr-probe.") var primerMaxGC: Double?
+        @Option(name: .customLong("pair-max-tm-difference"), help: "PRIMER_PAIR_MAX_DIFF_TM. Preset default: Primer3's own for pcr, 1 for qpcr-dye and qpcr-probe.") var pairMaxTmDifference: Double?
+        @Option(name: .customLong("primer-max-end-gc"), help: "PRIMER_MAX_END_GC. Preset default: Primer3's own for pcr, 2 for qpcr-dye and qpcr-probe.") var primerMaxEndGC: Int?
+        @Option(name: .customLong("primer-gc-clamp"), help: "PRIMER_GC_CLAMP. Preset default: Primer3's own for pcr, 1 for qpcr-dye and qpcr-probe.") var primerGCClamp: Int?
+        @Option(name: .customLong("primer-max-poly-x"), help: "PRIMER_MAX_POLY_X. Preset default: Primer3's own for pcr, 4 for qpcr-dye and qpcr-probe.") var primerMaxPolyX: Int?
+        @Option(name: .customLong("primer-max-self-any-th"), help: "PRIMER_MAX_SELF_ANY_TH. Preset default: Primer3's own for pcr, 40 for qpcr-dye and qpcr-probe.") var primerMaxSelfAnyTh: Double?
+        @Option(name: .customLong("primer-max-self-end-th"), help: "PRIMER_MAX_SELF_END_TH. Preset default: Primer3's own for pcr, 30 for qpcr-dye and qpcr-probe.") var primerMaxSelfEndTh: Double?
+        @Option(name: .customLong("pair-max-compl-any-th"), help: "PRIMER_PAIR_MAX_COMPL_ANY_TH. Preset default: Primer3's own for pcr, 40 for qpcr-dye and qpcr-probe.") var pairMaxComplAnyTh: Double?
+        @Option(name: .customLong("pair-max-compl-end-th"), help: "PRIMER_PAIR_MAX_COMPL_END_TH. Preset default: Primer3's own for pcr, 30 for qpcr-dye and qpcr-probe.") var pairMaxComplEndTh: Double?
+
+        // PRIMER_INTERNAL_* hydrolysis-probe rules. They apply only to qpcr-probe, the
+        // one preset that asks Primer3 for an internal oligo.
+        @Option(name: .customLong("probe-min-tm"), help: "PRIMER_INTERNAL_MIN_TM. Preset default: 64 for qpcr-probe; unused otherwise.") var probeMinTm: Double?
+        @Option(name: .customLong("probe-opt-tm"), help: "PRIMER_INTERNAL_OPT_TM. Preset default: 67 for qpcr-probe; unused otherwise.") var probeOptTm: Double?
+        @Option(name: .customLong("probe-max-tm"), help: "PRIMER_INTERNAL_MAX_TM. Preset default: 70 for qpcr-probe; unused otherwise.") var probeMaxTm: Double?
+        @Option(name: .customLong("probe-min-size"), help: "PRIMER_INTERNAL_MIN_SIZE. Preset default: 20 for qpcr-probe; unused otherwise.") var probeMinSize: Int?
+        @Option(name: .customLong("probe-opt-size"), help: "PRIMER_INTERNAL_OPT_SIZE. Preset default: 25 for qpcr-probe; unused otherwise.") var probeOptSize: Int?
+        @Option(name: .customLong("probe-max-size"), help: "PRIMER_INTERNAL_MAX_SIZE. Preset default: 30 for qpcr-probe; unused otherwise.") var probeMaxSize: Int?
+        @Option(name: .customLong("probe-min-gc"), help: "PRIMER_INTERNAL_MIN_GC. Preset default: 40 for qpcr-probe; unused otherwise.") var probeMinGC: Double?
+        @Option(name: .customLong("probe-opt-gc"), help: "PRIMER_INTERNAL_OPT_GC_PERCENT. Preset default: 60 for qpcr-probe; unused otherwise.") var probeOptGC: Double?
+        @Option(name: .customLong("probe-max-gc"), help: "PRIMER_INTERNAL_MAX_GC. Preset default: 80 for qpcr-probe; unused otherwise.") var probeMaxGC: Double?
+        @Option(name: .customLong("probe-max-poly-x"), help: "PRIMER_INTERNAL_MAX_POLY_X. Preset default: 4 for qpcr-probe; unused otherwise.") var probeMaxPolyX: Int?
+        @Option(name: .customLong("probe-must-match-five-prime"), help: "PRIMER_INTERNAL_MUST_MATCH_FIVE_PRIME. Preset default: hnnnn for qpcr-probe, which forbids a 5' G next to the reporter dye. Pass an empty value to omit the tag.") var probeMustMatchFivePrime: String?
         @Flag(name: .customLong("pick-internal-oligo"), help: "Ask Primer3 for an ordinary internal oligo. Implied by --assay qpcr-probe.") var pickInternalOligo = false
 
         func run() async throws {
@@ -124,9 +138,30 @@ struct PrimerDesignCommand: AsyncParsableCommand {
                 primerMaxSelfAnyTh: primerMaxSelfAnyTh ?? defaults.primerMaxSelfAnyTh,
                 primerMaxSelfEndTh: primerMaxSelfEndTh ?? defaults.primerMaxSelfEndTh,
                 pairMaxComplAnyTh: pairMaxComplAnyTh ?? defaults.pairMaxComplAnyTh,
-                pairMaxComplEndTh: pairMaxComplEndTh ?? defaults.pairMaxComplEndTh)
+                pairMaxComplEndTh: pairMaxComplEndTh ?? defaults.pairMaxComplEndTh,
+                probe: resolvedProbeDefaults(defaults.probe))
             try Primer3DesignPipeline.validate(options)
             return options
+        }
+
+        /// The probe rules for an assay that picks an internal oligo, with any
+        /// explicit `--probe-*` value overriding the preset. Presets without a
+        /// probe group stay `nil`, so no PRIMER_INTERNAL_* line is emitted.
+        private func resolvedProbeDefaults(_ preset: Primer3ProbeDefaults?) -> Primer3ProbeDefaults? {
+            guard let preset else { return nil }
+            let mustMatch = probeMustMatchFivePrime ?? preset.probeMustMatchFivePrime
+            return Primer3ProbeDefaults(
+                probeMinTm: probeMinTm ?? preset.probeMinTm,
+                probeOptTm: probeOptTm ?? preset.probeOptTm,
+                probeMaxTm: probeMaxTm ?? preset.probeMaxTm,
+                probeMinSize: probeMinSize ?? preset.probeMinSize,
+                probeOptSize: probeOptSize ?? preset.probeOptSize,
+                probeMaxSize: probeMaxSize ?? preset.probeMaxSize,
+                probeMinGC: probeMinGC ?? preset.probeMinGC,
+                probeOptGC: probeOptGC ?? preset.probeOptGC,
+                probeMaxGC: probeMaxGC ?? preset.probeMaxGC,
+                probeMaxPolyX: probeMaxPolyX ?? preset.probeMaxPolyX,
+                probeMustMatchFivePrime: (mustMatch?.isEmpty ?? true) ? nil : mustMatch)
         }
 
         private static func explicitOptions(_ options: Primer3DesignOptions, selections: [Primer3TemplateSelection]) -> [String: ParameterValue] {
@@ -139,6 +174,16 @@ struct PrimerDesignCommand: AsyncParsableCommand {
                 "primerMaxSelfEndTh": options.primerMaxSelfEndTh.map(ParameterValue.number) ?? .null,
                 "pairMaxComplAnyTh": options.pairMaxComplAnyTh.map(ParameterValue.number) ?? .null,
                 "pairMaxComplEndTh": options.pairMaxComplEndTh.map(ParameterValue.number) ?? .null]
+            if let probe = options.probe {
+                values.merge([
+                    "probeMinTm": .number(probe.probeMinTm), "probeOptTm": .number(probe.probeOptTm),
+                    "probeMaxTm": .number(probe.probeMaxTm), "probeMinSize": .integer(probe.probeMinSize),
+                    "probeOptSize": .integer(probe.probeOptSize), "probeMaxSize": .integer(probe.probeMaxSize),
+                    "probeMinGC": .number(probe.probeMinGC), "probeOptGC": .number(probe.probeOptGC),
+                    "probeMaxGC": .number(probe.probeMaxGC), "probeMaxPolyX": .integer(probe.probeMaxPolyX),
+                    "probeMustMatchFivePrime": probe.probeMustMatchFivePrime.map(ParameterValue.string) ?? .null,
+                ]) { _, new in new }
+            }
             values.merge(baseExplicitOptions(options, selections: selections)) { _, new in new }
             return values
         }
