@@ -22,7 +22,11 @@ import LungfishIO
 ///
 /// The haplotype calls reflect analyst-applied overrides merged over the
 /// pipeline's `haplotypeAnalysis` so LabKey receives the *active* (final)
-/// call, not the raw pipeline output. Bundle files themselves are never
+/// call, not the raw pipeline output. A homozygous locus (one matched
+/// haplotype, status `called` or `homozygous`) exports the same name in the
+/// `h1` and `h2` rows, the convention the workbook's Effective H2 and the
+/// `genotype export` CSV matrix share; `-` in `h2` means an analyst marked
+/// the second haplotype absent and `?` means it is unresolved. Bundle files themselves are never
 /// modified — this is a provenance-`inspectOnly` (`cli.genotype` policy)
 /// command, peer to the existing `export-xlsx` subcommand.
 struct GenotypeExportLabKeySubcommand: AsyncParsableCommand {
@@ -216,44 +220,70 @@ struct LabKeyExporter {
         for sampleAnalysis in analysis.samples {
             let sampleCalls = callsBySample[sampleAnalysis.sample]?.calls ?? []
             for call in sampleAnalysis.calls {
+                let h1Override = overrideIndex[OverrideKey(sample: sampleAnalysis.sample, locus: call.locus, slot: .h1)]
+                let h2Override = overrideIndex[OverrideKey(sample: sampleAnalysis.sample, locus: call.locus, slot: .h2)]
+                let h1Call = h1Override?.overrideCall ?? call.haplotype1
+                let h2Call = Self.effectiveSecondHaplotype(
+                    firstCall: h1Call,
+                    secondCall: h2Override?.overrideCall ?? call.haplotype2,
+                    status: h2Override.map {
+                        GenotypeEffectiveCallAuthority.overrideStatus(effective: $0.overrideCall, baseline: call.status)
+                    } ?? call.status
+                )
                 rows.append(haplotypeRow(
                     sample: sampleAnalysis.sample,
                     locus: call.locus,
                     slot: .h1,
-                    rawHaplotype: call.haplotype1,
+                    finalCall: h1Call,
+                    override: h1Override,
                     status: call.status,
                     notes: call.notes,
-                    sampleCalls: sampleCalls,
-                    overrideIndex: overrideIndex
+                    sampleCalls: sampleCalls
                 ))
                 rows.append(haplotypeRow(
                     sample: sampleAnalysis.sample,
                     locus: call.locus,
                     slot: .h2,
-                    rawHaplotype: call.haplotype2,
+                    finalCall: h2Call,
+                    override: h2Override,
                     status: call.status,
                     notes: call.notes,
-                    sampleCalls: sampleCalls,
-                    overrideIndex: overrideIndex
+                    sampleCalls: sampleCalls
                 ))
             }
         }
         return rows
     }
 
+    /// The `h2` value LabKey receives: the same effective-call rule the
+    /// workbook and viewport apply (``GenotypeEffectiveCallAuthority``), so a
+    /// called locus with one matched haplotype exports `h2 == h1` (the
+    /// homozygous convention) everywhere instead of `-` here, blank in the
+    /// CSV matrix, and the repeated name in the workbook. An analyst's
+    /// explicit absent H2 (`-` override, `no_haplotype` status) and an
+    /// unresolved second haplotype (`?`) are exported as written.
+    static func effectiveSecondHaplotype(
+        firstCall: String,
+        secondCall: String,
+        status: GenotypeHaplotypeCallStatus
+    ) -> String {
+        GenotypeEffectiveCallAuthority.normalizedSecondHaplotype(
+            first: firstCall,
+            second: secondCall,
+            status: status
+        )
+    }
+
     private func haplotypeRow(
         sample: String,
         locus: String,
         slot: HaplotypeSlot,
-        rawHaplotype: String,
+        finalCall: String,
+        override: GenotypeAnnotationSidecar.CallOverride?,
         status: GenotypeHaplotypeCallStatus,
         notes: String,
-        sampleCalls: [ONTGenotypeCall],
-        overrideIndex: [OverrideKey: GenotypeAnnotationSidecar.CallOverride]
+        sampleCalls: [ONTGenotypeCall]
     ) -> [String] {
-        let key = OverrideKey(sample: sample, locus: locus, slot: slot)
-        let override = overrideIndex[key]
-        let finalCall = override?.overrideCall ?? rawHaplotype
         let reads = readsSupporting(haplotype: finalCall, sampleCalls: sampleCalls)
         return [
             sample,
