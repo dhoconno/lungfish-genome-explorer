@@ -116,29 +116,48 @@ struct FastqTrimSubcommand: AsyncParsableCommand {
     )
     var extraArgs: String = ""
 
+    @OptionGroup var pairing: FASTQPairingOptions
+
     @OptionGroup var output: OutputOptions
 
     func run() async throws {
         let inputURL = try validateInput(input)
         try output.validateOutput()
         let started = Date()
-        let args = try fastpArguments(inputURL: inputURL)
-        let result = try await NativeToolRunner.shared.run(.fastp, arguments: args)
-        try await writeProvenance(inputURL: inputURL, arguments: args, result: result, started: started)
-        guard result.isSuccess else {
-            throw CLIError.conversionFailed(reason: "fastp combined trim failed: \(result.stderr)")
-        }
+        let options = try fastpOptions()
+        // Paired input runs fastp in its paired mode so both mates are kept
+        // or dropped together (FastqFastpPairedRun.swift).
+        let pairingDecision = pairing.resolvePairing(inputURL: inputURL, pairsByName: true)
+        let plan = try await Task.detached(priority: .utility) {
+            try FastpReadLayoutPlan.resolve(inputURL: inputURL, decision: pairingDecision)
+        }.value
+        let outcome = try await FastpPairedRunner.run(
+            inputURL: inputURL,
+            outputPath: output.output,
+            plan: plan,
+            options: options,
+            detectPairedAdapters: adapterTrimming && adapterSequence == nil,
+            failureLabel: "fastp combined trim",
+            stepNamePrefix: "lungfish fastq trim"
+        )
+        try await writeProvenance(inputURL: inputURL, outcome: outcome, pairingDecision: pairingDecision, started: started)
         FileHandle.standardError.write(Data("Adapter and quality trimmed reads written to \(output.output)\n".utf8))
     }
 
+    /// The single-end fastp argv (`-i`, `-o`, then the options).
     func fastpArgumentsForTesting(inputURL: URL) throws -> [String] {
-        try fastpArguments(inputURL: inputURL)
+        FastpPairedRunner.fastpArguments(
+            inputPath: inputURL.path,
+            outputPath: output.output,
+            mateOutputPath: nil,
+            options: try fastpOptions(),
+            detectPairedAdapters: false
+        )
     }
 
-    private func fastpArguments(inputURL: URL) throws -> [String] {
+    /// The fastp arguments other than the input and output flags.
+    func fastpOptions() throws -> [String] {
         var args = [
-            "-i", inputURL.path,
-            "-o", output.output,
             "-W", String(windowSize),
             "-M", String(threshold),
             "--disable_quality_filtering",
@@ -169,8 +188,8 @@ struct FastqTrimSubcommand: AsyncParsableCommand {
 
     private func writeProvenance(
         inputURL: URL,
-        arguments: [String],
-        result: NativeToolResult,
+        outcome: FastpPairedRunOutcome,
+        pairingDecision: FASTQPairingDecision,
         started: Date
     ) async throws {
         let outputURL = URL(fileURLWithPath: output.output)
@@ -193,6 +212,7 @@ struct FastqTrimSubcommand: AsyncParsableCommand {
         if !extraArgs.isEmpty {
             cliArguments += ["--extra-args", extraArgs]
         }
+        cliArguments += pairing.cliArguments
         cliArguments += ["--output", output.output]
         if output.force {
             cliArguments.append("--force")
@@ -204,8 +224,8 @@ struct FastqTrimSubcommand: AsyncParsableCommand {
             workflowName: "lungfish fastq trim",
             nativeTool: .fastp,
             cliArguments: cliArguments,
-            nativeArguments: arguments,
-            result: result,
+            nativeArguments: outcome.nativeArguments,
+            result: outcome.result,
             inputURLs: [inputURL],
             outputURLs: [outputURL],
             parameters: [
@@ -216,6 +236,11 @@ struct FastqTrimSubcommand: AsyncParsableCommand {
                 "adapterSequence": adapterSequence.map(ParameterValue.string) ?? .null,
                 "operation": .string("combined fastp adapter+quality trim"),
                 "output": .file(outputURL),
+                "pairing": pairing.provenanceValue,
+                "interleaved": .boolean(outcome.plan.isPaired),
+                "readLayout": pairingDecision.readLayoutProvenanceValue,
+                "readLayoutReason": pairingDecision.readLayoutReasonProvenanceValue,
+                "fastpLayoutPlan": outcome.plan.provenanceValue,
                 "force": .boolean(output.force),
                 "compress": .boolean(output.compress)
             ],
@@ -225,9 +250,17 @@ struct FastqTrimSubcommand: AsyncParsableCommand {
                 "mode": .string("cut-right"),
                 "adapterTrimming": .boolean(true),
                 "adapterSequence": .null,
+                "pairing": FASTQPairingOptions.provenanceDefault,
+                "interleaved": .boolean(false),
+                "readLayout": FASTQPairingOptions.readLayoutProvenanceDefault,
+                "fastpLayoutPlan": FastpReadLayoutPlan.singleEnd.provenanceValue,
                 "force": .boolean(false),
                 "compress": .boolean(false)
             ],
+            stepID: outcome.stepID,
+            stepInputs: outcome.stepInputs,
+            stepOutputs: outcome.stepOutputs,
+            extraSteps: outcome.extraSteps,
             startedAt: started
         )
     }
@@ -577,20 +610,29 @@ struct FastqQualityTrimSubcommand: AsyncParsableCommand {
     )
     var extraArgs: String = ""
 
+    @OptionGroup var pairing: FASTQPairingOptions
+
     @OptionGroup var output: OutputOptions
 
     func run() async throws {
         let inputURL = try validateInput(input)
         try output.validateOutput()
-        let runner = NativeToolRunner.shared
-
-        let args = try fastpArguments(inputURL: inputURL)
+        let options = try fastpOptions()
 
         let startedAt = Date()
-        let result = try await runner.run(.fastp, arguments: args)
-        guard result.isSuccess else {
-            throw CLIError.conversionFailed(reason: "fastp quality trim failed: \(result.stderr)")
-        }
+        let pairingDecision = pairing.resolvePairing(inputURL: inputURL, pairsByName: true)
+        let plan = try await Task.detached(priority: .utility) {
+            try FastpReadLayoutPlan.resolve(inputURL: inputURL, decision: pairingDecision)
+        }.value
+        let outcome = try await FastpPairedRunner.run(
+            inputURL: inputURL,
+            outputPath: output.output,
+            plan: plan,
+            options: options,
+            detectPairedAdapters: false,
+            failureLabel: "fastp quality trim",
+            stepNamePrefix: "lungfish fastq quality-trim"
+        )
         var cliArguments = ["quality-trim"]
         if threshold != 20 {
             cliArguments += ["--threshold", String(threshold)]
@@ -604,6 +646,7 @@ struct FastqQualityTrimSubcommand: AsyncParsableCommand {
         if !extraArgs.isEmpty {
             cliArguments += ["--extra-args", extraArgs]
         }
+        cliArguments += pairing.cliArguments
         cliArguments += [inputURL.path, "--output", output.output]
         if output.force {
             cliArguments.append("--force")
@@ -616,8 +659,8 @@ struct FastqQualityTrimSubcommand: AsyncParsableCommand {
             workflowName: "lungfish fastq quality-trim",
             nativeTool: .fastp,
             cliArguments: cliArguments,
-            nativeArguments: args,
-            result: result,
+            nativeArguments: outcome.nativeArguments,
+            result: outcome.result,
             inputURLs: [inputURL],
             outputURLs: [outputURL],
             parameters: [
@@ -627,6 +670,11 @@ struct FastqQualityTrimSubcommand: AsyncParsableCommand {
                 "windowSize": .integer(windowSize),
                 "mode": .string(mode),
                 "extraArgs": .string(extraArgs),
+                "pairing": pairing.provenanceValue,
+                "interleaved": .boolean(outcome.plan.isPaired),
+                "readLayout": pairingDecision.readLayoutProvenanceValue,
+                "readLayoutReason": pairingDecision.readLayoutReasonProvenanceValue,
+                "fastpLayoutPlan": outcome.plan.provenanceValue,
                 "force": .boolean(output.force),
                 "compress": .boolean(output.compress)
             ],
@@ -635,9 +683,17 @@ struct FastqQualityTrimSubcommand: AsyncParsableCommand {
                 "windowSize": .integer(4),
                 "mode": .string("cut-right"),
                 "extraArgs": .string(""),
+                "pairing": FASTQPairingOptions.provenanceDefault,
+                "interleaved": .boolean(false),
+                "readLayout": FASTQPairingOptions.readLayoutProvenanceDefault,
+                "fastpLayoutPlan": FastpReadLayoutPlan.singleEnd.provenanceValue,
                 "force": .boolean(false),
                 "compress": .boolean(false)
             ],
+            stepID: outcome.stepID,
+            stepInputs: outcome.stepInputs,
+            stepOutputs: outcome.stepOutputs,
+            extraSteps: outcome.extraSteps,
             startedAt: startedAt
         )
         FileHandle.standardError.write(Data("Quality-trimmed reads written to \(output.output)\n".utf8))
@@ -647,14 +703,20 @@ struct FastqQualityTrimSubcommand: AsyncParsableCommand {
         (try? AdvancedCommandLineOptions.parse(extraArgs)) ?? []
     }
 
+    /// The single-end fastp argv (`-i`, `-o`, then the options).
     func fastpArgumentsForTesting(inputURL: URL) throws -> [String] {
-        try fastpArguments(inputURL: inputURL)
+        FastpPairedRunner.fastpArguments(
+            inputPath: inputURL.path,
+            outputPath: output.output,
+            mateOutputPath: nil,
+            options: try fastpOptions(),
+            detectPairedAdapters: false
+        )
     }
 
-    private func fastpArguments(inputURL: URL) throws -> [String] {
+    /// The fastp arguments other than the input and output flags.
+    func fastpOptions() throws -> [String] {
         var args = [
-            "-i", inputURL.path,
-            "-o", output.output,
             "-W", String(windowSize),
             "-M", String(threshold),
             "--disable_adapter_trimming",
@@ -750,6 +812,10 @@ func recordFASTQNativeToolProvenance(
     defaults: [String: ParameterValue] = [:],
     inputRecords: [FileRecord]? = nil,
     outputRecords: [FileRecord]? = nil,
+    stepID: UUID = UUID(),
+    stepInputs: [FileRecord]? = nil,
+    stepOutputs: [FileRecord]? = nil,
+    extraSteps: [ProvenanceStep] = [],
     startedAt: Date
 ) async throws {
     guard let firstOutputURL = outputURLs.first else { return }
@@ -772,7 +838,11 @@ func recordFASTQNativeToolProvenance(
         toolName: nativeTool.rawValue,
         toolVersion: toolVersion,
         command: [CLICommandIdentity.executableName, "fastq"] + cliArguments,
+        stepID: stepID,
         stepCommand: stepCommand,
+        stepInputs: stepInputs,
+        stepOutputs: stepOutputs,
+        extraSteps: extraSteps,
         inputs: inputRecords ?? inputURLs.map { ProvenanceRecorder.fileRecord(url: $0, format: .fastq, role: .input) },
         outputs: outputRecords ?? outputURLs
             .filter { FileManager.default.fileExists(atPath: $0.path) }
@@ -1292,35 +1362,47 @@ struct FastqAdapterTrimSubcommand: AsyncParsableCommand {
     @Option(name: .customLong("adapter"), help: "Adapter sequence (omit for auto-detect)")
     var adapterSequence: String?
 
+    @OptionGroup var pairing: FASTQPairingOptions
+
     @OptionGroup var output: OutputOptions
 
-    func run() async throws {
-        let inputURL = try validateInput(input)
-        try output.validateOutput()
-        let runner = NativeToolRunner.shared
-
+    /// The fastp arguments other than the input and output flags.
+    var fastpOptions: [String] {
         var args = [
-            "-i", inputURL.path,
-            "-o", output.output,
             "--disable_quality_filtering",
             "--disable_length_filtering",
             "--json", "/dev/null",
             "--html", "/dev/null",
         ]
-
         if let adapterSequence {
             args += ["--adapter_sequence", adapterSequence]
         }
+        return args
+    }
+
+    func run() async throws {
+        let inputURL = try validateInput(input)
+        try output.validateOutput()
 
         let startedAt = Date()
-        let result = try await runner.run(.fastp, arguments: args)
-        guard result.isSuccess else {
-            throw CLIError.conversionFailed(reason: "fastp adapter trim failed: \(result.stderr)")
-        }
+        let pairingDecision = pairing.resolvePairing(inputURL: inputURL, pairsByName: true)
+        let plan = try await Task.detached(priority: .utility) {
+            try FastpReadLayoutPlan.resolve(inputURL: inputURL, decision: pairingDecision)
+        }.value
+        let outcome = try await FastpPairedRunner.run(
+            inputURL: inputURL,
+            outputPath: output.output,
+            plan: plan,
+            options: fastpOptions,
+            detectPairedAdapters: adapterSequence == nil,
+            failureLabel: "fastp adapter trim",
+            stepNamePrefix: "lungfish fastq adapter-trim"
+        )
         var cliArguments = ["adapter-trim"]
         if let adapterSequence {
             cliArguments += ["--adapter", adapterSequence]
         }
+        cliArguments += pairing.cliArguments
         cliArguments += [inputURL.path, "--output", output.output]
         if output.force {
             cliArguments.append("--force")
@@ -1333,22 +1415,35 @@ struct FastqAdapterTrimSubcommand: AsyncParsableCommand {
             workflowName: "lungfish fastq adapter-trim",
             nativeTool: .fastp,
             cliArguments: cliArguments,
-            nativeArguments: args,
-            result: result,
+            nativeArguments: outcome.nativeArguments,
+            result: outcome.result,
             inputURLs: [inputURL],
             outputURLs: [outputURL],
             parameters: [
                 "input": .file(inputURL),
                 "output": .file(outputURL),
                 "adapter": adapterSequence.map(ParameterValue.string) ?? .null,
+                "pairing": pairing.provenanceValue,
+                "interleaved": .boolean(outcome.plan.isPaired),
+                "readLayout": pairingDecision.readLayoutProvenanceValue,
+                "readLayoutReason": pairingDecision.readLayoutReasonProvenanceValue,
+                "fastpLayoutPlan": outcome.plan.provenanceValue,
                 "force": .boolean(output.force),
                 "compress": .boolean(output.compress)
             ],
             defaults: [
                 "adapter": .null,
+                "pairing": FASTQPairingOptions.provenanceDefault,
+                "interleaved": .boolean(false),
+                "readLayout": FASTQPairingOptions.readLayoutProvenanceDefault,
+                "fastpLayoutPlan": FastpReadLayoutPlan.singleEnd.provenanceValue,
                 "force": .boolean(false),
                 "compress": .boolean(false)
             ],
+            stepID: outcome.stepID,
+            stepInputs: outcome.stepInputs,
+            stepOutputs: outcome.stepOutputs,
+            extraSteps: outcome.extraSteps,
             startedAt: startedAt
         )
         FileHandle.standardError.write(Data("Adapter-trimmed reads written to \(output.output)\n".utf8))
@@ -1372,7 +1467,26 @@ struct FastqFixedTrimSubcommand: AsyncParsableCommand {
     @Option(name: .customLong("tail"), help: "Bases to trim from 3' end (default: 0)")
     var tail: Int = 0
 
+    @OptionGroup var pairing: FASTQPairingOptions
+
     @OptionGroup var output: OutputOptions
+
+    /// The fastp arguments other than the input and output flags. fastp
+    /// applies `--trim_front1` and `--trim_tail1` to read 2 as well unless
+    /// `--trim_front2`/`--trim_tail2` are given, so a paired run trims both
+    /// mates alike.
+    var fastpOptions: [String] {
+        var args = [
+            "--disable_adapter_trimming",
+            "--disable_quality_filtering",
+            "--disable_length_filtering",
+            "--json", "/dev/null",
+            "--html", "/dev/null",
+        ]
+        if front > 0 { args += ["--trim_front1", String(front)] }
+        if tail > 0 { args += ["--trim_tail1", String(tail)] }
+        return args
+    }
 
     func run() async throws {
         let inputURL = try validateInput(input)
@@ -1382,25 +1496,21 @@ struct FastqFixedTrimSubcommand: AsyncParsableCommand {
         guard front > 0 || tail > 0 else {
             throw ValidationError("At least one of --front or --tail must be > 0")
         }
-        let runner = NativeToolRunner.shared
-
-        var args = [
-            "-i", inputURL.path,
-            "-o", output.output,
-            "--disable_adapter_trimming",
-            "--disable_quality_filtering",
-            "--disable_length_filtering",
-            "--json", "/dev/null",
-            "--html", "/dev/null",
-        ]
-        if front > 0 { args += ["--trim_front1", String(front)] }
-        if tail > 0 { args += ["--trim_tail1", String(tail)] }
 
         let startedAt = Date()
-        let result = try await runner.run(.fastp, arguments: args)
-        guard result.isSuccess else {
-            throw CLIError.conversionFailed(reason: "fastp fixed trim failed: \(result.stderr)")
-        }
+        let pairingDecision = pairing.resolvePairing(inputURL: inputURL, pairsByName: true)
+        let plan = try await Task.detached(priority: .utility) {
+            try FastpReadLayoutPlan.resolve(inputURL: inputURL, decision: pairingDecision)
+        }.value
+        let outcome = try await FastpPairedRunner.run(
+            inputURL: inputURL,
+            outputPath: output.output,
+            plan: plan,
+            options: fastpOptions,
+            detectPairedAdapters: false,
+            failureLabel: "fastp fixed trim",
+            stepNamePrefix: "lungfish fastq fixed-trim"
+        )
         var cliArguments = ["fixed-trim"]
         if front != 0 {
             cliArguments += ["--front", String(front)]
@@ -1408,6 +1518,7 @@ struct FastqFixedTrimSubcommand: AsyncParsableCommand {
         if tail != 0 {
             cliArguments += ["--tail", String(tail)]
         }
+        cliArguments += pairing.cliArguments
         cliArguments += [inputURL.path, "--output", output.output]
         if output.force {
             cliArguments.append("--force")
@@ -1420,8 +1531,8 @@ struct FastqFixedTrimSubcommand: AsyncParsableCommand {
             workflowName: "lungfish fastq fixed-trim",
             nativeTool: .fastp,
             cliArguments: cliArguments,
-            nativeArguments: args,
-            result: result,
+            nativeArguments: outcome.nativeArguments,
+            result: outcome.result,
             inputURLs: [inputURL],
             outputURLs: [outputURL],
             parameters: [
@@ -1429,15 +1540,28 @@ struct FastqFixedTrimSubcommand: AsyncParsableCommand {
                 "output": .file(outputURL),
                 "front": .integer(front),
                 "tail": .integer(tail),
+                "pairing": pairing.provenanceValue,
+                "interleaved": .boolean(outcome.plan.isPaired),
+                "readLayout": pairingDecision.readLayoutProvenanceValue,
+                "readLayoutReason": pairingDecision.readLayoutReasonProvenanceValue,
+                "fastpLayoutPlan": outcome.plan.provenanceValue,
                 "force": .boolean(output.force),
                 "compress": .boolean(output.compress)
             ],
             defaults: [
                 "front": .integer(0),
                 "tail": .integer(0),
+                "pairing": FASTQPairingOptions.provenanceDefault,
+                "interleaved": .boolean(false),
+                "readLayout": FASTQPairingOptions.readLayoutProvenanceDefault,
+                "fastpLayoutPlan": FastpReadLayoutPlan.singleEnd.provenanceValue,
                 "force": .boolean(false),
                 "compress": .boolean(false)
             ],
+            stepID: outcome.stepID,
+            stepInputs: outcome.stepInputs,
+            stepOutputs: outcome.stepOutputs,
+            extraSteps: outcome.extraSteps,
             startedAt: startedAt
         )
         FileHandle.standardError.write(Data("Fixed-trimmed reads written to \(output.output)\n".utf8))

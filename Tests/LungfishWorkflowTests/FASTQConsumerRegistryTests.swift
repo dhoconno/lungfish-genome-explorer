@@ -91,6 +91,19 @@ final class FASTQConsumerRegistryTests: XCTestCase {
         XCTAssertEqual(FASTQConsumerRegistry.declaration(for: "classify.taxtriage")?.handling(for: .strictlyInterleaved), .splitToR1R2)
     }
 
+    /// The fastp trims run paired on interleaved input and partition a mixed
+    /// file by name (FastpPairedRunner), so neither layout runs as single
+    /// reads any more; a file with no mates still does.
+    func testFastpTrimsRunPairedOnInterleavedAndMixedInput() {
+        for id in ["fastq.trim", "fastq.quality-trim", "fastq.adapter-trim", "fastq.fixed-trim"] {
+            let declaration = FASTQConsumerRegistry.declaration(for: id)
+            XCTAssertEqual(declaration?.handling(for: .strictlyInterleaved), .asPairs, id)
+            XCTAssertEqual(declaration?.handling(for: .mixedMergedAndPairs), .asPairs, id)
+            XCTAssertEqual(declaration?.handling(for: .singleEnd), .asSingle, id)
+            XCTAssertTrue(declaration?.mixedRationale.contains("partitioned by name") == true, id)
+        }
+    }
+
     /// The layout every resolver-backed consumer is handed for a bundle whose
     /// records alternate mates, by how its `single_end` was recorded. Only an
     /// explicit choice is final; a defaulted, detected, or pre-2026-09-25

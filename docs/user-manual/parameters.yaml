@@ -245,6 +245,9 @@ operations:
       - flag: --no-adapter-trimming
         default: "adapter trimming enabled"
         effect: Runs the quality pass without removing adapters, which the dialog never does because it always trims adapters in this operation.
+      - flag: --pairing
+        default: auto
+        effect: Says how to treat the input's records. interleaved keeps or drops adjacent mates together and lets fastp find adapters from the overlap of the two mates, single treats every record on its own, and auto reads the pairing the enclosing .lungfishfastq bundle records, then the read names. The window passes the bundle's own pairing, so a paired bundle keeps its mates together.
       - flag: --force
         default: "false"
         effect: Overwrites an existing output file.
@@ -303,6 +306,9 @@ operations:
         when_to_change: Choose Grouped Result when several files belong to one library.
         cli_flag: null
     cli_only:
+      - flag: --pairing
+        default: auto
+        effect: Says how to treat the input's records. interleaved keeps or drops adjacent mates together and lets fastp find adapters from the overlap of the two mates, single treats every record on its own, and auto reads the pairing the enclosing .lungfishfastq bundle records, then the read names. The window passes the bundle's own pairing, so a paired bundle keeps its mates together.
       - flag: --force
         default: "false"
         effect: Overwrites an existing output file.
@@ -346,6 +352,9 @@ operations:
         when_to_change: Choose Grouped Result when several files belong to one library.
         cli_flag: null
     cli_only:
+      - flag: --pairing
+        default: auto
+        effect: Says how to treat the input's records. interleaved keeps or drops adjacent mates together and lets fastp find adapters from the overlap of the two mates, single treats every record on its own, and auto reads the pairing the enclosing .lungfishfastq bundle records, then the read names. The window passes the bundle's own pairing, so a paired bundle keeps its mates together.
       - flag: --force
         default: "false"
         effect: Overwrites an existing output file.
@@ -465,6 +474,9 @@ operations:
         when_to_change: Choose Grouped Result when several files belong to one library.
         cli_flag: null
     cli_only:
+      - flag: --pairing
+        default: auto
+        effect: Says how to treat the input's records. interleaved keeps or drops adjacent mates together and lets fastp find adapters from the overlap of the two mates, single treats every record on its own, and auto reads the pairing the enclosing .lungfishfastq bundle records, then the read names. The window passes the bundle's own pairing, so a paired bundle keeps its mates together.
       - flag: --force
         default: "false"
         effect: Overwrites an existing output file.

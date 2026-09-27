@@ -165,11 +165,26 @@ public enum FASTQConsumerRegistry {
             )
         }
 
+        let fastp = [
+            ("fastq.trim", "fastq trim"),
+            ("fastq.quality-trim", "fastq quality-trim"),
+            ("fastq.adapter-trim", "fastq adapter-trim"),
+            ("fastq.fixed-trim", "fastq fixed-trim"),
+        ].map { entry in
+            FASTQConsumerDeclaration(
+                consumerID: entry.0,
+                displayName: entry.1,
+                handling: [
+                    .singleEnd: .asSingle,
+                    .strictlyInterleaved: .asPairs,
+                    .mixedMergedAndPairs: .asPairs,
+                    .pairedFiles: .asSingle,
+                ],
+                mixedRationale: "FastpPairedRunner scans the records by name (FASTQPairInterleaver.countMixed) and states the layout: a strictly interleaved file is partitioned by name into R1/R2 and runs fastp -i R1 -I R2 with two outputs that are interleaved again, so both mates are kept or dropped together and adapters are found by overlap analysis; a mixed file is partitioned the same way so its pairs run paired and its unpaired reads single-end; --pairing single runs every record on its own. fastp single-end mode discarded a read it trimmed to nothing even with --disable_length_filtering and kept its mate, which broke every later positional pair."
+            )
+        }
+
         let perRecord: [(id: String, name: String, tool: String, pairedFiles: FASTQReadLayoutHandling)] = [
-            ("fastq.trim", "fastq trim", "fastp single-end", .asSingle),
-            ("fastq.quality-trim", "fastq quality-trim", "fastp single-end", .asSingle),
-            ("fastq.adapter-trim", "fastq adapter-trim", "fastp single-end", .asSingle),
-            ("fastq.fixed-trim", "fastq fixed-trim", "fastp single-end", .asSingle),
             ("fastq.length-filter", "fastq length-filter", "seqkit seq per record", .asSingle),
             ("fastq.primer-remove", "fastq primer-remove", "bbduk interleaved=f or cutadapt per record", .asSingle),
             ("fastq.error-correct", "fastq error-correct", "tadpole interleaved=f", .asSingle),
@@ -222,7 +237,7 @@ public enum FASTQConsumerRegistry {
             ],
             mixedRationale: "Takes two R1/R2 files only."
         )
-        return positional + byName + single + [merge, deinterleave, interleave]
+        return positional + byName + fastp + single + [merge, deinterleave, interleave]
     }
 
     // MARK: - GUI in-process derivatives, ingestion, recipes
