@@ -522,6 +522,66 @@ final class DemultiplexingPipelineTests: XCTestCase {
         XCTAssertEqual(manifest.cachedStatistics.readLengthHistogram, [previewLength: 1])
     }
 
+    /// Symmetric long-read kits (ONT native barcoding) assign in pass 1 by
+    /// either end and then keep only both-end reads. Reads that carried the
+    /// barcode at one end used to be deleted with the per-barcode file, so
+    /// they appeared in no output bundle and the manifest's input count
+    /// shrank. They belong in `unassigned`, whole and untrimmed.
+    func testSymmetricLongReadDemuxRoutesOneEndReadsToUnassignedInsteadOfDroppingThem() async throws {
+        let tempDir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: tempDir.deletingLastPathComponent()) }
+
+        let inputFASTQ = tempDir.appendingPathComponent("input.fastq")
+        let outputDir = tempDir.appendingPathComponent("demux-out", isDirectory: true)
+        let kit = BarcodeKitRegistry.ontNativeBarcoding24
+        let barcode = try XCTUnwrap(kit.barcodes.first(where: { $0.id == "barcode13" }))
+        let context = ONTNativeAdapterContext()
+        let insert = String(repeating: "GATTACA", count: 20)
+        let five = context.fivePrimeSpec(barcodeSequence: barcode.i7Sequence)
+        let three = context.threePrimeSpec(barcodeSequence: barcode.i7Sequence)
+        let bothEnds = five + insert + three
+        let fivePrimeOnly = five + insert
+        let threePrimeOnly = insert + three
+        let unbarcoded = insert
+        try writeFASTQ(sequences: [bothEnds, fivePrimeOnly, threePrimeOnly, unbarcoded], to: inputFASTQ)
+
+        let pipeline = DemultiplexingPipeline()
+        let result = try await pipeline.run(
+            config: DemultiplexConfig(
+                inputURL: inputFASTQ,
+                barcodeKit: kit,
+                outputDirectory: outputDir,
+                barcodeLocation: .bothEnds,
+                errorRate: 0.0,
+                minimumOverlap: 20,
+                trimBarcodes: true,
+                threads: 1
+            ),
+            progress: { _, _ in }
+        )
+
+        XCTAssertTrue(result.manifest.parameters.requireBothEnds)
+        XCTAssertEqual(result.manifest.inputReadCount, 4, "every input read is accounted for")
+        XCTAssertEqual(result.manifest.barcodes.map(\.barcodeID), ["barcode13"])
+        XCTAssertEqual(result.manifest.barcodes.first?.readCount, 1)
+        XCTAssertEqual(result.manifest.unassigned.readCount, 3)
+
+        let unassignedBundle = try XCTUnwrap(result.unassignedBundleURL)
+        XCTAssertEqual(unassignedBundle.lastPathComponent, "unassigned.lungfishfastq")
+        let unassignedFASTQ = try XCTUnwrap(FASTQBundle.resolvePrimaryFASTQURL(for: unassignedBundle))
+        var unassignedIDs: [String] = []
+        var unassignedLengths: [String: Int] = [:]
+        for try await record in FASTQReader(validateSequence: false).records(from: unassignedFASTQ) {
+            unassignedIDs.append(record.identifier)
+            unassignedLengths[record.identifier] = record.length
+        }
+        XCTAssertEqual(Set(unassignedIDs), ["read_1", "read_2", "read_3"], "one-end and unbarcoded reads land in unassigned")
+        XCTAssertEqual(unassignedIDs.count, 3, "no read is duplicated")
+        XCTAssertEqual(unassignedLengths["read_1"], fivePrimeOnly.count, "unassigned reads stay untrimmed")
+        XCTAssertEqual(unassignedLengths["read_2"], threePrimeOnly.count, "unassigned reads stay untrimmed")
+        XCTAssertEqual(unassignedLengths["read_3"], unbarcoded.count)
+    }
+
     func testSingleEndExplicitAssignmentsDoNotRequireBothEnds() async throws {
         let tempDir = try makeTempDir()
         defer { try? FileManager.default.removeItem(at: tempDir.deletingLastPathComponent()) }

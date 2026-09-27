@@ -572,6 +572,11 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
             let ctx = config.resolvedAdapterContext
             let pass2Dir = workDir.appendingPathComponent("symmetric-pass2", isDirectory: true)
             try fm.createDirectory(at: pass2Dir, withIntermediateDirectories: true)
+            // Reads pass 1 assigned by one end but pass 2 rejects are not the
+            // barcode's reads, but they are still the caller's reads. They are
+            // collected here and appended to unassigned once every barcode has
+            // been checked, so no read silently disappears from the run.
+            var oneEndRejects: [URL] = []
 
             let barcodeOutputFiles = try fm.contentsOfDirectory(
                 at: demuxOutputDir, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]
@@ -609,13 +614,14 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
                     .write(to: fivePrimeFASTA, atomically: true, encoding: .utf8)
 
                 let trimmedFile = barcodeDir.appendingPathComponent("trimmed.fastq.gz")
+                let rejectedAtFivePrime = barcodeDir.appendingPathComponent("rejected-5prime.fastq.gz")
                 var pass2aArgs: [String] = [
                     "-g", "file:\(fivePrimeFASTA.path)",
                     "-e", String(config.effectiveErrorRate),
                     "--overlap", String(config.effectiveMinimumOverlap),
                     "--revcomp",
                     "--action", "trim",
-                    "--discard-untrimmed",
+                    "--untrimmed-output", rejectedAtFivePrime.path,
                     "-o", trimmedFile.path,
                     "--cores", "1",
                     outputFile.path
@@ -633,11 +639,12 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
                     .write(to: threePrimeFASTA, atomically: true, encoding: .utf8)
 
                 let bothEndFile = barcodeDir.appendingPathComponent("both-end.fastq.gz")
+                let rejectedAtThreePrimeTrimmed = barcodeDir.appendingPathComponent("rejected-3prime-trimmed.fastq.gz")
                 var pass2bArgs: [String] = [
                     "-a", "file:\(threePrimeFASTA.path)",
                     "-e", String(config.effectiveErrorRate),
                     "--overlap", String(config.effectiveMinimumOverlap),
-                    "--action", "none", "--discard-untrimmed",
+                    "--action", "none", "--untrimmed-output", rejectedAtThreePrimeTrimmed.path,
                     "-o", bothEndFile.path, "--cores", "1", trimmedFile.path
                 ]
                 if config.useNoIndels { pass2bArgs.insert("--no-indels", at: 6) }
@@ -647,11 +654,39 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
                 )
                 guard p2bResult.isSuccess else { continue }
 
+                // Collect the one-end reads for unassigned before the per-barcode
+                // file is replaced. Pass 2a rejects are untouched pass-1 reads.
+                // Pass 2b saw 5'-trimmed reads, so its rejects are recovered by
+                // read ID from the pass-1 output to keep them whole.
+                if fileSize(rejectedAtFivePrime) > 20 {
+                    oneEndRejects.append(rejectedAtFivePrime)
+                }
+                if fileSize(rejectedAtThreePrimeTrimmed) > 20 {
+                    let recovered = barcodeDir.appendingPathComponent("rejected-3prime.fastq.gz")
+                    if try await recoverReadsByID(
+                        from: outputFile,
+                        matching: rejectedAtThreePrimeTrimmed,
+                        to: recovered,
+                        workingDirectory: barcodeDir
+                    ) {
+                        oneEndRejects.append(recovered)
+                    }
+                }
+
                 // Replace the original per-barcode output with only both-end reads.
                 try fm.removeItem(at: outputFile)
                 if fm.fileExists(atPath: bothEndFile.path), fileSize(bothEndFile) > 20 {
                     try fm.moveItem(at: bothEndFile, to: outputFile)
                 }
+            }
+
+            if !oneEndRejects.isEmpty {
+                progress(0.79, "Routing one-end barcode reads to unassigned...")
+                try await appendReads(
+                    oneEndRejects,
+                    toUnassignedAt: URL(fileURLWithPath: unassignedPath),
+                    workingDirectory: pass2Dir
+                )
             }
         }
 
@@ -2916,6 +2951,73 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
             }
             return (nil, nil, nil)
         }
+    }
+
+    /// Recovers the whole reads whose IDs appear in `trimmedRejects` from
+    /// `source` (the untrimmed pass-1 output) into `destination`.
+    ///
+    /// - Returns: `true` when at least one read was written.
+    private func recoverReadsByID(
+        from source: URL,
+        matching trimmedRejects: URL,
+        to destination: URL,
+        workingDirectory: URL
+    ) async throws -> Bool {
+        let idListURL = workingDirectory.appendingPathComponent("rejected-3prime-ids.txt")
+        let idResult = try await runner.run(
+            .seqkit,
+            arguments: ["seq", "--name", "--only-id", trimmedRejects.path, "-o", idListURL.path],
+            workingDirectory: workingDirectory,
+            timeout: 600
+        )
+        guard idResult.isSuccess else {
+            throw DemultiplexError.outputParsingFailed("seqkit seq (rejected read IDs) exited \(idResult.exitCode): \(idResult.stderr)")
+        }
+        guard fileSize(idListURL) > 0 else { return false }
+
+        let grepResult = try await runner.run(
+            .seqkit,
+            arguments: ["grep", "-f", idListURL.path, source.path, "-o", destination.path],
+            workingDirectory: workingDirectory,
+            timeout: 600
+        )
+        guard grepResult.isSuccess else {
+            throw DemultiplexError.outputParsingFailed("seqkit grep (rejected reads) exited \(grepResult.exitCode): \(grepResult.stderr)")
+        }
+        return fileSize(destination) > 20
+    }
+
+    /// Appends the reads in `sources` to the unassigned output, creating it
+    /// when pass 1 left every read assigned. seqkit rewrites the result as one
+    /// stream so the file stays a single gzip member (or plain FASTQ, following
+    /// the unassigned path's extension).
+    private func appendReads(
+        _ sources: [URL],
+        toUnassignedAt unassignedURL: URL,
+        workingDirectory: URL
+    ) async throws {
+        let fm = FileManager.default
+        var inputs: [URL] = []
+        if fm.fileExists(atPath: unassignedURL.path), fileSize(unassignedURL) > 20 {
+            inputs.append(unassignedURL)
+        }
+        inputs += sources
+        guard !inputs.isEmpty else { return }
+
+        let mergedURL = workingDirectory.appendingPathComponent("unassigned-merged." + unassignedURL.pathExtension)
+        let mergeResult = try await runner.run(
+            .seqkit,
+            arguments: ["seq", "-o", mergedURL.path] + inputs.map(\.path),
+            workingDirectory: workingDirectory,
+            timeout: 3600
+        )
+        guard mergeResult.isSuccess else {
+            throw DemultiplexError.outputParsingFailed("seqkit seq (unassigned merge) exited \(mergeResult.exitCode): \(mergeResult.stderr)")
+        }
+        if fm.fileExists(atPath: unassignedURL.path) {
+            try fm.removeItem(at: unassignedURL)
+        }
+        try fm.moveItem(at: mergedURL, to: unassignedURL)
     }
 
     /// Builds the cutadapt argument array.
