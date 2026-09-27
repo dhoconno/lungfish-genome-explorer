@@ -22,8 +22,10 @@ shots:
     caption: "The sunburst re-centred on Orthoherpesviridae after a double-click, with the breadcrumb bar showing the path back to the root."
   - id: kraken2-extract-reads
     caption: "The right-click menu on the Orthoherpesviridae row, listing Extract Reads... above the Expand and Collapse items, BLAST Matching Reads..., the Look Up on NCBI submenu, and Copy Taxon Name."
-illustrations: []
-glossary_refs: [accession, blast, bracken, bundle, capped-database, checksum, clade, clade-count, fastq, host-depletion, inspector, interleaved-fastq, k-mer, kraken2, kreport, lowest-common-ancestor, metagenomics, minimizer, operations-panel, paired-end, plugin-pack, provenance, read, read-classification, shotgun, sra, taxon, taxonomic-rank, taxonomy-id]
+illustrations:
+  - id: clade-vs-direct-counts
+    brief: "A small vertical tree for the cornea sample's Viral result, one node per rank from the family Orthoherpesviridae through the subfamily Alphaherpesvirinae, the genus Simplexvirus, and the species Simplexvirus humanalpha1, down to Human alphaherpesvirus 1, with a short side branch from the genus to Simplexvirus paninealpha3. Beside each node print two numbers, Reads (the clade count) and Direct (the reads assigned to that node only). Use the chapter's figures, Orthoherpesviridae 893,154, Alphaherpesvirinae 893,152, Simplexvirus 893,039 with Direct 6,789, Simplexvirus humanalpha1 886,221 with Direct 0, Human alphaherpesvirus 1 886,221 with Direct 886,221, and Simplexvirus paninealpha3 28. Show the clade count as a bar that shrinks only slightly down the tree and the Direct count as a small filled segment, so the reader sees that Reads sums everything below and Direct counts only the reads that stopped at that node. Deep Ink text, Creamsicle bars, Cream background."
+glossary_refs: [accession, abundance, blast, bracken, confidence-kraken-2, false-positive, contamination, fragment, mate, relative-abundance, unclassified-reads, bundle, capped-database, checksum, clade, clade-count, fastq, host-depletion, inspector, interleaved-fastq, k-mer, kraken2, kreport, lowest-common-ancestor, metagenomics, minimizer, operations-panel, paired-end, plugin-pack, provenance, read, read-classification, shotgun, sra, taxon, taxonomic-rank, taxonomy-id]
 features_refs: []
 fixtures_refs: [kraken-protocol-cornea]
 brand_reviewed: false
@@ -40,7 +42,7 @@ Kraken 2 slides the window along each read, takes the minimizer at each position
 
 When a read fits several relatives equally, Kraken 2 reports their [lowest common ancestor](../../GLOSSARY.md#lowest-common-ancestor) instead of guessing, as [What Is Read Classification](01-what-is-classification.md#what-it-is) explains. A Kraken 2 report therefore has counts sitting at every [rank](../../GLOSSARY.md#taxonomic-rank) at once, not only at species.
 
-Lungfish Genome Explorer (LGE) labels the tool **Kraken2** in its menus. Every run LGE starts is two programs. Kraken 2 assigns the reads, and then [Bracken](../../GLOSSARY.md#bracken) re-estimates each species' abundance, meaning its share of the sample, by pushing reads that Kraken 2 left at a broad group down onto the species they most likely came from. The result opens in the taxonomy viewport, a sunburst chart beside a table of taxa.
+Lungfish Genome Explorer (LGE) labels the tool **Kraken2** in its menus. Every run LGE starts is two programs. Kraken 2 assigns the reads, and then [Bracken](../../GLOSSARY.md#bracken) re-estimates each species' read count by pushing reads that Kraken 2 left at a broad group down onto the species they most likely came from. The result opens in the taxonomy viewport, a sunburst chart beside a table of taxa.
 
 ## Why you would do this
 
@@ -66,17 +68,17 @@ The counts in this chapter came from Kraken 2 version 2.17.1 and Bracken with th
 
 The example in this chapter classifies the same reads twice, once against a small viral database and once against a general one, because the difference between the two answers is the most useful thing this chapter teaches.
 
-### 1. Download Viral and Standard-16
+### Download the Viral and Standard-16 databases
 
 A Kraken 2 database decides which answers are possible at all. A database holding only viruses cannot report a bacterium, however much bacterial sequence the library holds, and reports those reads as unclassified instead.
 
 Download the Viral database from the Databases tab of the Plugin Manager, which **Tools > Plugin Manager...** opens, as [The Databases tab](../01-foundations/07-plugin-packs.md#the-databases-tab) describes. Then download the Standard-16 database the same way. Viral needs about half a gigabyte of memory and fits any Mac LGE supports. Standard-16 is a [capped database](../../GLOSSARY.md#capped-database), the full Standard collection shrunk to fit a machine with 16 GB of memory by keeping only a sample of its minimizers. Kraken 2 loads the whole database into memory before it classifies a single read, so on a Mac with less than 16 GB take Standard-8 instead and expect it to recognise fewer reads still. To see how much memory your Mac has, choose **Apple menu > About This Mac**.
 
-### 2. Open the dialog and choose a database
+### Open the dialog and choose a database
 
 1. Click the FASTQ bundle SRR12486983 in the sidebar, the list down the left of the window, under `Imports`.
 
-2. Choose **Tools > Classification > Kraken2...**. The FASTQ/FASTA Operations dialog opens with Kraken2 selected in its tool sidebar, and the dataset line at the top names the bundle going in. A [paired-end](../../GLOSSARY.md#paired-end) run reads each fragment from both ends, and LGE stores the two mates of a sample together in one [interleaved](../../GLOSSARY.md#interleaved-fastq) file, where each read is followed by its mate. Kraken 2 classifies the two mates of a pair together as one fragment, so the SRR12486983 bundle goes in as 4,819,760 read pairs, and every count in this chapter is a count of pairs.
+2. Choose **Tools > Classification > Kraken2...**. The FASTQ/FASTA Operations dialog opens with Kraken2 selected in its tool sidebar, and the dataset line at the top names the bundle going in. The bundle holds the two [mates](../../GLOSSARY.md#mate) of each [paired-end](../../GLOSSARY.md#paired-end) [fragment](../../GLOSSARY.md#fragment) in one [interleaved](../../GLOSSARY.md#interleaved-fastq) file, where each read is followed by its mate. Kraken 2 classifies the two mates of a pair together as one fragment, so the SRR12486983 bundle goes in as 4,819,760 read pairs, and every count in this chapter is a count of pairs.
 
 3. Open the **Database** picker, which lists only databases that finished downloading, each with its size on disk. Choose **Viral**. If nothing is installed, the picker is replaced by "No databases installed." and a **Download Database...** button that opens the Plugin Manager on its Databases tab.
 
@@ -88,7 +90,7 @@ Download the Viral database from the Databases tab of the Plugin Manager, which 
 
 If you selected several bundles, the dialog also shows **Run Mode**, locked on "Run separately per bundle". The selection runs as one classification batch with a single Operations Panel row and one merged summary, and each sample is still classified on its own inside it.
 
-### 3. Run it and find the result
+### Run Kraken 2 and find the result
 
 Click **Run**. Watch the run in the [Operations Panel](../01-foundations/06-the-lungfish-project.md#the-operations-panel), which opens with **Operations > Show Operations Panel** (Cmd-Shift-P). A single-sample row is titled "Profiling" plus the input file name, because the dialog always classifies and then profiles with Bracken. A multi-sample run is titled `Classification Batch (N samples)`. Expect the Standard-16 run to take longer than the Viral run, most of all the first time LGE reads the large database off disk.
 
@@ -98,7 +100,7 @@ The result lands under `Analyses/` in a new folder, as [Where results land](../0
 
 Now click the reads bundle again, reopen the dialog, choose **Standard-16** instead of Viral, and click **Run**, so you have both results for Reading the results. The newer `kraken2-` folder is the Standard-16 run. Right after each run, its Classification Provenance popover names the database it used, as [The action bar and the provenance popover](#the-action-bar-and-the-provenance-popover) describes.
 
-### 4. Extract the reads of one taxon
+### Extract the reads of one taxon
 
 Once you have found the taxon you care about, you usually want its reads rather than its count, to map them to a reference, assemble them, or check them with [BLAST](../../GLOSSARY.md#blast). In the cornea sample that taxon is HSV-1, which the table names by its species, *Simplexvirus humanalpha1*.
 
@@ -113,6 +115,12 @@ Once you have found the taxon you care about, you usually want its reads rather 
 4. Click **Create Bundle**, which is what the run button reads while Save as Bundle is the destination.
 
 The new bundle appears in the project's top-level `Extractions` folder. It holds the reads assigned to the selected taxon and to every taxon beneath it, so extracting at a family row takes every genus and species in that family too. The bundle holds both mates of every pair, so for the cornea sample it held 1,772,442 reads, two for each of the 886,221 pairs. LGE adds a date, a time, and a short code to the name you left unchanged, so look for a bundle whose name starts with `kraken2_Simplexvirus_humanalpha1-`. Selecting several rows before clicking Extract FASTQ writes their reads into one bundle.
+
+### Importing a Kraken 2 result made elsewhere
+
+A colleague who ran Kraken 2 on another computer can send you its report, the [kreport](../../GLOSSARY.md#kreport) file, and LGE opens it in the same taxonomy viewport. Choose **File > Import Center...** (Cmd-Shift-I), click the **Classification Results** tab, and click **Import…** on the **Kraken2 Results** card, whose file hint reads ".kreport, .kreport2, .bracken". Pick one or more report files and click **Open**. No sheet follows, and the import starts at once.
+
+Each report lands in the project as `Imports/classification-<name>`, where `<name>` is the file's name without its ending, with every character other than a letter, a digit, a hyphen, or an underscore turned into an underscore. A second import of the same name adds `-2`. The Import Center copies the report alone. Extraction and BLAST Verification read Kraken 2's per-read output file, which the command-line import can bring along with its `--output` flag, as [On the command line](#on-the-command-line) shows.
 
 ## Settings
 
@@ -166,9 +174,13 @@ The taxonomy viewport stacks five parts. Along the top, a row of summary cards r
 
 The sunburst draws the root at the centre and one ring per level of the tree outward, so a rank Kraken 2 reports between the standard ones, such as a realm between the root and a kingdom, like Duplodnaviria, or a subfamily between a family and a genus, like Alphaherpesvirinae, takes a ring of its own. Each wedge is sized by its share of the classified reads, and the centre states which denominator its percentage uses, all reads for the whole tree and classified reads once you zoom in. Taxa too small to draw are pooled into a paler wedge in their parent's colour, and hovering it names how many taxa and reads it holds. The table lists the same taxa as rows under the columns Sample, Taxon Name, Rank, Reads, Direct, Bracken, and **%**. Sample names which input a row came from, SRR12486983 here, and matters only on a multi-sample run. Rank is the taxon's level, such as family, genus, or species. A count beside the **Filter taxa…** field reports how many taxa the table holds while the field is empty.
 
-Two columns are easy to confuse, and everything else depends on telling them apart. **Reads** is the [clade count](../../GLOSSARY.md#clade-count), every read assigned to that taxon or to anything below it, a [clade](../../GLOSSARY.md#clade) being a taxon with all its descendants. **Direct** counts only the reads assigned to that exact taxon and no lower. A family row with a large Reads figure and a Direct figure near zero means the classifier carried almost every read further down, which is healthy. A family row whose Direct figure is a large share of its Reads means the classifier stopped there, either because the reads cannot be resolved further or because the database holds nothing more specific. The **%** column is the Reads figure as a share of every read in the sample, unclassified reads included.
+Two columns are easy to confuse, and everything else depends on telling them apart. **Reads** is the [clade count](../../GLOSSARY.md#clade-count), every read assigned to that taxon or to anything below it, a [clade](../../GLOSSARY.md#clade) being a taxon with all its descendants. **Direct** counts only the reads assigned to that exact taxon and no lower. A family row with a large Reads figure and a Direct figure near zero means the classifier carried almost every read further down, which is healthy. A family row whose Direct figure is a large share of its Reads means the classifier stopped there, either because the reads cannot be resolved further or because the database holds nothing more specific.
 
-The first figures to read are the totals. Of the 4,819,760 pairs, the Viral database classified 893,706 (18.54%), every one of them under Viruses, and left 3,926,054 (81.46%) unclassified. Unclassified means a read found no match that the database and the confidence threshold would both accept. A database of viruses can only name viruses, so every human or bacterial read in the tissue lands there too, and a large unclassified share is expected from this database.
+<!-- ILLUSTRATION: clade-vs-direct-counts -->
+
+The **%** column is a [relative abundance](../../GLOSSARY.md#relative-abundance) whose denominator is every read pair in the sample, unclassified pairs included, so it gives the Reads figure as a share of the whole run. The sunburst's centre switches to a share of classified reads once you zoom in, and it says so. Other result views divide by other totals, as [Comparing the result views](01-what-is-classification.md#comparing-the-result-views) lists.
+
+The first figures to read are the totals. Of the 4,819,760 pairs, the Viral database classified 893,706 (18.54%), every one of them under Viruses, and left 3,926,054 (81.46%) [unclassified](../../GLOSSARY.md#unclassified-reads). Unclassified means a read found no match that the database and the confidence threshold would both accept. A database of viruses can only name viruses, so every human or bacterial read in the tissue lands there too, and a large unclassified share is expected from this database.
 
 Here are five of the rows on the path from Viruses to HSV-1 in the Viral result, running from the family through the subfamily, genus, and species to the named virus, with the ranks between Viruses and the family left out. The **%** figures are shares of all 4,819,760 pairs.
 
@@ -207,9 +219,17 @@ The action bar along the bottom carries, from the left, these controls:
 - **BLAST Verify** sends a sample of the selected taxon's reads to NCBI, and needs exactly one row selected.
 - **Export** offers Export as CSV..., Export as TSV..., Copy Summary, and Show Provenance.... A file export holds the columns Name, Rank, Reads (Clade), Reads (Direct), Clade %, and Direct %, one row per taxon in tree order, followed by one row for the unclassified reads.
 - **Extract FASTQ** opens the Extract Reads dialog for the selection, as step 4 showed.
-- **Collections** and **BLAST Results** toggle side drawers. A collection is a named set of taxa extracted together, each to its own file, such as the built-in Respiratory Viruses set. [BLAST Verification](06-blast-verification.md) covers both drawers.
+- **Collections** and **BLAST Results** open one drawer that slides up from the bottom of the viewport, on its Collections tab or its BLAST Results tab. [Collections](#collections) below covers the first, and [BLAST Verification](06-blast-verification.md) the second.
 
-A line of text after the buttons names the selected taxon with its read count and percentage. Right after a run, the information button at the right end opens the Classification Provenance popover, which lists the Kraken 2 version, the database and its folder on disk, the Confidence and Hit Groups values, the thread count, whether memory mapping was on, the runtime, the input files, a Bracken row when Bracken ran, and a short run ID. That popover is what you copy into a methods section. On a result reopened from the sidebar the button does nothing, so read the same values in the Inspector instead. LGE writes a [provenance](../../GLOSSARY.md#provenance) record beside every result, holding the command, the tool version, and a [checksum](../../GLOSSARY.md#checksum) of each file, and [Provenance and Reproducibility](../01-foundations/08-provenance-and-reproducibility.md#reading-the-results) shows how to read it.
+A line of text after the buttons names the selected taxon with its read count and percentage. Right after a run, the information button at the right end opens the Classification Provenance popover, which lists the Kraken 2 version, the database and its folder on disk, the Confidence and Hit Groups values, the thread count, whether memory mapping was on, the runtime, the input files, a Bracken row when Bracken ran, and a short run ID. That popover is what you copy into a methods section. On a result reopened from the sidebar the button does nothing, so read the same values in the Inspector instead.
+
+### Collections
+
+A collection is a named set of taxa that LGE extracts together, each taxon to its own FASTQ file, so a panel of organisms you check in every sample takes one click rather than one extraction per taxon. Click **Collections** in the action bar to open the drawer on its Collections tab. A **Filter collections...** field and an **All**, **Built-in**, **App**, and **Project** switch sit at the top, and each collection row gives its name and how many taxa it holds. Only built-in collections exist, because LGE offers no way to make one of your own.
+
+LGE ships eight built-in collections, Respiratory Viruses, Enteric Viruses, Respiratory Bacteria, AMR Organisms (ESKAPE), Wastewater Surveillance, Sexually Transmitted Infections, Vector-Borne Pathogens, and Fungal Pathogens. Open one to see its taxa. A taxon the result detected carries a green dot whose tooltip gives its read count, and a taxon with no reads is dimmed and struck through. Most taxa in a built-in collection are marked "+children", meaning reads assigned below them are included.
+
+Click **Extract** on a collection row to write one file per detected taxon into a folder named `extracted-` plus the collection's identifier, inside the result folder. Taxa with no reads are skipped. Every taxon in the collection is extracted, whether or not its tick box is ticked.
 
 ### The same reads, a different database
 
@@ -246,38 +266,43 @@ The lesson reaches past this sample. Capping thins out minimizers across the who
 
 ## What good looks like
 
+The taxonomy viewport answers only the first question of [The evidence checklist](01-what-is-classification.md#the-evidence-checklist), how many reads support each name. It shows nothing about where on a genome the reads fell, how many are copies of one fragment, or what a control held, which is why a Kraken 2 result is a survey and the chapters after this one add that evidence.
+
 Read the unclassified share first, on the Unclassified card right after the run, before you look at any organism. A reopened result does not show that card, so note the figure when the run finishes, or read the first line of the `classification.kreport` file in the result folder, which counts the unclassified reads. It tells you how much of the sample the report speaks for, and you read it against what the database holds. On a broad database such as Standard-16, under about 20% means the database recognised your sample and the taxa are worth reading. Between 20% and half, read the taxa with care, since a large part of the sample is unaccounted for. Over about half means the database did not recognise most of the sample, and every percentage you read describes only the small fraction it happened to match. On a specialist database such as Viral, a large unclassified share is expected, because every read from outside that group lands there, so read the classified reads instead. The two runs in this chapter both leave most pairs unclassified. The Viral result still answers its narrow question plainly. The Standard-16 result, at 92.88% unclassified, speaks for only a small part of the sample, so treat its percentages as a partial view rather than a census.
 
 The extreme case is a database that matches nothing at all. The run then stops with the error `Empty Kraken2 report` instead of showing a result that is 100% unclassified. Treat it as the database being wrong for the sample and rerun with one that covers what you are looking for.
 
 Then check whether the dominant signal is the organism you expected. Click the Reads column header and choose **Sort Descending** from the menu that opens, and look at family or genus rather than species, since that is the level a classifier reaches reliably. One taxon dwarfing everything else, as Orthoherpesviridae does in the Viral result, means the sample probably contains it. Several taxa of comparable size mean a mixed sample, and no clear peak usually means the wrong database.
 
-Then read the long tail against a rule you set before you looked, such as "check any taxon above ten reads with BLAST". Writing the rule first stops you raising the bar to dismiss an inconvenient hit or lowering it to keep an exciting one. A low-abundance hit is a real minor component, a mis-assignment from k-mers that related or unrelated organisms share, or contamination from the laboratory or from stray sequence inside the reference database, and the report cannot tell you which. Under about ten reads is usually noise, whether the taxon is a relative of the main organism, like the single B virus pair here, or unrelated to it. Between that and a few thousand, extract the taxon's reads and search them against NCBI, as [BLAST Verification](06-blast-verification.md) explains. Above a few thousand the taxon is plainly present in the reads, and BLAST is still worth running to confirm which organism it is.
+Then read the long tail against a rule you set before you looked, such as "check any taxon above ten reads with BLAST". Writing the rule first stops you raising the bar to dismiss an inconvenient hit or lowering it to keep an exciting one. A low-abundance hit is a real minor component, a [false positive](../../GLOSSARY.md#false-positive) from k-mers that related or unrelated organisms share, or [contamination](../../GLOSSARY.md#contamination) from the laboratory or from stray sequence inside the reference database, and the report cannot tell you which. [Why a classifier reports things that are not there](01-what-is-classification.md#why-a-classifier-reports-things-that-are-not-there) sets out the three sources. Under about ten reads is usually noise, whether the taxon is a relative of the main organism, like the single B virus pair here, or unrelated to it. Between that and a few thousand, extract the taxon's reads and search them against NCBI, as [BLAST Verification](06-blast-verification.md) explains. Above a few thousand the taxon is plainly present in the reads, and BLAST is still worth running to confirm which organism it is.
 
-Finally, remember what the confidence score measures. It asks what fraction of a read's k-mers agree with the assigned taxon, so it measures fit to one database entry and nothing more. It says nothing about whether that entry was the right one, or how many other sequences would have fitted as well. A read that agrees perfectly with a short, divergent, or mislabelled entry is still a poor match to anything real. Kraken 2 is a screening step, so verify any hit that matters.
+Finally, remember what the [Confidence](../../GLOSSARY.md#confidence-kraken-2) threshold measures. It asks what fraction of a read's k-mers agree with the assigned taxon, so it measures fit to one database entry and nothing more. It says nothing about whether that entry was the right one, or how many other sequences would have fitted as well. A read that agrees perfectly with a short, divergent, or mislabelled entry is still a poor match to anything real. Kraken 2 is a screening step, so verify any hit that matters. For a methods section, the Classification Provenance popover and the run's provenance record carry the same facts, and [Provenance and Reproducibility](../01-foundations/08-provenance-and-reproducibility.md#reading-the-results) shows how to read the record.
 
 ## On the command line
 
-This section is optional, and nothing later in this manual needs it. The `lungfish-cli` program ships inside LGE, and [Finding the program](../appendices/cli-reference.md#finding-the-program) shows how to run it.
+These commands repeat the procedure, as [Reading an On the command line block](../01-foundations/06-the-lungfish-project.md#reading-a-command-line-block) explains. Every flag of `conda classify` is listed in [Classification](../appendices/cli-reference.md#classification) in the CLI Reference, and the import in [`import kraken2`](../appendices/cli-reference.md#import-kraken2).
 
 ```bash
-# Work from inside the project, a folder whose name ends in .lungfish.
-cd ~/Documents/MyProject.lungfish
+PROJECT="$HOME/Documents/LGE Demo Projects/Pathogen Detection.lungfish"
 
 # Classify against Viral, then Standard-16, running Bracken as the dialog does.
-lungfish-cli conda classify Imports/SRR12486983.lungfishfastq \
-  --db Viral --profile --output-dir ./kraken2-viral
-lungfish-cli conda classify Imports/SRR12486983.lungfishfastq \
-  --db Standard-16 --profile --output-dir ./kraken2-standard16
+lungfish-cli conda classify "$PROJECT/Imports/SRR12486983.lungfishfastq" \
+  --db Viral --profile --output-dir "$PROJECT/Analyses/kraken2-viral"
+lungfish-cli conda classify "$PROJECT/Imports/SRR12486983.lungfishfastq" \
+  --db Standard-16 --profile --output-dir "$PROJECT/Analyses/kraken2-standard16"
 
 # Extract the HSV-1 reads (NCBI taxonomy ID 10298) and everything below it.
 lungfish-cli extract reads --by-classifier --tool kraken2 \
-  --result ./kraken2-viral --taxon 10298 \
+  --result "$PROJECT/Analyses/kraken2-viral" --taxon 10298 \
   --output hsv-1.fastq --bundle-name "HSV-1 reads"
+
+# Import a colleague's report together with its per-read output file.
+lungfish-cli import kraken2 "/path/to/sample.kreport" \
+  --output "/path/to/sample.kraken" --output-dir "$PROJECT/Imports"
 ```
 
-Run these lines in the Terminal application. `cd` moves Terminal into a folder, and `~` stands for your home folder. The last command writes a bundle, because `--bundle-name` implies one. The dialog always runs Bracken and the command line does not, so a command without `--profile` gives a classification with no Bracken column. Given a bundle, the default `--read-format auto` finds the alternating mates in its interleaved file and classifies them as pairs, as the dialog does. Given the two downloaded files instead, such as `SRR12486983_1.fastq.gz` and `SRR12486983_2.fastq.gz`, add `--paired`. The `extract reads` command has its own `--read-format` flag, which there chooses FASTQ or FASTA. `--taxon` takes the numeric taxonomy ID rather than a name, and right-clicking a row and choosing **Look Up on NCBI > NCBI Taxonomy** opens the taxon's NCBI page, which shows it. Taxonomy ID 10298 is the Human alphaherpesvirus 1 row, which holds every read of its species in this result.
+The extraction command writes a bundle, because `--bundle-name` implies one. In the import command, the two `/path/to/` paths stand for wherever the colleague's report and per-read file sit on your Mac. The dialog always runs Bracken and the command line does not, so a command without `--profile` gives a classification with no Bracken column. Given a bundle, the default `--read-format auto` finds the alternating mates in its interleaved file and classifies them as pairs, as the dialog does. Given the two downloaded files instead, such as `SRR12486983_1.fastq.gz` and `SRR12486983_2.fastq.gz`, add `--paired`. The `extract reads` command has its own `--read-format` flag, which there chooses FASTQ or FASTA. `--taxon` takes the numeric taxonomy ID rather than a name, and right-clicking a row and choosing **Look Up on NCBI > NCBI Taxonomy** opens the taxon's NCBI page, which shows it. Taxonomy ID 10298 is the Human alphaherpesvirus 1 row, which holds every read of its species in this result.
 
 ## Next
 
-Continue to [Running EsViritu](03-running-esviritu.md) for a viral-specialist classifier that also reports how much of each virus's genome your reads covered, or go to [BLAST Verification](06-blast-verification.md) to check a Kraken 2 hit against NCBI before you believe it.
+Continue to [Running EsViritu](03-running-esviritu.md), which surveys a SARS-CoV-2 run with Kraken 2 and then asks the question Kraken 2 cannot, how much of the virus's genome the reads covered. To check a Kraken 2 hit against NCBI before you believe it, go to [BLAST Verification](06-blast-verification.md), which verifies this chapter's HSV-1 call.
