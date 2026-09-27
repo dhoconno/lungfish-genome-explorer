@@ -80,7 +80,10 @@ extension ImportCommand {
 
         @Option(
             name: .customLong("recipe"),
-            help: "Processing recipe: vsp2, wgs, hifi, none (default: none)"
+            help: ArgumentHelp(
+                "Processing recipe: \(recipeHelpNames()), or none",
+                discussion: recipeHelpDiscussion()
+            )
         )
         var recipe: String = "none"
 
@@ -503,6 +506,45 @@ extension ImportCommand {
         private static let v2RecipeAliases: [String: String] = [
             "vsp2": "vsp2-target-enrichment",
         ]
+
+        /// The legacy `ProcessingRecipe` names ``resolveImportRecipe(named:recipes:)``
+        /// falls back to when no recipe file matches. Every name here resolves.
+        static let legacyRecipeNames: [String] = ["wgs", "hifi"]
+
+        /// Every `--recipe` value that resolves, in the order the help lists
+        /// them: the recipe files' own IDs, then the short aliases, then the
+        /// legacy names. The help used to list `vsp2, wgs, hifi` while the
+        /// IDs that actually resolve read like `vsp2-target-enrichment`.
+        static func availableRecipeNames(recipes: [Recipe] = RecipeRegistryV2.allRecipes()) -> [String] {
+            var names: [String] = []
+            for recipe in recipes where !names.contains(recipe.id) {
+                names.append(recipe.id)
+            }
+            for alias in v2RecipeAliases.keys.sorted() where !names.contains(alias) {
+                names.append(alias)
+            }
+            for legacy in legacyRecipeNames where !names.contains(legacy) {
+                names.append(legacy)
+            }
+            return names
+        }
+
+        static func recipeHelpNames(recipes: [Recipe] = RecipeRegistryV2.allRecipes()) -> String {
+            availableRecipeNames(recipes: recipes).joined(separator: ", ")
+        }
+
+        static func recipeHelpDiscussion(recipes: [Recipe] = RecipeRegistryV2.allRecipes()) -> String {
+            var lines: [String] = []
+            for recipe in recipes {
+                lines.append("\(recipe.id): \(recipe.name)")
+            }
+            for (alias, target) in v2RecipeAliases.sorted(by: { $0.key < $1.key }) {
+                lines.append("\(alias): alias of \(target)")
+            }
+            lines.append("wgs: the built-in Illumina whole-genome recipe")
+            lines.append("hifi: the built-in PacBio HiFi recipe")
+            return lines.joined(separator: "\n")
+        }
 
         static func canonicalHumanReadRemovalDatabaseID(for requestedID: String) -> String {
             let canonical = DatabaseRegistry.canonicalDatabaseID(for: requestedID)
