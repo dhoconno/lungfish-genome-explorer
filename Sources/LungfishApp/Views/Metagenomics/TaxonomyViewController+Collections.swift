@@ -128,9 +128,14 @@ extension TaxonomyViewController: TaxaCollectionsDrawerDelegate {
         // Re-pin the split view bottom to the drawer's divider top
         updateSplitViewBottomConstraint(drawer: drawer)
 
-        // Wire the batch extraction callback
+        // Wire the batch extraction callback. This closure is the drawer's
+        // only extraction path; the delegate protocol covers resizing alone.
         drawer.onBatchExtract = { [weak self] collection in
-            guard let self, let result = self.classificationResult else { return }
+            guard let self else { return }
+            guard let result = self.classificationResult else {
+                collectionsLogger.warning("Cannot extract: no classification result")
+                return
+            }
             self.onBatchExtract?(collection, result)
         }
 
@@ -199,13 +204,5 @@ extension TaxonomyViewController: TaxaCollectionsDrawerDelegate {
         if let height = taxaCollectionsDrawerHeightConstraint?.constant {
             UserDefaults.standard.set(Double(height), forKey: Self.taxaDrawerHeightKey)
         }
-    }
-
-    public func taxaCollectionsDrawer(_ drawer: TaxaCollectionsDrawerView, didRequestExtractFor collection: TaxaCollection) {
-        guard let result = classificationResult else {
-            collectionsLogger.warning("Cannot extract: no classification result")
-            return
-        }
-        onBatchExtract?(collection, result)
     }
 }

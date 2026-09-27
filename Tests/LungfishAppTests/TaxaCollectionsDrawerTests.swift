@@ -435,6 +435,85 @@ final class TaxaCollectionsDrawerTests: XCTestCase {
         XCTAssertEqual(firstItem.enabledTargets.count, firstItem.collection.taxa.count - 1)
     }
 
+    // MARK: - Extract Honors Checkboxes And Fires Once
+
+    func testExtractPassesOnlyTickedTaxa() throws {
+        let drawer = TaxaCollectionsDrawerView(frame: NSRect(x: 0, y: 0, width: 800, height: 220))
+        drawer.layoutSubtreeIfNeeded()
+
+        var received: [TaxaCollection] = []
+        drawer.onBatchExtract = { received.append($0) }
+
+        let item = try XCTUnwrap(drawer.collectionItem(at: 0))
+        let dropped = item.collection.taxa[0].taxId
+        item.enabledTaxa[dropped] = false
+
+        drawer.requestExtraction(for: item)
+
+        XCTAssertEqual(received.count, 1, "One Extract click must start exactly one extraction")
+        let extracted = try XCTUnwrap(received.first)
+        XCTAssertEqual(extracted.id, item.collection.id)
+        XCTAssertEqual(extracted.name, item.collection.name)
+        XCTAssertEqual(extracted.taxonCount, item.collection.taxonCount - 1)
+        XCTAssertFalse(extracted.taxa.contains { $0.taxId == dropped })
+        XCTAssertEqual(extracted.taxa.map(\.taxId), item.collection.taxa.dropFirst().map(\.taxId))
+    }
+
+    func testExtractWithNothingTickedIsRefused() throws {
+        let drawer = TaxaCollectionsDrawerView(frame: NSRect(x: 0, y: 0, width: 800, height: 220))
+        drawer.layoutSubtreeIfNeeded()
+
+        var calls = 0
+        drawer.onBatchExtract = { _ in calls += 1 }
+
+        let item = try XCTUnwrap(drawer.collectionItem(at: 0))
+        for target in item.collection.taxa {
+            item.enabledTaxa[target.taxId] = false
+        }
+
+        drawer.requestExtraction(for: item)
+        XCTAssertEqual(calls, 0)
+    }
+
+    func testControllerExtractFiresOncePerDrawerRequest() throws {
+        let vc = TaxonomyViewController()
+        _ = vc.view
+        vc.configure(result: makeDrawerTestResult())
+
+        var calls = 0
+        vc.onBatchExtract = { _, _ in calls += 1 }
+        vc.toggleTaxaCollectionsDrawer()
+
+        let drawer = try XCTUnwrap(vc.testCollectionsDrawer)
+        let item = try XCTUnwrap(drawer.collectionItem(at: 0))
+        drawer.requestExtraction(for: item)
+
+        XCTAssertEqual(calls, 1, "The delegate and the closure must not both start an extraction")
+    }
+
+    func testRestrictedCollectionKeepsIdentityAndOrder() {
+        let source = TaxaCollection.respiratoryViruses
+        let keep = [source.taxa[3], source.taxa[1]]
+        let restricted = source.restricted(to: keep)
+
+        XCTAssertEqual(restricted.id, source.id)
+        XCTAssertEqual(restricted.name, source.name)
+        XCTAssertEqual(restricted.tier, source.tier)
+        XCTAssertEqual(restricted.sfSymbol, source.sfSymbol)
+        XCTAssertEqual(restricted.taxa.map(\.taxId), [source.taxa[1].taxId, source.taxa[3].taxId])
+    }
+
+    // MARK: - Scope Filter Visibility
+
+    func testScopeFilterHiddenWhileOnlyBuiltInCollectionsExist() throws {
+        let drawer = TaxaCollectionsDrawerView(frame: NSRect(x: 0, y: 0, width: 800, height: 220))
+        drawer.layoutSubtreeIfNeeded()
+
+        XCTAssertFalse(drawer.isScopeFilterVisible)
+        // Every built-in collection still shows; hiding the control must not filter.
+        XCTAssertEqual(drawer.displayedCollectionCount, TaxaCollection.builtIn.count)
+    }
+
     // MARK: - Drawer Height Persistence
 
     func testDrawerHeightDefaults() throws {

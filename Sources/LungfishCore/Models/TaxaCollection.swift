@@ -104,6 +104,18 @@ public struct TaxaCollection: Sendable, Codable, Identifiable, Hashable {
     /// Number of taxa in this collection.
     public var taxonCount: Int { taxa.count }
 
+    /// A copy of this collection holding only `targets`, in this collection's
+    /// order. Identity, name, description, symbol, and tier are unchanged, so
+    /// an extraction of the subset writes to the same `extracted-<id>` folder
+    /// and shows the same title as a full extraction.
+    public func restricted(to targets: [TaxonTarget]) -> TaxaCollection {
+        let keep = Set(targets.map(\.taxId))
+        return TaxaCollection(
+            id: id, name: name, description: description,
+            sfSymbol: sfSymbol, taxa: taxa.filter { keep.contains($0.taxId) }, tier: tier
+        )
+    }
+
     // MARK: - Built-in Collections
 
     /// All built-in taxa collections shipped with the app.

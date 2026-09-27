@@ -14,7 +14,9 @@ private let drawerLogger = Logger(subsystem: LogSubsystem.app, category: "TaxaCo
 
 /// Delegate protocol for the taxa collections drawer.
 ///
-/// Provides callbacks for drawer resize gestures and batch extraction triggers.
+/// Provides callbacks for drawer resize gestures. Batch extraction goes
+/// through ``TaxaCollectionsDrawerView/onBatchExtract`` alone, so one
+/// Extract click starts exactly one extraction.
 @MainActor
 public protocol TaxaCollectionsDrawerDelegate: AnyObject {
     /// Called when the user drags the divider to resize the drawer.
@@ -28,13 +30,6 @@ public protocol TaxaCollectionsDrawerDelegate: AnyObject {
     ///
     /// - Parameter drawer: The drawer that was resized.
     func taxaCollectionsDrawerDidFinishDraggingDivider(_ drawer: TaxaCollectionsDrawerView)
-
-    /// Called when the user clicks "Extract" on a collection.
-    ///
-    /// - Parameters:
-    ///   - drawer: The drawer containing the collection.
-    ///   - collection: The collection to extract.
-    func taxaCollectionsDrawer(_ drawer: TaxaCollectionsDrawerView, didRequestExtractFor collection: TaxaCollection)
 }
 
 // MARK: - TaxaCollectionsDividerView
@@ -253,6 +248,10 @@ public final class TaxaCollectionsDrawerView: NSView {
     // MARK: - Callbacks
 
     /// Called when the user clicks "Extract" on a collection.
+    ///
+    /// The collection passed here is restricted to the taxa whose checkbox
+    /// is ticked (see ``CollectionItem/enabledTargets``). This is the only
+    /// extraction path out of the drawer.
     var onBatchExtract: ((TaxaCollection) -> Void)?
 
     // MARK: - Subviews: Shared
@@ -263,6 +262,12 @@ public final class TaxaCollectionsDrawerView: NSView {
     private let searchField = NSSearchField()
 
     // MARK: - Subviews: Collections Tab
+
+    /// Pins the outline view under the scope filter while the filter is shown.
+    private var scrollViewTopBelowScopeFilter: NSLayoutConstraint?
+
+    /// Pins the outline view to the content top while the scope filter is hidden.
+    private var scrollViewTopAtContentTop: NSLayoutConstraint?
 
     /// Container view holding the collections-specific content (scope filter, outline view).
     private let collectionsContentView = NSView()
@@ -321,6 +326,12 @@ public final class TaxaCollectionsDrawerView: NSView {
     /// Returns the number of currently displayed collections (after filtering).
     var displayedCollectionCount: Int {
         filteredItems.count
+    }
+
+    /// Whether the All / Built-in / App / Project scope control is shown.
+    /// It stays hidden while every loaded collection is built-in.
+    var isScopeFilterVisible: Bool {
+        !scopeFilterControl.isHidden
     }
 
     /// Applies a search filter immediately, bypassing the debounce.
@@ -473,15 +484,35 @@ public final class TaxaCollectionsDrawerView: NSView {
         outlineView.setAccessibilityLabel("Taxa Collections List")
 
         // Layout within collections content view
+        let belowScopeFilter = scrollView.topAnchor.constraint(equalTo: scopeFilterControl.bottomAnchor, constant: 4)
+        let atContentTop = scrollView.topAnchor.constraint(equalTo: collectionsContentView.topAnchor)
+        scrollViewTopBelowScopeFilter = belowScopeFilter
+        scrollViewTopAtContentTop = atContentTop
         NSLayoutConstraint.activate([
             scopeFilterControl.topAnchor.constraint(equalTo: collectionsContentView.topAnchor, constant: 4),
             scopeFilterControl.leadingAnchor.constraint(equalTo: collectionsContentView.leadingAnchor, constant: 12),
 
-            scrollView.topAnchor.constraint(equalTo: scopeFilterControl.bottomAnchor, constant: 4),
+            belowScopeFilter,
             scrollView.leadingAnchor.constraint(equalTo: collectionsContentView.leadingAnchor),
             scrollView.trailingAnchor.constraint(equalTo: collectionsContentView.trailingAnchor),
             scrollView.bottomAnchor.constraint(equalTo: collectionsContentView.bottomAnchor),
         ])
+        updateScopeFilterVisibility()
+    }
+
+    /// Shows the scope filter only once a collection outside the built-in
+    /// tier exists. Until App and Project collections can be created, every
+    /// collection is built-in and the All / Built-in / App / Project control
+    /// would offer three segments that never change the list.
+    private func updateScopeFilterVisibility() {
+        let hasCustomCollections = allItems.contains { $0.collection.tier != .builtin }
+        scopeFilterControl.isHidden = !hasCustomCollections
+        scrollViewTopBelowScopeFilter?.isActive = hasCustomCollections
+        scrollViewTopAtContentTop?.isActive = !hasCustomCollections
+        if !hasCustomCollections, scopeFilter != .all {
+            scopeFilter = .all
+            scopeFilterControl.selectedSegment = CollectionScopeFilter.all.rawValue
+        }
     }
 
     // MARK: - Setup: BLAST Results Content
@@ -551,6 +582,7 @@ public final class TaxaCollectionsDrawerView: NSView {
     /// collections will be loaded from disk in a future phase.
     private func loadCollections() {
         allItems = TaxaCollection.builtIn.map { CollectionItem(collection: $0) }
+        updateScopeFilterVisibility()
         applyFilters()
     }
 
@@ -624,12 +656,26 @@ public final class TaxaCollectionsDrawerView: NSView {
         let row = outlineView.row(for: sender)
         guard row >= 0 else { return }
 
-        let item = outlineView.item(atRow: row)
-        if let collectionItem = item as? CollectionItem {
-            drawerLogger.info("Extract requested for collection: \(collectionItem.collection.name, privacy: .public)")
-            delegate?.taxaCollectionsDrawer(self, didRequestExtractFor: collectionItem.collection)
-            onBatchExtract?(collectionItem.collection)
+        if let collectionItem = outlineView.item(atRow: row) as? CollectionItem {
+            requestExtraction(for: collectionItem)
         }
+    }
+
+    /// Starts one extraction for the ticked taxa of `collectionItem`.
+    ///
+    /// Unticked taxa are dropped before the collection leaves the drawer, so
+    /// the pipeline never sees them. When nothing is ticked the click is
+    /// refused with a beep and a log line instead of an empty extraction.
+    func requestExtraction(for collectionItem: CollectionItem) {
+        let targets = collectionItem.enabledTargets
+        guard !targets.isEmpty else {
+            drawerLogger.warning("Extract refused for collection \(collectionItem.collection.name, privacy: .public): no taxa ticked")
+            NSSound.beep()
+            return
+        }
+        let collection = collectionItem.collection.restricted(to: targets)
+        drawerLogger.info("Extract requested for collection: \(collection.name, privacy: .public) (\(collection.taxonCount) of \(collectionItem.collection.taxonCount) taxa ticked)")
+        onBatchExtract?(collection)
     }
 
     @objc private func checkboxToggled(_ sender: NSButton) {
