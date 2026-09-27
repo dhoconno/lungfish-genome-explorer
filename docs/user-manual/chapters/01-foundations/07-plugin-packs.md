@@ -183,7 +183,7 @@ Eleven optional packs can be installed from the Plugin Manager. Eight show all t
 | `phasing` | Variant Phasing (experimental) | 180 MB | WhatsHap |
 | `wastewater-surveillance` | Wastewater Surveillance (experimental) | 1.5 GB | Freyja, iVar, Pangolin, Nextclade, minimap2 |
 
-MHC in the genotyping pack's name stands for the major histocompatibility complex, the cluster of immune genes that varies more between individuals than any other part of the genome. The PCR Primer Design card spells one of its tools OliVar, while the tool's own authors and this manual write Olivar. PrimalScheme on that card is an LGE build of PrimalScheme 3, the third version of the program.
+MHC in the genotyping pack's name stands for the major histocompatibility complex, the cluster of immune genes that varies more between individuals than any other part of the genome. PrimalScheme on that card is an LGE build of PrimalScheme 3, the third version of the program.
 
 All eleven optional packs together come to about 8.7 GB, on top of the 2.7 GB Third-Party Tools pack. The PCR Primer Design pack alone is about 2.8 GB, because Olivar and varVAMP each install into a separate environment with its own supporting libraries, which measured about 1.1 GB and 0.8 GB when the two were added. Most people install two or three packs.
 

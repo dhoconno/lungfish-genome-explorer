@@ -176,7 +176,7 @@ version the manual describes, once.
 **Figures.** A figure that is still to be drawn is placed with an
 `<!-- ILLUSTRATION: id -->` marker at the point where it belongs, and the
 chapter frontmatter's `illustrations:` list carries its id and a
-one-paragraph brief.
+one-paragraph brief. The home page, `index.md`, follows the same rule.
 
 ## Choosing a tool (added 2026-09-26)
 

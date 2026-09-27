@@ -21,7 +21,7 @@ shots:
   - id: taxtriage-batch-overview
     caption: "The TaxTriage viewport with both samples ticked and Kocuria typed in the Filter organisms... field, showing SRR12486983's Kocuria rows first, from Kocuria sp. BT304 at 0.920 High down to Kocuria sp. MNB10 at 0.380 Low, then SRR12486989's, starting with Kocuria sp. BT304 at 0.980 High, under the Sample, Organism, TASS Score, Reads, Unique Reads, and Confidence columns. No row is selected, so the alignment pane is empty."
 illustrations: []
-glossary_refs: [minimap2, accession, amplicon, bam, blast, bundle, container, docker, coverage-breadth, depth, fastq, inspector, kraken2, k-mer, library-prep, lowest-common-ancestor, mark-duplicates, negative-control, nextflow, paired-end, plugin-pack, read, read-classification, reference-genome, required-setup-pack, samplesheet, shotgun, sra, taxon, taxonomy-id, tass-score, taxtriage, tsv, viewport, mate, unique-reads-deduplicated, confidence-kraken-2, contamination, relative-abundance, false-positive]
+glossary_refs: [minimap2, accession, amplicon, bam, blast, bundle, container, docker, coverage-breadth, depth, fastq, inspector, kraken2, k-mer, library-prep, lowest-common-ancestor, mark-duplicates, negative-control, nextflow, paired-end, plugin-pack, read, read-classification, reference-genome, required-setup-pack, samplesheet, shotgun, sra, taxon, taxonomy-id, tass-score, taxtriage, tsv, viewport, mate, unique-reads, confidence-kraken-2, contamination, relative-abundance, false-positive]
 features_refs: []
 fixtures_refs: [kraken-protocol-cornea]
 brand_reviewed: false
@@ -188,7 +188,7 @@ The table holds one row per organism per sample, under nine columns.
 | Organism | The organism's name |
 | TASS Score | The TASS score from 0 to 1, to three decimals |
 | Reads | LGE's count of alignment records on this organism's reference genome in the result's [BAM](../../GLOSSARY.md#bam) file of mapped reads, with each mate of a pair counted |
-| Unique Reads | The Reads figure left after LGE [marks duplicates](../../GLOSSARY.md#mark-duplicates), collapsing reads copied from one original fragment, the [deduplicated](../../GLOSSARY.md#unique-reads-deduplicated) count every classification view uses |
+| Unique Reads | The Reads figure left after LGE [marks duplicates](../../GLOSSARY.md#mark-duplicates), collapsing reads copied from one original fragment, the [deduplicated](../../GLOSSARY.md#unique-reads) count every classification view uses |
 | Confidence | High, Medium, or Low, as the next section explains |
 | Coverage Breadth | The share of the reference the reads reached, as a percentage |
 | Coverage Depth | The mean depth, written with × for times |

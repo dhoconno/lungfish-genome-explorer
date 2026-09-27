@@ -22,7 +22,7 @@ shots:
   - id: nao-mgs-taxon-detail
     caption: "The detail pane after a taxon row is selected, showing the taxon name header, the Taxid line with its unique-of-total read counts and accession count, and the miniBAM Panels section with one read-pileup panel per top accession."
 illustrations: []
-glossary_refs: [accession, bam, bit-score, blast, bundle, fastq, metagenomics, minibam, nao-mgs, operations-panel, pcr-duplicate, percent-identity, provenance, checksum, read, taxon, taxonomy-id, unique-reads-deduplicated]
+glossary_refs: [accession, bam, bit-score, blast, bundle, fastq, metagenomics, minibam, nao-mgs, operations-panel, pcr-duplicate, percent-identity, provenance, checksum, read, taxon, taxonomy-id, unique-reads]
 features_refs: []
 fixtures_refs: [naomgs]
 brand_reviewed: false
@@ -45,7 +45,7 @@ The file LGE reads is `virus_hits_final.tsv.gz`, the pipeline's combined virus-h
 
 The raw table runs thirty columns wide with one row per read alignment, split across every sample in the run. To say anything, you would first have to total it by taxon and by sample. The import does that totalling for you and keeps the reads.
 
-A surveillance signal is only worth acting on if the reads under it are real. Library preparation copies fragments many times by PCR, and those copies are called [PCR duplicates](../../GLOSSARY.md#pcr-duplicate). Ten copies of one fragment and ten independent fragments give the same count but mean very different things. The viewport therefore reports [unique reads](../../GLOSSARY.md#unique-reads-deduplicated), the hits left after copies are collapsed, beside total hits, and lets you open the read pileups under a taxon and look.
+A surveillance signal is only worth acting on if the reads under it are real. Library preparation copies fragments many times by PCR, and those copies are called [PCR duplicates](../../GLOSSARY.md#pcr-duplicate). Ten copies of one fragment and ten independent fragments give the same count but mean very different things. The viewport therefore reports [unique reads](../../GLOSSARY.md#unique-reads), the hits left after copies are collapsed, beside total hits, and lets you open the read pileups under a taxon and look.
 
 The import also puts the surveillance result in the same project as everything else, so the same [BLAST](../../GLOSSARY.md#blast) verification and read extraction you use for Kraken 2 results work here.
 

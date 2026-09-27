@@ -8,7 +8,7 @@ Terms appear in alphabetical order. Each entry opens with the term's general mea
 
 **Absolute path**{#absolute-path}. A file's full address written from the top of the disk down, beginning with a slash as in `/Users/you/Documents/reads.fastq`, so it names the same file whatever folder a command is run from, unlike a bare filename that only works in the folder holding it. See also working directory, PATH, shell.
 
-**Abundance**{#abundance}. How much of an organism a sample holds, which a sequencing result can only estimate. A read count is the evidence, a relative abundance is a share of a stated denominator, and a normalised abundance such as RPM, RPB, or RPKMF scales the count by library size and sometimes by genome length so samples sequenced to different depths can be compared. Each classification viewport uses its own denominator, which [Comparing the result views](chapters/06-classification/01-what-is-classification.md#comparing-the-result-views) lists. See also relative abundance, reads per million, RPKMF.
+**Abundance**{#abundance}. How much of an organism a sample holds, which a sequencing result can only estimate. A read count is the evidence, a relative abundance is a share of a stated denominator, and a normalised abundance such as RPM, RPB, or RPKMF scales the count by library size and sometimes by genome length so samples sequenced to different depths can be compared. Each classification viewport uses its own denominator, which [Comparing the result views](chapters/06-classification/01-what-is-classification.md#comparing-the-result-views) lists. See also relative abundance, reads per million, RPKMF, unique reads.
 
 **Accession**{#accession}. The permanent identifier a public sequence database assigns to one record, such as the RefSeqGene record `NG_000007.3`. The trailing number after the dot is a version that increments when a curator revises the deposited sequence, so a published coordinate should always name the version it was measured against. See also INSDC, reference genome.
 
@@ -306,7 +306,7 @@ Terms appear in alphabetical order. Each entry opens with the term's general mea
 
 **Experimental features**{#experimental-features}. Parts of LGE hidden until **Settings > Advanced > Show Experimental Features** is on, including the GATK Core, Variant Phasing, and Wastewater Surveillance packs. See also plugin pack.
 
-**Extraction**{#extraction}. A bundle pulled out of a larger dataset by an LGE operation, either a chosen set of reads or a chosen stretch of a sequence, with its own provenance record. Where it lands depends on the source. A region or annotation extracted from a reference and reads extracted from a classification result go to the project's `Extractions/` folder, reads extracted from an alignment go to an `alignment-read-extractions/` folder inside that mapping result, and contigs extracted from an assembly go to `Reference Sequences/`. See also bundle, derived bundle, provenance sidecar.
+**Extraction**{#extraction}. A bundle pulled out of a larger dataset by an LGE operation, either a chosen set of reads or a chosen stretch of a sequence, with its own provenance record. Where it lands depends on the route. A region saved as a new bundle with Extract Visible Region and reads extracted from a classification result go to the project's `Extractions/` folder, a feature saved as a bundle from its right-click Extract Sequence sheet goes to `Reference Sequences/`, reads extracted from an alignment go to an `alignment-read-extractions/` folder inside that mapping result, and contigs extracted from an assembly go to `Reference Sequences/`. See also bundle, derived bundle, provenance sidecar.
 
 ## F
 
@@ -540,7 +540,7 @@ Terms appear in alphabetical order. Each entry opens with the term's general mea
 
 **MAPQ (mapping quality)**{#mapq}. A per-read confidence score in each BAM row, encoding how unambiguously the mapper placed the read at the recorded position. A value of 0 means no confidence, because the read fits several places equally well. The top of the scale differs by mapper, 60 for minimap2 and BWA-MEM2 and 42 for Bowtie2, so a MAPQ cutoff means different things under different mappers and values are never compared between them. See also BAM, mapper, mapping quality.
 
-**Mark duplicates**{#mark-duplicates}. The step that finds reads sharing a start and end position, which are usually PCR copies of one original fragment, and flags the extras so a variant caller counts them once. In the app, Mark Duplicates in Bundle Tracks keeps each original track, renamed "<name> [unmarked]", and adds a marked copy named "<name> [dup-marked]", as `lungfish-cli bundle mark-duplicates` does, while `lungfish-cli markdup` rewrites the BAM it is given in place. The step is wrong for amplicon data, where every fragment is designed to start at the same place. See also PCR duplicate, BAM, FLAG.
+**Mark duplicates**{#mark-duplicates}. The step that finds reads sharing a start and end position, which are usually PCR copies of one original fragment, and flags the extras so a variant caller counts them once. In the app, Mark Duplicates in Bundle Tracks keeps each original track, renamed "<name> [unmarked]", and adds a marked copy named "<name> [dup-marked]", as `lungfish-cli bundle mark-duplicates` does. `lungfish-cli markdup` also keeps the BAM it is given and writes the marked copy beside it as `<name>.markdup.bam`, unless you pass `--in-place`. The step is wrong for amplicon data, where every fragment is designed to start at the same place. See also PCR duplicate, BAM, FLAG.
 
 **Mate**{#mate}. Each of the two reads a paired-end run makes from one fragment, one read from each end. The two mates share a name, face each other, and count as one observation of the fragment. See also read pair, paired-end, fragment.
 
@@ -608,6 +608,8 @@ Terms appear in alphabetical order. Each entry opens with the term's general mea
 
 **Nextflow**{#nextflow}. A language and runner for describing an analysis as a set of steps and the files that flow between them, which then executes those steps in the right order and inside containers, shipped with the Required Setup pack and used by Lungfish Genome Explorer to run the nf-core/viralrecon pipeline. See also nf-core, container, run bundle.
 
+**Nextstrain clade**{#nextstrain-clade}. A coarse, named branch of the SARS-CoV-2 family tree used by the Nextstrain project and assigned by Nextclade, written as a year and a letter with a common name in brackets, such as `22E (Omicron)`. One clade holds many Pango lineages. See also lineage, Pango lineage.
+
 **nf-core**{#nf-core}. A community that curates, versions, and tests openly published Nextflow pipelines to a common standard, so a pipeline named by release runs the same steps for everyone who runs that release, and Lungfish Genome Explorer supports one of them, nf-core/viralrecon, pinned at release 3.0.0. See also Nextflow, container.
 
 **Novel variant**{#novel-variant}. A call absent from the catalogue of variation it was compared against, reported by Picard's metrics step as `NOVEL_SNPS` and `NOVEL_INDELS`, and worth reading with suspicion rather than excitement because in a well-studied human sample most genuine variation is already catalogued. See also dbSNP, transition to transversion ratio, VCF.
@@ -645,6 +647,8 @@ Terms appear in alphabetical order. Each entry opens with the term's general mea
 **Override**{#override}. A genotype call an analyst replaced by hand in the result window, stored in the result's annotation sidecar alongside the original call, the reason, and the author, so an exported workbook or LabKey file reports the reviewed call while still carrying the pipeline's own. See also audit log, genotype matrix, genotype result bundle.
 
 ## P
+
+**Pango lineage**{#pango-lineage}. A fine-grained, named SARS-CoV-2 lineage assigned by Pangolin, written as letters and numbers joined by dots, where each dot is one step down the family tree, so `BQ.1.23` is a branch inside `BQ.1`. Long names are shortened to a new letter pair, an alias. See also lineage, Nextstrain clade.
 
 **Paired-end**{#paired-end}. A sequencing protocol that reads each DNA fragment from both ends, producing two reads per fragment, called mates. The mates usually arrive as two FASTQ files whose names differ only in a `_1`/`_2` or `_R1`/`_R2` suffix, and LGE stores them together in one read bundle as a single interleaved file. See also mate, read pair, interleaved FASTQ, single-end.
 
@@ -804,7 +808,7 @@ Terms appear in alphabetical order. Each entry opens with the term's general mea
 
 **Regular expression**{#regular-expression}. A compact pattern language for describing text to search for rather than spelling out the exact text, where writing a plain word already means "contains this anywhere" and square brackets such as `[GA]` mean "any one of these characters here". See also read identifier, sequence motif.
 
-**Relative abundance**{#relative-abundance}. An organism's share of a stated denominator, such as the percentage of all reads, of classified reads, or of one virus's reads, so two relative abundances can be compared only when their denominators match. Each classification viewport names its denominator, and the classification chapters give it in the same words. See also abundance, read classification.
+**Relative abundance**{#relative-abundance}. An organism's share of a stated denominator, such as the percentage of all reads, of classified reads, or of one virus's reads, so two relative abundances can be compared only when their denominators match. Each classification viewport names its denominator, and the classification chapters give it in the same words. See also abundance, read classification, unique reads.
 
 **Repeat masking**{#repeat-masking}. Marking the stretches of a genome that a repeat-finding program judged repetitive, written in a FASTA as lowercase bases, which carry the same meaning as their uppercase equivalents and need no action from a reader. See also FASTA, Alu element.
 
@@ -1006,9 +1010,7 @@ Terms appear in alphabetical order. Each entry opens with the term's general mea
 
 **Unclassified reads**{#unclassified-reads}. A term with two senses. In read classification, unclassified reads are those the classifier could not name at any rank under its confidence threshold, the Unclassified row of a Kraken 2 result. In an Oxford Nanopore run they are the reads assigned to no barcode, which MinKNOW collects in a folder named `unclassified` beside the numbered barcode folders and which the run-folder importer skips unless you ask for them. See also confidence (Kraken 2), barcode, demultiplex.
 
-**Unique reads (deduplicated)**{#unique-reads-deduplicated}. The reads left for one organism after PCR and optical duplicates are collapsed, the meaning of the Unique Reads column in the TaxTriage and NAO-MGS viewports, so in a shotgun library it should sit close to the read count. It shares a column name, and nothing else, with mapping-unique reads. See also PCR duplicate, unique reads (mapping-unique), TaxTriage.
-
-**Unique reads (mapping-unique)**{#unique-reads-mapping}. The reads that mapped to one target and to nothing else in the database, the meaning of the Unique Reads column in the EsViritu and NVD viewports, so a small share means the target's reads are also shared with its relatives. It shares a column name, and nothing else, with deduplicated unique reads. See also unique reads (deduplicated), EsViritu, NVD.
+**Unique reads**{#unique-reads}. The reads left for one organism after LGE marks duplicates, reads sharing the same start, end, and strand, which are usually PCR or optical copies of one original fragment. It is the meaning of the Unique Reads column in the EsViritu, TaxTriage, NAO-MGS, and NVD views, so in a shotgun library it should sit close to the read count, and a large gap means many copies of few fragments. See also mark duplicates, PCR duplicate, abundance.
 
 **Unitig**{#unitig}. A stretch of sequence that every read covering it agrees on and that the assembly graph joins to its neighbours in only one way, so it is the longest piece an assembler can emit without making a choice. Contigs are then built by choosing paths that link unitigs together, which is why an assembler's unitig graph is more fragmented and more trustworthy than its contig set. See also assembly graph, contig, GFA.
 
@@ -1028,7 +1030,7 @@ Terms appear in alphabetical order. Each entry opens with the term's general mea
 
 **Viewport**{#viewport}. The main display area in the middle of the Lungfish Genome Explorer window, which shows whatever bundle is selected in the sidebar and takes a different form for each kind of result, among them the sequence, taxonomy, alignment, assembly, and variant shapes. See also Inspector, bundle.
 
-**Virtual bundle**{#virtual-bundle}. A read bundle that stores a short manifest naming its parent bundle and the operation to apply rather than a second copy of the reads, keeping only a preview of about a thousand reads on disk, so that many subsets of one sample cost about as much storage as one. Demultiplexing writes virtual bundles, while every other read operation writes a bundle that holds its reads outright. A virtual bundle means nothing without its parent, so copying one alone to another computer carries no reads. See also materialization, bundle, subsampling.
+**Virtual bundle**{#virtual-bundle}. A read bundle that stores a short manifest naming its parent bundle and the operation to apply rather than a second copy of the reads, keeping only a preview of about a thousand reads on disk, so that many subsets of one sample cost about as much storage as one. Demultiplexing and Orient write virtual bundles, while the other read operations write a bundle that holds its reads outright. A virtual bundle means nothing without its parent, so copying one alone to another computer carries no reads. See also materialization, bundle, subsampling.
 
 **vsearch**{#vsearch}. An open-source toolkit for comparing and clustering nucleotide sequences, used by Lungfish Genome Explorer to screen a 12S run's unmatched sequence clusters for chimeras and to turn reads to a common orientation against a reference. See also chimera, read orientation, 12S.
 

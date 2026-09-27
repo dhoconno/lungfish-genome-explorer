@@ -125,7 +125,7 @@ MinKNOW usually splits a barcoded run for you. Three situations leave the split 
 
 4. Leave **Engine** on Cutadapt, **Error Rate** at 0.15, and **Trim Barcodes** on, then click Run.
 
-When the run finishes, one bundle per barcode that received reads appears nested under `nrg1-pooled` in the sidebar, named by the barcode's identifier, from `NB85` to `NB91`, with an `unassigned` bundle beside them for reads that matched no barcode. On disk they sit in a `demux` folder inside the `nrg1-pooled` bundle. Running Demultiplex Barcodes on the same bundle again replaces that folder, so the earlier split is deleted. Each barcode bundle can be a [virtual bundle](../../GLOSSARY.md#virtual-bundle), which stores a recipe for its reads rather than a copy, as [Virtual bundles](06-subsetting-and-extraction.md#virtual-bundles) explains.
+When the run finishes, one bundle per barcode that received reads appears nested under `nrg1-pooled` in the sidebar, named by the barcode's identifier, from `NB85` to `NB91`, with an `unassigned` bundle beside them for reads that matched no barcode. On disk they sit in a `demux` folder inside the `nrg1-pooled` bundle. Running Demultiplex Barcodes on the same bundle again keeps the earlier split and writes the new one beside it in `demux-2`, then `demux-3`, and the sidebar lists the bundles of every run, with the folder name shown under the names from a later run. Each barcode bundle can be a [virtual bundle](../../GLOSSARY.md#virtual-bundle), which stores a recipe for its reads rather than a copy, as [Virtual bundles](06-subsetting-and-extraction.md#virtual-bundles) explains.
 
 To try the third route on the same reads, set **Barcode Source** to Custom Definition, choose `nrg1-barcodes.csv` in the Inputs section, set **Engine** to Exact Bare Barcode, and click Run.
 
@@ -259,7 +259,7 @@ lungfish-cli fastq demultiplex Imports/nrg1-pooled.lungfishfastq/nrg1-pooled.fas
   -o "$HOME/Desktop/nrg1-demux-exact"
 ```
 
-Two command-line differences change what the import writes. The window never imports `unclassified`, while `--include-unclassified` brings those reads in as their own bundle, 204 reads here. When Optimize storage is on, the window passes `--storage-mode flattened --optimize-storage`, which joins each barcode's files into one, and the command refuses `--optimize-storage` without `--storage-mode flattened`, while `--quality-binning`, default `none`, acts only alongside `--optimize-storage`. `fastq demultiplex` writes its bundles into the folder `-o` names rather than into the input bundle, and `fastq ont-fluidigm-samples` runs the Fluidigm split.
+Two command-line differences change what the import writes. The window never imports `unclassified`, while `--include-unclassified` brings those reads in as their own bundle, 204 reads here. When Optimize storage is on, the window passes `--storage-mode flattened --optimize-storage`, which joins each barcode's files into one, and the command refuses `--optimize-storage` without `--storage-mode flattened`, while `--quality-binning`, default `none`, acts only alongside `--optimize-storage`. `fastq demultiplex` writes its bundles into the folder `-o` names rather than into the input bundle, and it refuses a folder that already holds files, naming them, unless you add `--replace`, which deletes the old contents first. `fastq ont-fluidigm-samples` runs the Fluidigm split.
 
 ## Next
 

@@ -268,5 +268,5 @@ download steps, and V01's `## Before you start` names each.
 | Decision | Detail |
 |---|---|
 | Foundations as short standalone pages | Web-first presentation favours short pages with stable anchors other chapters can deep-link to. Each foundations page ends with a next pointer, and the PDF build assembles them in nav order. The home page lists each page's reading time from its frontmatter. |
-| Schematic illustrations | Foundations chapters carry `<!-- ILLUSTRATION: id -->` markers paired with `illustrations.yaml`, which records the brief, palette, and size. Illustrations live in `assets/illustrations-imagegen/`. |
+| Schematic illustrations | Chapters and the home page, `index.md`, carry `<!-- ILLUSTRATION: id -->` markers paired with `illustrations.yaml`, which records the brief, palette, and size. Illustrations live in `assets/illustrations-imagegen/<part>/<chapter>/`, and the home page's in `assets/illustrations-imagegen/index/`. `build/hooks/shots.py` renders a marker once its image exists and leaves the comment in place until then. |
 | Tool-choice tables are Markdown tables | Superseded on 2026-09-26 by the four-column table in `STYLE.md` (Tool, Built for, Choose it when, Choose something else when), which every Choosing a tool section uses. Markdown tables render in both the web and PDF builds. |
