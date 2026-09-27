@@ -546,6 +546,7 @@ public enum ONTBarcodeDemuxGenotypingError: Error, LocalizedError, Sendable, Equ
     case filterFailed(status: Int32, stderr: String)
     case invalidFilterOutput(String)
     case invalidHaplotypeDefinition(String)
+    case outputDirectoryOutsideProject(outputDirectory: URL, projectURL: URL)
     case ambiguousHaplotypeDefinition(definitionID: String)
     case invalidHaplotypeDefinitionForAssay(definitionID: String, assayID: String)
     case lockedReferenceDigestMismatch(expected: String, actual: String)
@@ -587,6 +588,10 @@ public enum ONTBarcodeDemuxGenotypingError: Error, LocalizedError, Sendable, Equ
             return "Retained-read demultiplex filter did not return valid JSON: \(text)"
         case .invalidHaplotypeDefinition(let id):
             return "Unknown haplotype definition set: \(id)"
+        case .outputDirectoryOutsideProject(let outputDirectory, let projectURL):
+            return "Output directory \(outputDirectory.path) is outside project \(projectURL.path). "
+                + "The run's work directory and operation history are bound to the project, so choose "
+                + "an --output-dir inside the project or omit --project to bind the run to the output directory's parent."
         case .ambiguousHaplotypeDefinition(let definitionID):
             return "Haplotype definition set \(definitionID) exists in more than one assay; specify --haplotype-assay."
         case .invalidHaplotypeDefinitionForAssay(let definitionID, let assayID):
@@ -835,6 +840,18 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         let runID = UUID()
         let processIdentity = try OwnedProcessIdentity.current()
         let outputParent = request.outputDirectory.deletingLastPathComponent().standardizedFileURL
+        if let projectURL = request.projectURL,
+           !Self.outputDirectory(request.outputDirectory, isInsideProject: projectURL) {
+            // The run's work directory, its cleanup markers, and its
+            // operation history are bound to the project, so an output
+            // directory elsewhere cannot be honoured. Say so before any
+            // directory is created instead of failing later on the marker
+            // binding with an opaque owned-work-directory error.
+            throw ONTBarcodeDemuxGenotypingError.outputDirectoryOutsideProject(
+                outputDirectory: request.outputDirectory,
+                projectURL: projectURL
+            )
+        }
         try FileManager.default.createDirectory(at: outputParent, withIntermediateDirectories: true)
         let projectRoot = (request.projectURL ?? outputParent).standardizedFileURL
         let lockURL = outputParent.appendingPathComponent(
@@ -1236,6 +1253,16 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         let path = url.standardizedFileURL.path
         guard path.hasPrefix(rootPath + "/") else { return nil }
         return String(path.dropFirst(rootPath.count + 1))
+    }
+
+    /// True when `outputDirectory` is the project itself or below it, so the
+    /// run's project-bound work directory can live there. `--project X
+    /// --output-dir <outside X>` is refused up front with
+    /// ``ONTBarcodeDemuxGenotypingError/outputDirectoryOutsideProject(outputDirectory:projectURL:)``.
+    public static func outputDirectory(_ outputDirectory: URL, isInsideProject projectURL: URL) -> Bool {
+        let rootPath = projectURL.standardizedFileURL.path
+        let path = outputDirectory.standardizedFileURL.path
+        return path == rootPath || path.hasPrefix(rootPath.hasSuffix("/") ? rootPath : rootPath + "/")
     }
 
     private func recordFailedRunAndCleanupSupportDirectory(
@@ -4018,12 +4045,17 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         ) {
             return bundledDefinition
         }
+        // The project library resolves bundle definitions AND the bare
+        // definitions under `Haplotype Definitions/` (the ones `haplotypes
+        // import` writes and `haplotypes list` shows); a bundle copy of the
+        // same set shadows the bare one.
         if request.haplotypeSpeciesCode != nil || request.haplotypeDefinitionScope != nil {
             let matchingRecords = haplotypeDefinitionLibrary(for: request)
                 .activeRecords(
                     assayID: request.haplotypeAssayID,
                     speciesCode: request.haplotypeSpeciesCode,
-                    scope: request.haplotypeDefinitionScope
+                    scope: request.haplotypeDefinitionScope,
+                    includeProjectStore: true
                 )
                 .filter { $0.definitionSet.id == definitionSetID }
             if matchingRecords.count == 1 {
@@ -4082,7 +4114,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
     private func haplotypeDefinitionRegistry(
         for request: ONTBarcodeDemuxGenotypingRunRequest
     ) -> GenotypeHaplotypeDefinitionRegistry {
-        haplotypeDefinitionLibrary(for: request).mergedRegistry()
+        haplotypeDefinitionLibrary(for: request).mergedRegistry(includeProjectStore: true)
     }
 
     private func haplotypeDefinitionLibrary(
