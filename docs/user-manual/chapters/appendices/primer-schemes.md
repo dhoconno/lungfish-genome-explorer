@@ -106,15 +106,25 @@ In a [tiling](../../GLOSSARY.md#tiling) scheme, meaning one whose amplicons over
 
 ### How LGE counts primers and amplicons
 
-LGE counts every non-empty row that does not begin with `#` as one primer. It counts amplicons by removing the ending `_LEFT` or `_RIGHT` from each name in column 4 and counting the distinct names left.
+LGE counts every non-empty row that does not begin with `#` as one primer. It counts amplicons by removing the role tag `_LEFT`, `_RIGHT`, or `_PROBE` from each name in column 4, together with anything that follows the tag, and counting the distinct names left. A spare primer named `nCoV-2019_2_LEFT_alt1` and a designed variant named `d01afd1e_1_LEFT_2` therefore count as the same amplicon as their `_LEFT` partner.
 
-After removing that ending it also drops a dash followed by one or two digits, so a spare primer named `QIAseq_221-2_LEFT` counts as the same amplicon as `QIAseq_221_LEFT`. The dash must come before `_LEFT` or `_RIGHT`, as it does in the QIAseq scheme. The other shipped schemes name spare primers with suffixes such as `_LEFT_alt1`, which this rule would count as separate amplicons, so their manifest counts came from the tool that built them rather than from this rule. A name such as `QIAseq_221_LEFT-1`, or a dash followed by three or more digits, counts as an amplicon of its own and inflates the count without a warning.
+After removing the tag it also drops a dash followed by one or two digits, so a spare primer named `QIAseq_221-2_LEFT` counts as the same amplicon as `QIAseq_221_LEFT`. The dash must come before the tag, as it does in the QIAseq scheme. A name such as `QIAseq_221_LEFT-1`, or a dash followed by three or more digits, counts as an amplicon of its own and inflates the count without a warning. The shipped NEB VarSkip manifests were written by the tool that built them and still read 29 amplicons for VarSkip Long, which has 25.
 
 A scheme whose names follow neither convention still imports. Names such as `panel_fwd_01` and `panel_rev_01` give an amplicon count equal to the primer count, which is the sign the naming did not parse. Rename column 4 to the `NAME_LEFT` and `NAME_RIGHT` form in a text editor and import again. The Inspector shows the two counts side by side, so a count you did not expect points at the names rather than the coordinates.
 
 ### Matching the scheme to your alignment
 
 The scheme has to name the same reference sequence as the alignment you trim. At trim time LGE compares the scheme's canonical and equivalent accessions with the sequence names in the alignment's header, first exactly and then ignoring a trailing version number and letter case, so `NC_045512` matches `NC_045512.2`. When nothing matches, the trim stops with an error that names the accessions the scheme expects and the names the alignment holds. The fix is to import the scheme again with the alignment's own sequence name as its canonical accession, or to override the match with `--target-reference` on the command line, as [Primer Trimming an Alignment](../04-alignments/03-primer-trimming.md) describes.
+
+## Saving a designed scheme
+
+A tiled scheme designed inside LGE with PrimalScheme3, Olivar, or varVAMP can become a `.lungfishprimers` bundle without leaving the app. Open the saved primer analysis, choose the **Results** tab, and click **Save as Primer Scheme...**. The same button sits in the Inspector's **View** tab. A sheet names the scheme, shows how many primers, amplicons, and pools it holds, and states which sequence the coordinates belong to. The bundle lands in the project's `Primer Schemes/` folder and the Operations panel records the run with its command-line equivalent.
+
+The coordinates belong to the sequence the engine designed against, which is never the alignment as a whole. PrimalScheme3 designs on the first row of the alignment with its gaps removed, so the bundle names that row's original header as its canonical accession and the name the design run gave the row as an equivalent. Olivar designs on a reference it generates from the alignment, and varVAMP designs on an ambiguous consensus that carries IUPAC codes, so those bundles name the generated sequence. In every case the bundle carries that sequence as `attachments/design-reference.fasta`, and reads must be mapped to it, or to a sequence identical to it, before the scheme can trim them. The manifest description and `PROVENANCE.md` repeat the statement so a bundle passed to a collaborator still says what it expects.
+
+Some results are refused with an explanation rather than exported with coordinates that would not trim anything. A combined PrimalScheme3 panel spanning several references cannot be saved, because a bundle names one reference, so save each single-reference result instead. varVAMP single-amplicon and qPCR results are refused because their reported assays are alternatives rather than one tiled scheme, and Primer3 candidate pairs are refused for the same reason. Probe oligos are left out of the BED, since trimming applies to primers only. PrimalScheme3 variants such as `_LEFT_1` and `_LEFT_2` are all selected primers of one amplicon and are kept together.
+
+On the command line, `lungfish-cli primers scheme-from-analysis` does the same, and its `--list` flag prints every result with the reason any cannot be saved. [CLI Reference](cli-reference.md#primers-scheme-from-analysis) lists its flags.
 
 ## Building a scheme from a BED file
 
