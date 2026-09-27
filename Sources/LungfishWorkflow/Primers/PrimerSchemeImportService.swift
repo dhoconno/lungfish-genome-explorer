@@ -251,12 +251,18 @@ public enum PrimerSchemeImportService {
         )
     }
 
-    private static func normalizedAmpliconName(_ raw: String) -> String {
+    /// Folds every oligo of one amplicon onto the amplicon name. The role tag
+    /// (`_LEFT`, `_RIGHT`, `_PROBE`) and anything after it are dropped, so the
+    /// designed variants `NAME_1_LEFT_1` and `NAME_1_LEFT_2`, and ARTIC spares
+    /// such as `NAME_1_LEFT_alt1`, all count as amplicon `NAME_1`.
+    private static let roleTagPattern = try! NSRegularExpression(
+        pattern: "^(.*)_(LEFT|RIGHT|PROBE)(?:_[A-Za-z0-9]+)*$")
+
+    static func normalizedAmpliconName(_ raw: String) -> String {
         var name = raw
-        if name.hasSuffix("_LEFT") {
-            name = String(name.dropLast("_LEFT".count))
-        } else if name.hasSuffix("_RIGHT") {
-            name = String(name.dropLast("_RIGHT".count))
+        let range = NSRange(location: 0, length: (raw as NSString).length)
+        if let match = roleTagPattern.firstMatch(in: raw, range: range) {
+            name = (raw as NSString).substring(with: match.range(at: 1))
         }
         if let dashIndex = name.lastIndex(of: "-"),
            name.distance(from: dashIndex, to: name.endIndex) <= 3,
