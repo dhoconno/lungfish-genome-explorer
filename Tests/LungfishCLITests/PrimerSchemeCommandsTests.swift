@@ -197,6 +197,66 @@ final class PrimerSchemeCommandsTests: XCTestCase {
         XCTAssertTrue(varvamp.contains("QAMPLICON_LENGTH"))
     }
 
+    func testVarVAMPNegativeFreeEnergiesParseWithOrWithoutEqualsSign() throws {
+        let prefix = ["--msa", "/tmp/a.fasta", "--output", "/tmp/out.lungfishprimeranalysis",
+                      "--mode", "qpcr", "--consensus-threshold", "0.9"]
+        let separated = prefix + ["--qpcr-delta-g", "-5",
+                                  "--primer-maximum-dimer-delta-g", "-8500.5"]
+        let joined = prefix + ["--qpcr-delta-g=-5", "--primer-maximum-dimer-delta-g=-8500.5"]
+        for argv in [separated, joined] {
+            let command = try VarVAMPDesignCommand.parse(argv)
+            XCTAssertEqual(command.qpcrDeltaG, -5, "\(argv)")
+            XCTAssertEqual(command.primerMaximumDimerDeltaG, -8500.5, "\(argv)")
+            let options = try command.makeOptions(argv: argv)
+            XCTAssertEqual(options.varvamp?.qpcrDeltaG, -5, "\(argv)")
+            XCTAssertEqual(options.varvamp?.configOverrides.primerMaximumDimerDeltaG, -8500.5, "\(argv)")
+            XCTAssertTrue(options.varvamp?.suppliedOptionNames.contains("qpcrDeltaG") == true, "\(argv)")
+        }
+
+        // A negative value in the middle of a longer argv leaves later options intact.
+        let middle = try VarVAMPDesignCommand.parse([
+            "--msa", "/tmp/a.fasta", "--qpcr-delta-g", "-7", "--mode", "qpcr",
+            "--primer-maximum-dimer-delta-g", "-9000", "--output", "/tmp/out.lungfishprimeranalysis",
+            "--consensus-threshold", "0.9", "--qpcr-test-count", "40",
+        ])
+        XCTAssertEqual(middle.qpcrDeltaG, -7)
+        XCTAssertEqual(middle.primerMaximumDimerDeltaG, -9000)
+        XCTAssertEqual(middle.mode, "qpcr")
+        XCTAssertEqual(middle.outputPath, "/tmp/out.lungfishprimeranalysis")
+        XCTAssertEqual(middle.qpcrTestCount, 40)
+
+        // Defaults are unchanged, and a trailing option with no value is still an error.
+        let defaults = try VarVAMPDesignCommand.parse(Array(prefix))
+        XCTAssertEqual(defaults.qpcrDeltaG, -3)
+        XCTAssertNil(defaults.primerMaximumDimerDeltaG)
+        XCTAssertThrowsError(try VarVAMPDesignCommand.parse(prefix + ["--qpcr-delta-g"]))
+        XCTAssertThrowsError(try VarVAMPDesignCommand.parse(prefix + ["--qpcr-delta-g", "-abc"]))
+    }
+
+    func testOlivarNegativeDimerDeltaGParsesWithOrWithoutEqualsSign() throws {
+        let prefix = ["--msa", "/tmp/a.fasta", "--output", "/tmp/out.lungfishprimeranalysis"]
+        for argv in [prefix + ["--maximum-dimer-delta-g", "-9.5"],
+                     prefix + ["--maximum-dimer-delta-g=-9.5"]] {
+            let command = try OlivarDesignCommand.parse(argv)
+            XCTAssertEqual(command.maximumDimerDeltaG, -9.5, "\(argv)")
+            let options = try command.makeOptions(argv: argv)
+            XCTAssertEqual(options.olivar?.maximumDimerDeltaG, -9.5, "\(argv)")
+            XCTAssertTrue(options.olivar?.suppliedOptionNames.contains("maximumDimerDeltaG") == true, "\(argv)")
+        }
+
+        let middle = try OlivarDesignCommand.parse([
+            "--msa", "/tmp/a.fasta", "--maximum-dimer-delta-g", "-13", "--seed", "4",
+            "--output", "/tmp/out.lungfishprimeranalysis", "--grouping", "combined",
+        ])
+        XCTAssertEqual(middle.maximumDimerDeltaG, -13)
+        XCTAssertEqual(middle.seed, 4)
+        XCTAssertEqual(middle.outputPath, "/tmp/out.lungfishprimeranalysis")
+        XCTAssertEqual(middle.grouping, "combined")
+
+        XCTAssertEqual(try OlivarDesignCommand.parse(prefix).maximumDimerDeltaG, -11.8)
+        XCTAssertThrowsError(try OlivarDesignCommand.parse(prefix + ["--maximum-dimer-delta-g"]))
+    }
+
     func testExistingPrimalSchemeDefaultsRemainUnchanged() throws {
         let command = try PrimerDesignCommand.PrimalScheme3Subcommand.parse([
             "--msa", "/tmp/a.fasta", "--output", "/tmp/out.lungfishprimeranalysis",

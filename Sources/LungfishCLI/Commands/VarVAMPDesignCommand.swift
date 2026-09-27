@@ -26,7 +26,7 @@ struct VarVAMPDesignCommand: AsyncParsableCommand {
     @Option(name: .customLong("tiled-overlap")) var tiledOverlap = 25
     @Option(name: .customLong("report-count")) var reportCount: Int?
     @Option(name: .customLong("qpcr-test-count")) var qpcrTestCount = 50
-    @Option(name: .customLong("qpcr-delta-g")) var qpcrDeltaG = -3
+    @Option(name: .customLong("qpcr-delta-g"), parsing: .unconditional) var qpcrDeltaG = -3
     @Option(name: .customLong("scheme-name")) var schemeName = "varVAMP"
     @Option(name: .customLong("compatible-primers")) var compatiblePrimersPath: String?
     @Option(name: .customLong("blast-database")) var blastDatabasePath: String?
@@ -50,7 +50,7 @@ struct VarVAMPDesignCommand: AsyncParsableCommand {
     @Option(name: .customLong("primer-gc-end-max")) var primerGCEndMax: Int?
     @Option(name: .customLong("primer-minimum-3-prime-without-ambiguity")) var primerMinimum3PrimeWithoutAmbiguity: Int?
     @Option(name: .customLong("primer-maximum-dimer-temperature")) var primerMaximumDimerTemperature: Double?
-    @Option(name: .customLong("primer-maximum-dimer-delta-g")) var primerMaximumDimerDeltaG: Double?
+    @Option(name: .customLong("primer-maximum-dimer-delta-g"), parsing: .unconditional) var primerMaximumDimerDeltaG: Double?
     @Option(name: .customLong("end-overlap")) var endOverlap: Int?
 
     @Option(name: .customLong("probe-tm-min")) var probeTmMin: Double?

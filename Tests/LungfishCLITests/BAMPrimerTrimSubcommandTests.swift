@@ -57,6 +57,29 @@ final class BAMPrimerTrimSubcommandTests: XCTestCase {
         XCTAssertTrue(reloaded.alignments.contains { $0.id == result.trackInfo.id })
     }
 
+    /// The GUI accepts any integer primer offset and forwards it as a separate
+    /// argv element, so a negative offset must parse without `=`.
+    func testNegativePrimerOffsetParsesWithOrWithoutEqualsSign() throws {
+        let prefix = ["--bundle", "/tmp/b.lungfishref", "--alignment-track", "aln-1",
+                      "--scheme", "/tmp/s.lungfishprimers", "--name", "Trimmed"]
+        for argv in [prefix + ["--ivar-primer-offset", "-3"], prefix + ["--ivar-primer-offset=-3"]] {
+            let subcommand = try BAMCommand.PrimerTrimSubcommand.parse(argv)
+            XCTAssertEqual(subcommand.ivarPrimerOffset, -3, "\(argv)")
+        }
+
+        let middle = try BAMCommand.PrimerTrimSubcommand.parse([
+            "--bundle", "/tmp/b.lungfishref", "--ivar-primer-offset", "-5",
+            "--alignment-track", "aln-1", "--ivar-min-length", "25",
+            "--scheme", "/tmp/s.lungfishprimers", "--name", "Trimmed",
+        ])
+        XCTAssertEqual(middle.ivarPrimerOffset, -5)
+        XCTAssertEqual(middle.alignmentTrackID, "aln-1")
+        XCTAssertEqual(middle.ivarMinLength, 25)
+
+        XCTAssertEqual(try BAMCommand.PrimerTrimSubcommand.parse(prefix).ivarPrimerOffset, 0)
+        XCTAssertThrowsError(try BAMCommand.PrimerTrimSubcommand.parse(prefix + ["--ivar-primer-offset"]))
+    }
+
     func testRunRejectsNonexistentBundle() async throws {
         let subcommand = try BAMCommand.PrimerTrimSubcommand.parse([
             "--bundle", tempDir.appendingPathComponent("does-not-exist").path,

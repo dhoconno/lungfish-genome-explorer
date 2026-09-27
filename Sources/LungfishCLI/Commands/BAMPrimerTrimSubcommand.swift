@@ -73,7 +73,7 @@ extension BAMCommand {
         @Option(name: .customLong("ivar-sliding-window"), help: "Sliding-window width for ivar trim")
         var ivarSlidingWindow: Int = 4
 
-        @Option(name: .customLong("ivar-primer-offset"), help: "Primer coordinate offset (bp)")
+        @Option(name: .customLong("ivar-primer-offset"), parsing: .unconditional, help: "Primer coordinate offset (bp)")
         var ivarPrimerOffset: Int = 0
 
         @OptionGroup var globalOptions: TextAndJSONGlobalOptions
