@@ -4,7 +4,7 @@ chapter_id: 02-sequences/05-building-trees
 audience: analyst
 prereqs: [01-foundations/01-what-is-a-genome, 02-sequences/04-aligning-sequences]
 estimated_reading_min: 22
-task: Infer a maximum-likelihood tree from an alignment with IQ-TREE, read it in the tree viewport, and re-root, extract a clade from, or relabel it.
+task: Infer a maximum-likelihood tree from an alignment with IQ-TREE, read it in the tree viewport, and root it on an outgroup, extract a clade from it, or relabel it.
 tags: [sequences, phylogenetics, iqtree, tree, newick, bootstrap]
 tools: [iqtree]
 parameters_refs: [tree.iqtree, tree.reroot, tree.extract-subtree, import.tree]
@@ -22,6 +22,8 @@ shots:
 illustrations:
   - id: tree-anatomy
     caption: "Anatomy of a rectangular phylogram, showing tips, internal nodes, branch lengths, and support values."
+  - id: tree-unrooted-to-rooted
+    brief: "The five-tip primate tree drawn twice, side by side. Left panel, unrooted, as IQ-TREE returns it: human and chimpanzee meeting at one internal node, gorilla joining next, and the two macaques (rhesus and cynomolgus) joined to the rest by one long branch, with no root marked. Right panel, the same tree rooted on the branch to the macaque clade, as Root on Branch to Here draws it: a new root point placed at the midpoint of that long branch, the two macaques as one clade on one side of the root, and the three apes as the other clade with human and chimpanzee paired inside it. Label the long branch 0.8982 in the left panel and its two halves 0.4491 each in the right panel, and mark the root with a small filled circle. Use Deep Ink for branches and labels, Lungfish Creamsicle for the root marker and the split branch, IBM Plex Mono for the numbers and tip names."
 glossary_refs: [iqtree, phylogram, cladogram, clade, newick, support-value, sh-alrt, bootstrap, maximum-likelihood, substitution-model, tip, internal-node, branch-length, topology, rooting, outgroup, msa, alignment-column, mitochondrial-genome, accession, plugin-pack, provenance, checksum, bundle, sidebar, inspector, operations-panel, import-center, p-distance]
 features_refs: []
 fixtures_refs: [primate-mito]
@@ -53,7 +55,7 @@ The previous chapter ended with a pairwise identity matrix, which says how simil
 
 The known primate relationships make this a good teaching set, because you can check the answer. The two macaques should be sisters, meaning two tips that meet at the same internal node with nothing else between them. The human and the chimpanzee should be closer to each other than either is to the gorilla. All three apes should sit apart from the two monkeys. A tree that says otherwise is reporting a problem with the run, not news about primates.
 
-IQ-TREE returns an unrooted tree, which shows the groupings but not which lineage branched off first. [Rooting](../../GLOSSARY.md#rooting) the tree on an [outgroup](../../GLOSSARY.md#outgroup), a lineage known to sit outside the group you are studying, adds that direction. For the three apes, the two macaques are the natural outgroup.
+IQ-TREE returns an unrooted tree, which shows the groupings but not which lineage branched off first. [Rooting](../../GLOSSARY.md#rooting) the tree on an [outgroup](../../GLOSSARY.md#outgroup), a lineage known to sit outside the group you are studying, adds that direction. For the three apes, the two macaques are the natural outgroup. The root then sits on the branch between the macaques and the apes, not inside either group, so each side of the root is one clade.
 
 ## Choosing a tool
 
@@ -103,7 +105,7 @@ Install the `phylogenetics` [plugin pack](../../GLOSSARY.md#plugin-pack), a them
 
     <!-- SHOT: iqtree-dialog -->
 
-5. Tick **Ultrafast Bootstrap** in the Branch Support group, leave its **Replicates** field at 1000, and click Run. The bootstrap is off by default, and a tree built without it carries no support values at all.
+5. Tick **Ultrafast Bootstrap** in the Branch Support group, leave its **Replicates** field at 1000, type `1` into **Seed** so your tree matches the one in Reading the results, and click Run. The bootstrap is off by default, and a tree built without it carries no support values at all.
 
 Watch the run in the [Operations Panel](../01-foundations/06-the-lungfish-project.md#the-operations-panel), which opens with **Operations > Show Operations Panel** (Cmd-Shift-P). When the row finishes, the new bundle appears in the sidebar under `Phylogenetic Trees/`. That is a top-level project folder LGE creates the first time it writes a tree, one of the fixed homes [Where results land](../01-foundations/06-the-lungfish-project.md#where-results-land) mentions. Click the bundle to open the tree viewport.
 
@@ -111,13 +113,23 @@ The dialog has no outgroup field. Rooting is a separate step you take on the fin
 
 ### Root the tree on the macaques
 
-Click the internal node where the rhesus macaque and cynomolgus macaque branches join, so the detail line below the tree names it, then right-click the node and choose **Re-root Here**. No dialog opens, and a new bundle named `primate-mito-rerooted` appears under `Phylogenetic Trees/`, leaving the original tree as it was.
+Click the internal node where the rhesus macaque and cynomolgus macaque branches join, so the detail line below the tree names it, then right-click the node and choose **Root on Branch to Here**. No dialog opens, and a new bundle named `primate-mito-rerooted` appears under `Phylogenetic Trees/`, leaving the original tree as it was.
 
-Click the new bundle and read its summary line. It should report the same 5 tips and 3 internal nodes as the original and end in `rooted`. The root now sits at the node where the two macaques join, so the canvas draws the three apes as one group on a single branch, with the human and the chimpanzee paired inside it.
+LGE places the new root on the branch above the node you chose, halfway along it. On this tree that is the long branch between the macaques and the apes. The macaque clade, the outgroup, becomes one side of the root and everything else becomes the other, which is the outgroup root a textbook draws. Branch lengths and support values are kept, and the two halves of the split branch add back up to its old length.
+
+<!-- ILLUSTRATION: tree-unrooted-to-rooted -->
+
+Click the new bundle and read its summary line. It should report 5 tips and 4 internal nodes and end in `rooted`. The extra internal node is the root itself. The canvas draws the macaques on one side of the root and the three apes as one group on the other, with the human and the chimpanzee paired inside it. The rooted Newick, rounded to four places, reads as follows.
+
+```text
+((RhesusMacaque_NC_005943.1:0.0650,CynomolgusMacaque_NC_012670.1:0.0299)100:0.4491,(Gorilla_NC_011120.1:0.0740,(Human_NC_012920.1:0.0601,Chimp_NC_001643.1:0.0589)100:0.0296)100:0.4491);
+```
+
+The 0.8982 branch between monkeys and apes is now two branches of 0.4491 on either side of the root. Choosing a single tip instead roots the tree on that tip's own branch, which makes one sequence the outgroup.
 
 ### Extract the macaque clade
 
-A [clade](../../GLOSSARY.md#clade) is an internal node together with everything descended from it. Go back to the original `primate-mito` tree, click the same macaque node to select it, then right-click it and choose **Extract Subtree as New Bundle...**. No dialog opens. A new two-tip bundle appears under `Phylogenetic Trees/`, named after the node's label with `-subtree` added. An internal node's label is its support value, the number the Nodes drawer shows in its `Node` column. The macaque node usually scores 100 with the bootstrap on, which gives a bundle named `100-subtree`. A node with no support value is labelled `Internal node`, which gives `Internal node-subtree`. To hand the clade to a program outside LGE instead, choose **Export Subtree...**, which writes a plain `.nwk` Newick file through a save panel.
+A [clade](../../GLOSSARY.md#clade) is an internal node together with everything descended from it. Go back to the original `primate-mito` tree, click the same macaque node to select it, then right-click it and choose **Extract Subtree as New Bundle...**. No dialog opens. A new two-tip bundle appears under `Phylogenetic Trees/`, named from the clade's tips joined by `+` with `-subtree` added, so this one is `RhesusMacaque_NC_005943.1+CynomolgusMacaque_NC_012670.1-subtree`. A clade of more than three tips is named after its first tip and a count, as in `<first tip>+3-more-subtree` for a clade of four tips. To hand the clade to a program outside LGE instead, choose **Export Subtree...**, which writes a plain `.nwk` Newick file through a save panel.
 
 ### Import a tree built elsewhere
 
@@ -125,7 +137,7 @@ A tree made by another program can come in as a `.lungfishtree` bundle and use e
 
 ## Settings
 
-The Phylogenetic Tree Operations dialog holds thirteen settings. Eleven sit in plain view, and two, IQ-TREE Executable and IQ-TREE Parameters, sit inside the collapsed Advanced Options group. Re-rooting and subtree extraction show no dialog, so their settings are fixed by the node you select before you right-click. The Phylogenetic Trees import card has no settings at all.
+The Phylogenetic Tree Operations dialog holds thirteen settings. Eleven sit in plain view, and two, IQ-TREE Executable and IQ-TREE Parameters, sit inside the collapsed Advanced Options group. Rooting and subtree extraction show no dialog, so their settings are fixed by the node you select before you right-click. The Phylogenetic Trees import card has no settings at all.
 
 ### Build Tree with IQ-TREE
 
@@ -155,9 +167,9 @@ The Phylogenetic Tree Operations dialog holds thirteen settings. Eleven sit in p
 
 **IQ-TREE Parameters.** Passes text straight to IQ-TREE after the settings above, and LGE checks only that the text splits into valid command-line words. The default is empty, which is right for almost every run. Use it only for an IQ-TREE option the dialog does not show, after reading IQ-TREE's own documentation. On the command line this is `--extra-iqtree-options`.
 
-### Re-root
+### Root on Branch to Here
 
-**Node to root on.** Sets which node the new tree is rooted on, so every branch is drawn leading away from it. The default is the selected node, since re-rooting has no dialog. Select a known outgroup before you right-click, such as the macaque clade when the question is about the apes. On the command line this is `--on`.
+**Node to root on.** Sets the node whose branch carries the new root, which LGE places halfway along the branch between that node and its parent, so every branch is drawn leading away from it. The default is the selected node, since rooting has no dialog. Select the outgroup before you right-click, such as the macaque clade when the question is about the apes. On the command line this is `--on`.
 
 **Output bundle name.** Names the new `.lungfishtree` bundle written into `Phylogenetic Trees/`, leaving the original tree untouched. The default is the source bundle's name with `-rerooted` added, and a repeat run adds `-2`, `-3`, and so on. The viewport offers no way to change it, so set a different name only on the command line, where you give the path yourself. On the command line this is `--output`.
 
@@ -165,7 +177,7 @@ The Phylogenetic Tree Operations dialog holds thirteen settings. Eleven sit in p
 
 **Node to extract.** Chooses the clade that becomes the new tree, meaning that node and everything descended from it. The default is the selected node, and everything outside the clade is left behind. Pick the node whose descendants form the group you want to study on its own, such as one well supported lineage inside a large tree. On the command line this is `--node`.
 
-**Output bundle name.** Names the bundle that **Extract Subtree as New Bundle...** writes into `Phylogenetic Trees/`. The default is the node's label with `-subtree` added, and a repeat run adds `-2`, `-3`, and so on. The viewport offers no way to change it, so set a different name only on the command line. On the command line this is `--output`.
+**Output bundle name.** Names the bundle that **Extract Subtree as New Bundle...** writes into `Phylogenetic Trees/`. The default joins the clade's tip labels with `+` and adds `-subtree`, naming a clade of more than three tips after its first tip and a count, and a repeat run adds `-2`, `-3`, and so on. The viewport offers no way to change it, so set a different name only on the command line. On the command line this is `--output`.
 
 **Export file name.** Names the plain Newick file that **Export Subtree...** writes through a save panel. The default is the node's label with `.nwk` added. Change it in the save panel when another program expects a particular file name. On the command line this is `--output` on `tree export subtree`.
 
@@ -187,11 +199,13 @@ Open the [Inspector](../../GLOSSARY.md#inspector) with **View > Show Inspector**
 
 The primate tree has 5 tips and 3 internal nodes. Five sequences in always give five tips out. An unrooted tree with five tips can have at most three internal nodes, the number of tips minus two, so three means IQ-TREE resolved every grouping it could. Fewer would mean the alignment could not separate some of the sequences.
 
-Here is the fixture's reference tree as Newick, with branch lengths rounded to four places. The tree below has no support values, because it was built without the bootstrap. Yours will have them, because you ticked Ultrafast Bootstrap, so your Newick also carries a number right after each closing bracket, which is that grouping's support value. Your branch lengths may differ from these in the last decimal places.
+Here is the tree the procedure's own settings give, `MFP` with Ultrafast Bootstrap at 1,000 replicates and the Seed field set to 1, as Newick with branch lengths rounded to four places. A number right after a closing bracket is that grouping's support value. With the same seed your tree matches this one. With the Seed field blank, branch lengths and support values can differ slightly from run to run.
 
 ```text
-(Human_NC_012920.1:0.0601,Chimp_NC_001643.1:0.0589,(Gorilla_NC_011120.1:0.0740,(RhesusMacaque_NC_005943.1:0.0650,CynomolgusMacaque_NC_012670.1:0.0299):0.8982):0.0296);
+(Human_NC_012920.1:0.0601,Chimp_NC_001643.1:0.0589,(Gorilla_NC_011120.1:0.0740,(RhesusMacaque_NC_005943.1:0.0650,CynomolgusMacaque_NC_012670.1:0.0299)100:0.8982)100:0.0296);
 ```
+
+The run's log, kept inside the bundle, names the model ModelFinder chose, `TPM2u+F+I` on this fixture. The `+F` means base frequencies counted from the data, and `+I` means a share of sites is allowed never to change. On a 14-core Apple M4 Pro Mac the whole run, model testing and bootstrap included, took about 43 seconds.
 
 On an unrooted tree, read the topology as a set of splits, the two groups of tips you get by cutting one branch. The innermost bracket holds the two macaques, and cutting the branch below it separates the macaques from the three apes. The next bracket out appears to add the gorilla to the macaques, but on an unrooted tree that nesting is only a way of writing the tree down. What it records is a branch with the gorilla and the macaques on one side and the human and the chimpanzee on the other. Read from the other end, that branch is what makes the human and the chimpanzee each other's closest relatives. The outermost bracket splits three ways, into human, chimpanzee, and the rest, and a three-way split at the top is what unrooted looks like in Newick. The order in which tips are written carries no meaning.
 
@@ -203,21 +217,21 @@ Select the cynomolgus macaque tip and the Inspector reports a cumulative diverge
 
 ### Support values
 
-With Ultrafast Bootstrap ticked, each internal node carries a number, the percentage of resampled trees that recovered that grouping. The bootstrap number appears as the node's label in the Nodes drawer and in the `Support` column. IQ-TREE's documentation explains that an ultrafast value of 95 means roughly a 95 percent chance that the grouping is real, so rules of thumb written for the classic bootstrap do not carry over. Treat 95 or more as well supported and anything lower as not established. Switch the colour control to `Support` to shade branches by these numbers.
+With Ultrafast Bootstrap ticked, each internal node carries a number, the percentage of resampled trees that recovered that grouping. On this tree both groupings score 100, the macaque pair and the split that puts the gorilla with the macaques on one side and the human and chimpanzee on the other. The three-way node at the top of an unrooted tree carries no number, because it is not a grouping the data chose. The bootstrap number appears as the node's label in the Nodes drawer and in the `Support` column. IQ-TREE's documentation explains that an ultrafast value of 95 means roughly a 95 percent chance that the grouping is real, so rules of thumb written for the classic bootstrap do not carry over. Treat 95 or more as well supported and anything lower as not established. Switch the colour control to `Support` to shade branches by these numbers.
 
 If the `Support` column is empty from top to bottom, the bootstrap box was left unticked. That is a run to redo, not a sign the data were uninformative. If both tests were on, IQ-TREE writes two numbers per node joined by a slash, the SH-aLRT value first and the bootstrap value second, and `Support Type` reads `unknown` because LGE expects a single number. With SH-aLRT alone, each node carries one number and `Support Type` reads `bootstrap`, although the value is an SH-aLRT score, so judge it against 80, not 95.
 
 ### Rooted and unrooted
 
-The summary line's last word says whether the tree has a root. IQ-TREE produces unrooted trees, so `unrooted` on a freshly built tree is the expected outcome, not a failure. The apparent root at the left edge of the canvas is a drawing convention with no biological meaning. Only a tree rooted on an outgroup can say which lineage branched off first. A bundle made by extracting a clade or relabelling tips keeps the word its source tree had, so a clade taken from the unrooted tree reads `unrooted` and one taken from the re-rooted tree reads `rooted`. Only **Re-root Here** gives an unrooted tree a root.
+The summary line's last word says whether the tree has a root. IQ-TREE produces unrooted trees, so `unrooted` on a freshly built tree is the expected outcome, not a failure. The apparent root at the left edge of the canvas is a drawing convention with no biological meaning. Only a tree rooted on an outgroup can say which lineage branched off first. A bundle made by extracting a clade or relabelling tips keeps the word its source tree had, so a clade taken from the unrooted tree reads `unrooted` and one taken from the rooted tree reads `rooted`. Only **Root on Branch to Here** gives an unrooted tree a root.
 
 ### Acting on a node
 
-Right-click the canvas or the Nodes drawer for ten items that act on the selected node, so click the node first. **Show in Inspector**, **Copy Node Label**, and **Center Node** do what their names say. **Copy Subtree as Newick** puts that clade's Newick text on the clipboard. **Re-root Here**, **Extract Subtree as New Bundle...**, and **Export Subtree...** are the operations in the Procedure.
+Right-click the canvas or the Nodes drawer for ten items that act on the selected node, so click the node first. **Show in Inspector**, **Copy Node Label**, and **Center Node** do what their names say. **Copy Subtree as Newick** puts that clade's Newick text on the clipboard. **Root on Branch to Here**, **Extract Subtree as New Bundle...**, and **Export Subtree...** are the operations in the Procedure.
 
 **Collapse Clade** folds an internal node's descendants into a single point on screen, and the same item then reads **Expand Clade** to undo it. It changes the drawing only, never the saved tree, and it is unavailable on a tip. To copy several names, click a tip, Shift-click more tips, and choose **Copy Selected Tip Names**, which puts one name per line on the clipboard.
 
-**Reveal Provenance** shows how the bundle was made. LGE writes a [provenance](../../GLOSSARY.md#provenance) record beside every result, holding the command, the tool version, and a [checksum](../../GLOSSARY.md#checksum) of each file, and [Provenance and Reproducibility](../01-foundations/08-provenance-and-reproducibility.md#reading-the-results) shows how to read it.
+**Reveal Provenance** shows how the bundle was made, which the last check in What good looks like reads.
 
 ### Relabelling tips from metadata
 
@@ -242,18 +256,18 @@ Confirm the topology matches what is already known. The two macaques are sisters
 
 Confirm the support values are present and high. An empty `Support` column means the bootstrap was off. With it on, values below 95 mark groupings the alignment did not establish.
 
+Confirm the tree's [provenance](../../GLOSSARY.md#provenance) record, which [Provenance and Reproducibility](../01-foundations/08-provenance-and-reproducibility.md#reading-the-results) shows how to read, names the model, the replicate count, and the seed you meant to use.
+
 Confirm no branch is unexpectedly long. The 0.8982 branch between apes and monkeys is expected here. An unexplained branch that long usually means one input is far more distant than the others, or is not the same gene at all.
 
 When a run goes wrong, the alignment is the usual cause. Identical or near-identical sequences give zero-length branches and low support everywhere. A short alignment carries too little signal, so expect lower support and do not over-read it. What counts is parsimony-informative sites, columns where at least two different bases each appear in at least two sequences. IQ-TREE reports their number in its output, and the fewer there are, the less the tree can resolve. A failed run turns its row red, and [Start here, at the failed row](../appendices/troubleshooting.md#start-here-at-the-failed-row) explains what to copy from it. IQ-TREE prints the line that stopped it last, beginning with the word ERROR, so read its output from the bottom.
 
 ## On the command line
 
-This section is optional, and nothing later in this manual needs it. The `lungfish-cli` program ships inside LGE, and [Finding the program](../appendices/cli-reference.md#finding-the-program) shows how to run it.
-
-The block below reproduces the Procedure and adds `tree relabel`, which has no window equivalent. The project is a `.lungfish` folder that already holds the alignment from the previous chapter.
+The block below follows the convention in [Reading an On the command line block](../01-foundations/06-the-lungfish-project.md#reading-a-command-line-block), and every flag of the `tree` commands is listed in [Multiple sequence alignments and trees](../appendices/cli-reference.md#multiple-sequence-alignments-and-trees) in the CLI Reference. It reproduces the Procedure on the alignment from the previous chapter and adds `tree relabel`, which has no window equivalent.
 
 ```bash
-PROJECT=~/Documents/primates.lungfish
+PROJECT="$HOME/Documents/LGE Demo Projects/Genes and Sequences.lungfish"
 MSA="$PROJECT/Analyses/Multiple Sequence Alignments/primate-mito.lungfishmsa"
 TREES="$PROJECT/Phylogenetic Trees"
 
@@ -261,10 +275,7 @@ TREES="$PROJECT/Phylogenetic Trees"
 lungfish-cli tree infer iqtree "$MSA" \
   --project "$PROJECT" \
   --output "$TREES/primate-mito.lungfishtree" \
-  --name primate-mito \
-  --model MFP \
-  --bootstrap 1000 \
-  --seed 1
+  --name primate-mito --model MFP --bootstrap 1000 --seed 1
 
 # Internal nodes have no unique name, so select them by node ID.
 # The app does not show node IDs. In the Finder, right-click the tree bundle,
@@ -273,7 +284,7 @@ lungfish-cli tree infer iqtree "$MSA" \
 # parentID, which is the ID of the node where the two macaques join.
 MACAQUE_NODE=node-xxxxxxxxxxxxxxxx
 
-# Re-root on the macaque clade. The new bundle keeps all 5 tips.
+# Root on the branch above the macaque clade. The new bundle keeps all 5 tips.
 lungfish-cli tree reroot \
   --bundle "$TREES/primate-mito.lungfishtree" \
   --on "$MACAQUE_NODE" \
@@ -292,11 +303,11 @@ lungfish-cli tree relabel \
   --output "$TREES/primate-mito-species.lungfishtree"
 
 # Bring a tree built elsewhere into the project.
-lungfish-cli import tree my-tree.nwk --project "$PROJECT"
+lungfish-cli import tree "$HOME/Desktop/my-tree.nwk" --project "$PROJECT"
 ```
 
-The window always passes the rows you selected as `--rows`, while a command without `--rows` uses every row in the alignment, which gives the same tree here because all five rows were selected. Leaving out `--seed` behaves like the blank Seed field, so drop it only if you accept a slightly different tree on every run.
+The window always passes the rows you selected as `--rows`, while a command without `--rows` uses every row in the alignment, which gives the same tree here because all five rows were selected. Leaving out `--seed` behaves like the blank Seed field, so drop it only if you accept a slightly different tree on every run. `tree reroot` also takes a tip label for `--on`, which roots the tree on that one sequence's branch, and it places the root at the midpoint of the branch exactly as **Root on Branch to Here** does.
 
 ## Next
 
-This is the last chapter in Sequences. Continue to [Importing FASTQ](../03-reads/01-importing-fastq.md), the first chapter of Reads, for work that starts from raw sequencing data.
+This is the last chapter in Sequences, which worked on finished sequences, records someone already assembled and checked. Continue to [Importing Sequencing Reads](../03-reads/01-importing-fastq.md), the first chapter of Reads (FASTQ), where the data are the raw reads a sequencer writes, which have to be checked and cleaned before they can be mapped to a reference like the ones this part imported.
