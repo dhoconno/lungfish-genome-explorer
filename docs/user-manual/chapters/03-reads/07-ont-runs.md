@@ -45,33 +45,33 @@ The ONT Run Folder importer collapses that tree. It finds the subfolders whose n
 
 A nanopore [read](../../GLOSSARY.md#read) is as long as the DNA molecule that went through the pore. The HG002 long reads in this chapter run from 263 to 39,647 bases, a normal spread for nanopore. A read that long can cover a whole gene or a whole small genome in one piece, which is why nanopore suits genome assembly and questions about whether two distant variants sat on one molecule. A molecule can enter the pore from either end, so about half the reads in a bundle carry the reverse complement, the same sequence read from the other strand.
 
-The trade is per-base accuracy. A [Phred score](../../GLOSSARY.md#phred-score) of 20 means one wrong base in a hundred. The fixture's notes give these reads an average quality of 7.9, about one wrong base in six, which is ordinary for the older chemistry they came from. So you trust the stack of reads over a position rather than one read, because the errors fall in different places on different reads.
+The trade is per-base accuracy. A [Phred score](../../GLOSSARY.md#phred-score) of 20 means one wrong base in a hundred. The fixture's notes give these reads an average quality of 7.9, about one wrong base in six, which is low even for the older chemistry they came from. So you trust the stack of reads over a position rather than one read, because the errors fall in different places on different reads.
 
 The fixture is a slice of HG002, a human genome from the Genome in a Bottle project whose true sequence is already known. The reads come from the mitochondrial genome, a 16,569-base circular chromosome that each cell carries in hundreds of copies, which is why 950 reads still cover it about 262 times over. Its run folder holds a single `barcode01` folder, enough to show what the importer does.
 
 ## Choosing a tool
 
-Splitting a run into samples has several routes in LGE. Which one fits depends on two facts about the library, whether MinKNOW already read the barcode during the run, and where in each read the barcode sits.
+Check first that the reads are nanopore reads and how the library was barcoded, as [Know your reads before you choose a tool](../01-foundations/02-sequencing-reads.md#know-your-reads-before-you-choose-a-tool) describes. Splitting a run into samples has several routes in LGE. Which one fits depends on two facts about the library, whether MinKNOW already read the barcode during the run, and where in each read the barcode sits.
 
 The first route needs no tool at all. When MinKNOW recognised the barcode kit, it has already written one `barcodeNN` folder per sample, and the ONT Run Folder importer turns each folder into a bundle. MinKNOW is Oxford Nanopore's own software and knows Oxford Nanopore's own barcode kits, so for those kits its split is the one to keep.
 
-Demultiplex Barcodes with the Cutadapt engine is the route for barcodes MinKNOW did not read. [Cutadapt](../../GLOSSARY.md#cutadapt) finds a known short sequence near a read's end by alignment that tolerates a set share of wrong, missing, or extra bases, which suits nanopore reads, whose errors include small insertions and deletions. It can look at both ends, handles dual-index kits, and trims the barcode off once found. Its weakness is that it looks only near the read ends, within the distances you allow.
+Demultiplex Barcodes with the Cutadapt engine is the route for barcodes MinKNOW did not read. [Cutadapt](../../GLOSSARY.md#cutadapt) finds a known short sequence near a read's end by alignment that tolerates a set share of wrong, missing, or extra bases, which suits nanopore reads, whose errors include small insertions and deletions. It can look at both ends, handles dual-index kits, where a pair of barcodes, one at each end, names the sample together, and trims the barcode off once found. Its weakness is that it looks only near the read ends, within the distances you allow.
 
-Demultiplex Barcodes with the Exact Bare Barcode engine is matching LGE does itself, without an outside program. It searches the whole read and its reverse complement for a letter-perfect copy of each barcode, never trims, and works only with single-index kits whose barcodes are plain A, C, G, and T. It suits a barcode that sits at no fixed place in the read, on reads accurate enough that a perfect match is likely. On older nanopore reads, which carry about one error in every six bases as this fixture does, many barcodes will not match letter for letter.
+Demultiplex Barcodes with the Exact Bare Barcode engine is matching LGE does itself, without an outside program. It searches the whole read and its reverse complement for a letter-perfect copy of each barcode, never trims, and works only with single-index kits, one barcode per sample, whose barcodes are plain A, C, G, and T. It suits a barcode that sits at no fixed place in the read, on reads accurate enough that a perfect match is likely. On older nanopore reads, which carry at least one error in every six bases or so, as this fixture does, many barcodes will not match letter for letter.
 
-ONT Fluidigm Sample Split, and the matching import recipe, is built for one library design only, Fluidigm Access Array amplicons. It finds the two fixed primer sequences on each read, reads the sample barcode between them, cuts out the insert, and counts identical inserts. The second import recipe splits full-length MHC amplicons tagged with pairs of PacBio barcodes.
+ONT Fluidigm Sample Split, and the matching import recipe, is built for one library design only, Fluidigm Access Array amplicons. CS1 and CS2 are common sequence tags, short fixed sequences added to every target primer, so each read runs CS1, the insert, CS2 in reverse complement, a short spacer, and then the sample barcode. LGE finds CS2, looks for an exact barcode match within the few bases after it, cuts out the insert, and counts identical inserts. A read with no barcode there, or with two, stays unassigned. The second import recipe splits full-length MHC amplicons tagged with pairs of PacBio barcodes.
 
 | Tool | Built for | Choose it when | Choose something else when |
 |---|---|---|---|
 | Import the barcode folders | Runs MinKNOW already split | `fastq_pass` holds `barcodeNN` folders | MinKNOW wrote no barcode folders, or a second inner barcode remains |
 | Demultiplex Barcodes, Cutadapt | Barcodes near the read ends, with errors | The kit is not one MinKNOW knows, or the run was not split | The barcode can sit anywhere in the read |
 | Demultiplex Barcodes, Exact Bare Barcode | Single-index plain barcodes anywhere in a read | Reads are accurate and the barcode position varies | Reads are error-prone, or the kit is dual-index |
-| ONT Fluidigm Sample Split | Fluidigm Access Array amplicon libraries | The reads carry CS1 and CS2 primers and a Fluidigm barcode | Any other library design |
-| PacBio-barcode import recipe | Full-length MHC amplicons with paired PacBio barcodes | Your barcode sheet lists `barcode_1` and `barcode_2` per sample | Any other library design |
+| ONT Fluidigm Sample Split | Fluidigm Access Array amplicon libraries | The reads carry CS1 and CS2 tags with a Fluidigm barcode after CS2 | Any other library design |
+| PacBio-barcode import recipe | Full-length MHC amplicons with paired PacBio barcodes | Your full-length MHC amplicons carry a PacBio barcode at each end | Any other library design |
 
 The fixture uses the first route, because MinKNOW already wrote its `barcode01` folder. The demultiplexing runs described later assign no reads, which is the right answer for reads whose barcodes were removed long ago, and they show what a wrong or absent barcode looks like. Cutadapt is cited in [Tools installed with every copy of LGE](../appendices/bibliography.md#tools-installed-with-every-copy-of-lge).
 
-So what should you do with this? Trust MinKNOW's barcode folders when they exist, and reach for Demultiplex Barcodes with Cutadapt only when they do not.
+Trust MinKNOW's barcode folders when they exist, and reach for Demultiplex Barcodes with Cutadapt only when they do not.
 
 ## Before you start
 
@@ -85,7 +85,7 @@ This chapter uses the hg002-long-reads fixture. Download the `ont-run` folder fr
 ont-run/fastq_pass/barcode01/HG002_chrM_pass_barcode01_0.fastq.gz
 ```
 
-Demultiplexing, the sorting of reads into samples by barcode, runs through [cutadapt](../../GLOSSARY.md#cutadapt), a program that finds a short known sequence inside a read. cutadapt arrives with the [Required Setup pack](../../GLOSSARY.md#required-setup-pack), the one pack LGE installs by itself, so there is nothing to install.
+Demultiplexing, the sorting of reads into samples by barcode, runs through [Cutadapt](../../GLOSSARY.md#cutadapt), a program that finds a short known sequence inside a read. cutadapt arrives with the [Required Setup pack](../../GLOSSARY.md#required-setup-pack), the one pack LGE installs by itself, so there is nothing to install.
 
 The fixture imports in a few seconds, and a real 24-barcode run takes longer in proportion to its size. Watch the run in the [Operations Panel](../01-foundations/06-the-lungfish-project.md#the-operations-panel), which opens with **Operations > Show Operations Panel** (Cmd-Shift-P).
 
@@ -119,7 +119,7 @@ For the first two, select the bundle and choose **Tools > Demultiplexing > Demul
 
 <!-- SHOT: demultiplex-barcodes-pane -->
 
-For the third, choose **Tools > Demultiplexing > ONT Fluidigm Sample Split...**. It handles libraries built with Fluidigm Access Array primers, where each read carries a [Fluidigm sample barcode](../../GLOSSARY.md#fluidigm-sample-barcode) and a target stretch lying between two fixed primer sequences, CS1 and CS2. LGE already knows CS1 and CS2, so you supply only the barcode file, in the dialog's Inputs section. The operation finds the two primers, reads the barcode, cuts out the insert between the primers, and writes one bundle per sample holding its own reads. Each bundle keeps every distinct insert once, with the number of reads that carried it written into the read's name line as `size=N`. The recipe checkbox from step 4 offers the same kind of split at import time.
+For the third, choose **Tools > Demultiplexing > ONT Fluidigm Sample Split...**. It handles libraries built with Fluidigm Access Array primers, where each read carries a target stretch between two common sequence tags, CS1 and CS2, followed by a [Fluidigm sample barcode](../../GLOSSARY.md#fluidigm-sample-barcode) just past CS2. LGE already knows CS1 and CS2, so you supply only the barcode file, in the dialog's Inputs section. The operation finds the two tags, reads the barcode just past CS2, cuts out the insert between the tags, and writes one bundle per sample holding its own reads. Each bundle keeps every distinct insert once, with the number of reads that carried it written into the read's name line as `size=N`. The recipe checkbox from step 4 offers the same kind of split at import time.
 
 ### Checking barcodes before you commit
 

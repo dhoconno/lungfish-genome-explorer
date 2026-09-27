@@ -62,24 +62,24 @@ The other five operations answer narrower questions. Correct Sequencing Errors i
 
 ## Choosing a tool
 
-Merging is the one job in this chapter that LGE does with two programs, and whether to merge at all matters more than which program merges. What settles it is the step that comes next. Error correction always runs Tadpole and orientation always runs vsearch, so neither has a choice to make. Duplicate removal is compared in [Decontamination](05-decontamination.md#choosing-a-tool).
+Check whether your reads are paired and whether they are already merged, as [Know your reads before you choose a tool](../01-foundations/02-sequencing-reads.md#know-your-reads-before-you-choose-a-tool) describes. Merging is the one job in this chapter that LGE does with two programs, and whether to merge at all matters more than which program merges. The step that comes next decides it. Error correction always runs Tadpole and orientation always runs vsearch, so neither has a choice to make. Duplicate removal is compared in [Decontamination](05-decontamination.md#choosing-a-tool).
 
-[bbmerge](../../GLOSSARY.md#bbmerge) runs behind Merge Overlapping Pairs. It slides the second mate along the first until the shared bases line up, as the procedure below describes, and joins the pair only when it trusts the overlap. It was built for shotgun paired reads, and its authors report that it joined pairs more accurately, with fewer false joins, than the other merging tools they tested. The dialog gives you a Strict mode for doubtful data, and it also collapses identical merged sequences into single records with a `size=` count.
+**BBMerge** runs behind Merge Overlapping Pairs. It slides the second mate along the first until the shared bases line up, as the procedure below describes, and joins the pair only when it trusts the overlap. Its authors report that it joined pairs more accurately, with fewer false joins, than the other merging tools they tested. The dialog then always collapses the output. Every distinct sequence, merged or not, becomes one record renamed with its read count, such as `u000001;size=12`, and every quality score is replaced by `I`, the character for Q40. The count lets an amplicon tool see how many reads carried each sequence without storing every copy. The cost is that the output holds no pairs and its quality scores are invented, so never map it for variant calling.
 
-fastp merges pairs inside three import recipes, using the same overlap search it uses to find adapters. The VSP2 Target Enrichment and Wastewater metagenomics recipes require 15 shared bases and keep the pairs that did not merge beside the merged reads. The Illumina Amplicon Merge recipe requires 20 shared bases and keeps only the merged reads, so every pair that failed to merge is dropped. A recipe runs on every sample at import, with settings you cannot change from the sheet.
-
-Not merging is often the right choice. A merged bundle holds merged single reads and unmerged pairs in one file. When you map such a file, minimap2 in its short-read mode and BWA-MEM2 still pair the unmerged mates, while Bowtie2 and BBMap map every record as a single read and lose the pairing, as [Mapping Reads to a Reference](../04-alignments/01-mapping-reads-to-a-reference.md) describes.
+**fastp** merges pairs inside three import recipes, with settings the sheet does not let you change, and matters only for viral, wastewater, or amplicon libraries. The VSP2 Target Enrichment and Wastewater metagenomics recipes require 15 shared bases and keep the pairs that did not merge beside the merged reads. These two recipes are the only way the window makes a bundle that mixes merged reads with pairs, and only some mappers keep the leftover mates paired, as [Mapping Reads to a Reference](../04-alignments/01-mapping-reads-to-a-reference.md#choosing-a-tool) explains. The Illumina Amplicon Merge recipe requires 20 shared bases and keeps only the merged reads.
 
 | Tool | Built for | Choose it when | Choose something else when |
 |---|---|---|---|
-| bbmerge, Merge Overlapping Pairs | Merging shotgun or amplicon pairs you choose to merge | Assembly, or any step that needs one long read per fragment | The next step is mapping for variant calling |
-| fastp merge, VSP2 or wastewater recipe | Short-insert viral and wastewater libraries at import | You import those libraries with the matching recipe | You want to choose the merge settings yourself |
-| fastp merge, Illumina Amplicon Merge recipe | Amplicons read end to end for exact-match genotyping | You are preparing MHC amplicon genotyping | Losing the pairs that did not merge would cost you data |
-| No merging | Mapping pairs directly | Shotgun human or macaque reads headed for variant calling | The fragments overlap and a later step needs whole fragments |
+| BBMerge, Merge Overlapping Pairs | Counting distinct fragment sequences | You want each distinct fragment once, with its read count | The reads will be mapped or assembled, which need pairs, real qualities, and every copy |
+| fastp merge, VSP2 or Wastewater recipe | Short-insert viral and wastewater libraries at import | You import those libraries with the matching recipe | You want to choose the merge settings yourself |
+| fastp merge, Illumina Amplicon Merge recipe | Amplicons read end to end for exact-match genotyping | You import MiSeq MHC amplicon pairs | Losing the pairs that did not merge would cost you data |
+| No merging | Mapping pairs directly | Shotgun human or macaque reads headed for variant calling | A later step needs one read per fragment |
 
-This chapter merges the HG002 fixture to show what a merge does to clean shotgun reads, and to read its insert sizes. For the variant-calling route that the rest of this manual follows with the same reads, map the pairs unmerged. BBTools, fastp, and vsearch are cited in [Tools installed with every copy of LGE](../appendices/bibliography.md#tools-installed-with-every-copy-of-lge).
+### Merging for MHC amplicon genotyping
 
-So what should you do with this? Merge when the next step wants whole fragments, and map the pairs as they are when the next step is variant calling.
+Import MiSeq MHC amplicon pairs with the Illumina Amplicon Merge recipe, which merges each pair so a read can span the 244-base DRB amplicons, longer than either mate. The genotyping workflow can merge unmerged pairs itself as a fallback, with different read counts, as [What Is MHC Genotyping](../09-genotyping/01-what-is-mhc-genotyping.md#choosing-a-tool) explains. Merge Overlapping Pairs is not part of this route.
+
+This chapter merges the HG002 fixture only to show what a merge does and to read its insert sizes. For the variant-calling route the rest of this manual follows with the same reads, map the pairs unmerged. BBTools, BBMerge, fastp, and vsearch are cited in [Tools installed with every copy of LGE](../appendices/bibliography.md#tools-installed-with-every-copy-of-lge).
 
 ## Before you start
 
@@ -91,7 +91,7 @@ This chapter uses the hg002-chr20 fixture. Download `HG002.chr20.10.0-10.5Mb_R1.
 
 Import the two chromosome 20 files as one sample by following [Importing Sequencing Reads](01-importing-fastq.md), so a single `HG002.chr20.10.0-10.5Mb` bundle appears in the sidebar. The import stores the pair as one interleaved file, which is the form Merge Overlapping Pairs and Repair Paired-End Files expect. Reading [Quality Control for Reads](03-quality-control.md) first helps, because the read counts it teaches you to find are how you check each result below.
 
-bbmerge, repair.sh, and Tadpole, three programs from the BBTools suite, and vsearch arrive with the [Required Setup pack](../../GLOSSARY.md#required-setup-pack), the one pack LGE installs by itself, so there is nothing to install. Reverse Complement and Translate are done by LGE itself. The BBTools figures in this chapter come from BBTools 40.02, the version LGE pins.
+BBMerge, repair.sh, and Tadpole, three programs from the BBTools suite, and vsearch arrive with the [Required Setup pack](../../GLOSSARY.md#required-setup-pack), the one pack LGE installs by itself, so there is nothing to install. Reverse Complement and Translate are done by LGE itself. The BBTools figures in this chapter come from BBTools 40.02, the version LGE pins.
 
 ## Procedure
 
@@ -99,7 +99,7 @@ Every operation follows the same moves. Select the bundle in the sidebar, choose
 
 ### Merging the overlapping pairs
 
-bbmerge takes each pair and slides the second mate, flipped onto the first mate's strand, along the first until the shared bases line up. When it finds an overlap it trusts, it writes one sequence that spans the whole fragment, and the length of that sequence is the fragment's insert size. When it finds none, it keeps both mates as they were. The insert sizes of the joined pairs are how bbmerge estimates the library's average insert, which [Reading the results](#reading-the-results) works through.
+BBMerge takes each pair and slides the second mate, flipped onto the first mate's strand, along the first until the shared bases line up. When it finds an overlap it trusts, it writes one sequence that spans the whole fragment, and the length of that sequence is the fragment's insert size. When it finds none, it keeps both mates as they were. The insert sizes of the joined pairs are how bbmerge estimates the library's average insert, which [Reading the results](#reading-the-results) works through.
 
 1. Click the `HG002.chr20.10.0-10.5Mb` bundle in the sidebar.
 2. Choose **Tools > Read Processing > Merge Overlapping Pairs...**.
@@ -112,7 +112,7 @@ Watch the run in the [Operations Panel](../01-foundations/06-the-lungfish-projec
 
 <!-- SHOT: sidebar-after-merge -->
 
-A merge run from this dialog does one more thing the pane mentions only in its Advanced Settings note. It collapses identical sequences in the output into one record and writes the number of reads behind that record into the record's name, as `size=` followed by the count. [Reading the results](#reading-the-results) shows what that does to the record count.
+A merge run from this dialog does more than merge, and the pane mentions it only in its Advanced Settings note. It collapses identical sequences in the output, merged reads and unmerged mates alike, into one record each. Every record is renamed `u` plus a serial number, with `;size=` and the number of reads behind it, and the records are sorted with the most common first. Every quality score is set to `I`, which decodes to Q40. The output therefore holds no pairs and no measured qualities, which is why [Choosing a tool](#choosing-a-tool) keeps it away from mapping. [Reading the results](#reading-the-results) shows what the collapse does to the record count.
 
 ### Repairing a paired file whose mates fell out of step
 
@@ -150,7 +150,7 @@ Repair Paired-End Files, Reverse Complement, and Translate have no settings of t
 
 **Output Strategy.** Chooses whether several selected bundles get one output each or one pooled output. Leave it on Per Input, the default. [Trimming and Filtering](04-trimming-and-filtering.md#shared-settings) explains the two choices. This setting has no command-line flag.
 
-**Strictness.** Chooses how much evidence bbmerge needs before it joins a pair, offering Normal and Strict, where Strict turns down overlaps that look marginal. The default is Normal, which merges more pairs and is the right start when you have no reason to doubt the joins. Switch to Strict when merged reads show mismatches in the joined middle, seen as unexpected disagreement with a reference after mapping, and accept that fewer pairs will merge. On the command line this is `--strict`.
+**Strictness.** Chooses how much evidence BBMerge needs before it joins a pair, offering Normal and Strict, where Strict turns down overlaps that look marginal. The default is Normal, which merges more pairs and is the right start when you have no reason to doubt the joins. Switch to Strict when merged reads show mismatches in the joined middle, seen as unexpected disagreement with a reference after mapping, and accept that fewer pairs will merge. On the command line this is `--strict`.
 
 **Minimum Overlap.** Sets the fewest bases the two mates must share before they may join, since a short overlap can occur by chance between unrelated sequence. The default is 12 bases, low enough to catch long fragments whose mates barely reach each other. Raise it when spurious merges produce wrong fragment lengths, and lower it only to rescue pairs that barely overlap. On the command line this is `--min-overlap`.
 
@@ -172,11 +172,11 @@ LGE writes a [provenance](../../GLOSSARY.md#provenance) record beside every resu
 
 ### The merge report
 
-On this fixture bbmerge saw 45,574 pairs and joined 32,031 of them, which it reports as 70.283 percent. The 13,543 pairs it could not join appear on a line labelled "No Solution", the tool's wording for finding no overlap it believed in. Its estimate of the average insert was 371.5 bases, with a standard deviation of 63.9 and joined inserts from 64 to 482 bases. The standard deviation is a measure of spread, and a value near a sixth of the average is a tight distribution for randomly broken DNA.
+On this fixture BBMerge saw 45,574 pairs and joined 32,031 of them, which it reports as 70.283 percent. The 13,543 pairs it could not join appear on a line labelled "No Solution", the tool's wording for finding no overlap it believed in. Its estimate of the average insert was 371.5 bases, with a standard deviation of 63.9 and joined inserts from 64 to 482 bases. The standard deviation is a measure of spread, and a value near a sixth of the average is a tight distribution for randomly broken DNA.
 
 The numbers explain each other. Two 250-base reads span 500 bases, so a 371-base fragment leaves about 129 bases read twice. The pairs that failed are mostly the long tail of the distribution, fragments near or above 500 bases whose mates never met. The longest joined insert, 482 bases, sits just under that ceiling, because no longer fragment can be measured by overlap at all.
 
-Merging keeps every read, and the record count shows it. The 32,031 joined pairs became one record each. The 13,543 unjoined pairs kept both mates, contributing 27,086 records. Together that is 59,117 records, and none was thrown away. Because the dialog also collapses identical sequences, the dialog's output holds 58,915 records that between them stand for the same 59,117 reads, and a record that stands for three reads carries `size=3` in its name.
+Merging keeps every read, and the record count shows it. The 32,031 joined pairs became one record each. The 13,543 unjoined pairs kept both mates, contributing 27,086 records. Together that is 59,117 reads, and none was thrown away. Because the dialog also collapses identical sequences, its output holds 58,915 records that between them stand for the same 59,117 reads, and a record that stands for three reads carries `size=3` in its name. The unjoined mates in that output are single records like the rest, no longer next to their partners, and every base reads Q40.
 
 A record longer than 250 bases, the longest input read, can only be a joined pair.
 
@@ -196,11 +196,11 @@ Translate's output opens as a sequence bundle rather than a read bundle, because
 
 Check the merge rate first. A rate near 70 percent, as here, means the insert sizes and the read length suit each other and merging is doing real work. A rate under about 5 percent means almost no pair overlapped, so the inserts are longer than the reads can span. Merging is the wrong step for that library, and you should carry the pairs forward as they are, since mappers and assemblers accept pairs directly. A rate close to 100 percent is worth a second look on [shotgun](../../GLOSSARY.md#shotgun) data, where the DNA was broken at random. It often means the fragments were unusually short, a library-preparation matter rather than a software one, and the data are still usable. For [amplicon](../../GLOSSARY.md#amplicon) data, where every fragment is a designed PCR product of fixed length, a rate near 100 percent is normal.
 
-Check the insert estimate next. The average bbmerge prints describes only the pairs that joined, so it leaves out every fragment too long to overlap. The library's true average is higher. The gap is modest at a 70 percent merge rate and large at 20 percent.
+Check the insert estimate next. The average BBMerge prints describes only the pairs that joined, so it leaves out every fragment too long to overlap. The library's true average is higher. The gap is modest at a 70 percent merge rate and large at 20 percent.
 
 Check the read count on every operation. Merge, Repair, Reverse Complement, Translate, and Correct Sequencing Errors account for every input read, so a shortfall there means something failed. Orient Reads is the one operation here that discards reads on purpose, so compare its output count with its input count after every run. If it lost more than you can accept, shorten the word length and run it again.
 
-Finally, check that error correction was worth running. It relies on seeing each true base many times and each error once, so it needs depth. [Depth](../../GLOSSARY.md#depth) is the number of reads covering one position. With only a handful of reads over each position, Tadpole cannot tell a rare real variant from a mistake and may erase real variants, so skip the operation rather than tune it. A FASTQ file alone does not tell you the depth, so this check waits until you have mapped the reads, the subject of the next part of this manual. The Inspector's Est. Coverage is an estimate built on an assumed read length, so trust the measured mean depth instead, as [Mapping Reads to a Reference](../04-alignments/01-mapping-reads-to-a-reference.md#reading-the-results) explains. This fixture's measured mean depth is 44.7x, comfortably enough. As a rough rule, skip error correction below about 10x.
+Finally, check that error correction was worth running. It relies on seeing each true base many times and each error once, so it needs depth. [Depth](../../GLOSSARY.md#depth) is the number of reads covering one position. With only a handful of reads over each position, Tadpole cannot tell a rare real variant from a mistake and may erase real variants, so skip the operation rather than tune it. A FASTQ file alone does not tell you the depth, so this check waits until you have mapped the reads, the subject of the next part of this manual. The Inspector's Est. Coverage is an estimate built on an assumed read length, so trust the measured mean depth instead, as [Mapping Reads to a Reference](../04-alignments/01-mapping-reads-to-a-reference.md#reading-the-results) explains. This fixture's measured mean depth is 44.7x, comfortably enough.
 
 ## On the command line
 
@@ -237,7 +237,7 @@ lungfish-cli fastq deinterleave HG002.interleaved.fastq \
   --out1 HG002.R1.fastq --out2 HG002.R2.fastq
 ```
 
-Two command-line defaults differ from the window. The dialog always passes `--count-duplicates` to `fastq merge`, and the command leaves it off unless you add it, so a plain command-line merge of this fixture writes 59,117 records where the dialog writes 58,915. The dialog always translates in frame 1, while `fastq translate` accepts `--frame` from 1 to 6, where 4 to 6 are the three frames of the [reverse complement](../../GLOSSARY.md#reverse-complement), so other frames are a command-line task.
+Two command-line defaults differ from the window. The dialog always passes `--count-duplicates` to `fastq merge`, and the command leaves it off unless you add it, so a plain command-line merge of this fixture writes 59,117 records where the dialog writes 58,915. Without `--count-duplicates` the command keeps real quality scores and the original read names, and writes merged reads and unmerged pairs into one mixed file. The dialog always translates in frame 1, while `fastq translate` accepts `--frame` from 1 to 6, where 4 to 6 are the three frames of the [reverse complement](../../GLOSSARY.md#reverse-complement), so other frames are a command-line task.
 
 `fastq interleave` rewrites every base scored Phred 2 as Phred 0, which understates the lowest quality scores in the file it writes. This is a known defect, listed with its workaround in [Known defects in this release](../appendices/troubleshooting.md#known-defects-in-this-release).
 
