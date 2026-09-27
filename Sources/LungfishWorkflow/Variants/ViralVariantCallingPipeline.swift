@@ -505,6 +505,36 @@ public struct ViralVariantCallingPipeline: Sendable {
             throw ViralVariantCallingPipelineError.normalizationFailed(sortResult.combinedOutput)
         }
 
+        // The caller and bcftools name the executable's conda path and the
+        // /var/folders workspace in `##source` and `##bcftools_*Command`.
+        // Those are per-user build-machine paths; a bundle is shared and
+        // published, so the header keeps only tool name, version, flags and
+        // workspace-relative paths. The real argv stays in the provenance
+        // steps recorded above.
+        progress?(0.78, "Removing machine-specific paths from VCF header")
+        let callerVersion = await toolRunner.getToolVersion(versionTool(for: request.caller)) ?? "unknown"
+        var headerToolVersions: [String: String] = [:]
+        if let bcftoolsVersion = await toolRunner.getToolVersion(.bcftools) {
+            headerToolVersions[NativeTool.bcftools.executableName] = bcftoolsVersion
+        }
+        if callerVersion != "unknown" {
+            headerToolVersions[nativeTool(for: request.caller).executableName] = callerVersion
+            headerToolVersions[versionTool(for: request.caller).executableName] = callerVersion
+        }
+        do {
+            try VCFHeaderPathSanitizer.sanitizeFile(
+                at: plan.normalizedVCFURL,
+                context: VCFHeaderPathSanitizer.Context(
+                    workspaceURLs: [plan.workingDirectory],
+                    toolVersions: headerToolVersions
+                )
+            )
+        } catch {
+            throw ViralVariantCallingPipelineError.normalizationFailed(
+                "Failed to rewrite machine-specific paths in the VCF header: \(error.localizedDescription)"
+            )
+        }
+
         progress?(0.82, "Compressing normalized VCF")
         let bgzipStartedAt = Date()
         let bgzipResult = try await toolRunner.bgzipCompress(
@@ -576,7 +606,6 @@ public struct ViralVariantCallingPipeline: Sendable {
             throw ViralVariantCallingPipelineError.referenceStagingFailed("Failed to compute staged FASTA checksum.")
         }
 
-        let callerVersion = await toolRunner.getToolVersion(versionTool(for: request.caller)) ?? "unknown"
         return ViralVariantCallingPipelineResult(
             normalizedVCFURL: plan.normalizedVCFURL,
             stagedVCFGZURL: plan.stagedVCFGZURL,
