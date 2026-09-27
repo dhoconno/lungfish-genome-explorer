@@ -218,6 +218,12 @@ public struct ManagedAssemblyPipeline: Sendable {
     }
 
     private static func buildSpadesCommand(for request: AssemblyRunRequest) throws -> ManagedAssemblyCommand {
+        if let rejection = SPAdesCarefulModeCompatibility.rejectionMessage(
+            profileID: request.selectedProfileID,
+            extraArguments: request.extraArguments
+        ) {
+            throw ManagedAssemblyPipelineError.incompatibleSelection(rejection)
+        }
         let paired = try pairedReadsIfNeeded(for: request)
         var arguments: [String] = []
         switch request.selectedProfileID ?? "isolate" {

@@ -167,6 +167,15 @@ struct AssembleCommand: AsyncParsableCommand {
             throw CLIExitCode.inputError.exitCode
         }
 
+        if tool == .spades,
+           let rejection = SPAdesCarefulModeCompatibility.rejectionMessage(
+                profileID: profile,
+                extraArguments: advancedArguments
+           ) {
+            print(formatter.error(rejection))
+            throw CLIExitCode.inputError.exitCode
+        }
+
         let explicitReadType: AssemblyReadType?
         do {
             explicitReadType = try Self.parseExplicitReadType(readType)

@@ -387,6 +387,13 @@ struct AssemblyWizardSheet: View {
                 selectedReadType = Self.defaultReadType(for: newValue)
             }
         }
+        .onChange(of: selectedProfileID) { _, newValue in
+            // SPAdes exits 67 on --careful with --isolate or --meta; the tick
+            // box is disabled for those profiles and cleared on the way in.
+            if selectedTool == .spades, !Self.carefulModeIsAvailable(spadesProfileID: newValue) {
+                spadesCareful = false
+            }
+        }
         .onChange(of: selectedReadType) { _, _ in
             if !readTypeIsLockedToDetection {
                 hasConfirmedManualReadType = true
@@ -609,6 +616,13 @@ struct AssemblyWizardSheet: View {
                     case .spades:
                         Toggle("Careful mode", isOn: $spadesCareful)
                             .accessibilityIdentifier("assembly-spades-careful-toggle")
+                            .disabled(!Self.carefulModeIsAvailable(spadesProfileID: selectedProfileID))
+                        if let caption = Self.carefulModeCaption(spadesProfileID: selectedProfileID) {
+                            Text(caption)
+                                .font(.caption)
+                                .foregroundStyle(Color.lungfishSecondaryText)
+                                .accessibilityIdentifier("assembly-spades-careful-caption")
+                        }
                         Toggle("Skip error correction", isOn: $spadesSkipErrorCorrection)
                     case .flye:
                         Toggle("Metagenome mode", isOn: $flyeMetagenomeMode)
@@ -838,7 +852,22 @@ struct AssemblyWizardSheet: View {
             spadesCareful: spadesCareful,
             spadesSkipErrorCorrection: spadesSkipErrorCorrection,
             flyeMetagenomeMode: flyeMetagenomeMode,
-            hifiasmPrimaryOnly: hifiasmPrimaryOnly
+            hifiasmPrimaryOnly: hifiasmPrimaryOnly,
+            spadesProfileID: selectedProfileID.isEmpty ? nil : selectedProfileID
+        )
+    }
+
+    /// Whether the Careful mode tick box is enabled for the SPAdes profile.
+    static func carefulModeIsAvailable(spadesProfileID: String) -> Bool {
+        SPAdesCarefulModeCompatibility.supportsCareful(
+            profileID: spadesProfileID.isEmpty ? nil : spadesProfileID
+        )
+    }
+
+    /// The caption under a disabled Careful mode tick box, or `nil`.
+    static func carefulModeCaption(spadesProfileID: String) -> String? {
+        SPAdesCarefulModeCompatibility.unavailableCaption(
+            profileID: spadesProfileID.isEmpty ? nil : spadesProfileID
         )
     }
 
@@ -951,17 +980,20 @@ struct AssemblyWizardSheet: View {
         }
     }
 
+    /// `spadesProfileID` drops `--careful` for a profile SPAdes rejects it
+    /// with (isolate, meta), so a stale tick never reaches the command line.
     static func curatedAdvancedArguments(
         for tool: AssemblyTool,
         spadesCareful: Bool,
         spadesSkipErrorCorrection: Bool,
         flyeMetagenomeMode: Bool,
-        hifiasmPrimaryOnly: Bool
+        hifiasmPrimaryOnly: Bool,
+        spadesProfileID: String? = nil
     ) -> [String] {
         var arguments: [String] = []
         switch tool {
         case .spades:
-            if spadesCareful {
+            if spadesCareful, SPAdesCarefulModeCompatibility.supportsCareful(profileID: spadesProfileID) {
                 arguments.append("--careful")
             }
             if spadesSkipErrorCorrection {
