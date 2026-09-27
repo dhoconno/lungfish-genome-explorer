@@ -24,8 +24,9 @@ enum Primer3BoulderWriter {
                 "PRIMER_MIN_TM=\(options.primerMinTm)", "PRIMER_OPT_TM=\(options.primerOptTm)", "PRIMER_MAX_TM=\(options.primerMaxTm)",
                 "PRIMER_MIN_GC=\(options.primerMinGC)", "PRIMER_MAX_GC=\(options.primerMaxGC)",
                 "PRIMER_MAX_NS_ACCEPTED=0", "PRIMER_INTERNAL_MAX_NS_ACCEPTED=0",
-                "PRIMER_EXPLAIN_FLAG=1", "="
             ]
+            lines += options.additionalBoulderSettings.map { "\($0.key)=\($0.value)" }
+            lines += ["PRIMER_EXPLAIN_FLAG=1", "="]
             return lines.joined(separator: "\n")
         }.joined(separator: "\n") + "\n"
     }

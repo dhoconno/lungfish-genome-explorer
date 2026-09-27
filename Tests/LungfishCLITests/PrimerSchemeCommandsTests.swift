@@ -5,6 +5,16 @@ import LungfishWorkflow
 @testable import LungfishCLI
 
 final class PrimerSchemeCommandsTests: XCTestCase {
+    func testOlivarUserVisibleTextUsesTheProjectSpelling() throws {
+        let configuration = OlivarDesignCommand.configuration
+        for text in [configuration.abstract, configuration.discussion] {
+            XCTAssertFalse(text.contains("OliVar"), text)
+            XCTAssertTrue(text.contains("Olivar"), text)
+        }
+        let help = OlivarDesignCommand.helpMessage()
+        XCTAssertFalse(help.contains("OliVar"))
+    }
+
     func testOlivarParsesNativeSemanticsAndTypedAdvancedOptions() throws {
         let command = try OlivarDesignCommand.parse([
             "--msa", "/tmp/a.lungfishmsa", "--msa", "/tmp/b.fasta",

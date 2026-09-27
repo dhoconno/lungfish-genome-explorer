@@ -24,6 +24,14 @@ enum PrimerDesignChemistry: String, CaseIterable, Identifiable {
   case intercalatingDye = "qPCR · intercalating dye"
   case hydrolysisProbe = "qPCR · internal hydrolysis probe"
   var id: String { rawValue }
+
+  var assayMode: Primer3AssayMode {
+    switch self {
+    case .pcr: .pcr
+    case .intercalatingDye: .qpcrDye
+    case .hydrolysisProbe: .qpcrProbe
+    }
+  }
 }
 
 struct PrimerDesignValidationError: LocalizedError {
@@ -36,7 +44,9 @@ final class PrimerDesignDialogState {
   var engine: PrimerDesignEngine = .primer3 {
     didSet { updateEngine(from: oldValue) }
   }
-  var chemistry: PrimerDesignChemistry = .pcr
+  var chemistry: PrimerDesignChemistry = .pcr {
+    didSet { applyAssayDefaults(from: oldValue) }
+  }
   var inputURLs: [URL] = []
   var inputSummaries: [URL: Primer3DesignInputSummary] = [:]
   var inputErrors: [URL: String] = [:]
@@ -48,22 +58,31 @@ final class PrimerDesignDialogState {
   private var inspectionGeneration = UUID()
   let projectURL: URL?
   var destinationURL: URL? { try? validatedDestinationURL() }
-  var analysisName = "Primer analysis"
+  var analysisName: String
   var grouping: PrimerAnalysisGrouping = .independent
-  var productSizeMin = "100"
-  var productSizeMax = "400"
+  var productSizeMin = String(Primer3AssayDefaults.pcr.productSizeMin)
+  var productSizeMax = String(Primer3AssayDefaults.pcr.productSizeMax)
   var targetEnabled = false
   var targetStart = ""
   var targetEnd = ""
   var pairCount = "5"
-  var primerMinSize = "18"
-  var primerOptSize = "20"
-  var primerMaxSize = "27"
-  var primerMinTm = "57"
-  var primerOptTm = "60"
-  var primerMaxTm = "63"
-  var primerMinGC = "20"
-  var primerMaxGC = "80"
+  var primerMinSize = String(Primer3AssayDefaults.pcr.primerMinSize)
+  var primerOptSize = String(Primer3AssayDefaults.pcr.primerOptSize)
+  var primerMaxSize = String(Primer3AssayDefaults.pcr.primerMaxSize)
+  var primerMinTm = PrimerDesignDialogState.text(Primer3AssayDefaults.pcr.primerMinTm)
+  var primerOptTm = PrimerDesignDialogState.text(Primer3AssayDefaults.pcr.primerOptTm)
+  var primerMaxTm = PrimerDesignDialogState.text(Primer3AssayDefaults.pcr.primerMaxTm)
+  var primerMinGC = PrimerDesignDialogState.text(Primer3AssayDefaults.pcr.primerMinGC)
+  var primerMaxGC = PrimerDesignDialogState.text(Primer3AssayDefaults.pcr.primerMaxGC)
+  // Assay rules Primer3 otherwise leaves at its own defaults. Blank keeps the default.
+  var pairMaxTmDifference = ""
+  var primerMaxEndGC = ""
+  var primerGCClamp = ""
+  var primerMaxPolyX = ""
+  var primerMaxSelfAnyTh = ""
+  var primerMaxSelfEndTh = ""
+  var pairMaxComplAnyTh = ""
+  var pairMaxComplEndTh = ""
   var advancedExpanded = false
   var schemeMode: PrimerSchemeMode = .tiled {
     didSet { updateVarVAMPMode(from: oldValue) }
@@ -200,7 +219,34 @@ final class PrimerDesignDialogState {
     !isRunning && validationMessage == nil && inputReadinessMessage == nil
   }
 
-  init(projectURL: URL? = nil) { self.projectURL = projectURL?.resolvingSymlinksInPath().standardizedFileURL }
+  static let defaultAnalysisName = "Primer analysis"
+
+  init(projectURL: URL? = nil) {
+    let resolvedProject = projectURL?.resolvingSymlinksInPath().standardizedFileURL
+    self.projectURL = resolvedProject
+    analysisName = Self.uniqueAnalysisName(base: Self.defaultAnalysisName, in: resolvedProject)
+  }
+
+  /// The first "<base>", "<base> 2", "<base> 3"... not already saved in the
+  /// project's Analyses folder, matching the FASTQ import "keep both" naming.
+  /// A typed collision is still rejected by `validatedDestinationURL()`.
+  static func uniqueAnalysisName(base: String, in projectURL: URL?) -> String {
+    guard let projectURL else { return base }
+    let parent = projectURL.appendingPathComponent(AnalysesFolder.directoryName, isDirectory: true)
+    let fm = FileManager.default
+    func exists(_ name: String) -> Bool {
+      let path = parent.appendingPathComponent(name + ".lungfishprimeranalysis").path
+      return fm.fileExists(atPath: path) || (try? fm.destinationOfSymbolicLink(atPath: path)) != nil
+    }
+    guard exists(base) else { return base }
+    var counter = 2
+    var uniqueName = "\(base) \(counter)"
+    while exists(uniqueName) {
+      counter += 1
+      uniqueName = "\(base) \(counter)"
+    }
+    return uniqueName
+  }
 
   /// GUI outputs are always direct children of the originating project's Analyses folder.
   /// Resolve the project once per check and reject even dangling links at the output boundary.
@@ -548,11 +594,11 @@ final class PrimerDesignDialogState {
   private func updateDefaultAmpliconBounds() {
     guard !isUpdatingAmpliconBounds,
       let target = Int(ampliconSize.trimmingCharacters(in: .whitespacesAndNewlines)),
-      (100...2000).contains(target) else { return }
+      let bounds = PrimalScheme3DesignOptions.defaultAmpliconSizeBounds(target: target) else { return }
     isUpdatingAmpliconBounds = true
     defer { isUpdatingAmpliconBounds = false }
-    if !minimumAmpliconSizeWasCustomized { ampliconSizeMinimum = String(Int(Double(target) * 0.9)) }
-    if !maximumAmpliconSizeWasCustomized { ampliconSizeMaximum = String(Int(Double(target) * 1.1)) }
+    if !minimumAmpliconSizeWasCustomized { ampliconSizeMinimum = String(bounds.minimum) }
+    if !maximumAmpliconSizeWasCustomized { ampliconSizeMaximum = String(bounds.maximum) }
   }
 
   private func updateEngine(from oldEngine: PrimerDesignEngine) {
@@ -626,6 +672,39 @@ final class PrimerDesignDialogState {
     return (minimum, target, maximum)
   }
 
+  /// Whole numbers print without a trailing ".0" so the fields read naturally.
+  private static func text(_ value: Double) -> String {
+    value == value.rounded() && abs(value) < 1e15 ? String(Int(value)) : String(value)
+  }
+
+  private static func text(_ value: Double?) -> String { value.map(text) ?? "" }
+
+  /// Choosing an assay seeds its shared preset into the visible fields. The
+  /// user can still edit every value afterwards. PCR and the hydrolysis
+  /// probe share one preset, so switching between them keeps edits.
+  private func applyAssayDefaults(from oldChemistry: PrimerDesignChemistry) {
+    let defaults = Primer3AssayDefaults.defaults(for: chemistry.assayMode)
+    guard defaults != Primer3AssayDefaults.defaults(for: oldChemistry.assayMode) else { return }
+    productSizeMin = String(defaults.productSizeMin)
+    productSizeMax = String(defaults.productSizeMax)
+    primerMinSize = String(defaults.primerMinSize)
+    primerOptSize = String(defaults.primerOptSize)
+    primerMaxSize = String(defaults.primerMaxSize)
+    primerMinTm = Self.text(defaults.primerMinTm)
+    primerOptTm = Self.text(defaults.primerOptTm)
+    primerMaxTm = Self.text(defaults.primerMaxTm)
+    primerMinGC = Self.text(defaults.primerMinGC)
+    primerMaxGC = Self.text(defaults.primerMaxGC)
+    pairMaxTmDifference = Self.text(defaults.pairMaxTmDifference)
+    primerMaxEndGC = defaults.primerMaxEndGC.map(String.init) ?? ""
+    primerGCClamp = defaults.primerGCClamp.map(String.init) ?? ""
+    primerMaxPolyX = defaults.primerMaxPolyX.map(String.init) ?? ""
+    primerMaxSelfAnyTh = Self.text(defaults.primerMaxSelfAnyTh)
+    primerMaxSelfEndTh = Self.text(defaults.primerMaxSelfEndTh)
+    pairMaxComplAnyTh = Self.text(defaults.pairMaxComplAnyTh)
+    pairMaxComplEndTh = Self.text(defaults.pairMaxComplEndTh)
+  }
+
   func primer3Options() throws -> Primer3DesignOptions {
     let productMin = try positiveInteger(productSizeMin, "Minimum product size")
     let productMax = try positiveInteger(productSizeMax, "Maximum product size")
@@ -650,13 +729,29 @@ final class PrimerDesignDialogState {
     let start = targetEnabled ? try positiveInteger(targetStart, "Target start") : nil
     let end = targetEnabled ? try positiveInteger(targetEnd, "Target end") : nil
     if let start, let end, start > end { throw invalid("Target start must not exceed target end.") }
+    let maxEndGC = try optionalNonnegativeInteger(primerMaxEndGC, "3′-end GC maximum")
+    if let maxEndGC, maxEndGC > 5 { throw invalid("3′-end GC maximum counts the last five bases, so it must be 5 or fewer.") }
     return Primer3DesignOptions(
+      assayMode: chemistry.assayMode,
       productSizeMin: productMin, productSizeMax: productMax,
       targetStart: start, targetEnd: end, pairCount: try positiveInteger(pairCount, "Candidate pair count"),
       primerMinSize: minimumSize, primerOptSize: optimumSize, primerMaxSize: maximumSize,
       primerMinTm: minimumTm, primerOptTm: optimumTm, primerMaxTm: maximumTm,
       primerMinGC: minimumGC, primerMaxGC: maximumGC,
-      pickInternalOligo: chemistry == .hydrolysisProbe)
+      pickInternalOligo: chemistry.assayMode.picksInternalOligo,
+      pairMaxTmDifference: try optionalNonnegativeNumber(pairMaxTmDifference, "Pair Tm difference maximum"),
+      primerMaxEndGC: maxEndGC,
+      primerGCClamp: try optionalNonnegativeInteger(primerGCClamp, "GC clamp"),
+      primerMaxPolyX: try optionalNonnegativeInteger(primerMaxPolyX, "Poly-X maximum"),
+      primerMaxSelfAnyTh: try optionalNonnegativeNumber(primerMaxSelfAnyTh, "Self complementarity (any) threshold"),
+      primerMaxSelfEndTh: try optionalNonnegativeNumber(primerMaxSelfEndTh, "Self complementarity (3′ end) threshold"),
+      pairMaxComplAnyTh: try optionalNonnegativeNumber(pairMaxComplAnyTh, "Pair complementarity (any) threshold"),
+      pairMaxComplEndTh: try optionalNonnegativeNumber(pairMaxComplEndTh, "Pair complementarity (3′ end) threshold"))
+  }
+
+  private func optionalNonnegativeNumber(_ text: String, _ title: String) throws -> Double? {
+    if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return nil }
+    return try nonnegativeNumber(text, title)
   }
 
   private func optionalPositiveInteger(_ text: String, _ title: String) throws -> Int? {

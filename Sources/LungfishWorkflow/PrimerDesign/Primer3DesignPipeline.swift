@@ -237,9 +237,25 @@ public struct Primer3DesignPipeline: Sendable {
               options.primerMinGC >= 0, options.primerMinGC <= options.primerMaxGC, options.primerMaxGC <= 100,
               (options.targetStart == nil) == (options.targetEnd == nil) else { throw Primer3DesignError.invalidRequest("option values are out of range or order") }
         if let start = options.targetStart, let end = options.targetEnd, !(start > 0 && start <= end) { throw Primer3DesignError.invalidRequest("target must be 1-based inclusive and ordered") }
+        guard options.pairMaxTmDifference.map({ $0.isFinite && $0 >= 0 }) ?? true,
+              options.primerMaxEndGC.map({ (0...5).contains($0) }) ?? true,
+              options.primerGCClamp.map({ $0 >= 0 }) ?? true,
+              options.primerMaxPolyX.map({ $0 >= 0 }) ?? true,
+              [options.primerMaxSelfAnyTh, options.primerMaxSelfEndTh, options.pairMaxComplAnyTh, options.pairMaxComplEndTh]
+                .allSatisfy({ $0.map { $0.isFinite && $0 >= 0 } ?? true }) else {
+            throw Primer3DesignError.invalidRequest("assay rule values are out of range")
+        }
+        if options.assayMode == .qpcrProbe, !options.pickInternalOligo { throw Primer3DesignError.invalidRequest("a hydrolysis-probe assay must pick an internal oligo") }
     }
 
     private static func provenanceOptions(_ options: Primer3DesignOptions) -> [String: ParameterValue] {
+        var values: [String: ParameterValue] = ["assayMode": .string(options.assayMode.rawValue)]
+        for setting in options.additionalBoulderSettings {
+            values[setting.key] = Int(setting.value).map(ParameterValue.integer) ?? Double(setting.value).map(ParameterValue.number) ?? .string(setting.value)
+        }
+        return values.merging(baseProvenanceOptions(options)) { _, new in new }
+    }
+    private static func baseProvenanceOptions(_ options: Primer3DesignOptions) -> [String: ParameterValue] {
         ["PRIMER_PRODUCT_SIZE_RANGE": .string("\(options.productSizeMin)-\(options.productSizeMax)"), "SEQUENCE_TARGET_1_BASED_INCLUSIVE": options.targetStart.flatMap { start in options.targetEnd.map { ParameterValue.string("\(start)-\($0)") } } ?? ParameterValue.null, "PRIMER_NUM_RETURN": .integer(options.pairCount), "PRIMER_MIN_SIZE": .integer(options.primerMinSize), "PRIMER_OPT_SIZE": .integer(options.primerOptSize), "PRIMER_MAX_SIZE": .integer(options.primerMaxSize), "PRIMER_MIN_TM": .number(options.primerMinTm), "PRIMER_OPT_TM": .number(options.primerOptTm), "PRIMER_MAX_TM": .number(options.primerMaxTm), "PRIMER_MIN_GC": .number(options.primerMinGC), "PRIMER_MAX_GC": .number(options.primerMaxGC), "PRIMER_PICK_INTERNAL_OLIGO": .integer(options.pickInternalOligo ? 1 : 0)]
     }
     private static let fixedBoulderDefaults: [String: ParameterValue] = [

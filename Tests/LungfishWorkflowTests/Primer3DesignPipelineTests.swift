@@ -38,6 +38,69 @@ final class Primer3DesignPipelineTests: XCTestCase {
         XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: root.path), [])
     }
 
+    func testDyeQPCRPresetAppliesPublishedDesignRules() {
+        let dye = Primer3DesignOptions.preset(.qpcrDye)
+        XCTAssertEqual(dye.assayMode, .qpcrDye)
+        XCTAssertEqual(dye.productSizeMin, 70); XCTAssertEqual(dye.productSizeMax, 150)
+        XCTAssertEqual(dye.primerMinTm, 58); XCTAssertEqual(dye.primerOptTm, 60); XCTAssertEqual(dye.primerMaxTm, 62)
+        XCTAssertEqual(dye.pairMaxTmDifference, 1)
+        XCTAssertEqual(dye.primerMinGC, 40); XCTAssertEqual(dye.primerMaxGC, 60)
+        XCTAssertEqual(dye.primerMinSize, 18); XCTAssertEqual(dye.primerOptSize, 20); XCTAssertEqual(dye.primerMaxSize, 24)
+        XCTAssertEqual(dye.primerMaxEndGC, 2)
+        XCTAssertEqual(dye.primerGCClamp, 1)
+        XCTAssertEqual(dye.primerMaxPolyX, 4)
+        XCTAssertEqual(dye.primerMaxSelfAnyTh, 40); XCTAssertEqual(dye.primerMaxSelfEndTh, 30)
+        XCTAssertEqual(dye.pairMaxComplAnyTh, 40); XCTAssertEqual(dye.pairMaxComplEndTh, 30)
+        XCTAssertFalse(dye.pickInternalOligo)
+        XCTAssertEqual(dye.pairCount, 5)
+
+        let pcr = Primer3DesignOptions.preset(.pcr)
+        XCTAssertEqual(pcr, Primer3DesignOptions(
+            productSizeMin: 100, productSizeMax: 400, targetStart: nil, targetEnd: nil, pairCount: 5,
+            primerMinSize: 18, primerOptSize: 20, primerMaxSize: 27, primerMinTm: 57, primerOptTm: 60, primerMaxTm: 63,
+            primerMinGC: 20, primerMaxGC: 80, pickInternalOligo: false))
+        XCTAssertNil(pcr.pairMaxTmDifference); XCTAssertNil(pcr.primerMaxEndGC); XCTAssertNil(pcr.primerGCClamp)
+        XCTAssertNil(pcr.primerMaxPolyX); XCTAssertNil(pcr.primerMaxSelfEndTh); XCTAssertNil(pcr.pairMaxComplEndTh)
+        let probe = Primer3DesignOptions.preset(.qpcrProbe)
+        XCTAssertTrue(probe.pickInternalOligo)
+        XCTAssertEqual(probe.productSizeMin, pcr.productSizeMin)
+    }
+
+    func testBoulderInputAddsDyeRulesOnlyForTheDyePreset() throws {
+        let template = Primer3PreparedTemplate(
+            inputID: UUID(), resultID: UUID(), title: "mhc", sequence: String(repeating: "ACGT", count: 80),
+            sourceURL: URL(fileURLWithPath: "/tmp/mhc.fa"), sourceIndex: 0, sourceRecordID: "mhc",
+            sourceKind: .fasta, bindingSitePolicy: .templateOnly, alignmentToTemplate: nil, excludedRegions: [])
+        let pcr = try Primer3BoulderWriter.makeInput(templates: [template], options: .preset(.pcr))
+        for key in ["PRIMER_PAIR_MAX_DIFF_TM", "PRIMER_MAX_END_GC", "PRIMER_GC_CLAMP", "PRIMER_MAX_POLY_X",
+                    "PRIMER_MAX_SELF_ANY_TH", "PRIMER_MAX_SELF_END_TH", "PRIMER_PAIR_MAX_COMPL_ANY_TH", "PRIMER_PAIR_MAX_COMPL_END_TH"] {
+            XCTAssertFalse(pcr.contains(key), key)
+        }
+        XCTAssertTrue(pcr.contains("PRIMER_PRODUCT_SIZE_RANGE=100-400\n"))
+        let dye = try Primer3BoulderWriter.makeInput(templates: [template], options: .preset(.qpcrDye))
+        for line in ["PRIMER_PRODUCT_SIZE_RANGE=70-150", "PRIMER_MIN_TM=58.0", "PRIMER_OPT_TM=60.0", "PRIMER_MAX_TM=62.0",
+                     "PRIMER_PAIR_MAX_DIFF_TM=1.0", "PRIMER_MIN_GC=40.0", "PRIMER_MAX_GC=60.0",
+                     "PRIMER_MIN_SIZE=18", "PRIMER_OPT_SIZE=20", "PRIMER_MAX_SIZE=24",
+                     "PRIMER_MAX_END_GC=2", "PRIMER_GC_CLAMP=1", "PRIMER_MAX_POLY_X=4",
+                     "PRIMER_MAX_SELF_ANY_TH=40.0", "PRIMER_MAX_SELF_END_TH=30.0",
+                     "PRIMER_PAIR_MAX_COMPL_ANY_TH=40.0", "PRIMER_PAIR_MAX_COMPL_END_TH=30.0",
+                     "PRIMER_PICK_INTERNAL_OLIGO=0"] {
+            XCTAssertTrue(dye.contains(line + "\n"), line)
+        }
+        XCTAssertTrue(dye.hasSuffix("PRIMER_EXPLAIN_FLAG=1\n=\n"))
+    }
+
+    func testAssayModeAndDyeRulesSurviveCodableRoundTripAndOlderRecordsDecodeAsPCR() throws {
+        let dye = Primer3DesignOptions.preset(.qpcrDye)
+        let decoded = try JSONDecoder().decode(Primer3DesignOptions.self, from: JSONEncoder().encode(dye))
+        XCTAssertEqual(decoded, dye)
+        let legacy = Data("""
+        {"productSizeMin":100,"productSizeMax":400,"pairCount":5,"primerMinSize":18,"primerOptSize":20,"primerMaxSize":27,"primerMinTm":57,"primerOptTm":60,"primerMaxTm":63,"primerMinGC":20,"primerMaxGC":80,"pickInternalOligo":false}
+        """.utf8)
+        let older = try JSONDecoder().decode(Primer3DesignOptions.self, from: legacy)
+        XCTAssertEqual(older, .preset(.pcr))
+    }
+
     func testBoulderRecordUsesOneBasedInclusiveTargetAndAllResolvedOptions() throws {
         let template = Primer3PreparedTemplate(
             inputID: UUID(), resultID: UUID(), title: "mhc sample", sequence: String(repeating: "ACGT", count: 80),

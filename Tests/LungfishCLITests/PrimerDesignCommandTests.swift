@@ -14,6 +14,84 @@ final class PrimerDesignCommandTests: XCTestCase {
         XCTAssertEqual(command.ampliconSizeMaximum, 250)
     }
 
+    func testPrimalSchemeOmittedBoundsDefaultToTenPercentOfTargetLikeTheGUI() throws {
+        let command = try PrimerDesignCommand.PrimalScheme3Subcommand.parse([
+            "--msa", "/tmp/mhc.lungfishmsa", "--output", "/tmp/result.lungfishprimeranalysis",
+            "--amplicon-size", "400"])
+        let resolved = try command.makeOptions()
+        XCTAssertEqual(resolved.options.requestedAmpliconSizeMinimum, 360)
+        XCTAssertEqual(resolved.options.requestedAmpliconSizeMaximum, 440)
+        XCTAssertEqual(resolved.options.ampliconSizeMetric, "reference-span")
+        let partial = try PrimerDesignCommand.PrimalScheme3Subcommand.parse([
+            "--msa", "/tmp/mhc.lungfishmsa", "--output", "/tmp/result.lungfishprimeranalysis",
+            "--amplicon-size", "400", "--amplicon-size-max", "500"])
+        let partialOptions = try partial.makeOptions().options
+        XCTAssertEqual(partialOptions.requestedAmpliconSizeMinimum, 360)
+        XCTAssertEqual(partialOptions.requestedAmpliconSizeMaximum, 500)
+        XCTAssertEqual(PrimalScheme3DesignOptions.defaultAmpliconSizeBounds(target: 400)?.minimum, 360)
+        XCTAssertNil(PrimalScheme3DesignOptions.defaultAmpliconSizeBounds(target: 50))
+    }
+
+    func testPrimalSchemeParsesLegacySalvageGapParentAndGapExpansionControls() throws {
+        let salvage = try PrimerDesignCommand.PrimalScheme3Subcommand.parse([
+            "--msa", "/tmp/a.lungfishmsa", "--msa", "/tmp/b.lungfishmsa",
+            "--output", "/tmp/result.lungfishprimeranalysis", "--grouping", "combined",
+            "--legacy-salvage", "bounded", "--legacy-salvage-threshold=-28", "--legacy-salvage-threshold=-30",
+            "--legacy-salvage-floor=-32", "--legacy-salvage-max-edges-per-pool", "6",
+            "--legacy-salvage-max-incident-species-per-pool", "3", "--legacy-salvage-min-reference-gain", "2",
+            "--legacy-salvage-max-candidate-evaluations", "500"])
+        let salvageOptions = try salvage.makeOptions().options.legacySalvageOptions
+        XCTAssertEqual(salvageOptions, PrimalScheme3LegacySalvageOptions(
+            mode: .bounded, thresholds: [-28, -30], floor: -32, maxEdgesPerPool: 6,
+            maxIncidentSpeciesPerPool: 3, minReferenceGain: 2, maxCandidateEvaluations: 500))
+        XCTAssertEqual(salvageOptions.requestedOptionNames, ["mode", "thresholds", "floor", "maxEdgesPerPool",
+            "maxIncidentSpeciesPerPool", "minReferenceGain", "maxCandidateEvaluations"])
+
+        let followUp = try PrimerDesignCommand.PrimalScheme3Subcommand.parse([
+            "--msa", "/tmp/a.lungfishmsa", "--output", "/tmp/result.lungfishprimeranalysis", "--grouping", "combined",
+            "--gap-completion-parent", "/tmp/parent.lungfishprimeranalysis",
+            "--gap-expansion", "bounded", "--gap-expansion-max-anchors-per-msa", "500",
+            "--gap-expansion-max-pairs-per-msa", "200"])
+        let followUpOptions = try followUp.makeOptions().options
+        XCTAssertEqual(followUpOptions.gapCompletionParent, URL(fileURLWithPath: "/tmp/parent.lungfishprimeranalysis").standardizedFileURL)
+        XCTAssertEqual(followUpOptions.gapExpansionOptions,
+                       PrimalScheme3GapExpansionOptions(mode: .bounded, maxAnchorsPerMSA: 500, maxPairsPerMSA: 200))
+
+        let defaults = try PrimerDesignCommand.PrimalScheme3Subcommand.parse([
+            "--msa", "/tmp/a.lungfishmsa", "--output", "/tmp/result.lungfishprimeranalysis"])
+        let defaultOptions = try defaults.makeOptions().options
+        XCTAssertEqual(defaultOptions.legacySalvageOptions, .init())
+        XCTAssertEqual(defaultOptions.gapExpansionOptions, .init())
+        XCTAssertNil(defaultOptions.gapCompletionParent)
+
+        let badSalvage = try PrimerDesignCommand.PrimalScheme3Subcommand.parse([
+            "--msa", "/tmp/a.lungfishmsa", "--output", "/tmp/result.lungfishprimeranalysis", "--legacy-salvage", "greedy"])
+        XCTAssertThrowsError(try badSalvage.makeOptions())
+        let badExpansion = try PrimerDesignCommand.PrimalScheme3Subcommand.parse([
+            "--msa", "/tmp/a.lungfishmsa", "--output", "/tmp/result.lungfishprimeranalysis", "--gap-expansion", "all"])
+        XCTAssertThrowsError(try badExpansion.makeOptions())
+    }
+
+    func testPrimer3AssayModeSelectsThePresetAndKeepsPickInternalOligo() throws {
+        let base = ["--fasta-record", "/tmp/mhc.fa@0", "--output", "/tmp/design.lungfishprimeranalysis"]
+        XCTAssertEqual(try PrimerDesignCommand.Primer3Subcommand.parse(base).makeOptions(), .preset(.pcr))
+        let dye = try PrimerDesignCommand.Primer3Subcommand.parse(base + ["--assay", "qpcr-dye"]).makeOptions()
+        XCTAssertEqual(dye, .preset(.qpcrDye))
+        let probe = try PrimerDesignCommand.Primer3Subcommand.parse(base + ["--assay", "qpcr-probe"]).makeOptions()
+        XCTAssertEqual(probe, .preset(.qpcrProbe))
+        XCTAssertTrue(probe.pickInternalOligo)
+        let oligo = try PrimerDesignCommand.Primer3Subcommand.parse(base + ["--pick-internal-oligo"]).makeOptions()
+        XCTAssertEqual(oligo.assayMode, .pcr)
+        XCTAssertTrue(oligo.pickInternalOligo)
+        let overridden = try PrimerDesignCommand.Primer3Subcommand.parse(
+            base + ["--assay", "qpcr-dye", "--primer-min-tm", "59", "--primer-max-poly-x", "3", "--pair-count", "2"]).makeOptions()
+        XCTAssertEqual(overridden.primerMinTm, 59)
+        XCTAssertEqual(overridden.primerMaxPolyX, 3)
+        XCTAssertEqual(overridden.pairCount, 2)
+        XCTAssertEqual(overridden.productSizeMax, 150)
+        XCTAssertThrowsError(try PrimerDesignCommand.Primer3Subcommand.parse(base + ["--assay", "sybr"]).makeOptions())
+    }
+
     func testPrimer3ParsesExplicitFASTAAndMSATemplateSelections() throws {
         let command = try PrimerDesignCommand.Primer3Subcommand.parse([
             "--fasta-record", "/tmp/mhc.fa@1",

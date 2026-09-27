@@ -3,6 +3,7 @@ import XCTest
 import LungfishIO
 import LungfishWorkflow
 @testable import LungfishApp
+@testable import LungfishCLI
 
 @MainActor
 final class PrimerDesignDialogStateTests: XCTestCase {
@@ -590,6 +591,132 @@ final class PrimerDesignDialogStateTests: XCTestCase {
     XCTAssertEqual(options.gapExpansionOptions.mode, .bounded)
     XCTAssertEqual(options.gapExpansionOptions.maxAnchorsPerMSA, 12)
     XCTAssertEqual(options.gapExpansionOptions.maxPairsPerMSA, 9)
+  }
+
+  func testDialogAndCLIResolveIdenticalPrimalSchemeSizingFromVisibleSettings() throws {
+    let state = configuredState()
+    state.engine = .primalScheme
+    state.ampliconSize = "300"
+    let dialogOptions = try state.primalSchemeOptions()
+    XCTAssertEqual(dialogOptions.requestedAmpliconSizeMinimum, 270)
+    XCTAssertEqual(dialogOptions.requestedAmpliconSizeMaximum, 330)
+
+    let command = try PrimerDesignCommand.PrimalScheme3Subcommand.parse([
+      "--msa", "/input/mhc.fasta", "--output", "/tmp/out.lungfishprimeranalysis",
+      "--amplicon-size", "300",
+    ])
+    let cli = try command.makeOptions()
+    XCTAssertEqual(cli.grouping, .independent)
+    XCTAssertEqual(cli.options, dialogOptions)
+    XCTAssertEqual(cli.options.ampliconSizeMetric, "reference-span")
+  }
+
+  func testDialogRecoveryControlsRoundTripThroughCLIArguments() throws {
+    let state = configuredState()
+    state.engine = .primalScheme
+    state.grouping = .combined
+    state.legacySalvageEnabled = true
+    state.legacySalvageThresholds = "-28,-30"
+    state.legacySalvageMaxEdgesPerPool = "6"
+    try assertRoundTrip(state)
+
+    state.legacySalvageEnabled = false
+    state.gapCompletionParentPath = "/tmp/parent.lungfishprimeranalysis"
+    state.gapExpansionEnabled = true
+    state.gapExpansionMaxPairsPerMSA = "250"
+    try assertRoundTrip(state)
+
+    state.gapExpansionEnabled = false
+    state.gapCompletionParentPath = ""
+    state.grouping = .independent
+    state.backtrack = true
+    state.minOverlap = "20"
+    state.useMatchDB = false
+    try assertRoundTrip(state)
+  }
+
+  private func assertRoundTrip(_ state: PrimerDesignDialogState, file: StaticString = #filePath, line: UInt = #line) throws {
+    let options = try state.primalSchemeOptions()
+    let argv = PrimerDesignCommand.PrimalScheme3Subcommand.arguments(
+      inputs: state.inputURLs, output: URL(fileURLWithPath: "/tmp/out.lungfishprimeranalysis"),
+      grouping: state.grouping, options: options)
+    let command = try PrimerDesignCommand.PrimalScheme3Subcommand.parse(argv)
+    let resolved = try command.makeOptions()
+    XCTAssertEqual(resolved.grouping, state.grouping, file: file, line: line)
+    XCTAssertEqual(resolved.options, options, file: file, line: line)
+    XCTAssertEqual(resolved.options.legacySalvageOptions.requestedOptionNames,
+      options.legacySalvageOptions.requestedOptionNames, file: file, line: line)
+    XCTAssertEqual(resolved.options.gapExpansionOptions.requestedOptionNames,
+      options.gapExpansionOptions.requestedOptionNames, file: file, line: line)
+  }
+
+  func testDefaultAnalysisNameIsUniqueWithinTheProjectAtDialogOpen() throws {
+    let project = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    let analyses = project.appendingPathComponent("Analyses")
+    try FileManager.default.createDirectory(at: analyses, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: project) }
+
+    XCTAssertEqual(PrimerDesignDialogState(projectURL: project).analysisName, "Primer analysis")
+    XCTAssertEqual(PrimerDesignDialogState().analysisName, "Primer analysis")
+
+    try FileManager.default.createDirectory(
+      at: analyses.appendingPathComponent("Primer analysis.lungfishprimeranalysis"), withIntermediateDirectories: false)
+    let second = PrimerDesignDialogState(projectURL: project)
+    XCTAssertEqual(second.analysisName, "Primer analysis 2")
+    XCTAssertNoThrow(try second.validatedDestinationURL())
+
+    try FileManager.default.createDirectory(
+      at: analyses.appendingPathComponent("Primer analysis 2.lungfishprimeranalysis"), withIntermediateDirectories: false)
+    let third = PrimerDesignDialogState(projectURL: project)
+    XCTAssertEqual(third.analysisName, "Primer analysis 3")
+    XCTAssertNoThrow(try third.validatedDestinationURL())
+  }
+
+  func testTypedNameCollisionIsStillBlocked() throws {
+    let project = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    let analyses = project.appendingPathComponent("Analyses")
+    try FileManager.default.createDirectory(at: analyses, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: project) }
+    try FileManager.default.createDirectory(
+      at: analyses.appendingPathComponent("Primer analysis.lungfishprimeranalysis"), withIntermediateDirectories: false)
+    let state = PrimerDesignDialogState(projectURL: project)
+    XCTAssertEqual(state.analysisName, "Primer analysis 2")
+    state.addInputs([URL(fileURLWithPath: "/input/mhc.fasta")])
+    state.analysisName = "Primer analysis"
+    XCTAssertThrowsError(try state.validatedDestinationURL())
+    XCTAssertEqual(state.validationMessage, "An analysis with this name already exists in the project. Enter a different name.")
+  }
+
+  func testChoosingIntercalatingDyeAppliesSharedDefaultsThatMatchTheCLI() throws {
+    let state = configuredState()
+    XCTAssertEqual(try state.primer3Options(), .preset(.pcr))
+    state.chemistry = .intercalatingDye
+    XCTAssertEqual(state.productSizeMin, "70")
+    XCTAssertEqual(state.primerMaxTm, "62")
+    XCTAssertEqual(state.primerMaxEndGC, "2")
+    let dialog = try state.primer3Options()
+    XCTAssertEqual(dialog, .preset(.qpcrDye))
+
+    let command = try PrimerDesignCommand.Primer3Subcommand.parse([
+      "--fasta-record", "/input/mhc.fasta@0", "--output", "/tmp/out.lungfishprimeranalysis", "--assay", "qpcr-dye",
+    ])
+    XCTAssertEqual(try command.makeOptions(), dialog)
+
+    // The preset only seeds the visible fields; edits still win.
+    state.primerMinTm = "59"
+    state.primerMaxSelfEndTh = ""
+    let edited = try state.primer3Options()
+    XCTAssertEqual(edited.primerMinTm, 59)
+    XCTAssertNil(edited.primerMaxSelfEndTh)
+    XCTAssertEqual(edited.assayMode, .qpcrDye)
+
+    state.chemistry = .pcr
+    XCTAssertEqual(try state.primer3Options(), .preset(.pcr))
+    state.primerMinTm = "55"
+    state.chemistry = .hydrolysisProbe
+    XCTAssertEqual(state.primerMinTm, "55", "PCR and probe share one preset, so switching keeps edits")
+    XCTAssertEqual(try state.primer3Options().assayMode, .qpcrProbe)
+    XCTAssertTrue(try state.primer3Options().pickInternalOligo)
   }
 
   private func configuredState() -> PrimerDesignDialogState {

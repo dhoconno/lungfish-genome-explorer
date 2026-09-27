@@ -2980,20 +2980,29 @@ lungfish-cli primers design primer3 [<options>] --output <output>
 | `--binding-site-policy <binding-site-policy>` | MSA binding policy, one of `template-only` or `exclude-variable-and-gapped-columns`. The default is `exclude-variable-and-gapped-columns`. |
 | `--output <output>` | New `.lungfishprimeranalysis` destination. |
 | `--primer3-path <primer3-path>` | Optional exact primer3_core executable path. |
-| `--product-size-min <product-size-min>` | Shortest product size in bases. The default is `100`. |
-| `--product-size-max <product-size-max>` | Longest product size in bases. The default is `400`. |
+| `--assay <assay>` | Assay preset, as in the GUI, one of `pcr`, `qpcr-dye`, or `qpcr-probe`. The default is `pcr`. Flags left out below take the preset's defaults. |
+| `--product-size-min <product-size-min>` | Shortest product size in bases. The preset default is `100` for `pcr` and `70` for `qpcr-dye`. |
+| `--product-size-max <product-size-max>` | Longest product size in bases. The preset default is `400` for `pcr` and `150` for `qpcr-dye`. |
 | `--target-start <target-start>` | Optional 1-based inclusive target start. Requires `--target-end`. |
 | `--target-end <target-end>` | Optional 1-based inclusive target end. Requires `--target-start`. |
 | `--pair-count <pair-count>` | Number of primer pairs to return. The default is `5`. |
-| `--primer-min-size <primer-min-size>` | Shortest primer length in bases. The default is `18`. |
-| `--primer-opt-size <primer-opt-size>` | Preferred primer length in bases. The default is `20`. |
-| `--primer-max-size <primer-max-size>` | Longest primer length in bases. The default is `27`. |
-| `--primer-min-tm <primer-min-tm>` | Lowest primer melting temperature in degrees Celsius. The default is `57.0`. |
-| `--primer-opt-tm <primer-opt-tm>` | Preferred primer melting temperature in degrees Celsius. The default is `60.0`. |
-| `--primer-max-tm <primer-max-tm>` | Highest primer melting temperature in degrees Celsius. The default is `63.0`. |
-| `--primer-min-gc <primer-min-gc>` | Lowest primer GC percentage. The default is `20.0`. |
-| `--primer-max-gc <primer-max-gc>` | Highest primer GC percentage. The default is `80.0`. |
-| `--pick-internal-oligo` | Ask Primer3 for an ordinary internal oligo. |
+| `--primer-min-size <primer-min-size>` | Shortest primer length in bases. The preset default is `18`. |
+| `--primer-opt-size <primer-opt-size>` | Preferred primer length in bases. The preset default is `20`. |
+| `--primer-max-size <primer-max-size>` | Longest primer length in bases. The preset default is `27` for `pcr` and `24` for `qpcr-dye`. |
+| `--primer-min-tm <primer-min-tm>` | Lowest primer melting temperature in degrees Celsius. The preset default is `57` for `pcr` and `58` for `qpcr-dye`. |
+| `--primer-opt-tm <primer-opt-tm>` | Preferred primer melting temperature in degrees Celsius. The preset default is `60`. |
+| `--primer-max-tm <primer-max-tm>` | Highest primer melting temperature in degrees Celsius. The preset default is `63` for `pcr` and `62` for `qpcr-dye`. |
+| `--primer-min-gc <primer-min-gc>` | Lowest primer GC percentage. The preset default is `20` for `pcr` and `40` for `qpcr-dye`. |
+| `--primer-max-gc <primer-max-gc>` | Highest primer GC percentage. The preset default is `80` for `pcr` and `60` for `qpcr-dye`. |
+| `--pair-max-tm-difference <n>` | Largest melting-temperature gap between the two primers (PRIMER_PAIR_MAX_DIFF_TM). Primer3's own default for `pcr`, `1` for `qpcr-dye`. |
+| `--primer-max-end-gc <n>` | Most G or C bases among the last five 3′ bases (PRIMER_MAX_END_GC). Primer3's own default for `pcr`, `2` for `qpcr-dye`. |
+| `--primer-gc-clamp <n>` | Required G or C bases at the 3′ end (PRIMER_GC_CLAMP). Primer3's own default for `pcr`, `1` for `qpcr-dye`. |
+| `--primer-max-poly-x <n>` | Longest run of one base (PRIMER_MAX_POLY_X). Primer3's own default for `pcr`, `4` for `qpcr-dye`. |
+| `--primer-max-self-any-th <n>` | Self-complementarity limit anywhere in a primer, as a duplex Tm (PRIMER_MAX_SELF_ANY_TH). Primer3's own default for `pcr`, `40` for `qpcr-dye`. |
+| `--primer-max-self-end-th <n>` | Self-complementarity limit at the 3′ end (PRIMER_MAX_SELF_END_TH). Primer3's own default for `pcr`, `30` for `qpcr-dye`. |
+| `--pair-max-compl-any-th <n>` | Pair complementarity limit anywhere (PRIMER_PAIR_MAX_COMPL_ANY_TH). Primer3's own default for `pcr`, `40` for `qpcr-dye`. |
+| `--pair-max-compl-end-th <n>` | Pair complementarity limit at the 3′ ends (PRIMER_PAIR_MAX_COMPL_END_TH). Primer3's own default for `pcr`, `30` for `qpcr-dye`. |
+| `--pick-internal-oligo` | Ask Primer3 for an ordinary internal oligo. Implied by `--assay qpcr-probe`. |
 
 ### `primers design primalscheme3`
 
@@ -3012,8 +3021,8 @@ The remaining flags, `--output`, `--primalscheme3-path`, `--high-gc`, `--max-amp
 | `--grouping <grouping>` | Whether several inputs get `independent` schemes or one `combined` panel. The default is `independent`. |
 | `--primalscheme3-path <primalscheme3-path>` | Path of the PrimalScheme program to use instead of the managed one. |
 | `--amplicon-size <amplicon-size>` | Target amplicon size in bases. The default is `400`. |
-| `--amplicon-size-min <amplicon-size-min>` | Inclusive minimum reference amplicon span, including primer sites. Supplying either bound enables reference-span sizing. |
-| `--amplicon-size-max <amplicon-size-max>` | Inclusive maximum reference amplicon span, including primer sites. |
+| `--amplicon-size-min <amplicon-size-min>` | Inclusive minimum reference amplicon span, including primer sites. Defaults to 90% of `--amplicon-size`, as the GUI does. |
+| `--amplicon-size-max <amplicon-size-max>` | Inclusive maximum reference amplicon span, including primer sites. Defaults to 110% of `--amplicon-size`, as the GUI does. |
 | `--pool-count <pool-count>` | Number of primer pools. The default is `2`. |
 | `--min-overlap <min-overlap>` | Minimum overlap for independent legacy designs. Combined designs require the default 10. The default is `10`. |
 | `--minimum-base-frequency <minimum-base-frequency>` | Lowest frequency a base must have in the alignment to be considered. The default is `0.0`. |
@@ -3032,6 +3041,17 @@ The remaining flags, `--output`, `--primalscheme3-path`, `--high-gc`, `--max-amp
 | `--phase-scheduling <phase-scheduling>` | Optimizer phase policy, one of `serial` or `reserved`. |
 | `--intended-product-policy <intended-product-policy>` | Intended product policy, one of `exact-supported` or `concrete-designated-sites`. |
 | `--secondary-product-policy <secondary-product-policy>` | Secondary product policy, one of `ordered-disjoint-intended-sites`, `reject-secondary-products/v1`, or `ordered-disjoint-concrete-designated-sites/v1`. |
+| `--legacy-salvage <legacy-salvage>` | Bounded dimer salvage for combined legacy panels, one of `off` or `bounded`. The default is `off`. Unrelated to the `--salvage*` allele-coverage flags. |
+| `--legacy-salvage-threshold <legacy-salvage-threshold>` | Strictly decreasing salvage dimer thresholds below the dimer score. Repeatable. |
+| `--legacy-salvage-floor <legacy-salvage-floor>` | Lowest salvage dimer score considered. |
+| `--legacy-salvage-max-edges-per-pool <n>` | Salvage edge budget per pool, as in the GUI. |
+| `--legacy-salvage-max-incident-species-per-pool <n>` | Salvage incident-species budget per pool, as in the GUI. |
+| `--legacy-salvage-min-reference-gain <n>` | Fewest references a salvaged edge must add. |
+| `--legacy-salvage-max-candidate-evaluations <n>` | Cap on salvage candidate evaluations. |
+| `--gap-completion-parent <gap-completion-parent>` | Saved combined PrimalScheme analysis whose uncovered regions this follow-up design should fill. |
+| `--gap-expansion <gap-expansion>` | Generate candidates for uncovered regions of the gap-completion parent, one of `off` or `bounded`. The default is `off`. |
+| `--gap-expansion-max-anchors-per-msa <n>` | Gap-expansion anchor budget per alignment. |
+| `--gap-expansion-max-pairs-per-msa <n>` | Gap-expansion pair budget per alignment. |
 
 ### `primers analysis inspect`
 

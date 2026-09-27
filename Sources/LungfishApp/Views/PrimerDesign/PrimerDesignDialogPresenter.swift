@@ -78,6 +78,8 @@ final class PrimerDesignDialogPresenter {
       ]
       if state.engine == .primer3 {
         visibleOptions["assay"] = .string(state.chemistry.rawValue)
+        visibleOptions["assayMode"] = .string(state.chemistry.assayMode.rawValue)
+        visibleOptions["assayDefaultsSource"] = .string("shared Primer3AssayDefaults preset, editable in the dialog")
       } else if state.engine == .primalScheme {
         visibleOptions["minimumBaseFrequency"] = .number(try state.primalSchemeOptions().minimumBaseFrequency)
         visibleOptions["minimumBaseFrequencySource"] = .string("visible GUI control")

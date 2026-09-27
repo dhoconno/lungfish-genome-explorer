@@ -132,6 +132,9 @@ struct PrimerDesignDialog: View {
       if state.chemistry == .hydrolysisProbe {
         Text("Pick an internal oligo with each pair. Reporter, quencher and vendor modifications are assigned after sequence design.")
           .font(.caption).foregroundStyle(.secondary)
+      } else if state.chemistry == .intercalatingDye {
+        Text("Dye qPCR rules are applied: 70 to 150 bp products, 58 to 62 °C primers within 1 °C of each other, 40 to 60% GC, 3′-end and dimer limits. Edit any value below or under Advanced settings.")
+          .font(.caption).foregroundStyle(.secondary)
       }
       HStack {
         numberField("Product minimum (bp)", $state.productSizeMin)
@@ -225,6 +228,20 @@ struct PrimerDesignDialog: View {
           HStack {
             numberField("Minimum GC (%)", $state.primerMinGC)
             numberField("Maximum GC (%)", $state.primerMaxGC)
+          }
+          Text("Assay rules (blank keeps Primer3's default)").font(.subheadline.weight(.medium))
+          HStack {
+            numberField("Pair Tm difference max (°C)", $state.pairMaxTmDifference)
+            numberField("3′-end G/C max (last 5 nt)", $state.primerMaxEndGC)
+            numberField("GC clamp (nt)", $state.primerGCClamp)
+            numberField("Poly-X max (nt)", $state.primerMaxPolyX)
+          }
+          Text("Complementarity thresholds (duplex Tm, °C)").font(.subheadline.weight(.medium))
+          HStack {
+            numberField("Self, any", $state.primerMaxSelfAnyTh)
+            numberField("Self, 3′ end", $state.primerMaxSelfEndTh)
+            numberField("Pair, any", $state.pairMaxComplAnyTh)
+            numberField("Pair, 3′ end", $state.pairMaxComplEndTh)
           }
         } else if state.engine == .primalScheme {
           numberField("Minimum base frequency", $state.minimumBaseFrequency)

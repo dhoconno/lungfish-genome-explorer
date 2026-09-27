@@ -7,8 +7,8 @@ import LungfishWorkflow
 struct OlivarDesignCommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "olivar",
-        abstract: "Design tiled schemes with OliVar through the versioned LGE adapter",
-        discussion: "Amplicon bounds are inclusive reference spans including primer sites. The nominal size is retained for display and provenance; OliVar uses the minimum and maximum bounds.")
+        abstract: "Design tiled schemes with Olivar through the versioned LGE adapter",
+        discussion: "Amplicon bounds are inclusive reference spans including primer sites. The nominal size is retained for display and provenance; Olivar uses the minimum and maximum bounds.")
 
     @Option(name: .customLong("msa"), help: "Equal-length native MSA, one-sequence reference, or aligned nucleotide FASTA. Repeatable.")
     var msaPaths: [String] = []
@@ -16,7 +16,7 @@ struct OlivarDesignCommand: AsyncParsableCommand {
     var outputPath: String
     @Option(name: .customLong("grouping"), help: "independent or combined")
     var grouping = "independent"
-    @Option(name: .customLong("python-path"), help: "Optional exact Python executable; the adapter still verifies pinned OliVar source and conda identity.")
+    @Option(name: .customLong("python-path"), help: "Optional exact Python executable; the adapter still verifies pinned Olivar source and conda identity.")
     var pythonPath: String?
     @Option(name: .customLong("amplicon-size"), help: "Nominal display/provenance size.")
     var ampliconSize = 400
@@ -115,7 +115,7 @@ struct OlivarDesignCommand: AsyncParsableCommand {
 
     func run() async throws {
         let output = try await execute(argv: CommandLine.arguments)
-        print("OliVar primer analysis written to \(output.path)")
+        print("Olivar primer analysis written to \(output.path)")
     }
 
     private func execute(argv: [String]) async throws -> URL {
