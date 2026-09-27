@@ -59,8 +59,9 @@ struct PrimalSchemeResultsView: View {
           .help("Opens the complete saved scheme, including oligos hidden from this viewport. Use the displayed-order action in Inspector for the currently shown set.")
           .accessibilityIdentifier("primerAnalysisViewer.orderSheet")
       } else {
-        Text("This saved analysis has no ordering worksheet. Its native primer records remain available in the Inspector’s Files tab.")
+        Text("This saved analysis has no saved ordering worksheet. Use Export selected assays… in Inspector → View to create an order; the native primer records remain available in the Inspector’s Files tab.")
           .font(.caption).foregroundStyle(.secondary)
+          .accessibilityIdentifier("primerAnalysisViewer.orderSheetUnavailable")
       }
       Group {
         if let selectedTarget, selectedTarget.sourceResultID == result.id {
