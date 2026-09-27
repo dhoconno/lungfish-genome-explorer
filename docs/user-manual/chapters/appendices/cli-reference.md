@@ -1947,7 +1947,7 @@ Builds a plan that calls variants with GATK HaplotypeCaller and then phases them
 lungfish-cli variants phase [--execute] [--dry-run] --reference <reference> --bam <bam> --output-vcf <output-vcf> [--output-dir <output-dir>] [--sample <sample>] [--threads <threads>] [--extra-gatk-args <extra-gatk-args>] [--extra-whatshap-args <extra-whatshap-args>]
 ```
 
-The plan always calls with `-ERC NONE`, writes `gatk-unphased.vcf.gz` and `phased-variant-command-plan.json` into the output folder, and does not index the phased VCF. `--output-dir` defaults to the output VCF's folder, and `--dry-run` wins over `--execute`. The Call Variants dialog no longer offers a phased entry, so this command is the only phased route. Its own `--threads` flag has no effect, because the global `--threads` takes the value first, so HaplotypeCaller always runs with one thread. The result is still correct.
+The plan always calls with `-ERC NONE`, writes `gatk-unphased.vcf.gz` and `phased-variant-command-plan.json` into the output folder, and does not index the phased VCF. `--output-dir` defaults to the output VCF's folder, and `--dry-run` wins over `--execute`. The phased entry of the Call Variants dialog is switched off, so this command is the only phased route. Its own `--threads` flag has no effect, because the global `--threads` takes the value first, so HaplotypeCaller always runs with one thread. The result is still correct.
 
 | Argument or flag | What it does |
 |---|---|
