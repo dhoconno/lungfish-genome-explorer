@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import LungfishIO
+import LungfishKit
 
 enum MultipleSequenceAlignmentDocumentSectionKind: Equatable {
     case header
@@ -282,7 +283,7 @@ struct MSAPairwiseIdentitySection: View {
         case .failed(let message):
             Text(message)
                 .font(LungfishInspectorStyle.controlFont)
-                .foregroundStyle(.red)
+                .foregroundStyle(Color.lungfishDangerFallback)
                 .fixedSize(horizontal: false, vertical: true)
         case .ready:
             if model.pairs.isEmpty {
@@ -586,7 +587,7 @@ struct MSADiscriminatingSitesSection: View {
         case .failed(let message):
             Text(message)
                 .font(LungfishInspectorStyle.controlFont)
-                .foregroundStyle(.red)
+                .foregroundStyle(Color.lungfishDangerFallback)
                 .fixedSize(horizontal: false, vertical: true)
         case .ready:
             resultTables

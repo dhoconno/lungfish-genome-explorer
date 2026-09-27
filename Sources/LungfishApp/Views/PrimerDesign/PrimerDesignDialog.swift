@@ -274,7 +274,7 @@ struct PrimerDesignDialog: View {
     if let message = fixedOligoValidationMessage {
       Text(message)
         .font(.caption)
-        .foregroundStyle(.red)
+        .foregroundStyle(Color.lungfishDangerFallback)
         .fixedSize(horizontal: false, vertical: true)
         .accessibilityLabel("Fixed oligo problem: \(message)")
     }
