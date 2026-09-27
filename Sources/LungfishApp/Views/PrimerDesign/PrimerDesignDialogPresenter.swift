@@ -95,6 +95,8 @@ final class PrimerDesignDialogPresenter {
           visibleOptions["effectiveProbeMinTm"] = .number(effective.probeMinTm)
           visibleOptions["effectiveProbeOptTm"] = .number(effective.probeOptTm)
           visibleOptions["effectiveProbeMaxTm"] = .number(effective.probeMaxTm)
+          visibleOptions["probeMaxPolyX"] = .integer(effective.probeMaxPolyX)
+          visibleOptions["probeMustMatchFivePrime"] = effective.probeMustMatchFivePrime.map(ParameterValue.string) ?? .null
         }
       } else if state.engine == .primalScheme {
         visibleOptions["minimumBaseFrequency"] = .number(try state.primalSchemeOptions().minimumBaseFrequency)
