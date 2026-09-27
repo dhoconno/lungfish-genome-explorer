@@ -21,6 +21,39 @@ final class ViralReconWizardSheetTests: XCTestCase {
         }
     }
 
+    /// A silent default to the first scheme alphabetically trims with the
+    /// wrong primers; the picker starts with no selection.
+    func testPrimerSchemePickerStartsWithNoSelection() {
+        let available = ["file:///schemes/artic-v3", "file:///schemes/artic-v5.3.2", "file:///schemes/midnight"]
+        XCTAssertEqual(ViralReconWizardPrimerSelectionPolicy.initialSelection(previous: "", availableIDs: available), "")
+        XCTAssertEqual(
+            ViralReconWizardPrimerSelectionPolicy.initialSelection(previous: "file:///schemes/midnight", availableIDs: available),
+            "file:///schemes/midnight",
+            "a scheme the user already chose is kept while it is still on offer"
+        )
+        XCTAssertEqual(
+            ViralReconWizardPrimerSelectionPolicy.initialSelection(previous: "file:///schemes/removed", availableIDs: available),
+            "",
+            "a choice that is no longer available is not replaced by a guess"
+        )
+        XCTAssertEqual(ViralReconWizardPrimerSelectionPolicy.initialSelection(previous: "", availableIDs: []), "")
+    }
+
+    func testRunStaysBlockedUntilAPrimerSchemeIsChosen() {
+        let evaluation = ViralReconWizardReadiness.evaluate(
+            ViralReconWizardReadiness.State(
+                hasInputFiles: true,
+                effectivePlatform: .illumina,
+                inputError: nil,
+                primerManifest: nil,
+                outputRootAvailable: true,
+                minimumMappedReads: 1000
+            )
+        )
+        XCTAssertFalse(evaluation.canRun)
+        XCTAssertEqual(evaluation.message, "Select a SARS-CoV-2 primer scheme.")
+    }
+
     func testAdvancedFieldParsesKeyValuePairs() {
         let known: Set<String> = ["variant_caller", "min_mapped_reads"]
         let result = ViralReconWizardSheet.parseAdvancedParameters(

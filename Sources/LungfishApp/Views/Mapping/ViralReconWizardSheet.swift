@@ -232,6 +232,7 @@ struct ViralReconWizardSheet: View {
                         .foregroundStyle(Color.lungfishOrangeFallback)
                 } else {
                     Picker("Scheme", selection: $selectedPrimerID) {
+                        Text(ViralReconWizardPrimerSelectionPolicy.placeholderTitle).tag("")
                         ForEach(primerOptions) { option in
                             Text(option.title).tag(option.id)
                         }
@@ -243,6 +244,10 @@ struct ViralReconWizardSheet: View {
                         Text(selectedPrimerOption.detail)
                             .font(.caption)
                             .foregroundStyle(.secondary)
+                    } else {
+                        Text(ViralReconWizardPrimerSelectionPolicy.unselectedCaption)
+                            .font(.caption)
+                            .foregroundStyle(Color.lungfishOrangeFallback)
                     }
                 }
             }
@@ -374,9 +379,10 @@ struct ViralReconWizardSheet: View {
             }
         }.value
         primerOptions = options
-        if selectedPrimerID.isEmpty {
-            selectedPrimerID = options.first?.id ?? ""
-        }
+        selectedPrimerID = ViralReconWizardPrimerSelectionPolicy.initialSelection(
+            previous: selectedPrimerID,
+            availableIDs: options.map(\.id)
+        )
     }
 
     private func refreshResolvedInputs() {
@@ -795,6 +801,23 @@ enum ViralReconWizardPrimerStaging {
             .filter { SequenceFormat.from(url: $0) == .fasta }
             .sorted { $0.lastPathComponent < $1.lastPathComponent }
             .first
+    }
+}
+
+/// The Scheme picker never guesses.
+///
+/// It used to preselect the first scheme alphabetically (ARTIC SARS-CoV-2 V3),
+/// so a run whose amplicons came from a newer scheme was silently trimmed
+/// with the wrong primer coordinates. FASTQ bundles carry no primer-scheme
+/// metadata LGE could trust for a default, so the picker starts empty and
+/// Run stays disabled (``ViralReconWizardReadiness``) until the user picks
+/// one. A previous pick survives a reload only while it is still on offer.
+enum ViralReconWizardPrimerSelectionPolicy {
+    static let placeholderTitle = "Choose a scheme\u{2026}"
+    static let unselectedCaption = "Choose the scheme the amplicons were made with. Trimming with the wrong scheme removes the wrong bases."
+
+    static func initialSelection(previous: String, availableIDs: [String]) -> String {
+        availableIDs.contains(previous) ? previous : ""
     }
 }
 
