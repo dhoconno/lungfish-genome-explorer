@@ -19,7 +19,7 @@ shots:
 illustrations: []
 glossary_refs: [ai-assistant, api-key, keychain, provenance, checksum, inspector, bundle, viewport, table-drawer, operations-panel, grounded-answer, provider-fallback, contig]
 features_refs: [ai.assistant]
-fixtures_refs: [demo-project]
+fixtures_refs: [hbb-gene]
 brand_reviewed: false
 lead_approved: false
 ---
@@ -46,25 +46,25 @@ Those questions are lookups against data already loaded, and the assistant can r
 
 Nothing else in this manual depends on this appendix, and no analysis in LGE needs an AI provider.
 
-You need a project open, as [The Lungfish Genome Explorer Project](../01-foundations/06-the-lungfish-project.md#procedure) shows. The examples use the demo project and its HG002 chromosome 20 slice, a 500,000-base region of chromosome 20 from HG002, a widely studied human reference sample, which [Practice data for this manual](../01-foundations/06-the-lungfish-project.md#practice-data-for-this-manual) explains how to build.
+You need a project open, as [The Lungfish Genome Explorer Project](../01-foundations/06-the-lungfish-project.md#procedure) shows. The examples use the Genes and Sequences demo project, which **Help > Demo Projects…** downloads, as [Demo projects](../01-foundations/06-the-lungfish-project.md#demo-projects) explains. Its `NG_000007.3` reference bundle holds the human beta-globin (HBB) region with its genes drawn as features, so the assistant has genes to look up.
 
-The Assistant tab appears only while the viewport shows a reference sequence or another genomics view such as a multiple sequence alignment, for example the HG002 chromosome 20 slice under `Reference Sequences/`. Reads, assemblies, mapping results, classifier results, and genotype results open an Inspector without it, and nothing explains the absence.
+The Assistant tab appears only while the viewport shows a reference sequence or another sequence view such as a multiple sequence alignment, for example `NG_000007.3` under `Reference Sequences/`. Reads, read alignments (mapping results), assemblies, classifier results, genotype results, and primer analyses open an Inspector without it, and nothing explains the absence.
 
-You also need an account and a key from Anthropic, OpenAI, or Google Gemini. You create the account on the provider's own website, which issues the key and asks for payment details. Each provider charges per question at its own rates, so check their prices before you decide how much to ask. Once the setting in step 2 is on, the tab opens and shows its suggested questions even with no key, but every question then comes back saying the API key is not configured and pointing you at **Settings > AI Services**.
+You also need an account and a key from Anthropic, OpenAI, or Google Gemini. You create the account on the provider's own website, which issues the key and asks for payment details. Each provider charges per question at its own rates, so check their prices before you decide how much to ask. Once AI search is turned on, the tab opens and shows its suggested questions even with no key, but every question then comes back saying the API key is not configured and pointing you at **Settings > AI Services**.
 
 Allow about twenty minutes, most of it spent creating the provider account.
 
 ## Procedure
 
-### Step 1. Open the AI Services settings tab
+### Open the AI Services settings tab
 
 Choose **Settings...** (Cmd-,) from the application menu, the menu named after the app at the left of the menu bar, and click **AI Services**. Leave it open for the next two steps.
 
-### Step 2. Turn on AI search
+### Turn on AI search
 
 Turn on the toggle at the top of the tab, labelled `Enable AI-powered search`. It is off on a new installation, and turning it on sends nothing, because no question has been asked yet. While it is off, the Assistant tab is hidden and **View > AI Assistant** raises an alert headed "AI Assistant Disabled".
 
-### Step 3. Choose a default provider and enter its key
+### Choose a default provider and enter its key
 
 Choose a company from the `Default provider:` picker, whose options read "Anthropic Claude", "OpenAI", and "Google Gemini". Find the section for that company further down the tab and type or paste your key into its **API Key** field. The grey placeholder text shows the shape each company's keys take, `sk-ant-...` for Anthropic, `sk-...` for OpenAI, and `AIza...` for Google Gemini, and the prefix is already part of the key the provider gives you.
 
@@ -75,35 +75,35 @@ An indicator to the left of each key field reports what LGE knows about that key
 | Indicator | Meaning |
 |---|---|
 | Grey minus sign | The field is empty. |
-| Orange hourglass | A key is entered but not yet checked, or is being checked, with the caption "Validating API key and quota...". |
+| Orange hourglass | A key is entered but not yet checked, with the caption "Key entered. Enter a full key to validate automatically.", or is being checked, with the caption "Validating API key and quota...". |
 | Green checkmark | The provider accepted the key, with the caption "Key is valid and ready for AI queries." |
-| Red cross | The check failed, with a caption naming the reason. |
+| Red cross | The check failed, with a caption that opens with the words "Validation failed" and names the reason. |
 
 You may fill in more than one provider. LGE tries your default first and falls back to the others when it cannot answer, which [Settings](#settings) explains.
 
 <!-- SHOT: ai-assistant-provider-setup -->
 
-### Step 4. Open the Assistant tab
+### Open the Assistant tab
 
-Click the HG002 chromosome 20 slice under `Reference Sequences/` in the sidebar, then choose **View > AI Assistant** (Cmd-Shift-A). The Inspector opens with its **Assistant** tab selected. The header carries the title, a status line, a **Data sent…** button, and a **Clear** button.
+Click `NG_000007.3` under `Reference Sequences/` in the sidebar, then choose **View > AI Assistant** (Cmd-Shift-A). The Inspector opens with its **Assistant** tab selected. The header carries the title, a status line, a **Data sent…** button, and a **Clear** button.
 
-The tab greets you with a welcome message and a column of suggested questions written for whatever is loaded. With the HG002 chromosome 20 slice open they include "Data overview", "Explore current view", "Search for a gene", "Find related research", and "Chromosome guide", and "Variant statistics" when a variant track is loaded. The research button searches PubMed, the free index of biomedical literature kept by the National Library of Medicine. Click a button to send its question. With no bundle loaded there is one suggestion, which asks how to load a bundle.
+The tab greets you with a welcome message and a column of suggested questions written for whatever is loaded. With a reference sequence open they include "Data overview", "Explore current view", "Search for a gene", "Navigate to a gene", "Disease gene check", "Find related research", and "Chromosome guide". Three more about variants, starting with "Variant statistics", join them when the view holds a variant track. The research button searches PubMed, the free index of biomedical literature kept by the National Library of Medicine. Click a button to send its question.
 
-### Step 5. Read what would be sent
+### Read what would be sent
 
 Click **Data sent…**. A popover shows what a request would carry and which companies could receive it. Opening it sends nothing.
 
-The popover names the fallback order and states that only providers whose keys passed the check in step 3 are used. It also warns that one question can reach two companies, because a request that fails at the first provider may already have arrived there before the second receives it. Below that it prints the current context in full, including the bundle name, the organism, and the region. Read it before your first question and again whenever you switch to data you would rather not send.
+The popover names the fallback order and states that only providers whose keys passed the check described above are used. It also warns that one question can reach two companies, because a request that fails at the first provider may already have arrived there before the second receives it. Below that it prints the current context in full, including the bundle name, the organism, and the region. Read it before your first question and again whenever you switch to data you would rather not send.
 
-### Step 6. Ask a question
+### Ask a question
 
 Click the field at the bottom of the tab, which reads "Ask about your genome data...", type a question, and press Return. An indicator spins while the provider works, usually for a few seconds. Each request to a provider times out after 150 seconds. LGE then tries the next provider, and reports a failure only when none is left.
 
-For the demo project, try "How many variants are in the HG002 chromosome 20 slice, and which chromosomes does it contain?" Once you have clicked a row in the Variants tab, "What are the variants I have selected?" works too.
+For the `NG_000007.3` record, try "Which genes does this record hold, and where does HBB start and end?" The record's own feature table answers it, so you can check the reply against the ruler. In a view that holds a variant track, "What are the variants I have selected?" works once you have clicked a row in the Variants tab.
 
 The reply arrives as a message with a copy button. This appendix quotes no reply, because the text comes from a model outside LGE and differs between providers, models, and two runs of the same question. Ask one question at a time. A second question sent while one is in flight gets "Please wait for the current request to complete."
 
-### Step 7. Clear the conversation when you change datasets
+### Clear the conversation when you change datasets
 
 Click **Clear**. The messages disappear, the welcome message returns, and the suggested questions are rebuilt for whatever is loaded now. Clearing writes nothing to your project and cannot unsend anything that already went to a provider. Clear whenever you move to a different bundle, so the assistant does not reason from a conversation about the previous one.
 
@@ -159,8 +159,6 @@ Four checks separate a reply you can act on from one to set aside.
 4. Nothing changed. The assistant edits no files, runs no workflow, imports or deletes no bundles, and writes nothing into your project's provenance. If a bundle looks different after a conversation, the [Operations Panel](../01-foundations/06-the-lungfish-project.md#the-operations-panel), which opens with **Operations > Show Operations Panel** (Cmd-Shift-P), shows what changed it.
 
 ## On the command line
-
-This section is optional, and nothing later in this manual needs it. The `lungfish-cli` program ships inside LGE, and [Finding the program](cli-reference.md#finding-the-program) shows how to run it.
 
 The AI Assistant has no command-line counterpart. No `lungfish-cli` command opens a chat or sends a question to a provider. `lungfish-cli search` looks for a text pattern in a FASTA file and involves no model. `lungfish-cli genotype ai-haplotyping` does call a model, for genotyping work, with its own provider flags listed in [CLI Reference](cli-reference.md).
 

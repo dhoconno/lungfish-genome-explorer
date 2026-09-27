@@ -76,7 +76,7 @@ Above the buttons a details block names the session, the owner, the [host](../..
 
 Recovery is safe when the other session has ended and dangerous when it has not, and LGE cannot tell for you. If the host is not your Mac, ask the person who uses that machine. If the host is your own Mac, open Activity Monitor from **Applications > Utilities**, type the process id into its search field, and see whether any running process has that number. Nothing found means the session is gone.
 
-Recovery keeps the record it replaces. It moves the old lock into a `lock-recovery` folder inside the project's hidden `.lungfish` folder and writes a `recovery.json` beside it, holding the reason, the time, the original path, a [checksum](../../GLOSSARY.md#checksum) of the archived file, and the session that recovered it. That pair of files is the evidence if you later need to know who was locked out and when.
+Recovery keeps the record it replaces. It moves the old lock into a subfolder of its own, named with a long random identifier, inside a `lock-recovery` folder in the project's hidden `.lungfish` folder, and writes a `recovery.json` beside it, holding the reason, the time, the original path, a [checksum](../../GLOSSARY.md#checksum) of the archived file, and the session that recovered it. That pair of files is the evidence if you later need to know who was locked out and when.
 
 ### What read only looks like
 
@@ -88,7 +88,7 @@ Try to run something that writes and a sheet titled **Project Is Open Read Only*
 
 A project copied while another copy of LGE had the original open carries that session's lock inside it. Open the copy and its alert names the session from the original. Once that session has ended, the copy opens normally on the same Mac. On another Mac, use **Recover and Open**.
 
-A folder built only with `lungfish-cli` and never opened in the app has no [project store](../../GLOSSARY.md#project-store), the app's own hidden index of the project's contents, and the app opens it read only for that reason. The title reads `(Read Only)` either way. If `(Read Only)` appears without a lock alert first, the missing project store is the cause.
+A folder built only with `lungfish-cli` and never opened in the app has no [project store](../../GLOSSARY.md#project-store), the app's own hidden index of the project's contents, and the app opens it read only for that reason. It does the same when the project store or the project folder cannot be written to, for example because the folder belongs to another user or sits on a read-only volume. The title reads `(Read Only)` either way. If `(Read Only)` appears without a lock alert first, one of these is the cause.
 
 ## Before you type anything
 
@@ -132,7 +132,7 @@ LGE compares `machineIdentifier` first and falls back to the hostname only for r
 
 `--mode` records any label you type. The default is `exclusive`, and `maintenance` is the usual alternative. The mode is a label for other readers, not a permission level, and both block writes the same way.
 
-A lock whose owner is still running, any lock from another Mac, and a corrupted lock all block a second lock. The command exits 1 with a message beginning "Project is already locked at", followed by the lock path and the owner as user, host, and process id.
+A lock whose owner is still running, any lock from another Mac, and a corrupted lock all block a second lock, and the command exits 1. For a live or unknown lock the message begins "Project is already locked at", followed by the lock path and the owner as user, host, and process id. For a corrupted lock it begins "Project lock file is corrupted at" and advises passing `--force` only after confirming that no active writer is using the project.
 
 ### A command-line lock marks intent
 
