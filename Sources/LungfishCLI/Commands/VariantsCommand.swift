@@ -825,8 +825,11 @@ extension VariantsCommand {
         @Flag(name: .customLong("ivar-primer-trimmed"), help: "Confirm the BAM was primer-trimmed before iVar calling")
         var ivarPrimerTrimConfirmed: Bool = false
 
-        @Option(name: .customLong("medaka-model"), help: "Required ONT/basecaller model identifier or Clair3 model path")
+        @Option(name: .customLong("medaka-model"), help: "Medaka: the variant model name, required (for example r941_prom_sup_variant_g507). Clair3: a model shipped with Clair3 by name (for example r941_prom_sup_g5014) or a model folder path; omit it to use the model matched to the platform.")
         var medakaModel: String?
+
+        @Option(name: .customLong("platform"), help: "Sequencing platform for Medaka and Clair3: ont, hifi or ilmn. Defaults to the platform recorded in the alignment's read groups (@RG PL).")
+        var platform: String?
 
         @Option(name: .customLong("ivar-consensus-af"), help: "Allele frequency threshold above which an iVar haplotype counts as consensus (default 0.75)")
         var ivarConsensusAF: Double = 0.75
@@ -903,6 +906,7 @@ extension VariantsCommand {
             let resolvedCaller = try parseCaller()
             let advancedArguments = try parseAdvancedOptions()
             let resolvedPloidy = try parsePloidy(caller: resolvedCaller, advancedArguments: advancedArguments)
+            let resolvedPlatform = try parsePlatform(caller: resolvedCaller)
             let initialTrackName = normalizedOutputTrackName(fallback: resolvedCaller.displayName)
             let initialRequest = BundleVariantCallingRequest(
                 bundleURL: bundleURL,
@@ -919,7 +923,8 @@ extension VariantsCommand {
                 ivarMergeAFThreshold: ivarMergeAFThreshold,
                 ivarBadQualityThreshold: ivarBadQualityThreshold,
                 ivarIgnoreStrandBias: !ivarApplyStrandBias,
-                ploidy: resolvedPloidy
+                ploidy: resolvedPloidy,
+                platform: resolvedPlatform
             )
 
             emitSimpleEvent(event: "runStart", progress: 0.0, message: "Starting \(resolvedCaller.displayName) variant calling", caller: resolvedCaller.rawValue, emit: emitEvent)
@@ -945,7 +950,8 @@ extension VariantsCommand {
                     ivarMergeAFThreshold: ivarMergeAFThreshold,
                     ivarBadQualityThreshold: ivarBadQualityThreshold,
                     ivarIgnoreStrandBias: !ivarApplyStrandBias,
-                    ploidy: resolvedPloidy
+                    ploidy: resolvedPloidy,
+                    platform: resolvedPlatform
                 )
                 emitSimpleEvent(event: "preflightComplete", progress: 0.08, message: "Preflight checks passed", caller: resolvedCaller.rawValue, emit: emitEvent)
 
@@ -1136,6 +1142,20 @@ extension VariantsCommand {
             }
         }
 
+        /// `--platform` applies to the long-read callers, which choose a
+        /// model by it; the others infer nothing from it and would silently
+        /// ignore it, so it is refused there.
+        private func parsePlatform(caller: ViralVariantCaller) throws -> VariantCallingPlatform? {
+            guard let platform else { return nil }
+            guard caller == .medaka || caller == .clair3 else {
+                throw ValidationError("--platform applies only to --caller medaka or clair3; \(caller.displayName) does not choose a model by platform.")
+            }
+            guard let resolved = VariantCallingPlatform(cliValue: platform) else {
+                throw ValidationError("--platform must be one of ont, hifi, ilmn (or nanopore, pacbio, illumina), not '\(platform)'.")
+            }
+            return resolved
+        }
+
         /// `--ploidy` applies to bcftools alone and must not also arrive
         /// through `--extra-args`, where it would compete with the dedicated
         /// flag (the dialog's Ploidy setting reaches here as `--ploidy`).
@@ -1194,6 +1214,9 @@ extension VariantsCommand {
             if let ploidy {
                 command.append(contentsOf: ["--ploidy", String(ploidy)])
             }
+            if let platform {
+                command.append(contentsOf: ["--platform", platform])
+            }
             if !advancedOptions.isEmpty {
                 command.append(contentsOf: ["--extra-args", advancedOptions])
             }
@@ -1225,6 +1248,7 @@ extension VariantsCommand {
                 "ivarBadQualityThreshold": String(ivarBadQualityThreshold),
                 "ivarIgnoreStrandBias": String(!ivarApplyStrandBias),
                 "ploidy": caller == .bcftools ? (ploidy.map { String($0) } ?? "derived-from-bundle") : "not-applicable",
+                "platform": (caller == .medaka || caller == .clair3) ? (platform ?? "derived-from-read-groups") : "not-applicable",
                 "outputFormat": globalOptions.outputFormat.rawValue,
                 "quiet": String(globalOptions.quiet),
                 "containerRuntime": "none"

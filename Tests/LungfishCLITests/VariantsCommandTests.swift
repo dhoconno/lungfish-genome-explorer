@@ -281,6 +281,59 @@ final class VariantsCommandTests: XCTestCase {
         XCTAssertEqual(capture.request?.advancedArguments, ["--enable_phasing"])
     }
 
+    func testCallSubcommandPassesPlatformThroughForClair3() async throws {
+        let capture = CapturedVariantRequest()
+        let command = try VariantsCommand.CallSubcommand.parse([
+            "call",
+            "--bundle", tempDir.path,
+            "--alignment-track", "aln-1",
+            "--caller", "clair3",
+            "--platform", "hifi",
+            "--format", "json",
+        ])
+        let runtime = try makeRuntime(onPreflight: { request in
+            capture.request = request
+        })
+
+        _ = try await command.executeForTesting(runtime: runtime) { _ in }
+
+        XCTAssertEqual(capture.request?.platform, .hifi)
+        XCTAssertNil(capture.request?.medakaModel, "Clair3 no longer needs a model name; the platform default is used")
+    }
+
+    func testCallSubcommandRejectsUnknownPlatformAndPlatformForShortReadCallers() async throws {
+        let unknown = try VariantsCommand.CallSubcommand.parse([
+            "call",
+            "--bundle", tempDir.path,
+            "--alignment-track", "aln-1",
+            "--caller", "clair3",
+            "--platform", "iontorrent",
+            "--format", "json",
+        ])
+        let runtime = try makeRuntime()
+        do {
+            _ = try await unknown.executeForTesting(runtime: runtime) { _ in }
+            XCTFail("Expected an unknown --platform to be rejected")
+        } catch let error as ValidationError {
+            XCTAssertTrue(error.message.contains("ont, hifi, ilmn"), error.message)
+        }
+
+        let wrongCaller = try VariantsCommand.CallSubcommand.parse([
+            "call",
+            "--bundle", tempDir.path,
+            "--alignment-track", "aln-1",
+            "--caller", "lofreq",
+            "--platform", "ont",
+            "--format", "json",
+        ])
+        do {
+            _ = try await wrongCaller.executeForTesting(runtime: runtime) { _ in }
+            XCTFail("Expected --platform to be rejected for LoFreq")
+        } catch let error as ValidationError {
+            XCTAssertTrue(error.message.contains("applies only to --caller medaka or clair3"), error.message)
+        }
+    }
+
     func testPhaseSubcommandDryRunWritesCommandPlanAndProvenance() async throws {
         let reference = try write("ref.fa", contents: ">chr1\nACGT\n", in: tempDir)
         let bam = try write("sample.bam", contents: "bam-bytes", in: tempDir)

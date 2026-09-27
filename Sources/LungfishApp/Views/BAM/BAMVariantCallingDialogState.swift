@@ -41,6 +41,9 @@ final class BAMVariantCallingDialogState {
     var ivarBadQualityThreshold: Int
     var ivarIgnoreStrandBias: Bool
     var medakaModel: String
+    /// Sequencing platform for Clair3, which picks its model by it. `nil`
+    /// reads the platform from the alignment's read groups at run time.
+    var sequencingPlatform: VariantCallingPlatform?
     var advancedOptionsText: String
 
     /// Genotype ploidy for bcftools, the one caller here that writes
@@ -95,6 +98,7 @@ final class BAMVariantCallingDialogState {
         self.ivarBadQualityThreshold = 20
         self.ivarIgnoreStrandBias = true
         self.medakaModel = ""
+        self.sequencingPlatform = nil
         self.advancedOptionsText = ""
         let inference = VariantCallingPloidyDefaults.infer(for: bundle.manifest)
         self.inferredPloidy = inference
@@ -210,9 +214,11 @@ final class BAMVariantCallingDialogState {
                 ? "Provide the ONT/basecaller model required by Medaka."
                 : "Ready to run Medaka with model \(trimmedMedakaModel)."
         case .clair3:
+            let platformSummary = sequencingPlatform.map { "for \($0.displayName) reads" }
+                ?? "for the platform recorded in the alignment's read groups"
             return trimmedMedakaModel.isEmpty
-                ? "Provide the Clair3 model path or ONT model identifier."
-                : "Ready to run Clair3 with model \(trimmedMedakaModel)."
+                ? "Ready to run Clair3 with the model shipped \(platformSummary)."
+                : "Ready to run Clair3 with model \(trimmedMedakaModel) \(platformSummary)."
         }
     }
 
@@ -242,7 +248,7 @@ final class BAMVariantCallingDialogState {
         case .medaka:
             return !trimmedMedakaModel.isEmpty
         case .clair3:
-            return !trimmedMedakaModel.isEmpty
+            return true
         }
     }
 
@@ -304,7 +310,8 @@ final class BAMVariantCallingDialogState {
             ivarMergeAFThreshold: ivarMergeAFThreshold,
             ivarBadQualityThreshold: ivarBadQualityThreshold,
             ivarIgnoreStrandBias: ivarIgnoreStrandBias,
-            ploidy: selectedCaller == .bcftools ? ploidy : nil
+            ploidy: selectedCaller == .bcftools ? ploidy : nil,
+            platform: selectedCaller == .clair3 ? sequencingPlatform : nil
         )
     }
 

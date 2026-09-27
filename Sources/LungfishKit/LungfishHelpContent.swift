@@ -716,6 +716,14 @@ public enum LungfishHelpContent {
         provenanceRelevant: true
     )
 
+    public static let bamVariantSequencingPlatform = HelpItem(
+        id: "workflow.bam.variantCalling.sequencingPlatform",
+        summary: "Tell Clair3 which platform produced the reads so it uses a matching model.",
+        detail: "Automatic reads the platform from the alignment's read groups (@RG PL). Choose one when the alignment has no read groups or they are wrong. The platform and the resolved model folder are written with command provenance.",
+        audience: .powerUser,
+        provenanceRelevant: true
+    )
+
     public static let bamVariantIvarConsensusAF = HelpItem(
         id: "workflow.bam.variantCalling.ivarConsensusAF",
         summary: "Allele-frequency threshold for including bases in iVar consensus.",
@@ -978,6 +986,7 @@ public enum LungfishHelpContent {
         bamVariantPloidy,
         bamVariantIvarPrimerTrim,
         bamVariantOntModel,
+        bamVariantSequencingPlatform,
         bamVariantIvarConsensusAF,
         bamVariantIvarMergeAF,
         bamVariantIvarBadQuality,
