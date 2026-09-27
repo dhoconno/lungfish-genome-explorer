@@ -235,6 +235,64 @@ struct PrimerDesignDialog: View {
       numberField("Optimum", $state.probeOptGC)
       numberField("Maximum", $state.probeMaxGC)
     }
+    numberField("Probe Tm at least this far above the primers (°C)", $state.probeMinTmOffsetOverPrimers)
+    Text("The probe minimum rises to the highest primer Tm plus this figure whenever the window above would allow a smaller gap. 5 °C is the standard lower bound. Enter 0 to use the window above exactly as entered.")
+      .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+  }
+
+  /// Oligos the user has already chosen, for Primer3 to design partners around.
+  ///
+  /// This is what lets a reader act on a discriminating column: fix the oligo
+  /// covering it, or force a primer's 3' end onto it, and let Primer3 pick the
+  /// rest of the assay.
+  @ViewBuilder private var fixedOligoFields: some View {
+    Text("Keep these oligos (design the rest around them)").font(.subheadline.weight(.medium))
+    Text("Leave a field blank to let Primer3 choose it. Give each sequence 5′→3′ as you would order it, including the reverse primer. Each one must occur in the template.")
+      .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+    sequenceField("Forward primer", $state.fixedLeftPrimer)
+    sequenceField("Reverse primer (as ordered)", $state.fixedRightPrimer)
+    if state.chemistry == .hydrolysisProbe {
+      sequenceField("Probe", $state.fixedProbe)
+    }
+    Text("Anchor a 3′ end on a template position").font(.caption).foregroundStyle(.secondary)
+    HStack {
+      numberField("Forward 3′ end", $state.forceLeftEnd)
+      numberField("Reverse 3′ end", $state.forceRightEnd)
+    }
+    Text("Use these to put a primer's last base on a discriminating column, so a mismatch there blocks extension on the sequences you are excluding.")
+      .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+    // The dialog holds only record titles, not template sequences, so each
+    // oligo's position on the template is reported by the run itself rather
+    // than previewed here from data the dialog does not have. What can be
+    // checked without a template is checked now.
+    if let message = fixedOligoValidationMessage {
+      Text(message)
+        .font(.caption)
+        .foregroundStyle(.red)
+        .fixedSize(horizontal: false, vertical: true)
+        .accessibilityLabel("Fixed oligo problem: \(message)")
+    }
+  }
+
+  /// The reason the fixed-oligo fields are not yet usable, if any.
+  private var fixedOligoValidationMessage: String? {
+    do {
+      _ = try state.fixedOligoOptions()
+      return nil
+    } catch {
+      return error.localizedDescription
+    }
+  }
+
+  /// A monospaced field for a nucleotide sequence, which is read base by base.
+  private func sequenceField(_ title: String, _ value: Binding<String>) -> some View {
+    VStack(alignment: .leading, spacing: 2) {
+      Text(title).font(.caption).foregroundStyle(.secondary)
+      TextField(title, text: value)
+        .font(.system(.body, design: .monospaced))
+        .textFieldStyle(.roundedBorder)
+        .accessibilityLabel(title)
+    }
   }
 
   private var advancedSection: some View {
@@ -275,6 +333,7 @@ struct PrimerDesignDialog: View {
           // the probe window is shown only for that assay. These reseed with the
           // preset whenever the assay changes.
           if state.chemistry == .hydrolysisProbe { probeFields }
+          fixedOligoFields
         } else if state.engine == .primalScheme {
           numberField("Minimum base frequency", $state.minimumBaseFrequency)
           Text("PrimalScheme's native per-base minimum frequency. The historical GUI default remains 0.")
