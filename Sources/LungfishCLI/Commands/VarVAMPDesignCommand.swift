@@ -15,9 +15,9 @@ struct VarVAMPDesignCommand: AsyncParsableCommand {
     @Option(name: .customLong("mode"), help: "single, tiled, or qpcr") var mode = "tiled"
     @Option(name: .customLong("grouping"), help: "varVAMP supports independent only") var grouping = "independent"
     @Option(name: .customLong("python-path")) var pythonPath: String?
-    @Option(name: .customLong("amplicon-size"), help: "Nominal display/provenance size.") var ampliconSize = 400
-    @Option(name: .customLong("amplicon-size-min"), help: "Inclusive minimum span including primer sites; defaults to 90% of nominal.") var ampliconSizeMin: Int?
-    @Option(name: .customLong("amplicon-size-max"), help: "Inclusive maximum span including primer sites; defaults to 110% of nominal. qPCR users should supply native-appropriate bounds explicitly.") var ampliconSizeMax: Int?
+    @Option(name: .customLong("amplicon-size"), help: "Nominal display/provenance size. Defaults to 400 for single/tiled and 135 for qpcr.") var ampliconSize: Int?
+    @Option(name: .customLong("amplicon-size-min"), help: "Inclusive minimum span including primer sites; defaults to 90% of nominal for single/tiled and to varVAMP's own qPCR minimum of 70 for qpcr.") var ampliconSizeMin: Int?
+    @Option(name: .customLong("amplicon-size-max"), help: "Inclusive maximum span including primer sites; defaults to 110% of nominal for single/tiled and to varVAMP's own qPCR maximum of 200 for qpcr.") var ampliconSizeMax: Int?
     @Option(name: .customLong("workers")) var workers = PrimerSchemeDesignOptions.defaultWorkers
 
     @Option(name: .customLong("consensus-threshold")) var consensusThreshold: Double?
@@ -74,6 +74,21 @@ struct VarVAMPDesignCommand: AsyncParsableCommand {
     @Option(name: .customLong("pcr-divalent-concentration")) var divalentCationConcentration: Double?
     @Option(name: .customLong("pcr-dntp-concentration")) var dNTPConcentration: Double?
     @Option(name: .customLong("pcr-dna-concentration")) var DNAConcentration: Double?
+
+    /// varVAMP's own `QAMPLICON_LENGTH` default is (70, 200), so qPCR runs that omit the
+    /// bounds must not inherit the tiled-PCR 360-440 span. Single and tiled keep the
+    /// nominal-relative 90%/110% defaults the GUI and the other engines use.
+    static func ampliconBounds(
+        mode: PrimerSchemeMode, nominal: Int?, minimum: Int?, maximum: Int?
+    ) -> (nominal: Int, minimum: Int, maximum: Int) {
+        let resolvedNominal = nominal ?? (mode == .qpcr ? 135 : 400)
+        if mode == .qpcr, nominal == nil {
+            return (resolvedNominal, minimum ?? 70, maximum ?? 200)
+        }
+        return (resolvedNominal,
+                minimum ?? defaultMinimum(for: resolvedNominal),
+                maximum ?? defaultMaximum(for: resolvedNominal))
+    }
 
     func makeOptions(supplied: Set<String>? = nil) throws -> PrimerSchemeDesignOptions {
         guard let resolvedMode = PrimerSchemeMode(rawValue: mode) else {
@@ -138,7 +153,7 @@ struct VarVAMPDesignCommand: AsyncParsableCommand {
         }
         if mode != "tiled" { inferred.insert("mode") }
         if grouping != "independent" { inferred.insert("grouping") }
-        if ampliconSize != 400 { inferred.insert("nominalAmpliconLength") }
+        if ampliconSize != nil { inferred.insert("nominalAmpliconLength") }
         if ampliconSizeMin != nil {
             inferred.formUnion(["minimumAmpliconLength", "requestedMinimumAmpliconLength"])
         }
@@ -157,11 +172,14 @@ struct VarVAMPDesignCommand: AsyncParsableCommand {
             schemeName: schemeName, compatiblePrimersPath: compatiblePrimersPath,
             blastDatabasePath: blastDatabasePath, configOverrides: overrides,
             suppliedOptionNames: allSupplied)
+        let bounds = Self.ampliconBounds(
+            mode: resolvedMode, nominal: ampliconSize,
+            minimum: ampliconSizeMin, maximum: ampliconSizeMax)
         let options = PrimerSchemeDesignOptions(
             engine: .varvamp, mode: resolvedMode, grouping: .independent,
-            nominalAmpliconLength: ampliconSize,
-            minimumAmpliconLength: ampliconSizeMin ?? defaultMinimum(for: ampliconSize),
-            maximumAmpliconLength: ampliconSizeMax ?? defaultMaximum(for: ampliconSize),
+            nominalAmpliconLength: bounds.nominal,
+            minimumAmpliconLength: bounds.minimum,
+            maximumAmpliconLength: bounds.maximum,
             requestedMinimumAmpliconLength: ampliconSizeMin,
             requestedMaximumAmpliconLength: ampliconSizeMax,
             workers: workers, suppliedOptionNames: allSupplied, varvamp: native)

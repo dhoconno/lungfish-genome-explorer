@@ -5,6 +5,69 @@ import LungfishWorkflow
 @testable import LungfishCLI
 
 final class PrimerDesignCommandTests: XCTestCase {
+    func testPrimer3ProbeAssaySendsThePresetProbeWindowAndHonoursOverrides() throws {
+        let base = ["--fasta-record", "/tmp/mhc.fasta@0",
+                    "--output", "/tmp/result.lungfishprimeranalysis"]
+        let preset = try PrimerDesignCommand.Primer3Subcommand
+            .parse(base + ["--assay", "qpcr-probe"]).makeOptions()
+        XCTAssertEqual(preset, Primer3DesignOptions.preset(.qpcrProbe))
+        XCTAssertEqual(preset.probe, Primer3ProbeDefaults.hydrolysisProbe)
+
+        // Other assays send no probe window at all.
+        for assay in ["pcr", "qpcr-dye"] {
+            let other = try PrimerDesignCommand.Primer3Subcommand
+                .parse(base + ["--assay", assay]).makeOptions()
+            XCTAssertNil(other.probe, assay)
+        }
+
+        let overridden = try PrimerDesignCommand.Primer3Subcommand.parse(
+            base + ["--assay", "qpcr-probe", "--probe-min-tm", "65", "--probe-opt-tm", "68",
+                    "--probe-max-size", "28", "--probe-must-match-five-prime", ""]).makeOptions()
+        let window = try XCTUnwrap(overridden.probe)
+        XCTAssertEqual(window.probeMinTm, 65)
+        XCTAssertEqual(window.probeOptTm, 68)
+        XCTAssertEqual(window.probeMaxSize, 28)
+        XCTAssertEqual(window.probeMaxTm, 70, "Unset values keep the preset.")
+        XCTAssertNil(window.probeMustMatchFivePrime, "An empty value omits the tag.")
+    }
+
+    func testPrimer3HelpDocumentsTheProbeOptionDefaults() throws {
+        let help = PrimerDesignCommand.Primer3Subcommand.helpMessage()
+        for flag in ["--probe-min-tm", "--probe-opt-tm", "--probe-max-tm",
+                     "--probe-min-size", "--probe-opt-size", "--probe-max-size",
+                     "--probe-min-gc", "--probe-opt-gc", "--probe-max-gc",
+                     "--probe-max-poly-x", "--probe-must-match-five-prime"] {
+            XCTAssertTrue(help.contains(flag), flag)
+        }
+        XCTAssertTrue(help.contains("qpcr-probe"))
+    }
+
+    /// Primer3 considers no pair when the target cannot fit inside the maximum product, so
+    /// the command must fail up front rather than exit 0 with an empty result.
+    func testPrimer3RejectsTargetLongerThanTheMaximumProductSize() throws {
+        let command = try PrimerDesignCommand.Primer3Subcommand.parse([
+            "--fasta-record", "/tmp/mhc.fasta@0",
+            "--output", "/tmp/result.lungfishprimeranalysis",
+            "--assay", "qpcr-dye", "--target-start", "205", "--target-end", "474"])
+        let productMax = Primer3AssayDefaults.defaults(for: .qpcrDye).productSizeMax
+        XCTAssertGreaterThan(474 - 205 + 1, productMax)
+        do {
+            _ = try command.makeOptions()
+            XCTFail("Expected an over-long target to be rejected.")
+        } catch {
+            let message = "\(error)"
+            XCTAssertTrue(message.contains("270"), message)
+            XCTAssertTrue(message.contains("\(productMax)"), message)
+        }
+
+        let fits = try PrimerDesignCommand.Primer3Subcommand.parse([
+            "--fasta-record", "/tmp/mhc.fasta@0",
+            "--output", "/tmp/result.lungfishprimeranalysis",
+            "--assay", "qpcr-dye", "--target-start", "205",
+            "--target-end", String(205 + productMax - 1)])
+        XCTAssertNoThrow(try fits.makeOptions())
+    }
+
     func testPrimalSchemeParsesIndependentAmpliconSizeBounds() throws {
         let command = try PrimerDesignCommand.PrimalScheme3Subcommand.parse([
             "--msa", "/tmp/mhc.lungfishmsa", "--output", "/tmp/result.lungfishprimeranalysis",

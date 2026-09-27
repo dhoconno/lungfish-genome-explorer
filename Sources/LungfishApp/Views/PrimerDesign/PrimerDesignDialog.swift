@@ -130,7 +130,7 @@ struct PrimerDesignDialog: View {
         ForEach(PrimerDesignChemistry.allCases) { Text($0.rawValue).tag($0) }
       }
       if state.chemistry == .hydrolysisProbe {
-        Text("Pick an internal oligo with each pair. Reporter, quencher and vendor modifications are assigned after sequence design.")
+        Text("Pick an internal oligo with each pair. The primers use the dye qPCR rules, and the probe is designed to melt at 64 to 70 °C, 5 to 10 °C above them, at 20 to 30 nt and 40 to 80% GC with no 5′ G. Reporter, quencher and vendor modifications are assigned after sequence design.")
           .font(.caption).foregroundStyle(.secondary)
       } else if state.chemistry == .intercalatingDye {
         Text("Dye qPCR rules are applied: 70 to 150 bp products, 58 to 62 °C primers within 1 °C of each other, 40 to 60% GC, 3′-end and dimer limits. Edit any value below or under Advanced settings.")

@@ -12,6 +12,65 @@ public enum Primer3AssayMode: String, Codable, CaseIterable, Sendable {
     public var picksInternalOligo: Bool { self == .qpcrProbe }
 }
 
+/// The internal-oligo rules for a hydrolysis (TaqMan-style) probe. Every member
+/// maps onto a PRIMER_INTERNAL_* setting. The whole group is optional, so PCR and
+/// intercalating-dye designs emit no PRIMER_INTERNAL_* line at all.
+///
+/// A hydrolysis probe must melt above the primers so it is already bound when
+/// polymerase reaches it and can be cleaved; 5 to 10 C above the primer Tm is the
+/// standard figure (Applied Biosystems Primer Express design guidelines; Bustin
+/// et al. 2009, MIQE, Clin Chem, doi:10.1373/clinchem.2008.112797; Thornton and
+/// Basu 2011, Biochem Mol Biol Educ, doi:10.1002/bmb.20461). The values match
+/// LGE's varVAMP probe defaults so both engines design the same kind of probe.
+public struct Primer3ProbeDefaults: Codable, Equatable, Sendable {
+    /// PRIMER_INTERNAL_MIN_TM / OPT_TM / MAX_TM.
+    public let probeMinTm: Double
+    public let probeOptTm: Double
+    public let probeMaxTm: Double
+    /// PRIMER_INTERNAL_MIN_SIZE / OPT_SIZE / MAX_SIZE.
+    public let probeMinSize: Int
+    public let probeOptSize: Int
+    public let probeMaxSize: Int
+    /// PRIMER_INTERNAL_MIN_GC / OPT_GC_PERCENT / MAX_GC.
+    public let probeMinGC: Double
+    public let probeOptGC: Double
+    public let probeMaxGC: Double
+    /// PRIMER_INTERNAL_MAX_POLY_X.
+    public let probeMaxPolyX: Int
+    /// PRIMER_INTERNAL_MUST_MATCH_FIVE_PRIME. `h` is A, C or T, so this forbids a
+    /// 5' G, which quenches a reporter dye on the adjacent base. Verified accepted
+    /// by the bundled libprimer3 2.6.1.
+    public let probeMustMatchFivePrime: String?
+
+    public init(
+        probeMinTm: Double, probeOptTm: Double, probeMaxTm: Double,
+        probeMinSize: Int, probeOptSize: Int, probeMaxSize: Int,
+        probeMinGC: Double, probeOptGC: Double, probeMaxGC: Double,
+        probeMaxPolyX: Int, probeMustMatchFivePrime: String?
+    ) {
+        self.probeMinTm = probeMinTm
+        self.probeOptTm = probeOptTm
+        self.probeMaxTm = probeMaxTm
+        self.probeMinSize = probeMinSize
+        self.probeOptSize = probeOptSize
+        self.probeMaxSize = probeMaxSize
+        self.probeMinGC = probeMinGC
+        self.probeOptGC = probeOptGC
+        self.probeMaxGC = probeMaxGC
+        self.probeMaxPolyX = probeMaxPolyX
+        self.probeMustMatchFivePrime = probeMustMatchFivePrime
+    }
+
+    /// Probe Tm 64/67/70 C sits 5 to 10 C above the 58/60/62 C primer window.
+    /// Sizes 20/25/30 nt and GC 40/60/80 percent mirror LGE's varVAMP probe
+    /// defaults, and runs are capped at 4 identical bases as for the primers.
+    public static let hydrolysisProbe = Primer3ProbeDefaults(
+        probeMinTm: 64, probeOptTm: 67, probeMaxTm: 70,
+        probeMinSize: 20, probeOptSize: 25, probeMaxSize: 30,
+        probeMinGC: 40, probeOptGC: 60, probeMaxGC: 80,
+        probeMaxPolyX: 4, probeMustMatchFivePrime: "hnnnn")
+}
+
 /// The per-assay starting values. Optional members map onto Primer3 settings
 /// LGE leaves at Primer3's own defaults for ordinary PCR; `nil` omits the
 /// line from the Boulder input so PCR designs are byte-for-byte unchanged.
@@ -34,6 +93,41 @@ public struct Primer3AssayDefaults: Equatable, Sendable {
     public let primerMaxSelfEndTh: Double?
     public let pairMaxComplAnyTh: Double?
     public let pairMaxComplEndTh: Double?
+    /// The PRIMER_INTERNAL_* rules, for assays that pick an internal oligo.
+    /// `nil` emits no PRIMER_INTERNAL_* line.
+    public let probe: Primer3ProbeDefaults?
+
+    public init(
+        productSizeMin: Int, productSizeMax: Int,
+        primerMinSize: Int, primerOptSize: Int, primerMaxSize: Int,
+        primerMinTm: Double, primerOptTm: Double, primerMaxTm: Double,
+        primerMinGC: Double, primerMaxGC: Double,
+        pairMaxTmDifference: Double?, primerMaxEndGC: Int?,
+        primerGCClamp: Int?, primerMaxPolyX: Int?,
+        primerMaxSelfAnyTh: Double?, primerMaxSelfEndTh: Double?,
+        pairMaxComplAnyTh: Double?, pairMaxComplEndTh: Double?,
+        probe: Primer3ProbeDefaults? = nil
+    ) {
+        self.productSizeMin = productSizeMin
+        self.productSizeMax = productSizeMax
+        self.primerMinSize = primerMinSize
+        self.primerOptSize = primerOptSize
+        self.primerMaxSize = primerMaxSize
+        self.primerMinTm = primerMinTm
+        self.primerOptTm = primerOptTm
+        self.primerMaxTm = primerMaxTm
+        self.primerMinGC = primerMinGC
+        self.primerMaxGC = primerMaxGC
+        self.pairMaxTmDifference = pairMaxTmDifference
+        self.primerMaxEndGC = primerMaxEndGC
+        self.primerGCClamp = primerGCClamp
+        self.primerMaxPolyX = primerMaxPolyX
+        self.primerMaxSelfAnyTh = primerMaxSelfAnyTh
+        self.primerMaxSelfEndTh = primerMaxSelfEndTh
+        self.pairMaxComplAnyTh = pairMaxComplAnyTh
+        self.pairMaxComplEndTh = pairMaxComplEndTh
+        self.probe = probe
+    }
 
     /// LGE's historical PCR defaults. Every optional rule stays at Primer3's
     /// own default (PRIMER_PAIR_MAX_DIFF_TM 100, PRIMER_MAX_END_GC 5,
@@ -70,10 +164,28 @@ public struct Primer3AssayDefaults: Equatable, Sendable {
         pairMaxTmDifference: 1, primerMaxEndGC: 2, primerGCClamp: 1, primerMaxPolyX: 4,
         primerMaxSelfAnyTh: 40, primerMaxSelfEndTh: 30, pairMaxComplAnyTh: 40, pairMaxComplEndTh: 30)
 
+    /// Hydrolysis-probe (TaqMan-style) qPCR rules. The primer rules are the
+    /// intercalating-dye ones, because both run the same 60 C two-step cycling and
+    /// want the same short, efficient product; a probe assay does not need the dye
+    /// preset's dimer strictness for specificity, but keeping it costs nothing and
+    /// dimers still waste reagent. What a probe assay adds is the internal oligo:
+    /// see `Primer3ProbeDefaults` for the probe window and its sources. Without
+    /// these, Primer3 picks a probe at its own 60 C internal default, level with
+    /// the primers, and the probe is not reliably bound before extension reaches it.
+    public static let qpcrProbe = Primer3AssayDefaults(
+        productSizeMin: 70, productSizeMax: 150,
+        primerMinSize: 18, primerOptSize: 20, primerMaxSize: 24,
+        primerMinTm: 58, primerOptTm: 60, primerMaxTm: 62,
+        primerMinGC: 40, primerMaxGC: 60,
+        pairMaxTmDifference: 1, primerMaxEndGC: 2, primerGCClamp: 1, primerMaxPolyX: 4,
+        primerMaxSelfAnyTh: 40, primerMaxSelfEndTh: 30, pairMaxComplAnyTh: 40, pairMaxComplEndTh: 30,
+        probe: .hydrolysisProbe)
+
     public static func defaults(for mode: Primer3AssayMode) -> Primer3AssayDefaults {
         switch mode {
-        case .pcr, .qpcrProbe: .pcr
+        case .pcr: .pcr
         case .qpcrDye: .qpcrDye
+        case .qpcrProbe: .qpcrProbe
         }
     }
 }
@@ -110,6 +222,9 @@ public struct Primer3DesignOptions: Codable, Equatable, Sendable {
     public let pairMaxComplAnyTh: Double?
     /// PRIMER_PAIR_MAX_COMPL_END_TH. `nil` leaves Primer3's default.
     public let pairMaxComplEndTh: Double?
+    /// The PRIMER_INTERNAL_* probe rules. `nil` emits no PRIMER_INTERNAL_* line, so
+    /// PCR and intercalating-dye Boulder input is unchanged.
+    public let probe: Primer3ProbeDefaults?
 
     public init(
         assayMode: Primer3AssayMode = .pcr,
@@ -134,7 +249,8 @@ public struct Primer3DesignOptions: Codable, Equatable, Sendable {
         primerMaxSelfAnyTh: Double? = nil,
         primerMaxSelfEndTh: Double? = nil,
         pairMaxComplAnyTh: Double? = nil,
-        pairMaxComplEndTh: Double? = nil
+        pairMaxComplEndTh: Double? = nil,
+        probe: Primer3ProbeDefaults? = nil
     ) {
         self.assayMode = assayMode
         self.productSizeMin = productSizeMin
@@ -159,6 +275,7 @@ public struct Primer3DesignOptions: Codable, Equatable, Sendable {
         self.primerMaxSelfEndTh = primerMaxSelfEndTh
         self.pairMaxComplAnyTh = pairMaxComplAnyTh
         self.pairMaxComplEndTh = pairMaxComplEndTh
+        self.probe = probe
     }
 
     /// The options a fresh dialog or a bare CLI invocation produces for `mode`.
@@ -175,7 +292,8 @@ public struct Primer3DesignOptions: Codable, Equatable, Sendable {
             pairMaxTmDifference: defaults.pairMaxTmDifference, primerMaxEndGC: defaults.primerMaxEndGC,
             primerGCClamp: defaults.primerGCClamp, primerMaxPolyX: defaults.primerMaxPolyX,
             primerMaxSelfAnyTh: defaults.primerMaxSelfAnyTh, primerMaxSelfEndTh: defaults.primerMaxSelfEndTh,
-            pairMaxComplAnyTh: defaults.pairMaxComplAnyTh, pairMaxComplEndTh: defaults.pairMaxComplEndTh)
+            pairMaxComplAnyTh: defaults.pairMaxComplAnyTh, pairMaxComplEndTh: defaults.pairMaxComplEndTh,
+            probe: defaults.probe)
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -184,6 +302,7 @@ public struct Primer3DesignOptions: Codable, Equatable, Sendable {
         case primerMinGC, primerMaxGC, pickInternalOligo
         case pairMaxTmDifference, primerMaxEndGC, primerGCClamp, primerMaxPolyX
         case primerMaxSelfAnyTh, primerMaxSelfEndTh, pairMaxComplAnyTh, pairMaxComplEndTh
+        case probe
     }
 
     /// Records written before the assay mode existed decode as ordinary PCR.
@@ -212,7 +331,8 @@ public struct Primer3DesignOptions: Codable, Equatable, Sendable {
             primerMaxSelfAnyTh: try c.decodeIfPresent(Double.self, forKey: .primerMaxSelfAnyTh),
             primerMaxSelfEndTh: try c.decodeIfPresent(Double.self, forKey: .primerMaxSelfEndTh),
             pairMaxComplAnyTh: try c.decodeIfPresent(Double.self, forKey: .pairMaxComplAnyTh),
-            pairMaxComplEndTh: try c.decodeIfPresent(Double.self, forKey: .pairMaxComplEndTh))
+            pairMaxComplEndTh: try c.decodeIfPresent(Double.self, forKey: .pairMaxComplEndTh),
+            probe: try c.decodeIfPresent(Primer3ProbeDefaults.self, forKey: .probe))
     }
 
     /// The optional Primer3 settings this design pins, as Boulder `KEY=value`
@@ -227,6 +347,23 @@ public struct Primer3DesignOptions: Codable, Equatable, Sendable {
         if let value = primerMaxSelfEndTh { lines.append(("PRIMER_MAX_SELF_END_TH", String(value))) }
         if let value = pairMaxComplAnyTh { lines.append(("PRIMER_PAIR_MAX_COMPL_ANY_TH", String(value))) }
         if let value = pairMaxComplEndTh { lines.append(("PRIMER_PAIR_MAX_COMPL_END_TH", String(value))) }
+        if let probe {
+            lines += [
+                ("PRIMER_INTERNAL_MIN_TM", String(probe.probeMinTm)),
+                ("PRIMER_INTERNAL_OPT_TM", String(probe.probeOptTm)),
+                ("PRIMER_INTERNAL_MAX_TM", String(probe.probeMaxTm)),
+                ("PRIMER_INTERNAL_MIN_SIZE", String(probe.probeMinSize)),
+                ("PRIMER_INTERNAL_OPT_SIZE", String(probe.probeOptSize)),
+                ("PRIMER_INTERNAL_MAX_SIZE", String(probe.probeMaxSize)),
+                ("PRIMER_INTERNAL_MIN_GC", String(probe.probeMinGC)),
+                ("PRIMER_INTERNAL_OPT_GC_PERCENT", String(probe.probeOptGC)),
+                ("PRIMER_INTERNAL_MAX_GC", String(probe.probeMaxGC)),
+                ("PRIMER_INTERNAL_MAX_POLY_X", String(probe.probeMaxPolyX)),
+            ]
+            if let mustMatch = probe.probeMustMatchFivePrime {
+                lines.append(("PRIMER_INTERNAL_MUST_MATCH_FIVE_PRIME", mustMatch))
+            }
+        }
         return lines
     }
 }
