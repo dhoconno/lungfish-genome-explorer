@@ -116,36 +116,15 @@ final class PrimerAnalysisDisplaySession {
   func makeOrderDraft(allReportedAssays: Bool = false) throws -> PrimerOrderDraft {
     if let reason = orderExportUnavailableReason { throw PrimerOrderExportError.invalid(reason) }
     guard let snapshot = sourceSnapshot else { throw PrimerOrderExportError.invalid("The saved analysis is unavailable.") }
-    let assayIDs: [String]?
-    let selectedPrimerIDs: [String]
-    if hasPrimer3Candidates {
-      // A Primer3 order names candidate pairs. Every oligo of an included pair is ordered.
-      let included = includedPrimer3Candidates
-      assayIDs = included.map(\.id)
-      let roleOrder: [PrimerOligoRole: Int] = [.forward: 0, .probe: 1, .reverse: 2]
-      selectedPrimerIDs = included.flatMap { candidate in
-        candidate.primers.sorted { roleOrder[$0.role, default: 3] < roleOrder[$1.role, default: 3] }.map(\.id)
-      }
-    } else if let document = snapshot.primerSchemeResultsDocument {
-      let assays = document.results.flatMap { $0.targets.flatMap(\.assays) }
-        .filter { allReportedAssays || $0.status == .selected }
-      assayIDs = assays.map { $0.id.uuidString.lowercased() }
-      selectedPrimerIDs = try PrimerSchemeOrderSheet.rows(from: document,
-        selection: .selectedAssays(Set(assays.map(\.id)))).map(\.id)
-    } else {
-      assayIDs = nil
-      selectedPrimerIDs = targets.flatMap { visibility.visiblePrimers(in: $0).map(\.id) }
-    }
-    let selection = PrimerOrderSelection(capturedAt: Date(), analysisURL: snapshot.bundle.url,
-      manifest: snapshot.bundle.manifest, settings: settings, compatibilityReady: compatibilityReady,
-      compatibilitySummaries: compatibilityReady ? compatibilitySummaries : [:],
-      selectedPrimerIDs: selectedPrimerIDs, selectedAssayIDs: assayIDs,
-      includesAllReportedAssays: snapshot.primerSchemeResultsDocument == nil ? nil : allReportedAssays,
-      primer3CandidatePairs: hasPrimer3Candidates ? true : nil)
+    let scope: PrimerOrderScope = hasPrimer3Candidates
+      ? .primer3CandidatePairs(includedPairIDs: includedPrimer3Candidates.map(\.id))
+      : snapshot.primerSchemeResultsDocument != nil
+        ? (allReportedAssays ? .allReportedAssays : .selectedAssays) : .displayed
+    let selection = try PrimerOrderExportService.captureSelection(snapshot: snapshot, scope: scope,
+      settings: settings, compatibilityReady: compatibilityReady, compatibilitySummaries: compatibilitySummaries)
     return PrimerOrderDraft(selection: selection,
       oligos: try PrimerOrderExportService.prepare(snapshot: snapshot, selection: selection),
-      defaultName: snapshot.bundle.url.deletingPathExtension().lastPathComponent
-        + (hasPrimer3Candidates ? " candidate pairs order" : allReportedAssays ? " all reported assays order" : " order"))
+      defaultName: PrimerOrderExportService.defaultOrderName(analysisURL: snapshot.bundle.url, scope: scope))
   }
 
   func isVisible(_ primer: PrimerReviewPrimer, in target: PrimerTargetDesignReview) -> Bool {

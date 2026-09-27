@@ -42,6 +42,18 @@ public struct PrimerOrderSelection: Codable, Equatable, Sendable {
   public var isPrimer3CandidateSelection: Bool { primer3CandidatePairs == true }
 }
 
+/// Which saved oligos an order captures. Each scope applies to one kind of saved analysis.
+public enum PrimerOrderScope: Sendable, Equatable {
+  /// Every oligo of the named Primer3 candidate pairs; each pair is an independent alternative.
+  case primer3CandidatePairs(includedPairIDs: [String])
+  /// The selected assays of a normalized Olivar or varVAMP result.
+  case selectedAssays
+  /// Every reported assay, selected and alternative, of a normalized Olivar or varVAMP result.
+  case allReportedAssays
+  /// The oligos a PrimalScheme result displays under the captured view settings.
+  case displayed
+}
+
 public struct PrimerOrderMetadata: Codable, Equatable, Sendable {
   public var name: String = "Primer order"
   public var requestedBy: String = ""
