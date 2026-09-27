@@ -337,7 +337,7 @@ final class WorkflowLibraryTests: XCTestCase {
 
         XCTAssertEqual(viewModel.userWorkflowPackages.map(\.manifest.id), ["org.lungfish.templates.hello-world-nextflow"])
         XCTAssertEqual(viewModel.userWorkflowSections.map(\.title), ["User Workflows"])
-        XCTAssertEqual(viewModel.userWorkflowSections.first?.groups.first?.title, "Templates")
+        XCTAssertEqual(viewModel.userWorkflowSections.first?.groups.first?.title, "Examples")
     }
 
     func testCachedPackageStopsBeingRunnableWhenEntrypointDisappears() throws {
@@ -812,7 +812,7 @@ final class WorkflowLibraryTests: XCTestCase {
             id: id,
             name: "User Workflow",
             version: "1.0.0",
-            category: "Templates",
+            category: "Examples",
             runner: WorkflowPackageRunner(kind: runnerKind, entrypoint: entrypoint),
             inputs: inputs ?? [
                 WorkflowPackageInput(id: "reference", name: "Reference", bundleTypes: [.lungfishref]),

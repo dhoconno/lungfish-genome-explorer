@@ -9,7 +9,7 @@ final class WorkflowPackageManifestTests: XCTestCase {
           "id": "org.example.hello-nextflow",
           "name": "Hello Nextflow",
           "version": "1.0.0",
-          "category": "Templates",
+          "category": "Examples",
           "maturity": "user",
           "description": "Template workflow",
           "runner": { "kind": "nextflow", "entrypoint": "main.nf" },
@@ -85,7 +85,7 @@ final class WorkflowPackageManifestTests: XCTestCase {
           "id": "org.example.broken",
           "name": "Broken",
           "version": "1.0.0",
-          "category": "Templates",
+          "category": "Examples",
           "maturity": "user",
           "runner": { "kind": "snakemake", "entrypoint": "Snakefile" },
           "inputs": [
