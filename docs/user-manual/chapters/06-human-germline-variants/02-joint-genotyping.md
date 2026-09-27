@@ -39,7 +39,7 @@ The example in this chapter is a family. The Human Mapping and Variants demo pro
 
 Work through [Reference Files for GATK](04-reference-packs.md) first. It maps the three samples, sets up the `LGE GATK` working folder with the reference, its `.fai` index and `.dict` [sequence dictionary](../../GLOSSARY.md#sequence-dictionary), and the three BAMs, and sets the shell variables the commands below use. [HaplotypeCaller](01-haplotype-caller.md) explains what the caller does. Run every command in this chapter from `LGE GATK`.
 
-This chapter uses the `gatk-core` pack that chapter installed, and `bcftools` from the Required Setup pack to read the results. The whole run on the three samples took about three minutes on the recorded Mac, most of it the three HaplotypeCaller runs.
+This chapter uses the `gatk-core` pack that chapter installed, and `bcftools` from the Required Setup pack to read the results. The whole chapter took a few minutes on the recorded Mac, almost all of it the three HaplotypeCaller runs.
 
 ## Procedure
 
@@ -160,7 +160,7 @@ chr20_10.0-10.5Mb	2162	A	T	2328.95	0/1:23,26:49:99	1/1:0,41:41:99	0/0:38,0:38:99
 
 The son is heterozygous, `0/1`, his father homozygous for the change, `1/1`, and his mother `0/0`, homozygous for the reference base. That last call is the point. Her own VCF would simply have had no row here. The cohort VCF says she matches the reference and backs it with 38 reads and a `GQ` of 99, so her absence of the variant is a measured result rather than a gap. The son's genotype fits, one copy from each parent. 814 rows carry an explicit `0/0` like this for at least one person, and `"$BCFTOOLS" view -H -i 'GT[*]="RR"' cohort.vcf.gz | wc -l` counts them.
 
-Each person's genotypes split as the table shows. HG003 carries the most heterozygous calls and the fewest reference calls, since more of the family's variant positions come from him.
+Each person's genotypes split as the table shows.
 
 | Genotype | HG002 (son) | HG003 (father) | HG004 (mother) |
 |---|---|---|---|
@@ -169,7 +169,7 @@ Each person's genotypes split as the table shows. HG003 carries the most heteroz
 | `1/1`, both copies carry it | 414 | 331 | 260 |
 | `./.`, no call | 12 | 10 | 8 |
 
-A handful of rows in each column carry a second alternate allele, such as `1/2`, which is why each column adds up to a little more than 1,405.
+A few rows in each column carry a second alternate allele, such as `1/2`, which is why each column adds up to a little less than the 1,433 rows.
 
 `bcftools` includes a plugin, `+mendelian2`, that checks every row against the rules of inheritance, given the son, the father, and the mother in that order.
 
@@ -177,7 +177,7 @@ A handful of rows in each column carry a second alternate allele, such as `1/2`,
 "$BCFTOOLS" +mendelian2 cohort.vcf.gz -p HG002,HG003,HG004
 ```
 
-It reports 1,385 rows consistent with inheritance, 25 inconsistent, and 27 with a missing genotype in at least one person. Most of the 25 inconsistent rows are insertions or deletions inside repeats, called from a handful of reads with a `GQ` in single or low double figures, such as position 14,155, where the son is `1/1` from a single read. Adding `-i 'MIN(FMT/GQ)>=20'` to the command checks only the rows where every person's `GQ` is at least 20, and leaves 4 inconsistencies. Two are deletions in a run of repeated `TA` near position 117,590, and one is a deletion at 392,438, the first of four changes within 20 bases where the son reads as the reference and both parents as homozygous for the change. Repeats like these are where short reads most often map or genotype wrongly, which is how a trio catches genotyping errors.
+It reports 1,385 rows consistent with inheritance, 25 inconsistent, and 27 with a missing genotype in at least one person. Most of the 25 inconsistent rows are insertions or deletions inside repeats, called from a handful of reads with a `GQ` in single or low double figures, such as position 14,155, where the son is `1/1` from a single read. Adding `-i 'MIN(FMT/GQ)>=20'` to the command checks only the rows where every person's `GQ` is at least 20, and leaves 4 inconsistencies. Two are deletions in a run of repeated `TA` near position 117,590, and one is a deletion at 392,438, the first of four changes within 20 bases where the son reads as the reference and both parents as homozygous for the change. Repeats and tight clusters of changes like these are where short reads most often map or genotype wrongly, and finding them is how a trio catches genotyping errors.
 
 The fourth is different. At position 429,138, 10,429,137 on the whole of chromosome 20, the son is `0/1` with 13 of 29 reads carrying a T, and both parents are `0/0` with 34 and 29 reads and a `GQ` of 99 and 81. A variant in a child that neither parent carries breaks the rules of inheritance by definition, and when the calls are this confident it is a candidate de novo variant, one that arose new in the child. HG002's own benchmark also lists this position as heterozygous, and neither parent's benchmark lists it, so the call is supported, though the benchmark does not itself say the change is new. Confirming one takes a second method, such as sequencing the three samples again.
 
