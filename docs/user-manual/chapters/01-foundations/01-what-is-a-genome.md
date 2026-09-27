@@ -56,7 +56,7 @@ The picture shows the record open in LGE, with the bases in one strip and the ge
 
 This chapter is reading only, and nothing in it has to be run. To look at the HBB record on screen, open the Genes and Sequences [demo project](../../GLOSSARY.md#demo-project) as [The Lungfish Genome Explorer Project](06-the-lungfish-project.md#demo-projects) showed, and click `NG_000007.3` under `Reference Sequences`. Importing the record yourself and jumping to a coordinate on it is the subject of [Importing and Viewing a Sequence](../02-sequences/01-importing-and-viewing.md).
 
-## Finding the sickle cell codon
+## Finding the sickle cell codon on paper
 
 A gene is rarely one unbroken run of coding bases. The [CDS](../../GLOSSARY.md#cds), short for coding sequence, is the part of a gene translated into protein. In HBB it is split across three [exons](../../GLOSSARY.md#exon), separated by introns, which are stretches cut out of the gene's message before the protein is made. The record writes the CDS as `join(70595..70686,70817..71039,71890..72018)`, three ranges stitched together in order.
 
