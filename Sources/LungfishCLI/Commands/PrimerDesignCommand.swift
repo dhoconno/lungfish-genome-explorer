@@ -209,7 +209,7 @@ struct PrimerDesignCommand: AsyncParsableCommand {
         @Option(name: .customLong("core-count"), help: "CPU workers for custom Python or legacy Rust discovery.") var coreCount = PrimalScheme3DesignOptions.defaultCoreCount
         @Option(name: .customLong("terminal-gap-policy"), help: "Custom fork missing-data policy: observed-only or legacy.") var terminalGapPolicy = "observed-only"
 
-        @Option(name: .customLong("dimer-score")) var dimerScore = -26.0
+        @Option(name: .customLong("dimer-score"), parsing: .unconditional) var dimerScore = -26.0
         @Flag(name: .customLong("disable-matchdb"), help: "Disable the native mispriming database.") var disableMatchDB = false
         @Flag(name: .customLong("backtrack"), help: "Independent schemes only.") var backtrack = false
         @Flag(name: .customLong("ignore-n"), help: "Omit unknown N bases; independent schemes only.") var ignoreN = false
@@ -239,7 +239,7 @@ struct PrimerDesignCommand: AsyncParsableCommand {
         @Option(name: .customLong("subset-expansion-limit")) var subsetExpansionLimit: Int?
         @Option(name: .customLong("exchange-width")) var exchangeWidth: Int?
         @Option(name: .customLong("salvage")) var salvage: String?
-        @Option(name: .customLong("salvage-threshold")) var salvageThresholds: [Double] = []
+        @Option(name: .customLong("salvage-threshold"), parsing: .unconditionalSingleValue) var salvageThresholds: [Double] = []
         @Option(name: .customLong("salvage-max-stages")) var salvageMaxStages: Int?
         @Option(name: .customLong("salvage-max-edges-per-pool")) var salvageMaxEdgesPerPool: Int?
         @Option(name: .customLong("salvage-max-oligos-per-pool")) var salvageMaxOligosPerPool: Int?
@@ -257,8 +257,8 @@ struct PrimerDesignCommand: AsyncParsableCommand {
         // GUI recovery controls. These mirror the native --legacy-salvage* and
         // --gap-expansion* arguments and are unrelated to the --salvage* allele-coverage flags.
         @Option(name: .customLong("legacy-salvage"), help: "Bounded dimer salvage for combined legacy panels: off or bounded.") var legacySalvage: String?
-        @Option(name: .customLong("legacy-salvage-threshold"), help: "Strictly decreasing salvage dimer thresholds below the dimer score. Repeatable.") var legacySalvageThresholds: [Double] = []
-        @Option(name: .customLong("legacy-salvage-floor"), help: "Lowest salvage dimer score considered.") var legacySalvageFloor: Double?
+        @Option(name: .customLong("legacy-salvage-threshold"), parsing: .unconditionalSingleValue, help: "Strictly decreasing salvage dimer thresholds below the dimer score. Repeatable.") var legacySalvageThresholds: [Double] = []
+        @Option(name: .customLong("legacy-salvage-floor"), parsing: .unconditional, help: "Lowest salvage dimer score considered.") var legacySalvageFloor: Double?
         @Option(name: .customLong("legacy-salvage-max-edges-per-pool")) var legacySalvageMaxEdgesPerPool: Int?
         @Option(name: .customLong("legacy-salvage-max-incident-species-per-pool")) var legacySalvageMaxIncidentSpeciesPerPool: Int?
         @Option(name: .customLong("legacy-salvage-min-reference-gain")) var legacySalvageMinReferenceGain: Int?

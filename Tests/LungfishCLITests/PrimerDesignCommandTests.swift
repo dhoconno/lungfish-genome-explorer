@@ -249,6 +249,56 @@ final class PrimerDesignCommandTests: XCTestCase {
         XCTAssertEqual(command.workFamiliesPerRefresh, 7)
     }
 
+    func testPrimalSchemeNegativeScoresParseWithOrWithoutEqualsSign() throws {
+        let prefix = ["--msa", "/tmp/a.lungfishmsa", "--msa", "/tmp/b.lungfishmsa",
+                      "--output", "/tmp/result.lungfishprimeranalysis", "--grouping", "combined",
+                      "--legacy-salvage", "bounded"]
+        let separated = prefix + ["--dimer-score", "-27", "--legacy-salvage-threshold", "-28",
+                                  "--legacy-salvage-threshold", "-30.5", "--legacy-salvage-floor", "-32"]
+        let joined = prefix + ["--dimer-score=-27", "--legacy-salvage-threshold=-28",
+                               "--legacy-salvage-threshold=-30.5", "--legacy-salvage-floor=-32"]
+        var resolved: [PrimalScheme3DesignOptions] = []
+        for argv in [separated, joined] {
+            let command = try PrimerDesignCommand.PrimalScheme3Subcommand.parse(argv)
+            XCTAssertEqual(command.dimerScore, -27, "\(argv)")
+            XCTAssertEqual(command.legacySalvageThresholds, [-28, -30.5], "\(argv)")
+            XCTAssertEqual(command.legacySalvageFloor, -32, "\(argv)")
+            let options = try command.makeOptions().options
+            XCTAssertEqual(options.dimerScore, -27, "\(argv)")
+            XCTAssertEqual(options.legacySalvageOptions.thresholds, [-28, -30.5], "\(argv)")
+            XCTAssertEqual(options.legacySalvageOptions.floor, -32, "\(argv)")
+            resolved.append(options)
+        }
+        XCTAssertEqual(resolved[0].legacySalvageOptions, resolved[1].legacySalvageOptions)
+
+        // Allele-coverage salvage ladder: both spellings and a mid-argv negative.
+        for argv in [["--salvage-threshold", "-28", "--salvage-threshold", "-31"],
+                     ["--salvage-threshold=-28", "--salvage-threshold=-31"]] {
+            let command = try PrimerDesignCommand.PrimalScheme3Subcommand.parse([
+                "--msa", "/tmp/mhc.lungfishmsa", "--selection-algorithm", "allele-coverage",
+            ] + argv + ["--salvage-max-stages", "2", "--output", "/tmp/result.lungfishprimeranalysis"])
+            XCTAssertEqual(command.salvageThresholds, [-28, -31], "\(argv)")
+            XCTAssertEqual(command.salvageMaxStages, 2, "\(argv)")
+            XCTAssertEqual(command.outputPath, "/tmp/result.lungfishprimeranalysis", "\(argv)")
+        }
+
+        let middle = try PrimerDesignCommand.PrimalScheme3Subcommand.parse([
+            "--msa", "/tmp/a.lungfishmsa", "--dimer-score", "-24.5", "--pool-count", "3",
+            "--legacy-salvage-floor", "-40", "--output", "/tmp/result.lungfishprimeranalysis",
+        ])
+        XCTAssertEqual(middle.dimerScore, -24.5)
+        XCTAssertEqual(middle.poolCount, 3)
+        XCTAssertEqual(middle.legacySalvageFloor, -40)
+        XCTAssertEqual(middle.outputPath, "/tmp/result.lungfishprimeranalysis")
+
+        let defaults = try PrimerDesignCommand.PrimalScheme3Subcommand.parse(Array(prefix.prefix(6)))
+        XCTAssertEqual(defaults.dimerScore, -26)
+        XCTAssertEqual(defaults.legacySalvageThresholds, [])
+        XCTAssertNil(defaults.legacySalvageFloor)
+        XCTAssertThrowsError(try PrimerDesignCommand.PrimalScheme3Subcommand.parse(prefix + ["--dimer-score"]))
+        XCTAssertThrowsError(try PrimerDesignCommand.PrimalScheme3Subcommand.parse(prefix + ["--legacy-salvage-threshold"]))
+    }
+
     func testPrimalSchemeParsesSearchEffortWithoutInventingIndividualOverrides() throws {
         let inherited = try PrimerDesignCommand.PrimalScheme3Subcommand.parse([
             "--msa", "/tmp/mhc.lungfishmsa", "--output", "/tmp/result.lungfishprimeranalysis",
