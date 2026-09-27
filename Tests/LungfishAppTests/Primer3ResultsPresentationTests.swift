@@ -19,19 +19,16 @@ final class Primer3ResultsPresentationTests: XCTestCase {
     XCTAssertEqual(snapshot.groupingLabel, "Independent primer design per selected template")
   }
 
-  func testPrimer3SectionsExcludeBindingEvenWithUnrelatedInspectionContexts() throws {
+  func testSingleSequencePrimer3OffersBindingSectionWithExplanationOnly() throws {
     let fixture = try makeFixture()
     defer { try? FileManager.default.removeItem(at: fixture.root) }
-    var snapshot = try PrimerAnalysisViewerSnapshot.load(from: fixture.bundle)
-    XCTAssertEqual(snapshot.availableSections, [.overview, .results])
-    XCTAssertEqual(snapshot.visibleSection(.binding), .overview)
-    XCTAssertEqual(snapshot.visibleSection(.results), .results)
-    snapshot.bindingContexts = [.init(id: "unrelated", title: "Unrelated alignment", alignedFASTA: ">row\nACGT\n",
-      annotations: [], primers: [.init(id: "primer", name: "Primer", sequence: "AC", strand: "+",
-        alignedStart: 0, alignedEnd: 2, contiguousReference: true)], unavailableReason: nil,
-      rows: [.init(name: "row", sequence: Array("ACGT"))])]
-    XCTAssertEqual(snapshot.availableSections, [.overview, .results])
+    let snapshot = try PrimerAnalysisViewerSnapshot.load(from: fixture.bundle)
+    XCTAssertEqual(snapshot.availableSections, [.overview, .results, .binding])
+    XCTAssertEqual(snapshot.visibleSection(.binding), .binding)
     XCTAssertFalse(snapshot.supportsBindingInspection)
+    XCTAssertTrue(snapshot.inspectableBindingContexts.isEmpty)
+    XCTAssertTrue(snapshot.bindingUnavailableExplanation?.contains("single template sequence") == true)
+    XCTAssertTrue(snapshot.schemeExportCandidates.isEmpty)
   }
 
   @MainActor
@@ -42,9 +39,13 @@ final class Primer3ResultsPresentationTests: XCTestCase {
     await model.load(from: fixture.bundle)
     let view = PrimerAnalysisViewerView(bundleURL: fixture.bundle, model: model, selectedSection: .binding)
     let inspected = try view.inspect()
-    XCTAssertThrowsError(try inspected.find(text: "Binding inspection"))
-    XCTAssertNoThrow(try inspected.find(ViewType.View<Primer3TemplateReviewCard>.self))
-    XCTAssertNoThrow(try inspected.find(text: "Saved design template"))
+    // A single-sequence template keeps the section but explains why nothing can be compared.
+    XCTAssertNoThrow(try inspected.find(ViewType.View<PrimerBindingInspectionView>.self))
+    XCTAssertNoThrow(try inspected.find(viewWithAccessibilityIdentifier: "primerAnalysisViewer.bindingUnavailable"))
+    let overview = PrimerAnalysisViewerView(bundleURL: fixture.bundle, model: model, selectedSection: .overview)
+    let overviewInspected = try overview.inspect()
+    XCTAssertNoThrow(try overviewInspected.find(ViewType.View<Primer3TemplateReviewCard>.self))
+    XCTAssertNoThrow(try overviewInspected.find(text: "Saved design template"))
   }
 
   @MainActor

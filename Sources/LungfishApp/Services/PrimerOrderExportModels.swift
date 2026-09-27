@@ -13,6 +13,10 @@ struct PrimerOrderSelection: Codable, Equatable, Sendable {
   let selectedPrimerIDs: [String]
   var selectedAssayIDs: [String]? = nil
   var includesAllReportedAssays: Bool? = nil
+  /// Set when `selectedAssayIDs` names Primer3 candidate pairs rather than saved scheme assays.
+  var primer3CandidatePairs: Bool? = nil
+
+  var isPrimer3CandidateSelection: Bool { primer3CandidatePairs == true }
 }
 
 struct PrimerOrderMetadata: Codable, Equatable, Sendable {

@@ -23,16 +23,24 @@ struct PrimerAnalysisViewerSnapshot: Sendable {
   var workflowProvenance: [ProvenanceEnvelope] = []
   var designReview: [PrimerTargetDesignReview] = []
   var bindingContexts: [PrimerBindingInspectionContext] = []
+  /// Saved results that can become a `.lungfishprimers` scheme, with refusals explained.
+  var schemeExportCandidates: [PrimerSchemeFromAnalysisCandidate] = []
 
   var inspectableBindingContexts: [PrimerBindingInspectionContext] {
-    guard primer3Results == nil else { return [] }
-    return bindingContexts.filter { $0.unavailableReason == nil && !$0.rows.isEmpty && !$0.primers.isEmpty }
+    bindingContexts.filter { $0.unavailableReason == nil && !$0.rows.isEmpty && !$0.primers.isEmpty }
   }
 
   var supportsBindingInspection: Bool { !inspectableBindingContexts.isEmpty }
 
+  /// Primer3 results always offer the section. Single-sequence templates have no alignment
+  /// to compare against, so the section then explains that instead of hiding.
   var availableSections: [PrimerAnalysisViewerSection] {
-    [.overview, .results] + (supportsBindingInspection ? [.binding] : [])
+    [.overview, .results] + (supportsBindingInspection || primer3Results != nil ? [.binding] : [])
+  }
+
+  var bindingUnavailableExplanation: String? {
+    guard primer3Results != nil, !supportsBindingInspection else { return nil }
+    return "These Primer3 candidates were designed on a single template sequence, so there is no alignment to compare their binding sites against. Design from an alignment bundle and choose a template row to see every row's bases under each primer."
   }
 
   func visibleSection(_ requested: PrimerAnalysisViewerSection) -> PrimerAnalysisViewerSection {
@@ -164,13 +172,19 @@ struct PrimerAnalysisViewerSnapshot: Sendable {
       normalizedBindingContexts = try PrimerBindingInspectionContext.loadNormalized(
         bundle: bundle, document: schemeDocument, projections: schemeProjections)
     }
+    let primer3BindingContexts = try normalized.map {
+      try PrimerBindingInspectionContext.loadPrimer3(bundle: bundle, results: $0)
+    } ?? []
+    let schemeCandidates = normalized == nil
+      ? (try? PrimerSchemeFromAnalysisService.candidates(analysisURL: bundle.url)) ?? [] : []
     return Self(bundle: bundle, provenance: provenance, provenanceJSON: provenanceJSON,
                 primer3Results: normalized, toolProvenance: toolProvenance, primalSchemeResults: schemes,
                 primerSchemeResultsDocument: schemeDocument,
                 derivedProvenance: derivedProvenance, workflowProvenance: workflowProvenance,
                 designReview: reviews,
                 bindingContexts: try PrimerBindingInspectionContext.load(
-                  bundle: bundle, schemes: legacySchemes) + normalizedBindingContexts)
+                  bundle: bundle, schemes: legacySchemes) + normalizedBindingContexts + primer3BindingContexts,
+                schemeExportCandidates: schemeCandidates)
   }
 
   private nonisolated static func verifiedBytes(_ artifact: PrimerAnalysisArtifact, in bundle: PrimerAnalysisBundle) throws -> Data {

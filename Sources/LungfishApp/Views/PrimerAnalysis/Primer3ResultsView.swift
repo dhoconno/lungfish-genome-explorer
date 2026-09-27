@@ -5,6 +5,7 @@ import LungfishWorkflow
 
 /// Coordinates in the file are zero-based, half-open; labels are one-based inclusive.
 struct Primer3ResultsView: View {
+  @Environment(\.primerAnalysisVisibility) private var visibility
   let results: Primer3NormalizedResults
   let bundleURL: URL
   var reviewTargets: [PrimerTargetDesignReview] = []
@@ -187,6 +188,12 @@ struct Primer3ResultsView: View {
       }.buttonStyle(.plain)
       Text(String(format: "%d nt · Tm %.1f °C · GC %.1f%%", oligo.sequence.utf8.count, oligo.meltingTemperature, oligo.gcPercent))
         .font(.caption).foregroundStyle(.secondary)
+      if let summary = visibility.summaries[oligo.id.uuidString] {
+        Text(summary.label).help(summary.help)
+          .font(.caption).foregroundStyle(.secondary).monospacedDigit()
+      } else if visibility.isComputingCompatibility {
+        Text("Calculating MSA matches…").font(.caption).foregroundStyle(.secondary)
+      }
     }
     .contextMenu {
       if let target = targets.first(where: { $0.id == pair.id.uuidString }),

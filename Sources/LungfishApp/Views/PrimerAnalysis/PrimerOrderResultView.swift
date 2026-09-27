@@ -85,7 +85,9 @@ struct PrimerOrderResultContent: View {
                     Text(document.metadata.name).font(.title2.weight(.semibold)).textSelection(.enabled)
                     Text("\(document.oligos.count) oligos · \(poolNames.count) \(isNormalizedAssaySelection ? "order groups" : "pools") · \(Set(document.oligos.map(\.sourceResultID)).count) schemes")
                         .font(.callout).foregroundStyle(.secondary).monospacedDigit()
-                    Text(isNormalizedAssaySelection
+                    Text(document.selection.isPrimer3CandidateSelection
+                        ? "This order holds the oligos of the included Primer3 candidate pairs. Each pair is an alternative design and its own order group, not a pool."
+                        : isNormalizedAssaySelection
                         ? "This order preserves the explicit saved assay selection, including probes and alternatives. No pool is inferred for unpooled assays."
                         : "This order preserves the displayed oligos captured at export. The source design and original full ordering sheet remain unchanged.")
                         .font(.callout).foregroundStyle(.secondary)
