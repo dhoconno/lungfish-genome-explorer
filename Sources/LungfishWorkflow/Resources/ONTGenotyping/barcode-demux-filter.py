@@ -201,7 +201,14 @@ def load_demux_manifest(path):
         sample = item.get("sample") or item.get("sampleID")
         if sample:
             sample_totals[sample] = item.get("totalPairs") or item.get("readCount") or item.get("mergedPairs")
-    return {"inputReadCount": payload.get("inputReadCount"), "sampleTotals": sample_totals}
+    return {
+        "inputReadCount": payload.get("inputReadCount"),
+        # The unit of inputReadCount and every sampleTotals value. The Swift
+        # side writes "fragments" for both once pairs may have been merged, so
+        # overall and per-sample retention percentages share a denominator.
+        "inputReadCountUnit": payload.get("inputReadCountUnit") or payload.get("readCountUnit") or "reads",
+        "sampleTotals": sample_totals,
+    }
 
 
 def reverse_complement(sequence):
@@ -671,6 +678,7 @@ def main():
         "summaryCSV": summary_csv,
         "sampleCSV": sample_csv,
         "totalInputReads": total_input_reads,
+        "totalInputReadsUnit": manifest["inputReadCountUnit"],
         "totalAlignments": total_alignments,
         "sequenceRecordsSeen": sequence_records_seen,
         "retainedSequenceRecordsSeen": retained_sequence_records_seen,

@@ -45,6 +45,20 @@ struct FASTQOperationCLIInvocationBuilder: Sendable {
         }
     }
 
+    /// The `assemble --read-layout` value for a request whose single-file
+    /// layout is already resolved, or `nil` to leave the CLI in auto mode.
+    static func assembleReadLayoutArgument(for request: AssemblyRunRequest) -> String? {
+        guard !request.pairedEnd, request.inputURLs.count == 1, let inputLayout = request.inputLayout else {
+            return nil
+        }
+        switch inputLayout {
+        case .singleEnd: return "single-end"
+        case .strictlyInterleaved: return "interleaved"
+        case .mixedMergedAndPairs: return "mixed"
+        case .pairedFiles: return nil
+        }
+    }
+
     /// ``pairingArguments(for:)`` with a recorded `interleaved` pairing
     /// verified against the records of `inputURL` (metadata of
     /// `metadataURL` as hints): a VSP2 bundle records `interleaved` while
@@ -160,6 +174,11 @@ struct FASTQOperationCLIInvocationBuilder: Sendable {
             var arguments = executionRequest.inputURLs.map(\.path)
             if executionRequest.pairedEnd {
                 arguments.append("--paired")
+            } else if let readLayout = Self.assembleReadLayoutArgument(for: executionRequest) {
+                // A layout the wizard already resolved is passed through so
+                // GUI and CLI agree; `nil` leaves the CLI's own resolution
+                // (bundle metadata, then a record scan) in charge.
+                arguments += ["--read-layout", readLayout]
             }
             arguments += [
                 "--json-events",

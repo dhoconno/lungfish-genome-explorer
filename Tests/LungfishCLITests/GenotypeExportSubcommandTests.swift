@@ -200,6 +200,31 @@ final class GenotypeExportSubcommandTests: XCTestCase {
         )
     }
 
+    /// S2's MHC-A call matched one haplotype, so the pipeline recorded the
+    /// legacy "-" placeholder. The CSV matrix used to leave H2 blank while
+    /// the workbook showed the name twice and LabKey received "-"; every
+    /// export now repeats the name (the homozygous convention).
+    func testCsvMatrixRepeatsTheHaplotypeForAHomozygousLocus() async throws {
+        let root = try temporaryDirectory(prefix: "genotype-homozygous-csv")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundle = try makeBundle(in: root)
+
+        let csv = root.appendingPathComponent("matrix.csv")
+        _ = try await GenotypeExportSubcommand.parse([
+            "--bundle", bundle.path,
+            "--export-format", "csv",
+            "--output", csv.path,
+            "--sample", "S2",
+        ]).runReturningResolvedColumns(managedPythonResolver: {
+            XCTFail("CSV must not resolve the XLSX runtime")
+            throw CocoaError(.fileNoSuchFile)
+        })
+        let csvText = try String(contentsOf: csv, encoding: .utf8)
+        XCTAssertTrue(csvText.hasPrefix("Sample,MHC-A H1,MHC-A H2\n"), csvText)
+        XCTAssertTrue(csvText.contains("S2,M1A,M1A\n"), csvText)
+        XCTAssertFalse(csvText.contains("S2,M1A,\n"), csvText)
+    }
+
     func testUnifiedXlsxUsesCapturedProjectionIdentityAnnotationsAndReceipt() async throws {
         let python = try XCTUnwrap(Self.managedPythonURL)
         let root = try temporaryDirectory(prefix: "genotype-unified-xlsx")

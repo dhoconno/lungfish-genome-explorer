@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import SwiftUI
+import LungfishIO
 import LungfishKit
 import LungfishWorkflow
 
@@ -386,6 +387,13 @@ struct AssemblyWizardSheet: View {
                 selectedReadType = Self.defaultReadType(for: newValue)
             }
         }
+        .onChange(of: selectedProfileID) { _, newValue in
+            // SPAdes exits 67 on --careful with --isolate or --meta; the tick
+            // box is disabled for those profiles and cleared on the way in.
+            if selectedTool == .spades, !Self.carefulModeIsAvailable(spadesProfileID: newValue) {
+                spadesCareful = false
+            }
+        }
         .onChange(of: selectedReadType) { _, _ in
             if !readTypeIsLockedToDetection {
                 hasConfirmedManualReadType = true
@@ -608,6 +616,13 @@ struct AssemblyWizardSheet: View {
                     case .spades:
                         Toggle("Careful mode", isOn: $spadesCareful)
                             .accessibilityIdentifier("assembly-spades-careful-toggle")
+                            .disabled(!Self.carefulModeIsAvailable(spadesProfileID: selectedProfileID))
+                        if let caption = Self.carefulModeCaption(spadesProfileID: selectedProfileID) {
+                            Text(caption)
+                                .font(.caption)
+                                .foregroundStyle(Color.lungfishSecondaryText)
+                                .accessibilityIdentifier("assembly-spades-careful-caption")
+                        }
                         Toggle("Skip error correction", isOn: $spadesSkipErrorCorrection)
                     case .flye:
                         Toggle("Metagenome mode", isOn: $flyeMetagenomeMode)
@@ -765,13 +780,32 @@ struct AssemblyWizardSheet: View {
     }
 
     private var readLayoutSummary: String {
-        if effectiveReadType != .illuminaShortReads {
+        Self.readLayoutSummary(
+            readType: effectiveReadType,
+            pairedEndInfo: pairedEndInfo,
+            recordedPairingModes: inputFiles.map(FASTQPairingModeResolver.bundlePairingMode(for:))
+        )
+    }
+
+    /// The read-layout caption. A paired import is stored as ONE interleaved
+    /// file inside its bundle, so a single bundle whose metadata records
+    /// `interleaved` is captioned as pairs; `lungfish-cli assemble` verifies
+    /// the records before choosing `--12` / `--use_paired_ends`.
+    static func readLayoutSummary(
+        readType: AssemblyReadType,
+        pairedEndInfo: (forward: [URL], reverse: [URL], unpaired: [URL]),
+        recordedPairingModes: [IngestionMetadata.PairingMode?]
+    ) -> String {
+        if readType != .illuminaShortReads {
             return "Single-input long-read assembly"
         }
         if pairedEndInfo.forward.count == 1,
            pairedEndInfo.reverse.count == 1,
            pairedEndInfo.unpaired.isEmpty {
             return "Paired-end Illumina reads"
+        }
+        if recordedPairingModes.count == 1, recordedPairingModes.first == .interleaved {
+            return "Interleaved paired-end Illumina reads (pairs verified against the records at run time)"
         }
         return "Single-end or pre-grouped Illumina reads"
     }
@@ -818,7 +852,22 @@ struct AssemblyWizardSheet: View {
             spadesCareful: spadesCareful,
             spadesSkipErrorCorrection: spadesSkipErrorCorrection,
             flyeMetagenomeMode: flyeMetagenomeMode,
-            hifiasmPrimaryOnly: hifiasmPrimaryOnly
+            hifiasmPrimaryOnly: hifiasmPrimaryOnly,
+            spadesProfileID: selectedProfileID.isEmpty ? nil : selectedProfileID
+        )
+    }
+
+    /// Whether the Careful mode tick box is enabled for the SPAdes profile.
+    static func carefulModeIsAvailable(spadesProfileID: String) -> Bool {
+        SPAdesCarefulModeCompatibility.supportsCareful(
+            profileID: spadesProfileID.isEmpty ? nil : spadesProfileID
+        )
+    }
+
+    /// The caption under a disabled Careful mode tick box, or `nil`.
+    static func carefulModeCaption(spadesProfileID: String) -> String? {
+        SPAdesCarefulModeCompatibility.unavailableCaption(
+            profileID: spadesProfileID.isEmpty ? nil : spadesProfileID
         )
     }
 
@@ -931,17 +980,20 @@ struct AssemblyWizardSheet: View {
         }
     }
 
+    /// `spadesProfileID` drops `--careful` for a profile SPAdes rejects it
+    /// with (isolate, meta), so a stale tick never reaches the command line.
     static func curatedAdvancedArguments(
         for tool: AssemblyTool,
         spadesCareful: Bool,
         spadesSkipErrorCorrection: Bool,
         flyeMetagenomeMode: Bool,
-        hifiasmPrimaryOnly: Bool
+        hifiasmPrimaryOnly: Bool,
+        spadesProfileID: String? = nil
     ) -> [String] {
         var arguments: [String] = []
         switch tool {
         case .spades:
-            if spadesCareful {
+            if spadesCareful, SPAdesCarefulModeCompatibility.supportsCareful(profileID: spadesProfileID) {
                 arguments.append("--careful")
             }
             if spadesSkipErrorCorrection {

@@ -82,10 +82,14 @@ public enum FASTQConsumerRegistry {
     // MARK: - Assemblers
 
     private static var assemblerDeclarations: [FASTQConsumerDeclaration] {
-        let shortReadAssemblers: [(id: String, name: String, flags: String)] = [
-            ("assemble.spades", "SPAdes", "-s (no --12)"),
-            ("assemble.megahit", "MEGAHIT", "-r (no --12)"),
-            ("assemble.skesa", "SKESA", "--reads (no --use_paired_ends)"),
+        // Verified against the installed tools' help on 2026-09-27 (SPAdes
+        // 4.3.0 `--12`, MEGAHIT 1.2.9 `--12`, SKESA 2.5.1 `--use_paired_ends`):
+        // each pairs the records of one file by POSITION, so only a strictly
+        // interleaved file runs as pairs and a mixed file stays single.
+        let shortReadAssemblers: [(id: String, name: String, single: String, interleaved: String)] = [
+            ("assemble.spades", "SPAdes", "-s", "--12"),
+            ("assemble.megahit", "MEGAHIT", "-r", "--12"),
+            ("assemble.skesa", "SKESA", "--reads", "--reads with --use_paired_ends"),
         ]
         let shortRead = shortReadAssemblers.map { assembler in
             FASTQConsumerDeclaration(
@@ -93,11 +97,11 @@ public enum FASTQConsumerRegistry {
                 displayName: assembler.name,
                 handling: [
                     .singleEnd: .asSingle,
-                    .strictlyInterleaved: .asSingle,
+                    .strictlyInterleaved: .asPairs,
                     .mixedMergedAndPairs: .asSingle,
                     .pairedFiles: .asPairs,
                 ],
-                mixedRationale: "ManagedAssemblyPipeline passes one file as \(assembler.flags); only two R1/R2 files run as pairs."
+                mixedRationale: "ManagedAssemblyPipeline resolves one file's layout through AssemblyRunRequest.readPairing (FASTQInputLayoutResolver in lungfish-cli assemble): a strictly interleaved file runs as \(assembler.interleaved), two R1/R2 files run as pairs, and a mixed file runs as \(assembler.single) single reads because \(assembler.interleaved) pairs records by position."
             )
         }
         let longRead = [("assemble.flye", "Flye"), ("assemble.hifiasm", "hifiasm")].map { assembler in

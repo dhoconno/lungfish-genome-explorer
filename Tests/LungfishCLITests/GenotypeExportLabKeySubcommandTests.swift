@@ -127,6 +127,18 @@ final class GenotypeExportLabKeySubcommandTests: XCTestCase {
         XCTAssertTrue(aH2Row.contains(",M3A,"))
         XCTAssertTrue(aH2Row.contains(",false,"))
 
+        // 3b) A called locus with one matched haplotype exports the same
+        //     name in both slots (the homozygous convention every export
+        //     shares), never the pipeline's "-" placeholder; its reads
+        //     count for both rows. An unresolved second haplotype stays "?".
+        let bH1Row = try XCTUnwrap(haplotypeLines.first { $0.hasPrefix("AnimalA,AnimalA,MHC-B,h1,") })
+        let bH2Row = try XCTUnwrap(haplotypeLines.first { $0.hasPrefix("AnimalA,AnimalA,MHC-B,h2,") })
+        XCTAssertTrue(bH1Row.hasPrefix("AnimalA,AnimalA,MHC-B,h1,M4B,called,"), bH1Row)
+        XCTAssertTrue(bH2Row.hasPrefix("AnimalA,AnimalA,MHC-B,h2,M4B,called,"), bH2Row)
+        XCTAssertEqual(bH1Row.split(separator: ",", omittingEmptySubsequences: false)[6], bH2Row.split(separator: ",", omittingEmptySubsequences: false)[6])
+        let dqH2Row = try XCTUnwrap(haplotypeLines.first { $0.hasPrefix("AnimalA,AnimalA,MHC-DQ,h2,") })
+        XCTAssertTrue(dqH2Row.hasPrefix("AnimalA,AnimalA,MHC-DQ,h2,?,unresolved_second_haplotype,0,"), dqH2Row)
+
         // 4) Override + audit rows round-trip the sidecar exactly once each.
         let overridesContent = try String(
             contentsOf: outputDir.appendingPathComponent("overrides.csv"),
@@ -300,7 +312,31 @@ final class GenotypeExportLabKeySubcommandTests: XCTestCase {
                             matchedHaplotypes: [],
                             observedGenotypeCount: 2,
                             observedGenotypes: ["01_M1A_A1_063", "02_M3A_A2_010"]
-                        )
+                        ),
+                        // A called locus with ONE matched haplotype: the
+                        // pipeline's legacy "-" placeholder that the workbook
+                        // displays as homozygous (M4B / M4B).
+                        GenotypeHaplotypeLocusCall(
+                            locus: "MHC-B",
+                            sourceLocus: "Mafa-B",
+                            haplotype1: "M4B",
+                            haplotype2: "-",
+                            status: .called,
+                            matchedHaplotypes: [],
+                            observedGenotypeCount: 1,
+                            observedGenotypes: ["04_M4B_B_001"]
+                        ),
+                        // An unresolved second haplotype must stay "?".
+                        GenotypeHaplotypeLocusCall(
+                            locus: "MHC-DQ",
+                            sourceLocus: "Mafa-DQ",
+                            haplotype1: "M2DQ",
+                            haplotype2: "?",
+                            status: .unresolvedSecondHaplotype,
+                            matchedHaplotypes: [],
+                            observedGenotypeCount: 2,
+                            observedGenotypes: ["05_M2DQ_DQ_001", "06_DQ_novel"]
+                        ),
                     ]
                 ),
                 GenotypeHaplotypeSampleAnalysis(

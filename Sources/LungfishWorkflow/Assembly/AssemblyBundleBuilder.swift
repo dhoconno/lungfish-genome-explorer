@@ -353,7 +353,11 @@ public final class AssemblyBundleBuilder: @unchecked Sendable {
             "threads": .integer(request.threads),
             "memoryGB": request.memoryGB.map(ParameterValue.integer) ?? .null,
             "minContigLength": request.effectiveMinContigLength.map(ParameterValue.integer) ?? .null,
-            "pairedEnd": .boolean(request.pairedEnd),
+            // Whether mates reached the assembler as pairs, for R1/R2 files
+            // and for one interleaved file alike; `readPairing` says which.
+            "pairedEnd": .boolean(request.readPairing.assemblesPairs),
+            "readPairing": .string(request.readPairing.rawValue),
+            "readLayout": .string(request.effectiveInputLayout.rawValue),
             "extraArguments": .array(request.extraArguments.map(ParameterValue.string)),
         ]
     }

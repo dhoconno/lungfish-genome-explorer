@@ -218,6 +218,12 @@ public struct ManagedAssemblyPipeline: Sendable {
     }
 
     private static func buildSpadesCommand(for request: AssemblyRunRequest) throws -> ManagedAssemblyCommand {
+        if let rejection = SPAdesCarefulModeCompatibility.rejectionMessage(
+            profileID: request.selectedProfileID,
+            extraArguments: request.extraArguments
+        ) {
+            throw ManagedAssemblyPipelineError.incompatibleSelection(rejection)
+        }
         let paired = try pairedReadsIfNeeded(for: request)
         var arguments: [String] = []
         switch request.selectedProfileID ?? "isolate" {
@@ -232,6 +238,8 @@ public struct ManagedAssemblyPipeline: Sendable {
         }
         if let paired {
             arguments += ["-1", paired.forward.path, "-2", paired.reverse.path]
+        } else if let interleaved = interleavedReadsIfNeeded(for: request) {
+            arguments += ["--12", interleaved.path]
         } else {
             for inputURL in request.inputURLs {
                 arguments += ["-s", inputURL.path]
@@ -259,6 +267,8 @@ public struct ManagedAssemblyPipeline: Sendable {
         var arguments: [String] = []
         if let paired {
             arguments += ["-1", paired.forward.path, "-2", paired.reverse.path]
+        } else if let interleaved = interleavedReadsIfNeeded(for: request) {
+            arguments += ["--12", interleaved.path]
         } else {
             arguments += ["-r", request.inputURLs.map(\.path).joined(separator: ",")]
         }
@@ -299,6 +309,10 @@ public struct ManagedAssemblyPipeline: Sendable {
             "--contigs_out", request.outputDirectory.appendingPathComponent("contigs.fasta").path,
             "--cores", "\(request.threads)",
         ]
+        if interleavedReadsIfNeeded(for: request) != nil {
+            // SKESA pairs adjacent records of a single file only when told to.
+            arguments.append("--use_paired_ends")
+        }
         if let memoryGB = request.memoryGB {
             arguments += ["--memory", "\(memoryGB)"]
         }
@@ -376,6 +390,16 @@ public struct ManagedAssemblyPipeline: Sendable {
             )
         }
         return (request.inputURLs[0], request.inputURLs[1])
+    }
+
+    /// The single interleaved file the assembler pairs on its own (SPAdes
+    /// and MEGAHIT `--12`, SKESA `--use_paired_ends`), or `nil` when the
+    /// request's records are assembled as single reads. A mixed file of
+    /// merged reads and pairs never reaches this branch: every one of those
+    /// flags pairs records by position, so `readPairing` keeps it single.
+    private static func interleavedReadsIfNeeded(for request: AssemblyRunRequest) -> URL? {
+        guard request.readPairing == .interleaved, request.inputURLs.count == 1 else { return nil }
+        return request.inputURLs[0]
     }
 
     private static func prepareExecution(
@@ -597,7 +621,8 @@ private extension AssemblyRunRequest {
             minContigLength: minContigLength,
             selectedProfileID: selectedProfileID,
             extraArguments: extraArguments,
-            profileSelectionBasis: profileSelectionBasis
+            profileSelectionBasis: profileSelectionBasis,
+            inputLayout: inputLayout
         )
     }
 
@@ -614,7 +639,8 @@ private extension AssemblyRunRequest {
             minContigLength: minContigLength,
             selectedProfileID: selectedProfileID,
             extraArguments: extraArguments,
-            profileSelectionBasis: profileSelectionBasis
+            profileSelectionBasis: profileSelectionBasis,
+            inputLayout: inputLayout
         )
     }
 }

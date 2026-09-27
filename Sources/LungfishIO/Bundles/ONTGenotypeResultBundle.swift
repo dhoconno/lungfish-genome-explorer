@@ -1031,6 +1031,11 @@ public struct ONTGenotypeSampleResult: Codable, Equatable, Sendable {
 
 public struct ONTGenotypeRunStats: Codable, Equatable, Sendable {
     public let totalInputReads: Int?
+    /// The unit of `totalInputReads` and of every retention percentage's
+    /// denominator: "fragments" when the run merged pairs (one count per
+    /// physical molecule), "reads" otherwise, `nil` for stats written before
+    /// the unit was recorded.
+    public let totalInputReadsUnit: String?
     public let totalAlignments: Int?
     public let passedAlignments: Int?
     public let retainedUniqueReads: Int?
@@ -1041,6 +1046,7 @@ public struct ONTGenotypeRunStats: Codable, Equatable, Sendable {
 
     public init(
         totalInputReads: Int? = nil,
+        totalInputReadsUnit: String? = nil,
         totalAlignments: Int? = nil,
         passedAlignments: Int? = nil,
         retainedUniqueReads: Int? = nil,
@@ -1050,6 +1056,7 @@ public struct ONTGenotypeRunStats: Codable, Equatable, Sendable {
         rawMetrics: [String: String] = [:]
     ) {
         self.totalInputReads = totalInputReads
+        self.totalInputReadsUnit = totalInputReadsUnit
         self.totalAlignments = totalAlignments
         self.passedAlignments = passedAlignments
         self.retainedUniqueReads = retainedUniqueReads
@@ -1086,6 +1093,7 @@ public struct ONTGenotypeRunStats: Codable, Equatable, Sendable {
 
         return ONTGenotypeRunStats(
             totalInputReads: intValue(object["totalInputReads"]),
+            totalInputReadsUnit: object["totalInputReadsUnit"] as? String,
             totalAlignments: intValue(object["totalAlignments"]),
             passedAlignments: intValue(object["passedAlignments"]),
             retainedUniqueReads: intValue(object["retainedUniqueReads"]),

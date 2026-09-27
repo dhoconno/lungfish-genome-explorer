@@ -61,7 +61,15 @@ struct GenotypeXlsxWorkbookWriter: Sendable {
                         cells += [.absent, .absent]
                         continue
                     }
-                    cells += [cell(for: call.haplotype1), cell(for: call.haplotype2)]
+                    // Same homozygous convention as the workbook's Effective
+                    // H2 and the LabKey export: one matched haplotype fills
+                    // both columns instead of leaving H2 blank.
+                    let secondHaplotype = GenotypeEffectiveCallAuthority.normalizedSecondHaplotype(
+                        first: call.haplotype1,
+                        second: call.haplotype2,
+                        status: call.status
+                    )
+                    cells += [cell(for: call.haplotype1), cell(for: secondHaplotype)]
                 }
                 return .init(sample: sample.sample, cells: cells)
             }

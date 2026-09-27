@@ -2144,6 +2144,9 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
 
     private struct RetainedDemuxStats: Decodable {
         let totalInputReads: Int
+        /// "fragments" once the filter was handed fragment-denominated
+        /// totals; absent from stats written by older builds.
+        let totalInputReadsUnit: String?
         let totalAlignments: Int
         let passedAlignments: Int
         let retainedQueryNamesBeforeDemux: Int?
@@ -2397,7 +2400,15 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         let pairMerge = PairMergeProvenance(samples: samples)
         var manifest: [String: Any] = [
             "mode": mode.rawValue,
-            "inputReadCount": samples.reduce(0) { $0 + $1.readCount },
+            // The run denominator in the SAME unit as every sample's
+            // `totalPairs`: fragments. Summing `readCount` counted each mate of
+            // an unmerged pair, so a run of 376 merged fragments reported
+            // `overall_unique_retained_percent` 50 while every sample showed
+            // 100. `inputRecordCount` keeps the raw mate/record total for
+            // provenance.
+            "inputReadCount": samples.reduce(0) { $0 + $1.totalFragmentCount },
+            "inputReadCountUnit": "fragments",
+            "inputRecordCount": samples.reduce(0) { $0 + $1.readCount },
             "requiresBothEndSoftclips": requiresBothEndSoftclips,
             "samples": sampleItems,
         ]
@@ -4492,6 +4503,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         let provenanceFiles = provenanceInputs + transientAlignmentOutputs + provenanceOutputs
         let statistics: [String: Any] = [
             "totalInputReads": filter.stats.totalInputReads,
+            "totalInputReadsUnit": filter.stats.totalInputReadsUnit ?? "reads",
             "totalAlignments": filter.stats.totalAlignments,
             "passedAlignments": filter.stats.passedAlignments,
             "retainedUniqueReads": filter.stats.retainedUniqueReads,
