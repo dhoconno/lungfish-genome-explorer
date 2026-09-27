@@ -564,8 +564,10 @@ extension TaxTriageCommand {
                 print(formatter.success("Nextflow: installed (v\(version))"))
             } else {
                 print(formatter.error("Nextflow: NOT INSTALLED"))
+                // Nextflow is a managed Required Setup tool, not a
+                // hand-installed one; point at the managed install.
                 print(formatter.info(
-                    "  Install: curl -s https://get.nextflow.io | bash"
+                    "  Install: Nextflow is part of LGE's Required Setup. In the app, open the Welcome window and click Install, or run: lungfish-cli tools update --apply --yes --required-only"
                 ))
             }
 
