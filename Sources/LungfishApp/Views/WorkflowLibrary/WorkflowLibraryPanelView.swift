@@ -61,7 +61,11 @@ struct WorkflowLibraryPanelView: View {
     private var libraryView: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: 18) {
+                // Eager on purpose: the library has a handful of sections, one of
+                // them thousands of points tall. A lazy stack gains nothing here and
+                // its offset estimates for a few huge rows blanked the list after a
+                // scroll and looped forever in layout after an Enabled toggle.
+                VStack(alignment: .leading, spacing: 18) {
                     ForEach(viewModel.builtInSections) { section in
                         builtInSection(section)
                     }

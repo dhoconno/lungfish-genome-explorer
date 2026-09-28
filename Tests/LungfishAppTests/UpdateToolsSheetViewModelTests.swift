@@ -356,6 +356,34 @@ final class UpdateToolsSheetViewModelTests: XCTestCase {
         XCTAssertFalse(AppDelegate.isFreshInstallOwnedByWelcome(withDatabase, hasReceipt: false))
     }
 
+    /// The 2026.9.53 regression: on an empty storage root micromamba is absent too, so the
+    /// planner adds a bootstrap install alongside the missing environments. That is still a
+    /// first install and Welcome's Required Setup card owns it, not the Update Tools sheet.
+    func testMissingBootstrapOnAnEmptyMachineIsStillLeftToWelcome() {
+        var plan = emptyPlan()
+        plan.installEnvironments = [missingInstall("samtools"), missingInstall("bcftools")]
+        plan.bootstrapUpdate = .init(currentVersion: nil, targetVersion: "2.9.0-0")
+        XCTAssertTrue(AppDelegate.isFreshInstallOwnedByWelcome(plan, hasReceipt: false))
+
+        var blankVersion = plan
+        blankVersion.bootstrapUpdate = .init(currentVersion: "", targetVersion: "2.9.0-0")
+        XCTAssertTrue(AppDelegate.isFreshInstallOwnedByWelcome(blankVersion, hasReceipt: false))
+    }
+
+    func testMissingBootstrapWithNothingElseMissingIsNotAFreshInstall() {
+        // Every environment is present, so something is installed and this is a repair.
+        var plan = emptyPlan()
+        plan.bootstrapUpdate = .init(currentVersion: nil, targetVersion: "2.9.0-0")
+        XCTAssertFalse(AppDelegate.isFreshInstallOwnedByWelcome(plan, hasReceipt: false))
+    }
+
+    func testMissingBootstrapWithAReceiptIsNotAFreshInstall() {
+        var plan = emptyPlan()
+        plan.installEnvironments = [missingInstall("samtools")]
+        plan.bootstrapUpdate = .init(currentVersion: nil, targetVersion: "2.9.0-0")
+        XCTAssertFalse(AppDelegate.isFreshInstallOwnedByWelcome(plan, hasReceipt: true))
+    }
+
     func testAnEmptyPlanIsNotAFreshInstall() {
         // Nothing to do is stamped, not presented and not handed to Welcome.
         XCTAssertFalse(AppDelegate.isFreshInstallOwnedByWelcome(emptyPlan(), hasReceipt: false))
