@@ -278,7 +278,7 @@ public enum PrimerSchemeFromAnalysisService {
             + "Map reads to that row's sequence (included in this bundle as design-reference.fasta) or to a sequence identical to it."
         let notes = [
             "Numbered variants such as _LEFT_1 and _LEFT_2 are all selected primers of one amplicon and are trimmed together.",
-            "The equivalent accession \(chromosome) is the name the design run gave this row.",
+            equivalentAccessionNote(designRowName: chromosome, recordName: originalName),
         ]
         let candidate = PrimerSchemeFromAnalysisCandidate(resultID: result.id, label: label, engine: "PrimalScheme3",
             referenceID: originalName, referenceStatement: statement, primerCount: renamed.count,
@@ -287,6 +287,25 @@ public enum PrimerSchemeFromAnalysisService {
         return Plan(candidate: candidate, bed: bedLines(renamed), primersFASTA: primersFASTA(renamed),
             referenceFASTA: ">\(originalName)\n\(reference.sequence)\n",
             sourceArtifactPaths: [bedPath, referencePath, mapped.alignmentPath] + (ampliconPath.map { [$0] } ?? []))
+    }
+
+    /// The sheet note about the name the design run gave the reference row.
+    ///
+    /// PrimalScheme3 runs rename each alignment row to an internal id such as
+    /// `input_9ABC4783C8474BC0A102A9E03A44D2E4_row_0`. That id is kept as an
+    /// equivalent accession so reads mapped under it still match, but it means
+    /// nothing to a reader, so the note names the record (`LR699574.1`) instead.
+    static func equivalentAccessionNote(designRowName: String, recordName: String) -> String {
+        if isInternalDesignRowName(designRowName) {
+            return "The scheme also accepts reads mapped to \(recordName) under the internal name the design run gave that row."
+        }
+        return "The equivalent accession \(designRowName) is the name the design run gave \(recordName)."
+    }
+
+    /// True for the `input_<32 hex>_row_<n>` names PrimalScheme3 design runs
+    /// give alignment rows.
+    static func isInternalDesignRowName(_ name: String) -> Bool {
+        name.range(of: #"^input_[0-9A-Fa-f]{32}_row_[0-9]+$"#, options: .regularExpression) != nil
     }
 
     // MARK: Olivar and varVAMP

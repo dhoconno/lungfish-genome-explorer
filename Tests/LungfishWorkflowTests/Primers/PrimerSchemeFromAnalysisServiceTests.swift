@@ -34,6 +34,12 @@ final class PrimerSchemeFromAnalysisServiceTests: XCTestCase {
         XCTAssertEqual(candidate.ampliconCount, 1)
         XCTAssertEqual(candidate.poolCount, 1)
         XCTAssertTrue(candidate.referenceStatement.contains("first row"), candidate.referenceStatement)
+        // The Save as Primer Scheme sheet showed the design run's internal row
+        // id ("input_<hex>_row_0"); it names the record instead.
+        XCTAssertFalse(candidate.notes.contains { $0.contains(fixture.normalizedReference) }, "\(candidate.notes)")
+        XCTAssertFalse(candidate.notes.contains { $0.contains("input_") }, "\(candidate.notes)")
+        XCTAssertTrue(candidate.notes.contains { $0.contains("Mamu-A1_001") }, "\(candidate.notes)")
+        XCTAssertEqual(candidate.equivalentReferenceIDs, [fixture.normalizedReference], "reads mapped under the internal name still match")
 
         let result = try PrimerSchemeFromAnalysisService.export(request: .init(
             analysisURL: fixture.bundle, resultID: nil, outputURL: URL(fileURLWithPath: "MHC design"),
