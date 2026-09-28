@@ -724,11 +724,20 @@ public enum PortablePath {
                 return nil
             }
             if startsWith(characters, at: index, workspacePlaceholder + "/") {
+                // A scratch path may hold spaces; try the longest span that
+                // names an existing file, shrinking at each space.
                 let start = index + workspacePlaceholder.count + 1
-                var end = start
-                while end < characters.count, !pathTerminators.contains(characters[end]) { end += 1 }
-                if let existing = existingTemporaryPath(String(characters[start ..< end])) {
-                    return (existing, end)
+                var limit = start
+                while limit < characters.count, characters[limit] == " " || !pathTerminators.contains(characters[limit]) {
+                    limit += 1
+                }
+                var end = limit
+                while end > start {
+                    if let existing = existingTemporaryPath(String(characters[start ..< end])) {
+                        return (existing, end)
+                    }
+                    guard let space = characters[start ..< end].lastIndex(of: " ") else { break }
+                    end = space
                 }
             }
             return nil

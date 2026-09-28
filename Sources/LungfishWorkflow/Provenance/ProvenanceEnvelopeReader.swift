@@ -41,6 +41,12 @@ public enum ProvenanceEnvelopeReader {
         try decode(data, sourceURL: nil, fallbackCreatedAt: nil)
     }
 
+    /// Decodes canonical bytes read from `sidecarURL`, resolving the
+    /// project-relative and placeholder paths LGE writes into projects.
+    public static func decodeCanonical(_ data: Data, sidecarURL: URL) throws -> ProvenanceEnvelope {
+        try decodeCanonical(PortablePath.resolveJSON(data, forFileAt: sidecarURL, encoder: ProvenanceJSON.encoder))
+    }
+
     public static func decodeCanonical(_ data: Data) throws -> ProvenanceEnvelope {
         try ProvenanceJSON.decoder.decode(ProvenanceEnvelope.self, from: data)
     }
