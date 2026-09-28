@@ -233,6 +233,11 @@ public actor PreparedAlignmentAttachmentService {
             promotedURLs.append(bamURL)
             try promoteArtifact(from: request.stagedIndexURL, to: indexURL)
             promotedURLs.append(indexURL)
+            if request.format == .bam {
+                // Most producers already wrote a portable header; this
+                // catches the rest before the header reaches the stats DB.
+                await BAMHeaderPathSanitizer.sanitizeAndReindexIfNeeded(bamURL: bamURL, indexURL: indexURL)
+            }
 
             let metadataSnapshot = try await metadataCollector.collectMetadata(
                 bamURL: bamURL,

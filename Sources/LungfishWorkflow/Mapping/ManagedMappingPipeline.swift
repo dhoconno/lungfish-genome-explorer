@@ -341,6 +341,9 @@ public final class ManagedMappingPipeline: @unchecked Sendable {
             steps.append(sortStep)
         }
 
+        if let headerStep = try await portableBAMHeader(bamURL: sortedBAM) {
+            steps.append(headerStep)
+        }
         let indexStep = try await samtoolsIndex(
             bamURL: sortedBAM,
             indexURL: baiURL,
@@ -920,6 +923,35 @@ public final class ManagedMappingPipeline: @unchecked Sendable {
         return execution.step
     }
 
+    /// Rewrites the `@PG` command lines samtools and the mapper left in a BAM
+    /// written into a project, so they name project-relative and
+    /// placeholder paths instead of the account's home, the managed tool root
+    /// and scratch directories. Runs before indexing; returns the provenance
+    /// step, or nil when the header needed no change.
+    private func portableBAMHeader(bamURL: URL) async throws -> StepExecution? {
+        let start = Date()
+        let changed: Bool
+        do {
+            changed = try await BAMHeaderPathSanitizer.sanitizeInPlace(bamURL: bamURL, runner: nativeToolRunner)
+        } catch {
+            throw ManagedMappingPipelineError.normalizationFailed(error.localizedDescription)
+        }
+        guard changed else { return nil }
+        let end = Date()
+        return StepExecution(
+            toolName: "lungfish portable-bam-header",
+            toolVersion: WorkflowRun.currentAppVersion,
+            command: ["lungfish-internal", "portable-bam-header", bamURL.path],
+            inputs: [],
+            outputs: [ProvenanceRecorder.fileRecord(url: bamURL, format: .bam, role: .output)],
+            exitCode: 0,
+            wallTime: end.timeIntervalSince(start),
+            stderr: nil,
+            startTime: start,
+            endTime: end
+        )
+    }
+
     private func samtoolsIndex(
         bamURL: URL,
         indexURL: URL,
@@ -1223,7 +1255,7 @@ public final class ManagedMappingPipeline: @unchecked Sendable {
     }
 
     private func condaRuntimeIdentity(environment: String, executableName: String) -> String {
-        "managed conda environment \(environment); executable \(executableName); root \(condaManager.rootPrefix.path)"
+        "managed conda environment \(environment); executable \(executableName)"
     }
 
     private func runtimeIdentity(for tool: NativeTool) -> String {

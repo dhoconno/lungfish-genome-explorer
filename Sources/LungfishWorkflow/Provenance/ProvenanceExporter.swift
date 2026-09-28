@@ -832,6 +832,7 @@ public struct ProvenanceExporter: Sendable {
         if let user = run.runtime.user {
             s += "# User: \(user)\n"
         }
+        s += unresolvedPathNote(run, prefix: "# ")
         s += "#\n"
         s += "# This script reproduces the analysis performed in Lungfish.\n"
         s += "# Ensure the required tools are installed or use the container\n"
@@ -900,6 +901,7 @@ public struct ProvenanceExporter: Sendable {
         if let user = run.runtime.user {
             s += "User: \(user)\n"
         }
+        s += unresolvedPathNote(run, prefix: "")
         s += "\n"
         s += "This script reproduces the analysis performed in Lungfish.\n"
         s += "\"\"\"\n\n"
@@ -996,6 +998,7 @@ public struct ProvenanceExporter: Sendable {
         if let user = run.runtime.user {
             s += " * User: \(user)\n"
         }
+        s += unresolvedPathNote(run, prefix: " * ")
         s += " */\n\n"
         s += "nextflow.enable.dsl = 2\n\n"
 
@@ -1114,6 +1117,7 @@ public struct ProvenanceExporter: Sendable {
         if let user = run.runtime.user {
             s += "# User: \(user)\n"
         }
+        s += unresolvedPathNote(run, prefix: "# ")
         s += "#\n"
         s += "# Usage: snakemake --cores 8 --use-singularity\n\n"
 
@@ -1353,6 +1357,21 @@ public struct ProvenanceExporter: Sendable {
             return nil
         }
         return args
+    }
+
+    /// Comment lines naming the recorded paths that could not be resolved
+    /// on this machine: `<external>/...` files lay outside the project when
+    /// the run was recorded, and `<workspace>/...` scratch files are gone.
+    /// Every project path (`@/...`) and managed tool path is already real.
+    private func unresolvedPathNote(_ run: WorkflowRun, prefix: String) -> String {
+        let values = run.steps.flatMap { replayArguments($0) ?? [] } + run.primaryInputFiles.map(\.path)
+        let unresolved = values.filter(PortablePath.containsUnresolvedPlaceholder)
+        guard !unresolved.isEmpty else { return "" }
+        var lines = "\(prefix)\n"
+        lines += "\(prefix)Some recorded paths were outside the project or in a deleted scratch\n"
+        lines += "\(prefix)folder, so only their file names were kept. Replace each <external>/...\n"
+        lines += "\(prefix)or <workspace>/... path with the file's location before running.\n"
+        return lines
     }
 
     private func unavailableReplayReason(_ run: WorkflowRun) -> String? {

@@ -69,7 +69,7 @@ final class ImportFastaGenBankAnnotationTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: provenanceURL.path))
 
         let provenance = try XCTUnwrap(JSONSerialization.jsonObject(
-            with: try Data(contentsOf: provenanceURL)
+            with: PortablePath.resolveJSON(try Data(contentsOf: provenanceURL), forFileAt: provenanceURL)
         ) as? [String: Any])
         XCTAssertEqual(provenance["name"] as? String, "lungfish import fasta")
         XCTAssertEqual(provenance["status"] as? String, "completed")

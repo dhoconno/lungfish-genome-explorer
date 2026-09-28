@@ -102,9 +102,12 @@ public struct ProjectOperationHistoryWriter: Sendable {
     @discardableResult
     public func createOperation(
         operationID: UUID,
-        payloads: [String: Data]
+        payloads rawPayloads: [String: Data]
     ) throws -> URL {
-        try payloads.keys.forEach(validatePayloadName)
+        try rawPayloads.keys.forEach(validatePayloadName)
+        let payloads = rawPayloads.reduce(into: [String: Data]()) { result, entry in
+            result[entry.key] = portablePayload(entry.value, named: entry.key)
+        }
         let descriptors = try openOrCreateHistory()
         defer {
             Darwin.close(descriptors.history)
@@ -259,7 +262,7 @@ public struct ProjectOperationHistoryWriter: Sendable {
         }
         defer { Darwin.close(operationDescriptor) }
         return try atomicFileStore.create(
-            data,
+            portablePayload(data, named: payloadName),
             named: payloadName,
             inOpenDirectory: operationDescriptor,
             displayedAt: operationDirectoryURL(for: operationID)
@@ -324,6 +327,23 @@ public struct ProjectOperationHistoryWriter: Sendable {
             )
         }
         return (projectDescriptor, historyDescriptor)
+    }
+
+    /// A provenance payload kept in a `.lungfish` project names project files
+    /// project-relatively and never the account's home, the managed tool root
+    /// or scratch directories (see `PortablePath`). Cleanup plans, journals
+    /// and receipts are stored as given: the cleanup machinery acts on the
+    /// exact paths and bytes they record.
+    private func portablePayload(_ data: Data, named name: String) -> Data {
+        guard name.lowercased().hasSuffix("provenance.json"),
+              projectURL.pathExtension.lowercased() == "lungfish" else { return data }
+        let managed = PortablePath.defaultManagedRoots
+        let context = PortablePath.Context(
+            projectURL: projectURL,
+            toolRootURL: managed.toolRoot,
+            storageRootURL: managed.storageRoot
+        )
+        return (try? PortablePath.sanitizeJSON(data, context: context)) ?? data
     }
 
     private func validatePayloadName(_ name: String) throws {

@@ -190,7 +190,6 @@ public struct CondaOfflinePackService {
                 "outputBundle": .string((archiveKind == nil ? packDirectory : output).standardizedFileURL.path),
                 "outputKind": .string(archiveKind == nil ? "directory" : "archive"),
                 "environments": .array(environmentNames.map { .string($0) }),
-                "runtimeUser": .string(WorkflowRun.currentUser),
                 "runtimeHostName": .string(ProcessInfo.processInfo.hostName),
             ],
             outputDirectory: packDirectory,
@@ -501,7 +500,6 @@ public struct CondaOfflinePackService {
             ]),
             "managedSourceReadinessProbes": .array(probes.map(runtimeProbeParameterValue)),
             "portableLauncherImports": .array(portableLauncherImports),
-            "runtimeUser": .string(WorkflowRun.currentUser),
             "runtimeHostName": .string(ProcessInfo.processInfo.hostName),
         ]
         if let attemptedProbe {

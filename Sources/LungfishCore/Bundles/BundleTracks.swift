@@ -157,6 +157,36 @@ public struct SourceInfo: Codable, Sendable, Equatable {
         case downloadDate = "download_date"
         case notes
     }
+
+    /// Encodes the source; a local `source_url` is written in its
+    /// `PortablePath` form (`<external>/<file name>`, `<workspace>/...`) so a
+    /// manifest never names the account's home or scratch directories. The
+    /// field is descriptive only, so nothing needs to resolve it again.
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(organism, forKey: .organism)
+        try container.encodeIfPresent(commonName, forKey: .commonName)
+        try container.encodeIfPresent(taxonomyId, forKey: .taxonomyId)
+        try container.encode(assembly, forKey: .assembly)
+        try container.encodeIfPresent(assemblyAccession, forKey: .assemblyAccession)
+        try container.encodeIfPresent(database, forKey: .database)
+        try container.encodeIfPresent(Self.portableSourceURL(sourceURL), forKey: .sourceURL)
+        try container.encodeIfPresent(downloadDate, forKey: .downloadDate)
+        try container.encodeIfPresent(notes, forKey: .notes)
+    }
+
+    static func portableSourceURL(_ url: URL?) -> URL? {
+        guard let url, url.isFileURL else { return url }
+        let managed = PortablePath.defaultManagedRoots
+        let context = PortablePath.Context(
+            projectURL: nil,
+            toolRootURL: managed.toolRoot,
+            storageRootURL: managed.storageRoot
+        )
+        let sanitized = PortablePath.sanitize(text: url.absoluteString, context: context)
+        guard sanitized != url.absoluteString else { return url }
+        return URL(string: sanitized) ?? url
+    }
 }
 
 // MARK: - GenomeInfo

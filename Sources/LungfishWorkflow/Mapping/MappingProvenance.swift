@@ -310,10 +310,8 @@ public struct MappingProvenance: Sendable, Codable, Equatable {
             )
         )
 
-        try data.write(
-            to: directory.appendingPathComponent(Self.filename),
-            options: .atomic
-        )
+        let url = directory.appendingPathComponent(Self.filename)
+        try PortablePath.sanitizeJSON(data, forFileAt: url, encoder: encoder).write(to: url, options: .atomic)
     }
 
     @discardableResult
@@ -326,7 +324,8 @@ public struct MappingProvenance: Sendable, Codable, Equatable {
 
     public static func load(from directory: URL) -> MappingProvenance? {
         let url = directory.appendingPathComponent(Self.filename)
-        guard let data = try? Data(contentsOf: url) else { return nil }
+        guard let stored = try? Data(contentsOf: url) else { return nil }
+        let data = PortablePath.resolveJSON(stored, forFileAt: url)
 
         let decoder = JSONDecoder()
 

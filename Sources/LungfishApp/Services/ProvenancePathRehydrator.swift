@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import LungfishCore
 
 enum ProvenancePathRehydrator {
     static func rehydrate(
@@ -37,7 +38,11 @@ enum ProvenancePathRehydrator {
 
         for provenanceURL in provenanceURLs(for: destinationURL, adjacentSidecar: destinationSidecar, fileManager: fm) {
             do {
-                let data = try Data(contentsOf: provenanceURL)
+                // Records in a project hold project-relative paths; resolve
+                // them where the item came from so the prefix rewrite below
+                // sees real paths, then store portable paths for its new home.
+                let stored = try Data(contentsOf: provenanceURL)
+                let data = (try? PortablePath.resolveJSON(stored, context: .forFile(at: sourceURL))) ?? stored
                 let json = try JSONSerialization.jsonObject(with: data)
                 let rehydrated = rehydrateJSONValue(
                     json,
@@ -51,7 +56,7 @@ enum ProvenancePathRehydrator {
                     withJSONObject: rehydrated,
                     options: [.prettyPrinted, .sortedKeys]
                 )
-                try output.write(to: provenanceURL, options: .atomic)
+                try PortablePath.sanitizeJSON(output, forFileAt: provenanceURL).write(to: provenanceURL, options: .atomic)
             } catch {
                 logFailure?("Failed to rehydrate provenance \(provenanceURL.path): \(error)")
             }

@@ -245,8 +245,7 @@ struct ProvenanceCommand: AsyncParsableCommand {
         }
 
         private func decodeWorkflowRun(at url: URL) -> WorkflowRun? {
-            guard let data = try? Data(contentsOf: url) else { return nil }
-            return try? ProvenanceEnvelopeReader.decode(data).legacyWorkflowRun()
+            return (try? ProvenanceEnvelopeReader.load(fromSidecar: url))??.legacyWorkflowRun()
         }
 
         private func printBibliography(_ bibliography: ProvenanceBibliographyResult, bundleURL: URL) {

@@ -157,7 +157,6 @@ public struct CondaLockfileService {
                     "documentKind": .string(specification.kind), "resolution": .string(specification.resolution),
                     "platforms": .array(platforms.map { .string($0) }),
                     "channels": .array(channels.map { .string($0) }),
-                    "runtimeUser": .string(WorkflowRun.currentUser),
                     "runtimeHostName": .string(ProcessInfo.processInfo.hostName),
                 ],
                 provenanceURL: stagedReceipt,
@@ -228,10 +227,7 @@ public struct CondaLockfileService {
             steps: [step],
             parameters: parameters
         )
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        encoder.dateEncodingStrategy = .iso8601
-        try encoder.encode(run).write(to: provenanceURL, options: .atomic)
+        try run.writeSidecar(to: provenanceURL)
         return provenanceURL
     }
 }

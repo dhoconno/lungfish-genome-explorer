@@ -40,7 +40,9 @@ extension VariantDatabase {
             return nil
         }
         defer { sqlite3_close(db) }
-        return readMetadataValue(db, key: key)
+        guard let value = readMetadataValue(db, key: key) else { return nil }
+        guard PortablePath.mayContainPlaceholder(value) else { return value }
+        return PortablePath.resolve(text: value, context: .forFile(at: dbURL))
     }
 
     /// Read the `import_state` value from an existing variant database.

@@ -50,7 +50,7 @@ final class ApplicationExportImportCollectionServiceTests: XCTestCase {
         XCTAssertTrue(report.contains("Native bundles"))
         XCTAssertTrue(report.contains("Preserved artifacts"))
 
-        let provenanceData = try Data(contentsOf: result.provenanceURL)
+        let provenanceData = PortablePath.resolveJSON(try Data(contentsOf: result.provenanceURL), forFileAt: result.provenanceURL)
         let provenanceDecoder = JSONDecoder()
         provenanceDecoder.dateDecodingStrategy = .iso8601
         let provenance = try provenanceDecoder.decode(WorkflowRun.self, from: provenanceData)
@@ -118,7 +118,7 @@ final class ApplicationExportImportCollectionServiceTests: XCTestCase {
             options: ApplicationExportImportOptions(collectionName: "Reviewed Batch")
         )
 
-        let provenanceData = try Data(contentsOf: result.provenanceURL)
+        let provenanceData = PortablePath.resolveJSON(try Data(contentsOf: result.provenanceURL), forFileAt: result.provenanceURL)
         let provenanceDecoder = JSONDecoder()
         provenanceDecoder.dateDecodingStrategy = .iso8601
         let provenance = try provenanceDecoder.decode(WorkflowRun.self, from: provenanceData)
@@ -278,7 +278,7 @@ final class ApplicationExportImportCollectionServiceTests: XCTestCase {
             XCTAssertTrue(fileManager.fileExists(atPath: collectionURL.path))
             XCTAssertTrue(fileManager.fileExists(atPath: provenanceURL.path))
 
-            let workflowData = try Data(contentsOf: provenanceURL)
+            let workflowData = PortablePath.resolveJSON(try Data(contentsOf: provenanceURL), forFileAt: provenanceURL)
             let decoder = JSONDecoder()
             decoder.dateDecodingStrategy = .iso8601
             let workflow = try decoder.decode(WorkflowRun.self, from: workflowData)

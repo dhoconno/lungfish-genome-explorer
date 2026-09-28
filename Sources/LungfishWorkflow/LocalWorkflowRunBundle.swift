@@ -1,4 +1,5 @@
 import Foundation
+import LungfishIO
 
 public struct LocalWorkflowInputBinding: Codable, Sendable, Equatable {
     public let path: String
@@ -128,12 +129,17 @@ public enum LocalWorkflowRunBundleStore {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         encoder.dateEncodingStrategy = .iso8601
-        let data = try encoder.encode(manifest)
-        try data.write(to: bundleURL.appendingPathComponent(manifestFilename), options: .atomic)
+        let manifestURL = bundleURL.appendingPathComponent(manifestFilename)
+        // Inside a project the history names project files project-relatively
+        // and never the account's home or scratch directories; `read`
+        // resolves them for wherever the project now lives.
+        let data = PortablePath.sanitizeJSON(try encoder.encode(manifest), forFileAt: manifestURL, encoder: encoder)
+        try data.write(to: manifestURL, options: .atomic)
     }
 
     public static func read(from bundleURL: URL) throws -> LocalWorkflowRunBundleManifest {
-        let data = try Data(contentsOf: bundleURL.appendingPathComponent(manifestFilename))
+        let manifestURL = bundleURL.appendingPathComponent(manifestFilename)
+        let data = PortablePath.resolveJSON(try Data(contentsOf: manifestURL), forFileAt: manifestURL)
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         return try decoder.decode(LocalWorkflowRunBundleManifest.self, from: data)

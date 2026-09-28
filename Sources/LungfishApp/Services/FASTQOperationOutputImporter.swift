@@ -563,7 +563,7 @@ struct BundleFASTQOperationImporter: FASTQOperationDirectImporting {
 
             let envelope: ProvenanceEnvelope
             do {
-                envelope = try ProvenanceEnvelopeReader.decodeCanonical(Data(contentsOf: sidecarURL))
+                envelope = try ProvenanceEnvelopeReader.decodeCanonical(Data(contentsOf: sidecarURL), sidecarURL: sidecarURL)
             } catch {
                 throw ProvenanceRehydrationError.missingSourceProvenance(
                     "Savont output has invalid canonical provenance: \(sidecarURL.path)"

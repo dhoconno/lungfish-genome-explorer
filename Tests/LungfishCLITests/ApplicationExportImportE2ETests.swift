@@ -1,6 +1,7 @@
 import Foundation
 import LungfishTestSupport
 import XCTest
+import LungfishCore
 
 final class ApplicationExportImportE2ETests: XCTestCase {
     private let fileManager = FileManager.default
@@ -153,7 +154,10 @@ final class ApplicationExportImportE2ETests: XCTestCase {
         XCTAssertFalse(bundles.isEmpty, file: file, line: line)
         for bundleURL in bundles {
             let provenanceURL = bundleURL.appendingPathComponent(".lungfish-provenance.json")
-            let sidecar = try String(contentsOf: provenanceURL, encoding: .utf8)
+            let sidecar = String(
+                decoding: PortablePath.resolveJSON(try Data(contentsOf: provenanceURL), forFileAt: provenanceURL),
+                as: UTF8.self
+            )
             let normalizedSidecar = sidecar.replacingOccurrences(of: "\\/", with: "/")
             XCTAssertTrue(
                 durableSourcePaths.contains { normalizedSidecar.contains($0) },

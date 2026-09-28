@@ -784,6 +784,17 @@ public struct GATKPipelineExecutor<Runner: GATKCommandRunning> {
                 )
             }
         }
+        // VCF outputs kept in a project carry GATK's
+        // ##GATKCommandLine lines; rewrite their paths before provenance
+        // records the final checksums.
+        for output in request.outputs where isVCFOutput(output) && fileManager.fileExists(atPath: output.url.path) {
+            do {
+                try await VCFHeaderPathSanitizer.sanitizeKeptVCF(at: output.url)
+            } catch {
+                removeNewOutputs(for: request, preexistingOutputPaths: preexistingOutputPaths)
+                throw error
+            }
+        }
         let completedAt = dateProvider()
         let outputArtifacts = outputArtifactsForProvenance(request)
         let provenanceURL: URL
@@ -862,11 +873,8 @@ public struct GATKPipelineExecutor<Runner: GATKCommandRunning> {
             steps: steps,
             parameters: parameters(for: request)
         )
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         let provenanceURL = request.outputDirectory.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
-        try encoder.encode(run).write(to: provenanceURL, options: .atomic)
+        try run.writeSidecar(to: provenanceURL)
         return provenanceURL
     }
 

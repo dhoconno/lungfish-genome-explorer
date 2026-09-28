@@ -1213,9 +1213,16 @@ public enum MappingViewerBundlePublicationService {
 
         for name in names where name.hasSuffix(".import.lungfish-provenance.json") {
             let relativePath = "alignments/\(name)"
+            // Resolve project-relative paths against the candidate so the
+            // candidate-to-final remap sees real paths, then store the
+            // result in portable form for the final location.
             let envelope = try ProvenanceJSON.decoder.decode(
                 ProvenanceEnvelope.self,
-                from: bundleRoot.readData(relativePath: relativePath)
+                from: PortablePath.resolveJSON(
+                    bundleRoot.readData(relativePath: relativePath),
+                    forFileAt: candidateBundleURL.appendingPathComponent(relativePath),
+                    encoder: ProvenanceJSON.encoder
+                )
             )
             let rehydrated = try remappedEnvelope(
                 envelope,
@@ -1223,7 +1230,11 @@ public enum MappingViewerBundlePublicationService {
                 with: finalBundleURL,
                 bundleRoot: bundleRoot
             )
-            let encoded = try ProvenanceJSON.encoder.encode(rehydrated)
+            let encoded = PortablePath.sanitizeJSON(
+                try ProvenanceJSON.encoder.encode(rehydrated),
+                forFileAt: finalBundleURL.appendingPathComponent(relativePath),
+                encoder: ProvenanceJSON.encoder
+            )
             try bundleRoot.replaceFile(
                 relativePath: relativePath,
                 data: encoded,
@@ -1293,34 +1304,38 @@ public enum MappingViewerBundlePublicationService {
                 )
             }
             do {
-                try executePathReplacement(
-                    """
-                    UPDATE file_info
-                    SET value = replace(value, ?1, ?2)
-                    WHERE instr(value, ?1) > 0
-                    """,
-                    database: database,
-                    candidatePath: candidateBundleURL.standardizedFileURL.path,
-                    finalPath: finalBundleURL.standardizedFileURL.path,
-                    candidateBundleURL: candidateBundleURL,
-                    finalBundleURL: finalBundleURL
-                )
-                try executePathReplacement(
-                    """
-                    UPDATE provenance
-                    SET command = replace(command, ?1, ?2),
-                        input_file = replace(input_file, ?1, ?2),
-                        output_file = replace(output_file, ?1, ?2)
-                    WHERE instr(command, ?1) > 0
-                       OR instr(COALESCE(input_file, ''), ?1) > 0
-                       OR instr(COALESCE(output_file, ''), ?1) > 0
-                    """,
-                    database: database,
-                    candidatePath: candidateBundleURL.standardizedFileURL.path,
-                    finalPath: finalBundleURL.standardizedFileURL.path,
-                    candidateBundleURL: candidateBundleURL,
-                    finalBundleURL: finalBundleURL
-                )
+                for (candidatePath, finalPath) in portablePathPairs(candidate: candidateBundleURL, final: finalBundleURL) {
+                    try executePathReplacement(
+                        """
+                        UPDATE file_info
+                        SET value = replace(value, ?1, ?2)
+                        WHERE instr(value, ?1) > 0
+                        """,
+                        database: database,
+                        candidatePath: candidatePath,
+                        finalPath: finalPath,
+                        candidateBundleURL: candidateBundleURL,
+                        finalBundleURL: finalBundleURL
+                    )
+                }
+                for (candidatePath, finalPath) in portablePathPairs(candidate: candidateBundleURL, final: finalBundleURL) {
+                    try executePathReplacement(
+                        """
+                        UPDATE provenance
+                        SET command = replace(command, ?1, ?2),
+                            input_file = replace(input_file, ?1, ?2),
+                            output_file = replace(output_file, ?1, ?2)
+                        WHERE instr(command, ?1) > 0
+                           OR instr(COALESCE(input_file, ''), ?1) > 0
+                           OR instr(COALESCE(output_file, ''), ?1) > 0
+                        """,
+                        database: database,
+                        candidatePath: candidatePath,
+                        finalPath: finalPath,
+                        candidateBundleURL: candidateBundleURL,
+                        finalBundleURL: finalBundleURL
+                    )
+                }
                 guard sqlite3_exec(database, "COMMIT", nil, nil, nil) == SQLITE_OK else {
                     throw sqliteRehydrationError(
                         database: database,
@@ -1343,6 +1358,19 @@ public enum MappingViewerBundlePublicationService {
             defer { sqlite3_free(serialized) }
             return Data(bytes: serialized, count: Int(serializedSize))
         }
+    }
+
+    /// The candidate and final bundle roots as absolute paths, and in the
+    /// project-relative form a database inside a project stores them in.
+    private static func portablePathPairs(candidate: URL, final: URL) -> [(String, String)] {
+        var pairs = [(candidate.standardizedFileURL.path, final.standardizedFileURL.path)]
+        let context = PortablePath.Context.forFile(at: final)
+        let portableCandidate = PortablePath.sanitize(path: candidate.standardizedFileURL.path, context: context)
+        let portableFinal = PortablePath.sanitize(path: final.standardizedFileURL.path, context: context)
+        if portableCandidate.hasPrefix("@/"), portableFinal.hasPrefix("@/"), portableCandidate != portableFinal {
+            pairs.append((portableCandidate, portableFinal))
+        }
+        return pairs
     }
 
     private static func executePathReplacement(

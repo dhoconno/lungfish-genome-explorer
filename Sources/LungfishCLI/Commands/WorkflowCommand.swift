@@ -411,7 +411,8 @@ struct RunSubcommand: AsyncParsableCommand {
             let endedAt = Date()
             let terminalStatus: NFCoreRunExecutionStatus = cancelled ? .cancelled : .failed
             let message = cancelled ? "Workflow launch was cancelled before an exit status was returned." : error.localizedDescription
-            try message.write(to: runBundleURL.appendingPathComponent("logs/stderr.log"), atomically: true, encoding: .utf8)
+            let stderrLogURL = runBundleURL.appendingPathComponent("logs/stderr.log")
+            try PortablePath.sanitize(text: message, forFileAt: stderrLogURL).write(to: stderrLogURL, atomically: true, encoding: .utf8)
             try LocalWorkflowRunBundleStore.write(request.manifest(createdAt: bundleCreatedAt,
                 replayIdentity: replayIdentity, inputBindings: inputBindings, executionStatus: terminalStatus,
                 statusHistory: statusHistory + [.init(status: terminalStatus, timestamp: endedAt)],
@@ -567,8 +568,9 @@ struct RunSubcommand: AsyncParsableCommand {
             try Self.nfCoreWorkflowProcessRunner.preflightEngine()
         } catch {
             let endedAt = Date()
-            try error.localizedDescription.write(
-                to: runBundleURL.appendingPathComponent("logs/stderr.log"), atomically: true, encoding: .utf8)
+            let stderrLogURL = runBundleURL.appendingPathComponent("logs/stderr.log")
+            try PortablePath.sanitize(text: error.localizedDescription, forFileAt: stderrLogURL)
+                .write(to: stderrLogURL, atomically: true, encoding: .utf8)
             try NFCoreRunBundleStore.write(
                 request.manifest(
                     createdAt: bundleCreatedAt,
@@ -848,16 +850,22 @@ struct RunSubcommand: AsyncParsableCommand {
         return reason
     }
 
+    /// Engine output kept in a run bundle names project files project-relatively
+    /// and never the account's home, the tool root or scratch directories.
+    private static func writePortableLog(_ text: String, to url: URL) throws {
+        try PortablePath.sanitize(text: text, forFileAt: url).write(to: url, atomically: true, encoding: .utf8)
+    }
+
     private func writeProcessLogs(_ result: NFCoreWorkflowProcessResult, to logsURL: URL) throws {
         try FileManager.default.createDirectory(at: logsURL, withIntermediateDirectories: true)
-        try result.standardOutput.write(to: logsURL.appendingPathComponent("stdout.log"), atomically: true, encoding: .utf8)
-        try result.standardError.write(to: logsURL.appendingPathComponent("stderr.log"), atomically: true, encoding: .utf8)
+        try Self.writePortableLog(result.standardOutput, to: logsURL.appendingPathComponent("stdout.log"))
+        try Self.writePortableLog(result.standardError, to: logsURL.appendingPathComponent("stderr.log"))
     }
 
     private func writeLocalProcessLogs(_ result: LocalWorkflowProcessResult, to logsURL: URL) throws {
         try FileManager.default.createDirectory(at: logsURL, withIntermediateDirectories: true)
-        try result.standardOutput.write(to: logsURL.appendingPathComponent("stdout.log"), atomically: true, encoding: .utf8)
-        try result.standardError.write(to: logsURL.appendingPathComponent("stderr.log"), atomically: true, encoding: .utf8)
+        try Self.writePortableLog(result.standardOutput, to: logsURL.appendingPathComponent("stdout.log"))
+        try Self.writePortableLog(result.standardError, to: logsURL.appendingPathComponent("stderr.log"))
     }
 
     private func writeRunBundleProvenance(

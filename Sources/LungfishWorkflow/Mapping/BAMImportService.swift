@@ -112,6 +112,14 @@ public final class BAMImportService: @unchecked Sendable {
         let format = materialized.format
         let indexCreated = materialized.indexWasCreated
         let wasSorted = materialized.wasSorted
+        if format == .bam {
+            // Keep the account's home and scratch paths out of the bundle
+            // copy's @PG lines; see BAMHeaderPathSanitizer.
+            await BAMHeaderPathSanitizer.sanitizeAndReindexIfNeeded(
+                bamURL: effectiveBAMURL,
+                indexURL: materialized.indexURL
+            )
+        }
         progressHandler?(0.20, "Alignment prepared.")
 
         // 4. Create data provider for stats collection

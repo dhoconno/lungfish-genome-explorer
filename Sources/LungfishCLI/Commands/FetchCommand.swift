@@ -1010,11 +1010,8 @@ struct SRADownloadSubcommand: AsyncParsableCommand {
             steps: steps,
             parameters: sraDownloadProvenanceParameters(trace: trace)
         )
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         let provenanceURL = outputURL.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
-        try encoder.encode(run).write(to: provenanceURL, options: .atomic)
+        try run.writeSidecar(to: provenanceURL)
     }
 
     private func detectSRAInputFormat(_ input: String) -> FileFormat? {

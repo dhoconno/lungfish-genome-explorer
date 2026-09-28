@@ -285,7 +285,6 @@ public struct BundleContainerExportService {
                 "outputPath": .string(output.path),
                 "pluginPacks": .array(pluginPacks.map(\.id).sorted().map { .string($0) }),
                 "imageDigest": .string(imageDigest),
-                "runtimeUser": .string(WorkflowRun.currentUser),
                 "runtimeHostName": .string(ProcessInfo.processInfo.hostName),
             ]
         )
