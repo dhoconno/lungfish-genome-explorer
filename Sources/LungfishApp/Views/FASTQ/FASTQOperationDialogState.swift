@@ -277,7 +277,9 @@ final class FASTQOperationDialogState {
         self.selectReadsBySequenceKeepMatched = true
         self.selectReadsBySequenceSearchReverseComplement = false
         self.demultiplexBarcodeSource = .builtinKit
-        self.demultiplexKitID = BarcodeKitRegistry.builtinKits().first?.id ?? ""
+        self.demultiplexKitID = Self.defaultDemultiplexKitID(
+            detectedReadTypes: selectedInputURLs.compactMap(AssemblyReadType.detect(fromInputURL:))
+        )
         self.demultiplexCustomCSVPath = ""
         self.demultiplexLocation = "bothends"
         self.demultiplexMaxDistanceFrom5Prime = 0
@@ -1100,6 +1102,33 @@ final class FASTQOperationDialogState {
         default:
             return selectedToolID.requiredInputKinds
         }
+    }
+
+    /// The built-in kit the Demultiplex tool starts on, matched to the reads'
+    /// platform. It used to be the first kit in the registry, TruSeq Single
+    /// Index Set A, even for an ONT bundle. ONT reads start on native
+    /// barcoding NBD104/NBD114 (24), which covers the common SQK-NBD114.24
+    /// kit; PacBio and Illumina reads start on their platform's first kit.
+    /// Mixed or undetected inputs keep the registry's first kit.
+    static func defaultDemultiplexKitID(
+        detectedReadTypes: [AssemblyReadType],
+        kits: [BarcodeKitDefinition] = BarcodeKitRegistry.builtinKits()
+    ) -> String {
+        let fallback = kits.first?.id ?? ""
+        let platforms = Set(detectedReadTypes.map { readType -> LungfishIO.SequencingPlatform in
+            switch readType {
+            case .illuminaShortReads: return .illumina
+            case .ontReads: return .oxfordNanopore
+            case .pacBioHiFi: return .pacbio
+            }
+        })
+        guard platforms.count == 1, let platform = platforms.first else { return fallback }
+        let platformKits = kits.filter { $0.platform == platform }
+        if platform == .oxfordNanopore,
+           let nativeBarcoding = platformKits.first(where: { $0.id == BarcodeKitRegistry.ontNativeBarcoding24.id }) {
+            return nativeBarcoding.id
+        }
+        return platformKits.first?.id ?? fallback
     }
 
     var demultiplexBuiltInKitOptions: [BarcodeKitDefinition] {

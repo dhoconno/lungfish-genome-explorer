@@ -1116,6 +1116,52 @@ final class FASTQOperationDialogRoutingTests: XCTestCase {
         )
     }
 
+    /// The Demultiplex dialog defaulted to TruSeq Single Index Set A on an
+    /// ONT bundle. The default kit follows the reads' platform.
+    func testDemultiplexDefaultKitMatchesTheReadsPlatform() {
+        XCTAssertEqual(
+            FASTQOperationDialogState.defaultDemultiplexKitID(detectedReadTypes: [.ontReads]),
+            "ont-nbd104-114"
+        )
+        XCTAssertEqual(
+            BarcodeKitRegistry.kit(byID: FASTQOperationDialogState.defaultDemultiplexKitID(detectedReadTypes: [.pacBioHiFi]))?.platform,
+            .pacbio
+        )
+        XCTAssertEqual(
+            FASTQOperationDialogState.defaultDemultiplexKitID(detectedReadTypes: [.illuminaShortReads]),
+            "truseq-single-a"
+        )
+        XCTAssertEqual(
+            FASTQOperationDialogState.defaultDemultiplexKitID(detectedReadTypes: [.ontReads, .illuminaShortReads]),
+            BarcodeKitRegistry.builtinKits().first?.id,
+            "mixed platforms keep the registry's first kit"
+        )
+        XCTAssertEqual(
+            FASTQOperationDialogState.defaultDemultiplexKitID(detectedReadTypes: []),
+            BarcodeKitRegistry.builtinKits().first?.id
+        )
+    }
+
+    func testDemultiplexDialogOnAnONTBundleStartsOnNativeBarcoding() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("demux-ont-default-\(UUID().uuidString)", isDirectory: true)
+        let bundle = root.appendingPathComponent("ont-reads.lungfishfastq", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundle, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let header = "@3f2a1b5c-0000-4000-8000-000000000001 runid=0123456789abcdef0123456789abcdef01234567 "
+            + "flow_cell_id=FAX00000 start_time=2026-09-01T00:00:00Z basecall_model_version_id=dna_r10.4.1_e8.2_400bps_sup@v4.3.0"
+        try "\(header)\nACGTACGTACGT\n+\nIIIIIIIIIIII\n"
+            .write(to: bundle.appendingPathComponent("reads.fastq"), atomically: true, encoding: .utf8)
+
+        let state = FASTQOperationDialogState(
+            initialCategory: .demultiplexing,
+            selectedInputURLs: [bundle]
+        )
+        state.selectTool(.demultiplexBarcodes)
+
+        XCTAssertEqual(state.demultiplexKitID, "ont-nbd104-114")
+    }
+
     func testExactBareBarcodeEngineUsesCompatibleBuiltInKitAndPreservesReads() {
         let state = FASTQOperationDialogState(
             initialCategory: .demultiplexing,
