@@ -684,7 +684,7 @@ extension InspectorViewController {
             return
         }
         guard let row = viewModel.documentSectionViewModel.alignmentTrackRows.first(where: { $0.id == trackID }),
-              row.isDerived else {
+              row.isRemovable else {
             presentSimpleAlert(title: "Source Alignment", message: "Only derived filtered alignments can be removed from this control.")
             return
         }
