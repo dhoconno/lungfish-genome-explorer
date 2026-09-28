@@ -703,7 +703,10 @@ final class OperationRoutingTests: XCTestCase {
         XCTAssertTrue(body.contains("request.independentOperationInputDisplayName"))
         XCTAssertTrue(body.contains("progress: { [weak self] fraction, message in"))
         XCTAssertTrue(body.contains("OperationCenter.shared.updateWithLog("))
-        XCTAssertTrue(body.contains("outputURLs: result.importedURLs"))
+        // Every child (Savont included) records its published outputs on
+        // its Operations row through FASTQOperationCompletion.
+        XCTAssertTrue(body.contains("FASTQOperationCompletion.complete("))
+        XCTAssertTrue(body.contains("result: result"))
     }
 
     /// MB-2 review round 1, point 4: a pooled `.perBundle`-mode `.assemble`

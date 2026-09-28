@@ -966,9 +966,10 @@ extension MainSplitViewController {
                             level: .info,
                             message: "Completed in \(String(format: "%.1f", elapsed))s"
                         )
-                        guard OperationCenter.shared.complete(
+                        guard FASTQOperationCompletion.complete(
                             id: opID,
-                            detail: "Done in \(String(format: "%.1f", elapsed))s"
+                            detail: "Done in \(String(format: "%.1f", elapsed))s",
+                            result: result
                         ) else {
                             self?.postSidebarFileDropCompleted(requestID: requestID, sourceURL: sourceURL, success: false, error: "Cancelled by user")
                             return
@@ -1107,9 +1108,10 @@ extension MainSplitViewController {
                             level: .info,
                             message: "Completed in \(String(format: "%.1f", elapsed))s"
                         )
-                        guard OperationCenter.shared.complete(
+                        guard FASTQOperationCompletion.complete(
                             id: opID,
-                            detail: "Done in \(String(format: "%.1f", elapsed))s"
+                            detail: "Done in \(String(format: "%.1f", elapsed))s",
+                            result: result
                         ) else {
                             self?.postSidebarFileDropCompleted(requestID: requestID, sourceURL: sourceURL, success: false, error: "Cancelled by user")
                             return

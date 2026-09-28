@@ -876,7 +876,11 @@ extension MainSplitViewController {
                         id: opID, level: .info,
                         message: "Completed in \(String(format: "%.1f", elapsed))s"
                     )
-                    guard OperationCenter.shared.complete(id: opID, detail: doneDetail) else { return }
+                    guard FASTQOperationCompletion.complete(
+                        id: opID,
+                        detail: doneDetail,
+                        outputURLs: derivedURLs
+                    ) else { return }
                     if let last = derivedURLs.last {
                         self.refreshSidebarAndSelectDerivedURL(last)
                     } else {
@@ -1339,18 +1343,11 @@ extension MainSplitViewController {
                             message: "Completed in \(String(format: "%.1f", elapsed))s"
                         )
                         let completionDetail = "Done in \(String(format: "%.1f", elapsed))s"
-                        if case .savont = result.resolvedRequest {
-                            guard OperationCenter.shared.complete(
-                                id: opID,
-                                detail: completionDetail,
-                                outputURLs: result.importedURLs
-                            ) else { return }
-                        } else {
-                            guard OperationCenter.shared.complete(
-                                id: opID,
-                                detail: completionDetail
-                            ) else { return }
-                        }
+                        guard FASTQOperationCompletion.complete(
+                            id: opID,
+                            detail: completionDetail,
+                            result: result
+                        ) else { return }
                         guard let self else { return }
                         if let completionTarget {
                             self.recordUITestEvent(
