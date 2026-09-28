@@ -83,7 +83,7 @@ The demo matrix is three rows by two samples, and all six cells are filled, 120,
 
 Nothing you do in the matrix changes the result. The help behind the question-mark icon beside the Genotype Display heading says so in the words "Display filters do not change genotype calls." Sorting, hiding, and filtering are display state only. The calling thresholds were fixed when the run finished, and re-running the workflow is the only way to change them.
 
-**At scale.** The MiSeq cohort result is 970 rows by 30 samples, 29,100 cells, and only 2,109 of them are filled, about 7 percent. Just 305 of the 970 rows carry a call in even one sample. A grid filled well past a tenth of its cells, with a full-size library, is a reason to check the run. The MiSeq cohort rows are spread unevenly across 13 loci. MHC-B contributes 342 of the 970 rows and MHC-DRB another 222, while MHC-F and MHC-J contribute 5 each. That reflects how many alleles have been catalogued at each locus, not anything about the animals.
+**At scale.** The MiSeq cohort result is 970 rows by 30 samples, 29,100 cells, and only 2,108 of them are filled, about 7 percent. Just 304 of the 970 rows carry a call in even one sample. A grid filled well past a tenth of its cells, with a full-size library, is a reason to check the run. The MiSeq cohort rows are spread unevenly across 13 loci. MHC-B contributes 342 of the 970 rows and MHC-DRB another 222, while MHC-F and MHC-J contribute 5 each. That reflects how many alleles have been catalogued at each locus, not anything about the animals.
 
 ### Judge the depth of the whole run {#qc-status}
 
@@ -93,7 +93,7 @@ LGE gives each sample one of three statuses. **OK** means at least 1,000 retaine
 
 On the demo result QC Status reads 0 OK, 2 Low Support, and 0 Review, because the two samples kept 204 and 172 reads. The simulation made them thin on purpose, so every call in them is read with that in mind.
 
-**At scale.** In the MiSeq cohort run QC Status reads 23 OK, 7 Low Support, and 0 Review. The 23 OK samples carried between 1,976 and 58,370 retained reads. The 7 Low Support samples carried between 2 and 713. The thinnest trustworthy sample sat just under 2,000 reads and the deepest failure at 713, which gives a sense of the gap on a working run.
+**At scale.** In the MiSeq cohort run QC Status reads 23 OK, 7 Low Support, and 0 Review. The 23 OK samples carried between 1,974 and 58,375 retained reads. The 7 Low Support samples carried between 2 and 713. The thinnest trustworthy sample sat just under 2,000 reads and the deepest failure at 713, which gives a sense of the gap on a working run.
 
 ### Read one sample's evidence
 
@@ -169,7 +169,7 @@ Then take the samples one at a time and read the Call-support check before the a
 
 Then count the loci a sample covers before reading its alleles, because a missing locus is the easiest failure to overlook. Each allele row names its locus, so count the loci among the sample's allele list in the Selected Item tab. Each demo sample covers all three of the library's loci, MHC-G, MHC-DRB, and MHC-DPA1. In the MiSeq cohort run the well-sequenced samples cover 11 to 13 of the 13 loci, while the Low Support samples cover as few as 2.
 
-Expect many rows per locus in a real macaque. The demo has one allele per locus, but the rhesus MHC-A, MHC-B, and DRB loci are duplicated gene families, so a well-sequenced rhesus animal shows several rows under each of those labels, one for each allele of each gene copy it carries. `Animal_01` showed 104 rows across its 13 loci. [Duplicated genes and many rows per locus](01-what-is-mhc-genotyping.md#duplicated-genes-and-many-rows-per-locus) explains why, and more than two rows at one locus is not by itself an error.
+Expect many rows per locus in a real macaque. The demo has one allele per locus, but the rhesus MHC-A, MHC-B, and DRB loci are duplicated gene families, so a well-sequenced rhesus animal shows several rows under each of those labels, one for each allele of each gene copy it carries. `Animal_01` showed 102 rows across 12 of the 13 loci. [Duplicated genes and many rows per locus](01-what-is-mhc-genotyping.md#duplicated-genes-and-many-rows-per-locus) explains why, and more than two rows at one locus is not by itself an error.
 
 Two further features of real calls surprise readers, and both are the assay working correctly. A name such as `05_Mamu-B17_01g1|B17_01_01_01,B17_01_01_02` is one group record, one call saying the animal carries one of the listed alleles, as [How allele names are built](01-what-is-mhc-genotyping.md#how-allele-names-are-built) explains. And identical sequences in the library appear as one row, for the reason the same section gives.
 
