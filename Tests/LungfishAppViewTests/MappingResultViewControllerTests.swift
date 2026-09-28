@@ -1052,6 +1052,42 @@ final class MappingResultViewControllerTests: XCTestCase {
         XCTAssertNil(vc.testVisibleAlignmentTrackID)
     }
 
+    // In All Alignments mode a contig row focuses the viewer on that row's
+    // track. A display-only settings change (such as Hide high-gap sites)
+    // must leave that selection, the viewer and the consensus evidence alone.
+    func testDisplayOnlySettingsKeepAllModeContigSelectionAndEvidence() async throws {
+        let vc = MappingResultViewController()
+        _ = vc.view
+        let bundleURL = try makeReferenceBundleWithAlignmentTracks()
+        let result = makeMappingResult(viewerBundleURL: bundleURL)
+        vc.setAlignmentTrackSummaryBuilderForTesting { _, _, _ in
+            [
+                MappingContigSummary(
+                    contigName: "alpha", contigLength: 100, mappedReads: 10,
+                    mappedReadPercent: 100, meanDepth: 2, coverageBreadth: 0.5,
+                    medianMAPQ: 60, meanIdentity: 1
+                )
+            ]
+        }
+        vc.configureForTesting(result: result)
+        vc.applyEmbeddedReadDisplaySettings([
+            NotificationUserInfoKey.visibleAlignmentTrackID: ""
+        ])
+        try await waitUntil { !vc.testContigTableView.displayedRows.isEmpty }
+        let row = try XCTUnwrap(vc.testContigTableView.displayedRows.first)
+        vc.testSelectContig(sampleID: row.sampleID, alignmentTrackID: row.alignmentTrackID, named: row.contigName)
+        XCTAssertEqual(vc.testSelectedContigName, row.contigName)
+
+        vc.applyEmbeddedReadDisplaySettings([
+            NotificationUserInfoKey.consensusMaskingEnabled: true,
+            NotificationUserInfoKey.consensusGapThresholdPercent: 50,
+        ])
+        try await Task.sleep(nanoseconds: 200_000_000)
+
+        XCTAssertEqual(vc.testSelectedContigName, row.contigName)
+        XCTAssertEqual(vc.testVisibleAlignmentTrackID, row.alignmentTrackID)
+    }
+
     func testConsensusExportUsesSelectedContigNameInSuggestedStem() async throws {
         let vc = MappingResultViewController()
         _ = vc.view
