@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import XCTest
-@testable import LungfishIO
+@testable import LungfishCore
 
 final class PortablePathTests: XCTestCase {
     private var root: URL!
@@ -126,8 +126,11 @@ final class PortablePathTests: XCTestCase {
         XCTAssertEqual(PortablePath.sanitize(text: "ratio 1/2 and A/B", context: context), "ratio 1/2 and A/B")
         XCTAssertEqual(
             PortablePath.sanitize(text: "file:///tmp/lge/inputs/GRCh38%20chr20.fasta", context: context),
-            "file:///%3Cworkspace%3E/lge/inputs/GRCh38%20chr20.fasta"
+            "%3Cworkspace%3E/lge/inputs/GRCh38%20chr20.fasta"
         )
+        let external = PortablePath.sanitize(text: "file:///Users/someone/pkgs/flow.lungfishflowpkg/main.nf", context: context)
+        XCTAssertEqual(external, "%3Cexternal%3E/main.nf")
+        XCTAssertEqual(URL(string: external)?.path, "<external>/main.nf", "an unresolvable URL reads like the plain placeholder")
         let projectURL = project.appendingPathComponent("Imports/reads.lungfishfastq/r 1.fq").absoluteString
         let sanitized = PortablePath.sanitize(text: projectURL, context: context)
         XCTAssertEqual(sanitized, "file:///@/Imports/reads.lungfishfastq/r%201.fq")
@@ -198,7 +201,8 @@ final class PortablePathTests: XCTestCase {
         XCTAssertNil(anchors.project)
         XCTAssertEqual(anchors.bundle?.standardizedFileURL.path, bundle.standardizedFileURL.path)
 
-        let write = try XCTUnwrap(PortablePath.Context.forWriting(at: sidecar, toolRootURL: toolRoot, storageRootURL: storageRoot))
+        XCTAssertNil(PortablePath.Context.forWriting(at: sidecar), "only records inside a project are rewritten")
+        let write = PortablePath.Context.forFile(at: sidecar, toolRootURL: toolRoot, storageRootURL: storageRoot)
         let fasta = bundle.appendingPathComponent("genome/sequence.fa.gz").path
         XCTAssertEqual(PortablePath.sanitize(path: fasta, context: write), "<bundle>/genome/sequence.fa.gz")
 
@@ -213,7 +217,7 @@ final class PortablePathTests: XCTestCase {
         )
     }
 
-    func testFilesOutsideProjectsAndBundlesAreNotSanitized() {
+    func testFilesOutsideProjectsAreNotSanitized() {
         let plain = root.appendingPathComponent("plain/out.bam.lungfish-provenance.json")
         XCTAssertNil(PortablePath.Context.forWriting(at: plain))
         let data = Data(#"{"path":"/Users/someone/x.fq"}"#.utf8)

@@ -3,14 +3,14 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
-import LungfishCore
 
-/// Rewrites the absolute paths LGE records inside a project or bundle so a
+
+/// Rewrites the absolute paths LGE records inside a project so a
 /// shared project or a published demo archive reveals neither the account
 /// name nor the machine layout, and resolves those records back to real paths
 /// when LGE reads them again.
 ///
-/// Files LGE writes into a project or bundle (provenance JSON, sidecars,
+/// Files LGE writes into a project (provenance JSON, sidecars,
 /// SQLite command-line fields, VCF meta lines, BAM `@PG` lines) pass through
 /// one of the `sanitize` entry points before they land on disk. The rules, in
 /// the order they are tried:
@@ -18,8 +18,9 @@ import LungfishCore
 /// 1. a path inside a declared run workspace becomes `<workspace>/<relative>`,
 /// 2. a path inside the enclosing `.lungfish` project becomes `@/<relative>`,
 ///    the project-relative form the rest of LGE already understands,
-/// 3. outside a project, a path inside the outermost enclosing Lungfish bundle
-///    becomes `<bundle>/<relative>`,
+/// 3. with no project, a path inside the outermost enclosing Lungfish bundle
+///    becomes `<bundle>/<relative>` (only when a caller builds such a
+///    context; `Context.forWriting` rewrites records inside projects),
 /// 4. a path under a system temporary directory becomes `<workspace>/<relative>`,
 /// 5. a path under the managed tool root becomes `<tool-root>/<relative>` (an
 ///    executable reads `<tool-root>/envs/samtools/bin/samtools`), and a path
@@ -141,9 +142,10 @@ public enum PortablePath {
             )
         }
 
-        /// The context for a record written at `url`, or nil when `url` lies
-        /// in neither a project nor a bundle. Records outside a project or
-        /// bundle are not shared with it, so they keep their real paths.
+        /// The context for a record written at `url`, or nil when `url` does
+        /// not lie inside a `.lungfish` project. Projects are what LGE shares
+        /// and publishes; a record outside one (a CLI output folder, a bundle
+        /// being staged) keeps its real paths until it is written into one.
         public static func forWriting(
             at url: URL,
             workspaceURLs: [URL] = [],
@@ -151,7 +153,7 @@ public enum PortablePath {
             storageRootURL: URL? = nil
         ) -> Context? {
             let anchors = PortablePath.anchors(for: url)
-            guard anchors.project != nil || anchors.bundle != nil else { return nil }
+            guard anchors.project != nil else { return nil }
             return forFile(
                 at: url,
                 workspaceURLs: workspaceURLs,
@@ -221,10 +223,45 @@ public enum PortablePath {
         return Roots(context: context).rewrite(text: text)
     }
 
+    /// Rewrites free text about to be written at `url` (a run log, a tool's
+    /// captured output); text for a file outside a project is returned
+    /// unchanged.
+    public static func sanitize(text: String, forFileAt url: URL, workspaceURLs: [URL] = []) -> String {
+        guard text.contains("/"),
+              let context = Context.forWriting(at: url, workspaceURLs: workspaceURLs) else { return text }
+        return sanitize(text: text, context: context)
+    }
+
     /// Rewrites one value that is either a single absolute path (which may
     /// hold spaces) or free text.
     public static func sanitize(value: String, context: Context) -> String {
         guard value.contains("/") else { return value }
+        return Roots(context: context).rewrite(value: value)
+    }
+
+    /// Rewrites a stored field (a SQLite value, a metadata entry): a JSON
+    /// object or array has its string values rewritten, anything else is
+    /// treated as `sanitize(value:)`. JSON is re-encoded compactly with
+    /// unescaped slashes only when a value changed, so `resolve(text:)`
+    /// can read it back.
+    public static func sanitize(field value: String, context: Context) -> String {
+        guard value.contains("/") else { return value }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.hasPrefix("{") || trimmed.hasPrefix("["),
+           let node = try? JSONDecoder().decode(JSONNode.self, from: Data(value.utf8)) {
+            let roots = Roots(context: context)
+            var changed = false
+            let rewritten = node.mapStrings(dropping: { _, _ in false }) { text in
+                let result = text.contains("/") ? roots.rewrite(value: text) : text
+                if result != text { changed = true }
+                return result
+            }
+            guard changed else { return value }
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
+            guard let data = try? encoder.encode(rewritten) else { return value }
+            return String(decoding: data, as: UTF8.self)
+        }
         return Roots(context: context).rewrite(value: value)
     }
 
@@ -247,14 +284,27 @@ public enum PortablePath {
     ) throws -> Data {
         guard let node = try? JSONDecoder().decode(JSONNode.self, from: data) else { return data }
         let roots = Roots(context: context)
+        var changed = false
         let rewritten = node.mapStrings(dropping: { key, value in
-            key == "user" && context.accountName.map { $0 == value } == true
-        }) { $0.contains("/") ? roots.rewrite(value: $0) : $0 }
+            let drop = accountKeys.contains(key) && context.accountName.map { $0 == value } == true
+            if drop { changed = true }
+            return drop
+        }) { text in
+            guard text.contains("/") else { return text }
+            let result = roots.rewrite(value: text)
+            if result != text { changed = true }
+            return result
+        }
+        // Unchanged documents keep their exact bytes.
+        guard changed else { return data }
         return try encoder.encode(rewritten)
     }
 
+    /// Keys whose value names the account; dropped when they hold it.
+    static let accountKeys: Set<String> = ["user", "runtimeUser"]
+
     /// Sanitizes JSON about to be written at `url`; data for a file outside
-    /// a project or bundle is returned unchanged.
+    /// a project is returned unchanged.
     public static func sanitizeJSON(
         _ data: Data,
         forFileAt url: URL,
@@ -266,7 +316,7 @@ public enum PortablePath {
     }
 
     /// Rewrites the JSON file at `url` in place when it names a private path.
-    /// Files outside a project or bundle are left alone.
+    /// Files outside a project are left alone.
     public static func sanitizeJSONFile(
         at url: URL,
         workspaceURLs: [URL] = [],
@@ -342,7 +392,7 @@ public enum PortablePath {
         return encoder
     }
 
-    static func mayContainPlaceholder(_ text: String) -> Bool {
+    public static func mayContainPlaceholder(_ text: String) -> Bool {
         text.contains("@/") || text.contains("<") || text.contains("%3C")
     }
 
@@ -507,7 +557,16 @@ public enum PortablePath {
                     while end < characters.count, !urlTerminators.contains(characters[end]) {
                         end += 1
                     }
-                    output += rewrite(fileURLPath: String(characters[index ..< end]))
+                    let rewrittenURL = rewrite(fileURLPath: String(characters[index ..< end]))
+                    if Self.isUnresolvableURLForm(rewrittenURL) {
+                        // `<external>` and `<workspace>` cannot promise a
+                        // path, so they become a relative URL whose `.path`
+                        // reads exactly like the plain-text placeholder.
+                        output.removeLast("file:".count)
+                        output += rewrittenURL.dropFirst(3)
+                    } else {
+                        output += rewrittenURL
+                    }
                     index = end
                     continue
                 }
@@ -534,6 +593,11 @@ public enum PortablePath {
                 index = end
             }
             return output
+        }
+
+        static func isUnresolvableURLForm(_ rewritten: String) -> Bool {
+            rewritten.hasPrefix("///" + PortablePath.percentEncodePath(externalPlaceholder) + "/")
+                || rewritten.hasPrefix("///" + PortablePath.percentEncodePath(workspacePlaceholder) + "/")
         }
 
         /// The part of a `file://` URL after `file:`, rewritten so it stays a
@@ -645,6 +709,19 @@ public enum PortablePath {
                     continue
                 }
                 return (root, end)
+            }
+            let encodedWorkspace = PortablePath.percentEncodePath(workspacePlaceholder) + "/"
+            if first == "%", startsWith(characters, at: index, encodedWorkspace) {
+                // A `file://` URL written as a relative `<workspace>` URL.
+                let start = index + encodedWorkspace.count
+                var end = start
+                while end < characters.count, !urlTerminators.contains(characters[end]),
+                      characters[end] != "?", characters[end] != "#" { end += 1 }
+                if let relative = String(characters[start ..< end]).removingPercentEncoding,
+                   let existing = existingTemporaryPath(relative) {
+                    return ("file://" + PortablePath.percentEncodePath(existing), end)
+                }
+                return nil
             }
             if startsWith(characters, at: index, workspacePlaceholder + "/") {
                 let start = index + workspacePlaceholder.count + 1
