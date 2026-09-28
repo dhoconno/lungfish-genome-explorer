@@ -10,8 +10,8 @@ import os.log
 
 private let logger = Logger(subsystem: LogSubsystem.app, category: "DemoProjects")
 
-/// Presents the Demo Projects sheet on the frontmost window, or as a small
-/// window of its own when no window is open. Never a modal session.
+/// Presents the Demo Projects sheet on the key (or main) window, or as a small
+/// window of its own when no window is key. Never a modal session.
 @MainActor
 enum DemoProjectsSheetController {
     private static var panel: NSPanel?
@@ -48,6 +48,9 @@ enum DemoProjectsSheetController {
         newPanel.isReleasedWhenClosed = false
         newPanel.setAccessibilityIdentifier(DemoProjectsAccessibilityID.sheet)
 
+        // Bring the app forward first so the sheet (or the standalone window)
+        // is shown where the user is looking.
+        NSApp.activate()
         let host = Self.frontWindow()
         viewModel.onDismiss = { dismiss() }
         viewModel.onChooseFolder = { [weak viewModel] in
@@ -99,13 +102,29 @@ enum DemoProjectsSheetController {
     }
 
     private static func frontWindow() -> NSWindow? {
-        if let key = NSApp.keyWindow, key.isVisible, key.attachedSheet == nil, !(key is NSPanel) {
-            return key
+        hostWindow(keyWindow: NSApp.keyWindow, mainWindow: NSApp.mainWindow)
+    }
+
+    /// The window the sheet attaches to: the key window, else the main
+    /// window, else none, and the sheet then opens as a window of its own.
+    ///
+    /// There used to be a last fallback to the first visible window in
+    /// `NSApp.windows`. With the app in the background there is no key or main
+    /// window, so that fallback hung the sheet on whichever project window
+    /// happened to be first in the list, often not the one the user was
+    /// looking at.
+    static func hostWindow(keyWindow: NSWindow?, mainWindow: NSWindow?) -> NSWindow? {
+        if let keyWindow, isEligibleHost(keyWindow) {
+            return keyWindow
         }
-        if let main = NSApp.mainWindow, main.isVisible, main.attachedSheet == nil {
-            return main
+        if let mainWindow, isEligibleHost(mainWindow) {
+            return mainWindow
         }
-        return NSApp.windows.first { $0.isVisible && $0.canBecomeKey && $0.attachedSheet == nil && !($0 is NSPanel) }
+        return nil
+    }
+
+    private static func isEligibleHost(_ window: NSWindow) -> Bool {
+        window.isVisible && window.attachedSheet == nil && !(window is NSPanel)
     }
 
     private static func chooseFolder(for viewModel: DemoProjectsViewModel, from window: NSWindow) {
