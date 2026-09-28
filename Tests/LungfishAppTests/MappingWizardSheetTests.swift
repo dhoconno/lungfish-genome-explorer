@@ -1,3 +1,4 @@
+import AppKit
 import XCTest
 @testable import LungfishApp
 @testable import LungfishWorkflow
@@ -47,6 +48,20 @@ final class MappingWizardSheetTests: XCTestCase {
         XCTAssertEqual(MappingWizardSheet.extraArgumentsFieldTitle, "Extra arguments")
         XCTAssertEqual(MappingWizardSheet.outputTrackSectionTitle, "Output Track")
         XCTAssertEqual(MappingWizardSheet.outputTrackFieldLabel, "Track name (--track-name)")
+    }
+
+    /// "Track name (--track-name)" wrapped over two lines in the 150pt label
+    /// column. The flag-bearing labels (the dialog shows CLI flags in labels,
+    /// as the Read Group fields do) must fit their column on one line.
+    func testFlagLabelsFitTheirColumnOnOneLine() {
+        let font = NSFont.systemFont(ofSize: MappingWizardSheet.labelFontSize)
+        let column = MappingWizardSheet.flagLabelColumnWidth
+        XCTAssertGreaterThanOrEqual(column, MappingWizardSheet.standardLabelColumnWidth)
+        for label in [MappingWizardSheet.outputTrackFieldLabel] + MappingWizardSheet.readGroupFieldLabels {
+            let width = (label as NSString).size(withAttributes: [.font: font]).width
+            XCTAssertLessThanOrEqual(width + 4, column, "\(label) must fit on one line")
+        }
+        XCTAssertEqual(MappingWizardSheet.readGroupFieldLabels.last, "Platform unit (--rg-pu)")
     }
 
     /// The Output Track Name field: blank or the tool's default leaves the

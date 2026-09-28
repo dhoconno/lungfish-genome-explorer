@@ -709,6 +709,28 @@ struct MappingWizardSheet: View {
 
     static let outputTrackSectionTitle = "Output Track"
     static let outputTrackFieldLabel = "Track name (--track-name)"
+    static let readGroupFieldLabels = [
+        "ID (--rg-id)",
+        "Sample (--rg-sm)",
+        "Library (--rg-lb)",
+        "Platform (--rg-pl)",
+        "Platform unit (--rg-pu)",
+    ]
+    static let labelFontSize: CGFloat = 12
+    /// The dialog's standard right-aligned label column.
+    static let standardLabelColumnWidth: CGFloat = 150
+
+    /// Width of the label column for fields whose labels carry their CLI flag.
+    /// "Track name (--track-name)" is wider than the standard 150pt column at
+    /// 12pt and wrapped onto two lines; the column now fits the widest label
+    /// on one line.
+    static var flagLabelColumnWidth: CGFloat {
+        let font = NSFont.systemFont(ofSize: labelFontSize)
+        let widest = ([outputTrackFieldLabel] + readGroupFieldLabels)
+            .map { ($0 as NSString).size(withAttributes: [.font: font]).width }
+            .max() ?? 0
+        return max(standardLabelColumnWidth, ceil(widest) + 8)
+    }
 
     private var outputTrackSection: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -717,8 +739,9 @@ struct MappingWizardSheet: View {
                 .foregroundStyle(.secondary)
             HStack {
                 Text(Self.outputTrackFieldLabel)
-                    .font(.system(size: 12))
-                    .frame(width: 150, alignment: .trailing)
+                    .font(.system(size: Self.labelFontSize))
+                    .lineLimit(1)
+                    .frame(width: Self.flagLabelColumnWidth, alignment: .trailing)
                 TextField(
                     MappingResultLayoutService.defaultTrackName(for: initialTool),
                     text: $outputTrackNameText
@@ -736,11 +759,11 @@ struct MappingWizardSheet: View {
     private var readGroupSection: some View {
         DisclosureGroup(Self.readGroupSectionTitle, isExpanded: $showReadGroup) {
             VStack(alignment: .leading, spacing: 10) {
-                readGroupField(label: "ID (--rg-id)", text: $readGroupIDText)
-                readGroupField(label: "Sample (--rg-sm)", text: $readGroupSampleText)
-                readGroupField(label: "Library (--rg-lb)", text: $readGroupLibraryText)
-                readGroupField(label: "Platform (--rg-pl)", text: $readGroupPlatformText)
-                readGroupField(label: "Platform unit (--rg-pu)", text: $readGroupPlatformUnitText)
+                readGroupField(label: Self.readGroupFieldLabels[0], text: $readGroupIDText)
+                readGroupField(label: Self.readGroupFieldLabels[1], text: $readGroupSampleText)
+                readGroupField(label: Self.readGroupFieldLabels[2], text: $readGroupLibraryText)
+                readGroupField(label: Self.readGroupFieldLabels[3], text: $readGroupPlatformText)
+                readGroupField(label: Self.readGroupFieldLabels[4], text: $readGroupPlatformUnitText)
             }
             .padding(.top, 8)
         }
@@ -750,8 +773,9 @@ struct MappingWizardSheet: View {
     private func readGroupField(label: String, text: Binding<String>) -> some View {
         HStack {
             Text(label)
-                .font(.system(size: 12))
-                .frame(width: 150, alignment: .trailing)
+                .font(.system(size: Self.labelFontSize))
+                .lineLimit(1)
+                .frame(width: Self.flagLabelColumnWidth, alignment: .trailing)
             TextField("", text: text)
                 .font(.system(size: 12, design: .monospaced))
                 .textFieldStyle(.roundedBorder)
