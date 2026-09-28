@@ -1,4 +1,5 @@
 import XCTest
+import LungfishCore
 @testable import LungfishWorkflow
 
 final class OrientPipelineTests: XCTestCase {
@@ -86,7 +87,7 @@ final class OrientPipelineTests: XCTestCase {
             .appendingPathComponent(ProvenanceRecorder.provenanceFilename)
         XCTAssertTrue(FileManager.default.fileExists(atPath: sidecarURL.path))
 
-        let envelope = try ProvenanceEnvelopeReader.decode(Data(contentsOf: sidecarURL))
+        let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: sidecarURL))
         XCTAssertEqual(envelope.workflowName, "lungfish orient")
         XCTAssertEqual(envelope.toolName, "vsearch")
         XCTAssertEqual(envelope.toolVersion, "2.30.5")
@@ -153,7 +154,7 @@ final class OrientPipelineTests: XCTestCase {
         let sidecarURL = workDir.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
         XCTAssertTrue(FileManager.default.fileExists(atPath: sidecarURL.path))
 
-        let envelope = try ProvenanceEnvelopeReader.decode(Data(contentsOf: sidecarURL))
+        let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: sidecarURL))
         XCTAssertEqual(envelope.exitStatus, 7)
         XCTAssertEqual(envelope.steps.first?.exitStatus, 7)
         XCTAssertEqual(envelope.steps.first?.stderr, "vsearch failed\n")
@@ -193,7 +194,7 @@ final class OrientPipelineTests: XCTestCase {
         let sidecarURL = workDir.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
         XCTAssertTrue(FileManager.default.fileExists(atPath: sidecarURL.path))
 
-        let envelope = try ProvenanceEnvelopeReader.decode(Data(contentsOf: sidecarURL))
+        let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: sidecarURL))
         XCTAssertEqual(envelope.exitStatus, -1)
         XCTAssertEqual(envelope.steps.first?.exitStatus, -1)
         XCTAssertTrue(envelope.steps.first?.stderr?.contains("vsearch") == true)
@@ -235,7 +236,7 @@ final class OrientPipelineTests: XCTestCase {
         let sidecarURL = workDir.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
         XCTAssertTrue(FileManager.default.fileExists(atPath: sidecarURL.path))
 
-        let envelope = try ProvenanceEnvelopeReader.decode(Data(contentsOf: sidecarURL))
+        let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: sidecarURL))
         XCTAssertEqual(envelope.exitStatus, -1)
         XCTAssertEqual(envelope.steps.first?.exitStatus, 0)
         XCTAssertTrue(envelope.stderr?.isEmpty == false)
@@ -364,7 +365,7 @@ final class OrientPipelineTests: XCTestCase {
 }
 
 private func jsonObject(at url: URL) throws -> [String: Any] {
-    let data = try Data(contentsOf: url)
+    let data = PortablePath.resolveJSON(try Data(contentsOf: url), forFileAt: url)
     return try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
 }
 

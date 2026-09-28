@@ -587,7 +587,8 @@ final class ProjectCommandTests: XCTestCase {
     }
 
     private func jsonObject(at url: URL) throws -> [String: Any] {
-        let data = try Data(contentsOf: url)
+        // Records in a project hold project-relative paths; read them as LGE does.
+        let data = PortablePath.resolveJSON(try Data(contentsOf: url), forFileAt: url)
         return try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
     }
 

@@ -729,9 +729,8 @@ final class FASTQBatchImporterTests: XCTestCase {
             )
         )
         let bundleFASTQURL = bundleURL.appendingPathComponent("Sample.fastq.gz")
-        let provenanceData = try Data(
-            contentsOf: bundleURL.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
-        )
+        let provenanceSidecarURL = bundleURL.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
+        let provenanceData = PortablePath.resolveJSON(try Data(contentsOf: provenanceSidecarURL), forFileAt: provenanceSidecarURL)
         let envelope = try ProvenanceJSON.decoder.decode(ProvenanceEnvelope.self, from: provenanceData)
         let legacyRun = try ProvenanceJSON.decoder.decode(WorkflowRun.self, from: provenanceData)
         XCTAssertEqual(legacyRun.name, "lungfish import fastq")
@@ -783,7 +782,7 @@ final class FASTQBatchImporterTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: focusedSidecarURL.path))
         let focusedEnvelope = try ProvenanceJSON.decoder.decode(
             ProvenanceEnvelope.self,
-            from: Data(contentsOf: focusedSidecarURL)
+            from: PortablePath.resolveJSON(try Data(contentsOf: focusedSidecarURL), forFileAt: focusedSidecarURL)
         )
         XCTAssertEqual(focusedEnvelope.output?.path, bundleFASTQURL.path)
         XCTAssertFalse(

@@ -81,7 +81,7 @@ final class ScientificFASTQProvenancePolicyTests: XCTestCase {
         )
 
         let provenanceURL = orientBundleURL.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
-        let envelope = try ProvenanceEnvelopeReader.decode(Data(contentsOf: provenanceURL))
+        let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: provenanceURL))
         XCTAssertFalse(envelope.argv.contains { containsTempPathLeak($0) })
         XCTAssertFalse(
             containsTempPathLeak(envelope.reproducibleCommand),
@@ -183,7 +183,7 @@ final class ScientificFASTQProvenancePolicyTests: XCTestCase {
         )
         let unorientedProvenanceURL = unorientedBundleURL.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
         XCTAssertTrue(FileManager.default.fileExists(atPath: unorientedProvenanceURL.path))
-        let unorientedEnvelope = try ProvenanceEnvelopeReader.decode(Data(contentsOf: unorientedProvenanceURL))
+        let unorientedEnvelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: unorientedProvenanceURL))
         let expectedUnorientedPayloadPath = unorientedBundleURL
             .appendingPathComponent("unoriented.fastq")
             .standardizedFileURL
@@ -259,9 +259,9 @@ final class ScientificFASTQProvenancePolicyTests: XCTestCase {
             progress: nil
         )
 
-        let orientEnvelope = try ProvenanceEnvelopeReader.decode(
-            Data(contentsOf: orientBundleURL.appendingPathComponent(ProvenanceRecorder.provenanceFilename))
-        )
+        let orientEnvelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(
+            fromSidecar: orientBundleURL.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
+        ))
         let orientAppSteps = orientEnvelope.steps.filter { $0.toolName == "Lungfish App" }
         let orientBridgeStep = try XCTUnwrap(orientAppSteps.first { step in
             step.argv.contains("lungfish-app-action:fastq-synthetic-fastq-from-fasta")
@@ -304,9 +304,9 @@ final class ScientificFASTQProvenancePolicyTests: XCTestCase {
         XCTAssertEqual(manifest.sequenceFormat, .fasta)
 
         let outputPath = unorientedBundleURL.appendingPathComponent(fastaFilename).standardizedFileURL.path
-        let envelope = try ProvenanceEnvelopeReader.decode(
-            Data(contentsOf: unorientedBundleURL.appendingPathComponent(ProvenanceRecorder.provenanceFilename))
-        )
+        let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(
+            fromSidecar: unorientedBundleURL.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
+        ))
         XCTAssertFalse(envelope.argv.contains { containsTempPathLeak($0) })
         XCTAssertTrue(envelope.outputs.contains {
             URL(fileURLWithPath: $0.path).standardizedFileURL.path == outputPath && $0.format == .fasta
@@ -343,7 +343,8 @@ final class ScientificFASTQProvenancePolicyTests: XCTestCase {
 }
 
 private func jsonObject(at url: URL) throws -> [String: Any] {
-    let data = try Data(contentsOf: url)
+    // Records in a project hold project-relative paths; read them as LGE does.
+    let data = PortablePath.resolveJSON(try Data(contentsOf: url), forFileAt: url)
     return try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
 }
 

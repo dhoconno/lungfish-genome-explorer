@@ -71,7 +71,8 @@ final class ImportCzIdCommandTests: XCTestCase {
             "lungfish-cli",
             "import",
             "cz-id",
-            fixture.path,
+            // The fixture lies outside the project, so only its name is kept.
+            "<external>/\(fixture.lastPathComponent)",
             "--project",
             projectURL.standardizedFileURL.path,
             "--sample-name",
@@ -79,7 +80,7 @@ final class ImportCzIdCommandTests: XCTestCase {
         ])
         XCTAssertEqual(step.exitStatus, 0)
         XCTAssertNotNil(step.wallTimeSeconds)
-        XCTAssertTrue(step.inputs.contains { $0.path == fixture.path && $0.checksumSHA256 != nil && $0.fileSize != nil })
+        XCTAssertTrue(step.inputs.contains { $0.path == "<external>/\(fixture.lastPathComponent)" && $0.checksumSHA256 != nil && $0.fileSize != nil })
         XCTAssertTrue(step.outputs.contains {
             $0.path == bundleURL.appendingPathComponent("classification-result.json").path
                 && $0.checksumSHA256 != nil
