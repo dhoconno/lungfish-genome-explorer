@@ -57,6 +57,32 @@ final class BAMSampleMetadataColumnTests: XCTestCase {
         XCTAssertEqual(table.columnValue(for: "track", row: filtered), "filtered-track")
     }
 
+    /// The Track column showed internal ids (aln_9A4D82BC) instead of the
+    /// names the user gave the tracks.
+    func testTrackColumnShowsDisplayNamesWithTheIDAsTooltip() {
+        let table = MappingContigTableView()
+        let unmarked = row(sampleID: "S1", alignmentTrackID: "aln_9A4D82BC")
+        let marked = row(sampleID: "S1", alignmentTrackID: "aln_77E1F0AA")
+        let unnamed = row(sampleID: "S1", alignmentTrackID: "aln_00000001")
+        table.trackDisplayNamesByID = [
+            "aln_9A4D82BC": "GUIverify custom track [unmarked]",
+            "aln_77E1F0AA": "GUIverify custom track [dup-marked]",
+        ]
+        table.configure(rows: [unmarked, marked, unnamed])
+
+        let track = NSUserInterfaceItemIdentifier("track")
+        XCTAssertEqual(table.cellContent(for: track, row: unmarked).text, "GUIverify custom track [unmarked]")
+        XCTAssertEqual(table.columnValue(for: "track", row: marked), "GUIverify custom track [dup-marked]")
+        XCTAssertEqual(table.cellContent(for: track, row: unnamed).text, "aln_00000001", "no name falls back to the id")
+        XCTAssertEqual(
+            table.cellToolTip(for: track, row: unmarked),
+            "GUIverify custom track [unmarked]\nTrack ID: aln_9A4D82BC"
+        )
+        XCTAssertTrue(table.rowMatchesFilter(marked, filterText: "dup-marked"))
+        XCTAssertTrue(table.rowMatchesFilter(marked, filterText: "aln_77E1"))
+        XCTAssertNotEqual(table.rowIdentity(for: unmarked), table.rowIdentity(for: marked))
+    }
+
     private func row(
         sampleID: String?,
         alignmentTrackID: String? = nil,

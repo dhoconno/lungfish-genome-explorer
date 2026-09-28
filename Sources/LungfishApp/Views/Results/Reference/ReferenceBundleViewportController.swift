@@ -1463,6 +1463,10 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
     private func configureMappingContigRows(_ rows: [MappingContigSummary]) {
         isReplacingMappingRows = true
         defer { isReplacingMappingRows = false }
+        contigTableView.trackDisplayNamesByID = Dictionary(
+            (currentInput?.viewerBundleManifest?.alignments ?? []).map { ($0.id, $0.name) },
+            uniquingKeysWith: { first, _ in first }
+        )
         contigTableView.configure(rows: rows)
     }
 

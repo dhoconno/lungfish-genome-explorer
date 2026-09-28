@@ -25,6 +25,27 @@ final class MappingContigTableView: BatchTableView<MappingContigSummary> {
     /// the secondary line falls back to the bare contig id.
     var fastaDescriptionsByContig: [String: String] = [:]
 
+    /// Alignment track display names keyed by track id, from the viewer
+    /// bundle manifest. The Track column shows the name the user gave the
+    /// track (for example "Sample A [dup-marked]"), not its internal id
+    /// (`aln_9A4D82BC`); the id stays available as the cell tooltip.
+    var trackDisplayNamesByID: [String: String] = [:] {
+        didSet {
+            guard trackDisplayNamesByID != oldValue else { return }
+            applyContentTypography()
+        }
+    }
+
+    /// The Track cell's text: the track's display name, else its id.
+    func trackLabel(for row: MappingContigSummary) -> String? {
+        guard let trackID = row.alignmentTrackID else { return nil }
+        if let name = trackDisplayNamesByID[trackID]?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !name.isEmpty {
+            return name
+        }
+        return trackID
+    }
+
     override var columnSpecs: [BatchColumnSpec] {
         [
             .init(identifier: .init("sample"), title: "Sample", width: 130, minWidth: 90, defaultAscending: true),
@@ -87,7 +108,7 @@ final class MappingContigTableView: BatchTableView<MappingContigSummary> {
         case "sample":
             return (row.sampleID ?? "—", .left, .systemFont(ofSize: 12))
         case "track":
-            return (row.alignmentTrackID ?? "—", .left, .systemFont(ofSize: 12))
+            return (trackLabel(for: row) ?? "—", .left, .systemFont(ofSize: 12))
         case "contig":
             return (bundleDisplayName ?? row.contigName, .left, .systemFont(ofSize: 12))
         case "length":
@@ -121,12 +142,21 @@ final class MappingContigTableView: BatchTableView<MappingContigSummary> {
         )
     }
 
+    override func cellToolTip(
+        for column: NSUserInterfaceItemIdentifier,
+        row: MappingContigSummary
+    ) -> String? {
+        guard column.rawValue == "track", let trackID = row.alignmentTrackID else { return nil }
+        guard let label = trackLabel(for: row), label != trackID else { return trackID }
+        return "\(label)\nTrack ID: \(trackID)"
+    }
+
     override func columnValue(for columnId: String, row: MappingContigSummary) -> String {
         switch columnId {
         case "sample":
             return row.sampleID ?? ""
         case "track":
-            return row.alignmentTrackID ?? ""
+            return trackLabel(for: row) ?? ""
         case "contig":
             return row.contigName
         case "length":
@@ -155,6 +185,7 @@ final class MappingContigTableView: BatchTableView<MappingContigSummary> {
         var haystack = [
             row.sampleID ?? "",
             row.alignmentTrackID ?? "",
+            trackLabel(for: row) ?? "",
             row.contigName,
             row.contigLength.formatted(),
             row.mappedReads.formatted(),
@@ -185,7 +216,7 @@ final class MappingContigTableView: BatchTableView<MappingContigSummary> {
         case "sample":
             comparison = (lhs.sampleID ?? "").localizedCaseInsensitiveCompare(rhs.sampleID ?? "")
         case "track":
-            comparison = (lhs.alignmentTrackID ?? "").localizedCaseInsensitiveCompare(rhs.alignmentTrackID ?? "")
+            comparison = (trackLabel(for: lhs) ?? "").localizedCaseInsensitiveCompare(trackLabel(for: rhs) ?? "")
         case "contig":
             comparison = lhs.contigName.localizedCaseInsensitiveCompare(rhs.contigName)
         case "length":

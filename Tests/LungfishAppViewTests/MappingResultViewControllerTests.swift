@@ -831,7 +831,8 @@ final class MappingResultViewControllerTests: XCTestCase {
             "mapping\u{1F}unmatched\u{1F}original-track\u{1F}gamma",
             "mapping\u{1F}unmatched\u{1F}filtered-track\u{1F}gamma",
         ]))
-        XCTAssertEqual(Set(gammaRows.map { vc.testContigTableView.columnValue(for: "track", row: $0) }), Set(["original-track", "filtered-track"]))
+        // The Track column shows the manifest's track names, not their ids.
+        XCTAssertEqual(Set(gammaRows.map { vc.testContigTableView.columnValue(for: "track", row: $0) }), Set(["Original", "Exact matches"]))
         XCTAssertEqual(vc.testContigTableView.testTableView.selectedRow, -1)
         XCTAssertNil(vc.testVisibleAlignmentTrackID)
         XCTAssertEqual(vc.testSelectedReadGroups, [])
@@ -874,7 +875,7 @@ final class MappingResultViewControllerTests: XCTestCase {
             $0.alignmentTrackID == "filtered-track" && $0.sampleID == nil && $0.contigName == "gamma"
         })
         XCTAssertEqual(row.readGroupIDs, Set(["missing-sample", "blank-sample"]))
-        XCTAssertEqual(vc.testContigTableView.columnValue(for: "track", row: row), "filtered-track")
+        XCTAssertEqual(vc.testContigTableView.columnValue(for: "track", row: row), "Exact matches")
 
         vc.testSelectContig(sampleID: nil, alignmentTrackID: "filtered-track", named: "gamma")
         XCTAssertEqual(vc.testVisibleAlignmentTrackID, "filtered-track")
