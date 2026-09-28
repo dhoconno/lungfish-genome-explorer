@@ -206,10 +206,7 @@ extension BAMCommand {
                 ]
             )
 
-            let encoder = JSONEncoder()
-            encoder.dateEncodingStrategy = .iso8601
-            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-            try encoder.encode(run).write(to: provenanceURL, options: .atomic)
+            try run.writeSidecar(to: provenanceURL)
 
             let metadataDB = try AlignmentMetadataDatabase.openForUpdate(at: attachment.metadataDBURL)
             metadataDB.setFileInfo(

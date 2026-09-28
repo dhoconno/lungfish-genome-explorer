@@ -3784,7 +3784,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
                     executablePath: CommandLine.arguments.first
                         ?? ProvenanceRuntimeIdentity.currentExecutablePath,
                     operatingSystemVersion: WorkflowRun.currentHostOS,
-                    user: NSUserName(),
+                    user: WorkflowRun.currentUser,
                     condaEnvironment: "lungfish-managed-tools",
                     condaPrefix: condaManager.rootPrefix.path
                 )
@@ -4570,7 +4570,6 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
                     "appVersion": WorkflowRun.currentAppVersion,
                     "executablePath": CommandLine.arguments.first ?? "",
                     "operatingSystemVersion": WorkflowRun.currentHostOS,
-                    "user": NSUserName(),
                 ],
                 "inputs": [
                     fileDescriptorDictionary(url: request.reportCSVURL, role: "report"),
@@ -4908,7 +4907,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
                         executablePath: CommandLine.arguments.first
                             ?? ProvenanceRuntimeIdentity.currentExecutablePath,
                         operatingSystemVersion: WorkflowRun.currentHostOS,
-                        user: NSUserName()
+                        user: WorkflowRun.currentUser
                     ),
                     inputs: [genotypeCSV, referenceInput, retainedBAM, retainedBAI],
                     outputs: scientificArtifactOutputs,
@@ -5003,7 +5002,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
                 appVersion: WorkflowRun.currentAppVersion,
                 executablePath: CommandLine.arguments.first ?? ProvenanceRuntimeIdentity.currentExecutablePath,
                 operatingSystemVersion: WorkflowRun.currentHostOS,
-                user: NSUserName(),
+                user: WorkflowRun.currentUser,
                 condaEnvironment: "lungfish-managed-tools",
                 condaPrefix: condaManager.rootPrefix.path
             ),

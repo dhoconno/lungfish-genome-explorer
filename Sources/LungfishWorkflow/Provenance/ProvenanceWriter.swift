@@ -683,7 +683,14 @@ public struct ProvenanceWriter: Sendable {
     }
 
     private func writeUnsigned(_ envelope: ProvenanceEnvelope, toSidecar provenanceURL: URL) throws {
-        let data = try ProvenanceJSON.encoder.encode(envelope)
+        // A sidecar inside a project records project-relative and
+        // placeholder paths, never the account's home, the managed tool root
+        // or scratch directories; ProvenanceEnvelopeReader resolves them.
+        let data = PortablePath.sanitizeJSON(
+            try ProvenanceJSON.encoder.encode(envelope),
+            forFileAt: provenanceURL,
+            encoder: ProvenanceJSON.encoder
+        )
         if signingProvider == nil,
            publicationMutationDidOccur == nil,
            !FileManager.default.fileExists(atPath: provenanceURL.path) {

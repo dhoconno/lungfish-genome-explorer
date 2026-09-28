@@ -301,9 +301,6 @@ public actor BundleVariantTrackAttachmentService {
             steps: steps,
             parameters: parameters
         )
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        try encoder.encode(run).write(to: finalProvenanceURL, options: .atomic)
+        try run.writeSidecar(to: finalProvenanceURL)
     }
 }

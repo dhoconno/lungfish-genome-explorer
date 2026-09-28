@@ -449,7 +449,7 @@ extension FullLengthONTMHCGenotypingPipeline {
                     executablePath: CommandLine.arguments.first
                         ?? ProvenanceRuntimeIdentity.currentExecutablePath,
                     operatingSystemVersion: WorkflowRun.currentHostOS,
-                    user: NSUserName(),
+                    user: WorkflowRun.currentUser,
                     condaEnvironment: "lungfish-managed-tools",
                     condaPrefix: condaManager.rootPrefix.path
                 )

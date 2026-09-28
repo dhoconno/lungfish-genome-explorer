@@ -212,7 +212,7 @@ public struct HaplotypeDefinitionStore: Sendable {
             ),
             runtime: .init(
                 operatingSystem: ProcessInfo.processInfo.operatingSystemVersionString,
-                user: NSUserName().isEmpty ? nil : NSUserName()
+                user: nil  // Records in a project do not name the account.
             ),
             inputs: inputs,
             outputs: [try fileRecord(url: outputURL, role: "output")],
@@ -270,7 +270,7 @@ public struct HaplotypeDefinitionStore: Sendable {
             ),
             runtime: .init(
                 operatingSystem: ProcessInfo.processInfo.operatingSystemVersionString,
-                user: NSUserName().isEmpty ? nil : NSUserName()
+                user: nil  // Records in a project do not name the account.
             ),
             inputs: (context?.inputFiles ?? []) + [removedRecord],
             outputs: [],

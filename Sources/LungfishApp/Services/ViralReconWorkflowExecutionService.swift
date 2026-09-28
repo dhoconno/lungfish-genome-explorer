@@ -540,16 +540,10 @@ final class ViralReconWorkflowExecutionService {
 
     private func writeProcessLogs(_ result: ViralReconWorkflowProcessResult, to logsURL: URL) throws {
         try FileManager.default.createDirectory(at: logsURL, withIntermediateDirectories: true)
-        try result.standardOutput.write(
-            to: logsURL.appendingPathComponent("stdout.log"),
-            atomically: true,
-            encoding: .utf8
-        )
-        try result.standardError.write(
-            to: logsURL.appendingPathComponent("stderr.log"),
-            atomically: true,
-            encoding: .utf8
-        )
+        for (text, name) in [(result.standardOutput, "stdout.log"), (result.standardError, "stderr.log")] {
+            let url = logsURL.appendingPathComponent(name)
+            try PortablePath.sanitize(text: text, forFileAt: url).write(to: url, atomically: true, encoding: .utf8)
+        }
     }
 
     private func cliCommandPreview(for request: ViralReconRunRequest, bundleURL: URL) -> String {

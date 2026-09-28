@@ -586,8 +586,10 @@ def run_map_step(runner: Runner, project_dir: pathlib.Path, reads_stem: str, ref
     provenance_path = analysis_dir / "mapping-provenance.json"
     if provenance_path.exists():
         provenance = json.loads(provenance_path.read_text())
-        provenance["viewerBundlePath"] = str(viewer_bundle)
-        provenance["sourceReferenceBundlePath"] = str(source_bundle)
+        # Project-relative, as LGE itself writes it: an absolute path would
+        # name the build machine's work directory in the published archive.
+        provenance["viewerBundlePath"] = "@/" + viewer_bundle.relative_to(project_dir).as_posix()
+        provenance["sourceReferenceBundlePath"] = "@/" + source_bundle.relative_to(project_dir).as_posix()
         provenance_path.write_text(app_json(provenance))
     state["analysis_dir"] = analysis_dir
     state["viewer_bundle"] = viewer_bundle

@@ -642,7 +642,7 @@ public struct PhylogeneticTreeProvenance: Codable, Sendable, Equatable {
                 operatingSystemVersion: Self.currentHostOS,
                 architecture: Self.currentArchitecture,
                 gitRevision: nil,
-                user: Self.currentUser,
+                user: nil,  // Records in a project do not name the account.
                 pluginPack: nil,
                 operatingSystem: ProcessInfo.processInfo.operatingSystemVersionString,
                 swiftRuntime: "swift",
@@ -668,14 +668,6 @@ public struct PhylogeneticTreeProvenance: Codable, Sendable, Equatable {
             return "macOS \(os.majorVersion).\(os.minorVersion).\(os.patchVersion) (\(currentArchitecture))"
         }
 
-        private static var currentUser: String {
-            let nsUser = NSUserName()
-            if !nsUser.isEmpty { return nsUser }
-            let environment = ProcessInfo.processInfo.environment
-            if let user = environment["USER"], !user.isEmpty { return user }
-            if let logname = environment["LOGNAME"], !logname.isEmpty { return logname }
-            return "unknown"
-        }
     }
 
     public struct FileRecord: Codable, Sendable, Equatable {

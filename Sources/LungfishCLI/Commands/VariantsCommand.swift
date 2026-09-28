@@ -209,11 +209,8 @@ extension VariantsCommand {
             steps: [step],
             parameters: parameters
         )
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         let provenanceURL = ProvenanceRecorder.fileSidecarURL(for: outputURL)
-        try encoder.encode(run).write(to: provenanceURL, options: .atomic)
+        try run.writeSidecar(to: provenanceURL)
     }
 
     fileprivate static func provenanceURL(forOutputURL outputURL: URL) -> URL {
@@ -343,11 +340,7 @@ extension VariantsCommand {
             steps: additionalSteps + [step],
             parameters: parameters
         )
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        try encoder.encode(run)
-            .write(to: outputDirectory.appendingPathComponent(ProvenanceRecorder.provenanceFilename), options: .atomic)
+        try run.writeSidecar(to: outputDirectory.appendingPathComponent(ProvenanceRecorder.provenanceFilename))
     }
 
     struct PhaseSubcommand: AsyncParsableCommand {

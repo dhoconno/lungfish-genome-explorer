@@ -390,9 +390,6 @@ public actor GATKBundleVariantAttachmentService {
             steps: [step],
             parameters: parameters
         )
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        try encoder.encode(run).write(to: provenanceURL, options: .atomic)
+        try run.writeSidecar(to: provenanceURL)
     }
 }

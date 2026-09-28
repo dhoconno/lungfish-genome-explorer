@@ -1234,7 +1234,7 @@ public final class Minimap2Pipeline: @unchecked Sendable {
     }
 
     private func condaRuntimeIdentity(environment: String, executableName: String) -> String {
-        "managed conda environment \(environment); executable \(executableName); root \(condaManager.rootPrefix.path)"
+        "managed conda environment \(environment); executable \(executableName)"
     }
 
     private func runtimeIdentity(for tool: NativeTool) -> String {

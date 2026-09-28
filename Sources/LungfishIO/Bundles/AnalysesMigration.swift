@@ -586,10 +586,8 @@ private extension AnalysesMigration {
         #endif
     }
 
-    static var currentUser: String? {
-        let user = NSUserName().trimmingCharacters(in: .whitespacesAndNewlines)
-        return user.isEmpty ? nil : user
-    }
+    /// Records in a project do not name the account that wrote them.
+    static var currentUser: String? { nil }
 
     static func shellEscapeForMigrationProvenance(_ value: String) -> String {
         guard !value.isEmpty else { return "''" }

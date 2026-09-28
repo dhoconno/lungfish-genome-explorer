@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import LungfishIO
 import LungfishCore
 
 // MARK: - WorkflowRun
@@ -165,14 +166,11 @@ public struct WorkflowRun: Codable, Sendable, Identifiable, Equatable {
         return "macOS \(os.majorVersion).\(os.minorVersion).\(os.patchVersion) (\(arch))"
     }
 
-    public static var currentUser: String {
-        let nsUser = NSUserName()
-        if !nsUser.isEmpty { return nsUser }
-        let env = ProcessInfo.processInfo.environment
-        if let user = env["USER"], !user.isEmpty { return user }
-        if let logname = env["LOGNAME"], !logname.isEmpty { return logname }
-        return "unknown"
-    }
+    /// The account name recorded in provenance: always nil. Records LGE
+    /// writes into a project travel with shared projects and published
+    /// archives, so they do not name the account that produced them. Older
+    /// records that carry a `user` stay readable.
+    public static var currentUser: String? { nil }
 }
 
 // MARK: - WorkflowRuntime
@@ -658,3 +656,24 @@ extension ProvenanceStep {
 }
 
 // Note: Uses ParameterValue from WorkflowParameters.swift for workflow parameters.
+
+// MARK: - Sidecar writing
+
+extension WorkflowRun {
+    /// Writes this run as a pretty, sorted JSON sidecar at `url`. Inside a
+    /// project or bundle the account's home, the managed tool root and
+    /// scratch directories are rewritten (see `PortablePath`);
+    /// `ProvenanceEnvelopeReader` resolves them again on load.
+    public func writeSidecar(to url: URL, workspaceURLs: [URL] = []) throws {
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        let data = PortablePath.sanitizeJSON(
+            try encoder.encode(self),
+            forFileAt: url,
+            workspaceURLs: workspaceURLs,
+            encoder: encoder
+        )
+        try data.write(to: url, options: .atomic)
+    }
+}

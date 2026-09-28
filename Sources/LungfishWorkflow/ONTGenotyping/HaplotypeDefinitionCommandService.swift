@@ -1054,7 +1054,7 @@ public struct HaplotypeDefinitionCommandService: Sendable {
             ),
             runtime: .init(
                 operatingSystem: ProcessInfo.processInfo.operatingSystemVersionString,
-                user: NSUserName().isEmpty ? nil : NSUserName()
+                user: nil
             ),
             inputs: inputFiles,
             outputs: [try HaplotypeDefinitionStore.fileRecord(url: outputURL, role: "output")],

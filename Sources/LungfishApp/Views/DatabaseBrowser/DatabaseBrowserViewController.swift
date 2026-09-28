@@ -265,14 +265,7 @@ private func writeGUISRAFASTQImportProvenance(
         parameters: parameters
     )
 
-    let encoder = JSONEncoder()
-    encoder.dateEncodingStrategy = .iso8601
-    encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-    let data = try encoder.encode(run)
-    try data.write(
-        to: bundleURL.appendingPathComponent(ProvenanceRecorder.provenanceFilename),
-        options: .atomic
-    )
+    try run.writeSidecar(to: bundleURL.appendingPathComponent(ProvenanceRecorder.provenanceFilename))
 }
 
 private func sraGUIInputFormat(for path: String) -> FileFormat? {
