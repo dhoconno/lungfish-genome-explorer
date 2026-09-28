@@ -178,20 +178,92 @@ private struct AnalysisRow: View {
     // MARK: - Parameter Formatting
 
     private func formattedParameters(_ params: [String: AnalysisParameterValue]) -> String {
-        guard !params.isEmpty else { return "" }
+        AnalysisParameterSummary.format(params)
+    }
+}
 
-        let parts: [String] = params.sorted(by: { $0.key < $1.key }).compactMap { key, value in
-            let displayValue: String
-            switch value {
-            case .bool(let v): displayValue = v ? "yes" : "no"
-            case .int(let v): displayValue = "\(v)"
-            case .double(let v): displayValue = String(format: "%.1f", v)
-            case .string(let v): displayValue = v
-            }
-            return "\(key): \(displayValue)"
+// MARK: - AnalysisParameterSummary
+
+/// Turns an analysis manifest's stored run parameters into the one-line summary
+/// shown under each Analyses row.
+///
+/// The manifest keeps the full request for provenance, including bookkeeping
+/// keys (read-group tags, output names, internal overrides). Those are not
+/// settings a reader chose, so they are left out along with empty values.
+enum AnalysisParameterSummary {
+    /// Scientifically meaningful settings, in display order, with their labels.
+    private static let labelledKeys: [(key: String, label: String)] = [
+        ("mode", "Mode"),
+        ("preset", "Preset"),
+        ("goal", "Goal"),
+        ("databaseName", "Database"),
+        ("platform", "Platform"),
+        ("classifiers", "Classifiers"),
+        ("confidence", "Confidence"),
+        ("minimumHitGroups", "Min hit groups"),
+        ("minimumMappingQuality", "Min MAPQ"),
+        ("includeSecondary", "Secondary"),
+        ("includeSupplementary", "Supplementary"),
+        ("minContigLength", "Min contig length"),
+        ("careful", "Careful"),
+        ("qualityFilter", "Quality filter"),
+        ("readFormat", "Read format"),
+        ("topHitsCount", "Top hits"),
+        ("rank", "Rank"),
+        ("skipAssembly", "Skip assembly"),
+        ("isPairedEnd", "Paired-end"),
+        ("memoryMapping", "Memory mapping"),
+        ("memoryGB", "Memory (GB)"),
+        ("threads", "Threads"),
+        ("maxCpus", "Max CPUs"),
+        ("extraArgs", "Extra arguments"),
+    ]
+
+    /// Bookkeeping keys recorded for provenance, never shown in the summary.
+    private static let hiddenKeys: Set<String> = [
+        "tool", "sampleName", "outputTrackName", "compatibilityReadClassOverride",
+        "inputLayout", "readLayoutHandling",
+    ]
+
+    static func format(_ params: [String: AnalysisParameterValue]) -> String {
+        let known = Set(labelledKeys.map(\.key))
+        var parts: [String] = labelledKeys.compactMap { key, label in
+            guard let value = params[key].flatMap(displayValue) else { return nil }
+            return "\(label): \(value)"
         }
+        parts += params.keys.sorted().compactMap { key in
+            guard !known.contains(key), !hiddenKeys.contains(key), !key.contains("."),
+                  let value = params[key].flatMap(displayValue) else { return nil }
+            return "\(humanized(key)): \(value)"
+        }
+        return parts.joined(separator: " · ")
+    }
 
-        return parts.joined(separator: " | ")
+    private static func displayValue(_ value: AnalysisParameterValue) -> String? {
+        switch value {
+        case .bool(let v): return v ? "yes" : "no"
+        case .int(let v): return "\(v)"
+        case .double(let v): return String(format: "%g", v)
+        case .string(let v):
+            let trimmed = v.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        }
+    }
+
+    /// "minimumReadLength" becomes "Minimum read length".
+    private static func humanized(_ key: String) -> String {
+        var words: [String] = []
+        var current = ""
+        for character in key {
+            if character.isUppercase, !current.isEmpty {
+                words.append(current)
+                current = ""
+            }
+            current.append(character)
+        }
+        if !current.isEmpty { words.append(current) }
+        let sentence = words.map { $0.lowercased() }.joined(separator: " ")
+        return sentence.prefix(1).uppercased() + sentence.dropFirst()
     }
 }
 
