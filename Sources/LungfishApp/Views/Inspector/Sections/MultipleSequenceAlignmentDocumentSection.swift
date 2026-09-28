@@ -217,6 +217,40 @@ struct MSAPairwiseIdentitySection: View {
     @Bindable var model: MSAPairwiseIdentityInspectorModel
     @Binding var isExpanded: Bool
 
+    /// Extra width for the cell insets and the header's sort indicator.
+    static let numericColumnPadding: CGFloat = 22
+
+    /// The width a numeric column needs to show its widest sample text (the
+    /// header or a value) whole, measured at the Inspector's content font so
+    /// a larger text size widens the column instead of cutting the values.
+    static func numericColumnWidth(fitting samples: [String], pointSize: CGFloat) -> CGFloat {
+        let digits = NSFont.monospacedDigitSystemFont(ofSize: pointSize, weight: .regular)
+        let header = NSFont.systemFont(ofSize: pointSize, weight: .semibold)
+        let widest = samples.map { sample in
+            max(
+                (sample as NSString).size(withAttributes: [.font: digits]).width,
+                (sample as NSString).size(withAttributes: [.font: header]).width
+            )
+        }.max() ?? 0
+        return ceil(widest) + numericColumnPadding
+    }
+
+    /// Values are written with six decimals, as lungfish-cli msa distance does.
+    static func valueColumnWidth(pointSize: CGFloat) -> CGFloat {
+        numericColumnWidth(
+            fitting: MSADistanceModel.allCases.map(\.displayName) + [MSADistanceMatrix.formatValue(0.888888)],
+            pointSize: pointSize
+        )
+    }
+
+    static func sitesColumnWidth(pointSize: CGFloat, largestSiteCount: Int) -> CGFloat {
+        numericColumnWidth(fitting: ["Sites", "\(max(largestSiteCount, 99_999))"], pointSize: pointSize)
+    }
+
+    private var contentPointSize: CGFloat {
+        ContentTypographyModel.shared.resolvedNSFont(for: .body).pointSize
+    }
+
     var body: some View {
         DisclosureGroup("Pairwise Identity", isExpanded: $isExpanded) {
             VStack(alignment: .leading, spacing: 8) {
@@ -291,25 +325,49 @@ struct MSAPairwiseIdentitySection: View {
                     .font(LungfishInspectorStyle.controlFont)
                     .foregroundStyle(.secondary)
             } else {
+                // The value column was cut off at the Inspector's default
+                // width: the two name columns took their default widths and
+                // pushed the numbers past the right edge. The name columns
+                // now give up width first (full names in the tooltip), the
+                // numeric columns keep a fixed width that fits their values,
+                // and the table scrolls sideways if the Inspector is narrower
+                // than every column's minimum.
                 Table(model.sortedPairs, sortOrder: $model.sortOrder) {
                     TableColumn("Sequence A", value: \.rowName) { pair in
-                        Text(pair.rowName).font(LungfishInspectorStyle.controlFont)
+                        Text(pair.rowName)
+                            .font(LungfishInspectorStyle.controlFont)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                            .help(pair.rowName)
                     }
+                    .width(min: 56, ideal: 88)
                     TableColumn("Sequence B", value: \.columnName) { pair in
-                        Text(pair.columnName).font(LungfishInspectorStyle.controlFont)
+                        Text(pair.columnName)
+                            .font(LungfishInspectorStyle.controlFont)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                            .help(pair.columnName)
                     }
+                    .width(min: 56, ideal: 88)
                     TableColumn(model.model.displayName, value: \.sortableValue) { pair in
                         Text(pair.formattedValue)
                             .font(LungfishInspectorStyle.controlFont)
                             .monospacedDigit()
+                            .lineLimit(1)
+                            .fixedSize()
                     }
-                    .width(min: 70, ideal: 80)
+                    .width(Self.valueColumnWidth(pointSize: contentPointSize))
                     TableColumn("Sites", value: \.comparableSites) { pair in
                         Text("\(pair.comparableSites)")
                             .font(LungfishInspectorStyle.controlFont)
                             .monospacedDigit()
+                            .lineLimit(1)
+                            .fixedSize()
                     }
-                    .width(min: 50, ideal: 60)
+                    .width(Self.sitesColumnWidth(
+                        pointSize: contentPointSize,
+                        largestSiteCount: model.pairs.map(\.comparableSites).max() ?? 0
+                    ))
                 }
                 .frame(minHeight: 120, idealHeight: min(320, CGFloat(model.pairs.count + 1) * 24 + 8), maxHeight: 320)
                 .accessibilityIdentifier("msa-pairwise-identity-table")
