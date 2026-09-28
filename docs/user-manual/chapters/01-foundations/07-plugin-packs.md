@@ -243,7 +243,7 @@ Two more reference sets handle human and background sequence, and they do not ap
 
 ### What a missing tool looks like
 
-Run an operation that needs a tool you have not installed and it stops before doing any work, naming the tool and the pack. Run a mapping without the `read-mapping` pack, for example, and you get "minimap2 is not installed. Install the read-mapping plugin pack first." Nothing was written, so your files and project are exactly as they were. Install the named pack and run the operation again. The command line stops the same way, with an error that says a required tool is missing and names it, and exits with status 126.
+Run an operation that needs a tool you have not installed and it stops before doing any work, naming the tool and the pack. Run a mapping without the `read-mapping` pack, for example, and you get "minimap2 is not installed. Install the Read Mapping plugin pack from the Plugin Manager, or run `lungfish-cli conda install --pack read-mapping`." Nothing was written, so your files and project are exactly as they were. Install the named pack and run the operation again. The command line stops the same way, with an error that says a required tool is missing and names it, and exits with status 126.
 
 If that message appears when you believe the pack is installed, open the **Packs** tab and check the pack's tools. Anything reading **Needs install** or **Needs reinstall** is repaired by clicking Install All on that card. If a row on the **Installed** tab expands to an empty package list, the environment is present but empty, and Install All on the pack rebuilds it. For blocked networks or an install that died halfway, see [Tools and databases are missing](../appendices/troubleshooting.md#tools-and-databases-are-missing).
 
