@@ -316,25 +316,23 @@ Without the menu, download a project as a zip file from the [demo-projects relea
 
 The fixtures live in the LGE repository on GitHub, a public website that stores the project's files. No GitHub account is needed to download them.
 
-<!-- PENDING-FIX: fixture-tag-pins -->
 | Fixture | What it is | Folder |
 |---|---|---|
-| `hbb-gene` | The human beta-globin (HBB) gene region as one GenBank record | [hbb-gene](https://github.com/dhoconno/lungfish-genome-explorer/tree/v2026.9.40/docs/user-manual/fixtures/hbb-gene) |
-| `human-mito` | The human mitochondrial reference and paired Illumina reads from the Genome in a Bottle sample HG002 | [human-mito](https://github.com/dhoconno/lungfish-genome-explorer/tree/v2026.9.40/docs/user-manual/fixtures/human-mito) |
+| `hbb-gene` | The human beta-globin (HBB) gene region as one GenBank record | [hbb-gene](https://github.com/dhoconno/lungfish-genome-explorer/tree/v2026.9.53/docs/user-manual/fixtures/hbb-gene) |
+| `human-mito` | The human mitochondrial reference and paired Illumina reads from the Genome in a Bottle sample HG002 | [human-mito](https://github.com/dhoconno/lungfish-genome-explorer/tree/v2026.9.53/docs/user-manual/fixtures/human-mito) |
 | `hg002-chr20` | A 500,001-base slice of human chromosome 20 with matching HG002 reads and a benchmark variant file | [hg002-chr20](https://github.com/dhoconno/lungfish-genome-explorer/tree/v2026.9.39/docs/user-manual/fixtures/hg002-chr20) |
-| `giab-trio-chr20` | Benchmark variant files for HG002's father HG003 and mother HG004 over the same slice. Their reads come in the Human Mapping and Variants demo project | [giab-trio-chr20](https://github.com/dhoconno/lungfish-genome-explorer/tree/main/docs/user-manual/fixtures/giab-trio-chr20) |
+| `giab-trio-chr20` | Benchmark variant files for HG002's father HG003 and mother HG004 over the same slice. Their reads come in the Human Mapping and Variants demo project | [giab-trio-chr20](https://github.com/dhoconno/lungfish-genome-explorer/tree/v2026.9.53/docs/user-manual/fixtures/giab-trio-chr20) |
 | `hg002-long-reads` | HG002 mitochondrial reads from PacBio HiFi and Oxford Nanopore instruments | [hg002-long-reads](https://github.com/dhoconno/lungfish-genome-explorer/tree/v2026.9.39/docs/user-manual/fixtures/hg002-long-reads) |
-| `nrg1-ont-barcoded` | A small barcoded Oxford Nanopore run folder and its barcode sheet | [nrg1-ont-barcoded](https://github.com/dhoconno/lungfish-genome-explorer/tree/main/docs/user-manual/fixtures/nrg1-ont-barcoded) |
-| `primate-mito` | Mitochondrial genomes of human, chimpanzee, gorilla, and two macaques | [primate-mito](https://github.com/dhoconno/lungfish-genome-explorer/tree/v2026.9.40/docs/user-manual/fixtures/primate-mito) |
-| `primate-12s` | A human 12S ribosomal RNA amplicon read set, a simulated human and macaque 12S mixture, and a primate reference table | [primate-12s](https://github.com/dhoconno/lungfish-genome-explorer/tree/main/docs/user-manual/fixtures/primate-12s) |
-| `mhc-simulated` | Simulated MHC amplicon reads, references, and a small haplotype definition set for the genotyping chapters | [mhc-simulated](https://github.com/dhoconno/lungfish-genome-explorer/tree/main/docs/user-manual/fixtures/mhc-simulated) |
-| `mhc-primer-design` | Rhesus macaque Mamu-A1 allele sets for the primer design chapters | [mhc-primer-design](https://github.com/dhoconno/lungfish-genome-explorer/tree/main/docs/user-manual/fixtures/mhc-primer-design) |
+| `nrg1-ont-barcoded` | A small barcoded Oxford Nanopore run folder and its barcode sheet | [nrg1-ont-barcoded](https://github.com/dhoconno/lungfish-genome-explorer/tree/v2026.9.53/docs/user-manual/fixtures/nrg1-ont-barcoded) |
+| `primate-mito` | Mitochondrial genomes of human, chimpanzee, gorilla, and two macaques | [primate-mito](https://github.com/dhoconno/lungfish-genome-explorer/tree/v2026.9.53/docs/user-manual/fixtures/primate-mito) |
+| `primate-12s` | A human 12S ribosomal RNA amplicon read set, a simulated human and macaque 12S mixture, and a primate reference table | [primate-12s](https://github.com/dhoconno/lungfish-genome-explorer/tree/v2026.9.53/docs/user-manual/fixtures/primate-12s) |
+| `mhc-simulated` | Simulated MHC amplicon reads, references, and a small haplotype definition set for the genotyping chapters | [mhc-simulated](https://github.com/dhoconno/lungfish-genome-explorer/tree/v2026.9.53/docs/user-manual/fixtures/mhc-simulated) |
+| `mhc-primer-design` | Rhesus macaque Mamu-A1 allele sets for the primer design chapters | [mhc-primer-design](https://github.com/dhoconno/lungfish-genome-explorer/tree/v2026.9.53/docs/user-manual/fixtures/mhc-primer-design) |
 | `sarscov2-srr36291587` | The SARS-CoV-2 reference and expected results for the viral chapters, whose reads come from SRA | [sarscov2-srr36291587](https://github.com/dhoconno/lungfish-genome-explorer/tree/v2026.9.40/Tests/Fixtures/sarscov2-srr36291587) |
-| `kraken-protocol-cornea` | Notes on two public human corneal tissue runs for the Kraken 2, TaxTriage, and BLAST chapters, whose reads come from SRA | [kraken-protocol-cornea](https://github.com/dhoconno/lungfish-genome-explorer/tree/v2026.9.52/docs/user-manual/fixtures/kraken-protocol-cornea) |
+| `kraken-protocol-cornea` | Notes on two public human corneal tissue runs for the Kraken 2, TaxTriage, and BLAST chapters, whose reads come from SRA | [kraken-protocol-cornea](https://github.com/dhoconno/lungfish-genome-explorer/tree/v2026.9.53/docs/user-manual/fixtures/kraken-protocol-cornea) |
 | `naomgs` | A sample NAO-MGS results set for the NAO-MGS import chapter | [naomgs](https://github.com/dhoconno/lungfish-genome-explorer/tree/v2026.9.52/Tests/Fixtures/naomgs) |
 | `czid` | A sample CZ ID taxon report for the CZ ID import chapter | [czid](https://github.com/dhoconno/lungfish-genome-explorer/tree/v2026.9.52/Tests/Fixtures/czid) |
-| `nvd-demo` | A sample results table from the NVD viral discovery pipeline | [nvd-demo](https://github.com/dhoconno/lungfish-genome-explorer/tree/v2026.9.40/docs/user-manual/fixtures/nvd-demo) |
-<!-- /PENDING-FIX -->
+| `nvd-demo` | A sample results table from the NVD viral discovery pipeline | [nvd-demo](https://github.com/dhoconno/lungfish-genome-explorer/tree/v2026.9.53/docs/user-manual/fixtures/nvd-demo) |
 
 Each chapter's `## Before you start` names its fixture and the files it needs. To download one file, open the fixture's folder link, click the file's name, and click the **Download raw file** button at the right of the grey bar above the file's contents. The page itself only previews the file, and the button saves the file exactly as stored. Save the files into one folder you will remember, such as `~/Desktop/lge-docs/`. Leave a file ending in `.gz` compressed, because LGE reads compressed files directly.
 

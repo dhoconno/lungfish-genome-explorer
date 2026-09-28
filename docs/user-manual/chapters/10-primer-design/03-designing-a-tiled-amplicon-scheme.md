@@ -81,7 +81,7 @@ The procedure below runs all three, because the comparison is the lesson. For yo
 
 ## Before you start
 
-You need the Primer Design demo project open, as [Demo projects](../01-foundations/06-the-lungfish-project.md#demo-projects) explains. This chapter uses `mamu-a1-panel` under `Reference Sequences`, and the same sequences are in the [mhc-primer-design fixture folder](https://github.com/dhoconno/lungfish-genome-explorer/tree/main/docs/user-manual/fixtures/mhc-primer-design).
+You need the Primer Design demo project open, as [Demo projects](../01-foundations/06-the-lungfish-project.md#demo-projects) explains. This chapter uses `mamu-a1-panel` under `Reference Sequences`, and the same sequences are in the [mhc-primer-design fixture folder](https://github.com/dhoconno/lungfish-genome-explorer/tree/v2026.9.53/docs/user-manual/fixtures/mhc-primer-design).
 
 Install two [plugin packs](../../GLOSSARY.md#plugin-pack) from **Tools > Plugin Manager…**, as [Plugin Packs](../01-foundations/07-plugin-packs.md#procedure) shows. The Multiple Sequence Alignment pack runs MAFFT, and the PCR Primer Design pack, about 2.8 GB, carries all four design engines. Each engine's first run prepares its own programs, and the [Operations Panel](../../GLOSSARY.md#operations-panel) shows "Checking *Tool* runtime…" on every run, with a "Preparing *Tool* *version*…" step on the first.
 

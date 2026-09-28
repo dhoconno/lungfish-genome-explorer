@@ -60,7 +60,7 @@ The accession begins with `NC_`, which marks it as [RefSeq](../../GLOSSARY.md#re
 
 You need a project open, as [The Lungfish Genome Explorer Project](../01-foundations/06-the-lungfish-project.md#procedure) shows.
 
-This chapter uses the human-mito fixture. Nothing needs downloading from it, because the chapter fetches the same record live from NCBI. The fixture's `NC_012920.1.fasta`, in [the human-mito folder on GitHub](https://github.com/dhoconno/lungfish-genome-explorer/tree/v2026.9.40/docs/user-manual/fixtures/human-mito), is the frozen copy the numbers here were checked against, as [Practice data for this manual](../01-foundations/06-the-lungfish-project.md#practice-data-for-this-manual) explains.
+This chapter uses the human-mito fixture. Nothing needs downloading from it, because the chapter fetches the same record live from NCBI. The fixture's `NC_012920.1.fasta`, in [the human-mito folder on GitHub](https://github.com/dhoconno/lungfish-genome-explorer/tree/v2026.9.53/docs/user-manual/fixtures/human-mito), is the frozen copy the numbers here were checked against, as [Practice data for this manual](../01-foundations/06-the-lungfish-project.md#practice-data-for-this-manual) explains.
 
 The Genes and Sequences demo project, which **Help > Demo Projects…** opens as [Demo projects](../01-foundations/06-the-lungfish-project.md#demo-projects) explains, holds the same frozen `NC_012920.1.fasta` under `Practice Data/human-mito`. The download itself is the procedure, so run it in that project or in any other.
 

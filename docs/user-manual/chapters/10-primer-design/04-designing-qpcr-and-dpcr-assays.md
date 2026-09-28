@@ -87,7 +87,7 @@ Say the important thing early. None of the three produces a lineage-specific ass
 
 ## Before you start
 
-Open the Primer Design demo project, as [Demo projects](../01-foundations/06-the-lungfish-project.md#demo-projects) explains. This chapter uses two of its three reference bundles. `mamu-a1-001-lineage` holds the four *Mamu-A1\*001* alleles the assay must detect, and `mamu-class-i-exclusion` holds the eighteen sequences it must not detect. The same records are in the [mhc-primer-design fixture folder](https://github.com/dhoconno/lungfish-genome-explorer/tree/main/docs/user-manual/fixtures/mhc-primer-design), whose notes file lists every accession, allele and length.
+Open the Primer Design demo project, as [Demo projects](../01-foundations/06-the-lungfish-project.md#demo-projects) explains. This chapter uses two of its three reference bundles. `mamu-a1-001-lineage` holds the four *Mamu-A1\*001* alleles the assay must detect, and `mamu-class-i-exclusion` holds the eighteen sequences it must not detect. The same records are in the [mhc-primer-design fixture folder](https://github.com/dhoconno/lungfish-genome-explorer/tree/v2026.9.53/docs/user-manual/fixtures/mhc-primer-design), whose notes file lists every accession, allele and length.
 
 Install the Multiple Sequence Alignment and PCR Primer Design [plugin packs](../../GLOSSARY.md#plugin-pack) from **Tools > Plugin Manager…**, as [Plugin Packs](../01-foundations/07-plugin-packs.md#procedure) shows.
 
