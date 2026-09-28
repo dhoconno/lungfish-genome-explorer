@@ -71,7 +71,7 @@ final class DemoCommandTests: XCTestCase {
         XCTAssertEqual(Set(object.keys), ["schemaVersion", "destination", "projects"])
         XCTAssertEqual(object["destination"] as? String, destination.path)
         let projects = try XCTUnwrap(object["projects"] as? [[String: Any]])
-        XCTAssertEqual(projects.count, 8)
+        XCTAssertEqual(projects.count, 10)
         XCTAssertEqual(
             Set(projects[0].keys),
             ["id", "title", "summary", "version", "minimumAppVersion", "bytes", "size", "published", "status",

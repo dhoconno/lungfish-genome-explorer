@@ -10,14 +10,16 @@ final class DemoProjectManifestTests: XCTestCase {
         "genes-and-sequences",
         "human-reads",
         "human-mapping-and-variants",
+        "human-mapping-and-variants-results",
         "long-reads-and-assembly",
         "sarscov2-amplicons",
         "pathogen-detection",
         "mhc-genotyping",
+        "primer-design",
         "twelve-s-metabarcoding",
     ]
 
-    func testBundledManifestListsTheEightDemoProjects() throws {
+    func testBundledManifestListsTheTenDemoProjects() throws {
         let manifest = try DemoProjectManifest.loadBundled()
         XCTAssertEqual(manifest.schemaVersion, 1)
         XCTAssertEqual(manifest.projects.map(\.id), expectedIDs)
@@ -37,7 +39,7 @@ final class DemoProjectManifestTests: XCTestCase {
 
     func testBundledManifestPointsAtPublishedArchives() throws {
         let manifest = try DemoProjectManifest.loadBundled()
-        XCTAssertEqual(manifest.projects.count, 8)
+        XCTAssertEqual(manifest.projects.count, 10)
         for project in manifest.projects {
             XCTAssertFalse(project.archive.isPlaceholder, project.id)
             XCTAssertGreaterThan(project.archive.bytes, 0, project.id)
