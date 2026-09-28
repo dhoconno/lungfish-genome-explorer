@@ -1,6 +1,6 @@
 # Simulated macaque MHC teaching fixture
 
-These are simulated observations for demonstrating the native genotype workflow and workbook export. They are not reads from animals and are not evidence for a biological genotype, haplotype, expression level, or assay sensitivity. No private reads or Williams project data are used.
+These are simulated observations for demonstrating the native genotype workflow and workbook export. They are not reads from animals and are not evidence for a biological genotype, haplotype, expression level, or assay sensitivity. No reads from the MHC MiSeq cohort project are used.
 
 The generator selects three amplicons from the application's bundled MCM reference. It verifies the complete bundled payload checksum manifest and matches each selected amplicon, on either strand, to its public ENA accession record. Cached ENA records make subsequent runs independent of network access.
 
@@ -62,7 +62,7 @@ To add or verify this route independently after the paired-read bundles exist, r
 
 `mhc-simulated-mcm-teaching.lungfishhaplotypedef.json` is a small haplotype
 definition set so the genotyping chapters can run deterministic haplotyping
-on this fixture instead of pointing at the lab's unpublished Williams data.
+on this fixture instead of pointing at the de-identified MHC MiSeq cohort project.
 It is limited to the three alleles the simulated reference contains, which is
 the honest ceiling for this fixture. It is not a definition of the MCM M1 to
 M7 haplotypes. A real definition set for an assay lists, for every region,
@@ -71,7 +71,8 @@ reference the app ships carries 189 records across five regions for that
 purpose.
 
 Each allele is assigned to the haplotype its own public INSDC record names in
-its `/haplotype` qualifier (records cached under `public-records/`):
+its `/haplotype` qualifier (records cached under `public-records/`). The table
+below lists each assignment.
 
 | Allele in the reference | Public record | `/haplotype` | `/isolate` | Region in the set |
 |---|---|---|---|---|
@@ -83,8 +84,8 @@ All three records were submitted on 2023-11-15 by Karl, Prall, Wiseman and
 O'Connor (University of Wisconsin-Madison) under the title "Mauritian
 cynomolgus macaque major histocompatibility complex (MHC) region pangenome",
 which the records mark as unpublished. Two honesty notes. First, OR823640
-describes Mafa-G as a pseudogene and names the allele `Mafa-G*02_M4nov01`;
-the bundled reference and this fixture keep the IPD-style label
+describes Mafa-G as a pseudogene and names the allele `Mafa-G*02_M4nov01`.
+The bundled reference and this fixture keep the IPD-style label
 `Mafa-G_02:31:01:01`. Second, Mafa-G lies in the MHC-A region of the macaque
 MHC, which is why the set files it under `MHC-A`, the same grouping the
 bundled reference uses (`haplotype_groups=MHC-A`).
@@ -162,7 +163,7 @@ O'Connor 2007 the class II alleles on them, Budde 2010 the class I
 transcripts of the seven most frequent haplotypes, Wiseman 2013 reviews the
 M1 to M7 nomenclature, and Karl 2023 sequences the complete M3 haplotype.
 The three INSDC records above are the direct source of each allele's
-haplotype assignment; the papers are the source of the haplotype names.
+haplotype assignment. The papers are the source of the haplotype names.
 
 ### How the set is consumed
 

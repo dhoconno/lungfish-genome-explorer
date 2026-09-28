@@ -1,11 +1,11 @@
 # Captured from Lungfish Preview 2026.9.41 with capture-window.sh (2026-09-24 manual review).
-# App state: Williams copy project, amplicon-genotyping_3 selected, Inspector View tab: Genotype Display with Rows 305 of 305, the Alleles and Samples filters, Min reads, Min percent, Seen in >= N% of animals, Percent Basis Source Locus, Layout and locus order, Selected Rows and Columns, and Cell Color Support.
+# App state: MHC MiSeq cohort project, amplicon-genotyping selected, Inspector View tab: Genotype Display with Rows 305 of 305, the Alleles and Samples filters, Min reads, Min percent, Seen in >= N% of animals, Percent Basis Source Locus, Layout and locus order, Selected Rows and Columns, and Cell Color Support.
 id: genotype-inspector-display
 chapter: 09-genotyping/03-reading-the-genotype-comparison
 caption: The Inspector's Genotype Display section with the Alleles and Samples filter fields, the Min reads, Min percent, and Seen in ≥ N% of animals controls, the Percent Basis picker set to Source Locus, and the Cell Color choice.
 viewport_class: genotype
 app_state:
-  fixture: '{williams_project}'
+  fixture: '{mhc_cohort_project}'
   open_files: []
   window_size:
   - 1400
@@ -20,7 +20,7 @@ steps:
   size:
   - 1400
   - 900
-  # PROSE-ONLY: With amplicon-genotyping_3 open and a sample column selected, click the Inspector's View tab.
+  # PROSE-ONLY: With amplicon-genotyping open and a sample column selected, click the Inspector's View tab.
   # PROSE-ONLY: Expand the Genotype Display section's disclosure triangle if collapsed.
   # PROSE-ONLY: Crop to the section from its heading down through the Cell Color choice.
 crop:

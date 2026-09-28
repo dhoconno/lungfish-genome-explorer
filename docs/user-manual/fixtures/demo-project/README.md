@@ -202,7 +202,7 @@ steps with their recorded output present are skipped on later runs. This
 incremental rerun was verified on September 7. A destructive rebuild of the
 live demo was deliberately not performed while screenshot work was active.
 
-New paths relative to `LGE Manual Demo.lungfish` are:
+New paths relative to `LGE Manual Demo.lungfish` are listed below.
 
 | Fixture | Output | Observed result |
 | --- | --- | --- |
@@ -256,7 +256,7 @@ at their final stored paths with matching SHA-256 values and successful exit
 status. The verification record lives at
 `LGE Manual Demo.build/fixture-provenance/verification.json`. Python syntax,
 shell syntax, and the complete incremental helper rerun passed. No screenshot,
-chapter, recipe, or Williams-project files are modified by this helper.
+chapter, recipe, or MHC MiSeq cohort project files are modified by this helper.
 
 The ONT run and Flye additions were separately verified at their final paths.
 ONT has two linked native sidecars and five distinct recorded files, and Flye

@@ -12,7 +12,7 @@ entry_points:
   - "Open a genotype result bundle from the sidebar"
 shots:
   - id: genotype-matrix-reading
-    caption: "The genotype result window on the Williams MiSeq result, with allele-target rows named by their reference record down the pinned left columns and one column per sample across the top."
+    caption: "The genotype result window on the MHC MiSeq cohort result, with allele-target rows named by their reference record down the pinned left columns and one column per sample across the top."
   - id: genotype-call-evidence
     caption: "The selected sample's header metrics in the detail pane beside the Inspector's Selected Item tab, which lists the sample's allele targets as Read support and Allele field pairs."
   - id: genotype-inspector-display
@@ -55,7 +55,7 @@ The second is what each animal carries. That is the matrix column, read against 
 
 The third is what needs recording. A cell you doubt, a sample you have checked, and a note for the next reader all live in the window as annotations that travel with the bundle. They change nothing about the calls.
 
-This chapter reads the `simulated-mhc` result that [Running Amplicon MHC Genotyping](02-running-genotyping.md) makes in the MHC Genotyping demo project, two simulated [MCM](../../GLOSSARY.md#mcm) samples, three allele targets, and MCM haplotype calls. The Williams MiSeq project of 30 rhesus macaques and a 970-target library, which [What Is MHC Genotyping](01-what-is-mhc-genotyping.md#why-you-would-do-this) describes, shows the same views at the scale of a real plate.
+This chapter reads the `simulated-mhc` result that [Running Amplicon MHC Genotyping](02-running-genotyping.md) makes in the MHC Genotyping demo project, two simulated [MCM](../../GLOSSARY.md#mcm) samples, three allele targets, and MCM haplotype calls. The MHC MiSeq cohort project of 30 rhesus macaques and a 970-target library, which [What Is MHC Genotyping](01-what-is-mhc-genotyping.md#why-you-would-do-this) describes, shows the same views at the scale of a real plate.
 
 ## Before you start
 
@@ -65,7 +65,7 @@ A MiSeq amplicon run gathers its bundles into an `Amplicon genotyping results` f
 
 Open the [Inspector](../../GLOSSARY.md#inspector) with **View > Show Inspector** (Cmd-Opt-I) if it is hidden.
 
-Check what the run produced, because it decides which description below applies. A run that carried out haplotype analysis, as the demo run did, shows a two-way selector above the grid reading **Haplotype Calls** and **Genotype Matrix**. A run that produced allele calls and nothing else, a genotype-only result such as the Williams project, shows the matrix with no selector. A [haplotype](../../GLOSSARY.md#haplotype) here is a named block of alleles across the linked genes of one MHC region, an interpretation layered on the allele calls.
+Check what the run produced, because it decides which description below applies. A run that carried out haplotype analysis, as the demo run did, shows a two-way selector above the grid reading **Haplotype Calls** and **Genotype Matrix**. A run that produced allele calls and nothing else, a genotype-only result such as the MiSeq cohort project, shows the matrix with no selector. A [haplotype](../../GLOSSARY.md#haplotype) here is a named block of alleles across the linked genes of one MHC region, an interpretation layered on the allele calls.
 
 ## Procedure
 
@@ -75,7 +75,7 @@ Open the bundle and choose **Genotype Matrix** in the selector. Look first at it
 
 <!-- SHOT: genotype-matrix-reading -->
 
-The left-hand columns stay pinned as you move sideways, and they describe the row. **Genotype** holds the allele target's name, copied unchanged from the reference library, so a demo row reads `Mafa-G_02:31:01:01|OR823640` and a Williams row `01_Mamu-A1_001_05_01_01`. Allele names follow the scheme [How allele names are built](01-what-is-mhc-genotyping.md#how-allele-names-are-built) explains. **Locus** names the gene that target belongs to. **Samples** counts how many samples showed that target. **Unique** totals the target's retained unique reads across every sample, where unique means each read is counted once even when it matched more than one allele target. Right-click the column headers, or Control-click them on a trackpad, to turn each of the four on or off and to add any extra fields the reference library carried.
+The left-hand columns stay pinned as you move sideways, and they describe the row. **Genotype** holds the allele target's name, copied unchanged from the reference library, so a demo row reads `Mafa-G_02:31:01:01|OR823640` and a MiSeq cohort row `01_Mamu-A1_001_05_01_01`. Allele names follow the scheme [How allele names are built](01-what-is-mhc-genotyping.md#how-allele-names-are-built) explains. **Locus** names the gene that target belongs to. **Samples** counts how many samples showed that target. **Unique** totals the target's retained unique reads across every sample, where unique means each read is counted once even when it matched more than one allele target. Right-click the column headers, or Control-click them on a trackpad, to turn each of the four on or off and to add any extra fields the reference library carried.
 
 Every column after those is one sample. A filled cell holds that sample's retained read count for the row's allele target. LGE tints a filled cell pale blue so the sparse pattern of real calls stands out, and the tint means only that the cell is filled.
 
@@ -83,7 +83,7 @@ The demo matrix is three rows by two samples, and all six cells are filled, 120,
 
 Nothing you do in the matrix changes the result. The help behind the question-mark icon beside the Genotype Display heading says so in the words "Display filters do not change genotype calls." Sorting, hiding, and filtering are display state only. The calling thresholds were fixed when the run finished, and re-running the workflow is the only way to change them.
 
-**At scale.** The Williams result is 970 rows by 30 samples, 29,100 cells, and only 2,109 of them are filled, about 7 percent. Just 305 of the 970 rows carry a call in even one sample. A grid filled well past a tenth of its cells, with a full-size library, is a reason to check the run. The Williams rows are spread unevenly across 13 loci. MHC-B contributes 342 of the 970 rows and MHC-DRB another 222, while MHC-F and MHC-J contribute 5 each. That reflects how many alleles have been catalogued at each locus, not anything about the animals.
+**At scale.** The MiSeq cohort result is 970 rows by 30 samples, 29,100 cells, and only 2,108 of them are filled, about 7 percent. Just 304 of the 970 rows carry a call in even one sample. A grid filled well past a tenth of its cells, with a full-size library, is a reason to check the run. The MiSeq cohort rows are spread unevenly across 13 loci. MHC-B contributes 342 of the 970 rows and MHC-DRB another 222, while MHC-F and MHC-J contribute 5 each. That reflects how many alleles have been catalogued at each locus, not anything about the animals.
 
 ### Judge the depth of the whole run {#qc-status}
 
@@ -93,7 +93,7 @@ LGE gives each sample one of three statuses. **OK** means at least 1,000 retaine
 
 On the demo result QC Status reads 0 OK, 2 Low Support, and 0 Review, because the two samples kept 204 and 172 reads. The simulation made them thin on purpose, so every call in them is read with that in mind.
 
-**At scale.** In the Williams run QC Status reads 23 OK, 7 Low Support, and 0 Review. The 23 OK samples carried between 1,976 and 58,370 retained reads. The 7 Low Support samples carried between 2 and 713. The thinnest trustworthy sample sat just under 2,000 reads and the deepest failure at 713, which gives a sense of the gap on a working run.
+**At scale.** In the MiSeq cohort run QC Status reads 23 OK, 7 Low Support, and 0 Review. The 23 OK samples carried between 1,974 and 58,375 retained reads. The 7 Low Support samples carried between 2 and 713. The thinnest trustworthy sample sat just under 2,000 reads and the deepest failure at 713, which gives a sense of the gap on a working run.
 
 ### Read one sample's evidence
 
@@ -105,13 +105,13 @@ Its header carries four figures. **Selected Sample** names it. **Retained Unique
 
 The check takes one of three values. **Meets thresholds** means the sample has at least one call, at least 1,000 retained unique reads, and at least 20 passed alignments. **Low support** means it has at least one call but falls under one of those two numbers. **Review needed** means it has no calls, no retained reads, or no passed alignments. Every verdict carries the same caveat in the pane, that the automated check is not analyst approval. The check says the sample had enough data to be worth reading, not that the reading is right.
 
-On the demo result the check reads Low support for both samples, with 204 and 172 retained unique reads. On the Williams run it sorts the 30 samples into 23 Meets thresholds and 7 Low support. Both match the QC Status counts. If the check and the QC Status ever disagree, treat the sample as unresolved.
+On the demo result the check reads Low support for both samples, with 204 and 172 retained unique reads. On the MiSeq cohort run it sorts the 30 samples into 23 Meets thresholds and 7 Low support. Both match the QC Status counts. If the check and the QC Status ever disagree, treat the sample as unresolved.
 
 The Inspector's **Selected Item** tab lists the selected sample's allele targets as repeated **Read support** and **Allele** pairs. It is the sample's matrix column read as a list, which is easier on a real result, where a dozen calls are spread across 970 rows.
 
 ### Narrow the matrix
 
-The filter bar above the matrix holds a search field whose placeholder reads "Search samples or alleles…", and it matches both sample names and allele names. Cmd-F puts the cursor in it and Escape clears it. The field also understands `field=value` or `field:value` for samples that carry imported metadata, as in `Cohort=Kenyon20`, where the field names are the column headings of the metadata sheet. Neither the demo samples nor the Williams samples carry metadata.
+The filter bar above the matrix holds a search field whose placeholder reads "Search samples or alleles…", and it matches both sample names and allele names. Cmd-F puts the cursor in it and Escape clears it. The field also understands `field=value` or `field:value` for samples that carry imported metadata, as in `Cohort=GroupA`, where the field names are the column headings of the metadata sheet. Neither the demo samples nor the MiSeq cohort samples carry metadata.
 
 Beside the field sit six buttons, each a one-click sample test. They are labelled Has errors, Homozygous, Recombinant, Bw6+, Has comments, and Duplicate. Has errors finds samples whose haplotype call at some locus is an error, Homozygous finds samples carrying one haplotype twice, and Recombinant finds samples whose haplotype looks like a mix of two known ones, so those three need a haplotyped result. Bw6+, the name of a serological marker some laboratories note, and Duplicate find samples whose comments contain the text `Bw6+` or `duplicate`, and Has comments finds samples with any comment.
 
@@ -145,7 +145,7 @@ Every control below sits in the **Genotype Display** section of the Inspector's 
 
 **Percent Basis.** Chooses what Min percent is a percentage of, either **Source Locus**, the sample's retained reads at the allele's own source locus, or **Sample Retained**, the sample's total retained reads. The default is Source Locus, which compares a call against its competition at the same gene. Switch to Sample Retained to apply one threshold evenly across every locus. On the command line this is `--percent-basis`, with the values `viewed-locus` for Source Locus and `sample-retained`.
 
-Take a Williams sample with 30,000 retained reads, of which 4,000 sit at MHC-A, and a call there holding 800 reads. Under Sample Retained that call is 800 of 30,000, under 3 percent. Under Source Locus it is 800 of 4,000, 20 percent. Each source locus stands on its own, so MHC-G is never pooled with MHC-A even when a haplotype definition groups them. The denominator counts every read at the locus whether or not a filter hides its row, so filtering does not move the percentage. The haplotype caller and the evidence pane use this same per-locus denominator.
+Take a MiSeq cohort sample with 30,000 retained reads, of which 4,000 sit at MHC-A, and a call there holding 800 reads. Under Sample Retained that call is 800 of 30,000, under 3 percent. Under Source Locus it is 800 of 4,000, 20 percent. Each source locus stands on its own, so MHC-G is never pooled with MHC-A even when a haplotype definition groups them. The denominator counts every read at the locus whether or not a filter hides its row, so filtering does not move the percentage. The haplotype caller and the evidence pane use this same per-locus denominator.
 
 The **Rows…** and **Columns…** menus hide or isolate what you have selected in the grid, offering Hide Selected Rows, Show Only Selected Rows, and Show All Rows, and the same three for columns. **Reset Visibility** undoes them all.
 
@@ -163,13 +163,13 @@ The Excel export lives in the Inspector's Bundle tab, and [Exporting Genotypes](
 
 Read a result in the order the window is laid out, which also stops you drawing a conclusion from a sample that cannot support one.
 
-Start with the depth of the whole run from the Bundle tab's QC Status, as [Judge the depth of the whole run](#qc-status) describes. On the demo result both samples are Low Support, and in the Williams run 7 of 30 samples are in question before you look at any biology.
+Start with the depth of the whole run from the Bundle tab's QC Status, as [Judge the depth of the whole run](#qc-status) describes. On the demo result both samples are Low Support, and in the MiSeq cohort run 7 of 30 samples are in question before you look at any biology.
 
 Then take the samples one at a time and read the Call-support check before the allele list. Meets thresholds means the calls are worth reading. Low support means the calls may be right or may be a handful of reads that happened to match, and the allele list cannot tell you which. Review needed means the sample told you nothing.
 
-Then count the loci a sample covers before reading its alleles, because a missing locus is the easiest failure to overlook. Each allele row names its locus, so count the loci among the sample's allele list in the Selected Item tab. Each demo sample covers all three of the library's loci, MHC-G, MHC-DRB, and MHC-DPA1. In the Williams run the well-sequenced samples cover 11 to 13 of the 13 loci, while the Low Support samples cover as few as 2.
+Then count the loci a sample covers before reading its alleles, because a missing locus is the easiest failure to overlook. Each allele row names its locus, so count the loci among the sample's allele list in the Selected Item tab. Each demo sample covers all three of the library's loci, MHC-G, MHC-DRB, and MHC-DPA1. In the MiSeq cohort run the well-sequenced samples cover 11 to 13 of the 13 loci, while the Low Support samples cover as few as 2.
 
-Expect many rows per locus in a real macaque. The demo has one allele per locus, but the rhesus MHC-A, MHC-B, and DRB loci are duplicated gene families, so a well-sequenced rhesus animal shows several rows under each of those labels, one for each allele of each gene copy it carries. `WD1_S148_L001` showed 104 rows across its 13 loci. [Duplicated genes and many rows per locus](01-what-is-mhc-genotyping.md#duplicated-genes-and-many-rows-per-locus) explains why, and more than two rows at one locus is not by itself an error.
+Expect many rows per locus in a real macaque. The demo has one allele per locus, but the rhesus MHC-A, MHC-B, and DRB loci are duplicated gene families, so a well-sequenced rhesus animal shows several rows under each of those labels, one for each allele of each gene copy it carries. `Animal_01` showed 102 rows across 12 of the 13 loci. [Duplicated genes and many rows per locus](01-what-is-mhc-genotyping.md#duplicated-genes-and-many-rows-per-locus) explains why, and more than two rows at one locus is not by itself an error.
 
 Two further features of real calls surprise readers, and both are the assay working correctly. A name such as `05_Mamu-B17_01g1|B17_01_01_01,B17_01_01_02` is one group record, one call saying the animal carries one of the listed alleles, as [How allele names are built](01-what-is-mhc-genotyping.md#how-allele-names-are-built) explains. And identical sequences in the library appear as one row, for the reason the same section gives.
 
@@ -195,7 +195,7 @@ Four checks say a result is worth interpreting.
 
 1. Every sample you submitted has a column. A sample with no usable reads still gets one, so a missing column means the sample never reached the run.
 2. Only a minority of samples fall under the 1,000-read line, and the rest sit clearly above it rather than crowding it. The demo is the planned exception, both samples below it.
-3. Well-sequenced samples cover nearly every locus the panel covers, 11 to 13 of 13 in the Williams result and all 3 in the demo.
+3. Well-sequenced samples cover nearly every locus the panel covers, 11 to 13 of 13 in the MiSeq cohort result and all 3 in the demo.
 4. With a full-size library the matrix is mostly empty, a few percent of its cells rather than a tenth or more.
 
 The judgement is about sample depth, meaning whether absence means absence, not about quality in the sense the rest of this manual uses.
@@ -212,7 +212,7 @@ lungfish-cli genotype list-samples --bundle "$RESULT"
 lungfish-cli genotype list-cohorts --bundle "$RESULT"
 ```
 
-`list-samples` prints one tab-separated row per sample under the header `animal_id`, `gs_id`, `qc_status`, `total_reads`, `top_calls_by_locus`, the same status counts QC Status shows, as `ok`, `lowSupport`, and `review`. Both `animal_id` and `gs_id` hold the sample's bundle name, and `total_reads` holds its passed-alignment count. On the demo result it prints two rows, both `lowSupport`, with 204 and 172 reads and the top call at each locus written as `MHC-DPA1=…;MHC-DRB=…;MHC-G=…`. On the Williams result it prints 30 rows, 23 `ok` and 7 `lowSupport`. `list-cohorts` prints any [smart cohorts](../../GLOSSARY.md#smart-cohort), named filters saved with the result, and on the demo result made from the command line it prints only its header.
+`list-samples` prints one tab-separated row per sample under the header `animal_id`, `gs_id`, `qc_status`, `total_reads`, `top_calls_by_locus`, the same status counts QC Status shows, as `ok`, `lowSupport`, and `review`. Both `animal_id` and `gs_id` hold the sample's bundle name, and `total_reads` holds its passed-alignment count. On the demo result it prints two rows, both `lowSupport`, with 204 and 172 reads and the top call at each locus written as `MHC-DPA1=…;MHC-DRB=…;MHC-G=…`. On the MiSeq cohort result it prints 30 rows, 23 `ok` and 7 `lowSupport`. `list-cohorts` prints any [smart cohorts](../../GLOSSARY.md#smart-cohort), named filters saved with the result, and on the demo result made from the command line it prints only its header.
 
 ## Next
 

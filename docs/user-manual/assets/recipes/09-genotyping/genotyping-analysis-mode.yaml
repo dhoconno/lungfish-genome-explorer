@@ -5,7 +5,7 @@ chapter: 09-genotyping/02-running-genotyping
 caption: "The dialog's Haplotyping group with the Analysis Mode segmented picker set to Genotyping only, beside Deterministic haplotyping, and the caption describing the chosen mode."
 viewport_class: none
 app_state:
-  fixture: '{williams_project}'
+  fixture: '{mhc_cohort_project}'
   open_files: []
   window_size:
   - 1400

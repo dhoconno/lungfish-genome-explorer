@@ -83,7 +83,7 @@ final class WindowProjectSwitchResetTests: XCTestCase {
 
     func testSwitchingProjectsClearsTheViewportWhenTheNewProjectHasNoDocuments() throws {
         let demo = try makeProject(named: "Demo")
-        let williams = try makeProject(named: "Williams")
+        let second = try makeProject(named: "Second")
         let bundleURL = try makeReferenceBundle(in: demo)
 
         let session = ProjectSession()
@@ -93,7 +93,7 @@ final class WindowProjectSwitchResetTests: XCTestCase {
         split.applyProjectSessionState()
         try showReferenceBundle(bundleURL, in: split)
 
-        try session.openProject(at: williams)
+        try session.openProject(at: second)
         split.applyProjectSessionState()
 
         assertViewportIsEmpty(split)
@@ -101,7 +101,7 @@ final class WindowProjectSwitchResetTests: XCTestCase {
 
     func testSwitchingProjectsClearsTheViewportBeforeTheNewProjectHydrates() throws {
         let demo = try makeProject(named: "Demo")
-        let williams = try makeProject(named: "Williams", sequences: ["first"])
+        let second = try makeProject(named: "Second", sequences: ["first"])
         let bundleURL = try makeReferenceBundle(in: demo)
 
         let session = ProjectSession()
@@ -117,11 +117,11 @@ final class WindowProjectSwitchResetTests: XCTestCase {
             try await Task.sleep(for: .seconds(30))
             throw CancellationError()
         }
-        try session.openProject(at: williams)
+        try session.openProject(at: second)
         split.applyProjectSessionState()
         defer { split.invalidateDisplayRequest() }
 
-        XCTAssertNotNil(split.externalDocumentLoadTask, "Williams' first document should be loading")
+        XCTAssertNotNil(split.externalDocumentLoadTask, "The second project's first document should be loading")
         XCTAssertNil(split.viewerController.referenceBundleViewportController)
         XCTAssertEqual(split.viewerController.contentMode, .empty)
         XCTAssertNil(split.viewerController.currentBundleURL)
@@ -130,7 +130,7 @@ final class WindowProjectSwitchResetTests: XCTestCase {
 
     func testInFlightReferenceBundleLoadForTheOldProjectDoesNotInstallAfterTheSwitch() throws {
         let demo = try makeProject(named: "Demo")
-        let williams = try makeProject(named: "Williams")
+        let second = try makeProject(named: "Second")
         let bundleURL = try makeReferenceBundle(in: demo)
 
         let session = ProjectSession()
@@ -143,7 +143,7 @@ final class WindowProjectSwitchResetTests: XCTestCase {
         split.displayReferenceBundleViewportFromSidebar(at: bundleURL)
         XCTAssertNil(split.viewerController.referenceBundleViewportController)
 
-        try session.openProject(at: williams)
+        try session.openProject(at: second)
         split.applyProjectSessionState()
         spinRunLoop(until: { false }, timeout: 0.5)
 
@@ -152,7 +152,7 @@ final class WindowProjectSwitchResetTests: XCTestCase {
 
     func testInFlightProjectSequenceHydrationForTheOldProjectDoesNotInstallAfterTheSwitch() async throws {
         let demo = try makeProject(named: "Demo", sequences: ["old"])
-        let williams = try makeProject(named: "Williams")
+        let second = try makeProject(named: "Second")
 
         let session = ProjectSession()
         let hydrationStarted = expectation(description: "old project hydration started")
@@ -171,7 +171,7 @@ final class WindowProjectSwitchResetTests: XCTestCase {
         await fulfillment(of: [hydrationStarted], timeout: 5)
 
         session.hydrationLoader = nil
-        try session.openProject(at: williams)
+        try session.openProject(at: second)
         split.applyProjectSessionState()
         release.open()
         await hydration.value

@@ -13,7 +13,7 @@ locally.
 `hg002-chr20/` and `hg002-long-reads/` exceed the per-fixture-set cap (18 MB
 and 14 MB) and no test reads them, so they live in the pinned manual-media
 repo instead of here. Run `docs/user-manual/build/scripts/fetch-media.sh` to
-fetch them (see `docs/user-manual/media.lock`); the script places them back
+fetch them (see `docs/user-manual/media.lock`). The script places them back
 at these same relative paths.
 
 ## Required metadata
@@ -41,7 +41,7 @@ the fixture README).
 1. **Human.** Public-domain Genome in a Bottle HG002 data sliced to small
    regions, the human mitochondrial genome and reads, and a human gene
    GenBank record.
-2. **Rhesus macaque.** The lab's own MiSeq amplicon genotyping project, kept
+2. **Rhesus macaque.** A de-identified rhesus macaque MiSeq amplicon genotyping project, kept
    outside the repo as a demo asset under `~/Desktop/lge-docs`, as the
    "at scale" genotyping-only example. The reproducible genotyping and
    haplotyping example is `mhc-simulated/` (cynomolgus macaque alleles from
@@ -65,7 +65,7 @@ holds HG003 (father) and HG004 (mother) Illumina reads over the same 500 kb
 chromosome 20 slice, sliced the same way from the same GIAB BAMs, with their
 GIAB benchmark VCFs, so the joint-genotyping chapter can genotype a real
 three-sample trio. Its four FASTQ files live in the pinned manual-media repo
-like `hg002-chr20/`'s; the benchmarks and scripts are committed.
+like `hg002-chr20/`'s. The benchmarks and scripts are committed.
 
 `mhc-simulated/` also carries `mhc-simulated-mcm-teaching.lungfishhaplotypedef.json`,
 a three-region MCM haplotype definition set limited to the fixture's three
@@ -117,7 +117,7 @@ Barcodes. It exists because the `hg002-long-reads/` run folder has no barcodes
 left on its reads, so every demultiplex of it assigns zero.
 
 `demo-assets/` is a README pointing at the rhesus macaque tier's demo
-asset, the lab's own 30-sample MiSeq amplicon genotyping project. The
+asset, a de-identified 30-sample rhesus macaque MiSeq amplicon genotyping project. The
 project is too large to commit, so it stays outside the repo under
 `~/Desktop/lge-docs` and capture recipes reference it by path. It supports
 the genotyping chapters as a genotyping-only example, with the
@@ -136,8 +136,8 @@ project. Readers use the demo projects that **Help > Demo Projects…**
 downloads, which `scripts/demo-projects/` builds from these same fixtures.
 
 `mhc-primer-design/` supports the Primer Design chapters with public
-full-length genomic rhesus macaque MHC class I records from ENA: a panel of 12
-Mamu-A1 alleles from 11 lineages, the four Mamu-A1*001 lineage alleles, and an
+full-length genomic rhesus macaque MHC class I records from ENA. The records
+are a panel of 12 Mamu-A1 alleles from 11 lineages, the four Mamu-A1*001 lineage alleles, and an
 exclusion set of 18 sequences (eleven other Mamu-A1 lineages plus Mamu-A2, A3,
 A4, A6, A7 and B alleles). Deviating from the human tier is the point here,
 since the chapters design primers for a macaque gene family.

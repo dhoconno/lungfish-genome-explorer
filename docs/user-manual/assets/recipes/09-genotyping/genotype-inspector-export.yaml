@@ -1,11 +1,11 @@
 # Captured from Lungfish Preview 2026.9.40 with capture-window.sh (2026-09-24 manual review).
-# App state: Williams copy project, amplicon-genotyping_3 selected; the Inspector Bundle tab scrolled to the Excel section holding the Export to Excel... button.
+# App state: MHC MiSeq cohort project, amplicon-genotyping selected; the Inspector Bundle tab scrolled to the Excel section holding the Export to Excel... button.
 id: genotype-inspector-export
 chapter: 09-genotyping/04-haplotype-definitions-and-export
 caption: "The Excel section of the Inspector's Bundle tab on a genotype result, holding the Export to Excel… button."
 viewport_class: genotype
 app_state:
-  fixture: '{williams_project}'
+  fixture: '{mhc_cohort_project}'
   open_files: []
   window_size:
   - 1400

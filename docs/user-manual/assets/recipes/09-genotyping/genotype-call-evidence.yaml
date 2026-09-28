@@ -1,11 +1,11 @@
 # Captured from Lungfish Preview 2026.9.13 with capture-window.sh (2026-09 campaign).
-# App state: The detail pane after selecting the WD10_S157_L001 sample column in the Williams amplicon-genotyping_3 result, showing the sample header metrics (Retained Unique Reads, Passed Alignments, Call-support check) and the Supported Alleles (Read support / Allele) list.
+# App state: The detail pane after selecting the Animal_10 sample column in the MHC MiSeq cohort amplicon-genotyping result, showing the sample header metrics (Retained Unique Reads, Passed Alignments, Call-support check) and the Supported Alleles (Read support / Allele) list.
 id: genotype-call-evidence
 chapter: 09-genotyping/03-reading-the-genotype-comparison
 caption: "The selected sample's header metrics in the detail pane beside the Inspector's Selected Item tab, which lists the sample's allele targets as Read support and Allele field pairs."
 viewport_class: genotype
 app_state:
-  fixture: '{williams_project}'
+  fixture: '{mhc_cohort_project}'
   open_files: []
   window_size:
   - 1400
@@ -20,7 +20,7 @@ steps:
   size:
   - 1400
   - 900
-  # PROSE-ONLY: With amplicon-genotyping_3 open, click the checkbox beside the WD10_S157_L001 column header to select that sample column.
+  # PROSE-ONLY: With amplicon-genotyping open, click the checkbox beside the Animal_10 column header to select that sample column.
   # PROSE-ONLY: Switch the Inspector to its Selected Item tab.
   # PROSE-ONLY: Crop to the bottom-left detail pane and the right Inspector Selection panel showing the Supported Alleles list.
 crop:
