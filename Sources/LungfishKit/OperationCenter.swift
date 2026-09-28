@@ -279,6 +279,33 @@ public final class OperationCenter: ObservableObject {
         /// to drop the marker, the new oldest kept-tail entry, and insert an
         /// updated marker plus the new entry, so cost stays O(1) amortized
         /// rather than re-scanning the whole log on every call.
+        /// Ends a failed operation's log with why it failed. Without this the
+        /// log (and the row's latest-line) stopped at the last progress
+        /// message, such as "Running minimap2...", and the error only showed
+        /// in the row subtitle. Texts the worker already logged as the most
+        /// recent entries are not repeated.
+        fileprivate mutating func appendFailureLogEntries(
+            detail: String,
+            errorMessage: String?,
+            errorDetail: String?
+        ) {
+            var texts: [String] = []
+            for candidate in [errorMessage, detail, errorDetail] {
+                guard let text = candidate?.trimmingCharacters(in: .whitespacesAndNewlines),
+                      !text.isEmpty,
+                      !texts.contains(text) else { continue }
+                texts.append(text)
+            }
+            let recentMessages = Set(logEntries.suffix(3).map {
+                $0.message.trimmingCharacters(in: .whitespacesAndNewlines)
+            })
+            for (offset, text) in texts.enumerated() where !recentMessages.contains(text) {
+                let message = offset == 0 ? "Failed: \(text)" : text
+                guard !recentMessages.contains(message) else { continue }
+                appendLogEntryCapped(OperationLogEntry(level: .error, message: message))
+            }
+        }
+
         fileprivate mutating func appendLogEntryCapped(_ entry: OperationLogEntry) {
             logEntries.append(entry)
             totalLogEntryCount += 1
@@ -933,6 +960,11 @@ public final class OperationCenter: ObservableObject {
         if state == .completed {
             items[index].progress = 1
             if warning { items[index].appendLogEntryCapped(OperationLogEntry(level: .warning, message: detail)) }
+        }
+        if state == .failed {
+            items[index].appendFailureLogEntries(
+                detail: detail, errorMessage: errorMessage, errorDetail: errorDetail
+            )
         }
         finishItem(at: index, finishedAt: finishedAt)
         if state == .failed {

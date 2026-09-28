@@ -141,7 +141,20 @@ final class OperationsLogInspector: NSView, NSTextViewDelegate {
             MainActor.assumeIsolated { self?.userScrolled() }
         }
         stack.addArrangedSubview(logScroll)
-        logScroll.heightAnchor.constraint(greaterThanOrEqualToConstant: 70).isActive = true
+        // The log is the only region that may give up height. With a
+        // required minimum here, a drawer shorter than the header plus 70pt
+        // of log (a failed row adds two lines of failure text) could not be
+        // satisfied, Auto Layout broke the stack's top pin, and the title
+        // was drawn above the inspector and clipped. The header rows now
+        // always stay pinned to the top and the log shrinks instead.
+        let logMinimumHeight = logScroll.heightAnchor.constraint(greaterThanOrEqualToConstant: 70)
+        logMinimumHeight.priority = .defaultHigh
+        logMinimumHeight.isActive = true
+        logScroll.setContentCompressionResistancePriority(.defaultLow, for: .vertical)
+        for header in [titleField, closeButton, latestField, failureField, commandLabel, commandScroll, followButton, jumpButton, smallerTextButton, largerTextButton, actionsButton] as [NSView] {
+            header.setContentCompressionResistancePriority(NSLayoutConstraint.Priority(999), for: .vertical)
+        }
+        stack.setHuggingPriority(.defaultLow, for: .vertical)
         for child in stack.arrangedSubviews {
             child.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
         }

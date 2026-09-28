@@ -187,6 +187,55 @@ final class OperationsLiveInspectorTests: XCTestCase {
         try png.write(to: URL(fileURLWithPath: "/tmp/issue33-operations.png"))
     }
 
+    /// The details-pane title was clipped at the top on finished and failed
+    /// rows. Every header control must sit fully inside the inspector.
+    func testInspectorTitleIsNotClippedForFinishedAndFailedRows() async throws {
+        let completed = OperationCenter.shared.start(
+            title: "Map Reads (minimap2): finished fixture", detail: "Mapping", operationType: .fastqOperation,
+            cliCommand: "lungfish-cli map reads.fastq --reference ref.fasta"
+        )
+        OperationCenter.shared.log(id: completed, level: .info, message: "Running minimap2...")
+        _ = OperationCenter.shared.complete(id: completed, detail: "Mapping complete: 10/10 reads mapped")
+        let failed = OperationCenter.shared.start(
+            title: "Map Reads (minimap2): failed fixture", detail: "Mapping", operationType: .fastqOperation,
+            cliCommand: "lungfish-cli map reads.fastq --reference ref.fasta --extra-args --bogus"
+        )
+        OperationCenter.shared.log(id: failed, level: .info, message: "Running minimap2...")
+        _ = OperationCenter.shared.fail(
+            id: failed, detail: "minimap2 failed",
+            errorMessage: "minimap2 exited with status 1: [E::main] unknown option --bogus. The run stopped before any reads were mapped.",
+            errorDetail: "[E::main] unknown option --bogus"
+        )
+        defer {
+            OperationCenter.shared.clearItem(id: completed)
+            OperationCenter.shared.clearItem(id: failed)
+        }
+
+        for id in [completed, failed] {
+            let (controller, view, _) = try panel(id: id)
+            defer { controller.close() }
+            let window = try XCTUnwrap(controller.window)
+            window.setFrame(NSRect(origin: window.frame.origin, size: window.minSize), display: false)
+            view.layoutSubtreeIfNeeded()
+            try await Task.sleep(for: .milliseconds(100))
+            view.layoutSubtreeIfNeeded()
+            let inspector = try XCTUnwrap(find(view, "operations-log-inspector", as: NSView.self))
+            for identifier in ["operations-inspector-title", "operations-inspector-close", "operations-inspector-latest"] {
+                let control = try XCTUnwrap(find(view, identifier, as: NSView.self))
+                let rect = inspector.convert(control.bounds, from: control)
+                XCTAssertTrue(
+                    inspector.bounds.insetBy(dx: -1, dy: -1).contains(rect),
+                    "\(identifier) must remain inside the inspector: \(rect) vs \(inspector.bounds)"
+                )
+            }
+            let title = try XCTUnwrap(find(view, "operations-inspector-title", as: NSTextField.self))
+            XCTAssertGreaterThanOrEqual(
+                title.frame.height, title.intrinsicContentSize.height - 0.5,
+                "the title must get its full line height"
+            )
+        }
+    }
+
     func testDrawerShowsCommandSupportsTextSizingAndClosesFromInspector() throws {
         let command = "lungfish-cli fastq orient --input /project/reads.fastq --output /project/oriented.fastq"
         let id = OperationCenter.shared.start(
@@ -236,6 +285,61 @@ final class OperationsLiveInspectorTests: XCTestCase {
         let oldText = OperationsLogInspector.timestamp(for: old, at: now)
         XCTAssertFalse(recentText.contains("2026"))
         XCTAssertTrue(oldText.contains("2026"))
+    }
+
+    /// A drawer shorter than the header plus the log's preferred minimum
+    /// used to break the stack's top pin, drawing the title above the
+    /// inspector. The log must give up height instead.
+    func testShortInspectorKeepsTitleOnScreenForFailedOperation() throws {
+        let center = OperationCenter()
+        let id = center.start(title: "Map Reads (minimap2): short drawer", detail: "Mapping",
+                              cliCommand: "lungfish-cli map reads.fastq --reference ref.fasta")
+        center.log(id: id, level: .info, message: "Running minimap2...")
+        center.fail(id: id, detail: "minimap2 failed",
+                    errorMessage: "minimap2 exited with status 1: [E::main] unknown option --bogus. The run stopped before any reads were mapped and no result was written.",
+                    errorDetail: "[E::main] unknown option --bogus")
+        let item = try XCTUnwrap(center.items.first { $0.id == id })
+
+        // The split view gives the drawer a fixed height; the inspector
+        // cannot grow past it.
+        let host = NSView(frame: NSRect(x: 0, y: 0, width: 700, height: 220))
+        let inspector = OperationsLogInspector(frame: host.bounds)
+        inspector.translatesAutoresizingMaskIntoConstraints = false
+        host.addSubview(inspector)
+        NSLayoutConstraint.activate([
+            inspector.leadingAnchor.constraint(equalTo: host.leadingAnchor),
+            inspector.trailingAnchor.constraint(equalTo: host.trailingAnchor),
+            inspector.topAnchor.constraint(equalTo: host.topAnchor),
+            inspector.bottomAnchor.constraint(equalTo: host.bottomAnchor),
+            host.widthAnchor.constraint(equalToConstant: 700),
+            host.heightAnchor.constraint(equalToConstant: 220),
+        ])
+        inspector.display(item)
+        host.layoutSubtreeIfNeeded()
+        inspector.layoutSubtreeIfNeeded()
+
+        XCTAssertEqual(inspector.bounds.height, 220, accuracy: 0.5)
+        // Before the fix the header text fields were compressed (title 16pt
+        // tall squeezed to 12pt, failure text to 0pt) and drew clipped at
+        // the top.
+        for identifier in ["operations-inspector-title", "operations-inspector-latest"] {
+            let field = try XCTUnwrap(find(inspector, identifier, as: NSTextField.self))
+            XCTAssertGreaterThanOrEqual(
+                field.frame.height, field.intrinsicContentSize.height - 0.5,
+                "\(identifier) must get its full line height, got \(field.frame)"
+            )
+        }
+        let failure = try XCTUnwrap(find(inspector, "operations-inspector-failure", as: NSTextField.self))
+        XCTAssertFalse(failure.isHidden)
+        XCTAssertGreaterThanOrEqual(failure.frame.height, 15, "the failure text must stay readable")
+        for identifier in ["operations-inspector-title", "operations-inspector-close", "operations-inspector-latest"] {
+            let control = try XCTUnwrap(find(inspector, identifier, as: NSView.self))
+            let rect = inspector.convert(control.bounds, from: control)
+            XCTAssertTrue(
+                inspector.bounds.insetBy(dx: -1, dy: -1).contains(rect),
+                "\(identifier) must remain inside a short inspector: \(rect) vs \(inspector.bounds)"
+            )
+        }
     }
 
     func testEmptyInspectorCanStillClose() throws {
