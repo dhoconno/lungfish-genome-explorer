@@ -118,16 +118,22 @@ public enum CzIdDataConverter {
         try encoder.encode(manifest).write(to: manifestURL, options: .atomic)
 
         let tree = try KreportParser.parse(url: reportURL)
+        var config = ClassificationConfig(
+            inputFiles: sourceInputURL == nil ? [url] : [outputURL],
+            isPairedEnd: false,
+            databaseName: "CZ-ID",
+            inputFormat: .fastq,
+            databaseVersion: parsed.metadata.databaseVersionString,
+            databasePath: sourceInputURL == nil ? url.deletingLastPathComponent() : outputDirectory,
+            outputDirectory: outputDirectory
+        )
+        // The taxonomy table, the sample picker and `build-db kraken2` all key
+        // the sample on this name and otherwise fall back to the input file's
+        // stem. The input is the copied `classification.czid.tsv`, so without
+        // it every CZ-ID import showed "classification.czid" as its sample.
+        config.sampleDisplayName = sampleName
         let result = ClassificationResult(
-            config: ClassificationConfig(
-                inputFiles: sourceInputURL == nil ? [url] : [outputURL],
-                isPairedEnd: false,
-                databaseName: "CZ-ID",
-                inputFormat: .fastq,
-                databaseVersion: parsed.metadata.databaseVersionString,
-                databasePath: sourceInputURL == nil ? url.deletingLastPathComponent() : outputDirectory,
-                outputDirectory: outputDirectory
-            ),
+            config: config,
             tree: tree,
             reportURL: reportURL,
             outputURL: outputURL,

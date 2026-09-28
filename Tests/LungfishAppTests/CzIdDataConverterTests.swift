@@ -53,6 +53,34 @@ final class CzIdDataConverterTests: XCTestCase {
         XCTAssertEqual(manifest.sourceFiles.map(\.lastPathComponent), ["minimal_taxon_report.tsv"])
     }
 
+    // The taxonomy table's Sample column reads the recorded
+    // `sampleDisplayName` and otherwise falls back to the input file's stem.
+    // The converter recorded no name, so every CZ-ID import showed the copied
+    // payload's stem, "classification.czid", instead of the CZ-ID sample.
+    func testConvertedResultRecordsTheSampleNameForDisplay() throws {
+        let fixture = fixtureURL("minimal_taxon_report.tsv")
+        let outputDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("czid-sample-name-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: outputDirectory) }
+
+        let converted = try CzIdDataConverter.convertTaxonReport(
+            at: fixture,
+            outputDirectory: outputDirectory,
+            sourceInputURL: fixture
+        )
+        XCTAssertEqual(converted.result.config.sampleDisplayName, "Sample-CZ-001")
+        let reloaded = try ClassificationResult.load(from: outputDirectory)
+        XCTAssertEqual(reloaded.config.sampleDisplayName, "Sample-CZ-001")
+
+        let renamedDirectory = outputDirectory.appendingPathComponent("renamed", isDirectory: true)
+        let renamed = try CzIdDataConverter.convertTaxonReport(
+            at: fixture,
+            outputDirectory: renamedDirectory,
+            sampleNameOverride: "Patient-7"
+        )
+        XCTAssertEqual(renamed.result.config.sampleDisplayName, "Patient-7")
+    }
+
     private func fixtureURL(_ name: String) -> URL {
         Bundle.module.resourceURL!
             .appendingPathComponent("Fixtures/CzId", isDirectory: true)

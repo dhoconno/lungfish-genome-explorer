@@ -45,6 +45,8 @@ final class ImportCzIdCommandTests: XCTestCase {
         decoder.dateDecodingStrategy = .iso8601
         let result = try ClassificationResult.load(from: bundleURL)
         XCTAssertEqual(result.config.databaseName, "CZ-ID")
+        // The Sample column shows this, not the payload stem "classification.czid".
+        XCTAssertEqual(result.config.sampleDisplayName, "Imported-CZ-Sample")
         XCTAssertEqual(result.config.databaseVersion, "nt=nt_2025_12_01; nr=nr_2025_12_01")
         XCTAssertEqual(result.config.inputFiles.map(\.standardizedFileURL), [bundleURL.appendingPathComponent("classification.czid.tsv").standardizedFileURL])
         XCTAssertEqual(result.toolVersion, "8.4")
