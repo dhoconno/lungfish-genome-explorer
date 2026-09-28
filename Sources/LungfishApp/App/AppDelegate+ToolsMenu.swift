@@ -722,11 +722,14 @@ extension AppDelegate {
             windowStateScope: routeContext?.windowStateScopeID.map(WindowStateScope.init(id:)),
             workflowName: "Read mapping"
         ) else { return }
+        var ownedAnalysisDirectory: URL?
         if let projectURL = routeContext?.projectURL {
             if let analysisDir = try? AnalysesFolder.createAnalysisDirectory(tool: "minimap2", in: projectURL) {
                 config.outputDirectory = analysisDir
+                ownedAnalysisDirectory = analysisDir
             }
         }
+        let failedRunDirectory = ownedAnalysisDirectory
 
         let opID = OperationCenter.shared.start(
             title: "Map Reads (minimap2)",
@@ -800,12 +803,18 @@ extension AppDelegate {
                 let localizedMessage = error.localizedDescription
                 let rawDetail = "\(error)"
                 DispatchQueue.main.async { MainActor.assumeIsolated {
+                    // No half result: the folder created for this run goes.
+                    if let failedRunDirectory {
+                        AnalysesFolder.discardFailedAnalysisDirectory(failedRunDirectory)
+                    }
                     _ = OperationCenter.shared.fail(
                         id: opID,
                         detail: localizedMessage,
                         errorMessage: localizedMessage,
                         errorDetail: rawDetail
                     )
+                    self?.targetMainWindowController(routeContext: routeContext)?.mainSplitViewController?
+                        .sidebarController.requestReloadFromFilesystem()
                 }}
             }
         }
@@ -1294,13 +1303,24 @@ extension AppDelegate {
         registerCancel: @MainActor (UUID) -> Void
     ) async -> Bool {
         var request = initialRequest
+        // The Analyses/ folder this run owns: removed again if the run fails
+        // or is cancelled, so a failed mapping never leaves a folder holding
+        // only analysis-metadata.json that the sidebar lists as a result.
+        var ownedAnalysisDirectory: URL?
         if let preassignedAnalysisDirectory {
             request = request.withOutputDirectory(preassignedAnalysisDirectory)
+            ownedAnalysisDirectory = preassignedAnalysisDirectory
         } else {
             let projectURL = routeContext?.projectURL ?? request.projectURL
             if let projectURL,
                let analysisDir = try? AnalysesFolder.createAnalysisDirectory(tool: request.tool.rawValue, in: projectURL) {
                 request = request.withOutputDirectory(analysisDir)
+                ownedAnalysisDirectory = analysisDir
+            }
+        }
+        let discardOwnedAnalysisDirectory = {
+            if let ownedAnalysisDirectory {
+                AnalysesFolder.discardFailedAnalysisDirectory(ownedAnalysisDirectory)
             }
         }
 
@@ -1409,6 +1429,7 @@ extension AppDelegate {
             // wizard's pre-resolve pairedEnd:false placeholder.
             let capturedRequest = request
             guard OperationCenter.shared.items.first(where: { $0.id == opID })?.state == .running else {
+                discardOwnedAnalysisDirectory()
                 OperationCenter.shared.acknowledgeCancellation(id: opID)
                 return false
             }
@@ -1440,7 +1461,10 @@ extension AppDelegate {
             // name (e.g. "mapperNotInstalled(\"minimap2\")"), not the
             // user-facing text `ManagedMappingPipelineError` already
             // provides via `LocalizedError`.
+            discardOwnedAnalysisDirectory()
             _ = OperationCenter.shared.fail(id: opID, detail: error.localizedDescription)
+            targetMainWindowController(routeContext: routeContext)?.mainSplitViewController?
+                .sidebarController.requestReloadFromFilesystem()
             return false
         }
     }

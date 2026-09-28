@@ -329,6 +329,45 @@ public enum AnalysesFolder {
         try? fileManager.removeItem(at: batchDirectory)
     }
 
+    /// Removes the result directory of an analysis run that failed or was
+    /// cancelled.
+    ///
+    /// ``createAnalysisDirectory(tool:in:isBatch:date:)`` writes
+    /// `analysis-metadata.json` before the tool runs, so a failed run left a
+    /// folder the sidebar lists as an ordinary analysis even though it holds
+    /// no result. The run that created the directory calls this on failure.
+    ///
+    /// Only a directory inside a project's `Analyses/` tree is removed (a
+    /// caller-chosen `--output-dir` elsewhere is never touched). After a
+    /// batch sample directory is removed, its batch directory is removed too
+    /// when nothing else is left in it.
+    ///
+    /// - Returns: `true` when the directory was removed.
+    @discardableResult
+    public static func discardFailedAnalysisDirectory(_ analysisDirectory: URL) -> Bool {
+        let directory = analysisDirectory.standardizedFileURL
+        let ancestors = directory.deletingLastPathComponent().pathComponents
+        guard ancestors.contains(directoryName),
+              directory.lastPathComponent != directoryName else { return false }
+        let fileManager = FileManager.default
+        var isDirectory: ObjCBool = false
+        guard fileManager.fileExists(atPath: directory.path, isDirectory: &isDirectory),
+              isDirectory.boolValue else { return false }
+        do {
+            try fileManager.removeItem(at: directory)
+        } catch {
+            logger.warning("Could not remove failed analysis directory \(directory.path, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            return false
+        }
+        logger.info("Removed failed analysis directory \(directory.lastPathComponent, privacy: .public)")
+        let parent = directory.deletingLastPathComponent()
+        if parent.lastPathComponent != directoryName,
+           readAnalysisMetadata(from: parent)?.isBatch == true {
+            removeBatchDirectoryIfEffectivelyEmpty(parent)
+        }
+        return true
+    }
+
     // MARK: - Listing
 
     /// Lists all analysis directories in `Analyses/`, sorted newest first.

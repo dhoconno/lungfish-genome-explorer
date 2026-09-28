@@ -810,11 +810,14 @@ extension AppDelegate {
             windowStateScope: routeContext?.windowStateScopeID.map(WindowStateScope.init(id:)),
             workflowName: "Classification"
         ) else { return }
+        var ownedAnalysisDirectory: URL?
         if let projectURL = routeContext?.projectURL {
             if let analysisDir = try? AnalysesFolder.createAnalysisDirectory(tool: "kraken2", in: projectURL) {
                 config.outputDirectory = analysisDir
+                ownedAnalysisDirectory = analysisDir
             }
         }
+        let failedRunDirectory = ownedAnalysisDirectory
 
         let pipeline = ClassificationPipeline()
 
@@ -982,6 +985,10 @@ extension AppDelegate {
                 DispatchQueue.main.async {
                     MainActor.assumeIsolated {
                         viewerController.hideProgress()
+                        // No half result: the folder created for this run goes.
+                        if let failedRunDirectory {
+                            AnalysesFolder.discardFailedAnalysisDirectory(failedRunDirectory)
+                        }
                         guard OperationCenter.shared.fail(id: opID, detail: error.localizedDescription) else { return }
 
                         let alert = NSAlert()
@@ -1045,6 +1052,7 @@ extension AppDelegate {
             windowStateScope: routeContext?.windowStateScopeID.map(WindowStateScope.init(id:)),
             workflowName: "EsViritu detection"
         ) else { return }
+        var esVirituOwnedDirectory: URL?
         if let projectURL = routeContext?.projectURL {
             if let batchDir = try? AnalysesFolder.createAnalysisDirectory(
                 tool: "esviritu", in: projectURL, isBatch: true
@@ -1052,8 +1060,10 @@ extension AppDelegate {
                 let sampleSubdir = batchDir.appendingPathComponent(config.sampleName, isDirectory: true)
                 try? FileManager.default.createDirectory(at: sampleSubdir, withIntermediateDirectories: true)
                 config.outputDirectory = sampleSubdir
+                esVirituOwnedDirectory = sampleSubdir
             }
         }
+        let esVirituFailedRunDirectory = esVirituOwnedDirectory
 
         let esCliArgs = Self.esVirituDetectCLIArguments(for: config)
         let esCliCmd = OperationCenter.buildCLICommand(subcommand: "esviritu detect", args: esCliArgs)
@@ -1285,6 +1295,11 @@ extension AppDelegate {
                 DispatchQueue.main.async {
                     MainActor.assumeIsolated {
                         viewerController.hideProgress()
+                        // No half result: the sample folder (and its batch
+                        // folder, once empty) created for this run goes.
+                        if let esVirituFailedRunDirectory {
+                            AnalysesFolder.discardFailedAnalysisDirectory(esVirituFailedRunDirectory)
+                        }
                         OperationCenter.shared.log(id: opID, level: .error, message: errorDesc)
                         guard OperationCenter.shared.fail(
                             id: opID,

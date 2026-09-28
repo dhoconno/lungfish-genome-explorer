@@ -124,4 +124,35 @@ final class MapCommandTests: XCTestCase {
             "--read-layout", "paired",
         ]))
     }
+
+    /// A run that fails after creating `Analyses/<mapper>-<timestamp>/` used
+    /// to leave the folder behind holding only analysis-metadata.json, which
+    /// the sidebar listed as an ordinary analysis.
+    func testFailedRunRemovesTheAnalysisFolderItCreated() async throws {
+        let project = FileManager.default.temporaryDirectory
+            .appendingPathComponent("map-failed-run-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: project, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: project) }
+        let reads = project.appendingPathComponent("reads.fastq")
+        try "@r1\nACGT\n+\nIIII\n".write(to: reads, atomically: true, encoding: .utf8)
+        let reference = project.appendingPathComponent("ref.fasta")
+        try ">ref\nACGTACGT\n".write(to: reference, atomically: true, encoding: .utf8)
+
+        let command = try MapCommand.parse([
+            reads.path,
+            "--reference", reference.path,
+            "--project", project.path,
+            "--preset", "not-a-preset",
+            "--quiet",
+        ])
+        do {
+            try await command.run()
+            XCTFail("an unknown preset must fail the run")
+        } catch {}
+
+        XCTAssertTrue(try AnalysesFolder.listAnalyses(in: project).isEmpty)
+        let analyses = project.appendingPathComponent("Analyses", isDirectory: true)
+        let leftovers = (try? FileManager.default.contentsOfDirectory(atPath: analyses.path)) ?? []
+        XCTAssertTrue(leftovers.isEmpty, "left behind: \(leftovers)")
+    }
 }

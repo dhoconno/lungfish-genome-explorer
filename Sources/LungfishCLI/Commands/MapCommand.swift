@@ -192,6 +192,15 @@ struct MapCommand: AsyncParsableCommand {
         }
 
         let outputDirectory: URL
+        // The Analyses/ folder this command created. A run that throws
+        // removes it again, so a failed mapping never leaves a folder that
+        // holds only analysis-metadata.json and looks like a result.
+        var createdAnalysisDirectory: URL?
+        defer {
+            if let createdAnalysisDirectory {
+                AnalysesFolder.discardFailedAnalysisDirectory(createdAnalysisDirectory)
+            }
+        }
         if let outputDir {
             outputDirectory = URL(fileURLWithPath: outputDir)
         } else if let projectURL {
@@ -201,6 +210,7 @@ struct MapCommand: AsyncParsableCommand {
                     tool: selectedTool,
                     in: projectURL
                 )
+                createdAnalysisDirectory = outputDirectory
             } catch {
                 throw CLIError.outputWriteFailed(
                     path: projectURL.appendingPathComponent("Analyses").path,
@@ -384,6 +394,8 @@ struct MapCommand: AsyncParsableCommand {
                 }
             }
         )
+        // Published: the folder now holds the result and stays.
+        createdAnalysisDirectory = nil
         let report = Report(published: published, request: request)
 
         guard printsText else {

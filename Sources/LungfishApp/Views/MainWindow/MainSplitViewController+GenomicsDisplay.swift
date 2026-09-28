@@ -1198,6 +1198,10 @@ extension MainSplitViewController {
         }
 
         let workingDirectory: URL
+        // The Analyses/ folder this run owns (created here or precomputed for
+        // a batch child). A failed or cancelled run removes it again so it
+        // never stays in the sidebar looking like a result.
+        var ownedAnalysisDirectory: URL?
         if case .assemble = request,
            let precomputedAssemblyBatchSampleDirectory {
             // BG4 (spec §3): a non-nil precomputed batch sample directory
@@ -1211,6 +1215,7 @@ extension MainSplitViewController {
             // only ever fires for `.assemble` requests, matching the
             // fallback branch immediately below.
             workingDirectory = precomputedAssemblyBatchSampleDirectory
+            ownedAnalysisDirectory = precomputedAssemblyBatchSampleDirectory
         } else if case .assemble(let assemblyRequest, _) = request,
            let currentProjectURL {
             do {
@@ -1218,6 +1223,7 @@ extension MainSplitViewController {
                     tool: assemblyRequest.tool.rawValue,
                     in: currentProjectURL
                 )
+                ownedAnalysisDirectory = workingDirectory
             } catch {
                 mainSplitLogger.error("runFASTQOperationLaunchRequest: Failed to create analysis directory: \(error.localizedDescription, privacy: .public)")
                 return nil
@@ -1245,6 +1251,7 @@ extension MainSplitViewController {
                     tool: "pbaa",
                     in: currentProjectURL
                 )
+                ownedAnalysisDirectory = workingDirectory
             } catch {
                 mainSplitLogger.error("runFASTQOperationLaunchRequest: Failed to create analysis directory: \(error.localizedDescription, privacy: .public)")
                 return nil
@@ -1253,6 +1260,7 @@ extension MainSplitViewController {
             workingDirectory = destinationRoot
         }
 
+        let failedRunDirectory = ownedAnalysisDirectory
         let executionService = FASTQOperationExecutionService(
             directImporter: BundleFASTQOperationImporter(destinationDirectory: destinationRoot)
         )
@@ -1375,6 +1383,9 @@ extension MainSplitViewController {
                             level: .info,
                             message: "Cancelled after \(String(format: "%.1f", elapsed))s"
                         )
+                        if let failedRunDirectory {
+                            AnalysesFolder.discardFailedAnalysisDirectory(failedRunDirectory)
+                        }
                         _ = OperationCenter.shared.acknowledgeCancellation(id: opID, detail: "Cancelled by user")
                     }
                 }
@@ -1383,6 +1394,9 @@ extension MainSplitViewController {
                 let errorDesc = error.localizedDescription
                 DispatchQueue.main.async {
                     MainActor.assumeIsolated {
+                        if let failedRunDirectory {
+                            AnalysesFolder.discardFailedAnalysisDirectory(failedRunDirectory)
+                        }
                         OperationCenter.shared.log(
                             id: opID,
                             level: .error,

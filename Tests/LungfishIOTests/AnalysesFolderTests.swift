@@ -481,4 +481,67 @@ extension AnalysesFolderViralReconTests {
         let info = try XCTUnwrap(AnalysesFolder.analysisInfo(for: directory))
         XCTAssertEqual(info.tool, "viralrecon")
     }
+
+}
+
+final class AnalysesFolderFailedRunTests: XCTestCase {
+    private var tempDir: URL!
+
+    override func setUp() {
+        super.setUp()
+        tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("test-analyses-failed-\(UUID().uuidString)")
+        try! FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+    }
+
+    override func tearDown() {
+        try? FileManager.default.removeItem(at: tempDir)
+        super.tearDown()
+    }
+
+
+    /// A failed mapping left `Analyses/minimap2-<ts>/` holding only
+    /// analysis-metadata.json, listed like a successful analysis.
+    func testDiscardFailedAnalysisDirectoryRemovesMetadataOnlyFolder() throws {
+        let dir = try AnalysesFolder.createAnalysisDirectory(tool: "minimap2", in: tempDir)
+        XCTAssertEqual(try AnalysesFolder.listAnalyses(in: tempDir).count, 1)
+
+        XCTAssertTrue(AnalysesFolder.discardFailedAnalysisDirectory(dir))
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: dir.path))
+        XCTAssertTrue(try AnalysesFolder.listAnalyses(in: tempDir).isEmpty)
+    }
+
+    func testDiscardFailedAnalysisDirectoryRemovesPartialOutputs() throws {
+        let dir = try AnalysesFolder.createAnalysisDirectory(tool: "kraken2", in: tempDir)
+        try Data("partial".utf8).write(to: dir.appendingPathComponent("partial.kraken"))
+
+        XCTAssertTrue(AnalysesFolder.discardFailedAnalysisDirectory(dir))
+        XCTAssertTrue(try AnalysesFolder.listAnalyses(in: tempDir).isEmpty)
+    }
+
+    func testDiscardFailedBatchSampleRemovesEmptyBatchButKeepsSiblingResults() throws {
+        let batch = try AnalysesFolder.createAnalysisDirectory(tool: "minimap2", in: tempDir, isBatch: true)
+        let failed = try AnalysesFolder.batchSampleDirectory(named: "S1", in: batch)
+        let succeeded = try AnalysesFolder.batchSampleDirectory(named: "S2", in: batch)
+        try Data("bam".utf8).write(to: succeeded.appendingPathComponent("S2.sorted.bam"))
+
+        XCTAssertTrue(AnalysesFolder.discardFailedAnalysisDirectory(failed))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: failed.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: batch.path), "a sibling result keeps the batch")
+
+        XCTAssertTrue(AnalysesFolder.discardFailedAnalysisDirectory(succeeded))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: batch.path), "an emptied batch folder goes too")
+    }
+
+    func testDiscardFailedAnalysisDirectoryNeverTouchesFoldersOutsideAnalyses() throws {
+        let custom = tempDir.appendingPathComponent("my-output", isDirectory: true)
+        try FileManager.default.createDirectory(at: custom, withIntermediateDirectories: true)
+        let analysesRoot = try AnalysesFolder.url(for: tempDir)
+
+        XCTAssertFalse(AnalysesFolder.discardFailedAnalysisDirectory(custom))
+        XCTAssertFalse(AnalysesFolder.discardFailedAnalysisDirectory(analysesRoot))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: custom.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: analysesRoot.path))
+    }
 }
