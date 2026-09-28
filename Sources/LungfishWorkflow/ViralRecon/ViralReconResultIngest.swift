@@ -191,8 +191,8 @@ public enum ViralReconResultIngest {
 
         let data = try JSONSerialization.data(withJSONObject: json,
                                               options: [.prettyPrinted, .sortedKeys])
-        try data.write(to: bundleDirectory.appendingPathComponent("viralrecon-result.json"),
-                       options: .atomic)
+        let sidecarURL = bundleDirectory.appendingPathComponent("viralrecon-result.json")
+        try PortablePath.sanitizeJSON(data, forFileAt: sidecarURL).write(to: sidecarURL, options: .atomic)
     }
 
     /// Ingests a finished run into the project's `Analyses/` directory.

@@ -526,7 +526,11 @@ public struct ViralVariantCallingPipeline: Sendable {
                 at: plan.normalizedVCFURL,
                 context: VCFHeaderPathSanitizer.Context(
                     workspaceURLs: [plan.workingDirectory],
-                    toolVersions: headerToolVersions
+                    toolVersions: headerToolVersions,
+                    portable: PortablePath.Context.forWriting(
+                        at: preflight.alignmentURL,
+                        workspaceURLs: [plan.workingDirectory]
+                    )
                 )
             )
         } catch {

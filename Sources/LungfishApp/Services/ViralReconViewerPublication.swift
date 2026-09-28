@@ -75,6 +75,10 @@ enum ViralReconViewerPublication {
                 to: bundleURL.appendingPathComponent(indexRelativePath))
         }
 
+        // The pipeline's bcftools and iVar meta lines name its work directory;
+        // keep those paths out of the bundle copy.
+        _ = try? await VCFHeaderPathSanitizer.sanitizeKeptVCF(at: payloadURL)
+
         let databaseRelativePath = "variants/\(trackID).db"
         let importResult = try await VariantSQLiteImportCoordinator().importNormalizedVCF(
             request: VariantSQLiteImportRequest(
