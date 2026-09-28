@@ -175,7 +175,10 @@ final class OperationRoutingTests: XCTestCase {
             .appendingPathComponent("Downloads", isDirectory: true)
             .appendingPathComponent("external.lungfishref", isDirectory: true)
         let finalProvenanceURL = finalBundle.appendingPathComponent(".lungfish-provenance.json")
-        let finalData = try Data(contentsOf: finalProvenanceURL)
+        // Stored project-relative inside the project; read it as LGE does.
+        let storedData = try Data(contentsOf: finalProvenanceURL)
+        XCTAssertFalse(String(decoding: storedData, as: UTF8.self).replacingOccurrences(of: "\\/", with: "/").contains(projectURL.path))
+        let finalData = PortablePath.resolveJSON(storedData, forFileAt: finalProvenanceURL)
         let finalJSON = try JSONSerialization.jsonObject(with: finalData) as? [String: Any]
         let outputs = finalJSON?["outputs"] as? [[String: Any]]
 
