@@ -236,6 +236,118 @@ final class OperationsLiveInspectorTests: XCTestCase {
         }
     }
 
+    private func label(_ root: NSView, text: String) -> NSTextField? {
+        if let field = root as? NSTextField, field.stringValue == text { return field }
+        return root.subviews.compactMap { label($0, text: text) }.first
+    }
+
+    /// Manual capture at a 1200x650 panel showed the details title
+    /// ("FASTQ: fastp Adapter + Quality Trim · Completed") clipped at its
+    /// bottom by the Command label. Each header row must get its full
+    /// height and sit strictly above the next one.
+    func testDrawerHeaderRowsDoNotOverlapAtManualCaptureSize() async throws {
+        let completed = OperationCenter.shared.start(
+            title: "FASTQ: fastp Adapter + Quality Trim", detail: "Preparing...", operationType: .fastqOperation,
+            cliCommand: "lungfish-cli fastq fastp-trim HG002.lungfishfastq --output <derived>"
+        )
+        for index in 0..<200 {
+            OperationCenter.shared.log(id: completed, level: .info, message: "fastp: Read1 before filtering: total reads \(index) quality and length filtering ongoing with a long line of output text")
+        }
+        OperationCenter.shared.log(id: completed, level: .info, message: "Completed in 4.2s")
+        let failed = OperationCenter.shared.start(
+            title: "FASTQ: fastp Adapter + Quality Trim", detail: "Preparing...", operationType: .fastqOperation,
+            cliCommand: "lungfish-cli fastq fastp-trim HG002.lungfishfastq --output <derived>"
+        )
+        _ = OperationCenter.shared.fail(id: failed, detail: "fastp failed", errorMessage: "fastp exited with status 1")
+        defer {
+            OperationCenter.shared.clearItem(id: completed)
+            OperationCenter.shared.clearItem(id: failed)
+        }
+
+        for id in [completed, failed] {
+            let (controller, view, _) = try panel(id: id)
+            defer { controller.close() }
+            let window = try XCTUnwrap(controller.window)
+            window.setContentSize(NSSize(width: 1200, height: 650))
+            view.layoutSubtreeIfNeeded()
+            if id == completed {
+                // Finish while the drawer is open, as a real run does.
+                _ = OperationCenter.shared.complete(id: completed, detail: "Done in 4.2s")
+            }
+            try await Task.sleep(for: .milliseconds(300))
+            view.layoutSubtreeIfNeeded()
+            window.displayIfNeeded()
+            let inspector = try XCTUnwrap(find(view, "operations-log-inspector", as: NSView.self))
+            let title = try XCTUnwrap(find(inspector, "operations-inspector-title", as: NSTextField.self))
+            let latest = try XCTUnwrap(find(inspector, "operations-inspector-latest", as: NSTextField.self))
+            let failure = try XCTUnwrap(find(inspector, "operations-inspector-failure", as: NSTextField.self))
+            let command = try XCTUnwrap(label(inspector, text: "Command"))
+            let rows = [title, latest, failure, command].filter { !$0.isHidden }
+            let frames = rows.map { inspector.convert($0.bounds, from: $0) }
+            let described = zip(rows, frames).map { "\($0.0.stringValue.prefix(24)): \($0.1)" }.joined(separator: "; ")
+            for (field, frame) in zip(rows, frames) {
+                XCTAssertGreaterThanOrEqual(
+                    frame.height, field.intrinsicContentSize.height - 0.5,
+                    "\(field.stringValue.prefix(24)) must get its full line height: \(described)"
+                )
+                XCTAssertTrue(inspector.bounds.insetBy(dx: -0.5, dy: -0.5).contains(frame), described)
+            }
+            for (upper, lower) in zip(frames, frames.dropFirst()) {
+                XCTAssertGreaterThanOrEqual(
+                    upper.minY, lower.maxY - 0.5,
+                    "header rows overlap: \(described)"
+                )
+            }
+        }
+    }
+
+    /// When the drawer is shorter than its header, the title used to be
+    /// squeezed with the other header rows and drew clipped at its bottom
+    /// by the row beneath it. The title keeps its full line at the top and
+    /// the overflow is clipped from the bottom of the drawer instead.
+    func testTitleKeepsItsFullLineWhenDrawerIsShorterThanItsHeader() throws {
+        let center = OperationCenter()
+        let id = center.start(title: "FASTQ: fastp Adapter + Quality Trim", detail: "Preparing...",
+                              operationType: .fastqOperation,
+                              cliCommand: "lungfish-cli fastq fastp-trim HG002.lungfishfastq")
+        center.log(id: id, level: .info, message: "Completed in 4.2s")
+        center.complete(id: id, detail: "Done in 4.2s")
+        let item = try XCTUnwrap(center.items.first { $0.id == id })
+
+        for height in [CGFloat(60), 100, 140] {
+            let host = NSView(frame: NSRect(x: 0, y: 0, width: 1200, height: height))
+            let inspector = OperationsLogInspector(frame: host.bounds)
+            inspector.translatesAutoresizingMaskIntoConstraints = false
+            host.addSubview(inspector)
+            NSLayoutConstraint.activate([
+                inspector.leadingAnchor.constraint(equalTo: host.leadingAnchor),
+                inspector.trailingAnchor.constraint(equalTo: host.trailingAnchor),
+                inspector.topAnchor.constraint(equalTo: host.topAnchor),
+                inspector.bottomAnchor.constraint(equalTo: host.bottomAnchor),
+                host.widthAnchor.constraint(equalToConstant: 1200),
+                host.heightAnchor.constraint(equalToConstant: height),
+            ])
+            inspector.display(item)
+            host.layoutSubtreeIfNeeded()
+
+            XCTAssertEqual(inspector.bounds.height, height, accuracy: 0.5)
+            XCTAssertTrue(inspector.clipsToBounds, "overflow must not paint outside the drawer")
+            let title = try XCTUnwrap(find(inspector, "operations-inspector-title", as: NSTextField.self))
+            let latest = try XCTUnwrap(find(inspector, "operations-inspector-latest", as: NSTextField.self))
+            let titleFrame = inspector.convert(title.bounds, from: title)
+            let latestFrame = inspector.convert(latest.bounds, from: latest)
+            XCTAssertGreaterThanOrEqual(
+                titleFrame.height, title.intrinsicContentSize.height - 0.5,
+                "height \(height): the title must get its full line, got \(titleFrame)"
+            )
+            XCTAssertEqual(titleFrame.maxY, height - 8, accuracy: 1, "height \(height): the title stays pinned to the top")
+            XCTAssertGreaterThanOrEqual(
+                titleFrame.minY, latestFrame.maxY - 0.5,
+                "height \(height): the next row must not overlap the title: \(titleFrame) vs \(latestFrame)"
+            )
+        }
+    }
+
     func testDrawerShowsCommandSupportsTextSizingAndClosesFromInspector() throws {
         let command = "lungfish-cli fastq orient --input /project/reads.fastq --output /project/oriented.fastq"
         let id = OperationCenter.shared.start(

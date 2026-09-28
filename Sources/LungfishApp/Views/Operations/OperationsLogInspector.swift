@@ -51,11 +51,20 @@ final class OperationsLogInspector: NSView, NSTextViewDelegate {
         stack.spacing = 6
         stack.translatesAutoresizingMaskIntoConstraints = false
         addSubview(stack)
+        // The header rows never compress. When the drawer is shorter than the
+        // header, the stack's bottom pin yields instead and the overflow is
+        // clipped from the bottom of the drawer; the title keeps its full
+        // line at the top rather than being squeezed under the row below it.
+        // clipsToBounds keeps that overflow (and this view's dirtyRect fill)
+        // inside the drawer.
+        clipsToBounds = true
+        let stackBottom = stack.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -8)
+        stackBottom.priority = NSLayoutConstraint.Priority(900)
         NSLayoutConstraint.activate([
             stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10),
             stack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10),
             stack.topAnchor.constraint(equalTo: topAnchor, constant: 8),
-            stack.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -8),
+            stackBottom,
         ])
 
         titleField.font = .systemFont(ofSize: 13, weight: .regular)
@@ -152,7 +161,7 @@ final class OperationsLogInspector: NSView, NSTextViewDelegate {
         logMinimumHeight.isActive = true
         logScroll.setContentCompressionResistancePriority(.defaultLow, for: .vertical)
         for header in [titleField, closeButton, latestField, failureField, commandLabel, commandScroll, followButton, jumpButton, smallerTextButton, largerTextButton, actionsButton] as [NSView] {
-            header.setContentCompressionResistancePriority(NSLayoutConstraint.Priority(999), for: .vertical)
+            header.setContentCompressionResistancePriority(.required, for: .vertical)
         }
         stack.setHuggingPriority(.defaultLow, for: .vertical)
         for child in stack.arrangedSubviews {
