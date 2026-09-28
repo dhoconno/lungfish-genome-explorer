@@ -44,7 +44,7 @@ final class InspectorProjectSwitchResetTests: XCTestCase {
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         addTeardownBlock { try? FileManager.default.removeItem(at: root) }
         let demo = try makeProject(named: "Demo", in: root)
-        let williams = try makeProject(named: "Williams", in: root)
+        let second = try makeProject(named: "Second", in: root)
         let schemeURL = try writeScheme(in: demo)
 
         let session = ProjectSession()
@@ -62,7 +62,7 @@ final class InspectorProjectSwitchResetTests: XCTestCase {
         inspector.genotypeResultDisplaySectionViewModel.updateSummary(visibleRows: 7, totalRows: 9, hiddenCells: 2)
         inspector.selectedItem = "SRR36291587"
 
-        try session.openProject(at: williams)
+        try session.openProject(at: second)
         split.applyProjectSessionState()
 
         XCTAssertFalse(

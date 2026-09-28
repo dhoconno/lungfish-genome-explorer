@@ -2,7 +2,7 @@
 """Write a screenshot recipe YAML for one captured shot.
 
     write-recipe.py <part-dir> <chapter-file> <shot-id> [--crop window|region|viewport]
-                    [--region x y w h] [--fixture demo-project|williams|<name>]
+                    [--region x y w h] [--fixture demo-project|mhc-cohort|<name>]
                     [--window 1400x900] [--state "one sentence"] [--step "prose step"]...
                     [--viewport-class sequence|alignment|variant|assembly|taxonomy|none]
 
@@ -23,7 +23,7 @@ import yaml
 ROOT = Path(__file__).resolve().parents[3]
 FIXTURES = {
     "demo-project": "{demo_project}",
-    "williams": "{williams_project}",
+    "mhc-cohort": "{mhc_cohort_project}",
 }
 
 

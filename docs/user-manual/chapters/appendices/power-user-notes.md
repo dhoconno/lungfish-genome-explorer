@@ -229,7 +229,7 @@ The third is running the tool yourself with no LGE involvement, which also write
 
 Only what is listed here was measured, during the manual's 2026-09 checks.
 
-- The MHC genotyping route gave the same 104 allele rows for sample `WD1_S148_L001` in a whole-plate run and in a rerun of three of its samples. The agreement matters, not the number.
+- The MHC genotyping route gave the same 104 allele rows for sample `Animal_01` in a whole-plate run and in a rerun of three of its samples. The agreement matters, not the number.
 - Two exports of the same [pivot workbook](../../GLOSSARY.md#pivot-workbook) differ only in `docProps/core.xml`, a timestamp inside the file, so compare the sheets rather than the files.
 - MEGAHIT often fails on Apple Silicon, always with a nonzero exit and no [contigs](../../GLOSSARY.md#contig), so a run that does finish can be trusted. The defect registry in [Known defects in this release](troubleshooting.md#known-defects-in-this-release) gives the details, and SPAdes is the alternative for short reads.
 - A long-read assembler can report a circular genome, such as the mitochondrion, as a contig about twice its true length. Compare a contig's length with the known genome length, as [When to Assemble](../07-assembly/01-when-to-assemble.md#circular-genomes-trimmed-overlapped-or-walked-twice) explains.

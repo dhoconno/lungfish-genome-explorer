@@ -6,7 +6,7 @@ caption: The dialog's Advanced Options disclosure expanded on the miSeq workflow
   arguments field and the Keep Intermediates checkbox above the Directory group.
 viewport_class: none
 app_state:
-  fixture: '{williams_project}'
+  fixture: '{mhc_cohort_project}'
   open_files: []
   window_size:
   - 1400
