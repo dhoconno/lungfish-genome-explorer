@@ -64,6 +64,63 @@ final class ViralReconDocumentSectionTests: XCTestCase {
         XCTAssertTrue(labels.contains("Run Quality Summary"))
     }
 
+    // Ingest flattens both mosdepth tables into reports/, so their source
+    // directories are gone. The label used to be read from the whole ancestor
+    // path, so a bundle anywhere under a folder whose name mentions
+    // "amplicon" (a SARS-CoV-2 amplicon project, say) titled BOTH tables
+    // "Coverage Depth by Amplicon". The label must come from the file itself.
+    func testGenomeCoverageTableKeepsItsOwnTitleUnderAnAmpliconNamedFolder() throws {
+        let ampliconParent = FileManager.default.temporaryDirectory
+            .appendingPathComponent("SARS-CoV-2 Amplicon Demo-\(UUID().uuidString)", isDirectory: true)
+        let results = ampliconParent.appendingPathComponent("results", isDirectory: true)
+        for relative in ["variants/bowtie2/mosdepth/amplicon/S1.mosdepth.coverage.tsv",
+                         "variants/bowtie2/mosdepth/genome/S1.mosdepth.coverage.tsv"] {
+            let url = results.appendingPathComponent(relative)
+            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
+                                                    withIntermediateDirectories: true)
+            try Data(relative.utf8).write(to: url)
+        }
+        let reference = ampliconParent.appendingPathComponent("ref.lungfishref", isDirectory: true)
+        try FileManager.default.createDirectory(at: reference, withIntermediateDirectories: true)
+        addTeardownBlock { try? FileManager.default.removeItem(at: ampliconParent) }
+
+        let ingested = try ViralReconResultIngest.ingest(
+            resultsDirectory: results,
+            sampleName: "S1",
+            referenceBundleURL: reference,
+            into: ampliconParent.appendingPathComponent("Analyses/viralrecon-S1", isDirectory: true))
+
+        let rows = ViralReconDocumentStateBuilder.rows(forBundleAt: ingested.bundleDirectory)
+            .filter { $0.fileURL.lastPathComponent.contains("mosdepth") }
+        let labelsByFile = Dictionary(uniqueKeysWithValues: rows.map {
+            (String(decoding: (try? Data(contentsOf: $0.fileURL)) ?? Data(), as: UTF8.self), $0.label)
+        })
+        XCTAssertEqual(labelsByFile["variants/bowtie2/mosdepth/amplicon/S1.mosdepth.coverage.tsv"],
+                       "Coverage Depth by Amplicon")
+        XCTAssertEqual(labelsByFile["variants/bowtie2/mosdepth/genome/S1.mosdepth.coverage.tsv"],
+                       "Coverage Depth Across Genome")
+    }
+
+    // Bundles ingested before the copies were named explicitly hold a bare
+    // amplicon table and a `genome-` qualified one. The genome table must not
+    // borrow the amplicon title just because an ancestor folder says so.
+    func testLegacyBundleGenomeCoverageIsNotTitledByAmplicon() throws {
+        let bundle = try makeBundle(reports: [
+            "S1.mosdepth.coverage.tsv",
+            "genome-S1.mosdepth.coverage.tsv",
+        ])
+        let nested = bundle.appendingPathComponent("amplicon-project", isDirectory: true)
+        try FileManager.default.createDirectory(at: nested, withIntermediateDirectories: true)
+        try FileManager.default.moveItem(at: bundle.appendingPathComponent("reports"),
+                                         to: nested.appendingPathComponent("reports"))
+
+        let labels = ViralReconDocumentStateBuilder.rows(forBundleAt: nested).map(\.label)
+        XCTAssertEqual(Set(labels).count, 2, "two coverage tables share a title: \(labels)")
+        XCTAssertTrue(labels.contains("Coverage Depth Across Genome"))
+        XCTAssertFalse(labels.contains("Coverage Depth by Amplicon"),
+                       "a bare legacy copy carries no amplicon signal of its own")
+    }
+
     // Bench scientists read these labels, so no row may fall back to a raw
     // pipeline filename when the file is one this app knows how to describe.
     func testLabelsAvoidUnexplainedPipelineJargon() throws {

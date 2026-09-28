@@ -48,6 +48,26 @@ final class TaxonomyReopenBrackenTests: XCTestCase {
         )
     }
 
+    // A CZ-ID import stores its report as `classification.czid.tsv`. With no
+    // recorded sample name the Sample column fell back to that file's stem.
+    func testImportedCzIdResultShowsTheCzIdSampleName() async throws {
+        let fixture = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Fixtures/czid/minimal_taxon_report.tsv")
+        let projectURL = tempRoot.appendingPathComponent("czid.lungfish", isDirectory: true)
+        try FileManager.default.createDirectory(at: projectURL, withIntermediateDirectories: true)
+
+        let imported = try await CzIdProjectImportWorkflow.importFromURL(fixture, projectURL: projectURL)
+        XCTAssertEqual(imported.bundleURL.lastPathComponent, "Sample-CZ-001.lungfishtax")
+
+        let vc = TaxonomyViewController()
+        _ = vc.view
+        vc.configure(result: try ClassificationResult.load(from: imported.bundleURL))
+
+        XCTAssertEqual(vc.testTableView.currentSampleID, "Sample-CZ-001")
+    }
+
     func testReopenedResultShowsKrakenTreeBrackenColumnAndSampleName() throws {
         let resultDir = try makeResultFolder()
         let db = try buildDatabase(in: resultDir)

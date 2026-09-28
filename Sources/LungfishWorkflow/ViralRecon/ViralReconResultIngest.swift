@@ -150,11 +150,24 @@ public enum ViralReconResultIngest {
             }
         }
         for report in inventory.reportFiles {
-            if let relative = try copy(report, role: "reports") {
+            if let relative = try copy(report, role: "reports", as: qualifiedCoverageName(for: report)) {
                 copied.reports.append(relative)
             }
         }
         return copied
+    }
+
+    /// The flat `reports/` copy of a mosdepth coverage table, named for the
+    /// directory it came from: `S1.mosdepth.coverage.tsv` under `amplicon/`
+    /// becomes `amplicon-S1.mosdepth.coverage.tsv`. The two tables share a
+    /// filename, and once flattened the name is the only thing left that says
+    /// which one a copy is, so both are qualified rather than only the second.
+    static func qualifiedCoverageName(for report: URL) -> String? {
+        let name = report.lastPathComponent
+        guard name.lowercased().contains("mosdepth") else { return nil }
+        let directory = report.deletingLastPathComponent().lastPathComponent.lowercased()
+        guard directory == "amplicon" || directory == "genome" else { return nil }
+        return "\(directory)-\(name)"
     }
 
     /// Writes `viralrecon-result.json`, the summary sidecar analogous to

@@ -898,11 +898,14 @@ extension InspectorViewController {
                 self.viewModel.readStyleSectionViewModel.consensusExtractionAvailabilityMessage = updated.unavailableMessage
             }
         }
+        let identityGate = EmbeddedAlignmentIdentityGate()
         viewModel.readStyleSectionViewModel.onSettingsChanged = { [weak self] in
             guard let self else { return }
             self.viewModel.documentSectionViewModel.visibleAlignmentTrackID =
                 self.viewModel.readStyleSectionViewModel.selectedVisibleAlignmentTrackID
-            applySettings(self.makeReadDisplaySettingsPayload(from: self.viewModel.readStyleSectionViewModel))
+            applySettings(identityGate.payload(
+                from: self.makeReadDisplaySettingsPayload(from: self.viewModel.readStyleSectionViewModel)
+            ))
             if let split = self.parent as? MainSplitViewController {
                 split.viewerController.activeMappingViewportController?.refreshAlignmentActionContextFilters()
             }
@@ -931,7 +934,7 @@ extension InspectorViewController {
         viewModel.readStyleSectionViewModel.onPrimerTrimRequested = { [weak self] in
             self?.runPrimerTrimWorkflow()
         }
-        applySettings(makeReadDisplaySettingsPayload(from: viewModel.readStyleSectionViewModel))
+        applySettings(identityGate.payload(from: makeReadDisplaySettingsPayload(from: viewModel.readStyleSectionViewModel)))
         inspectorLogger.info("updateMappingAlignmentSection: \(bundle.alignmentTrackIds.count) alignment tracks loaded")
     }
 
@@ -996,17 +999,60 @@ extension InspectorViewController {
             split.viewerController.referenceBundleViewportController?.activeSequenceViewerController
                 .presentAlignmentConsensusGeneration()
         }
+        let identityGate = EmbeddedAlignmentIdentityGate()
         viewModel.readStyleSectionViewModel.onSettingsChanged = { [weak self] in
             guard let self else { return }
             self.viewModel.documentSectionViewModel.visibleAlignmentTrackID =
                 self.viewModel.readStyleSectionViewModel.selectedVisibleAlignmentTrackID
-            applySettings(self.makeReadDisplaySettingsPayload(from: self.viewModel.readStyleSectionViewModel))
+            applySettings(identityGate.payload(
+                from: self.makeReadDisplaySettingsPayload(from: self.viewModel.readStyleSectionViewModel)
+            ))
             if let split = self.parent as? MainSplitViewController {
                 split.viewerController.referenceBundleViewportController?.refreshAlignmentActionContextFilters()
             }
         }
-        applySettings(makeReadDisplaySettingsPayload(from: viewModel.readStyleSectionViewModel))
+        applySettings(identityGate.payload(from: makeReadDisplaySettingsPayload(from: viewModel.readStyleSectionViewModel)))
         inspectorLogger.info("updateReferenceBundleTrackSections: \(bundle.alignmentTrackIds.count) alignment tracks loaded")
     }
 
+}
+
+/// Forwards the Inspector's read-style payload to an embedded reference or
+/// mapping viewport, carrying the alignment-identity keys (visible track and
+/// read groups) only when the Inspector's own choice of them changes.
+///
+/// The embedded viewport treats those keys as a navigation request, not a
+/// display setting. For a mapping result an empty track ID means "All
+/// Alignments" and rebuilds the contig list from scratch, clearing the
+/// selected contig. Clicking a contig or sequence row also focuses the viewer
+/// on that row's own track and read groups without the Inspector knowing.
+/// Re-sending the Inspector's unchanged choice with every display toggle, such
+/// as "Hide high-gap sites", therefore reset the list, blanked the viewport and
+/// dropped the consensus evidence behind "Extract Consensus…".
+@MainActor
+final class EmbeddedAlignmentIdentityGate {
+    private static let identityKeys: [AnyHashable] = [
+        NotificationUserInfoKey.visibleAlignmentTrackID,
+        NotificationUserInfoKey.selectedReadGroups,
+    ]
+
+    private var lastSent: [AnyHashable: AnyHashable]?
+
+    /// The first payload is passed through whole so the viewport starts from
+    /// the Inspector's choice. Later payloads drop an identity key whose value
+    /// matches the last one sent.
+    func payload(from full: [AnyHashable: Any]) -> [AnyHashable: Any] {
+        var payload = full
+        var current: [AnyHashable: AnyHashable] = [:]
+        for key in Self.identityKeys {
+            if let value = full[key] as? AnyHashable { current[key] = value }
+        }
+        if let lastSent {
+            for key in Self.identityKeys where current[key] != nil && current[key] == lastSent[key] {
+                payload.removeValue(forKey: key)
+            }
+        }
+        lastSent = current
+        return payload
+    }
 }

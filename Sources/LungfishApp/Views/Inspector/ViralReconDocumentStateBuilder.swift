@@ -182,12 +182,22 @@ enum ViralReconDocumentStateBuilder {
         return url.lastPathComponent
     }
 
-    /// Distinguishes the two mosdepth tables, which share a filename shape and
+    /// Distinguishes the two mosdepth tables, which share a filename and
     /// differ only by the directory the pipeline wrote them to.
+    ///
+    /// Only the file's own name and its immediate directory count. Ingest
+    /// flattens both tables into `reports/`, qualifying each copy's name with
+    /// its source directory (`amplicon-` or `genome-`). Reading the whole
+    /// ancestor path instead let any enclosing folder whose name mentioned
+    /// "amplicon" (a SARS-CoV-2 amplicon project, say) title both tables
+    /// "Coverage Depth by Amplicon". A bare copy from a bundle ingested before
+    /// the names were qualified carries no signal of its own, so it keeps the
+    /// neutral title rather than a guessed one.
     private static func coverageLabel(for url: URL) -> String {
-        let path = url.deletingLastPathComponent().path.lowercased()
-        if path.contains("amplicon") { return "Coverage Depth by Amplicon" }
-        if path.contains("genome") { return "Coverage Depth Across Genome" }
+        let name = url.lastPathComponent.lowercased()
+        let directory = url.deletingLastPathComponent().lastPathComponent.lowercased()
+        if name.hasPrefix("amplicon-") || directory == "amplicon" { return "Coverage Depth by Amplicon" }
+        if name.hasPrefix("genome-") || directory == "genome" { return "Coverage Depth Across Genome" }
         return "Coverage Depth Table"
     }
 
