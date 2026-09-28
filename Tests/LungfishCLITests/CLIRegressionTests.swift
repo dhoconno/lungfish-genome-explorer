@@ -2260,7 +2260,8 @@ final class WorkflowCommandRegressionTests: XCTestCase {
             try await command.run()
             XCTFail("Expected --timeout to be rejected for viralrecon runs")
         } catch let error as CLIError {
-            XCTAssertEqual(error.exitCode, .workflowError)
+            // A refused option is an input error (3), as the help text states.
+            XCTAssertEqual(error.exitCode, .inputError)
             XCTAssertTrue(error.localizedDescription.contains("--timeout"))
         }
     }

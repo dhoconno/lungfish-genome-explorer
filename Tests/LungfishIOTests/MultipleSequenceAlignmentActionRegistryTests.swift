@@ -52,7 +52,7 @@ final class MultipleSequenceAlignmentActionRegistryTests: XCTestCase {
         let action = try XCTUnwrap(MultipleSequenceAlignmentActionRegistry.action(id: "msa.phylogenetics.build-tree"))
 
         XCTAssertEqual(action.implementationStatus, .implemented)
-        XCTAssertTrue(action.cli?.command.contains("lungfish tree infer iqtree") ?? false)
+        XCTAssertTrue(action.cli?.command.contains("lungfish-cli tree infer iqtree") ?? false)
         XCTAssertFalse(action.cli?.command.contains("fasttree") ?? true)
         XCTAssertFalse(action.cli?.command.contains("raxml-ng") ?? true)
         XCTAssertTrue(action.cli?.command.contains("--rows <rows>") ?? false)

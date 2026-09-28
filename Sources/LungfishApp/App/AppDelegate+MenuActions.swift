@@ -330,8 +330,7 @@ extension AppDelegate {
         alert.addButton(withTitle: "Add as New Track")
         alert.addButton(withTitle: "Replace \u{201C}\(existingTrack.name)\u{201D}")
         alert.addButton(withTitle: "Cancel")
-        Task { @MainActor [weak self] in
-            let response = await alert.beginSheetModal(for: window)
+        alert.beginSheetModal(for: window) { [weak self] response in
             switch response {
             case .alertFirstButtonReturn:
                 self?.performVCFImport(vcfURL: vcfURL, bundleURL: bundleURL, routeContext: routeContext)
