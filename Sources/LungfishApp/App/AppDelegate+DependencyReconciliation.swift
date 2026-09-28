@@ -107,10 +107,14 @@ extension AppDelegate {
     /// machine from one dependency set to the next, so it stands down until there is something
     /// to carry.
     ///
-    /// Any reinstall, removal, or bootstrap change means the machine has a tool set already and
-    /// this really is an update, so the sheet is presented. So does an existing receipt: that is
-    /// the record of a previous install, which makes "fresh machine" false however empty the
-    /// disk looks now.
+    /// On an empty machine micromamba is missing too, so the planner also puts a bootstrap
+    /// install in the plan. A bootstrap with no current version is part of that first install,
+    /// not evidence of an existing one, and Welcome's Required Setup card owns it.
+    ///
+    /// Any reinstall, removal, database update, or upgrade of an installed micromamba means the
+    /// machine has a tool set already and this really is an update, so the sheet is presented.
+    /// So does an existing receipt: that is the record of a previous install, which makes
+    /// "fresh machine" false however empty the disk looks now.
     static func isFreshInstallOwnedByWelcome(
         _ plan: ReconciliationPlan,
         hasReceipt: Bool
@@ -118,8 +122,12 @@ extension AppDelegate {
         guard !hasReceipt else { return false }
         guard plan.reinstallEnvironments.isEmpty,
               plan.removeEnvironments.isEmpty,
-              plan.bootstrapUpdate == nil,
               plan.databaseUpdates.isEmpty else { return false }
+        if let bootstrap = plan.bootstrapUpdate,
+           let installedVersion = bootstrap.currentVersion,
+           !installedVersion.isEmpty {
+            return false
+        }
         // Nothing at all to do is not a fresh install; that case is stamped, not presented.
         guard !plan.installEnvironments.isEmpty else { return false }
         return plan.installEnvironments.allSatisfy { $0.reason == .missing }
