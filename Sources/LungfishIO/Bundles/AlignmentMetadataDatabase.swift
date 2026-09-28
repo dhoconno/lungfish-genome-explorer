@@ -44,6 +44,11 @@ public final class AlignmentMetadataDatabase: @unchecked Sendable {
     /// SQLite connection handle.
     private let db: OpaquePointer
 
+    /// Rewrites command lines and paths stored in a database inside a
+    /// project or bundle (see `PortablePath`); nil for read-only handles and
+    /// databases outside any project.
+    private let writeContext: PortablePath.Context?
+
     // MARK: - Initialization
 
     /// Opens an existing alignment metadata database.
@@ -52,6 +57,7 @@ public final class AlignmentMetadataDatabase: @unchecked Sendable {
     /// - Throws: If the database cannot be opened or is invalid
     public init(url: URL) throws {
         self.databaseURL = url
+        self.writeContext = nil
         var dbHandle: OpaquePointer?
         let rc = sqlite3_open_v2(url.path, &dbHandle, SQLITE_OPEN_READONLY | SQLITE_OPEN_FULLMUTEX, nil)
         guard rc == SQLITE_OK, let handle = dbHandle else {
@@ -65,6 +71,7 @@ public final class AlignmentMetadataDatabase: @unchecked Sendable {
     /// Opens a database for read-write access.
     private init(url: URL, readWrite: Bool) throws {
         self.databaseURL = url
+        self.writeContext = readWrite ? PortablePath.Context.forWriting(at: url) : nil
         var dbHandle: OpaquePointer?
         let flags = readWrite
             ? (SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_FULLMUTEX)
@@ -176,7 +183,7 @@ public final class AlignmentMetadataDatabase: @unchecked Sendable {
         guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return }
         defer { sqlite3_finalize(stmt) }
         bindText(stmt, 1, key)
-        bindText(stmt, 2, value)
+        bindText(stmt, 2, portable(value))
         sqlite3_step(stmt)
     }
 
@@ -188,7 +195,7 @@ public final class AlignmentMetadataDatabase: @unchecked Sendable {
         defer { sqlite3_finalize(stmt) }
         bindText(stmt, 1, key)
         guard sqlite3_step(stmt) == SQLITE_ROW else { return nil }
-        return String(cString: sqlite3_column_text(stmt, 0))
+        return resolved(String(cString: sqlite3_column_text(stmt, 0)))
     }
 
     /// Returns all file_info entries as a dictionary.
@@ -201,7 +208,7 @@ public final class AlignmentMetadataDatabase: @unchecked Sendable {
         while sqlite3_step(stmt) == SQLITE_ROW {
             let key = String(cString: sqlite3_column_text(stmt, 0))
             let value = String(cString: sqlite3_column_text(stmt, 1))
-            result[key] = value
+            result[key] = resolved(value)
         }
         return result
     }
@@ -438,7 +445,7 @@ public final class AlignmentMetadataDatabase: @unchecked Sendable {
         bindText(stmt, 1, id)
         bindOptionalText(stmt, 2, name)
         bindOptionalText(stmt, 3, version)
-        bindOptionalText(stmt, 4, commandLine)
+        bindOptionalText(stmt, 4, commandLine.map(portable))
         bindOptionalText(stmt, 5, previousProgram)
         sqlite3_step(stmt)
     }
@@ -455,7 +462,7 @@ public final class AlignmentMetadataDatabase: @unchecked Sendable {
                 id: String(cString: sqlite3_column_text(stmt, 0)),
                 name: optionalText(stmt, 1),
                 version: optionalText(stmt, 2),
-                commandLine: optionalText(stmt, 3),
+                commandLine: optionalText(stmt, 3).map(resolved),
                 previousProgram: optionalText(stmt, 4)
             ))
         }
@@ -505,13 +512,13 @@ public final class AlignmentMetadataDatabase: @unchecked Sendable {
         bindText(stmt, 1, tool)
         bindOptionalText(stmt, 2, subcommand)
         bindOptionalText(stmt, 3, version)
-        bindText(stmt, 4, command)
+        bindText(stmt, 4, portable(command))
 
         let formatter = ISO8601DateFormatter()
         bindText(stmt, 5, formatter.string(from: timestamp))
 
-        bindOptionalText(stmt, 6, inputFile)
-        bindOptionalText(stmt, 7, outputFile)
+        bindOptionalText(stmt, 6, inputFile.map(portable))
+        bindOptionalText(stmt, 7, outputFile.map(portable))
 
         if let exitCode {
             sqlite3_bind_int(stmt, 8, exitCode)
@@ -568,10 +575,10 @@ public final class AlignmentMetadataDatabase: @unchecked Sendable {
                 tool: String(cString: sqlite3_column_text(stmt, 1)),
                 subcommand: optionalText(stmt, 2),
                 version: optionalText(stmt, 3),
-                command: String(cString: sqlite3_column_text(stmt, 4)),
+                command: resolved(String(cString: sqlite3_column_text(stmt, 4))),
                 timestamp: optionalText(stmt, 5),
-                inputFile: optionalText(stmt, 6),
-                outputFile: optionalText(stmt, 7),
+                inputFile: optionalText(stmt, 6).map(resolved),
+                outputFile: optionalText(stmt, 7).map(resolved),
                 exitCode: sqlite3_column_type(stmt, 8) != SQLITE_NULL ? sqlite3_column_int(stmt, 8) : nil,
                 duration: sqlite3_column_type(stmt, 9) != SQLITE_NULL ? sqlite3_column_double(stmt, 9) : nil,
                 parentStep: sqlite3_column_type(stmt, 10) != SQLITE_NULL ? Int(sqlite3_column_int(stmt, 10)) : nil
@@ -581,6 +588,20 @@ public final class AlignmentMetadataDatabase: @unchecked Sendable {
     }
 
     // MARK: - Helpers
+
+    /// The value as stored: private paths rewritten when this database lives
+    /// inside a project.
+    private func portable(_ value: String) -> String {
+        guard let writeContext else { return value }
+        return PortablePath.sanitize(field: value, context: writeContext)
+    }
+
+    /// A stored value with project-relative and placeholder paths resolved
+    /// for this database's current location.
+    private func resolved(_ value: String) -> String {
+        guard PortablePath.mayContainPlaceholder(value) else { return value }
+        return PortablePath.resolve(text: value, context: .forFile(at: databaseURL))
+    }
 
     private func bindText(_ stmt: OpaquePointer?, _ index: Int32, _ value: String) {
         sqlite3_bind_text(stmt, index, (value as NSString).utf8String, -1, sqliteTransientDestructor)

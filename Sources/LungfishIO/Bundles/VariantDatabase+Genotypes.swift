@@ -429,8 +429,13 @@ extension VariantDatabase {
             throw VariantDatabaseError.createFailed("Failed to begin metadata transaction: \(message)")
         }
 
+        // A database inside a project stores command lines and
+        // source paths without the account's home, tool root or scratch
+        // directories; see PortablePath.
+        let portableContext = PortablePath.Context.forWriting(at: url)
         do {
-            for (key, value) in values {
+            for (key, rawValue) in values {
+                let value = portableContext.map { PortablePath.sanitize(field: rawValue, context: $0) } ?? rawValue
                 guard Self.insertMetadataRow(db, key: key, value: value, replace: true) else {
                     throw VariantDatabaseError.createFailed("Failed to insert metadata value for \(key)")
                 }
