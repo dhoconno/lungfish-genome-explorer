@@ -128,9 +128,11 @@ extension MainSplitViewController {
         let route = OperationRouteContext(projectURL: projectURL, windowStateScope: windowStateScope)
         let cliCommand = ["lungfish-cli", "primers", "scheme-from-analysis", analysisURL.path,
             "--result-id", candidate.resultID.uuidString, "--output", name, "--project", projectURL.path]
-        let id = center.start(title: title, detail: "Verifying saved \(candidate.engine) result…", operationType: .workflow,
+        // begin(...) refuses a conflicting bundle lock and inserts the visible
+        // "Bundle is busy" row itself, so nothing is launched on refusal.
+        guard let id = center.begin(title: title, detail: "Verifying saved \(candidate.engine) result…", operationType: .workflow,
             targetBundleURL: destination, cliCommand: cliCommand.map { $0.contains(" ") ? "'\($0)'" : $0 }.joined(separator: " "),
-            routeContext: route)
+            routeContext: route).startedID else { return }
         let request = PrimerSchemeFromAnalysisRequest(analysisURL: analysisURL, resultID: candidate.resultID,
             outputURL: URL(fileURLWithPath: name), projectURL: projectURL, displayName: nil,
             argv: CommandLine.arguments, workflowName: "lungfish primers scheme-from-analysis",
