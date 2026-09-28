@@ -64,4 +64,43 @@ final class IlluminaAmpliconPairMergerProcessWaitTests: XCTestCase {
             // Foundation reports the launch failure; the wait is never entered.
         }
     }
+    /// Reported 2026-09-28: genotyping cohorts on a Mac without a system Java
+    /// failed at the merge step with "Unable to locate a Java Runtime".
+    /// `bbmerge.sh` runs `java` from PATH, and the managed JRE lives in the
+    /// bbtools environment's `lib/jvm/bin`, which a CLI launched by the app
+    /// does not have on PATH. The merge must run with the same environment
+    /// every other BBTools caller builds.
+    func testBBMergeRunsWithTheManagedBBToolsJava() async throws {
+        let envRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("merger-env-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("envs/bbtools", isDirectory: true)
+        addTeardownBlock {
+            try? FileManager.default.removeItem(at: envRoot.deletingLastPathComponent().deletingLastPathComponent())
+        }
+        let binDir = envRoot.appendingPathComponent("bin", isDirectory: true)
+        let javaBinDir = envRoot.appendingPathComponent("lib/jvm/bin", isDirectory: true)
+        try FileManager.default.createDirectory(at: binDir, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: javaBinDir, withIntermediateDirectories: true)
+
+        let bbmergeURL = binDir.appendingPathComponent("bbmerge.sh")
+        try "#!/bin/sh\njava \"$@\"\n".write(to: bbmergeURL, atomically: true, encoding: .utf8)
+        let javaURL = javaBinDir.appendingPathComponent("java")
+        try "#!/bin/sh\necho \"managed java JAVA_HOME=$JAVA_HOME\" >&2\n"
+            .write(to: javaURL, atomically: true, encoding: .utf8)
+        for url in [bbmergeURL, javaURL] {
+            try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
+        }
+
+        let result = try await IlluminaAmpliconPairMerger.runBBMerge(
+            bbmergeURL: bbmergeURL,
+            arguments: [],
+            stderrURL: makeStderrURL(),
+            inheritedEnvironment: ["PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "HOME": NSHomeDirectory()]
+        )
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(
+            result.stderr,
+            "managed java JAVA_HOME=\(envRoot.appendingPathComponent("lib/jvm", isDirectory: true).path)\n"
+        )
+    }
 }

@@ -499,12 +499,41 @@ public enum IlluminaAmpliconPairMerger {
 
     // MARK: - Support
 
-    private static func runBBMerge(
+    /// Runs `bbmerge.sh` with the managed BBTools Java on PATH.
+    ///
+    /// `bbmerge.sh` launches `java` from PATH. The managed JRE sits in the
+    /// bbtools environment's `lib/jvm/bin`, which is not on the PATH of a CLI
+    /// the app launches, so without this the script found macOS's `java` stub
+    /// and failed with "Unable to locate a Java Runtime" on any Mac without a
+    /// system Java. The environment root is taken from `bbmergeURL`
+    /// (`<env>/bin/bbmerge.sh`), so a relocated storage root works too.
+    static func runBBMerge(
         bbmergeURL: URL,
         arguments: [String],
-        stderrURL: URL
+        stderrURL: URL,
+        inheritedEnvironment: [String: String] = ProcessInfo.processInfo.environment
     ) async throws -> (status: Int32, stderr: String) {
-        try await runProcess(executableURL: bbmergeURL, arguments: arguments, stderrURL: stderrURL)
+        try await runProcess(
+            executableURL: bbmergeURL,
+            arguments: arguments,
+            stderrURL: stderrURL,
+            environment: bbToolsEnvironment(bbmergeURL: bbmergeURL, inherited: inheritedEnvironment)
+        )
+    }
+
+    /// The inherited environment with the bbtools environment's Java first on
+    /// PATH, matching ``CoreToolLocator/bbToolsEnvironment(homeDirectory:existingPath:appIdentity:)``.
+    static func bbToolsEnvironment(bbmergeURL: URL, inherited: [String: String]) -> [String: String] {
+        let binDir = bbmergeURL.deletingLastPathComponent()
+        let envRoot = binDir.deletingLastPathComponent()
+        let javaHome = envRoot.appendingPathComponent("lib/jvm", isDirectory: true)
+        let javaBinDir = javaHome.appendingPathComponent("bin", isDirectory: true)
+        let existingPath = inherited["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin"
+        var environment = inherited
+        environment["PATH"] = "\(javaBinDir.path):\(binDir.path):\(existingPath)"
+        environment["JAVA_HOME"] = javaHome.path
+        environment["BBMAP_JAVA"] = javaBinDir.appendingPathComponent("java").path
+        return environment
     }
 
     /// Runs `executableURL` to completion with stderr captured to a file.
@@ -521,11 +550,15 @@ public enum IlluminaAmpliconPairMerger {
     static func runProcess(
         executableURL: URL,
         arguments: [String],
-        stderrURL: URL
+        stderrURL: URL,
+        environment: [String: String]? = nil
     ) async throws -> (status: Int32, stderr: String) {
         let process = Process()
         process.executableURL = executableURL
         process.arguments = arguments
+        if let environment {
+            process.environment = environment
+        }
         process.standardOutput = FileHandle.nullDevice
         FileManager.default.createFile(atPath: stderrURL.path, contents: nil)
         let stderrHandle = try FileHandle(forWritingTo: stderrURL)
