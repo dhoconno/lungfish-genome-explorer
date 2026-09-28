@@ -3,7 +3,7 @@ title: Importing Sequencing Reads
 chapter_id: 03-reads/01-importing-fastq
 audience: bench-scientist
 prereqs: [01-foundations/02-sequencing-reads, 01-foundations/06-the-lungfish-project]
-estimated_reading_min: 15
+estimated_reading_min: 20
 task: Import FASTQ read files, or an unmapped Oxford Nanopore BAM, into a Lungfish Genome Explorer project.
 tags: [reads, fastq, bam, ont, import, paired-end, batch, sample-sheet]
 tools: []
@@ -20,8 +20,10 @@ shots:
     caption: "The Import FASTQ configuration sheet for the HG002 chromosome 20 pair, with the summary reading R1 and R2 on separate lines above the Platform, Pairing, Quality Binning, and compression controls."
   - id: sidebar-after-import
     caption: "The sidebar after the paired-end import, showing the new HG002 chromosome 20 bundle under Imports."
-illustrations: []
-glossary_refs: [fastq, bam, bundle, paired-end, single-end, interleaved-fastq, project, sidebar, inspector, import-center, provenance, checksum, required-setup-pack, sample-metadata, quality-binning, read-clumping, sample-sheet, phred-score, adapter, virtual-bundle]
+illustrations:
+  - id: read-preparation-order
+    brief: "A left-to-right chain of six rounded boxes joined by arrows, each labelled with an operation and, below it in IBM Plex Mono, the suffix it adds to the bundle name. Import (no suffix, the name comes from the file), Quality control (no suffix, the summary is rewritten in place), Trim (-fastpTrim), Length filter (-lengthFilter), Decontaminate (-humanReadScrub), then an optional box for Remove duplicates or Subsample (-deduplicate, -subsampleCount), ending in a larger box labelled Map (Part 4). Three dashed side branches leave the main chain: Merge Overlapping Pairs (-pairedEndMerge) branching off after quality control, Demultiplex branching off before quality control for pooled runs, and Subsample branching off anywhere as a test slice. A small note under the Remove duplicates box reads 'skip for amplicon runs'. Lungfish Creamsicle boxes on the main chain, Peach dashed boxes for side branches, Deep Ink labels and arrows, Cream background."
+glossary_refs: [fastq, bam, bundle, paired-end, single-end, interleaved-fastq, project, sidebar, inspector, import-center, provenance, checksum, required-setup-pack, sample-metadata, quality-binning, read-clumping, sample-sheet, phred-score, adapter, virtual-bundle, k-mer, clumpify, read, mate, read-pair, fragment, vsp2]
 features_refs: []
 fixtures_refs: [hg002-chr20]
 brand_reviewed: false
@@ -32,13 +34,46 @@ lead_approved: false
 
 Importing brings read files from your disk into a Lungfish Genome Explorer (LGE) [project](../../GLOSSARY.md#project), the `.lungfish` folder that holds one analysis. Every later step in this manual works on what the import produced, not on the files you started with.
 
-What an import produces is a read bundle. A [bundle](../../GLOSSARY.md#bundle) is a folder LGE treats as one item, as [What bundle means](../01-foundations/06-the-lungfish-project.md#what-bundle-means) explains. A read bundle ends in `.lungfishfastq` and lands in the project's `Imports/` folder. [FASTQ](../../GLOSSARY.md#fastq) stores each read as four lines, a name, the bases, a separator, and one quality character per base. A [paired-end](../../GLOSSARY.md#paired-end) run reads each fragment from both ends, and LGE stores the two mates of a sample together in one bundle.
+What an import produces is a read bundle. A [bundle](../../GLOSSARY.md#bundle) is a folder LGE treats as one item, as [What bundle means](../01-foundations/06-the-lungfish-project.md#what-bundle-means) explains. A read bundle ends in `.lungfishfastq` and lands in the project's `Imports/` folder. [FASTQ](../../GLOSSARY.md#fastq) stores each [read](../../GLOSSARY.md#read), the record a sequencer writes for one DNA fragment, as four lines, a name, the bases, a separator, and one quality character per base. A [paired-end](../../GLOSSARY.md#paired-end) run writes two reads per fragment, called [mates](../../GLOSSARY.md#mate), and LGE stores the two mates of a sample together in one bundle.
 
-An import does more than copy. LGE reads every record to count reads and bases and to measure read length and quality, so those numbers are ready the moment the bundle appears. It then recompresses the reads, and for most short-read runs it first reorders them so that similar reads sit together and the file shrinks. LGE writes a [provenance](../../GLOSSARY.md#provenance) record beside every result, holding the command, the tool version, and a [checksum](../../GLOSSARY.md#checksum) of each file, and [Provenance and Reproducibility](../01-foundations/08-provenance-and-reproducibility.md#reading-the-results) shows how to read it.
+An import does more than copy. LGE reads every record to count reads and bases and to measure read length and quality, so those numbers are ready the moment the bundle appears. It then recompresses the reads, and for most short-read runs it first reorders them so that similar reads sit together and the file shrinks.
 
 This chapter covers FASTQ files already on your disk, compressed with gzip (a `.gz` ending) or not. It also covers one other input. A [BAM](../../GLOSSARY.md#bam) file holds one row per aligned read, with an index beside it that lets a viewer jump to any position. An unmapped BAM uses the same container for reads that have not been aligned to anything yet, and current Oxford Nanopore basecalling software writes that as its default output. To fetch reads from a public archive, see [Downloading Reads from the SRA](02-downloading-from-sra.md). To import a whole Oxford Nanopore run folder, see [Oxford Nanopore Runs](07-ont-runs.md).
 
 In practice, import each read set once, check the pairing before you click Import, and run every later step on the bundle.
+
+## Where this part fits
+
+This chapter opens the Reads part of the manual. The part follows a read set from the moment it arrives to the moment it is ready for [Mapping Reads to a Reference](../04-alignments/01-mapping-reads-to-a-reference.md), and its chapters come in the order that work usually runs. Few projects need every step. The table says which ones an ordinary project needs.
+
+### The order of read preparation
+
+<!-- ILLUSTRATION: read-preparation-order -->
+
+| Order | Step | Chapter | Added to the bundle name | When a project needs it |
+|---|---|---|---|---|
+| 1 | Import, or download from the SRA | This chapter, [Downloading Reads from the SRA](02-downloading-from-sra.md) | Nothing, the name comes from the file or the run accession | Always |
+| 2 | Quality control | [Quality Control for Reads](03-quality-control.md) | Nothing, the summary is rewritten in place | Always |
+| 3 | Trim adapters and poor ends | [Trimming and Filtering Reads](04-trimming-and-filtering.md) | `-fastpTrim` | When quality control shows adapter or poor read ends, or before a mapper that aligns reads end to end |
+| 4 | Filter by read length | [Trimming and Filtering Reads](04-trimming-and-filtering.md) | `-lengthFilter` | After any trim |
+| 5 | Remove host or contaminant reads | [Decontamination](05-decontamination.md) | `-humanReadScrub`, `-ribosomalRNAFilter`, and others | When the sample carries reads you must not analyse or share, such as a patient's own genome |
+| 6 | Remove duplicates, or subsample | [Decontamination](05-decontamination.md), [Subsetting and Extraction](06-subsetting-and-extraction.md) | `-deduplicate`, `-subsampleCount` | Optional. Skip duplicate removal for amplicon runs |
+
+Three steps sit beside the main chain rather than on it. A pooled run is split into samples first, as [Oxford Nanopore Runs](07-ont-runs.md) shows. Merging the two mates of a pair into one read is for counting distinct fragments or for a few amplicon tools, as [Read Processing](08-read-processing.md) explains, and never for reads headed to a variant caller. A subsample makes a quick test slice at any point.
+
+The human HG002 reads this part uses are clean, so the rest of this manual maps the imported bundle as it is. The trim and the filter in [Trimming and Filtering Reads](04-trimming-and-filtering.md) are practice on those reads, and that chapter says what they cost.
+
+### Which operations keep pairs
+
+A paired bundle is only useful while every mate still sits beside its partner. Split a pair, and a mapper can no longer use one mate to place the other. Every operation in this part falls into one of three groups.
+
+| What happens to pairs | Operations |
+|---|---|
+| Both mates are kept or removed together | Import, the four fastp trims, Primer Trimming, Filter by Read Length, Remove Human Reads, Remove ribosomal RNA sequences, Remove Contaminants, Low-Complexity Filter, Remove Duplicates, both subsamples, the three extraction operations, Correct Sequencing Errors, Reverse Complement, Repair Paired-End Files |
+| A mate can be left on its own | Orient Reads, which is built for single long reads and drops any read it cannot place |
+| Pairs are joined into single reads | Merge Overlapping Pairs, the Illumina Amplicon Merge recipe, and the VSP2 Target Enrichment and Wastewater metagenomics recipes, which keep merged reads and leftover pairs in one bundle |
+
+When an operation has left mates on their own, [Repairing a paired file whose mates fell out of step](08-read-processing.md#repairing-paired-end-files) puts the pairs back together. The command-line versions of these operations keep pairs the same way when their input sits in a paired bundle or when you pass `--pairing interleaved`, as [Trimming and Filtering Reads](04-trimming-and-filtering.md#on-the-command-line) shows.
 
 ## Why you would do this
 
@@ -48,17 +83,33 @@ The bundle also records what a FASTQ file leaves out. A FASTQ file holds reads a
 
 This chapter works through the HG002 chromosome 20 slice. HG002 is a human genome from the Genome in a Bottle project whose true sequence is already known. The project publishes such reference samples so laboratories can check their methods. The fixture is a pair of Illumina files holding 45,574 read pairs, each read up to 250 bases long. The reads come from a 500,000-base stretch of chromosome 20, from 10.0 to 10.5 million bases along it, which is what `10.0-10.5Mb` in the filenames means.
 
-A whole human genome run delivers hundreds of millions of pairs, so this is a tiny read set. It still covers each position of its window about 45 times over, the depth a real human genome project aims for, so it is realistic in quality and small enough to import in seconds.
+A whole human genome run delivers hundreds of millions of pairs, so this is a tiny read set. It still covers each position of its window about 45 times over, more than the roughly 30x a human genome project aims for, as [Coverage and the coverage track](../01-foundations/04-alignment-files.md#coverage-and-the-coverage-track) explains. So it is realistic in quality and small enough to import in seconds.
+
+## Choosing a tool
+
+Check your platform and pairing first, as [Know your reads before you choose a tool](../01-foundations/02-sequencing-reads.md#know-your-reads-before-you-choose-a-tool) describes. The import sheet then asks one tool question, which program reorders the reads before LGE compresses them.
+
+Leave it on **BBTools clumpify**, the default. BBTools is a suite of read-processing programs from the Joint Genome Institute, and [clumpify](../../GLOSSARY.md#clumpify) is the one that sorts reads. It groups reads that share [k-mers](../../GLOSSARY.md#k-mer), short substrings of exactly k bases, so near-identical reads end up side by side and the compressed file comes out smaller. [Three ways to match a read](../06-classification/01-what-is-classification.md#three-ways-to-match-a-read) shows how k-mer matching works. Clumpify changes the order of the reads and nothing else, so every base and every quality score survives.
+
+The other choice, **Trim Galore --clumpify**, trims adapters and poor read ends as the reads are stored, with settings the sheet does not let you change, so the only copy LGE keeps is already trimmed. Choose it only once [Quality Control for Reads](03-quality-control.md) has shown that every sample in a batch needs the same standard trim. [Trimming and Filtering Reads](04-trimming-and-filtering.md#choosing-a-tool) compares it with the fastp operations. Clearing **Optimize storage** skips the sorting altogether.
+
+| Tool | Built for | Choose it when | Choose something else when |
+|---|---|---|---|
+| BBTools clumpify | Shrinking stored short reads without changing them | Almost every Illumina-style import | The batch is too large for memory, or a later step needs the original read order |
+| Trim Galore --clumpify | Trimming adapters and poor read ends while storing | Every sample in the batch needs the same standard trim | You have not yet looked at read quality |
+| Optimize storage off | Keeping the source file's read order | Nanopore or PacBio reads, very large batches, or order-dependent steps | Disk space is tight and the reads are short |
+
+The HG002 fixture uses BBTools clumpify, because these are clean Illumina reads and nothing about them needs changing at import. BBTools and Trim Galore are cited in [Tools installed with every copy of LGE](../appendices/bibliography.md#tools-installed-with-every-copy-of-lge).
 
 ## Before you start
 
 You need a project open, as [The Lungfish Genome Explorer Project](../01-foundations/06-the-lungfish-project.md#procedure) shows.
 
-The Human Reads demo project, which **Help > Demo Projects…** opens as [Demo projects](../01-foundations/06-the-lungfish-project.md#demo-projects) explains, already holds the finished `HG002.chr20.10.0-10.5Mb` bundle and the two original files under `Practice Data/hg002-chr20`. To repeat the import as the procedure shows it, make a new empty project and import those two files there, or download them as described next.
+The Human Reads demo project, which **Help > Demo Projects…** opens as [Demo projects](../01-foundations/06-the-lungfish-project.md#demo-projects) explains, already holds the finished `HG002.chr20.10.0-10.5Mb` bundle and the two original files under `Practice Data/hg002-chr20`. To repeat the import as the procedure shows it, make a new empty project with **File > New Project** and import those two files there, or download them as described next.
 
 This chapter uses the HG002 chromosome 20 fixture. Download `HG002.chr20.10.0-10.5Mb_R1.fastq.gz` and `HG002.chr20.10.0-10.5Mb_R2.fastq.gz` from [the hg002-chr20 fixture folder](https://github.com/dhoconno/lungfish-genome-explorer/tree/v2026.9.39/docs/user-manual/fixtures/hg002-chr20), as [Practice data for this manual](../01-foundations/06-the-lungfish-project.md#practice-data-for-this-manual) explains. Keep both files in one folder and do not rename them, because the names are what tell LGE the two files belong together.
 
-Every tool the import uses arrives with the [Required Setup pack](../../GLOSSARY.md#required-setup-pack), the one pack LGE installs by itself, so there is nothing to install. Importing the two fixture files takes about ten seconds on a recent Mac.
+Every tool the import uses arrives with the [Required Setup pack](../../GLOSSARY.md#required-setup-pack), which the Welcome window offers to install the first time you open LGE. Importing the two fixture files takes about ten seconds on a recent Mac.
 
 ## How LGE decides two files are a pair
 
@@ -141,33 +192,35 @@ The memory cutoff is half of what LGE sets aside for the reordering tool, which 
 
 **Compression Level.** Trades import speed against stored file size, offering Fast, Balanced, and Maximum. The default is Balanced, the middle setting that suits most imports. Choose Fast for a large run when disk space is plentiful, and Maximum when it is tight and a slower import is acceptable. On the command line this is `--compression`.
 
-**Apply processing recipe after import.** Runs a packaged multi-step workflow, called a recipe, on the reads as soon as each bundle lands. It is off by default, so the reads arrive changed by nothing beyond the settings above. Turn it on when every sample in the batch needs the same standard processing, so you do not repeat the steps by hand. On the command line this is `--recipe`.
+**Apply processing recipe after import.** Runs a packaged multi-step workflow, called a recipe, on each sample's reads during the import, before they are reordered and compressed, so the bundle holds the recipe's output rather than the original reads. It is off by default, so the reads arrive changed by nothing beyond the settings above. Turn it on when every sample in the batch needs the same standard processing, so you do not repeat the steps by hand. On the command line this is `--recipe`.
 
 **(recipe picker).** Chooses which recipe runs, and the grey text under it lists that recipe's steps and the input it needs. It is the unlabelled popup that appears under the checkbox once the checkbox is on, and it starts on the first recipe in the list. Change it whenever the batch calls for a different recipe than the one shown. On the command line this is `--recipe`, which takes `vsp2-target-enrichment`, `wastewater-metagenomics`, or `illumina-amplicon-merge` for the three file recipes.
 
+### Processing recipes
+
 For files and sample sheets the picker lists the first three recipes below plus any you have added. For an Oxford Nanopore run folder it lists only the last two.
 
-- **VSP2 Target Enrichment** cleans viral target-enrichment reads for [Running EsViritu](../06-classification/03-running-esviritu.md).
+- **VSP2 Target Enrichment** cleans viral target-enrichment reads for [Running EsViritu](../06-classification/03-running-esviritu.md). [VSP2](../../GLOSSARY.md#vsp2) is Illumina's Viral Surveillance Panel version 2, a kit whose probes pull viral sequence out of a sheared sample.
 - **Wastewater metagenomics** cleans wastewater reads for the classifiers in [What Is Read Classification](../06-classification/01-what-is-classification.md).
-- **Illumina Amplicon Merge** joins overlapping mates into single reads for [Running Amplicon MHC Genotyping](../09-genotyping/02-running-genotyping.md).
+- **Illumina Amplicon Merge** joins overlapping mates into single reads and drops every pair that does not merge. It is the import route for MiSeq MHC amplicon pairs, as [What Is MHC Genotyping](../09-genotyping/01-what-is-mhc-genotyping.md#choosing-a-tool) explains.
 - **Split by Fluidigm sample barcodes** splits a nanopore run into one bundle per sample, as [Oxford Nanopore Runs](07-ont-runs.md) describes.
 - **Demultiplex full-length MHC ONT amplicons with PacBio barcodes** splits a nanopore amplicon run into one bundle per sample, as [Oxford Nanopore Runs](07-ont-runs.md) describes.
 
-None of these applies to the HG002 fixture, so leave the checkbox off for this chapter.
+Two of the recipes, VSP2 Target Enrichment and Wastewater metagenomics, already trim with fastp, so pairing either of them with Trim Galore trims the reads twice. None of these recipes applies to the HG002 fixture, so leave the checkbox off for this chapter.
 
 ## Reading the results
 
 Click the bundle to open the FASTQ viewport, whose summary cards [Quality Control for Reads](03-quality-control.md#reading-the-results) explains card by card.
 
-For this import the one number to check now is on the Reads card. The card shortens it to 91.1K, and the Inspector gives the exact figure, 91,148, which is the fixture's 45,574 pairs counted as individual reads. LGE stores a matched pair as one [interleaved](../../GLOSSARY.md#interleaved-fastq) file, the two mates of each fragment written one after the other, so the Inspector's Ingestion group reads Interleaved for this bundle. A count of 45,574 would mean only one file of each pair made it into the bundle, and a count far from either means the wrong files were imported.
+For this import the one number to check now is on the Reads card. The card shortens it to 91.1K, and the Inspector gives the exact figure, 91,148, which is the fixture's 45,574 pairs counted as individual reads. LGE stores a matched pair as one [interleaved](../../GLOSSARY.md#interleaved-fastq) file, the two mates of each fragment written one after the other, so the Pairing row of the Inspector's Ingestion group reads Interleaved for this bundle. A count of 45,574 would mean only one file of each pair made it into the bundle, and a count far from either means the wrong files were imported.
 
-A plain import always writes a bundle that holds its own reads. An operation run from the FASTQ viewport's own Operations tab can write a lighter kind of bundle. The result is a [virtual bundle](../../GLOSSARY.md#virtual-bundle), which stores a recipe for its reads rather than a copy, as [Virtual bundles and materialization](06-subsetting-and-extraction.md#virtual-bundles-and-materialization) explains.
+A plain import always writes a bundle that holds its own reads. Only demultiplexing can write a lighter kind of bundle that stores a recipe for its reads rather than a copy, a [virtual bundle](../../GLOSSARY.md#virtual-bundle), as [Virtual bundles](06-subsetting-and-extraction.md#virtual-bundles) explains.
 
 ### Editing sample metadata
 
 The read count, lengths, and quality figures are measured from the file and cannot be edited. [Sample metadata](../../GLOSSARY.md#sample-metadata) is different. It is the facts about the specimen that no FASTQ file records, such as the collection date, the host, and where it was collected, so LGE lets you supply them.
 
-To edit one bundle, select it. Open the [Inspector](../../GLOSSARY.md#inspector) with **View > Show Inspector** (Cmd-Opt-I) if it is hidden. Its **Sample Metadata** section starts with Sample Name, set to the bundle name, and a **Template** popup offering Clinical, Wastewater, Air Sample, Environmental, and Custom. The template decides which fields follow. Every template shows a collection date, a start and an end for Air Sample, and Geographic Location, and Clinical, Wastewater, and Custom add Organism, and a details group below holds the rest, such as Host and Sample Type for Clinical. A **Read Type** popup, set to Auto, tells the assembly tools what kind of reads these are. Notes, Attachments, and Custom Fields sit at the bottom, and Custom Fields takes any key and value you add. Edits save on their own after a short pause, into a `metadata.csv` file inside the bundle. The menu at the section's top right offers Revert to Last Saved and Clear All Metadata.
+To edit one bundle, select it. Open the [Inspector](../../GLOSSARY.md#inspector) with **View > Show Inspector** (Cmd-Opt-I) if it is hidden. Its **Sample Metadata** section starts with Sample Name, set to the bundle name, and a **Template** popup offering Clinical, Wastewater, Air Sample, Environmental, and Custom. The template decides which fields follow. Every template shows a collection date, a start and an end for Air Sample, and Geographic Location, and Clinical, Wastewater, and Custom add Organism, and a details group below holds the rest, such as Host and Sample Type for Clinical. A **Read Type** popup, set to Auto, tells the assembly tools what kind of reads these are, and the grey line under it names the type LGE detected. Notes, Attachments, and Custom Fields sit at the bottom, and Custom Fields takes any key and value you add. Edits save on their own after a short pause, into a `metadata.csv` file inside the bundle. The menu at the section's top right offers Revert to Last Saved and Clear All Metadata.
 
 To edit many bundles at once, right-click the sidebar folder that holds them, such as `Imports`, and choose **Edit Sample Metadata...**. A table opens with one row per bundle and columns for Sample Name, Role, Sample Type, Collection Date, Location, Host, Patient ID, Run ID, and Organism, and you edit a value by clicking its cell. **Import CSV...** fills the table from a spreadsheet saved as CSV, matching its `sample_name` column to the bundle names. **Export CSV...** writes the table out. **Save** stores the table as `samples.csv` in the folder and writes each row into its bundle.
 
@@ -183,35 +236,37 @@ Confirm the read count on the Reads card against what you imported. For a paired
 
 Confirm what a repeat import did. Importing a sample that already has a bundle stops to ask, offering Replace, Keep Both, or Skip. Keep Both leaves the old bundle alone and adds a second one under a new name, so check that you meant to have two.
 
+LGE records the import in a [provenance](../../GLOSSARY.md#provenance) record inside the bundle, as [Provenance and Reproducibility](../01-foundations/08-provenance-and-reproducibility.md#reading-the-results) shows.
+
 ## On the command line
 
-This section is optional, and nothing later in this manual needs it. The `lungfish-cli` program ships inside LGE, and [Finding the program](../appendices/cli-reference.md#finding-the-program) shows how to run it.
+The block follows the convention in [Reading an On the command line block](../01-foundations/06-the-lungfish-project.md#reading-a-command-line-block), and [Importing into a project](../appendices/cli-reference.md#importing-into-a-project) in the CLI Reference lists every flag of `import fastq`.
 
-The block below reproduces the procedure and the sample sheet import. Replace the project path with your own, keeping the quotation marks. A backslash at the end of a line means the command continues on the next line.
+The block reproduces the procedure with the two original files that the Human Reads demo project keeps under `Practice Data`. The demo project already holds a bundle with this name, so the import writes into a second project of your own, here `My Reads.lungfish` in Documents. The command makes that folder and its `Imports` folder if they do not exist yet.
 
 ```bash
+PROJECT="$HOME/Documents/LGE Demo Projects/Human Reads.lungfish"
+MINE="$HOME/Documents/My Reads.lungfish"
+
 # List the samples and pairs the importer finds, without writing anything.
 lungfish-cli import fastq \
-  ~/Downloads/HG002.chr20.10.0-10.5Mb_R1.fastq.gz \
-  ~/Downloads/HG002.chr20.10.0-10.5Mb_R2.fastq.gz \
-  --project "$HOME/Desktop/LGE Manual Demo.lungfish" \
-  --dry-run
+  "$PROJECT/Practice Data/hg002-chr20/HG002.chr20.10.0-10.5Mb_R1.fastq.gz" \
+  "$PROJECT/Practice Data/hg002-chr20/HG002.chr20.10.0-10.5Mb_R2.fastq.gz" \
+  --project "$MINE" --dry-run
 
 # Import the pair with the sheet's starting values.
 lungfish-cli import fastq \
-  ~/Downloads/HG002.chr20.10.0-10.5Mb_R1.fastq.gz \
-  ~/Downloads/HG002.chr20.10.0-10.5Mb_R2.fastq.gz \
-  --project "$HOME/Desktop/LGE Manual Demo.lungfish" \
+  "$PROJECT/Practice Data/hg002-chr20/HG002.chr20.10.0-10.5Mb_R1.fastq.gz" \
+  "$PROJECT/Practice Data/hg002-chr20/HG002.chr20.10.0-10.5Mb_R2.fastq.gz" \
+  --project "$MINE" \
   --platform illumina --quality-binning none --compression balanced
 
 # Import from a sample sheet instead of matching filenames.
-lungfish-cli import fastq \
-  --samplesheet ~/Downloads/samples.csv \
-  --project "$HOME/Desktop/LGE Manual Demo.lungfish"
+lungfish-cli import fastq --samplesheet "$HOME/Documents/samples.csv" --project "$MINE"
 ```
 
 Three things differ from the window. A sample that already has a bundle is skipped without a prompt and counted under Skipped in the summary, unless you add `--force` to replace it. `--platform` accepts only `illumina`, `ont`, `pacbio`, and `ultima`, and when you leave it off, reads whose headers LGE cannot identify are treated as Illumina. The `--quality-binning` values are `illumina4` for Illumina (7-level), `eightLevel` for Fine (~21-level), and `none`, which is the default, so the numbers in the value names do not match the level counts.
 
 ## Next
 
-Continue to [Downloading Reads from the SRA](02-downloading-from-sra.md) to fetch reads from a public archive, or go to [Quality Control for Reads](03-quality-control.md) to judge the bundle you just imported.
+Continue to [Downloading Reads from the SRA](02-downloading-from-sra.md) to fetch the SARS-CoV-2 run that later chapters use, then [Quality Control for Reads](03-quality-control.md) to judge the bundle you just imported. The rest of the part follows [the order of read preparation](#the-order-of-read-preparation).

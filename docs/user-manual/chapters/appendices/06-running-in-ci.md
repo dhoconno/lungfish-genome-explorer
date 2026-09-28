@@ -26,19 +26,21 @@ lead_approved: false
 
 Lungfish Genome Explorer (LGE) can take part, because its command-line program runs with no window at all. This appendix covers running that program unattended on a runner, putting the tools it needs on the runner, and keeping the [provenance](../../GLOSSARY.md#provenance) records as the job's saved output. Everything here is typed, and nothing opens the LGE window.
 
-A runner still needs whatever the analysis needs. A local Nextflow `.nf` file or a Snakemake `Snakefile` runs its tools from [conda](../../GLOSSARY.md#conda), the package manager LGE uses to install each bioinformatics tool into its own folder, called an environment. Only the built-in [nf-core](../../GLOSSARY.md#nf-core) pipeline reads the `--executor` flag, and its default of `docker` makes a [container](../../GLOSSARY.md#container) runtime a requirement on that route.
+A runner still needs whatever the analysis needs. LGE installs each bioinformatics tool it wraps with [conda](../../GLOSSARY.md#conda), a package manager that puts every tool into its own folder, called an environment. The built-in [nf-core](../../GLOSSARY.md#nf-core) pipeline, Viral Recon, is different. It runs each of its steps inside a [container](../../GLOSSARY.md#container), and LGE runs those containers through Docker, so that route needs a Docker engine on the runner.
 
-The two templates in this appendix are starting points to adapt. Every command in them was checked on its own, but no CI service ran either file, so expect to change the runner label and the paths before your first job passes. [Running External Workflows](../08-workflows/03-running-external-workflows.md) covers the same commands at a desk.
+The two templates in this appendix are starting points to adapt. Every command in them was checked on its own, but no CI service ran either file, so expect to change the runner label and the paths before your first job passes. [Running External Workflows](../08-workflows/03-running-external-workflows.md) covers running the same workflows at a desk.
 
 ## Before you type anything
 
-This section is optional, and nothing later in this manual needs it. The `lungfish-cli` program ships inside LGE, and [Finding the program](cli-reference.md#finding-the-program) shows how to run it.
+Everything on this page is typed. The `lungfish-cli` program ships inside LGE, and [Finding the program](cli-reference.md#finding-the-program) shows where it sits in the Stable and the Preview app.
 
-A runner that only unpacked the application has no `lungfish-cli` on its search path, so a step that types the bare name fails. Both templates below store the full quoted path once in a variable named `LUNGFISH` and write `"$LUNGFISH"` in every command. The examples in the body of this appendix use the bare name for readability.
+A runner that only unpacked the application has no `lungfish-cli` on its search path, so a step that types the bare name fails. Both templates below store the full quoted path once in a variable named `LUNGFISH` and write `"$LUNGFISH"` in every command. They name the Preview app, so change the path to `/Applications/Lungfish.app/Contents/MacOS/lungfish-cli` if the runner holds the Stable app. The examples in the body of this appendix use the bare name for readability.
 
 ## What a job needs installed
 
-The runner must run macOS 26 or later, because LGE's container support is built on Apple Containerization, which arrives with macOS 26. On GitHub Actions the operating system is chosen by the runner label on the `runs-on:` line, and the label is `macos-26`. Check it against GitHub's published list of runner images, since vendors rename labels.
+The runner must be an Apple Silicon Mac running macOS 26 or later, the same requirement as the app, because `lungfish-cli` is built for that system and will not start on an older one. On GitHub Actions the operating system is chosen by the runner label on the `runs-on:` line, and the label is `macos-26`. Check it against GitHub's published list of runner images, since vendors rename labels.
+
+A job that runs the nf-core Viral Recon pipeline also needs a Docker engine the runner can reach, because LGE runs that pipeline's containers through Docker, as [Tools that run in containers](../01-foundations/07-plugin-packs.md#tools-that-run-in-containers) explains. Hosted macOS runners often come without one, so check your service's runner image before you plan such a job, or use a runner you manage yourself. A local `.nf` file or Snakefile needs Docker only if the workflow itself asks for containers.
 
 A job then needs the tools its workflow calls. There are two ways to provide them.
 
@@ -54,11 +56,11 @@ Databases are installed apart from packs. `lungfish-cli conda db download <name>
 
 ### Install from an offline pack
 
-An [offline pack](../../GLOSSARY.md#offline-pack) is a copy of installed conda environments written to a folder, so it can be moved to a machine with no network. [Offline packs](#offline-packs) below describes it.
+An [offline pack](../../GLOSSARY.md#offline-pack) is a copy of installed conda environments written to a folder or an archive file, so it can be moved to a machine with no network. [Offline packs](#offline-packs) below covers what matters on a runner.
 
 ### Check the runner first
 
-Two quick commands turn a confusing mid-pipeline failure into a clear early one. `lungfish-cli debug env --check-tools` prints the runner's macOS version, core count, memory, and architecture, and reports each tool as available or not found. `lungfish-cli debug container` reports whether Apple Containerization is ready. Any status other than ready closes the container route on that runner, so switch the workflow to a local `.nf` file or to the conda executor.
+Two quick commands turn a confusing mid-pipeline failure into a clear early one. `lungfish-cli debug env --check-tools` prints the runner's macOS version, core count, memory, and architecture, and reports each tool as available or not found. `lungfish-cli debug container` reports whether the Docker engine can be reached, and exits with status 65 when it cannot, so a step that runs it fails the job before a Viral Recon run starts. A job that runs only local `.nf` files or Snakefiles without containers can leave it out.
 
 ## Running the workflow
 
@@ -72,7 +74,7 @@ A [workflow engine](../../GLOSSARY.md#workflow-engine) reads a description of an
 | A file whose name contains `snakefile` in any letter case | Snakemake |
 | `nf-core/viralrecon` or `viralrecon` | The built-in nf-core pipeline, which takes exactly one `--input` samplesheet |
 
-Writing a workflow file is covered in [Running External Workflows](../08-workflows/03-running-external-workflows.md). The example below is the Nextflow file inside `Examples/WorkflowPackages/hello-world-nextflow.lungfishflowpkg` in the LGE source repository on GitHub, which does almost no work. It is not installed with the app.
+Running a workflow file is covered in [Running External Workflows](../08-workflows/03-running-external-workflows.md), which also describes [what a workflow package holds](../08-workflows/03-running-external-workflows.md#what-a-workflow-package-holds). The example below is the Nextflow file inside `Examples/WorkflowPackages/hello-world-nextflow.lungfishflowpkg` in the LGE source repository on GitHub, which does almost no work. It is not installed with the app.
 
 ```bash
 lungfish-cli run-headless hello-world-nextflow.lungfishflowpkg/main.nf \
@@ -85,20 +87,26 @@ lungfish-cli run-headless hello-world-nextflow.lungfishflowpkg/main.nf \
 
 An executed run must name an output. Without `--expected-output` the command refuses with exit status 64 and says that every final scientific output needs a provenance record, and `--quiet` does not hide the refusal.
 
+### Exit codes on a runner
+
+A CI step fails when its command ends with any [exit status](../../GLOSSARY.md#exit-status) other than 0. [Exit status](cli-reference.md#exit-status) in the CLI Reference lists every value the program defines. These are the ones a CI job meets most often.
+
 | Exit status | What it means for a job |
 |---|---|
 | 0 | The command succeeded. |
 | 2 | A usage error, such as `tools update --apply` without `--yes`. Nothing ran. |
-| 3 | A pack id was not recognised. Nothing was installed. |
+| 3 | An input error, such as a pack id that was not recognised. Nothing was installed. |
+| 4 | An output error, including an expected output that was not created. |
 | 10 | `tools update --plan` found pending work, which fails the step on purpose. |
-| 4 | An expected output was not created. |
 | 64 | A workflow error, such as a missing `--expected-output`, an unrecognised option, or a failed workflow step. |
+| 65 | `debug container` could not reach the Docker engine. |
+| 126 | A tool the command needs is missing, or an offline pack install failed. |
 
 `--expected-output` tells LGE where to look and does not make the pipeline write anything there. A path that does not match where the pipeline writes makes the command fail with exit status 4 and the message "Expected workflow output was not created", after the run bundle is written. Run the pipeline once at a desk with `--results-dir` set, list what appears, and point `--expected-output` at that.
 
 Four more flags of `workflow run` matter in CI.
 
-- `--executor` picks `docker`, `conda`, or `local` for an nf-core run, defaulting to `docker`, so a runner with no container runtime sets `conda`.
+- `--executor` applies to the nf-core run only. It accepts `docker`, `conda`, or `local`, but only the default, `docker`, reaches a working run, as [`workflow run`](cli-reference.md#workflow-run) explains, so a runner without Docker cannot run that pipeline.
 - `--dry-run` prints the workflow, results folder, executor, and parameters without checking or running anything, and needs no expected output, which makes it a fast check on a proposed change.
 - `--prepare-only` writes the run bundle and the command preview without starting the engine, and also needs no expected output.
 - `--resume` continues from the engine's last checkpoint, so it helps only when the engine's work folder survived in a cache.
@@ -119,7 +127,7 @@ Before a step parses a command's output as JSON, check that the command really p
 
 ## Offline packs
 
-An offline pack suits a job with no network access, or one where a full install is too slow to repeat. Build it on a machine that already has the pack installed.
+An offline pack suits a job with no network access, or one where a full install is too slow to repeat. [Install a pack without internet access](../01-foundations/07-plugin-packs.md#install-a-pack-without-internet-access) owns the route and names both spellings of each command, `conda export-pack` or `conda offline-export` to write the pack and `conda install --offline --from-bundle` or `conda offline-install` to install it. This section covers only what matters on a runner. Build the pack on a machine that already has the pack installed.
 
 ```bash
 lungfish-cli conda offline-export \
@@ -127,7 +135,7 @@ lungfish-cli conda offline-export \
   --output .ci/lungfish-conda-packs
 ```
 
-`--output` names the folder the pack is written into, not the pack itself, so the command above creates `.ci/lungfish-conda-packs/metagenomics-conda-offline-pack`. Inside it, `offline-pack-manifest.json` lists the pack id, the source conda folder, the exporting command, and a checksum and byte size for every exported file. A `.lungfish-provenance.json` beside it records the export. `lungfish-cli conda export-pack` does the same job and also accepts a `.tar`, `.tgz`, or `.tar.gz` path to write one archive file instead.
+`--output` names the folder the pack is written into, not the pack itself, so the command above creates `.ci/lungfish-conda-packs/metagenomics-conda-offline-pack`. Inside it, `offline-pack-manifest.json` lists the pack id, the source conda folder, the exporting command, and a checksum and byte size for every exported file. A `.lungfish-provenance.json` beside it records the export.
 
 Install the pack inside the job, pointing at the folder the export created.
 
@@ -176,9 +184,7 @@ jobs:
         run: '"$LUNGFISH" tools update --plan'
 
       - name: Preflight
-        run: |
-          "$LUNGFISH" debug env --check-tools
-          "$LUNGFISH" debug container
+        run: '"$LUNGFISH" debug env --check-tools'
 
       - name: Run the workflow
         run: |
@@ -195,7 +201,7 @@ jobs:
           path: outputs/
 ```
 
-`actions/checkout@v4` copies your repository onto the runner, and every job needs it first. The file has no cache step on purpose. Add caching once the job passes without it, following GitHub's cache documentation.
+`actions/checkout@v4` copies your repository onto the runner, and every job needs it first. The preflight step leaves out `debug container`, because `pipeline.nf` here runs without containers. Add it as a second line of that step for a job that runs the nf-core pipeline. The file has no cache step on purpose. Add caching once the job passes without it, following GitHub's cache documentation.
 
 The `tools update --plan` step fails the job on exit 10, which is what makes it a check. The upload step carries `if: always()` so a failed run still keeps its logs and whatever provenance was written. It uploads the whole `outputs/` folder because a bundle's record is written inside the bundle, as [Keeping the provenance](#keeping-the-provenance) shows. The template sets 60 minutes, where GitHub's own default is 360, so time your own pipeline at a desk before you change it.
 
@@ -279,7 +285,7 @@ jq -e '.exitStatus == 0' outputs/result.lungfishref/.lungfish-provenance.json
 
 ## What fails, and why
 
-Six failures account for most failed jobs.
+Seven failures account for most failed jobs.
 
 | Symptom | Cause | Fix |
 |---|---|---|
@@ -287,6 +293,7 @@ Six failures account for most failed jobs.
 | Exit 64 saying an expected output is required | An executed run with no `--expected-output`. | Add one per scientific output, or use `--dry-run` or `--prepare-only` for a check. |
 | Exit 4, "Expected workflow output was not created" | `--expected-output` does not match where the pipeline wrote. | Run once at a desk and point the flag at the real output. |
 | Exit 3 with an unknown-pack error | The pack id is misspelled, or `conda install --pack` was given an experimental pack, which it refuses although `offline-export` accepts it. | Read the list the error prints, and see [Known defects in this release](troubleshooting.md#known-defects-in-this-release) for experimental packs. |
+| Exit 65 from `debug container` | The runner has no Docker engine, or it is not running. | Use a runner with Docker for the nf-core pipeline, or drop that pipeline from the job. |
 | A second cached run fails on existing environments | `conda offline-install` ran without `--overwrite`. | Add `--overwrite`. |
 | The workflow file is not recognised | The file is named `pipeline.NF` rather than `pipeline.nf`. | Name pipeline files in lower case. |
 
@@ -294,4 +301,4 @@ Six failures account for most failed jobs.
 
 ## Next
 
-See [CLI Reference](cli-reference.md) for every flag of the commands named here, and [Running External Workflows](../08-workflows/03-running-external-workflows.md) for writing and running workflow files at a desk.
+The next appendix is [The AI Assistant](ai-assistant.md), which covers the Inspector's Assistant tab. See [CLI Reference](cli-reference.md) for every flag of the commands named here, and [Running External Workflows](../08-workflows/03-running-external-workflows.md) for running workflow files at a desk.

@@ -3,7 +3,7 @@ title: Exporting Genotypes
 chapter_id: 09-genotyping/04-haplotype-definitions-and-export
 audience: analyst
 prereqs: [09-genotyping/03-reading-the-genotype-comparison]
-estimated_reading_min: 9
+estimated_reading_min: 8
 task: Export a genotype result as a one-way Excel report, a CSV or TSV table, or a set of LabKey-ready CSV files, and know what each export records.
 tags: [genotyping, mhc, export, xlsx, labkey, macaque]
 tools: []
@@ -22,7 +22,7 @@ shots:
   - id: genotype-pivot-workbook
     caption: "The Genotype Matrix - Filtered worksheet of an exported report open in a spreadsheet application, with allele targets down the rows, one column per sample, and the Evidence (display / raw support) column at the right."
 illustrations: []
-glossary_refs: [allele-target, audit-log, bundle, checksum, genotype-matrix, genotype-result-bundle, haplotype, inspector, provenance, smart-cohort]
+glossary_refs: [allele-target, audit-log, bundle, checksum, genotype-matrix, genotype-result-bundle, haplotype, inspector, labkey, long-format, provenance, required-setup-pack, smart-cohort]
 features_refs: [viewport.genotype-matrix]
 fixtures_refs: [mhc-simulated]
 brand_reviewed: false
@@ -39,7 +39,7 @@ The second is a CSV or TSV table, a plain text file with one row per sample and 
 
 The third is a set of LabKey files. LabKey is a laboratory data server many primate centres use, and its import expects long-format tables, meaning one row per fact rather than one column per sample. This export also comes from the command line only.
 
-Each export records the calls, the read counts, and the notes and review marks you added in the window. The [genotype matrix](../../GLOSSARY.md#genotype-matrix), the grid of allele targets by samples, is read and annotated as [Reading the Genotype Comparison](03-reading-the-genotype-comparison.md) shows. This chapter starts where that one ends.
+Each export records the calls, the read counts, and the notes and review marks you added in the window. The [genotype matrix](../../GLOSSARY.md#genotype-matrix), the grid of allele targets by samples, is read and annotated as [Reading the Genotype Comparison](03-reading-the-genotype-comparison.md) shows. This chapter starts where that one ends. The haplotype definitions a run used are managed separately, in the Haplotype Definitions window that [Where haplotype definitions come from](02-running-genotyping.md#where-haplotype-definitions-come-from) describes, and **Export** there writes a definition set to a file of its own.
 
 ## Why you would do this
 
@@ -49,25 +49,23 @@ The Excel report is built for that trust. It freezes the result at the moment yo
 
 ## Before you start
 
-You need a project open with a finished genotype result in it, as [The Lungfish Genome Explorer Project](../01-foundations/06-the-lungfish-project.md#procedure) shows. [Running Amplicon MHC Genotyping](02-running-genotyping.md) makes one.
+You need a project open with a finished genotype result in it, as [The Lungfish Genome Explorer Project](../01-foundations/06-the-lungfish-project.md#procedure) shows. This chapter uses the `simulated-mhc` result that [Running Amplicon MHC Genotyping](02-running-genotyping.md) makes in the MHC Genotyping demo project, which **Help > Demo Projects…** opens as [Demo projects](../01-foundations/06-the-lungfish-project.md#demo-projects) explains. Run that chapter's procedure first, since the download holds the reads and library but no result.
 
-Open the MHC Genotyping demo project with **Help > Demo Projects…**, as [Demo projects](../01-foundations/06-the-lungfish-project.md#demo-projects) explains. It already holds the mhc-simulated reads and allele library described next, but no result, so run [Running Amplicon MHC Genotyping](02-running-genotyping.md) in it first. To import the files yourself instead, follow the rest of this section.
+The result holds two simulated samples read against three allele targets at the MHC-G, MHC-DRB, and MHC-DPA1 loci, and MCM haplotype calls for three regions. Its reads are generated, not taken from animals, so it teaches the export without standing for any real genotype. Sample A carries 120, 80, and 4 reads on the three targets in that order, and sample B carries 12, 60, and 100. The files come from the [mhc-simulated fixture folder](https://github.com/dhoconno/lungfish-genome-explorer/tree/main/docs/user-manual/fixtures/mhc-simulated), as [Fixture files](../01-foundations/06-the-lungfish-project.md#fixture-files) explains.
 
-This chapter uses the mhc-simulated fixture, two simulated macaque samples read against three allele targets at the MHC-G, MHC-DRB, and MHC-DPA1 loci. Its reads are generated, not taken from animals, so it teaches the export without standing for any real genotype. Download the files from the [mhc-simulated folder](https://github.com/dhoconno/lungfish-genome-explorer/tree/v2026.9.40/docs/user-manual/fixtures/mhc-simulated), as [Practice data for this manual](../01-foundations/06-the-lungfish-project.md#practice-data-for-this-manual) explains. Run it as [Running Amplicon MHC Genotyping](02-running-genotyping.md#before-you-start) describes. Each read pair merges into one read, so sample A carries 120, 80, and 4 reads on the three targets in that order, and sample B carries 12, 60, and 100.
-
-The Excel writer, openpyxl, arrives with the [Required Setup pack](../../GLOSSARY.md#required-setup-pack), the one pack LGE installs by itself, so there is nothing to install.
+The Excel writer, openpyxl, arrives with the [Required Setup pack](../../GLOSSARY.md#required-setup-pack), which the Welcome window offers to install the first time you open LGE.
 
 ## Procedure
 
-### 1. Finish your review in the window
+### Finish your review in the window
 
 Open the result and make every review change you want the report to carry. Comments, false-positive and false-negative marks, and colours all live in the window, as [Reading the Genotype Comparison](03-reading-the-genotype-comparison.md#procedure) describes. Excel edits never come back, so a note typed into the workbook is lost to LGE.
 
-### 2. Set the view you want in the Filtered worksheet
+### Set the view you want in the Filtered worksheet
 
 The report holds two copies of the matrix. One holds everything. The other, Genotype Matrix - Filtered, holds only what the window shows when you export. Set the filters and visible rows and columns now. On the fixture, set **Min reads** to 50 in the Inspector's Genotype Display section. That hides sample A's 4 reads at MHC-DPA1 and sample B's 12 reads at MHC-G.
 
-### 3. Choose Export to Excel
+### Choose Export to Excel
 
 Open the [Inspector](../../GLOSSARY.md#inspector)'s Bundle tab, expand its **Excel** section, and click **Export to Excel…**.
 
@@ -75,7 +73,7 @@ Open the [Inspector](../../GLOSSARY.md#inspector)'s Bundle tab, expand its **Exc
 
 LGE captures the result and the view at this moment. Filter changes you make after clicking do not reach this export.
 
-### 4. Name the file and save it
+### Name the file and save it
 
 A save panel titled Export Genotype View opens. It proposes a name built from the result name, the word `genotype`, and a timestamp, so repeated exports never overwrite each other. Choose a folder and click **Export**.
 
@@ -83,7 +81,7 @@ A save panel titled Export Genotype View opens. It proposes a name built from th
 
 While LGE writes the file, the Excel section reads "Exporting workbook…". A failed export shows its error in red under the button, and the file is not written.
 
-### 5. Open the report
+### Open the report
 
 Open the saved `.xlsx` in Excel or Numbers. The next section reads it.
 
@@ -108,11 +106,13 @@ The report holds these worksheets in the order the table gives.
 | Genotype Matrix - Filtered | The rows and samples visible when you exported, with the display filters applied, plus an Evidence (display / raw support) column. |
 | Export Metadata | When the report was made, which version of the result it came from, and every filter setting, one per line. |
 
-Both matrix worksheets place allele targets down the rows and samples across the columns, with the row columns the window was showing, such as Genotype and Locus, on the left. When the result carries [haplotype](../../GLOSSARY.md#haplotype) calls, a band of H1 and H2 rows above the matrix gives each sample's two calls per locus. Every value is a plain number or text, never a formula. A call LGE left unresolved stays unresolved, and a genotype-only result gains no invented haplotype calls.
+Both matrix worksheets place allele targets down the rows and samples across the columns, with the row columns the window was showing, such as Genotype and Locus, on the left. When the result carries [haplotype](../../GLOSSARY.md#haplotype) calls, a band of H1 and H2 rows above the matrix gives each sample's two calls per region. Every value is a plain number or text, never a formula. A call LGE left unresolved stays unresolved, and a genotype-only result gains no invented haplotype calls.
+
+On the demo result the Haplotype Calls worksheet holds one row per sample and region, six in all, with the columns Sample, Locus, Effective H1, Effective H2, their statuses and sources, and Pipeline H1 and Pipeline H2. The pipeline columns hold what the run wrote, such as `M4` and `-`. The effective columns hold the call the report uses, and there the dash becomes the named haplotype repeated, `M4` and `M4`, because the report reads a one-haplotype call as homozygous. The H1 and H2 band above both matrices shows the effective calls.
 
 ### The Filtered worksheet on the fixture
 
-With Min reads at 50, the Filtered worksheet shows sample A's MHC-DPA1 cell and sample B's MHC-G cell as blank, and the other four cells as numbers. The All worksheet still shows all six.
+With Min reads at 50, the Filtered worksheet shows sample A's MHC-DPA1 cell and sample B's MHC-G cell as blank, and the other four cells as numbers. The All worksheet still shows all six. The Evidence column of the MHC-DPA1 row reads `SIMULATED-MHC-A-pairs: hidden / 4; SIMULATED-MHC-B-pairs: 100 / 100`.
 
 A row appears in Filtered only when at least one of its visible cells holds a positive number. A row whose visible cells are all blank or zero is left out, even when it carries a comment or a review mark. All keeps every row. A zero the result actually recorded is written as 0, and a cell with no recorded value stays blank rather than turning into a 0.
 
@@ -137,7 +137,9 @@ Keep all three together. On the command line, running `replay.sh` with a new out
 
 ### CSV, TSV, and LabKey files
 
-A CSV or TSV export writes a header row reading `Sample` and then `<locus> H1` and `<locus> H2` for each locus, and one row per sample holding its two haplotype calls per locus. It carries haplotype calls rather than allele read counts, so use the Excel report or the LabKey `allele_read_counts.csv` for counts.
+A CSV or TSV export writes a header row reading `Sample` and then `<locus> H1` and `<locus> H2` for each locus, and one row per sample. On the demo result the header reads `Sample,MHC-A H1,MHC-A H2,MHC-DP H1,MHC-DP H2,MHC-DR H1,MHC-DR H2`, and each sample's row reads `M4`, `M1`, and `M7` in the H1 columns and the same names again in the H2 columns, because a locus called with one matched haplotype is homozygous. Every export follows that rule, the workbook's Effective H2, this table, and the LabKey files alike. A `-` in H2 appears only where an analyst marked the second haplotype absent, and a `?` where it is unresolved. It carries calls rather than read counts, so use the Excel report or the LabKey `allele_read_counts.csv` for counts.
+
+A genotype-only result, such as the demo run with Genotyping only chosen, still exports a table, with allele names in place of haplotypes. Its header names the allele loci, `MHC-DPA1 H1`, `MHC-DRB H1`, `MHC-G H1`, and their H2 columns, and on the demo each H1 holds the sample's one allele at that locus, such as `Mafa-G_02:31:01:01|OR823640`, with H2 empty.
 
 A LabKey export writes five files into the folder you name. Each is long format, one row per fact, as the table lists.
 
@@ -149,7 +151,7 @@ A LabKey export writes five files into the folder you name. Each is long format,
 | `audit_log.csv` | Recorded review action, the [audit log](../../GLOSSARY.md#audit-log) |
 | `smart_cohorts.csv` | Saved [smart cohort](../../GLOSSARY.md#smart-cohort) |
 
-A file with only its header row is expected when the result carries no facts of that kind, such as `overrides.csv` for a result nobody corrected.
+A file with only its header row is expected when the result carries no facts of that kind, such as `overrides.csv` for a result nobody corrected. On the demo result `haplotype_calls.csv` holds 12 rows, two slots for each of three regions in two samples, and `allele_read_counts.csv` holds 6. The other three files hold only their headers. A genotype-only result writes `haplotype_calls.csv` with only its header, since it carries no calls.
 
 ## What good looks like
 
@@ -158,31 +160,33 @@ Check four things before you send a report:
 1. The worksheets appear in the order of the table above.
 2. Genotype Matrix - All lists every sample you submitted.
 3. Genotype Matrix - Filtered shows the rows and samples you meant to show, and Export Metadata lists the filters you set.
-4. A few counts match the window. On the fixture, sample A's MHC-G cell reads 120 in both LGE and All.
+4. A few counts match the window. On the demo result, sample A's MHC-G cell reads 120 in both LGE and All.
 
 Then check that blanks, zeros, and review marks are still distinguishable, and that the receipt and capture folder sit beside the workbook.
 
 ## On the command line
 
-This section is optional, and nothing later in this manual needs it. The `lungfish-cli` program ships inside LGE, and [Finding the program](../appendices/cli-reference.md#finding-the-program) shows how to run it.
+The `lungfish-cli` program ships inside LGE, and [Finding the program](../appendices/cli-reference.md#finding-the-program) shows how to run it. Every flag is listed under [MHC genotyping](../appendices/cli-reference.md#mhc-genotyping) in the CLI Reference.
 
 ```bash
-lungfish-cli genotype export-pivot-xlsx \
-  --bundle "MyProject.lungfish/Analyses/Amplicon genotyping results/simulated-mhc.lungfishgenotype" \
-  --output simulated-mhc.xlsx \
+PROJECT="$HOME/Documents/LGE Demo Projects/MHC Genotyping.lungfish"
+RESULT="$PROJECT/Analyses/Amplicon genotyping results/simulated-mhc.lungfishgenotype"
+
+lungfish-cli genotype export-pivot-xlsx --bundle "$RESULT" \
+  --output "$HOME/Documents/simulated-mhc.xlsx" \
   --min-reads 50 --percent-basis viewed-locus
 
-lungfish-cli genotype export \
-  --bundle "MyProject.lungfish/Analyses/Amplicon genotyping results/simulated-mhc.lungfishgenotype" \
-  --export-format csv --output simulated-mhc.csv
+lungfish-cli genotype export --bundle "$RESULT" \
+  --export-format csv --output "$HOME/Documents/simulated-mhc.csv"
 
-lungfish-cli genotype export-labkey \
-  --bundle "MyProject.lungfish/Analyses/Amplicon genotyping results/simulated-mhc.lungfishgenotype" \
-  --output-dir labkey-out
+lungfish-cli genotype export-labkey --bundle "$RESULT" \
+  --output-dir "$HOME/Documents/simulated-mhc-labkey"
 ```
 
-Replace each `--bundle` path with the path of your own result. One default differs from the window. The window's Percent Basis starts on Source Locus, which the command line spells `viewed-locus`, but `export-pivot-xlsx` starts on `sample-retained`. Pass `--percent-basis viewed-locus` to match the window, as above.
+One default differs from the window. The window's Percent Basis starts on Source Locus, which the command line spells `viewed-locus`, but `export-pivot-xlsx` starts on `sample-retained`. Pass `--percent-basis viewed-locus` to match the window, as above.
+
+Any folder you can write to works as the output, including one reached through a symbolic link, a pointer file that stands for another folder, such as `/tmp`, which macOS keeps at `/private/tmp`.
 
 ## Next
 
-Return to [Reading the Genotype Comparison](03-reading-the-genotype-comparison.md) to change the view before another export. [What Is MHC Genotyping](01-what-is-mhc-genotyping.md) explains the allele names the report carries.
+This is the last chapter of MHC Allele Genotyping. The manual continues with [What Is Primer Design](../10-primer-design/01-what-is-primer-design.md), which turns from reading the alleles an assay amplified to designing the primers of a new assay, using full-length MHC alleles like the ones this part matched against. To change the view before another export, return to [Reading the Genotype Comparison](03-reading-the-genotype-comparison.md).

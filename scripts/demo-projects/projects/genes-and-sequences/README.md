@@ -16,7 +16,7 @@ The two reference bundles are what the chapters build in their Before you start 
 
 ## Where the data came from
 
-`NG_000007.3` is the NCBI RefSeqGene record for the human beta-globin locus on chromosome 11. It covers the whole cluster, HBE1, HBG2, HBG1, BGLT3, HBBP1, HBD, and HBB. HBB spans positions 70545 to 72152, and codon 6 of its coding sequence is the site of the sickle cell change (rs334).
+`NG_000007.3` is the NCBI RefSeqGene record for the human beta-globin locus on chromosome 11. It covers the whole cluster, HBE1, HBG2, HBG1, BGLT3, HBBP1, HBD, and HBB. HBB spans positions 70545 to 72152, and codon 7 of its coding sequence (amino acid 6 of the mature protein, which starts after the first methionine is removed) is the site of the sickle cell change (rs334).
 
 The five mitochondrial genomes are NCBI RefSeq records `NC_012920.1` (human), `NC_001643.1` (chimpanzee), `NC_011120.1` (western gorilla), `NC_005943.1` (rhesus macaque), and `NC_012670.1` (cynomolgus macaque). Each FASTA name line was rewritten to a label and accession, such as `Human_NC_012920.1`, so alignment rows and tree tips read well.
 

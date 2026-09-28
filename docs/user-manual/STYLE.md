@@ -21,6 +21,8 @@ Fourth, **no overused words or patterns.** The banned list lives in
 Sentence shapes such as "It's not X, it's Y" and "No X. No Y. Just Z" are
 banned too. A control whose label happens to be on the list is written in
 straight double quotes, which the linter exempts.
+Never write "worked example". Name the thing instead, such as the example
+run, the cornea sample, or the demo project.
 
 Fifth, **bullet lists are capped.** At most five items per list, at most
 two lists per H2 section. Longer enumerations become prose or a table.
@@ -49,9 +51,9 @@ Five colors, nothing else, in prose hex references and embedded SVG fills.
 | Cream | `#FAF4EA` | Page backgrounds. Never pure white. |
 | Warm Grey | `#8A847A` | Captions, metadata |
 
-Never use red-amber-green in data viz: encode severity with Deep Ink weight
-and annotation. Never place Creamsicle on Peach, and never use Creamsicle for
-body text. Lint: `palette.js`, `data-viz.js`.
+Never use red-amber-green in data viz. Encode severity with Deep Ink weight
+and annotation instead. Never place Creamsicle on Peach, and never use
+Creamsicle for body text. The linter rules are `palette.js` and `data-viz.js`.
 
 ## Typography
 
@@ -65,20 +67,20 @@ body text. Lint: `palette.js`, `data-viz.js`.
 | Data / Code | IBM Plex Mono | 10–12pt |
 
 Prose never names a font. Inline HTML `style=` attributes and `<style>` blocks
-must use only these faces. Lint: `typography.js`.
+must use only these faces. The linter rule is `typography.js`.
 
 ## Voice
 
-Six qualities describe the Lungfish voice: Purposeful, Precise and scientific,
-Trustworthy and calm, Actionable, Thoughtful, Inclusive and empowering. Never
-hyped, never cold.
+Six qualities describe the Lungfish voice. It is purposeful, precise and
+scientific, trustworthy and calm, actionable, thoughtful, and inclusive and
+empowering. It is never hyped and never cold.
 
 Banned patterns the linter flags include `revolutionary`, `breakthrough`,
 `powerful`, `cutting-edge`, `AI-powered`, `game-changing`, `unleash`, and
 `leverages`. `next-generation` is permitted only when literally referring to
 NGS inside a primer. `!` at the end of a body sentence is banned (permitted in
 quoted CLI output). Superlative chains such as "most advanced, most accurate,
-most…" are banned. Lint: `voice.js`.
+most…" are banned. The linter rule is `voice.js`.
 
 ## Chapter structure
 
@@ -87,32 +89,32 @@ matters`) before any `## Procedure` section. Every chapter has YAML
 frontmatter validated by `frontmatter.js`. Every `<!-- SHOT: id -->` marker in
 the body has a matching entry in the frontmatter `shots[]` list and vice
 versa. Every `prereqs[]`, `glossary_refs[]`, `fixtures_refs[]`, and
-`features_refs[]` entry resolves to an existing target. Lint:
-`frontmatter.js`, `primer-before-procedure.js`.
+`features_refs[]` entry resolves to an existing target. The linter rules are
+`frontmatter.js` and `primer-before-procedure.js`.
 
 ## Chapter template (2026-09 campaign)
 
 Chapters follow this order. Concept-only chapters use the first two sections
 and whatever else applies.
 
-1. `## What it is`. The concept in two to four short paragraphs. Every
-   term is glossed the first time it appears in the chapter. The reader is
-   an undergraduate who has taken genetics and never opened a terminal.
-2. `## Why you would do this`. The biological motivation, tied to the
-   chapter's fixture.
-3. `## Before you start`. What must already be in the project, which tool
-   pack, whether Docker Desktop is needed, how long the example takes.
-4. `## Procedure`. Numbered steps, exact menu path, one action per step,
-   a `<!-- SHOT: id -->` marker wherever the reader needs to see the screen.
-5. `## Settings`. One paragraph per setting, in the fixed shape below,
-   covering every setting `parameters.yaml` lists for the chapter's
-   `parameters_refs`.
-6. `## Reading the results`. What appears in the viewport and the
-   Inspector, what each number means, worked against the fixture.
-7. `## What good looks like`. The checks to apply before trusting the
-   result.
-8. `## On the command line`. One shell block that reproduces the
-   procedure.
+| Order | Section | What it holds |
+|---|---|---|
+| 1 | `## What it is` | The concept in two to four short paragraphs. Every term is glossed the first time it appears in the chapter. The reader is an undergraduate who has taken genetics and never opened a terminal. |
+| 2 | `## Why you would do this` | The biological motivation, tied to the chapter's fixture. `## Choosing a tool` follows it in every chapter that offers more than one tool or mode for the same job (added 2026-09-26, see below). |
+| 3 | `## Before you start` | What must already be in the project, which tool pack, which container runtime if any (as [Plugin Packs](chapters/01-foundations/07-plugin-packs.md#tools-that-run-in-containers) states it), and how long the example takes. |
+| 4 | `## Procedure` | Numbered steps, exact menu path, one action per step, and a `<!-- SHOT: id -->` marker wherever the reader needs to see the screen. |
+| 5 | `## Settings` | One paragraph per setting, in the fixed shape below, covering every setting `parameters.yaml` lists for the chapter's `parameters_refs`. |
+| 6 | `## Reading the results` | What appears in the viewport and the Inspector, and what each number means, read against the fixture. |
+| 7 | `## What good looks like` | The checks to apply before trusting the result. |
+| 8 | `## On the command line` | One shell block that reproduces the procedure. |
+| 9 | `## Next` | The chapter that follows in the nav first, then any side trips. |
+
+No task chapter has a `## Troubleshooting` section. Advice that links a
+symptom to a setting, such as what to change when a design covers too
+little, goes at the end of `## What good looks like`, as a closing paragraph
+or an H3 named for the situation, such as "When the design fails". A defect
+in LGE itself goes to the known-defects registry in
+`chapters/appendices/troubleshooting.md` and nowhere else.
 
 Each Settings entry is one paragraph that begins with the control's label
 in bold with a period inside the bold. The paragraph then has three
@@ -142,6 +144,66 @@ number with what it measures ("Depth is the number of reads covering a
 position"), then what a typical value looks like on the fixture, then what
 a bad value looks like.
 
+## Conventions added in the 2026-09-27 revision
+
+**Procedure headings.** When a procedure has H3 headings, each is a task
+phrase that names the tool or the step, such as "Call with bcftools" or
+"Open the Call Variants dialog". Never write "Step 3." or "3." in front of
+it, because in-app search shows a heading alone. The numbered steps sit
+inside the H3 as an ordered list.
+
+**Percentages.** Running prose writes "95 percent". Tables, code, and quoted
+screen text write "95%".
+
+**Coordinates.** Positions in prose are 1-based and inclusive, as LGE shows
+them on screen. A 0-based value, such as a BED start, appears only in its
+own column or in a parenthesis that says it is BED.
+
+**Next.** The `## Next` section names the chapter that follows in the nav
+first. The last chapter of a part names the first chapter of the next part
+in one sentence that says why a reader would go on.
+
+**On the command line.** Every block uses the path convention in [Reading
+an On the command line block](chapters/01-foundations/06-the-lungfish-project.md#reading-a-command-line-block).
+It sets `PROJECT` once to the demo project's folder and writes every path
+inside the project relative to `$PROJECT`. One sentence before the block
+names the CLI Reference section that lists the commands' flags.
+
+**Versions and history.** A chapter never names an LGE build number and
+never tells the release history of a feature. The home page names the
+version the manual describes, once.
+
+**Figures.** A figure that is still to be drawn is placed with an
+`<!-- ILLUSTRATION: id -->` marker at the point where it belongs, and the
+chapter frontmatter's `illustrations:` list carries its id and a
+one-paragraph brief. The home page, `index.md`, follows the same rule.
+
+## Choosing a tool (added 2026-09-26)
+
+A reader who has never used the tools in a plugin pack should finish this
+section knowing which one to pick for their data and why. It teaches the
+method, not only the menu.
+
+1. Open with one or two sentences that name the decision and the property
+   of the data that settles it, such as read length, error profile, how
+   variable the targets are, or whether the genome is large.
+2. Give each tool one paragraph. Say how it works in plain terms (for
+   example, a mapper that indexes the reference and extends short exact
+   matches, or a classifier that looks up every k-mer in a database), what
+   data it was built for, what it does well, and where it struggles. Gloss
+   every term at first use.
+3. Follow with a table with the columns Tool, Built for, Choose it when,
+   and Choose something else when. Keep cells short.
+4. Close with the choice this chapter's fixture uses and why, and when a
+   reader with different data should switch.
+5. Cite each tool's paper through `appendices/bibliography.md` and state
+   only what the paper, the tool's documentation, or LGE's own behaviour
+   supports. Name speed and memory only as rough comparisons LGE users will
+   notice. Mention tools LGE does not offer at most once, as context.
+
+A concept that several chapters need, such as what a k-mer is, has one
+owning chapter. Other chapters gloss it in one sentence and link there.
+
 ## Fixture references
 
 When a chapter uses a fixture, it names the fixture by its consistency-sheet
@@ -152,7 +214,7 @@ has no citation macro, so never write `{{ fixtures_refs[] | cite }}`.
 
 ## Audience tiers
 
-Every chapter declares one tier: `bench-scientist`, `analyst`, or
+Every chapter declares one tier, which is `bench-scientist`, `analyst`, or
 `power-user`. No chapter may mention a concept the audience tier has not been
 primed for.
 

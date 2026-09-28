@@ -78,7 +78,7 @@ This chapter uses the hg002-chr20 fixture. Download `HG002.chr20.10.0-10.5Mb_R1.
 
 Import the pair following [Importing Sequencing Reads](01-importing-fastq.md), so it becomes the bundle `HG002.chr20.10.0-10.5Mb`, which holds 91,148 reads. Every operation here starts from a bundle in the sidebar rather than a file on disk. The worked counts in this chapter come from the bundle's own file, run from the command line, and a run from the Tools menu gives the same counts. On a paired bundle every operation keeps or drops the two mates of a pair together, so each count is even.
 
-These operations use seqkit, reformat, and bbduk. Each arrives with the [Required Setup pack](../../GLOSSARY.md#required-setup-pack), the one pack LGE installs by itself, so there is nothing to install.
+These operations use seqkit, reformat, and bbduk. Each arrives with the [Required Setup pack](../../GLOSSARY.md#required-setup-pack), which the Welcome window offers to install the first time you open LGE.
 
 The result is a new read bundle written straight into `Analyses/`, as [Where results land](../01-foundations/06-the-lungfish-project.md#where-results-land) describes. Subsampling the bundle by count gives you `HG002.chr20.10.0-10.5Mb-subsampleCount.lungfishfastq`.
 
@@ -106,7 +106,7 @@ The other four operations follow the same five steps with different fields in st
 
 ## Settings
 
-**Output Strategy.** Chooses whether several selected bundles get one output each or one pooled output. Leave it on Per Input, the default. [Trimming and Filtering](04-trimming-and-filtering.md#shared-settings) explains the two choices. This setting has no command-line flag.
+**Output Strategy.** Chooses whether several selected bundles get one output each or one pooled output. Leave it on Per Input, the default, and see [Operation dialogs](../01-foundations/06-the-lungfish-project.md#operation-dialogs) for the two choices. This setting has no command-line flag.
 
 ### Subsample by Proportion
 
@@ -184,13 +184,11 @@ Here is what each operation returned on the bundle's 91,148 reads.
 
 The first two rows are requests, and they say only that the sampler did what it was told. The last three are findings about the data. The third says 21,244 reads, 10,622 pairs, came off the `HISEQ1` instrument and the remaining 69,904 came off `D00360`. The fourth counts whole pairs, and the 1,067 reads that carry the motif themselves make about one read in eighty-five carrying this stretch of an Alu element, which fits a human shotgun library, since Alu elements make up about a tenth of the genome and only 26 bases of each copy are being matched. The fifth says about half of one percent of pairs, 259 of 45,574, had a read that ran into the adapter, a healthy figure for 250-base reads. A figure in the tens of percent would mean much of the library was shorter than the read length, and the thing to check then is the fragment size the library was built to.
 
-LGE writes a [provenance](../../GLOSSARY.md#provenance) record beside every result, as [Provenance and Reproducibility](../01-foundations/08-provenance-and-reproducibility.md#reading-the-results) explains.
-
-### Virtual bundles and materialization
+### Virtual bundles
 
 A result from the **Tools > Search & Subsetting** menu holds its reads as an ordinary compressed FASTQ file inside the bundle, so it can be copied or shared on its own like any other read bundle.
 
-Some read bundles are a lighter kind, a [virtual bundle](../../GLOSSARY.md#virtual-bundle). Demultiplexing a run into one bundle per barcode, which [Oxford Nanopore Runs](07-ont-runs.md) covers, writes virtual bundles, and so did subsetting in earlier versions of LGE. A virtual bundle stores a recipe for its reads rather than a copy. For a subset the recipe is a list of the chosen read names, `read-ids.txt`, plus a manifest naming the parent bundle. Beside the recipe sits `preview.fastq`, the first thousand or so reads, which is what the viewport draws. If you choose **Show in Finder** on a virtual bundle and find `preview.fastq` as its only FASTQ file, that is correct, not a truncated result. The Reads card still shows the real count, taken from the manifest.
+Some read bundles are a lighter kind, a [virtual bundle](../../GLOSSARY.md#virtual-bundle). Demultiplexing a run into one bundle per barcode, which [Oxford Nanopore Runs](07-ont-runs.md) covers, can write virtual bundles, and it is the only operation in this part that does. A virtual bundle stores a recipe for its reads rather than a copy. For a subset the recipe is a list of the chosen read names, `read-ids.txt`, plus a manifest naming the parent bundle. Beside the recipe sits `preview.fastq`, the first thousand or so reads, which is what the viewport draws. If you choose **Show in Finder** on a virtual bundle and find `preview.fastq` as its only FASTQ file, that is correct, not a truncated result. The Reads card still shows the real count, taken from the manifest.
 
 No reads are lost by this arrangement. Every read the virtual bundle names is still in the parent, so ten test slices of one bundle cost about as much disk as one. The catch is that a virtual bundle means nothing without its parent. Copying it alone to another computer, or sending it to a colleague, carries the recipe without the reads it points at.
 
@@ -210,14 +208,15 @@ Check that an extraction returned a plausible number. Zero reads usually means t
 
 Check the search before trusting an absence. Finding no reads with your primer is evidence the primer is absent only if the search would have found it. Run the same search first for something you know is present, a positive control. On human data the Alu motif in this chapter serves, since a human shotgun library should return several hundred reads per fifty thousand. If the Alu search also comes back empty, the problem is the search, not your primer. Extract Reads by Motif demands a letter-for-letter match, so a single sequencing error hides a read from it. Select Reads by Sequence allows some mismatches, so prefer it whenever a negative result would change your conclusion.
 
+LGE records every subset in the new bundle's [provenance](../../GLOSSARY.md#provenance), including the random seed of a subsample, as [Provenance and Reproducibility](../01-foundations/08-provenance-and-reproducibility.md#reading-the-results) shows.
+
 ## On the command line
 
-This section is optional. [Finding the program](../appendices/cli-reference.md#finding-the-program) shows how to run `lungfish-cli`.
-
-The commands read the FASTQ file inside the imported bundle, so they reproduce the counts above. The first line stores its path in a shortcut name. Replace the path with your own, keeping the double quotes.
+The block follows the convention in [Reading an On the command line block](../01-foundations/06-the-lungfish-project.md#reading-a-command-line-block), and [Read processing](../appendices/cli-reference.md#read-processing) in the CLI Reference lists every flag of these commands. The commands read the FASTQ file inside the Human Reads demo project's bundle, so they reproduce the counts above, and each writes its output file into the folder Terminal is in.
 
 ```bash
-READS="MyProject.lungfish/Imports/HG002.chr20.10.0-10.5Mb.lungfishfastq/HG002.chr20.10.0-10.5Mb.fastq.gz"
+PROJECT="$HOME/Documents/LGE Demo Projects/Human Reads.lungfish"
+READS="$PROJECT/Imports/HG002.chr20.10.0-10.5Mb.lungfishfastq/HG002.chr20.10.0-10.5Mb.fastq.gz"
 
 # Subsample a fraction, then a fixed count. --seed repeats an earlier draw.
 lungfish-cli fastq subsample "$READS" \
@@ -246,4 +245,4 @@ Four defaults of `sequence-filter` differ from the window and change the result,
 
 ## Next
 
-Continue to [Oxford Nanopore Runs](07-ont-runs.md) for importing and demultiplexing a nanopore run, or jump to [Mapping Reads to a Reference](../04-alignments/01-mapping-reads-to-a-reference.md) to align the subset you just made. Select the subset bundle there as you would any other.
+Continue to [Oxford Nanopore Runs](07-ont-runs.md) for importing and demultiplexing a nanopore run. To align a subset you made here, select it in [Mapping Reads to a Reference](../04-alignments/01-mapping-reads-to-a-reference.md) as you would any other bundle. The steps of [the order of read preparation](01-importing-fastq.md#the-order-of-read-preparation) are now all covered, and the last two chapters of the part handle nanopore runs and reshaping reads.

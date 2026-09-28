@@ -1,10 +1,21 @@
-# Demo project
+# The screenshot project (contributor note)
 
-`build-demo-project.sh` populates the project that every screenshot recipe in
-the manual opens. It drives `lungfish-cli` over the committed fixtures in
-`docs/user-manual/fixtures/` and fills a Lungfish project with a
-reference sequence, a mapping with two variant tracks, an assembly, an
-alignment with its tree, a Kraken 2 classification, and an NVD import.
+This folder builds the screenshot project, a contributor tool and not reading
+material. Readers of the manual never build it. They download the demo
+projects with **Help > Demo Projects…** in Lungfish Genome Explorer (LGE), as
+the Practice data for this manual section of The Lungfish Genome Explorer
+Project chapter explains, and the chapters that read finished results use the
+Human Mapping and Variants (with results) demo project. The glossary entry
+"Screenshot project" points here. The directory keeps its old name,
+`demo-project`, because screenshot recipes and scripts refer to it by path.
+
+`build-demo-project.sh` populates the screenshot project that older screenshot
+recipes open. It drives `lungfish-cli` over the committed fixtures in
+`docs/user-manual/fixtures/` and fills an LGE project with a reference
+sequence, a mapping with two variant tracks, an assembly, an alignment with
+its tree, a Kraken 2 classification, and an NVD import. New captures of the
+Foundations chapters use the Human Mapping and Variants (with results) demo
+project instead, so its track and bundle names match what readers see.
 
 ## Running
 

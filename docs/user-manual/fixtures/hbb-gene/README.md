@@ -4,8 +4,9 @@ The RefSeqGene record for the human beta-globin locus on chromosome 11,
 fetched with `rettype=gbwithparts` so the full gene, mRNA, CDS, and exon
 feature table is present rather than a bare sequence. Supports the
 sequence-viewing, annotation, extraction, and translation chapters.
-Sickle cell disease (HbS, Glu6Val at HBB codon 6, dbSNP rs334) is the
-worked example for why a reader would look at this record.
+Sickle cell disease (HbS, Glu6Val at HBB amino acid 6, which is codon 7
+of the coding sequence, dbSNP rs334) is the
+example that shows why a reader would look at this record.
 
 ## Genome
 
@@ -19,9 +20,12 @@ renamed or shifted.
 
 HBB itself sits at `70545..72152` (gene span) with a spliced CDS at
 `join(70595..70686,70817..71039,71890..72018)`, protein `NP_000509.1`
-(146 aa, starts `MVHLTPEEKSAV...`). Codon 6 of that CDS (GAG, Glu) is
-the site of the classic sickle mutation (GAG to GTG, Glu6Val, HbS,
-rs334). The manual's translation-chapter example reads that codon out
+(147 codons before the stop, starts `MVHLTPEEKSAV...`). Codon 7 of that
+CDS (GAG, Glu, CDS positions 19 to 21) is the site of the classic sickle
+mutation (GAG to GTG, `c.20A>T`, HbS, rs334). It is called Glu6Val because
+the mature protein loses its first methionine, so amino acid 6 of the
+mature chain is codon 7 of the CDS. Clinical notation, which counts the
+methionine, writes it `p.Glu7Val`. The manual's translation-chapter example reads that codon out
 of this fixture rather than fabricating a synthetic sequence.
 
 ## Sources

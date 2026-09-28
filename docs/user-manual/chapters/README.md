@@ -20,7 +20,9 @@ chapters/
 ├── 07-assembly/
 ├── 08-workflows/
 ├── 09-genotyping/
-└── appendices/                   # Part III, reference material
+├── 10-primer-design/             # Primer Design, chapters 01 to 05
+└── appendices/                   # Part III, reference material,
+                                  # including primer-design-settings.md
 ```
 
 Each chapter is one `.md` file with YAML frontmatter. The directory name
@@ -28,6 +30,16 @@ encodes the part number, and the file name encodes the chapter's order within
 its part. `06-classification` and `06-human-germline-variants` share the `06`
 prefix on purpose. Renaming either would break in-app help links and paths
 that tests pin.
+
+The reading order is set by the `nav:` list in `../build/mkdocs.yml`, not by
+the numbers. The numbers are fixed once a file exists, so several parts are
+read out of numeric order. Foundations opens with `06-the-lungfish-project.md`,
+Alignments reads `04-alignment-quality.md` before `03-primer-trimming.md`, the
+Human Germline Variants part opens with `04-reference-packs.md` and follows
+Variants, and Classification has its own order. The Primer Design part reads
+01 to 05 in order, and its settings reference is the appendix
+`appendices/primer-design-settings.md`, listed under Reference after Primer
+Scheme Bundles.
 
 Every chapter follows the chapter template in `../STYLE.md`. The narrow scope
 of each chapter, meaning what it covers and what it leaves to another chapter,

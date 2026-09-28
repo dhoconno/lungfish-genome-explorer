@@ -17,9 +17,9 @@ illustrations:
     brief: "A 2000-base region of a genome backbone in Deep Ink, with three primer pairs marked above the backbone (forward primers as right-pointing Creamsicle arrows, reverse primers as left-pointing arrows), creating three overlapping amplicons. Below the backbone, a small table showing the BED-style start/end coordinates of each primer."
   - id: primer-trim-soft-clip
     brief: "A single read shown twice. Top: untrimmed read, with the leftmost ~20 bases highlighted in Peach (primer-derived) and the body of the read in Lungfish Creamsicle (sample-derived). Bottom: same read after primer trim, with primer-derived bases shown lightened/struck-through to indicate soft-clipping, body unchanged. Annotate 'Primer bases ignored by the variant caller'."
-glossary_refs: [library-prep, shotgun, amplicon, pcr, primer, primer-scheme, primer-trim, fastq, variant-caller, paired-end, depth, coverage-breadth, mhc, allele, shearing, adapter, tiling, locus, bed, chimera, mapping, soft-clip, sra, ena, target-enrichment, coverage, inspector]
+glossary_refs: [demo-project, pcr-duplicate, mark-duplicates, probe, exome, library, library-prep, shotgun, amplicon, pcr, primer, primer-scheme, primer-trim, fastq, variant-caller, paired-end, depth, coverage-breadth, mhc, allele, shearing, adapter, tiling, locus, bed, chimera, mapping, soft-clip, sra, ena, target-enrichment, coverage, inspector]
 features_refs: []
-fixtures_refs: [hg002-chr20, demo-assets, mhc-simulated]
+fixtures_refs: [hg002-chr20, sarscov2-srr36291587, mhc-simulated]
 brand_reviewed: false
 lead_approved: false
 ---
@@ -38,15 +38,19 @@ Before you call a single variant, find out which library prep made your sample, 
 
 ## Why you would do this
 
-Two datasets used in this manual sit on opposite sides of this line.
+The manual's practice data sit on both sides of this line.
 
 The HG002 chromosome 20 slice is shotgun. HG002 is the human reference sample that [Sequencing Reads](02-sequencing-reads.md#why-you-would-do-this) introduces. The slice holds 45,574 Illumina read pairs over a 500,001-base stretch of chromosome 20, each pair one fragment read from both ends, as [Paired-end reads](02-sequencing-reads.md#paired-end-reads) explains.
 
 Mapped back to the reference, the HG002 reads reach a mean [depth](../../GLOSSARY.md#depth), the number of reads over one position, of about 45. They cover 99.99% of the slice, a share called [coverage breadth](../../GLOSSARY.md#coverage-breadth). [Coverage and the coverage track](04-alignment-files.md#coverage-and-the-coverage-track) explains both numbers and how much depth is enough. Shotgun depth rises and falls gently along the slice rather than jumping at fixed points, because nobody chose where the fragments would break.
 
-The Williams MiSeq genotyping project is amplicon. It holds 30 macaque samples, each prepared by PCR against the [MHC](../../GLOSSARY.md#mhc), the immune-system gene region, and sequenced on an Illumina MiSeq instrument. Its reads pile onto the handful of MHC genes the primers were designed to reach, and the rest of the macaque genome is absent. This dataset is not one of the manual's practice fixtures, so its numbers here are an illustration only. To try amplicon data yourself, use the `mhc-simulated` fixture of simulated MHC amplicon reads, listed in [Practice data for this manual](06-the-lungfish-project.md#practice-data-for-this-manual) and stored in the [mhc-simulated folder](https://github.com/dhoconno/lungfish-genome-explorer/tree/v2026.9.40/docs/user-manual/fixtures/mhc-simulated).
+Two amplicon data sets follow it through the manual. The first is a simulated macaque panel, the `mhc-simulated` fixture, built for teaching from real cynomolgus macaque sequences of the [MHC](../../GLOSSARY.md#mhc), the immune-system gene region. It has three amplicons, 156, 244, and 173 bases long, each on a different MHC gene, and two samples. Sample A carries 120, 80, and 4 read pairs from the three amplicons, and sample B carries 12, 60, and 100. Every read sits on one of those three stretches, and the rest of the macaque genome is absent. The second is SRR36291587, a SARS-CoV-2 run from a clinical swab prepared with the QIAseq Direct SARS-CoV-2 with Booster A kit, 85,199 read pairs whose amplicons tile the whole 29,903-base virus genome. It is the run [Primer Trimming an Alignment](../04-alignments/03-primer-trimming.md) trims.
 
-Each preparation answers its own question well. The HG002 slice asks what is anywhere in a stretch of genome. The Williams panel asks which [alleles](../../GLOSSARY.md#allele), the alternative versions of a gene, each animal carries at a few chosen genes.
+Each preparation answers its own question well. The HG002 slice asks what is anywhere in a stretch of genome. The macaque panel asks which [alleles](../../GLOSSARY.md#allele), the named versions of a gene, each animal carries at a few chosen genes. The SARS-CoV-2 run asks what one virus genome carries from end to end, starting from a sample that holds very little of it.
+
+## Before you start
+
+This chapter is reading only, and nothing in it has to be run. To see the amplicon data on screen, open the MHC Genotyping or the SARS-CoV-2 Amplicons [demo project](../../GLOSSARY.md#demo-project) as [The Lungfish Genome Explorer Project](06-the-lungfish-project.md#demo-projects) showed. The macaque samples are the two `SIMULATED-MHC` bundles under `Imports`, and the SARS-CoV-2 run is the `SRR36291587` bundle.
 
 ## Shotgun sequencing
 
@@ -62,7 +66,7 @@ Shotgun data needs no primer trimming, because no primers were used. Adapters so
 
 An amplicon prep uses PCR instead of breaking the DNA. Two primers, each usually 18 to 30 bases long, bind at two known positions on the target, and an enzyme called a polymerase copies everything between them. The copied piece is the amplicon. Its two ends are the two primer sites, exactly, in every copy.
 
-One primer pair covers one stretch. To cover a longer region, a protocol runs many pairs at once so that their amplicons overlap end to end, a design called [tiling](../../GLOSSARY.md#tiling). SARS-CoV-2 surveillance protocols tile the whole virus genome this way. Human and macaque panels more often aim at chosen genes, as the Williams panel does. Each of its amplicons sits on one MHC gene at its own [locus](../../GLOSSARY.md#locus), the place on a chromosome where one gene sits, and the amplicons do not join up into a continuous stretch.
+One primer pair covers one stretch. To cover a longer region, a protocol runs many pairs at once so that their amplicons overlap end to end, a design called [tiling](../../GLOSSARY.md#tiling). SARS-CoV-2 surveillance protocols tile the whole virus genome this way, and the QIAseq Direct SARS-CoV-2 with Booster A scheme that made SRR36291587 lays 223 amplicons along it. Human and macaque panels more often aim at chosen genes, as the simulated macaque panel does. Each of its three amplicons sits on one MHC gene at its own [locus](../../GLOSSARY.md#locus), the place on a chromosome where one gene sits, and the amplicons do not join up into a continuous stretch.
 
 A [primer scheme](../../GLOSSARY.md#primer-scheme) is the list of where every primer in a protocol binds on its reference, stored as a [BED](../../GLOSSARY.md#bed) file, a plain-text table with one region per line. GFF3, the other common table of genome positions, numbers bases differently. BED counts from 0 and GFF3 counts from 1, as [Standard annotation formats](../appendices/file-formats.md#standard-annotation-formats) explains. LGE ships eight SARS-CoV-2 schemes, listed in [Shipped schemes](../appendices/primer-schemes.md#shipped-schemes).
 
@@ -70,7 +74,11 @@ A [primer scheme](../../GLOSSARY.md#primer-scheme) is the list of where every pr
 
 The gain is sensitivity. PCR multiplies the target many thousandfold before sequencing, so a sample with very little starting DNA can still give a usable result, and nearly every read is on target. Coverage is predictable too, so a missing amplicon is a specific event you can look into rather than bad luck.
 
-The cost is that you see only what the primers were designed to reach. A target that has mutated under a primer site copies poorly or not at all. PCR also adds errors of its own. The polymerase occasionally miscopies a base, and it can join two template molecules into one [chimera](../../GLOSSARY.md#chimera), an artificial hybrid sequence that never existed in the sample. Most of these errors appear in only a small share of the reads at a position, so a variant caller's minimum-frequency filter usually removes them, as [Calling Variants](../05-variants/01-calling-variants-from-amplicons.md) explains.
+The cost is that you see only what the primers were designed to reach. A target that has mutated under a primer site copies poorly or not at all. PCR also adds errors of its own. The polymerase occasionally miscopies a base, and it can join two template molecules into one [chimera](../../GLOSSARY.md#chimera), an artificial hybrid sequence that never existed in the sample. Most of these errors appear in only a small share of the reads at a position, so a minimum allele frequency threshold usually removes them, as [Three kinds of filter](05-variants-and-vcf.md#three-kinds-of-filter) explains.
+
+Amplicon data also defeats one cleanup step built for shotgun data. Every read from one amplicon starts and ends at the same primer positions, so a duplicate-marking tool, which treats reads with identical ends as PCR copies of one fragment, would flag nearly the whole library. Amplicon data therefore skips [duplicate marking](../../GLOSSARY.md#mark-duplicates), as [Alignment Quality](../04-alignments/04-alignment-quality.md) explains.
+
+How the primers of a scheme are chosen in the first place is the subject of [What Is Primer Design](../10-primer-design/01-what-is-primer-design.md).
 
 ## What an amplicon looks like, end to end
 
@@ -86,7 +94,7 @@ Now suppose your sample carries a real difference from the reference at position
 
 [Primer trimming](../../GLOSSARY.md#primer-trim) sets the primer bases aside so nothing downstream counts them as evidence. LGE can trim before or after [mapping](../../GLOSSARY.md#mapping), the step that places each read where it fits on the reference.
 
-Trimming before mapping uses sequence matching. It looks for the primer's letters in each read and cuts them off, so it needs no reference. A sample that differs from the primer under its binding site no longer matches, though, and those bases slip through. Trimming after mapping uses position matching. It takes the primer scheme's coordinates and marks whatever bases sit there, whatever their letters, so they stay in the file but are left out of variant calling. In short, primers are matched by their letters before mapping and by their positions after mapping. A mutation under a primer cannot fool position matching, so prefer trimming after mapping whenever you have a scheme and a reference. [Primer trimming at the read level](../03-reads/04-trimming-and-filtering.md#primer-trimming-at-the-read-level) and [Primer Trimming an Alignment](../04-alignments/03-primer-trimming.md) cover each stage.
+Trimming before mapping uses sequence matching. It looks for the primer's letters in each read and cuts them off, so it needs no reference. A sample that differs from the primer under its binding site no longer matches, though, and those bases slip through. Trimming after mapping uses position matching. It takes the primer scheme's coordinates and [soft-clips](../../GLOSSARY.md#soft-clip) whatever bases sit there, whatever their letters. A soft clip keeps the bases in the file but leaves them out of the pileup and of variant calling, as [The CIGAR string](04-alignment-files.md#the-cigar-string) shows. In short, primers are matched by their letters before mapping and by their positions after mapping. A mutation under a primer cannot fool position matching, so prefer trimming after mapping whenever you have a scheme and a reference. [Primer trimming at the read level](../03-reads/04-trimming-and-filtering.md#primer-trimming-at-the-read-level) and [Primer Trimming an Alignment](../04-alignments/03-primer-trimming.md) cover each stage.
 
 ![Before and after primer trimming, with the primer bases set aside](../../assets/illustrations-imagegen/01-foundations/03-amplicon-vs-shotgun/primer-trim-soft-clip.png)
 
@@ -100,7 +108,7 @@ A hint is not proof. Trimming against a guessed scheme is worse than not trimmin
 
 ## Target enrichment, the third route
 
-A third preparation sits between the two. This manual calls it [target enrichment](../../GLOSSARY.md#target-enrichment), and you will also meet it as capture or hybridisation capture. It starts like shotgun, with DNA broken at random. It then adds probes, pieces of DNA or RNA that pair with the regions you want and carry a tag that can be pulled out of the tube. The targeted fragments come out with the probes and the rest is washed away. A human exome kit, which pulls out the protein-coding parts of every gene, is the commonest example.
+A third preparation sits between the two. This manual calls it [target enrichment](../../GLOSSARY.md#target-enrichment), and you will also meet it as capture or hybridisation capture. It starts like shotgun, with DNA broken at random. It then adds [probes](../../GLOSSARY.md#probe), pieces of DNA or RNA that pair with the regions you want and carry a tag that can be pulled out of the tube. The targeted fragments come out with the probes and the rest is washed away. A human [exome](../../GLOSSARY.md#exome) kit, which pulls out the protein-coding parts of every gene, is the commonest example.
 
 The method borrows from both sides. Like amplicon, it needs its targets chosen in advance and concentrates reads onto them. Like shotgun, its reads start at random places and carry no primer sequence. A probe can also still grab a target that differs from it in a few places, where a primer would fail to bind.
 
@@ -122,7 +130,7 @@ Reach for shotgun when you do not yet know what is in the sample, when the targe
 
 ## What good looks like
 
-Four checks are worth running before you trust an amplicon result. First, confirm the scheme name and version from a record rather than from memory. Second, confirm the scheme's reference accession, the database identifier of the genome its coordinates were written against, matches the reference the reads were mapped to, since the coordinates mean nothing otherwise. Third, confirm the trim actually ran. Select the primer-trimmed alignment, which [Primer Trimming an Alignment](../04-alignments/03-primer-trimming.md) shows how to make, and look in the [Inspector](../../GLOSSARY.md#inspector) for a Primer-trim Derivation group naming the scheme. [The Inspector](06-the-lungfish-project.md#the-inspector) shows how to open it if it is hidden. Fourth, scan the variant list for a cluster of calls at close to 100% sitting at primer positions, which is what an untrimmed or wrongly trimmed run produces.
+Four checks are worth running before you trust an amplicon result. First, confirm the scheme name and version from a record rather than from memory. Second, confirm the scheme's reference accession, the database identifier of the genome its coordinates were written against, matches the reference the reads were mapped to, since the coordinates mean nothing otherwise. Third, confirm the trim actually ran. Select the primer-trimmed alignment, which [Primer Trimming an Alignment](../04-alignments/03-primer-trimming.md) shows how to make, and look in the [Inspector](../../GLOSSARY.md#inspector), the panel on the right of the window, for a Primer-trim Derivation group naming the scheme. Fourth, scan the variant list for a cluster of calls at close to 100% sitting at primer positions, which is what an untrimmed or wrongly trimmed run produces.
 
 For a shotgun or target-enrichment result the checks are shorter. Confirm that no primer trim was applied, since there is nothing to trim, and expect a coverage curve without the repeating steps of an amplicon run, as [The coverage curve](../04-alignments/02-reading-an-alignment.md#the-coverage-curve) shows.
 

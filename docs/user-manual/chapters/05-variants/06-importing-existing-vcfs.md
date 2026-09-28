@@ -31,11 +31,11 @@ lead_approved: false
 
 Many people arrive at Lungfish Genome Explorer (LGE) already holding a [VCF](../../GLOSSARY.md#vcf) that something else produced. A VCF is a tab-separated file with one row per position where the sample differs from the reference. It might be a published study's supplementary file, a clinical report, a benchmarking consortium's truth set, or the output of a pipeline you ran last year. This chapter gets that file into LGE so its rows sit in the same table as your own calls.
 
-Everything depends on one question. Which [reference bundle](../../GLOSSARY.md#reference-bundle) do these variants belong to? A VCF's positions mean nothing until you know which sequence they count along. LGE answers the question from what you have open, not from the file. If a reference bundle is open in the viewport, the VCF attaches to it as a new [variant track](../../GLOSSARY.md#variant-track). If no bundle is open, LGE asks you to name a new bundle built around the VCF alone. If no project is open, it refuses. Open the bundle the variants belong to before you import, and treat that choice as the real work.
+Everything depends on one question. Which [reference bundle](../../GLOSSARY.md#reference-bundle) do these variants belong to? A VCF's positions mean nothing until you know which sequence they count along. LGE answers the question from what you have open, not from the file. If a reference bundle is open in the viewport, including the reference bundle inside a mapping result, the VCF attaches to it as a new [variant track](../../GLOSSARY.md#variant-track). If no bundle is open, LGE asks you to name a new bundle built around the VCF alone. If no project is open, it refuses. Open the bundle the variants belong to before you import, and treat that choice as the real work.
 
 ## Why you would do this
 
-The worked example is human. HG002 is a consenting research participant whose DNA is distributed as a cell line, so laboratories everywhere sequence the same genome. The HG002 chromosome 20 slice carries a [benchmark VCF](../../GLOSSARY.md#benchmark-vcf), a call set built by the Genome in a Bottle consortium by combining many sequencing technologies and callers. A change several technologies agree on is far more likely to be real than one any single run reports, so the benchmark works as an answer key.
+The example in this chapter is human. HG002 is a consenting research participant whose DNA is distributed as a cell line, so laboratories everywhere sequence the same genome. The HG002 chromosome 20 slice carries a [benchmark VCF](../../GLOSSARY.md#benchmark-vcf), a call set built by the Genome in a Bottle consortium by combining many sequencing technologies and callers. A change several technologies agree on is far more likely to be real than one any single run reports, so the benchmark works as an answer key.
 
 [Calling Variants](01-calling-variants-from-amplicons.md) called variants on the fixture's own reads with bcftools and LoFreq, which gave 1,040 and 862 rows. Those numbers say what each caller reported, not which was right. Importing the benchmark puts the answer key in the same table, so every row has a third opinion beside it. A position all three agree on is solid. One only a single caller reports, with no benchmark row beside it, is not a call to build a conclusion on.
 
@@ -49,21 +49,21 @@ Open the Human Mapping and Variants demo project with **Help > Demo Projects…*
 
 This chapter uses the HG002 chromosome 20 slice fixture. Download `HG002.chr20.10.0-10.5Mb.benchmark.vcf.gz` and its index `HG002.chr20.10.0-10.5Mb.benchmark.vcf.gz.tbi` from the [hg002-chr20 fixture folder](https://github.com/dhoconno/lungfish-genome-explorer/tree/v2026.9.39/docs/user-manual/fixtures/hg002-chr20), as [Practice data for this manual](../01-foundations/06-the-lungfish-project.md#practice-data-for-this-manual) explains. Keep both in one folder and leave the `.gz` file compressed. The `.tbi` is a [tabix](../../GLOSSARY.md#tabix) index, a small companion file that lets a reader jump straight to a region.
 
-Work through [Calling Variants](01-calling-variants-from-amplicons.md) first, which leaves a reference bundle carrying a bcftools track and a LoFreq track. Importing the benchmark onto that bundle is what makes the comparison here possible. If you skip it, step 5 builds a [variant-only bundle](../../GLOSSARY.md#variant-only-bundle) from the benchmark alone.
+Work through [Calling Variants](01-calling-variants-from-amplicons.md) first, which leaves the `HG002 bcftools` and `HG002 LoFreq` tracks in the reference bundle inside the mapping result. Importing the benchmark onto that bundle is what makes the comparison here possible, and the bundle under `Reference Sequences` holds no tracks to compare against. The Human Mapping and Variants (with results) demo project shows the finished state, with the benchmark already imported beside the two caller tracks. If you import with no bundle open, [Import with no bundle open](#import-with-no-bundle-open) builds a [variant-only bundle](../../GLOSSARY.md#variant-only-bundle) from the benchmark alone instead.
 
 No plugin pack is needed. LGE reads VCF with code built into the app.
 
 ## Procedure
 
-Steps 1 to 4 import onto an existing bundle, the path you want. Step 5 describes the alternative path when no bundle is open.
+The first four sections import onto an existing bundle, the path you want. The last describes what happens when no bundle is open.
 
-### Step 1. Open the bundle the variants belong to
+### Open the bundle the variants belong to
 
-Click the reference bundle in the project sidebar, named `GRCh38.chr20.10.0-10.5Mb` if you imported the fixture FASTA, and wait for the viewport to show the sequence name and ruler. This step decides where the variants go, and there is no later chance to change it.
+Click the `minimap2-` mapping result under **Analyses** in the sidebar, and wait for the lower pane to show the `chr20_10.0-10.5Mb` sequence and ruler. The Import Center attaches a VCF to the bundle on display, and for a mapping result that is the reference bundle inside it, so the benchmark will land beside the two caller tracks. Selecting a single reference bundle or mapping result in the sidebar without opening it works the same way. This step decides where the variants go, and there is no later chance to change it.
 
 The bundle from Calling Variants is the right one, because the benchmark's positions count along the same 500 kilobase slice, named `chr20_10.0-10.5Mb`. LGE does not check that a VCF's coordinates belong to the open sequence, and it does not shift positions to fit, so the check is yours. If the VCF names a sequence differently from the bundle, for example with or without a `chr` prefix or a version suffix, LGE renames it to the bundle's name when it can match them, and the `Chrom` column shows the bundle's name.
 
-### Step 2. Open the Import Center and choose the VCF
+### Open the Import Center and choose the VCF
 
 Open the [Import Center](../../GLOSSARY.md#import-center) with **File > Import Center...** (Cmd-Shift-I), which [The Import Center](../01-foundations/06-the-lungfish-project.md#the-import-center) describes. Click the **Variants** tab. One card sits there, **VCF Variants**, with the accepted extensions `.vcf, .vcf.gz` underneath. Click its **Import...** button.
 
@@ -71,31 +71,31 @@ Open the [Import Center](../../GLOSSARY.md#import-center) with **File > Import C
 
 Select `HG002.chr20.10.0-10.5Mb.benchmark.vcf.gz` and click Open, leaving the `.tbi` alone. The panel accepts several files at once, and each becomes its own track. It offers only `.vcf` and `.gz` files, so a [BCF](../../GLOSSARY.md#bcf), the compact binary form of a VCF, cannot be chosen here. Convert one to VCF on the command line first, as [Finding the program](../appendices/cli-reference.md#finding-the-program) introduces, with `bcftools view -O v -o file.vcf file.bcf`.
 
-Dragging a VCF from Finder onto the viewport does not attach it to the open bundle. It always takes the no-bundle path in step 5, so use the Import Center to add a track to an existing bundle.
+Dragging a VCF from Finder onto the viewport does not attach it to the open bundle. It always takes the no-bundle path described in [Import with no bundle open](#import-with-no-bundle-open), so use the Import Center, or the command line below, to add a track to an existing bundle.
 
-### Step 3. Wait for the import to finish
+### Wait for the import to finish
 
 Watch the run in the [Operations Panel](../01-foundations/06-the-lungfish-project.md#the-operations-panel), which opens with **Operations > Show Operations Panel** (Cmd-Shift-P). A row titled `Importing HG002.chr20.10.0-10.5Mb.benchmark.vcf.gz` shows the detail `Importing VCF variants (Auto)...`, where `Auto` names the import profile in force, the memory setting the Settings section describes.
 
-LGE reads the VCF's rows into a database inside the bundle's `variants/` folder, which the table sorts and filters quickly. LGE writes a [provenance](../../GLOSSARY.md#provenance) record beside every result, holding the command, the tool version, and a [checksum](../../GLOSSARY.md#checksum) of each file, and [Provenance and Reproducibility](../01-foundations/08-provenance-and-reproducibility.md#reading-the-results) shows how to read it.
+LGE reads the VCF's rows into a database inside the bundle's `variants/` folder, which the table sorts and filters quickly, and records the import in a [provenance](../../GLOSSARY.md#provenance) record beside it. The new track is named after the file, without its last extension, so the benchmark arrives as `HG002.chr20.10.0-10.5Mb.benchmark.vcf`.
 
 Only one operation can work on a bundle at a time. If a variant-calling run is still going, LGE shows an alert titled **Operation in Progress** and does not queue the import, so wait and start it again. If the import fails before it starts because the project folder is not writable, [Start here, at the failed row](../appendices/troubleshooting.md#start-here-at-the-failed-row) explains what to check.
 
-### Step 4. Read the benchmark in the Variants tab
+### Read the benchmark in the Variants tab
 
-The rows appear on the **Variants** tab of the [table drawer](../../GLOSSARY.md#table-drawer), which [Reading the Variants Table](02-reading-the-variant-browser.md#what-it-is) covers. Every track loads into the one table, so the bundle now shows three, the bcftools track, the LoFreq track, and the benchmark. The `Variant Track` column names the file each row came from. Sort by `Position` ascending to read the three interleaved.
+The rows appear on the **Variants** tab of the [table drawer](../../GLOSSARY.md#table-drawer), which [Reading the Variants Table](02-reading-the-variant-browser.md#what-it-is) covers. Every track loads into the one table, so the bundle now shows three, `HG002 bcftools`, `HG002 LoFreq`, and the benchmark. The `Variant Track` column names the file each row came from. Sort by `Position` ascending to read the three interleaved.
 
 <!-- SHOT: imported-benchmark-in-variants-tab -->
 
-### Step 5. The alternative path, with no bundle open
+### Import with no bundle open
 
-Import a VCF with no reference bundle in the viewport and an alert appears titled **Name Imported Variant Bundle**. Its message names the project folder the bundle will be saved into, and a text field holds the VCF's base name. Buttons read Create and Cancel.
+Import a VCF with no reference bundle or mapping result on display or selected in the sidebar, and an alert appears titled **Name Imported Variant Bundle**. Its message names the project folder the bundle will be saved into, and a text field holds the VCF's base name. Buttons read Create and Cancel.
 
 <!-- SHOT: name-imported-variant-bundle -->
 
-Click Create and LGE builds a variant-only bundle, a `.lungfishref` bundle holding variant rows and no reference sequence, and opens it. You can read, sort, and filter its rows as in step 4, but the sequence viewport stays empty. If the name matches a bundle the project already has, the existing one is replaced and cannot be recovered from inside LGE, so read the name before you click Create.
+Click Create and LGE builds a variant-only bundle, a `.lungfishref` bundle holding variant rows and no reference sequence, and opens it. You can read, sort, and filter its rows as in [Read the benchmark in the Variants tab](#read-the-benchmark-in-the-variants-tab), but the sequence viewport stays empty. If the name matches a bundle the project already has, the existing one is replaced and cannot be recovered from inside LGE, so read the name before you click Create.
 
-The bundle records a default [ploidy](../../GLOSSARY.md#ploidy), the number of copies of each chromosome an organism carries, as `auto` for a single file and `haploid` when several VCFs were merged into one track. LGE also reads the VCF's contig lines, the header lines naming each sequence the rows count along, looking for an assembly or an NCBI accession it recognises. When it finds one it downloads that reference in the background and attaches it. The benchmark's header lists the whole GRCh38 human assembly, so this path would try to fetch a whole human reference for a 500 kilobase example, which is why step 1 exists.
+The bundle records a default [ploidy](../../GLOSSARY.md#ploidy), the number of copies of each chromosome an organism carries, as `auto` for a single file and `haploid` when several VCFs were merged into one track. LGE also reads the VCF's contig lines, the header lines naming each sequence the rows count along, looking for an assembly or an NCBI accession it recognises. When it finds one it downloads that reference in the background and attaches it. The benchmark's header lists the whole GRCh38 human assembly, so this path would try to fetch a whole human reference for a 500 kilobase example, which is why opening the right bundle comes first.
 
 With no project open at all, an alert titled **No Active Project** asks you to open or create one first.
 
@@ -109,15 +109,15 @@ The VCF Variants card has no controls of its own. One preference shapes the impo
 
 Set the scope control above the table to **Genome** so the counts below match, then read the benchmark rows through the `Variant Track` column.
 
-The benchmark holds 961 rows across the 500 kilobase slice, one difference every 520 bases. Any two people differ at roughly one base in a thousand across the whole genome, and variants cluster, so a stretch twice that dense is within the ordinary range. The two callers bracket it in their own ways, as [Reading the Variants Table](02-reading-the-variant-browser.md#step-6-read-the-two-callers-against-each-other) explains.
+The benchmark holds 961 rows across the 500 kilobase slice, one difference every 520 bases. Any two people differ at roughly one base in a thousand across the whole genome, and variants cluster, so a stretch twice that dense is within the ordinary range. The two callers bracket it in their own ways, as [Read the two callers against each other](02-reading-the-variant-browser.md#read-the-two-callers-against-each-other) in Reading the Variants Table explains.
 
-The [FILTER](../../GLOSSARY.md#filter) column reads `PASS` when a row cleared the caller's filters and a bare `.` when no filter was applied, as [FILTER, and the flags callers actually write](../01-foundations/05-variants-and-vcf.md#filter-and-the-flags-callers-actually-write) explains. All 961 benchmark rows read `PASS`, so the **PASS** chip keeps them, while it hides the bcftools track entirely, the lesson [Step 4 of Reading the Variants Table](02-reading-the-variant-browser.md#step-4-filter-with-the-preset-chips) teaches.
+The [FILTER](../../GLOSSARY.md#filter) column reads `PASS` when a row cleared the caller's filters and a bare `.` when no filter was applied, as [FILTER, and the flags callers actually write](../01-foundations/05-variants-and-vcf.md#filter-and-the-flags-callers-actually-write) explains. All 961 benchmark rows read `PASS`, so the **PASS** chip keeps them, while it hides the bcftools track entirely, the lesson [Filter with the preset chips](02-reading-the-variant-browser.md#filter-with-the-preset-chips) in Reading the Variants Table teaches.
 
 Every benchmark row has a `Quality` of exactly 50. The Genome in a Bottle pipeline writes a constant there, because its confidence comes from many technologies agreeing rather than from one caller's score. Sorting by `Quality` tells you nothing about the benchmark rows, and comparing their 50 with a caller's score compares two unrelated scales.
 
 The `Type` column splits the benchmark into 809 substitutions, 77 deletions, and 75 insertions. LoFreq called no insertions or deletions, because it skips them unless asked, so those 152 benchmark rows were never within its reach.
 
-A [genotype](../../GLOSSARY.md#genotype) of `0/1` means one of the two chromosome copies carries the change and `1/1` means both do. The benchmark's sample column, `HG002`, carries 571 rows reading `0/1`, 1 reading `1/0`, 374 reading `1/1`, 4 reading `1/2`, and 11 reading `2/1`. In those, `2` is the second alternate allele, so the two copies carry two different changes, and `1/0` means the same as `0/1`. Position 250,527 is a [heterozygous](../../GLOSSARY.md#heterozygous) site, one copy changed and one not. The benchmark reads `0/1` there, a reference `C` and an alternate `T`, which agrees with LoFreq's allele frequency of 0.571, meaning 57 percent of the reads carried `T`, close to the half expected when one of two copies carries it. The bcftools track agrees as well, with its own `0/1` at that position.
+A [genotype](../../GLOSSARY.md#genotype) of `0/1` means one of the two chromosome copies carries the change and `1/1` means both do. The benchmark's sample column, `HG002`, named by the consortium rather than by LGE, carries 571 rows reading `0/1`, 1 reading `1/0`, 374 reading `1/1`, 4 reading `1/2`, and 11 reading `2/1`. In those, `2` is the second alternate allele, so the two copies carry two different changes, and `1/0` means the same as `0/1`. Position 250,527 is a [heterozygous](../../GLOSSARY.md#heterozygous) site, one copy changed and one not. The benchmark reads `0/1` there, a reference `C` and an alternate `T`, which agrees with LoFreq's allele frequency of 0.571, meaning 57 percent of the reads carried `T`, close to the half expected when one of two copies carries it. The bcftools track agrees as well, with its own `0/1` at that position.
 
 ## What good looks like
 
@@ -131,19 +131,19 @@ Fourth, read the `Variant Track` column before drawing a conclusion from a filte
 
 ## On the command line
 
-This section is optional, and nothing later in this manual needs it. The `lungfish-cli` program ships inside LGE, and [Finding the program](../appendices/cli-reference.md#finding-the-program) shows how to run it.
-
-`lungfish-cli import vcf` reproduces steps 1 to 3 when `--output-dir` names an existing `.lungfishref` bundle. It validates the file, prints a summary, and attaches the VCF to that bundle as a new variant track. Replace the path with your own, keeping the double quotes.
+`lungfish-cli import vcf` reproduces the import when `--output-dir` names an existing `.lungfishref` bundle. It validates the file, prints a summary, and attaches the VCF to that bundle as a new variant track, named after the file unless `--name` gives another name. Every flag is listed in [Importing into a project](../appendices/cli-reference.md#importing-into-a-project) in the CLI Reference. The block follows [Reading an On the command line block](../01-foundations/06-the-lungfish-project.md#reading-a-command-line-block). Put your own mapping result folder in the `BUNDLE` line, as `ls "$PROJECT/Analyses"` prints it.
 
 ```bash
-BUNDLE="MyProject.lungfish/Reference Sequences/GRCh38.chr20.10.0-10.5Mb.lungfishref"
+PROJECT="$HOME/Documents/LGE Demo Projects/Human Mapping and Variants.lungfish"
+BUNDLE="$PROJECT/Analyses/minimap2-2026-09-27T11-21-19/GRCh38.chr20.10.0-10.5Mb.lungfishref"
 
-lungfish-cli import vcf HG002.chr20.10.0-10.5Mb.benchmark.vcf.gz \
-  --output-dir "$BUNDLE" --name "HG002 benchmark"
+lungfish-cli import vcf \
+  "$PROJECT/Practice Data/hg002-chr20/HG002.chr20.10.0-10.5Mb.benchmark.vcf.gz" \
+  --output-dir "$BUNDLE"
 ```
 
-The summary names the new track and reports 961 variants, as the Variants tab does. When `--output-dir` names a plain folder instead of a bundle, the command only validates the file, prints a summary that also splits the records by type, and copies the VCF and its index there, attaching nothing.
+The summary ends "VCF import complete" and names the track it attached, and the Variants tab then reports 961 variants. When `--output-dir` names a plain folder instead of a bundle, the command only validates the file, prints a summary that also splits the records by type, and copies the VCF and its index there, attaching nothing. `--name` and `--import-profile` are refused in that case, because they apply only to a bundle.
 
 ## Next
 
-This is the last chapter in Variants. Continue to [What Is Classification](../06-classification/01-what-is-classification.md), or return to [Reading the Variants Table](02-reading-the-variant-browser.md) to filter the three tracks you now have.
+This is the last chapter in Variants. For publishable calls on a person or a macaque, continue to [Reference Files for GATK](../06-human-germline-variants/04-reference-packs.md), the first chapter of Human Germline Variants (Experimental), which calls HG002 and its parents with GATK. For a sample that may hold more than one organism, go on to [What Is Read Classification](../06-classification/01-what-is-classification.md). Either way, [Reading the Variants Table](02-reading-the-variant-browser.md) reads the three tracks you now have.

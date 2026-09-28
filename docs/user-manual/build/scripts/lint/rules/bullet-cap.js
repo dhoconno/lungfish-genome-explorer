@@ -1,7 +1,7 @@
 import { visit } from "unist-util-visit";
 
 const MAX_ITEMS = 5;       // max items per list
-const MAX_LISTS = 2;       // max lists per H2 section
+const MAX_LISTS = 2;       // max lists per section, where a section is an H2 or H3
 
 export default function bulletCap() {
   return (tree, file) => {
@@ -15,13 +15,17 @@ export default function bulletCap() {
       }
     });
 
-    // --- Rule 2: per-H2-section list count cap ---
-    // Walk top-level children in document order, segmenting by depth-2 headings.
-    // Counter resets at every new H2.
+    // --- Rule 2: per-section list count cap ---
+    // Walk top-level children in document order, segmenting by headings. The
+    // counter resets at every H2 and every H3, because the rule exists to stop
+    // a wall of bullets inside one stretch of prose a reader takes in at once,
+    // and an H3 starts such a stretch just as an H2 does. Before 2026-09-27
+    // only H2 reset it, which penalised a page whose H2 is a container for
+    // several independent H3 items (a study-questions tier, for instance).
     let listsInSection = 0;
 
     for (const child of tree.children) {
-      if (child.type === "heading" && child.depth === 2) {
+      if (child.type === "heading" && (child.depth === 2 || child.depth === 3)) {
         listsInSection = 0;
         continue;
       }
@@ -29,7 +33,7 @@ export default function bulletCap() {
         listsInSection += 1;
         if (listsInSection > MAX_LISTS) {
           file.message(
-            `${listsInSection}${ordinalSuffix(listsInSection)} list in this H2 section. Cap is ${MAX_LISTS} lists per section. Restructure with subheadings or prose.`,
+            `${listsInSection}${ordinalSuffix(listsInSection)} list in this section. Cap is ${MAX_LISTS} lists per H2 or H3 section. Restructure with subheadings or prose.`,
             child,
           );
         }

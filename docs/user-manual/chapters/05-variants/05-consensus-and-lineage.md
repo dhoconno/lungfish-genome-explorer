@@ -3,7 +3,7 @@ title: Extracting a Consensus Sequence
 chapter_id: 05-variants/05-consensus-and-lineage
 audience: bench-scientist
 prereqs: [04-alignments/02-reading-an-alignment, 05-variants/01-calling-variants-from-amplicons]
-estimated_reading_min: 16
+estimated_reading_min: 20
 task: Read one sequence out of an alignment's read pile and save it as a FASTA record or a reference bundle.
 tags: [variants, consensus, alignment, samtools, fasta]
 tools: [samtools]
@@ -17,25 +17,35 @@ shots:
     caption: "The Consensus tab with Hide high-gap sites turned on, revealing the Gap threshold and Masking minimum depth sliders between Consensus minimum depth and Consensus minimum MAPQ."
   - id: consensus-destination-dialog
     caption: "The Extract Sequence dialog showing its four Destination choices, with Save as Bundle selected by default above Save to File..., Copy to Clipboard, and Share..., and the Name field prefilled with the suggested consensus name."
-illustrations: []
-glossary_refs: [alignment-track, benchmark-vcf, blast, consensus-sequence, contig-reference, depth, coverage-breadth, flag, homozygous, iupac-ambiguity-code, mapq, phred-score, pileup, provenance, provenance-sidecar, read-group, reference-bundle, samtools, variant-caller, checksum]
+illustrations:
+  - id: pileup-consensus-column
+    brief: "An alignment drawn as a grid on a Cream background, the reference sequence along the top row and eight or ten reads as rows beneath it, each column one reference position. Three columns are outlined in Lungfish Creamsicle and read downwards into a consensus row at the bottom. In the first every read shows A, and the consensus letter is A. In the second only three reads cover the position, below the depth floor, and the consensus letter is N. In the third about half the reads show A and half G, and the consensus letter is R, with a small note that R means A or G and appears only with ambiguity codes on. IBM Plex Mono for the letters, Deep Ink text."
+glossary_refs: [alignment-track, benchmark-vcf, blast, consensus-sequence, contig-reference, depth, coverage-breadth, flag, homozygous, iupac-ambiguity-code, lineage, mapq, phred-score, pileup, provenance, provenance-sidecar, read-group, reference-bundle, samtools, variant-caller, checksum]
 features_refs: []
-fixtures_refs: [hg002-chr20]
+fixtures_refs: [hg002-chr20, human-mito]
 brand_reviewed: false
 lead_approved: false
 ---
 
 ## What it is
 
-A [consensus sequence](../../GLOSSARY.md#consensus-sequence) is what you get by reading an alignment downward instead of across. Picture the alignment as a grid. Each read is a row, each reference position is a column, and a [pileup](../../GLOSSARY.md#pileup) is the stack of read bases over one reference position. Ask which base most reads agree on in each column, in order, and you get one sequence that stands for the sample as a whole.
+A [consensus sequence](../../GLOSSARY.md#consensus-sequence) is one sequence that summarises many. This chapter builds the kind you get by reading an alignment downward instead of across. Picture the alignment as a grid. Each read is a row, each reference position is a column, and a [pileup](../../GLOSSARY.md#pileup) is the stack of read bases over one reference position. Ask which base most reads agree on in each column, in order, and you get one sequence that stands for the sample as a whole.
 
-Lungfish Genome Explorer (LGE) builds that sequence in the Inspector's Consensus tab and writes it out with **Extract Consensus...**. The result has one letter per reference position in the stretch you chose. Where the reads gave enough evidence, the letter is the base they carried, which may differ from the reference, because the consensus describes your sample. Where the evidence fell short, the letter is `N`, meaning unknown. A position becomes `N` when too few reads covered it, when the reads disagreed too sharply to settle, or when the reads agree the base is deleted. With ambiguity codes off, as they are by default, the output holds only the four bases and `N`.
+<!-- ILLUSTRATION: pileup-consensus-column -->
+
+Lungfish Genome Explorer (LGE) builds that sequence in the Inspector's Consensus tab and writes it out with **Extract Consensus...**. The result has one letter per reference position in the stretch you chose. Where the reads gave enough evidence, the letter is the base they carried, which may differ from the reference, because the consensus describes your sample. Where the evidence fell short, the letter is `N`, meaning unknown. A position becomes `N` when too few reads covered it, when the reads disagreed too sharply to settle, or when the reads agree the base is deleted. With ambiguity codes off, as they are by default, the output holds only the four bases and `N`. Bases that reads carry between two reference positions, an insertion relative to the reference, have no position of their own, so LGE leaves them out of both the drawn consensus row and the extracted sequence. A sample with a real insertion therefore comes out without it, so check the alignment by eye wherever you expect one.
 
 "Enough evidence" is where the judgement lives, and the Consensus tab is a set of dials for it. You decide how many reads must cover a position, whether to ignore reads the mapper placed without confidence, whether to ignore bases the sequencer reported without confidence, and whether disagreement is resolved into one winner or written as a letter standing for both. Reads disagree because the two copies of a chromosome carry different bases, or because the sequencer misread one of them. A permissive setting gives few `N` characters and some wrong letters. A strict one gives more `N` characters and more trust in the rest.
 
 Under the surface LGE runs [samtools](../../GLOSSARY.md#samtools), which ships with the app. Treat the consensus as a summary you configure, not a fact you read off, and set the depth floor before you look at the sequence.
 
-This chapter stops at the FASTA record. Lineage assignment happens inside the [Viral Recon Wizard](../04-alignments/05-viral-recon-wizard.md), and lineage abundances in a mixed sample belong to [Running Freyja](../06-classification/07-running-freyja.md).
+This chapter stops at the FASTA record. Naming a viral consensus with a lineage is covered in [Reading the lineage calls](../04-alignments/05-viral-recon-wizard.md#reading-the-lineage-calls), and lineage abundances in a mixed sample belong to [Running Freyja](../06-classification/07-running-freyja.md).
+
+### Pileup consensus versus variants-applied consensus
+
+Two different programs are called consensus builders, and they start from different evidence. A pileup consensus, the kind this chapter builds with `samtools consensus`, reads the reads themselves at every position and never looks at a VCF. A variants-applied consensus starts from the reference and writes in the changes a variant caller reported, as `bcftools consensus` does inside [The Viral Recon Wizard](../04-alignments/05-viral-recon-wizard.md), which writes a change only when at least three quarters of the reads carry it and masks positions with fewer than 10 reads as `N`.
+
+The two usually agree on a well-covered haploid sample, and they differ in what they do with doubt. A pileup consensus decides every position from its own reads, so a stretch the caller never reported still gets the reads' base, and a thin stretch becomes `N`. A variants-applied consensus copies the reference wherever no call was made, so it is only as good as the call set and the mask that come with it. Use a pileup consensus when you have the alignment in front of you and want the reads to speak for every position. Use the variants-applied one when a pipeline or a public submission standard asks for it, as SARS-CoV-2 surveillance does. The calls you made in [Calling Variants](01-calling-variants-from-amplicons.md) are not an input to this chapter.
 
 ## Why you would do this
 
@@ -45,6 +55,26 @@ A sequence is also readable in a way a variant list is not. The HG002 chromosome
 
 The consensus also reports its own uncertainty. A [variant caller](../../GLOSSARY.md#variant-caller) that finds nothing at a position is silent, whether the sample matched the reference or no reads were there. The consensus tells the two apart, a base for a match and an `N` for no evidence, so counting `N` characters measures how much of the sample you observed.
 
+## Choosing a tool
+
+Check whether your sample is haploid or diploid and whether it came from amplicons, as [Know your reads before you choose a tool](../01-foundations/02-sequencing-reads.md#know-your-reads-before-you-choose-a-tool) shows. The choice then rests on what should happen at a position where the reads disagree, whether it becomes one base, an `N`, or a letter standing for both. The Consensus tab offers two modes of samtools consensus, and for SARS-CoV-2 the Viral Recon pipeline builds a consensus of its own.
+
+**Bayesian** mode, the default, weighs the evidence statistically. At each position it weighs every base by its quality score, lowers the weight of bases that sit next to poor-quality bases, and takes account of how confidently each read was mapped. It allows for a position where the two copies of a chromosome differ, so with ambiguity codes on it writes such a position as a two-base letter. It suits human and macaque samples, and any data whose base qualities mean something. Its weakness is that the decision at one position is hard to reproduce by hand.
+
+On a diploid sample either mode gives a blend of the two chromosome copies, not a [haplotype](../../GLOSSARY.md#haplotype), the sequence of one copy. Where the copies differ the consensus cannot say which base belongs to which copy, and with ambiguity codes off many such positions become `N`. Turn ambiguity codes on to keep those heterozygous sites visible as two-base letters.
+
+**Simple** mode counts one vote for each base in the column and ignores quality scores. It writes the leading base only when at least 75 percent of the reads carry it and writes `N` otherwise, so a position split 60 to 40 becomes `N` rather than the majority base. With ambiguity codes on, a strong second base is written as a two-base letter instead. It is easy to explain and to check by hand, and it suits a haploid sample such as a virus, where a genuinely mixed position is the exception. It struggles where base quality varies a lot, because a doubtful base counts as much as a confident one.
+
+**Viral Recon** builds a variants-applied consensus inside the pipeline, from primer-trimmed reads, and masks stretches with too little coverage before it assigns a [lineage](../../GLOSSARY.md#lineage), the named branch of the virus family tree the genome belongs to. For a SARS-CoV-2 genome headed for a public database, use it rather than this tab.
+
+| Tool | Built for | Choose it when | Choose something else when |
+|---|---|---|---|
+| Bayesian mode | Diploid samples and quality-aware calls | The sample is a person or a macaque, whose two chromosome copies can differ | You need a rule a colleague can check by hand |
+| Simple mode | A stated share of reads per base | The sample is haploid and you want a reproducible rule | Base quality varies widely across the reads |
+| Viral Recon | SARS-CoV-2 amplicon genomes | The sequence is headed for a lineage call or a public deposit | The sample is not a virus the pipeline supports |
+
+This chapter uses Bayesian mode on [HG002](../../GLOSSARY.md#hg002), a diploid human sample, and [Reading the results](#reading-the-results) shows what Simple mode changes on the same reads. Switch to Simple mode on a primer-trimmed viral alignment, with the depth floor raised to 10, the default of iVar's consensus command, or to 20, the depth below which the ARTIC pipeline masks a position, so that thin and mixed positions become `N` rather than a guess. samtools is cited in [Tools installed with every copy of LGE](../appendices/bibliography.md#tools-installed-with-every-copy-of-lge), and the samtools consensus manual page at <https://www.htslib.org/doc/samtools-consensus.html> describes both modes. Viral Recon is cited in [Pinned external pipelines](../appendices/bibliography.md#pinned-external-pipelines), and the ARTIC pipeline in [Other works cited in the manual](../appendices/bibliography.md#other-works-cited-in-the-manual).
+
 ## Before you start
 
 You need a project open, as [The Lungfish Genome Explorer Project](../01-foundations/06-the-lungfish-project.md#procedure) shows.
@@ -53,12 +83,12 @@ Open the Human Mapping and Variants demo project with **Help > Demo Projects…*
 
 This chapter uses the HG002 chromosome 20 slice fixture. Download `GRCh38.chr20.10.0-10.5Mb.fasta`, `HG002.chr20.10.0-10.5Mb_R1.fastq.gz`, and `HG002.chr20.10.0-10.5Mb_R2.fastq.gz` from the [hg002-chr20 fixture folder](https://github.com/dhoconno/lungfish-genome-explorer/tree/v2026.9.39/docs/user-manual/fixtures/hg002-chr20), as [Practice data for this manual](../01-foundations/06-the-lungfish-project.md#practice-data-for-this-manual) explains.
 
-You need an alignment inside a [reference bundle](../../GLOSSARY.md#reference-bundle), because **Extract Consensus...** stays disabled until the bundle holds an [alignment track](../../GLOSSARY.md#alignment-track). If you have not mapped the fixture reads yet, [Mapping Reads to a Reference](../04-alignments/01-mapping-reads-to-a-reference.md) does that, and mapping as it describes should reproduce every number in this chapter. Nothing needs installing, because samtools arrives with the app.
+You need an alignment inside a [reference bundle](../../GLOSSARY.md#reference-bundle), because **Extract Consensus...** stays disabled until the bundle holds an [alignment track](../../GLOSSARY.md#alignment-track). The `HG002 minimap2` alignment that [Mapping Reads to a Reference](../04-alignments/01-mapping-reads-to-a-reference.md) makes is the one this chapter reads, and mapping as it describes reproduces every number here. The Human Mapping and Variants (with results) demo project already holds it. samtools arrives with the [Required Setup pack](../../GLOSSARY.md#required-setup-pack), which the Welcome window offers to install the first time you open LGE.
 
 ## Procedure
 
-1. Click the alignment track in the sidebar, nested beneath its reference bundle and named "minimap2 Mapping" by default after the mapper, the program that placed each read on the reference. The alignment viewport opens, and the Inspector fills with the alignment's summary. Open the [Inspector](../../GLOSSARY.md#inspector) with **View > Show Inspector** (Cmd-Opt-I) if it is hidden.
-2. Open the Inspector's **Analysis** section and click its **Consensus** tab, one of the six [Analysis tabs](../04-alignments/02-reading-an-alignment.md#the-inspector-summary-and-the-analysis-tabs). The tab opens with a note reading "Adjust consensus evidence settings here. Consensus controls are intentionally separate from View so display settings stay lighter." <!-- SHOT: analysis-consensus-tab -->
+1. Click the `minimap2-` mapping result under **Analyses** in the sidebar. The mapping viewport opens with the `HG002 minimap2` alignment in its lower pane, and the Inspector fills with the run's summary. Open the [Inspector](../../GLOSSARY.md#inspector) with **View > Show Inspector** (Cmd-Opt-I) if it is hidden.
+2. Open the Inspector's **Analysis** tab and click its **Consensus** tab, one of the six [Analysis tabs](../04-alignments/02-reading-an-alignment.md#the-inspector-summary-and-the-analysis-tabs). The tab opens with a note reading "Adjust consensus evidence settings here. Consensus controls are intentionally separate from View so display settings stay lighter." <!-- SHOT: analysis-consensus-tab -->
 3. Leave **Show consensus track in viewer** on, so a consensus row draws above the reads and changes as you move the controls. Set **Consensus scope** to `Whole contig` for the whole slice, a [contig](../../GLOSSARY.md#contig-reference) being one named sequence in the reference.
 4. Leave the evidence controls at their defaults for a first pass, **Consensus Mode** on `Bayesian`, **Consensus minimum depth** at 8, both quality floors at 0, and **Hide high-gap sites** off. Each slider has a number field beside it, so you can type an exact value instead of dragging. Turning **Hide high-gap sites** on reveals two more sliders, which the Settings section explains. <!-- SHOT: consensus-masking-sliders -->
 5. Click **Extract Consensus...** below the divider. A row titled "Generate Alignment Consensus" appears in the [Operations Panel](../01-foundations/06-the-lungfish-project.md#the-operations-panel), which opens with **Operations > Show Operations Panel** (Cmd-Shift-P), and a dialog headed Extract Sequence asks where the sequence should go. <!-- SHOT: consensus-destination-dialog --> Keep the default Destination, `Save as Bundle`, which writes a `.lungfishref` bundle that reopens in LGE directly. The other choices are `Save to File...` for a plain FASTA, `Copy to Clipboard`, and `Share...`. The button at the bottom reads Create Bundle, and renames itself Save, Copy, or Share to match your choice. Click it.
@@ -71,7 +101,7 @@ Every control below sits in the Consensus tab and steers the consensus row drawn
 
 **Show consensus track in viewer.** Draws the consensus as its own row above the reads. The default is on, so you can judge a setting by looking at it rather than extracting a file. Turn it off when the viewport is crowded, which changes nothing about what extraction writes. This setting has no command-line flag.
 
-**Consensus Mode.** Chooses how the base at each position is decided. The default is `Bayesian`, which weighs each base by its own quality score, the sequencer's confidence in that base, so a confident base counts for more than a doubtful one, the safer choice on real sequencing data. Switch to `Simple`, a plain majority that ignores quality, when you want a call anyone can reproduce by hand. This setting has no command-line flag.
+**Consensus Mode.** Chooses how the base at each position is decided. The default is `Bayesian`, which weighs each base by its own quality score, the sequencer's confidence in that base, so a confident base counts for more than a doubtful one, the safer choice on real sequencing data. Switch to `Simple`, which ignores quality and writes a base only where at least 75 percent of the reads agree on it, when you want a call anyone can reproduce by hand. This setting has no command-line flag.
 
 **Consensus scope.** Decides whether the sequence covers the whole contig or only a stretch you highlighted by dragging across the ruler. The default is `Whole contig`, which a whole-genome deposit or a tree needs. Choose `Selected region` for one gene or amplicon, and highlight the stretch first, because with nothing selected the button greys out above the line "Select a region in the viewer first". This setting has no command-line flag.
 
@@ -79,7 +109,7 @@ Every control below sits in the Consensus tab and steers the consensus row drawn
 
 **Hide high-gap sites.** Masks columns where most reads spanning the position carry a gap rather than a base, since those columns are usually alignment artifacts. The default is off, which suits short accurate reads like this fixture's. Turn it on when a noisy alignment fills the drawn consensus row with gap-heavy columns you do not believe, which also reveals the two sliders below. It does not change the extracted sequence. This setting has no command-line flag.
 
-**Consensus minimum depth.** Sets how many reads must cover a position before LGE calls a base there, writing `N` for anything thinner. [Depth](../../GLOSSARY.md#depth), also called coverage, is the number of reads covering one position, and [coverage breadth](../../GLOSSARY.md#coverage-breadth) is the share of positions with at least one read. The default of 8 keeps most of a well-covered genome while refusing the thinnest evidence, and the range is 1 to 50. Raise it to about 20 for a sequence going into a publication or deposit. This setting has no command-line flag.
+**Consensus minimum depth.** Sets how many reads must cover a position before LGE calls a base there, writing `N` for anything thinner. [Depth](../../GLOSSARY.md#depth), also called coverage, is the number of reads covering one position, and [coverage breadth](../../GLOSSARY.md#coverage-breadth) is the share of positions with at least one read. The default of 8 is LGE's own starting point rather than a published standard. It sits a little below the 10 reads the Call Variants dialog asks for, and keeps most of a well-covered genome while refusing the thinnest evidence. The range is 1 to 50. Raise it to 10, the depth Viral Recon masks below, or to about 20 for a sequence going into a publication or deposit. This setting has no command-line flag.
 
 **Gap threshold.** Sets what share of the spanning reads must carry a gap before a column is masked. The default is 90 percent, so only a column the reads almost unanimously call empty is masked, and the range is 50 to 99 percent. Lower it when obvious artifact columns survive, and note that it appears only while **Hide high-gap sites** is on. This setting has no command-line flag.
 
@@ -111,11 +141,19 @@ Each row below is a run of the fixture alignment with one setting changed from t
 | **Use IUPAC ambiguity codes** turned on | 361 | 0.072 percent |
 | **Consensus minimum MAPQ** raised to 20 | 1,107 | 0.221 percent |
 
-Raising the depth floor to 20 turns 4,619 more positions into `N`, about five times the masking with no change to the data. `Simple` masks 149 more than `Bayesian`, because without quality weighting more columns lack a clear winner. Ambiguity codes mask 666 fewer, because a conflicted column is written as an ambiguity letter instead of `N`. That row is a change of notation, not a gain. The run wrote 549 ambiguity letters, 182 `R`, 191 `Y`, and 176 among `M` (`A` or `C`), `W` (`A` or `T`), `K` (`G` or `T`), and `S` (`C` or `G`).
+Raising the depth floor to 20 turns 4,619 more positions into `N`, about five times the masking with no change to the data. `Simple` masks 149 more than `Bayesian`, because it writes `N` wherever fewer than 75 percent of the reads agree, and more columns fall short of that share than fail the Bayesian test. Ambiguity codes mask 666 fewer, because a conflicted column is written as an ambiguity letter instead of `N`. That row is a change of notation, not a gain. The run wrote 549 ambiguity letters, 182 `R`, 191 `Y`, and 176 among `M` (`A` or `C`), `W` (`A` or `T`), `K` (`G` or `T`), and `S` (`C` or `G`).
 
 The settings behind every run are written down. Saving to a file or a bundle records them in the [provenance sidecar](../../GLOSSARY.md#provenance-sidecar), a small file kept beside the FASTA, and a bundle carries the same record inside it. Copying to the clipboard logs a summary on the Operations Panel row instead. Both record two fixed policies, shown in the clipboard summary as `Low-depth policy: N` and `Reference-fill policy: never` and in the provenance as `lowDepthPolicy` and `referenceFillPolicy`. LGE never fills a thin position with the reference base, which would read as confirmation of the reference when it is really an absence of evidence. An `N` in the output always means no evidence.
 
-The FASTA header names the sample, the contig, and the word consensus, and a selected-region consensus adds the coordinates.
+The FASTA header names the sample, the contig, and the word consensus, as in `>HG002.chr20.10.0-10.5Mb chr20_10.0-10.5Mb consensus`. A selected-region consensus adds the 1-based coordinates to the contig and the word selected, as in `chr20_10.0-10.5Mb:2001-3000 selected consensus`.
+
+### The human mitochondrion, a sequence worth reading
+
+A diploid consensus such as HG002's chromosome 20 is a blend of two chromosome copies, so it is a good place to learn the dials and a poor thing to deposit or build a tree from. The human mitochondrial genome is the opposite case. A person carries one mitochondrial sequence in hundreds of copies per cell, so its consensus is a real sequence, the one mitochondrial disease testing, forensic identification, and studies of human migration read.
+
+The Long Reads and Assembly demo project holds HG002's Illumina mitochondrial reads, `HG002.chrM`, beside the `NC_012920.1` reference, the revised Cambridge Reference Sequence (rCRS) that [Nanopore Variant Calling](04-nanopore-variant-calling.md#why-you-would-do-this) introduces. Mapped with minimap2 and the Short-read preset, 19,853 of the 19,916 reads land, at a mean depth of 295. The consensus at this chapter's default settings is 16,569 letters long, exactly the reference's length, and holds a single `N`, at position 3107. The rCRS itself carries an `N` there as a placeholder that keeps the historical numbering, so no read has a base to offer.
+
+The consensus differs from the rCRS at 13 positions, 263, 310, 456, 750, 1438, 4336, 4769, 6800, 8557, 8860, 15175, 15326, and 16304. Raising the depth floor to 20 or switching to `Simple` changes none of them, because every position is deep and unanimous. Twelve are the substitutions the nanopore reads also support in [Nanopore Variant Calling](04-nanopore-variant-calling.md#reading-the-results), including the six near-universal differences from the rCRS and three haplogroup markers. The thirteenth, 310, sits in a run of C bases in the control region, where short reads align least reliably, so look at it in the viewport before you rely on it. The consensus also settles the two nanopore `0/1` calls at 9028 and 14229, where it carries the reference base, as every Illumina read does.
 
 ## What good looks like
 
@@ -127,21 +165,20 @@ Third, look at where the `N` characters sit. Scattered single `N` positions are 
 
 Fourth, spot-check a position you already know. On this fixture it is 2,078, `G` in the reference and `A` in every read. On your own data, use any position with a variant call or a Sanger trace behind it. If it comes back as `N` or as the reference base, the filters are stricter than the data supports, and the depth floor is the first to loosen.
 
-Fifth, read the recorded settings rather than your memory of the sliders. LGE writes a [provenance](../../GLOSSARY.md#provenance) record beside every result, holding the command, the tool version, and a [checksum](../../GLOSSARY.md#checksum) of each file, and [Provenance and Reproducibility](../01-foundations/08-provenance-and-reproducibility.md#reading-the-results) shows how to read it.
+Fifth, read the recorded settings rather than your memory of the sliders, in the [provenance](../../GLOSSARY.md#provenance) record that [Provenance and Reproducibility](../01-foundations/08-provenance-and-reproducibility.md#reading-the-results) reads.
 
 ## On the command line
 
-This section is optional, and nothing later in this manual needs it. The `lungfish-cli` program ships inside LGE, and [Finding the program](../appendices/cli-reference.md#finding-the-program) shows how to run it.
+No `lungfish-cli` command builds a consensus from an alignment's reads, so this chapter has no command block to run. The operation history records the operation as `Lungfish.app alignment consensus`, which names the app rather than a command you can type. The run's provenance records the `samtools` steps LGE ran, which at the default settings on the whole contig take this form, with the file names shortened.
 
-No `lungfish-cli` command builds a consensus from an alignment's reads. The operation history records this operation as `Lungfish.app alignment consensus`, which names the app rather than a command you can type. The nearest command, `lungfish-cli msa consensus`, builds a consensus from a multiple sequence alignment bundle, where each row is one finished sequence rather than a read.
-
-```bash
-lungfish-cli msa consensus my-alignment.lungfishmsa \
-  --output consensus.fa --name "HG002 consensus"
+```text
+samtools view -b -h -F <flags from Read Inclusion> -o filtered.bam alignment.bam
+samtools index filtered.bam
+samtools consensus -r chr20_10.0-10.5Mb -a -f FASTA -m bayesian --min-BQ 0 --ff 0 -d 8 --show-del yes --show-ins no filtered.bam
 ```
 
-Its thresholds count sequences, not reads, so none of the Settings above carry over.
+`-m simple` replaces `-m bayesian` in Simple mode, `-A` is added for ambiguity codes, `-d` carries the depth floor, and a MAPQ floor above 0 adds `-q` to the first line. LGE then turns every deleted base into `N`. The nearest `lungfish-cli` command, `msa consensus`, builds a consensus from a multiple sequence alignment of finished sequences, whose thresholds count sequences rather than reads, as [CLI Reference](../appendices/cli-reference.md#multiple-sequence-alignments-and-trees) lists.
 
 ## Next
 
-Continue to [Importing Existing VCFs](06-importing-existing-vcfs.md) to read variant calls from an external pipeline. For a consensus genome built end to end from reads with lineage calls attached, see the [Viral Recon Wizard](../04-alignments/05-viral-recon-wizard.md). For a mixed sample where one consensus would hide the mixture, see [Running Freyja](../06-classification/07-running-freyja.md).
+Continue to [Importing Existing VCFs](06-importing-existing-vcfs.md) to read variant calls from an external pipeline, such as a benchmark, beside your own. For a consensus genome built end to end from reads with lineage calls attached, see [The Viral Recon Wizard](../04-alignments/05-viral-recon-wizard.md). For a mixed sample where one consensus would hide the mixture, see [Running Freyja](../06-classification/07-running-freyja.md).

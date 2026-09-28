@@ -32,7 +32,7 @@ lead_approved: false
 
 ## What it is
 
-Quality control is the step where you look at a set of reads and decide whether they are fit to analyse. A [read](../../GLOSSARY.md#read) is one stretch of DNA sequence the instrument reported, and each of its bases is a base call, the instrument's decision about which of A, C, G, or T sat at that position. A set of reads is unfit when too many of those calls are uncertain. A difference you find later might then come from the sample or from the instrument, and nothing downstream can tell the two apart.
+Quality control is the step where you look at a set of reads and decide whether they are fit to analyse. A [read](../../GLOSSARY.md#read) is the record a sequencer writes for one DNA fragment, and each of its bases is a base call, the instrument's decision about which of A, C, G, or T sat at that position. A set of reads is unfit when too many of those calls are uncertain. A difference you find later might then come from the sample or from the instrument, and nothing downstream can tell the two apart.
 
 In Lungfish Genome Explorer (LGE) this step has no separate screen. A read bundle holds one sample's reads. Click one in the sidebar and the [viewport](../../GLOSSARY.md#viewport), the large central pane that changes to suit whatever you selected, becomes the FASTQ viewport. [FASTQ](../../GLOSSARY.md#fastq) is the read file format [Importing Sequencing Reads](01-importing-fastq.md) introduces. The FASTQ viewport shows nine summary cards across the top, three small charts beneath them, and a table of individual reads below that. This chapter is the one place in the manual that explains all of them.
 
@@ -60,7 +60,7 @@ This chapter uses the HG002 chromosome 20 fixture. Download `HG002.chr20.10.0-10
 
 Import the pair as [Importing Sequencing Reads](01-importing-fastq.md) shows. Leave the import sheet's Quality Binning control on its default, None (preserve original), which keeps every score exactly as the instrument wrote it. The figures in this chapter come from an import with that default.
 
-The summary is computed by `seqkit`, a program that counts and measures reads. `seqkit` arrives with the [Required Setup pack](../../GLOSSARY.md#required-setup-pack), the one pack LGE installs by itself, so there is nothing to install.
+The summary is computed by `seqkit`, a program that counts and measures reads. `seqkit` arrives with the [Required Setup pack](../../GLOSSARY.md#required-setup-pack), which the Welcome window offers to install the first time you open LGE.
 
 ## Procedure
 
@@ -88,7 +88,7 @@ There is a second way to fill the charts. Some bundles carry a summary without t
 
 The Refresh QC Summary pane has no tool-specific controls. Its Primary Settings section reads "No additional primary settings are required for this QC summary refresh." Counts, lengths, and quality statistics are measured from the reads, so there is nothing to tune. The one control the dialog shows is the shared output choice.
 
-**Output Strategy.** Chooses whether several selected bundles get one output each or one pooled output. Leave it on Per Input, the default. For this operation the choice changes nothing. [Trimming and Filtering](04-trimming-and-filtering.md#shared-settings) explains the two choices. This setting has no command-line flag.
+**Output Strategy.** Chooses whether several selected bundles get one output each or one pooled output. Leave it on Per Input, the default. For this operation the choice changes nothing, and [Operation dialogs](../01-foundations/06-the-lungfish-project.md#operation-dialogs) explains the two choices. This setting has no command-line flag.
 
 ## Reading the results
 
@@ -101,9 +101,9 @@ The nine cards are measured from the reads, so none of them can be edited. The t
 | Mean Length | The average read length, rounded to a whole base | 249 bp |
 | Median Length | The length of the middle read once every read is sorted by length | 250 bp |
 | N50 | The length at which reads that long or longer hold half of all bases | 250 bp |
-| Mean Q | The average base quality on the Phred scale | 25.3 at import, 36.7 after Refresh QC Summary |
-| Q20 | The percentage of bases scoring 20 or higher | 95.0% at import, 94.6% after refresh |
-| Q30 | The percentage of bases scoring 30 or higher | 91.0% at import, 91.3% after refresh |
+| Mean Q | The average base quality on the Phred scale, averaged through error probabilities | 25.3 |
+| Q20 | The percentage of bases scoring 20 or higher | 94.6% |
+| Q30 | The percentage of bases scoring 30 or higher | 91.3% |
 | GC | The percentage of bases that are G or C | 39.4% |
 
 The cards shorten large numbers. Reads shows 91.1K, where K means thousand, and Bases shows 22.66 Mb, where Mb means million bases. Open the [Inspector](../../GLOSSARY.md#inspector) with **View > Show Inspector** (Cmd-Opt-I) if it is hidden. Its Dataset Statistics section gives the same measurements under slightly longer labels, with Read Count as an exact number, Mean Length to a tenth of a base, and two values no card shows, Min Length and Max Length.
@@ -112,7 +112,7 @@ The cards shorten large numbers. Reads shows 91.1K, where K means thousand, and 
 
 Reads is the number of records in the bundle. Here 91,148 is 45,574 pairs counted one read at a time, because the bundle stores both mates. Bases is how many letters those reads add up to.
 
-To judge whether that is enough data, compare Bases with the size of the region the reads came from. [Depth](../../GLOSSARY.md#depth), also called coverage, is the number of reads covering one position, and [coverage breadth](../../GLOSSARY.md#coverage-breadth) is the share of positions with at least one read. Dividing Bases by the region's size gives a rough depth before any mapping. Here 22,662,846 bases over the 500,000-base window come to about 45x, read as 45 times, which is comfortable for calling variants in a human sample. A count far below what your sequencing provider quoted means files went missing between the instrument and your disk. Providers often quote millions of reads or gigabases, where one gigabase is a billion bases, so convert before you compare.
+To judge whether that is enough data, compare Bases with the size of the region the reads came from. [Depth](../../GLOSSARY.md#depth), also called coverage, is the number of reads covering one position, and [coverage breadth](../../GLOSSARY.md#coverage-breadth) is the share of positions with at least one read. Dividing Bases by the region's size gives a rough depth before any mapping. Here 22,662,846 bases over the 500,000-base window come to about 45x, read as 45 times, more than the roughly 30x a human genome project aims for. A count far below what your sequencing provider quoted means files went missing between the instrument and your disk. Providers often quote millions of reads or gigabases, where one gigabase is a billion bases, so convert before you compare.
 
 ### Mean Length, Median Length, and N50
 
@@ -124,19 +124,20 @@ A mean below the median means a tail of shorter reads is pulling the average dow
 
 A [Phred score](../../GLOSSARY.md#phred-score) is a per-base quality on a logarithmic scale, where 20 means one wrong base in a hundred and 30 means one in a thousand.
 
-Q20 and Q30 are the percentages of bases scoring at or above 20 and 30. They answer the question you usually care about, which is how much of the data you can trust. This fixture reads 95.0% and 91.0%, which is healthy for Illumina. [What good looks like](#what-good-looks-like) gives the threshold to judge a Q30 figure against.
+Q20 and Q30 are the percentages of bases scoring at or above 20 and 30. They answer the question you usually care about, which is how much of the data you can trust. This fixture reads 94.6% and 91.3%, which is healthy for Illumina. [What good looks like](#what-good-looks-like) gives the threshold to judge a Q30 figure against.
 
 ### GC
 
 [GC content](../../GLOSSARY.md#gc-content) is the share of bases that are G or C. It is a property of the organism rather than of the run. Human DNA averages about 41 percent GC across the whole genome. This fixture reads 39.4%, which is the value for this particular 500 kb window, since GC drifts from one region of a genome to the next. A figure far from what your organism should show usually means another species is in the sample.
 
-### Mean Q in the app and on the command line
+### Mean Q
 
-Mean Q is the average base quality of the whole bundle, and it needs a closer reading than the other cards because a Phred score cannot be averaged in only one way. A score of Q30 stands for an error probability of 1 in 1,000, and Q10 stands for 1 in 10. Average the two scores and you get Q20. Average the probabilities they stand for, 0.001 and 0.1, and you get 0.0505, which converts back to about Q13. The second answer is the more cautious one for this kind of scale. A bad base is far more wrong than a good base is right, so a few terrible bases raise the true error rate sharply.
+Mean Q is the average base quality of the whole bundle. On this fixture it reads 25.3, and that is the figure to record. It sits well below the Q30 most bases reach, and the aside below explains why.
 
-LGE uses both routes, depending on what built the summary. When import builds it, `seqkit` averages the error probabilities and converts the result back to a score, so the card is the more conservative figure. When Refresh QC Summary builds it, LGE runs the same scan as `lungfish-cli fastq qc-summary`, which takes the plain average of the scores themselves. On this fixture the card reads 25.3, while the command line reports 36.7 for the same reads. Both are correct, and they measure different things. When you write a figure down, say which one it is. The import-time figure is the more cautious of the two.
+!!! note "Why Mean Q sits below most of the scores"
+    A Phred score cannot be averaged in only one way. A score of Q30 stands for an error probability of 1 in 1,000, and Q10 stands for 1 in 10. Average the two scores and you get Q20. Average the probabilities they stand for, 0.001 and 0.1, and you get 0.0505, which converts back to about Q13. LGE takes the second route everywhere, on the card at import, after Refresh QC Summary, in the Reads tab, and in `lungfish-cli fastq qc-summary`. It is the same average `seqkit` reports as AvgQual. It is the more cautious answer, because a bad base is far more wrong than a good base is right, so a few terrible bases raise the true error rate sharply. A plain average of this fixture's scores would come out much higher, so a figure from another program may not match LGE's until you know which average it used.
 
-After a refresh, then, the Mean Q card holds the plain average, which sits higher than the import-time figure for the same reads. The other eight cards mean the same thing whichever route built them. Compare Mean Q only between bundles whose summaries were built the same way. The simplest way to be sure is to run Refresh QC Summary on every bundle you want to compare, and to say which kind of average you used when you write a number down.
+Import and a refresh give the same Q20 and Q30, because both count every base against the threshold. On this fixture the stored values are 94.575% and 91.282%, and the cards round them to one decimal place.
 
 ### The three charts
 
@@ -150,7 +151,7 @@ Q Score Dist. is the quality-score distribution, a count of how many bases carry
 
 ### The Reads tab
 
-Two tabs sit under the charts, Operations and Reads. Operations lists the operation categories, such as QC & Reporting and Trimming & Filtering, and choosing one opens the FASTQ/FASTA Operations window. The Reads tab is a table of individual records with columns for the row number, Read ID, Length, Mean Q, and Sequence. Read ID is the read's name from the first line of its record, and Mean Q here is the plain average of that one read's scores. The table loads the first 1,000 records of the stored file. It is a window onto the start of the file, not a random sample and not a summary, and because import may have reordered the reads, the start of the file is not the start of the run.
+Two tabs sit under the charts, Operations and Reads. Operations lists the operation categories, such as QC & Reporting and Trimming & Filtering, and choosing one opens the FASTQ/FASTA Operations window. The Reads tab is a table of individual records with columns for the row number, Read ID, Length, Mean Q, and Sequence. Read ID is the read's name from the first line of its record, and Mean Q here is that one read's average quality, taken the same way as the card's. The table loads the first 1,000 records of the stored file. It is a window onto the start of the file, not a random sample and not a summary, and because import may have reordered the reads, the start of the file is not the start of the run.
 
 <!-- SHOT: fastq-viewport-reads-tab -->
 
@@ -164,7 +165,7 @@ The summary informs downstream operations and never blocks them. A bundle with a
 
 Four checks decide whether a bundle is ready for the next step.
 
-Check that Q30 sits where the platform puts it. Your sequencing provider's run report names the instrument that produced your files. On an Illumina run, a common rule of thumb rather than a published specification is that a Q30 above roughly 80% is healthy, and this fixture's 91.0% is comfortable. A figure well below that is worth raising with your provider before you analyse the data. As a rule of thumb for an Illumina run, the import-time Mean Q should sit above about Q20 and the refreshed Mean Q above about Q30, and a run below either has probably failed. Nanopore reads score much lower on Q30 by design, so judge those by Mean Q instead, and never hold the two platforms to one threshold.
+Check that Q30 sits where the platform puts it. Your sequencing provider's run report names the instrument that produced your files. On an Illumina run, a common rule of thumb rather than a published specification is that a Q30 above roughly 80% is healthy, and this fixture's 91.0% is comfortable. A figure well below that is worth raising with your provider before you analyse the data. Nanopore reads score much lower on Q30 by design, so judge those by Mean Q instead, and never hold the two platforms to one threshold.
 
 Check that Q / Position holds above Q20 for most of the read. A curve that sags only over the last few bases, as this fixture's does over its last seven, needs nothing done to it. A curve that crosses Q20 in the middle of the read is telling you to trim.
 
@@ -172,26 +173,49 @@ Check that Length Dist. is a single spike at the length your kit was configured 
 
 Check that GC lands near the value your organism should show. Judge it in percentage points, the plain difference between the two figures. Within about five points is fine, since GC varies from one region of a genome to the next, and this fixture's 39.4% against a human figure of about 41 percent is well inside that. A larger shift on a sample you know well is worth chasing down before you continue.
 
-A bundle that fails any of these goes through an operation under **Tools > Trimming & Filtering** first. Low quality across the read calls for Quality Trim, and adapter read-through calls for Adapter Removal, both covered in [Trimming and Filtering](04-trimming-and-filtering.md). Trimming writes a new bundle and leaves the imported one untouched, so nothing you do here destroys your original reads. Then run Refresh QC Summary on both the original and the trimmed bundle. That puts both Mean Q cards on the same average, so the before-and-after comparison is fair. Only then map the trimmed reads.
+A bundle that fails any of these goes through an operation under **Tools > Trimming & Filtering** first. Low quality toward the read ends or adapter read-through both call for fastp Adapter + Quality Trim, the combined operation [Trimming and Filtering Reads](04-trimming-and-filtering.md) runs first. Trimming writes a new bundle and leaves the imported one untouched, so nothing you do here destroys your original reads. The trimmed bundle's cards are filled when it appears, so compare them with the original's before you map the trimmed reads.
 
-A GC figure far from expectation is not a trimming problem, and what to do about it depends on what you meant to sequence. If you were sequencing one organism, the other species is contamination, and [Decontamination](05-decontamination.md) removes it. If you were sequencing a mixed sample on purpose, the mixture is the signal and you carry on to classification.
+A GC figure far from expectation is not a trimming problem, and the first job is to find out what the other organism is. Run a classifier such as Kraken 2 on the bundle, as [Running Kraken 2](../06-classification/02-running-kraken2.md) shows, to name what else is in the tube. [Decontamination](05-decontamination.md) can then remove it only when it is human, ribosomal RNA, the PhiX control, or a sequence you can supply as a file. If you were sequencing a mixed sample on purpose, the mixture is the signal and you carry on to classification.
+
+LGE records each refresh in the bundle's [provenance](../../GLOSSARY.md#provenance), as [Provenance and Reproducibility](../01-foundations/08-provenance-and-reproducibility.md#reading-the-results) shows.
+
+## Where LGE shows the facts about your reads
+
+[Know your reads before you choose a tool](../01-foundations/02-sequencing-reads.md#know-your-reads-before-you-choose-a-tool) lists the facts that settle most tool choices. For an imported read bundle, LGE shows each of them in one of these places.
+
+| Fact | Where LGE shows it |
+|---|---|
+| Platform | The Platform control on the Import FASTQ sheet, then the **Read Type** popup in the Inspector's Sample Metadata section, whose grey line names the type LGE detected |
+| Read length | The Mean Length, Median Length, and N50 cards, plus Min Length and Max Length in the Inspector's Dataset Statistics group |
+| Single, paired, or merged | The Pairing row of the Inspector's Ingestion group, reading Single End, Paired End, or Interleaved. Interleaved is how LGE stores a pair |
+| Library strategy, amplicon or shotgun | The Strategy row of the SRA Metadata or ENA Metadata group, for a run downloaded from an archive |
+| A reference for the organism | **Tools > Search Online Databases > Search NCBI...** with its mode set to Genome, as [Downloading from NCBI](../02-sequences/02-downloading-from-ncbi.md) shows |
+
+Merged reads leave two further marks. A bundle made by Merge Overlapping Pairs ends in `-pairedEndMerge`, as [Read Processing](08-read-processing.md) shows. The VSP2 Target Enrichment and Wastewater metagenomics import recipes keep merged reads and leftover pairs together in one bundle, and the Ingestion group names the recipe that ran. How the library was made and how many genome copies the organism carries are facts about the sample that no file records, so ask the person who made the library.
 
 ## On the command line
 
-This section is optional. [Finding the program](../appendices/cli-reference.md#finding-the-program) shows how to run `lungfish-cli`.
+The block follows the convention in [Reading an On the command line block](../01-foundations/06-the-lungfish-project.md#reading-a-command-line-block), and [Read processing](../appendices/cli-reference.md#read-processing) in the CLI Reference lists every flag of `fastq qc-summary`.
 
-`lungfish-cli fastq qc-summary` computes the summary Refresh QC Summary uses and writes it as a JSON file, a plain text layout meant for other programs to read. To see the same run as a command, right-click its row and choose Copy CLI Command, as [The Operations Panel](../01-foundations/06-the-lungfish-project.md#the-operations-panel) describes. The command below runs on the two downloaded fixture files instead of the bundle.
+`lungfish-cli fastq qc-summary` computes the summary Refresh QC Summary uses and writes it as a JSON file, a plain text layout meant for other programs to read. To see the same run as a command, right-click its row and choose Copy CLI Command, as [The Operations Panel](../01-foundations/06-the-lungfish-project.md#the-operations-panel) describes. The first command below measures the bundle's own file, and the second measures the two original files the Human Reads demo project keeps under `Practice Data`.
 
 ```bash
+PROJECT="$HOME/Documents/LGE Demo Projects/Human Reads.lungfish"
+
+# The same summary Refresh QC Summary writes, for the bundle's stored reads.
+lungfish-cli fastq qc-summary \
+  "$PROJECT/Imports/HG002.chr20.10.0-10.5Mb.lungfishfastq/HG002.chr20.10.0-10.5Mb.fastq.gz" \
+  --output "$HOME/Desktop/hg002-bundle-qc.json"
+
 # One report holding one entry per input file, here read 1 and read 2.
 lungfish-cli fastq qc-summary \
-  ~/Downloads/HG002.chr20.10.0-10.5Mb_R1.fastq.gz \
-  ~/Downloads/HG002.chr20.10.0-10.5Mb_R2.fastq.gz \
-  --output ~/Downloads/hg002-pair-qc.json
+  "$PROJECT/Practice Data/hg002-chr20/HG002.chr20.10.0-10.5Mb_R1.fastq.gz" \
+  "$PROJECT/Practice Data/hg002-chr20/HG002.chr20.10.0-10.5Mb_R2.fastq.gz" \
+  --output "$HOME/Desktop/hg002-pair-qc.json"
 ```
 
-Two things about the report change what you read from it. Its Mean Q is the plain average of the scores, the kind of figure the cards show after a refresh but not straight after import. It also keeps one entry per file, so run on the two downloaded files it compares read 1 with read 2, which the bundle's cards cannot do. On this fixture read 1 reports Q30 at 93.9% and read 2 at 88.6%. Read 2 being the weaker of a pair is normal for paired-end Illumina, because it is sequenced after the flow cell, the glass slide the sequencing happens on, has already been through one full read.
+The first report gives the same figures as the refreshed cards, Mean Q 25.3, Q20 94.6%, and Q30 91.3%. The second keeps one entry per file, so it compares read 1 with read 2, which the bundle's cards cannot do. On this fixture read 1 reports Mean Q 27.1 and Q30 at 93.9%, and read 2 reports Mean Q 24.1 and Q30 at 88.6%. Read 2 being the weaker of a pair is normal for paired-end Illumina, because it is sequenced after the flow cell, the glass slide the sequencing happens on, has already been through one full read.
 
 ## Next
 
-Continue to [Trimming and Filtering](04-trimming-and-filtering.md) to clean up reads that fail these checks, or to [Decontamination](05-decontamination.md) when the GC figure says another organism is in the sample.
+Continue to [Trimming and Filtering Reads](04-trimming-and-filtering.md) to clean up reads that fail these checks, and to measure what a trim costs on reads that pass them. When the GC figure says another organism is in the sample, identify it with [Running Kraken 2](../06-classification/02-running-kraken2.md) before you reach for [Decontamination](05-decontamination.md). The rest of the part follows [the order of read preparation](01-importing-fastq.md#the-order-of-read-preparation).

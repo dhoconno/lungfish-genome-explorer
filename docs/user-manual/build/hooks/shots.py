@@ -9,7 +9,8 @@ broken image.
 
 Screenshots live at assets/screenshots/<part-dir>/<id>.png and illustrations
 at assets/illustrations-imagegen/<part-dir>/<chapter-stem>/<id>.png, both
-relative to the manual root (docs/user-manual).
+relative to the manual root (docs/user-manual). The home page, index.md, may
+carry illustrations too, at assets/illustrations-imagegen/index/<id>.png.
 """
 
 import re
@@ -46,12 +47,19 @@ def _embed(indent, rel, alt):
 def on_page_markdown(markdown, page, config, files):
     src = Path(page.file.abs_src_path)
     docs_dir = Path(config["docs_dir"]).resolve()
-    if "chapters" not in src.parts:
+    if "chapters" in src.parts:
+        part_dir = src.parent.name
+        chapter_stem = src.stem
+        illus_dir = f"{part_dir}/{chapter_stem}"
+    elif src == docs_dir / "index.md":
+        # The home page carries illustrations (registered under `index` in
+        # illustrations.yaml) but no screenshots.
+        part_dir = "index"
+        illus_dir = "index"
+    else:
         return markdown
-    part_dir = src.parent.name
-    chapter_stem = src.stem
     shots_root = docs_dir / "assets" / "screenshots" / part_dir
-    illus_root = docs_dir / "assets" / "illustrations-imagegen" / part_dir / chapter_stem
+    illus_root = docs_dir / "assets" / "illustrations-imagegen" / illus_dir
     shot_caps = _captions(page.meta, "shots")
     illus_caps = _captions(page.meta, "illustrations")
     up = "../" * (len(src.relative_to(docs_dir).parts) - 1)
@@ -69,7 +77,7 @@ def on_page_markdown(markdown, page, config, files):
         png = illus_root / f"{iid}.png"
         if not png.exists():
             return m.group(0)
-        rel = f"{up}assets/illustrations-imagegen/{part_dir}/{chapter_stem}/{iid}.png"
+        rel = f"{up}assets/illustrations-imagegen/{illus_dir}/{iid}.png"
         return _embed(m.group("indent"), rel, illus_caps.get(iid, iid))
 
     markdown = SHOT.sub(shot, markdown)

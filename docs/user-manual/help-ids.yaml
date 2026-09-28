@@ -198,7 +198,7 @@ dialog.BAMVariantCallingDialog:
   chapter: 05-variants/01-calling-variants-from-amplicons
   anchor: procedure
   scope: dialog
-  description: Call variants with iVar, LoFreq, Medaka, or bcftools against a bundle alignment track.
+  description: Call variants with bcftools, LoFreq, iVar, Medaka, or Clair3 against a bundle alignment track.
 
 dialog.UnifiedMetagenomicsWizard:
   chapter: 06-classification/01-what-is-classification
@@ -496,13 +496,13 @@ menu.Tools.PluginManager:
 
 menu.File.NewProject:
   chapter: 01-foundations/06-the-lungfish-project
-  anchor: the-welcome-window
+  anchor: first-launch-and-the-welcome-window
   scope: menu
   description: File > New Project (Cmd-N)
 
 menu.File.Open:
   chapter: 01-foundations/06-the-lungfish-project
-  anchor: the-welcome-window
+  anchor: procedure
   scope: menu
   description: File > Open Project Folder... (Cmd-O)
 
@@ -605,10 +605,10 @@ settings.General:
   description: General application settings.
 
 settings.AIServices:
-  chapter: index
-  anchor: ""
+  chapter: appendices/ai-assistant
+  anchor: settings
   scope: dialog
-  description: AI Services settings (currently scoped to VCF analysis).
+  description: AI Services settings for the Inspector's Assistant tab (bring-your-own-key providers).
 
 # === Operations panel ===
 
@@ -617,6 +617,12 @@ operations.Panel:
   anchor: the-operations-panel
   scope: viewport
   description: Operations Panel; running, completed, and failed jobs with logs and provenance.
+
+operations.Panel.FailedRow:
+  chapter: appendices/troubleshooting
+  anchor: start-here-at-the-failed-row
+  scope: viewport
+  description: A failed Operations Panel row; copy its failure report first.
 
 operations.Panel.ProvenanceDisclosure:
   chapter: 01-foundations/08-provenance-and-reproducibility
@@ -629,3 +635,53 @@ operations.Panel.ReRunAsCLI:
   anchor: ""
   scope: viewport
   description: Re-run an operation as a CLI command (copies invocation to clipboard).
+
+# === Primer design (Part 10) and alignment inspection ===
+
+dialog.PrimerDesignDialog.Primer3:
+  chapter: 10-primer-design/02-designing-a-pcr-assay
+  anchor: settings
+  scope: dialog
+  description: Design PCR or qPCR primers with Primer3 on FASTA records, a reference bundle, or an alignment row.
+
+dialog.PrimerDesignDialog.TiledScheme:
+  chapter: 10-primer-design/03-designing-a-tiled-amplicon-scheme
+  anchor: settings
+  scope: dialog
+  description: Design a tiled amplicon scheme with PrimalScheme, Olivar, or varVAMP.
+
+dialog.PrimerDesignDialog.VarVAMPQPCR:
+  chapter: 10-primer-design/04-designing-qpcr-and-dpcr-assays
+  anchor: settings
+  scope: dialog
+  description: Design qPCR or dPCR primers and a probe with varVAMP, with optional off-target screening.
+
+viewport.PrimerAnalysisViewer:
+  chapter: 10-primer-design/05-reviewing-and-ordering-primers
+  anchor: procedure
+  scope: viewport
+  description: Overview, Results, and binding inspection of a saved primer analysis.
+
+dialog.PrimerOrderExport:
+  chapter: 10-primer-design/05-reviewing-and-ordering-primers
+  anchor: export-an-order
+  scope: dialog
+  description: Write an order workbook, CSV, and order.json for the chosen assays.
+
+dialog.PrimerSchemeExport:
+  chapter: 10-primer-design/05-reviewing-and-ordering-primers
+  anchor: save-a-tiled-scheme-as-a-primer-scheme
+  scope: dialog
+  description: Save a tiled design as a .lungfishprimers bundle for primer trimming.
+
+inspector.MSADiscriminatingSites:
+  chapter: 10-primer-design/04-designing-qpcr-and-dpcr-assays
+  anchor: find-the-columns-that-discriminate
+  scope: inspector
+  description: Find alignment columns where every target differs from every exclusion sequence.
+
+inspector.MSAPairwiseIdentity:
+  chapter: 02-sequences/04-aligning-sequences
+  anchor: pairwise-identity
+  scope: inspector
+  description: Sortable pairwise identity table for an alignment, with Copy TSV and Export TSV.

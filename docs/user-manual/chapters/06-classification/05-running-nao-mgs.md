@@ -22,9 +22,9 @@ shots:
   - id: nao-mgs-taxon-detail
     caption: "The detail pane after a taxon row is selected, showing the taxon name header, the Taxid line with its unique-of-total read counts and accession count, and the miniBAM Panels section with one read-pileup panel per top accession."
 illustrations: []
-glossary_refs: [accession, bam, bit-score, blast, bundle, fastq, metagenomics, minibam, nao-mgs, operations-panel, pcr-duplicate, percent-identity, provenance, checksum, read, taxon, taxonomy-id]
+glossary_refs: [accession, bam, bit-score, blast, bundle, fastq, metagenomics, minibam, nao-mgs, operations-panel, pcr-duplicate, percent-identity, provenance, checksum, read, taxon, taxonomy-id, unique-reads]
 features_refs: []
-fixtures_refs: []
+fixtures_refs: [naomgs]
 brand_reviewed: false
 lead_approved: false
 ---
@@ -35,7 +35,7 @@ This chapter is about reading a file somebody else made. Lungfish Genome Explore
 
 [NAO-MGS](../../GLOSSARY.md#nao-mgs) is a [metagenomic](../../GLOSSARY.md#metagenomics) surveillance pipeline built by SecureBio, a nonprofit working on biosecurity. Metagenomics means sequencing all the nucleic acid in a mixed sample at once, and surveillance means doing that repeatedly on samples from a population, here wastewater, so that a new pathogen shows up before anyone reports a case. A pipeline is a fixed chain of programs run one after another. NAO-MGS runs on a computing cluster or in the cloud, operated by someone else.
 
-The pipeline aligns every [read](../../GLOSSARY.md#read), one fragment of sequence the instrument reported, against a fixed collection of viral genomes. Its main output is a table with one row per matching read, not one row per virus. It reports viral [taxa](../../GLOSSARY.md#taxon) only, so a wastewater sample's bacteria never appear, however abundant.
+The pipeline aligns every [read](../../GLOSSARY.md#read), the record a sequencer writes for one DNA fragment, against a fixed collection of viral genomes. Its main output is a table with one row per matching read, not one row per virus. It reports viral [taxa](../../GLOSSARY.md#taxon) only, so a wastewater sample's bacteria never appear, however abundant.
 
 LGE imports that finished table, folds it into a per-taxon table you can sort, keeps the read evidence behind each taxon, and opens it in a viewport, the panel that displays one result.
 
@@ -45,7 +45,7 @@ The file LGE reads is `virus_hits_final.tsv.gz`, the pipeline's combined virus-h
 
 The raw table runs thirty columns wide with one row per read alignment, split across every sample in the run. To say anything, you would first have to total it by taxon and by sample. The import does that totalling for you and keeps the reads.
 
-A surveillance signal is only worth acting on if the reads under it are real. Library preparation copies fragments many times by PCR, and those copies are called [PCR duplicates](../../GLOSSARY.md#pcr-duplicate). Ten copies of one fragment and ten independent fragments give the same count but mean very different things. The viewport therefore reports unique reads beside total hits, and lets you open the read pileups under a taxon and look.
+A surveillance signal is only worth acting on if the reads under it are real. Library preparation copies fragments many times by PCR, and those copies are called [PCR duplicates](../../GLOSSARY.md#pcr-duplicate). Ten copies of one fragment and ten independent fragments give the same count but mean very different things. The viewport therefore reports [unique reads](../../GLOSSARY.md#unique-reads), the hits left after copies are collapsed, beside total hits, and lets you open the read pileups under a taxon and look.
 
 The import also puts the surveillance result in the same project as everything else, so the same [BLAST](../../GLOSSARY.md#blast) verification and read extraction you use for Kraken 2 results work here.
 
@@ -61,13 +61,13 @@ Nothing needs installing. The window's import downloads each matched reference s
 
 ## Procedure
 
-### 1. Open the NAO-MGS Results card
+### Open the NAO-MGS Results card
 
 Choose **File > Import Center...** (Cmd-Shift-I) and click the **Classification Results** tab. The **NAO-MGS Results** card carries the tag NM, and its file hint reads `virus_hits_final.tsv.gz or _virus_hits.tsv.gz`. Click it, or drag the file onto it.
 
 <!-- SHOT: nao-mgs-import-card -->
 
-### 2. Choose the results and check the validation
+### Choose the results and check the validation
 
 A sheet titled **NAO-MGS Import** opens. Click **Browse...** and select the pipeline's output folder or the table itself. Pick the folder when you have the pipeline's whole output, since the importer then finds the right file. For the fixture, pick the downloaded file.
 
@@ -75,7 +75,7 @@ The **Validation** section checks the file's header, its first line of column na
 
 <!-- SHOT: nao-mgs-import-sheet -->
 
-### 3. Import and open the result
+### Import and open the result
 
 Click **Run**. LGE splits the table by sample, imports each sample, merges them, and looks up each numeric [taxonomy identifier](../../GLOSSARY.md#taxonomy-id) at NCBI to get an organism name. A taxonomy identifier is the number NCBI assigns to one taxon, so `28875` is Rotavirus A. Watch the run in the [Operations Panel](../01-foundations/06-the-lungfish-project.md#the-operations-panel), which opens with **Operations > Show Operations Panel** (Cmd-Shift-P).
 
@@ -108,12 +108,12 @@ The table has five columns.
 | Sample | The sample the row belongs to, so one taxon found at three sites fills three rows |
 | Taxon | The organism name, or `Taxid N` when NCBI returned no name for that number |
 | Hits | Read-to-reference alignments for that taxon in that sample |
-| Unique Reads | Hits left after collapsing PCR duplicates, so hits that start at the same place on the same reference, on the same strand and at the same length, count once |
+| Unique Reads | Hits left after collapsing PCR duplicates, so hits that start at the same place on the same reference, on the same strand and at the same length, count once, the same meaning the column has in every classification view |
 | Refs | How many reference [accessions](../../GLOSSARY.md#accession), each the permanent identifier of one database record, the hits spread across |
 
 Click a column header for a menu that sorts by that column or filters it, for example **Filter Taxon Contains…**, which asks for a value. Right-click a header for a list of columns with a tick beside each, and untick one to hide that column. Sample metadata you attach becomes extra columns, as [Editing sample metadata](../03-reads/01-importing-fastq.md#editing-sample-metadata) describes.
 
-Read Hits against Unique Reads. On the fixture, the IL_CHI_StickneyWS site's Rotavirus A row has 12 hits from 8 unique reads, so 4 of the 12 are duplicate copies. The CA_LosAngeles_County row for the same virus has 28 hits from 26 unique reads. That is 93 percent independent against 67 percent at the other site. Compare these proportions, not the raw counts. When Unique Reads falls well below Hits, the taxon rests on a few fragments that PCR copied, and the honest count is the unique one.
+Read Hits against Unique Reads. The viewport has no normalised figure, so compare sites by these counts and by the share of hits that are unique. On the fixture, the IL_CHI_StickneyWS site's Rotavirus A row has 12 hits from 8 unique reads, so 4 of the 12 are duplicate copies. The CA_LosAngeles_County row for the same virus has 28 hits from 26 unique reads. That is 93 percent independent against 67 percent at the other site. Compare these proportions, not the raw counts. When Unique Reads falls well below Hits, the taxon rests on a few fragments that PCR copied, and the honest count is the unique one.
 
 ### The detail pane
 
@@ -133,13 +133,15 @@ Each accession above its panel links to that record at GenBank, NCBI's sequence 
 
 **Export** writes the taxon table as it currently stands, with your filters, sort, and metadata columns, to a `.tsv` file named `<sample>_naomgs_summary.tsv` by default.
 
-**Extract FASTQ** pulls the reads behind the selected rows into a new [FASTQ](../../GLOSSARY.md#fastq) bundle, so select a row first. Its dialog is the one [Running Kraken 2](02-running-kraken2.md#4-extract-the-reads-of-one-taxon) documents.
+**Extract FASTQ** pulls the reads behind the selected rows into a new [FASTQ](../../GLOSSARY.md#fastq) bundle, so select a row first. Its dialog is the one [Running Kraken 2](02-running-kraken2.md#extract-the-reads-of-one-taxon) documents.
 
-The information button at the right end opens a popover headed **NAO-MGS Pipeline Info**, which lists the source file, import date, format version, hit and taxon counts, top taxon, workflow version, and number of fetched accessions. LGE writes a [provenance](../../GLOSSARY.md#provenance) record beside every result, holding the command, the tool version, and a [checksum](../../GLOSSARY.md#checksum) of each file, and [Provenance and Reproducibility](../01-foundations/08-provenance-and-reproducibility.md#reading-the-results) shows how to read it.
+The information button at the right end opens a popover headed **NAO-MGS Pipeline Info**, which lists the source file, import date, format version, hit and taxon counts, top taxon, workflow version, and number of fetched accessions.
 
 Right-clicking a taxon row offers BLAST verification, **Extract Reads...**, **Copy Taxon ID**, **Copy Top Accessions**, **View on NCBI**, **View Taxonomy on NCBI**, and **Search PubMed**.
 
 ## What good looks like
+
+The NAO-MGS viewport answers three questions of [The evidence checklist](01-what-is-classification.md#the-evidence-checklist) on screen. Hits says how many reads support each taxon, the miniBAM panels show how they spread along the reference, and Unique Reads says how many are independent. Recurrence across sites stands in for a control, and BLAST Verify answers the last question with the limit the action bar section describes.
 
 Read Unique Reads before Hits. As a rule of thumb, a row whose unique count is under half its hit count deserves its pileups opened before you quote the number. The fixture's two Rotavirus A rows sit at 67 and 93 percent unique, both above that line.
 
@@ -149,18 +151,20 @@ Open the miniBAM panels and look at where the reads sat. Reads touching several 
 
 Be careful about what the name proves. NAO-MGS reports the nearest match in its reference collection. A row naming a broad group, such as the fixture's `Cressdnaviricota sp.`, an unplaced member of a large viral phylum, means the pipeline could not narrow it further.
 
-Verify anything you intend to act on with BLAST Verify, and remember the boundary. A virus absent from the pipeline's collection cannot appear, and a bacterium cannot appear at all. Pair the result with a broad survey such as [Running Kraken 2](02-running-kraken2.md) when you need to know what else the sample held.
+Verify anything you intend to act on with BLAST Verify, and remember the boundary. A virus absent from the pipeline's collection cannot appear, and a bacterium cannot appear at all. Pair the result with a broad survey such as [Running Kraken 2](02-running-kraken2.md) when you need to know what else the sample held. The import's provenance record, which [Provenance and Reproducibility](../01-foundations/08-provenance-and-reproducibility.md#reading-the-results) shows how to read, names the source file and its checksum.
 
 ## On the command line
 
-This section is optional, and nothing later in this manual needs it. The `lungfish-cli` program ships inside LGE, and [Finding the program](../appendices/cli-reference.md#finding-the-program) shows how to run it.
+These commands repeat the procedure, as [Reading an On the command line block](../01-foundations/06-the-lungfish-project.md#reading-a-command-line-block) explains. Every flag of the import is listed in [`import nao-mgs`](../appendices/cli-reference.md#import-nao-mgs) in the CLI Reference.
 
 ```bash
-lungfish-cli import nao-mgs /path/to/virus_hits_final.tsv.gz \
-  --output-dir "/path/to/My Project.lungfish/Analyses"
+PROJECT="$HOME/Documents/LGE Demo Projects/Pathogen Detection.lungfish"
+
+lungfish-cli import nao-mgs "$PROJECT/Practice Data/naomgs/virus_hits_final.tsv.gz" \
+  --output-dir "$PROJECT/Analyses"
 
 lungfish-cli extract reads --by-classifier --tool naomgs \
-  --result "/path/to/My Project.lungfish/Analyses/naomgs-virus_hits_final" \
+  --result "$PROJECT/Analyses/naomgs-virus_hits_final" \
   --sample MU-CASPER-2026-03-31-a-IL_CHI_StickneyWS_20260308 \
   --accession KU048583.1 \
   --output virus-reads.fastq
@@ -170,4 +174,4 @@ The command-line import writes into the current folder unless `--output-dir` nam
 
 ## Next
 
-Continue to [BLAST Verification](06-blast-verification.md) to confirm a taxon against NCBI, or to [Novel Virus Diagnostics](09-novel-virus-detection.md) for the other surveillance import.
+Continue to [Novel Virus Diagnostics](09-novel-virus-detection.md), the last import in this part, which works from assembled contigs rather than single reads and suits the hunt for a virus no database names exactly. [BLAST Verification](06-blast-verification.md) explains the verdict the NAO-MGS action bar returns.

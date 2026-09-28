@@ -1,0 +1,4 @@
+# The six full ENA runs fetch.sh downloads (about 31 MB). Regenerate with fetch.sh.
+source/
+# Provenance sidecars the CLI writes beside its outputs.
+*.lungfish-provenance.json

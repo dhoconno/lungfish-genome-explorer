@@ -151,6 +151,45 @@
       "minimumAppVersion": "2026.9.44"
     },
     {
+      "id": "human-mapping-and-variants-results",
+      "title": "Human Mapping and Variants (with results)",
+      "summary": "The Human Mapping and Variants inputs plus the finished work: the HG002 reads mapped to the chromosome 20 slice with minimap2, bcftools and LoFreq variant tracks, and the GIAB benchmark imported beside them, for the chapters that read a finished project.",
+      "chapters": [
+        {
+          "title": "The Lungfish Genome Explorer Project",
+          "path": "chapters/01-foundations/06-the-lungfish-project/"
+        },
+        {
+          "title": "Provenance and Reproducibility",
+          "path": "chapters/01-foundations/08-provenance-and-reproducibility/"
+        },
+        {
+          "title": "Exporting as Nextflow or Snakemake",
+          "path": "chapters/08-workflows/02-exporting-as-nextflow-or-snakemake/"
+        },
+        {
+          "title": "File Formats",
+          "path": "chapters/appendices/file-formats/"
+        },
+        {
+          "title": "Shared Projects and Bundle Migration",
+          "path": "chapters/appendices/shared-projects/"
+        },
+        {
+          "title": "The AI Assistant",
+          "path": "chapters/appendices/ai-assistant/"
+        }
+      ],
+      "projectFolderName": "Human Mapping and Variants (with results).lungfish",
+      "archive": {
+        "url": "https://github.com/dhoconno/lungfish-genome-explorer/releases/download/demo-projects/lge-demo-human-mapping-and-variants-results-2026.9.52.zip",
+        "sha256": "59345c060d00be9e5f03520b129dc16029983b780e6579972dd7ff0357cea135",
+        "bytes": 25959472
+      },
+      "version": "2026.9.52",
+      "minimumAppVersion": "2026.9.52"
+    },
+    {
       "id": "long-reads-and-assembly",
       "title": "Long Reads and Assembly",
       "summary": "HG002 mitochondrial reads from Oxford Nanopore, PacBio HiFi, and Illumina instruments with the rCRS reference, ready for long-read variant calling and genome assembly.",
@@ -294,6 +333,41 @@
         "url": "https://github.com/dhoconno/lungfish-genome-explorer/releases/download/demo-projects/lge-demo-mhc-genotyping-2026.9.44.zip",
         "sha256": "f845685d828567a10ef87ecb4350505f5ae00196fd30b56a7bc486575a22c058",
         "bytes": 75937
+      },
+      "version": "2026.9.44",
+      "minimumAppVersion": "2026.9.44"
+    },
+    {
+      "id": "primer-design",
+      "title": "Primer Design",
+      "summary": "Twelve full-length rhesus macaque Mamu-A1 alleles, the Mamu-A1*001 lineage, and its near relatives and paralogs, imported as reference bundles for designing PCR assays, qPCR assays, and tiled amplicon schemes.",
+      "chapters": [
+        {
+          "title": "What Is Primer Design",
+          "path": "chapters/10-primer-design/01-what-is-primer-design/"
+        },
+        {
+          "title": "Designing a PCR Assay",
+          "path": "chapters/10-primer-design/02-designing-a-pcr-assay/"
+        },
+        {
+          "title": "Designing a Tiled Amplicon Scheme",
+          "path": "chapters/10-primer-design/03-designing-a-tiled-amplicon-scheme/"
+        },
+        {
+          "title": "Designing qPCR and dPCR Assays",
+          "path": "chapters/10-primer-design/04-designing-qpcr-and-dpcr-assays/"
+        },
+        {
+          "title": "Reviewing and Ordering Primers",
+          "path": "chapters/10-primer-design/05-reviewing-and-ordering-primers/"
+        }
+      ],
+      "projectFolderName": "Primer Design.lungfish",
+      "archive": {
+        "url": "https://github.com/dhoconno/lungfish-genome-explorer/releases/download/demo-projects/lge-demo-primer-design-2026.9.44.zip",
+        "sha256": "08fb89bc75ed1191e4578dcb3b4e679c0ee7d0ea6e901c1d58fee40dbe9929c7",
+        "bytes": 74711
       },
       "version": "2026.9.44",
       "minimumAppVersion": "2026.9.44"

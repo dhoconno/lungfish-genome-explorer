@@ -2,7 +2,7 @@
 # Fetch the HBB RefSeqGene record (beta-globin locus, chromosome 11) from
 # NCBI, with the full feature table (gene/mRNA/CDS/exon) so the sequence,
 # annotation, extraction, and translation chapters have real features to
-# work with. Sickle cell (HbS, Glu6Val, rs334) is the worked example.
+# work with. Sickle cell (HbS, Glu6Val, rs334) is the example.
 set -euo pipefail
 cd "$(dirname "$0")"
 

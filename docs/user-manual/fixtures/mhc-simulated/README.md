@@ -28,7 +28,7 @@ The native pipeline actually invokes BBMerge, minimap2, samtools, pysam, and ope
 
 ## Durable outputs
 
-All paths below are relative to `~/Desktop/lge-docs/LGE Manual Demo.lungfish`.
+All paths below are relative to `~/Desktop/lge-docs/LGE Manual Demo.lungfish`, the screenshot project that `../demo-project/` builds for contributors. Readers get the same inputs, already imported, in the MHC Genotyping demo project that **Help > Demo Projects…** downloads.
 
 - `Imports/SIMULATED-MHC-A-pairs.lungfishfastq`
 - `Imports/SIMULATED-MHC-B-pairs.lungfishfastq`
@@ -57,5 +57,130 @@ A plain reference ID such as `Mafa-G_02:31:01:01|OR823640` maps correctly agains
 `prepare-gui-reference.py` generates a separate GenBank reference with identical IDs and sequences. It adds explicit gene, genomic DNA molecule type, and canonical allele qualifiers, such as `Mafa-G*02:31:01:01`. The canonical separator replaces the underscore used in the bundled reference label. `gui-reference-provenance.json` records this metadata-only transformation and its inputs and outputs. Native import retains these annotations in the reference record store. The builder validates a real native genotype run against the actual annotated `.lungfishref` path before declaring it ready.
 
 To add or verify this route independently after the paired-read bundles exist, run `python3 docs/user-manual/fixtures/demo-project/extend-demo-fixtures.py mhc-gui-reference` from the repository root. The existing raw-FASTA result remains scientifically reproducible, while the annotated bundle supplies the additional metadata expected by the GUI. The annotated route also needed a product fix. Before LGE 2026.9.44, a genotype run against an annotated `.lungfishref` stopped at "Applying selected haplotype definition", because the step that copies the reference for review copied its record store but not its annotation track store, `annotations/imported_annotations.db`. LGE 2026.9.44 copies the annotation track stores as well, so the annotated route runs in the app and on the command line alike.
+
+## Haplotype definition set (MCM teaching set)
+
+`mhc-simulated-mcm-teaching.lungfishhaplotypedef.json` is a small haplotype
+definition set so the genotyping chapters can run deterministic haplotyping
+on this fixture instead of pointing at the lab's unpublished Williams data.
+It is limited to the three alleles the simulated reference contains, which is
+the honest ceiling for this fixture. It is not a definition of the MCM M1 to
+M7 haplotypes. A real definition set for an assay lists, for every region,
+every haplotype's diagnostic alleles, and the bundled `MCM MHC miSeq`
+reference the app ships carries 189 records across five regions for that
+purpose.
+
+Each allele is assigned to the haplotype its own public INSDC record names in
+its `/haplotype` qualifier (records cached under `public-records/`):
+
+| Allele in the reference | Public record | `/haplotype` | `/isolate` | Region in the set |
+|---|---|---|---|---|
+| Mafa-G_02:31:01:01 | OR823640 | M4 | cy0695 | MHC-A |
+| Mafa-DRB_W001:03:01:01 | OR823568 | M7 | cy0390 | MHC-DR |
+| Mafa-DPA1_07:02:01:01 | OR823525 | M1 | cy0325 | MHC-DP |
+
+All three records were submitted on 2023-11-15 by Karl, Prall, Wiseman and
+O'Connor (University of Wisconsin-Madison) under the title "Mauritian
+cynomolgus macaque major histocompatibility complex (MHC) region pangenome",
+which the records mark as unpublished. Two honesty notes. First, OR823640
+describes Mafa-G as a pseudogene and names the allele `Mafa-G*02_M4nov01`;
+the bundled reference and this fixture keep the IPD-style label
+`Mafa-G_02:31:01:01`. Second, Mafa-G lies in the MHC-A region of the macaque
+MHC, which is why the set files it under `MHC-A`, the same grouping the
+bundled reference uses (`haplotype_groups=MHC-A`).
+
+The M1 to M7 haplotype names themselves are published. Cite:
+
+```bibtex
+@article{wiseman2007mcm,
+  author  = {Wiseman, Roger W. and Wojcechowskyj, Jason A. and Greene, Justin M.
+             and Blasky, Alex J. and Gopon, Tobias and Soma, Taeko
+             and Friedrich, Thomas C. and O'Connor, Shelby L. and O'Connor, David H.},
+  title   = {Simian immunodeficiency virus SIVmac239 infection of major
+             histocompatibility complex-identical cynomolgus macaques from Mauritius},
+  journal = {Journal of Virology},
+  year    = {2007},
+  volume  = {81},
+  number  = {1},
+  pages   = {349--361},
+  doi     = {10.1128/JVI.01841-06}
+}
+@article{oconnor2007mcmclassii,
+  author  = {O'Connor, Shelby L. and Blasky, Alex J. and Pendley, Chad J.
+             and Becker, Ericka A. and Wiseman, Roger W. and Karl, Julie A.
+             and Hughes, Austin L. and O'Connor, David H.},
+  title   = {Comprehensive characterization of MHC class II haplotypes in
+             Mauritian cynomolgus macaques},
+  journal = {Immunogenetics},
+  year    = {2007},
+  volume  = {59},
+  number  = {6},
+  pages   = {449--462},
+  doi     = {10.1007/s00251-007-0209-7}
+}
+@article{budde2010mcmclassi,
+  author  = {Budde, Melisa L. and Wiseman, Roger W. and Karl, Julie A.
+             and Hanczaruk, Bozena and Simen, Birgitte B. and O'Connor, David H.},
+  title   = {Characterization of Mauritian cynomolgus macaque major
+             histocompatibility complex class I haplotypes by high-resolution
+             pyrosequencing},
+  journal = {Immunogenetics},
+  year    = {2010},
+  volume  = {62},
+  number  = {11-12},
+  pages   = {773--780},
+  doi     = {10.1007/s00251-010-0481-9}
+}
+@article{wiseman2013haplessly,
+  author  = {Wiseman, Roger W. and Karl, Julie A. and Bohn, Patrick S.
+             and Nimityongskul, Francesca A. and Starrett, Gabriel J. and O'Connor, David H.},
+  title   = {Haplessly hoping: macaque major histocompatibility complex made easy},
+  journal = {ILAR Journal},
+  year    = {2013},
+  volume  = {54},
+  number  = {2},
+  pages   = {196--210},
+  doi     = {10.1093/ilar/ilt036}
+}
+@article{karl2023mcmhaplotype,
+  author  = {Karl, Julie A. and Prall, Trent M. and Bussan, Hailey E.
+             and Varghese, Joshua M. and Pal, Aparna and Wiseman, Roger W.
+             and O'Connor, David H.},
+  title   = {Complete sequencing of a cynomolgus macaque major histocompatibility
+             complex haplotype},
+  journal = {Genome Research},
+  year    = {2023},
+  volume  = {33},
+  number  = {3},
+  pages   = {448--462},
+  doi     = {10.1101/gr.277429.122}
+}
+```
+
+Wiseman 2007 defines the common MCM haplotypes by microsatellites,
+O'Connor 2007 the class II alleles on them, Budde 2010 the class I
+transcripts of the seven most frequent haplotypes, Wiseman 2013 reviews the
+M1 to M7 nomenclature, and Karl 2023 sequences the complete M3 haplotype.
+The three INSDC records above are the direct source of each allele's
+haplotype assignment; the papers are the source of the haplotype names.
+
+### How the set is consumed
+
+The genotyping dialog and pipeline read definitions only from
+`.lungfishmhcref` reference bundles, never from the bare JSON. The demo-project
+build imports the JSON (`lungfish-cli haplotypes import`), turns it into a
+bundle with `lungfish-cli haplotypes bundle-create --reference-fasta
+SIMULATED-MHC-reference.fasta`, and installs it (`haplotypes bundle-install`)
+as `Reference allele databases/SIMULATED-MHC-MCM-teaching.lungfishmhcref` in
+the MHC Genotyping demo project. Choose that bundle as the reference in the
+miSeq genotyping dialog and pick Deterministic haplotyping.
+
+The lane's results brief records the real runs. With Minimum supporting reads
+at 1 both samples call `M4 / -` at MHC-A, `M7 / -` at MHC-DR and `M1 / -` at
+MHC-DP, the homozygous shape, because the set knows one haplotype per region
+and each sample carries its one diagnostic allele. With Minimum supporting
+reads at 5, sample A's MHC-DP becomes `ERR: NO HAP` (its DPA1 allele has 4
+reads) while sample B keeps `M1 / -`. Those are the only two outcomes this
+fixture can show, and chapters should say so.
 
 The fixture validator checks the immutable generated baseline. For an interactively edited workbook, also follow the manifest revision chain and its revision provenance. Earlier workflow or export records retain the checksum of the workbook at that time. A later change to `current.xlsx` is expected to differ from those historical checksums.
