@@ -293,8 +293,6 @@ Downloaded projects go into `~/Documents/LGE Demo Projects`, which means the `LG
 
 Nine of the demo projects hold inputs only. The reads, references, and practice files a chapter's `## Before you start` section asks for are already imported, but no analysis has been run, so every result in the project is one you make. The tenth, Human Mapping and Variants (with results), also holds finished results, so the chapters that read results rather than make them have something to read from the start. Plugin packs and databases live on your Mac rather than inside a project, so install the ones each chapter names as usual. Each project folder holds a `README.md` that lists what is inside, where the data came from, and how to cite it.
 
-<!-- PENDING-FIX: demo-primer-design -->
-<!-- PENDING-FIX: demo-results-project -->
 | Demo project | What it holds | Chapters it covers |
 |---|---|---|
 | Genes and Sequences | The human beta-globin (HBB) region and five primate mitochondrial genomes | [What Is a Genome](01-what-is-a-genome.md), [Importing and Viewing a Sequence](../02-sequences/01-importing-and-viewing.md), [Downloading from NCBI](../02-sequences/02-downloading-from-ncbi.md), [Extracting Sequences](../02-sequences/03-extracting-and-comparing.md), [Aligning Sequences](../02-sequences/04-aligning-sequences.md), [Building Trees](../02-sequences/05-building-trees.md) |
@@ -307,8 +305,6 @@ Nine of the demo projects hold inputs only. The reads, references, and practice 
 | MHC Genotyping | Two simulated macaque MHC amplicon samples, their allele library, and a small haplotype definition set | [What Is MHC Genotyping](../09-genotyping/01-what-is-mhc-genotyping.md), [Running Amplicon MHC Genotyping](../09-genotyping/02-running-genotyping.md), [Reading the Genotype Comparison](../09-genotyping/03-reading-the-genotype-comparison.md), [Exporting Genotypes](../09-genotyping/04-haplotype-definitions-and-export.md) |
 | 12S Metabarcoding | Human 12S amplicon reads, a simulated human and macaque 12S mixture, and a primate 12S reference | [12S Amplicon Metabarcoding](../06-classification/10-twelve-s-metabarcoding.md) |
 | Primer Design | Rhesus macaque Mamu-A1 alleles, the Mamu-A1\*001 lineage, and its near relatives and paralogs | [What Is Primer Design](../10-primer-design/01-what-is-primer-design.md) and the rest of the Primer Design part |
-<!-- /PENDING-FIX -->
-<!-- /PENDING-FIX -->
 
 Most projects are small, from under a megabyte to about 50 MB. Pathogen Detection is the exception at about 260 MB, because it carries two corneal tissue runs of several million read pairs each.
 

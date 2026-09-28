@@ -33,12 +33,12 @@
       ],
       "projectFolderName": "Genes and Sequences.lungfish",
       "archive": {
-        "url": "https://github.com/dhoconno/lungfish-genome-explorer/releases/download/demo-projects/lge-demo-genes-and-sequences-2026.9.44.zip",
-        "sha256": "4f2ea8363d7147715e53821b276a854ae2842ff082c08d98b5a4899afac25638",
-        "bytes": 201279
+        "url": "https://github.com/dhoconno/lungfish-genome-explorer/releases/download/demo-projects/lge-demo-genes-and-sequences-2026.9.53.zip",
+        "sha256": "751b86b9effdcb4c8cf61e931357c597fbc78b8d666980eb7fcca3b0f1ac56f4",
+        "bytes": 202128
       },
-      "version": "2026.9.44",
-      "minimumAppVersion": "2026.9.44"
+      "version": "2026.9.53",
+      "minimumAppVersion": "2026.9.53"
     },
     {
       "id": "human-reads",
@@ -76,17 +76,17 @@
       ],
       "projectFolderName": "Human Reads.lungfish",
       "archive": {
-        "url": "https://github.com/dhoconno/lungfish-genome-explorer/releases/download/demo-projects/lge-demo-human-reads-2026.9.44.zip",
-        "sha256": "a394f1aaeeb85782254ef05faa5804ae53772aeeda5b3a6214362486f23d5d5b",
-        "bytes": 50863574
+        "url": "https://github.com/dhoconno/lungfish-genome-explorer/releases/download/demo-projects/lge-demo-human-reads-2026.9.53.zip",
+        "sha256": "edeb03a82dca4397d2f19646155653949bffd731d56ae27809c3634123bbf3a3",
+        "bytes": 50722020
       },
-      "version": "2026.9.44",
-      "minimumAppVersion": "2026.9.44"
+      "version": "2026.9.53",
+      "minimumAppVersion": "2026.9.53"
     },
     {
       "id": "human-mapping-and-variants",
       "title": "Human Mapping and Variants",
-      "summary": "HG002 reads and the matching 500 kb GRCh38 chromosome 20 reference bundle, with the GIAB benchmark VCF, ready for mapping, variant calling, and the GATK chapters.",
+      "summary": "HG002 reads and the matching 500 kb GRCh38 chromosome 20 reference bundle, with the GIAB benchmark VCF and the parents HG003 and HG004 over the same slice, ready for mapping, variant calling, and the GATK chapters including joint genotyping of the trio.",
       "chapters": [
         {
           "title": "Alignment Files",
@@ -143,12 +143,12 @@
       ],
       "projectFolderName": "Human Mapping and Variants.lungfish",
       "archive": {
-        "url": "https://github.com/dhoconno/lungfish-genome-explorer/releases/download/demo-projects/lge-demo-human-mapping-and-variants-2026.9.44.zip",
-        "sha256": "2d4b9924a29d4412dff0a65257fb353e3861165fd0b69364ae1006888ad6d4ca",
-        "bytes": 11508167
+        "url": "https://github.com/dhoconno/lungfish-genome-explorer/releases/download/demo-projects/lge-demo-human-mapping-and-variants-2026.9.53.zip",
+        "sha256": "702d5d52ba7952cc55f7ef08dc0bc9ea97bd3fd8e7e75e9cb1b03b33b770db3e",
+        "bytes": 32828236
       },
-      "version": "2026.9.44",
-      "minimumAppVersion": "2026.9.44"
+      "version": "2026.9.53",
+      "minimumAppVersion": "2026.9.53"
     },
     {
       "id": "human-mapping-and-variants-results",
@@ -182,12 +182,12 @@
       ],
       "projectFolderName": "Human Mapping and Variants (with results).lungfish",
       "archive": {
-        "url": "https://github.com/dhoconno/lungfish-genome-explorer/releases/download/demo-projects/lge-demo-human-mapping-and-variants-results-2026.9.52.zip",
-        "sha256": "59345c060d00be9e5f03520b129dc16029983b780e6579972dd7ff0357cea135",
-        "bytes": 25959472
+        "url": "https://github.com/dhoconno/lungfish-genome-explorer/releases/download/demo-projects/lge-demo-human-mapping-and-variants-results-2026.9.53.zip",
+        "sha256": "c590eba0f423556d2b86a1b1ea9e24f13e3a1cdf4f6cb718ee377b188f220b80",
+        "bytes": 25956696
       },
-      "version": "2026.9.52",
-      "minimumAppVersion": "2026.9.52"
+      "version": "2026.9.53",
+      "minimumAppVersion": "2026.9.53"
     },
     {
       "id": "long-reads-and-assembly",
@@ -207,11 +207,11 @@
           "path": "chapters/07-assembly/01-when-to-assemble/"
         },
         {
-          "title": "Running SPAdes",
+          "title": "Short-Read Assembly (SPAdes, MEGAHIT, SKESA)",
           "path": "chapters/07-assembly/02-running-spades/"
         },
         {
-          "title": "Running Flye or hifiasm",
+          "title": "Long-Read Assembly (Flye, hifiasm)",
           "path": "chapters/07-assembly/03-running-flye-or-hifiasm/"
         },
         {
@@ -221,12 +221,12 @@
       ],
       "projectFolderName": "Long Reads and Assembly.lungfish",
       "archive": {
-        "url": "https://github.com/dhoconno/lungfish-genome-explorer/releases/download/demo-projects/lge-demo-long-reads-and-assembly-2026.9.44.zip",
-        "sha256": "8cee4cf7820da8703d4e40498fdb212c24347a612576e3f06eeb2f6b0fe3349d",
-        "bytes": 16411486
+        "url": "https://github.com/dhoconno/lungfish-genome-explorer/releases/download/demo-projects/lge-demo-long-reads-and-assembly-2026.9.53.zip",
+        "sha256": "75704a20bb6393cacfb66bc2279fe72028155c60bd6ec6aee05ee32585df5f39",
+        "bytes": 17864910
       },
-      "version": "2026.9.44",
-      "minimumAppVersion": "2026.9.44"
+      "version": "2026.9.53",
+      "minimumAppVersion": "2026.9.53"
     },
     {
       "id": "sarscov2-amplicons",
@@ -256,12 +256,12 @@
       ],
       "projectFolderName": "SARS-CoV-2 Amplicons.lungfish",
       "archive": {
-        "url": "https://github.com/dhoconno/lungfish-genome-explorer/releases/download/demo-projects/lge-demo-sarscov2-amplicons-2026.9.44.zip",
-        "sha256": "fcdbe6c15a24776920b1855d4ec1342ec8ce520a07b6ac668ecd935ad294fae2",
-        "bytes": 16761757
+        "url": "https://github.com/dhoconno/lungfish-genome-explorer/releases/download/demo-projects/lge-demo-sarscov2-amplicons-2026.9.53.zip",
+        "sha256": "0912cfa3896c5131e9609528eda428ca16e6f3c48db351fda0f72e1f4ce6c4d4",
+        "bytes": 16619672
       },
-      "version": "2026.9.44",
-      "minimumAppVersion": "2026.9.44"
+      "version": "2026.9.53",
+      "minimumAppVersion": "2026.9.53"
     },
     {
       "id": "pathogen-detection",
@@ -299,17 +299,17 @@
       ],
       "projectFolderName": "Pathogen Detection.lungfish",
       "archive": {
-        "url": "https://github.com/dhoconno/lungfish-genome-explorer/releases/download/demo-projects/lge-demo-pathogen-detection-2026.9.44.zip",
-        "sha256": "cf2acf5b22d38e706c94946cb2191a42386c23ff537f485feeda2044ee779f5c",
-        "bytes": 261084941
+        "url": "https://github.com/dhoconno/lungfish-genome-explorer/releases/download/demo-projects/lge-demo-pathogen-detection-2026.9.53.zip",
+        "sha256": "245e76b9fe0ef20d1031910c76f4397804c0805d406069105ff12f6a7a51c04d",
+        "bytes": 275695124
       },
-      "version": "2026.9.44",
-      "minimumAppVersion": "2026.9.44"
+      "version": "2026.9.53",
+      "minimumAppVersion": "2026.9.53"
     },
     {
       "id": "mhc-genotyping",
       "title": "MHC Genotyping",
-      "summary": "Two simulated macaque MHC amplicon samples and a three-allele annotated reference, ready for amplicon genotyping and export.",
+      "summary": "Two simulated macaque MHC amplicon samples, a three-allele annotated reference, and a small MCM haplotype definition bundle, ready for amplicon genotyping, haplotyping, and export.",
       "chapters": [
         {
           "title": "What Is MHC Genotyping",
@@ -330,12 +330,12 @@
       ],
       "projectFolderName": "MHC Genotyping.lungfish",
       "archive": {
-        "url": "https://github.com/dhoconno/lungfish-genome-explorer/releases/download/demo-projects/lge-demo-mhc-genotyping-2026.9.44.zip",
-        "sha256": "f845685d828567a10ef87ecb4350505f5ae00196fd30b56a7bc486575a22c058",
-        "bytes": 75937
+        "url": "https://github.com/dhoconno/lungfish-genome-explorer/releases/download/demo-projects/lge-demo-mhc-genotyping-2026.9.53.zip",
+        "sha256": "62888f3e414d5c5739542edf63e11539b48e4e75597e90a7c3c66a5ac812e7db",
+        "bytes": 112869
       },
-      "version": "2026.9.44",
-      "minimumAppVersion": "2026.9.44"
+      "version": "2026.9.53",
+      "minimumAppVersion": "2026.9.53"
     },
     {
       "id": "primer-design",
@@ -365,17 +365,17 @@
       ],
       "projectFolderName": "Primer Design.lungfish",
       "archive": {
-        "url": "https://github.com/dhoconno/lungfish-genome-explorer/releases/download/demo-projects/lge-demo-primer-design-2026.9.44.zip",
-        "sha256": "08fb89bc75ed1191e4578dcb3b4e679c0ee7d0ea6e901c1d58fee40dbe9929c7",
-        "bytes": 74711
+        "url": "https://github.com/dhoconno/lungfish-genome-explorer/releases/download/demo-projects/lge-demo-primer-design-2026.9.53.zip",
+        "sha256": "c127d3a844dfbe4a9fd349d5d672c48128cfcfc1448d74820c4eeaee4bbfaac9",
+        "bytes": 73948
       },
-      "version": "2026.9.44",
-      "minimumAppVersion": "2026.9.44"
+      "version": "2026.9.53",
+      "minimumAppVersion": "2026.9.53"
     },
     {
       "id": "twelve-s-metabarcoding",
       "title": "12S Metabarcoding",
-      "summary": "Oriented human 12S amplicon reads and a five-species primate 12S reference, ready for 12S amplicon matching.",
+      "summary": "Oriented human 12S amplicon reads, a simulated human and macaque 12S mixture, and a primate 12S reference, ready for 12S amplicon matching.",
       "chapters": [
         {
           "title": "12S Amplicon Metabarcoding",
@@ -384,12 +384,12 @@
       ],
       "projectFolderName": "12S Metabarcoding.lungfish",
       "archive": {
-        "url": "https://github.com/dhoconno/lungfish-genome-explorer/releases/download/demo-projects/lge-demo-twelve-s-metabarcoding-2026.9.44.zip",
-        "sha256": "14f92fe28d64f305f1497bf55021f073886d65c157157388398cb6b8445c3f70",
-        "bytes": 44898
+        "url": "https://github.com/dhoconno/lungfish-genome-explorer/releases/download/demo-projects/lge-demo-twelve-s-metabarcoding-2026.9.53.zip",
+        "sha256": "0e3bf1fdc7300542f867a763d5579b925854ed8f698f6892a43c2b1f74c3e8c5",
+        "bytes": 110091
       },
-      "version": "2026.9.44",
-      "minimumAppVersion": "2026.9.44"
+      "version": "2026.9.53",
+      "minimumAppVersion": "2026.9.53"
     }
   ]
 }
