@@ -488,6 +488,47 @@ final class BAMVariantCallingDialogRoutingTests: XCTestCase {
         )
     }
 
+    /// After Mark Duplicates, Call Variants defaulted to the "[unmarked]"
+    /// track. Variant calling ignores flagged duplicates, so the
+    /// "[dup-marked]" copy is the default when both exist.
+    @MainActor
+    func testDialogStateDefaultsToDupMarkedTrackAfterMarkDuplicates() throws {
+        let unmarked = AlignmentTrackInfo(
+            id: "aln-unmarked",
+            name: "GUIverify custom track [unmarked]",
+            format: .bam,
+            sourcePath: "alignments/sample.sorted.bam",
+            indexPath: "alignments/sample.sorted.bam.bai"
+        )
+        let marked = AlignmentTrackInfo(
+            id: "aln-marked",
+            name: "GUIverify custom track [dup-marked]",
+            format: .bam,
+            sourcePath: "alignments/marked/sample.sorted.bam",
+            indexPath: "alignments/marked/sample.sorted.bam.bai"
+        )
+        let bundle = try makeBundleFixture(alignments: [unmarked, marked])
+
+        XCTAssertEqual(BAMVariantCallingDialogState(bundle: bundle).selectedAlignmentTrackID, "aln-marked")
+        XCTAssertEqual(
+            BAMVariantCallingDialogState(bundle: bundle, preferredAlignmentTrackID: "aln-unmarked")
+                .selectedAlignmentTrackID,
+            "aln-unmarked",
+            "an explicit choice still wins"
+        )
+
+        let other = AlignmentTrackInfo(
+            id: "aln-other", name: "Other sample", format: .bam,
+            sourcePath: "alignments/other.sorted.bam", indexPath: "alignments/other.sorted.bam.bai"
+        )
+        let plain = try makeBundleFixture(alignments: [other, marked])
+        XCTAssertEqual(
+            BAMVariantCallingDialogState(bundle: plain).selectedAlignmentTrackID,
+            "aln-other",
+            "a track that is not an [unmarked] source keeps the first-track default"
+        )
+    }
+
     @MainActor
     func testDialogStateDisablesRunForInvalidSelectedTrackID() throws {
         let state = BAMVariantCallingDialogState(bundle: try makeBundleFixture())
