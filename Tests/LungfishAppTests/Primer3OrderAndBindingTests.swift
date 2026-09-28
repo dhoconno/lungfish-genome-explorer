@@ -70,7 +70,9 @@ final class Primer3OrderAndBindingTests: XCTestCase {
     XCTAssertEqual(draft.selection.selectedAssayIDs, [session.primer3Candidates[0].id])
     XCTAssertEqual(draft.oligos.count, 3)
     XCTAssertEqual(draft.oligos.map(\.oligoRole), [.forward, .probe, .reverse])
-    XCTAssertEqual(Set(draft.oligos.map(\.poolName)), ["Template_1_Candidate_1"])
+    // The order group carries the record's accession like its oligos, not
+    // "Template_1_Candidate_1".
+    XCTAssertEqual(Set(draft.oligos.map(\.poolName)), ["synthetic-display_P1"])
     // Names come from the record ID and keep whole fields. "synthetic-display-fixture"
     // is one character over the limit, so the last whole field is dropped rather than
     // cut: the old behaviour produced "Synthetic_display_fixtur", stopping mid-field.
@@ -95,8 +97,9 @@ final class Primer3OrderAndBindingTests: XCTestCase {
     XCTAssertTrue(files.contains("ordering.csv"))
     XCTAssertFalse(files.contains("IDT-oPools.xlsx"), "Alternative pairs have no pools to upload")
     let csv = try String(contentsOf: output.appendingPathComponent("ordering.csv"), encoding: .utf8)
-    XCTAssertTrue(csv.contains("Template_1_Candidate_1"))
-    XCTAssertFalse(csv.contains("Candidate_2"))
+    XCTAssertTrue(csv.contains("synthetic-display_P1"))
+    XCTAssertFalse(csv.contains("synthetic-display_P2"))
+    XCTAssertFalse(csv.contains("Template_1_Candidate"))
     // A stale selection whose pairs no longer match is refused.
     var stale = draft.selection
     stale = PrimerOrderSelection(capturedAt: stale.capturedAt, analysisURL: stale.analysisURL, manifest: stale.manifest,

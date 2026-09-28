@@ -23,7 +23,13 @@ final class PrimerOrderCaptureSelectionTests: XCTestCase {
     XCTAssertEqual(selection.selectedPrimerIDs.count, 6)
     let oligos = try PrimerOrderExportService.prepare(snapshot: snapshot, selection: selection)
     XCTAssertEqual(oligos.map(\.oligoRole), [.forward, .probe, .reverse, .forward, .probe, .reverse])
-    XCTAssertEqual(Set(oligos.map(\.poolName)), ["Template_1_Candidate_1", "Template_1_Candidate_2"])
+    // Order groups are named after the record and pair, like the oligos.
+    XCTAssertEqual(oligos.map(\.poolName), oligos.map { oligo in
+      String(oligo.name[..<oligo.name.lastIndex(of: "_")!])
+    })
+    XCTAssertEqual(Set(oligos.map(\.poolName)).count, 2)
+    XCTAssertTrue(oligos.allSatisfy { $0.poolName.hasSuffix("_P1") || $0.poolName.hasSuffix("_P2") })
+    XCTAssertFalse(oligos.contains { $0.poolName.contains("Template_") })
   }
 
   func testPrimer3SubsetKeepsSavedOrderAcceptsLowercaseAndRejectsUnknownPairs() throws {
@@ -36,7 +42,8 @@ final class PrimerOrderCaptureSelectionTests: XCTestCase {
       scope: .primer3CandidatePairs(includedPairIDs: [second.lowercased()]))
     XCTAssertEqual(selection.selectedAssayIDs, [second])
     let oligos = try PrimerOrderExportService.prepare(snapshot: snapshot, selection: selection)
-    XCTAssertEqual(Set(oligos.map(\.poolName)), ["Template_1_Candidate_2"])
+    XCTAssertEqual(Set(oligos.map(\.poolName)).count, 1)
+    XCTAssertTrue(oligos.allSatisfy { $0.poolName.hasSuffix("_P2") && $0.name.hasPrefix($0.poolName + "_") })
 
     XCTAssertThrowsError(try PrimerOrderExportService.captureSelection(snapshot: snapshot,
       scope: .primer3CandidatePairs(includedPairIDs: [UUID().uuidString])))

@@ -182,8 +182,15 @@ public struct PrimerOrderExportService: Sendable {
     let reviews = Dictionary(uniqueKeysWithValues: snapshot.designReview
       .filter { $0.presentation == .primer3Template }.map { ($0.id, $0) })
     var oligos: [PrimerOrderOligo] = []
+    // Order groups are named like the oligos, after the record's accession and
+    // pair number ("LR699574.1_P1"), not "Template_1_Candidate_1". Templates that
+    // share a stem keep their template number so group names stay unique.
+    let stemCounts = Dictionary(
+      results.results.map { (Self.orderNameStem($0.title, recordID: $0.sourceRecordID), 1) }, uniquingKeysWith: +)
     for result in results.results {
       let templateOrdinal = result.sourceIndex + 1
+      let stem = Self.orderNameStem(result.title, recordID: result.sourceRecordID)
+      let groupStem = (stemCounts[stem] ?? 0) > 1 ? "\(stem)_T\(templateOrdinal)" : stem
       for (index, pair) in result.pairs.enumerated() where pairIDs.contains(pair.id.uuidString) {
         guard let review = reviews[pair.id.uuidString] else {
           throw PrimerOrderExportError.invalid("A captured candidate pair is not part of the saved analysis.")
@@ -196,9 +203,8 @@ public struct PrimerOrderExportService: Sendable {
             oligo.start >= 0, oligo.end > oligo.start, oligo.end <= review.referenceLength else {
             throw PrimerOrderExportError.invalid("A candidate oligo has no verified sequence or coordinates.")
           }
-          let stem = Self.orderNameStem(result.title, recordID: result.sourceRecordID)
           oligos.append(.init(primerID: primer.id, targetID: review.id, sourceResultID: result.resultID.uuidString,
-            schemeLabel: result.title, poolName: "Template_\(templateOrdinal)_Candidate_\(index + 1)", pool: nil,
+            schemeLabel: result.title, poolName: "\(groupStem)_P\(index + 1)", pool: nil,
             referenceID: result.sourceRecordID, name: "\(stem)_P\(index + 1)_\(tag)",
             sequence: oligo.sequence.uppercased(), start: oligo.start, end: oligo.end, strand: primer.strand,
             ampliconIDs: [pair.id.uuidString],

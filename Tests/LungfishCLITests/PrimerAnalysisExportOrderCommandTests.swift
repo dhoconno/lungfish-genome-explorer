@@ -53,7 +53,10 @@ final class PrimerAnalysisExportOrderCommandTests: XCTestCase {
     XCTAssertEqual(loaded.document.metadata.name, "fixture candidate pairs order")
     XCTAssertEqual(loaded.document.metadata.requestedBy, "Bench")
     XCTAssertEqual(loaded.document.selection.selectedAssayIDs, [second])
-    XCTAssertEqual(Set(loaded.document.oligos.map(\.poolName)), ["Template_1_Candidate_2"])
+    XCTAssertEqual(Set(loaded.document.oligos.map(\.poolName)).count, 1)
+    XCTAssertTrue(loaded.document.oligos.allSatisfy {
+      $0.poolName.hasSuffix("_P2") && $0.name.hasPrefix($0.poolName + "_")
+    })
     XCTAssertEqual(loaded.provenance.workflowName, "Export Primer3 candidate pairs")
     let files = Set(try FileManager.default.contentsOfDirectory(atPath: output.path))
     XCTAssertTrue(files.isSuperset(of: ["order.json", "ordering.csv", "primer-order.xlsx", "template.xlsx"]))
