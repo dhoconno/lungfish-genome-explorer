@@ -2526,20 +2526,33 @@ public struct AnalysisSection: View {
                     viewModel.onSettingsChanged?()
                 }
 
+            // A segmented picker draws its label inline, beside the segments.
+            // At the default Inspector width the segments leave the label so
+            // little room that AppKit hyphenated "Consensus scope" mid-word,
+            // so each label is a caption above its segments instead, the same
+            // way "Coverage scale" is laid out.
+            Text("Consensus Mode")
+                .font(LungfishInspectorStyle.controlFont)
+                .foregroundStyle(.secondary)
             Picker("Consensus Mode", selection: $viewModel.consensusMode) {
                 Text("Bayesian").tag(AlignmentConsensusMode.bayesian)
                 Text("Simple").tag(AlignmentConsensusMode.simple)
             }
             .pickerStyle(.segmented)
+            .labelsHidden()
             .onChange(of: viewModel.consensusMode) { _, _ in
                 viewModel.onSettingsChanged?()
             }
 
+            Text("Consensus scope")
+                .font(LungfishInspectorStyle.controlFont)
+                .foregroundStyle(.secondary)
             Picker("Consensus scope", selection: $viewModel.consensusScope) {
                 Text("Whole contig").tag(AlignmentConsensusScope.wholeContig)
                 Text("Selected region").tag(AlignmentConsensusScope.selectedRegion)
             }
             .pickerStyle(.segmented)
+            .labelsHidden()
             .onChange(of: viewModel.consensusScope) { _, scope in
                 viewModel.onConsensusScopeChanged?(scope)
             }

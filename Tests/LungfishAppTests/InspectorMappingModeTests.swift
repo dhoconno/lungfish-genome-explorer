@@ -142,56 +142,6 @@ final class InspectorMappingModeTests: XCTestCase {
         XCTAssertFalse(toggle.keys.contains(NotificationUserInfoKey.selectedReadGroups as AnyHashable))
     }
 
-    // The mapping viewport treats the visible-track key as a list predicate:
-    // "" means "All Alignments" and rebuilds the contig list from scratch,
-    // clearing the selected contig. Clicking a contig row focuses the viewer
-    // on that row's track without the Inspector knowing, so a display-only
-    // toggle (Hide high-gap sites) that re-sent the Inspector's stale "" blanked
-    // the viewport and dropped the consensus evidence. Display toggles must
-    // carry display settings only.
-    func testMappingDisplayToggleDoesNotResendAlignmentIdentity() throws {
-        let vc = InspectorViewController()
-        _ = vc.view
-        let bundle = try makeReferenceBundle()
-
-        var payloads: [[AnyHashable: Any]] = []
-        vc.updateMappingAlignmentSection(from: bundle) { payloads.append($0) }
-        XCTAssertNotNil(payloads.last?[NotificationUserInfoKey.visibleAlignmentTrackID],
-                        "the first payload establishes the Inspector's track choice")
-
-        vc.readStyleSectionViewModel.consensusMaskingEnabled = true
-        vc.readStyleSectionViewModel.onSettingsChanged?()
-
-        let toggle = try XCTUnwrap(payloads.last)
-        XCTAssertEqual(toggle[NotificationUserInfoKey.consensusMaskingEnabled] as? Bool, true)
-        XCTAssertFalse(toggle.keys.contains(NotificationUserInfoKey.visibleAlignmentTrackID as AnyHashable),
-                       "an unchanged track choice must not re-assert All Alignments")
-        XCTAssertFalse(toggle.keys.contains(NotificationUserInfoKey.selectedReadGroups as AnyHashable),
-                       "an unchanged read-group choice must not override the selected row's samples")
-
-        vc.readStyleSectionViewModel.selectedVisibleAlignmentTrackID = "filtered-track"
-        vc.readStyleSectionViewModel.onSettingsChanged?()
-        XCTAssertEqual(payloads.last?[NotificationUserInfoKey.visibleAlignmentTrackID] as? String,
-                       "filtered-track", "a real track change must still reach the viewport")
-    }
-
-    func testDirectReferenceDisplayToggleDoesNotResendAlignmentIdentity() throws {
-        let vc = InspectorViewController()
-        _ = vc.view
-        let bundle = try makeReferenceBundle()
-
-        var payloads: [[AnyHashable: Any]] = []
-        vc.updateReferenceBundleTrackSections(from: bundle) { payloads.append($0) }
-
-        vc.readStyleSectionViewModel.consensusMaskingEnabled = true
-        vc.readStyleSectionViewModel.onSettingsChanged?()
-
-        let toggle = try XCTUnwrap(payloads.last)
-        XCTAssertEqual(toggle[NotificationUserInfoKey.consensusMaskingEnabled] as? Bool, true)
-        XCTAssertFalse(toggle.keys.contains(NotificationUserInfoKey.visibleAlignmentTrackID as AnyHashable))
-        XCTAssertFalse(toggle.keys.contains(NotificationUserInfoKey.selectedReadGroups as AnyHashable))
-    }
-
     // A segmented Picker draws its label inline, to the left of the segments.
     // At the default Inspector width the segments take nearly all the room,
     // so the inline "Consensus scope" label was squeezed until AppKit
