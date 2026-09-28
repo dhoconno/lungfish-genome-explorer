@@ -110,6 +110,21 @@ public struct PluginPackStatus: Sendable, Codable, Hashable, Identifiable {
     public var hasVolatileSmokeTestFailure: Bool {
         toolStatuses.contains(where: \.hasVolatileSmokeTestFailure)
     }
+
+    /// This status with its pack metadata (name, description, category)
+    /// replaced by `current`. Cached and persisted snapshots carry the pack
+    /// definition of the build that wrote them; readiness still applies after
+    /// an app update when the tool requirements are unchanged, but the words
+    /// on the card must come from the running build's definition.
+    public func rebound(to current: PluginPack) -> PluginPackStatus {
+        guard current != pack else { return self }
+        return PluginPackStatus(
+            pack: current,
+            state: state,
+            toolStatuses: toolStatuses,
+            failureMessage: failureMessage
+        )
+    }
 }
 
 public protocol PluginPackStatusProviding: Sendable {
@@ -340,8 +355,9 @@ public actor PluginPackStatusService: PluginPackStatusProviding {
         if let cachedVisibleStatuses,
            cachedVisibleStatuses.generation == generation {
             if !containsVolatileSmokeTestFailure(cachedVisibleStatuses.statuses),
-               await visibleStatusesFingerprintMatches(forGeneration: generation) {
-                return cachedVisibleStatuses.statuses
+               await visibleStatusesFingerprintMatches(forGeneration: generation),
+               let rebound = reboundToCurrentPackDefinitions(cachedVisibleStatuses.statuses) {
+                return rebound
             }
         }
 
@@ -359,7 +375,7 @@ public actor PluginPackStatusService: PluginPackStatusProviding {
         if let cached = cachedPackStatuses[pack.id], cached.generation == generation {
             if !cached.status.hasVolatileSmokeTestFailure,
                await packFingerprintMatches(for: pack, cached: cached) {
-                return cached.status
+                return cached.status.rebound(to: pack)
             }
         }
 
@@ -1154,6 +1170,15 @@ public actor PluginPackStatusService: PluginPackStatusProviding {
             && FileManager.default.isExecutableFile(atPath: micromambaPath.path)
     }
 
+    /// Rebinds cached visible statuses to the running build's pack
+    /// definitions, or returns nil when the cached list no longer matches the
+    /// visible packs (a pack was added, removed, or reordered).
+    private func reboundToCurrentPackDefinitions(_ statuses: [PluginPackStatus]) -> [PluginPackStatus]? {
+        let currentPacks = PluginPack.visibleForApp(experimentalFeaturesEnabled: true)
+        guard currentPacks.map(\.id) == statuses.map(\.pack.id) else { return nil }
+        return zip(statuses, currentPacks).map { status, pack in status.rebound(to: pack) }
+    }
+
     private func visibleStatusesFingerprintMatches(forGeneration generation: Int) async -> Bool {
         for pack in PluginPack.visibleForApp(experimentalFeaturesEnabled: true) {
             guard let cached = cachedPackStatuses[pack.id], cached.generation == generation else {
@@ -1171,6 +1196,11 @@ public actor PluginPackStatusService: PluginPackStatusProviding {
         cached: CachedPackStatus
     ) async -> Bool {
         guard let cachedFingerprint = cached.fingerprint else {
+            return false
+        }
+        // A snapshot written by a build whose pack asked for different tools
+        // says nothing about this build's pack.
+        guard cached.status.pack.toolRequirements == pack.toolRequirements else {
             return false
         }
         return await currentFingerprint(for: pack) == cachedFingerprint

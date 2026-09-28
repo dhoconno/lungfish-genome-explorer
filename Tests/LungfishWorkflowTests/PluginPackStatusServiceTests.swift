@@ -508,6 +508,55 @@ final class PluginPackStatusServiceTests: XCTestCase {
         XCTAssertEqual(calls.sorted(), ["deacon-panhuman", "deacon-ribokmers"], "each database check runs once; concurrent evaluation makes the order arbitrary")
     }
 
+    /// A snapshot persisted by an older build carries that build's pack
+    /// description. The Plugin Manager card must show the running build's
+    /// description (one source: PluginPack.requiredSetupDescription), while
+    /// still reusing the cached readiness.
+    func testPersistedSnapshotFromOlderBuildShowsCurrentPackDescription() async throws {
+        let rootPrefix = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: rootPrefix) }
+        let manager = CondaManager(
+            rootPrefix: rootPrefix,
+            bundledMicromambaProvider: { nil },
+            bundledMicromambaVersionProvider: { nil }
+        )
+
+        let firstService = PluginPackStatusService(
+            condaManager: manager,
+            databaseInstalledCheck: { _ in false },
+            cacheLifetime: 60
+        )
+        _ = await firstService.visibleStatuses()
+        _ = await firstService.status(for: .requiredSetupPack)
+
+        let snapshotURL = rootPrefix
+            .appendingPathComponent("cache", isDirectory: true)
+            .appendingPathComponent("plugin-pack-statuses.json")
+        let staleDescription = "Needed before you can create or open a project."
+        let current = PluginPack.requiredSetupDescription
+        let persisted = try String(contentsOf: snapshotURL, encoding: .utf8)
+        XCTAssertTrue(persisted.contains(current))
+        try persisted.replacingOccurrences(of: current, with: staleDescription)
+            .write(to: snapshotURL, atomically: true, encoding: .utf8)
+
+        let secondService = PluginPackStatusService(
+            condaManager: manager,
+            databaseInstalledCheck: { _ in
+                XCTFail("a matching snapshot must be reused, not re-evaluated")
+                return false
+            },
+            cacheLifetime: 60
+        )
+        let visible = await secondService.visibleStatuses()
+        let requiredCard = try XCTUnwrap(visible.first(where: { $0.pack.isRequiredBeforeLaunch }))
+        XCTAssertEqual(requiredCard.pack.description, PluginPack.requiredSetupDescription)
+        XCTAssertEqual(requiredCard.pack.description, PluginPack.requiredSetupPack.description)
+
+        let direct = await secondService.status(for: .requiredSetupPack)
+        XCTAssertEqual(direct.pack.description, PluginPack.requiredSetupDescription)
+        XCTAssertFalse(visible.contains { $0.pack.description == staleDescription })
+    }
+
     func testStatusForPackEvaluatesToolRequirementsConcurrentlyWithOrderPreservingResults() async throws {
         actor DelayRecorder {
             var callOrder: [String] = []
