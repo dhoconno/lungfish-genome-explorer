@@ -553,17 +553,6 @@ extension AnnotationTableDrawerView {
 
     // MARK: - Genotype Column Header Filter Menu
 
-    /// Shows the genotype column header filter menu on column click.
-    func showGenotypeColumnHeaderFilterMenu(column: Int) {
-        guard column >= 0, column < tableView.tableColumns.count else { return }
-        guard let headerView = tableView.headerView else { return }
-        let menu = NSMenu()
-        buildGenotypeColumnHeaderContextMenu(menu, column: column)
-        let rect = headerView.headerRect(ofColumn: column)
-        let anchorPoint = NSPoint(x: rect.minX + 8, y: rect.minY - 2)
-        menu.popUp(positioning: nil, at: anchorPoint, in: headerView)
-    }
-
     /// Builds the genotype column header context menu with sort and filter options.
     func buildGenotypeColumnHeaderContextMenu(_ menu: NSMenu, column: Int) {
         guard column >= 0, column < tableView.tableColumns.count else { return }

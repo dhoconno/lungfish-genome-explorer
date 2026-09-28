@@ -228,6 +228,32 @@ final class AnnotationTableDrawerVariantTests: XCTestCase {
         }
     }
 
+    /// A plain left click on a Variants header must only sort. The column
+    /// menu (Size to Fit / Sort / Filter) belongs to a context click.
+    func testHeaderLeftClickOnlySortsAndContextClickOpensColumnMenu() throws {
+        let drawer = try createDrawerWithAnnotationsAndVariants()
+        switchToVariantsAndWait(drawer)
+        XCTAssertFalse(
+            drawer.responds(to: NSSelectorFromString("tableView:didClickTableColumn:")),
+            "A header left click must not also pop up the column menu")
+
+        let header = try XCTUnwrap(drawer.tableView.headerView)
+        var titles: [String] = []
+        for column in 0..<drawer.tableView.numberOfColumns {
+            let rect = header.headerRect(ofColumn: column)
+            let event = try XCTUnwrap(NSEvent.mouseEvent(
+                with: .rightMouseDown,
+                location: header.convert(NSPoint(x: rect.midX, y: rect.midY), to: nil),
+                modifierFlags: [], timestamp: 0, windowNumber: 0, context: nil,
+                eventNumber: 0, clickCount: 1, pressure: 1))
+            let menu = try XCTUnwrap(header.menu(for: event), "No context menu for column \(column)")
+            titles += menu.items.map(\.title)
+        }
+        XCTAssertTrue(titles.contains { $0.hasSuffix("to Fit") }, titles.description)
+        XCTAssertTrue(titles.contains { $0.hasPrefix("Sort ") }, titles.description)
+        XCTAssertTrue(titles.contains { $0.hasPrefix("Filter ") }, titles.description)
+    }
+
     func testGeneQueriesKeepIndependentRowsFromEachTrack() throws {
         let drawer = try createDrawerWithAnnotationsAndVariants()
         let index = try XCTUnwrap(drawer.searchIndex)
