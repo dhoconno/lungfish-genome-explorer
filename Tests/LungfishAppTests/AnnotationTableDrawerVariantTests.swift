@@ -207,6 +207,27 @@ final class AnnotationTableDrawerVariantTests: XCTestCase {
         return drawer
     }
 
+    /// At the narrowest full-density widths the Profiles pop-up used to run
+    /// under the "Table Sync: Visible Rows" badge because nothing tied its
+    /// trailing edge to the right-hand controls.
+    func testProfilesButtonNeverOverlapsTableSyncBadge() throws {
+        let drawer = try createDrawerWithAnnotationsAndVariants()
+        switchToVariantsAndWait(drawer)
+        for width in stride(from: 760, through: 1100, by: 20) {
+            drawer.setFrameSize(NSSize(width: CGFloat(width), height: 200))
+            drawer.updateSearchFieldVisibility()
+            drawer.layoutSubtreeIfNeeded()
+            guard !drawer.profileButton.isHidden else { continue }
+            let profile = drawer.profileButton.frame
+            for control in [drawer.localVariantFilterBadgeLabel, drawer.clearFilterButton, drawer.searchBuilderButton]
+            where !control.isHidden {
+                XCTAssertLessThanOrEqual(
+                    profile.maxX, control.frame.minX,
+                    "Profiles overlaps \(control) at drawer width \(width)")
+            }
+        }
+    }
+
     func testGeneQueriesKeepIndependentRowsFromEachTrack() throws {
         let drawer = try createDrawerWithAnnotationsAndVariants()
         let index = try XCTUnwrap(drawer.searchIndex)

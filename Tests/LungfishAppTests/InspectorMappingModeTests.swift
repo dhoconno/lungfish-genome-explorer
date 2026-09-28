@@ -172,6 +172,34 @@ final class InspectorMappingModeTests: XCTestCase {
         XCTAssertEqual(vc.readStyleSectionViewModel.trackNames, [])
     }
 
+    /// The mapping viewer's embedded bundle must offer the same View >
+    /// Annotations variant-track toggles as the reference viewer, so an
+    /// imported benchmark track can be hidden from the Variants table.
+    func testMappingAlignmentSectionOffersEmbeddedVariantTrackToggles() throws {
+        let vc = InspectorViewController()
+        _ = vc.view
+        let base = try makeReferenceBundle()
+        let tracks = [
+            VariantTrackInfo(id: "vc-b", name: "HG002 bcftools", path: "variants/b.vcf.gz", indexPath: "variants/b.vcf.gz.tbi"),
+            VariantTrackInfo(id: "bench", name: "HG002 benchmark", path: "variants/bench.db", indexPath: ""),
+        ]
+        let manifest = BundleManifest(
+            name: base.manifest.name, identifier: base.manifest.identifier,
+            source: base.manifest.source, genome: base.manifest.genome,
+            variants: tracks, recordStore: nil)
+        let bundle = ReferenceBundle(url: base.url, manifest: manifest)
+
+        vc.updateMappingAlignmentSection(from: bundle, hiddenVariantTrackIDs: ["bench"], applySettings: { _ in })
+
+        let model = vc.annotationSectionViewModel
+        XCTAssertEqual(model.availableVariantTracks.map(\.id).sorted(), ["bench", "vc-b"])
+        XCTAssertEqual(model.hiddenVariantTrackIDs, ["bench"])
+
+        vc.updateReferenceBundleTrackSections(from: bundle) { _ in }
+        XCTAssertEqual(model.availableVariantTracks.count, 2, "Reference viewport keeps parity")
+        XCTAssertTrue(model.hiddenVariantTrackIDs.isEmpty)
+    }
+
     private func makeReferenceBundle() throws -> ReferenceBundle {
         let bundleURL = tempDir.appendingPathComponent("fixture.lungfishref", isDirectory: true)
         let genomeURL = bundleURL.appendingPathComponent("genome", isDirectory: true)

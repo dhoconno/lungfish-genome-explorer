@@ -1036,6 +1036,8 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         profileButton.translatesAutoresizingMaskIntoConstraints = false
         profileButton.toolTip = "Filter profiles"
         profileButton.isHidden = true  // shown only on variants tab
+        // Truncate the pop-up before squeezing the filter badge or query buttons.
+        profileButton.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         rebuildProfileMenu()
         searchBar.addSubview(profileButton)
 
@@ -1227,6 +1229,9 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
             profileButton.centerYAnchor.constraint(equalTo: searchBar.centerYAnchor),
             profileButton.leadingAnchor.constraint(equalTo: variantSubtabControl.trailingAnchor, constant: 6),
             profileButton.widthAnchor.constraint(lessThanOrEqualToConstant: 120),
+            // The right-hand controls are laid out from the trailing edge; without
+            // this the Profiles pop-up slides under them at narrow drawer widths.
+            profileButton.trailingAnchor.constraint(lessThanOrEqualTo: clearFilterButton.leadingAnchor, constant: -6),
 
             clearFilterButton.centerYAnchor.constraint(equalTo: searchBar.centerYAnchor),
             clearFilterButton.trailingAnchor.constraint(equalTo: localVariantFilterBadgeLabel.leadingAnchor, constant: -6),
