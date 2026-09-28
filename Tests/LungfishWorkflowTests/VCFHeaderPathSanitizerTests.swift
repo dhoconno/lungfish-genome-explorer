@@ -62,6 +62,14 @@ final class VCFHeaderPathSanitizerTests: XCTestCase {
         )
     }
 
+    func testPlainReferenceValueStaysUnstructuredForHtslib() {
+        let line = "##reference=\(workspace.path)/reference.fa"
+        XCTAssertEqual(
+            VCFHeaderPathSanitizer.sanitize(headerLine: line, context: context),
+            "##reference=file://<workspace>/reference.fa"
+        )
+    }
+
     func testLinesWithoutAbsolutePathsAndNonHeaderLinesAreUntouched() {
         for line in [
             "##fileformat=VCFv4.0",
@@ -103,11 +111,11 @@ final class VCFHeaderPathSanitizerTests: XCTestCase {
         let symlinkContext = VCFHeaderPathSanitizer.Context(workspaceURLs: [symlink])
         XCTAssertEqual(
             VCFHeaderPathSanitizer.sanitize(headerLine: "##reference=\(physical)/reference.fa", context: symlinkContext),
-            "##reference=<workspace>/reference.fa"
+            "##reference=file://<workspace>/reference.fa"
         )
         XCTAssertEqual(
             VCFHeaderPathSanitizer.sanitize(headerLine: "##reference=\(symlink.path)/reference.fa", context: symlinkContext),
-            "##reference=<workspace>/reference.fa"
+            "##reference=file://<workspace>/reference.fa"
         )
     }
 
@@ -124,7 +132,7 @@ final class VCFHeaderPathSanitizerTests: XCTestCase {
         XCTAssertFalse(result.contains("/var/folders/"))
         XCTAssertFalse(result.contains("/Users/"))
         XCTAssertTrue(result.contains("##source=lofreq 2.1.5 call -f <workspace>/reference.fa"))
-        XCTAssertTrue(result.contains("##reference=<workspace>/reference.fa"))
+        XCTAssertTrue(result.contains("##reference=file://<workspace>/reference.fa"))
         XCTAssertTrue(result.hasSuffix("#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\nMN908947.3\t241\t.\tC\tT\t1234\tPASS\tDP=100;AF=0.98\n"))
 
         // A second pass finds nothing left to change and leaves the file alone.

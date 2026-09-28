@@ -451,6 +451,9 @@ public enum PortablePath {
 
         let ordered: [Root]
         let preservedPrefixes: [String]
+        /// Lowercased account name; a scratch path that spells it keeps only
+        /// its file name.
+        let accountName: String?
 
         init(context: Context) {
             var tiers: [[Root]] = []
@@ -469,6 +472,19 @@ public enum PortablePath {
             }
             ordered = tiers.flatMap { $0 }
             preservedPrefixes = context.preservedPrefixes.map(PortablePath.trimmed)
+            let account = context.accountName?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            accountName = (account?.isEmpty ?? true) ? nil : account
+        }
+
+        /// A scratch folder can be named after the account (a per-user temp
+        /// or session folder). Such a `<workspace>` path keeps only its file
+        /// name, like `<external>`; other scratch paths keep their layout so
+        /// they still resolve while the file exists.
+        func workspaceForm(relative: String) -> String {
+            if let accountName, relative.lowercased().contains(accountName) {
+                return workspacePlaceholder + "/" + (relative.split(separator: "/").last.map(String.init) ?? relative)
+            }
+            return workspacePlaceholder + "/" + relative
         }
 
         private static func roots(for urls: [URL], placeholder: String) -> [Root] {
@@ -523,6 +539,9 @@ public enum PortablePath {
                     }
                     if form.hasPrefix(root.prefix + "/") {
                         let relative = String(form.dropFirst(root.prefix.count + 1))
+                        if root.placeholder == workspacePlaceholder {
+                            return workspaceForm(relative: relative) + trailing
+                        }
                         return root.placeholder + "/" + relative + trailing
                     }
                 }
@@ -571,6 +590,16 @@ public enum PortablePath {
                     continue
                 }
                 if let (root, end) = matchRoot(in: characters, at: index) {
+                    if root.placeholder == workspacePlaceholder, accountName != nil,
+                       end < characters.count, characters[end] == "/" {
+                        var tokenEnd = end
+                        while tokenEnd < characters.count, !pathTerminators.contains(characters[tokenEnd]) {
+                            tokenEnd += 1
+                        }
+                        output += workspaceForm(relative: String(characters[(end + 1) ..< tokenEnd]))
+                        index = tokenEnd
+                        continue
+                    }
                     if root.placeholder == Self.projectMarker {
                         output += (end < characters.count && characters[end] == "/") ? "@" : "@/"
                     } else {

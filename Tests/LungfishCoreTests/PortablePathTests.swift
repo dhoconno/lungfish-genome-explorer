@@ -74,6 +74,17 @@ final class PortablePathTests: XCTestCase {
         XCTAssertEqual(PortablePath.sanitize(path: "relative/path", context: context()), "relative/path")
     }
 
+    func testScratchPathNamingTheAccountKeepsOnlyItsFileName() {
+        XCTAssertEqual(
+            PortablePath.sanitize(path: "/tmp/session-someone-builds/inputs/reads.fastq", context: context()),
+            "<workspace>/reads.fastq"
+        )
+        XCTAssertEqual(
+            PortablePath.sanitize(text: "in=/private/tmp/Users-someone/x/r1.fq out=/tmp/plain/r2.fq", context: context()),
+            "in=<workspace>/r1.fq out=<workspace>/plain/r2.fq"
+        )
+    }
+
     func testDeclaredWorkspaceWinsOverProjectAndTemporaryRoots() {
         let workspace = URL(fileURLWithPath: "/tmp/lge/variants-1234/workspace", isDirectory: true)
         XCTAssertEqual(

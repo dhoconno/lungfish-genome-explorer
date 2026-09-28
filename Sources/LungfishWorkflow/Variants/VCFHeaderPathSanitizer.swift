@@ -57,6 +57,16 @@ public enum VCFHeaderPathSanitizer {
         if rewritten.hasPrefix("##source=") {
             rewritten = insertToolVersion(intoSourceLine: rewritten, context: context)
         }
+        // An unstructured value that now starts with a placeholder such as
+        // `<workspace>` would read as a structured `<...>` line to htslib;
+        // keep it a plain value by writing it as a file URI.
+        if let equals = rewritten.firstIndex(of: "="), let originalEquals = line.firstIndex(of: "=") {
+            let value = rewritten[rewritten.index(after: equals)...]
+            let originalValue = line[line.index(after: originalEquals)...]
+            if value.hasPrefix("<"), !originalValue.hasPrefix("<") {
+                rewritten = String(rewritten[...equals]) + "file://" + value
+            }
+        }
         return rewritten
     }
 
