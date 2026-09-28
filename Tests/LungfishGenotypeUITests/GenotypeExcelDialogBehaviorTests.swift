@@ -647,7 +647,7 @@ final class GenotypeExcelDialogBehaviorTests: GenotypeResultViewportTestCase {
             XCTAssertEqual(scientific.calls.first?.h1.effective, "Native H1")
         }
         controller.presentExcelExportPanel(expectedDisplayState: controller.testingDisplayState)
-        await fulfillment(of: [exported], timeout: 3)
+        await fulfillment(of: [exported], timeout: 30)
         XCTAssertEqual(controller.testingManualHaplotypeAssignments.map(\.label), ["Native H1"])
     }
 

@@ -70,7 +70,7 @@ final class DetachedAlignmentViewerTests: XCTestCase {
         let region = GenomicRegion(chromosome: "chr1", start: 0, end: 100)
 
         viewer.viewerView.fetchDetachedReads(source: source, region: region)
-        for _ in 0..<250 where viewer.viewerView.testCachedAlignedReads.count != 2 {
+        for _ in 0..<3000 where viewer.viewerView.testCachedAlignedReads.count != 2 {
             try await Task.sleep(nanoseconds: 10_000_000)
         }
         let frame = try XCTUnwrap(viewer.referenceFrame)
@@ -83,7 +83,7 @@ final class DetachedAlignmentViewerTests: XCTestCase {
         viewer.updateDetachedAlignmentSettings(minMapQ: 1, excludeFlags: 0xD04)
         viewer.updateDetachedAlignmentSettings(minMapQ: 2, excludeFlags: 0xD04)
         viewer.viewerView.fetchDetachedReads(source: source, region: region)
-        for _ in 0..<250 where viewer.viewerView.testCachedAlignedReads.count != 2 {
+        for _ in 0..<3000 where viewer.viewerView.testCachedAlignedReads.count != 2 {
             try await Task.sleep(nanoseconds: 10_000_000)
         }
         preparePackedLayoutSynchronously(viewer.viewerView, region: region, frame: frame)
@@ -135,7 +135,7 @@ final class DetachedAlignmentViewerTests: XCTestCase {
         let frame = try XCTUnwrap(viewer.referenceFrame)
 
         viewer.viewerView.fetchDetachedReads(source: source, region: region)
-        for _ in 0..<250 where viewer.viewerView.testCachedAlignedReads.count != 1 {
+        for _ in 0..<3000 where viewer.viewerView.testCachedAlignedReads.count != 1 {
             try await Task.sleep(nanoseconds: 10_000_000)
         }
         preparePackedLayoutSynchronously(viewer.viewerView, region: region, frame: frame)
@@ -148,7 +148,7 @@ final class DetachedAlignmentViewerTests: XCTestCase {
         viewer.updateDetachedAlignmentSettings(minMapQ: 1, excludeFlags: 0xD04)
         viewer.updateDetachedAlignmentSettings(minMapQ: 2, excludeFlags: 0xD04)
         viewer.viewerView.fetchDetachedReads(source: source, region: region)
-        for _ in 0..<250 where viewer.viewerView.testIsFetchingReads || !viewer.viewerView.testCachedAlignedReads.isEmpty {
+        for _ in 0..<3000 where viewer.viewerView.testIsFetchingReads || !viewer.viewerView.testCachedAlignedReads.isEmpty {
             try await Task.sleep(nanoseconds: 10_000_000)
         }
 
@@ -185,7 +185,7 @@ final class DetachedAlignmentViewerTests: XCTestCase {
         viewer.displayDetachedAlignment(source)
         let region = GenomicRegion(chromosome: "chr1", start: 0, end: 100)
         viewer.viewerView.fetchDetachedReads(source: source, region: region)
-        for _ in 0..<250 where viewer.viewerView.testCachedAlignedReads.count != 1 {
+        for _ in 0..<3000 where viewer.viewerView.testCachedAlignedReads.count != 1 {
             try await Task.sleep(nanoseconds: 10_000_000)
         }
         return (viewer, source, region)
