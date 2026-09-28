@@ -1,4 +1,5 @@
 import AppKit
+import SwiftUI
 import XCTest
 import LungfishWorkflow
 @testable import LungfishApp
@@ -388,6 +389,78 @@ final class WorkflowLibraryTests: XCTestCase {
         XCTAssertEqual(window.accessibilityIdentifier(), WorkflowLibraryAccessibilityID.window)
         XCTAssertNil(window.toolbar)
         XCTAssertNotNil(window.contentView)
+    }
+
+    /// Regression for the 2026.9.53 hang: after the library was scrolled part way
+    /// down, flipping the 12S Amplicon Matching switch left SwiftUI re-placing
+    /// lazy-stack items on every run-loop pass (100% CPU, main thread in
+    /// LazyLayoutViewCache / LazyStack.initialPlacement). The panel must settle.
+    func testLibraryPanelSettlesAfterTogglingWorkflowWhileScrolledPartWay() throws {
+        let _ = NSApplication.shared
+        let defaults = try makeDefaults()
+        let store = WorkflowLibraryEnablementStore(userDefaults: defaults)
+        let packIDs = Set(WorkflowLibraryCatalog.builtIn.flatMap(\.requiredPluginPackIDs))
+        let provider = StubWorkflowLibraryPluginStatusProvider(
+            states: Dictionary(uniqueKeysWithValues: packIDs.map { ($0, PluginPackState.ready) })
+        )
+        let viewModel = WorkflowLibraryViewModel(
+            store: store,
+            packageStore: WorkflowLibraryImportedPackageStore(userDefaults: defaults),
+            statusProvider: provider,
+            automaticallyRefreshUserWorkflowPackages: false
+        )
+        let twelveS = WorkflowLibraryCatalog.twelveSAmpliconMatchingItem
+        XCTAssertFalse(viewModel.isEnabled(twelveS))
+
+        let host = LayoutCountingHostingView(rootView: WorkflowLibraryPanelView(viewModel: viewModel))
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 780, height: 560),
+            styleMask: [.titled, .closable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        window.orderFrontRegardless()
+        addTeardownBlock { @MainActor in window.close() }
+        spinMainRunLoop(seconds: 0.5)
+
+        // Scroll to the middle, as the AX scrollbar value 0.5 did.
+        let scrollView = try XCTUnwrap(firstScrollView(in: host))
+        let documentHeight = scrollView.documentView?.frame.height ?? 0
+        let clipHeight = scrollView.contentView.bounds.height
+        XCTAssertGreaterThan(documentHeight, clipHeight * 2, "the catalog should need scrolling")
+        if let scroller = scrollView.verticalScroller, scroller.isAccessibilityElement() {
+            scroller.setAccessibilityValue(NSNumber(value: 0.5))
+        } else {
+            scrollView.contentView.scroll(to: NSPoint(x: 0, y: (documentHeight - clipHeight) * 0.5))
+            scrollView.reflectScrolledClipView(scrollView.contentView)
+        }
+        spinMainRunLoop(seconds: 0.5)
+
+        // Resize, as the user did before clicking.
+        window.setContentSize(NSSize(width: 820, height: 600))
+        spinMainRunLoop(seconds: 0.5)
+
+        for enabled in [true, false, true] {
+            let toggled = expectation(description: "12S enabled=\(enabled)")
+            Task { @MainActor in
+                await viewModel.setWorkflow(twelveS, enabled: enabled)
+                toggled.fulfill()
+            }
+            wait(for: [toggled], timeout: 10)
+            XCTAssertEqual(viewModel.isEnabled(twelveS), enabled)
+            spinMainRunLoop(seconds: 0.2)
+        }
+
+        spinMainRunLoop(seconds: 0.5)
+        host.layoutCount = 0
+        let cpuBefore = currentThreadCPUSeconds()
+        spinMainRunLoop(seconds: 1.0)
+        let idleCPU = currentThreadCPUSeconds() - cpuBefore
+        print("WorkflowLibrary settle: layouts=\(host.layoutCount) idleCPU=\(idleCPU)")
+        XCTAssertLessThan(host.layoutCount, 5, "the library kept re-laying out after it should have settled")
+        XCTAssertLessThan(idleCPU, 0.25, "the main thread kept working after the library should have settled")
     }
 
     func testViewModelSummarizesUserWorkflowPackageExecutionAndDependencies() async throws {
@@ -884,6 +957,33 @@ final class WorkflowLibraryTests: XCTestCase {
             .deletingLastPathComponent()
     }
 
+    private func spinMainRunLoop(seconds: TimeInterval) {
+        RunLoop.main.run(until: Date().addingTimeInterval(seconds))
+    }
+
+    private func currentThreadCPUSeconds() -> Double {
+        var info = thread_basic_info()
+        var count = mach_msg_type_number_t(MemoryLayout<thread_basic_info>.size / MemoryLayout<integer_t>.size)
+        let thread = mach_thread_self()
+        defer { mach_port_deallocate(mach_task_self_, thread) }
+        let result = withUnsafeMutablePointer(to: &info) { pointer in
+            pointer.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
+                thread_info(thread, thread_flavor_t(THREAD_BASIC_INFO), $0, &count)
+            }
+        }
+        guard result == KERN_SUCCESS else { return 0 }
+        return Double(info.user_time.seconds) + Double(info.user_time.microseconds) / 1_000_000
+            + Double(info.system_time.seconds) + Double(info.system_time.microseconds) / 1_000_000
+    }
+
+    private func firstScrollView(in view: NSView) -> NSScrollView? {
+        if let scrollView = view as? NSScrollView { return scrollView }
+        for subview in view.subviews {
+            if let found = firstScrollView(in: subview) { return found }
+        }
+        return nil
+    }
+
     private func workflowLibraryWindow() -> NSWindow? {
         NSApp.windows.first { $0.accessibilityIdentifier() == WorkflowLibraryAccessibilityID.window }
     }
@@ -892,6 +992,15 @@ final class WorkflowLibraryTests: XCTestCase {
         for window in NSApp.windows where window.accessibilityIdentifier() == WorkflowLibraryAccessibilityID.window {
             window.close()
         }
+    }
+}
+
+private final class LayoutCountingHostingView: NSHostingView<WorkflowLibraryPanelView> {
+    var layoutCount = 0
+
+    override func layout() {
+        layoutCount += 1
+        super.layout()
     }
 }
 
