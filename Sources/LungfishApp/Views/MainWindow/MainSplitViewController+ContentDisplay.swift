@@ -911,6 +911,10 @@ extension MainSplitViewController {
                 sidebarType: .analysisResult,
                 displayName: url.lastPathComponent
             )
+            inspectorController.updateMappingProvenanceSources(
+                resultURL: url,
+                viewerBundleURL: result.viewerBundleURL
+            )
             inspectorController.updateMappingDocument(
                 MappingDocumentStateBuilder.build(
                     result: result,

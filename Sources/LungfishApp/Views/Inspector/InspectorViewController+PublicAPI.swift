@@ -53,6 +53,24 @@ extension InspectorViewController {
         }
     }
 
+    /// Offers a mapping result's variant tracks in the Provenance Source picker.
+    ///
+    /// The tracks live in the result's embedded viewer bundle, so their paths
+    /// resolve against that bundle while the mapping record stays the default.
+    func updateMappingProvenanceSources(resultURL: URL, viewerBundleURL: URL?) {
+        let model = viewModel.provenanceSectionViewModel
+        guard let viewerBundleURL,
+              let item = model.currentItem,
+              item.url?.standardizedFileURL == resultURL.standardizedFileURL,
+              let manifest = try? BundleManifest.load(from: viewerBundleURL) else { return }
+        model.configureVariantSources(
+            bundleItem: item,
+            tracks: manifest.variants,
+            trackRootURL: viewerBundleURL,
+            bundleSourceName: "Mapping"
+        )
+    }
+
     func updateReferenceBundleDocumentState(
         manifest: BundleManifest?,
         bundleURL: URL?,
