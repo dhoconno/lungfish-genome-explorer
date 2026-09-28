@@ -392,18 +392,30 @@ final class ProvenanceInspectorViewModel {
 
     /// The manifest supplies the final stored payload paths, so track lookup and export
     /// continue to use the same audited provenance resolver as sidebar selections.
-    func configureVariantSources(bundleItem: ProvenanceInspectableItem, tracks: [VariantTrackInfo]) {
+    ///
+    /// - Parameters:
+    ///   - trackRootURL: The bundle whose manifest lists `tracks`. Defaults to the
+    ///     selected item itself; a mapping result passes its embedded viewer bundle.
+    ///   - bundleSourceName: The picker label for the selected item's own record.
+    func configureVariantSources(
+        bundleItem: ProvenanceInspectableItem,
+        tracks: [VariantTrackInfo],
+        trackRootURL: URL? = nil,
+        bundleSourceName: String = "Bundle"
+    ) {
         guard let bundleURL = bundleItem.url, !tracks.isEmpty else { return }
-        let root = bundleURL.standardizedFileURL
-        sources = [ProvenanceSource(id: root.path, name: "Bundle", item: bundleItem)]
-        sources += tracks.compactMap { track in
+        let itemID = bundleURL.standardizedFileURL.path
+        let root = (trackRootURL ?? bundleURL).standardizedFileURL
+        let trackSources: [ProvenanceSource] = tracks.compactMap { track in
             let url = root.appendingPathComponent(track.path).standardizedFileURL
             guard url.path.hasPrefix(root.path + "/") else { return nil }
             return ProvenanceSource(id: url.path, name: track.name, item: .init(
                 url: url, sidebarType: nil, contentMode: bundleItem.contentMode, displayName: track.name
             ))
         }
-        selectedSourceID = root.path
+        guard !trackSources.isEmpty else { return }
+        sources = [ProvenanceSource(id: itemID, name: bundleSourceName, item: bundleItem)] + trackSources
+        selectedSourceID = itemID
     }
 
     func selectSource(id: String) {

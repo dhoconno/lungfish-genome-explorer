@@ -16,8 +16,20 @@ let annotationDrawerLogger = Logger(subsystem: LogSubsystem.app, category: "Anno
 // MARK: - WideColumnDividerHeaderView
 
 /// Custom header view that expands the column-resize grab zone from ~3px to 8px each side.
+///
+/// It also serves the per-column Sort/Filter/Size menu on a context click
+/// (right-click or Control-click) so a plain left click only sorts.
 private final class WideColumnDividerHeaderView: NSTableHeaderView {
     let expandedHitZone: CGFloat = 8
+    var columnMenuProvider: ((Int) -> NSMenu?)?
+
+    override func menu(for event: NSEvent) -> NSMenu? {
+        let column = column(at: convert(event.locationInWindow, from: nil))
+        if column >= 0, let menu = columnMenuProvider?(column) {
+            return menu
+        }
+        return super.menu(for: event)
+    }
 
     override func mouseDown(with event: NSEvent) {
         let location = convert(event.locationInWindow, from: nil)
@@ -1036,6 +1048,8 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         profileButton.translatesAutoresizingMaskIntoConstraints = false
         profileButton.toolTip = "Filter profiles"
         profileButton.isHidden = true  // shown only on variants tab
+        // Truncate the pop-up before squeezing the filter badge or query buttons.
+        profileButton.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         rebuildProfileMenu()
         searchBar.addSubview(profileButton)
 
@@ -1113,7 +1127,11 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         // Configure initial table columns (annotation mode)
         configureColumnsForTab(.annotations)
 
-        tableView.headerView = WideColumnDividerHeaderView()
+        let headerView = WideColumnDividerHeaderView()
+        headerView.columnMenuProvider = { [weak self] column in
+            self?.columnHeaderMenu(forColumn: column)
+        }
+        tableView.headerView = headerView
         tableView.dataSource = self
         tableView.delegate = self
         tableView.rowHeight = 22
@@ -1227,6 +1245,9 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
             profileButton.centerYAnchor.constraint(equalTo: searchBar.centerYAnchor),
             profileButton.leadingAnchor.constraint(equalTo: variantSubtabControl.trailingAnchor, constant: 6),
             profileButton.widthAnchor.constraint(lessThanOrEqualToConstant: 120),
+            // The right-hand controls are laid out from the trailing edge; without
+            // this the Profiles pop-up slides under them at narrow drawer widths.
+            profileButton.trailingAnchor.constraint(lessThanOrEqualTo: clearFilterButton.leadingAnchor, constant: -6),
 
             clearFilterButton.centerYAnchor.constraint(equalTo: searchBar.centerYAnchor),
             clearFilterButton.trailingAnchor.constraint(equalTo: localVariantFilterBadgeLabel.leadingAnchor, constant: -6),
@@ -2351,23 +2372,24 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         updateDisplayedAnnotations()
     }
 
-    public func tableView(_ tableView: NSTableView, didClick tableColumn: NSTableColumn) {
-        guard let columnIndex = tableView.tableColumns.firstIndex(of: tableColumn) else { return }
-        if activeTab == .samples {
-            showSampleColumnHeaderFilterMenu(column: columnIndex)
-            return
+    /// The Sort/Filter/Size menu for a header context click on `column`.
+    ///
+    /// A plain left click on a header only sorts (through the column's sort
+    /// descriptor prototype); it no longer also pops this menu up.
+    func columnHeaderMenu(forColumn column: Int) -> NSMenu? {
+        guard column >= 0, column < tableView.tableColumns.count else { return nil }
+        let menu = NSMenu()
+        switch activeTab {
+        case .samples:
+            buildSampleColumnHeaderContextMenu(menu, column: column)
+        case .annotations:
+            buildAnnotationColumnHeaderContextMenu(menu, column: column)
+        case .variants where activeVariantSubtab == .calls:
+            buildVariantColumnHeaderContextMenu(menu, column: column)
+        case .variants:
+            buildGenotypeColumnHeaderContextMenu(menu, column: column)
         }
-        if activeTab == .annotations {
-            showAnnotationColumnHeaderFilterMenu(column: columnIndex)
-            return
-        }
-        if activeTab == .variants && activeVariantSubtab == .calls {
-            showVariantColumnHeaderFilterMenu(column: columnIndex)
-            return
-        }
-        if activeTab == .variants && activeVariantSubtab == .genotypes {
-            showGenotypeColumnHeaderFilterMenu(column: columnIndex)
-        }
+        return menu.items.isEmpty ? nil : menu
     }
 }
 
@@ -4318,36 +4340,6 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
             self.postSampleDisplayStateChange()
             self.rebuildSampleGroupPresetMenu()
         }
-    }
-
-    func showSampleColumnHeaderFilterMenu(column: Int) {
-        guard column >= 0, column < tableView.tableColumns.count else { return }
-        guard let headerView = tableView.headerView else { return }
-        let menu = NSMenu()
-        buildSampleColumnHeaderContextMenu(menu, column: column)
-        let rect = headerView.headerRect(ofColumn: column)
-        let anchorPoint = NSPoint(x: rect.minX + 8, y: rect.minY - 2)
-        menu.popUp(positioning: nil, at: anchorPoint, in: headerView)
-    }
-
-    func showAnnotationColumnHeaderFilterMenu(column: Int) {
-        guard column >= 0, column < tableView.tableColumns.count else { return }
-        guard let headerView = tableView.headerView else { return }
-        let menu = NSMenu()
-        buildAnnotationColumnHeaderContextMenu(menu, column: column)
-        let rect = headerView.headerRect(ofColumn: column)
-        let anchorPoint = NSPoint(x: rect.minX + 8, y: rect.minY - 2)
-        menu.popUp(positioning: nil, at: anchorPoint, in: headerView)
-    }
-
-    func showVariantColumnHeaderFilterMenu(column: Int) {
-        guard column >= 0, column < tableView.tableColumns.count else { return }
-        guard let headerView = tableView.headerView else { return }
-        let menu = NSMenu()
-        buildVariantColumnHeaderContextMenu(menu, column: column)
-        let rect = headerView.headerRect(ofColumn: column)
-        let anchorPoint = NSPoint(x: rect.minX + 8, y: rect.minY - 2)
-        menu.popUp(positioning: nil, at: anchorPoint, in: headerView)
     }
 
     @objc private func deleteSampleMetadataFieldAction(_ sender: NSMenuItem) {

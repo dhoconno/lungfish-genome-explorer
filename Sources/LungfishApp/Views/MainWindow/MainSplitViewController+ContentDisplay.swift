@@ -828,6 +828,7 @@ extension MainSplitViewController {
             guard let self, let controller else { return }
             self.inspectorController.updateReferenceBundleTrackSections(
                 from: bundle,
+                hiddenVariantTrackIDs: controller.embeddedHiddenVariantTrackIDs,
                 applySettings: { payload in
                     controller.applyEmbeddedReadDisplaySettings(payload)
                 }
@@ -846,6 +847,7 @@ extension MainSplitViewController {
             guard let self, let controller else { return }
             self.inspectorController.updateMappingAlignmentSection(
                 from: bundle,
+                hiddenVariantTrackIDs: controller.embeddedHiddenVariantTrackIDs,
                 applySettings: { payload in
                     controller.applyEmbeddedReadDisplaySettings(payload)
                 }
@@ -910,6 +912,10 @@ extension MainSplitViewController {
                 url: url,
                 sidebarType: .analysisResult,
                 displayName: url.lastPathComponent
+            )
+            inspectorController.updateMappingProvenanceSources(
+                resultURL: url,
+                viewerBundleURL: result.viewerBundleURL
             )
             inspectorController.updateMappingDocument(
                 MappingDocumentStateBuilder.build(

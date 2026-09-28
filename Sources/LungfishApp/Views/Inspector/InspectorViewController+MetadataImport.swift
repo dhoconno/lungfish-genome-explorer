@@ -684,7 +684,7 @@ extension InspectorViewController {
             return
         }
         guard let row = viewModel.documentSectionViewModel.alignmentTrackRows.first(where: { $0.id == trackID }),
-              row.isDerived else {
+              row.isRemovable else {
             presentSimpleAlert(title: "Source Alignment", message: "Only derived filtered alignments can be removed from this control.")
             return
         }
@@ -860,8 +860,10 @@ extension InspectorViewController {
 
     func updateMappingAlignmentSection(
         from bundle: ReferenceBundle,
+        hiddenVariantTrackIDs: Set<String> = [],
         applySettings: @escaping ([AnyHashable: Any]) -> Void
     ) {
+        syncEmbeddedVariantTrackVisibility(from: bundle, hiddenTrackIDs: hiddenVariantTrackIDs)
         viewModel.selectionSectionViewModel.referenceBundle = bundle
         viewModel.documentSectionViewModel.bundleURL = bundle.url
         viewModel.documentSectionViewModel.referenceTrackCapabilities =
@@ -933,10 +935,27 @@ extension InspectorViewController {
         inspectorLogger.info("updateMappingAlignmentSection: \(bundle.alignmentTrackIds.count) alignment tracks loaded")
     }
 
+    /// Offers the embedded viewer's variant tracks as View > Annotations toggles.
+    ///
+    /// Embedded viewers do not publish `.bundleDidLoad`, so the main window's
+    /// index-completion path never fills this inventory for them. The toggles
+    /// post `.variantFilterChanged`, which the embedded viewer and its Variants
+    /// drawer already honor.
+    func syncEmbeddedVariantTrackVisibility(from bundle: ReferenceBundle, hiddenTrackIDs: Set<String>) {
+        MainWindowController.synchronizeVariantFilterState(
+            viewModel.annotationSectionViewModel,
+            variantTypes: [],
+            tracks: bundle.manifest.variants.map { VariantTrackVisibilityItem(id: $0.id, name: $0.name) },
+            hiddenTrackIDs: hiddenTrackIDs
+        )
+    }
+
     func updateReferenceBundleTrackSections(
         from bundle: ReferenceBundle,
+        hiddenVariantTrackIDs: Set<String> = [],
         applySettings: @escaping ([AnyHashable: Any]) -> Void
     ) {
+        syncEmbeddedVariantTrackVisibility(from: bundle, hiddenTrackIDs: hiddenVariantTrackIDs)
         updateReferenceBundleDocumentState(
             manifest: bundle.manifest,
             bundleURL: bundle.url,

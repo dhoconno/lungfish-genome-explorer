@@ -976,6 +976,11 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
         }
     }
 
+    /// The variant tracks the embedded viewer currently hides.
+    var embeddedHiddenVariantTrackIDs: Set<String> {
+        embeddedViewerController.viewerView.hiddenVariantTrackIDs
+    }
+
     func notifyEmbeddedReferenceBundleLoadedIfAvailable() {
         if let bundle = embeddedViewerController.viewerView.currentReferenceBundle {
             onEmbeddedReferenceBundleLoaded?(bundle)

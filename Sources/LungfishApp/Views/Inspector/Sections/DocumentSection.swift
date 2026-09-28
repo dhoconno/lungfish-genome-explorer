@@ -7,6 +7,7 @@ import LungfishKit
 import LungfishAssemblyUI
 import LungfishCore
 import LungfishIO
+import LungfishWorkflow
 import LungfishGenotypeUI
 
 // MARK: - DocumentSectionViewModel
@@ -422,7 +423,8 @@ public final class DocumentSectionViewModel {
                 id: track.id,
                 name: track.name,
                 summary: alignmentTrackSummary(for: track, in: bundle),
-                isDerived: track.sourcePath.hasPrefix("alignments/filtered/")
+                isDerived: Self.isDerivedAlignmentTrack(track),
+                isRemovable: track.sourcePath.hasPrefix("alignments/filtered/")
             )
         }
 
@@ -451,8 +453,24 @@ public final class DocumentSectionViewModel {
         removeDerivedAlignmentTrack = nil
     }
 
+    /// Bundle directories that only ever hold tracks made from another track in
+    /// the same bundle (filter, primer trim, duplicate marking or removal).
+    static let derivedAlignmentDirectories = [
+        "alignments/filtered/",
+        "alignments/primer-trimmed/",
+        "alignments/marked/",
+        "alignments/deduplicated/",
+    ]
+
+    static func isDerivedAlignmentTrack(_ track: AlignmentTrackInfo) -> Bool {
+        derivedAlignmentDirectories.contains { track.sourcePath.hasPrefix($0) }
+    }
+
     private func alignmentTrackSummary(for track: AlignmentTrackInfo, in bundle: ReferenceBundle) -> String {
-        if track.sourcePath.hasPrefix("alignments/filtered/") {
+        if track.sourcePath.hasPrefix("alignments/primer-trimmed/") {
+            return primerTrimmedAlignmentTrackSummary(for: track, in: bundle)
+        }
+        if Self.isDerivedAlignmentTrack(track) {
             return derivedAlignmentTrackSummary(for: track, in: bundle)
         }
 
@@ -461,6 +479,26 @@ public final class DocumentSectionViewModel {
         }
 
         return "Imported alignment"
+    }
+
+    /// Primer trim records its source BAM and scheme in a sidecar beside the
+    /// trimmed BAM rather than in the track's metadata database.
+    private func primerTrimmedAlignmentTrackSummary(
+        for track: AlignmentTrackInfo,
+        in bundle: ReferenceBundle
+    ) -> String {
+        let fallback = "Primer-trimmed alignment derived from another track in this bundle. "
+            + "Use View > Alignment to inspect it alone."
+        guard let bamURL = try? bundle.memberURL(for: track.sourcePath, field: "alignments[\(track.id)].sourcePath"),
+              let provenance = PrimerTrimProvenanceLoader.load(forBAMAt: bamURL) else {
+            return fallback
+        }
+        let sourceFile = (provenance.sourceBAMRelativePath as NSString).lastPathComponent
+        let sourceName = bundle.manifest.alignments.first {
+            $0.id != track.id && ($0.sourcePath as NSString).lastPathComponent == sourceFile
+        }?.name ?? sourceFile
+        return "Primer-trimmed from \(sourceName) using \(provenance.primerScheme.bundleName). "
+            + "Use View > Alignment to inspect it alone."
     }
 
     private func derivedAlignmentTrackSummary(for track: AlignmentTrackInfo, in bundle: ReferenceBundle) -> String {
@@ -605,6 +643,8 @@ struct AlignmentTrackInventoryRow: Identifiable, Equatable {
     let name: String
     let summary: String
     let isDerived: Bool
+    /// Only filtered tracks can be removed by the Inspector's remove control.
+    var isRemovable: Bool = false
 }
 
 // MARK: - DocumentSection
@@ -1697,7 +1737,7 @@ struct AlignmentTrackInventorySection: View {
                         isCurrent: viewModel.visibleAlignmentTrackID == row.id,
                         isRecent: viewModel.recentlyCreatedAlignmentTrackID == row.id,
                         isDerived: row.isDerived,
-                        removeAction: row.isDerived ? { viewModel.removeDerivedAlignmentTrack?(row.id) } : nil,
+                        removeAction: row.isRemovable ? { viewModel.removeDerivedAlignmentTrack?(row.id) } : nil,
                         action: { viewModel.selectVisibleAlignmentTrack?(row.id) }
                     )
                 }
