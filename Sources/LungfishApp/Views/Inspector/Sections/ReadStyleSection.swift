@@ -500,14 +500,33 @@ public final class ReadStyleSectionViewModel {
         var programList: [ProgramRecordEntry] = []
         var provenanceList: [ProvenanceEntry] = []
 
+        var databases: [(trackID: String, db: AlignmentMetadataDatabase)] = []
         for trackId in trackIds {
             guard let trackInfo = bundle.alignmentTrack(id: trackId),
                   let dbRelPath = trackInfo.metadataDBPath else { continue }
             let dbURL = bundle.url.appendingPathComponent(dbRelPath)
             guard let db = try? AlignmentMetadataDatabase(url: dbURL) else { continue }
+            databases.append((trackId, db))
+        }
+        // A [dup-marked], deduplicated or filtered track holds the same reads
+        // as the track it was derived from. Counting both doubled the
+        // summary (Mapped 182.0K for 91,148 reads after Mark Duplicates).
+        let countedTrackIDs = Set(Self.distinctDataTrackIDs(
+            trackIDs: databases.map(\.trackID),
+            derivationSourceByTrackID: Dictionary(
+                databases.compactMap { entry in
+                    entry.db.getFileInfo("derivation_source_track_id").map { (entry.trackID, $0) }
+                },
+                uniquingKeysWith: { first, _ in first }
+            )
+        ))
+        var seenReadGroupIDs: Set<String> = []
+
+        for (trackId, db) in databases {
+            let countsTowardTotals = countedTrackIDs.contains(trackId)
 
             // Chromosome stats
-            for stat in db.chromosomeStats() {
+            for stat in db.chromosomeStats() where countsTowardTotals {
                 aggMapped += stat.mappedReads
                 aggUnmapped += stat.unmappedReads
                 chromStatsList.append(ChromosomeReadStat(
@@ -519,7 +538,7 @@ public final class ReadStyleSectionViewModel {
             }
 
             // Flag stats
-            for fs in db.flagStats() {
+            for fs in db.flagStats() where countsTowardTotals {
                 flagStatsList.append(FlagStatEntry(
                     category: fs.category,
                     qcPass: fs.qcPass,
@@ -528,7 +547,7 @@ public final class ReadStyleSectionViewModel {
             }
 
             // Read groups
-            for rg in db.readGroups() {
+            for rg in db.readGroups() where seenReadGroupIDs.insert(rg.id).inserted {
                 readGroupList.append(ReadGroupEntry(
                     id: rg.id,
                     sample: rg.sample,
@@ -583,6 +602,22 @@ public final class ReadStyleSectionViewModel {
         } else {
             primerTrimProvenance = nil
         }
+    }
+
+    /// The tracks whose reads the Alignment Summary counts: every track that
+    /// is not derived (by Mark Duplicates, deduplication or filtering) from
+    /// another track in the same bundle. A derived track whose source is no
+    /// longer in the bundle counts, since it is then the only copy.
+    nonisolated static func distinctDataTrackIDs(
+        trackIDs: [String],
+        derivationSourceByTrackID: [String: String]
+    ) -> [String] {
+        let present = Set(trackIDs)
+        let roots = trackIDs.filter { trackID in
+            guard let source = derivationSourceByTrackID[trackID], source != trackID else { return true }
+            return !present.contains(source)
+        }
+        return roots.isEmpty ? trackIDs : roots
     }
 
     /// Seeds the BAM-filter source track choices and default selection/output name.
