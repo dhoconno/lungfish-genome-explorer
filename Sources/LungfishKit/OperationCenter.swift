@@ -990,6 +990,15 @@ public final class OperationCenter: ObservableObject {
         if state == .failed {
             items[index].failureReportURL = failureReportStore.writeReport(for: items[index])
         }
+        // A producer that completes with a detail only (Kraken2, EsViritu,
+        // TaxTriage, ...) still made a result: the analysis directory it
+        // tracked. Record it so the Operations Panel's Results button and
+        // Reveal Output Files work. It is not passed to `onBundleReady`,
+        // which imports downloaded bundles.
+        if state == .completed, bundleURLs.isEmpty {
+            let tracked = trackedAnalysisDirectories(for: id)
+            if !tracked.isEmpty { items[index].bundleURLs = tracked }
+        }
         // Before any terminal notification, so a caller that refreshes the
         // sidebar or selects the result right after completing finds it.
         settleAnalysisOutputs(
@@ -1163,7 +1172,13 @@ public final class OperationCenter: ObservableObject {
         guard let item = items.first(where: { $0.id == id }), item.state.isActive else {
             // The operation already finished: settle against its outcome now.
             var tracking = analysisOutputs[key] ?? AnalysisOutputTracking(directory: directory, pending: [], succeeded: false, outcome: nil)
-            if items.first(where: { $0.id == id })?.state == .completed { tracking.succeeded = true }
+            if let index = items.firstIndex(where: { $0.id == id }), items[index].state == .completed {
+                tracking.succeeded = true
+                if items[index].bundleURLs.isEmpty {
+                    items[index].bundleURLs = [directory]
+                    changes.send(.updated(id: id, index: index))
+                }
+            }
             analysisOutputs[key] = tracking
             settleIfIdle(key: key)
             return
@@ -1195,6 +1210,14 @@ public final class OperationCenter: ObservableObject {
     public func isTrackingAnalysisOutput(_ url: URL) -> Bool {
         let key = url.standardizedFileURL.path
         return !(analysisOutputs[key]?.pending.isEmpty ?? true)
+    }
+
+    /// The analysis directories an operation is still tracking, in path order.
+    private func trackedAnalysisDirectories(for id: UUID) -> [URL] {
+        analysisOutputs.values
+            .filter { $0.pending.contains(id) }
+            .map(\.directory)
+            .sorted { $0.path < $1.path }
     }
 
     private func settleAnalysisOutputs(for id: UUID, succeeded: Bool, outcome: AnalysisRunRecord.Outcome? = nil) {
