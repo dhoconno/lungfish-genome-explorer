@@ -140,16 +140,51 @@ public struct WorkflowRun: Codable, Sendable, Identifiable, Equatable {
     /// prints. Without a packaged build number the build is recorded as
     /// `dev`; it was previously recorded as `Lungfish dev (0)`, which named
     /// neither.
+    ///
+    /// The CLI shipped inside the app reads its own embedded identity plist,
+    /// which carries no version keys, so without a fallback every record a
+    /// packaged `lungfish-cli` wrote (including the analyses the app runs
+    /// through it) said `(dev)`. A missing key is therefore taken from the
+    /// enclosing `.app` bundle's Info.plist when the executable lives in one.
     public static var currentAppVersion: String {
-        appVersion(infoDictionary: Bundle.main.infoDictionary ?? [:])
+        appVersion(
+            infoDictionary: Bundle.main.infoDictionary ?? [:],
+            enclosingAppInfoDictionary: enclosingAppInfoDictionary(executableURL: Bundle.main.executableURL)
+        )
     }
 
-    /// `currentAppVersion` for an explicit Info.plist dictionary (testable).
-    public static func appVersion(infoDictionary: [String: Any]) -> String {
-        let plistVersion = (infoDictionary["CFBundleShortVersionString"] as? String)?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        let plistBuild = (infoDictionary["CFBundleVersion"] as? String)?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+    /// The Info.plist of the `.app` bundle containing `executableURL`
+    /// (`<name>.app/Contents/MacOS/<executable>`), or nil when the executable
+    /// is not inside an app bundle. Symlinks such as an installed
+    /// `/usr/local/bin/lungfish-cli` are resolved first.
+    static func enclosingAppInfoDictionary(executableURL: URL?) -> [String: Any]? {
+        guard let executable = executableURL?.resolvingSymlinksInPath() else { return nil }
+        let contents = executable.deletingLastPathComponent().deletingLastPathComponent()
+        guard executable.deletingLastPathComponent().lastPathComponent == "MacOS",
+              contents.lastPathComponent == "Contents",
+              contents.deletingLastPathComponent().pathExtension == "app",
+              let data = try? Data(contentsOf: contents.appendingPathComponent("Info.plist")),
+              let plist = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any]
+        else { return nil }
+        return plist
+    }
+
+    /// `currentAppVersion` for explicit Info.plist dictionaries (testable).
+    public static func appVersion(
+        infoDictionary: [String: Any],
+        enclosingAppInfoDictionary: [String: Any]? = nil
+    ) -> String {
+        func value(_ key: String) -> String? {
+            for dictionary in [infoDictionary, enclosingAppInfoDictionary ?? [:]] {
+                if let text = (dictionary[key] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
+                   !text.isEmpty {
+                    return text
+                }
+            }
+            return nil
+        }
+        let plistVersion = value("CFBundleShortVersionString")
+        let plistBuild = value("CFBundleVersion")
         let version = (plistVersion?.isEmpty == false) ? plistVersion! : LungfishAppVersion.short
         let build = (plistBuild?.isEmpty == false) ? plistBuild! : "dev"
         return "Lungfish \(version) (\(build))"

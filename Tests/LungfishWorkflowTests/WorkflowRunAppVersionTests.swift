@@ -40,4 +40,26 @@ final class WorkflowRunAppVersionTests: XCTestCase {
         XCTAssertTrue(identity.appVersion.contains(LungfishAppVersion.short) || identity.appVersion.hasPrefix("Lungfish "))
         XCTAssertNotEqual(identity.appVersion, "Lungfish dev (0)")
     }
+    /// The packaged CLI's embedded identity plist has no version keys; its
+    /// provenance must carry the enclosing app's release build, not `(dev)`.
+    func testCLIInsideAnAppBundleRecordsTheAppBuild() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("app-version-\(UUID().uuidString)", isDirectory: true)
+        addTeardownBlock { try? FileManager.default.removeItem(at: root) }
+        let macOS = root.appendingPathComponent("Lungfish Preview.app/Contents/MacOS", isDirectory: true)
+        try FileManager.default.createDirectory(at: macOS, withIntermediateDirectories: true)
+        let plist: [String: Any] = ["CFBundleShortVersionString": "2026.9.99", "CFBundleVersion": "5752"]
+        try PropertyListSerialization.data(fromPropertyList: plist, format: .xml, options: 0)
+            .write(to: macOS.deletingLastPathComponent().appendingPathComponent("Info.plist"))
+        let cli = macOS.appendingPathComponent("lungfish-cli")
+        FileManager.default.createFile(atPath: cli.path, contents: Data())
+
+        let enclosing = try XCTUnwrap(WorkflowRun.enclosingAppInfoDictionary(executableURL: cli))
+        let recorded = WorkflowRun.appVersion(
+            infoDictionary: ["CFBundleIdentifier": "com.lungfish.cli"],
+            enclosingAppInfoDictionary: enclosing
+        )
+        XCTAssertEqual(recorded, "Lungfish 2026.9.99 (5752)")
+        XCTAssertNil(WorkflowRun.enclosingAppInfoDictionary(executableURL: root.appendingPathComponent("lungfish-cli")))
+    }
 }
