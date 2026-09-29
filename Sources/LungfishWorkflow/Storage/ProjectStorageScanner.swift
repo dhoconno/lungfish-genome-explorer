@@ -108,6 +108,9 @@ public struct ProjectStorageScanner {
         ProjectStorageLegacyWorkbookClassifier
     private let instrumentation: ProjectStorageInstrumentation
     private let hardLinkIdentityLimit: Int
+    /// Probes the producer recorded in an ``AnalysisRunRecord``.
+    private let runRecordProcessProbe: AnalysisRunRecord.ProcessProbe
+    private let currentHostName: String
 
     public init() {
         self.processInspector = {
@@ -121,6 +124,8 @@ public struct ProjectStorageScanner {
         )
         self.hardLinkIdentityLimit =
             Self.maximumTrackedHardLinkIdentities
+        self.runRecordProcessProbe = AnalysisRunRecord.probeProcess
+        self.currentHostName = AnalysisRunRecord.currentHostName()
     }
 
     init(
@@ -144,8 +149,13 @@ public struct ProjectStorageScanner {
             subsystem: LogSubsystem.workflow
         ),
         maximumTrackedHardLinkIdentities: Int =
-            Self.maximumTrackedHardLinkIdentities
+            Self.maximumTrackedHardLinkIdentities,
+        runRecordProcessProbe: @escaping AnalysisRunRecord.ProcessProbe =
+            AnalysisRunRecord.probeProcess,
+        currentHostName: String = AnalysisRunRecord.currentHostName()
     ) {
+        self.runRecordProcessProbe = runRecordProcessProbe
+        self.currentHostName = currentHostName
         self.processInspector = processInspector
         self.lockProbe = { lockURL in
             if callerHeldRunLocks.contains(where: {
@@ -174,6 +184,13 @@ public struct ProjectStorageScanner {
     /// hiding because it looks unfinished, whether that is still true or the
     /// operation was interrupted by a quit, a crash, or a cancelled window
     /// close before it could clear the marker.
+    ///
+    /// It also reports analysis result directories that still carry an
+    /// ``AnalysisRunRecord`` (their run never marked them complete), classified
+    /// by ``analysisRunClassification(for:)`` exactly as the Operations Panel's
+    /// Interrupted rows are: a run whose producer is gone is review-only, and a
+    /// run that is still going (or was recorded on another computer) is never
+    /// removable.
     ///
     /// This is a separate, shallow, read-only pass rather than a case added
     /// to ``scan(projectURL:progress:)``'s owned-work candidate walk: that
@@ -247,6 +264,19 @@ public struct ProjectStorageScanner {
             guard resourceValues?.isSymbolicLink != true,
                   resourceValues?.isDirectory == true else { continue }
 
+            if AnalysisRunRecord.isIncomplete(child) {
+                results.append(
+                    interruptedEntry(
+                        for: child,
+                        projectURL: projectURL,
+                        projectIdentity: projectIdentity,
+                        classification: analysisRunClassification(for: child)
+                    )
+                )
+                // Its contents belong to the run and are not separate entries.
+                continue
+            }
+
             if OperationMarker.isInProgress(child) {
                 var information = stat()
                 let hasStat = Darwin.lstat(child.path, &information) == 0
@@ -287,6 +317,92 @@ public struct ProjectStorageScanner {
                 results: &results
             )
         }
+    }
+
+    /// Classifies an analysis result directory that still carries its
+    /// ``AnalysisRunRecord``, the same way the Operations Panel does:
+    ///
+    /// - producer on this computer and gone, or record unreadable: an
+    ///   interrupted run, offered only for review (never selected by default);
+    /// - producer still running: not removable, a run is writing to it;
+    /// - recorded on another computer: not removable, since its producer
+    ///   cannot be checked from here.
+    func analysisRunClassification(for directory: URL) -> ProjectStorageClassification {
+        guard let record = AnalysisRunRecord.load(from: directory) else {
+            return .reviewRequired(
+                .interruptedOperationOutput,
+                reason: "An analysis run that never finished (its run record is unreadable)."
+            )
+        }
+        switch record.liveness(currentHostName: currentHostName, processProbe: runRecordProcessProbe) {
+        case .interrupted:
+            let outcome: String
+            switch record.outcome {
+            case .failed: outcome = "failed"
+            case .cancelled: outcome = "was cancelled"
+            case nil: outcome = "was interrupted"
+            }
+            return .reviewRequired(
+                .interruptedOperationOutput,
+                reason: "\(record.analysisName) run \(outcome) and never finished. "
+                    + "It is also listed as Interrupted in the Operations Panel."
+            )
+        case .running:
+            return .notRemovable(
+                .liveProcess,
+                reason: "\(record.analysisName) is still running and writing to this folder."
+            )
+        case .otherHost:
+            return .notRemovable(
+                .liveProcess,
+                reason: "\(record.analysisName) was started on another computer "
+                    + "(\(record.hostName)), so whether it is still running cannot be checked here."
+            )
+        }
+    }
+
+    /// The nearest directory at or above `url`, inside the project, whose
+    /// analysis run may still be writing: its record's producer is running
+    /// or on another computer.
+    func enclosingActiveAnalysisRun(for url: URL, projectURL: URL) -> URL? {
+        let rootPath = projectURL.standardizedFileURL.path
+        var current = url.standardizedFileURL
+        while current.path.hasPrefix(rootPath + "/") {
+            if AnalysisRunRecord.isIncomplete(current),
+               let record = AnalysisRunRecord.load(from: current),
+               record.liveness(currentHostName: currentHostName, processProbe: runRecordProcessProbe) != .interrupted {
+                return current
+            }
+            current = current.deletingLastPathComponent()
+        }
+        return nil
+    }
+
+    private func interruptedEntry(
+        for child: URL,
+        projectURL: URL,
+        projectIdentity: FileSystemObjectIdentity,
+        classification: ProjectStorageClassification
+    ) -> ProjectStorageEntry {
+        var information = stat()
+        let hasStat = Darwin.lstat(child.path, &information) == 0
+            && information.st_mode & S_IFMT == S_IFDIR
+        let identity = hasStat
+            ? FileSystemObjectIdentity(from: information)
+            : FileSystemObjectIdentity(device: 0, inode: 0)
+        let (logicalBytes, allocatedBytes) = (try? directorySize(child)) ?? (0, 0)
+        let modificationDate = (try? child.resourceValues(forKeys: [.contentModificationDateKey]))?
+            .contentModificationDate ?? Date()
+        return ProjectStorageEntry(
+            projectIdentity: projectIdentity,
+            relativePath: relativePath(from: projectURL, to: child),
+            identity: identity,
+            category: .interruptedOutput,
+            logicalBytes: logicalBytes,
+            allocatedBytes: allocatedBytes,
+            modificationDate: modificationDate,
+            classification: classification
+        )
     }
 
     private func directorySize(_ url: URL) throws -> (logical: UInt64, allocated: UInt64) {
@@ -505,6 +621,15 @@ public struct ProjectStorageScanner {
                         reason: "Still carries the .processing marker from an operation that may have been interrupted."
                     )
                 }
+            }
+            // Never offer anything inside an analysis run that may still be
+            // writing, whatever its own markers say.
+            if classification.isRemovable,
+               let activeRun = enclosingActiveAnalysisRun(
+                   for: candidate.url,
+                   projectURL: project
+               ) {
+                classification = analysisRunClassification(for: activeRun)
             }
             try cancellationCheck()
             var finalInformation = stat()

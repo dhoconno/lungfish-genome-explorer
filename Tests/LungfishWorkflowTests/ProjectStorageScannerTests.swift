@@ -1,6 +1,7 @@
 import Darwin
 import CryptoKit
 import Foundation
+import LungfishCore
 import LungfishIO
 import XCTest
 @testable import LungfishWorkflow
@@ -1412,6 +1413,98 @@ final class ProjectStorageScannerTests: XCTestCase {
         )
         XCTAssertEqual(reverseRejected.code, .liveWorkbookAuthority)
         XCTAssertTrue(reverseRejected.reason.contains("filename"))
+    }
+
+    // MARK: - Analysis run records
+
+    private func makeRunDirectory(_ relativePath: String, record: AnalysisRunRecord) throws -> URL {
+        let directory = project.appendingPathComponent(relativePath, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try Data("partial".utf8).write(to: directory.appendingPathComponent("partial.txt"))
+        try AnalysisRunRecord.begin(record, in: directory)
+        return directory
+    }
+
+    func testInterruptedPassClassifiesAnalysisRunRecordsLikeTheOperationsPanel() throws {
+        _ = try makeRunDirectory(
+            "Analyses/kraken2-dead",
+            record: AnalysisRunRecord(analysisName: "Kraken2", hostName: "lab-mac", processIdentifier: 4242, processStartTime: 1)
+        )
+        _ = try makeRunDirectory(
+            "Analyses/Genotypes/cohort.lungfishgenotype",
+            record: AnalysisRunRecord(analysisName: "Amplicon genotyping", hostName: "lab-mac", processIdentifier: 5151, processStartTime: nil)
+        )
+        _ = try makeRunDirectory(
+            "Analyses/esviritu-foreign",
+            record: AnalysisRunRecord(analysisName: "EsViritu", hostName: "other-mac", processIdentifier: 4242, processStartTime: 1)
+        )
+        let complete = project.appendingPathComponent("Analyses/taxtriage-done", isDirectory: true)
+        try FileManager.default.createDirectory(at: complete, withIntermediateDirectories: true)
+
+        let scanner = ProjectStorageScanner(
+            runRecordProcessProbe: { pid in pid == 5151 ? .running(startTime: nil) : .notRunning },
+            currentHostName: "lab-mac"
+        )
+        let entries = Dictionary(
+            uniqueKeysWithValues: try scanner.scanInterruptedOperationOutputs(projectURL: project)
+                .map { ($0.relativePath, $0) }
+        )
+
+        XCTAssertEqual(Set(entries.keys), [
+            "Analyses/kraken2-dead",
+            "Analyses/Genotypes/cohort.lungfishgenotype",
+            "Analyses/esviritu-foreign",
+        ])
+        let dead = try XCTUnwrap(entries["Analyses/kraken2-dead"])
+        XCTAssertEqual(dead.category, .interruptedOutput)
+        XCTAssertEqual(dead.classification.disposition, .reviewRequired)
+        XCTAssertEqual(dead.classification.code, .interruptedOperationOutput)
+        XCTAssertFalse(dead.classification.isSelectedByDefault, "never removed automatically")
+        XCTAssertGreaterThan(dead.logicalBytes, 0)
+
+        let live = try XCTUnwrap(entries["Analyses/Genotypes/cohort.lungfishgenotype"])
+        XCTAssertFalse(live.classification.isRemovable, "a running analysis is never offered for removal")
+        XCTAssertTrue(live.classification.reason.contains("still running"), live.classification.reason)
+
+        let foreign = try XCTUnwrap(entries["Analyses/esviritu-foreign"])
+        XCTAssertFalse(foreign.classification.isRemovable)
+        XCTAssertTrue(foreign.classification.reason.contains("other-mac"), foreign.classification.reason)
+    }
+
+    func testScanNeverOffersOwnedWorkInsideARunningAnalysis() throws {
+        let running = try makeRunDirectory(
+            "Analyses/taxtriage-batch-live",
+            record: AnalysisRunRecord(analysisName: "TaxTriage", hostName: "lab-mac", processIdentifier: 5151, processStartTime: nil)
+        )
+        let insideRunning = running.appendingPathComponent(
+            ".analysis.lungfishgenotype.candidate-artifact-work",
+            isDirectory: true
+        )
+        try makeOwnedDirectory(insideRunning, runID: UUID(), state: .completed)
+        let interrupted = try makeRunDirectory(
+            "Analyses/taxtriage-batch-dead",
+            record: AnalysisRunRecord(analysisName: "TaxTriage", hostName: "lab-mac", processIdentifier: 4242, processStartTime: 1)
+        )
+        let insideInterrupted = interrupted.appendingPathComponent(
+            ".analysis.lungfishgenotype.candidate-artifact-work",
+            isDirectory: true
+        )
+        try makeOwnedDirectory(insideInterrupted, runID: UUID(), state: .completed)
+
+        let scanner = ProjectStorageScanner(
+            runRecordProcessProbe: { pid in pid == 5151 ? .running(startTime: nil) : .notRunning },
+            currentHostName: "lab-mac"
+        )
+        let entries = Dictionary(
+            uniqueKeysWithValues: try scanner.scan(projectURL: project).entries
+                .map { ($0.relativePath, $0.classification) }
+        )
+
+        let blocked = try XCTUnwrap(entries["Analyses/taxtriage-batch-live/\(insideRunning.lastPathComponent)"])
+        XCTAssertFalse(blocked.isRemovable)
+        XCTAssertEqual(blocked.code, .liveProcess)
+        let unaffected = try XCTUnwrap(entries["Analyses/taxtriage-batch-dead/\(insideInterrupted.lastPathComponent)"])
+        XCTAssertTrue(unaffected.isRemovable, "only a live run blocks its owned work")
     }
 
     private func makeOwnedDirectory(
