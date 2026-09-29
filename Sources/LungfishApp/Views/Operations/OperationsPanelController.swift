@@ -157,6 +157,18 @@ final class OperationsPanelViewController: NSViewController, NSTableViewDataSour
     }
 
     func splitView(_ splitView: NSSplitView, resizeSubviewsWithOldSize oldSize: NSSize) {
+        layoutSplitSubviews()
+    }
+
+    /// Sizes the list and the drawer. The drawer gets its saved height, never
+    /// less than 330pt, and the list keeps at least 100pt.
+    ///
+    /// Opening the drawer must come through here too. It used to call
+    /// `adjustSubviews()`, which resizes proportionally from the stale frames
+    /// and skips this delegate, so a panel resized before the drawer opened
+    /// (1200x650 in the manual capture) got a ~217pt drawer: the header kept
+    /// its full height and the toolbar and log were pushed under the footer.
+    private func layoutSplitSubviews() {
         guard drawerIsOpen else {
             scrollView.frame = splitView.bounds
             return
@@ -184,7 +196,7 @@ final class OperationsPanelViewController: NSViewController, NSTableViewDataSour
     private func setDrawerOpen(_ open: Bool) {
         drawerIsOpen = open
         inspector.isHidden = !open
-        splitView.adjustSubviews()
+        layoutSplitSubviews()
         if open, tableView.selectedRow >= 0 { tableView.scrollRowToVisible(tableView.selectedRow) }
         refreshInspector()
         tableView.reloadData(forRowIndexes: IndexSet(integersIn: 0..<items.count), columnIndexes: IndexSet(integer: 0))

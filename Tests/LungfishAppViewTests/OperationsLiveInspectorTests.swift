@@ -10,13 +10,17 @@ final class OperationsLiveInspectorTests: XCTestCase {
         return root.subviews.compactMap { find($0, identifier, as: type) }.first
     }
 
-    private func panel(id: UUID) throws -> (OperationsPanelController, NSView, NSTableView) {
+    private func panel(id: UUID, frameSizeBeforeOpening: NSSize? = nil) throws -> (OperationsPanelController, NSView, NSTableView) {
         _ = NSApplication.shared
         let controller = OperationsPanelController()
         let window = try XCTUnwrap(controller.window)
         window.setContentSize(NSSize(width: 900, height: 700))
         let view = try XCTUnwrap(window.contentViewController?.view)
         view.layoutSubtreeIfNeeded()
+        if let frameSizeBeforeOpening {
+            window.setFrame(NSRect(origin: window.frame.origin, size: frameSizeBeforeOpening), display: true)
+            view.layoutSubtreeIfNeeded()
+        }
         let table = try XCTUnwrap(find(view, "operations-table", as: NSTableView.self))
         let row = try XCTUnwrap(OperationCenter.shared.items.firstIndex { $0.id == id })
         table.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
@@ -337,15 +341,25 @@ final class OperationsLiveInspectorTests: XCTestCase {
         }
         _ = OperationCenter.shared.fail(
             id: failed, detail: "Viral Recon failed",
-            errorMessage: "Process NFCORE_VIRALRECON:ILLUMINA:FASTQC_FASTP terminated with an error exit status (1). Check the log for the failing command and its standard error output."
+            errorMessage: """
+                Process `NFCORE_VIRALRECON:ILLUMINA:FASTQC_FASTP (SRR1)` terminated with an error exit status (1)
+                Command executed:
+                  fastp --in1 SRR1_1.fastq.gz --in2 SRR1_2.fastq.gz --thread 6 --json SRR1.fastp.json
+                Command exit status:
+                  1
+                Command error:
+                  ERROR: the input file SRR1_1.fastq.gz is not a valid FASTQ file
+                Work dir:
+                  /Users/example/Project.lungfish/Analyses/viralrecon/work/3a/1f2c
+                """
         )
         defer { OperationCenter.shared.clearItem(id: failed) }
 
-        let (controller, view, _) = try panel(id: failed)
+        // As captured: the panel is sized to a 1200x650 window frame first and
+        // the drawer is opened afterwards with the row's Log button.
+        let (controller, view, _) = try panel(id: failed, frameSizeBeforeOpening: NSSize(width: 1200, height: 650))
         defer { controller.close() }
         let window = try XCTUnwrap(controller.window)
-        window.setContentSize(NSSize(width: 1200, height: 650))
-        view.layoutSubtreeIfNeeded()
         try await Task.sleep(for: .milliseconds(300))
         view.layoutSubtreeIfNeeded()
         window.displayIfNeeded()
@@ -358,6 +372,10 @@ final class OperationsLiveInspectorTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(drawer.minY, footerTop - 0.5,
                                     "drawer \(drawer) runs under the footer (top \(footerTop))")
         XCTAssertLessThanOrEqual(drawer.maxY, view.bounds.maxY + 0.5)
+        XCTAssertGreaterThanOrEqual(drawer.height, 330 - 0.5,
+                                    "the drawer opens at its 330pt minimum or more, got \(drawer.height)")
+        let log = try XCTUnwrap(find(inspector, "operations-inspector-log-text", as: NSView.self)?.enclosingScrollView)
+        XCTAssertGreaterThanOrEqual(log.frame.height, 70 - 0.5, "the log keeps its 70pt minimum")
 
         func visibleLeaves(_ root: NSView) -> [NSView] {
             root.subviews.filter { !$0.isHidden }.flatMap { child -> [NSView] in
