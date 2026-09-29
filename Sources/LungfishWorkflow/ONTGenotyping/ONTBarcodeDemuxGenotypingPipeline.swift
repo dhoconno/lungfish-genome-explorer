@@ -890,15 +890,19 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         // launched this run it already created the bundle with its own record
         // and removes it when its operation completes, so a live launcher's
         // record is left alone. A failed or cancelled run keeps the record
-        // and stays hidden; nothing is removed here.
-        let runRecordClaim = try AnalysisRunRecord.beginRun(
-            in: request.outputDirectory,
+        // and stays hidden; nothing is removed here. An output directory
+        // outside a project, or one already holding other content, is not
+        // claimed (see AnalysesFolder.beginRunInOutputDirectory).
+        let runRecordClaim = try AnalysesFolder.beginRunInOutputDirectory(
+            request.outputDirectory,
+            projectURL: request.projectURL,
             record: AnalysisRunRecord(
                 analysisName: Self.workflowName(for: resolvedMode),
                 command: request.argv.map(shellEscape).joined(separator: " "),
                 startedAt: startedAt
             )
         )
+        try FileManager.default.createDirectory(at: request.outputDirectory, withIntermediateDirectories: true)
         var runRecordCompleted = false
         defer {
             if !runRecordCompleted, runRecordClaim == .owned {
@@ -1263,7 +1267,9 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         )
         progressHandler?(0.98, "Finalizing amplicon genotyping outputs.")
         // Last step: the finished bundle may now appear in the sidebar.
-        AnalysisRunRecord.completeRun(runRecordClaim, in: request.outputDirectory)
+        if let runRecordClaim {
+            AnalysisRunRecord.completeRun(runRecordClaim, in: request.outputDirectory)
+        }
         runRecordCompleted = true
         return finalizedResult
         } catch let journalError as GenotypingCleanupJournalError {

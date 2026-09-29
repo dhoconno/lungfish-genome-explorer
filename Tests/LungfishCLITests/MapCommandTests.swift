@@ -155,4 +155,36 @@ final class MapCommandTests: XCTestCase {
         let leftovers = (try? FileManager.default.contentsOfDirectory(atPath: analyses.path)) ?? []
         XCTAssertTrue(leftovers.isEmpty, "left behind: \(leftovers)")
     }
+
+    /// A chosen --output-dir inside a project carries a run record, so it
+    /// stays out of the sidebar; a failed run keeps it hidden and in place.
+    func testFailedRunIntoAChosenOutputDirectoryInsideAProjectStaysHidden() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("map-output-dir-\(UUID().uuidString)", isDirectory: true)
+        let project = root.appendingPathComponent("Study.lungfish", isDirectory: true)
+        try FileManager.default.createDirectory(at: project, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let reads = project.appendingPathComponent("reads.fastq")
+        try "@r1\nACGT\n+\nIIII\n".write(to: reads, atomically: true, encoding: .utf8)
+        let reference = project.appendingPathComponent("ref.fasta")
+        try ">ref\nACGTACGT\n".write(to: reference, atomically: true, encoding: .utf8)
+        let output = project.appendingPathComponent("Analyses/Chosen/my-mapping", isDirectory: true)
+
+        // An unknown preset fails the run after the output folder is claimed.
+        let command = try MapCommand.parse([
+            reads.path,
+            "--reference", reference.path,
+            "--output-dir", output.path,
+            "--preset", "not-a-preset",
+            "--quiet",
+        ])
+        do {
+            try await command.run()
+            XCTFail("an unknown preset must fail the run")
+        } catch {}
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: output.path), "a chosen folder is never deleted")
+        XCTAssertTrue(AnalysisRunRecord.isIncomplete(output), "a failed run's folder stays hidden")
+        XCTAssertEqual(AnalysisRunRecord.load(from: output)?.outcome, .failed)
+    }
 }

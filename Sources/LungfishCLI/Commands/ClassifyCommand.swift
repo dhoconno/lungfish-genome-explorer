@@ -219,6 +219,25 @@ struct ClassifyCommand: AsyncParsableCommand {
             originalInputURLs: fastqFiles.map { URL(fileURLWithPath: $0).standardizedFileURL }
         )
 
+        // An output directory inside a project carries a run record until
+        // the result is written, so it stays out of the sidebar while the
+        // run is going. A failed run keeps it (hidden, listed for review as
+        // Interrupted); nothing is deleted.
+        let runRecordClaim = try? AnalysesFolder.beginRunInOutputDirectory(
+            outputDirectory,
+            record: AnalysisRunRecord(
+                analysisName: "Kraken2 classification",
+                command: CommandLine.arguments.map(shellEscape).joined(separator: " "),
+                startedAt: startedAt
+            )
+        )
+        var runRecordCompleted = false
+        defer {
+            if !runRecordCompleted, runRecordClaim == .owned {
+                AnalysisRunRecord.recordOutcome(Task.isCancelled ? .cancelled : .failed, in: outputDirectory)
+            }
+        }
+
         do {
 
         // Resolve input files.
@@ -434,6 +453,13 @@ struct ClassifyCommand: AsyncParsableCommand {
                 recursive: recursive
             )
             failureContext.wrapperProvenanceWritten = true
+            // The result is written. A degraded Bracken profile still leaves
+            // a usable classification (completed with warnings), so it is
+            // shown too.
+            if let runRecordClaim {
+                AnalysisRunRecord.completeRun(runRecordClaim, in: outputDirectory)
+            }
+            runRecordCompleted = true
         } catch {
             failureContext.stage = .provenancePublication
             failureContext.failureMessage = error.localizedDescription

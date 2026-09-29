@@ -201,8 +201,35 @@ struct MapCommand: AsyncParsableCommand {
                 AnalysesFolder.discardFailedAnalysisDirectory(createdAnalysisDirectory)
             }
         }
+        // A chosen --output-dir inside a project is claimed with a run
+        // record, so the result stays out of the sidebar until this run
+        // completes. A failed run keeps the record (hidden, listed for
+        // review as Interrupted) and is never deleted, since the folder was
+        // the user's choice.
+        var outputDirectoryClaim: AnalysisRunRecord.RunClaim?
+        var outputDirectoryCompleted = false
+        defer {
+            if !outputDirectoryCompleted, outputDirectoryClaim == .owned, let outputDir {
+                AnalysisRunRecord.recordOutcome(
+                    Task.isCancelled ? .cancelled : .failed,
+                    in: URL(fileURLWithPath: outputDir)
+                )
+            }
+        }
         if let outputDir {
             outputDirectory = URL(fileURLWithPath: outputDir)
+            do {
+                outputDirectoryClaim = try AnalysesFolder.beginRunInOutputDirectory(
+                    outputDirectory,
+                    projectURL: projectURL,
+                    record: AnalysisRunRecord(
+                        analysisName: "\(selectedTool.displayName) mapping",
+                        command: CommandLine.arguments.map(shellEscape).joined(separator: " ")
+                    )
+                )
+            } catch {
+                throw CLIError.outputWriteFailed(path: outputDirectory.path, reason: error.localizedDescription)
+            }
         } else if let projectURL {
             // The same Analyses/<mapper>-<timestamp>/ folder the window creates.
             do {
@@ -400,6 +427,10 @@ struct MapCommand: AsyncParsableCommand {
             AnalysesFolder.markAnalysisComplete(createdAnalysisDirectory)
         }
         createdAnalysisDirectory = nil
+        if let outputDirectoryClaim {
+            AnalysisRunRecord.completeRun(outputDirectoryClaim, in: outputDirectory)
+        }
+        outputDirectoryCompleted = true
         let report = Report(published: published, request: request)
 
         guard printsText else {

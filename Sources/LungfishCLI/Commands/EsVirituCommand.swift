@@ -4,6 +4,7 @@
 
 import ArgumentParser
 import Foundation
+import LungfishCore
 import LungfishIO
 import LungfishWorkflow
 
@@ -238,6 +239,23 @@ extension EsVirituCommand {
                 outputDirectory = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
                     .appendingPathComponent("esviritu-\(sampleName)")
             }
+            // Inside a project, the output directory carries a run record
+            // until detection completes, so it stays out of the sidebar while
+            // the run is going. A failed run keeps it (hidden, listed for
+            // review as Interrupted); nothing is deleted.
+            let runRecordClaim = try? AnalysesFolder.beginRunInOutputDirectory(
+                outputDirectory,
+                record: AnalysisRunRecord(
+                    analysisName: "EsViritu",
+                    command: CommandLine.arguments.map(shellEscape).joined(separator: " ")
+                )
+            )
+            var runRecordCompleted = false
+            defer {
+                if !runRecordCompleted, runRecordClaim == .owned {
+                    AnalysisRunRecord.recordOutcome(Task.isCancelled ? .cancelled : .failed, in: outputDirectory)
+                }
+            }
 
             let effectiveThreads = globalOptions.threads ?? ProcessInfo.processInfo.activeProcessorCount
 
@@ -303,6 +321,10 @@ extension EsVirituCommand {
                 }
                 throw CLIExitCode.failure.exitCode
             }
+            if let runRecordClaim {
+                AnalysisRunRecord.completeRun(runRecordClaim, in: outputDirectory)
+            }
+            runRecordCompleted = true
 
             // Clear progress line.
             print("")

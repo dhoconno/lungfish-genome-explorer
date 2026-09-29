@@ -100,4 +100,47 @@ final class AnalysesFolderRunRecordTests: XCTestCase {
         XCTAssertTrue(AnalysesFolder.discardFailedAnalysisDirectory(dir))
         XCTAssertFalse(FileManager.default.fileExists(atPath: dir.path))
     }
+
+    // MARK: - Caller-chosen output directories
+
+    private func claim(_ url: URL, projectURL: URL? = nil) throws -> AnalysisRunRecord.RunClaim? {
+        try AnalysesFolder.beginRunInOutputDirectory(
+            url,
+            projectURL: projectURL,
+            record: AnalysisRunRecord(analysisName: "Test run")
+        )
+    }
+
+    func testOutputDirectoryInsideAProjectIsClaimed() throws {
+        let project = projectURL.appendingPathComponent("Study.lungfish", isDirectory: true)
+        try FileManager.default.createDirectory(at: project, withIntermediateDirectories: true)
+
+        // Found through the enclosing .lungfish folder when no project is given.
+        let fresh = project.appendingPathComponent("Analyses/my-run", isDirectory: true)
+        XCTAssertEqual(try claim(fresh), .owned)
+        XCTAssertTrue(AnalysisRunRecord.isIncomplete(fresh))
+
+        let empty = project.appendingPathComponent("Results/empty", isDirectory: true)
+        try FileManager.default.createDirectory(at: empty, withIntermediateDirectories: true)
+        XCTAssertEqual(try claim(empty, projectURL: project), .owned)
+    }
+
+    func testOutputDirectoriesThatMustNotBeHiddenAreLeftAlone() throws {
+        let project = projectURL.appendingPathComponent("Study.lungfish", isDirectory: true)
+        let analyses = project.appendingPathComponent("Analyses", isDirectory: true)
+        try FileManager.default.createDirectory(at: analyses, withIntermediateDirectories: true)
+        let occupied = project.appendingPathComponent("Shared", isDirectory: true)
+        try FileManager.default.createDirectory(at: occupied, withIntermediateDirectories: true)
+        try "x".write(to: occupied.appendingPathComponent("notes.txt"), atomically: true, encoding: .utf8)
+        let outside = projectURL.appendingPathComponent("elsewhere/run", isDirectory: true)
+
+        XCTAssertNil(try claim(project))
+        XCTAssertNil(try claim(analyses), "the Analyses folder itself is never hidden")
+        XCTAssertNil(try claim(occupied), "a folder with other content is never hidden")
+        XCTAssertNil(try claim(outside), "outside a project nothing lists it")
+        for url in [project, analyses, occupied] {
+            XCTAssertFalse(AnalysisRunRecord.isIncomplete(url))
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: outside.path), "nothing is created for a refused claim")
+    }
 }

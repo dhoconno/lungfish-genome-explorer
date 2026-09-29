@@ -214,6 +214,51 @@ public enum AnalysesFolder {
         )
     }
 
+    // MARK: - Caller-Chosen Output Directories
+
+    /// Claims a caller-chosen output directory (such as a `lungfish-cli
+    /// --output-dir`) for a run that fills it in place, so it stays out of
+    /// the sidebar and listings until the run completes.
+    ///
+    /// Only a directory that is, or will be, the run's own result inside a
+    /// project is claimed:
+    ///
+    /// - it must sit inside `projectURL`, or inside the `.lungfish` project
+    ///   that encloses it when `projectURL` is `nil`;
+    /// - it must not be the project itself or its `Analyses` folder;
+    /// - an existing directory must be empty or already carry a run record.
+    ///   A directory that already holds other content is left alone, because
+    ///   a record would hide that content too.
+    ///
+    /// - Returns: The claim (see ``AnalysisRunRecord/beginRun(in:record:processProbe:)``),
+    ///   or `nil` when the directory is left alone. After a successful run
+    ///   the caller passes a non-`nil` claim to
+    ///   ``AnalysisRunRecord/completeRun(_:in:processProbe:)``.
+    public static func beginRunInOutputDirectory(
+        _ outputDirectory: URL,
+        projectURL: URL? = nil,
+        record: AnalysisRunRecord
+    ) throws -> AnalysisRunRecord.RunClaim? {
+        let directory = outputDirectory.standardizedFileURL
+        guard let project = (projectURL ?? ProjectTempDirectory.findProjectRoot(directory.deletingLastPathComponent()))?
+            .standardizedFileURL,
+              let relative = CanonicalFilePath.relativePath(of: directory, within: project),
+              !relative.isEmpty,
+              relative != directoryName else {
+            return nil
+        }
+        let fileManager = FileManager.default
+        var isDirectory: ObjCBool = false
+        if fileManager.fileExists(atPath: directory.path, isDirectory: &isDirectory) {
+            guard isDirectory.boolValue else { return nil }
+            if !AnalysisRunRecord.isIncomplete(directory) {
+                let contents = (try? fileManager.contentsOfDirectory(atPath: directory.path)) ?? []
+                guard contents.allSatisfy({ $0 == ".DS_Store" }) else { return nil }
+            }
+        }
+        return try AnalysisRunRecord.beginRun(in: directory, record: record)
+    }
+
     // MARK: - Run Completion
 
     /// Marks an analysis directory complete, so it is listed. The producer
