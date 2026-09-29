@@ -90,6 +90,31 @@ final class SidebarSearchStatePreservationTests: XCTestCase {
         XCTAssertTrue(sidebar.isItemExpandedForTesting(batchFolder))
     }
 
+    /// The gate caught this under parallel load: a file-watcher rescan
+    /// started while the reveal's own scan ran, the reveal's scan was
+    /// discarded as stale, and the reveal gave up before the newer scan
+    /// applied. A superseding scan is started here on purpose.
+    func testRevealingAFinishedResultSurvivesASupersedingRescan() async throws {
+        let result = try finishAnalysis()
+        // The reveal's own scan runs freely. The superseding scan is held at
+        // the barrier until the reveal has finished, so the reveal's scan is
+        // always discarded as stale and nothing has applied the new row.
+        let (held, release) = AsyncStream<Void>.makeStream()
+        let reveal = sidebar.reloadAndRevealItem(forURL: result)
+        SidebarViewController.scanBarrierForTesting = { for await _ in held { break } }
+        let superseding = sidebar.reloadFromFilesystemAsync(notifyUnchangedSelectionRefresh: false)
+        SidebarViewController.scanBarrierForTesting = nil
+        defer { SidebarViewController.scanBarrierForTesting = nil }
+
+        let revealed = await reveal.value
+        release.yield()
+        release.finish()
+        await superseding?.value
+
+        XCTAssertTrue(revealed)
+        XCTAssertEqual(sidebar.selectedFileURL?.standardizedFileURL, result.standardizedFileURL)
+    }
+
     func testRevealingAResultHiddenByASearchClearsTheSearch() async throws {
         sidebar.applySearchForTesting("no-such-item")
         let result = try finishAnalysis()

@@ -874,15 +874,29 @@ public class SidebarViewController: NSViewController {
     /// again: the caller already shows it in the viewport (a finished
     /// analysis). Expanded folders are kept, and a search that hides the row
     /// is cleared.
+    ///
+    /// A newer scan can supersede this one before it applies (writing the
+    /// result starts a file-watcher rescan, for example). The superseded scan
+    /// is discarded without touching the tree, so the row is not there yet;
+    /// the reveal then rescans and tries again rather than giving up.
     @discardableResult
     func reloadAndRevealItem(forURL url: URL) -> Task<Bool, Never> {
-        let reload = reloadFromFilesystemAsync(notifyUnchangedSelectionRefresh: false)
+        var reload = reloadFromFilesystemAsync(notifyUnchangedSelectionRefresh: false)
+        var generation = sidebarScanGeneration
         return Task { [weak self] in
-            await reload?.value
-            guard let self else { return false }
-            return self.withSelectionSuppressed { self.selectItem(forURL: url) }
+            for _ in 0..<Self.revealRescanAttempts {
+                await reload?.value
+                guard let self else { return false }
+                if self.withSelectionSuppressed({ self.selectItem(forURL: url) }) { return true }
+                guard self.sidebarScanGeneration != generation else { return false }
+                reload = self.reloadFromFilesystemAsync(notifyUnchangedSelectionRefresh: false)
+                generation = self.sidebarScanGeneration
+            }
+            return false
         }
     }
+
+    private static let revealRescanAttempts = 3
 
     /// Handles the `.navigateToSidebarItem` notification posted from the Inspector
     /// when the user clicks a source-sample link.
