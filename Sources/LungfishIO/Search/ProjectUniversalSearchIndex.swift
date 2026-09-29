@@ -331,7 +331,36 @@ public final class ProjectUniversalSearchIndex {
             )
         }
 
-        return results
+        // The index can predate a run record (an incremental update, or a
+        // rebuild racing a run that just started), so results inside an
+        // incomplete run are dropped here too.
+        var incompleteDirectoryCache: [String: Bool] = [:]
+        return results.filter { !isInsideIncompleteRun($0.url, cache: &incompleteDirectoryCache) }
+    }
+
+    /// Whether `url`, or a directory between it and the project root,
+    /// carries an ``AnalysisRunRecord``: its run has not completed.
+    func isInsideIncompleteRun(_ url: URL) -> Bool {
+        var cache: [String: Bool] = [:]
+        return isInsideIncompleteRun(url, cache: &cache)
+    }
+
+    private func isInsideIncompleteRun(_ url: URL, cache: inout [String: Bool]) -> Bool {
+        let rootPath = projectURL.standardizedFileURL.path
+        var current = url.standardizedFileURL
+        while current.path.hasPrefix(rootPath + "/") {
+            let path = current.path
+            let incomplete: Bool
+            if let cached = cache[path] {
+                incomplete = cached
+            } else {
+                incomplete = AnalysisRunRecord.isIncomplete(current)
+                cache[path] = incomplete
+            }
+            if incomplete { return true }
+            current = current.deletingLastPathComponent()
+        }
+        return false
     }
 
     /// Parses and executes a raw query string.
@@ -394,6 +423,12 @@ public final class ProjectUniversalSearchIndex {
             guard fm.fileExists(atPath: url.path, isDirectory: &isDirectoryValue) else { continue }
 
             if isDirectoryValue.boolValue {
+                // A run that has not finished is not a result yet: nothing
+                // inside it is searchable until its run record is removed.
+                if AnalysisRunRecord.isIncomplete(url) {
+                    enumerator.skipDescendants()
+                    continue
+                }
                 if url.pathExtension == FASTQBundle.directoryExtension {
                     fastqBundles.append(url)
                     enumerator.skipDescendants()
@@ -475,6 +510,7 @@ public final class ProjectUniversalSearchIndex {
         for url in contents {
             var isDir: ObjCBool = false
             guard fm.fileExists(atPath: url.path, isDirectory: &isDir), isDir.boolValue else { continue }
+            guard !AnalysisRunRecord.isIncomplete(url) else { continue }
             let name = url.lastPathComponent
 
             if name.hasPrefix("classification-") && hasFile("classification-result.json", in: url) {
@@ -521,6 +557,12 @@ public final class ProjectUniversalSearchIndex {
         guard fm.fileExists(atPath: url.path, isDirectory: &isDir) else {
             let relPath = relativePath(for: url)
             try deleteEntities(matchingPathPrefix: relPath)
+            return
+        }
+
+        if isInsideIncompleteRun(url) {
+            // Still running (or never finished): keep it out of the index.
+            try deleteEntities(matchingPathPrefix: relativePath(for: url))
             return
         }
 

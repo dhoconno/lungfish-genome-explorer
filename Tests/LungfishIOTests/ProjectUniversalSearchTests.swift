@@ -4,6 +4,7 @@
 
 import Foundation
 import XCTest
+import LungfishCore
 @testable import LungfishIO
 
 final class ProjectUniversalSearchTests: XCTestCase {
@@ -100,6 +101,50 @@ final class ProjectUniversalSearchTests: XCTestCase {
             brackenTaxonResults.contains(where: { $0.kind == "classification_taxon" }),
             "Expected classification_taxon entity to be searchable from Bracken taxa"
         )
+    }
+
+    // MARK: - Incomplete analysis runs
+
+    private var esVirituDirectory: URL {
+        projectURL.appendingPathComponent("esviritu-20250328-120000", isDirectory: true)
+    }
+
+    func testRebuildSkipsResultsInsideAnIncompleteRun() throws {
+        try makeEsVirituResultDirectory()
+        try AnalysisRunRecord.begin(AnalysisRunRecord(analysisName: "EsViritu"), in: esVirituDirectory)
+
+        let index = try ProjectUniversalSearchIndex(projectURL: projectURL)
+        _ = try index.rebuild()
+        XCTAssertEqual(try index.search(rawQuery: "virus:hku1", limit: 50), [],
+                       "a running analysis is not searchable")
+
+        AnalysisRunRecord.markComplete(esVirituDirectory)
+        _ = try index.rebuild()
+        XCTAssertTrue(try index.search(rawQuery: "virus:hku1", limit: 50).contains { $0.kind == "virus_hit" })
+    }
+
+    func testSearchDropsResultsWhoseRunBecameIncompleteAfterIndexing() throws {
+        try makeEsVirituResultDirectory()
+        let index = try ProjectUniversalSearchIndex(projectURL: projectURL)
+        _ = try index.rebuild()
+        XCTAssertFalse(try index.search(rawQuery: "virus:hku1", limit: 50).isEmpty)
+
+        try AnalysisRunRecord.begin(AnalysisRunRecord(analysisName: "EsViritu"), in: esVirituDirectory)
+        XCTAssertEqual(try index.search(rawQuery: "virus:hku1", limit: 50), [])
+    }
+
+    func testIncrementalUpdateDoesNotIndexAnIncompleteRun() throws {
+        let index = try ProjectUniversalSearchIndex(projectURL: projectURL)
+        _ = try index.rebuild()
+        try makeEsVirituResultDirectory()
+        try AnalysisRunRecord.begin(AnalysisRunRecord(analysisName: "EsViritu"), in: esVirituDirectory)
+
+        try index.update(changedPaths: [esVirituDirectory])
+        XCTAssertEqual(try index.indexStats().entityCount, 0)
+
+        AnalysisRunRecord.markComplete(esVirituDirectory)
+        try index.update(changedPaths: [esVirituDirectory])
+        XCTAssertTrue(try index.search(rawQuery: "virus:hku1", limit: 50).contains { $0.kind == "virus_hit" })
     }
 
     func testEsVirituVirusQueryReturnsVirusHitEntity() throws {
