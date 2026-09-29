@@ -109,6 +109,20 @@ public class SidebarViewController: NSViewController {
         filteredRootItems ?? rootItems
     }
 
+    /// The query and universal-search matches behind `filteredRootItems`, so
+    /// a rescan while a search is shown can filter the new tree the same way.
+    private var activeSearchFilter: (query: String, matchingURLs: Set<URL>)?
+
+    /// Expanded folders of the unfiltered tree, kept while a search filter is
+    /// on screen. The filter shows copies of the rows, so the outline view
+    /// cannot report or keep the real rows' expansion; a rescan during a
+    /// search (an analysis finishing) and clearing the search restore it
+    /// from here instead of collapsing every folder.
+    private var unfilteredExpandedURLs: Set<URL>?
+
+    /// Selection of the unfiltered tree when the search began.
+    private var unfilteredSelectedURLs: [URL] = []
+
     /// The currently open project URL (filesystem-backed model)
     var projectURL: URL?
 
@@ -512,9 +526,46 @@ public class SidebarViewController: NSViewController {
     private func clearSidebarSearchResults() {
         cancelUniversalSearch(reason: "query changed")
         universalSearchGeneration &+= 1
+        guard filteredRootItems != nil else {
+            activeSearchFilter = nil
+            setSearchSpinnerVisible(false)
+            return
+        }
+        // Keep what the user picked in the results; otherwise go back to
+        // what was selected before the search.
+        let selectedInResults = selectedItems().compactMap { $0.url?.standardizedFileURL }
+        let expanded = unfilteredExpandedURLs ?? []
+        let selection = selectedInResults.isEmpty ? unfilteredSelectedURLs : selectedInResults
         filteredRootItems = nil
-        outlineView.reloadData()
+        activeSearchFilter = nil
+        unfilteredExpandedURLs = nil
+        unfilteredSelectedURLs = []
+        withSelectionSuppressed {
+            outlineView.reloadData()
+            restoreExpandedItemURLs(expanded)
+            restoreSelection(urls: selection)
+        }
         setSearchSpinnerVisible(false)
+    }
+
+    /// Shows `rootItems` filtered by `query`, remembering the unfiltered
+    /// tree's expansion and selection the first time a filter goes on screen.
+    private func showSearchFilter(query: String, matchingURLs: Set<URL> = []) {
+        if filteredRootItems == nil {
+            unfilteredExpandedURLs = saveExpandedItemURLs()
+            unfilteredSelectedURLs = selectedItems().compactMap { $0.url?.standardizedFileURL }
+        }
+        activeSearchFilter = (query, matchingURLs)
+        filteredRootItems = filterItems(rootItems, matching: query, matchingURLs: matchingURLs)
+        outlineView.reloadData()
+        expandFilteredSearchResultsIfReasonable()
+    }
+
+    /// Clears the search field and its filter, restoring the full tree.
+    private func clearSearchFieldAndResults() {
+        searchField?.stringValue = ""
+        searchScheduler.cancel()
+        clearSidebarSearchResults()
     }
 
     private func applyLocalSidebarSearch(query searchText: String, generation searchGeneration: Int) {
@@ -522,9 +573,7 @@ public class SidebarViewController: NSViewController {
         universalSearchGeneration = searchGeneration
 
         let normalizedQuery = searchText.lowercased()
-        filteredRootItems = filterItems(rootItems, matching: normalizedQuery)
-        outlineView.reloadData()
-        expandFilteredSearchResultsIfReasonable()
+        showSearchFilter(query: normalizedQuery)
     }
 
     private func startUniversalSidebarSearch(query searchText: String, generation searchGeneration: Int) {
@@ -551,13 +600,7 @@ public class SidebarViewController: NSViewController {
                 guard self.projectURL?.standardizedFileURL == projectURL.standardizedFileURL else { return }
 
                 let matchedURLs = Set(results.map { $0.url.standardizedFileURL })
-                self.filteredRootItems = self.filterItems(
-                    self.rootItems,
-                    matching: normalizedQuery,
-                    matchingURLs: matchedURLs
-                )
-                self.outlineView.reloadData()
-                self.expandFilteredSearchResultsIfReasonable()
+                self.showSearchFilter(query: normalizedQuery, matchingURLs: matchedURLs)
             } catch is CancellationError {
                 return
             } catch {
@@ -659,6 +702,13 @@ public class SidebarViewController: NSViewController {
         searchScheduler.cancel()
         cancelUniversalSearch(reason: "clearing project state")
         universalSearchGeneration = 0
+        // A filter and its saved tree state belong to the project it was
+        // made in.
+        searchField?.stringValue = ""
+        filteredRootItems = nil
+        activeSearchFilter = nil
+        unfilteredExpandedURLs = nil
+        unfilteredSelectedURLs = []
 
         guard let projectURL else { return }
         Task {
@@ -796,6 +846,12 @@ public class SidebarViewController: NSViewController {
     /// - Returns: `true` if an item was found and selected, `false` otherwise
     @discardableResult
     public func selectItem(forURL url: URL) -> Bool {
+        // A search that hides the item (for example a result that finished
+        // while the user was searching) is cleared so the item can be shown.
+        if filteredRootItems != nil, findItem(byURL: url) == nil,
+           findItem(byURL: url, in: rootItems) != nil {
+            clearSearchFieldAndResults()
+        }
         guard let item = findItem(byURL: url) else {
             sidebarLogger.debug("selectItem(forURL:): No item found for \(url.lastPathComponent, privacy: .public)")
             return false
@@ -812,6 +868,20 @@ public class SidebarViewController: NSViewController {
             return true
         }
         return false
+    }
+
+    /// Rescans the project, then selects the row for `url` without opening it
+    /// again: the caller already shows it in the viewport (a finished
+    /// analysis). Expanded folders are kept, and a search that hides the row
+    /// is cleared.
+    @discardableResult
+    func reloadAndRevealItem(forURL url: URL) -> Task<Bool, Never> {
+        let reload = reloadFromFilesystemAsync(notifyUnchangedSelectionRefresh: false)
+        return Task { [weak self] in
+            await reload?.value
+            guard let self else { return false }
+            return self.withSelectionSuppressed { self.selectItem(forURL: url) }
+        }
     }
 
     /// Handles the `.navigateToSidebarItem` notification posted from the Inspector
@@ -915,7 +985,7 @@ public class SidebarViewController: NSViewController {
             return false
         }
 
-        _ = findAndExpandParent(in: rootItems, target: item)
+        _ = findAndExpandParent(in: displayItems, target: item)
     }
 
     // MARK: - Filesystem-Backed Model
@@ -1117,6 +1187,9 @@ public class SidebarViewController: NSViewController {
         clearUniversalSearchState(for: priorProjectURL)
         rootItems = []
         filteredRootItems = nil
+        activeSearchFilter = nil
+        unfilteredExpandedURLs = nil
+        unfilteredSelectedURLs = []
         reloadOutlineView()
     }
 
@@ -1138,7 +1211,8 @@ public class SidebarViewController: NSViewController {
     }
 
     public func expandedItemURLsForPersistence() -> [URL] {
-        Array(saveExpandedItemURLs()).sorted { $0.path < $1.path }
+        let expanded = filteredRootItems == nil ? saveExpandedItemURLs() : (unfilteredExpandedURLs ?? [])
+        return Array(expanded).sorted { $0.path < $1.path }
     }
 
     public func searchTextForPersistence() -> String? {
@@ -1167,7 +1241,7 @@ public class SidebarViewController: NSViewController {
                 }
             }
         }
-        restoreExpanded(items: rootItems)
+        restoreExpanded(items: displayItems)
     }
 
     /// Reloads the sidebar from the filesystem.
@@ -1215,7 +1289,12 @@ public class SidebarViewController: NSViewController {
             selectedURLs: selectedURLs,
             selectedURLSet: Set(selectedURLs),
             scrollAnchor: captureScrollAnchor(),
-            expandedURLs: saveExpandedItemURLs(),
+            // While a search filter is shown the outline view holds copies of
+            // the rows, so the real tree's expansion comes from the state
+            // saved when the search began.
+            expandedURLs: filteredRootItems == nil
+                ? saveExpandedItemURLs()
+                : (unfilteredExpandedURLs ?? []),
             emptyFolderURLs: Self.emptyFolderURLs(in: rootItems),
             shouldApplyInitialExpansionDefaults: rootItems.isEmpty
         )
@@ -1390,6 +1469,31 @@ public class SidebarViewController: NSViewController {
     }
 
     #if DEBUG
+    /// Shows the local search filter for `query` as typing it would.
+    func applySearchForTesting(_ query: String) {
+        searchField?.stringValue = query
+        applyLocalSidebarSearch(query: query, generation: universalSearchGeneration &+ 1)
+    }
+
+    /// Clears the search as emptying the search field would.
+    func clearSearchForTesting() {
+        searchField?.stringValue = ""
+        clearSidebarSearchResults()
+    }
+
+    var isSearchFilterShownForTesting: Bool { filteredRootItems != nil }
+
+    /// Whether the row on screen for `url` is expanded.
+    func isItemExpandedForTesting(_ url: URL) -> Bool {
+        guard let item = findItem(byURL: url) else { return false }
+        return outlineView.isItemExpanded(item)
+    }
+
+    func expandItemForTesting(_ url: URL) {
+        guard let item = findItem(byURL: url) else { return }
+        outlineView.expandItem(item)
+    }
+
     /// Drops the FSEvents subscription so a test can simulate a missed event.
     func detachFilesystemWatcherForTesting() {
         ProjectFilesystemRefreshCoordinator.shared.unregister(projectRefreshSubscriptionID)
@@ -1465,6 +1569,16 @@ public class SidebarViewController: NSViewController {
         // This shows the contents at the root level, similar to how Finder shows folder contents
         rootItems = materialize(nodes)
         if let projectCatalogGroup { rootItems.insert(projectCatalogGroup, at: 0) }
+        // A search on screen filters the new tree, so it neither shows stale
+        // rows nor loses the unfiltered tree's expansion.
+        if let activeSearchFilter, filteredRootItems != nil {
+            filteredRootItems = filterItems(
+                rootItems,
+                matching: activeSearchFilter.query,
+                matchingURLs: activeSearchFilter.matchingURLs
+            )
+            unfilteredExpandedURLs = expandedURLs.union(state.emptyFolderURLs)
+        }
 
         // Reload the outline view
         reloadOutlineView()
@@ -1481,7 +1595,11 @@ public class SidebarViewController: NSViewController {
         // empty have no expansion state; open the ones that gained children so
         // an externally added item is visible rather than hidden in a
         // collapsed folder.
-        restoreExpandedItemURLs(expandedURLs.union(state.emptyFolderURLs))
+        if filteredRootItems != nil {
+            expandFilteredSearchResultsIfReasonable()
+        } else {
+            restoreExpandedItemURLs(expandedURLs.union(state.emptyFolderURLs))
+        }
 
         // Restore selection if possible
         restoreSelection(urls: selectedURLs)
@@ -2004,7 +2122,13 @@ public class SidebarViewController: NSViewController {
     }
 
     /// Finds a sidebar item by URL.
+    /// Finds the row on screen for `url` (a search result copy while a search
+    /// filter is shown).
     private func findItem(byURL url: URL) -> SidebarItem? {
+        findItem(byURL: url, in: displayItems)
+    }
+
+    private func findItem(byURL url: URL, in roots: [SidebarItem]) -> SidebarItem? {
         func search(in items: [SidebarItem]) -> SidebarItem? {
             for item in items {
                 if let itemURL = item.url, urlsMatch(itemURL, url) {
@@ -2016,7 +2140,7 @@ public class SidebarViewController: NSViewController {
             }
             return nil
         }
-        return search(in: rootItems)
+        return search(in: roots)
     }
 
     /// Returns the current project URL.
