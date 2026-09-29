@@ -248,7 +248,9 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
     }
 
     static func variantToolbarDensity(forWidth width: CGFloat) -> VariantToolbarDensity {
-        if width < 560 { return .minimal }
+        // The compact row (Region/Genome, ploidy, Calls/GT, Query, Presets,
+        // All, None) needs about 575 pt; below that the minimal row fits.
+        if width < 580 { return .minimal }
         if width < 760 { return .compact }
         return .full
     }
@@ -289,6 +291,19 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
     var variantStorageMutationTask: Task<Void, Never>?
     private var variantStorageOperationID: UUID?
     var appliedVariantToolbarDensity: VariantToolbarDensity?
+
+    /// Whether the variant toolbar wants the Profiles pop-up at the current
+    /// density. It is shown only when the row also leaves it enough room.
+    var profileButtonWanted = false
+
+    /// The narrowest Profiles pop-up that still reads as a control. Below
+    /// this it is hidden rather than drawn squeezed over its neighbours.
+    static let minimumProfileButtonWidth: CGFloat = 44
+
+    /// Zero-width constraints that collapse hidden variant-toolbar controls.
+    /// A hidden view keeps its constraints, so without these a hidden Clear
+    /// or Haploid control still reserved its width and the row overflowed.
+    var collapsedVariantToolbarWidths: [ObjectIdentifier: NSLayoutConstraint] = [:]
 
     /// The currently active tab.
     var activeTab: DrawerTab = .annotations
@@ -771,7 +786,15 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
 
     public override func layout() {
         super.layout()
+        let previousDensity = appliedVariantToolbarDensity
         updateVariantToolbarDensity()
+        if previousDensity != nil, previousDensity != appliedVariantToolbarDensity {
+            // Resizing across a density threshold changes which controls
+            // the row shows; without this a Profiles pop-up shown at full
+            // density stayed on screen after the drawer narrowed.
+            updateSearchFieldVisibility()
+        }
+        applyProfileButtonFit()
     }
 
     // MARK: - Setup
@@ -934,6 +957,10 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         localVariantFilterBadgeLabel.layer?.borderColor = NSColor.systemBlue.withAlphaComponent(0.35).cgColor
         localVariantFilterBadgeLabel.layer?.backgroundColor = NSColor.systemBlue.withAlphaComponent(0.08).cgColor
         localVariantFilterBadgeLabel.toolTip = "Column header filters apply only to currently loaded rows in the visible/table scope."
+        localVariantFilterBadgeLabel.lineBreakMode = .byTruncatingTail
+        localVariantFilterBadgeLabel.cell?.truncatesLastVisibleLine = true
+        localVariantFilterBadgeLabel.setContentCompressionResistancePriority(
+            NSLayoutConstraint.Priority(rawValue: 245), for: .horizontal)
         searchBar.addSubview(localVariantFilterBadgeLabel)
 
         clearFilterButton.title = "Clear"
@@ -1048,8 +1075,10 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         profileButton.translatesAutoresizingMaskIntoConstraints = false
         profileButton.toolTip = "Filter profiles"
         profileButton.isHidden = true  // shown only on variants tab
-        // Truncate the pop-up before squeezing the filter badge or query buttons.
-        profileButton.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        // Truncate the pop-up first, then the Table Sync badge, before any
+        // fixed-width control is squeezed.
+        profileButton.setContentCompressionResistancePriority(
+            NSLayoutConstraint.Priority(rawValue: 240), for: .horizontal)
         rebuildProfileMenu()
         searchBar.addSubview(profileButton)
 

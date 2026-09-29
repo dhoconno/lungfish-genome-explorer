@@ -99,7 +99,7 @@ extension AnnotationTableDrawerView {
         sampleGroupPresetButton.isHidden = !showSamples
         clearSampleFilterButton.isHidden = !showSamples || (!hasActiveSampleFilters && sampleFilterText.isEmpty)
         variantSubtabControl.isHidden = !showVariants
-        profileButton.isHidden = !showVariants || toolbarDensity != .full
+        profileButtonWanted = showVariants && toolbarDensity == .full
         scopeControl.isHidden = !showVariants
         haploidModeButton.isHidden = !showVariants || toolbarDensity == .minimal
         presetFiltersToggleButton.isHidden = !showVariants || toolbarDensity == .minimal || infoColumnKeys.isEmpty || isMaterializedOnlyDatabase
@@ -139,6 +139,46 @@ extension AnnotationTableDrawerView {
         updateVariantFilterIndicator()
         rebuildSampleGroupPresetMenu()
         updateScopeControlSelection()
+        applyProfileButtonFit()
+    }
+
+    /// Toolbar-row controls whose width a hidden state frees. The Annotations,
+    /// Variants and Samples toolbars share one row, and every tab's controls
+    /// are chained across it, so the other tabs' hidden controls count too.
+    private var collapsibleVariantToolbarControls: [NSView] {
+        [haploidModeButton, clearFilterButton, localVariantFilterBadgeLabel,
+         presetFiltersToggleButton, allTypesButton, noneTypesButton,
+         annotationViewportFilterButton, annotationTracksButton,
+         sampleQueryBuilderButton, clearSampleFilterButton, sampleGroupPresetButton,
+         addSampleFieldButton, sampleGroupsButton, importMetadataButton, downloadTemplateButton]
+    }
+
+    /// Collapses hidden toolbar controls to zero width so the controls that
+    /// are shown fit the row.
+    func syncCollapsedVariantToolbarWidths() {
+        for control in collapsibleVariantToolbarControls {
+            let key = ObjectIdentifier(control)
+            let constraint = collapsedVariantToolbarWidths[key] ?? {
+                let made = control.widthAnchor.constraint(equalToConstant: 0)
+                collapsedVariantToolbarWidths[key] = made
+                return made
+            }()
+            if constraint.isActive != control.isHidden {
+                constraint.isActive = control.isHidden
+            }
+        }
+    }
+
+    /// Shows the Profiles pop-up only when the density wants it and the laid
+    /// out row gives it a usable width; otherwise it would draw squeezed over
+    /// the Calls/Genotypes control.
+    func applyProfileButtonFit() {
+        syncCollapsedVariantToolbarWidths()
+        let fits = profileButton.frame.width >= Self.minimumProfileButtonWidth
+        let shouldHide = !profileButtonWanted || !fits
+        if profileButton.isHidden != shouldHide {
+            profileButton.isHidden = shouldHide
+        }
     }
 
     func totalVariantDatabaseSizeBytes() -> UInt64 {
@@ -193,6 +233,7 @@ extension AnnotationTableDrawerView {
         let hasFilter = !variantFilterText.isEmpty || !activeSmartTokens.isEmpty || !selectedVariantPresetByKey.isEmpty
         let toolbarDensity = Self.variantToolbarDensity(forWidth: bounds.width)
         clearFilterButton.isHidden = !(activeTab == .variants && hasFilter)
+        syncCollapsedVariantToolbarWidths()
         if toolbarDensity == .full {
             searchBuilderButton.title = hasFilter ? "Edit Query..." : "Query Builder..."
         } else {

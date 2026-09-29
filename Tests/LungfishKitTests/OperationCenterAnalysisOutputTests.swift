@@ -232,4 +232,55 @@ final class OperationCenterAnalysisOutputTests: XCTestCase {
         XCTAssertTrue(AnalysisRunRecord.isIncomplete(dir))
         XCTAssertFalse(center.isTrackingAnalysisOutput(dir))
     }
+
+    // MARK: - Results button
+
+    /// Kraken2, EsViritu and TaxTriage complete with a detail string only.
+    /// The Operations Panel enables Results from the URLs recorded on the
+    /// row, so a tracked analysis directory becomes the row's result.
+    func testCompletingATrackedRunWithoutURLsRecordsTheDirectoryAsItsResult() throws {
+        let dir = try makeIncompleteRun("kraken2-2026-09-29T05-27-31")
+        let id = center.start(title: "Kraken2", detail: "Running")
+        center.trackAnalysisOutput(dir, for: id)
+        XCTAssertTrue(center.complete(id: id, detail: "Classified 98%"))
+        let item = try XCTUnwrap(center.items.first { $0.id == id })
+        XCTAssertEqual(item.bundleURLs.map(\.standardizedFileURL), [dir.standardizedFileURL])
+    }
+
+    func testCompletingWithWarningsRecordsTheTrackedDirectory() throws {
+        let dir = try makeIncompleteRun("esviritu-batch-2026-09-29T05-27-31")
+        let id = center.start(title: "EsViritu", detail: "Running")
+        center.trackAnalysisOutput(dir.appendingPathComponent("S1", isDirectory: true), for: id)
+        XCTAssertTrue(center.completeWithWarning(id: id, detail: "1 sample skipped"))
+        let item = try XCTUnwrap(center.items.first { $0.id == id })
+        XCTAssertEqual(item.bundleURLs.map(\.standardizedFileURL), [dir.standardizedFileURL])
+    }
+
+    func testExplicitResultURLsWinOverTheTrackedDirectory() throws {
+        let dir = try makeIncompleteRun("minimap2-2026-09-29T05-27-31")
+        let bundle = dir.appendingPathComponent("viewer.lungfishref", isDirectory: true)
+        let id = center.start(title: "minimap2", detail: "Running")
+        center.trackAnalysisOutput(dir, for: id)
+        XCTAssertTrue(center.complete(id: id, detail: "Mapped", bundleURLs: [bundle]))
+        let item = try XCTUnwrap(center.items.first { $0.id == id })
+        XCTAssertEqual(item.bundleURLs, [bundle])
+    }
+
+    func testFailedTrackedRunRecordsNoResult() throws {
+        let dir = try makeIncompleteRun("kraken2-2026-09-29T05-27-31")
+        let id = center.start(title: "Kraken2", detail: "Running")
+        center.trackAnalysisOutput(dir, for: id)
+        XCTAssertTrue(center.fail(id: id, detail: "exit 1"))
+        let item = try XCTUnwrap(center.items.first { $0.id == id })
+        XCTAssertTrue(item.bundleURLs.isEmpty)
+    }
+
+    func testTrackingAfterCompletionRecordsTheDirectoryAsTheResult() throws {
+        let dir = try makeIncompleteRun("kraken2-2026-09-29T05-27-31")
+        let id = center.start(title: "Kraken2", detail: "Running")
+        XCTAssertTrue(center.complete(id: id, detail: "Done"))
+        center.trackAnalysisOutput(dir, for: id)
+        let item = try XCTUnwrap(center.items.first { $0.id == id })
+        XCTAssertEqual(item.bundleURLs.map(\.standardizedFileURL), [dir.standardizedFileURL])
+    }
 }

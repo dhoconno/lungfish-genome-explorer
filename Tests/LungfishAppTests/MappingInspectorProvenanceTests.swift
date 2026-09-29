@@ -50,4 +50,55 @@ final class MappingInspectorProvenanceTests: XCTestCase {
         XCTAssertLessThanOrEqual(inspector.viewModel.provenanceSectionViewModel.sources.count, 1)
         inspector.viewModel.provenanceSectionViewModel.clear()
     }
+
+    /// First selection after opening a project changes the viewport content
+    /// mode (empty -> mapping) after the display path has already offered the
+    /// variant tracks. The mode change re-resolves the provenance target and
+    /// must keep the Source picker (Preview 2026.9.57 click-test defect).
+    func testContentModeChangeAfterFirstSelectionKeepsSourcePicker() throws {
+        let tracks = [
+            VariantTrackInfo(id: "a", name: "HG002 bcftools", path: "variants/a.vcf.gz", indexPath: "variants/a.vcf.gz.tbi"),
+        ]
+        let (resultURL, viewerURL) = try makeMappingResult(variants: tracks)
+        let inspector = InspectorViewController()
+        inspector.updateProvenanceTarget(url: resultURL, sidebarType: .analysisResult, displayName: "minimap2")
+        inspector.updateMappingProvenanceSources(resultURL: resultURL, viewerBundleURL: viewerURL)
+
+        inspector.handleContentModeChanged(Notification(
+            name: .viewportContentModeDidChange,
+            object: nil,
+            userInfo: [NotificationUserInfoKey.contentMode: ViewportContentMode.mapping.rawValue]
+        ))
+
+        let model = inspector.viewModel.provenanceSectionViewModel
+        XCTAssertEqual(model.sources.map(\.name), ["Mapping", "HG002 bcftools"])
+        XCTAssertEqual(model.selectedSourceID, resultURL.standardizedFileURL.path)
+        XCTAssertEqual(model.currentItem?.contentMode, .mapping)
+        XCTAssertEqual(model.sources.first?.item.contentMode, .mapping)
+        model.clear()
+    }
+
+    /// A late sidebar selection notification for the same mapping result
+    /// re-targets provenance without dropping the Source picker.
+    func testSidebarReselectionOfSameResultKeepsSourcePicker() throws {
+        let tracks = [
+            VariantTrackInfo(id: "a", name: "HG002 bcftools", path: "variants/a.vcf.gz", indexPath: "variants/a.vcf.gz.tbi"),
+        ]
+        let (resultURL, viewerURL) = try makeMappingResult(variants: tracks)
+        let inspector = InspectorViewController()
+        inspector.updateProvenanceTarget(url: resultURL, sidebarType: .analysisResult, displayName: "minimap2")
+        inspector.updateMappingProvenanceSources(resultURL: resultURL, viewerBundleURL: viewerURL)
+
+        inspector.retargetProvenancePreservingSources(
+            url: resultURL, sidebarType: .analysisResult, displayName: "minimap2"
+        )
+        let model = inspector.viewModel.provenanceSectionViewModel
+        XCTAssertEqual(model.sources.map(\.name), ["Mapping", "HG002 bcftools"])
+
+        // A different item drops the picker.
+        let other = resultURL.deletingLastPathComponent().appendingPathComponent("README.md")
+        inspector.retargetProvenancePreservingSources(url: other, sidebarType: nil, displayName: "README")
+        XCTAssertTrue(model.sources.isEmpty)
+        model.clear()
+    }
 }

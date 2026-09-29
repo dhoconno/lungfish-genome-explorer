@@ -217,8 +217,25 @@ struct MSAPairwiseIdentitySection: View {
     @Bindable var model: MSAPairwiseIdentityInspectorModel
     @Binding var isExpanded: Bool
 
-    /// Extra width for the cell insets and the header's sort indicator.
-    static let numericColumnPadding: CGFloat = 22
+    /// Extra width for the header's sort indicator beside the widest text.
+    static let numericColumnPadding: CGFloat = 14
+
+    /// Space between the table's columns.
+    static let columnSpacing: CGFloat = 6
+
+    /// The narrowest a sequence-name column gets before the names truncate
+    /// to nothing; the full name stays in the tooltip.
+    static let minimumNameColumnWidth: CGFloat = 24
+
+    /// The narrowest content width the whole table needs: both name columns
+    /// at their minimum plus the fixed numeric columns. Below this nothing
+    /// fits; at the Inspector's minimum width the table always fits.
+    static func minimumTableWidth(pointSize: CGFloat, largestSiteCount: Int) -> CGFloat {
+        2 * minimumNameColumnWidth
+            + valueColumnWidth(pointSize: pointSize)
+            + sitesColumnWidth(pointSize: pointSize, largestSiteCount: largestSiteCount)
+            + 3 * columnSpacing
+    }
 
     /// The width a numeric column needs to show its widest sample text (the
     /// header or a value) whole, measured at the Inspector's content font so
@@ -271,32 +288,55 @@ struct MSAPairwiseIdentitySection: View {
         .accessibilityIdentifier("msa-pairwise-identity-section")
     }
 
+    /// The model picker and the two buttons share a row when the Inspector is
+    /// wide enough; otherwise the buttons move under the picker instead of
+    /// being clipped at the Inspector's edge.
     private var controls: some View {
-        HStack(spacing: 8) {
-            Picker("Model", selection: $model.model) {
-                ForEach(MSADistanceModel.allCases) { candidate in
-                    Text(candidate.displayName).tag(candidate)
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 8) {
+                modelPicker
+                Spacer(minLength: 0)
+                copyButton
+                exportButton
+            }
+            VStack(alignment: .leading, spacing: 6) {
+                modelPicker
+                HStack(spacing: 8) {
+                    copyButton
+                    exportButton
                 }
             }
-            .labelsHidden()
-            .font(LungfishInspectorStyle.controlFont)
-            .frame(maxWidth: 140)
-            .accessibilityIdentifier("msa-pairwise-identity-model")
-
-            Spacer(minLength: 0)
-
-            Button("Copy TSV") { model.copyTSV() }
-                .font(LungfishInspectorStyle.controlFont)
-                .disabled(model.tsv == nil)
-                .help("Copy the full matrix as tab-separated text, in the same layout lungfish-cli msa distance writes")
-                .accessibilityIdentifier("msa-pairwise-identity-copy")
-
-            Button("Export TSV…") { model.requestExport() }
-                .font(LungfishInspectorStyle.controlFont)
-                .disabled(model.onExportRequested == nil)
-                .help("Write the matrix with a provenance sidecar using lungfish-cli msa distance")
-                .accessibilityIdentifier("msa-pairwise-identity-export")
         }
+    }
+
+    private var modelPicker: some View {
+        Picker("Model", selection: $model.model) {
+            ForEach(MSADistanceModel.allCases) { candidate in
+                Text(candidate.displayName).tag(candidate)
+            }
+        }
+        .labelsHidden()
+        .font(LungfishInspectorStyle.controlFont)
+        .fixedSize()
+        .accessibilityIdentifier("msa-pairwise-identity-model")
+    }
+
+    private var copyButton: some View {
+        Button("Copy TSV") { model.copyTSV() }
+            .font(LungfishInspectorStyle.controlFont)
+            .fixedSize()
+            .disabled(model.tsv == nil)
+            .help("Copy the full matrix as tab-separated text, in the same layout lungfish-cli msa distance writes")
+            .accessibilityIdentifier("msa-pairwise-identity-copy")
+    }
+
+    private var exportButton: some View {
+        Button("Export TSV…") { model.requestExport() }
+            .font(LungfishInspectorStyle.controlFont)
+            .fixedSize()
+            .disabled(model.onExportRequested == nil)
+            .help("Write the matrix with a provenance sidecar using lungfish-cli msa distance")
+            .accessibilityIdentifier("msa-pairwise-identity-export")
     }
 
     @ViewBuilder
@@ -325,51 +365,12 @@ struct MSAPairwiseIdentitySection: View {
                     .font(LungfishInspectorStyle.controlFont)
                     .foregroundStyle(.secondary)
             } else {
-                // The value column was cut off at the Inspector's default
-                // width: the two name columns took their default widths and
-                // pushed the numbers past the right edge. The name columns
-                // now give up width first (full names in the tooltip), the
-                // numeric columns keep a fixed width that fits their values,
-                // and the table scrolls sideways if the Inspector is narrower
-                // than every column's minimum.
-                Table(model.sortedPairs, sortOrder: $model.sortOrder) {
-                    TableColumn("Sequence A", value: \.rowName) { pair in
-                        Text(pair.rowName)
-                            .font(LungfishInspectorStyle.controlFont)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                            .help(pair.rowName)
-                    }
-                    .width(min: 56, ideal: 88)
-                    TableColumn("Sequence B", value: \.columnName) { pair in
-                        Text(pair.columnName)
-                            .font(LungfishInspectorStyle.controlFont)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                            .help(pair.columnName)
-                    }
-                    .width(min: 56, ideal: 88)
-                    TableColumn(model.model.displayName, value: \.sortableValue) { pair in
-                        Text(pair.formattedValue)
-                            .font(LungfishInspectorStyle.controlFont)
-                            .monospacedDigit()
-                            .lineLimit(1)
-                            .fixedSize()
-                    }
-                    .width(Self.valueColumnWidth(pointSize: contentPointSize))
-                    TableColumn("Sites", value: \.comparableSites) { pair in
-                        Text("\(pair.comparableSites)")
-                            .font(LungfishInspectorStyle.controlFont)
-                            .monospacedDigit()
-                            .lineLimit(1)
-                            .fixedSize()
-                    }
-                    .width(Self.sitesColumnWidth(
-                        pointSize: contentPointSize,
-                        largestSiteCount: model.pairs.map(\.comparableSites).max() ?? 0
-                    ))
-                }
-                .frame(minHeight: 120, idealHeight: min(320, CGFloat(model.pairs.count + 1) * 24 + 8), maxHeight: 320)
+                // A SwiftUI Table adds cell insets and scrolls sideways once
+                // its columns exceed the Inspector, which cut off the value
+                // header and the Sites column at the default width. This
+                // table lays its columns out in the width it is given: the
+                // name columns share what the fixed numeric columns leave.
+                pairTable
                 .accessibilityIdentifier("msa-pairwise-identity-table")
                 Text("\(model.pairs.count) pairs, gaps skipped pairwise. Values match lungfish-cli msa distance --model \(model.model.rawValue).")
                     .font(LungfishInspectorStyle.controlFont)
@@ -377,6 +378,111 @@ struct MSAPairwiseIdentitySection: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
+    }
+}
+
+extension MSAPairwiseIdentitySection {
+    private var numericWidths: (value: CGFloat, sites: CGFloat) {
+        (
+            Self.valueColumnWidth(pointSize: contentPointSize),
+            Self.sitesColumnWidth(
+                pointSize: contentPointSize,
+                largestSiteCount: model.pairs.map(\.comparableSites).max() ?? 0
+            )
+        )
+    }
+
+    var pairTable: some View {
+        let widths = numericWidths
+        return VStack(spacing: 0) {
+            HStack(spacing: Self.columnSpacing) {
+                sortHeader("Sequence A", key: \.rowName, defaultOrder: .forward)
+                    .frame(minWidth: Self.minimumNameColumnWidth, maxWidth: .infinity, alignment: .leading)
+                sortHeader("Sequence B", key: \.columnName, defaultOrder: .forward)
+                    .frame(minWidth: Self.minimumNameColumnWidth, maxWidth: .infinity, alignment: .leading)
+                sortHeader(model.model.displayName, key: \.sortableValue, defaultOrder: .reverse)
+                    .frame(width: widths.value, alignment: .trailing)
+                sortHeader("Sites", key: \.comparableSites, defaultOrder: .reverse)
+                    .frame(width: widths.sites, alignment: .trailing)
+            }
+            .padding(.vertical, 4)
+            Divider()
+            ScrollView(.vertical) {
+                LazyVStack(spacing: 0) {
+                    ForEach(Array(model.sortedPairs.enumerated()), id: \.element.id) { index, pair in
+                        pairRow(pair, widths: widths)
+                            .background(index.isMultiple(of: 2)
+                                ? Color.clear
+                                : Color(nsColor: .alternatingContentBackgroundColors.last ?? .clear))
+                    }
+                }
+            }
+        }
+        .frame(
+            minHeight: 120,
+            idealHeight: min(320, CGFloat(model.pairs.count + 1) * 24 + 8),
+            maxHeight: 320
+        )
+    }
+
+    private func pairRow(_ pair: MSADistanceMatrix.Pair, widths: (value: CGFloat, sites: CGFloat)) -> some View {
+        HStack(spacing: Self.columnSpacing) {
+            Text(pair.rowName)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .help(pair.rowName)
+                .frame(minWidth: Self.minimumNameColumnWidth, maxWidth: .infinity, alignment: .leading)
+            Text(pair.columnName)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .help(pair.columnName)
+                .frame(minWidth: Self.minimumNameColumnWidth, maxWidth: .infinity, alignment: .leading)
+            Text(pair.formattedValue)
+                .monospacedDigit()
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
+                .frame(width: widths.value, alignment: .trailing)
+            Text("\(pair.comparableSites)")
+                .monospacedDigit()
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
+                .frame(width: widths.sites, alignment: .trailing)
+        }
+        .font(LungfishInspectorStyle.controlFont.weight(.regular))
+        .padding(.vertical, 3)
+        .accessibilityElement(children: .combine)
+    }
+
+    private func sortHeader<Value: Comparable>(
+        _ title: String,
+        key: any KeyPath<MSADistanceMatrix.Pair, Value> & Sendable,
+        defaultOrder: SortOrder
+    ) -> some View {
+        let current = model.sortOrder.first
+        let isActive = current?.keyPath == key as PartialKeyPath<MSADistanceMatrix.Pair>
+        return Button {
+            let order: SortOrder
+            if isActive, let current {
+                order = current.order == .forward ? .reverse : .forward
+            } else {
+                order = defaultOrder
+            }
+            model.sortOrder = [KeyPathComparator(key, order: order)]
+        } label: {
+            HStack(spacing: 2) {
+                Text(title)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                if isActive, let current {
+                    Image(systemName: current.order == .forward ? "chevron.up" : "chevron.down")
+                        .font(.system(size: 8, weight: .semibold))
+                }
+            }
+        }
+        .buttonStyle(.plain)
+        .font(LungfishInspectorStyle.controlFont.weight(.semibold))
+        .help("Sort by \(title)")
+        .accessibilityLabel("Sort by \(title)")
     }
 }
 

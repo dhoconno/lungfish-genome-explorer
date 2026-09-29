@@ -975,10 +975,11 @@ extension AppDelegate {
                             TaxonomyReadExtractionAction.shared.present(context: ctx, hostWindow: window)
                         }
 
-                        // Reload sidebar so the new result bundle appears
+                        // Reload the sidebar so the new result appears, and
+                        // select its row. The viewport already shows it.
                         AppDelegate.shared?.targetMainWindowController(routeContext: routeContext)?
                             .mainSplitViewController?
-                            .sidebarController.requestReloadFromFilesystem()
+                            .sidebarController.reloadAndRevealItem(forURL: capturedConfig.outputDirectory)
 
                     }
                 }
