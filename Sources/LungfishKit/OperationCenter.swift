@@ -342,6 +342,11 @@ public final class OperationCenter: ObservableObject {
         /// For an ``State/interrupted`` row: the incomplete result directory
         /// that "Remove Partial Output" and "Reveal in Finder" act on.
         public var interruptedRunDirectory: URL?
+        /// For an ``State/interrupted`` row: scratch folders in the project's
+        /// `.tmp/` that the run's (gone) producer left behind. Their size is
+        /// part of the row's size on disk, and "Remove Partial Output"
+        /// removes them after checking again that no live process owns them.
+        public var interruptedRunScratchDirectories: [URL] = []
 
         public var hasWarnings: Bool {
             warningCount > 0 || logEntries.contains { $0.level == .warning }
@@ -1242,14 +1247,29 @@ public final class OperationCenter: ObservableObject {
     public struct InterruptedAnalysisRun: Sendable {
         public let directory: URL
         public let record: AnalysisRunRecord?
+        /// Size of the result directory plus its scratch folders.
         public let sizeOnDiskBytes: Int64
         public let projectURL: URL?
+        /// Abandoned scratch folders in the project's `.tmp/` (see
+        /// `AnalysisRunScratch` in LungfishIO).
+        public let scratchDirectories: [URL]
+        /// The part of ``sizeOnDiskBytes`` held by ``scratchDirectories``.
+        public let scratchSizeOnDiskBytes: Int64
 
-        public init(directory: URL, record: AnalysisRunRecord?, sizeOnDiskBytes: Int64, projectURL: URL? = nil) {
+        public init(
+            directory: URL,
+            record: AnalysisRunRecord?,
+            sizeOnDiskBytes: Int64,
+            projectURL: URL? = nil,
+            scratchDirectories: [URL] = [],
+            scratchSizeOnDiskBytes: Int64 = 0
+        ) {
             self.directory = directory
             self.record = record
             self.sizeOnDiskBytes = sizeOnDiskBytes
             self.projectURL = projectURL
+            self.scratchDirectories = scratchDirectories
+            self.scratchSizeOnDiskBytes = scratchSizeOnDiskBytes
         }
     }
 
@@ -1289,11 +1309,17 @@ public final class OperationCenter: ObservableObject {
             routeContext: run.projectURL.map { OperationRouteContext(projectURL: $0, windowStateScopeID: nil) }
         )
         item.interruptedRunDirectory = run.directory
+        item.interruptedRunScratchDirectories = run.scratchDirectories
         var lines = [
             "\(kind) of \(name) found at \(run.directory.path).",
             "It never finished, so its partial output is hidden from the sidebar.",
             "Started \(started); \(size) on disk.",
         ]
+        if !run.scratchDirectories.isEmpty {
+            let scratchSize = ByteCountFormatter.string(fromByteCount: run.scratchSizeOnDiskBytes, countStyle: .file)
+            lines.append("That includes \(scratchSize) of temporary files the run left in the project:")
+            lines.append(contentsOf: run.scratchDirectories.map { "  \($0.path)" })
+        }
         if let record = run.record {
             lines.append("Recorded by process \(record.processIdentifier) on \(record.hostName).")
         }

@@ -33,6 +33,8 @@ enum InterruptedAnalysisRunDiscovery {
         let directory: URL
         let record: AnalysisRunRecord?
         let sizeOnDiskBytes: Int64
+        var scratchDirectories: [URL] = []
+        var scratchSizeOnDiskBytes: Int64 = 0
     }
 
     /// Scans the project and registers its interrupted runs.
@@ -43,14 +45,31 @@ enum InterruptedAnalysisRunDiscovery {
         in projectURL: URL,
         center: OperationCenter = .shared,
         currentHostName: String = AnalysisRunRecord.currentHostName(),
-        processProbe: @escaping AnalysisRunRecord.ProcessProbe = AnalysisRunRecord.probeProcess
+        processProbe: @escaping AnalysisRunRecord.ProcessProbe = AnalysisRunRecord.probeProcess,
+        scratchProcessInspector: @escaping AnalysisRunScratch.ProcessInspector = {
+            try OwnedProcessIdentity.inspect(processIdentifier: $0)
+        }
     ) async -> [UUID] {
         let candidates = await Task.detached(priority: .utility) {
-            AnalysesFolder.incompleteAnalysisRuns(in: projectURL).map { run in
-                Candidate(
+            let runs = AnalysesFolder.incompleteAnalysisRuns(in: projectURL)
+            // Scratch in .tmp/ that each run's gone producer left behind.
+            // Scratch whose creating process is alive is never attributed.
+            let scratch = AnalysisRunScratch.abandonedScratch(
+                for: runs.compactMap { run in
+                    run.record.map { AnalysisRunScratch.Run(directory: run.directory, record: $0) }
+                },
+                in: projectURL,
+                processInspector: scratchProcessInspector
+            )
+            return runs.map { run in
+                let scratchDirectories = scratch[run.directory.standardizedFileURL.path] ?? []
+                let scratchBytes = scratchDirectories.reduce(Int64(0)) { $0 + AnalysisRunScratch.allocatedSize(of: $1) }
+                return Candidate(
                     directory: run.directory,
                     record: run.record,
-                    sizeOnDiskBytes: allocatedSize(of: run.directory)
+                    sizeOnDiskBytes: allocatedSize(of: run.directory) + scratchBytes,
+                    scratchDirectories: scratchDirectories,
+                    scratchSizeOnDiskBytes: scratchBytes
                 )
             }
         }.value
@@ -77,7 +96,9 @@ enum InterruptedAnalysisRunDiscovery {
                 directory: candidate.directory,
                 record: candidate.record,
                 sizeOnDiskBytes: candidate.sizeOnDiskBytes,
-                projectURL: projectURL
+                projectURL: projectURL,
+                scratchDirectories: candidate.scratchDirectories,
+                scratchSizeOnDiskBytes: candidate.scratchSizeOnDiskBytes
             )
             if let id = center.registerInterruptedAnalysisRun(run) {
                 registered.append(id)
@@ -103,7 +124,17 @@ enum InterruptedAnalysisRunDiscovery {
     /// Deletes an interrupted run's partial output and clears its row. The
     /// caller confirms with the user first. A directory that has since been
     /// completed or is tracked by a running operation is never removed.
-    static func removePartialOutput(itemID: UUID, center: OperationCenter = .shared) throws {
+    ///
+    /// The row's scratch folders in `.tmp/` are removed too, each only after
+    /// checking again that it is still active scratch of this run whose
+    /// creating process is gone. Scratch a live process owns is left alone.
+    static func removePartialOutput(
+        itemID: UUID,
+        center: OperationCenter = .shared,
+        scratchProcessInspector: AnalysisRunScratch.ProcessInspector = {
+            try OwnedProcessIdentity.inspect(processIdentifier: $0)
+        }
+    ) throws {
         guard let item = center.items.first(where: { $0.id == itemID }),
               item.state == .interrupted,
               let directory = item.interruptedRunDirectory else {
@@ -114,7 +145,20 @@ enum InterruptedAnalysisRunDiscovery {
             center.clearItem(id: itemID)
             throw RemovalError.notInterrupted
         }
+        let record = AnalysisRunRecord.load(from: directory)
+        let projectURL = item.routeContext?.projectURL ?? ProjectTempDirectory.findProjectRoot(directory)
+        let scratch: [URL]
+        if let record, let projectURL {
+            scratch = item.interruptedRunScratchDirectories.filter {
+                AnalysisRunScratch.isAbandonedScratch($0, of: record, in: projectURL, processInspector: scratchProcessInspector)
+            }
+        } else {
+            scratch = []
+        }
         try FileManager.default.removeItem(at: directory)
+        for folder in scratch {
+            try FileManager.default.removeItem(at: folder)
+        }
         let parent = directory.deletingLastPathComponent()
         if AnalysesFolder.readAnalysisMetadata(from: parent)?.isBatch == true {
             AnalysesFolder.removeBatchDirectoryIfEffectivelyEmpty(parent)

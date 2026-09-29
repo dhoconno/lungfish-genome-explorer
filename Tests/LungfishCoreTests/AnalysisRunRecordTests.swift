@@ -151,14 +151,21 @@ struct AnalysisRunRecordTests {
         let parent = AnalysisRunRecord(analysisName: "Genotyping (app)", command: "app", startedAt: Date(timeIntervalSince1970: 1_000_000), processIdentifier: 777, processStartTime: nil)
         try AnalysisRunRecord.begin(parent, in: dir)
 
+        let joiner = AnalysisRunRecord(analysisName: "Genotyping (cli)", processIdentifier: 888, processStartTime: 42)
         let claim = try AnalysisRunRecord.beginRun(
             in: dir,
-            record: AnalysisRunRecord(analysisName: "Genotyping (cli)"),
+            record: joiner,
             processProbe: { _ in .running(startTime: nil) }
         )
 
         #expect(claim == .heldByLiveProducer)
-        #expect(AnalysisRunRecord.load(from: dir) == parent)
+        // The producer's record stands; the joining process is only noted
+        // as a participant so its scratch can be attributed to the run.
+        var expected = parent
+        expected.participants = [.init(processIdentifier: 888, processStartTime: 42)]
+        #expect(AnalysisRunRecord.load(from: dir) == expected)
+        _ = try AnalysisRunRecord.beginRun(in: dir, record: joiner, processProbe: { _ in .running(startTime: nil) })
+        #expect(AnalysisRunRecord.load(from: dir)?.participants?.count == 1)
         // Finishing does not complete a directory a live producer still decides.
         let completedWhileLauncherLives = AnalysisRunRecord.completeRun(claim, in: dir, processProbe: { _ in .running(startTime: nil) })
         #expect(!completedWhileLauncherLives)
@@ -192,5 +199,18 @@ struct AnalysisRunRecordTests {
         #expect(throws: (any Error).self) {
             _ = try AnalysisRunRecord.beginRun(in: file, record: AnalysisRunRecord(analysisName: "X"))
         }
+    }
+
+    @Test
+    func recordsWithoutParticipantsStillDecode() throws {
+        let dir = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let json = """
+        {"analysisName":"Old","hostName":"h","processIdentifier":5,"schemaVersion":1,"startedAt":"2026-09-01T00:00:00Z"}
+        """
+        try Data(json.utf8).write(to: AnalysisRunRecord.url(in: dir))
+        let record = try #require(AnalysisRunRecord.load(from: dir))
+        #expect(record.participants == nil)
+        #expect(record.producerProcesses == [.init(processIdentifier: 5, processStartTime: nil)])
     }
 }

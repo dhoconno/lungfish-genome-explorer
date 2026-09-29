@@ -531,13 +531,26 @@ final class OperationsPanelViewController: NSViewController, NSTableViewDataSour
         NSWorkspace.shared.activateFileViewerSelecting([directory])
     }
 
+    /// Names everything Remove Partial Output deletes, including the
+    /// temporary folders the run left in the project's `.tmp/`.
+    static func removePartialOutputMessage(for item: OperationCenter.Item, directory: URL) -> String {
+        var message = "\(item.title) did not finish. Removing deletes the folder \"\(directory.lastPathComponent)\" and everything in it"
+        let scratch = item.interruptedRunScratchDirectories
+        if scratch.count == 1 {
+            message += ", and the temporary folder \"\(scratch[0].lastPathComponent)\" the run left in the project"
+        } else if scratch.count > 1 {
+            message += ", and the \(scratch.count) temporary folders the run left in the project"
+        }
+        return message + ". This cannot be undone."
+    }
+
     /// An interrupted run's partial output is only ever deleted here, after
     /// the user confirms. Nothing removes it automatically.
     private func confirmRemovePartialOutput(for item: OperationCenter.Item) {
         guard item.state == .interrupted, let directory = item.interruptedRunDirectory else { return }
         let alert = NSAlert()
         alert.messageText = "Remove Partial Output?"
-        alert.informativeText = "\(item.title) did not finish. Removing deletes the folder \"\(directory.lastPathComponent)\" and everything in it. This cannot be undone."
+        alert.informativeText = Self.removePartialOutputMessage(for: item, directory: directory)
         alert.alertStyle = .warning
         alert.addButton(withTitle: "Remove")
         alert.addButton(withTitle: "Cancel")

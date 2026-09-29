@@ -168,4 +168,44 @@ final class SidebarIncompleteAnalysisTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: dead.path))
         XCTAssertNil(center.items.first { $0.id == id })
     }
+
+    func testInterruptedRowCountsAndRemovesTheScratchItsProducerLeft() async throws {
+        let center = OperationCenter()
+        let analyses = try AnalysesFolder.url(for: projectURL)
+        let dead = analyses.appendingPathComponent("esviritu-batch-2026-09-28T10-00-00", isDirectory: true)
+        try FileManager.default.createDirectory(at: dead, withIntermediateDirectories: true)
+        try AnalysisRunRecord.begin(
+            AnalysisRunRecord(analysisName: "EsViritu", startedAt: Date(timeIntervalSinceNow: -60), processIdentifier: 999_999, processStartTime: 1),
+            in: dead
+        )
+        // Scratch the dead producer left, as ProjectTempDirectory.create writes it.
+        let tmp = ProjectTempDirectory.tempRoot(for: projectURL)
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        let bootID = try OwnedProcessIdentity.current().bootSessionID
+        let abandoned = try OwnedWorkDirectoryMarkerStore.createDirectory(
+            OwnedWorkDirectoryCreationRequest(
+                projectURL: projectURL, parentDirectoryURL: tmp, prefix: "esviritu-", runID: UUID(),
+                processIdentity: OwnedProcessIdentity(processIdentifier: 999_999, processStartTime: 1, bootSessionID: bootID),
+                state: .active, lockRelativePath: nil, keepIntermediates: false, toolName: "test", toolVersion: "test"
+            )
+        )
+        try Data(count: 2_000_000).write(to: abandoned.appendingPathComponent("reads.fastq"))
+        // Scratch of a live run (this process) must never be touched.
+        let live = try ProjectTempDirectory.create(prefix: "kraken2-", in: projectURL)
+
+        let ids = await InterruptedAnalysisRunDiscovery.registerInterruptedRuns(in: projectURL, center: center)
+        let id = try XCTUnwrap(ids.first)
+        let item = try XCTUnwrap(center.items.first { $0.id == id })
+        XCTAssertEqual(item.interruptedRunScratchDirectories.map(\.lastPathComponent), [abandoned.lastPathComponent])
+        XCTAssertTrue(item.detail.contains("MB on disk"), item.detail)
+        XCTAssertTrue(
+            OperationsPanelViewController.removePartialOutputMessage(for: item, directory: dead)
+                .contains(abandoned.lastPathComponent)
+        )
+
+        try InterruptedAnalysisRunDiscovery.removePartialOutput(itemID: id, center: center)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: dead.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: abandoned.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: live.path))
+    }
 }

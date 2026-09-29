@@ -51,6 +51,30 @@ public struct AnalysisRunRecord: Codable, Equatable, Sendable {
     /// Set when the producer knows the run ended without completing. `nil`
     /// while running, and after a crash, quit or kill.
     public var outcome: Outcome?
+    /// Other processes that joined this run, such as a `lungfish-cli` child
+    /// the app launched to fill a directory the app claimed. Scratch folders
+    /// in the project's `.tmp/` that any producer process left behind belong
+    /// to the run (see `AnalysisRunScratch` in LungfishIO). `nil` in records
+    /// written by builds that predate it.
+    public var participants: [Participant]?
+
+    /// A process that worked on the run besides the recorded producer.
+    public struct Participant: Codable, Equatable, Sendable {
+        public var processIdentifier: Int32
+        /// Start time in microseconds since 1970, guarding against PID reuse.
+        public var processStartTime: UInt64?
+
+        public init(processIdentifier: Int32, processStartTime: UInt64?) {
+            self.processIdentifier = processIdentifier
+            self.processStartTime = processStartTime
+        }
+    }
+
+    /// The recorded producer followed by every participant.
+    public var producerProcesses: [Participant] {
+        [Participant(processIdentifier: processIdentifier, processStartTime: processStartTime)]
+            + (participants ?? [])
+    }
 
     public enum Outcome: String, Codable, Equatable, Sendable {
         case failed
@@ -161,8 +185,18 @@ public struct AnalysisRunRecord: Codable, Equatable, Sendable {
         } else if !isDirectory.boolValue {
             throw CocoaError(.fileWriteFileExists, userInfo: [NSFilePathErrorKey: directory.path])
         }
-        if let existing = load(from: directory),
+        if var existing = load(from: directory),
            existing.liveness(processProbe: processProbe) == .running {
+            // Join the run, so scratch this process leaves behind after an
+            // interruption is attributed to it.
+            let me = Participant(
+                processIdentifier: record.processIdentifier,
+                processStartTime: record.processStartTime
+            )
+            if !existing.producerProcesses.contains(me) {
+                existing.participants = (existing.participants ?? []) + [me]
+                try? begin(existing, in: directory)
+            }
             return .heldByLiveProducer
         }
         try begin(record, in: directory)
