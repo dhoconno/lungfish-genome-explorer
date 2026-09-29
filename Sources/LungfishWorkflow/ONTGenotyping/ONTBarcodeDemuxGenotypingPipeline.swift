@@ -859,7 +859,21 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             ".\(request.outputDirectory.lastPathComponent).amplicon-genotyping-run.lock"
         )
         let runLock = try OwnedRunLock.acquire(at: lockURL)
-        defer { runLock.release() }
+        defer {
+            // However the run ended, its lock file is removed unless the
+            // support workspace still carries an active marker that records
+            // it: Manage Project Storage needs that lock to prove the
+            // abandoned workspace is unlocked before offering to remove it.
+            if Self.runLockFileStillNeeded(
+                supportDirectory: request.outputDirectory
+                    .appendingPathComponent(".amplicon-genotyping", isDirectory: true),
+                projectRoot: projectRoot
+            ) {
+                runLock.release()
+            } else {
+                runLock.releaseRemovingLockFile()
+            }
+        }
         let resolvedMode = try resolveMode(for: request)
         let resolvedReadType = resolveReadType(for: request, mode: resolvedMode)
         progressHandler?(0.01, "Validating amplicon genotyping inputs.")
@@ -1297,6 +1311,23 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         guard let relative = CanonicalFilePath.relativePath(of: url, within: projectRoot),
               !relative.isEmpty else { return nil }
         return relative
+    }
+
+    /// Whether the run lock file must stay: the support workspace is still
+    /// on disk with an active ownership marker (its cleanup did not finish).
+    static func runLockFileStillNeeded(supportDirectory: URL, projectRoot: URL) -> Bool {
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: supportDirectory.path, isDirectory: &isDirectory) else {
+            return false
+        }
+        guard isDirectory.boolValue,
+              let marker = try? OwnedWorkDirectoryMarkerStore.load(
+                  from: supportDirectory,
+                  expectedProjectURL: projectRoot
+              ) else {
+            return true
+        }
+        return marker.state == .active
     }
 
     /// True when `outputDirectory` is the project itself or below it, so the

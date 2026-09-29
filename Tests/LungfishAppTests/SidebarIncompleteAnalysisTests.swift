@@ -208,4 +208,15 @@ final class SidebarIncompleteAnalysisTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: abandoned.path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: live.path))
     }
+
+    func testSidebarNeverListsAGenotypeRunLockFile() throws {
+        let folder = projectURL.appendingPathComponent("Amplicon genotyping results", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: folder.appendingPathComponent("run.lungfishgenotype", isDirectory: true),
+            withIntermediateDirectories: true
+        )
+        try Data().write(to: folder.appendingPathComponent(".run.lungfishgenotype.amplicon-genotyping-run.lock"))
+        let names = try SidebarProjectScanner.directoryEntries(in: folder).map(\.url.lastPathComponent)
+        XCTAssertEqual(names, ["run.lungfishgenotype"])
+    }
 }

@@ -586,6 +586,7 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
         XCTAssertFalse(AnalysisRunRecord.isIncomplete(outputDirectory), "success removes the record")
         let siblings = try FileManager.default.contentsOfDirectory(atPath: outputDirectory.deletingLastPathComponent().path)
         XCTAssertFalse(siblings.contains { $0.contains(".creating-") }, "no staging directory is left: \(siblings)")
+        XCTAssertFalse(siblings.contains { $0.hasSuffix(".lock") }, "a finished run leaves no lock file: \(siblings)")
     }
 
     func testRunLaunchedByALiveProducerLeavesItsRecordForThatProducer() async throws {
@@ -620,6 +621,32 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: request.outputDirectory.path), "nothing is deleted")
         XCTAssertTrue(AnalysisRunRecord.isIncomplete(request.outputDirectory))
         XCTAssertEqual(AnalysisRunRecord.load(from: request.outputDirectory)?.outcome, .failed)
+        let siblings = try FileManager.default.contentsOfDirectory(atPath: request.outputDirectory.deletingLastPathComponent().path)
+        XCTAssertFalse(siblings.contains { $0.hasSuffix(".lock") }, "a failed run leaves no lock file: \(siblings)")
+    }
+
+    func testRunLockFileStaysOnlyWhileAnActiveSupportWorkspaceRecordsIt() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let project = root.appendingPathComponent("Lock.lungfish", isDirectory: true)
+        let support = project.appendingPathComponent("r.lungfishgenotype/.amplicon-genotyping", isDirectory: true)
+        XCTAssertFalse(ONTBarcodeDemuxGenotypingPipeline.runLockFileStillNeeded(supportDirectory: support, projectRoot: project))
+
+        try FileManager.default.createDirectory(at: support, withIntermediateDirectories: true)
+        let request = OwnedWorkDirectoryCreationRequest(
+            projectURL: project, parentDirectoryURL: support.deletingLastPathComponent(),
+            prefix: ".amplicon-genotyping-", runID: UUID(),
+            processIdentity: try OwnedProcessIdentity.current(), state: .active,
+            lockRelativePath: ".r.lungfishgenotype.amplicon-genotyping-run.lock",
+            keepIntermediates: false, toolName: "test", toolVersion: "test"
+        )
+        try OwnedWorkDirectoryMarkerStore.bindExistingDirectory(support, request: request)
+        XCTAssertTrue(ONTBarcodeDemuxGenotypingPipeline.runLockFileStillNeeded(supportDirectory: support, projectRoot: project))
+
+        try OwnedWorkDirectoryMarkerStore.transition(
+            support, expectedProjectURL: project, expectedRunID: request.runID, to: .failed
+        )
+        XCTAssertFalse(ONTBarcodeDemuxGenotypingPipeline.runLockFileStillNeeded(supportDirectory: support, projectRoot: project))
     }
 
     func testRunSynthesizesDemuxManifestForImportedONTBarcodeBundleWithoutPriorDemuxOutput() async throws {

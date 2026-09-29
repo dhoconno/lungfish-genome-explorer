@@ -37,16 +37,43 @@ public final class OwnedRunLock: @unchecked Sendable {
     }
 
     public static func acquire(at lockURL: URL) throws -> OwnedRunLock {
-        let descriptor = try openLock(at: lockURL, createIfMissing: true)
-        guard flock(descriptor, LOCK_EX | LOCK_NB) == 0 else {
-            let code = errno
-            Darwin.close(descriptor)
-            if code == EWOULDBLOCK || code == EAGAIN {
-                throw OwnedRunLockError.lockHeld(lockURL.path)
+        try acquire(at: lockURL, beforeLocking: { })
+    }
+
+    /// `beforeLocking` runs between opening the lock file and locking it, so
+    /// tests can reproduce a holder removing the file in that window.
+    static func acquire(at lockURL: URL, beforeLocking: () -> Void) throws -> OwnedRunLock {
+        // A holder that finishes removes the lock file
+        // (``releaseRemovingLockFile()``). A lock taken on a file that was
+        // unlinked or replaced after it was opened protects nothing, so the
+        // lock only counts once the path still names the locked file.
+        for _ in 0..<8 {
+            let descriptor = try openLock(at: lockURL, createIfMissing: true)
+            beforeLocking()
+            guard flock(descriptor, LOCK_EX | LOCK_NB) == 0 else {
+                let code = errno
+                Darwin.close(descriptor)
+                if code == EWOULDBLOCK || code == EAGAIN {
+                    throw OwnedRunLockError.lockHeld(lockURL.path)
+                }
+                throw OwnedRunLockError.systemFailure(path: lockURL.path, code: code)
             }
-            throw OwnedRunLockError.systemFailure(path: lockURL.path, code: code)
+            if pathNamesDescriptor(lockURL, descriptor) {
+                return OwnedRunLock(lockURL: lockURL.standardizedFileURL, descriptor: descriptor)
+            }
+            _ = flock(descriptor, LOCK_UN)
+            Darwin.close(descriptor)
         }
-        return OwnedRunLock(lockURL: lockURL.standardizedFileURL, descriptor: descriptor)
+        throw OwnedRunLockError.lockHeld(lockURL.path)
+    }
+
+    /// Whether `lockURL` (not followed) is the file open on `descriptor`.
+    private static func pathNamesDescriptor(_ lockURL: URL, _ descriptor: Int32) -> Bool {
+        var opened = stat()
+        guard Darwin.fstat(descriptor, &opened) == 0 else { return false }
+        var current = stat()
+        guard Darwin.lstat(lockURL.standardizedFileURL.path, &current) == 0 else { return false }
+        return current.st_dev == opened.st_dev && current.st_ino == opened.st_ino
     }
 
     public static func probe(at lockURL: URL) throws -> OwnedRunLockProbe {
@@ -74,6 +101,26 @@ public final class OwnedRunLock: @unchecked Sendable {
             return current
         }
         guard value >= 0 else { return }
+        _ = flock(value, LOCK_UN)
+        Darwin.close(value)
+    }
+
+    /// Releases the lock and removes its file, so a finished run leaves no
+    /// empty lock file beside its result. The file is unlinked while the lock
+    /// is still held, and only when the path still names the locked file.
+    /// ``acquire(at:)`` refuses a lock on a file that was unlinked, so a run
+    /// that opened the old file just before its removal cannot run
+    /// alongside one that creates a new file.
+    public func releaseRemovingLockFile() {
+        let value = stateLock.withLock { () -> Int32 in
+            let current = descriptor
+            descriptor = -1
+            return current
+        }
+        guard value >= 0 else { return }
+        if Self.pathNamesDescriptor(lockURL, value) {
+            _ = lockURL.path.withCString { Darwin.unlink($0) }
+        }
         _ = flock(value, LOCK_UN)
         Darwin.close(value)
     }

@@ -57,4 +57,30 @@ final class OwnedRunLockTests: XCTestCase {
         XCTAssertThrowsError(try OwnedRunLock.acquire(at: invalid))
         XCTAssertThrowsError(try OwnedRunLock.probe(at: invalid))
     }
+
+    func testReleaseRemovingLockFileLeavesNoFileAndTheLockStillExcludes() throws {
+        let first = try OwnedRunLock.acquire(at: lockURL)
+        first.releaseRemovingLockFile()
+        XCTAssertFalse(FileManager.default.fileExists(atPath: lockURL.path))
+        XCTAssertEqual(try OwnedRunLock.probe(at: lockURL), .missing)
+
+        let second = try OwnedRunLock.acquire(at: lockURL)
+        XCTAssertThrowsError(try OwnedRunLock.acquire(at: lockURL))
+        second.releaseRemovingLockFile()
+    }
+
+    func testALockTakenOnAFileRemovedMeanwhileIsRetakenOnTheLiveFile() throws {
+        let holder = try OwnedRunLock.acquire(at: lockURL)
+        // The next run opens the old file, then the holder finishes and
+        // removes it before the next run locks.
+        let next = try OwnedRunLock.acquire(at: lockURL, beforeLocking: {
+            holder.releaseRemovingLockFile()
+        })
+        defer { next.releaseRemovingLockFile() }
+        XCTAssertTrue(FileManager.default.fileExists(atPath: lockURL.path))
+        XCTAssertEqual(try OwnedRunLock.probe(at: lockURL), .held)
+        XCTAssertThrowsError(try OwnedRunLock.acquire(at: lockURL)) { error in
+            XCTAssertEqual(error as? OwnedRunLockError, .lockHeld(lockURL.path))
+        }
+    }
 }
