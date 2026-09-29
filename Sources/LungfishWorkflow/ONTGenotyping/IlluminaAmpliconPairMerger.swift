@@ -75,6 +75,12 @@ public enum IlluminaAmpliconPairMerger {
         public var unpairedPassthroughCount: Int = 0
 
         public var didMerge: Bool { disposition == .merged }
+
+        /// Fragments this outcome maps, one per physical molecule: every pair
+        /// presented to bbmerge (merged or not) plus the merged/orphan reads of
+        /// a mixed input that bypassed bbmerge. Zero when nothing was merged;
+        /// callers then use their own record count.
+        public var fragmentCount: Int { pairCount + unpairedPassthroughCount }
     }
 
     public enum MergeError: LocalizedError {
@@ -226,6 +232,27 @@ public enum IlluminaAmpliconPairMerger {
         let passthroughCount: Int
         if resolution.layout == .mixedMergedAndPairs {
             let partition = try partitionMixedInput(fastqURL: fastqURL, workingDirectory: workingDirectory, stem: stem)
+            // Metadata can call a file mixed (its sidecar records interleaved
+            // pairs, or a merge recipe ran at import) while no record has its
+            // mate next to it: a bundle merged at import holds merged reads
+            // only. There is nothing for bbmerge to do, so map the input as
+            // it is. Running bbmerge on the empty pairs file instead reported
+            // zero pairs, which zeroed the run's fragment denominator.
+            if partition.counts.pairs == 0 {
+                try? FileManager.default.removeItem(at: partition.pairsURL)
+                try? FileManager.default.removeItem(at: partition.unpairedURL)
+                return Outcome(
+                    mappingFASTQURL: fastqURL,
+                    disposition: .alreadyMerged,
+                    pairCount: 0,
+                    mergedCount: 0,
+                    unmergedReadCount: 0,
+                    mappingReadCount: partition.counts.unpaired,
+                    arguments: [],
+                    stagingRoot: nil,
+                    stderr: ""
+                )
+            }
             mergeInputURL = partition.pairsURL
             passthroughURL = partition.unpairedURL
             passthroughCount = partition.counts.unpaired

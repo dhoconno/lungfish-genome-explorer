@@ -251,4 +251,49 @@ final class FASTQMixedLayoutConsumerTests: XCTestCase {
         XCTAssertEqual(passthrough.map(\.identifier), (0..<5).map(InterleavedFASTQFixture.mergedName), "merged reads pass through in order")
         XCTAssertEqual(passthrough.map(\.sequence), (0..<5).map(InterleavedFASTQFixture.defaultMergedSequence), "merged reads are untouched")
     }
+
+    /// 2026.9.55 production regression: a bundle merged at import (sidecar
+    /// still records `interleaved`) holds only merged reads, so the resolver
+    /// calls it mixed but no record has an adjacent mate. The merger used to
+    /// run bbmerge on an empty pairs file, pass every read through, and
+    /// report `pairCount` 0, which zeroed the run's fragment denominator and
+    /// aborted genotyping. With no pairs there is nothing to merge: the input
+    /// is already merged and bbmerge must not run at all.
+    func testMixedInputWithNoAdjacentMatesIsAlreadyMergedAndSkipsBBMerge() async throws {
+        let bundle = try InterleavedFASTQFixture.writeMixedBundle(
+            named: "merged-at-import", in: root, pairCount: 0, mergedCount: 12, naming: .casava
+        )
+        XCTAssertEqual(FASTQInputLayoutResolver.resolve(inputURLs: [bundle.fastqURL]).layout, .mixedMergedAndPairs)
+
+        // A bbmerge that cannot run proves the merge is skipped.
+        let outcome = try await IlluminaAmpliconPairMerger.prepareForMapping(
+            fastqURL: bundle.fastqURL,
+            bbmergeURL: root.appendingPathComponent("no-such-bbmerge.sh"),
+            workingDirectory: root.appendingPathComponent("merge", isDirectory: true),
+            stem: "merged-at-import",
+            threads: 2
+        )
+        XCTAssertEqual(outcome.disposition, .alreadyMerged)
+        XCTAssertEqual(outcome.mappingFASTQURL, bundle.fastqURL)
+        XCTAssertEqual(outcome.mappingReadCount, 12)
+    }
+
+    /// A merged outcome counts every fragment it maps: merged pairs, unmerged
+    /// pairs folded to one fragment each, AND the merged/orphan reads of a
+    /// mixed file that bypassed bbmerge.
+    func testMergedOutcomeFragmentCountIncludesPassthroughReads() {
+        var outcome = IlluminaAmpliconPairMerger.Outcome(
+            mappingFASTQURL: root.appendingPathComponent("m.fastq"),
+            disposition: .merged,
+            pairCount: 8,
+            mergedCount: 6,
+            unmergedReadCount: 4,
+            mappingReadCount: 15,
+            arguments: [],
+            stagingRoot: nil,
+            stderr: ""
+        )
+        outcome.unpairedPassthroughCount = 5
+        XCTAssertEqual(outcome.fragmentCount, 13)
+    }
 }

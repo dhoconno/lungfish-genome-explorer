@@ -2988,6 +2988,46 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
         XCTAssertEqual(sample.totalFragmentCount, 500)
     }
 
+    /// A mixed sample's merged/orphan reads bypass bbmerge but are still
+    /// fragments: the sample denominator must include them. Omitting them
+    /// made a merged-at-import cohort (no adjacent mates at all) report a
+    /// run denominator of 0 in 2026.9.55.
+    func testTotalFragmentCountIncludesMixedPassthroughReads() {
+        var sample = ONTBarcodeDemuxGenotypingPipeline.IlluminaSampleInput(
+            sampleID: "sampleA",
+            sourceURL: URL(fileURLWithPath: "/tmp/a.fastq"),
+            fastqURL: URL(fileURLWithPath: "/tmp/a.fastq"),
+            prefixedFASTQURL: URL(fileURLWithPath: "/tmp/a.prefixed.fastq"),
+            readCount: 1100,
+            readCountSource: "fastq-weighted-record-count"
+        )
+        var outcome = IlluminaAmpliconPairMerger.Outcome(
+            mappingFASTQURL: URL(fileURLWithPath: "/tmp/a.merged.fastq"),
+            disposition: .merged,
+            pairCount: 0,
+            mergedCount: 0,
+            unmergedReadCount: 0,
+            mappingReadCount: 1100,
+            arguments: [],
+            stagingRoot: nil,
+            stderr: ""
+        )
+        outcome.unpairedPassthroughCount = 1100
+        sample.mergeOutcome = outcome
+        XCTAssertEqual(sample.totalFragmentCount, 1100)
+    }
+
+    /// The filter writes `retainedUniquePercentOfTotalReads: null` when the
+    /// run denominator is 0 or unknown. That must decode, not abort a run
+    /// whose genotyping succeeded.
+    func testFilterStatsDecodeNullRetainedPercent() throws {
+        let stdout = #"{"totalInputReads": 0, "totalInputReadsUnit": "fragments", "totalAlignments": 10, "passedAlignments": 9, "retainedUniqueReads": 1563637, "retainedUniquePercentOfTotalReads": null, "assignedUniqueRetainedReads": 1563637, "unassignedUniqueRetainedReads": 0, "barcodes": null}"#
+        let stats = try XCTUnwrap(ONTBarcodeDemuxGenotypingPipeline.decodeFilterStats(stdout))
+        XCTAssertNil(stats.retainedUniquePercentOfTotalReads)
+        XCTAssertEqual(stats.retainedUniqueReads, 1563637)
+        XCTAssertEqual(stats.totalInputReads, 0)
+    }
+
     func testResolveIlluminaSampleInputsDisambiguatesCollidingStagedFilenames() async throws {
         let tmp = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: tmp) }
