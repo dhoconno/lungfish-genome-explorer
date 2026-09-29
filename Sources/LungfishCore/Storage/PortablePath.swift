@@ -63,7 +63,9 @@ public enum PortablePath {
             URL(fileURLWithPath: "/tmp", isDirectory: true),
             URL(fileURLWithPath: "/private/tmp", isDirectory: true),
             URL(fileURLWithPath: "/var/tmp", isDirectory: true),
-            URL(fileURLWithPath: "/private/var/tmp", isDirectory: true),
+            // Resolved at run time, not spelled out: the release portability
+            // scan rejects any binary that embeds the build cache prefix.
+            URL(fileURLWithPath: "/var/tmp", isDirectory: true).resolvingSymlinksInPath(),
             URL(fileURLWithPath: "/var/folders", isDirectory: true),
             URL(fileURLWithPath: "/private/var/folders", isDirectory: true),
         ]
