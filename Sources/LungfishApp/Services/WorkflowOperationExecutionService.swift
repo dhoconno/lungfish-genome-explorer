@@ -388,11 +388,18 @@ final class WorkflowOperationExecutionService {
         routeContext: OperationRouteContext?
     ) async throws -> [URL] {
         let request = try uniqueONTGenotypingRequestIfNeeded(request)
-        try fileManager.createDirectory(at: request.outputDirectory, withIntermediateDirectories: true)
         let arguments = ontGenotypingArguments(for: request)
         let cliCommand = ViralReconWorkflowCommandPreview.build(
             executableName: CLICommandIdentity.executableName,
             arguments: arguments
+        )
+        // The CLI fills the bundle in place, so it is created carrying a run
+        // record and stays out of the sidebar until this operation completes
+        // (OperationCenter removes the record then). The CLI sees this live
+        // record and leaves it to the app.
+        let runRecordClaim = try AnalysisRunRecord.beginRun(
+            in: request.outputDirectory,
+            record: AnalysisRunRecord(analysisName: "Amplicon genotyping", command: cliCommand)
         )
         let startResult = operationCenter.begin(
             title: "miSeq amplicon MHC genotyping",
@@ -403,8 +410,14 @@ final class WorkflowOperationExecutionService {
             routeContext: routeContext
         )
         guard case .started(let operationID) = startResult else {
+            // Nothing ran: drop the empty bundle this call made, never one
+            // holding anything else.
+            if runRecordClaim == .owned {
+                Self.removeUnusedRunDirectory(request.outputDirectory, fileManager: fileManager)
+            }
             throw LocalWorkflowExecutionError.bundleBusy("The output directory is busy. Wait for its current operation to finish.")
         }
+        operationCenter.trackAnalysisOutput(request.outputDirectory, for: operationID)
         operationCenter.log(id: operationID, level: .info, message: cliCommand)
         _ = operationCenter.updateWithLog(
             id: operationID,
@@ -600,6 +613,13 @@ final class WorkflowOperationExecutionService {
             )
             throw error
         }
+    }
+
+    /// Removes a run directory that holds nothing but its run record.
+    static func removeUnusedRunDirectory(_ directory: URL, fileManager: FileManager) {
+        guard let contents = try? fileManager.contentsOfDirectory(atPath: directory.path),
+              contents.allSatisfy({ $0 == AnalysisRunRecord.fileName || $0 == ".DS_Store" }) else { return }
+        try? fileManager.removeItem(at: directory)
     }
 
     func ontGenotypingArguments(for request: ONTBarcodeDemuxGenotypingRunRequest) -> [String] {

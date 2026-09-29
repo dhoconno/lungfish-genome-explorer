@@ -519,6 +519,109 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
         XCTAssertEqual(loaded.calls.first?.passedUniqueReads, 1)
     }
 
+    // MARK: - Run record (the bundle stays out of listings until the run succeeds)
+
+    private final class IncompleteObservation: @unchecked Sendable {
+        private let lock = NSLock()
+        private var observed: [Bool] = []
+        func record(_ value: Bool) { lock.withLock { observed.append(value) } }
+        var values: [Bool] { lock.withLock { observed } }
+    }
+
+    private func makeRunRecordRequest(
+        root: URL,
+        lockedReferenceSHA256: String? = nil
+    ) throws -> (ONTBarcodeDemuxGenotypingRunRequest, ONTBarcodeDemuxGenotypingPipeline) {
+        let condaRoot = root.appendingPathComponent("conda", isDirectory: true)
+        let bundledMicromamba = try makeFakeONTGenotypingCondaRoot(at: condaRoot)
+        let inputFASTQ = root.appendingPathComponent("barcode08.fastq")
+        let referenceFASTA = root.appendingPathComponent("reference.fa")
+        let barcodeDefinitions = root.appendingPathComponent("barcodes.csv")
+        let demuxManifest = root.appendingPathComponent("demux-manifest.json")
+        let outputDirectory = root.appendingPathComponent(
+            "Project.lungfish/Analyses/Genotypes/barcode08.lungfishgenotype",
+            isDirectory: true
+        )
+        try "@r0\nACGT\n+\nIIII\n".write(to: inputFASTQ, atomically: true, encoding: .utf8)
+        try ">allele1\nACGT\n".write(to: referenceFASTA, atomically: true, encoding: .utf8)
+        try "sample,barcode\nDW472,ACGT\n".write(to: barcodeDefinitions, atomically: true, encoding: .utf8)
+        try #"{"sampleTotals":{"DW472":1},"totalInputReads":1}"#.write(to: demuxManifest, atomically: true, encoding: .utf8)
+        let request = ONTBarcodeDemuxGenotypingRunRequest(
+            inputFASTQURL: inputFASTQ,
+            referenceSourceURL: referenceFASTA,
+            barcodeDefinitionsURL: barcodeDefinitions,
+            outputDirectory: outputDirectory,
+            outputName: "barcode08-mhc",
+            demuxManifestURL: demuxManifest,
+            projectURL: root.appendingPathComponent("Project.lungfish", isDirectory: true),
+            threads: 2,
+            sortThreads: 1,
+            lockedReferenceSHA256: lockedReferenceSHA256
+        )
+        let pipeline = ONTBarcodeDemuxGenotypingPipeline(
+            condaManager: CondaManager(
+                rootPrefix: condaRoot,
+                bundledMicromambaProvider: { bundledMicromamba },
+                bundledMicromambaVersionProvider: { "test-micromamba" }
+            )
+        )
+        return (request, pipeline)
+    }
+
+    func testDirectCLIRunHidesTheBundleUntilItSucceeds() async throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (request, pipeline) = try makeRunRecordRequest(root: root)
+        let observation = IncompleteObservation()
+        let outputDirectory = request.outputDirectory
+
+        _ = try await pipeline.run(request) { fraction, _ in
+            if fraction >= 0.04, fraction < 0.98 {
+                observation.record(AnalysisRunRecord.isIncomplete(outputDirectory))
+            }
+        }
+
+        XCTAssertFalse(observation.values.isEmpty)
+        XCTAssertTrue(observation.values.allSatisfy { $0 }, "the bundle carries a run record for the whole run")
+        XCTAssertFalse(AnalysisRunRecord.isIncomplete(outputDirectory), "success removes the record")
+        let siblings = try FileManager.default.contentsOfDirectory(atPath: outputDirectory.deletingLastPathComponent().path)
+        XCTAssertFalse(siblings.contains { $0.contains(".creating-") }, "no staging directory is left: \(siblings)")
+    }
+
+    func testRunLaunchedByALiveProducerLeavesItsRecordForThatProducer() async throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (request, pipeline) = try makeRunRecordRequest(root: root)
+        // The app creates the bundle with its own record before starting the CLI.
+        let launcherRecord = AnalysisRunRecord(
+            analysisName: "Amplicon genotyping",
+            command: "app",
+            startedAt: Date(timeIntervalSince1970: 1_000_000)
+        )
+        XCTAssertEqual(try AnalysisRunRecord.beginRun(in: request.outputDirectory, record: launcherRecord), .owned)
+
+        _ = try await pipeline.run(request)
+
+        XCTAssertEqual(AnalysisRunRecord.load(from: request.outputDirectory), launcherRecord,
+                       "the launcher completes the bundle when its operation completes")
+    }
+
+    func testFailedDirectCLIRunKeepsTheBundleHiddenAndInPlace() async throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        // A locked-reference digest mismatch fails the run after the bundle exists.
+        let (request, pipeline) = try makeRunRecordRequest(root: root, lockedReferenceSHA256: String(repeating: "0", count: 64))
+
+        do {
+            _ = try await pipeline.run(request)
+            XCTFail("expected the locked reference digest check to fail the run")
+        } catch {}
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: request.outputDirectory.path), "nothing is deleted")
+        XCTAssertTrue(AnalysisRunRecord.isIncomplete(request.outputDirectory))
+        XCTAssertEqual(AnalysisRunRecord.load(from: request.outputDirectory)?.outcome, .failed)
+    }
+
     func testRunSynthesizesDemuxManifestForImportedONTBarcodeBundleWithoutPriorDemuxOutput() async throws {
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }

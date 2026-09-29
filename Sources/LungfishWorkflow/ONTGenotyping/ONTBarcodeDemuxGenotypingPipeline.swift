@@ -884,7 +884,30 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             }
             return resolved
         }
-        try FileManager.default.createDirectory(at: request.outputDirectory, withIntermediateDirectories: true)
+        // The result bundle is filled in place, so it carries a run record
+        // (AnalysisRunRecord) from the moment it exists and stays out of the
+        // sidebar and analysis listings until this run succeeds. When the app
+        // launched this run it already created the bundle with its own record
+        // and removes it when its operation completes, so a live launcher's
+        // record is left alone. A failed or cancelled run keeps the record
+        // and stays hidden; nothing is removed here.
+        let runRecordClaim = try AnalysisRunRecord.beginRun(
+            in: request.outputDirectory,
+            record: AnalysisRunRecord(
+                analysisName: Self.workflowName(for: resolvedMode),
+                command: request.argv.map(shellEscape).joined(separator: " "),
+                startedAt: startedAt
+            )
+        )
+        var runRecordCompleted = false
+        defer {
+            if !runRecordCompleted, runRecordClaim == .owned {
+                AnalysisRunRecord.recordOutcome(
+                    Task.isCancelled ? .cancelled : .failed,
+                    in: request.outputDirectory
+                )
+            }
+        }
         progressHandler?(0.04, "Preparing amplicon genotyping output workspace.")
         // GEN-12 / D5 (2026-09-23 best-practices audit): AI haplotyping is
         // disabled (the owner found it unreliable) and every entry point is
@@ -1239,6 +1262,9 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             dispositions: failureCleanupDispositions
         )
         progressHandler?(0.98, "Finalizing amplicon genotyping outputs.")
+        // Last step: the finished bundle may now appear in the sidebar.
+        AnalysisRunRecord.completeRun(runRecordClaim, in: request.outputDirectory)
+        runRecordCompleted = true
         return finalizedResult
         } catch let journalError as GenotypingCleanupJournalError {
             throw journalError

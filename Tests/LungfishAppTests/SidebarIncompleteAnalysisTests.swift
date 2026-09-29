@@ -87,6 +87,30 @@ final class SidebarIncompleteAnalysisTests: XCTestCase {
         )
     }
 
+    private func allScannedURLs() -> [URL] {
+        func flatten(_ nodes: [SidebarScanNode]) -> [URL] {
+            nodes.flatMap { node in (node.url.map { [$0] } ?? []) + flatten(node.children) }
+        }
+        return flatten(SidebarProjectScanner.scanRootNodes(from: projectURL))
+    }
+
+    func testRunningGenotypingBundleInAResultsFolderIsHiddenUntilComplete() throws {
+        let bundle = projectURL.appendingPathComponent(
+            "Analyses/MiSeq Genotyping/cohort.lungfishgenotype",
+            isDirectory: true
+        )
+        let claim = try AnalysisRunRecord.beginRun(in: bundle, record: AnalysisRunRecord(analysisName: "Amplicon genotyping"))
+        try "{}".write(to: bundle.appendingPathComponent("manifest.json"), atomically: true, encoding: .utf8)
+        XCTAssertFalse(allScannedURLs().map(\.lastPathComponent).contains("cohort.lungfishgenotype"))
+
+        let runs = AnalysesFolder.incompleteAnalysisRuns(in: projectURL)
+        XCTAssertEqual(runs.map { $0.directory.lastPathComponent }, ["cohort.lungfishgenotype"],
+                       "an interrupted genotyping run can be offered for review")
+
+        AnalysisRunRecord.completeRun(claim, in: bundle)
+        XCTAssertTrue(allScannedURLs().map(\.lastPathComponent).contains("cohort.lungfishgenotype"))
+    }
+
     // MARK: - Interrupted-run discovery
 
     func testInterruptedRunDiscoveryListsDeadProducersOnly() async throws {

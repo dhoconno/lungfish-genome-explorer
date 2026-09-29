@@ -116,4 +116,81 @@ struct AnalysisRunRecordTests {
         let liveness = record.liveness(currentHostName: "lab-mac") { _ in .running(startTime: 9) }
         #expect(liveness == .running)
     }
+
+    // MARK: - beginRun / completeRun
+
+    @Test
+    func beginRunCreatesMissingDirectoryWithRecordAndParents() throws {
+        let root = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let dir = root.appendingPathComponent("Analyses/Genotypes/run.lungfishgenotype", isDirectory: true)
+
+        let claim = try AnalysisRunRecord.beginRun(in: dir, record: AnalysisRunRecord(analysisName: "Genotyping"))
+
+        #expect(claim == .owned)
+        #expect(AnalysisRunRecord.isIncomplete(dir))
+        let siblings = try FileManager.default.contentsOfDirectory(atPath: dir.deletingLastPathComponent().path)
+        #expect(siblings == ["run.lungfishgenotype"], "no staging directory is left behind")
+        #expect(AnalysisRunRecord.completeRun(claim, in: dir))
+        #expect(!AnalysisRunRecord.isIncomplete(dir))
+    }
+
+    @Test
+    func beginRunClaimsExistingDirectoryWithoutRecord() throws {
+        let dir = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let claim = try AnalysisRunRecord.beginRun(in: dir, record: AnalysisRunRecord(analysisName: "Genotyping"))
+        #expect(claim == .owned)
+        #expect(AnalysisRunRecord.isIncomplete(dir))
+    }
+
+    @Test
+    func beginRunLeavesALiveProducersRecordAlone() throws {
+        let dir = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let parent = AnalysisRunRecord(analysisName: "Genotyping (app)", command: "app", startedAt: Date(timeIntervalSince1970: 1_000_000), processIdentifier: 777, processStartTime: nil)
+        try AnalysisRunRecord.begin(parent, in: dir)
+
+        let claim = try AnalysisRunRecord.beginRun(
+            in: dir,
+            record: AnalysisRunRecord(analysisName: "Genotyping (cli)"),
+            processProbe: { _ in .running(startTime: nil) }
+        )
+
+        #expect(claim == .heldByLiveProducer)
+        #expect(AnalysisRunRecord.load(from: dir) == parent)
+        // Finishing does not complete a directory a live producer still decides.
+        let completedWhileLauncherLives = AnalysisRunRecord.completeRun(claim, in: dir, processProbe: { _ in .running(startTime: nil) })
+        #expect(!completedWhileLauncherLives)
+        #expect(AnalysisRunRecord.isIncomplete(dir))
+        // Once that producer is gone, the finished run completes it.
+        let completedAfterLauncherQuit = AnalysisRunRecord.completeRun(claim, in: dir, processProbe: { _ in .notRunning })
+        #expect(completedAfterLauncherQuit)
+        #expect(!AnalysisRunRecord.isIncomplete(dir))
+    }
+
+    @Test
+    func beginRunTakesOverADeadProducersRecord() throws {
+        let dir = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try AnalysisRunRecord.begin(
+            AnalysisRunRecord(analysisName: "Old", processIdentifier: 777, processStartTime: 1),
+            in: dir
+        )
+        let fresh = AnalysisRunRecord(analysisName: "New", startedAt: Date(timeIntervalSince1970: 1_000_000))
+        let claim = try AnalysisRunRecord.beginRun(in: dir, record: fresh, processProbe: { _ in .notRunning })
+        #expect(claim == .owned)
+        #expect(AnalysisRunRecord.load(from: dir) == fresh)
+    }
+
+    @Test
+    func beginRunRefusesAFile() throws {
+        let root = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let file = root.appendingPathComponent("taken")
+        try Data().write(to: file)
+        #expect(throws: (any Error).self) {
+            _ = try AnalysisRunRecord.beginRun(in: file, record: AnalysisRunRecord(analysisName: "X"))
+        }
+    }
 }

@@ -95,6 +95,104 @@ public struct AnalysisRunRecord: Codable, Equatable, Sendable {
         try encoder.encode(record).write(to: url(in: directoryURL), options: .atomic)
     }
 
+    /// Who decides when a run's directory is complete.
+    public enum RunClaim: Equatable, Sendable {
+        /// This caller wrote the record and must remove it (``markComplete(_:)``)
+        /// as the last step of a successful run.
+        case owned
+        /// The directory already carried the record of a live producer, such
+        /// as the app that launched this `lungfish-cli` run. That producer
+        /// removes it. The caller must leave the record alone.
+        case heldByLiveProducer
+    }
+
+    /// Makes `directoryURL` an incomplete run directory before a producer
+    /// fills it in place, creating it when needed.
+    ///
+    /// - A missing directory is assembled under a hidden staging name with
+    ///   `record` inside and renamed into place with `RENAME_EXCL`, so no
+    ///   listing ever sees it without the record. Missing parents are created.
+    /// - An existing directory without a record gets `record` written into it.
+    /// - An existing directory whose record's producer is still running (on
+    ///   this host) is left untouched and reported as
+    ///   ``RunClaim/heldByLiveProducer``.
+    /// - An existing directory whose record's producer is gone, or was on
+    ///   another host, is taken over: `record` replaces the old one.
+    public static func beginRun(
+        in directoryURL: URL,
+        record: AnalysisRunRecord,
+        processProbe: ProcessProbe = AnalysisRunRecord.probeProcess
+    ) throws -> RunClaim {
+        let fileManager = FileManager.default
+        let directory = directoryURL.standardizedFileURL
+        var isDirectory: ObjCBool = false
+        if !fileManager.fileExists(atPath: directory.path, isDirectory: &isDirectory) {
+            let parent = directory.deletingLastPathComponent()
+            try fileManager.createDirectory(at: parent, withIntermediateDirectories: true)
+            let staging = parent.appendingPathComponent(
+                ".\(directory.lastPathComponent).creating-\(UUID().uuidString)",
+                isDirectory: true
+            )
+            try fileManager.createDirectory(at: staging, withIntermediateDirectories: false)
+            do {
+                try begin(record, in: staging)
+            } catch {
+                try? fileManager.removeItem(at: staging)
+                throw error
+            }
+            let status = staging.path.withCString { source in
+                directory.path.withCString { destination in
+                    renamex_np(source, destination, UInt32(RENAME_EXCL))
+                }
+            }
+            let code = errno
+            if status == 0 { return .owned }
+            try? fileManager.removeItem(at: staging)
+            guard code == EEXIST || code == ENOTEMPTY else {
+                throw CocoaError(
+                    .fileWriteUnknown,
+                    userInfo: [
+                        NSFilePathErrorKey: directory.path,
+                        NSUnderlyingErrorKey: NSError(domain: NSPOSIXErrorDomain, code: Int(code)),
+                    ]
+                )
+            }
+            // Another producer created it first: judge it like any existing directory.
+        } else if !isDirectory.boolValue {
+            throw CocoaError(.fileWriteFileExists, userInfo: [NSFilePathErrorKey: directory.path])
+        }
+        if let existing = load(from: directory),
+           existing.liveness(processProbe: processProbe) == .running {
+            return .heldByLiveProducer
+        }
+        try begin(record, in: directory)
+        return .owned
+    }
+
+    /// Completes a run claimed with ``beginRun(in:record:processProbe:)``.
+    ///
+    /// An owned record is removed. A record held by another producer is left
+    /// for that producer, unless the producer has since gone away (for
+    /// example the app that launched this run quit), in which case this
+    /// finished run completes the directory itself.
+    ///
+    /// - Returns: `true` when the record was removed.
+    @discardableResult
+    public static func completeRun(
+        _ claim: RunClaim,
+        in directoryURL: URL,
+        processProbe: ProcessProbe = AnalysisRunRecord.probeProcess
+    ) -> Bool {
+        switch claim {
+        case .owned:
+            return markComplete(directoryURL)
+        case .heldByLiveProducer:
+            guard let existing = load(from: directoryURL),
+                  existing.liveness(processProbe: processProbe) == .interrupted else { return false }
+            return markComplete(directoryURL)
+        }
+    }
+
     /// Reads the record, or `nil` when absent or unreadable.
     public static func load(from directoryURL: URL) -> AnalysisRunRecord? {
         guard let data = try? Data(contentsOf: url(in: directoryURL)) else { return nil }

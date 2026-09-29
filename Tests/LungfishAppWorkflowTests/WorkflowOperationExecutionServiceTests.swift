@@ -1,5 +1,6 @@
 import CryptoKit
 import XCTest
+import LungfishCore
 import LungfishIO
 import LungfishWorkflow
 @testable import LungfishApp
@@ -951,6 +952,76 @@ final class WorkflowOperationExecutionServiceTests: XCTestCase {
             .appendingPathComponent("WorkflowOperationExecutionServiceTests-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         return url
+    }
+
+    // MARK: - Run record (the bundle stays out of the sidebar until the run completes)
+
+    private func makeGenotypingService(
+        runner: StubWorkflowOperationCLIProcessRunner,
+        operationCenter: OperationCenter
+    ) -> WorkflowOperationExecutionService {
+        WorkflowOperationExecutionService(
+            operationCenter: operationCenter,
+            processRunner: runner,
+            viewerBundlePreparer: StubWorkflowOperationViewerBundlePreparer(),
+            bamImporter: StubWorkflowOperationBAMImporter(),
+            resultRefresher: StubWorkflowOperationResultRefresher()
+        )
+    }
+
+    func testGenotypingBundleCarriesRunRecordWhileTheCLIRunsAndLosesItOnCompletion() async throws {
+        let temp = try temporaryDirectory()
+        let request = try makeONTGenotypingRequest(temp: temp)
+        // A fresh bundle path: the app creates it, already carrying the record.
+        try FileManager.default.removeItem(at: request.outputDirectory)
+        let operationCenter = OperationCenter()
+        let runner = StubWorkflowOperationCLIProcessRunner()
+        var incompleteWhileRunning: Bool?
+        var recordedCommand: String?
+        runner.onRun = {
+            incompleteWhileRunning = AnalysisRunRecord.isIncomplete(request.outputDirectory)
+            recordedCommand = AnalysisRunRecord.load(from: request.outputDirectory)?.command
+        }
+        let service = makeGenotypingService(runner: runner, operationCenter: operationCenter)
+
+        _ = try await service.run(.ontGenotyping(request))
+
+        XCTAssertEqual(incompleteWhileRunning, true, "a running genotyping bundle is hidden from the sidebar")
+        XCTAssertTrue(recordedCommand?.contains("fastq genotype") == true, recordedCommand ?? "nil")
+        XCTAssertEqual(operationCenter.items.first?.state, .completed)
+        XCTAssertFalse(AnalysisRunRecord.isIncomplete(request.outputDirectory), "a completed run is shown")
+    }
+
+    func testFailedGenotypingRunKeepsItsBundleHidden() async throws {
+        let temp = try temporaryDirectory()
+        let request = try makeONTGenotypingRequest(temp: temp)
+        let operationCenter = OperationCenter()
+        let runner = StubWorkflowOperationCLIProcessRunner(exitCode: 5, stderr: "boom")
+        let service = makeGenotypingService(runner: runner, operationCenter: operationCenter)
+
+        _ = try? await service.run(.ontGenotyping(request))
+
+        XCTAssertEqual(operationCenter.items.first?.state, .failed)
+        XCTAssertTrue(AnalysisRunRecord.isIncomplete(request.outputDirectory))
+        XCTAssertEqual(AnalysisRunRecord.load(from: request.outputDirectory)?.outcome, .failed)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: request.outputDirectory.path), "nothing is deleted")
+    }
+
+    func testCancelledGenotypingRunKeepsItsBundleHidden() async throws {
+        let temp = try temporaryDirectory()
+        let request = try makeONTGenotypingRequest(temp: temp)
+        let operationCenter = OperationCenter()
+        let runner = StubWorkflowOperationCLIProcessRunner()
+        runner.onRun = {
+            if let id = operationCenter.items.first?.id { operationCenter.cancel(id: id) }
+        }
+        let service = makeGenotypingService(runner: runner, operationCenter: operationCenter)
+
+        _ = try? await service.run(.ontGenotyping(request))
+
+        XCTAssertEqual(operationCenter.items.first?.state, .cancelled)
+        XCTAssertTrue(AnalysisRunRecord.isIncomplete(request.outputDirectory))
+        XCTAssertEqual(AnalysisRunRecord.load(from: request.outputDirectory)?.outcome, .cancelled)
     }
 
     private func makeONTGenotypingRequest(temp: URL) throws -> ONTBarcodeDemuxGenotypingRunRequest {
