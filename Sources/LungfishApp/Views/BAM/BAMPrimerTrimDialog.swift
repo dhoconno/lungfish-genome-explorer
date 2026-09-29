@@ -17,7 +17,7 @@ struct BAMPrimerTrimDialog: View {
     /// The sheet's default content size. Wide enough that the longest built-in
     /// default output name ("<track> • Primer-trimmed (QIAseq Direct SARS-CoV-2
     /// with Booster A)") shows whole beside its label; longer custom names
-    /// scroll in the field and show whole in its tooltip.
+    /// scroll in the field.
     static let defaultSheetSize = NSSize(width: 720, height: 480)
 
     var body: some View {

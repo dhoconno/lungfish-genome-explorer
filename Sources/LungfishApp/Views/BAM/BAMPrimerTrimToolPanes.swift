@@ -72,15 +72,13 @@ struct BAMPrimerTrimToolPanes: View {
                     .font(.system(size: Self.labelFontSize))
                     .lineLimit(1)
                     .fixedSize()
-                TextField("", text: $state.outputTrackName)
+                TextField(Self.outputTrackFieldLabel, text: $state.outputTrackName)
                     .font(.system(size: Self.labelFontSize))
                     .textFieldStyle(.roundedBorder)
                     .frame(maxWidth: .infinity)
-                    .help(state.outputTrackName)
-                    .accessibilityLabel(Self.outputTrackFieldLabel)
                     .accessibilityIdentifier("primerTrim.outputTrackName")
+                    .lungfishHelp(LungfishHelpContent.bamPrimerTrimOutputTrack)
             }
-            .lungfishHelp(LungfishHelpContent.bamPrimerTrimOutputTrack)
 
             Text("Reads without matching primers are retained; review downstream QC before variant calling.")
                 .font(.caption)
