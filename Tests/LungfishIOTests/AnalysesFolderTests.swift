@@ -161,6 +161,7 @@ final class AnalysesFolderTests: XCTestCase {
         let original = try AnalysesFolder.createAnalysisDirectory(
             tool: "naomgs", in: tempDir
         )
+        AnalysesFolder.markAnalysisComplete(original)
         let renamed = analysesDir.appendingPathComponent("MU-CASPER-2026-03-31")
         try FileManager.default.moveItem(at: original, to: renamed)
 
@@ -465,7 +466,8 @@ final class AnalysesFolderViralReconTests: XCTestCase {
     func testCreatedViralReconDirectoryIsDiscoverableByListing() throws {
         let project = root.appendingPathComponent("P.lungfish", isDirectory: true)
         try FileManager.default.createDirectory(at: project, withIntermediateDirectories: true)
-        try AnalysesFolder.createAnalysisDirectory(tool: "viralrecon", in: project)
+        let directory = try AnalysesFolder.createAnalysisDirectory(tool: "viralrecon", in: project)
+        AnalysesFolder.markAnalysisComplete(directory)
 
         let analyses = try AnalysesFolder.listAnalyses(in: project)
         XCTAssertEqual(analyses.map(\.tool), ["viralrecon"])
@@ -504,7 +506,8 @@ final class AnalysesFolderFailedRunTests: XCTestCase {
     /// analysis-metadata.json, listed like a successful analysis.
     func testDiscardFailedAnalysisDirectoryRemovesMetadataOnlyFolder() throws {
         let dir = try AnalysesFolder.createAnalysisDirectory(tool: "minimap2", in: tempDir)
-        XCTAssertEqual(try AnalysesFolder.listAnalyses(in: tempDir).count, 1)
+        // The run never completed, so it is already hidden from listings.
+        XCTAssertEqual(try AnalysesFolder.listAnalyses(in: tempDir).count, 0)
 
         XCTAssertTrue(AnalysesFolder.discardFailedAnalysisDirectory(dir))
 

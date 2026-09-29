@@ -118,6 +118,9 @@ public struct TwelveSAmpliconMatchingWorkflow: Sendable {
         progressHandler?(0.06, "Preparing 12S output workspace.")
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
         do {
+            // The bundle is filled in place, so it carries a run record until
+            // the last step and stays out of the sidebar while it runs.
+            try AnalysisRunRecord.begin(AnalysisRunRecord(analysisName: "12S amplicon matching"), in: bundleURL)
             progressHandler?(0.12, "Loading 12S reference records.")
             let referenceIndex = try TwelveSReferenceIndex.load(
                 from: config.referenceFASTA,
@@ -185,6 +188,7 @@ public struct TwelveSAmpliconMatchingWorkflow: Sendable {
                 startedAt: startedAt,
                 completedAt: Date()
             )
+            AnalysisRunRecord.markComplete(bundleURL)
             progressHandler?(1.0, "12S amplicon matching complete.")
             return TwelveSAmpliconMatchingResult(bundleURL: bundleURL.standardizedFileURL)
         } catch {

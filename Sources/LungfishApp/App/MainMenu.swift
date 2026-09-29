@@ -1394,6 +1394,10 @@ final class OperationsMenuDelegate: NSObject, NSMenuDelegate {
                 statusSymbol = "xmark.circle"
                 statusAccessibility = "Failed"
                 progressText = ""
+            case .interrupted:
+                statusSymbol = "exclamationmark.octagon"
+                statusAccessibility = "Interrupted"
+                progressText = ""
             }
 
             let canCancel = op.isCancellable

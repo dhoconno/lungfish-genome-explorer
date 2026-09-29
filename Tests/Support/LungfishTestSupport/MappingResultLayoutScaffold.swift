@@ -44,6 +44,8 @@ public struct MappingResultLayoutScaffold: Sendable {
 
         // The same Analyses/<tool>-<timestamp>/ folder the window creates.
         let analysisDirectoryURL = try MappingResultLayoutService.createAnalysisDirectory(tool: tool, in: projectRoot)
+        // A scaffolded result is a finished run.
+        AnalysisRunRecord.markComplete(analysisDirectoryURL)
         let bamURL = analysisDirectoryURL.appendingPathComponent("\(sampleName).sorted.bam")
         let baiURL = bamURL.appendingPathExtension("bai")
         try fileManager.copyItem(at: fixtureBAMURL, to: bamURL)

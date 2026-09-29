@@ -450,6 +450,8 @@ final class SidebarViewControllerSelectionTests: XCTestCase {
             in: projectURL,
             date: Date(timeIntervalSince1970: 1_715_000_000)
         )
+        // A finished run, as the sidebar sees it after the operation completes.
+        AnalysesFolder.markAnalysisComplete(analysisURL)
         try FileManager.default.createSymbolicLink(at: aliasURL, withDestinationURL: projectURL)
 
         let sidebar = SidebarViewController()
@@ -513,6 +515,8 @@ final class SidebarViewControllerSelectionTests: XCTestCase {
             in: projectURL,
             date: Date(timeIntervalSince1970: 1_776_000_000)
         )
+        // A finished run, as the sidebar sees it after the operation completes.
+        AnalysesFolder.markAnalysisComplete(analysisURL)
         try FileManager.default.createDirectory(at: cliOutputURL, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: materializedURL, withIntermediateDirectories: true)
         try "staged".write(

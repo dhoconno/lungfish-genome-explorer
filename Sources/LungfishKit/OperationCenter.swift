@@ -185,6 +185,10 @@ public final class OperationCenter: ObservableObject {
             case completed
             case cancelled
             case failed
+            /// An analysis run found on disk whose producer is gone: its result
+            /// directory still carries an ``AnalysisRunRecord``. Listed for
+            /// review and removal only, never created by a running operation.
+            case interrupted
 
             public var isActive: Bool {
                 self == .running || self == .cancelling
@@ -335,6 +339,9 @@ public final class OperationCenter: ObservableObject {
         /// Nil until the operation fails, and also when the report could not be
         /// written (a logging failure is never allowed to escalate).
         public var failureReportURL: URL?
+        /// For an ``State/interrupted`` row: the incomplete result directory
+        /// that "Remove Partial Output" and "Reveal in Finder" act on.
+        public var interruptedRunDirectory: URL?
 
         public var hasWarnings: Bool {
             warningCount > 0 || logEntries.contains { $0.level == .warning }
@@ -352,6 +359,8 @@ public final class OperationCenter: ObservableObject {
                 return "Cancelled"
             case .failed:
                 return "Failed"
+            case .interrupted:
+                return "Interrupted"
             }
         }
 
@@ -442,6 +451,17 @@ public final class OperationCenter: ObservableObject {
     /// snapshot of the item. Their bundle locks stay held until the worker
     /// itself calls a terminal method, because it may still be writing.
     private var abandonedWorkers: [UUID: Item] = [:]
+
+    /// Incomplete analysis directories and the operations (or holds) whose
+    /// outcome decides them, keyed by standardized path.
+    private struct AnalysisOutputTracking {
+        let directory: URL
+        var pending: Set<UUID>
+        var succeeded: Bool
+        var outcome: AnalysisRunRecord.Outcome?
+    }
+
+    private var analysisOutputs: [String: AnalysisOutputTracking] = [:]
 
     /// Creates an empty operation center.
     ///
@@ -970,6 +990,13 @@ public final class OperationCenter: ObservableObject {
         if state == .failed {
             items[index].failureReportURL = failureReportStore.writeReport(for: items[index])
         }
+        // Before any terminal notification, so a caller that refreshes the
+        // sidebar or selects the result right after completing finds it.
+        settleAnalysisOutputs(
+            for: id,
+            succeeded: state == .completed,
+            outcome: state == .failed ? .failed : (state == .cancelled ? .cancelled : nil)
+        )
         if retainBundleLock {
             abandonedWorkers[id] = items[index]
         } else {
@@ -1112,6 +1139,172 @@ public final class OperationCenter: ObservableObject {
     private func notifyRemovedItems(_ ids: [UUID]) {
         guard !ids.isEmpty else { return }
         changes.send(.removed(ids: ids))
+    }
+
+    // MARK: - Analysis run outputs
+
+    /// Ties an incomplete analysis directory to an operation.
+    ///
+    /// `url` may be the result directory itself or any directory inside it
+    /// (a batch sample directory resolves to its batch root). When every
+    /// operation and hold tracking the directory has finished and at least
+    /// one of them completed (completed with warnings included), its
+    /// ``AnalysisRunRecord`` is removed so the result appears, and
+    /// `Notification.Name.analysisRunOutputsCompleted` is posted. Failed and
+    /// cancelled runs leave the record, so the directory stays hidden.
+    /// A directory without a record (complete or legacy) is ignored.
+    public func trackAnalysisOutput(_ url: URL, for id: UUID) {
+        guard let directory = AnalysisRunRecord.enclosingIncompleteDirectory(for: url) else { return }
+        let key = directory.standardizedFileURL.path
+        if let command = items.first(where: { $0.id == id })?.cliCommand,
+           AnalysisRunRecord.load(from: directory)?.command == nil {
+            AnalysisRunRecord.updateCommand(command, in: directory)
+        }
+        guard let item = items.first(where: { $0.id == id }), item.state.isActive else {
+            // The operation already finished: settle against its outcome now.
+            var tracking = analysisOutputs[key] ?? AnalysisOutputTracking(directory: directory, pending: [], succeeded: false, outcome: nil)
+            if items.first(where: { $0.id == id })?.state == .completed { tracking.succeeded = true }
+            analysisOutputs[key] = tracking
+            settleIfIdle(key: key)
+            return
+        }
+        var tracking = analysisOutputs[key] ?? AnalysisOutputTracking(directory: directory, pending: [], succeeded: false, outcome: nil)
+        tracking.pending.insert(id)
+        analysisOutputs[key] = tracking
+    }
+
+    /// Keeps an incomplete directory hidden across several operations run
+    /// one after another (a sequential batch). Release it after the last one.
+    public func holdAnalysisOutput(_ url: URL) -> UUID {
+        let token = UUID()
+        guard let directory = AnalysisRunRecord.enclosingIncompleteDirectory(for: url) else { return token }
+        let key = directory.standardizedFileURL.path
+        var tracking = analysisOutputs[key] ?? AnalysisOutputTracking(directory: directory, pending: [], succeeded: false, outcome: nil)
+        tracking.pending.insert(token)
+        analysisOutputs[key] = tracking
+        return token
+    }
+
+    /// Releases a ``holdAnalysisOutput(_:)`` token. `succeeded` adds to, and
+    /// never overrides, the outcomes of the tracked operations.
+    public func releaseAnalysisOutputHold(_ token: UUID, succeeded: Bool) {
+        settleAnalysisOutputs(for: token, succeeded: succeeded)
+    }
+
+    /// Whether a live operation or hold still decides this directory.
+    public func isTrackingAnalysisOutput(_ url: URL) -> Bool {
+        let key = url.standardizedFileURL.path
+        return !(analysisOutputs[key]?.pending.isEmpty ?? true)
+    }
+
+    private func settleAnalysisOutputs(for id: UUID, succeeded: Bool, outcome: AnalysisRunRecord.Outcome? = nil) {
+        let keys = analysisOutputs.compactMap { key, tracking in tracking.pending.contains(id) ? key : nil }
+        guard !keys.isEmpty else { return }
+        var completed: [URL] = []
+        for key in keys {
+            guard var tracking = analysisOutputs[key] else { continue }
+            tracking.pending.remove(id)
+            tracking.succeeded = tracking.succeeded || succeeded
+            tracking.outcome = outcome ?? tracking.outcome
+            analysisOutputs[key] = tracking
+            if let url = settleIfIdle(key: key, notify: false) { completed.append(url) }
+        }
+        postAnalysisOutputsCompleted(completed)
+    }
+
+    @discardableResult
+    private func settleIfIdle(key: String, notify: Bool = true) -> URL? {
+        guard let tracking = analysisOutputs[key], tracking.pending.isEmpty else { return nil }
+        analysisOutputs.removeValue(forKey: key)
+        guard tracking.succeeded else {
+            // Stays incomplete and hidden. The outcome only labels the row a
+            // later project open lists for review.
+            AnalysisRunRecord.recordOutcome(tracking.outcome ?? .failed, in: tracking.directory)
+            return nil
+        }
+        AnalysisRunRecord.markComplete(tracking.directory)
+        if notify { postAnalysisOutputsCompleted([tracking.directory]) }
+        return tracking.directory
+    }
+
+    private func postAnalysisOutputsCompleted(_ directories: [URL]) {
+        guard !directories.isEmpty else { return }
+        NotificationCenter.default.post(
+            name: .analysisRunOutputsCompleted,
+            object: self,
+            userInfo: ["directories": directories]
+        )
+    }
+
+    // MARK: - Interrupted analysis runs
+
+    /// An incomplete analysis directory whose producer is gone.
+    public struct InterruptedAnalysisRun: Sendable {
+        public let directory: URL
+        public let record: AnalysisRunRecord?
+        public let sizeOnDiskBytes: Int64
+        public let projectURL: URL?
+
+        public init(directory: URL, record: AnalysisRunRecord?, sizeOnDiskBytes: Int64, projectURL: URL? = nil) {
+            self.directory = directory
+            self.record = record
+            self.sizeOnDiskBytes = sizeOnDiskBytes
+            self.projectURL = projectURL
+        }
+    }
+
+    /// Lists an interrupted run in the Operations Panel as an
+    /// ``Item/State/interrupted`` row. Nothing on disk is changed.
+    ///
+    /// - Returns: The new row's ID, or `nil` when the directory is already
+    ///   listed or a live operation still tracks it.
+    @discardableResult
+    public func registerInterruptedAnalysisRun(_ run: InterruptedAnalysisRun) -> UUID? {
+        let key = run.directory.standardizedFileURL.path
+        guard !isTrackingAnalysisOutput(run.directory),
+              !items.contains(where: { $0.interruptedRunDirectory?.standardizedFileURL.path == key })
+        else { return nil }
+
+        let name = run.record?.analysisName ?? run.directory.lastPathComponent
+        let startedAt = run.record?.startedAt
+            ?? ((try? run.directory.resourceValues(forKeys: [.creationDateKey]))?.creationDate ?? Date())
+        let size = ByteCountFormatter.string(fromByteCount: run.sizeOnDiskBytes, countStyle: .file)
+        let started = startedAt.formatted(date: .abbreviated, time: .shortened)
+        let now = Date()
+        let kind: String
+        switch run.record?.outcome {
+        case .failed: kind = "Failed run"
+        case .cancelled: kind = "Cancelled run"
+        case nil: kind = "Interrupted run"
+        }
+        var item = Item(
+            title: "\(name): \(run.directory.lastPathComponent)",
+            detail: "\(kind) started \(started) · \(size) on disk",
+            progress: 0,
+            state: .interrupted,
+            operationType: .workflow,
+            startedAt: startedAt,
+            finishedAt: now,
+            cliCommand: run.record?.command,
+            routeContext: run.projectURL.map { OperationRouteContext(projectURL: $0, windowStateScopeID: nil) }
+        )
+        item.interruptedRunDirectory = run.directory
+        var lines = [
+            "\(kind) of \(name) found at \(run.directory.path).",
+            "It never finished, so its partial output is hidden from the sidebar.",
+            "Started \(started); \(size) on disk.",
+        ]
+        if let record = run.record {
+            lines.append("Recorded by process \(record.processIdentifier) on \(record.hostName).")
+        }
+        for line in lines {
+            item.appendLogEntryCapped(OperationLogEntry(level: .warning, message: line))
+        }
+        items.insert(item, at: 0)
+        changes.send(.inserted(id: item.id, index: 0))
+        notifyRemovedItems(trimCompletedItemsIfNeeded())
+        postStateChangedNotification(id: item.id, state: .interrupted)
+        return item.id
     }
 
     private func publishTerminalChange(id: UUID, previousOrder: [UUID]) {

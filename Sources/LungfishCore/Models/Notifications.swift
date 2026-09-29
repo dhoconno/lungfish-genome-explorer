@@ -266,6 +266,13 @@ extension Notification.Name {
     /// - `"operationState"`: The state as a raw `String` ("running", "cancelling", "completed", "failed", "cancelled").
     public static let operationStateChanged = Notification.Name("operationStateChanged")
 
+    /// Posted when analysis result directories were marked complete (their
+    /// ``AnalysisRunRecord`` was removed), so views that list results rescan.
+    ///
+    /// The `userInfo` dictionary contains:
+    /// - `"directories"`: The completed directories as `[URL]`.
+    public static let analysisRunOutputsCompleted = Notification.Name("analysisRunOutputsCompleted")
+
     /// Posted when a FASTQ dataset has been loaded and its statistics dashboard is displayed.
     ///
     /// The `userInfo` dictionary contains:

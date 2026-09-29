@@ -736,6 +736,7 @@ extension AppDelegate {
             detail: "Mapping \(config.inputFiles.count) file(s) to \(config.referenceURL.lastPathComponent)",
             routeContext: routeContext
         )
+        if let ownedAnalysisDirectory { OperationCenter.shared.trackAnalysisOutput(ownedAnalysisDirectory, for: opID) }
 
         let task = Task.detached { [weak self] in
             do {
@@ -1213,6 +1214,9 @@ extension AppDelegate {
         // this request's precomputed batch sample directory, or `nil` for a
         // single-request plan.
         let perRequestDirectories: [URL?] = preassignedDirectories ?? Array(repeating: nil, count: requests.count)
+        // The children run one after another, so the batch root stays hidden
+        // until the last one finishes (each child also tracks it).
+        let batchOutputHold = batchDirectory.map { OperationCenter.shared.holdAnalysisOutput($0) }
         let taskHandle = MappingBatchTaskHandle()
         let task = Task.detached { [weak self] in
             var anySucceeded = false
@@ -1246,8 +1250,12 @@ extension AppDelegate {
             // from a bundle whose own row later shows "failed" for a
             // post-output-write error) means the batch directory is not
             // empty and must stay.
-            if !anySucceeded, let batchDirectory {
-                await MainActor.run {
+            let batchSucceeded = anySucceeded
+            await MainActor.run {
+                if let batchOutputHold {
+                    OperationCenter.shared.releaseAnalysisOutputHold(batchOutputHold, succeeded: batchSucceeded)
+                }
+                if !batchSucceeded, let batchDirectory {
                     AnalysesFolder.removeBatchDirectoryIfEffectivelyEmpty(batchDirectory)
                 }
             }
@@ -1336,6 +1344,7 @@ extension AppDelegate {
             ),
             routeContext: routeContext
         )
+        if let ownedAnalysisDirectory { OperationCenter.shared.trackAnalysisOutput(ownedAnalysisDirectory, for: opID) }
         registerCancel(opID)
 
         if let warning {
