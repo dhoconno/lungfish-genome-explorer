@@ -12,6 +12,11 @@ struct BAMPrimerTrimToolPanes: View {
     @Bindable var state: BAMPrimerTrimDialogState
     let onBrowseScheme: () -> Void
 
+    /// The visible label the manual refers to ("Read the Output Track Name field").
+    static let outputTrackFieldLabel = "Output Track Name"
+    /// Matches the mapping dialog's Output Track field (12pt label and text).
+    static let labelFontSize: CGFloat = 12
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
@@ -62,9 +67,20 @@ struct BAMPrimerTrimToolPanes: View {
             .disabled(state.alignmentTrackOptions.isEmpty)
             .lungfishHelp(LungfishHelpContent.bamPrimerTrimAlignmentTrack)
 
-            TextField("Output Track Name", text: $state.outputTrackName)
-                .textFieldStyle(.roundedBorder)
-                .lungfishHelp(LungfishHelpContent.bamPrimerTrimOutputTrack)
+            HStack {
+                Text(Self.outputTrackFieldLabel)
+                    .font(.system(size: Self.labelFontSize))
+                    .lineLimit(1)
+                    .fixedSize()
+                TextField("", text: $state.outputTrackName)
+                    .font(.system(size: Self.labelFontSize))
+                    .textFieldStyle(.roundedBorder)
+                    .frame(maxWidth: .infinity)
+                    .help(state.outputTrackName)
+                    .accessibilityLabel(Self.outputTrackFieldLabel)
+                    .accessibilityIdentifier("primerTrim.outputTrackName")
+            }
+            .lungfishHelp(LungfishHelpContent.bamPrimerTrimOutputTrack)
 
             Text("Reads without matching primers are retained; review downstream QC before variant calling.")
                 .font(.caption)

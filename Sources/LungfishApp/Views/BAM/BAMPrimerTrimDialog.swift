@@ -2,6 +2,7 @@
 // Copyright (c) 2024 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 
+import AppKit
 import SwiftUI
 import Observation
 
@@ -12,6 +13,12 @@ struct BAMPrimerTrimDialog: View {
     let onCancel: () -> Void
     let onRun: () -> Void
     let onBrowseScheme: () -> Void
+
+    /// The sheet's default content size. Wide enough that the longest built-in
+    /// default output name ("<track> • Primer-trimmed (QIAseq Direct SARS-CoV-2
+    /// with Booster A)") shows whole beside its label; longer custom names
+    /// scroll in the field and show whole in its tooltip.
+    static let defaultSheetSize = NSSize(width: 720, height: 480)
 
     var body: some View {
         VStack(spacing: 0) {

@@ -52,7 +52,7 @@ struct BAMPrimerTrimDialogPresenter {
 
         let hostingController = NSHostingController(rootView: dialog)
         panel.contentViewController = hostingController
-        panel.setContentSize(NSSize(width: 540, height: 480))
+        panel.setContentSize(BAMPrimerTrimDialog.defaultSheetSize)
         window.beginSheet(panel)
     }
 }
