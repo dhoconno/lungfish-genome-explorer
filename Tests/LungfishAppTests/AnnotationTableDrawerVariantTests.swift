@@ -209,22 +209,90 @@ final class AnnotationTableDrawerVariantTests: XCTestCase {
 
     /// At the narrowest full-density widths the Profiles pop-up used to run
     /// under the "Table Sync: Visible Rows" badge because nothing tied its
-    /// trailing edge to the right-hand controls.
+    /// trailing edge to the right-hand controls. Bounding it on the right then
+    /// made it slide left over the Calls/Genotypes control when the row was
+    /// short of room (Preview 2026.9.57). No visible control on the variant
+    /// toolbar row may overlap another or leave the row, at any width.
     func testProfilesButtonNeverOverlapsTableSyncBadge() throws {
-        let drawer = try createDrawerWithAnnotationsAndVariants()
+        // INFO fields make the Presets button appear, as in real call sets.
+        let drawer = try createDrawerWithAnnotationsAndVariants(vcfContent: """
+        ##fileformat=VCFv4.2
+        ##INFO=<ID=DP,Number=1,Type=Integer,Description="Depth">
+        ##INFO=<ID=AF,Number=A,Type=Float,Description="Allele frequency">
+        #CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO
+        chr1\t150\trs12345\tA\tG\t30.0\tPASS\tDP=20;AF=0.5
+        chr1\t250\trs67890\tTC\tT\t45.5\tPASS\tDP=31;AF=1.0
+        """)
         switchToVariantsAndWait(drawer)
-        for width in stride(from: 760, through: 1100, by: 20) {
-            drawer.setFrameSize(NSSize(width: CGFloat(width), height: 200))
-            drawer.updateSearchFieldVisibility()
-            drawer.layoutSubtreeIfNeeded()
-            guard !drawer.profileButton.isHidden else { continue }
-            let profile = drawer.profileButton.frame
-            for control in [drawer.localVariantFilterBadgeLabel, drawer.clearFilterButton, drawer.searchBuilderButton]
-            where !control.isHidden {
-                XCTAssertLessThanOrEqual(
-                    profile.maxX, control.frame.minX,
-                    "Profiles overlaps \(control) at drawer width \(width)")
+        XCTAssertFalse(drawer.infoColumnKeys.isEmpty, "precondition: Presets is shown")
+        for hasFilter in [false, true] {
+            // An active query shows the Clear button.
+            drawer.variantFilterText = hasFilter ? "DP > 10" : ""
+            for width in stride(from: 480, through: 1100, by: 10) {
+                drawer.setFrameSize(NSSize(width: CGFloat(width), height: 200))
+                drawer.updateSearchFieldVisibility()
+                XCTAssertEqual(drawer.clearFilterButton.isHidden, !hasFilter)
+                drawer.layoutSubtreeIfNeeded()
+                assertVariantToolbarRowHasNoOverlaps(drawer, width: width)
             }
+        }
+        // Dragging the split view resizes the drawer without any explicit
+        // visibility refresh: layout alone must keep the row consistent.
+        drawer.setFrameSize(NSSize(width: 1100, height: 200))
+        drawer.updateSearchFieldVisibility()
+        drawer.layoutSubtreeIfNeeded()
+        for width in stride(from: 1100, through: 480, by: -10) {
+            drawer.setFrameSize(NSSize(width: CGFloat(width), height: 200))
+            drawer.layoutSubtreeIfNeeded()
+            assertVariantToolbarRowHasNoOverlaps(drawer, width: width)
+        }
+    }
+
+    private func assertVariantToolbarRowHasNoOverlaps(
+        _ drawer: AnnotationTableDrawerView,
+        width: Int,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let rowControls: [(String, NSView)] = [
+            ("Region/Genome", drawer.scopeControl),
+            ("Haploid mode", drawer.haploidModeButton),
+            ("Calls/Genotypes", drawer.variantSubtabControl),
+            ("Profiles", drawer.profileButton),
+            ("Clear", drawer.clearFilterButton),
+            ("Table Sync badge", drawer.localVariantFilterBadgeLabel),
+            ("Query Builder", drawer.searchBuilderButton),
+            ("Presets", drawer.presetFiltersToggleButton),
+            ("All", drawer.allTypesButton),
+            ("None", drawer.noneTypesButton),
+        ]
+        let visible = rowControls.filter { !$0.1.isHidden && $0.1.frame.width > 0.5 }
+        // The drawer's own width: a row that cannot fit pushes the search bar
+        // past the drawer's trailing edge, where the controls are clipped.
+        let bar = drawer.bounds
+        for (name, view) in visible {
+            XCTAssertGreaterThanOrEqual(view.frame.minX, bar.minX - 0.5,
+                "\(name) leaves the toolbar row at drawer width \(width)", file: file, line: line)
+            XCTAssertLessThanOrEqual(view.frame.maxX, bar.maxX + 0.5,
+                "\(name) leaves the toolbar row at drawer width \(width)", file: file, line: line)
+        }
+        for (index, (name, view)) in visible.enumerated() {
+            for (otherName, other) in visible[(index + 1)...] {
+                let overlap = view.frame.intersection(other.frame)
+                XCTAssertTrue(
+                    overlap.isNull || overlap.width <= 0.5,
+                    "\(name) \(view.frame) overlaps \(otherName) \(other.frame) at drawer width \(width)",
+                    file: file, line: line
+                )
+            }
+        }
+        if !drawer.profileButton.isHidden {
+            XCTAssertGreaterThanOrEqual(
+                drawer.profileButton.frame.width, AnnotationTableDrawerView.minimumProfileButtonWidth,
+                "Profiles is squeezed below a usable width at drawer width \(width)", file: file, line: line)
+            XCTAssertGreaterThanOrEqual(
+                drawer.profileButton.frame.minX, drawer.variantSubtabControl.frame.maxX,
+                "Profiles overlaps Calls/Genotypes at drawer width \(width)", file: file, line: line)
         }
     }
 
