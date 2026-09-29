@@ -41,7 +41,7 @@ extension InspectorViewController {
         // Update UI state only - document loading is handled by MainSplitViewController
         viewModel.selectedItem = item.title
         viewModel.selectedType = item.type.description
-        updateProvenanceTarget(url: item.url, sidebarType: item.type, displayName: item.title)
+        retargetProvenancePreservingSources(url: item.url, sidebarType: item.type, displayName: item.title)
         viewModel.documentSectionViewModel.updateProjectCopyRecord(for: item.url)
 
         if selectedFASTQMetadataTargetBundleURLs.count > 1,
@@ -356,7 +356,11 @@ extension InspectorViewController {
         inspectorLogger.info("handleContentModeChanged: mode=\(rawMode, privacy: .public)")
         viewModel.contentMode = mode
         if let currentItem = viewModel.provenanceSectionViewModel.currentItem {
-            updateProvenanceTarget(
+            // The display path may already have offered this item's Source
+            // picker (a mapping result's variant tracks). The first selection
+            // after opening a project changes the mode only after that, so a
+            // plain re-target would drop the picker until the next selection.
+            retargetProvenancePreservingSources(
                 url: currentItem.url,
                 sidebarType: currentItem.sidebarType,
                 displayName: currentItem.displayName
@@ -459,6 +463,19 @@ extension InspectorViewController {
                 displayName: displayName
             )
         )
+    }
+
+    /// Re-targets provenance like ``updateProvenanceTarget(url:sidebarType:displayName:)``
+    /// but keeps the Source picker when `url` is one of the offered sources.
+    func retargetProvenancePreservingSources(
+        url: URL?,
+        sidebarType: SidebarItemType?,
+        displayName: String?
+    ) {
+        let model = viewModel.provenanceSectionViewModel
+        let captured = model.sources
+        updateProvenanceTarget(url: url, sidebarType: sidebarType, displayName: displayName)
+        model.restoreSources(captured)
     }
 
     func presentProvenanceExport(format: ProvenanceExportFormat) {

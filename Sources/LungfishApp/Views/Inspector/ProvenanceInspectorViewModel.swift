@@ -418,6 +418,28 @@ final class ProvenanceInspectorViewModel {
         selectedSourceID = itemID
     }
 
+    /// Restores a Source picker captured before the current item was reloaded.
+    ///
+    /// Re-resolving the same item (for example after a viewport content-mode
+    /// change) goes through `load(item:)`, which clears the picker. When the
+    /// reloaded item is one of the captured sources, the picker comes back with
+    /// every source re-targeted to the current content mode and the reloaded
+    /// item still selected. Otherwise the captured picker is discarded.
+    func restoreSources(_ captured: [ProvenanceSource]) {
+        guard captured.count > 1,
+              let current = currentItem,
+              let currentURL = current.url?.standardizedFileURL,
+              let match = captured.first(where: {
+                  $0.item.url?.standardizedFileURL == currentURL
+              }) else { return }
+        sources = captured.map { source in
+            var source = source
+            source.item.contentMode = current.contentMode
+            return source
+        }
+        selectedSourceID = match.id
+    }
+
     func selectSource(id: String) {
         guard let source = sources.first(where: { $0.id == id }) else { return }
         let availableSources = sources
