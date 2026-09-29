@@ -513,6 +513,53 @@ final class OperationsPanelViewController: NSViewController, NSTableViewDataSour
         OperationCenter.shared.cancel(id: items[row].id)
     }
 
+    @objc private func removePartialOutputFromButton(_ sender: NSButton) {
+        let row = tableView.row(for: sender)
+        guard items.indices.contains(row) else { return }
+        confirmRemovePartialOutput(for: items[row])
+    }
+
+    @objc private func contextRemovePartialOutput(_ sender: NSMenuItem) {
+        guard let itemID = sender.representedObject as? UUID,
+              let item = items.first(where: { $0.id == itemID }) else { return }
+        confirmRemovePartialOutput(for: item)
+    }
+
+    @objc private func contextRevealInterruptedRun(_ sender: NSMenuItem) {
+        guard let itemID = sender.representedObject as? UUID,
+              let directory = items.first(where: { $0.id == itemID })?.interruptedRunDirectory else { return }
+        NSWorkspace.shared.activateFileViewerSelecting([directory])
+    }
+
+    /// An interrupted run's partial output is only ever deleted here, after
+    /// the user confirms. Nothing removes it automatically.
+    private func confirmRemovePartialOutput(for item: OperationCenter.Item) {
+        guard item.state == .interrupted, let directory = item.interruptedRunDirectory else { return }
+        let alert = NSAlert()
+        alert.messageText = "Remove Partial Output?"
+        alert.informativeText = "\(item.title) did not finish. Removing deletes the folder \"\(directory.lastPathComponent)\" and everything in it. This cannot be undone."
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "Remove")
+        alert.addButton(withTitle: "Cancel")
+        let itemID = item.id
+        let remove: (NSApplication.ModalResponse) -> Void = { [weak self] response in
+            guard response == .alertFirstButtonReturn else { return }
+            do {
+                try InterruptedAnalysisRunDiscovery.removePartialOutput(itemID: itemID)
+            } catch {
+                guard let window = self?.view.window else { return }
+                let failure = NSAlert(error: error)
+                failure.messageText = "Could Not Remove Partial Output"
+                failure.beginSheetModal(for: window)
+            }
+        }
+        if let window = view.window {
+            alert.beginSheetModal(for: window, completionHandler: remove)
+        } else {
+            NSSound.beep()
+        }
+    }
+
     @objc private func openGitHubIssueFromButton(_ sender: NSButton) {
         let row = tableView.row(for: sender)
         guard row >= 0, row < items.count else { return }
@@ -813,7 +860,25 @@ final class OperationsPanelViewController: NSViewController, NSTableViewDataSour
                 ])
                 return btn
             }()
+            let removeButton = cell.viewWithTag(303) as? NSButton ?? {
+                let btn = NSButton(title: "Remove…", target: self, action: #selector(removePartialOutputFromButton(_:)))
+                btn.tag = 303
+                btn.bezelStyle = .rounded
+                btn.controlSize = .small
+                btn.font = .systemFont(ofSize: 10)
+                btn.translatesAutoresizingMaskIntoConstraints = false
+                btn.setAccessibilityIdentifier("operations-remove-partial-output-button")
+                btn.setAccessibilityLabel("Remove Partial Output")
+                btn.setAccessibilityHelp("Deletes the partial output this interrupted run left in the project.")
+                cell.addSubview(btn)
+                NSLayoutConstraint.activate([
+                    btn.centerXAnchor.constraint(equalTo: cell.centerXAnchor),
+                    btn.topAnchor.constraint(equalTo: cell.topAnchor, constant: 30),
+                ])
+                return btn
+            }()
 
+            removeButton.isHidden = item.state != .interrupted
             switch item.state {
             case .running:
                 cancelButton.isHidden = !item.isCancellable
@@ -824,7 +889,7 @@ final class OperationsPanelViewController: NSViewController, NSTableViewDataSour
             case .failed:
                 cancelButton.isHidden = true
                 issueButton.isHidden = false
-            case .completed, .cancelled:
+            case .completed, .cancelled, .interrupted:
                 cancelButton.isHidden = true
                 issueButton.isHidden = true
             }
@@ -910,6 +975,7 @@ final class OperationsPanelViewController: NSViewController, NSTableViewDataSour
         case .running: return (.systemBlue, "arrow.trianglehead.2.clockwise.rotate.90")
         case .cancelling: return (.systemOrange, "stop.circle")
         case .cancelled: return (.secondaryLabelColor, "stop.circle.fill")
+        case .interrupted: return (.systemOrange, "exclamationmark.octagon.fill")
         }
     }
 
@@ -1065,6 +1131,17 @@ extension OperationsPanelViewController: NSMenuDelegate {
     }
 
     private func populateActions(_ menu: NSMenu, for item: OperationCenter.Item) {
+        if item.state == .interrupted, item.interruptedRunDirectory != nil {
+            let remove = NSMenuItem(title: "Remove Partial Output…", action: #selector(contextRemovePartialOutput(_:)), keyEquivalent: "")
+            remove.target = self
+            remove.representedObject = item.id
+            menu.addItem(remove)
+
+            let reveal = NSMenuItem(title: "Reveal in Finder", action: #selector(contextRevealInterruptedRun(_:)), keyEquivalent: "")
+            reveal.target = self
+            reveal.representedObject = item.id
+            menu.addItem(reveal)
+        }
         if !item.outputURLs.isEmpty || !item.bundleURLs.isEmpty {
             let reveal = NSMenuItem(title: "Reveal Output Files", action: #selector(contextRevealOutputs(_:)), keyEquivalent: "")
             reveal.target = self

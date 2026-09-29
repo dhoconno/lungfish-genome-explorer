@@ -228,13 +228,22 @@ public enum ViralReconResultIngest {
                 in: projectURL,
                 isBatch: false
             )
-            return [try ingest(
-                resultsDirectory: resultsDirectory,
-                sampleName: sampleNames[0],
-                referenceBundleURL: referenceBundleURL,
-                into: directory,
-                fileManager: fileManager
-            )]
+            let ingested: Ingested
+            do {
+                ingested = try ingest(
+                    resultsDirectory: resultsDirectory,
+                    sampleName: sampleNames[0],
+                    referenceBundleURL: referenceBundleURL,
+                    into: directory,
+                    fileManager: fileManager
+                )
+            } catch {
+                AnalysesFolder.discardFailedAnalysisDirectory(directory)
+                throw error
+            }
+            // Last step: the ingested result now appears in the sidebar.
+            AnalysesFolder.markAnalysisComplete(directory)
+            return [ingested]
         }
 
         return try ingestBatch(
@@ -280,18 +289,27 @@ public enum ViralReconResultIngest {
         // destination exists. Sample 2 would silently inherit sample 1's
         // consensus and reports, attributing one sample's result to another.
         var usedNames: Set<String> = []
-        return try sampleNames.map { sampleName in
-            let directoryName = TaxTriageSerialBatchRunner.uniqueDirectoryName(
-                for: sampleName,
-                usedNames: &usedNames
-            )
-            return try ingest(
-                resultsDirectory: resultsDirectory,
-                sampleName: sampleName,
-                referenceBundleURL: referenceBundleURL,
-                into: batchDirectory.appendingPathComponent(directoryName, isDirectory: true),
-                fileManager: fileManager
-            )
+        let ingested: [Ingested]
+        do {
+            ingested = try sampleNames.map { sampleName in
+                let directoryName = TaxTriageSerialBatchRunner.uniqueDirectoryName(
+                    for: sampleName,
+                    usedNames: &usedNames
+                )
+                return try ingest(
+                    resultsDirectory: resultsDirectory,
+                    sampleName: sampleName,
+                    referenceBundleURL: referenceBundleURL,
+                    into: batchDirectory.appendingPathComponent(directoryName, isDirectory: true),
+                    fileManager: fileManager
+                )
+            }
+        } catch {
+            AnalysesFolder.discardFailedAnalysisDirectory(batchDirectory)
+            throw error
         }
+        // Last step: the ingested batch now appears in the sidebar.
+        AnalysesFolder.markAnalysisComplete(batchDirectory)
+        return ingested
     }
 }

@@ -2,7 +2,9 @@
 // Copyright (c) 2024 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 
+import Darwin
 import Foundation
+import LungfishCore
 import os.log
 
 private let logger = Logger(subsystem: LogSubsystem.io, category: "AnalysesFolder")
@@ -125,18 +127,33 @@ public enum AnalysesFolder {
     /// - Batch run:   `Analyses/{tool}-batch-{yyyy-MM-dd'T'HH-mm-ss}/`
     /// - Collision:   appends `-2`, `-3`, ... if another run already claimed the timestamp.
     ///
+    /// The directory is created **incomplete**: it carries an
+    /// ``AnalysisRunRecord`` from the moment it appears under its final name,
+    /// so the sidebar and ``listAnalyses(in:)`` skip it while the run is in
+    /// progress. It is assembled under a hidden staging name and renamed into
+    /// place with `RENAME_EXCL`, so no listing ever sees it without its record.
+    ///
+    /// The run that created it must signal success with
+    /// ``markAnalysisComplete(_:)`` (in the app, by tracking the directory with
+    /// `OperationCenter.trackAnalysisOutput(_:for:)`), which makes it visible.
+    /// A failed run removes it with ``discardFailedAnalysisDirectory(_:)``. An
+    /// interrupted run keeps the record and stays hidden until the user
+    /// removes it from the Operations Panel.
+    ///
     /// - Parameters:
     ///   - tool: The tool identifier (e.g. `"kraken2"`).
     ///   - projectURL: Path to the project directory.
     ///   - isBatch: Whether this is a batch run.
     ///   - date: The date to embed in the directory name (defaults to now).
+    ///   - command: The reproducible CLI command, recorded for interrupted-run review.
     /// - Returns: URL of the newly created analysis directory.
     @discardableResult
     public static func createAnalysisDirectory(
         tool: String,
         in projectURL: URL,
         isBatch: Bool = false,
-        date: Date = Date()
+        date: Date = Date(),
+        command: String? = nil
     ) throws -> URL {
         let analysesDir = try url(for: projectURL)
         let timestamp = formatTimestamp(date)
@@ -144,31 +161,50 @@ public enum AnalysesFolder {
         let metadata = AnalysisMetadata(tool: tool, isBatch: isBatch, created: date)
         let fileManager = FileManager.default
 
+        let stagingURL = analysesDir.appendingPathComponent(
+            ".\(baseName).creating-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try fileManager.createDirectory(at: stagingURL, withIntermediateDirectories: false)
+        do {
+            try AnalysisRunRecord.begin(
+                AnalysisRunRecord(analysisName: displayName(for: tool), command: command, startedAt: Date()),
+                in: stagingURL
+            )
+            // Write analysis-metadata.json so the directory is identifiable even if renamed.
+            try writeAnalysisMetadata(metadata, to: stagingURL)
+        } catch {
+            try? fileManager.removeItem(at: stagingURL)
+            throw error
+        }
+
         for attempt in 0..<1_000 {
             let name = attempt == 0 ? baseName : "\(baseName)-\(attempt + 1)"
             let analysisURL = analysesDir.appendingPathComponent(name, isDirectory: true)
-            do {
-                try fileManager.createDirectory(at: analysisURL, withIntermediateDirectories: false)
-                do {
-                    // Write analysis-metadata.json so the directory is identifiable even if renamed.
-                    try writeAnalysisMetadata(metadata, to: analysisURL)
-                } catch {
-                    try? fileManager.removeItem(at: analysisURL)
-                    throw error
+            let status = stagingURL.path.withCString { source in
+                analysisURL.path.withCString { destination in
+                    renamex_np(source, destination, UInt32(RENAME_EXCL))
                 }
-
+            }
+            if status == 0 {
                 logger.info("Created analysis directory: \(name)")
                 return analysisURL
-            } catch {
-                let nsError = error as NSError
-                if nsError.domain == NSCocoaErrorDomain,
-                   nsError.code == CocoaError.Code.fileWriteFileExists.rawValue {
-                    continue
-                }
-                throw error
             }
+            let code = errno
+            if code == EEXIST || code == ENOTEMPTY {
+                continue
+            }
+            try? fileManager.removeItem(at: stagingURL)
+            throw CocoaError(
+                .fileWriteUnknown,
+                userInfo: [
+                    NSFilePathErrorKey: analysisURL.path,
+                    NSUnderlyingErrorKey: NSError(domain: NSPOSIXErrorDomain, code: Int(code)),
+                ]
+            )
         }
 
+        try? fileManager.removeItem(at: stagingURL)
         throw CocoaError(
             .fileWriteFileExists,
             userInfo: [
@@ -176,6 +212,64 @@ public enum AnalysesFolder {
                 NSLocalizedDescriptionKey: "Could not create a unique analysis directory for \(baseName)"
             ]
         )
+    }
+
+    // MARK: - Run Completion
+
+    /// Marks an analysis directory complete, so it is listed. The producer
+    /// calls this as the last step of a successful run (completed with
+    /// warnings counts as successful). Safe on a directory without a record.
+    @discardableResult
+    public static func markAnalysisComplete(_ analysisDirectory: URL) -> Bool {
+        AnalysisRunRecord.markComplete(analysisDirectory)
+    }
+
+    /// Whether the directory's run has not been marked complete.
+    public static func isAnalysisIncomplete(_ analysisDirectory: URL) -> Bool {
+        AnalysisRunRecord.isIncomplete(analysisDirectory)
+    }
+
+    /// The nearest directory at or above `url` that carries a run record, for
+    /// example the batch root of a per-sample directory.
+    public static func enclosingIncompleteAnalysisDirectory(for url: URL) -> URL? {
+        AnalysisRunRecord.enclosingIncompleteDirectory(for: url)
+    }
+
+    /// An analysis directory whose run never marked it complete.
+    public struct IncompleteAnalysisRun: Sendable {
+        public let directory: URL
+        /// `nil` when the record exists but cannot be read.
+        public let record: AnalysisRunRecord?
+    }
+
+    /// Lists every incomplete analysis directory under the project's
+    /// `Analyses/` tree, including inside user grouping folders. Contents of
+    /// an incomplete directory are not searched further.
+    public static func incompleteAnalysisRuns(in projectURL: URL) -> [IncompleteAnalysisRun] {
+        let root = projectURL.appendingPathComponent(directoryName, isDirectory: true)
+        var results: [IncompleteAnalysisRun] = []
+        func visit(_ directory: URL, depth: Int) {
+            guard depth < 8,
+                  let children = try? FileManager.default.contentsOfDirectory(
+                    at: directory,
+                    includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey],
+                    options: [.skipsHiddenFiles]
+                  ) else { return }
+            for child in children {
+                let values = try? child.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey])
+                guard values?.isDirectory == true, values?.isSymbolicLink != true else { continue }
+                if AnalysisRunRecord.isIncomplete(child) {
+                    results.append(IncompleteAnalysisRun(directory: child, record: AnalysisRunRecord.load(from: child)))
+                    continue
+                }
+                if analysisInfo(for: child) != nil || child.pathExtension.lowercased().hasPrefix("lungfish") {
+                    continue
+                }
+                visit(child, depth: depth + 1)
+            }
+        }
+        visit(root, depth: 0)
+        return results.sorted { $0.directory.path < $1.directory.path }
     }
 
     // MARK: - Batch Sample Naming
@@ -374,8 +468,9 @@ public enum AnalysesFolder {
     ///
     /// User-created folders inside `Analyses/` are traversed recursively so
     /// grouped analysis runs remain discoverable. Directories whose names and
-    /// contents cannot be recognized as analyses are ignored. Returns an empty
-    /// array if `Analyses/` does not exist.
+    /// contents cannot be recognized as analyses are ignored, and so are
+    /// incomplete runs (see ``AnalysisRunRecord``). Returns an empty array if
+    /// `Analyses/` does not exist.
     public static func listAnalyses(in projectURL: URL) throws -> [AnalysisDirectoryInfo] {
         let dir = projectURL.appendingPathComponent(directoryName, isDirectory: true)
         var isDirectory: ObjCBool = false
@@ -435,6 +530,10 @@ public enum AnalysesFolder {
 
         for url in contents {
             guard (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true else {
+                continue
+            }
+            // A run that has not marked its directory complete is not a result yet.
+            if AnalysisRunRecord.isIncomplete(url) {
                 continue
             }
             if let info = analysisInfo(for: url) {

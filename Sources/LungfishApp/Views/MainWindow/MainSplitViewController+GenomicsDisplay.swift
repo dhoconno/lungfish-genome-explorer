@@ -1145,6 +1145,9 @@ extension MainSplitViewController {
                 return childAssemblyRequest.outputDirectory
             }
             let batchDirectory = precomputedSampleDirectories.first.flatMap { $0 }?.deletingLastPathComponent()
+            // The children run one after another, so the batch root stays
+            // hidden until the last one finishes (each child also tracks it).
+            let batchOutputHold = batchDirectory.map { OperationCenter.shared.holdAnalysisOutput($0) }
             Task { @MainActor [weak self] in
                 for (independentRequest, precomputedSampleDirectory) in zip(independentRequests, precomputedSampleDirectories) {
                     // `break`, NOT `return` (BG4 review fix): `return` here
@@ -1190,6 +1193,9 @@ extension MainSplitViewController {
                 // root a batch directory in (or failed to create one): there
                 // is then no shared batch directory to clean up, exactly the
                 // pre-BG4 behavior.
+                if let batchOutputHold {
+                    OperationCenter.shared.releaseAnalysisOutputHold(batchOutputHold, succeeded: false)
+                }
                 if let batchDirectory {
                     AnalysesFolder.removeBatchDirectoryIfEffectivelyEmpty(batchDirectory)
                 }
@@ -1286,6 +1292,9 @@ extension MainSplitViewController {
             routeContext: operationRouteContext
         )
         OperationCenter.shared.log(id: opID, level: .info, message: "Starting \(attributedDisplayTitle)")
+        // An analysis directory (or the batch root around a batch child's
+        // output) appears in the sidebar only once this operation completes.
+        OperationCenter.shared.trackAnalysisOutput(ownedAnalysisDirectory ?? workingDirectory, for: opID)
 
         viewerController.updateFASTQOperationStatus("Running FASTQ/FASTA operation...")
 

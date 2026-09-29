@@ -375,7 +375,7 @@ enum SidebarProjectScanner {
         if context == .projectRoot, url.lastPathComponent == "provenance" {
             return false
         }
-        if OperationMarker.isInProgress(url) {
+        if isIncompleteOutput(url) {
             return false
         }
         if FASTQBundle.isBundleURL(url), FASTQBundle.isProcessing(url) {
@@ -392,6 +392,22 @@ enum SidebarProjectScanner {
         }
 
         return true
+    }
+
+    /// Returns true for a directory an operation is still building, or one
+    /// whose run never finished.
+    ///
+    /// Two signals hide it. The `.processing` stage marker (``OperationMarker``)
+    /// covers the short build of a single bundle. An ``AnalysisRunRecord``
+    /// covers an analysis result directory for the whole run: it is written
+    /// when the directory is created and removed only when the run succeeds
+    /// (completed with warnings included). A failed, cancelled or interrupted
+    /// run keeps its record, so it is never shown here, however long ago its
+    /// producer died. Interrupted runs are listed in the Operations Panel
+    /// instead (``InterruptedAnalysisRunDiscovery``). A directory with neither
+    /// signal is complete, including results from builds before the record.
+    static func isIncompleteOutput(_ url: URL) -> Bool {
+        OperationMarker.isInProgress(url) || AnalysisRunRecord.isIncomplete(url)
     }
 
     /// Returns true for the pipeline's own working artefacts, which are never
@@ -985,7 +1001,7 @@ enum SidebarProjectScanner {
         var results: [SidebarScanNode] = []
 
         for childURL in contents {
-            guard !OperationMarker.isInProgress(childURL) else { continue }
+            guard !isIncompleteOutput(childURL) else { continue }
             var isDir: ObjCBool = false
             guard fm.fileExists(atPath: childURL.path, isDirectory: &isDir), isDir.boolValue else { continue }
 
@@ -1039,7 +1055,7 @@ enum SidebarProjectScanner {
         var results: [SidebarScanNode] = []
 
         for childURL in contents {
-            guard !OperationMarker.isInProgress(childURL) else { continue }
+            guard !isIncompleteOutput(childURL) else { continue }
             var isDir: ObjCBool = false
             guard fm.fileExists(atPath: childURL.path, isDirectory: &isDir), isDir.boolValue else { continue }
 

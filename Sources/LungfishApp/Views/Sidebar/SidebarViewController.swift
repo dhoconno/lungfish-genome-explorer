@@ -403,6 +403,15 @@ public class SidebarViewController: NSViewController {
             object: nil
         )
 
+        // An analysis run finished: its result directory just lost its
+        // in-progress record, so rescan to show it.
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleAnalysisRunOutputsCompleted(_:)),
+            name: .analysisRunOutputsCompleted,
+            object: nil
+        )
+
         // NEW-02 backstop: rescan when the app or this window is activated, in
         // case FSEvents missed an external change while in the background.
         NotificationCenter.default.addObserver(
@@ -956,6 +965,20 @@ public class SidebarViewController: NSViewController {
         }
 
         sidebarLogger.info("openProject: Project opened, subscribed for filesystem changes")
+
+        // Runs that never finished stay out of the sidebar. List them in the
+        // Operations Panel so they can be reviewed and removed.
+        Task { @MainActor in
+            await InterruptedAnalysisRunDiscovery.registerInterruptedRuns(in: url)
+        }
+    }
+
+    @objc private func handleAnalysisRunOutputsCompleted(_ notification: Notification) {
+        guard let projectURL else { return }
+        let projectPath = projectURL.standardizedFileURL.path + "/"
+        let directories = notification.userInfo?["directories"] as? [URL] ?? []
+        guard directories.contains(where: { $0.standardizedFileURL.path.hasPrefix(projectPath) }) else { return }
+        requestReloadFromFilesystem(notifyUnchangedSelectionRefresh: false)
     }
 
     private func handleProjectFilesystemEvent(_ event: ProjectFilesystemRefreshCoordinator.Event, binding: UUID) {

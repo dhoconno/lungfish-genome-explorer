@@ -394,7 +394,11 @@ struct MapCommand: AsyncParsableCommand {
                 }
             }
         )
-        // Published: the folder now holds the result and stays.
+        // Published: the folder now holds the result and stays. Marking it
+        // complete is the last step, which makes it appear in the sidebar.
+        if let createdAnalysisDirectory {
+            AnalysesFolder.markAnalysisComplete(createdAnalysisDirectory)
+        }
         createdAnalysisDirectory = nil
         let report = Report(published: published, request: request)
 

@@ -845,6 +845,7 @@ extension AppDelegate {
             cliCommand: cliCmd,
             routeContext: routeContext
         )
+        if let ownedAnalysisDirectory { OperationCenter.shared.trackAnalysisOutput(ownedAnalysisDirectory, for: opID) }
 
         let task = Task.detached { [weak self] in
             do {
@@ -1075,6 +1076,7 @@ extension AppDelegate {
             cliCommand: esCliCmd,
             routeContext: routeContext
         )
+        if let esVirituOwnedDirectory { OperationCenter.shared.trackAnalysisOutput(esVirituOwnedDirectory, for: opID) }
 
         let task = Task.detached { [weak self] in
             do {
@@ -1342,7 +1344,9 @@ extension AppDelegate {
             windowStateScope: routeContext?.windowStateScopeID.map(WindowStateScope.init(id:)),
             workflowName: "Classification batch"
         ) else { return }
+        var createdBatchDirectory: URL?
         if let projectURL, let batchDir = try? AnalysesFolder.createAnalysisDirectory(tool: "kraken2", in: projectURL, isBatch: true) {
+            createdBatchDirectory = batchDir
             for i in configs.indices {
                 // Try the centralized helper; on failure, fall back to the old semantics.
                 if let sampleSubdir = try? AnalysesFolder.batchSampleDirectory(named: configs[i].outputDirectory.lastPathComponent, in: batchDir) {
@@ -1396,6 +1400,7 @@ extension AppDelegate {
             cliCommand: batchCliCmd,
             routeContext: routeContext
         )
+        if let createdBatchDirectory { OperationCenter.shared.trackAnalysisOutput(createdBatchDirectory, for: opID) }
 
         let task = Task.detached { [weak self] in
             guard let self else {
@@ -1825,7 +1830,9 @@ extension AppDelegate {
             windowStateScope: routeContext?.windowStateScopeID.map(WindowStateScope.init(id:)),
             workflowName: "EsViritu batch"
         ) else { return }
+        var createdBatchDirectory: URL?
         if let projectURL, let batchDir = try? AnalysesFolder.createAnalysisDirectory(tool: "esviritu", in: projectURL, isBatch: true) {
+            createdBatchDirectory = batchDir
             for i in configs.indices {
                 // Try the centralized helper; on failure, fall back to the old semantics.
                 if let sampleSubdir = try? AnalysesFolder.batchSampleDirectory(named: configs[i].outputDirectory.lastPathComponent, in: batchDir) {
@@ -1861,6 +1868,7 @@ extension AppDelegate {
             cliCommand: esBatchCliCmd,
             routeContext: routeContext
         )
+        if let createdBatchDirectory { OperationCenter.shared.trackAnalysisOutput(createdBatchDirectory, for: opID) }
 
         let task = Task.detached { [weak self] in
             do {
@@ -2195,11 +2203,13 @@ extension AppDelegate {
             windowStateScope: routeContext?.windowStateScopeID.map(WindowStateScope.init(id:)),
             workflowName: "TaxTriage"
         ) else { return }
+        var createdTaxTriageDirectory: URL?
         if let projectURL = routeContext?.projectURL {
             if let batchDir = try? AnalysesFolder.createAnalysisDirectory(
                 tool: "taxtriage", in: projectURL, isBatch: true
             ) {
                 config.outputDirectory = batchDir
+                createdTaxTriageDirectory = batchDir
             }
         }
 
@@ -2221,6 +2231,7 @@ extension AppDelegate {
             cliCommand: ttCliCmd,
             routeContext: routeContext
         )
+        if let createdTaxTriageDirectory { OperationCenter.shared.trackAnalysisOutput(createdTaxTriageDirectory, for: opID) }
 
         let task = Task.detached { [weak self] in
             do {
