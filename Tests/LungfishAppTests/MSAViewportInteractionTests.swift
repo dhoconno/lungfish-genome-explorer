@@ -59,18 +59,43 @@ final class MSAViewportInteractionTests: XCTestCase {
         return try XCTUnwrap(NSEvent.mouseEvent(with: type, location: point, modifierFlags: modifiers, timestamp: 0, windowNumber: 0, context: nil, eventNumber: 0, clickCount: 1, pressure: 1))
     }
 
-    /// Polls until `condition` is true or the deadline passes. The scroll-wheel
-    /// tests below used to poll for a fixed 30 iterations at 10ms (300ms total);
-    /// under the full parallel unit tier's CPU contention that budget was
-    /// observed insufficient even though the scroll itself completed correctly
-    /// once the runloop caught up (TST-10 -- wall-clock budgets under load).
-    private func waitUntilScrolled(
+    /// Sends one synthetic pixel wheel event to `surface`, then waits until
+    /// `condition` holds.
+    ///
+    /// NSScrollView coalesces continuous wheel deltas and, under load, holds a
+    /// delta until the next scroll event arrives instead of applying it on the
+    /// following run-loop turn. Real input keeps events flowing; a test that
+    /// sends a single event does not, so the last surface in a sequence was
+    /// never flushed (reproduced: 12 concurrent processes under CPU load held
+    /// about 70 of 300 events, each applied only when the next event came).
+    /// While waiting, zero-delta events are sent to release a held delta. They
+    /// cannot scroll anything themselves, so `condition` still holds only if
+    /// the real event, delivered through `surface`, moved the view.
+    private func sendWheel(
+        to surface: NSView,
+        wheelCount: UInt32 = 2,
+        vertical: Int32,
+        horizontal: Int32 = 0,
         timeout: TimeInterval = 20,
-        _ condition: () -> Bool
-    ) async {
+        until condition: () -> Bool
+    ) async throws {
+        let event = try XCTUnwrap(CGEvent(
+            scrollWheelEvent2Source: nil, units: .pixel, wheelCount: wheelCount,
+            wheel1: vertical, wheel2: horizontal, wheel3: 0
+        ))
+        surface.scrollWheel(with: try XCTUnwrap(NSEvent(cgEvent: event)))
         let deadline = Date().addingTimeInterval(timeout)
+        var nextFlush = Date().addingTimeInterval(0.1)
         while !condition(), Date() < deadline {
-            try? await Task.sleep(nanoseconds: 10_000_000)
+            try await Task.sleep(nanoseconds: 10_000_000)
+            if !condition(), Date() >= nextFlush {
+                let flush = try XCTUnwrap(CGEvent(
+                    scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 2,
+                    wheel1: 0, wheel2: 0, wheel3: 0
+                ))
+                surface.scrollWheel(with: try XCTUnwrap(NSEvent(cgEvent: flush)))
+                nextFlush = Date().addingTimeInterval(0.1)
+            }
         }
     }
 
@@ -146,16 +171,12 @@ final class MSAViewportInteractionTests: XCTestCase {
                         try descendant(controller.view, "msaComparisonLabel"),
                         try descendant(controller.view, "msaComparisonHeader")] {
             scroll.contentView.scroll(to: .zero)
-            let cgEvent = try XCTUnwrap(CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 2, wheel1: -80, wheel2: 0, wheel3: 0))
-            surface.scrollWheel(with: try XCTUnwrap(NSEvent(cgEvent: cgEvent)))
-            await waitUntilScrolled { scroll.contentView.bounds.minY != 0 }
+            try await sendWheel(to: surface, vertical: -80) { scroll.contentView.bounds.minY != 0 }
             XCTAssertGreaterThan(scroll.contentView.bounds.minY, 0, "Wheel over \(surface.accessibilityIdentifier() ?? "surface") must scroll")
         }
         XCTAssertGreaterThanOrEqual(matrix.frame.width, scroll.contentView.bounds.width)
         // Native predominant-axis scrolling intentionally ignores X on vertical gestures.
-        let horizontal = try XCTUnwrap(CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 2, wheel1: 0, wheel2: -80, wheel3: 0))
-        gutter.scrollWheel(with: try XCTUnwrap(NSEvent(cgEvent: horizontal)))
-        await waitUntilScrolled { scroll.contentView.bounds.minX != 0 }
+        try await sendWheel(to: gutter, vertical: 0, horizontal: -80) { scroll.contentView.bounds.minX != 0 }
         XCTAssertGreaterThan(scroll.contentView.bounds.minX, 0)
         let pinned = try descendant(controller.view, "msaComparisonHeader")
         XCTAssertEqual(pinned.bounds.minX, scroll.contentView.bounds.minX, accuracy: 0.01)
@@ -180,9 +201,7 @@ final class MSAViewportInteractionTests: XCTestCase {
         XCTAssertGreaterThan(blankX, controller.testingAlignmentColumnWidth * 6)
         let hit = try XCTUnwrap(matrix.hitTest(matrix.convert(NSPoint(x: blankX, y: 12), to: matrix.superview)))
         XCTAssertTrue(hit === matrix)
-        let wheel = try XCTUnwrap(CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 1, wheel1: -80, wheel2: 0, wheel3: 0))
-        hit.scrollWheel(with: try XCTUnwrap(NSEvent(cgEvent: wheel)))
-        await waitUntilScrolled { scroll.contentView.bounds.minY != 0 }
+        try await sendWheel(to: hit, wheelCount: 1, vertical: -80) { scroll.contentView.bounds.minY != 0 }
         XCTAssertGreaterThan(scroll.contentView.bounds.minY, 0)
     }
 
