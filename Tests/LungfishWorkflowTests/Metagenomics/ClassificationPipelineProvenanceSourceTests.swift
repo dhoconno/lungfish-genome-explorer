@@ -695,7 +695,19 @@ final class ClassificationPipelineProvenanceSourceTests: XCTestCase {
 
         XCTAssertEqual(brackenStep.exitCode, 42)
         XCTAssertEqual(brackenStep.outputs, [])
-        XCTAssertTrue(brackenStep.command.contains(config.brackenURL.path))
+        // The command that ran names the scratch copy of the output; the
+        // replayable argv names the declared path that stayed unexposed.
+        let stagedOutput = try XCTUnwrap(Self.argument(after: "-o", in: brackenStep.command.joined(separator: " ")))
+        XCTAssertTrue(
+            URL(fileURLWithPath: stagedOutput).deletingLastPathComponent().lastPathComponent.hasPrefix("lungfish-bracken-"),
+            stagedOutput
+        )
+        XCTAssertEqual(URL(fileURLWithPath: stagedOutput).lastPathComponent, config.brackenURL.lastPathComponent)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: stagedOutput))
+        guard case .string(let durableArgv)? = brackenStep.resolvedOptions?["durableArgv"] else {
+            return XCTFail("the replayable argv against the declared paths must be recorded")
+        }
+        XCTAssertTrue(durableArgv.contains(config.brackenURL.path), durableArgv)
         XCTAssertTrue(brackenStep.inputs.contains {
             $0.path == config.reportURL.path && $0.format == .text && $0.role == .input
                 && $0.sha256 != nil && $0.sizeBytes != nil
@@ -807,8 +819,13 @@ final class ClassificationPipelineProvenanceSourceTests: XCTestCase {
             try await pipeline.profile(config: config)
         }
 
+        // The fake Kraken2 and Bracken staging run first. A fixed two-second
+        // budget expired under parallel test load before Bracken started, so
+        // wait on a generous deadline; the test still cancels only once the
+        // Bracken child is running, which is the behaviour under test.
         var didStartBracken = false
-        for _ in 0..<200 {
+        let deadline = ContinuousClock.now + .seconds(60)
+        while ContinuousClock.now < deadline {
             if try !fixture.brackenProfileInvocations().isEmpty {
                 didStartBracken = true
                 break
@@ -1113,11 +1130,26 @@ final class ClassificationPipelineProvenanceSourceTests: XCTestCase {
         XCTAssertEqual(reportURL.lastPathComponent, "classification.bracken.kreport")
         XCTAssertTrue(FileManager.default.fileExists(atPath: reportURL.path))
 
+        // Bracken runs in a whitespace-free scratch directory (a4be0dd4c) and
+        // writes its report there; the pipeline then moves it to the declared
+        // path and removes the scratch directory.
         let profileCall = try XCTUnwrap(fixture.brackenProfileInvocations().only)
-        XCTAssertTrue(profileCall.contains("-w \(reportURL.path)"), profileCall)
+        let stagedReport = try XCTUnwrap(Self.argument(after: "-w", in: profileCall), profileCall)
+        let scratch = URL(fileURLWithPath: stagedReport).deletingLastPathComponent()
+        XCTAssertTrue(scratch.lastPathComponent.hasPrefix("lungfish-bracken-"), stagedReport)
+        XCTAssertEqual(URL(fileURLWithPath: stagedReport).lastPathComponent, reportURL.lastPathComponent)
+        XCTAssertNotEqual(stagedReport, reportURL.path, "Bracken must not write straight to the declared path")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: stagedReport), "the staged report must be moved, not copied")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: scratch.path), "the scratch directory must be removed")
 
         let envelope = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: config.outputDirectory))
         let brackenStep = try XCTUnwrap(envelope.steps.first { $0.toolName == "bracken" })
+        XCTAssertTrue(brackenStep.argv.contains(stagedReport), "the step records the argv that ran")
+        XCTAssertEqual(brackenStep.resolvedOptions["scratchDirectory"], .string(scratch.path))
+        guard case .string(let durableArgv)? = brackenStep.resolvedOptions["durableArgv"] else {
+            return XCTFail("the replayable argv against the declared paths must be recorded")
+        }
+        XCTAssertTrue(durableArgv.contains(reportURL.path), durableArgv)
         XCTAssertTrue(
             brackenStep.outputs.contains { $0.path == reportURL.path && $0.role == .report },
             "The Bracken re-estimated kreport must be a declared bracken step output."
@@ -1135,6 +1167,16 @@ final class ClassificationPipelineProvenanceSourceTests: XCTestCase {
 
 private extension Array {
     var only: Element? { count == 1 ? self[0] : nil }
+}
+
+extension ClassificationPipelineProvenanceSourceTests {
+    /// The token following `flag` in a space-separated command line. The
+    /// fixture's paths contain no spaces, so a plain split is exact.
+    static func argument(after flag: String, in commandLine: String) -> String? {
+        let tokens = commandLine.split(separator: " ").map(String.init)
+        guard let index = tokens.firstIndex(of: flag), index + 1 < tokens.count else { return nil }
+        return tokens[index + 1]
+    }
 }
 
 private struct FakeClassificationCondaFixture {
