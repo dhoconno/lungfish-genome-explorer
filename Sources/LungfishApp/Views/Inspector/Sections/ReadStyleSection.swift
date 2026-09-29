@@ -508,17 +508,24 @@ public final class ReadStyleSectionViewModel {
             guard let db = try? AlignmentMetadataDatabase(url: dbURL) else { continue }
             databases.append((trackId, db))
         }
-        // A [dup-marked], deduplicated or filtered track holds the same reads
-        // as the track it was derived from. Counting both doubled the
-        // summary (Mapped 182.0K for 91,148 reads after Mark Duplicates).
-        let countedTrackIDs = Set(Self.distinctDataTrackIDs(
+        // A [dup-marked], deduplicated, filtered or primer-trimmed track holds
+        // the same reads as the track it was derived from. Counting both
+        // doubled the summary (Mapped 182.0K for 91,148 reads after Mark
+        // Duplicates; 336.1K for 170,398 reads with a primer-trimmed copy).
+        let derivation = Self.alignmentDerivation(
+            in: bundle,
             trackIDs: databases.map(\.trackID),
-            derivationSourceByTrackID: Dictionary(
+            recordedSourceByTrackID: Dictionary(
                 databases.compactMap { entry in
                     entry.db.getFileInfo("derivation_source_track_id").map { (entry.trackID, $0) }
                 },
                 uniquingKeysWith: { first, _ in first }
             )
+        )
+        let countedTrackIDs = Set(Self.distinctDataTrackIDs(
+            trackIDs: databases.map(\.trackID),
+            derivationSourceByTrackID: derivation.sourceByTrackID,
+            derivedTrackIDsWithUnknownSource: derivation.unknownSourceTrackIDs
         ))
         var seenReadGroupIDs: Set<String> = []
 
@@ -604,16 +611,60 @@ public final class ReadStyleSectionViewModel {
         }
     }
 
-    /// The tracks whose reads the Alignment Summary counts: every track that
-    /// is not derived (by Mark Duplicates, deduplication or filtering) from
-    /// another track in the same bundle. A derived track whose source is no
-    /// longer in the bundle counts, since it is then the only copy.
+    /// Works out which alignment tracks were made from another track, by the
+    /// same rules the Alignment Tracks inventory uses to badge a track
+    /// "Derived" (`DocumentSectionViewModel.isDerivedAlignmentTrack`):
+    ///
+    /// - Mark Duplicates, deduplication and filtering record
+    ///   `derivation_source_track_id` in the track's metadata database.
+    /// - Primer trim records its source BAM in the
+    ///   `<bam>.primer-trim-provenance.json` sidecar instead, which is matched
+    ///   to the bundle track with that BAM file name.
+    /// - Any other track stored under a derived-track directory is derived
+    ///   from a source this bundle cannot name.
+    static func alignmentDerivation(
+        in bundle: ReferenceBundle,
+        trackIDs: [String],
+        recordedSourceByTrackID: [String: String]
+    ) -> (sourceByTrackID: [String: String], unknownSourceTrackIDs: Set<String>) {
+        var sourceByTrackID = recordedSourceByTrackID
+        var unknown: Set<String> = []
+        for trackID in trackIDs where sourceByTrackID[trackID] == nil {
+            guard let track = bundle.alignmentTrack(id: trackID) else { continue }
+            if let bamURL = try? bundle.memberURL(
+                for: track.sourcePath,
+                field: "alignments[\(track.id)].sourcePath"
+            ), let provenance = PrimerTrimProvenanceLoader.load(forBAMAt: bamURL) {
+                let sourceFile = (provenance.sourceBAMRelativePath as NSString).lastPathComponent
+                if let source = bundle.manifest.alignments.first(where: {
+                    $0.id != track.id && ($0.sourcePath as NSString).lastPathComponent == sourceFile
+                }) {
+                    sourceByTrackID[trackID] = source.id
+                } else {
+                    unknown.insert(trackID)
+                }
+            } else if DocumentSectionViewModel.isDerivedAlignmentTrack(track) {
+                unknown.insert(trackID)
+            }
+        }
+        return (sourceByTrackID, unknown)
+    }
+
+    /// The tracks whose reads the Alignment Summary counts: every source
+    /// track, that is, every track not derived (by Mark Duplicates,
+    /// deduplication, filtering or primer trim) from another track in the same
+    /// bundle. A derived track whose recorded source is no longer in the
+    /// bundle counts, since it is then the only copy. A track known to be
+    /// derived from an unnamed source is left out whenever a source track is
+    /// present. If nothing else remains, every track counts.
     nonisolated static func distinctDataTrackIDs(
         trackIDs: [String],
-        derivationSourceByTrackID: [String: String]
+        derivationSourceByTrackID: [String: String],
+        derivedTrackIDsWithUnknownSource: Set<String> = []
     ) -> [String] {
         let present = Set(trackIDs)
         let roots = trackIDs.filter { trackID in
+            if derivedTrackIDsWithUnknownSource.contains(trackID) { return false }
             guard let source = derivationSourceByTrackID[trackID], source != trackID else { return true }
             return !present.contains(source)
         }
