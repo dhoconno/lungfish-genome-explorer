@@ -2,9 +2,10 @@ import Foundation
 
 /// Obtains the canonical SARS-CoV-2 reference bundle for a Viral Recon run.
 ///
-/// There are exactly two outcomes: the project already holds
-/// `Downloads/MN908947.3.lungfishref`, or it is downloaded. No other bundle in
-/// the project is inspected, matched or substituted.
+/// There are exactly two outcomes: the project already holds a bundle of
+/// MN908947.3 (see ``ViralReconReferenceCatalog/existingBundleURL(inProject:fileManager:)``),
+/// or it is downloaded to `Downloads/MN908947.3.lungfishref`. A bundle of an
+/// equivalent accession is never substituted.
 public enum ViralReconReferenceAcquisition {
     public enum Outcome: Equatable, Sendable {
         case alreadyPresent(URL)
@@ -44,10 +45,13 @@ public enum ViralReconReferenceAcquisition {
         downloader: Downloader,
         fileManager: FileManager = .default
     ) throws -> Outcome {
-        let bundleURL = ViralReconReferenceCatalog.bundleURL(inProject: projectURL)
-        if fileManager.fileExists(atPath: bundleURL.path) {
-            return .alreadyPresent(bundleURL)
+        if let existing = ViralReconReferenceCatalog.existingBundleURL(
+            inProject: projectURL, fileManager: fileManager
+        ) {
+            return .alreadyPresent(existing)
         }
+
+        let bundleURL = ViralReconReferenceCatalog.bundleURL(inProject: projectURL)
 
         let downloadsURL = bundleURL.deletingLastPathComponent()
         try fileManager.createDirectory(at: downloadsURL, withIntermediateDirectories: true)
