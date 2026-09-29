@@ -928,7 +928,7 @@ final class OperationsPanelViewController: NSViewController, NSTableViewDataSour
         title.setAccessibilityIdentifier("operations-title-\(accessibilitySlug(for: item.title))")
         let detail = rowLabel(in: cell, tag: 101, top: 23, size: 11)
         detail.stringValue = item.state == .failed ? (item.errorMessage ?? item.detail) : item.detail
-        detail.textColor = item.state == .failed ? .lungfishDanger : .secondaryLabelColor
+        (cell as? OperationsRowCellView)?.showsFailureDetail = item.state == .failed
         detail.toolTip = detail.stringValue
         detail.setAccessibilityIdentifier("operations-detail-\(accessibilitySlug(for: item.title))")
         let latest = rowLabel(in: cell, tag: 103, top: 42, size: 11)
@@ -998,9 +998,38 @@ final class OperationsPanelViewController: NSViewController, NSTableViewDataSour
         if let existing = tableView.makeView(withIdentifier: identifier, owner: nil) as? NSTableCellView {
             return existing
         }
-        let cell = NSTableCellView()
+        let cell = OperationsRowCellView()
         cell.identifier = identifier
         return cell
+    }
+}
+
+/// A row cell whose failure subtitle stays readable when the row is selected.
+///
+/// The failure subtitle is drawn in `lungfishDanger`, which does not respond to
+/// the cell's background style the way `labelColor` and `secondaryLabelColor`
+/// do, so on the blue selection it stayed copper and could not be read. On an
+/// emphasized selection it switches to the selected-text color; the failure is
+/// still shown there by the status symbol and the error text itself.
+@MainActor
+final class OperationsRowCellView: NSTableCellView {
+    static let detailTag = 101
+
+    var showsFailureDetail = false {
+        didSet { updateDetailColor() }
+    }
+
+    override var backgroundStyle: NSView.BackgroundStyle {
+        didSet { updateDetailColor() }
+    }
+
+    private func updateDetailColor() {
+        guard let detail = viewWithTag(Self.detailTag) as? NSTextField else { return }
+        if backgroundStyle == .emphasized {
+            detail.textColor = .alternateSelectedControlTextColor
+        } else {
+            detail.textColor = showsFailureDetail ? .lungfishDanger : .secondaryLabelColor
+        }
     }
 }
 

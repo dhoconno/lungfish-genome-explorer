@@ -799,8 +799,8 @@ enum ViralReconWizardPrimerStaging {
     /// Stages a primer scheme against the fixed SARS-CoV-2 reference.
     ///
     /// No bundled scheme ships `primers.fasta`, so the primer sequences have to
-    /// be cut out of the reference. When the project already holds
-    /// `Downloads/MN908947.3.lungfishref` that happens here. When it does not,
+    /// be cut out of the reference. When the project already holds an
+    /// MN908947.3 bundle (in `Downloads` or `Reference Sequences`) that happens here. When it does not,
     /// only the BED is staged and the launch path fills in the FASTA once it has
     /// downloaded the reference, which is the one place that download belongs.
     static func stageForCanonicalReference(
@@ -829,8 +829,9 @@ enum ViralReconWizardPrimerStaging {
     /// by hand may hold only a FASTA at its root, so both are accepted.
     static func canonicalReferenceFASTAURL(inProject projectURL: URL?) -> URL? {
         guard let projectURL else { return nil }
-        let bundleURL = ViralReconReferenceCatalog.bundleURL(inProject: projectURL)
-        guard FileManager.default.fileExists(atPath: bundleURL.path) else { return nil }
+        guard let bundleURL = ViralReconReferenceCatalog.existingBundleURL(inProject: projectURL) else {
+            return nil
+        }
 
         if let manifestFASTAURL = ReferenceSequenceFolder.fastaURL(in: bundleURL) {
             return manifestFASTAURL

@@ -118,6 +118,65 @@ final class ViralReconReferenceAcquisitionTests: XCTestCase {
         XCTAssertEqual(outcome, .downloaded(ViralReconReferenceCatalog.bundleURL(inProject: projectURL)))
     }
 
+    // Found capturing on 9.58: a project that imported MN908947.3 into
+    // Reference Sequences got a second copy downloaded into Downloads.
+    func testReusesTheCanonicalBundleInReferenceSequences() throws {
+        let existing = referenceSequencesURL.appendingPathComponent(
+            ViralReconReferenceCatalog.bundleFilename, isDirectory: true)
+        try Self.writeBundle(at: existing, sequenceName: "MN908947.3")
+        var downloadCalls = 0
+
+        let outcome = try ViralReconReferenceAcquisition.acquire(
+            projectURL: projectURL,
+            downloader: { _, _ in downloadCalls += 1 }
+        )
+
+        XCTAssertEqual(outcome, .alreadyPresent(existing))
+        XCTAssertEqual(downloadCalls, 0)
+        XCTAssertFalse(FileManager.default.fileExists(
+            atPath: ViralReconReferenceCatalog.bundleURL(inProject: projectURL).path))
+    }
+
+    func testReusesARenamedReferenceSequencesBundleOnlyWhenItHoldsMN908947_3() throws {
+        let renamed = referenceSequencesURL.appendingPathComponent(
+            "SARS-CoV-2 Wuhan-Hu-1.lungfishref", isDirectory: true)
+        try Self.writeBundle(at: renamed, sequenceName: "MN908947.3")
+
+        let outcome = try ViralReconReferenceAcquisition.acquire(
+            projectURL: projectURL, downloader: { _, _ in XCTFail("must not download") })
+
+        XCTAssertEqual(outcome, .alreadyPresent(renamed))
+    }
+
+    func testReferenceSequencesBundleHoldingTheEquivalentAccessionIsNotSubstituted() throws {
+        try Self.writeBundle(
+            at: referenceSequencesURL.appendingPathComponent("NC_045512.2.lungfishref", isDirectory: true),
+            sequenceName: "NC_045512.2")
+        // Named for the canonical accession but indexed as the RefSeq record.
+        try Self.writeBundle(
+            at: referenceSequencesURL.appendingPathComponent(
+                ViralReconReferenceCatalog.bundleFilename, isDirectory: true),
+            sequenceName: "NC_045512.2")
+        var downloadCalls = 0
+
+        let outcome = try ViralReconReferenceAcquisition.acquire(
+            projectURL: projectURL,
+            downloader: { _, destination in
+                downloadCalls += 1
+                try Self.writeBundle(at: destination.appendingPathComponent(
+                    ViralReconReferenceCatalog.bundleFilename, isDirectory: true),
+                    sequenceName: "MN908947.3")
+            }
+        )
+
+        XCTAssertEqual(outcome, .downloaded(ViralReconReferenceCatalog.bundleURL(inProject: projectURL)))
+        XCTAssertEqual(downloadCalls, 1)
+    }
+
+    private var referenceSequencesURL: URL {
+        projectURL.appendingPathComponent("Reference Sequences", isDirectory: true)
+    }
+
     /// Writes the `.fai` a real bundle carries, which names the sequence.
     private static func writeBundle(at bundleURL: URL, sequenceName: String) throws {
         let genome = bundleURL.appendingPathComponent("genome", isDirectory: true)

@@ -301,6 +301,78 @@ final class OperationsLiveInspectorTests: XCTestCase {
         }
     }
 
+    /// Capture on 9.58: a failed row's copper error subtitle could not be read
+    /// on the blue selection. Selected, it takes the selected-text color;
+    /// unselected, it keeps the danger color.
+    func testFailedRowSubtitleIsReadableWhenSelected() throws {
+        let failed = OperationCenter.shared.start(
+            title: "Selected failure fixture", detail: "Preparing...", operationType: .assembly)
+        _ = OperationCenter.shared.fail(id: failed, detail: "failed", errorMessage: "tool exited with status 1")
+        defer { OperationCenter.shared.clearItem(id: failed) }
+
+        let (controller, _, table) = try panel(id: failed)
+        defer { controller.close() }
+        let row = try XCTUnwrap(OperationCenter.shared.items.firstIndex { $0.id == failed })
+        let titleColumn = try XCTUnwrap(table.tableColumns.firstIndex { $0.identifier.rawValue == "title" })
+        let cell = try XCTUnwrap(table.view(atColumn: titleColumn, row: row, makeIfNecessary: true) as? NSTableCellView)
+        let detail = try XCTUnwrap(cell.viewWithTag(101) as? NSTextField)
+        XCTAssertEqual(detail.stringValue, "tool exited with status 1")
+
+        cell.backgroundStyle = .emphasized
+        XCTAssertEqual(detail.textColor, .alternateSelectedControlTextColor)
+        cell.backgroundStyle = .normal
+        XCTAssertEqual(detail.textColor, .lungfishDanger)
+    }
+
+    /// Capture on 9.58 at a 1200x650 panel showed a failed run's details
+    /// drawer running down under the "Clear Completed" footer. The drawer and
+    /// everything drawn in it must end at the footer's top edge.
+    func testFailedRunDrawerStaysAboveTheFooterAtManualCaptureSize() async throws {
+        let failed = OperationCenter.shared.start(
+            title: "Viral Recon: SARS-CoV-2 Amplicons", detail: "Preparing...", operationType: .assembly,
+            cliCommand: "lungfish-cli workflow viralrecon --input samplesheet.csv --outdir <run>"
+        )
+        for index in 0..<120 {
+            OperationCenter.shared.log(id: failed, level: .info, message: "[nf-core/viralrecon] process \(index) submitted with a long line of executor output text")
+        }
+        _ = OperationCenter.shared.fail(
+            id: failed, detail: "Viral Recon failed",
+            errorMessage: "Process NFCORE_VIRALRECON:ILLUMINA:FASTQC_FASTP terminated with an error exit status (1). Check the log for the failing command and its standard error output."
+        )
+        defer { OperationCenter.shared.clearItem(id: failed) }
+
+        let (controller, view, _) = try panel(id: failed)
+        defer { controller.close() }
+        let window = try XCTUnwrap(controller.window)
+        window.setContentSize(NSSize(width: 1200, height: 650))
+        view.layoutSubtreeIfNeeded()
+        try await Task.sleep(for: .milliseconds(300))
+        view.layoutSubtreeIfNeeded()
+        window.displayIfNeeded()
+
+        let inspector = try XCTUnwrap(find(view, "operations-log-inspector", as: NSView.self))
+        let clear = try XCTUnwrap(find(view, "operations-clear-completed-button", as: NSButton.self))
+        let footerTop = try XCTUnwrap(clear.superview).frame.maxY
+        let drawer = view.convert(inspector.bounds, from: inspector)
+        XCTAssertFalse(inspector.isHidden)
+        XCTAssertGreaterThanOrEqual(drawer.minY, footerTop - 0.5,
+                                    "drawer \(drawer) runs under the footer (top \(footerTop))")
+        XCTAssertLessThanOrEqual(drawer.maxY, view.bounds.maxY + 0.5)
+
+        func visibleLeaves(_ root: NSView) -> [NSView] {
+            root.subviews.filter { !$0.isHidden }.flatMap { child -> [NSView] in
+                if child is NSControl || child is NSScrollView { return [child] }
+                return visibleLeaves(child)
+            }
+        }
+        for leaf in visibleLeaves(inspector) {
+            let frame = view.convert(leaf.bounds, from: leaf)
+            let label = leaf.accessibilityIdentifier().isEmpty ? String(describing: type(of: leaf)) : leaf.accessibilityIdentifier()
+            XCTAssertTrue(drawer.insetBy(dx: -0.5, dy: -0.5).contains(frame),
+                          "\(label) at \(frame) draws outside the drawer \(drawer)")
+        }
+    }
+
     /// When the drawer is shorter than its header, the title used to be
     /// squeezed with the other header rows and drew clipped at its bottom
     /// by the row beneath it. The title keeps its full line at the top and

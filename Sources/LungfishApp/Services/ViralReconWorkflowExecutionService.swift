@@ -221,7 +221,10 @@ final class ViralReconWorkflowExecutionService {
             // user they were viewable when no bundle had been written.
             throw ViralReconWorkflowExecutionError.noProjectForResults
         }
-        let referenceBundleURL = ViralReconReferenceCatalog.bundleURL(inProject: projectURL)
+        // The same lookup the launch used, so the viewer bundle is the one the
+        // reads were aligned to, wherever in the project it lives.
+        let referenceBundleURL = ViralReconReferenceCatalog.existingBundleURL(inProject: projectURL)
+            ?? ViralReconReferenceCatalog.bundleURL(inProject: projectURL)
         let ingested = try ViralReconResultIngest.ingestRun(
             resultsDirectory: context.resultsDirectory,
             sampleNames: context.sampleNames,
