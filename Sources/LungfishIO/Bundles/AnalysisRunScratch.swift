@@ -92,6 +92,12 @@ public enum AnalysisRunScratch {
         return record.producerProcesses.contains { matches(marker, $0) }
     }
 
+    /// Whether the scratch folder behind `marker` was created by one of the
+    /// run's producer processes, whether or not that process is alive.
+    public static func marker(_ marker: OwnedWorkDirectoryMarker, wasCreatedBy record: AnalysisRunRecord) -> Bool {
+        record.producerProcesses.contains { matches(marker, $0) }
+    }
+
     private static func matches(_ marker: OwnedWorkDirectoryMarker, _ process: AnalysisRunRecord.Participant) -> Bool {
         guard marker.processIdentifier == process.processIdentifier else { return false }
         guard let start = process.processStartTime else { return true }

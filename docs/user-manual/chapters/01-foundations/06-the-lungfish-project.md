@@ -354,7 +354,7 @@ A project written by an older LGE may need its bundles updated before a newer LG
 
 LGE saves for you, and there is no Save command to look for. A change is stored when the import or edit that made it finishes, so check the Operations Panel for work that is still running or has failed. A few editing tools, the sample metadata fields at the bottom of the Inspector among them, hold unfinished changes as a draft and ask you to apply or discard it before you leave. **File > About Saving…** explains this in LGE.
 
-**File > Manage Project Storage…** reviews what the project is using on disk and moves what you no longer need to the Trash.
+**File > Manage Project Storage…** reviews what the project is using on disk and moves what you no longer need to the Trash. It never offers the temporary files of a job that is still running.
 
 <!-- SHOT: file-export-menu -->
 
@@ -390,7 +390,7 @@ Each job gets a row showing its type, its name, a progress bar, and the elapsed 
 
 <!-- SHOT: operations-panel-row -->
 
-The panel covers the current session, with one exception described below. **Clear Completed** at the foot of the panel, also in the **Operations** menu, removes finished rows. **Operations > Cancel All Operations** stops every running job after asking you to confirm. If you quit LGE while jobs are running, a sheet lists them and offers **Cancel Operations and Quit** or **Don't Quit**. Choosing Cancel Operations and Quit stops the jobs and quits. The lasting record of a finished run is its provenance, which outlives both the row and a relaunch.
+The panel covers the current session, with one exception described below. **Clear Completed** at the foot of the panel, also in the **Operations** menu, removes finished rows. **Operations > Cancel All Operations** stops every running job after asking you to confirm. If you quit LGE while jobs are running, a sheet lists them and offers **Cancel Operations and Quit** or **Don't Quit**. Choosing Cancel Operations and Quit stops the jobs and quits. Any partial output they leave shows up in this panel as an **Interrupted** row the next time you open the project, as described below. The lasting record of a finished run is its provenance, which outlives both the row and a relaunch.
 
 Right-click any row to act on it. The menu is built from what that row supports, so a running row and a failed one do not offer the same items, and a missing item never means something is broken.
 

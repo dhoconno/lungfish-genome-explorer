@@ -1507,6 +1507,48 @@ final class ProjectStorageScannerTests: XCTestCase {
         XCTAssertTrue(unaffected.isRemovable, "only a live run blocks its owned work")
     }
 
+    func testScanNeverOffersScratchCreatedByAProducerOfARunningAnalysis() throws {
+        var record = AnalysisRunRecord(analysisName: "TaxTriage", hostName: "lab-mac", processIdentifier: 5151, processStartTime: nil)
+        record.participants = [.init(processIdentifier: 61, processStartTime: 600)]
+        _ = try makeRunDirectory("Analyses/taxtriage-batch-live", record: record)
+        let tempRoot = project.appendingPathComponent(".tmp", isDirectory: true)
+        let childScratch = tempRoot.appendingPathComponent("taxtriage-\(UUID().uuidString)", isDirectory: true)
+        try makeOwnedDirectory(
+            childScratch,
+            runID: UUID(),
+            state: .active,
+            processIdentity: .init(processIdentifier: 61, processStartTime: 600, bootSessionID: UUID().uuidString)
+        )
+        let strayScratch = tempRoot.appendingPathComponent("fasta-preview-\(UUID().uuidString)", isDirectory: true)
+        try makeOwnedDirectory(
+            strayScratch,
+            runID: UUID(),
+            state: .active,
+            processIdentity: .init(processIdentifier: 62, processStartTime: 700, bootSessionID: UUID().uuidString)
+        )
+
+        func scan(runIsLive: Bool) throws -> [String: ProjectStorageClassification] {
+            let scanner = ProjectStorageScanner(
+                processInspector: { _ in nil },
+                runRecordProcessProbe: { pid in pid == 5151 && runIsLive ? .running(startTime: nil) : .notRunning },
+                currentHostName: "lab-mac"
+            )
+            return Dictionary(
+                uniqueKeysWithValues: try scanner.scan(projectURL: project).entries
+                    .map { ($0.relativePath, $0.classification) }
+            )
+        }
+
+        let live = try scan(runIsLive: true)
+        let blocked = try XCTUnwrap(live[".tmp/\(childScratch.lastPathComponent)"])
+        XCTAssertFalse(blocked.isRemovable)
+        XCTAssertEqual(blocked.code, .liveProcess)
+        XCTAssertTrue(try XCTUnwrap(live[".tmp/\(strayScratch.lastPathComponent)"]).isRemovable)
+
+        let afterRun = try scan(runIsLive: false)
+        XCTAssertTrue(try XCTUnwrap(afterRun[".tmp/\(childScratch.lastPathComponent)"]).isRemovable)
+    }
+
     private func makeOwnedDirectory(
         _ directory: URL,
         runID: UUID,

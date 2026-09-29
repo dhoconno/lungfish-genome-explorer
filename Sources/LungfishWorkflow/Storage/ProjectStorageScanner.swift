@@ -361,6 +361,29 @@ public struct ProjectStorageScanner {
         }
     }
 
+    /// The analysis run, still going or recorded on another computer, whose
+    /// producer processes include the creator of the scratch folder `url`.
+    /// `activeRuns` caches the project's live runs for one scan.
+    func activeAnalysisRunOwningScratch(
+        _ url: URL,
+        projectURL: URL,
+        activeRuns: inout [AnalysesFolder.IncompleteAnalysisRun]?
+    ) -> URL? {
+        if activeRuns == nil {
+            activeRuns = AnalysesFolder.incompleteAnalysisRuns(in: projectURL).filter { run in
+                guard let record = run.record else { return false }
+                return record.liveness(currentHostName: currentHostName, processProbe: runRecordProcessProbe)
+                    != .interrupted
+            }
+        }
+        guard let runs = activeRuns, !runs.isEmpty,
+              let marker = try? OwnedWorkDirectoryMarkerStore.load(from: url, expectedProjectURL: projectURL)
+        else { return nil }
+        return runs.first { run in
+            run.record.map { AnalysisRunScratch.marker(marker, wasCreatedBy: $0) } ?? false
+        }?.directory
+    }
+
     /// The nearest directory at or above `url`, inside the project, whose
     /// analysis run may still be writing: its record's producer is running
     /// or on another computer.
@@ -517,6 +540,7 @@ public struct ProjectStorageScanner {
                 < relativePath(from: project, to: $1.url)
         }
         entries.reserveCapacity(candidates.count)
+        var activeRuns: [AnalysesFolder.IncompleteAnalysisRun]?
         for candidate in candidates {
             try cancellationCheck()
             let relative = relativePath(
@@ -630,6 +654,18 @@ public struct ProjectStorageScanner {
                    projectURL: project
                ) {
                 classification = analysisRunClassification(for: activeRun)
+            }
+            // Never offer scratch in .tmp/ that a producer of a run that may
+            // still be going created, even when that one process has exited
+            // (a lungfish-cli child of a live app run, for example).
+            if classification.isRemovable,
+               candidate.category == .temporary,
+               let liveRun = activeAnalysisRunOwningScratch(
+                   candidate.url,
+                   projectURL: project,
+                   activeRuns: &activeRuns
+               ) {
+                classification = analysisRunClassification(for: liveRun)
             }
             try cancellationCheck()
             var finalInformation = stat()

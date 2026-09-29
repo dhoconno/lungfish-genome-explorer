@@ -962,18 +962,8 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         operations: [OperationCenter.Item]
     ) async -> Bool {
         let alert = NSAlert()
-        let count = operations.count
-        alert.messageText = count == 1
-            ? "Quit with 1 Operation Running?"
-            : "Quit with \(count) Operations Running?"
-        let listedTitles = operations.prefix(6).map { "• \($0.title)" }.joined(separator: "\n")
-        let overflowNote = count > 6 ? "\n… and \(count - 6) more" : ""
-        alert.informativeText =
-            "Quitting now will cancel the following operation"
-            + (count == 1 ? "" : "s")
-            + " and any partial output may remain on disk, "
-            + "visible under Manage Project Storage as interrupted:\n\n"
-            + listedTitles + overflowNote
+        alert.messageText = RunningOperationsWarning.messageText(kind: .quit, count: operations.count)
+        alert.informativeText = RunningOperationsWarning.informativeText(kind: .quit, operations: operations)
         alert.alertStyle = .warning
         let quitButton = alert.addButton(withTitle: "Cancel Operations and Quit")
         quitButton.hasDestructiveAction = true
