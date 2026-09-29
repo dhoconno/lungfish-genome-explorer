@@ -40,6 +40,11 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
 
     /// All open main windows (strong references for multi-project workflows).
     private var mainWindowControllers: [MainWindowController] = []
+    /// Projects whose open is still being prepared, by window. A project's
+    /// session URL is set only when the open completes, so this is what tells
+    /// a second open of the same project (for example a launch-time Finder
+    /// open followed by window restoration) that a window already has it.
+    private var projectOpensInFlight: [ObjectIdentifier: String] = [:]
 
     private let projectSessionRegistry = ProjectSessionRegistry()
     internal let projectOpenCoordinator = ProjectOpenCoordinator()
@@ -381,6 +386,13 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         }
     }
 
+    /// The window showing `projectURL`, or already opening it.
+    func controllerShowingOrOpening(projectURL: URL) -> MainWindowController? {
+        if let controller = controller(forProjectURL: projectURL) { return controller }
+        let canonical = projectURL.standardizedFileURL.resolvingSymlinksInPath().path
+        return mainWindowControllers.first { projectOpensInFlight[ObjectIdentifier($0)] == canonical }
+    }
+
     func targetMainWindowController(routeContext: OperationRouteContext?) -> MainWindowController? {
         if let routeContext {
             // An explicit owner that has closed must not fall through to an
@@ -503,6 +515,8 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         let token = split.beginDisplayRequest(identity: identity)
         let session = controller.projectSession
         let generation = session.beginProjectOpen()
+        let inFlightKey = ObjectIdentifier(controller)
+        projectOpensInFlight[inFlightKey] = projectURL.standardizedFileURL.resolvingSymlinksInPath().path
         let previousProjectURL = session.projectURL.map(ProjectSessionRegistry.canonicalProjectURL)
         invalidateProjectStorage(for: controller)
         mainWindowController = controller
@@ -511,7 +525,10 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         let prepare = split.projectPreparation
         split.projectOpenTask = ProjectTaskTerminationRegistry.start { [weak self, weak controller, weak split] in
             defer {
-                if session.documentGeneration == generation { split?.projectOpenTask = nil }
+                if session.documentGeneration == generation {
+                    split?.projectOpenTask = nil
+                    self?.projectOpensInFlight.removeValue(forKey: inFlightKey)
+                }
                 if snapshot != nil { self?.finishProjectRestoration() }
             }
             let preparation: Result<ProjectSession.PreparedProject, Error>
@@ -2152,6 +2169,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             controller.mainSplitViewController?.sidebarController?.closeProject()
             controller.projectSession.closeProject()
             projectSessionRegistry.unregister(controller.projectSession)
+            projectOpensInFlight.removeValue(forKey: ObjectIdentifier(controller))
         }
 
         // Remove closed main windows from our tracked list.
@@ -2232,9 +2250,22 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             .filter { FileManager.default.fileExists(atPath: $0.projectURL.path) }
             .sorted { $0.windowOrder < $1.windowOrder }
         guard !existingWindows.isEmpty else { return false }
+        // A project that a launch-time open (Finder, `open`, the Dock) has
+        // already put in a window is not restored into a second one. Saved
+        // extra windows of one project (New Window for Current Project) are
+        // still restored.
+        let alreadyOpen = Set(existingWindows.compactMap { snapshot in
+            controllerShowingOrOpening(projectURL: snapshot.projectURL) == nil
+                ? nil
+                : snapshot.projectURL.standardizedFileURL.resolvingSymlinksInPath().path
+        })
+        let windowsToRestore = existingWindows.filter {
+            !alreadyOpen.contains($0.projectURL.standardizedFileURL.resolvingSymlinksInPath().path)
+        }
+        guard !windowsToRestore.isEmpty else { return true }
 
-        pendingProjectRestorations += existingWindows.count
-        for snapshot in existingWindows {
+        pendingProjectRestorations += windowsToRestore.count
+        for snapshot in windowsToRestore {
             let session = ProjectSession(id: snapshot.id)
             let controller = createAndShowMainWindow(projectSession: session)
             if let frame = snapshot.frame {
@@ -2351,6 +2382,17 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         }
 
         if type == .lungfishProject {
+            // A project is opened into at most one window by an open request:
+            // bring forward the window that has it (or is opening it).
+            if let existing = controllerShowingOrOpening(projectURL: url) {
+                welcomeWindowController?.close()
+                welcomeWindowController = nil
+                existing.showWindow(nil)
+                existing.window?.makeKeyAndOrderFront(nil)
+                mainWindowController = existing
+                NSApp.activate()
+                return true
+            }
             let controller = ensureMainWindowForDocumentOpen()
             openProject(url, in: controller)
             return true

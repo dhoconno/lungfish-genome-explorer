@@ -446,6 +446,59 @@ final class MainWindowSessionRoutingTests: XCTestCase {
         )
     }
 
+    private func windowSnapshot(for projectURL: URL, order: Int) -> ProjectWindowSnapshot {
+        ProjectWindowSnapshot(
+            id: UUID(),
+            projectURL: projectURL,
+            windowOrdinal: order + 1,
+            windowOrder: order,
+            windowTitleSuffix: nil,
+            frame: nil,
+            isFullScreen: false,
+            selectedSidebarURL: nil,
+            expandedSidebarURLs: [],
+            sidebarSearchText: nil,
+            activeContent: nil,
+            inspectorTab: nil,
+            sidebarCollapsed: false,
+            inspectorCollapsed: false,
+            sidebarWidth: nil,
+            inspectorWidth: nil,
+            operationsPanelFilter: nil,
+            operationsPanelVisible: false
+        )
+    }
+
+    func testLaunchTimeOpenAndRestorationShowAProjectInOneWindow() async throws {
+        let delegate = makeAppDelegateWithTemporaryState()
+        let temp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("LaunchOpenRestore-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: temp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temp) }
+        let projectURL = temp.appendingPathComponent("Pathogen Detection.lungfish", isDirectory: true)
+        let otherURL = temp.appendingPathComponent("Other.lungfish", isDirectory: true)
+        _ = try DocumentManager.shared.createProject(at: projectURL, name: "Pathogen Detection")
+        _ = try DocumentManager.shared.createProject(at: otherURL, name: "Other")
+        defer { delegate.testingMainWindowControllers.forEach { $0.close() } }
+
+        // The Finder/`open` request arrives first, then the saved windows are
+        // restored while that open is still being prepared.
+        XCTAssertTrue(delegate.openDocument(at: projectURL))
+        XCTAssertTrue(try delegate.testingRestoreProjectWindows(from: ProjectWindowStateEnvelope(windows: [
+            windowSnapshot(for: projectURL, order: 0),
+            windowSnapshot(for: otherURL, order: 1),
+        ])))
+        await delegate.testingWaitForProjectRestoration()
+        // A second open request for the same project focuses its window.
+        XCTAssertTrue(delegate.openDocument(at: projectURL))
+        await delegate.testingWaitForProjectRestoration()
+
+        let projects = delegate.testingMainWindowControllers.compactMap {
+            $0.projectSession.projectURL?.standardizedFileURL.lastPathComponent
+        }
+        XCTAssertEqual(projects.sorted(), ["Other.lungfish", "Pathogen Detection.lungfish"])
+    }
+
     func testClosingDuplicateWindowRetitlesRemainingSameProjectWindows() async throws {
         let delegate = makeAppDelegateWithTemporaryState()
         let temp = FileManager.default.temporaryDirectory
