@@ -9,7 +9,11 @@ import LungfishCore
 ///
 /// Subclass and override `cards` to provide domain-specific metrics.
 /// The base class handles all rendering: card backgrounds, borders,
-/// and full label/value wrapping when cards are narrow.
+/// and label/value wrapping when cards are narrow. Wrapping is capped at
+/// ``maximumLabelLines`` and ``maximumValueLines`` so a long value (for
+/// example a full virus name) truncates inside a bounded tile instead of
+/// growing the bar, and through its host's height constraint, the window.
+/// Accessibility always exposes the full, untruncated value.
 ///
 /// Used by:
 /// - `FASTQSummaryBar` — read count, quality, GC, N50
@@ -55,6 +59,11 @@ open class GenomicSummaryCardBar: NSView {
             self.value = value
         }
     }
+
+    /// Most lines a card label may wrap onto before it truncates.
+    public static let maximumLabelLines = 2
+    /// Most lines a card value may wrap onto before it truncates.
+    public static let maximumValueLines = 2
 
     /// Override in subclasses to provide the cards to display.
     open var cards: [Card] { [] }
@@ -158,22 +167,26 @@ open class GenomicSummaryCardBar: NSView {
             ]
             let cardContentWidth = max(1, cardRect.width - 8)
             let labelStr = NSAttributedString(string: card.label, attributes: labelAttrs)
-            let labelRect = labelStr.boundingRect(
-                with: NSSize(width: cardContentWidth, height: .greatestFiniteMagnitude),
-                options: [.usesLineFragmentOrigin, .usesFontLeading]
+            let labelHeight = Self.boundedTextHeight(
+                card.label,
+                attributes: labelAttrs,
+                width: cardContentWidth,
+                font: fonts.label,
+                maximumLines: Self.maximumLabelLines
             )
             labelStr.draw(
                 with: NSRect(
                     x: cardRect.minX + 4,
                     y: cardRect.minY + 4,
                     width: cardContentWidth,
-                    height: ceil(labelRect.height)
+                    height: labelHeight
                 ),
-                options: [.usesLineFragmentOrigin, .usesFontLeading]
+                options: [.usesLineFragmentOrigin, .usesFontLeading, .truncatesLastVisibleLine]
             )
 
-            // Value (below the label), wrapped so long scientific identifiers
-            // remain visible instead of clipping at larger content sizes.
+            // Value (below the label), wrapped onto at most
+            // `maximumValueLines` lines and truncated after that, so a long
+            // scientific name never makes the tile taller than its budget.
             let valueParagraph = valueParagraphStyle()
             let valueAttrs: [NSAttributedString.Key: Any] = [
                 .font: fonts.value,
@@ -181,18 +194,21 @@ open class GenomicSummaryCardBar: NSView {
                 .paragraphStyle: valueParagraph,
             ]
             let valueStr = NSAttributedString(string: card.value, attributes: valueAttrs)
-            let valueRect = valueStr.boundingRect(
-                with: NSSize(width: cardContentWidth, height: .greatestFiniteMagnitude),
-                options: [.usesLineFragmentOrigin, .usesFontLeading]
+            let valueHeight = Self.boundedTextHeight(
+                card.value,
+                attributes: valueAttrs,
+                width: cardContentWidth,
+                font: fonts.value,
+                maximumLines: Self.maximumValueLines
             )
             valueStr.draw(
                 with: NSRect(
                     x: cardRect.minX + 4,
-                    y: cardRect.minY + 6 + ceil(labelRect.height),
+                    y: cardRect.minY + 6 + labelHeight,
                     width: cardContentWidth,
-                    height: ceil(valueRect.height)
+                    height: valueHeight
                 ),
-                options: [.usesLineFragmentOrigin, .usesFontLeading]
+                options: [.usesLineFragmentOrigin, .usesFontLeading, .truncatesLastVisibleLine]
             )
 
             ctx.restoreGState()
@@ -281,13 +297,39 @@ open class GenomicSummaryCardBar: NSView {
         #endif
     }
 
+    /// Height of `text` wrapped to `width`, capped at `maximumLines` lines.
+    private static func boundedTextHeight(
+        _ text: String,
+        attributes: [NSAttributedString.Key: Any],
+        width: CGFloat,
+        font: NSFont,
+        maximumLines: Int
+    ) -> CGFloat {
+        let wrapped = ceil((text as NSString).boundingRect(
+            with: NSSize(width: max(1, width), height: .greatestFiniteMagnitude),
+            options: [.usesLineFragmentOrigin, .usesFontLeading],
+            attributes: attributes
+        ).height)
+        let lineHeight = ceil(NSLayoutManager().defaultLineHeight(for: font))
+        return min(wrapped, lineHeight * CGFloat(max(1, maximumLines)))
+    }
+
     private func layoutMetrics(for width: CGFloat) -> (frames: [NSRect], height: CGFloat, rows: Int) {
         let cardData = cards
         guard !cardData.isEmpty else { return ([], 48, 0) }
         let padding: CGFloat = 8
         let spacing: CGFloat = 6
         let minimumCardWidth: CGFloat = 104
-        let availableWidth = max(1, width - padding * 2)
+        // Before the bar has been laid out its width is zero. Measuring text
+        // at that width wraps every character onto its own line and reports
+        // a height of thousands of points, which a host's required height
+        // constraint then pushes up to the window. Measure an unsized bar as
+        // a single row of minimum-width cards; `layout()` reports the real
+        // height as soon as the bar has a width.
+        let layoutWidth = width > 0
+            ? width
+            : padding * 2 + CGFloat(cardData.count) * (minimumCardWidth + spacing) - spacing
+        let availableWidth = max(1, layoutWidth - padding * 2)
         let columns = max(
             1,
             min(cardData.count, Int(floor((availableWidth + spacing) / (minimumCardWidth + spacing))))
@@ -300,19 +342,23 @@ open class GenomicSummaryCardBar: NSView {
         let fonts = resolvedFonts()
         let labelWidth = max(1, cardWidth - 8)
         let maximumContentHeight = cardData.map { card in
-            let labelHeight = ceil((card.label as NSString).boundingRect(
-                with: NSSize(width: labelWidth, height: .greatestFiniteMagnitude),
-                options: [.usesLineFragmentOrigin, .usesFontLeading],
-                attributes: [.font: fonts.label]
-            ).height)
-            let valueHeight = ceil((card.value as NSString).boundingRect(
-                with: NSSize(width: labelWidth, height: .greatestFiniteMagnitude),
-                options: [.usesLineFragmentOrigin, .usesFontLeading],
+            let labelHeight = Self.boundedTextHeight(
+                card.label,
+                attributes: [.font: fonts.label],
+                width: labelWidth,
+                font: fonts.label,
+                maximumLines: Self.maximumLabelLines
+            )
+            let valueHeight = Self.boundedTextHeight(
+                card.value,
                 attributes: [
                     .font: fonts.value,
                     .paragraphStyle: valueParagraphStyle(),
-                ]
-            ).height)
+                ],
+                width: labelWidth,
+                font: fonts.value,
+                maximumLines: Self.maximumValueLines
+            )
             return labelHeight + valueHeight
         }.max() ?? (fonts.label.boundingRectForFont.height + fonts.value.boundingRectForFont.height)
         let cardHeight = ceil(maximumContentHeight + 14)
@@ -373,7 +419,7 @@ open class GenomicSummaryCardBar: NSView {
     #endif
 
     /// Retained for source compatibility with older summary bars. Rendering
-    /// now always wraps and shows the full label.
+    /// wraps the full label (up to ``maximumLabelLines``) instead.
     open func abbreviatedLabel(for label: String) -> String {
         switch label {
         case "Median Length": return "Med. Len"
