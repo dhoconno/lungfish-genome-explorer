@@ -883,7 +883,11 @@ extension MainWindowController: NSWindowDelegate {
                     self.operationsCloseWarningTask = nil
                     guard shouldClose, let sender else { return }
                     self.hasConfirmedCloseWithRunningOperations = true
-                    for operation in runningOperations {
+                    // Re-check on confirm: cancel what is running now, not
+                    // what was running when the sheet opened.
+                    for operation in OperationCenter.shared.activeItems(
+                        forProjectURL: self.projectSession.projectURL
+                    ) {
                         OperationCenter.shared.cancel(id: operation.id)
                     }
                     sender.performClose(nil)
@@ -917,13 +921,17 @@ extension MainWindowController: NSWindowDelegate {
         operations: [OperationCenter.Item]
     ) async -> Bool {
         let alert = NSAlert()
-        alert.messageText = RunningOperationsWarning.messageText(kind: .closeWindow, count: operations.count)
-        alert.informativeText = RunningOperationsWarning.informativeText(kind: .closeWindow, operations: operations)
         alert.alertStyle = .warning
         let closeButton = alert.addButton(withTitle: "Cancel Operations and Close")
         closeButton.hasDestructiveAction = true
         let dontCloseButton = alert.addButton(withTitle: "Don't Close")
         dontCloseButton.keyEquivalent = "\r"
+        // The list follows OperationCenter while the sheet is open.
+        let projectURL = projectSession.projectURL
+        let live = LiveRunningOperationsAlert(alert: alert, kind: .closeWindow) {
+            OperationCenter.shared.activeItems(forProjectURL: projectURL)
+        }
+        defer { live.stop() }
         alert.applyLungfishBranding()
 
         // No window means there is nothing to close and nothing to attach a

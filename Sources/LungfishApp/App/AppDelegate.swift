@@ -962,13 +962,17 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         operations: [OperationCenter.Item]
     ) async -> Bool {
         let alert = NSAlert()
-        alert.messageText = RunningOperationsWarning.messageText(kind: .quit, count: operations.count)
-        alert.informativeText = RunningOperationsWarning.informativeText(kind: .quit, operations: operations)
         alert.alertStyle = .warning
         let quitButton = alert.addButton(withTitle: "Cancel Operations and Quit")
         quitButton.hasDestructiveAction = true
         let dontQuitButton = alert.addButton(withTitle: "Don't Quit")
         dontQuitButton.keyEquivalent = "\r"
+        // The list follows OperationCenter while the sheet is open, so a run
+        // that finishes meanwhile is no longer shown as running.
+        let live = LiveRunningOperationsAlert(alert: alert, kind: .quit) {
+            OperationCenter.shared.activeItems
+        }
+        defer { live.stop() }
         alert.applyLungfishBranding()
 
         let window = mainWindowController?.window

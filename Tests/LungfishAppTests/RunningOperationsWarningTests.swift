@@ -28,4 +28,30 @@ final class RunningOperationsWarningTests: XCTestCase {
             "Close Window with 2 Operations Running?"
         )
     }
+
+    func testOpenWarningDropsRunsThatFinishAndSaysWhenNothingIsLeft() {
+        let center = OperationCenter()
+        let kraken = center.start(title: "Kraken2 SRR12486989", detail: "Running")
+        let esviritu = center.start(title: "EsViritu SRR12486983", detail: "Running")
+        let alert = NSAlert()
+        alert.addButton(withTitle: "Cancel Operations and Quit").hasDestructiveAction = true
+        alert.addButton(withTitle: "Don't Quit")
+        let live = LiveRunningOperationsAlert(alert: alert, kind: .quit, center: center) {
+            center.activeItems
+        }
+        defer { live.stop() }
+        XCTAssertEqual(alert.messageText, "Quit with 2 Operations Running?")
+        XCTAssertTrue(alert.informativeText.contains("Kraken2 SRR12486989"))
+
+        XCTAssertTrue(center.complete(id: kraken, detail: "Done"))
+        XCTAssertEqual(alert.messageText, "Quit with 1 Operation Running?")
+        XCTAssertFalse(alert.informativeText.contains("Kraken2"), alert.informativeText)
+        XCTAssertEqual(live.operations.map(\.id), [esviritu])
+
+        XCTAssertTrue(center.complete(id: esviritu, detail: "Done"))
+        XCTAssertTrue(live.operations.isEmpty)
+        XCTAssertEqual(alert.messageText, "All Operations Have Finished")
+        XCTAssertEqual(alert.buttons.first?.title, "Quit")
+        XCTAssertEqual(alert.buttons.first?.hasDestructiveAction, false)
+    }
 }
