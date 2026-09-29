@@ -177,4 +177,59 @@ final class OperationCenterAnalysisOutputTests: XCTestCase {
         )
         XCTAssertNil(center.registerInterruptedAnalysisRun(run))
     }
+
+    // MARK: - Sequential batches
+
+    /// The last child's completion must find its batch root already complete,
+    /// so the caller that selects the result right after completing it
+    /// finds it in the sidebar.
+    func testSequentialBatchRootCompletesWhenItsLastChildCompletes() throws {
+        let dir = try makeIncompleteRun("minimap2-batch-2026-09-28T10-00-00")
+        let sample1 = dir.appendingPathComponent("S1", isDirectory: true)
+        let sample2 = dir.appendingPathComponent("S2", isDirectory: true)
+        let batch = SequentialAnalysisBatchHold(directory: dir, childCount: 2, center: center)
+
+        let first = center.start(title: "S1", detail: "Running")
+        center.trackAnalysisOutput(sample1, for: first)
+        batch.didLaunchChild()
+        XCTAssertTrue(center.complete(id: first, detail: "Done"))
+        XCTAssertTrue(AnalysisRunRecord.isIncomplete(dir), "hidden between children")
+
+        let second = center.start(title: "S2", detail: "Running")
+        center.trackAnalysisOutput(sample2, for: second)
+        batch.didLaunchChild()
+        XCTAssertTrue(AnalysisRunRecord.isIncomplete(dir), "hidden while the last child runs")
+        XCTAssertTrue(center.complete(id: second, detail: "Done"))
+        XCTAssertFalse(AnalysisRunRecord.isIncomplete(dir), "complete as soon as the last child completes")
+
+        batch.finish(succeeded: true)
+        XCTAssertFalse(AnalysisRunRecord.isIncomplete(dir))
+    }
+
+    func testSequentialBatchWhoseLastChildFailsStillCompletesOnAnEarlierSuccess() throws {
+        let dir = try makeIncompleteRun("spades-batch-2026-09-28T10-00-00")
+        let batch = SequentialAnalysisBatchHold(directory: dir, childCount: 2, center: center)
+        let first = center.start(title: "S1", detail: "Running")
+        center.trackAnalysisOutput(dir.appendingPathComponent("S1"), for: first)
+        batch.didLaunchChild()
+        center.complete(id: first, detail: "Done")
+        let second = center.start(title: "S2", detail: "Running")
+        center.trackAnalysisOutput(dir.appendingPathComponent("S2"), for: second)
+        batch.didLaunchChild()
+        center.fail(id: second, detail: "boom")
+        XCTAssertFalse(AnalysisRunRecord.isIncomplete(dir))
+    }
+
+    func testSequentialBatchCancelledBeforeItsLastChildStaysHidden() throws {
+        let dir = try makeIncompleteRun("minimap2-batch-2026-09-28T11-00-00")
+        let batch = SequentialAnalysisBatchHold(directory: dir, childCount: 3, center: center)
+        let first = center.start(title: "S1", detail: "Running")
+        center.trackAnalysisOutput(dir.appendingPathComponent("S1"), for: first)
+        batch.didLaunchChild()
+        center.cancel(id: first)
+        center.acknowledgeCancellation(id: first)
+        batch.finish(succeeded: false)
+        XCTAssertTrue(AnalysisRunRecord.isIncomplete(dir))
+        XCTAssertFalse(center.isTrackingAnalysisOutput(dir))
+    }
 }

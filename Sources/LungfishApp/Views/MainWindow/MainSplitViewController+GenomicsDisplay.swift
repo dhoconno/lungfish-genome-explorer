@@ -1150,8 +1150,13 @@ extension MainSplitViewController {
             }
             let batchDirectory = precomputedSampleDirectories.first.flatMap { $0 }?.deletingLastPathComponent()
             // The children run one after another, so the batch root stays
-            // hidden until the last one finishes (each child also tracks it).
-            let batchOutputHold = batchDirectory.map { OperationCenter.shared.holdAnalysisOutput($0) }
+            // hidden between them. The hold ends once the last child tracks
+            // the root, so the root completes with that child and its
+            // completion can select the result (not only after this loop).
+            let batchOutputHold = SequentialAnalysisBatchHold(
+                directory: batchDirectory,
+                childCount: independentRequests.count
+            )
             Task { @MainActor [weak self] in
                 for (independentRequest, precomputedSampleDirectory) in zip(independentRequests, precomputedSampleDirectories) {
                     // `break`, NOT `return` (BG4 review fix): `return` here
@@ -1177,7 +1182,12 @@ extension MainSplitViewController {
                         preferredOutputDirectory: destinationRoot,
                         precomputedAssemblyBatchSampleDirectory: precomputedSampleDirectory
                     ) {
+                        // The child tracks its sample directory, and so the batch root.
+                        batchOutputHold.didLaunchChild()
                         await self.awaitOperationTerminal(id: opID)
+                    } else {
+                        // Could not start: it still counts toward the last child.
+                        batchOutputHold.didLaunchChild()
                     }
                 }
 
@@ -1197,9 +1207,7 @@ extension MainSplitViewController {
                 // root a batch directory in (or failed to create one): there
                 // is then no shared batch directory to clean up, exactly the
                 // pre-BG4 behavior.
-                if let batchOutputHold {
-                    OperationCenter.shared.releaseAnalysisOutputHold(batchOutputHold, succeeded: false)
-                }
+                batchOutputHold.finish(succeeded: false)
                 if let batchDirectory {
                     AnalysesFolder.removeBatchDirectoryIfEffectivelyEmpty(batchDirectory)
                 }

@@ -1215,8 +1215,9 @@ extension AppDelegate {
         // single-request plan.
         let perRequestDirectories: [URL?] = preassignedDirectories ?? Array(repeating: nil, count: requests.count)
         // The children run one after another, so the batch root stays hidden
-        // until the last one finishes (each child also tracks it).
-        let batchOutputHold = batchDirectory.map { OperationCenter.shared.holdAnalysisOutput($0) }
+        // between them. The hold ends once the last child tracks the root,
+        // so the root completes with that child rather than after the loop.
+        let batchOutputHold = SequentialAnalysisBatchHold(directory: batchDirectory, childCount: requests.count)
         let taskHandle = MappingBatchTaskHandle()
         let task = Task.detached { [weak self] in
             var anySucceeded = false
@@ -1238,6 +1239,8 @@ extension AppDelegate {
                         // / pipeline.run), and the loop's `Task.isCancelled`
                         // guard prevents any further bundle from starting.
                         OperationCenter.shared.setCancelCallback(for: opID) { taskHandle.cancel() }
+                        // The child now tracks its output, and so the batch root.
+                        batchOutputHold.didLaunchChild()
                     }
                 )
                 anySucceeded = anySucceeded || succeeded
@@ -1252,9 +1255,7 @@ extension AppDelegate {
             // empty and must stay.
             let batchSucceeded = anySucceeded
             await MainActor.run {
-                if let batchOutputHold {
-                    OperationCenter.shared.releaseAnalysisOutputHold(batchOutputHold, succeeded: batchSucceeded)
-                }
+                batchOutputHold.finish(succeeded: batchSucceeded)
                 if !batchSucceeded, let batchDirectory {
                     AnalysesFolder.removeBatchDirectoryIfEffectivelyEmpty(batchDirectory)
                 }

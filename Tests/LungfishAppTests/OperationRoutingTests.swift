@@ -728,6 +728,50 @@ final class OperationRoutingTests: XCTestCase {
     /// independent `runFASTQOperationLaunchRequestValidated` call (own
     /// opID, own Task.detached, own failure isolation -- unchanged from
     /// round 1).
+    /// A sequential batch hides its root between children, but must stop
+    /// holding it once the last child is running, so the last child's
+    /// completion (which refreshes the sidebar and selects the result)
+    /// finds the root already complete.
+    func testSequentialBatchesReleaseTheirRootHoldWhenTheLastChildStarts() throws {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let genomics = try String(
+            contentsOf: root.appendingPathComponent(
+                "Sources/LungfishApp/Views/MainWindow/MainSplitViewController+GenomicsDisplay.swift"
+            ),
+            encoding: .utf8
+        )
+        let assembleBody = try sourceFunctionBody(
+            named: "request.independentAssembleLaunchRequests",
+            endingBefore: "let workingDirectory: URL",
+            in: genomics
+        )
+        XCTAssertTrue(assembleBody.contains("SequentialAnalysisBatchHold("))
+        XCTAssertFalse(assembleBody.contains("holdAnalysisOutput("))
+        let launched = try XCTUnwrap(assembleBody.range(of: "batchOutputHold.didLaunchChild()"))
+        let awaited = try XCTUnwrap(assembleBody.range(of: "await self.awaitOperationTerminal(id: opID)"))
+        XCTAssertLessThan(launched.lowerBound, awaited.lowerBound)
+
+        let tools = try String(
+            contentsOf: root.appendingPathComponent("Sources/LungfishApp/App/AppDelegate+ToolsMenu.swift"),
+            encoding: .utf8
+        )
+        let mappingBody = try sourceFunctionBody(
+            named: "private func runManagedMapping(\n        plan: MappingRunPlan",
+            endingBefore: "    private func runSingleManagedMappingAwaitingCompletion",
+            in: tools
+        )
+        XCTAssertTrue(mappingBody.contains("SequentialAnalysisBatchHold("))
+        XCTAssertFalse(mappingBody.contains("holdAnalysisOutput("))
+        // Released from registerCancel, which runs right after the child
+        // starts and tracks its output, before its mapping is awaited.
+        let registerCancel = try XCTUnwrap(mappingBody.range(of: "registerCancel: { @MainActor opID in"))
+        let mappingLaunched = try XCTUnwrap(mappingBody.range(of: "batchOutputHold.didLaunchChild()"))
+        XCTAssertLessThan(registerCancel.lowerBound, mappingLaunched.lowerBound)
+    }
+
     func testAssembleLaunchFansOutBeforeOperationRegistrationAndDispatchesChildrenSequentially() throws {
         let root = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()

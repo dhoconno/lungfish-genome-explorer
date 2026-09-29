@@ -1317,3 +1317,51 @@ public final class OperationCenter: ObservableObject {
         changes.send(.updated(id: id, index: index))
     }
 }
+
+// MARK: - Sequential analysis batches
+
+/// Keeps a batch root hidden across children that run one after another,
+/// without delaying it past the last child.
+///
+/// Between two children no operation tracks the batch root, so a hold keeps
+/// it incomplete. The hold is released as soon as the **last** child has
+/// started and tracks the root itself. The root is then marked complete by
+/// that child's own completion (when any child completed), before the
+/// caller refreshes the sidebar and selects the result, instead of only
+/// after the batch loop ends.
+@MainActor
+public final class SequentialAnalysisBatchHold {
+    private let center: OperationCenter
+    private var token: UUID?
+    private var remainingChildren: Int
+
+    /// - Parameters:
+    ///   - directory: The batch root, or `nil` when the batch has none
+    ///     (every call is then a no-op).
+    ///   - childCount: How many children the batch will try to start.
+    public init(directory: URL?, childCount: Int, center: OperationCenter = .shared) {
+        self.center = center
+        self.remainingChildren = childCount
+        self.token = directory.map { center.holdAnalysisOutput($0) }
+    }
+
+    /// Call once per child, after launching it: a started child tracks its
+    /// output (and so the batch root) by then. A child that could not start
+    /// counts too. After the last child, the hold is released.
+    public func didLaunchChild() {
+        remainingChildren -= 1
+        if remainingChildren <= 0 { release(succeeded: false) }
+    }
+
+    /// Call once the batch loop has ended, whether it ran every child or
+    /// stopped early. `succeeded` adds to the children's own outcomes.
+    public func finish(succeeded: Bool) {
+        release(succeeded: succeeded)
+    }
+
+    private func release(succeeded: Bool) {
+        guard let token else { return }
+        self.token = nil
+        center.releaseAnalysisOutputHold(token, succeeded: succeeded)
+    }
+}
