@@ -249,7 +249,7 @@ private struct FastqONTBarcodeGenotypingPayload: Encodable {
     let sourceReferenceBundlePath: String?
     let totalInputReads: Int
     let retainedUniqueReads: Int
-    let retainedUniquePercentOfTotalReads: Double
+    let retainedUniquePercentOfTotalReads: Double?
     let assignedUniqueRetainedReads: Int
     let unassignedUniqueRetainedReads: Int
 }

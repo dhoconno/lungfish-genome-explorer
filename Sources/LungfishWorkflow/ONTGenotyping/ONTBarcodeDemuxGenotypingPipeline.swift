@@ -524,7 +524,8 @@ public struct ONTBarcodeDemuxGenotypingResult: Sendable, Codable, Equatable {
     public let sourceReferenceBundleURL: URL?
     public let totalInputReads: Int
     public let retainedUniqueReads: Int
-    public let retainedUniquePercentOfTotalReads: Double
+    /// Nil when the run denominator was 0 or unknown; the genotypes are still valid.
+    public let retainedUniquePercentOfTotalReads: Double?
     public let assignedUniqueRetainedReads: Int
     public let unassignedUniqueRetainedReads: Int
 }
@@ -986,6 +987,17 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             scriptURL: scriptURL,
             pythonURL: pythonURL
         )
+        if filter.stats.totalInputReads <= 0 || filter.stats.retainedUniquePercentOfTotalReads == nil {
+            // The genotypes do not depend on the denominator, so finish the
+            // run and say the percentage is unavailable rather than failing.
+            progressHandler?(
+                0.59,
+                """
+                Warning: the run's input \(filter.stats.totalInputReadsUnit ?? "read") count is \(filter.stats.totalInputReads), \
+                so the retained percentage is not available. Genotypes are unaffected.
+                """
+            )
+        }
 
         let finalizedResult: ONTBarcodeDemuxGenotypingResult
         let preserveRetainedEvidence: Bool
@@ -1994,15 +2006,17 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         /// defect), because it counts pre-merge mates while the retained
         /// side counts post-merge fragments.
         ///
-        /// - When `mergeOutcome` ran bbmerge, this is `pairCount` (merged
-        ///   fragments + unmerged mates folded back to one fragment each).
+        /// - When `mergeOutcome` ran bbmerge, this is the outcome's
+        ///   `fragmentCount`: merged fragments, unmerged mates folded back to
+        ///   one fragment each, and the merged/orphan reads of a mixed input
+        ///   that bypassed bbmerge.
         /// - Otherwise `readCount` is already fragment-denominated: either
         ///   the input was single-end/pre-merged (one record per fragment),
         ///   or an explicit override (`readCountSource` other than the raw
         ///   weighted count) already reports fragments.
         var totalFragmentCount: Int {
             if let merge = mergeOutcome, merge.didMerge {
-                return merge.pairCount
+                return merge.fragmentCount
             }
             return readCount
         }
@@ -2142,7 +2156,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         let export: GenotypeExcelExportService.ExportResult
     }
 
-    private struct RetainedDemuxStats: Decodable {
+    struct RetainedDemuxStats: Decodable {
         let totalInputReads: Int
         /// "fragments" once the filter was handed fragment-denominated
         /// totals; absent from stats written by older builds.
@@ -2151,9 +2165,17 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         let passedAlignments: Int
         let retainedQueryNamesBeforeDemux: Int?
         let retainedUniqueReads: Int
-        let retainedUniquePercentOfTotalReads: Double
+        /// The filter writes null when the run denominator is 0 or unknown.
+        /// A missing percentage must not fail a run whose genotyping worked.
+        let retainedUniquePercentOfTotalReads: Double?
         let assignedUniqueRetainedReads: Int
         let unassignedUniqueRetainedReads: Int
+    }
+
+    /// Decodes the retained-read filter's stdout summary.
+    static func decodeFilterStats(_ stdout: String) -> RetainedDemuxStats? {
+        guard let data = stdout.data(using: .utf8) else { return nil }
+        return try? JSONDecoder().decode(RetainedDemuxStats.self, from: data)
     }
 
     private struct ReportSummary: Decodable {
@@ -2447,9 +2469,18 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         // a mixed sample (merged reads plus pairs) counts as paired here and
         // the merger separates its pairs by name before bbmerge.
         var pairedIndices: [Int] = []
+        // Samples whose scanned records actually hold adjacent mates. A
+        // sample can resolve as mixed from metadata alone (merged at import,
+        // sidecar still says interleaved) with no mates to merge; the merger
+        // maps those as they are, so they are not counted as unmerged here.
+        var samplesWithMates = 0
         for (index, sample) in samples.enumerated() {
-            if FASTQInputLayoutResolver.resolve(inputURLs: [sample.fastqURL]).layout.holdsPairs {
+            let resolution = FASTQInputLayoutResolver.resolve(inputURLs: [sample.fastqURL])
+            if resolution.layout.holdsPairs {
                 pairedIndices.append(index)
+                if (resolution.classification?.matePairs ?? 1) > 0 {
+                    samplesWithMates += 1
+                }
             }
         }
         guard !pairedIndices.isEmpty else { return samples }
@@ -2458,15 +2489,17 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         // the Illumina Amplicon Merge recipe, and the run's read counts and
         // provenance will differ from a merged-on-import bundle. Silence here
         // is what let a whole locus class (DRB) report zero unnoticed.
-        progressHandler?(
-            0.23,
-            """
-            \(pairedIndices.count) of \(samples.count) Illumina inputs contain unmerged read pairs. \
-            Merging overlapping pairs before mapping so full-length amplicons \
-            (including the 244 bp DRB loci) can be genotyped. Import with the \
-            Illumina Amplicon Merge recipe to do this at import time instead.
-            """
-        )
+        if samplesWithMates > 0 {
+            progressHandler?(
+                0.23,
+                """
+                \(samplesWithMates) of \(samples.count) Illumina inputs contain unmerged read pairs. \
+                Merging overlapping pairs before mapping so full-length amplicons \
+                (including the 244 bp DRB loci) can be genotyped. Import with the \
+                Illumina Amplicon Merge recipe to do this at import time instead.
+                """
+            )
+        }
         let bbmergeURL = try await condaManager.toolPath(name: "bbmerge.sh", environment: "bbtools")
         let mergeDirectory = supportDirectory.appendingPathComponent("illumina-merged-fastqs", isDirectory: true)
         var updated = samples
@@ -3532,8 +3565,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         guard result.exitCode == 0 else {
             throw ONTBarcodeDemuxGenotypingError.filterFailed(status: result.exitCode, stderr: result.stderr)
         }
-        guard let data = result.stdout.data(using: .utf8),
-              let stats = try? JSONDecoder().decode(RetainedDemuxStats.self, from: data) else {
+        guard let stats = Self.decodeFilterStats(result.stdout) else {
             throw ONTBarcodeDemuxGenotypingError.invalidFilterOutput(result.stdout)
         }
         return FilterStepResult(
@@ -4507,7 +4539,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             "totalAlignments": filter.stats.totalAlignments,
             "passedAlignments": filter.stats.passedAlignments,
             "retainedUniqueReads": filter.stats.retainedUniqueReads,
-            "retainedUniquePercentOfTotalReads": filter.stats.retainedUniquePercentOfTotalReads,
+            "retainedUniquePercentOfTotalReads": filter.stats.retainedUniquePercentOfTotalReads as Any? ?? NSNull(),
             "assignedUniqueRetainedReads": filter.stats.assignedUniqueRetainedReads,
             "unassignedUniqueRetainedReads": filter.stats.unassignedUniqueRetainedReads,
         ]
