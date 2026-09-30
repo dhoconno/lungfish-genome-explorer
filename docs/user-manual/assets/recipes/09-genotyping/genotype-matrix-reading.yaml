@@ -2,8 +2,7 @@
 # App state: MHC MiSeq cohort project, Analyses/Amplicon genotyping results/amplicon-genotyping clicked: allele-target rows with the Genotype column pinned at left, one column per sample, Inspector Bundle tab with Run Summary, Excel and QC Status.
 id: genotype-matrix-reading
 chapter: 09-genotyping/03-reading-the-genotype-comparison
-caption: The genotype result window on the MHC MiSeq cohort result, with allele-target rows named by their
-  reference record down the pinned left columns and one column per sample across the top.
+caption: "The genotype result window on the MHC MiSeq Cohort (de-identified) result, with allele-target rows named by their reference record down the pinned left columns and one column per sample across the top."
 viewport_class: genotype
 app_state:
   fixture: '{mhc_cohort_project}'

@@ -12,7 +12,7 @@ entry_points:
   - "Open a genotype result bundle from the sidebar"
 shots:
   - id: genotype-matrix-reading
-    caption: "The genotype result window on the MHC MiSeq cohort result, with allele-target rows named by their reference record down the pinned left columns and one column per sample across the top."
+    caption: "The genotype result window on the MHC MiSeq Cohort (de-identified) result, with allele-target rows named by their reference record down the pinned left columns and one column per sample across the top."
   - id: genotype-call-evidence
     caption: "The selected sample's header metrics in the detail pane beside the Inspector's Selected Item tab, which lists the sample's allele targets as Read support and Allele field pairs."
   - id: genotype-inspector-display
