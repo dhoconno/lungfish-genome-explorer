@@ -675,44 +675,46 @@ struct AssemblyWizardSheet: View {
         VStack(alignment: .leading, spacing: 12) {
             sectionTitle("Readiness")
 
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(compatibilityPresentation.fillStyle.fillColor)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .stroke(Color.lungfishStroke, lineWidth: 1)
-                )
-                .overlay(
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text(compatibilityPresentation.message)
-                            .font(.body.weight(.medium))
-                            .foregroundStyle(Color.primary)
-                            .accessibilityIdentifier("assembly-readiness-message")
+            // The card is sized by its text. A shape with the text as an
+            // overlay has no height of its own, so it collapsed to a thin bar
+            // with the readiness message drawn over its top edge.
+            VStack(alignment: .leading, spacing: 8) {
+                Text(compatibilityPresentation.message)
+                    .font(.body.weight(.medium))
+                    .foregroundStyle(Color.primary)
+                    .accessibilityIdentifier("assembly-readiness-message")
 
-                        if let toolStatus = selectedToolStatus {
-                            Text("Managed tool status: \(toolStatus.statusText)")
-                                .font(.caption)
-                                .foregroundStyle(Color.lungfishSecondaryText)
-                            if let failure = toolStatus.smokeTestFailure {
-                                Text(failure)
-                                    .font(.caption)
-                                    .foregroundStyle(Color.lungfishOrangeFallback)
-                            }
-                        } else {
-                            Text("Managed tool status: checking Genome Assembly pack.")
-                                .font(.caption)
-                                .foregroundStyle(Color.lungfishSecondaryText)
-                        }
-
-                        if let failure = packStatus?.failureMessage {
-                            Text(failure)
-                                .font(.caption)
-                                .foregroundStyle(Color.lungfishOrangeFallback)
-                        }
+                if let toolStatus = selectedToolStatus {
+                    Text("Managed tool status: \(toolStatus.statusText)")
+                        .font(.caption)
+                        .foregroundStyle(Color.lungfishSecondaryText)
+                    if let failure = toolStatus.smokeTestFailure {
+                        Text(failure)
+                            .font(.caption)
+                            .foregroundStyle(Color.lungfishOrangeFallback)
                     }
-                    .padding(14)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                )
-                .frame(maxWidth: .infinity)
+                } else {
+                    Text("Managed tool status: checking Genome Assembly pack.")
+                        .font(.caption)
+                        .foregroundStyle(Color.lungfishSecondaryText)
+                }
+
+                if let failure = packStatus?.failureMessage {
+                    Text(failure)
+                        .font(.caption)
+                        .foregroundStyle(Color.lungfishOrangeFallback)
+                }
+            }
+            .padding(14)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(compatibilityPresentation.fillStyle.fillColor)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .stroke(Color.lungfishStroke, lineWidth: 1)
+            )
 
             if let validationMessage, compatibilityPresentation.state == .ready {
                 Text(validationMessage)

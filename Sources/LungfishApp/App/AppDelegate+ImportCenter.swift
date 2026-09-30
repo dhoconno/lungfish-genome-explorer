@@ -296,7 +296,14 @@ extension AppDelegate {
             return
         }
 
-        let routeContext = routeContext ?? currentOperationRouteContext(for: controller)
+        // The context always names the project the bundle was written to. A
+        // caller that knew only its window (Create Bundle on an assembly
+        // result) used to pass the context on without a project, and the
+        // completed bundle was then copied into another project's Downloads.
+        let routeContext = OperationRouteContext(
+            projectURL: projectURL,
+            windowStateScopeID: routeContext?.windowStateScopeID ?? controller.projectSession.windowStateScope.id
+        )
         let cliCmd = OperationCenter.buildCLICommand(
             subcommand: "import",
             args: ["fasta", url.path, "--output-dir", refsDir.path]
