@@ -556,6 +556,170 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
         XCTAssertEqual(state.outputName, "hello-world-nextflow")
     }
 
+    func testOpeningOnLinkedWorkflowPackageUsesPackageDefaultOutputName() throws {
+        let defaults = try makeDefaults()
+        let enablementStore = WorkflowLibraryEnablementStore(userDefaults: defaults)
+        let packageStore = WorkflowLibraryImportedPackageStore(userDefaults: defaults)
+        let package = try WorkflowPackageValidator.validatePackage(at: helloWorldNextflowPackageURL())
+        packageStore.addValidatedPackage(package)
+        enablementStore.setUserWorkflow(package, enabled: true)
+        let project = try makeMappingDemoLikeProject()
+
+        let state = WorkflowOperationDialogState(
+            projectURL: project.projectURL,
+            selectedReadURLs: [project.readsURL],
+            initialToolID: "package.org.lungfish.templates.hello-world-nextflow",
+            enablementStore: enablementStore,
+            packageStore: packageStore
+        )
+
+        XCTAssertEqual(state.selectedToolID, "package.org.lungfish.templates.hello-world-nextflow")
+        XCTAssertEqual(state.outputName, "hello-world-nextflow")
+    }
+
+    func testPendingLinkedWorkflowPackageGetsPackageDefaultOutputNameOnceListed() async throws {
+        let defaults = try makeDefaults()
+        let enablementStore = WorkflowLibraryEnablementStore(userDefaults: defaults)
+        let packageStore = WorkflowLibraryImportedPackageStore(userDefaults: defaults)
+        let package = try WorkflowPackageValidator.validatePackage(at: helloWorldNextflowPackageURL())
+        packageStore.addPackage(at: package.packageURL)
+        enablementStore.setUserWorkflow(package, enabled: true)
+        let toolID = "package.org.lungfish.templates.hello-world-nextflow"
+
+        let state = WorkflowOperationDialogState(
+            projectURL: nil,
+            initialToolID: toolID,
+            enablementStore: enablementStore,
+            packageStore: packageStore
+        )
+        XCTAssertEqual(state.pendingToolID, toolID)
+
+        for _ in 0..<400 where state.selectedToolID != toolID {
+            try await Task.sleep(for: .milliseconds(25))
+        }
+        XCTAssertEqual(state.selectedToolID, toolID)
+        XCTAssertEqual(state.outputName, "hello-world-nextflow")
+    }
+
+    func testPendingLinkedWorkflowPackageKeepsOutputNameEditedBeforeRefreshListsIt() async throws {
+        let defaults = try makeDefaults()
+        let enablementStore = WorkflowLibraryEnablementStore(userDefaults: defaults)
+        let packageStore = WorkflowLibraryImportedPackageStore(userDefaults: defaults)
+        let package = try WorkflowPackageValidator.validatePackage(at: helloWorldNextflowPackageURL())
+        packageStore.addPackage(at: package.packageURL)
+        enablementStore.setUserWorkflow(package, enabled: true)
+        let toolID = "package.org.lungfish.templates.hello-world-nextflow"
+
+        let state = WorkflowOperationDialogState(
+            projectURL: nil,
+            initialToolID: toolID,
+            enablementStore: enablementStore,
+            packageStore: packageStore
+        )
+        XCTAssertEqual(state.pendingToolID, toolID)
+        state.outputName = "my-hello-run"
+
+        for _ in 0..<400 where state.selectedToolID != toolID {
+            try await Task.sleep(for: .milliseconds(25))
+        }
+        XCTAssertEqual(state.selectedToolID, toolID)
+        XCTAssertEqual(state.outputName, "my-hello-run")
+    }
+
+    func testSidebarSelectedReferenceIsInitialReferenceEvenWhenAnotherCandidateSortsFirst() throws {
+        let defaults = try makeDefaults()
+        let enablementStore = WorkflowLibraryEnablementStore(userDefaults: defaults)
+        let packageStore = WorkflowLibraryImportedPackageStore(userDefaults: defaults)
+        let project = try makeMappingDemoLikeProject()
+
+        let state = WorkflowOperationDialogState(
+            projectURL: project.projectURL,
+            selectedReadURLs: [project.readsURL],
+            selectedReferenceURLs: [project.referenceURL],
+            enablementStore: enablementStore,
+            packageStore: packageStore
+        )
+
+        XCTAssertEqual(state.projectReferenceCandidates.first, project.analysisReferenceURL.standardizedFileURL)
+        XCTAssertEqual(state.selectedReferenceURL, project.referenceURL.standardizedFileURL)
+    }
+
+    func testSidebarSelectedReferenceSurvivesAsynchronousProjectDiscovery() async throws {
+        WorkflowOperationDialogState.testingProjectDiscoveryDelay = .milliseconds(80)
+        defer { WorkflowOperationDialogState.testingProjectDiscoveryDelay = nil }
+        let defaults = try makeDefaults()
+        let enablementStore = WorkflowLibraryEnablementStore(userDefaults: defaults)
+        let packageStore = WorkflowLibraryImportedPackageStore(userDefaults: defaults)
+        let project = try makeMappingDemoLikeProject()
+
+        let state = WorkflowOperationDialogState(
+            projectURL: project.projectURL,
+            selectedReadURLs: [project.readsURL],
+            selectedReferenceURLs: [project.referenceURL],
+            projectDiscoveryMode: .asynchronous,
+            enablementStore: enablementStore,
+            packageStore: packageStore
+        )
+        try await waitForProjectDiscovery(state)
+
+        XCTAssertEqual(state.projectReferenceCandidates.count, 2)
+        XCTAssertEqual(state.selectedReferenceURL, project.referenceURL.standardizedFileURL)
+    }
+
+    func testReconfiguringWithSidebarSelectedReferenceSelectsIt() async throws {
+        let defaults = try makeDefaults()
+        let enablementStore = WorkflowLibraryEnablementStore(userDefaults: defaults)
+        let packageStore = WorkflowLibraryImportedPackageStore(userDefaults: defaults)
+        let project = try makeMappingDemoLikeProject()
+
+        let state = WorkflowOperationDialogState(
+            projectURL: project.projectURL,
+            projectDiscoveryMode: .asynchronous,
+            enablementStore: enablementStore,
+            packageStore: packageStore
+        )
+        try await waitForProjectDiscovery(state)
+        state.setReference(project.analysisReferenceURL)
+
+        state.configureProject(
+            projectURL: project.projectURL,
+            selectedReadURLs: [project.readsURL],
+            selectedReferenceURLs: [project.referenceURL]
+        )
+        try await waitForProjectDiscovery(state)
+
+        XCTAssertEqual(state.selectedReferenceURL, project.referenceURL.standardizedFileURL)
+    }
+
+    func testWithoutSidebarReferencePrefersReferenceSequencesOverAnalysisCopy() throws {
+        let defaults = try makeDefaults()
+        let enablementStore = WorkflowLibraryEnablementStore(userDefaults: defaults)
+        let packageStore = WorkflowLibraryImportedPackageStore(userDefaults: defaults)
+        let project = try makeMappingDemoLikeProject()
+
+        let state = WorkflowOperationDialogState(
+            projectURL: project.projectURL,
+            selectedReadURLs: [project.readsURL],
+            enablementStore: enablementStore,
+            packageStore: packageStore
+        )
+
+        XCTAssertEqual(state.selectedReferenceURL, project.referenceURL.standardizedFileURL)
+    }
+
+    func testWorkflowOperationsResolveSelectedReferenceBundlesFromSidebar() throws {
+        let project = try makeMappingDemoLikeProject()
+        let items = [
+            SidebarItem(title: "GRCh38.chr20.10.0-10.5Mb", type: .referenceBundle, url: project.referenceURL),
+            SidebarItem(title: "HG002.chr20.10.0-10.5Mb", type: .fastqBundle, url: project.readsURL),
+        ]
+
+        XCTAssertEqual(
+            AppDelegate.resolveWorkflowOperationSelectedReferenceURLs(items: items),
+            [project.referenceURL.standardizedFileURL]
+        )
+    }
+
     func testWorkflowPackageIsNotRunnableWithFolderBatchMultiReadSelection() {
         let state = WorkflowOperationDialogState(
             projectURL: URL(fileURLWithPath: "/tmp/project", isDirectory: true),
@@ -2052,6 +2216,24 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
             manifest: manifest,
             warnings: []
         )
+    }
+
+    /// Mirrors the Human Mapping and Variants demo: the project reference, a read bundle,
+    /// and a mapping result that holds its own copy of the reference (which sorts first).
+    private func makeMappingDemoLikeProject() throws -> (
+        projectURL: URL, referenceURL: URL, analysisReferenceURL: URL, readsURL: URL
+    ) {
+        let projectURL = try temporaryDirectory().appendingPathComponent("demo.lungfish", isDirectory: true)
+        let referenceURL = projectURL.appendingPathComponent(
+            "Reference Sequences/GRCh38.chr20.10.0-10.5Mb.lungfishref", isDirectory: true)
+        let analysisReferenceURL = projectURL.appendingPathComponent(
+            "Analyses/minimap2-2026-09-25T00-00-00/GRCh38.chr20.10.0-10.5Mb.lungfishref", isDirectory: true)
+        let readsURL = projectURL.appendingPathComponent(
+            "Imports/HG002.chr20.10.0-10.5Mb.lungfishfastq", isDirectory: true)
+        for url in [referenceURL, analysisReferenceURL, readsURL] {
+            try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        }
+        return (projectURL, referenceURL, analysisReferenceURL, readsURL)
     }
 
     private func temporaryDirectory() throws -> URL {

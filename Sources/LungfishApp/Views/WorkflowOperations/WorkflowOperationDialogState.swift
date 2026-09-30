@@ -102,6 +102,12 @@ final class WorkflowOperationDialogState {
     /// A tool requested (for example from Tools > Workflows) before the linked-package
     /// refresh had listed it. Honoured once the refresh makes that tool available.
     @ObservationIgnored private(set) var pendingToolID: String?
+    /// Reference bundles selected in the sidebar when the window opened. The first one that is
+    /// a project reference candidate becomes the default reference.
+    @ObservationIgnored private var preferredReferenceURLs: [URL]
+    /// The last per-tool default output name the state applied, so a name the user has typed
+    /// is told apart from a default when a pending tool is selected later.
+    @ObservationIgnored private var lastDefaultOutputName: String
     #if DEBUG
     @ObservationIgnored static var testingProjectDiscoveryDelay: Duration?
     #endif
@@ -158,6 +164,7 @@ final class WorkflowOperationDialogState {
         projectURL: URL?,
         selectedReadURLs: [URL] = [],
         sidebarInputSelection: WorkflowSidebarInputSelection? = nil,
+        selectedReferenceURLs: [URL] = [],
         projectDiscoveryMode: WorkflowOperationProjectDiscoveryMode = .synchronous,
         initialToolID requestedInitialToolID: String? = nil,
         enablementStore: WorkflowLibraryEnablementStore = .shared,
@@ -174,6 +181,8 @@ final class WorkflowOperationDialogState {
         self.includeSubfolderBundles = false
         self.selectedReadURLs = standardizedReadURLs
         self.outputName = Self.defaultONTGenotypingOutputName(for: standardizedReadURLs)
+        self.lastDefaultOutputName = Self.defaultONTGenotypingOutputName(for: standardizedReadURLs)
+        self.preferredReferenceURLs = Self.deduplicated(selectedReferenceURLs.map(\.standardizedFileURL))
         self.threads = max(1, ProcessInfo.processInfo.activeProcessorCount)
         self.minSupport = 1
         self.keepIntermediates = false
@@ -205,7 +214,11 @@ final class WorkflowOperationDialogState {
         self.projectReferenceCandidates = initialDiscovery.referenceCandidates
         self.projectGuideCandidates = initialDiscovery.guideCandidates
         self.projectBarcodeDefinitionCandidates = initialDiscovery.barcodeDefinitionCandidates
-        self.selectedReferenceURL = initialDiscovery.referenceCandidates.first
+        self.selectedReferenceURL = Self.defaultReference(
+            from: initialDiscovery.referenceCandidates,
+            preferring: Self.deduplicated(selectedReferenceURLs.map(\.standardizedFileURL)),
+            projectURL: standardizedProjectURL
+        )
         self.selectedGuideURL = initialDiscovery.guideCandidates.first
         self.selectedBarcodeDefinitionURL = initialDiscovery.barcodeDefinitionCandidates.first
         self.isDiscoveringProjectResources = false
@@ -229,6 +242,12 @@ final class WorkflowOperationDialogState {
             ?? initialTools.first?.id
             ?? Self.ontGenotypingID
         self.selectedToolID = initialToolID
+        let initialOutputName = Self.defaultOutputName(
+            for: initialTools.first { $0.id == initialToolID },
+            readURLs: standardizedReadURLs
+        )
+        self.outputName = initialOutputName
+        self.lastDefaultOutputName = initialOutputName
         // A linked package the cache has not listed yet is remembered until the refresh lists it.
         if let requestedInitialToolID, requestedInitialToolID != initialToolID,
            !initialTools.contains(where: { $0.id == requestedInitialToolID }) {
@@ -578,7 +597,10 @@ final class WorkflowOperationDialogState {
         if replayConfiguration != nil, id == selectedToolID { return }
         guard let requested = tools.first(where: { $0.id == id }) else {
             // Not listed yet (linked packages arrive from a background validation pass).
+            // Choosing a tool replaces the current name with the tool's default, as below, so
+            // only an edit made after this request survives once the tool is listed.
             pendingToolID = id
+            lastDefaultOutputName = outputName
             return
         }
         pendingToolID = nil
@@ -598,22 +620,36 @@ final class WorkflowOperationDialogState {
             || outputDirectoryURL?.standardizedFileURL == previousDefaultOutputDirectory?.standardizedFileURL {
             outputDirectoryURL = nextDefaultOutputDirectory
         }
-        if case .workflowPackage = selectedTool?.kind {
-            outputName = selectedTool?.title
+        outputName = Self.defaultOutputName(for: selectedTool, readURLs: selectedReadURLs)
+        lastDefaultOutputName = outputName
+        switch selectedTool?.kind {
+        case .workflowPackage, .twelveSAmpliconMatching:
+            break
+        case .fullLengthONTMHCGenotyping:
+            if selectedHaplotypeAssayID == nil {
+                selectedHaplotypeAssayID = Self.defaultHaplotypeAssayID()
+            }
+        case .ontGenotyping, nil:
+            applyReferenceDefaultsForCurrentAmpliconMode()
+        }
+    }
+
+    /// The output name a tool starts with: the slugified title for a workflow package, and
+    /// the built-in workflow's own default otherwise.
+    private static func defaultOutputName(for tool: WorkflowOperationTool?, readURLs: [URL]) -> String {
+        switch tool?.kind {
+        case .workflowPackage:
+            return tool?.title
                 .lowercased()
                 .components(separatedBy: CharacterSet.alphanumerics.inverted)
                 .filter { !$0.isEmpty }
                 .joined(separator: "-") ?? "workflow-output"
-        } else if selectedTool?.kind == .fullLengthONTMHCGenotyping {
-            outputName = Self.defaultFullLengthONTMHCOutputName(for: selectedReadURLs)
-            if selectedHaplotypeAssayID == nil {
-                selectedHaplotypeAssayID = Self.defaultHaplotypeAssayID()
-            }
-        } else if selectedTool?.kind == .twelveSAmpliconMatching {
-            outputName = Self.defaultTwelveSOutputName(for: selectedReadURLs)
-        } else {
-            outputName = Self.defaultONTGenotypingOutputName(for: selectedReadURLs)
-            applyReferenceDefaultsForCurrentAmpliconMode()
+        case .fullLengthONTMHCGenotyping:
+            return defaultFullLengthONTMHCOutputName(for: readURLs)
+        case .twelveSAmpliconMatching:
+            return defaultTwelveSOutputName(for: readURLs)
+        case .ontGenotyping, nil:
+            return defaultONTGenotypingOutputName(for: readURLs)
         }
     }
 
@@ -906,7 +942,12 @@ final class WorkflowOperationDialogState {
             self.workflowAvailabilityRevision &+= 1
             if self.replayConfiguration == nil, let pending = self.pendingToolID,
                self.cachedTools.first(where: { $0.id == pending })?.availability == .available {
+                // A name typed while the package was still loading outlives the package default.
+                let editedOutputName = self.outputName == self.lastDefaultOutputName ? nil : self.outputName
                 self.selectTool(pending)
+                if let editedOutputName {
+                    self.outputName = editedOutputName
+                }
             } else if self.replayConfiguration == nil,
                self.cachedTools.first(where: { $0.id == self.selectedToolID })?.availability != .available,
                let firstAvailable = self.cachedTools.first(where: { $0.availability == .available }) {
@@ -950,7 +991,11 @@ final class WorkflowOperationDialogState {
         if let url {
             setReference(url)
         } else if resetReferenceSelection || selectedReferenceURL == nil {
-            setReference(snapshot.referenceCandidates.first)
+            setReference(Self.defaultReference(
+                from: snapshot.referenceCandidates,
+                preferring: preferredReferenceURLs,
+                projectURL: projectURL
+            ))
         } else {
             cacheReferenceBundleSummaryIfNeeded(selectedReferenceURL)
         }
@@ -1124,12 +1169,16 @@ final class WorkflowOperationDialogState {
     func configureProject(
         projectURL: URL?,
         selectedReadURLs: [URL],
-        sidebarInputSelection: WorkflowSidebarInputSelection? = nil
+        sidebarInputSelection: WorkflowSidebarInputSelection? = nil,
+        selectedReferenceURLs: [URL] = []
     ) {
         clearReplayConfiguration()
         let standardizedProjectURL = projectURL?.standardizedFileURL
         let projectChanged = self.projectURL != standardizedProjectURL
         let resolvedReadURLs = sidebarInputSelection?.selectedReadURLs(includeSubfolders: false) ?? selectedReadURLs
+        preferredReferenceURLs = Self.deduplicated(selectedReferenceURLs.map(\.standardizedFileURL))
+        // A reference selected in the sidebar replaces the one kept from the last opening.
+        let resetReferenceSelection = projectChanged || selectedReferenceURL == nil || !preferredReferenceURLs.isEmpty
 
         self.projectURL = standardizedProjectURL
         self.sidebarInputSelection = sidebarInputSelection
@@ -1141,7 +1190,7 @@ final class WorkflowOperationDialogState {
             }
             startProjectResourceDiscovery(
                 selecting: nil,
-                resetReferenceSelection: projectChanged || selectedReferenceURL == nil,
+                resetReferenceSelection: resetReferenceSelection,
                 resetBarcodeSelection: projectChanged || selectedBarcodeDefinitionURL == nil,
                 updateFullLengthDefaults: projectChanged
             )
@@ -1149,7 +1198,7 @@ final class WorkflowOperationDialogState {
             applyProjectDiscoverySnapshot(
                 Self.projectDiscoverySnapshot(projectURL: standardizedProjectURL),
                 selecting: nil,
-                resetReferenceSelection: projectChanged || selectedReferenceURL == nil,
+                resetReferenceSelection: resetReferenceSelection,
                 resetGuideSelection: true,
                 resetBarcodeSelection: projectChanged || selectedBarcodeDefinitionURL == nil,
                 updateFullLengthDefaults: projectChanged
@@ -1668,6 +1717,35 @@ final class WorkflowOperationDialogState {
         return definitions
     }
 
+    /// Bundle extensions the Project Reference picker lists.
+    nonisolated private static let referenceBundleExtensions: Set<String> = [
+        "lungfishref",
+        TwelveSReferenceBundle.directoryExtension,
+        MHCAmpliconReferenceBundle.directoryExtension,
+    ]
+
+    /// True for a bundle the Project Reference picker can list.
+    nonisolated static func isReferenceBundleURL(_ url: URL) -> Bool {
+        referenceBundleExtensions.contains(url.pathExtension.lowercased())
+    }
+
+    /// The reference a fresh selection starts with: the first sidebar-selected reference that is a
+    /// candidate, else the first candidate outside `Analyses/` (a mapping result keeps its own copy
+    /// of the reference), else the first candidate.
+    nonisolated private static func defaultReference(
+        from candidates: [URL],
+        preferring preferredURLs: [URL],
+        projectURL: URL?
+    ) -> URL? {
+        let candidatePaths = Set(candidates.map(\.standardizedFileURL.path))
+        if let preferred = preferredURLs.first(where: { candidatePaths.contains($0.standardizedFileURL.path) }) {
+            return preferred.standardizedFileURL
+        }
+        let analysesPrefix = AnalysesFolder.directoryName + "/"
+        return candidates.first { !displayPath(for: $0, relativeTo: projectURL).hasPrefix(analysesPrefix) }
+            ?? candidates.first
+    }
+
     nonisolated private static func discoverReferenceBundles(in projectURL: URL?) -> [URL] {
         guard let projectURL else { return [] }
         guard let enumerator = FileManager.default.enumerator(
@@ -1678,14 +1756,9 @@ final class WorkflowOperationDialogState {
             return []
         }
         var refs: [URL] = []
-        let referenceBundleExtensions = Set([
-            "lungfishref",
-            TwelveSReferenceBundle.directoryExtension,
-            MHCAmpliconReferenceBundle.directoryExtension,
-        ])
         for case let url as URL in enumerator {
             guard !Task.isCancelled else { return refs }
-            guard referenceBundleExtensions.contains(url.pathExtension.lowercased()) else { continue }
+            guard isReferenceBundleURL(url) else { continue }
             refs.append(url.standardizedFileURL)
             enumerator.skipDescendants()
         }

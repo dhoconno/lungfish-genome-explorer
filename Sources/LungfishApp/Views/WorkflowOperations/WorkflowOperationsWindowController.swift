@@ -20,6 +20,7 @@ final class WorkflowOperationsWindowController: NSWindowController, NSWindowDele
         routeContext: OperationRouteContext? = nil,
         selectedReadURLs: [URL] = [],
         sidebarInputSelection: WorkflowSidebarInputSelection? = nil,
+        selectedReferenceURLs: [URL] = [],
         initialToolID: String? = nil
     ) {
         if shared == nil {
@@ -28,6 +29,7 @@ final class WorkflowOperationsWindowController: NSWindowController, NSWindowDele
                 routeContext: routeContext,
                 selectedReadURLs: selectedReadURLs,
                 sidebarInputSelection: sidebarInputSelection,
+                selectedReferenceURLs: selectedReferenceURLs,
                 initialToolID: initialToolID
             )
         } else {
@@ -36,6 +38,7 @@ final class WorkflowOperationsWindowController: NSWindowController, NSWindowDele
                 routeContext: routeContext,
                 selectedReadURLs: selectedReadURLs,
                 sidebarInputSelection: sidebarInputSelection,
+                selectedReferenceURLs: selectedReferenceURLs,
                 initialToolID: initialToolID
             )
         }
@@ -47,6 +50,7 @@ final class WorkflowOperationsWindowController: NSWindowController, NSWindowDele
         routeContext: OperationRouteContext?,
         selectedReadURLs: [URL],
         sidebarInputSelection: WorkflowSidebarInputSelection?,
+        selectedReferenceURLs: [URL] = [],
         initialToolID: String?,
         service: WorkflowOperationExecutionService? = nil,
         serviceFactory: (@MainActor () -> WorkflowOperationExecutionService)? = nil,
@@ -58,6 +62,7 @@ final class WorkflowOperationsWindowController: NSWindowController, NSWindowDele
             projectURL: projectURL,
             selectedReadURLs: selectedReadURLs,
             sidebarInputSelection: sidebarInputSelection,
+            selectedReferenceURLs: selectedReferenceURLs,
             projectDiscoveryMode: .asynchronous,
             initialToolID: initialToolID
         )
@@ -116,6 +121,7 @@ final class WorkflowOperationsWindowController: NSWindowController, NSWindowDele
         routeContext: OperationRouteContext?,
         selectedReadURLs: [URL],
         sidebarInputSelection: WorkflowSidebarInputSelection?,
+        selectedReferenceURLs: [URL] = [],
         initialToolID: String?
     ) {
         configurationGeneration = UUID()
@@ -125,7 +131,8 @@ final class WorkflowOperationsWindowController: NSWindowController, NSWindowDele
         state.configureProject(
             projectURL: projectURL,
             selectedReadURLs: selectedReadURLs,
-            sidebarInputSelection: sidebarInputSelection
+            sidebarInputSelection: sidebarInputSelection,
+            selectedReferenceURLs: selectedReferenceURLs
         )
         if let initialToolID {
             state.selectTool(initialToolID)

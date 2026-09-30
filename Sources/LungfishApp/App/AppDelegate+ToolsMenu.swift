@@ -330,6 +330,18 @@ extension AppDelegate {
         )
     }
 
+    /// Reference bundles selected in the sidebar, which the Workflow Operations window
+    /// prefers as its Project Reference.
+    static func resolveWorkflowOperationSelectedReferenceURLs(items: [SidebarItem]) -> [URL] {
+        var seen = Set<String>()
+        return items.compactMap { item -> URL? in
+            guard let url = item.url?.standardizedFileURL,
+                  WorkflowOperationDialogState.isReferenceBundleURL(url),
+                  seen.insert(url.path).inserted else { return nil }
+            return url
+        }
+    }
+
     /// True when the dialog opens on, or can switch to, the MAFFT pane, which is
     /// the only pane that shows the all-sequence count.
     static func dialogShowsMAFFTSequenceScope(
@@ -1694,11 +1706,15 @@ extension AppDelegate {
         }
         let selectedReadURLs = sidebarResolution?.selectedReadURLs
             ?? (sourceController.map { gatherWorkflowOperationReadInputURLs(controller: $0) } ?? [])
+        let selectedReferenceURLs = sidebarController.map {
+            Self.resolveWorkflowOperationSelectedReferenceURLs(items: $0.selectedItems())
+        } ?? []
         WorkflowOperationsWindowController.show(
             projectURL: projectURL,
             routeContext: routeContext,
             selectedReadURLs: selectedReadURLs,
             sidebarInputSelection: sidebarResolution?.sidebarInputSelection,
+            selectedReferenceURLs: selectedReferenceURLs,
             initialToolID: preselectedWorkflowID
         )
     }
