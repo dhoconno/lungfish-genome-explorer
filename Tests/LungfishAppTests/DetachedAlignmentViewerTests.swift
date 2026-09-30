@@ -347,8 +347,11 @@ final class DetachedAlignmentViewerTests: XCTestCase {
         await gate.waitUntilEntered(request.bamURL)
         try Data([9]).write(to: request.bamURL)
         await gate.release(request.bamURL)
-        for _ in 0..<100 where controller.status == .loading {
-            await Task.yield()
+        // Validation re-hashes the BAM off the main actor, so a fixed number
+        // of yields was not enough under the parallel unit gate.
+        let deadline = Date().addingTimeInterval(5)
+        while controller.status == .loading, Date() < deadline {
+            try await Task.sleep(nanoseconds: 10_000_000)
         }
 
         let reason = "Classifier alignment evidence changed on disk: installation-race.bam."
