@@ -94,7 +94,7 @@ The Provenance section breaks into blocks you open and close one at a time. They
 A lineage is the list of every step behind one result, in the order they ran. The `HG002 bcftools` variant track in the demo project has a long one, and it is the record to read when you want to know exactly how a set of variant calls was made. Variant tracks live in the reference bundle inside the mapping result, as [Where results land](06-the-lungfish-project.md#where-results-land) explains, so their records appear once that bundle is open in the viewport.
 
 1. Open the reference bundle inside the mapping result, the way [Calling Variants](../05-variants/01-calling-variants-from-amplicons.md) opens it before calling.
-2. In the Inspector's **Provenance** tab, choose `HG002 bcftools` from the **Source** picker at the top of the Provenance section. The picker offers **Bundle** and each named variant track attached to the bundle, and choosing a track loads that track's own record.
+2. In the Inspector's **Provenance** tab, choose `HG002 bcftools` from the **Source** picker at the top of the Provenance section. The picker offers the record of the result you opened, **Mapping** here, and each named variant track attached to the bundle, and choosing a track loads that track's own record.
 3. Open the **Lineage** block and expand step 4.
 
 <!-- SHOT: provenance-lineage-step-expanded -->
