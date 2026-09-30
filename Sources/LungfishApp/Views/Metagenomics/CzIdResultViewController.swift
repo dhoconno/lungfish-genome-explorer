@@ -38,16 +38,18 @@ public final class CzIdResultViewController: NSViewController, NSPopoverDelegate
         }
         embedTaxonomyIfNeeded()
         taxonomyViewController.configure(result: result)
+        // UX-08: gate both the action bar and the table's own context menu
+        // (Extract Reads…, BLAST Matching Reads…) on the same capability
+        // flag, since CZ-ID imports have no per-read source IDs for either.
+        // Set it before naming the import: changing it refreshes the action
+        // bar, which would replace the name with the no-selection prompt.
+        taxonomyViewController.readLevelActionsAvailable = false
         taxonomyViewController.actionBar.updateInfoText(
             "Imported CZ-ID result · \(manifest.sampleName) · \(manifest.rowCount) taxa"
         )
         taxonomyViewController.actionBar.onProvenance = { [weak self] sender in
             self?.showProvenance(relativeTo: sender)
         }
-        // UX-08: gate both the action bar and the table's own context menu
-        // (Extract Reads…, BLAST Matching Reads…) on the same capability
-        // flag, since CZ-ID imports have no per-read source IDs for either.
-        taxonomyViewController.readLevelActionsAvailable = false
         taxonomyViewController.actionBar.extractButton.toolTip =
             "CZ-ID imports do not include per-read source IDs for FASTQ extraction."
         taxonomyViewController.actionBar.blastButton.toolTip =
