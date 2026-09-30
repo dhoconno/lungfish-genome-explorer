@@ -1,14 +1,14 @@
-# Captured from Lungfish Preview 2026.9.13 with capture-window.sh (2026-09 campaign).
-# App state: The chr20 bundle open with its table drawer on the Variants tab, both the HG002 bcftools and HG002 LoFreq tracks loaded, 1,918 variants, columns ID through Source visible.
+# Captured from Lungfish Preview 2026.9.68 with capture-window.sh (2026-09 campaign).
+# App state: The Human Mapping and Variants (with results) project, the minimap2 mapping result open with its table drawer on the Variants tab in Genome scope, and the gear button's column list cut down to Variant Track, Position, Type, Ref, Alt, Quality, Filter, DP, AC, and AN.
 id: variants-tab-twelve-columns
 chapter: 05-variants/02-reading-the-variant-browser
-caption: The Variants tab of the table drawer inside the reference bundle viewport, with the fixed columns
-  from Variant Track through AA Change and both caller tracks loaded.
+caption: The Variants tab of the table drawer inside the reference bundle viewport, with the columns cut
+  down to Variant Track, the call itself, and three INFO columns, DP, AC, and AN.
 viewport_class: variant
 app_state:
   fixture: '{demo_project}'
   open_files:
-  - reference: Reference Sequences/chr20_10.0-10.5Mb.lungfishref
+  - mapping: Analyses/minimap2-2026-09-25T00-00-00
   window_size:
   - 1400
   - 900
@@ -22,11 +22,17 @@ steps:
   size:
   - 1400
   - 900
-  # PROSE-ONLY: Select chr20_10.0-10.5Mb under Reference Sequences
-  # PROSE-ONLY: Click the drawer's Variants tab and wait for the rows to load
-  # PROSE-ONLY: Capture the full window
+  # PROSE-ONLY: Select the minimap2 mapping result under Analyses
+  # PROSE-ONLY: Click the drawer's Variants tab, then Genome
+  # PROSE-ONLY: Click the gear button and leave only Variant Track, Position, Type, Ref, Alt, Quality, Filter, DP, AC, and AN checked
+  # PROSE-ONLY: Capture the drawer region
 crop:
-  mode: window
+  mode: region
+  region:
+  - 306
+  - 480
+  - 1094
+  - 382
 post:
   retina: true
   format: png

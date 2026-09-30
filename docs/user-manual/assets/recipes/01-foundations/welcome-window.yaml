@@ -1,16 +1,17 @@
-# Captured from Lungfish Preview 2026.9.13 with capture-window.sh (2026-09 campaign).
-# App state: Preview build 4673. Get Started page, required tools installed.
+# Captured from Lungfish Preview 2026.9.68 with capture-window.sh (2026-09 campaign).
+# App state: Lungfish Preview 2026.9.68 launched with LUNGFISH_STORAGE_ROOT pointed at an empty scratch folder and no windows restored, so the Welcome window shows the Third-Party Tools card with its Install button.
 id: welcome-window
 chapter: 01-foundations/06-the-lungfish-project
 caption: The Lungfish Genome Explorer Welcome window, with the Create Project and Open Project cards,
-  the Recent Projects sidebar item, and the Required Setup card with its Install button below the cards.
+  the Recent Projects sidebar item, and the Third-Party Tools card, marked Needs Attention, with its Install
+  button below the cards.
 viewport_class: none
 app_state:
-  fixture: none
+  fixture: '{demo_project}'
   open_files: []
   window_size:
-  - 1080
-  - 712
+  - 800
+  - 520
   appearance: light
 steps:
 - action: open_application
@@ -19,9 +20,11 @@ steps:
   signal: main_window_visible
 - action: resize_window
   size:
-  - 1080
-  - 712
-  # PROSE-ONLY: Close project windows, quit Preview, then launch it without a project. Capture the Welcome Get Started page with Create/Open Project cards and setup status.
+  - 800
+  - 520
+  # PROSE-ONLY: Close every project window and quit LGE
+  # PROSE-ONLY: Relaunch with LUNGFISH_STORAGE_ROOT set to an empty folder whose path has no spaces
+  # PROSE-ONLY: Capture the Welcome window
 crop:
   mode: window
 post:

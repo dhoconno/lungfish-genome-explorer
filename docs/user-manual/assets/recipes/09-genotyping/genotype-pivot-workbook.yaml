@@ -1,11 +1,13 @@
-# Captured in Numbers from a Lungfish Preview 2026.9.13 export (2026-09 campaign).
-# App state: Actual Preview build 4673 filtered pivot export opened unmodified in Numbers at 125 percent. Two simulated samples, three public macaque allele targets, 376 retained fragments.
+# Captured in Microsoft Excel from a Lungfish Preview 2026.9.68 export (2026-09 campaign).
+# App state: The pivot workbook exported by Export to Excel from the MHC MiSeq Cohort (de-identified) project, opened unmodified in Microsoft Excel on its Filtered sheet, scrolled to Animal_25 through Animal_30 with the Evidence columns in view.
 id: genotype-pivot-workbook
 chapter: 09-genotyping/04-haplotype-definitions-and-export
-caption: "The Genotype Matrix - Filtered worksheet of an exported report open in a spreadsheet application, with allele targets down the rows, one column per sample, and the Evidence (display / raw support) column at the right."
+caption: The Genotype Matrix - Filtered worksheet of an exported report open in a spreadsheet application,
+  with allele targets down the rows, one column per sample, and the Evidence (display / raw support) column
+  at the right.
 viewport_class: none
 app_state:
-  fixture: '{demo_project}'
+  fixture: '{mhc_cohort_project}'
   open_files: []
   window_size:
   - 1400
@@ -13,22 +15,19 @@ app_state:
   appearance: light
 steps:
 - action: open_application
-  app: Numbers
+  app: Lungfish Preview
 - action: wait_ready
   signal: main_window_visible
 - action: resize_window
   size:
   - 1400
   - 900
-  # PROSE-ONLY: Export SIMULATED-MHC-filtered-pivot.xlsx from the real GUI genotype result to Desktop/lge-docs, then open it in Numbers.
-  # PROSE-ONLY: View the pivot sheet without editing data or formatting. Capture window-relative crop 15,60,790,495, preserving all rows and sample columns.
+  # PROSE-ONLY: Open the genotype result and choose Export to Excel
+  # PROSE-ONLY: Open the saved workbook in Microsoft Excel
+  # PROSE-ONLY: Click the Filtered sheet tab and scroll to Animal_25
+  # PROSE-ONLY: Capture the Excel window
 crop:
-  mode: region
-  region:
-  - 15
-  - 60
-  - 790
-  - 495
+  mode: window
 post:
   retina: true
   format: png
