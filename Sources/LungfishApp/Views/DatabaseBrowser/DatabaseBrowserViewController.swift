@@ -1117,6 +1117,16 @@ public class DatabaseBrowserViewModel: ObservableObject {
         source == .ena  // ENA is used for SRA/FASTQ downloads
     }
 
+    /// The hint under the search field. The SRA Runs pane finds run
+    /// accessions, so its Accession hint gives run examples, not the RefSeq
+    /// examples the GenBank pane uses.
+    var searchScopeHelpText: String {
+        if isSRASearch, searchScope == .accession {
+            return "Search by run accession (e.g., SRR36291587, ERR12259924)"
+        }
+        return searchScope.helpText
+    }
+
     // MARK: - Callbacks
 
     /// Called when user cancels

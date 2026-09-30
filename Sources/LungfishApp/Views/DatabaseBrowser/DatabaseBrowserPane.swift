@@ -171,7 +171,7 @@ struct DatabaseBrowserPane<Accessory: View>: View {
 
     private var searchScopeHelp: some View {
         HStack(spacing: 8) {
-            Text(viewModel.searchScope.helpText)
+            Text(viewModel.searchScopeHelpText)
                 .font(.caption)
                 .foregroundStyle(Color.lungfishSecondaryText)
 

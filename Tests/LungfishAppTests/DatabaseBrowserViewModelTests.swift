@@ -688,6 +688,21 @@ final class DatabaseBrowserViewModelTests: XCTestCase {
         XCTAssertFalse(SearchScope.author.helpText.isEmpty)
     }
 
+    /// Capture on 9.64: the SRA Runs pane's Accession hint gave RefSeq
+    /// nucleotide examples, which that pane cannot find.
+    func testAccessionHelpTextMatchesTheSearchedDatabase() {
+        let sra = DatabaseBrowserViewModel(source: .ena)
+        sra.searchScope = .accession
+        XCTAssertTrue(sra.searchScopeHelpText.contains("SRR36291587"), sra.searchScopeHelpText)
+        XCTAssertFalse(sra.searchScopeHelpText.contains("NM_"), sra.searchScopeHelpText)
+
+        let ncbi = DatabaseBrowserViewModel(source: .ncbi)
+        ncbi.searchScope = .accession
+        XCTAssertEqual(ncbi.searchScopeHelpText, SearchScope.accession.helpText)
+        ncbi.searchScope = .organism
+        XCTAssertEqual(ncbi.searchScopeHelpText, SearchScope.organism.helpText)
+    }
+
     func testAllScopesCount() {
         // all, accession, organism, title, bioProject, author = 6
         XCTAssertEqual(SearchScope.allCases.count, 6)
