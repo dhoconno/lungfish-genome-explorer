@@ -1835,20 +1835,25 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
         guard let hit = singleIdentityBackedSelectedHit() else { return }
         guard let bundleURL, let database else { return }
 
-        // Extract contig FASTA sequence
+        // Extract contig FASTA sequence. Every way this can fail is reported in
+        // the BLAST drawer; logging alone made the button look inert.
+        let unavailable = "BLAST Verify needs the contig sequence for \(hit.qseqid) (sample \(hit.sampleId)), "
         do {
             guard let fastaRelPath = try database.fastaPath(forSample: hit.sampleId) else {
                 logger.warning("No FASTA path for sample \(hit.sampleId, privacy: .public)")
+                showBlastFailure(unavailable + "but this NVD result has no contig FASTA for that sample.")
                 return
             }
             let fastaURL = bundleURL.appendingPathComponent(fastaRelPath)
             guard let sequence = NvdDataConverter.extractContigSequence(from: fastaURL, contigName: hit.qseqid) else {
                 logger.warning("Could not extract contig \(hit.qseqid, privacy: .public) from FASTA")
+                showBlastFailure(unavailable + "but it could not be read from the sample's contig FASTA file.")
                 return
             }
             onBlastVerification?(hit, sequence)
         } catch {
             logger.error("BLAST verify failed: \(error.localizedDescription, privacy: .public)")
+            showBlastFailure(unavailable + "but it could not be read: \(error.localizedDescription)")
         }
     }
 

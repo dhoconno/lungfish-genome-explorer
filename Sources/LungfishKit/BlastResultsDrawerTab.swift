@@ -347,6 +347,7 @@ public final class BlastResultsDrawerTab: NSView, NSMenuItemValidation {
     public let openInBlastButton = NSButton()
     public let rerunBlastButton = NSButton()
     public var loadingPhaseText: String { loadingPhaseLabel.stringValue }
+    public var emptyStateDetailText: String { emptyStateDetailLabel.stringValue }
     public var isStatusColumnHidden: Bool {
         resultsOutlineView.tableColumn(withIdentifier: NSUserInterfaceItemIdentifier("blastStatus"))?.isHidden ?? false
     }

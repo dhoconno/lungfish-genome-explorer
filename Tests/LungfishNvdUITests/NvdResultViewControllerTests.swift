@@ -303,6 +303,31 @@ final class NvdResultViewControllerTests: XCTestCase {
         XCTAssertEqual(blastRequestCount, 1)
     }
 
+    /// Capture on 9.64: BLAST Verify on the NVD demo results did nothing,
+    /// because the run folder has no contig FASTA and the controller only
+    /// logged a warning. The drawer must say why nothing was submitted.
+    func testBlastVerifyWithoutContigFASTAReportsWhyInTheDrawer() throws {
+        let fixture = try NvdMenuFixture()
+        addTeardownBlock {
+            try? FileManager.default.removeItem(at: fixture.rootURL)
+        }
+        try FileManager.default.removeItem(at: fixture.bundleURL.appendingPathComponent("sample1.fasta"))
+
+        let vc = NvdResultViewController()
+        _ = vc.view
+        vc.configure(database: fixture.database, manifest: fixture.manifest, bundleURL: fixture.bundleURL)
+        vc.testSelectOutlineRow(0)
+        var blastRequestCount = 0
+        vc.onBlastVerification = { _, _ in blastRequestCount += 1 }
+
+        vc.testActionBar.blastButton.performClick(nil)
+
+        XCTAssertEqual(blastRequestCount, 0, "nothing can be submitted without the contig sequence")
+        let drawer = try XCTUnwrap(vc.testBlastDrawerContainer, "the BLAST drawer must open to explain the failure")
+        XCTAssertTrue(drawer.blastResultsTab.emptyStateDetailText.contains("contig_1"),
+            drawer.blastResultsTab.emptyStateDetailText)
+    }
+
     func testContigTSVExportWritesScientificProvenanceSidecar() throws {
         let fixture = try NvdMenuFixture()
         addTeardownBlock {
