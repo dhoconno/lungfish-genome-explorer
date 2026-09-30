@@ -76,12 +76,12 @@ extension SequenceViewerView {
                 // Single sequence mode
                 sequenceViewerLogger.debug("SequenceViewerView.draw: Drawing single sequence '\(seq.name, privacy: .public)' in bounds \(self.bounds.width)x\(self.bounds.height)")
                 drawSequence(seq, frame: frame, context: context)
-            } else if !suppressPlaceholder {
+            } else if !suppressPlaceholder && showsSidebarPlaceholder {
                 // No sequence loaded
                 sequenceViewerLogger.debug("SequenceViewerView.draw: No content to draw, showing placeholder")
                 drawPlaceholder(context: context)
             }
-        } else if !suppressPlaceholder {
+        } else if !suppressPlaceholder && showsSidebarPlaceholder {
             // Placeholder message - no reference frame
             sequenceViewerLogger.debug("SequenceViewerView.draw: No reference frame, showing placeholder")
             drawPlaceholder(context: context)

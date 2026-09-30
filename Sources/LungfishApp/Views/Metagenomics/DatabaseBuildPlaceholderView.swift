@@ -99,6 +99,15 @@ final class DatabaseBuildPlaceholderView: NSView {
         ])
     }
 
+    /// The viewer below draws its own "Select a file from the sidebar" prompt
+    /// in the empty viewport. Paint over it so the two messages never overlap.
+    override var isOpaque: Bool { true }
+
+    override func draw(_ dirtyRect: NSRect) {
+        NSColor.textBackgroundColor.setFill()
+        dirtyRect.intersection(bounds).fill()
+    }
+
     /// Configures the view for the "building in progress" state.
     ///
     /// Shows a spinner and a message indicating the database is being built.

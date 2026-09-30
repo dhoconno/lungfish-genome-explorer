@@ -284,6 +284,11 @@ public final class BatchTaxTriageTableView: BatchTableView<TaxTriageMetric> {
 
     public override var searchPlaceholder: String { "Filter organisms\u{2026}" }
 
+    /// The result view's filter row already has a Filter organisms field,
+    /// which filters at the database and drives the Organisms card and the
+    /// overview grid. A second field here filtered only the loaded rows.
+    public override var showsSearchField: Bool { false }
+
     public override var columnTypeHints: [String: Bool] {
         [
             "sample": false, "organism": false, "confidence": false,

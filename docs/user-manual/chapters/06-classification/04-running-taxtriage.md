@@ -172,7 +172,7 @@ The buttons are shortcuts into the [Inspector](../../GLOSSARY.md#inspector), the
 
 That is far more than the ten of Top hits. For SRR12486983 the pipeline downloaded 983 reference sequences, covering many more organisms than its ten top hits, and mapped every read against all of them at once. Its report lists every organism whose genome received reads, and every row in the table was mapped and scored the same way.
 
-The **Filter organisms…** field above the table keeps only the rows whose organism name contains what you type. With both samples ticked, typing a name such as Kocuria leaves only that genus's rows, all of SRR12486983's first and then all of SRR12486989's, with the Sample column telling them apart.
+The **Filter organisms…** field at the right end of the row of sample buttons keeps only the rows whose organism name contains what you type. With both samples ticked, typing a name such as Kocuria leaves only that genus's rows, all of SRR12486983's first and then all of SRR12486989's, with the Sample column telling them apart.
 
 <!-- SHOT: taxtriage-batch-overview -->
 

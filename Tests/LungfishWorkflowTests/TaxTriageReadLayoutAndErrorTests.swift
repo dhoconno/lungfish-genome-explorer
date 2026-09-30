@@ -182,7 +182,7 @@ final class TaxTriageReadLayoutAndErrorTests: XCTestCase {
         let message = TaxTriageResult.erroredProcessesMessage(for: failures, hostTaxaExcluded: false)
         XCTAssertEqual(
             TaxTriageResult.erroredProcessesHeadline(for: failures),
-            "TaxTriage completed with errors: MINIMAP2_ALIGN failed for SRR12486983 after 4 attempts (Killed: out of memory)"
+            "TaxTriage completed with errors: MINIMAP2_ALIGN failed for SRR12486983 after 4 attempts (killed, usually for running out of memory)"
         )
         XCTAssertEqual(message?.contains("TASS scores"), true)
         XCTAssertEqual(message?.contains("Exclude host taxa (9606 for human)"), true)
@@ -190,6 +190,36 @@ final class TaxTriageReadLayoutAndErrorTests: XCTestCase {
             TaxTriageResult.erroredProcessesMessage(for: failures, hostTaxaExcluded: true)?.contains("Exclude host taxa"),
             false
         )
+    }
+
+    /// Capture on 9.68: a killed FASTQC task was reported as leaving alignments
+    /// and TASS scores missing and asked for more memory.
+    func testQualityPlotFailureSaysTheResultsAreComplete() throws {
+        let fastqc = TaxTriageIgnoredFailure(
+            processPath: "NFCORE_TAXTRIAGE:TAXTRIAGE:FASTQC",
+            processName: "FASTQC",
+            taskLabel: "SRR12486989",
+            sampleID: "SRR12486989",
+            exitCode: 137
+        )
+        let message = try XCTUnwrap(TaxTriageResult.erroredProcessesMessage(for: [fastqc], hostTaxaExcluded: true))
+        XCTAssertTrue(message.hasPrefix(
+            "TaxTriage completed with errors: FASTQC failed for SRR12486989 (killed, usually for running out of memory). "
+        ))
+        XCTAssertTrue(message.contains("Only the quality-control plots in the MultiQC report are missing."))
+        XCTAssertFalse(message.contains("TASS scores, are missing"))
+        XCTAssertFalse(message.contains("Raise Max memory"))
+
+        let align = TaxTriageIgnoredFailure(
+            processPath: "NFCORE_TAXTRIAGE:TAXTRIAGE:ALIGNMENT:MINIMAP2_ALIGN",
+            processName: "MINIMAP2_ALIGN",
+            taskLabel: "SRR12486983",
+            sampleID: "SRR12486983",
+            exitCode: 137
+        )
+        let mixed = try XCTUnwrap(TaxTriageResult.erroredProcessesMessage(for: [fastqc, align], hostTaxaExcluded: true))
+        XCTAssertTrue(mixed.contains("such as alignments and TASS scores, are missing"))
+        XCTAssertTrue(mixed.contains("Raise Max memory"))
     }
 
     func testCompletionBannerAloneStillMarksTheRun() {

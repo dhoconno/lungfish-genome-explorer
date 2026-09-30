@@ -5004,6 +5004,17 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
 }
 
 
+// MARK: - Find
+
+extension TaxTriageResultViewController {
+    /// Edit > Find focuses the filter row's Filter organisms field, the one
+    /// organism filter the view shows in every mode.
+    @objc func performFindPanelAction(_ sender: Any?) {
+        guard !organismSearchField.isHidden else { return }
+        view.window?.makeFirstResponder(organismSearchField)
+    }
+}
+
 // MARK: - Menu Validation
 
 extension TaxTriageResultViewController: NSMenuItemValidation {

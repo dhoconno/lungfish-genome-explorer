@@ -58,7 +58,13 @@ final class ClassifierAlignmentEvidenceViewportController: NSObject, ClassifierA
         super.init()
     }
 
-    var viewController: NSViewController { viewer }
+    var viewController: NSViewController {
+        _ = viewer.view
+        // The pane is filled by selecting a result row, never from the sidebar,
+        // and the status label says when evidence is loading.
+        viewer.viewerView.showsSidebarPlaceholder = false
+        return viewer
+    }
     var visibleStatusText: String { statusLabel.stringValue }
 
     /// Connects this App-owned viewport to the active Inspector.  The callback
@@ -135,6 +141,7 @@ final class ClassifierAlignmentEvidenceViewportController: NSObject, ClassifierA
 
     private func installStatusLabel() {
         guard statusLabel.superview == nil else { return }
+        viewer.viewerView.showsSidebarPlaceholder = false
         statusLabel.font = .systemFont(ofSize: 11, weight: .medium)
         statusLabel.textColor = .secondaryLabelColor
         statusLabel.drawsBackground = true

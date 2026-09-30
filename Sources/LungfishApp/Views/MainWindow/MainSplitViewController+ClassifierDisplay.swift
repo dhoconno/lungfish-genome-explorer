@@ -534,12 +534,10 @@ extension MainSplitViewController {
                 let runtimeStr = formatInspectorRuntime(ttResult.runtime)
                 if !runtimeStr.isEmpty { taxTriageParams["Runtime"] = runtimeStr }
                 if ttResult.hasIgnoredFailures {
-                    let sampleCount = Set(ttResult.ignoredFailures.compactMap(\.sampleID)).count
-                    if sampleCount > 0 {
-                        taxTriageParams["Warnings"] = "\(ttResult.ignoredFailures.count) ignored failures across \(sampleCount) samples"
-                    } else {
-                        taxTriageParams["Warnings"] = "\(ttResult.ignoredFailures.count) ignored failures"
-                    }
+                    taxTriageParams["Warnings"] = Self.taxTriageIgnoredFailureSummary(
+                        failureCount: ttResult.ignoredFailures.count,
+                        sampleCount: Set(ttResult.ignoredFailures.compactMap(\.sampleID)).count
+                    )
                 }
 
                 // Resolve source sample URLs from config samples and project search.
@@ -1350,5 +1348,15 @@ enum Kraken2StaleDatabaseRebuilds {
 
     static func markAttempted(_ resultURL: URL) {
         attempted.insert(resultURL.standardizedFileURL.path)
+    }
+}
+
+extension MainSplitViewController {
+    /// The Operation Details warning for a TaxTriage run with ignored step failures,
+    /// such as "1 ignored failure across 1 sample".
+    nonisolated static func taxTriageIgnoredFailureSummary(failureCount: Int, sampleCount: Int) -> String {
+        let failures = "\(failureCount) ignored \(failureCount == 1 ? "failure" : "failures")"
+        guard sampleCount > 0 else { return failures }
+        return "\(failures) across \(sampleCount) \(sampleCount == 1 ? "sample" : "samples")"
     }
 }

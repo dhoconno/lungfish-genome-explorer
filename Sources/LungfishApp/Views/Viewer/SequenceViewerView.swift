@@ -90,6 +90,11 @@ public class SequenceViewerView: NSView {
     /// Set by the progress overlay to avoid text overlap.
     var suppressPlaceholder = false
 
+    /// When false, the empty viewport never asks the user to pick a sidebar
+    /// file. Viewers embedded in another view, such as a classifier result's
+    /// alignment pane, are not filled from the sidebar.
+    var showsSidebarPlaceholder = true
+
     /// The sequence being displayed
     var sequence: Sequence?
 

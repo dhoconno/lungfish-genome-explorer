@@ -86,6 +86,12 @@ open class BatchTableView<Row>: NSView, NSTableViewDataSource, NSTableViewDelega
     /// Placeholder string for the search field. Defaults to `"Filter…"`.
     open var searchPlaceholder: String { "Filter\u{2026}" }
 
+    /// Whether the table shows its own filter field. A subclass returns
+    /// `false` when its owner already provides one filter field for the view,
+    /// so the user never sees two. Edit > Find then passes up the responder
+    /// chain to that owner. Defaults to `true`.
+    open var showsSearchField: Bool { true }
+
     /// Optional accessibility identifier for the search field.
     open var searchAccessibilityIdentifier: String? { nil }
 
@@ -321,6 +327,7 @@ open class BatchTableView<Row>: NSView, NSTableViewDataSource, NSTableViewDelega
         if let searchAccessibilityLabel {
             sf.setAccessibilityLabel(searchAccessibilityLabel)
         }
+        sf.isHidden = !showsSearchField
         addSubview(sf)
         self.searchField = sf
 
@@ -343,14 +350,15 @@ open class BatchTableView<Row>: NSView, NSTableViewDataSource, NSTableViewDelega
         addSubview(statusView)
         self.noMatchesStatusView = statusView
 
-        let searchHeightConstraint = sf.heightAnchor.constraint(equalToConstant: 24)
+        let searchSpacing: CGFloat = showsSearchField ? 4 : 0
+        let searchHeightConstraint = sf.heightAnchor.constraint(equalToConstant: showsSearchField ? 24 : 0)
         self.searchHeightConstraint = searchHeightConstraint
         NSLayoutConstraint.activate([
-            sf.topAnchor.constraint(equalTo: topAnchor, constant: 4),
+            sf.topAnchor.constraint(equalTo: topAnchor, constant: searchSpacing),
             sf.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 4),
             sf.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -4),
             searchHeightConstraint,
-            sv.topAnchor.constraint(equalTo: sf.bottomAnchor, constant: 4),
+            sv.topAnchor.constraint(equalTo: sf.bottomAnchor, constant: searchSpacing),
             sv.leadingAnchor.constraint(equalTo: leadingAnchor),
             sv.trailingAnchor.constraint(equalTo: trailingAnchor),
             sv.bottomAnchor.constraint(equalTo: bottomAnchor),
@@ -415,10 +423,9 @@ open class BatchTableView<Row>: NSView, NSTableViewDataSource, NSTableViewDelega
         isRestoringSelection = true
         defer { isRestoringSelection = false }
         searchField.font = typography.font(for: .body)
-        searchHeightConstraint.constant = max(
-            24,
-            ceil(typography.font(for: .body).boundingRectForFont.height + 8)
-        )
+        searchHeightConstraint.constant = showsSearchField
+            ? max(24, ceil(typography.font(for: .body).boundingRectForFont.height + 8))
+            : 0
         tableView.rowHeight = typography.tableRowHeight()
         if let headerView = tableView.headerView {
             var frame = headerView.frame
@@ -638,7 +645,8 @@ open class BatchTableView<Row>: NSView, NSTableViewDataSource, NSTableViewDelega
     /// `.showFindInterface`; other tags are forwarded up the responder chain
     /// since this table has no find-next/previous/replace behavior of its own.
     @objc open func performFindPanelAction(_ sender: Any?) {
-        guard let menuItem = sender as? NSMenuItem,
+        guard showsSearchField,
+              let menuItem = sender as? NSMenuItem,
               let tag = NSTextFinder.Action(rawValue: menuItem.tag),
               tag == .showFindInterface else {
             nextResponder?.tryToPerform(#selector(BatchTableView.performFindPanelAction(_:)), with: sender)
@@ -658,7 +666,7 @@ open class BatchTableView<Row>: NSView, NSTableViewDataSource, NSTableViewDelega
     /// `true` when the field could be focused (a window is attached).
     @discardableResult
     public func focusSearchField() -> Bool {
-        guard let window = self.window else { return false }
+        guard showsSearchField, let window = self.window else { return false }
         return window.makeFirstResponder(searchField)
     }
 

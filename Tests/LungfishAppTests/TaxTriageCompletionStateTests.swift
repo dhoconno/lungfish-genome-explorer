@@ -58,7 +58,7 @@ final class TaxTriageCompletionStateTests: XCTestCase {
         XCTAssertEqual(item.displayStateLabel, "Completed with Warnings")
         XCTAssertEqual(
             item.detail,
-            "TaxTriage completed with errors: MINIMAP2_ALIGN failed for SRR12486983, SRR12486989 after 4 attempts (Killed: out of memory) (0 reports)"
+            "TaxTriage completed with errors: MINIMAP2_ALIGN failed for SRR12486983, SRR12486989 after 4 attempts (killed, usually for running out of memory) (0 reports)"
         )
         XCTAssertTrue(item.logEntries.contains { entry in
             entry.level == .warning && entry.message.contains("Exclude host taxa (9606 for human)")

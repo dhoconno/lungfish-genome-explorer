@@ -241,7 +241,8 @@ extension TaxTriageResult {
 
     /// A one-paragraph account of the errored tasks, naming each process, its
     /// samples, its attempts, and the key stderr line ("Killed" is reported as
-    /// running out of memory), or `nil` when no task errored.
+    /// usually running out of memory), or `nil` when no task errored. When
+    /// only quality-control plot steps failed, it says the results are complete.
     public var erroredProcessesMessage: String? {
         Self.erroredProcessesMessage(
             for: ignoredFailures,
@@ -261,9 +262,15 @@ extension TaxTriageResult {
         hostTaxaExcluded: Bool
     ) -> String? {
         guard let headline = erroredProcessesHeadline(for: failures) else { return nil }
+        let resultFailures = failures.filter { !$0.onlyAffectsQualityPlots }
         var message = headline + ". "
-            + "Results that depend on the failed steps, such as alignments and TASS scores, are missing for the samples named."
-        if failures.contains(where: \.isOutOfMemory) {
+        if resultFailures.isEmpty {
+            message += "Only the quality-control plots in the MultiQC report are missing. "
+                + "The classifications, alignments, and TASS scores are complete."
+            return message
+        }
+        message += "Results that depend on the failed steps, such as alignments and TASS scores, are missing for the samples named."
+        if resultFailures.contains(where: \.isOutOfMemory) {
             message += hostTaxaExcluded
                 ? " Raise Max memory and run again."
                 : " Raise Max memory, or list the host in Exclude host taxa (9606 for human) so the host genome is not downloaded as an alignment reference."
@@ -301,7 +308,7 @@ extension TaxTriageResult {
                 clause += " after \(attempts) attempts"
             }
             if group.contains(where: \.isOutOfMemory) {
-                clause += " (Killed: out of memory)"
+                clause += " (killed, usually for running out of memory)"
             } else if let diagnostic = group.compactMap(\.diagnostic).first {
                 clause += " (\(diagnostic))"
             } else if let exitCode = group.first?.exitCode, exitCode >= 0 {

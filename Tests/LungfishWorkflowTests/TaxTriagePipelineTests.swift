@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import XCTest
+import LungfishIO
 @testable import LungfishWorkflow
 
 final class TaxTriagePipelineTests: XCTestCase {
@@ -1174,6 +1175,25 @@ final class TaxTriagePipelineTests: XCTestCase {
             TaxTriageConfig.defaultGithubReleaseVersion
         )
         XCTAssertNil(TaxTriageConfig.githubReleaseVersion(for: "8fd1fb5bb236e4978f5734e522e6b89e0640a2aa"))
+    }
+
+    /// Capture on 9.68: `taxtriage run --output <project>/Analyses/taxtriage-cornea`
+    /// showed in the sidebar as a plain folder.
+    func testRunWrittenIntoAnalysesIsMarkedAsATaxTriageAnalysis() throws {
+        let project = FileManager.default.temporaryDirectory
+            .appendingPathComponent("TaxTriageAnalysisMarker-\(UUID().uuidString).lungfish", isDirectory: true)
+        addTeardownBlock { try? FileManager.default.removeItem(at: project) }
+        let output = project.appendingPathComponent("Analyses/taxtriage-cornea", isDirectory: true)
+        try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
+        XCTAssertNil(AnalysesFolder.analysisInfo(for: output))
+
+        TaxTriagePipeline.markAsProjectAnalysisIfNeeded(output)
+        XCTAssertEqual(AnalysesFolder.analysisInfo(for: output)?.tool, "taxtriage")
+
+        let elsewhere = project.appendingPathComponent("Exports/taxtriage-cornea", isDirectory: true)
+        try FileManager.default.createDirectory(at: elsewhere, withIntermediateDirectories: true)
+        TaxTriagePipeline.markAsProjectAnalysisIfNeeded(elsewhere)
+        XCTAssertNil(AnalysesFolder.readAnalysisMetadata(from: elsewhere))
     }
 
     func testUsesNextflowCondaOnlyWhenCondaProfileIsSelected() {

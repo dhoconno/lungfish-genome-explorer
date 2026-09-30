@@ -621,6 +621,7 @@ public actor TaxTriagePipeline {
         // Save the result for later reference
         do {
             try result.save()
+            Self.markAsProjectAnalysisIfNeeded(result.outputDirectory)
         } catch {
             throw taxTriagePersistenceFailure(
                 artifactDescription: "result metadata",
@@ -1572,6 +1573,24 @@ public actor TaxTriagePipeline {
         }
         try configString.write(to: configURL, atomically: true, encoding: .utf8)
         return configURL
+    }
+
+    /// Records a run written straight into a project's Analyses folder as a
+    /// TaxTriage analysis, as the app does when it creates the folder itself.
+    ///
+    /// The sidebar recognizes an analysis by this sidecar or by a
+    /// `taxtriage-<timestamp>` folder name. A run from `lungfish-cli taxtriage
+    /// run --output <project>/Analyses/<name>` has neither, so without it the
+    /// result shows as a plain folder.
+    nonisolated static func markAsProjectAnalysisIfNeeded(_ outputDirectory: URL) {
+        guard outputDirectory.deletingLastPathComponent().lastPathComponent == AnalysesFolder.directoryName,
+              AnalysesFolder.readAnalysisMetadata(from: outputDirectory) == nil else {
+            return
+        }
+        try? AnalysesFolder.writeAnalysisMetadata(
+            AnalysesFolder.AnalysisMetadata(tool: "taxtriage", isBatch: true),
+            to: outputDirectory
+        )
     }
 
     nonisolated static func usesNextflowConda(profile: String) -> Bool {

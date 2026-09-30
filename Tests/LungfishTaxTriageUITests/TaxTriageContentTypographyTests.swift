@@ -25,13 +25,12 @@ final class TaxTriageContentTypographyTests: XCTestCase {
                 NSSortDescriptor(key: "tt_sample", ascending: true),
             ]
             table.tableView.tableColumns[0].width = 177
-            window.makeFirstResponder(table.testSearchField)
-            table.testSearchField.stringValue = "Aeromonas"
+            // The result view's filter row owns the organism filter.
+            XCTAssertTrue(table.testSearchField.isHidden)
             let baselineSelected = table.tableView.selectedRowIndexes
             let baselineSort = table.tableView.sortDescriptors
             let baselineWidths = table.tableView.tableColumns.map(\.width)
             let baselineOrder = table.tableView.tableColumns.map(\.identifier)
-            let baselineEditor = try XCTUnwrap(table.testSearchField.currentEditor())
             let sampleColumn = try XCTUnwrap(
                 table.tableView.tableColumns.first { $0.identifier.rawValue == "tt_sample" }
             )
@@ -70,8 +69,7 @@ final class TaxTriageContentTypographyTests: XCTestCase {
             XCTAssertEqual(table.tableView.sortDescriptors, baselineSort)
             XCTAssertEqual(table.tableView.tableColumns.map(\.width), baselineWidths)
             XCTAssertEqual(table.tableView.tableColumns.map(\.identifier), baselineOrder)
-            XCTAssertTrue(window.firstResponder === baselineEditor)
-            XCTAssertEqual(table.testSearchField.stringValue, "Aeromonas")
+            XCTAssertTrue(table.testSearchField.isHidden)
 
             settings.contentTextSizePreference = .custom(100)
             NotificationCenter.default.post(name: .contentTextSizeDidChange, object: nil)

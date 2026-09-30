@@ -569,6 +569,15 @@ public final class DocumentSectionViewModel {
             nvdManifest != nil
     }
 
+    /// Whether the metagenomics summary should ask the user to pick a result.
+    ///
+    /// A batch classifier result such as TaxTriage fills only the operation
+    /// details and the sample filter, not a document or manifest, so
+    /// `hasAnyContent` alone would keep the prompt on screen above them.
+    var showsMetagenomicsSelectionPrompt: Bool {
+        !hasAnyContent && batchOperationTool == nil && classifierSampleEntries.isEmpty
+    }
+
     // MARK: - Analyses History
 
     /// Analysis manifest entries for the currently selected FASTQ bundle, sorted newest-first.

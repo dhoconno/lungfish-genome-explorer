@@ -49,6 +49,16 @@ public struct TaxTriageIgnoredFailure: Sendable, Codable, Equatable {
     public var isOutOfMemory: Bool {
         exitCode == 137 || (diagnostic?.hasPrefix("Killed") ?? false)
     }
+
+    /// Processes whose output only feeds the MultiQC report's plots. TaxTriage
+    /// ignores their failures, and nothing LGE shows depends on them.
+    static let qualityPlotProcessNames: Set<String> = ["FASTQC", "NANOPLOT", "MULTIQC"]
+
+    /// Whether this failure leaves every classification, alignment, and TASS
+    /// score intact, because the process only draws quality-control plots.
+    public var onlyAffectsQualityPlots: Bool {
+        Self.qualityPlotProcessNames.contains(processName.uppercased())
+    }
 }
 
 public struct TaxTriageSampleFailure: Sendable, Codable, Equatable {

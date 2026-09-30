@@ -523,7 +523,7 @@ private struct MetagenomicsResultSummarySection: View {
                 Text("See the viewer for detailed results. Use the bottom drawer for BLAST verification and sample navigation.")
                     .font(LungfishInspectorStyle.controlFont)
                     .foregroundStyle(.secondary)
-            } else {
+            } else if viewModel.showsMetagenomicsSelectionPrompt {
                 Text("Select a metagenomics result in the sidebar to view its summary here.")
                     .font(LungfishInspectorStyle.controlFont)
                     .foregroundStyle(.secondary)
