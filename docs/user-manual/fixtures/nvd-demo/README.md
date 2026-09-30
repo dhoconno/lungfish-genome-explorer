@@ -9,6 +9,11 @@ deterministic dataset.
 
 ```
 results/
+  02_human_viruses/
+    03_human_virus_results/
+      SampleA.human_virus.fasta
+      SampleB.human_virus.fasta
+      SampleC.human_virus.fasta
   05_labkey_bundling/
     demo_blast_concatenated.csv
 ```
@@ -18,6 +23,21 @@ results/
 (or `.csv.gz`) file. That is the only file the importer reads. No other
 NVD pipeline stage directories (`01_` through `04_`) are required for
 import, so none are included here.
+
+## Simulated contig FASTAs
+
+The `*.human_virus.fasta` files are simulated, so that BLAST Verify has a
+contig sequence to submit. `scripts/make-contig-fastas.py` cuts each of the
+four contigs from the SARS-CoV-2 reference MN908947.3 at the length the BLAST
+table records, then adds a few evenly spaced substitutions to match the top
+hit's percent identity. Regenerate them with:
+
+```bash
+python3 docs/user-manual/fixtures/nvd-demo/scripts/make-contig-fastas.py /path/to/MN908947.3.fasta
+```
+
+The importer copies them into the result's `fasta/` folder. No BAM files are
+included, so the read-level views and Extract Reads stay unavailable.
 
 ## Source
 

@@ -20,7 +20,7 @@ entry_points:
   - Operations > Show Operations Panel (Cmd-Shift-P)
 shots:
   - id: welcome-window
-    caption: "The Lungfish Genome Explorer Welcome window, with the Create Project and Open Project cards, the Recent Projects sidebar item, and the Required Setup card with its Install button below the cards."
+    caption: "The Lungfish Genome Explorer Welcome window, with the Create Project and Open Project cards, the Recent Projects sidebar item, and the Third-Party Tools card, marked Needs Attention, with its Install button below the cards."
   - id: empty-project-window
     caption: "The Human Mapping and Variants (with results) demo project just opened, with the sidebar on the left, an empty viewport in the centre, and the Inspector on the right."
   - id: sidebar-folder-conventions
@@ -102,7 +102,7 @@ Open LGE from your Applications folder. With no project open, the Welcome window
 
 The Create Project card makes a new empty project at a location you pick, and the Open Project card opens an existing one. The Recent Projects item in the Welcome window's sidebar lists up to ten projects you opened lately, and a click on any row reopens it. The same list appears inside an open project as **File > Open Recent**.
 
-Below the cards sits the card for the Required Setup pack, the [Required Setup pack](../../GLOSSARY.md#required-setup-pack) of everyday tools such as `samtools` and `bcftools` that most analyses need. The first time you open LGE, the card offers an **Install** button, and nothing is installed until you click it. Click it now if you plan to follow the task chapters. The install downloads a few gigabytes, and you can keep reading and opening projects while it runs. A card whose tools need repair offers **Reinstall** instead, and a link below it, "Need more space? Choose another storage location…", lets you put the tools on a larger drive before you install. [Plugin Packs](07-plugin-packs.md) covers this pack and the optional ones.
+Below the cards sits a card titled Third-Party Tools, for the [Required Setup pack](../../GLOSSARY.md#required-setup-pack) of everyday tools such as `samtools` and `bcftools` that most analyses need. The first time you open LGE, the card offers an **Install** button, and nothing is installed until you click it. Click it now if you plan to follow the task chapters. The install downloads a few gigabytes, and you can keep reading and opening projects while it runs. A card whose tools need repair offers **Reinstall** instead, and a link below it, "Need more space? Choose another storage location…", lets you put the tools on a larger drive before you install. [Plugin Packs](07-plugin-packs.md) covers this pack and the optional ones.
 
 You can open projects and use the built-in viewers before installing anything. An action that needs a tool you have not installed says which pack to install when you reach it.
 
@@ -120,7 +120,7 @@ Analysis tools and reference databases do not live inside a project. LGE keeps t
 
 1. Launch LGE with no project open. The Welcome window appears, as [First launch and the Welcome window](#first-launch-and-the-welcome-window) describes.
 
-2. Read the Required Setup card below the Create Project and Open Project cards. Click **Install** if it offers one and you plan to follow the task chapters, or leave it for later. Nothing in this chapter needs it.
+2. Read the Third-Party Tools card below the Create Project and Open Project cards. Click **Install** if it offers one and you plan to follow the task chapters, or leave it for later. Nothing in this chapter needs it.
 
 3. Choose **Help > Demo Projects…**. A sheet lists the demo projects with their sizes. Click **Download & Open** beside Human Mapping and Variants (with results). LGE downloads it, checks it, unpacks it into `~/Documents/LGE Demo Projects`, and opens it in a new window.
 

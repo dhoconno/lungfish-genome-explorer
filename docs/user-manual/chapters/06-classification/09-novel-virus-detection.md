@@ -111,7 +111,7 @@ Click a contig row to fill the detail pane. It shows the contig name, the sample
 
 ### Verify a contig with BLAST
 
-This step needs a full NVD run, because it uses the sample's contig FASTA file.
+This step uses the sample's contig FASTA file, which a full NVD run writes. The demo results include simulated contig FASTAs, cut from the SARS-CoV-2 reference, so the step works on them too.
 
 Select exactly one contig row, or one lower-ranked match under a contig, and click **BLAST Verify** in the action bar at the bottom of the window. The button stays disabled otherwise, and its tooltip reads "Select a row to use BLAST Verify" when nothing is selected and "Select a single row to use BLAST Verify" when several rows are. A taxon group heading in the By Taxon arrangement is not a hit, so it leaves the button disabled too. The right-click menu names the same action **Verify with BLAST…**.
 
