@@ -156,10 +156,27 @@ struct PrimerBindingInspectionView: View {
     }
 }
 
-private struct PrimerBindingAlignmentCanvas: NSViewControllerRepresentable {
+struct PrimerBindingAlignmentCanvas: NSViewControllerRepresentable {
     let context: PrimerBindingInspectionContext
     let selectedPrimerID: String?
     let track: MSAReadOnlyPrimerTrack?
+
+    /// The height the canvas asks for when SwiftUI offers none.
+    static let idealHeight: CGFloat = 320
+
+    /// Takes the width it is offered. The alignment viewer's toolbar reports a
+    /// minimum width wider than a 1400pt window's viewport; honoring it made
+    /// the whole Binding inspection column wider than the viewport, so it was
+    /// clipped on both sides (and, before primer viewports stopped sizing the
+    /// window, widened the window instead). The viewer fits narrower widths
+    /// the same way it does in the main alignment viewport.
+    func sizeThatFits(
+        _ proposal: ProposedViewSize,
+        nsViewController: MultipleSequenceAlignmentViewController,
+        context: Context
+    ) -> CGSize? {
+        CGSize(width: proposal.width ?? 0, height: proposal.height ?? Self.idealHeight)
+    }
 
     final class Coordinator {
         var loadedID: String?

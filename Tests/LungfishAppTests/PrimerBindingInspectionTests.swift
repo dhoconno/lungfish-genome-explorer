@@ -59,6 +59,31 @@ final class PrimerBindingInspectionTests: XCTestCase {
         XCTAssertTrue(result.status.contains("reference mapping"))
     }
 
+    // The alignment viewer's toolbar reports a minimum width wider than a
+    // 1400pt window's viewport. The canvas used to pass that minimum up, so
+    // the Binding inspection column overflowed the viewport and was clipped.
+    @MainActor
+    func testAlignmentCanvasFitsANarrowViewport() throws {
+        let context = PrimerBindingInspectionContext(id: "context", title: "narrow",
+            alignedFASTA: ">row_one\nACGTACGTACGT\n>row_two\nACGTACGTACGT\n",
+            annotations: [], primers: [], unavailableReason: nil,
+            rows: [.init(name: "row_one", sequence: Array("ACGTACGTACGT")),
+                   .init(name: "row_two", sequence: Array("ACGTACGTACGT"))])
+        let host = NSHostingView(rootView: PrimerBindingAlignmentCanvas(
+            context: context, selectedPrimerID: nil, track: nil))
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 320),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        window.contentView = host
+        host.layoutSubtreeIfNeeded()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+        host.layoutSubtreeIfNeeded()
+        XCTAssertLessThanOrEqual(host.fittingSize.width, 600,
+            "the canvas must not ask for more width than a narrow viewport offers")
+        XCTAssertEqual(window.frame.width, 600, accuracy: 0.5, "the canvas must not widen its window")
+    }
+
     func testUnavailableProjectionExposesReasonWithoutFabricatedColumnsOrTrack() throws {
         let reason = "The oligo crosses a collapsed source interval; original-row mismatch statistics are unavailable."
         let primer = PrimerBindingInspectionPrimer(id: "collapsed", name: "probe", sequence: "ACGT", strand: "-",
