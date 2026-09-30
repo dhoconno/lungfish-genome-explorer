@@ -48,6 +48,20 @@ final class PrimerAnalysisRoutingTests: XCTestCase {
         XCTAssertTrue(type.isDirectoryFormat)
     }
 
+    // Opening a primer analysis widened a 1400pt project window to 1535pt:
+    // the hosting view turned SwiftUI's ideal width into constraints that
+    // outranked the window size. The viewport must not size the window.
+    func testPrimerViewportsDoNotSizeTheWindow() throws {
+        let viewer = ViewerViewController()
+        viewer.loadViewIfNeeded()
+        viewer.displayPrimerAnalysisBundle(at: URL(fileURLWithPath: "/absent.lungfishprimeranalysis"))
+        let analysis = try XCTUnwrap(viewer.primerAnalysisViewController as? PrimerAnalysisHostingController)
+        XCTAssertTrue(analysis.sizingOptions.isEmpty)
+        viewer.displayPrimerOrder(at: URL(fileURLWithPath: "/absent.lungfishprimerorder"))
+        let order = try XCTUnwrap(viewer.primerAnalysisViewController as? PrimerOrderHostingController)
+        XCTAssertTrue(order.sizingOptions.isEmpty)
+    }
+
     func testNativeViewerIsRemovedWhenClearingOrSwitchingContentMode() {
         let viewer = ViewerViewController()
         viewer.loadViewIfNeeded()
