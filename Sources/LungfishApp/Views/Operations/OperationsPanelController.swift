@@ -637,20 +637,6 @@ final class OperationsPanelViewController: NSViewController, NSTableViewDataSour
         perform(action, on: item)
     }
 
-    /// The custom accessibility actions for the row showing `itemID`.
-    ///
-    /// Looked up by id at call time, so a row whose operation has since
-    /// finished reports the commands that apply now.
-    func accessibilityActions(forItemID itemID: UUID) -> [NSAccessibilityCustomAction] {
-        guard let item = items.first(where: { $0.id == itemID }) else { return [] }
-        return OperationRowAction.available(for: item).map { action in
-            AccessibilityActionRowView.makeAction(name: action.title) { [weak self] in
-                guard let self, let current = self.items.first(where: { $0.id == itemID }) else { return }
-                self.perform(action, on: current)
-            }
-        }
-    }
-
     @objc private func performRowActionFromMenu(_ sender: NSMenuItem) {
         guard let request = sender.representedObject as? OperationRowActionRequest,
               let item = items.first(where: { $0.id == request.itemID }) else { return }
@@ -727,23 +713,30 @@ final class OperationsPanelViewController: NSViewController, NSTableViewDataSour
         64
     }
 
-    /// Every row publishes its commands as accessibility custom actions, so
-    /// VoiceOver and AX-driven automation reach them without a right-click.
-    func tableView(_ tableView: NSTableView, rowViewForRow row: Int) -> NSTableRowView? {
-        guard row < items.count else { return nil }
-        let itemID = items[row].id
-        let identifier = NSUserInterfaceItemIdentifier("operations-row")
-        let rowView = tableView.makeView(withIdentifier: identifier, owner: nil) as? AccessibilityActionRowView
-            ?? AccessibilityActionRowView()
-        rowView.identifier = identifier
-        rowView.setAccessibilityIdentifier("operations-row-\(itemID.uuidString)")
-        rowView.actionProvider = { [weak self] in
-            self?.accessibilityActions(forItemID: itemID) ?? []
-        }
-        return rowView
+    /// Every cell of a row carries the row's commands as accessibility custom
+    /// actions, so VoiceOver and AX-driven automation reach them without a
+    /// right-click. AppKit forwards a cell proxy's actions to its cell view
+    /// and never to the row view, and the cell callback reruns on every
+    /// reload, so a state change such as running to completed is reflected.
+    func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
+        guard let cellView = makeCellView(tableView, viewFor: tableColumn, row: row) else { return nil }
+        AccessibilityCellActions.install(accessibilityActions(for: cellView, row: row), on: cellView)
+        return cellView
     }
 
-    func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
+    private func accessibilityActions(for cellView: NSView, row: Int) -> [NSAccessibilityCustomAction] {
+        guard row < items.count else { return [] }
+        return OperationRowAction.available(for: items[row]).map { action in
+            AccessibilityCellActions.makeAction(name: action.title) { [weak self, weak cellView] in
+                guard let self, let cellView,
+                      let row = AccessibilityCellActions.currentRow(of: cellView),
+                      row < self.items.count else { return }
+                self.perform(action, on: self.items[row])
+            }
+        }
+    }
+
+    private func makeCellView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
         guard row < items.count, let identifier = tableColumn?.identifier else { return nil }
         let item = items[row]
 

@@ -196,12 +196,16 @@ final class OperationRowActionAccessibilityTests: XCTestCase {
         let row = try XCTUnwrap(OperationCenter.shared.items.firstIndex { $0.id == operationID })
         table.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
 
-        let rowView = try XCTUnwrap(table.rowView(atRow: row, makeIfNecessary: true) as? AccessibilityActionRowView)
-        let actions = try XCTUnwrap(rowView.accessibilityCustomActions())
         let expected = OperationRowAction.available(for: OperationCenter.shared.items[row]).map(\.title)
-        XCTAssertEqual(actions.map(\.name), expected)
         XCTAssertTrue(expected.contains("Copy CLI Command"))
         XCTAssertTrue(expected.contains("View Log"))
+
+        // The AX row proxy's cell children carry the actions, which is the
+        // path VoiceOver and AX automation read.
+        let rowProxy = try XCTUnwrap(AccessibilityRowProbe.rowProxies(of: table)[row])
+        let cellNames = AccessibilityRowProbe.cellActionNames(rowProxy)
+        XCTAssertFalse(cellNames.isEmpty)
+        for names in cellNames { XCTAssertEqual(names, expected) }
 
         // The log drawer's Actions pull-down lists the same commands, in the same order.
         let logButton = try XCTUnwrap(
@@ -214,10 +218,9 @@ final class OperationRowActionAccessibilityTests: XCTestCase {
         let popupTitles = (popup.menu?.items ?? []).dropFirst().filter { !$0.isSeparatorItem }.map(\.title)
         XCTAssertEqual(Array(popupTitles), expected)
 
-        // Invoking the AX action runs the shared implementation.
+        // Performing the AX action runs the shared implementation.
         NSPasteboard.general.clearContents()
-        let copyAction = try XCTUnwrap(actions.first { $0.name == "Copy CLI Command" })
-        XCTAssertTrue(copyAction.handler?() ?? false)
+        XCTAssertTrue(AccessibilityRowProbe.performCellAction(named: "Copy CLI Command", in: rowProxy))
         XCTAssertEqual(NSPasteboard.general.string(forType: .string), command)
 
         // The menu bar path lands on the same code for the selected row.
@@ -239,4 +242,44 @@ final class OperationRowActionAccessibilityTests: XCTestCase {
         table.layoutSubtreeIfNeeded()
         return (controller, viewController, table)
     }
+}
+
+// MARK: - Rows follow state changes
+
+extension OperationRowActionAccessibilityTests {
+    func testOperationsCellActionsFollowTheOperationStateThroughTheAXBridge() throws {
+        let operationID = OperationCenter.shared.start(
+            title: "Call variants",
+            detail: "Running bcftools",
+            operationType: .assembly,
+            cliCommand: "lungfish call-variants sample.bam",
+            onCancel: {}
+        )
+        defer { OperationCenter.shared.clearCompleted() }
+
+        let (controller, _, table) = try makePanel()
+        defer { controller.close() }
+        let row = try XCTUnwrap(OperationCenter.shared.items.firstIndex { $0.id == operationID })
+        func firstCellNames() -> [String]? {
+            guard let proxy = AccessibilityRowProbe.rowProxies(of: table)[safe: row] else { return nil }
+            return AccessibilityRowProbe.cellActionNames(proxy).first
+        }
+        XCTAssertEqual(firstCellNames(), ["Copy CLI Command", "Cancel"])
+
+        // Completing the operation reloads its row; the cell actions follow.
+        _ = OperationCenter.shared.complete(id: operationID, detail: "Done")
+        try awaitMainActor(timeout: 2) { firstCellNames() == ["Copy CLI Command", "Clear"] }
+    }
+
+    private func awaitMainActor(timeout: TimeInterval, until predicate: () -> Bool) throws {
+        let deadline = Date().addingTimeInterval(timeout)
+        while !predicate() {
+            if Date() >= deadline { return XCTFail("Timed out waiting for condition") }
+            RunLoop.main.run(until: Date().addingTimeInterval(0.01))
+        }
+    }
+}
+
+private extension Array {
+    subscript(safe index: Int) -> Element? { indices.contains(index) ? self[index] : nil }
 }

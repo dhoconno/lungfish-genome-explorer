@@ -252,32 +252,28 @@ extension AnnotationTableDrawerView {
         return displayedAnnotations[row]
     }
 
-    /// Rows publish "Zoom to Variant" (or "Zoom to Annotation") and "Show in
-    /// Inspector" as accessibility custom actions, so the commands the context
-    /// menu offers are reachable by VoiceOver and by AX-driven automation.
-    public func tableView(_ tableView: NSTableView, rowViewForRow row: Int) -> NSTableRowView? {
-        let identifier = NSUserInterfaceItemIdentifier("annotation-drawer-row")
-        let rowView = tableView.makeView(withIdentifier: identifier, owner: nil) as? AccessibilityActionRowView
-            ?? AccessibilityActionRowView()
-        rowView.identifier = identifier
-        rowView.actionProvider = { [weak self] in
-            self?.accessibilityActions(forRow: row) ?? []
+    /// Every cell of a row carries "Zoom to Variant" (or "Zoom to Annotation")
+    /// and "Show in Inspector" as accessibility custom actions, so the commands
+    /// the context menu offers are reachable by VoiceOver and by AX-driven
+    /// automation. Installed from the cell callback so reused cells always
+    /// describe the row they show now.
+    func installAccessibilityActions(on cellView: NSView, row: Int) {
+        guard let result = searchResult(forRow: row) else {
+            AccessibilityCellActions.install([], on: cellView)
+            return
         }
-        return rowView
-    }
-
-    func accessibilityActions(forRow row: Int) -> [NSAccessibilityCustomAction] {
-        guard let result = searchResult(forRow: row) else { return [] }
         let zoomTitle = result.isVariant ? "Zoom to Variant" : "Zoom to Annotation"
-        return [
-            AccessibilityActionRowView.makeAction(name: zoomTitle) { [weak self] in
-                self?.activateRow(at: row)
+        AccessibilityCellActions.install([
+            AccessibilityCellActions.makeAction(name: zoomTitle) { [weak self, weak cellView] in
+                guard let self, let cellView, let row = AccessibilityCellActions.currentRow(of: cellView) else { return }
+                self.activateRow(at: row)
             },
-            AccessibilityActionRowView.makeAction(name: "Show in Inspector") { [weak self] in
-                guard let self, let current = self.searchResult(forRow: row) else { return }
+            AccessibilityCellActions.makeAction(name: "Show in Inspector") { [weak self, weak cellView] in
+                guard let self, let cellView, let row = AccessibilityCellActions.currentRow(of: cellView),
+                      let current = self.searchResult(forRow: row) else { return }
                 self.showInInspector(current)
             },
-        ]
+        ], on: cellView)
     }
 
     func activateRow(at row: Int) {
@@ -583,6 +579,12 @@ extension AnnotationTableDrawerView {
     // MARK: - NSTableViewDelegate
 
     public func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
+        guard let cellView = makeCellView(tableView, viewFor: tableColumn, row: row) else { return nil }
+        installAccessibilityActions(on: cellView, row: row)
+        return cellView
+    }
+
+    private func makeCellView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
         guard let column = tableColumn else { return nil }
         let identifier = column.identifier
 

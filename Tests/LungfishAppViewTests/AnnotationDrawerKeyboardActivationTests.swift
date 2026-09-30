@@ -45,24 +45,85 @@ final class AnnotationDrawerKeyboardActivationTests: XCTestCase {
         XCTAssertEqual(activations, 1, "Return with no selection must not activate a stale row")
     }
 
-    func testAccessibilityActionRowViewReportsProviderActionsOnDemand() throws {
-        let rowView = AccessibilityActionRowView()
-        XCTAssertNil(rowView.accessibilityCustomActions(), "No provider means no actions")
+    // MARK: - Rows through AppKit's accessibility bridge
 
-        var performed: [String] = []
-        var names = ["Zoom to Variant", "Show in Inspector"]
-        rowView.actionProvider = {
-            names.map { name in
-                AccessibilityActionRowView.makeAction(name: name) { performed.append(name) }
-            }
+    private func makeDrawerInWindow() -> (AnnotationTableDrawerView, NSWindow) {
+        _ = NSApplication.shared
+        let drawer = AnnotationTableDrawerView(frame: NSRect(x: 0, y: 0, width: 800, height: 240))
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 800, height: 240),
+            styleMask: [.titled], backing: .buffered, defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.contentView = drawer
+        return (drawer, window)
+    }
+
+    private func result(_ name: String, start: Int) -> AnnotationSearchIndex.SearchResult {
+        AnnotationSearchIndex.SearchResult(
+            name: name, chromosome: "chr1", start: start, end: start + 50,
+            trackId: "genes", type: "gene", strand: "+"
+        )
+    }
+
+    private final class DrawerDelegateSpy: AnnotationTableDrawerDelegate {
+        var selected: [String] = []
+        func annotationDrawer(_ drawer: AnnotationTableDrawerView, didSelectAnnotation result: AnnotationSearchIndex.SearchResult) {
+            selected.append(result.name)
         }
-        XCTAssertEqual(rowView.accessibilityCustomActions()?.map(\.name), names)
+        func annotationDrawer(_ drawer: AnnotationTableDrawerView, didDeleteVariants count: Int) {}
+        func annotationDrawer(_ drawer: AnnotationTableDrawerView, didResolveGeneRegions regions: [GeneRegion]) {}
+        func annotationDrawer(_ drawer: AnnotationTableDrawerView, didUpdateVisibleVariantRenderKeys keys: Set<String>?) {}
+        func annotationDrawerDidDragDivider(_ drawer: AnnotationTableDrawerView, deltaY: CGFloat) {}
+        func annotationDrawerDidFinishDraggingDivider(_ drawer: AnnotationTableDrawerView) {}
+        func annotationDrawer(
+            _ drawer: AnnotationTableDrawerView,
+            fallbackConsequenceFor result: AnnotationSearchIndex.SearchResult
+        ) -> (consequence: String?, aaChange: String?) { (nil, nil) }
+    }
 
-        let zoom = try XCTUnwrap(rowView.accessibilityCustomActions()?.first)
-        XCTAssertTrue(zoom.handler?() ?? false)
-        XCTAssertEqual(performed, ["Zoom to Variant"])
+    func testDrawerRowsPublishZoomAndInspectorActionsToAXClients() throws {
+        let (drawer, window) = makeDrawerInWindow()
+        defer { window.close() }
+        let spy = DrawerDelegateSpy()
+        drawer.delegate = spy
+        drawer.setAnnotations([result("A", start: 10), result("B", start: 120)])
+        drawer.layoutSubtreeIfNeeded()
+        let table = drawer.tableView
+        table.layoutSubtreeIfNeeded()
 
-        names = ["Zoom to Annotation"]
-        XCTAssertEqual(rowView.accessibilityCustomActions()?.map(\.name), names, "Actions reflect the current state at each request")
+        let rows = AccessibilityRowProbe.rowProxies(of: table)
+        XCTAssertEqual(rows.count, 2)
+        let secondRow = try XCTUnwrap(rows.last)
+        let cellNames = AccessibilityRowProbe.cellActionNames(secondRow)
+        XCTAssertFalse(cellNames.isEmpty, "The AX row must expose cell children")
+        for names in cellNames {
+            XCTAssertEqual(names, ["Zoom to Annotation", "Show in Inspector"], "Every cell of the row carries the actions")
+        }
+
+        // Performing the action through the AX element zooms to that row.
+        XCTAssertTrue(AccessibilityRowProbe.performCellAction(named: "Zoom to Annotation", in: secondRow))
+        XCTAssertEqual(spy.selected, ["B"])
+    }
+
+    func testDrawerCellActionsFollowTheRowAReusedCellShows() throws {
+        let (drawer, window) = makeDrawerInWindow()
+        defer { window.close() }
+        let spy = DrawerDelegateSpy()
+        drawer.delegate = spy
+        drawer.setAnnotations([result("A", start: 10), result("B", start: 120)])
+        drawer.layoutSubtreeIfNeeded()
+        let table = drawer.tableView
+        table.layoutSubtreeIfNeeded()
+
+        // Reorder the rows. Whatever cell view the table recycles, the action
+        // must act on the annotation the cell shows at the time it runs.
+        drawer.setAnnotations([result("B", start: 120), result("A", start: 10)])
+        table.layoutSubtreeIfNeeded()
+        let rows = AccessibilityRowProbe.rowProxies(of: table)
+        XCTAssertEqual(rows.count, 2)
+        XCTAssertTrue(AccessibilityRowProbe.performCellAction(named: "Zoom to Annotation", in: rows[0]))
+        XCTAssertTrue(AccessibilityRowProbe.performCellAction(named: "Zoom to Annotation", in: rows[1]))
+        XCTAssertEqual(spy.selected, ["B", "A"])
     }
 }
