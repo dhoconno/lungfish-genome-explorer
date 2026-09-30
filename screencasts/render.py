@@ -185,7 +185,8 @@ def render_take(beat, cfg, layout, brand, ov: Overlays, video_dir: Path, work: P
         t = brand["timing"]
         png = ov.render(f"{beat['id']}-{layout['name']}-cap", layout["size"],
                         {"kind": "caption", "unit": layout["unit"], "text": beat["caption"], "kicker": beat.get("kicker"),
-                         "left": layout["caption_left"], "bottom": layout["caption_bottom"]})
+                         "left": layout["caption_left"], "bottom": layout["caption_bottom"],
+                         "light": beat["kind"] == "terminal" or beat.get("caption_style") == "light"})
         start, end = t["caption_lead"], dur - t["caption_out"] - 0.35
         hold = end - start
         need = len(beat["caption"].split()) / t["words_per_second"] + t["min_caption_hold"]
@@ -198,6 +199,43 @@ def render_take(beat, cfg, layout, brand, ov: Overlays, video_dir: Path, work: P
         last = "withcap"
 
     ffmpeg([*inputs, "-filter_complex", ";".join(pre), "-map", f"[{last}]", "-t", str(dur), *ENCODE, "-r", str(fps), str(out)])
+
+
+def render_terminal(beat, video_dir: Path, ov: Overlays, work: Path, fps: int) -> Path:
+    """Turn a captured CLI session into footage: the command types out, then the real output appears.
+
+    The output lines come from a file captured when the command actually ran, so the replay shows
+    what the tool printed, only paced for reading.
+    """
+    size = (2880, 1620)  # same shape as a 1440x810 pt window at 2x
+    out_lines = (video_dir / beat["output_file"]).read_text().rstrip("\n").splitlines()
+    out_lines = out_lines[: beat.get("max_lines", 14)]
+    cmd, cps = beat["command"], beat.get("type_cps", 42)
+    t_type, line_dt = beat.get("start_delay", 0.6), beat.get("line_interval", 0.18)
+    states = []  # (typed, n_lines, caret, seconds)
+    states.append(("", 0, True, t_type))
+    step = max(1, round(cps / 15))  # redraw 15 times a second while typing
+    for i in range(step, len(cmd) + step, step):
+        states.append((cmd[:i], 0, True, step / cps))
+    states.append((cmd, 0, False, 0.35))
+    for n in range(1, len(out_lines) + 1):
+        states.append((cmd, n, False, line_dt))
+    total = sum(d for *_, d in states)
+    hold = float(beat.get("in", 0)) + float(beat["duration"]) - total
+    states[-1] = (*states[-1][:3], states[-1][3] + max(hold, 0.5))
+
+    listing = work / f"term-{beat['id']}.txt"
+    rows = []
+    for i, (typed, n, caret, dur) in enumerate(states):
+        png = ov.render(f"term-{beat['id']}-{i:04d}", size, {
+            "kind": "terminal", "unit": 2, "title": beat.get("title", ""), "prompt": beat.get("prompt", "$ "),
+            "typed": typed, "output": out_lines[:n], "caret": caret})
+        rows.append(f"file '{png}'\nduration {dur:.4f}")
+    rows.append(f"file '{png}'")  # concat demuxer needs the last file repeated
+    listing.write_text("\n".join(rows) + "\n")
+    out = work / f"term-{beat['id']}.mov"
+    ffmpeg(["-f", "concat", "-safe", "0", "-i", str(listing), "-vf", f"fps={fps},format=yuv420p", *ENCODE, str(out)])
+    return out
 
 
 def join(segments: list[tuple[Path, float, str]], xfade: float, out: Path, fps: int):
@@ -252,10 +290,12 @@ def main():
     out_dir.mkdir(exist_ok=True)
 
     missing = [b["id"] for b in cfg["beats"] if b["kind"] == "take" and not (video_dir / b["take"]).exists()]
+    missing += [b["id"] for b in cfg["beats"] if b["kind"] == "terminal" and not (video_dir / b["output_file"]).exists()]
     if missing:
         print(f"placeholders for uncaptured takes: {', '.join(missing)}")
 
     ov = Overlays(work)
+    terminals: dict[str, Path] = {}
     try:
         for name in [args.only] if args.only else cfg.get("outputs", ["wide"]):
             layout = {**LAYOUTS[name], "name": name}
@@ -265,6 +305,12 @@ def main():
                 print(f"[{name}] {beat['id']}")
                 if beat["kind"] == "card":
                     render_card(beat, layout, ov, work, fps, seg)
+                elif beat["kind"] == "terminal" and not (video_dir / beat["output_file"]).exists():
+                    render_take({**beat, "take": "missing"}, cfg, layout, brand, ov, video_dir, work, fps, seg)
+                elif beat["kind"] == "terminal":
+                    if beat["id"] not in terminals:
+                        terminals[beat["id"]] = render_terminal(beat, video_dir, ov, work, fps)
+                    render_take({**beat, "take": str(terminals[beat["id"]]), "trim_top": 0}, cfg, layout, brand, ov, video_dir, work, fps, seg)
                 else:
                     render_take(beat, cfg, layout, brand, ov, video_dir, work, fps, seg)
                 segments.append((seg, float(beat["duration"]), beat.get("transition", "cut")))
@@ -272,7 +318,8 @@ def main():
             length = join(segments, brand["timing"]["crossfade"], final, fps)
             poster = out_dir / f"{cfg['slug']}-{name}-poster.png"
             ffmpeg(["-ss", "1.6", "-i", str(final), "-frames:v", "1", str(poster)])
-            print(f"wrote {final.relative_to(REPO)} ({length:.1f}s) and poster")
+            shown = final.relative_to(REPO) if final.is_relative_to(REPO) else final
+            print(f"wrote {shown} ({length:.1f}s) and poster")
     finally:
         ov.close()
 

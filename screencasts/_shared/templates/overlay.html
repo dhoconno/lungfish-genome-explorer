@@ -35,6 +35,24 @@
                    letter-spacing: 0.04em; margin-bottom: calc(6 * var(--u)); }
   .lower .text { font-family: "Inter"; font-weight: 600; color: var(--cream); font-size: calc(34 * var(--u)); line-height: 1.2; }
 
+  /* Terminal replay. */
+  .term { position: absolute; inset: 0; background: var(--ink); border-radius: calc(14 * var(--u)); overflow: hidden;
+          font-family: "IBM Plex Mono"; color: var(--cream); }
+  .term .bar { height: calc(44 * var(--u)); display: flex; align-items: center; gap: calc(9 * var(--u)); padding: 0 calc(18 * var(--u));
+               border-bottom: 1px solid rgba(138, 132, 122, 0.25); }
+  .term .bar i { width: calc(12 * var(--u)); height: calc(12 * var(--u)); border-radius: 50%; background: rgba(138, 132, 122, 0.55); }
+  .term .bar span { margin-left: calc(14 * var(--u)); color: var(--grey); font-size: calc(17 * var(--u)); }
+  .term .body { padding: calc(28 * var(--u)) calc(34 * var(--u)); font-size: calc(21 * var(--u)); line-height: 1.55; }
+  .term .cmd { white-space: pre-wrap; word-break: break-all; margin-bottom: calc(10 * var(--u)); }
+  .term .prompt { color: var(--accent); }
+  .term .out { color: #D9D2C6; white-space: pre; overflow: hidden; }
+  .term .caret { display: inline-block; width: 0.6em; height: 1.1em; vertical-align: text-bottom; background: var(--peach); margin-left: 2px; }
+
+  /* Light lower third, for beats whose footage is already dark (terminal replays). */
+  .lower.light { background: rgba(250, 244, 234, 0.96); box-shadow: 0 calc(8 * var(--u)) calc(28 * var(--u)) rgba(31, 26, 23, 0.35); }
+  .lower.light .text { color: var(--ink); }
+  .lower.light .kicker { color: var(--accent); }
+
   /* Click ring drawn at logged click points (synthetic cursor). */
   .ring { position: absolute; width: calc(28 * var(--u)); height: calc(28 * var(--u)); margin: calc(-14 * var(--u)) 0 0 calc(-14 * var(--u));
           border: calc(3 * var(--u)) solid var(--accent); border-radius: 50%; box-sizing: border-box; }
@@ -56,13 +74,19 @@
       document.documentElement.style.setProperty("--lx", String(spec.left));
       document.documentElement.style.setProperty("--ly", String(spec.bottom));
       const k = spec.kicker ? `<div class="kicker">${esc(spec.kicker)}</div>` : "";
-      root.innerHTML = `<div class="lower">${k}<div class="text">${esc(spec.text)}</div></div>`;
+      root.innerHTML = `<div class="lower ${spec.light ? "light" : ""}">${k}<div class="text">${esc(spec.text)}</div></div>`;
     } else if (spec.kind === "placeholder") {
       // Stand-in for a take that has not been captured yet, sized like the app window.
       root.innerHTML = `<div style="position:absolute;inset:0;background:#EFE7DA;border:calc(2*var(--u)) dashed var(--grey);box-sizing:border-box;
         display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center;padding:0 12%">
         <div style="font-family:'IBM Plex Mono';color:var(--accent);font-size:calc(26*var(--u));margin-bottom:calc(18*var(--u))">take · ${esc(spec.id)}</div>
         <div style="font-family:'Inter';color:var(--ink);font-size:calc(34*var(--u));line-height:1.35">${esc(spec.text)}</div></div>`;
+    } else if (spec.kind === "terminal") {
+      // Replay of a real CLI session: Deep Ink window, Cream text, accent prompt.
+      const lines = (spec.output || []).map((l) => `<div class="out">${esc(l) || "&nbsp;"}</div>`).join("");
+      const caret = spec.caret ? `<span class="caret"></span>` : "";
+      root.innerHTML = `<div class="term"><div class="bar"><i></i><i></i><i></i><span>${esc(spec.title || "")}</span></div>
+        <div class="body"><div class="cmd"><span class="prompt">${esc(spec.prompt)}</span>${esc(spec.typed)}${caret}</div>${lines}</div></div>`;
     } else if (spec.kind === "ring") {
       root.innerHTML = `<div class="ring" style="left:${spec.x}px;top:${spec.y}px"></div>`;
     }

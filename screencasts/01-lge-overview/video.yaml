@@ -59,15 +59,17 @@ beats:
     placeholder: Methods Section paragraph, then the Snakemake workflow it exports.
     square_focus: [0.22, 0.0, 0.56, 1.0]
 
-  - kind: take
+  - kind: terminal
     id: cli
-    take: takes/cli.mov
-    in: 0
+    title: HG002 chr20.lungfish
+    prompt: "$ "
+    # Replace with the exact command and the captured output of a real run on the project copy.
+    command: lungfish-cli variants call --bundle Analyses/minimap2-2026-09-25T00-00-00/GRCh38.chr20.10.0-10.5Mb.lungfishref --alignment-track aln_DC100740 --caller bcftools --name "HG002 bcftools"
+    output_file: terminal/cli-output.txt
     duration: 6.5
     caption: The same analysis from the app or terminal
     kicker: lungfish-cli
-    placeholder: Operations panel row, Copy CLI Command, then the same command in Terminal.
-    square_focus: [0.22, 0.0, 0.56, 1.0]
+    placeholder: The variant call re-run with lungfish-cli, output captured from a real run.
     transition: fade
 
   - kind: card
