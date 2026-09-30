@@ -410,6 +410,61 @@ final class ONTImportWorkflowTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: sentinelURL.path))
     }
 
+    /// Issue #966: chunked ONT run imports must persist Oxford Nanopore read
+    /// metadata where the read-class readers look (the primary chunk), so
+    /// mapping and assembly accept reads whose headers carry no ONT tags.
+    func testChunkedImportPersistsONTReadTypeForReadClassDetection() async throws {
+        let sourceURL = tempDir.appendingPathComponent("fastq_pass", isDirectory: true)
+        for barcode in ["barcode85", "barcode86"] {
+            let barcodeURL = sourceURL.appendingPathComponent(barcode, isDirectory: true)
+            try FileManager.default.createDirectory(at: barcodeURL, withIntermediateDirectories: true)
+            for index in 0..<2 {
+                // ENA-style headers: header sniffing cannot identify the platform.
+                let text = "@ERR12259924.\(index + 1) \(barcode)\nACGTACGTACGT\n+\nIIIIIIIIIIII\n"
+                try text.write(
+                    to: barcodeURL.appendingPathComponent("\(barcode)_\(index).fastq"),
+                    atomically: true,
+                    encoding: .utf8
+                )
+            }
+        }
+        let outputURL = tempDir.appendingPathComponent("project", isDirectory: true)
+
+        let result = try await ONTImportWorkflow().importDirectory(
+            config: ONTImportConfig(
+                sourceDirectory: sourceURL,
+                outputDirectory: outputURL,
+                maxConcurrentBarcodes: 1
+            ),
+            context: makeContext(sourceURL: sourceURL, outputURL: outputURL)
+        ) { _, _ in }
+
+        XCTAssertEqual(result.importResult.bundleURLs.count, 2)
+        for bundleURL in result.importResult.bundleURLs {
+            XCTAssertTrue(FASTQBundle.isMultiFileBundle(bundleURL))
+            let primaryURL = try XCTUnwrap(FASTQBundle.resolvePrimaryFASTQURL(for: bundleURL))
+            XCTAssertNil(MappingReadClass.detect(fromFASTQ: primaryURL))
+
+            let persisted = FASTQMetadataStore.load(for: primaryURL)
+            XCTAssertEqual(persisted?.sequencingPlatform, .oxfordNanopore, bundleURL.lastPathComponent)
+            XCTAssertEqual(persisted?.assemblyReadType, .ontReads, bundleURL.lastPathComponent)
+            // Whole-dataset statistics stay on the bundle sidecar, not the first chunk.
+            XCTAssertNil(persisted?.computedStatistics)
+
+            XCTAssertEqual(MappingReadClass.detect(fromInputURL: bundleURL), .ontReads)
+            XCTAssertEqual(AssemblyReadType.detect(fromInputURL: bundleURL), .ontReads)
+            let inspection = MappingInputInspection.inspect(urls: [bundleURL])
+            XCTAssertEqual(inspection.readClass, .ontReads)
+            XCTAssertFalse(
+                MappingCompatibility.evaluate(
+                    tool: .minimap2,
+                    mode: .minimap2MapONT,
+                    readClass: inspection.readClass
+                ).isBlocked
+            )
+        }
+    }
+
     private func makeContext(sourceURL: URL, outputURL: URL) -> ONTImportWorkflow.CommandContext {
         let argv = [
             "lungfish", "fastq", "import-ont",

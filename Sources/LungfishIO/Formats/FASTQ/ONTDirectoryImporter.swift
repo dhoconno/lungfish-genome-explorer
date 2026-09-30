@@ -304,10 +304,22 @@ public final class ONTDirectoryImporter: @unchecked Sendable {
                 continue
             }
             FASTQMetadataStore.save(metadata, for: bundleURL)
-            if !FASTQBundle.isMultiFileBundle(bundleURL),
-               let payloadURL = FASTQBundle.resolvePrimaryFASTQURL(for: bundleURL)?.standardizedFileURL,
-               payloadURL != bundleURL.standardizedFileURL {
+            guard let payloadURL = FASTQBundle.resolvePrimaryFASTQURL(for: bundleURL)?.standardizedFileURL,
+                  payloadURL != bundleURL.standardizedFileURL else {
+                continue
+            }
+            if !FASTQBundle.isMultiFileBundle(bundleURL) {
                 FASTQMetadataStore.save(metadata, for: payloadURL)
+            } else {
+                // Read-class detection (mapping, assembly, Inspector) reads the
+                // primary FASTQ sidecar, which for chunked bundles is the first
+                // chunk. Persist the platform there too, but keep whole-dataset
+                // statistics on the bundle sidecar only.
+                var payloadMetadata = FASTQMetadataStore.load(for: payloadURL) ?? PersistedFASTQMetadata()
+                payloadMetadata.downloadSource = metadata.downloadSource
+                payloadMetadata.sequencingPlatform = metadata.sequencingPlatform
+                payloadMetadata.assemblyReadType = metadata.assemblyReadType
+                FASTQMetadataStore.save(payloadMetadata, for: payloadURL)
             }
         }
     }
