@@ -1,5 +1,5 @@
-# Captured from Lungfish Preview 2026.9.43 (2026-09 campaign) in a project holding SRR12486983 and SRR12486989 run through TaxTriage against Standard-16 with --remove_taxids 9606.
-# App state: TaxTriage viewport in List Over Detail layout, both samples ticked in the Inspector Sample Filter (cards Batch TaxTriage, Samples 2, Organisms 322), Human alphaherpesvirus 1 row of SRR12486983 selected (TASS 0.930, Reads 2.0M, Unique Reads 1.6M, High), alignment pane below showing the zoomed-out coverage track over NC_001806.2 (152,222 bases, 99% covered, mean depth about 794x) with the prompt to zoom in to view individual mapped reads, Inspector showing Panel Layout and Operation Details (Runtime 17m 39s)
+# Captured from Lungfish Preview 2026.9.68 with capture-window.sh (2026-09 campaign).
+# App state: A Pathogen Detection demo project copy holding a TaxTriage run made with lungfish-cli taxtriage run on SRR12486983 and SRR12486989 against standard-16 with --remove-taxids 9606, opened in the List Over Detail layout with the Inspector on its Summary tab.
 id: taxtriage-result-table
 chapter: 06-classification/04-running-taxtriage
 caption: The TaxTriage viewport for the two-sample corneal run in the List Over Detail layout, with both
@@ -12,7 +12,7 @@ viewport_class: taxonomy
 app_state:
   fixture: kraken-protocol-cornea
   open_files:
-  - analysis: taxtriage-batch result for SRR12486983 and SRR12486989
+  - analysis: Analyses/taxtriage-2026-09-30T13-15-00
   window_size:
   - 1400
   - 900
@@ -26,9 +26,10 @@ steps:
   size:
   - 1400
   - 900
-  # PROSE-ONLY: Select the taxtriage-batch- result for SRR12486983 and SRR12486989 under Analyses in the sidebar
-  # PROSE-ONLY: Leave both samples ticked in the Inspector Sample Filter and Panel Layout on List Over Detail
-  # PROSE-ONLY: Select the Human alphaherpesvirus 1 row of SRR12486983
+  # PROSE-ONLY: Select the TaxTriage analysis under Analyses and wait for Building TaxTriage database to finish
+  # PROSE-ONLY: Show the Inspector, click Summary, and choose List Over Detail under Panel Layout
+  # PROSE-ONLY: Click the Human alphaherpesvirus 1 row of SRR12486983, then click Summary again
+  # PROSE-ONLY: Capture the full window
 crop:
   mode: window
 post:

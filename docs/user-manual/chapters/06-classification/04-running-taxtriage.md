@@ -242,9 +242,9 @@ Now untick SRR12486983 and tick SRR12486989, the *Streptococcus agalactiae* case
 | *Cutibacterium acnes* | 0.960 | 2,613 | 6.6% | 0.1× |
 | *Bradyrhizobium* sp. WCU1 | 0.890 | 4,034 | 3.5% | 0.0× |
 | *Cellulosimicrobium cellulans* | 0.890 | 4,828 | 7.0% | 0.1× |
-| *Streptococcus agalactiae* | 0.780 | 10,707 | 28.1% | 0.4× |
+| *Streptococcus agalactiae* | 0.780 | 10,593 | 27.8% | 0.4× |
 
-The recorded pathogen sits fifth, just past TaxTriage's threshold, covering 28.1 percent of its genome at a depth of 0.4. HSV-1 does not appear in this sample at all. Four organisms outscore the pathogen, among them *Cutibacterium acnes*, a common skin bacterium, and the same *Kocuria* and *Bradyrhizobium* as in the first sample. Organisms that turn up in sample after sample, whatever the diagnosis, are the usual sign of skin, reagent, or bench [contamination](../../GLOSSARY.md#contamination) rather than infection.
+The recorded pathogen sits fifth, just past TaxTriage's threshold, covering 27.8 percent of its genome at a depth of 0.4. HSV-1 does not appear in this sample at all. Four organisms outscore the pathogen, among them *Cutibacterium acnes*, a common skin bacterium, and the same *Kocuria* and *Bradyrhizobium* as in the first sample. Organisms that turn up in sample after sample, whatever the diagnosis, are the usual sign of skin, reagent, or bench [contamination](../../GLOSSARY.md#contamination) rather than infection.
 
 That answers a question [Running Kraken 2](02-running-kraken2.md#the-same-reads-a-different-database) left open. Standard-16 found *Kocuria*, *Cutibacterium acnes*, *Bradyrhizobium*, and *Cellulosimicrobium* in the HSV-1 sample and could not say where they came from. TaxTriage finds the same four in a second patient's cornea with a different infection, and its report files *Kocuria* sp. BT304 and *Bradyrhizobium* sp. WCU1 as organisms of no known clinical role and *C. acnes* as a commensal of skin. Recurrence across unrelated samples, a category with no disease role, and thin coverage together point to skin or reagents rather than the eye, which is the pattern [Why a classifier reports things that are not there](01-what-is-classification.md#why-a-classifier-reports-things-that-are-not-there) describes.
 
