@@ -19,6 +19,7 @@ from common import (
     native_event,
     sha256_file,
     validate_target_contract,
+    whitespace_free_blast_prefix,
     write_json,
 )
 
@@ -247,31 +248,34 @@ def _build_reference(
     empty_variant_table = len(variant_file.read_text(encoding="utf-8").splitlines()) <= 1
     if empty_variant_table:
         variant_path = None
-    build_arguments = {
-        "fasta_path": fasta_path,
-        "msa_path": str(msa_path) if degenerate else None,
-        "var_path": variant_path,
-        "BLAST_db": blast_database,
-        "out_path": str(out_path),
-        "title": title,
-        "threads": workers,
-        "deg": degenerate,
-    }
-    with native_event(
-        recorder, engine="olivar", kind="inProcessAPI", module="main", function="run_build",
-        arguments=build_arguments,
-        module_path=str(Path(main.__file__).resolve()),
-    ):
-        main.run_build(
-            fasta_path,
-            str(msa_path) if degenerate else None,
-            variant_path,
-            blast_database,
-            str(out_path),
-            title,
-            workers,
-            deg=degenerate,
-        )
+    # Olivar hands this prefix to `blastn -db`, which splits on whitespace.
+    with whitespace_free_blast_prefix(blast_database) as blast_prefix:
+        build_arguments = {
+            "fasta_path": fasta_path,
+            "msa_path": str(msa_path) if degenerate else None,
+            "var_path": variant_path,
+            "BLAST_db": blast_prefix,
+            "out_path": str(out_path),
+            "title": title,
+            "threads": workers,
+            "deg": degenerate,
+            "blastDatabasePath": blast_database,
+        }
+        with native_event(
+            recorder, engine="olivar", kind="inProcessAPI", module="main", function="run_build",
+            arguments=build_arguments,
+            module_path=str(Path(main.__file__).resolve()),
+        ):
+            main.run_build(
+                fasta_path,
+                str(msa_path) if degenerate else None,
+                variant_path,
+                blast_prefix,
+                str(out_path),
+                title,
+                workers,
+                deg=degenerate,
+            )
     return empty_variant_table
 
 

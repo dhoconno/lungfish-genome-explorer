@@ -19,6 +19,7 @@ from common import (
     native_event,
     sha256_file,
     validate_target_contract,
+    whitespace_free_blast_prefix,
     write_json,
 )
 
@@ -534,6 +535,14 @@ def spawned_config_probe(config_path: Path) -> list[int]:
 def run_varvamp(
     request: dict[str, Any], stage: Path, recorder: dict[str, Any] | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, Any], list[list[str]], dict[str, str], dict[str, Any]]:
+    # varVAMP hands this prefix to `blastn -db`, which splits on whitespace.
+    with whitespace_free_blast_prefix(request["options"].get("blastDatabasePath")) as blast_prefix:
+        return _run_varvamp(request, stage, recorder, blast_prefix)
+
+
+def _run_varvamp(
+    request: dict[str, Any], stage: Path, recorder: dict[str, Any] | None, blast_prefix: str | None,
+) -> tuple[list[dict[str, Any]], dict[str, Any], list[list[str]], dict[str, str], dict[str, Any]]:
     recorder = recorder if recorder is not None else {"runtime": None, "nativeInvocations": [], "nativeEvents": []}
     options = request["options"]
     all_targets = []
@@ -604,8 +613,8 @@ def run_varvamp(
             threshold = options["cumulativeConsensusThreshold"]
             if threshold is not None:
                 argv += ["-t", str(threshold)]
-            if options["blastDatabasePath"] is not None:
-                argv += ["-db", options["blastDatabasePath"]]
+            if blast_prefix is not None:
+                argv += ["-db", blast_prefix]
             if options["compatiblePrimersPath"] is not None:
                 argv += ["--compatible-primers", options["compatiblePrimersPath"]]
             if request["mode"] in {"single", "tiled"}:
@@ -633,6 +642,7 @@ def run_varvamp(
                         "argv": argv,
                         "replayArgv": replay_argv,
                         "environment": {"VARVAMP_CONFIG": str(config_path)},
+                        "blastDatabasePath": options["blastDatabasePath"],
                     },
                     module_path=str(Path(command.__file__).resolve()),
                 ) as event:

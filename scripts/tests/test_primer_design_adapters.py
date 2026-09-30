@@ -754,6 +754,112 @@ class NativeNormalizationTests(unittest.TestCase):
                 self.assertEqual(roles, {"forward", "reverse", "probe"})
 
 
+class BlastDatabaseWhitespaceTests(unittest.TestCase):
+    """BLAST reads whitespace in -db as a list of databases, so a project path
+    such as "Primer Design.lungfish" must never reach the native engines."""
+
+    @staticmethod
+    def spaced_database(root: Path) -> tuple[Path, list[Path]]:
+        directory = root / "Primer Design.lungfish" / "Analyses" / ".primer-scheme-run" / "blast"
+        directory.mkdir(parents=True)
+        prefix = directory / "screening-db"
+        components = []
+        for suffix in (".nhr", ".nin", ".nsq"):
+            component = Path(str(prefix) + suffix)
+            component.write_bytes(("fixture" + suffix).encode())
+            components.append(component)
+        return prefix, components
+
+    def assert_resolves_to_database(self, handed: str, components: list[Path]) -> None:
+        self.assertFalse(any(character.isspace() for character in handed), handed)
+        for component in components:
+            suffix = component.name[len("screening-db"):]
+            self.assertEqual(Path(handed + suffix).resolve(), component.resolve())
+
+    def test_varvamp_hands_blast_a_whitespace_free_database_prefix(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            prefix, components = self.spaced_database(root)
+            request = base_request(root / "Primer Design.lungfish", engine="varvamp", mode="single")
+            request["options"]["blastDatabasePath"] = str(prefix)
+            request = validate_request(request)
+            stage = root / "Primer Design.lungfish" / "stage"
+            stage.mkdir()
+            observed = {}
+
+            class Stop(Exception):
+                pass
+
+            def main():
+                argv = list(sys.argv)
+                observed["db"] = argv[argv.index("-db") + 1]
+                observed["resolved"] = {
+                    suffix: Path(observed["db"] + suffix).resolve() for suffix in (".nhr", ".nin", ".nsq")
+                }
+                raise Stop()
+
+            runtime = {
+                "modules": {
+                    "command": types.SimpleNamespace(__file__=__file__, main=main),
+                    "alignment": types.SimpleNamespace(process_alignment=lambda alignment, threshold: (alignment, [])),
+                },
+                "distribution": "test::varvamp=1.3.2=fake",
+                "modulePath": __file__,
+            }
+            with mock.patch("varvamp_adapter.verify_runtime", return_value=runtime):
+                from varvamp_adapter import run_varvamp
+                with self.assertRaises(Stop):
+                    run_varvamp(request, stage, {"nativeEvents": []})
+            handed = observed["db"]
+            self.assertFalse(any(character.isspace() for character in handed), handed)
+            for component in components:
+                self.assertEqual(observed["resolved"][component.name[len("screening-db"):]], component.resolve())
+            self.assertFalse(Path(handed + ".nsq").exists(), "run-scoped BLAST alias must be removed")
+            self.assertTrue(all(component.is_file() for component in components))
+
+    def test_olivar_build_hands_blast_a_whitespace_free_database_prefix(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            prefix, components = self.spaced_database(root)
+            observed = {}
+
+            def run_preprocess(msa_path, msa_filename, out_prefix, n_cpu, min_var, deg):
+                fasta_path = Path(out_prefix) / f"{msa_filename}_consensus.fasta"
+                variant_path = Path(out_prefix) / f"{msa_filename}_var.csv"
+                fasta_path.write_text(f">{msa_filename}\n" + "A" * 500 + "\n", encoding="utf-8")
+                variant_path.write_text("position,reference,alternative,frequency\n", encoding="utf-8")
+                return str(fasta_path), str(variant_path)
+
+            def run_build(fasta_path, msa_path, var_path, blast_db, *args, **kwargs):
+                observed["db"] = blast_db
+                self.assert_resolves_to_database(blast_db, components)
+
+            fake_main = types.SimpleNamespace(__file__=__file__, run_preprocess=run_preprocess, run_build=run_build)
+            msa_path = root / "Primer Design.lungfish" / "primary.aligned.fasta"
+            fasta(msa_path, ("A" * 500, "A" * 500))
+            out_path = root / "Primer Design.lungfish" / "out"
+            out_path.mkdir()
+            recorder = {"nativeEvents": []}
+            _build_reference(
+                {"main": fake_main}, msa_path=msa_path, out_path=out_path, title="input-one", workers=1,
+                minimum_variant_frequency=0.01, degenerate=False, blast_database=str(prefix), recorder=recorder,
+            )
+            self.assertIn("db", observed)
+            self.assertFalse(Path(observed["db"] + ".nsq").exists(), "run-scoped BLAST alias must be removed")
+
+    def test_whitespace_free_prefix_passes_through_unchanged(self):
+        with tempfile.TemporaryDirectory() as td:
+            prefix = Path(td) / "screening-db"
+            for suffix in (".nhr", ".nin", ".nsq"):
+                Path(str(prefix) + suffix).write_bytes(b"fixture")
+            if any(character.isspace() for character in str(prefix)):
+                self.skipTest("temporary directory path contains whitespace")
+            with adapter_common.whitespace_free_blast_prefix(str(prefix)) as handed:
+                self.assertEqual(handed, str(prefix))
+            with adapter_common.whitespace_free_blast_prefix(None) as handed:
+                self.assertIsNone(handed)
+
+
 class NativeEnvironmentTests(unittest.TestCase):
     @unittest.skipUnless(os.environ.get("LUNGFISH_NATIVE_ADAPTER_INTEGRATION") == "1", "native integration opt-in")
     def test_pinned_runtime_source_verification_and_spawned_config(self):
@@ -909,6 +1015,80 @@ class NativeEnvironmentTests(unittest.TestCase):
                 artifact_path = output / artifact["path"]
                 self.assertTrue(artifact_path.is_file())
                 self.assertEqual(artifact_path.stat().st_size, artifact["byteSize"])
+
+
+    @unittest.skipUnless(os.environ.get("LUNGFISH_NATIVE_ADAPTER_DESIGN") == "1", "real native design opt-in")
+    def test_real_native_blast_screening_under_project_path_with_space(self):
+        makeblastdb = shutil.which("makeblastdb")
+        self.assertIsNotNone(makeblastdb)
+        state = 0x5EED
+        bases = []
+        for _ in range(1200):
+            state = (1103515245 * state + 12345) & 0x7FFFFFFF
+            bases.append("ACGT"[(state >> 8) & 3])
+        sequence = "".join(bases)
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            project = root / "Primer Design.lungfish" / "Analyses"
+            project.mkdir(parents=True)
+            # LGE builds the database in a whitespace-free location, then snapshots
+            # it into the run directory under the project.
+            build = root / "build"
+            build.mkdir()
+            (build / "screen.fasta").write_text(">offtarget\n" + sequence[::-1] + "\n", encoding="utf-8")
+            completed = subprocess.run(
+                [makeblastdb, "-dbtype", "nucl", "-in", str(build / "screen.fasta"), "-out", str(build / "screening-db")],
+                text=True, capture_output=True, timeout=30,
+            )
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+            snapshot = project / ".primer-scheme-run" / "blast"
+            snapshot.mkdir(parents=True)
+            for component in build.glob("screening-db.*"):
+                shutil.copy2(component, snapshot / component.name)
+            prefix = snapshot / "screening-db"
+            input_path = project / "synthetic.fasta"
+            fasta(input_path, (sequence, sequence))
+            if importlib.util.find_spec("olivar"):
+                engine, version, mode = "olivar", "1.3.3", "tiled"
+                nominal, minimum, maximum = 220, 180, 260
+            elif importlib.util.find_spec("varvamp"):
+                engine, version, mode = "varvamp", "1.3.2", "qpcr"
+                nominal, minimum, maximum = 135, 70, 200
+            else:
+                self.fail("test must run in a pinned Olivar or varVAMP runtime")
+            request = {
+                "schemaVersion": 1, "engine": engine, "engineVersion": version,
+                "analysisID": ANALYSIS_ID, "runID": RUN_ID, "resultID": RESULT_ID,
+                "mode": mode, "grouping": "perInput",
+                "inputs": [{"id": INPUT_ID, "label": "synthetic", "path": str(input_path)}],
+                "outputDirectory": str(project / "output"),
+                "options": {
+                    "nominalAmpliconLength": nominal, "minimumAmpliconLength": minimum,
+                    "maximumAmpliconLength": maximum, "workers": 1,
+                    "blastDatabasePath": str(prefix),
+                },
+            }
+            if mode == "qpcr":
+                request["options"].update({
+                    "cumulativeConsensusThreshold": 0.95, "maximumProbeAmbiguities": 1, "qpcrTestCount": 5,
+                })
+            request_path = project / "request.json"
+            request_path.write_text(json.dumps(request), encoding="utf-8")
+            completed = subprocess.run(
+                [sys.executable, str(ADAPTER / "run.py"), "--request", str(request_path)],
+                text=True, capture_output=True, timeout=300,
+                env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
+            )
+            self.assertEqual(completed.returncode, 0, completed.stderr[-4000:])
+            provenance = json.loads((project / "output/provenance-v1.json").read_text(encoding="utf-8"))
+            self.assertTrue(provenance["inputIntegrity"]["unchanged"])
+            self.assertEqual({item["prefix"] for item in provenance["auxiliaryInputs"]}, {str(prefix)})
+            function = "run_build" if engine == "olivar" else "main"
+            event = next(event for event in provenance["nativeEvents"] if event["function"] == function)
+            self.assertEqual(event["arguments"]["blastDatabasePath"], str(prefix))
+            if engine == "varvamp":
+                log = (project / "output/logs/native-stdout.txt").read_text(encoding="utf-8")
+                self.assertIn("primerBLAST", log)
 
 
 if __name__ == "__main__":

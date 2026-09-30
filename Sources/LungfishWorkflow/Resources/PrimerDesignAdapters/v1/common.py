@@ -10,7 +10,9 @@ import os
 from pathlib import Path, PurePosixPath
 import platform
 import shlex
+import shutil
 import sys
+import tempfile
 import time
 from typing import Any
 import uuid
@@ -266,6 +268,40 @@ def validate_blast_database_prefix(value: Any, name: str) -> str | None:
     prefix = Path(value)
     blast_database_components(prefix)
     return str(prefix)
+
+
+@contextmanager
+def whitespace_free_blast_prefix(prefix: str | None):
+    """Yield a BLAST database prefix that contains no whitespace.
+
+    BLAST reads whitespace in a ``-db`` value as a separator between database
+    names, so a database under a project such as "Primer Design.lungfish" is
+    never found. When the prefix contains whitespace, this links each database
+    component into a run-scoped whitespace-free directory and yields that alias
+    prefix; the links are removed on exit. The validated components themselves
+    are untouched, so provenance still records and rechecks the real database.
+    """
+    if prefix is None or not any(character.isspace() for character in prefix):
+        yield prefix
+        return
+    source = Path(prefix)
+    components = blast_database_components(source)
+    candidates = (os.environ.get("TMPDIR"), tempfile.gettempdir(), "/tmp")
+    base = next(
+        (candidate for candidate in candidates
+         if candidate and not any(character.isspace() for character in candidate) and Path(candidate).is_dir()),
+        None,
+    )
+    if base is None:
+        raise AdapterError("invalid_option", "no whitespace-free temporary directory is available for the BLAST database")
+    alias_directory = Path(tempfile.mkdtemp(prefix="lge-blast-db-", dir=base))
+    try:
+        alias_name = "".join("_" if character.isspace() else character for character in source.name)
+        for component in components:
+            (alias_directory / (alias_name + component.name[len(source.name):])).symlink_to(component)
+        yield str(alias_directory / alias_name)
+    finally:
+        shutil.rmtree(alias_directory, ignore_errors=True)
 
 
 def validate_output_path(value: Any) -> Path:
