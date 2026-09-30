@@ -9507,6 +9507,7 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
         let origin = representedBundleURL
         let panel = NSSavePanel()
         panel.title = "Export Genotype View"
+        panel.message = "Export Genotype View"
         let timestamp = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "-")
         panel.nameFieldStringValue = "\(result.manifest.outputName)-\(filenameSuffix)-\(timestamp).\(format.fileExtension)"
         panel.allowedContentTypes = [format.contentType]

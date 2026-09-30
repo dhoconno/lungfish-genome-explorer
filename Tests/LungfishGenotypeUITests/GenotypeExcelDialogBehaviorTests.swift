@@ -383,6 +383,9 @@ final class GenotypeExcelDialogBehaviorTests: GenotypeResultViewportTestCase {
             panels += 1
             XCTAssertEqual(panel.allowedContentTypes.first?.preferredFilenameExtension, "xlsx")
             XCTAssertNil(panel.accessoryView)
+            // A save panel shown as a sheet never draws its title, so the name
+            // the manual gives the panel must be its visible message.
+            XCTAssertEqual(panel.message, "Export Genotype View")
             completion(nil)
         }
         controller.presentExcelExportPanel(expectedDisplayState: controller.testingDisplayState)

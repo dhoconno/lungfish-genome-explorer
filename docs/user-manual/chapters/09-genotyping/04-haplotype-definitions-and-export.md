@@ -18,7 +18,7 @@ shots:
   - id: genotype-inspector-export
     caption: "The Excel section of the Inspector's Bundle tab on a genotype result, holding the Export to Excel… button."
   - id: genotype-export-save-panel
-    caption: "The Export Genotype View save panel, proposing a file name built from the result name, the word genotype, and a timestamp, ending in .xlsx."
+    caption: "The Export Genotype View save panel, proposing a file name that begins with the result name and the word genotype, followed by a timestamp the field is too narrow to show."
   - id: genotype-pivot-workbook
     caption: "The Genotype Matrix - Filtered worksheet of an exported report open in a spreadsheet application, with allele targets down the rows, one column per sample, and the Evidence (display / raw support) column at the right."
 illustrations: []
