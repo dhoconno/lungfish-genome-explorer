@@ -847,6 +847,18 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
         toolbar.alignment = .centerY
         toolbar.spacing = 8
         toolbar.edgeInsets = NSEdgeInsets(top: 0, left: 12, bottom: 6, right: 12)
+        // The toolbar's natural width (about 860pt) exceeds narrow hosts such as
+        // the primer Binding inspection column. Holding that width forced the
+        // whole viewer wider than its frame, so controls and rows drew past the
+        // edge. Let the stack shrink and detach its least essential controls
+        // (in detachOrder's order) instead.
+        toolbar.setClippingResistancePriority(.defaultLow, for: .horizontal)
+        let detachOrder: [NSView] = [
+            discriminatingLegendLabel, colorSchemeControl, previousVariableButton, nextVariableButton, siteModeControl,
+        ]
+        for (index, view) in detachOrder.enumerated() {
+            toolbar.setVisibilityPriority(NSStackView.VisibilityPriority(rawValue: Float(100 + 100 * index)), for: view)
+        }
         return toolbar
     }
 

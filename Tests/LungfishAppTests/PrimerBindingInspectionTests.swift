@@ -84,6 +84,46 @@ final class PrimerBindingInspectionTests: XCTestCase {
         XCTAssertEqual(window.frame.width, 600, accuracy: 0.5, "the canvas must not widen its window")
     }
 
+    // SwiftUI gives the embedded alignment viewer a fixed frame narrower than
+    // its toolbar's natural width. The toolbar used to hold that width anyway,
+    // so its trailing controls and the alignment rows drew past the frame's
+    // right edge (Preview 2026.9.63, Binding inspection at 1468x900).
+    @MainActor
+    func testAlignmentViewerToolbarStaysInsideANarrowFrame() throws {
+        let controller = MultipleSequenceAlignmentViewController()
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 320),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 600, height: 320))
+        window.contentView = container
+        controller.view.frame = container.bounds
+        controller.view.autoresizingMask = [.width, .height]
+        container.addSubview(controller.view)
+        try controller.displayReadOnlyAlignment(
+            fasta: ">row_one\nACGTACGTACGT\n>row_two\nACGTACGTACGT\n", annotations: [])
+        container.layoutSubtreeIfNeeded()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+        container.layoutSubtreeIfNeeded()
+
+        XCTAssertEqual(controller.view.frame.width, 600, accuracy: 0.5)
+        var controls: [NSControl] = []
+        func collect(_ view: NSView) {
+            if let control = view as? NSControl, !control.isHiddenOrHasHiddenAncestor,
+               control is NSButton || control is NSSegmentedControl || control is NSSearchField {
+                controls.append(control)
+            }
+            view.subviews.forEach(collect)
+        }
+        collect(controller.view)
+        XCTAssertFalse(controls.isEmpty, "the toolbar should keep its core controls")
+        for control in controls {
+            let frame = control.convert(control.bounds, to: controller.view)
+            XCTAssertLessThanOrEqual(frame.maxX, controller.view.bounds.maxX + 0.5,
+                "\(type(of: control)) '\(control.accessibilityLabel() ?? control.stringValue)' draws past the frame")
+        }
+    }
+
     func testUnavailableProjectionExposesReasonWithoutFabricatedColumnsOrTrack() throws {
         let reason = "The oligo crosses a collapsed source interval; original-row mismatch statistics are unavailable."
         let primer = PrimerBindingInspectionPrimer(id: "collapsed", name: "probe", sequence: "ACGT", strand: "-",
