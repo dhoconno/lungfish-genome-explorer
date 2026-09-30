@@ -185,14 +185,16 @@ func run(pid: pid_t, steps: [[String: Any]], record: [String]?) {
         } else if let spec = step["row"] as? [String: Any] {
             check(AXUIElementSetAttributeValue(table(spec, win), kAXSelectedRowsAttribute as CFString, [row(spec, win)] as CFArray), "select row")
         } else if let spec = step["rowAction"] as? [String: Any] {
+            // AppKit exposes row custom actions on the row's cell children, not on the AXRow.
             let r = row(spec, win)
+            let target = children(r).first ?? r
             var names: CFArray?
-            AXUIElementCopyActionNames(r, &names)
+            AXUIElementCopyActionNames(target, &names)
             let wanted = (spec["action"] as? String ?? "").lowercased()
             guard let name = (names as? [String])?.first(where: { $0.lowercased().contains(wanted) }) else {
                 fail("row has no action \(wanted); has \(names as? [String] ?? [])")
             }
-            check(AXUIElementPerformAction(r, name as CFString), "row action")
+            check(AXUIElementPerformAction(target, name as CFString), "row action")
         } else if let spec = step["focus"] as? [String: Any] {
             check(AXUIElementSetAttributeValue(element(spec, win), kAXFocusedAttribute as CFString, kCFBooleanTrue), "focus")
         } else if let spec = step["value"] as? [String: Any] {
